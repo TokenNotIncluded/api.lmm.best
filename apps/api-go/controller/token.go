@@ -216,6 +216,10 @@ func GetTokenKey(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if token.OneTimeReveal {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "code": "TOKEN_KEY_SHOWN_ONCE", "message": "This key was shown only at creation. Use your saved copy or revoke it and create a replacement."})
+		return
+	}
 	common.ApiSuccess(c, gin.H{
 		"key": token.GetFullKey(),
 	})
@@ -374,6 +378,7 @@ func AddToken(c *gin.Context) {
 		return
 	}
 	cleanToken := model.Token{
+		OneTimeReveal:      token.OneTimeReveal,
 		UserId:             c.GetInt("id"),
 		Name:               token.Name,
 		Key:                key,
@@ -395,7 +400,13 @@ func AddToken(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": gin.H{"id": cleanToken.Id, "name": cleanToken.Name, "group": cleanToken.Group}})
+	data := gin.H{"id": cleanToken.Id, "name": cleanToken.Name, "group": cleanToken.Group, "one_time_reveal": cleanToken.OneTimeReveal}
+	if cleanToken.OneTimeReveal {
+		// Only the creating response can carry this secret. Never use reveal helpers.
+		c.Header("Cache-Control", "no-store")
+		data["key"] = key
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": data})
 }
 
 func DeleteToken(c *gin.Context) {

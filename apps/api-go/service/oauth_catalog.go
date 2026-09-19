@@ -11,10 +11,8 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/constant"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/oauthserver"
-	"github.com/LIghtJUNction/api.lmm.best/pkg/dynamic_pricing"
 	"github.com/LIghtJUNction/api.lmm.best/pkg/paymentpricing"
 	"github.com/LIghtJUNction/api.lmm.best/setting/billing_setting"
-	"github.com/LIghtJUNction/api.lmm.best/setting/dynamic_pricing_setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
 	"github.com/shopspring/decimal"
 )
@@ -171,31 +169,12 @@ func oauthPricing(name string, groupRatio, trustRatio *float64, channelIDs []int
 		p.Unit, p.PriceBasis = "expression", "tiered_expression"
 		return p
 	}
-	dynamic := dynamic_pricing_setting.IsEnabled()
-	if dynamic && groupRatio != nil && trustRatio != nil {
-		// Include configured cost floors across eligible routes. These factors
-		// can change before settlement, so the current maximum is an estimate,
-		// never a locked quote.
-		p.PriceBasis = "dynamic_estimate"
-	}
+
 	if groupRatio == nil || trustRatio == nil || common.QuotaPerUnit <= 0 {
 		return p
 	}
 	factor := *groupRatio * *trustRatio
-	if dynamic {
-		if len(channelIDs) == 0 {
-			return p
-		}
-		requestFactor := 0.0
-		for _, channelID := range channelIDs {
-			current, _, err := dynamic_pricing.GetRequestMultiplier(name, channelID)
-			if err != nil {
-				return p
-			}
-			requestFactor = math.Max(requestFactor, current)
-		}
-		factor *= requestFactor
-	}
+
 	rates, err := paymentpricing.CurrentRates()
 	if err != nil {
 		return p
@@ -212,13 +191,9 @@ func oauthPricing(name string, groupRatio, trustRatio *float64, channelIDs []int
 	}
 	if price, exists := ratio_setting.GetModelPrice(name, false); exists {
 		p.Unit, p.PriceBasis = "request", "configured_base_rates"
-		if dynamic {
-			p.Unit, p.PriceBasis = "request", "dynamic_estimate"
-		}
+
 		p.Request = toUSD(price * factor)
-		if dynamic {
-			p.Request = nil
-		}
+
 		return p
 	}
 	inputRatio, exists, _ := ratio_setting.GetModelRatio(name)
@@ -227,9 +202,7 @@ func oauthPricing(name string, groupRatio, trustRatio *float64, channelIDs []int
 	}
 	input := inputRatio * factor * 1_000_000 / common.QuotaPerUnit
 	p.Unit = "million_tokens"
-	if !dynamic {
-		p.PriceBasis = "configured_base_rates"
-	}
+	p.PriceBasis = "configured_base_rates"
 	p.Input, p.Output = toUSD(input), toUSD(input*ratio_setting.GetCompletionRatio(name))
 	// The bool reports whether an override exists; the returned defaults are
 	// also the values used by relay/helper/price.go during settlement.

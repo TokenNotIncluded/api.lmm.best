@@ -19,7 +19,6 @@ For commercial licensing, please contact support@quantumnous.com
 /*
 Copyright (C) 2026 LIghtJUNction
 */
-import { Link } from '@tanstack/react-router'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -158,18 +157,6 @@ export const GroupRatioForm = memo(function GroupRatioForm({
   return (
     <div className='space-y-6'>
       <div className='flex flex-wrap justify-end gap-2'>
-        <Button
-          variant='outline'
-          size='sm'
-          render={
-            <Link
-              to='/system-settings/models/$section'
-              params={{ section: 'dynamic-group-multiplier' }}
-            />
-          }
-        >
-          {t('Dynamic Profit Pricing')}
-        </Button>
         <Button variant='outline' size='sm' onClick={() => setGuideOpen(true)}>
           <HelpCircle className='mr-2 h-4 w-4' />
           {t('Usage guide')}
@@ -332,7 +319,7 @@ export const GroupRatioForm = memo(function GroupRatioForm({
                   </FormControl>
                   <FormDescription>
                     {t(
-                      'JSON map of group → cost multiplier used as the base for that billing group. Dynamic pricing adds the profit multiplier.'
+                      'JSON map of group → fixed multiplier applied to model prices for that billing group.'
                     )}
                   </FormDescription>
                   <FormMessage />
@@ -663,13 +650,13 @@ function GroupPricingGuide({ open, onOpenChange }: GroupPricingGuideProps) {
                   {t('Charge.')}
                 </span>{' '}
                 {t(
-                  'Final charge = model base cost × group cost multiplier × dynamic profit multiplier.'
+                  'Before usage discounts, the group price equals the model base price multiplied by the group ratio.'
                 )}
               </li>
             </ol>
             <p className='text-muted-foreground text-sm leading-6'>
               {t(
-                'The group value is a cost basis, not a personal discount. Dynamic pricing supplies the profit multiplier separately.'
+                'The group ratio changes model prices for that group. Top-up ratios change credited balance separately.'
               )}
             </p>
           </section>

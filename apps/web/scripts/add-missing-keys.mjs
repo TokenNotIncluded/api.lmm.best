@@ -11021,6 +11021,163 @@ const acquisitionCostCopy = {
   },
 }
 
+const keyFollowthroughCopy = {
+  "zh": {
+    "Configure with CC Switch": "使用 CC Switch 配置",
+    "Revoking stops clients using this key. Confirm to continue.": "撤销后，使用此 Key 的客户端将停止访问。请确认后继续。",
+    "Other client setup guides": "其他客户端配置指南",
+    "This is the only time the full API key is available. Save it before closing; it cannot be retrieved later.": "这是唯一一次查看完整 API Key 的机会。关闭前请妥善保存，以后无法再次获取。",
+    "Confirm revocation": "确认撤销",
+    "Revoke this key": "撤销此 Key",
+    "Check key connection": "检查 Key 连接",
+    "I saved the key, close": "已保存 Key，关闭",
+    "The connection check only verifies this key and lists models. It does not complete your first successful model request.": "连接检查仅验证 Key 并获取模型列表，不算完成首次成功模型请求。",
+    "A single new key is shown only once. Advanced batch creation keeps the existing retrievable-key behavior.": "单个新 Key 只显示一次。高级批量创建保留原有可再次获取 Key 的方式。",
+    "Creation could not be confirmed. Check the key list before creating another key; an existing key may need to be revoked.": "无法确认是否创建成功。再次创建前请检查 Key 列表；如已有 Key，可能需要先撤销。",
+    "Shown only at creation. Use your saved key or revoke and replace it.": "仅在创建时显示。请使用已保存的 Key，或撤销后重新创建。",
+    "Keys shown only at creation are excluded from batch copy.": "批量复制不包含仅在创建时显示的 Key。",
+    "Key authentication succeeded. No model request was sent or billed.": "Key 验证成功，未发送模型请求，也未产生调用费用。",
+    "Key check failed. Check access, expiry and allowed IP addresses.": "Key 检查失败，请检查访问权限、有效期和 IP 白名单。",
+    "Could not revoke the key. Try again from API Keys.": "未能撤销 Key，请在 API Key 页面重试。",
+    "Latest API request": "最近一次 API 请求",
+    "Unable to load the latest request.": "无法加载最近一次请求。",
+    "Your first API request will appear here. No request record is available yet.": "首次 API 请求的记录会显示在这里，目前暂无请求记录。",
+    "Usage recorded; check details for the request outcome.": "已记录用量，请查看详情确认请求结果。"
+  },
+  "zh-TW": {
+    "Configure with CC Switch": "使用 CC Switch 設定",
+    "Revoking stops clients using this key. Confirm to continue.": "撤銷後，使用此 Key 的用戶端將停止存取。請確認後繼續。",
+    "Other client setup guides": "其他用戶端設定指南",
+    "This is the only time the full API key is available. Save it before closing; it cannot be retrieved later.": "這是唯一一次查看完整 API Key 的機會。關閉前請妥善保存，以後無法再次取得。",
+    "Confirm revocation": "確認撤銷",
+    "Revoke this key": "撤銷此 Key",
+    "Check key connection": "檢查 Key 連線",
+    "I saved the key, close": "已保存 Key，關閉",
+    "The connection check only verifies this key and lists models. It does not complete your first successful model request.": "連線檢查僅驗證 Key 並取得模型清單，不算完成首次成功模型請求。",
+    "A single new key is shown only once. Advanced batch creation keeps the existing retrievable-key behavior.": "單個新 Key 只顯示一次。進階批次建立保留原有可再次取得 Key 的方式。",
+    "Creation could not be confirmed. Check the key list before creating another key; an existing key may need to be revoked.": "無法確認是否建立成功。再次建立前請檢查 Key 清單；如已有 Key，可能需要先撤銷。",
+    "Shown only at creation. Use your saved key or revoke and replace it.": "僅在建立時顯示。請使用已保存的 Key，或撤銷後重新建立。",
+    "Keys shown only at creation are excluded from batch copy.": "批次複製不包含僅在建立時顯示的 Key。",
+    "Key authentication succeeded. No model request was sent or billed.": "Key 驗證成功，未傳送模型請求，也未產生呼叫費用。",
+    "Key check failed. Check access, expiry and allowed IP addresses.": "Key 檢查失敗，請檢查存取權限、有效期和 IP 白名單。",
+    "Could not revoke the key. Try again from API Keys.": "未能撤銷 Key，請在 API Key 頁面重試。",
+    "Latest API request": "最近一次 API 請求",
+    "Unable to load the latest request.": "無法載入最近一次請求。",
+    "Your first API request will appear here. No request record is available yet.": "首次 API 請求的紀錄會顯示在這裡，目前暫無請求紀錄。",
+    "Usage recorded; check details for the request outcome.": "已記錄用量，請查看詳情確認請求結果。"
+  },
+  "fr": {
+    "Configure with CC Switch": "Configurer avec CC Switch",
+    "Revoking stops clients using this key. Confirm to continue.": "La révocation bloque les clients utilisant cette clé. Confirmez pour continuer.",
+    "Other client setup guides": "Guides des autres clients",
+    "This is the only time the full API key is available. Save it before closing; it cannot be retrieved later.": "La clé API complète est disponible uniquement maintenant. Enregistrez-la avant de fermer ; elle ne pourra plus être récupérée.",
+    "Confirm revocation": "Confirmer la révocation",
+    "Revoke this key": "Révoquer cette clé",
+    "Check key connection": "Vérifier la connexion",
+    "I saved the key, close": "Clé enregistrée, fermer",
+    "The connection check only verifies this key and lists models. It does not complete your first successful model request.": "Cette vérification authentifie la clé et liste les modèles. Elle ne constitue pas votre première requête de modèle réussie.",
+    "A single new key is shown only once. Advanced batch creation keeps the existing retrievable-key behavior.": "Une nouvelle clé individuelle est affichée une seule fois. La création avancée par lot conserve la récupération ultérieure des clés.",
+    "Creation could not be confirmed. Check the key list before creating another key; an existing key may need to be revoked.": "Création non confirmée. Vérifiez la liste avant de créer une autre clé ; une clé existante pourrait devoir être révoquée.",
+    "Shown only at creation. Use your saved key or revoke and replace it.": "Affichée uniquement à la création. Utilisez votre copie ou révoquez et remplacez la clé.",
+    "Keys shown only at creation are excluded from batch copy.": "Les clés affichées uniquement à la création sont exclues de la copie par lot.",
+    "Key authentication succeeded. No model request was sent or billed.": "Clé authentifiée. Aucune requête de modèle envoyée ni facturée.",
+    "Key check failed. Check access, expiry and allowed IP addresses.": "Échec de vérification. Vérifiez les droits, l’expiration et les adresses IP autorisées.",
+    "Could not revoke the key. Try again from API Keys.": "Impossible de révoquer la clé. Réessayez depuis la page des clés API.",
+    "Latest API request": "Dernière requête API",
+    "Unable to load the latest request.": "Impossible de charger la dernière requête.",
+    "Your first API request will appear here. No request record is available yet.": "Votre première requête API apparaîtra ici. Aucun enregistrement n’est disponible pour le moment.",
+    "Usage recorded; check details for the request outcome.": "Utilisation enregistrée ; consultez les détails pour connaître le résultat."
+  },
+  "ja": {
+    "Configure with CC Switch": "CC Switch で設定",
+    "Revoking stops clients using this key. Confirm to continue.": "取り消すと、このキーを使うクライアントはアクセスできなくなります。確認して続行してください。",
+    "Other client setup guides": "その他のクライアント設定ガイド",
+    "This is the only time the full API key is available. Save it before closing; it cannot be retrieved later.": "完全な API キーを確認できるのは今回だけです。閉じる前に保存してください。後から再取得はできません。",
+    "Confirm revocation": "取り消しを確認",
+    "Revoke this key": "このキーを取り消す",
+    "Check key connection": "キーの接続を確認",
+    "I saved the key, close": "キーを保存したので閉じる",
+    "The connection check only verifies this key and lists models. It does not complete your first successful model request.": "接続確認ではキーの認証とモデル一覧の取得のみを行います。初回モデルリクエストの成功には数えません。",
+    "A single new key is shown only once. Advanced batch creation keeps the existing retrievable-key behavior.": "新しいキーを1つ作成する場合、表示は1回だけです。高度な一括作成では、従来どおりキーを再取得できます。",
+    "Creation could not be confirmed. Check the key list before creating another key; an existing key may need to be revoked.": "作成の完了を確認できません。再作成する前にキー一覧を確認してください。すでに作成されたキーの取り消しが必要な場合があります。",
+    "Shown only at creation. Use your saved key or revoke and replace it.": "作成時のみ表示されます。保存したキーを使うか、取り消して再作成してください。",
+    "Keys shown only at creation are excluded from batch copy.": "作成時のみ表示されるキーは一括コピーに含まれません。",
+    "Key authentication succeeded. No model request was sent or billed.": "キーの認証に成功しました。モデルリクエストは送信されず、料金も発生していません。",
+    "Key check failed. Check access, expiry and allowed IP addresses.": "キーの確認に失敗しました。権限、有効期限、許可された IP アドレスを確認してください。",
+    "Could not revoke the key. Try again from API Keys.": "キーを取り消せませんでした。API キーページから再試行してください。",
+    "Latest API request": "最新の API リクエスト",
+    "Unable to load the latest request.": "最新のリクエストを読み込めません。",
+    "Your first API request will appear here. No request record is available yet.": "最初の API リクエストの記録がここに表示されます。現在、記録はありません。",
+    "Usage recorded; check details for the request outcome.": "使用量が記録されました。リクエストの結果は詳細で確認してください。"
+  },
+  "ru": {
+    "Configure with CC Switch": "Настроить через CC Switch",
+    "Revoking stops clients using this key. Confirm to continue.": "После отзыва клиенты с этим ключом потеряют доступ. Подтвердите действие.",
+    "Other client setup guides": "Настройка других клиентов",
+    "This is the only time the full API key is available. Save it before closing; it cannot be retrieved later.": "Полный API-ключ доступен только сейчас. Сохраните его перед закрытием; получить его повторно будет невозможно.",
+    "Confirm revocation": "Подтвердить отзыв",
+    "Revoke this key": "Отозвать ключ",
+    "Check key connection": "Проверить подключение",
+    "I saved the key, close": "Ключ сохранён, закрыть",
+    "The connection check only verifies this key and lists models. It does not complete your first successful model request.": "Проверка только проверяет ключ и получает список моделей. Она не считается первым успешным запросом к модели.",
+    "A single new key is shown only once. Advanced batch creation keeps the existing retrievable-key behavior.": "Новый одиночный ключ показывается один раз. Расширенное пакетное создание сохраняет возможность повторного получения ключей.",
+    "Creation could not be confirmed. Check the key list before creating another key; an existing key may need to be revoked.": "Создание не подтверждено. Перед повторной попыткой проверьте список ключей: возможно, созданный ключ нужно отозвать.",
+    "Shown only at creation. Use your saved key or revoke and replace it.": "Показывается только при создании. Используйте сохранённую копию или отзовите и замените ключ.",
+    "Keys shown only at creation are excluded from batch copy.": "Ключи, показываемые только при создании, исключены из пакетного копирования.",
+    "Key authentication succeeded. No model request was sent or billed.": "Ключ прошёл проверку. Запрос к модели не отправлялся и не оплачивался.",
+    "Key check failed. Check access, expiry and allowed IP addresses.": "Проверка ключа не удалась. Проверьте доступ, срок действия и разрешённые IP-адреса.",
+    "Could not revoke the key. Try again from API Keys.": "Не удалось отозвать ключ. Повторите попытку на странице API-ключей.",
+    "Latest API request": "Последний API-запрос",
+    "Unable to load the latest request.": "Не удалось загрузить последний запрос.",
+    "Your first API request will appear here. No request record is available yet.": "Здесь появится первый API-запрос. Пока записей нет.",
+    "Usage recorded; check details for the request outcome.": "Использование записано; результат запроса смотрите в подробностях."
+  },
+  "vi": {
+    "Configure with CC Switch": "Cấu hình bằng CC Switch",
+    "Revoking stops clients using this key. Confirm to continue.": "Thu hồi sẽ ngừng quyền truy cập của ứng dụng dùng khóa này. Hãy xác nhận để tiếp tục.",
+    "Other client setup guides": "Hướng dẫn cấu hình ứng dụng khác",
+    "This is the only time the full API key is available. Save it before closing; it cannot be retrieved later.": "Đây là lần duy nhất có thể xem API Key đầy đủ. Hãy lưu trước khi đóng; bạn sẽ không thể lấy lại sau đó.",
+    "Confirm revocation": "Xác nhận thu hồi",
+    "Revoke this key": "Thu hồi khóa này",
+    "Check key connection": "Kiểm tra kết nối khóa",
+    "I saved the key, close": "Đã lưu khóa, đóng",
+    "The connection check only verifies this key and lists models. It does not complete your first successful model request.": "Kiểm tra chỉ xác thực khóa và lấy danh sách mô hình. Đây không được tính là yêu cầu mô hình thành công đầu tiên.",
+    "A single new key is shown only once. Advanced batch creation keeps the existing retrievable-key behavior.": "Khóa mới tạo riêng lẻ chỉ hiển thị một lần. Tạo hàng loạt nâng cao vẫn cho phép lấy lại khóa như trước.",
+    "Creation could not be confirmed. Check the key list before creating another key; an existing key may need to be revoked.": "Chưa xác nhận được việc tạo khóa. Kiểm tra danh sách trước khi tạo khóa khác; có thể cần thu hồi khóa đã tồn tại.",
+    "Shown only at creation. Use your saved key or revoke and replace it.": "Chỉ hiển thị khi tạo. Dùng bản đã lưu hoặc thu hồi rồi tạo khóa thay thế.",
+    "Keys shown only at creation are excluded from batch copy.": "Sao chép hàng loạt không bao gồm khóa chỉ hiển thị khi tạo.",
+    "Key authentication succeeded. No model request was sent or billed.": "Xác thực khóa thành công. Không gửi yêu cầu mô hình và không phát sinh phí gọi.",
+    "Key check failed. Check access, expiry and allowed IP addresses.": "Kiểm tra khóa thất bại. Hãy kiểm tra quyền truy cập, hạn dùng và địa chỉ IP được phép.",
+    "Could not revoke the key. Try again from API Keys.": "Không thể thu hồi khóa. Hãy thử lại tại trang API Key.",
+    "Latest API request": "Yêu cầu API gần nhất",
+    "Unable to load the latest request.": "Không tải được yêu cầu gần nhất.",
+    "Your first API request will appear here. No request record is available yet.": "Yêu cầu API đầu tiên sẽ xuất hiện ở đây. Hiện chưa có bản ghi.",
+    "Usage recorded; check details for the request outcome.": "Đã ghi nhận mức sử dụng; xem chi tiết để biết kết quả yêu cầu."
+  },
+  "en": {
+    "Configure with CC Switch": "Configure with CC Switch",
+    "Revoking stops clients using this key. Confirm to continue.": "Revoking stops clients using this key. Confirm to continue.",
+    "Other client setup guides": "Other client setup guides",
+    "This is the only time the full API key is available. Save it before closing; it cannot be retrieved later.": "This is the only time the full API key is available. Save it before closing; it cannot be retrieved later.",
+    "Confirm revocation": "Confirm revocation",
+    "Revoke this key": "Revoke this key",
+    "Check key connection": "Check key connection",
+    "I saved the key, close": "I saved the key, close",
+    "The connection check only verifies this key and lists models. It does not complete your first successful model request.": "The connection check only verifies this key and lists models. It does not complete your first successful model request.",
+    "A single new key is shown only once. Advanced batch creation keeps the existing retrievable-key behavior.": "A single new key is shown only once. Advanced batch creation keeps the existing retrievable-key behavior.",
+    "Creation could not be confirmed. Check the key list before creating another key; an existing key may need to be revoked.": "Creation could not be confirmed. Check the key list before creating another key; an existing key may need to be revoked.",
+    "Shown only at creation. Use your saved key or revoke and replace it.": "Shown only at creation. Use your saved key or revoke and replace it.",
+    "Keys shown only at creation are excluded from batch copy.": "Keys shown only at creation are excluded from batch copy.",
+    "Key authentication succeeded. No model request was sent or billed.": "Key authentication succeeded. No model request was sent or billed.",
+    "Key check failed. Check access, expiry and allowed IP addresses.": "Key check failed. Check access, expiry and allowed IP addresses.",
+    "Could not revoke the key. Try again from API Keys.": "Could not revoke the key. Try again from API Keys.",
+    "Latest API request": "Latest API request",
+    "Unable to load the latest request.": "Unable to load the latest request.",
+    "Your first API request will appear here. No request record is available yet.": "Your first API request will appear here. No request record is available yet.",
+    "Usage recorded; check details for the request outcome.": "Usage recorded; check details for the request outcome."
+  }
+}
+
 async function main() {
   if (process.argv.includes('--merge-locale-conflicts')) {
     const { execFileSync } = await import('node:child_process')
@@ -11084,65 +11241,20 @@ async function main() {
   const clientsOnly = process.argv.includes('--only-client-presets')
   const costOnly = process.argv.includes('--only-acquisition-cost')
   const competitionOnly = process.argv.includes('--only-signal-competition')
-  const scoped =
-    competitionOnly ||
-    costOnly ||
-    clientsOnly ||
-    feedbackOnly ||
-    logRecoveryOnly ||
-    statusOnly ||
-    parallelOnly ||
-    estimateOnly ||
-    activityOnly ||
-    toolMarketOnly ||
-    acquisitionOnly ||
-    experienceOnly ||
-    paymentOnly ||
-    homeOnly ||
-    waitOnly ||
-    assistantToolOnly
-  const entries = competitionOnly
-    ? Object.fromEntries(
-        Object.entries(signalCompetitionKeys).map(([locale, values]) => [
-          locale,
-          Object.fromEntries(
-            Object.entries(values).filter(
-              ([key]) => !['Account', 'Public'].includes(key)
-            )
-          ),
-        ])
-      )
-    : costOnly
-      ? acquisitionCostCopy
-      : clientsOnly
-        ? clientPresetsCopy
-        : feedbackOnly
-          ? sourceFeedbackCopy
-          : logRecoveryOnly
-            ? logRecoveryCopy
-            : statusOnly
-              ? modelStatusCopy
-              : parallelOnly
-                ? parallelExperienceCopy
-                : estimateOnly
-                  ? requestEstimateCopy
-                  : activityOnly
-                    ? acquisitionActivityCopy
-                    : toolMarketOnly
-                      ? toolMarketCopy
-                      : acquisitionOnly
-                        ? acquisitionCopy
-                        : experienceOnly
-                          ? experienceCopy
-                          : paymentOnly
-                            ? paymentPricingCopy
-                            : homeOnly
-                              ? homeEditorialCopy
-                              : waitOnly
-                                ? waitCompanionCopy
-                                : assistantToolOnly
-                                  ? assistantToolCopy
-                                  : newKeys
+  const keyFollowthroughOnly = process.argv.includes('--only-key-followthrough')
+  const scoped = keyFollowthroughOnly || competitionOnly || costOnly || clientsOnly || feedbackOnly || logRecoveryOnly || statusOnly || parallelOnly || estimateOnly || activityOnly || toolMarketOnly || acquisitionOnly ||
+    experienceOnly || paymentOnly || homeOnly || waitOnly || assistantToolOnly
+  const entries = keyFollowthroughOnly ? keyFollowthroughCopy : competitionOnly ? Object.fromEntries(Object.entries(signalCompetitionKeys).map(([locale, values]) => [locale, Object.fromEntries(Object.entries(values).filter(([key]) => !['Account', 'Public'].includes(key)))])) : costOnly ? acquisitionCostCopy : clientsOnly ? clientPresetsCopy : feedbackOnly ? sourceFeedbackCopy : logRecoveryOnly ? logRecoveryCopy : statusOnly ? modelStatusCopy : parallelOnly ? parallelExperienceCopy : estimateOnly ? requestEstimateCopy : activityOnly ? acquisitionActivityCopy : toolMarketOnly ? toolMarketCopy : acquisitionOnly ? acquisitionCopy : experienceOnly
+    ? experienceCopy
+    : paymentOnly
+      ? paymentPricingCopy
+      : homeOnly
+        ? homeEditorialCopy
+        : waitOnly
+          ? waitCompanionCopy
+          : assistantToolOnly
+            ? assistantToolCopy
+            : newKeys
   let totalAdded = 0
   for (const [locale, baseTranslations] of Object.entries(entries)) {
     const translations = scoped

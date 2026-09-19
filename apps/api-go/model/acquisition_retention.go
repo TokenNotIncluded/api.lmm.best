@@ -8,10 +8,12 @@ import (
 )
 
 type AcquisitionConfig struct {
-	ID            int   `json:"id" gorm:"primaryKey"`
-	StartedAt     int64 `json:"started_at"`
-	LookbackDays  int   `json:"lookback_days"`
-	LastCleanupAt int64 `json:"last_cleanup_at"`
+	ID                       int    `json:"id" gorm:"primaryKey"`
+	StartedAt                int64  `json:"started_at"`
+	LookbackDays             int    `json:"lookback_days"`
+	LastCleanupAt            int64  `json:"last_cleanup_at"`
+	PaymentSnapshotUpdatedAt int64  `json:"payment_snapshot_updated_at"`
+	PaymentSnapshotStatus    string `json:"payment_snapshot_status" gorm:"type:varchar(32)"`
 }
 
 func acquisitionConfig(db *gorm.DB) (AcquisitionConfig, error) {
@@ -62,5 +64,21 @@ func SetAcquisitionLookback(ctx context.Context, days int) error {
 		return err
 	}
 	// Existing account attributions keep their recorded rule and window.
-	return DB.WithContext(ctx).Model(&AcquisitionConfig{}).Where("id = 1").Update("lookback_days", days).Error
+	return DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var config AcquisitionConfig
+		if err := lockForUpdate(tx).First(&config, 1).Error; err != nil {
+			return err
+		}
+		now := time.Now().Unix()
+		if err := ensureAcquisitionPolicy(tx, config, now); err != nil {
+			return err
+		}
+		if config.LookbackDays == days {
+			return nil
+		}
+		if err := tx.Create(&AcquisitionAttributionPolicy{EffectiveAt: now, LookbackDays: days}).Error; err != nil {
+			return err
+		}
+		return tx.Model(&AcquisitionConfig{}).Where("id = 1").Update("lookback_days", days).Error
+	})
 }

@@ -23,8 +23,13 @@ func setAcquisitionRouter(parent *assistantRouterGroup) {
 	admin.GET("/links", middleware.RequirePermission(authz.AcquisitionRead), controller.ListAcquisitionLinks)
 	admin.POST("/links", middleware.RequirePermission(authz.AcquisitionWrite), controller.SaveAcquisitionLink)
 	admin.POST("/activity/rebuild", middleware.RequirePermission(authz.AcquisitionWrite), controller.RebuildAcquisitionActivity)
+	admin.GET("/users/export", middleware.RequirePermission(authz.AcquisitionDetails), middleware.RequirePermission(authz.AcquisitionExport), controller.ExportAcquisitionUsers)
+	admin.GET("/users/:id/corrections", middleware.RequirePermission(authz.AcquisitionDetails), controller.GetAcquisitionCorrections)
+	admin.POST("/users/:id/corrections", middleware.RequirePermission(authz.AcquisitionDetails), middleware.RequirePermission(authz.AcquisitionWrite), controller.SaveAcquisitionCorrection)
 	admin.GET("/users", middleware.RequirePermission(authz.AcquisitionDetails), controller.ListAcquisitionUsers)
 	admin.GET("/users/:id", middleware.RequirePermission(authz.AcquisitionDetails), controller.GetAcquisitionUserDetail)
 	admin.PUT("/lookback", middleware.RequirePermission(authz.AcquisitionWrite), controller.SetAcquisitionLookback)
+	admin.GET("/visitors", middleware.RequirePermission(authz.AcquisitionRead), controller.AcquisitionVisitors)
+	admin.GET("/funnel", middleware.RequirePermission(authz.AcquisitionRead), controller.AcquisitionFunnel)
 	admin.GET("/report", middleware.RequirePermission(authz.AcquisitionRead), controller.AcquisitionReport)
 }

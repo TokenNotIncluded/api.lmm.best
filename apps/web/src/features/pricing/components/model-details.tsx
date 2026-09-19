@@ -62,6 +62,7 @@ import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { DEFAULT_TOKEN_UNIT } from '../constants'
+import { useModelRuntime } from '../hooks/use-model-runtime'
 import { usePricingData } from '../hooks/use-pricing-data'
 import {
   getDynamicPriceEntries,
@@ -88,6 +89,7 @@ import { ModelAvailability } from './model-availability'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelDetailsApi } from './model-details-api'
 import { ModelDetailsPerformance } from './model-details-performance'
+import { ModelRuntimeBadge } from './model-runtime-badge'
 import { RequestEstimator } from './request-estimator'
 
 // ----------------------------------------------------------------------------
@@ -1294,6 +1296,11 @@ export function ModelDetails() {
     return models.find((m) => m.model_name === modelId) || null
   }, [models, modelId])
 
+  const missingRuntime = useModelRuntime(
+    modelId ? [modelId] : [],
+    !model && !isLoading && !error
+  )
+
   const handleBack = () => {
     navigate({ to: '/pricing', search })
   }
@@ -1354,6 +1361,7 @@ export function ModelDetails() {
         <div className='mx-auto max-w-2xl px-4 text-center sm:px-6'>
           <h2 className='mb-1 text-base font-semibold'>
             {t('Model is not in this catalog')}
+            <ModelRuntimeBadge state={missingRuntime[modelId]} />
           </h2>
           <p className='text-muted-foreground mb-4 text-sm'>
             {user
@@ -1364,6 +1372,14 @@ export function ModelDetails() {
                   'Check the model ID or sign in to see your account model catalog.'
                 )}
           </p>
+          {missingRuntime[modelId]?.status === 'no_access' && (
+            <a
+              href='/getting-started'
+              className='text-primary mr-3 text-sm underline'
+            >
+              {t('Check API access status')}
+            </a>
+          )}
           <Button onClick={handleBack} variant='outline' size='sm'>
             {t('Back to Models')}
           </Button>

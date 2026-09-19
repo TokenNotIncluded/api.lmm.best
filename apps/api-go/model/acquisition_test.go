@@ -18,7 +18,7 @@ func acquisitionDB(t *testing.T) *gorm.DB {
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:acquisition-%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
 	require.NoError(t, err)
 	DB = db
-	require.NoError(t, db.AutoMigrate(&User{}, &AcquisitionLink{}, &AcquisitionVisitor{}, &AcquisitionVisit{}, &AcquisitionAccount{}, &AcquisitionConfig{}, &AcquisitionActivity{}, &AcquisitionActivityState{}, &AcquisitionConsent{}, &AcquisitionSelfReport{}, &AcquisitionActivityGap{}, &FinanceLedgerEntry{}, &TopUp{}, &SubscriptionOrder{}, &SubscriptionPaymentEvent{}))
+	require.NoError(t, db.AutoMigrate(&User{}, &AcquisitionLink{}, &AcquisitionVisitor{}, &AcquisitionVisit{}, &AcquisitionAccount{}, &AcquisitionConfig{}, &AcquisitionAttributionPolicy{}, &AcquisitionFirstPayment{}, &AcquisitionActivity{}, &AcquisitionActivityState{}, &AcquisitionConsent{}, &AcquisitionCorrection{}, &AcquisitionCorrectionHead{}, &AcquisitionSelfReport{}, &AcquisitionActivityGap{}, &FinanceLedgerEntry{}, &TopUp{}, &SubscriptionOrder{}, &SubscriptionPaymentEvent{}))
 	t.Cleanup(func() { DB = old; sqlDB, _ := db.DB(); _ = sqlDB.Close() })
 	return db
 }

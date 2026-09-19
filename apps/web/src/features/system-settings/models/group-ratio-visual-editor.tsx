@@ -877,7 +877,7 @@ function GroupPricingTable({
             <CardTitle>{t('Pricing groups')}</CardTitle>
             <CardDescription>
               {t(
-                'Set the base cost multiplier for each routing group. Dynamic pricing adds the live profit multiplier on top; top-up ratio remains an independent balance multiplier.'
+                'Set a fixed price multiplier for each routing group. The top-up ratio remains an independent balance multiplier.'
               )}
             </CardDescription>
           </div>
