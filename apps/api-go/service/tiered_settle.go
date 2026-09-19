@@ -104,6 +104,7 @@ func refreshTieredBillingGroup(relayInfo *relaycommon.RelayInfo) (*billingexpr.B
 	}
 
 	groupRatio := relayInfo.PriceData.GroupRatioInfo.GroupRatio
+	// A retry may select a different fixed group; retain the frozen expression base.
 	estimatedQuotaAfterGroup := snap.EstimatedQuotaBeforeGroup * groupRatio
 	estimatedQuota, err := billingexpr.QuotaRoundStrict(estimatedQuotaAfterGroup)
 	if err != nil {

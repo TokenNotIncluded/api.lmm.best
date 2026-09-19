@@ -415,20 +415,6 @@ func sortedOptionUpdateKeys(values map[string]string) []string {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
-	// Publish the dynamic-pricing master switch last when enabling, first when disabling.
-	const enabledKey = "dynamic_pricing_setting.enabled"
-	if value, exists := values[enabledKey]; exists {
-		others := make([]string, 0, len(keys)-1)
-		for _, key := range keys {
-			if key != enabledKey {
-				others = append(others, key)
-			}
-		}
-		if value == "false" {
-			keys = append([]string{enabledKey}, others...)
-		} else {
-			keys = append(others, enabledKey)
-		}
-	}
+
 	return keys
 }

@@ -49,8 +49,6 @@ GET	/api/discount-code/:id	compatibility	apps/api-rust/src/routes/discount_code.
 POST	/api/discount-code/batch	compatibility	apps/api-rust/src/routes/discount_code.rs	application route intentionally outside the frozen legacy route inventory
 DELETE	/api/discount-code/exhausted	compatibility	apps/api-rust/src/routes/discount_code.rs	application route intentionally outside the frozen legacy route inventory
 GET	/api/discount-code/search	compatibility	apps/api-rust/src/routes/discount_code.rs	application route intentionally outside the frozen legacy route inventory
-PUT	/api/dynamic_pricing/setting	compatibility	apps/api-rust/src/routes/dynamic_pricing.rs	application route intentionally outside the frozen legacy route inventory
-GET	/api/dynamic_pricing/status	compatibility	apps/api-rust/src/routes/dynamic_pricing.rs	application route intentionally outside the frozen legacy route inventory
 GET	/api/extra-probe	test	apps/api-rust/src/http.rs	cfg(test) extra-surface listener-boundary fixture
 GET	/api/finance/entries	compatibility	apps/api-rust/src/routes/finance.rs	application route intentionally outside the frozen legacy route inventory
 POST	/api/finance/entries	compatibility	apps/api-rust/src/routes/finance.rs	application route intentionally outside the frozen legacy route inventory
