@@ -1,0 +1,128 @@
+[
+  {
+    "size": 5,
+    "seed": 0,
+    "tiles_sha256": "324ca37a31dbb42f9bbd91bfbca09f17841b030a1477e6996fdd26a7e4be57cf",
+    "solution_sha256": "30624ae9ed58ee164de5bda8d7688c3fed6e6198450df801ed5737ab1aefe803",
+    "route_length": 11
+  },
+  {
+    "size": 5,
+    "seed": 42,
+    "tiles_sha256": "42f9be8c7af5f00aefa52d6dfe312caf5b060388c97f3d2b4f85999944daa34b",
+    "solution_sha256": "bb2a131583a594dc2ff2a9d358b4003d246c3225173f35dfdc116c91d68c07b8",
+    "route_length": 15
+  },
+  {
+    "size": 5,
+    "seed": 4294967295,
+    "tiles_sha256": "d879eee29afe071ae6e24ae86540686540cce7456747692f53180b9d0d1d6a95",
+    "solution_sha256": "d518de64b19f8361d93b6b776a9b2725c2c9106dcf378842f5115d2b7c1cc5a7",
+    "route_length": 9
+  },
+  {
+    "size": 8,
+    "seed": 0,
+    "tiles_sha256": "fdbaa71f9d1dc055a6b2245ed1175532d791d3653ceecbb7ac4772ebd65c18d7",
+    "solution_sha256": "d95c6fc4dcc4be57871526329c16be1966c5f347bed7a7597579e7e2e57761df",
+    "route_length": 36
+  },
+  {
+    "size": 8,
+    "seed": 42,
+    "tiles_sha256": "6695c94a9c169b9ae2b94daa27e7d72ad890af984bb2182851b8b9e98b79eb69",
+    "solution_sha256": "e5e177d815f6a705bad2de83458d77ed45e6bf09b43f97d7390429f953d9299e",
+    "route_length": 40
+  },
+  {
+    "size": 8,
+    "seed": 4294967295,
+    "tiles_sha256": "817e4c37cb30f2820f0db140e24b555b4b1ff3d20b48b5e7e116ac6addb1ce49",
+    "solution_sha256": "04682c1e708ca0af6892c7fc5029102ed7db16e9ec6275a8a5558cb64d48bbb1",
+    "route_length": 18
+  },
+  {
+    "size": 12,
+    "seed": 0,
+    "tiles_sha256": "0bd2d52129aff8fb525bdd64fdaad5faeb3a1c54a34068bea3b5ab235cb7316d",
+    "solution_sha256": "4b53e27b9aee7c92b2b1b6ab81d2a650a2a9c56a0ad4802cb5f6549cc46bad54",
+    "route_length": 60
+  },
+  {
+    "size": 12,
+    "seed": 42,
+    "tiles_sha256": "d72486c1373c7dac3db38f402fd62a87d256fd9131c9fd72f9cbd754fd4ec2ad",
+    "solution_sha256": "c4dd9733d5d51c48729705e9c9ee6fc17bd17a0b13e0a941b78a923a4ca51333",
+    "route_length": 64
+  },
+  {
+    "size": 12,
+    "seed": 4294967295,
+    "tiles_sha256": "503688e5201e899e814dd563d06dea330dc98902b4754a0117afa9938d869a39",
+    "solution_sha256": "e20268b28bb046e274e0a34b46f49dbf4e5bf581a34e6dd0dadc98b9778e4fe4",
+    "route_length": 50
+  },
+  {
+    "size": 24,
+    "seed": 0,
+    "tiles_sha256": "b28cd72c67f86cdd0177340b79e3ff92644baffbc158bc45b89049e624fb7e90",
+    "solution_sha256": "ccc6837f4113a98eb74201bf24d7b90f83daf02f6c2d05816528275ac03cef8b",
+    "route_length": 190
+  },
+  {
+    "size": 24,
+    "seed": 42,
+    "tiles_sha256": "9b2f069ca119b4b9efe12c8171f9d05135217cef30bd11a7be33164016be14c2",
+    "solution_sha256": "08e5ad29395cf3a272a27ccb821cd1241d34b9fbf1aa13d32768d0c3b0d9bfdd",
+    "route_length": 100
+  },
+  {
+    "size": 24,
+    "seed": 4294967295,
+    "tiles_sha256": "f705ff635cb81c3f3c97e8984aeb2cd971c29176a8297dce425b772bdd224575",
+    "solution_sha256": "54fd11a9230100cf4fea2724d5bb3d302eb6e17460b727d5ce2407221c26ed3f",
+    "route_length": 142
+  },
+  {
+    "size": 48,
+    "seed": 0,
+    "tiles_sha256": "ce4bb605f866208fea0d8fd15953231ead3d76727477abea1e126527cfdd1da1",
+    "solution_sha256": "1aa2e438298e1023db14b8006b97c054f9841e1cf7829475a52c10abca4cc6d3",
+    "route_length": 344
+  },
+  {
+    "size": 48,
+    "seed": 42,
+    "tiles_sha256": "0011ba0faaea880ca69665c864ba7666c965f6baed18170bec29c3dec8e22aa9",
+    "solution_sha256": "d9a1282a226d7d7ec9f872bb12985aa8c4fa56a39cc3f77cb66b448bf0e00b22",
+    "route_length": 914
+  },
+  {
+    "size": 48,
+    "seed": 4294967295,
+    "tiles_sha256": "f9501447a07ca678456cb758a4e32c74bbda9ed4eb532bb0c8b32eda82ed8797",
+    "solution_sha256": "cc56723f9628da532bf3d2ec5dc48ad305a157d14789d22aedeecb14731365a4",
+    "route_length": 828
+  },
+  {
+    "size": 64,
+    "seed": 0,
+    "tiles_sha256": "465acd482fea132fe971550f1b7f66e91216cc8718939d2d20ef44c94036043e",
+    "solution_sha256": "b97fbd45b3d63a673708ea4a7f5a0466028929983e4cb460799d22547aba30e7",
+    "route_length": 1060
+  },
+  {
+    "size": 64,
+    "seed": 42,
+    "tiles_sha256": "1b0de116afcea6a9cb180562c83f25a6ab0cc394746750f534a9deeaf8e5e236",
+    "solution_sha256": "99f20d9d8fcbdbd3e2594701b408783d32dc22ac68c324a8d8739919d87f5ee1",
+    "route_length": 1196
+  },
+  {
+    "size": 64,
+    "seed": 4294967295,
+    "tiles_sha256": "2d292bf3ddb3368baeeb7781bbcc0f9849fe0815455e5907b84964956cec3346",
+    "solution_sha256": "c33ea8851988f84377739bec4f274b1414386711a00bd0c820babbb2548cb280",
+    "route_length": 796
+  }
+]

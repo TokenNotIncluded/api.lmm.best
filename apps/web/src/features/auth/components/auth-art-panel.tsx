@@ -16,81 +16,93 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { ArrowRight, Check, Lightbulb, RotateCcw, Shuffle } from 'lucide-react'
-import { useId, useMemo, useRef, useState } from 'react'
+import { ArrowUpRight, Lightbulb, RotateCcw, Shuffle } from 'lucide-react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
-
+import { HUMAN } from '@/features/signal-game/api'
+import { SignalBoard } from '@/features/signal-game/board'
+import { formatGameTime } from '@/features/signal-game/format'
 import {
-  createCircuit,
-  GRID_SIZE,
-  hintedTile,
-  neighbor,
-  PORTS,
-  rotateTile,
-  traceCircuit,
-} from './signal-game'
+  rotateSignalTile,
+  startSignalGame,
+  useSignalGame,
+} from '@/features/signal-game/store'
+
+import { BOARD_SIZES, traceCircuit } from './signal-game'
 
 import './signal-game.css'
 
-const PORT_POINTS: Record<number, [number, number]> = {
-  1: [32, 0],
-  2: [64, 32],
-  4: [32, 64],
-  8: [0, 32],
+export function GameClock({
+  phase,
+  startedAt,
+  readyAt,
+  elapsedMs,
+  displayCountdown = false,
+}: {
+  phase: string
+  startedAt: number
+  readyAt: number
+  elapsedMs: number | null
+  displayCountdown?: boolean
+}) {
+  const [now, setNow] = useState(() => performance.now())
+  useEffect(() => {
+    if (phase !== 'playing' && phase !== 'countdown') return
+    setNow(performance.now())
+    const timer = setInterval(() => setNow(performance.now()), 100)
+    return () => clearInterval(timer)
+  }, [phase, startedAt, readyAt])
+  if (phase === 'countdown' && displayCountdown) {
+    return (
+      <strong className='text-6xl'>
+        {Math.max(1, Math.ceil((readyAt - now) / 1000))}
+      </strong>
+    )
+  }
+  return (
+    <span className='tabular-nums'>
+      {formatGameTime(
+        elapsedMs ?? (phase === 'playing' ? Math.max(0, now - startedAt) : 0)
+      )}
+    </span>
+  )
 }
-const DIRECTION_KEYS = {
-  ArrowUp: 1,
-  ArrowRight: 2,
-  ArrowDown: 4,
-  ArrowLeft: 8,
-} as const
-
 export function AuthArtPanel() {
-  const { t } = useTranslation()
-  const titleId = useId()
-  const [circuit, setCircuit] = useState(() => createCircuit())
-  const [tiles, setTiles] = useState(circuit.tiles)
-  const [moves, setMoves] = useState(0)
-  const [rounds, setRounds] = useState(0)
-  const [focus, setFocus] = useState(10)
-  const [hint, setHint] = useState<number | null>(null)
-  const buttons = useRef<(HTMLButtonElement | null)[]>([])
-  const trace = useMemo(() => traceCircuit(tiles), [tiles])
-  const powered = new Set(trace.path)
-  const directionNames = {
-    1: t('North'),
-    2: t('East'),
-    4: t('South'),
-    8: t('West'),
-  }
-
-  const turn = (index: number, withHint = false) => {
-    if (trace.won) return
-    const next = [...tiles]
-    next[index] = rotateTile(next[index])
-    setTiles(next)
-    setMoves((value) => value + 1)
-    setHint(withHint ? index : null)
-    if (traceCircuit(next).won) setRounds((value) => value + 1)
-  }
-  const start = (fresh: boolean) => {
-    const next = fresh ? createCircuit() : circuit
-    setCircuit(next)
-    setTiles([...next.tiles])
-    setMoves(0)
-    setHint(null)
-  }
-  const requestHint = () => {
-    const index = hintedTile(circuit, tiles)
-    if (index !== null) {
-      turn(index, true)
-      setFocus(index)
-      buttons.current[index]?.focus()
+  const { t } = useTranslation(),
+    titleId = useId(),
+    state = useSignalGame(),
+    [size, setSize] = useState(state.circuit.size),
+    [advanced, setAdvanced] = useState(state.circuit.size > 12),
+    [error, setError] = useState(false)
+  useEffect(() => {
+    setSize(state.circuit.size)
+    setAdvanced(state.circuit.size > 12)
+  }, [state.circuit.size])
+  const trace = useMemo(
+      () => traceCircuit(state.tiles, state.circuit.size),
+      [state.tiles, state.circuit.size]
+    ),
+    powered = useMemo(() => new Set(trace.path), [trace.path])
+  const turn = (index: number) => {
+    try {
+      rotateSignalTile(index)
+      setError(false)
+    } catch {
+      setError(true)
     }
   }
-
+  const start = (mode: 'practice' | 'challenge', repeat = false) => {
+    setError(false)
+    void startSignalGame(
+      mode,
+      repeat ? state.circuit.size : size,
+      HUMAN,
+      repeat ? state.circuit.seed : undefined
+    ).catch(() => setError(true))
+  }
+  const blocked = state.phase !== 'playing'
   return (
     <aside
       className='signal-game bg-card text-card-foreground'
@@ -102,95 +114,98 @@ export function AuthArtPanel() {
           {t('Rotate the tiles to connect input to output.')}
         </p>
       </div>
+      <div className='mt-4 flex flex-wrap items-center gap-3 text-sm'>
+        <label>
+          {t('Board size')}{' '}
+          <select
+            className='bg-background rounded border px-2 py-1'
+            value={size}
+            onChange={(e) => setSize(Number(e.target.value))}
+          >
+            {BOARD_SIZES.filter((n) => advanced || n <= 12).map((n) => (
+              <option key={n} value={n}>
+                {n} × {n}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className='inline-flex items-center gap-2'>
+          <input
+            type='checkbox'
+            checked={advanced}
+            onChange={(e) => {
+              setAdvanced(e.target.checked)
+              if (!e.target.checked && size > 12) setSize(5)
+            }}
+          />
+          {t('Advanced mode')}
+        </label>
+      </div>
+      <div className='mt-3 flex flex-wrap gap-2'>
+        <Button
+          type='button'
+          variant='outline'
+          disabled={state.phase === 'loading'}
+          onClick={() => start('practice')}
+        >
+          {t('Practice')}
+        </Button>
+        <Button
+          type='button'
+          disabled={state.phase === 'loading'}
+          onClick={() => start('challenge')}
+        >
+          {t('Start challenge')}
+        </Button>
+      </div>
+      <p className='text-muted-foreground mt-2 text-xs'>
+        {t(
+          'Challenges: 3-second countdown, no hints, ranked by moves then time.'
+        )}
+      </p>
       <div className='signal-game-score text-muted-foreground'>
         <span>
-          {t('Moves')}: <strong className='text-foreground'>{moves}</strong>
+          {state.mode === 'challenge' ? t('Challenge') : t('Practice')} ·{' '}
+          {state.circuit.size} × {state.circuit.size}
         </span>
         <span>
-          {t('Circuits solved')}:{' '}
-          <strong className='text-foreground'>{rounds}</strong>
+          {t('Moves')}:{' '}
+          <strong className='text-foreground'>{state.actions.length}</strong>
         </span>
+        {state.mode === 'challenge' && (
+          <span>
+            {t('Time')}: <GameClock {...state} elapsedMs={state.elapsedMs} />
+          </span>
+        )}
       </div>
-      <div className='signal-game-board-wrap'>
-        <span
-          className='signal-game-port signal-game-input text-primary'
-          aria-label={t('Input')}
-        >
-          <ArrowRight aria-hidden='true' />
-        </span>
-        <div
-          className='signal-game-board'
-          role='grid'
-          aria-label={t('Signal path')}
-          aria-rowcount={GRID_SIZE}
-          aria-colcount={GRID_SIZE}
-        >
-          {Array.from({ length: GRID_SIZE }, (_, row) => (
-            <div role='row' className='signal-game-row' key={row}>
-              {tiles
-                .slice(row * GRID_SIZE, (row + 1) * GRID_SIZE)
-                .map((mask, col) => {
-                  const index = row * GRID_SIZE + col
-                  const ports = PORTS.filter((port) => mask & port)
-                  const from = PORT_POINTS[ports[0]],
-                    to = PORT_POINTS[ports[1]]
-                  const lit = powered.has(index)
-                  return (
-                    <div role='gridcell' key={index}>
-                      <button
-                        type='button'
-                        ref={(element) => {
-                          buttons.current[index] = element
-                        }}
-                        className={`signal-game-tile ${lit ? 'is-powered' : ''} ${hint === index ? 'is-hinted' : ''}`}
-                        tabIndex={index === focus ? 0 : -1}
-                        aria-disabled={trace.won}
-                        aria-label={`${t('Rotate tile at row {{row}}, column {{column}}', { row: row + 1, column: col + 1 })}. ${ports.map((port) => directionNames[port]).join(', ')}${lit ? `. ${t('Connected to input')}` : ''}`}
-                        onFocus={() => setFocus(index)}
-                        onClick={() => turn(index)}
-                        onKeyDown={(event) => {
-                          const port =
-                            DIRECTION_KEYS[
-                              event.key as keyof typeof DIRECTION_KEYS
-                            ]
-                          if (!port) return
-                          event.preventDefault()
-                          const target = neighbor(index, port)
-                          if (target !== null) {
-                            setFocus(target)
-                            buttons.current[target]?.focus()
-                          }
-                        }}
-                      >
-                        <svg viewBox='0 0 64 64' fill='none' aria-hidden='true'>
-                          <path
-                            className='signal-game-track'
-                            d={`M${from.join(' ')} L32 32 L${to.join(' ')}`}
-                          />
-                          <circle
-                            cx='32'
-                            cy='32'
-                            r='3.5'
-                            className='signal-game-node'
-                          />
-                        </svg>
-                      </button>
-                    </div>
-                  )
-                })}
-            </div>
-          ))}
-        </div>
-        <span
-          className={`signal-game-port signal-game-output ${trace.won ? 'text-primary' : 'text-muted-foreground'}`}
-          aria-label={t('Output')}
-        >
-          {trace.won ? (
-            <Check aria-hidden='true' />
-          ) : (
-            <ArrowRight aria-hidden='true' />
-          )}
-        </span>
+      {state.participant.actor === 'ai' && (
+        <p className='mb-3 text-xs break-all'>
+          AI · {state.participant.agent_name} · {state.participant.harness} ·{' '}
+          {state.participant.model_id}
+        </p>
+      )}
+      <div className='relative'>
+        <SignalBoard
+          size={state.circuit.size}
+          tiles={state.tiles}
+          powered={powered}
+          hint={state.hint}
+          blocked={blocked}
+          turn={turn}
+        />
+        {(state.phase === 'countdown' || state.phase === 'loading') && (
+          <div className='signal-game-countdown' role='status'>
+            {state.phase === 'loading' ? (
+              t('Loading...')
+            ) : (
+              <GameClock
+                {...state}
+                elapsedMs={state.elapsedMs}
+                displayCountdown
+              />
+            )}
+          </div>
+        )}
       </div>
       <div
         className={`signal-game-status ${trace.won ? 'text-primary' : 'text-muted-foreground'}`}
@@ -199,41 +214,63 @@ export function AuthArtPanel() {
         aria-atomic='true'
       >
         {trace.won
-          ? t('Connected in {{count}} moves!', { count: moves })
+          ? t('Connected in {{count}} moves!', { count: state.actions.length })
           : t('Signal reached {{count}} tiles', { count: trace.path.length })}
       </div>
       <div className='signal-game-actions'>
         <Button
           type='button'
           variant={trace.won ? 'default' : 'outline'}
-          onClick={() => start(true)}
+          disabled={state.phase === 'loading'}
+          onClick={() => start(state.mode)}
         >
           <Shuffle className='size-4' aria-hidden='true' />
           {trace.won ? t('Play again') : t('New circuit')}
         </Button>
+        {state.mode === 'practice' && (
+          <Button
+            type='button'
+            variant='ghost'
+            onClick={() => turn(-1)}
+            disabled={blocked}
+          >
+            <Lightbulb className='size-4' aria-hidden='true' />
+            {t('Hint')}
+          </Button>
+        )}
         <Button
           type='button'
           variant='ghost'
-          onClick={requestHint}
-          disabled={trace.won}
-        >
-          <Lightbulb className='size-4' aria-hidden='true' />
-          {t('Hint')}
-        </Button>
-        <Button
-          type='button'
-          variant='ghost'
-          onClick={() => start(false)}
-          disabled={moves === 0}
+          onClick={() => start(state.mode, true)}
+          disabled={state.actions.length === 0}
           aria-label={t('Restart circuit')}
           title={t('Restart circuit')}
         >
           <RotateCcw className='size-4' aria-hidden='true' />
         </Button>
       </div>
+      {(error || state.serviceError) && (
+        <p role='alert' className='text-destructive mt-3 text-sm'>
+          {t('Game service unavailable. Practice is still available.')}
+        </p>
+      )}
+      {state.storageError && (
+        <p role='alert' className='text-destructive mt-3 text-sm'>
+          {t(
+            'Local storage failed. Keep this page open until your record is saved.'
+          )}
+        </p>
+      )}
       <p className='signal-game-help text-muted-foreground'>
         {t('Use arrow keys to move and Enter to rotate.')}
       </p>
+      <a
+        href='/games/signal'
+        className='mt-4 inline-flex items-center justify-center gap-2 text-sm underline underline-offset-4'
+      >
+        {t('Leaderboard, records and AI guide')}
+        <ArrowUpRight className='size-4' />
+      </a>
       <p className='signal-game-note text-muted-foreground'>
         {t('Just for fun. You can sign in or register at any time.')}
       </p>

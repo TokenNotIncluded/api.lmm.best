@@ -338,7 +338,7 @@ func mainMigrationModels() []interface{} {
 		&Channel{}, &Token{}, &UserRankingRevision{}, &User{}, &UserSession{}, &AuthFlow{}, &ExternalIdentityClaim{},
 		&PasskeyCredential{}, &Option{}, &Redemption{}, &Ability{}, &Log{}, &Midjourney{},
 		&DiscountCode{}, &DiscountCodeReservation{},
-		&RedPacket{}, &RedPacketItem{}, &RedPacketClaim{},
+		&RedPacket{}, &RedPacketItem{}, &RedPacketClaim{}, &SignalGameRecord{}, &SignalGameAttempt{},
 		&TopUp{}, &QuotaData{}, &Task{}, &Model{}, &Vendor{}, &PrefillGroup{}, &Setup{}, &TwoFA{},
 		&TwoFABackupCode{}, &Checkin{}, &Gift{}, &GiftClaim{}, &OpenSourceBountyProject{}, &OpenSourceBountyChallenge{},
 		&DeveloperAccessRequest{}, &DeveloperAccessRecommendationArchive{},

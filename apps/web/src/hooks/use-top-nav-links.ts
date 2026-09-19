@@ -84,6 +84,7 @@ export function useTopNavLinks(): TopNavLink[] {
 
   links.push({ title: t('Scripts'), href: '/scripts' })
   links.push({ title: 'WebMCP', href: '/webmcp' })
+  links.push({ title: t('Signal path'), href: '/games/signal' })
 
   // Rankings
   const rankings = modules?.rankings
