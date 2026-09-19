@@ -83,6 +83,13 @@ The baseline is applied to a new isolated schema. All 34 tables are streamed thr
 
 After COPY, all 29 owned sequences are advanced with `setval`; an empty table correctly produces `nextval = 1`. The live PostgreSQL catalog is validated against the manifest. SQLite and PostgreSQL are then read independently and compared using per-table counts and canonical BLAKE3 table hashes. Financial aggregate checks cover users, tokens, logs, quota data, top-ups, subscription orders, and channels without publishing aggregate values.
 
+Account-balance parity is an additive forward step and does not rewrite the
+published table manifest. On an existing PostgreSQL schema, apply
+`migrations/0010_account_balance_access.sql` through the normal forward-migration
+review process as schema contract 10. The forward verifier checks the exact
+`tokens.account_balance_read BOOLEAN NOT NULL DEFAULT FALSE` shape; rerunning
+the migration is idempotent and existing keys remain denied.
+
 COPY, catalog, sequence, or verification failure rolls back the complete target schema transaction. `verify` uses a read-only, repeatable-read PostgreSQL snapshot.
 
 ## Audit output

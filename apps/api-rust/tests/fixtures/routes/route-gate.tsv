@@ -199,12 +199,14 @@ POST	/api/token/	present	unverified	mounted	unverified	not-applicable	go	mounted
 PUT	/api/token/	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	apps/api-rust/src/routes/api_token.rs
 DELETE	/api/token/:id	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	apps/api-rust/src/routes/api_token.rs
 GET	/api/token/:id	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	apps/api-rust/src/routes/api_token.rs
+PUT	/api/token/:id/account-balance-access	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	apps/api-rust/src/routes/api_token.rs
 POST	/api/token/:id/key	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	apps/api-rust/src/routes/api_token.rs
 POST	/api/token/batch	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	apps/api-rust/src/routes/api_token.rs
 POST	/api/token/batch/keys	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	apps/api-rust/src/routes/api_token.rs
 GET	/api/token/search	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	apps/api-rust/src/routes/api_token.rs
 GET	/api/uptime/status	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	source=apps/api-rust/src/routes/control_public.rs;mount=apps/api-rust/src/routes/control_public.rs
 GET	/api/usage/token/	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	apps/api-rust/src/routes/public_catalog.rs
+GET	/v1/balance	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	apps/api-rust/src/routes/public_catalog.rs
 GET	/api/user-agreement	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	source=apps/api-rust/src/routes/control_public.rs;mount=apps/api-rust/src/routes/control_public.rs
 GET	/api/user/	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	apps/api-rust/src/routes/identity_admin.rs
 POST	/api/user/	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	apps/api-rust/src/routes/identity_admin.rs

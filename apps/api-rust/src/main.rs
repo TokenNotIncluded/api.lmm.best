@@ -962,8 +962,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // and the shared session authority.  They have no provider-capable
         // outbound client, so the normal listener can own their route
         // boundary while their positive behavior is independently diffed.
-        let public_catalog =
-            test_instance::durable_public_catalog_surface(pg.clone(), Arc::clone(&auth));
+        let public_catalog = test_instance::durable_public_catalog_surface(
+            pg.clone(),
+            valkey.clone(),
+            config.dependency_timeout,
+            Arc::clone(&auth),
+        );
         let system_config = if local_acceptance {
             // Loopback developer access must retain the no-egress adapter;
             // production provider clients are composed only for normal
