@@ -198,7 +198,6 @@ POST	/api/token/	github.com/QuantumNous/new-api/controller.AddToken
 PUT	/api/token/	github.com/QuantumNous/new-api/controller.UpdateToken
 DELETE	/api/token/:id	github.com/QuantumNous/new-api/controller.DeleteToken
 GET	/api/token/:id	github.com/QuantumNous/new-api/controller.GetToken
-PUT	/api/token/:id/account-balance-access	github.com/LIghtJUNction/api.lmm.best/controller.SetAccountBalanceAccess
 POST	/api/token/:id/key	github.com/QuantumNous/new-api/controller.GetTokenKey
 POST	/api/token/batch	github.com/QuantumNous/new-api/controller.DeleteTokenBatch
 POST	/api/token/batch/keys	github.com/QuantumNous/new-api/controller.GetTokenKeysBatch
@@ -313,7 +312,6 @@ POST	/v1/alpha/search	github.com/QuantumNous/new-api/router.SetRelayRouter.func1
 POST	/v1/audio/speech	github.com/QuantumNous/new-api/router.SetRelayRouter.func18
 POST	/v1/audio/transcriptions	github.com/QuantumNous/new-api/router.SetRelayRouter.func16
 POST	/v1/audio/translations	github.com/QuantumNous/new-api/router.SetRelayRouter.func17
-GET	/v1/balance	github.com/LIghtJUNction/api.lmm.best/controller.GetAccountBalance
 POST	/v1/chat/completions	github.com/QuantumNous/new-api/router.SetRelayRouter.func8
 POST	/v1/completions	github.com/QuantumNous/new-api/router.SetRelayRouter.func7
 GET	/v1/dashboard/billing/subscription	github.com/QuantumNous/new-api/controller.GetSubscription

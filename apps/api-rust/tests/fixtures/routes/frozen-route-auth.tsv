@@ -199,7 +199,6 @@ POST	/api/token/	user
 PUT	/api/token/	user
 DELETE	/api/token/:id	user
 GET	/api/token/:id	user
-PUT	/api/token/:id/account-balance-access	user
 POST	/api/token/:id/key	user
 POST	/api/token/batch	user
 POST	/api/token/batch/keys	user
@@ -314,7 +313,6 @@ POST	/v1/alpha/search	token
 POST	/v1/audio/speech	token
 POST	/v1/audio/transcriptions	token
 POST	/v1/audio/translations	token
-GET	/v1/balance	token
 POST	/v1/chat/completions	token
 POST	/v1/completions	token
 GET	/v1/dashboard/billing/subscription	token

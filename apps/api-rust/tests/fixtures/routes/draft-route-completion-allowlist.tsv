@@ -1,4 +1,6 @@
 method	path	category	source_path	rationale
+GET	/v1/balance	compatibility	apps/api-rust/src/routes/public_catalog.rs	owner-authorized account balance introduced in current Go by PR 304 after the frozen baseline
+PUT	/api/token/:id/account-balance-access	compatibility	apps/api-rust/src/routes/api_token.rs	owner-authorized balance permission introduced in current Go by PR 304 after the frozen baseline
 GET	/_internal/build	internal	apps/api-rust/src/http.rs	listener build metadata used by the test deployment
 GET	/_test/hold	test	apps/api-rust/src/http.rs	cfg(test) request-boundary fixture
 POST	/_test/json	test	apps/api-rust/src/http.rs	cfg(test) JSON extractor fixture

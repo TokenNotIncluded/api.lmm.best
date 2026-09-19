@@ -1516,14 +1516,14 @@ impl PublicCatalogStore for PgPublicCatalogStore {
         else {
             return Ok(None);
         };
-        let Some(raw_quota_per_unit) =
+        let raw_quota_per_unit =
             sqlx::query_scalar::<_, String>("SELECT value FROM options WHERE key = 'QuotaPerUnit'")
                 .fetch_optional(&self.pg)
                 .await
                 .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?
-        else {
-            return Ok(None);
-        };
+                // Go initializes common.QuotaPerUnit before overlaying saved options.
+                // Absence uses the default; an explicitly invalid value still fails closed.
+                .unwrap_or_else(|| "500000".to_owned());
         let Ok(quota_per_unit) = raw_quota_per_unit.trim().parse::<f64>() else {
             return Ok(None);
         };
@@ -2362,6 +2362,10 @@ impl ProjectUpdateClient for DenyProjectUpdate {
         Err(())
     }
 }
+
+#[cfg(test)]
+#[path = "account_balance_pg_tests.rs"]
+mod account_balance_pg_tests;
 
 #[cfg(test)]
 mod tests {

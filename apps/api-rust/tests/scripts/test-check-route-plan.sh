@@ -55,7 +55,7 @@ printf '%s\n' "$checker_output"
 # The deployed Rust archive intentionally has no .git directory.  The checker
 # must resolve its repository root from the script location instead of Git.
 no_git_output=$(cd "$runtime" && bash "$checker")
-[[ $no_git_output == *"route plan valid: 355 frozen legacy routes covered exactly; route ownership policy satisfied"* ]] || {
+[[ $no_git_output == *"route plan valid: 353 frozen legacy routes covered exactly; route ownership policy satisfied"* ]] || {
   echo "route plan checker requires Git metadata when launched outside the checkout" >&2
   exit 1
 }
@@ -74,7 +74,7 @@ crlf_output=$(cd "$runtime" &&
     ROUTE_GATE_PATH="$crlf_gate" \
     ROUTE_INTEGRATION_REVIEW_PATH="$crlf_review" \
     bash "$checker")
-[[ $crlf_output == *"route plan valid: 355 frozen legacy routes covered exactly; route ownership policy satisfied"* ]] || {
+[[ $crlf_output == *"route plan valid: 353 frozen legacy routes covered exactly; route ownership policy satisfied"* ]] || {
   echo "route plan checker did not normalize CRLF across all ledgers" >&2
   exit 1
 }
@@ -376,7 +376,6 @@ GET	/api/ratio_sync/channels	root	admin
 POST	/api/ratio_sync/fetch	root	admin
 GET	/api/task/self	user	admin
 GET	/api/usage/token/	token	admin
-GET	/v1/balance	token	admin
 GET	/api/user/groups	public	user
 POST	/api/user/topup/complete	admin	user
 GET	/dashboard/billing/subscription	token	admin
