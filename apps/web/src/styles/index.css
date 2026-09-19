@@ -693,57 +693,6 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 /* ── Hero terminal demo animations ── */
-@keyframes auth-art-request-sweep {
-  0% {
-    opacity: 0;
-    transform: translateX(-100%);
-  }
-  18%,
-  72% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-    transform: translateX(100%);
-  }
-}
-
-.auth-art-request-sweep {
-  animation: auth-art-request-sweep 3.6s cubic-bezier(0.16, 1, 0.3, 1) infinite;
-  will-change: transform, opacity;
-}
-
-@keyframes auth-art-request-value {
-  from {
-    opacity: 0;
-    transform: translateY(3px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.auth-art-request-value {
-  animation: auth-art-request-value 420ms ease-out both;
-}
-
-@keyframes auth-art-request-pulse {
-  0%,
-  100% {
-    opacity: 0.35;
-    transform: scale(0.8);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.2);
-  }
-}
-
-.auth-art-request-pulse {
-  animation: auth-art-request-pulse 1.6s ease-in-out infinite;
-}
-
 @keyframes terminal-demo-blink {
   0%,
   100% {
@@ -780,9 +729,6 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .auth-art-request-sweep,
-  .auth-art-request-value,
-  .auth-art-request-pulse,
   .terminal-demo-blink,
   .terminal-demo-spin,
   .terminal-demo-pulse {
