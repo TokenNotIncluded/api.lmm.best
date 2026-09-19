@@ -2,11 +2,9 @@ package helper
 
 import (
 	"fmt"
-	"math"
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
-	"github.com/LIghtJUNction/api.lmm.best/constant"
 	"github.com/LIghtJUNction/api.lmm.best/logger"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/pkg/billingexpr"
@@ -248,6 +246,7 @@ func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (hostt
 		GroupRatioInfo: groupRatioInfo,
 	}
 
+	// Store the base quota; task adaptors apply their size/duration ratios once.
 	if !freeModel {
 		var quotaBase float64
 		if usePrice {

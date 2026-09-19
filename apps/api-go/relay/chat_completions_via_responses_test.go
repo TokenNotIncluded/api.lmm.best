@@ -57,19 +57,18 @@ func TestRecalcQuotaFromRatiosIgnoresInvalidMultipliers(t *testing.T) {
 	assert.True(t, info.PriceData.HasOtherRatio("duration"))
 }
 
-func TestRecalcQuotaFromRatiosPreservesDynamicPricing(t *testing.T) {
+func TestRecalcQuotaFromRatiosIgnoresRetiredProfitMultiplier(t *testing.T) {
 	info := &relaycommon.RelayInfo{
-		PriceData: types.PriceData{Quota: 200},
+		PriceData: types.PriceData{Quota: 100},
 	}
 	info.PriceData.AddOtherRatio("dynamic_pricing", 2)
 
 	quota, ok := recalcQuotaFromRatios(info, map[string]float64{"duration": 3})
 
 	require.True(t, ok)
-	// Existing quota 200 already includes 2x dynamic pricing, so the base is
-	// 100; submit-time duration 3 and the preserved dynamic 2 produce 600.
-	assert.Equal(t, 600, quota)
-	assert.Equal(t, 2.0, info.PriceData.OtherRatios()["dynamic_pricing"])
+	// Only the adaptor duration changes the fixed base quota.
+	assert.Equal(t, 300, quota)
+	assert.NotContains(t, info.PriceData.OtherRatios(), "dynamic_pricing")
 }
 
 func TestRecalcQuotaFromRatiosRejectsAllInvalidAdjustedRatios(t *testing.T) {

@@ -90,15 +90,15 @@ func TestTryTieredSettleUsesFrozenRequestInput(t *testing.T) {
 	}
 }
 
-func TestTryTieredSettleAppliesCapturedDynamicMultiplier(t *testing.T) {
+func TestTryTieredSettleIgnoresRetiredProfitMultiplier(t *testing.T) {
 	info := makeRelayInfo(flatExpr, 1.0, 1000, 500)
 	info.PriceData.AddOtherRatio("dynamic_pricing", 2)
 	info.FinalPreConsumedQuota *= 2
 
 	ok, quota, _ := TryTieredSettle(info, billingexpr.TokenParams{P: 1000, C: 500})
 	require.True(t, ok)
-	// Raw tiered quota is 3500; the captured multiplier doubles settlement.
-	require.Equal(t, 7000, quota)
+	// Token-tier prices and the fixed group ratio are the complete settlement.
+	require.Equal(t, 3500, quota)
 }
 
 func TestTryTieredSettleFallsBackToFrozenPreConsumeOnExprError(t *testing.T) {
@@ -376,7 +376,7 @@ func TestPrepareTieredBillingForSelectedGroupUpdatesReservation(t *testing.T) {
 	assert.Equal(t, 100_000, relayInfo.TieredBillingSnapshot.EstimatedQuotaAfterGroup)
 }
 
-func TestPrepareTieredBillingRecomputesWhenDynamicMultiplierChanges(t *testing.T) {
+func TestPrepareTieredBillingIgnoresRetiredProfitMultiplier(t *testing.T) {
 	const expr = `tier("base", p)`
 	billing := &recordingBillingSettler{preConsumedQuota: 100}
 	relayInfo := &relaycommon.RelayInfo{
@@ -395,14 +395,14 @@ func TestPrepareTieredBillingRecomputesWhenDynamicMultiplierChanges(t *testing.T
 			GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1},
 		},
 	}
-	relayInfo.PriceData.AddOtherRatio(dynamicPricingRatioKey, 2)
+	relayInfo.PriceData.AddOtherRatio("dynamic_pricing", 2)
 
 	require.Nil(t, PrepareTieredBillingForSelectedGroup(nil, relayInfo))
-	require.Equal(t, 200, relayInfo.TieredBillingSnapshot.EstimatedQuotaAfterGroup)
-	require.Equal(t, []int{200}, billing.reserveTargets)
+	require.Equal(t, 100, relayInfo.TieredBillingSnapshot.EstimatedQuotaAfterGroup)
+	require.Equal(t, []int{100}, billing.reserveTargets)
 }
 
-func TestPrepareTieredBillingForSelectedGroupPreservesDynamicMultiplier(t *testing.T) {
+func TestPrepareTieredBillingForSelectedGroupKeepsFixedGroupRatio(t *testing.T) {
 	const expr = `tier("base", p)`
 	billing := &recordingBillingSettler{preConsumedQuota: 50_000}
 	relayInfo := &relaycommon.RelayInfo{
@@ -424,8 +424,8 @@ func TestPrepareTieredBillingForSelectedGroupPreservesDynamicMultiplier(t *testi
 	relayInfo.PriceData.AddOtherRatio("dynamic_pricing", 2)
 
 	require.Nil(t, PrepareTieredBillingForSelectedGroup(nil, relayInfo))
-	require.Equal(t, []int{200_000}, billing.reserveTargets)
-	require.Equal(t, 200_000, relayInfo.TieredBillingSnapshot.EstimatedQuotaAfterGroup)
+	require.Equal(t, []int{100_000}, billing.reserveTargets)
+	require.Equal(t, 100_000, relayInfo.TieredBillingSnapshot.EstimatedQuotaAfterGroup)
 }
 
 func TestPrepareTieredBillingForSelectedGroupStartsBillingAfterFreeGroup(t *testing.T) {
