@@ -583,14 +583,16 @@ const debugAdapter: AxiosAdapter = async (config) => {
       })
     )
   }
-  if (method === 'GET' && path === '/api/acquisition/self-report')
+  if (method === 'GET' && path === '/api/acquisition/self-report') {
     return response(config, envelope(null))
-  if (method === 'GET' && path === '/api/log/self')
+  }
+  if (method === 'GET' && path === '/api/log/self') {
     return response(
       config,
       envelope({ items: [], total: 0, page: 1, page_size: 1 })
     )
-  if (method === 'GET' && path === '/api/admin/acquisition/visitors')
+  }
+  if (method === 'GET' && path === '/api/admin/acquisition/visitors') {
     return response(
       config,
       envelope({
@@ -605,7 +607,8 @@ const debugAdapter: AxiosAdapter = async (config) => {
         ],
       })
     )
-  if (method === 'GET' && path === '/api/admin/acquisition/funnel')
+  }
+  if (method === 'GET' && path === '/api/admin/acquisition/funnel') {
     return response(
       config,
       envelope({
@@ -660,6 +663,7 @@ const debugAdapter: AxiosAdapter = async (config) => {
         ],
       })
     )
+  }
   if (method === 'GET' && path === '/api/admin/acquisition/report') {
     return response(
       config,
@@ -768,10 +772,12 @@ const debugAdapter: AxiosAdapter = async (config) => {
   if (
     path === '/api/acquisition/consent' &&
     ['POST', 'DELETE'].includes(method)
-  )
+  ) {
     return response(config, envelope({ allowed: method === 'POST' }))
-  if (path === '/api/admin/acquisition/activity/rebuild' && method === 'POST')
+  }
+  if (path === '/api/admin/acquisition/activity/rebuild' && method === 'POST') {
     return response(config, envelope({ scheduled: true }))
+  }
   if (method === 'GET' && path === '/api/status') {
     return response(
       config,

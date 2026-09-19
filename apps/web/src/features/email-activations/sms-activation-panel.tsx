@@ -917,83 +917,78 @@ export function HeroSmsSmsActivationPanel() {
         {...purchaseBalance}
         onRefresh={() => void purchaseBalance.refresh()}
       />
-      <div
-        className={
-          purchaseBalance.canPurchase
-            ? 'grid gap-4 xl:grid-cols-[minmax(0,430px)_minmax(0,1fr)]'
-            : 'space-y-4'
-        }
-      >
-        {purchaseBalance.canPurchase && (
-          <SmsPurchaseCard
-            language={language}
-            services={queries.services.data ?? []}
-            countries={queries.countries.data ?? []}
-            favoriteCountries={queries.allCountries.data ?? []}
-            servicesState={{
-              isPending: queries.services.isPending,
-              isError: queries.services.isError,
-              onRetry: () => void queries.services.refetch(),
-            }}
-            countriesState={{
-              isPending: queries.countries.isPending,
-              isError: queries.countries.isError,
-              onRetry: () => void queries.countries.refetch(),
-            }}
-            favorites={favorites}
-            channel={receivingChannel}
-            service={service}
-            country={country}
-            operator={operator}
-            operators={queries.operators.data ?? []}
-            operatorsState={{
-              isPending: queries.operators.isPending,
-              isError: queries.operators.isError,
-              onRetry: () => void queries.operators.refetch(),
-            }}
-            selectedTierPrice={selectedTierPrice}
-            bidEnabled={bidEnabled}
-            bidPrice={bidPrice}
-            quantity={view.effectiveQuantity}
-            selectedService={selectedService}
-            selectedCountry={selectedCountry}
-            selectedIsFavorite={favoriteController.selected}
-            offer={effectiveOffer}
-            catalogOffer={queries.offer.data}
-            offerIsFetching={effectiveOfferQuery.isFetching}
-            offerIsError={effectiveOfferQuery.isError}
-            offerError={effectiveOfferQuery.error}
-            batchProgress={batchProgress}
-            batchResult={batchResult}
-            batchFeedback={view.batchFeedback}
-            canPurchase={view.canPurchase && purchaseBalance.canPurchase}
-            reconciliationPending={
-              reconciliation.pending || queries.current.isFetching
-            }
-            onChannelChange={selectReceivingChannel}
-            onServiceChange={selectService}
-            onCountryChange={selectCountry}
-            onOperatorChange={selectOperator}
-            onTierChange={(price) => {
-              setSelectedTierPrice(price)
-              setBidEnabled(false)
-            }}
-            onBidEnabledChange={setBidEnabled}
-            onBidPriceChange={(value) => {
-              setBidPrice(value)
-              setBidEnabled(true)
-            }}
-            onQuantityChange={setQuantity}
-            onSelectFavorite={selectFavorite}
-            onRemoveFavorite={favoriteController.remove}
-            onToggleFavorite={favoriteController.toggle}
-            onRefreshOffer={() => void refetchEffectiveOffer()}
-            onReconcile={() => void reconciliation.run()}
-            onPurchase={() => {
-              if (purchaseBalance.canPurchase) setConfirmOpen(true)
-            }}
-          />
-        )}
+      <div className='grid gap-4 xl:grid-cols-[minmax(0,430px)_minmax(0,1fr)]'>
+        <SmsPurchaseCard
+          language={language}
+          services={queries.services.data ?? []}
+          countries={queries.countries.data ?? []}
+          favoriteCountries={queries.allCountries.data ?? []}
+          servicesState={{
+            isPending:
+              purchaseBalance.canPurchase && queries.services.isPending,
+            isError: queries.services.isError,
+            onRetry: () => void queries.services.refetch(),
+          }}
+          countriesState={{
+            isPending:
+              purchaseBalance.canPurchase && queries.countries.isPending,
+            isError: queries.countries.isError,
+            onRetry: () => void queries.countries.refetch(),
+          }}
+          favorites={favorites}
+          channel={receivingChannel}
+          service={service}
+          country={country}
+          operator={operator}
+          operators={queries.operators.data ?? []}
+          operatorsState={{
+            isPending:
+              purchaseBalance.canPurchase && queries.operators.isPending,
+            isError: queries.operators.isError,
+            onRetry: () => void queries.operators.refetch(),
+          }}
+          selectedTierPrice={selectedTierPrice}
+          bidEnabled={bidEnabled}
+          bidPrice={bidPrice}
+          quantity={view.effectiveQuantity}
+          selectedService={selectedService}
+          selectedCountry={selectedCountry}
+          selectedIsFavorite={favoriteController.selected}
+          offer={effectiveOffer}
+          catalogOffer={queries.offer.data}
+          offerIsFetching={effectiveOfferQuery.isFetching}
+          offerIsError={effectiveOfferQuery.isError}
+          offerError={effectiveOfferQuery.error}
+          batchProgress={batchProgress}
+          batchResult={batchResult}
+          batchFeedback={view.batchFeedback}
+          canPurchase={view.canPurchase && purchaseBalance.canPurchase}
+          reconciliationPending={
+            reconciliation.pending || queries.current.isFetching
+          }
+          onChannelChange={selectReceivingChannel}
+          onServiceChange={selectService}
+          onCountryChange={selectCountry}
+          onOperatorChange={selectOperator}
+          onTierChange={(price) => {
+            setSelectedTierPrice(price)
+            setBidEnabled(false)
+          }}
+          onBidEnabledChange={setBidEnabled}
+          onBidPriceChange={(value) => {
+            setBidPrice(value)
+            setBidEnabled(true)
+          }}
+          onQuantityChange={setQuantity}
+          onSelectFavorite={selectFavorite}
+          onRemoveFavorite={favoriteController.remove}
+          onToggleFavorite={favoriteController.toggle}
+          onRefreshOffer={() => void refetchEffectiveOffer()}
+          onReconcile={() => void reconciliation.run()}
+          onPurchase={() => {
+            if (purchaseBalance.canPurchase) setConfirmOpen(true)
+          }}
+        />
         <SmsActiveOrdersCard
           orders={currentOrders}
           countries={countryMap}
