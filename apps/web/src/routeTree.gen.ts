@@ -34,6 +34,7 @@ import { Route as AuthenticatedSystemSettingsRouteRouteImport } from './routes/_
 import { Route as AboutIndexRouteImport } from './routes/about/index'
 import { Route as ChallengesIndexRouteImport } from './routes/challenges/index'
 import { Route as ChallengesChallengeIdRouteImport } from './routes/challenges/$challengeId'
+import { Route as DevelopersIndexRouteImport } from './routes/developers/index'
 import { Route as GuideIndexRouteImport } from './routes/guide/index'
 import { Route as OauthProviderRouteImport } from './routes/oauth/$provider'
 import { Route as PricingIndexRouteImport } from './routes/pricing/index'
@@ -51,7 +52,6 @@ import { Route as AuthenticatedChatChatIdRouteImport } from './routes/_authentic
 import { Route as AuthenticatedCompanyIndexRouteImport } from './routes/_authenticated/company/index'
 import { Route as AuthenticatedDashboardIndexRouteImport } from './routes/_authenticated/dashboard/index'
 import { Route as AuthenticatedDashboardSectionRouteImport } from './routes/_authenticated/dashboard/$section'
-import { Route as AuthenticatedDeveloperAccessIndexRouteImport } from './routes/_authenticated/developer-access/index'
 import { Route as AuthenticatedDiscountCodesIndexRouteImport } from './routes/_authenticated/discount-codes/index'
 import { Route as AuthenticatedDrawingIndexRouteImport } from './routes/_authenticated/drawing/index'
 import { Route as AuthenticatedEmailActivationsIndexRouteImport } from './routes/_authenticated/email-activations/index'
@@ -222,6 +222,11 @@ const ChallengesChallengeIdRoute = ChallengesChallengeIdRouteImport.update({
   path: '/challenges/$challengeId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DevelopersIndexRoute = DevelopersIndexRouteImport.update({
+  id: '/developers/',
+  path: '/developers/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const GuideIndexRoute = GuideIndexRouteImport.update({
   id: '/guide/',
   path: '/guide/',
@@ -310,12 +315,6 @@ const AuthenticatedDashboardSectionRoute =
   AuthenticatedDashboardSectionRouteImport.update({
     id: '/dashboard/$section',
     path: '/dashboard/$section',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedDeveloperAccessIndexRoute =
-  AuthenticatedDeveloperAccessIndexRouteImport.update({
-    id: '/developer-access/',
-    path: '/developer-access/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedDiscountCodesIndexRoute =
@@ -610,6 +609,7 @@ export interface FileRoutesByFullPath {
   '/red-packet/$slug': typeof RedPacketSlugRoute
   '/about/': typeof AboutIndexRoute
   '/challenges/': typeof ChallengesIndexRoute
+  '/developers/': typeof DevelopersIndexRoute
   '/guide/': typeof GuideIndexRoute
   '/pricing/': typeof PricingIndexRoute
   '/rankings/': typeof RankingsIndexRoute
@@ -630,7 +630,6 @@ export interface FileRoutesByFullPath {
   '/chat-management/': typeof AuthenticatedChatManagementIndexRoute
   '/company/': typeof AuthenticatedCompanyIndexRoute
   '/dashboard/': typeof AuthenticatedDashboardIndexRoute
-  '/developer-access/': typeof AuthenticatedDeveloperAccessIndexRoute
   '/discount-codes/': typeof AuthenticatedDiscountCodesIndexRoute
   '/drawing/': typeof AuthenticatedDrawingIndexRoute
   '/email-activations/': typeof AuthenticatedEmailActivationsIndexRoute
@@ -697,6 +696,7 @@ export interface FileRoutesByTo {
   '/red-packet/$slug': typeof RedPacketSlugRoute
   '/about': typeof AboutIndexRoute
   '/challenges': typeof ChallengesIndexRoute
+  '/developers': typeof DevelopersIndexRoute
   '/guide': typeof GuideIndexRoute
   '/pricing': typeof PricingIndexRoute
   '/rankings': typeof RankingsIndexRoute
@@ -717,7 +717,6 @@ export interface FileRoutesByTo {
   '/chat-management': typeof AuthenticatedChatManagementIndexRoute
   '/company': typeof AuthenticatedCompanyIndexRoute
   '/dashboard': typeof AuthenticatedDashboardIndexRoute
-  '/developer-access': typeof AuthenticatedDeveloperAccessIndexRoute
   '/discount-codes': typeof AuthenticatedDiscountCodesIndexRoute
   '/drawing': typeof AuthenticatedDrawingIndexRoute
   '/email-activations': typeof AuthenticatedEmailActivationsIndexRoute
@@ -788,6 +787,7 @@ export interface FileRoutesById {
   '/red-packet/$slug': typeof RedPacketSlugRoute
   '/about/': typeof AboutIndexRoute
   '/challenges/': typeof ChallengesIndexRoute
+  '/developers/': typeof DevelopersIndexRoute
   '/guide/': typeof GuideIndexRoute
   '/pricing/': typeof PricingIndexRoute
   '/rankings/': typeof RankingsIndexRoute
@@ -808,7 +808,6 @@ export interface FileRoutesById {
   '/_authenticated/chat-management/': typeof AuthenticatedChatManagementIndexRoute
   '/_authenticated/company/': typeof AuthenticatedCompanyIndexRoute
   '/_authenticated/dashboard/': typeof AuthenticatedDashboardIndexRoute
-  '/_authenticated/developer-access/': typeof AuthenticatedDeveloperAccessIndexRoute
   '/_authenticated/discount-codes/': typeof AuthenticatedDiscountCodesIndexRoute
   '/_authenticated/drawing/': typeof AuthenticatedDrawingIndexRoute
   '/_authenticated/email-activations/': typeof AuthenticatedEmailActivationsIndexRoute
@@ -878,6 +877,7 @@ export interface FileRouteTypes {
     | '/red-packet/$slug'
     | '/about/'
     | '/challenges/'
+    | '/developers/'
     | '/guide/'
     | '/pricing/'
     | '/rankings/'
@@ -898,7 +898,6 @@ export interface FileRouteTypes {
     | '/chat-management/'
     | '/company/'
     | '/dashboard/'
-    | '/developer-access/'
     | '/discount-codes/'
     | '/drawing/'
     | '/email-activations/'
@@ -965,6 +964,7 @@ export interface FileRouteTypes {
     | '/red-packet/$slug'
     | '/about'
     | '/challenges'
+    | '/developers'
     | '/guide'
     | '/pricing'
     | '/rankings'
@@ -985,7 +985,6 @@ export interface FileRouteTypes {
     | '/chat-management'
     | '/company'
     | '/dashboard'
-    | '/developer-access'
     | '/discount-codes'
     | '/drawing'
     | '/email-activations'
@@ -1055,6 +1054,7 @@ export interface FileRouteTypes {
     | '/red-packet/$slug'
     | '/about/'
     | '/challenges/'
+    | '/developers/'
     | '/guide/'
     | '/pricing/'
     | '/rankings/'
@@ -1075,7 +1075,6 @@ export interface FileRouteTypes {
     | '/_authenticated/chat-management/'
     | '/_authenticated/company/'
     | '/_authenticated/dashboard/'
-    | '/_authenticated/developer-access/'
     | '/_authenticated/discount-codes/'
     | '/_authenticated/drawing/'
     | '/_authenticated/email-activations/'
@@ -1136,6 +1135,7 @@ export interface RootRouteChildren {
   RedPacketSlugRoute: typeof RedPacketSlugRoute
   AboutIndexRoute: typeof AboutIndexRoute
   ChallengesIndexRoute: typeof ChallengesIndexRoute
+  DevelopersIndexRoute: typeof DevelopersIndexRoute
   GuideIndexRoute: typeof GuideIndexRoute
   PricingIndexRoute: typeof PricingIndexRoute
   RankingsIndexRoute: typeof RankingsIndexRoute
@@ -1325,6 +1325,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChallengesChallengeIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/developers/': {
+      id: '/developers/'
+      path: '/developers'
+      fullPath: '/developers/'
+      preLoaderRoute: typeof DevelopersIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/guide/': {
       id: '/guide/'
       path: '/guide'
@@ -1442,13 +1449,6 @@ declare module '@tanstack/react-router' {
       path: '/dashboard/$section'
       fullPath: '/dashboard/$section'
       preLoaderRoute: typeof AuthenticatedDashboardSectionRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/developer-access/': {
-      id: '/_authenticated/developer-access/'
-      path: '/developer-access'
-      fullPath: '/developer-access/'
-      preLoaderRoute: typeof AuthenticatedDeveloperAccessIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/discount-codes/': {
@@ -1868,7 +1868,6 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedChatManagementIndexRoute: typeof AuthenticatedChatManagementIndexRoute
   AuthenticatedCompanyIndexRoute: typeof AuthenticatedCompanyIndexRoute
   AuthenticatedDashboardIndexRoute: typeof AuthenticatedDashboardIndexRoute
-  AuthenticatedDeveloperAccessIndexRoute: typeof AuthenticatedDeveloperAccessIndexRoute
   AuthenticatedDiscountCodesIndexRoute: typeof AuthenticatedDiscountCodesIndexRoute
   AuthenticatedDrawingIndexRoute: typeof AuthenticatedDrawingIndexRoute
   AuthenticatedEmailActivationsIndexRoute: typeof AuthenticatedEmailActivationsIndexRoute
@@ -1909,8 +1908,6 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedChatManagementIndexRoute: AuthenticatedChatManagementIndexRoute,
   AuthenticatedCompanyIndexRoute: AuthenticatedCompanyIndexRoute,
   AuthenticatedDashboardIndexRoute: AuthenticatedDashboardIndexRoute,
-  AuthenticatedDeveloperAccessIndexRoute:
-    AuthenticatedDeveloperAccessIndexRoute,
   AuthenticatedDiscountCodesIndexRoute: AuthenticatedDiscountCodesIndexRoute,
   AuthenticatedDrawingIndexRoute: AuthenticatedDrawingIndexRoute,
   AuthenticatedEmailActivationsIndexRoute:
@@ -1961,6 +1958,7 @@ const rootRouteChildren: RootRouteChildren = {
   RedPacketSlugRoute: RedPacketSlugRoute,
   AboutIndexRoute: AboutIndexRoute,
   ChallengesIndexRoute: ChallengesIndexRoute,
+  DevelopersIndexRoute: DevelopersIndexRoute,
   GuideIndexRoute: GuideIndexRoute,
   PricingIndexRoute: PricingIndexRoute,
   RankingsIndexRoute: RankingsIndexRoute,

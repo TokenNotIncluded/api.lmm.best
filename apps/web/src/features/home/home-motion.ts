@@ -23,6 +23,7 @@ import {
   type CorePoint,
 } from './home-core'
 import { createWebGLCore, type CoreFilm } from './home-core-webgl'
+import { createTokenCloud } from './home-token-cloud'
 
 export function unit(value: number) {
   return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0
@@ -262,6 +263,9 @@ export function mountHomeMotion(root: HTMLElement) {
   const canvas = root.querySelector<HTMLCanvasElement>('[data-film]')
   if (!cinema || !inner || !canvas) return () => {}
   let draw = createFilm(canvas)
+  const tokens = createTokenCloud(
+    root.querySelector<HTMLElement>('[data-token-cloud]')
+  )
   const scenePanels = [
     ...root.querySelectorAll<HTMLElement>('[data-cinema-panel]'),
   ]
@@ -278,10 +282,13 @@ export function mountHomeMotion(root: HTMLElement) {
     typeof window.ResizeObserver !== 'function'
   ) {
     draw?.(0, { x: 0, y: 0 }, 0)
+    tokens?.measure(inner.getBoundingClientRect(), scenePanels)
+    tokens?.draw(0, null, false)
     root.dataset.motion = 'static'
     if (toggle) toggle.hidden = true
     return () => {
       draw?.dispose?.()
+      tokens?.dispose()
       delete root.dataset.motion
     }
   }
@@ -299,6 +306,7 @@ export function mountHomeMotion(root: HTMLElement) {
   let dirty = true
   let target = { x: 0, y: 0 }
   let pointer = { x: 0, y: 0 }
+  let tokenPointer: { x: number; y: number } | null = null
   let measured = true
   let sceneProgress = 0
 
@@ -363,6 +371,11 @@ export function mountHomeMotion(root: HTMLElement) {
     sceneSteps.forEach((step, index) =>
       step.toggleAttribute('data-active', index === chapter)
     )
+    tokens?.measure(frameRect, [
+      ...scenePanels,
+      ...sceneSteps,
+      ...(toggle ? [toggle] : []),
+    ])
     if (story) {
       const rect = story.getBoundingClientRect()
       const progress = storyPosition(rect.top, rect.height, window.innerHeight)
@@ -422,7 +435,11 @@ export function mountHomeMotion(root: HTMLElement) {
     ) {
       if (lastTime && animate) clock += Math.min((now - lastTime) / 1000, 0.1)
       draw(reduced.matches ? 0 : clock, pointer, sceneProgress)
+      tokens?.draw(clock, tokenPointer, animate)
       lastTime = now
+      dirty = false
+    } else if (!draw && dirty) {
+      tokens?.draw(0, null, false)
       dirty = false
     }
     if (draw && animate && visible) schedule()
@@ -435,6 +452,7 @@ export function mountHomeMotion(root: HTMLElement) {
   const filmUnavailable = () => {
     draw?.dispose?.()
     draw = null
+    tokens?.draw(0, null, false)
     updateControls()
     update()
   }
@@ -457,14 +475,21 @@ export function mountHomeMotion(root: HTMLElement) {
       event.clientY,
       cinema.getBoundingClientRect()
     )
+    const frame = inner.getBoundingClientRect()
+    tokenPointer = {
+      x: event.clientX - frame.left,
+      y: event.clientY - frame.top,
+    }
     schedule()
   }
   const leave = () => {
     target = { x: 0, y: 0 }
+    tokenPointer = null
     schedule()
   }
   const preferences = () => {
     target = { x: 0, y: 0 }
+    tokenPointer = null
 
     dirty = true
 
@@ -525,6 +550,7 @@ export function mountHomeMotion(root: HTMLElement) {
   return () => {
     disposed = true
     draw?.dispose?.()
+    tokens?.dispose()
     if (frame !== null) cancelAnimationFrame(frame)
     observer.disconnect()
     resizeObserver.disconnect()

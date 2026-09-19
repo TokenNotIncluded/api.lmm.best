@@ -241,6 +241,34 @@ describe('persona debug runtime', () => {
     assert.equal(useAuthStore.getState().auth.session?.sid, 'debug-persona-l1')
   })
 
+  test('saves only non-sensitive preview preferences without changing account grants', async () => {
+    setActiveDebugPersona('l1')
+    const before = (await api.get('/api/user/self')).data.data
+    await api.put('/api/user/self', { language: 'zh', sidebar_modules: '{}' })
+    const after = (await api.get('/api/user/self')).data.data
+    assert.equal(after.language, 'zh')
+    assert.equal(after.sidebar_modules, '{}')
+    assert.equal(after.quota, before.quota)
+    assert.equal(
+      after.developer_access_granted,
+      before.developer_access_granted
+    )
+    await assert.rejects(
+      api.put(
+        '/api/user/self',
+        { quota: 999999999 },
+        { skipErrorHandler: true }
+      ),
+      /only saves language and sidebar preferences locally/
+    )
+    resetPersonaDebugRuntime()
+    setActiveDebugPersona('l1')
+    assert.equal(
+      (await api.get('/api/user/self')).data.data.language,
+      undefined
+    )
+  })
+
   test('blocks unmocked axios and fetch API traffic', async () => {
     await assert.rejects(
       api.post('/api/unsafe-production-mutation', { enabled: true }),

@@ -341,7 +341,7 @@ function buildSectionDefs(t: (key: string) => string): SectionDef[] {
     description: t('Client setup and API usage'),
     requiresConsole: true,
     modules: [
-      module('/developer-access', 'API access'),
+      module('/developers', 'Integration guide'),
       ...general.modules.filter((item) => developerRoutes.has(item.id)),
       module('/guide', 'Client setup'),
       module('/status', 'Status detection'),

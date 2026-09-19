@@ -110,6 +110,11 @@ export function HomeLanding({
         aria-label={t('One endpoint')}
       >
         <div className='lmm-cinema-inner' data-cinema-inner>
+          <div
+            className='lmm-token-cloud'
+            data-token-cloud
+            aria-hidden='true'
+          />
           <section
             className='lmm-intro lmm-scene-panel'
             data-cinema-panel='0'

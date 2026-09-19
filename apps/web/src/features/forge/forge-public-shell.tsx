@@ -55,6 +55,7 @@ export function ForgePublicShell(props: ForgePublicShellProps) {
       navLinks={[
         { title: 'Home', href: '/' },
         { title: 'Models and pricing', href: '/pricing' },
+        { title: 'Developers', href: '/developers' },
         { title: 'Guide', href: '/guide' },
         { title: 'Scripts', href: '/scripts' },
         { title: 'WebMCP', href: '/webmcp' },
