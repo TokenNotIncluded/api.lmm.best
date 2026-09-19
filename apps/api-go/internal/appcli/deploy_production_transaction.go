@@ -1290,7 +1290,24 @@ func (runtime *productionRuntime) rollbackBeforeWriterStop(ctx context.Context, 
 	if state["ActiveState"] != "active" {
 		return false, productionStatus{}, nil
 	}
-	if state["MainPID"] != strconv.Itoa(gate.GoPID) || state["InvocationID"] != gate.GoInvocationID {
+	sameWriter := state["MainPID"] == strconv.Itoa(gate.GoPID) && state["InvocationID"] == gate.GoInvocationID
+	if gate.GoPID == 0 && gate.GoInvocationID == "" && gate.StopStartedUTC.IsZero() && !gate.AdmissionClosed {
+		// Admission can time out before stopBillingWriter records an identity.
+		// Only restore ingress if systemd proves this writer predates the gate.
+		started, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl,
+			Args: []string{"show", runtime.paths.Service, "--property=ExecMainStartTimestamp", "--value"},
+			Env:  []string{"LC_ALL=C", "TZ=UTC"}})
+		startTime, parseErr := time.Parse("Mon 2006-01-02 15:04:05 MST", strings.TrimSpace(string(started)))
+		pid, pidErr := strconv.Atoi(state["MainPID"])
+		if err != nil || parseErr != nil || pidErr != nil || pid <= 1 || len(state["InvocationID"]) != 32 || gate.StartedUTC.IsZero() || !startTime.Before(gate.StartedUTC.Truncate(time.Second)) {
+			return true, productionStatus{}, errors.New("cannot prove unchanged writer before admission timeout")
+		}
+		if err := runtime.verifyServiceRestartBaseline(ctx, *manifest); err != nil {
+			return true, productionStatus{}, err
+		}
+		sameWriter = true
+	}
+	if !sameWriter {
 		// A replacement writer cannot use the unchanged-writer shortcut. The
 		// normal rollback must drain and verify this instance before mutation.
 		return false, productionStatus{}, nil

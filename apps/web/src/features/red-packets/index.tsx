@@ -311,77 +311,79 @@ export function RedPackets() {
   const packets = packetsQuery.data?.data ?? []
 
   return (
-    <SectionPageLayout>
-      <SectionPageLayout.Title>{t('Red Packets')}</SectionPageLayout.Title>
-      <SectionPageLayout.Actions>
-        <Button type='button' onClick={() => setOpen(true)}>
-          <Plus className='mr-2 size-4' />
-          {t('Create red packet')}
-        </Button>
-      </SectionPageLayout.Actions>
-      <SectionPageLayout.Content>
-        <div className='mx-auto w-full max-w-6xl space-y-4'>
-          <p className='text-muted-foreground text-sm'>
-            {t(
-              'Distribute redemption and discount codes fairly through a shareable draw link.'
-            )}
-          </p>
-          <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-3'>
-            {packets.map((packet) => {
-              const shareUrl = `${window.location.origin}/red-packet/${packet.slug}`
-              return (
-                <div
-                  key={packet.id}
-                  className='bg-card overflow-hidden rounded-xl border'
-                >
-                  {packet.cover_image ? (
-                    <img
-                      src={packet.cover_image}
-                      alt=''
-                      className='aspect-[3/1] w-full object-cover'
-                    />
-                  ) : (
-                    <div className='from-primary/15 to-muted flex aspect-[3/1] items-center justify-center bg-gradient-to-br'>
-                      <Gift className='text-muted-foreground size-8' />
-                    </div>
-                  )}
-                  <div className='space-y-3 p-4'>
-                    <div>
-                      <div className='font-medium'>{packet.title}</div>
-                      <div className='text-muted-foreground mt-1 text-xs'>
-                        {packet.remaining_items}/{packet.total_items}{' '}
-                        {t('remaining')} · {packet.claim_count} {t('claims')}
+    <>
+      <SectionPageLayout>
+        <SectionPageLayout.Title>{t('Red Packets')}</SectionPageLayout.Title>
+        <SectionPageLayout.Actions>
+          <Button type='button' onClick={() => setOpen(true)}>
+            <Plus className='mr-2 size-4' />
+            {t('Create red packet')}
+          </Button>
+        </SectionPageLayout.Actions>
+        <SectionPageLayout.Content>
+          <div className='mx-auto w-full max-w-6xl space-y-4'>
+            <p className='text-muted-foreground text-sm'>
+              {t(
+                'Distribute redemption and discount codes fairly through a shareable draw link.'
+              )}
+            </p>
+            <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-3'>
+              {packets.map((packet) => {
+                const shareUrl = `${window.location.origin}/red-packet/${packet.slug}`
+                return (
+                  <div
+                    key={packet.id}
+                    className='bg-card overflow-hidden rounded-xl border'
+                  >
+                    {packet.cover_image ? (
+                      <img
+                        src={packet.cover_image}
+                        alt=''
+                        className='aspect-[3/1] w-full object-cover'
+                      />
+                    ) : (
+                      <div className='from-primary/15 to-muted flex aspect-[3/1] items-center justify-center bg-gradient-to-br'>
+                        <Gift className='text-muted-foreground size-8' />
+                      </div>
+                    )}
+                    <div className='space-y-3 p-4'>
+                      <div>
+                        <div className='font-medium'>{packet.title}</div>
+                        <div className='text-muted-foreground mt-1 text-xs'>
+                          {packet.remaining_items}/{packet.total_items}{' '}
+                          {t('remaining')} · {packet.claim_count} {t('claims')}
+                        </div>
+                      </div>
+                      <div className='flex gap-2'>
+                        <Input
+                          value={shareUrl}
+                          readOnly
+                          className='h-8 text-xs'
+                        />
+                        <Button
+                          size='sm'
+                          variant='outline'
+                          onClick={async () => {
+                            await navigator.clipboard?.writeText(shareUrl)
+                            toast.success(t('Copied to clipboard'))
+                          }}
+                        >
+                          <Copy className='size-4' />
+                        </Button>
                       </div>
                     </div>
-                    <div className='flex gap-2'>
-                      <Input
-                        value={shareUrl}
-                        readOnly
-                        className='h-8 text-xs'
-                      />
-                      <Button
-                        size='sm'
-                        variant='outline'
-                        onClick={async () => {
-                          await navigator.clipboard?.writeText(shareUrl)
-                          toast.success(t('Copied to clipboard'))
-                        }}
-                      >
-                        <Copy className='size-4' />
-                      </Button>
-                    </div>
                   </div>
+                )
+              })}
+              {!packetsQuery.isLoading && packets.length === 0 ? (
+                <div className='text-muted-foreground rounded-xl border border-dashed p-8 text-sm md:col-span-2 xl:col-span-3'>
+                  {t('No red packets yet.')}
                 </div>
-              )
-            })}
-            {!packetsQuery.isLoading && packets.length === 0 ? (
-              <div className='text-muted-foreground rounded-xl border border-dashed p-8 text-sm md:col-span-2 xl:col-span-3'>
-                {t('No red packets yet.')}
-              </div>
-            ) : null}
+              ) : null}
+            </div>
           </div>
-        </div>
-      </SectionPageLayout.Content>
+        </SectionPageLayout.Content>
+      </SectionPageLayout>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className='max-h-[90vh] overflow-y-auto sm:max-w-3xl'>
@@ -616,6 +618,6 @@ export function RedPackets() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </SectionPageLayout>
+    </>
   )
 }

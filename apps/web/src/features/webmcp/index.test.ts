@@ -127,3 +127,34 @@ test('does nothing when the browser has no WebMCP support', () => {
     }
   }
 })
+
+for (const mode of ['sync', 'throw', 'reject'] as const) {
+  test(`optional WebMCP ${mode} registration cannot prevent app startup`, async () => {
+    const previous = Object.getOwnPropertyDescriptor(globalThis, 'document')
+    let calls = 0
+    Object.defineProperty(globalThis, 'document', {
+      configurable: true,
+      value: {
+        modelContext: {
+          registerTool: () => {
+            calls += 1
+            if (mode === 'throw') throw new Error('registration unavailable')
+            if (mode === 'reject') return Promise.reject(new Error('rejected'))
+          },
+        },
+      },
+    })
+    try {
+      const cleanup = installWebMcp({
+        navigate: async () => undefined,
+        subscribe: () => () => undefined,
+      })
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      assert.equal(calls, 4)
+      cleanup()
+    } finally {
+      if (previous) Object.defineProperty(globalThis, 'document', previous)
+      else delete (globalThis as { document?: unknown }).document
+    }
+  })
+}
