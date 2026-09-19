@@ -1,3 +1,10 @@
+import { getPricing } from '@/features/pricing/api'
+import {
+  fetchRepositoryStars,
+  REPOSITORIES,
+  repositoryUrl,
+  type RepositoryKind,
+} from '@/features/repositories/api'
 /*
 Copyright (C) 2026 LIghtJUNction
 
@@ -6,18 +13,12 @@ it under the terms of the GNU Affero General Public License as
 published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
-import { getPricing } from '@/features/pricing/api'
-import {
-  fetchRepositoryStars,
-  REPOSITORIES,
-  repositoryUrl,
-  type RepositoryKind,
-} from '@/features/repositories/api'
+import { signalGameTools } from '@/features/signal-game/webmcp'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
 type ToolExecuteOptions = { signal: AbortSignal }
-type ModelContextTool = {
+export type ModelContextTool = {
   name: string
   title?: string
   description: string
@@ -55,6 +56,7 @@ const NAVIGABLE_PATHS = {
   '/guide': '/guide',
   '/scripts': '/scripts',
   '/webmcp': '/webmcp',
+  '/games/signal': '/games/signal',
   '/dashboard/overview': '/dashboard/overview',
   '/wallet': '/wallet',
   '/temporary-activations': '/temporary-activations',
@@ -87,6 +89,7 @@ function safeAccountStatus() {
 
 function toolsFor(router: WebMcpRouter): ModelContextTool[] {
   return [
+    ...signalGameTools(),
     {
       name: 'lmm_site_info',
       title: 'LMM site information',
@@ -276,6 +279,15 @@ function toolsFor(router: WebMcpRouter): ModelContextTool[] {
 }
 
 export const WEBMCP_TOOL_DESCRIPTIONS = [
+  ['lmm_signal_state', 'Read the game board and current round'],
+  ['lmm_signal_start', 'Start a game as an identified AI participant'],
+  ['lmm_signal_rotate', 'Rotate game tiles in bounded batches'],
+  ['lmm_signal_hint', 'Use a hint in practice mode only'],
+  ['lmm_signal_records', 'Read game records and the leaderboard'],
+  [
+    'lmm_signal_submit',
+    'Submit a completed result using the signed-in account',
+  ],
   ['lmm_site_info', 'Site information and public page links'],
   ['lmm_navigate', 'Navigate to supported LMM pages'],
   ['lmm_model_prices', 'Public model prices and billing units'],

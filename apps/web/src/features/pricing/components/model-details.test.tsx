@@ -161,6 +161,13 @@ describe('ModelDetails group pricing', () => {
       '[aria-label="Model availability"]'
     )
     assert.ok(status)
+    for (
+      let attempt = 0;
+      attempt < 30 && status.textContent?.includes('Loading status');
+      attempt++
+    ) {
+      await act(flushEffects)
+    }
     assert.match(status.textContent ?? '', /No recent model status/)
     assert.match(status.textContent ?? '', /Sign in to check model access/)
     assert.doesNotMatch(status.textContent ?? '', /Recent calls succeeded/)

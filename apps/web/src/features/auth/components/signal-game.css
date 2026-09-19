@@ -194,3 +194,32 @@
 .signal-game .text-primary {
   color: var(--signal-color);
 }
+
+.signal-game-countdown {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 1rem;
+  background: color-mix(in oklch, var(--background) 92%, transparent);
+  color: var(--foreground);
+}
+.signal-game-viewport {
+  width: 100%;
+  height: min(55vh, 28rem);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  overscroll-behavior: contain;
+}
+.signal-game-canvas {
+  position: sticky;
+  top: 0;
+  left: 0;
+  display: block;
+  touch-action: pan-x pan-y;
+}
+.signal-game-canvas:focus-visible {
+  outline: 2px solid var(--signal-color);
+  outline-offset: -2px;
+}
