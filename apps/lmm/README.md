@@ -1,6 +1,6 @@
 # lmm
 
-LMM 生态的 Rust CLI 子项目，包名与可执行文件名均为 `lmm`。
+LMM 生态的 Rust CLI 子项目。crates.io 包名为 `lmm-cli`，子项目和可执行文件名为 `lmm`。
 
 **当前是开发预览，已实现只读发现、桌面 OAuth 登录和模型目录读取，不是可完成应用接入的产品版本。**
 `setup`、安装、同步、更新、恢复、解除接入、卸载和启动目前会明确返回阻塞原因，
@@ -8,6 +8,17 @@ LMM 生态的 Rust CLI 子项目，包名与可执行文件名均为 `lmm`。
 
 完整产品要求见 [原始需求](docs/requirements.zh-CN.md)，逐阶段交付见
 [实施与验收计划](docs/implementation.md)。完整需求保留为目标，不因当前实现范围而缩减。
+
+## 从 crates.io 安装
+
+```bash
+cargo install lmm-cli --version 0.1.0 --locked
+lmm --help
+```
+
+这是开发预览版，功能边界见上文。Cargo 安装需要 Rust 1.88 或更新版本及本机编译工具；
+面向无需开发环境用户的二进制安装器尚未提供。
+Linux OAuth 功能另需运行中的 Secret Service；Windows/macOS 使用系统凭据库。
 
 ## 当前可用
 

@@ -5,7 +5,8 @@
 
 ## 仓库与已有能力
 
-- 子项目：`apps/lmm`；Rust package / binary：`lmm`；独立 Cargo.lock。
+- 子项目：`apps/lmm`；crates.io package：`lmm-cli`；library / binary：`lmm`；独立 Cargo.lock。
+  `lmm` 注册名已属于其他项目，因此发布包名与命令名分开。
 - 现有 OAuth：`apps/api-go/service/oauth_server.go`、`service/oauth_contract.md`。
   当前源码客户端登记为 `lmm-pi`、`lmm-dsh` 和本次新增的只读 `lmm`；生产是否部署另行验证。
   现有授权码、PKCE、刷新轮换、撤销、目录、relay 和计费能力应复用。
