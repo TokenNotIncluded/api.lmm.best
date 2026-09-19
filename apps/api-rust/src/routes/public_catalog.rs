@@ -5,7 +5,10 @@
 
 use std::{
     collections::BTreeMap,
+    net::IpAddr,
+    str::FromStr,
     sync::{Arc, RwLock},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use async_trait::async_trait;
@@ -321,6 +324,27 @@ pub struct PublicCatalogToken {
     pub saved_language: Option<String>,
 }
 
+/// Persisted token facts used by the account-wallet balance endpoint.  This
+/// is deliberately separate from [`PublicCatalogToken`]: the legacy usage
+/// endpoint has a wider historical lookup contract and must not inherit the
+/// balance endpoint's stricter checks by accident.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct AccountBalanceToken {
+    pub user_id: i64,
+    pub status: i64,
+    pub expired_time: i64,
+    pub allow_ips: Option<String>,
+    pub oauth_managed: bool,
+    pub account_balance_read: bool,
+    pub user_status: i64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AccountBalanceSnapshot {
+    pub remaining: f64,
+    pub updated_at: i64,
+}
+
 impl Default for PublicCatalogToken {
     fn default() -> Self {
         Self {
@@ -332,7 +356,8 @@ impl Default for PublicCatalogToken {
     }
 }
 
-/// Durable source for the seven legacy endpoints in this slice.
+/// Durable source for the public catalogue plus account-balance endpoints in
+/// this slice.
 ///
 /// Values are JSON because the Go endpoints expose cache-backed dynamic shapes
 /// rather than stable structs. Preserving them avoids silently dropping fields.
@@ -371,6 +396,25 @@ pub trait PublicCatalogStore: Send + Sync {
             .await?
             .map(|_| PublicCatalogToken::default()))
     }
+
+    /// Exact, persisted lookup for `/v1/balance`. Implementations should not
+    /// use the legacy usage prefix matching or a cache because revocation must
+    /// take effect on the next request.
+    async fn account_balance_token(
+        &self,
+        _: &str,
+    ) -> Result<Option<AccountBalanceToken>, PublicCatalogStoreError> {
+        Ok(None)
+    }
+
+    /// Reads the owner's durable wallet snapshot and the configured USD quota
+    /// unit without mutating usage, token or account rows.
+    async fn account_balance_for_owner(
+        &self,
+        _: i64,
+    ) -> Result<Option<AccountBalanceSnapshot>, PublicCatalogStoreError> {
+        Ok(None)
+    }
 }
 
 #[async_trait]
@@ -379,6 +423,99 @@ pub trait PublicCatalogRateLimiter: Send + Sync {
         &self,
         client_ip: &str,
     ) -> Result<CriticalRateLimitOutcome, PublicCatalogStoreError>;
+}
+
+#[async_trait]
+pub trait AccountBalanceRateLimiter: Send + Sync {
+    async fn check(
+        &self,
+        user_id: i64,
+    ) -> Result<CriticalRateLimitOutcome, PublicCatalogStoreError>;
+}
+
+struct AllowAccountBalanceRateLimiter;
+
+#[async_trait]
+impl AccountBalanceRateLimiter for AllowAccountBalanceRateLimiter {
+    async fn check(&self, _: i64) -> Result<CriticalRateLimitOutcome, PublicCatalogStoreError> {
+        Ok(CriticalRateLimitOutcome::Allowed)
+    }
+}
+
+/// Go-compatible fixed-window limiter for account-scoped quota queries.
+#[derive(Clone)]
+pub struct ValkeyAccountBalanceRateLimiter {
+    valkey: redis::Client,
+    max_requests: u64,
+    window: Duration,
+    dependency_timeout: Duration,
+}
+
+impl ValkeyAccountBalanceRateLimiter {
+    #[must_use]
+    pub fn new(
+        valkey: redis::Client,
+        max_requests: u64,
+        window: Duration,
+        dependency_timeout: Duration,
+    ) -> Self {
+        Self {
+            valkey,
+            max_requests,
+            window,
+            dependency_timeout,
+        }
+    }
+}
+
+#[async_trait]
+impl AccountBalanceRateLimiter for ValkeyAccountBalanceRateLimiter {
+    async fn check(
+        &self,
+        user_id: i64,
+    ) -> Result<CriticalRateLimitOutcome, PublicCatalogStoreError> {
+        if self.max_requests == 0 || self.window.is_zero() {
+            return Ok(CriticalRateLimitOutcome::Allowed);
+        }
+        let mut connection = tokio::time::timeout(
+            self.dependency_timeout,
+            self.valkey.get_multiplexed_async_connection(),
+        )
+        .await
+        .map_err(|_| PublicCatalogStoreError::new("quota query rate limiter timeout"))?
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?;
+        let script = redis::Script::new(
+            r#"
+local count = redis.call('INCR', KEYS[1])
+if count == 1 then redis.call('EXPIRE', KEYS[1], ARGV[2]) end
+local ttl = redis.call('TTL', KEYS[1])
+if ttl < 0 then
+  redis.call('EXPIRE', KEYS[1], ARGV[2])
+  ttl = redis.call('TTL', KEYS[1])
+end
+if count > tonumber(ARGV[1]) then return {0, count, ttl} end
+return {1, count, ttl}
+"#,
+        );
+        let result = tokio::time::timeout(
+            self.dependency_timeout,
+            script
+                .key(format!("rateLimit:v2:user:quota-query:{user_id}"))
+                .arg(self.max_requests)
+                .arg(self.window.as_secs().max(1))
+                .invoke_async::<(i64, i64, i64)>(&mut connection),
+        )
+        .await
+        .map_err(|_| PublicCatalogStoreError::new("quota query rate limiter timeout"))?
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?;
+        if result.0 == 1 {
+            Ok(CriticalRateLimitOutcome::Allowed)
+        } else {
+            Ok(CriticalRateLimitOutcome::Rejected {
+                retry_after_seconds: u64::try_from(result.2.max(1)).unwrap_or(1),
+            })
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -429,6 +566,7 @@ pub struct PublicCatalogState {
     store: Arc<dyn PublicCatalogStore>,
     authorizer: Arc<dyn PublicCatalogAuthorizer>,
     limiter: Arc<dyn PublicCatalogRateLimiter>,
+    account_balance_limiter: Arc<dyn AccountBalanceRateLimiter>,
     console_access_auth: Option<Arc<dyn DashboardAuth>>,
     last_good: Arc<RwLock<PublicCatalogLastGood>>,
 }
@@ -443,6 +581,7 @@ impl PublicCatalogState {
             store,
             authorizer,
             limiter: Arc::new(AllowPublicCatalogRateLimiter),
+            account_balance_limiter: Arc::new(AllowAccountBalanceRateLimiter),
             console_access_auth: None,
             last_good: Arc::new(RwLock::new(PublicCatalogLastGood::default())),
         }
@@ -454,6 +593,15 @@ impl PublicCatalogState {
         limiter: Arc<dyn PublicCatalogRateLimiter>,
     ) -> Self {
         self.limiter = limiter;
+        self
+    }
+
+    #[must_use]
+    pub fn with_account_balance_rate_limiter(
+        mut self,
+        limiter: Arc<dyn AccountBalanceRateLimiter>,
+    ) -> Self {
+        self.account_balance_limiter = limiter;
         self
     }
 
@@ -613,6 +761,7 @@ pub fn public_catalog_router(state: PublicCatalogState) -> Router {
             "/api/usage/token/",
             get(token_usage_get).fallback(token_usage_method_fallback),
         )
+        .route("/v1/balance", get(account_balance_get))
         .with_state(state.clone());
     if state.console_access_auth.is_some() {
         router.layer(middleware::from_fn_with_state(
@@ -887,6 +1036,139 @@ async fn token_usage_get(State(state): State<PublicCatalogState>, request: Reque
         response = token_usage_cors_response(response, false);
     }
     response
+}
+
+async fn account_balance_get(
+    State(state): State<PublicCatalogState>,
+    request: Request,
+) -> Response {
+    // Copy request-derived values before the first await. `http::Request<Body>`
+    // is not required to be `Sync`, while Axum requires handler futures to be
+    // `Send`; keeping the request borrowed across the store lookup would make
+    // the route fail that bound even though the lookup itself is safe.
+    let authorization = request
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let client_ip = request_client_ip(&request);
+    let mut response = account_balance(&state, authorization, client_ip).await;
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+}
+
+async fn account_balance(
+    state: &PublicCatalogState,
+    authorization: Option<String>,
+    client_ip: Option<String>,
+) -> Response {
+    let Some(raw) = authorization.as_deref() else {
+        return account_balance_failure(StatusCode::UNAUTHORIZED, "invalid_api_key");
+    };
+    let mut parts = raw.split_whitespace();
+    let (Some(scheme), Some(presented), None) = (parts.next(), parts.next(), parts.next()) else {
+        return account_balance_failure(StatusCode::UNAUTHORIZED, "invalid_api_key");
+    };
+    if !scheme.eq_ignore_ascii_case("bearer") || presented.is_empty() {
+        return account_balance_failure(StatusCode::UNAUTHORIZED, "invalid_api_key");
+    }
+    let key = presented.strip_prefix("sk-").unwrap_or(presented);
+    let token = match state.store.account_balance_token(key).await {
+        Ok(Some(token)) => token,
+        Ok(None) => return account_balance_failure(StatusCode::UNAUTHORIZED, "invalid_api_key"),
+        Err(_) => {
+            return account_balance_failure(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "quota_query_unavailable",
+            );
+        }
+    };
+    let now = unix_now();
+    if token.oauth_managed
+        || !matches!(token.status, 1 | 4)
+        || (token.expired_time != -1 && token.expired_time <= now)
+        || token.user_status != 1
+    {
+        return account_balance_failure(StatusCode::UNAUTHORIZED, "invalid_api_key");
+    }
+    if let Some(allow_ips) = token.allow_ips.as_deref()
+        && !allow_ips.trim().is_empty()
+        && !ip_allowed(client_ip.as_deref(), allow_ips)
+    {
+        return account_balance_failure(StatusCode::FORBIDDEN, "ip_not_allowed");
+    }
+    match state.account_balance_limiter.check(token.user_id).await {
+        Ok(CriticalRateLimitOutcome::Allowed) => {}
+        Ok(CriticalRateLimitOutcome::Rejected {
+            retry_after_seconds,
+        }) => {
+            return empty_limiter_response(
+                StatusCode::TOO_MANY_REQUESTS,
+                Some(retry_after_seconds),
+            );
+        }
+        Err(_) => return empty_limiter_response(StatusCode::INTERNAL_SERVER_ERROR, None),
+    }
+    if !token.account_balance_read {
+        return account_balance_failure(StatusCode::FORBIDDEN, "account_balance_access_required");
+    }
+    match state.store.account_balance_for_owner(token.user_id).await {
+        Ok(Some(snapshot)) if snapshot.remaining.is_finite() => legacy_json(json!({
+            "valid": true,
+            "scope": "account",
+            "currency": "USD",
+            "remaining": snapshot.remaining,
+            "updated_at": snapshot.updated_at,
+            "consistency": "persisted_snapshot",
+        })),
+        Ok(_) | Err(_) => account_balance_failure(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "account_balance_unavailable",
+        ),
+    }
+}
+
+fn account_balance_failure(status: StatusCode, error: &'static str) -> Response {
+    legacy_json_with_status(status, json!({"valid": false, "error": error}))
+}
+
+fn request_client_ip(request: &Request) -> Option<String> {
+    request
+        .extensions()
+        .get::<ClientIpKey>()
+        .map(|key| key.0.clone())
+        .or_else(|| {
+            request
+                .extensions()
+                .get::<RequestContext>()
+                .and_then(|context| context.client_ip)
+                .map(|ip| ip.to_string())
+        })
+}
+
+fn ip_allowed(client_ip: Option<&str>, allow_ips: &str) -> bool {
+    let Some(client_ip) = client_ip.and_then(|value| value.parse::<IpAddr>().ok()) else {
+        return false;
+    };
+    allow_ips
+        .split([',', '\n', ' ', '\t'])
+        .filter(|entry| !entry.trim().is_empty())
+        .any(|entry| {
+            let entry = entry.trim();
+            ipnet::IpNet::from_str(entry)
+                .map(|network| network.contains(&client_ip))
+                .unwrap_or_else(|_| entry.parse::<IpAddr>().is_ok_and(|ip| ip == client_ip))
+        })
+}
+
+fn unix_now() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|duration| i64::try_from(duration.as_secs()).ok())
+        .unwrap_or(i64::MAX)
 }
 
 async fn token_usage_method_fallback(request: Request) -> Response {
@@ -1597,6 +1879,8 @@ pub struct MemoryPublicCatalogStore {
     pub ratio: Option<Value>,
     pub usages: BTreeMap<String, Value>,
     pub token_records: BTreeMap<String, PublicCatalogToken>,
+    pub balance_tokens: BTreeMap<String, AccountBalanceToken>,
+    pub balances: BTreeMap<i64, AccountBalanceSnapshot>,
     pub token_auth_error: Option<PublicCatalogStoreError>,
     pub token_usage_error: Option<PublicCatalogStoreError>,
 }
@@ -1648,6 +1932,20 @@ impl PublicCatalogStore for MemoryPublicCatalogStore {
             return Ok(Some(token.clone()));
         }
         Ok(self.usages.get(key).map(|_| PublicCatalogToken::default()))
+    }
+
+    async fn account_balance_token(
+        &self,
+        key: &str,
+    ) -> Result<Option<AccountBalanceToken>, PublicCatalogStoreError> {
+        Ok(self.balance_tokens.get(key).cloned())
+    }
+
+    async fn account_balance_for_owner(
+        &self,
+        user_id: i64,
+    ) -> Result<Option<AccountBalanceSnapshot>, PublicCatalogStoreError> {
+        Ok(self.balances.get(&user_id).cloned())
     }
 }
 

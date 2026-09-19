@@ -74,8 +74,20 @@ run_models() {
 run_api_token() {
   require_loopback_url LMM_API_TOKEN_TEST_DATABASE_URL
   require_loopback_url LMM_API_TOKEN_TEST_VALKEY_URL
+  (
+    cd "$repo_root/apps/api-go"
+    go test ./controller -run '^TestAccountBalance' -count=1
+  )
   cargo test --locked --manifest-path "$manifest" -p lmm-api-rs \
     --test api_token -- --ignored --test-threads=1
+  local test_name=test_instance::account_balance_pg_tests::durable_balance_defaults_revocation_and_read_only_contract listing
+  listing=$(cargo test --locked --manifest-path "$manifest" -p lmm-api-rs \
+    --bin lmm-api-rs "$test_name" -- --ignored --exact --list)
+  grep -Fxq "$test_name: test" <<<"$listing" || {
+    echo "required durable account balance test is missing" >&2; exit 1;
+  }
+  cargo test --locked --manifest-path "$manifest" -p lmm-api-rs \
+    --bin lmm-api-rs "$test_name" -- --ignored --exact --test-threads=1
 }
 
 run_subscription_reset() {
@@ -91,6 +103,7 @@ run_subscription_reset() {
 
 run_migration() {
   require_loopback_url LMM_TEST_DATABASE_URL
+  run_exact_migration_test account_balance_access_schema account_balance_access_migration_is_additive_idempotent_and_default_denied
   run_exact_migration_test full_copy full_copy_should_verify_all_tables_and_rollback_both_fault_phases
   run_exact_migration_test waffo_subscription_schema contract_eight_preserves_pending_evidence_and_rejects_broken_replay_guards
 }
