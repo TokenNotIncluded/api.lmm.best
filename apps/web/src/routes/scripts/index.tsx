@@ -8,8 +8,13 @@ the Free Software Foundation, either version 3 of the License, or
 */
 import { createFileRoute } from '@tanstack/react-router'
 
+import { ForgePublicShell } from '@/features/forge/forge-public-shell'
 import { PublicScriptsPage } from '@/features/scripts/scripts-panel'
 
 export const Route = createFileRoute('/scripts/')({
-  component: PublicScriptsPage,
+  component: () => (
+    <ForgePublicShell>
+      <PublicScriptsPage />
+    </ForgePublicShell>
+  ),
 })

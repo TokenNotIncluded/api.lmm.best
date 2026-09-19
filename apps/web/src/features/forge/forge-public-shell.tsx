@@ -56,6 +56,8 @@ export function ForgePublicShell(props: ForgePublicShellProps) {
         { title: 'Home', href: '/' },
         { title: 'Model Square', href: '/pricing' },
         { title: 'Guide', href: '/guide' },
+        { title: 'Scripts', href: '/scripts' },
+        { title: 'WebMCP', href: '/webmcp' },
         { title: 'Challenges', href: '/challenges' },
         ...(securityLink ? [securityLink] : []),
       ]}
