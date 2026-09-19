@@ -205,7 +205,6 @@ POST	/api/token/batch/keys	github.com/QuantumNous/new-api/controller.GetTokenKey
 GET	/api/token/search	github.com/QuantumNous/new-api/controller.SearchTokens
 GET	/api/uptime/status	github.com/QuantumNous/new-api/controller.GetUptimeKumaStatus
 GET	/api/usage/token/	github.com/QuantumNous/new-api/controller.GetTokenUsage
-GET	/v1/balance	github.com/LIghtJUNction/api.lmm.best/controller.GetAccountBalance
 GET	/api/user-agreement	github.com/QuantumNous/new-api/controller.GetUserAgreement
 GET	/api/user/	github.com/QuantumNous/new-api/controller.GetAllUsers
 POST	/api/user/	github.com/QuantumNous/new-api/controller.CreateUser
@@ -310,6 +309,7 @@ POST	/pg/chat/completions	github.com/QuantumNous/new-api/controller.Playground
 POST	/suno/fetch	github.com/QuantumNous/new-api/controller.RelayTaskFetch
 GET	/suno/fetch/:id	github.com/QuantumNous/new-api/controller.RelayTaskFetch
 POST	/suno/submit/:action	github.com/QuantumNous/new-api/controller.RelayTask
+GET	/v1/balance	github.com/LIghtJUNction/api.lmm.best/controller.GetAccountBalance
 POST	/v1/alpha/search	github.com/QuantumNous/new-api/router.SetRelayRouter.func11
 POST	/v1/audio/speech	github.com/QuantumNous/new-api/router.SetRelayRouter.func18
 POST	/v1/audio/transcriptions	github.com/QuantumNous/new-api/router.SetRelayRouter.func16
