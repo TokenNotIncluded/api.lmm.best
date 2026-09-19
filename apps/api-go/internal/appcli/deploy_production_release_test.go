@@ -476,6 +476,37 @@ func TestVerifySignedPackageLayoutAcceptsOnlyProviderLayoutAndExactLegacyRollbac
 	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.2.0-1", newPackage, newAsset, newAssetSHA256, true); err != nil {
 		t.Fatal(err)
 	}
+
+	// A local packaging recipe may not inject an unsigned operator script.
+	operatorPackage := filepath.Join(workspace, "operator-package.tar.gz")
+	operatorEntries := append(newPackageEntries("safe-sudoers\n", "v1\n", "v1\n"), testTarEntry{name: "usr/bin/lmm-api-deploy", body: "#!/bin/sh\nexec /usr/bin/lmm-api operator \"$@\"\n", mode: 0o755})
+	writeTestTarGzip(t, operatorPackage, operatorEntries)
+	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.2.0-1", operatorPackage, newAsset, newAssetSHA256, true); err == nil {
+		t.Fatal("unsigned operator script was accepted")
+	}
+	operatorAsset := filepath.Join(workspace, "operator-release.tar.gz")
+	writeTestTarGzip(t, operatorAsset, append(newReleaseEntries, testTarEntry{name: newPrefix + "lmm-api-deploy", body: operatorEntries[len(operatorEntries)-1].body, mode: 0o755}))
+	operatorSHA, err := sha256File(operatorAsset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range operatorEntries {
+		if strings.HasSuffix(operatorEntries[i].name, "/RELEASE_ASSET_SHA256") {
+			operatorEntries[i].body = operatorSHA + "\n"
+		}
+	}
+	operatorPackage = filepath.Join(workspace, "signed-operator-package.tar.gz")
+	writeTestTarGzip(t, operatorPackage, operatorEntries)
+	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.2.0-1", operatorPackage, operatorAsset, operatorSHA, true); err != nil {
+		t.Fatal(err)
+	}
+	operatorEntries[len(operatorEntries)-1].body = "#!/bin/sh\nexit 0\n"
+	operatorPackage = filepath.Join(workspace, "tampered-operator-package.tar.gz")
+	writeTestTarGzip(t, operatorPackage, operatorEntries)
+	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.2.0-1", operatorPackage, operatorAsset, operatorSHA, true); err == nil {
+		t.Fatal("tampered operator script was accepted")
+	}
+
 	missingCapability := filepath.Join(workspace, "new-missing-capability.tar.gz")
 	writeTestTarGzip(t, missingCapability, newPackageEntries("safe-sudoers\n", "", "v1\n"))
 	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.2.0-1", missingCapability, newAsset, newAssetSHA256, true); err == nil {

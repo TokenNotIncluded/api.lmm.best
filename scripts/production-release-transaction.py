@@ -218,6 +218,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--expected-backend-version", required=True)
     parser.add_argument("--acceptance-script", type=Path, required=True)
     parser.add_argument("--result-file", type=Path, required=True)
+    parser.add_argument("--operator-command", choices=("operator", "deploy"), default="operator")
     parser.add_argument("native_command", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     command = args.native_command
@@ -235,7 +236,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("result file must have an existing absolute parent directory")
 
     def native(action: str) -> bytes:
-        tail = ["operator", "production", action, "--plan", str(args.plan),
+        tail = [args.operator_command, "production", action, "--plan", str(args.plan),
                 "--plan-sha256", args.plan_sha256, "--confirm", "api.lmm.best"]
         if action == "rollback":
             tail += ["--reason", "workflow-release-acceptance-failed"]

@@ -36,6 +36,16 @@ checksum="$assets/${asset_name}.sha256"
 bundle="$assets/${asset_name}.sigstore.json"
 [[ -f "$checksum" && -f "$bundle" ]]
 
+# Reconstructed rollback packages must use their own signed install hook,
+# not today's repository hook (which may require a newer backend CLI).
+cosign verify-blob --bundle "$bundle" \
+  --certificate-identity "https://github.com/TokenNotIncluded/api.lmm.best/.github/workflows/release-${component}.yml@refs/tags/${component}-v${version}" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com "$asset"
+if [[ "$component" == web ]]; then
+  bsdtar -xOf "$asset" lmm-api-web.install >"$build/lmm-api-web.install"
+  [[ -s "$build/lmm-api-web.install" ]]
+fi
+
 # makepkg requires a writable SRCDEST. Keep the verified release inputs in the
 # container-local build directory instead of writing to the read-only/mounted
 # controller asset directory.

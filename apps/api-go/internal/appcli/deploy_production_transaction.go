@@ -758,7 +758,7 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 	}
 	oldIndexSHA, err := sha256File(filepath.Join(runtime.paths.FrontendRoot, "current", "index.html"))
 	if err != nil || oldIndexSHA != webRollback.IndexSHA256 || oldTarget != frontendTargetFor(webRollback) {
-		return productionStatus{}, errors.New("active frontend does not exactly match rollback Web package")
+		return productionStatus{}, fmt.Errorf("active frontend does not exactly match rollback Web package: active target=%q index_sha256=%q; rollback package=%q target=%q index_sha256=%q; read_error=%v", oldTarget, oldIndexSHA, webRollback.Identity, frontendTargetFor(webRollback), webRollback.IndexSHA256, err)
 	}
 	if err := runtime.probeFrontend(ctx, candidateEntrypoint, oldIndexSHA); err != nil {
 		return productionStatus{}, fmt.Errorf("pre-upgrade public frontend probe failed: %w", err)

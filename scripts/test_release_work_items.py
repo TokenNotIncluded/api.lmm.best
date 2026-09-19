@@ -103,12 +103,14 @@ class ReleaseWorkItemsTests(unittest.TestCase):
                     self.assertEqual(result.returncode, expected)
                     self.assertNotIn("secret-cli-diagnostic", result.stderr)
 
-    def test_automatic_release_workflows_are_removed_for_manual_deployment(self):
+    def test_release_workflows_remain_manual_and_keep_work_item_gate(self):
         for component in ("go", "web"):
             with self.subTest(component=component):
-                self.assertFalse(
-                    (SCRIPTS.parent / f".github/workflows/release-{component}.yml").exists()
-                )
+                source = (SCRIPTS.parent / f".github/workflows/release-{component}.yml").read_text()
+                self.assertIn("  workflow_dispatch:", source)
+                self.assertNotIn("  push:", source)
+                self.assertIn("scripts/verify-release-work-items.py", source)
+                self.assertIn("inputs.deploy && inputs.confirm == 'api.lmm.best'", source)
 
     def test_contract_suite_is_part_of_blocking_ci(self):
         ci = (SCRIPTS.parent / ".github/workflows/ci.yml").read_text()

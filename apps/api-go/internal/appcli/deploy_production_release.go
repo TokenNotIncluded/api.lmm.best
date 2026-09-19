@@ -1137,6 +1137,8 @@ func signedPackageMember(packageName, packageVersion, relative string) (packageR
 	switch {
 	case relative == "lmm-api":
 		return "usr/bin/lmm-api", false, nil
+	case relative == "lmm-api-deploy":
+		return "usr/bin/lmm-api-deploy", false, nil
 	case relative == "lmm-api-go":
 		return "usr/bin/lmm-api-go", false, nil
 	case relative == "lmm-api.service":

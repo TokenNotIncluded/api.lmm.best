@@ -128,7 +128,11 @@ package() {
   else
     install -Dm0755 "${bundle}/${cli}" "${pkgdir}/usr/bin/lmm-api-go"
   fi
-  install -Dm0755 "${srcdir}/lmm-api-deploy" "${pkgdir}/usr/bin/lmm-api-deploy"
+  # The operator entrypoint must come from the signed release, never a newer
+  # local recipe when reconstructing an older rollback package.
+  if [[ -f ${bundle}/lmm-api-deploy ]]; then
+    install -Dm0755 "${bundle}/lmm-api-deploy" "${pkgdir}/usr/bin/lmm-api-deploy"
+  fi
   lmm_go_package_assert_payload "$pkgdir" "$pkgname" "$pkgver"
   install -Dm0644 "${bundle}/lmm-api.service" \
     "${pkgdir}/usr/lib/systemd/system/lmm-api.service"
