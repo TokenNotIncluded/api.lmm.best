@@ -320,7 +320,11 @@ For commercial licensing, please contact support@quantumnous.com
 }
 .lmm-home:not([data-motion='playing']):not([data-motion='paused'])
   .lmm-cinema-inner {
-  padding-top: 28rem;
+  position: relative;
+  top: auto;
+  height: auto;
+  max-height: none;
+  padding-top: 36rem;
 }
 .lmm-home:not([data-motion='playing']):not([data-motion='paused'])
   .lmm-scene-panel {
