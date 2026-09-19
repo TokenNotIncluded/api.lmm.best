@@ -106,14 +106,14 @@ def service_environment_files():
         files.append(('-' if optional == 'yes' else '') + path)
     if not files:
         raise RuntimeError('service has no EnvironmentFiles; schema verification refused')
-    return ' '.join(files)
+    return files
 
 
 def verify(work, label, mode='verify'):
     args = ['systemd-run', '--quiet', '--wait', '--collect', '--pipe',
             '--unit=lmm-schema-' + work.name + '-' + label,
             '-p', 'Type=oneshot', '-p', 'TimeoutStartSec=180',
-            '-p', 'EnvironmentFile=' + service_environment_files(),
+            *[arg for path in service_environment_files() for arg in ('-p', 'EnvironmentFile=' + path)],
             '-p', 'Environment=LMM_DB_MIGRATION_MODE=' + mode,
             '-p', 'MemoryMax=384M', '-p', 'NoNewPrivileges=yes',
             '-p', 'ProtectSystem=strict', '-p', 'PrivateTmp=yes',

@@ -14,7 +14,8 @@ class DeploymentTests(unittest.TestCase):
         files = '/etc/lmm-api-go/lmm-api-go.env (ignore_errors=yes)\n/etc/lmm-api/cluster.env (ignore_errors=no)'
         with patch.object(deploy, 'property_value', return_value=files), patch.object(deploy, 'run') as run:
             deploy.verify(Path('/private/work'), 'stage')
-        self.assertIn('EnvironmentFile=-/etc/lmm-api-go/lmm-api-go.env /etc/lmm-api/cluster.env', run.call_args.args)
+        environment_files = [arg for arg in run.call_args.args if arg.startswith('EnvironmentFile=')]
+        self.assertEqual(['EnvironmentFile=-/etc/lmm-api-go/lmm-api-go.env', 'EnvironmentFile=/etc/lmm-api/cluster.env'], environment_files)
         self.assertEqual(('migrate', '--verify'), run.call_args.args[-2:])
 
     def test_environment_metadata_is_not_guessed(self):
