@@ -303,6 +303,13 @@ after(() => domWindow.close())
 describe('ForgeHome code preview accessibility', () => {
   test('switches complete request examples with arrow keys and exposes the active panel', async () => {
     const rendered = await renderHome(null)
+    await act(async () => {
+      const selector = Array.from(
+        rendered.container.querySelectorAll('button')
+      ).find((button) => button.textContent === 'Other clients / API key')
+      assert.ok(selector)
+      selector.click()
+    })
     const tabs = Array.from(
       rendered.container.querySelectorAll<HTMLButtonElement>('[role="tab"]')
     )
@@ -356,6 +363,13 @@ describe('ForgeHome configured destinations', () => {
 describe('ForgeHome API examples', () => {
   test('provides complete Claude and Gemini request bodies with JSON headers', async () => {
     const rendered = await renderHome(null)
+    await act(async () => {
+      const selector = Array.from(
+        rendered.container.querySelectorAll('button')
+      ).find((button) => button.textContent === 'Other clients / API key')
+      assert.ok(selector)
+      selector.click()
+    })
     for (const tabName of ['Claude', 'Gemini']) {
       const tab = Array.from(
         rendered.container.querySelectorAll<HTMLButtonElement>('[role="tab"]')
@@ -724,14 +738,14 @@ describe('ForgeHome assistant entry', () => {
   })
 })
 
-describe('Purchase entry follows account access', () => {
-  test('offers registration only after live status confirms it', async () => {
+describe('Primary next step follows account access', () => {
+  test('starts guests at sign-in without sending them to payment', async () => {
     const pending = await renderHome(null, true, true)
     assert.equal(
       pending.container
         .querySelector('.lmm-intro-actions a')
         ?.getAttribute('href'),
-      '/sign-in?redirect=%2Fwallet'
+      '/sign-in?redirect=%2Fgetting-started'
     )
     await unmountHome(pending)
 
@@ -740,7 +754,7 @@ describe('Purchase entry follows account access', () => {
       ready.container
         .querySelector('.lmm-intro-actions a')
         ?.getAttribute('href'),
-      '/sign-up'
+      '/sign-in?redirect=%2Fgetting-started'
     )
     assert.ok(
       ready.container.textContent?.includes('Payment does not unlock access.')
@@ -756,12 +770,12 @@ describe('Purchase entry follows account access', () => {
       rendered.container
         .querySelector('.lmm-intro-actions a')
         ?.textContent?.trim(),
-      'Sign in'
+      'Sign in to get started'
     )
     await unmountHome(rendered)
   })
 
-  test('takes an approved customer directly to the wallet', async () => {
+  test('takes an approved customer to client setup', async () => {
     const rendered = await renderHome({
       id: 11,
       username: 'approved',
@@ -776,7 +790,7 @@ describe('Purchase entry follows account access', () => {
       purchase.click()
       await flushEffects()
     })
-    assert.equal(rendered.router.state.location.pathname, '/wallet')
+    assert.equal(rendered.router.state.location.pathname, '/guide')
     await unmountHome(rendered)
   })
 
@@ -791,7 +805,7 @@ describe('Purchase entry follows account access', () => {
       '.lmm-intro-actions a'
     )
     assert.ok(purchase)
-    assert.equal(purchase.textContent?.trim(), 'Check access status')
+    assert.equal(purchase.textContent?.trim(), 'Request API access')
     await act(async () => {
       purchase.click()
       await flushEffects()

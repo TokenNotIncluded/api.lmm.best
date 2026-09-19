@@ -52,11 +52,16 @@ for (const key of domGlobals) {
   })
 }
 
-const { act } = await import('react')
+const { act, useEffect } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
+const { QueryClient, QueryClientProvider } =
+  await import('@tanstack/react-query')
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: false } },
+})
 const { ApiKeysProvider, useApiKeys } = await import('../api-keys-provider')
 const { ApiKeyGroupQuickSwitch } = await import('../api-key-group-quick-switch')
 
@@ -115,6 +120,7 @@ type MockableApi = {
 
 const apiClient = api as unknown as MockableApi
 const originalPut = apiClient.put
+const originalPost = api.post
 
 const baseApiKey: ApiKey = {
   id: 42,
@@ -159,8 +165,13 @@ type Rendered = {
 
 let rendered: Rendered | null = null
 
+let context: ReturnType<typeof useApiKeys>
 function RefreshProbe() {
-  const { refreshTrigger } = useApiKeys()
+  const value = useApiKeys()
+  useEffect(() => {
+    context = value
+  }, [value])
+  const { refreshTrigger } = value
   return <output data-testid='refresh-trigger'>{refreshTrigger}</output>
 }
 
@@ -172,18 +183,20 @@ async function renderQuickSwitch(apiKey: ApiKey): Promise<void> {
 
   await act(async () =>
     root.render(
-      <I18nextProvider i18n={i18n}>
-        <ApiKeysProvider>
-          <ApiKeyGroupQuickSwitch
-            apiKey={apiKey}
-            options={groupOptions}
-            optionsLoading={false}
-            ratio={1}
-            shouldReduceMotion={false}
-          />
-          <RefreshProbe />
-        </ApiKeysProvider>
-      </I18nextProvider>
+      <QueryClientProvider client={queryClient}>
+        <I18nextProvider i18n={i18n}>
+          <ApiKeysProvider>
+            <ApiKeyGroupQuickSwitch
+              apiKey={apiKey}
+              options={groupOptions}
+              optionsLoading={false}
+              ratio={1}
+              shouldReduceMotion={false}
+            />
+            <RefreshProbe />
+          </ApiKeysProvider>
+        </I18nextProvider>
+      </QueryClientProvider>
     )
   )
 }
@@ -240,11 +253,13 @@ async function openAndSelect(optionText: string): Promise<void> {
 
 afterEach(async () => {
   apiClient.put = originalPut
+  api.post = originalPost
   if (rendered) {
     await act(async () => rendered?.root.unmount())
     rendered.host.remove()
     rendered = null
   }
+  queryClient.clear()
   document.body.replaceChildren()
 })
 
@@ -260,6 +275,15 @@ describe('API key group quick switch', () => {
       return { data: { success: true, data: {} } }
     }
 
+    for (const key of [
+      'pricing',
+      'api-key',
+      'user-models-ccswitch',
+      'assistant-status',
+    ]) {
+      queryClient.setQueryData([key], { previous: true })
+    }
+    queryClient.setQueryData(['unrelated'], { previous: true })
     await renderQuickSwitch(baseApiKey)
     assert.equal(getRefreshTriggerValue(), 0)
 
@@ -288,6 +312,38 @@ describe('API key group quick switch', () => {
         'row refresh was not triggered after a successful group switch'
       )
     )
+    for (const key of [
+      'pricing',
+      'api-key',
+      'user-models-ccswitch',
+      'assistant-status',
+    ]) {
+      assert.equal(queryClient.getQueryState([key])?.isInvalidated, true, key)
+    }
+    assert.equal(queryClient.getQueryState(['unrelated'])?.isInvalidated, false)
+  })
+
+  test('mutation discards a key reveal that completes after refresh', async () => {
+    let finish: (value: unknown) => void = () => undefined
+    api.post = (() =>
+      new Promise<unknown>((resolve) => {
+        finish = resolve
+      })) as typeof api.post
+    await renderQuickSwitch(baseApiKey)
+    let request: Promise<string | null> = Promise.resolve(null)
+    await act(async () => {
+      request = context.resolveRealKey(42)
+    })
+    await act(async () => {
+      context.triggerRefresh()
+    })
+    await act(async () => {
+      finish({ data: { success: true, data: { key: 'test-secret' } } })
+      await request
+    })
+    assert.equal(await request, null)
+    assert.deepEqual(context.resolvedKeys, {})
+    assert.equal(context.resolvedKey, '')
   })
 
   test('selecting a warning-gated group requires confirmation before calling the update endpoint', async () => {

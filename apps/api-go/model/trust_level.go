@@ -597,6 +597,7 @@ type OnboardingState struct {
 	ActivationComplete     bool   `json:"activation_complete"`
 	PaidActivationComplete bool   `json:"paid_activation_complete"`
 	CredentialComplete     bool   `json:"credential_complete"`
+	APIKeyCreated          bool   `json:"api_key_created"`
 	FirstRequestComplete   bool   `json:"first_request_complete"`
 	Stage                  string `json:"stage"`
 }
@@ -617,15 +618,7 @@ func GetOnboardingStateForUserSnapshot(user *User, snapshot UserAccessSnapshot) 
 		return OnboardingState{}, gorm.ErrInvalidData
 	}
 	access := snapshot.DeveloperAccess
-	if user.Role >= common.RoleAdminUser {
-		return OnboardingState{
-			ActivationComplete:     access.Granted,
-			PaidActivationComplete: access.PaidActivationComplete,
-			CredentialComplete:     true,
-			FirstRequestComplete:   true,
-			Stage:                  "complete",
-		}, nil
-	}
+
 	state := OnboardingState{
 		ActivationComplete:     access.Granted,
 		PaidActivationComplete: access.PaidActivationComplete,
@@ -634,15 +627,24 @@ func GetOnboardingStateForUserSnapshot(user *User, snapshot UserAccessSnapshot) 
 		state.Stage = onboardingStage(state)
 		return state, gorm.ErrInvalidDB
 	}
-	var activeCredentialCount int64
+	var credentials struct {
+		Total  int64
+		Manual int64
+	}
 	if err := DB.Model(&Token{}).
 		Where("user_id = ? AND status = ?", user.Id, common.TokenStatusEnabled).
-		Count(&activeCredentialCount).Error; err != nil {
+		Select("COUNT(*) AS total, COALESCE(SUM(CASE WHEN oauth_managed = ? THEN 1 ELSE 0 END), 0) AS manual", false).
+		Scan(&credentials).Error; err != nil {
 		state.Stage = onboardingStage(state)
 		return state, err
 	}
-	state.CredentialComplete = activeCredentialCount > 0
+	state.CredentialComplete = credentials.Total > 0
+	state.APIKeyCreated = credentials.Manual > 0
 	state.FirstRequestComplete = state.CredentialComplete && user.LastAPIActivityAt > 0
+	if user.Role >= common.RoleAdminUser {
+		state.CredentialComplete = true
+		state.FirstRequestComplete = true
+	}
 	state.Stage = onboardingStage(state)
 	return state, nil
 }

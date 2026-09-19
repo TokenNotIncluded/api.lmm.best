@@ -115,6 +115,9 @@ export interface ToolSurchargeItem {
 }
 
 export interface LogOtherData {
+  status_code?: number
+  error_code?: string
+  error_type?: string
   admin_info?: {
     is_multi_key?: boolean
     multi_key_index?: number

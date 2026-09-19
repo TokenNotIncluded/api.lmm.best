@@ -377,6 +377,9 @@ type RecordConsumeLogParams struct {
 
 func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams) {
 	if !common.LogConsumeEnabled {
+		if success, _ := params.Other["acquisition_success_v1"].(bool); success {
+			noteAcquisitionActivityGap(common.GetTimestamp())
+		}
 		return
 	}
 	logger.LogInfo(c, fmt.Sprintf("record consume log: userId=%d, params=%s", userId, common.GetJsonString(params)))
@@ -420,6 +423,9 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 	}
 	err := createLog(log)
 	if err != nil {
+		if success, _ := params.Other["acquisition_success_v1"].(bool); success {
+			noteAcquisitionActivityGap(createdAt)
+		}
 		logger.LogError(c, "failed to record log: "+err.Error())
 	}
 	if common.DataExportEnabled {

@@ -41,6 +41,8 @@ import { codeForTab, type CodeTab } from '@/features/home/home-code-examples'
 import { CodePreview } from '@/features/home/home-code-preview'
 import { HomeLanding } from '@/features/home/home-landing'
 import { mountHomeMotion } from '@/features/home/home-motion'
+import type { ConnectionMethod } from '@/features/onboarding/next-step'
+import { useAccountNextStep } from '@/features/onboarding/use-account-next-step'
 import { PublicScriptsPanel } from '@/features/scripts/scripts-panel'
 import { useStatus } from '@/hooks/use-status'
 import { useTopNavLinks } from '@/hooks/use-top-nav-links'
@@ -49,7 +51,6 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { ForgePublicShell } from './forge-public-shell'
 import { PurchaseJourney } from './purchase-journey'
-import { usePurchaseEntry } from './use-purchase-entry'
 import { useTypewriterPlaceholder } from './use-typewriter-placeholder'
 
 import './forge-home.css'
@@ -102,7 +103,9 @@ function useCopyFeedback() {
 export function ForgeHome() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
-  const purchaseEntry = usePurchaseEntry()
+  const [connectionMethod, setConnectionMethod] =
+    useState<ConnectionMethod>('oauth')
+  const { nextStep } = useAccountNextStep(connectionMethod)
   const user = useAuthStore((state) => state.auth.user)
   const { status } = useStatus()
   const securityLink = useTopNavLinks().find(
@@ -138,7 +141,7 @@ export function ForgeHome() {
   )
   useEffect(() => {
     if (rootRef.current) return mountHomeMotion(rootRef.current)
-  }, [presetLanguage])
+  }, [presetLanguage, connectionMethod])
 
   const startAssistant = (prompt: string) => {
     const safeMessage = redactAssistantMessageForRequest(prompt).content.trim()
@@ -167,22 +170,24 @@ export function ForgeHome() {
     <ForgePublicShell>
       <HomeLanding
         rootRef={rootRef}
+        connectionMethod={connectionMethod}
+        onConnectionMethodChange={setConnectionMethod}
         t={t}
         primaryAction={
           <Button
             size='lg'
             render={
               <Link
-                to={purchaseEntry.to}
+                to={nextStep.to}
                 search={
-                  purchaseEntry.to === '/sign-in'
-                    ? { redirect: '/wallet' }
+                  nextStep.to === '/sign-in'
+                    ? { redirect: '/getting-started' }
                     : undefined
                 }
               />
             }
           >
-            {t(purchaseEntry.label)}
+            {t(nextStep.label)}
             <ArrowRight data-icon='inline-end' />
           </Button>
         }
@@ -279,7 +284,7 @@ export function ForgeHome() {
                 </span>
               </Button>
             </div>
-            <a href='/guide#pi-oauth' className='lmm-text-link'>
+            <a href='/guide#client-setup' className='lmm-text-link'>
               {t('Read the Pi OAuth setup steps')}
               <ArrowRight aria-hidden='true' />
             </a>
@@ -294,11 +299,11 @@ export function ForgeHome() {
         destinations={
           <>
             <Link to='/pricing'>
-              <span>{t('Model Square')}</span>
+              <span>{t('Models and pricing')}</span>
               <ArrowRight aria-hidden='true' />
             </Link>
             <Link to='/challenges'>
-              <span>{t('Open-source challenges')}</span>
+              <span>{t('Open-source bounties')}</span>
               <ArrowRight aria-hidden='true' />
             </Link>
             <Link to='/scripts'>

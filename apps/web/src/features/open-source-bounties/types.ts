@@ -188,6 +188,7 @@ export interface BountyChallenge {
   owner_rating_count?: number
   accepted_at: number
   submitted_at: number
+  rejected_at?: number
   reviewed_at: number
   paid_at: number
   project_title?: string

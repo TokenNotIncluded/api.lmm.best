@@ -121,6 +121,23 @@ func TestBuildSelfUserDataCompletesOnboardingForAdministrators(t *testing.T) {
 	}
 }
 
+func TestBuildSelfUserDataDistinguishesOAuthBillingFromManualKey(t *testing.T) {
+	db := setupUserOnboardingTestDB(t)
+	level := 1
+	user := model.User{Username: "oauth-onboarding", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, TrustLevelOverride: &level}
+	require.NoError(t, db.Create(&user).Error)
+	require.NoError(t, db.Create(&model.Token{UserId: user.Id, Key: "oauth_managed_test", OAuthManaged: true, Status: common.TokenStatusEnabled}).Error)
+	state := buildSelfUserData(&user)["onboarding"].(gin.H)
+	assert.Equal(t, true, state["details_available"])
+	assert.Equal(t, true, state["credential_complete"])
+	assert.Equal(t, false, state["api_key_created"])
+	manual := model.Token{UserId: user.Id, Key: "manual_test", Status: common.TokenStatusEnabled}
+	require.NoError(t, db.Create(&manual).Error)
+	assert.Equal(t, true, buildSelfUserData(&user)["onboarding"].(gin.H)["api_key_created"])
+	require.NoError(t, db.Delete(&manual).Error)
+	assert.Equal(t, false, buildSelfUserData(&user)["onboarding"].(gin.H)["api_key_created"])
+}
+
 func TestBuildSelfUserDataPreservesGrantedAccessWhenMilestoneQueryFails(t *testing.T) {
 	db := setupUserOnboardingTestDB(t)
 	levelOne := 1

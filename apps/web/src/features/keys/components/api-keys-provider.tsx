@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -30,6 +31,7 @@ import {
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { refreshCurrentAccount } from '@/features/onboarding/use-auth-user-refresh'
 import useDialogState from '@/hooks/use-dialog'
 
 import { fetchTokenKey, fetchTokenKeysBatch } from '../api'
@@ -59,6 +61,8 @@ const ApiKeysContext = createContext<ApiKeysContextType | null>(null)
 
 export function ApiKeysProvider({ children }: { children: ReactNode }) {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const secretGeneration = useRef(0)
   const [open, setOpen] = useDialogState<ApiKeysDialogType>(null)
   const [currentRow, setCurrentRow] = useState<ApiKey | null>(null)
   const [refreshTrigger, setRefreshTrigger] = useState(0)
@@ -83,18 +87,40 @@ export function ApiKeysProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const triggerRefresh = useCallback(() => {
+    secretGeneration.current += 1
+    setResolvedKeys({})
+    setResolvedKey('')
+    setRevealOpenKeyId(null)
     setRefreshTrigger((prev) => prev + 1)
-  }, [])
+    void refreshCurrentAccount()
+    void Promise.all(
+      [
+        'keys',
+        'api-key',
+        'user-models',
+        'user-models-ccswitch',
+        'user-groups',
+        'pricing',
+        'assistant-pricing',
+        'assistant-available-models',
+        'assistant-status',
+        'assistant-journey',
+        'assistant-onboarding-todo',
+      ].map((key) => queryClient.invalidateQueries({ queryKey: [key] }))
+    ).catch(() => undefined)
+  }, [queryClient])
 
   const resolveRealKey = useCallback(
     async (id: number): Promise<string | null> => {
       if (resolvedKeys[id]) return resolvedKeys[id]
       if (id in pendingRequests.current) return pendingRequests.current[id]
 
+      const generation = secretGeneration.current
       const request = (async () => {
         setLoadingKeys((prev) => ({ ...prev, [id]: true }))
         try {
           const res = await fetchTokenKey(id)
+          if (generation !== secretGeneration.current) return null
           if (res.success && res.data?.key) {
             const fullKey = `sk-${res.data.key}`
             setResolvedKeys((prev) => ({ ...prev, [id]: fullKey }))
@@ -136,8 +162,10 @@ export function ApiKeysProvider({ children }: { children: ReactNode }) {
         return next
       })
 
+      const generation = secretGeneration.current
       try {
         const res = await fetchTokenKeysBatch(uncachedIds)
+        if (generation !== secretGeneration.current) return {}
         if (res.success && res.data?.keys) {
           const newKeys: Record<number, string> = {}
           for (const [idStr, key] of Object.entries(res.data.keys)) {

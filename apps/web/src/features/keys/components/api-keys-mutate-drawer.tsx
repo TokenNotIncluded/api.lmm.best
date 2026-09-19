@@ -72,6 +72,7 @@ import {
 } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { readSetupPreferences } from '@/features/onboarding/setup-preferences'
 import { useStatus } from '@/hooks/use-status'
 import { getUserModels, getUserGroups } from '@/lib/api'
 import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
@@ -248,9 +249,13 @@ export function ApiKeysMutateDrawer({
         setInitializedTarget(target)
       }
     } else {
-      form.reset(
-        getApiKeyFormDefaultValues(defaultUseAutoGroup && backendHasAuto)
-      )
+      const preferences = readSetupPreferences()
+      form.reset({
+        ...getApiKeyFormDefaultValues(defaultUseAutoGroup && backendHasAuto),
+        name: preferences
+          ? `${preferences.platform} - ${preferences.client}`
+          : `${t('API Key')} ${new Date().toLocaleDateString()}`,
+      })
       setInitializedTarget(target)
     }
   }, [
@@ -272,6 +277,7 @@ export function ApiKeysMutateDrawer({
     availableAutoGroupNames,
     maxAutoGroups,
     initializedTarget,
+    t,
   ])
 
   const formTarget =
@@ -479,135 +485,147 @@ export function ApiKeysMutateDrawer({
                 )}
               />
 
-              <FormField
-                control={form.control}
-                name='group'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Group')}</FormLabel>
-                    <FormControl>
-                      <ApiKeyGroupCombobox
-                        options={groups}
-                        value={field.value}
-                        onValueChange={(group) => {
-                          field.onChange(group)
-                          form.setValue('cross_group_retry', group === 'auto', {
-                            shouldDirty: true,
-                          })
-                        }}
-                        placeholder={t('Select a group')}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              <details className='space-y-3' open={isUpdate}>
+                <summary className='cursor-pointer text-sm font-medium'>
+                  {t('Group')}: {selectedGroup || t('Select a group')}
+                </summary>
+                <div className='space-y-4 pt-2'>
+                  <FormField
+                    control={form.control}
+                    name='group'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Group')}</FormLabel>
+                        <FormControl>
+                          <ApiKeyGroupCombobox
+                            options={groups}
+                            value={field.value}
+                            onValueChange={(group) => {
+                              field.onChange(group)
+                              form.setValue(
+                                'cross_group_retry',
+                                group === 'auto',
+                                {
+                                  shouldDirty: true,
+                                }
+                              )
+                            }}
+                            placeholder={t('Select a group')}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
-              {selectedGroupWarning?.enabled &&
-              selectedGroupWarning.mode !== 'modal' &&
-              warningOpen ? (
-                <div
-                  role='alert'
-                  className={cn(
-                    'border-destructive/60 bg-destructive/10 text-destructive grid gap-3 rounded-lg border p-3 text-sm',
-                    selectedGroupWarning.mode === 'banner' &&
-                      'border-amber-500/70 bg-amber-500/10 text-amber-200'
-                  )}
-                >
-                  <p className='whitespace-pre-wrap'>
-                    {selectedGroupWarning.message}
-                  </p>
-                  <div className='flex flex-wrap items-center justify-between gap-2'>
-                    <span>
-                      {t('Confirmation {{current}} of {{total}}', {
-                        current: Math.min(
-                          warningConfirmations + 1,
-                          warningConfirmationsRequired
-                        ),
-                        total: warningConfirmationsRequired,
-                      })}
-                    </span>
-                    <Button
-                      type='button'
-                      size='sm'
-                      variant='outline'
-                      onClick={confirmWarning}
+                  {selectedGroupWarning?.enabled &&
+                  selectedGroupWarning.mode !== 'modal' &&
+                  warningOpen ? (
+                    <div
+                      role='alert'
+                      className={cn(
+                        'border-destructive/60 bg-destructive/10 text-destructive grid gap-3 rounded-lg border p-3 text-sm',
+                        selectedGroupWarning.mode === 'banner' &&
+                          'border-amber-500/70 bg-amber-500/10 text-amber-200'
+                      )}
                     >
-                      {warningConfirmations + 1 >= warningConfirmationsRequired
-                        ? t('I understand, continue')
-                        : t('Continue')}
-                    </Button>
-                  </div>
-                </div>
-              ) : null}
-
-              {selectedGroup === 'auto' && (
-                <FormField
-                  control={form.control}
-                  name='auto_groups'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('Auto group order')}</FormLabel>
-                      <FormDescription>
-                        {t(
-                          'Choose and order the groups this API key will try.'
-                        )}
-                      </FormDescription>
-                      <FormControl>
-                        <AutoGroupOrderEditor
-                          value={field.value}
-                          mode={autoGroupsMode}
-                          options={groups}
-                          globalOptions={globalAutoGroupOptions}
-                          maxCount={maxAutoGroups}
-                          onChange={(value) => {
-                            form.setValue('auto_groups_mode', value.mode, {
-                              shouldDirty: true,
-                              shouldValidate: false,
-                            })
-                            form.setValue(
-                              'auto_groups',
-                              value.groups.slice(0, maxAutoGroups),
-                              {
-                                shouldDirty: true,
-                                shouldValidate: true,
-                              }
-                            )
-                          }}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              )}
-
-              {selectedGroup === 'auto' && (
-                <FormField
-                  control={form.control}
-                  name='cross_group_retry'
-                  render={({ field }) => (
-                    <FormItem className={sideDrawerSwitchItemClassName()}>
-                      <div className='flex flex-col gap-0.5'>
-                        <FormLabel className='text-sm'>
-                          {t('Cross-group retry')}
-                        </FormLabel>
-                        <FormDescription className='line-clamp-2 text-xs sm:line-clamp-none'>
-                          {t(
-                            'When enabled, if channels in the current group fail, it will try channels in the next group in order.'
-                          )}
-                        </FormDescription>
+                      <p className='whitespace-pre-wrap'>
+                        {selectedGroupWarning.message}
+                      </p>
+                      <div className='flex flex-wrap items-center justify-between gap-2'>
+                        <span>
+                          {t('Confirmation {{current}} of {{total}}', {
+                            current: Math.min(
+                              warningConfirmations + 1,
+                              warningConfirmationsRequired
+                            ),
+                            total: warningConfirmationsRequired,
+                          })}
+                        </span>
+                        <Button
+                          type='button'
+                          size='sm'
+                          variant='outline'
+                          onClick={confirmWarning}
+                        >
+                          {warningConfirmations + 1 >=
+                          warningConfirmationsRequired
+                            ? t('I understand, continue')
+                            : t('Continue')}
+                        </Button>
                       </div>
-                      <FormControl>
-                        <Switch
-                          checked={!!field.value}
-                          onCheckedChange={field.onChange}
-                        />
-                      </FormControl>
-                    </FormItem>
+                    </div>
+                  ) : null}
+
+                  {selectedGroup === 'auto' && (
+                    <FormField
+                      control={form.control}
+                      name='auto_groups'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Auto group order')}</FormLabel>
+                          <FormDescription>
+                            {t(
+                              'Choose and order the groups this API key will try.'
+                            )}
+                          </FormDescription>
+                          <FormControl>
+                            <AutoGroupOrderEditor
+                              value={field.value}
+                              mode={autoGroupsMode}
+                              options={groups}
+                              globalOptions={globalAutoGroupOptions}
+                              maxCount={maxAutoGroups}
+                              onChange={(value) => {
+                                form.setValue('auto_groups_mode', value.mode, {
+                                  shouldDirty: true,
+                                  shouldValidate: false,
+                                })
+                                form.setValue(
+                                  'auto_groups',
+                                  value.groups.slice(0, maxAutoGroups),
+                                  {
+                                    shouldDirty: true,
+                                    shouldValidate: true,
+                                  }
+                                )
+                              }}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
                   )}
-                />
-              )}
+
+                  {selectedGroup === 'auto' && (
+                    <FormField
+                      control={form.control}
+                      name='cross_group_retry'
+                      render={({ field }) => (
+                        <FormItem className={sideDrawerSwitchItemClassName()}>
+                          <div className='flex flex-col gap-0.5'>
+                            <FormLabel className='text-sm'>
+                              {t('Cross-group retry')}
+                            </FormLabel>
+                            <FormDescription className='line-clamp-2 text-xs sm:line-clamp-none'>
+                              {t(
+                                'When enabled, if channels in the current group fail, it will try channels in the next group in order.'
+                              )}
+                            </FormDescription>
+                          </div>
+                          <FormControl>
+                            <Switch
+                              checked={!!field.value}
+                              onCheckedChange={field.onChange}
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                  )}
+                </div>
+              </details>
 
               <FormField
                 control={form.control}

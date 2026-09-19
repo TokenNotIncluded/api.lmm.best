@@ -24,7 +24,7 @@ export function SignalGamePage() {
     state = useSignalGame(),
     user = useAuthStore((s) => s.auth.user),
     queryClient = useQueryClient()
-  const [rankSize, setRankSize] = useState(state.circuit.size),
+  const [selectedRankSize, setRankSize] = useState<number | null>(null),
     [selected, setSelected] = useState(''),
     [email, setEmail] = useState(''),
     [note, setNote] = useState(''),
@@ -34,9 +34,7 @@ export function SignalGamePage() {
   useEffect(() => {
     void loadSignalRecords()
   }, [])
-  useEffect(() => {
-    setRankSize(state.circuit.size)
-  }, [state.circuit.size])
+  const rankSize = selectedRankSize ?? state.circuit.size
   const board = useQuery({
     queryKey: ['signal-leaderboard', rankSize],
     queryFn: ({ signal }) => getLeaderboard(rankSize, undefined, signal),

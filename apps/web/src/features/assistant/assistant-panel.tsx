@@ -94,6 +94,7 @@ import {
   getAssistantPreConversationPresets,
   getAssistantStatus,
   isAssistantRequestAborted,
+  isAssistantTurnUnavailable,
   recordAssistantPreConversationPresetClick,
   sendAssistantMessage,
   type AssistantPreConversationPreset,
@@ -216,6 +217,7 @@ type ConversationEntry = {
     message: string
     history: AssistantChatMessage[]
     presetId?: string
+    clientTurnId: string
   }
 }
 
@@ -437,9 +439,7 @@ function AssistantClassicSidebar(props: {
         <LmmBrandMark className='size-8' />
         <div className='min-w-0'>
           <p className='truncate text-sm font-semibold'>{systemName}</p>
-          <p className='truncate text-xs text-[#b5b5bd]'>
-            {t('Service guide')}
-          </p>
+          <p className='truncate text-xs text-[#b5b5bd]'>{t('AI assistant')}</p>
         </div>
       </div>
       <div className='px-3'>
@@ -1167,7 +1167,7 @@ function AssistantPanelHeader(props: {
   if (props.mode === 'mobile') {
     return (
       <SheetHeader className='flex-row items-center gap-0.5 px-2 py-2 sm:px-3'>
-        <SheetTitle className='sr-only'>{t('Service guide')}</SheetTitle>
+        <SheetTitle className='sr-only'>{t('AI assistant')}</SheetTitle>
         <SheetDescription className='sr-only'>
           {props.description}
         </SheetDescription>
@@ -1759,7 +1759,9 @@ function AssistantPanelSession(props: AssistantPanelProps) {
   const requestAssistantReply = async (
     message: string,
     history: AssistantChatMessage[],
-    presetId?: string
+    presetId?: string,
+    replay = false,
+    clientTurnId = nanoid()
   ) => {
     if (
       assistantAbortControllerRef.current ||
@@ -1832,7 +1834,9 @@ function AssistantPanelSession(props: AssistantPanelProps) {
             renderStreamedContent()
           },
         },
-        abortController.signal
+        abortController.signal,
+        replay,
+        clientTurnId
       )
       if (!isCurrentRequest()) return
       abortController.signal.throwIfAborted()
@@ -2042,7 +2046,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                   content,
                   streaming: false,
                   interrupted: true,
-                  retry: { message, history, presetId },
+                  retry: { message, history, presetId, clientTurnId },
                 }
               : entry
           )
@@ -2073,9 +2077,15 @@ function AssistantPanelSession(props: AssistantPanelProps) {
       const errorEntry: ConversationEntry = {
         id: nanoid(),
         role: 'assistant',
-        content: assistantFailureMessage(error, t),
+        content: isAssistantTurnUnavailable(error)
+          ? t(
+              'This saved reply is no longer available. Send a new message to continue.'
+            )
+          : assistantFailureMessage(error, t),
         error: true,
-        retry: { message, history, presetId },
+        retry: isAssistantTurnUnavailable(error)
+          ? undefined
+          : { message, history, presetId, clientTurnId },
         action: errorAction,
       }
       setEntries((current) => [
@@ -2231,7 +2241,9 @@ function AssistantPanelSession(props: AssistantPanelProps) {
     await requestAssistantReply(
       entry.retry.message,
       entry.retry.history,
-      entry.retry.presetId
+      entry.retry.presetId,
+      true,
+      entry.retry.clientTurnId
     )
   }
 
@@ -2903,7 +2915,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
           classicLayout && 'assistant-classic-shell bg-[#343541] text-[#ececf1]'
         )}
         data-layout={classicLayout ? 'classic' : 'modern'}
-        aria-label={t('Service guide')}
+        aria-label={t('AI assistant')}
       >
         {classicLayout ? (
           <AssistantClassicSidebar
@@ -2931,7 +2943,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
           id='ai-assistant-panel'
           role='dialog'
           aria-modal='true'
-          aria-label={t('Service guide')}
+          aria-label={t('AI assistant')}
           className={cn(
             'fixed inset-0 z-50 flex min-h-0 flex-col',
             classicLayout
@@ -2956,7 +2968,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
             'assistant-classic-shell border-[#4b4d56] bg-[#343541] text-[#ececf1]'
         )}
         data-layout={classicLayout ? 'classic' : 'modern'}
-        aria-label={t('Service guide')}
+        aria-label={t('AI assistant')}
       >
         {panelContent}
       </aside>

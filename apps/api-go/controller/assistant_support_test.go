@@ -447,3 +447,37 @@ func TestAssistantSupportBookingQuestionInIssueDescription(t *testing.T) {
 	assert.Equal(t, 0, assistantSupportBookingDecision("怎么预约技术支持？"))
 	assert.Equal(t, 0, assistantSupportBookingDecision("预约人工可以吗"))
 }
+
+func TestAssistantSupportTurnRetryDoesNotDuplicateOrRestartClosedHandoff(t *testing.T) {
+	owner, _, other := assistantSupportTestUsers(t)
+	require.NoError(t, model.DB.AutoMigrate(&model.AssistantTurnReceipt{}))
+	const turn = "support_turn_123456789"
+	route := func(actor int, turnID string) *httptest.ResponseRecorder {
+		c, response := assistantSupportTestContext(t, http.MethodPost, "/api/assistant/chat", `{"message":"转人工","client_turn_id":"`+turnID+`"}`, actor, 0)
+		RouteAssistantHumanSupport(c)
+		require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+		return response
+	}
+	route(owner.Id, turn)
+	route(owner.Id, turn) // First response was lost; still one real user message.
+	request, err := model.GetActiveAssistantSupportRequest(owner.Id)
+	require.NoError(t, err)
+	messages, err := model.GetAssistantSupportMessages(owner.Id, request.Id)
+	require.NoError(t, err)
+	require.Len(t, messages, 1)
+	require.Equal(t, model.AssistantHistoryRoleUser, messages[0].Role)
+	route(owner.Id, turn+"_new") // Same text, deliberately another message.
+	messages, err = model.GetAssistantSupportMessages(owner.Id, request.Id)
+	require.NoError(t, err)
+	require.Len(t, messages, 2)
+	route(other.Id, turn) // Identical browser ID in another account is independent.
+	otherRequest, err := model.GetActiveAssistantSupportRequest(other.Id)
+	require.NoError(t, err)
+	require.NotEqual(t, request.ConversationId, otherRequest.ConversationId)
+	_, err = model.CloseAssistantSupportRequest(owner.Id, request.Id, true)
+	require.NoError(t, err)
+	route(owner.Id, turn) // A delayed retry must not open a second support ticket.
+	active, err := model.GetActiveAssistantSupportRequest(owner.Id)
+	require.NoError(t, err)
+	require.Nil(t, active)
+}

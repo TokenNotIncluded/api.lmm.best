@@ -141,6 +141,8 @@ func runServer() {
 	loops.Go(service.RunRatioNotifications)
 	loops.Go(common.RunSystemMonitor)
 	loops.Go(service.RunAuthArtifactCleanup)
+	loops.Go(model.RunAcquisitionRetention)
+	loops.Go(model.RunAcquisitionActivity)
 
 	if common.RedisEnabled {
 		// for compatibility with old versions

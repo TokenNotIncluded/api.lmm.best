@@ -167,7 +167,7 @@ export function AssistantLauncher(props: { page?: boolean }) {
   const needsL1Unlock = user !== null && !isConsoleActivated(user)
   const visibleLabel = needsL1Unlock
     ? t('Unlock L1 with AI')
-    : t('Service guide')
+    : t('AI assistant')
   const accessibleLabel = needsL1Unlock
     ? t('Unlock L1 with AI')
     : t('Open AI assistant')

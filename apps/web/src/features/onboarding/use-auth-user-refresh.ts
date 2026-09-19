@@ -21,28 +21,40 @@ import { useCallback, useEffect, useRef } from 'react'
 import { getSelf } from '@/lib/api'
 import { useAuthStore, type AuthUser } from '@/stores/auth-store'
 
+export async function refreshCurrentAccount(): Promise<AuthUser | null> {
+  const before = useAuthStore.getState().auth
+  if (!before.user) return null
+  try {
+    const response = await getSelf()
+    const after = useAuthStore.getState().auth
+    if (
+      after.user?.id !== before.user.id ||
+      after.session?.sid !== before.session?.sid
+    ) {
+      return null
+    }
+    if (
+      response?.success &&
+      response.data &&
+      response.data.id === before.user.id
+    ) {
+      const user = response.data as AuthUser
+      after.setUser(user)
+      return user
+    }
+  } catch {
+    // Keep the last known account on transient failure; never overwrite a new session.
+  }
+  return null
+}
+
 export function useAuthUserRefresh() {
-  const setUser = useAuthStore((state) => state.auth.setUser)
   const inFlightRef = useRef<Promise<AuthUser | null> | null>(null)
 
   const refreshUser = useCallback(() => {
     if (inFlightRef.current) return inFlightRef.current
 
-    const request = (async () => {
-      try {
-        const response = await getSelf()
-        if (response?.success && response.data) {
-          const refreshedUser = response.data as AuthUser
-          setUser(refreshedUser)
-          return refreshedUser
-        }
-      } catch (error) {
-        // eslint-disable-next-line no-console
-        console.error('Failed to refresh authenticated user:', error)
-      }
-
-      return null
-    })()
+    const request = refreshCurrentAccount()
 
     inFlightRef.current = request
     void request.finally(() => {
@@ -52,7 +64,7 @@ export function useAuthUserRefresh() {
     })
 
     return request
-  }, [setUser])
+  }, [])
 
   useEffect(() => {
     void refreshUser()

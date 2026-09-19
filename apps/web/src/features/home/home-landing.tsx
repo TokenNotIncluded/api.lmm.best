@@ -18,6 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type { ReactNode, Ref } from 'react'
 
+import { Button } from '@/components/ui/button'
+import type { ConnectionMethod } from '@/features/onboarding/next-step'
 import { RepositoryLink } from '@/features/repositories/repository-link'
 
 type HomeLandingProps = {
@@ -31,6 +33,8 @@ type HomeLandingProps = {
   destinations: ReactNode
   scripts: ReactNode
   purchase: ReactNode
+  connectionMethod: ConnectionMethod
+  onConnectionMethodChange: (method: ConnectionMethod) => void
 }
 
 function Arrow({ diagonal = false }: { diagonal?: boolean }) {
@@ -66,12 +70,40 @@ const STEPS = [
   ],
 ] as const
 
+const OAUTH_STEPS = [
+  [
+    'Sign in and authorize',
+    'Use Pi or a client that supports LMM OAuth. No manual API key is needed.',
+  ],
+  [
+    'Choose a model',
+    'After access approval, choose a model available to your account.',
+  ],
+  [
+    'Send your first message',
+    'Choose a model, test the connection, and check your usage.',
+  ],
+] as const
+
 /** Presentation only. Account state and actions stay in ForgeHome. */
-export function HomeLanding(props: HomeLandingProps) {
-  const { t } = props
+export function HomeLanding({
+  rootRef,
+  t,
+  primaryAction,
+  pricingAction,
+  assistant,
+  pi,
+  code,
+  destinations,
+  scripts,
+  purchase,
+  connectionMethod,
+  onConnectionMethodChange,
+}: HomeLandingProps) {
   const headline = t('Make room for your next idea.')
+  const steps = connectionMethod === 'oauth' ? OAUTH_STEPS : STEPS
   return (
-    <main className='lmm-home' ref={props.rootRef}>
+    <main className='lmm-home' ref={rootRef}>
       <section
         className='lmm-cinema'
         data-cinema
@@ -93,12 +125,12 @@ export function HomeLanding(props: HomeLandingProps) {
             </h1>
             <p className='lmm-intro-description'>
               {t(
-                'One address for compatible apps. Compare rates before you start.'
+                'Choose your client to get started. Available models and account pricing are shown after access approval.'
               )}
             </p>
             <div className='lmm-intro-actions'>
-              {props.primaryAction}
-              {props.pricingAction}
+              {primaryAction}
+              {pricingAction}
               <RepositoryLink kind='project' className='lmm-home-repository' />
             </div>
             <p className='lmm-access-note'>
@@ -159,7 +191,7 @@ export function HomeLanding(props: HomeLandingProps) {
             <h2>{t('Model prices')}</h2>
             <p>
               {t(
-                'One address for compatible apps. Compare rates before you start.'
+                'Choose your client to get started. Available models and account pricing are shown after access approval.'
               )}
             </p>
             <div className='lmm-core-protocols'>
@@ -226,9 +258,29 @@ export function HomeLanding(props: HomeLandingProps) {
             <Arrow />
           </a>
         </div>
+        <div
+          className='flex flex-wrap gap-3 py-5'
+          role='group'
+          aria-label={t('Connection method')}
+        >
+          <Button
+            variant={connectionMethod === 'oauth' ? 'default' : 'outline'}
+            aria-pressed={connectionMethod === 'oauth'}
+            onClick={() => onConnectionMethodChange('oauth')}
+          >
+            {t('Pi / LMM OAuth')}
+          </Button>
+          <Button
+            variant={connectionMethod === 'api-key' ? 'default' : 'outline'}
+            aria-pressed={connectionMethod === 'api-key'}
+            onClick={() => onConnectionMethodChange('api-key')}
+          >
+            {t('Other clients / API key')}
+          </Button>
+        </div>
         <div className='lmm-story' data-story>
           <div className='lmm-story-steps'>
-            {STEPS.map(([title, description], index) => (
+            {steps.map(([title, description], index) => (
               <article
                 id={`lmm-step-${index + 1}`}
                 className='lmm-story-step'
@@ -249,98 +301,86 @@ export function HomeLanding(props: HomeLandingProps) {
               </article>
             ))}
           </div>
-          <div className='lmm-story-preview'>
-            <nav className='lmm-story-controls' aria-label={t('Guide')}>
-              {STEPS.map(([title], index) => (
-                <a
-                  key={title}
-                  href={`#lmm-step-${index + 1}`}
-                  data-step-link={index}
-                  aria-label={t(title)}
+          {connectionMethod === 'api-key' ? (
+            <div className='lmm-story-preview'>
+              <nav className='lmm-story-controls' aria-label={t('Guide')}>
+                {steps.map(([title], index) => (
+                  <a
+                    key={title}
+                    href={`#lmm-step-${index + 1}`}
+                    data-step-link={index}
+                    aria-label={t(title)}
+                  >
+                    0{index + 1}
+                  </a>
+                ))}
+                <i aria-hidden='true' />
+              </nav>
+              <div className='lmm-code-surface lmm-story-panels'>
+                <div
+                  className='lmm-story-panel lmm-model-panel'
+                  data-story-panel='0'
                 >
-                  0{index + 1}
-                </a>
-              ))}
-              <i aria-hidden='true' />
-            </nav>
-            <div className='lmm-code-surface lmm-story-panels'>
-              <div
-                className='lmm-story-panel lmm-model-panel'
-                data-story-panel='0'
-              >
-                <p className='lmm-panel-eyebrow'>{t('Model Square')}</p>
-                <h3>{t('API Endpoints')}</h3>
-                <div className='lmm-protocol-row'>
-                  <span>C</span>
-                  <div>
-                    Chat Completions<small>/v1/chat/completions</small>
+                  <p className='lmm-panel-eyebrow'>{t('Models and pricing')}</p>
+                  <h3>{t('API Endpoints')}</h3>
+                  <div className='lmm-protocol-row'>
+                    <span>C</span>
+                    <div>
+                      Chat Completions<small>/v1/chat/completions</small>
+                    </div>
+                    <Arrow diagonal />
                   </div>
-                  <Arrow diagonal />
-                </div>
-                <div className='lmm-protocol-row'>
-                  <span>A</span>
-                  <div>
-                    Claude Messages<small>/v1/messages</small>
+                  <div className='lmm-protocol-row'>
+                    <span>A</span>
+                    <div>
+                      Claude Messages<small>/v1/messages</small>
+                    </div>
+                    <Arrow diagonal />
                   </div>
-                  <Arrow diagonal />
-                </div>
-                <div className='lmm-protocol-row'>
-                  <span>G</span>
-                  <div>
-                    Gemini<small>/v1beta/models</small>
+                  <div className='lmm-protocol-row'>
+                    <span>G</span>
+                    <div>
+                      Gemini<small>/v1beta/models</small>
+                    </div>
+                    <Arrow diagonal />
                   </div>
-                  <Arrow diagonal />
+                  <p className='lmm-panel-note'>
+                    {t(
+                      'Find official downloads and instructions for your device.'
+                    )}
+                  </p>
                 </div>
-                <p className='lmm-panel-note'>
-                  {t(
-                    'Find official downloads and instructions for your device.'
-                  )}
-                </p>
-              </div>
-              <div
-                className='lmm-story-panel lmm-endpoint-panel'
-                data-story-panel='1'
-              >
-                <p className='lmm-panel-eyebrow'>{t('Connect your API key')}</p>
-                <span className='lmm-endpoint-mark' aria-hidden='true'>
-                  ↗
-                </span>
-                <h3>{t('One endpoint')}</h3>
-                <code>api.lmm.best</code>
-                <p className='lmm-panel-note'>
-                  {t(
-                    'After access approval, create a key and configure your app.'
-                  )}
-                </p>
-              </div>
-              <div className='lmm-story-panel' data-story-panel='2'>
-                {props.code}
+                <div
+                  className='lmm-story-panel lmm-endpoint-panel'
+                  data-story-panel='1'
+                >
+                  <p className='lmm-panel-eyebrow'>
+                    {t('Connect your API key')}
+                  </p>
+                  <span className='lmm-endpoint-mark' aria-hidden='true'>
+                    ↗
+                  </span>
+                  <h3>{t('One endpoint')}</h3>
+                  <code>api.lmm.best</code>
+                  <p className='lmm-panel-note'>
+                    {t(
+                      'After access approval, create a key and configure your app.'
+                    )}
+                  </p>
+                </div>
+                <div className='lmm-story-panel' data-story-panel='2'>
+                  {code}
+                </div>
               </div>
             </div>
-          </div>
-        </div>
-      </section>
-
-      <section
-        className='lmm-section lmm-pi-section'
-        aria-labelledby='lmm-pi-title'
-      >
-        <div className='lmm-pi-art' aria-hidden='true'>
-          <div className='lmm-pi-grid' />
-          <span>π</span>
-          <p>
-            YOUR TERMINAL.
-            <br />
-            YOUR MODELS.
-          </p>
-          <i>↗</i>
-        </div>
-        <div className='lmm-pi-content'>
-          <p className='lmm-eyebrow'>02 / PI + LMM</p>
-          <h2 id='lmm-pi-title'>
-            {t('Use Pi without manually creating an API key')}
-          </h2>
-          {props.pi}
+          ) : (
+            <div className='lmm-story-preview'>
+              <h3 className='mb-4 text-xl font-semibold'>
+                {t('Use Pi without manually creating an API key')}
+              </h3>
+              {pi}
+            </div>
+          )}
         </div>
       </section>
 
@@ -355,7 +395,7 @@ export function HomeLanding(props: HomeLandingProps) {
             {t('New here? Start with the setup guide')}
           </p>
         </div>
-        <div className='lmm-assistant-surface'>{props.assistant}</div>
+        <div className='lmm-assistant-surface'>{assistant}</div>
       </section>
 
       <section
@@ -366,7 +406,7 @@ export function HomeLanding(props: HomeLandingProps) {
           <p className='lmm-eyebrow'>04 / LMM</p>
           <h2 id='lmm-explore-title'>{t('Make room for your next idea.')}</h2>
         </div>
-        <div className='lmm-destinations'>{props.destinations}</div>
+        <div className='lmm-destinations'>{destinations}</div>
       </section>
       <section
         className='lmm-section lmm-resources'
@@ -377,14 +417,14 @@ export function HomeLanding(props: HomeLandingProps) {
             {t('Scripts')}
             <Arrow diagonal />
           </summary>
-          <div className='lmm-resource-body'>{props.scripts}</div>
+          <div className='lmm-resource-body'>{scripts}</div>
         </details>
         <details>
           <summary>
             {t('Account and access')}
             <Arrow diagonal />
           </summary>
-          <div className='lmm-resource-body'>{props.purchase}</div>
+          <div className='lmm-resource-body'>{purchase}</div>
         </details>
       </section>
       <footer className='lmm-home-footer'>

@@ -37,15 +37,17 @@ import {
   requestAssistantOpen,
   type AssistantPresetId,
 } from '@/features/assistant/assistant-events'
-import { AssistantSetupTool } from '@/features/assistant/assistant-setup-tool'
+import {
+  AssistantSetupTool,
+  type ClientTab,
+} from '@/features/assistant/assistant-setup-tool'
+import { readSetupPreferences } from '@/features/onboarding/setup-preferences'
 import { useStatus } from '@/hooks/use-status'
 import {
   getOnboardingState,
   isConsoleActivated,
 } from '@/lib/console-activation'
 import { useAuthStore } from '@/stores/auth-store'
-
-import { PiOAuthGuide } from './pi-oauth-guide'
 
 const COPY = {
   zh: {
@@ -291,7 +293,7 @@ function GuideCode({
 }
 
 export function Guide() {
-  const { i18n } = useTranslation()
+  const { i18n, t } = useTranslation()
   const navigate = useNavigate()
   const { status, capabilitiesReady } = useStatus()
   const assistantAvailable =
@@ -300,11 +302,30 @@ export function Guide() {
   const copy = i18n.language.toLowerCase().startsWith('zh') ? COPY.zh : COPY.en
   const developerAccessGranted = isConsoleActivated(user)
   const onboarding = getOnboardingState(user)
-  const completedSteps = [
-    onboarding.activationComplete,
-    onboarding.credentialComplete,
-    onboarding.firstRequestComplete,
-  ]
+  const [selectedClient, setSelectedClient] = useState<ClientTab>(
+    () => readSetupPreferences()?.client ?? 'cherry-studio'
+  )
+  const oauth = selectedClient === 'pi'
+  const completedSteps = oauth
+    ? [onboarding.activationComplete, onboarding.firstRequestComplete]
+    : [
+        onboarding.activationComplete,
+        user?.onboarding?.details_available !== false &&
+          user?.onboarding?.api_key_created === true,
+        onboarding.firstRequestComplete,
+      ]
+  const accountSteps = oauth
+    ? [t('API access'), t('First successful request')]
+    : copy.accountSteps
+  const stages = oauth
+    ? [
+        t('Choose your client'),
+        t('Install Pi'),
+        t('Sign in with OAuth'),
+        t('Choose a model'),
+        t('Send first request'),
+      ]
+    : copy.stages
   const rootUrl =
     typeof window === 'undefined'
       ? 'https://api.lmm.best'
@@ -403,10 +424,9 @@ curl ${rootUrl}/v1/chat/completions \
               </Button>
             </div>
           </header>
-          <PiOAuthGuide />
 
           <ol className='border-border/70 mt-12 grid gap-x-6 gap-y-5 border-y py-7 sm:grid-cols-3 lg:mt-16 lg:grid-cols-5'>
-            {copy.stages.map((stage, index) => (
+            {stages.map((stage, index) => (
               <li
                 key={stage}
                 className='flex items-baseline gap-3 text-sm leading-6'
@@ -441,6 +461,7 @@ curl ${rootUrl}/v1/chat/completions \
                 <div className='mt-6'>
                   <AssistantSetupTool
                     publicGuide
+                    onClientChange={setSelectedClient}
                     rootUrl={rootUrl}
                     openAIBaseUrl={`${rootUrl}/v1`}
                     availableModels={
@@ -559,41 +580,47 @@ curl ${rootUrl}/v1/chat/completions \
                 </div>
               </section>
 
-              <details className='group border-t pt-5'>
-                <summary className='focus-visible:outline-ring flex min-h-12 cursor-pointer list-none items-center gap-3 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden'>
-                  <Terminal
-                    className='text-muted-foreground size-4 shrink-0'
-                    aria-hidden='true'
-                  />
-                  <span className='min-w-0 flex-1 text-sm font-medium'>
-                    {copy.developerTitle}
-                  </span>
-                  <ChevronDown
-                    className='text-muted-foreground size-4 shrink-0 transition-transform group-open:rotate-180'
-                    aria-hidden='true'
-                  />
-                </summary>
-                <p className='text-muted-foreground mt-3 text-sm leading-7'>
-                  {copy.developerBody}
-                </p>
-                <div className='mt-4'>
-                  <GuideCode
-                    label='Bash · OpenAI-compatible API'
-                    value={example}
-                    copy={copy}
-                  />
-                </div>
-              </details>
+              {!oauth && (
+                <details className='group border-t pt-5'>
+                  <summary className='focus-visible:outline-ring flex min-h-12 cursor-pointer list-none items-center gap-3 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden'>
+                    <Terminal
+                      className='text-muted-foreground size-4 shrink-0'
+                      aria-hidden='true'
+                    />
+                    <span className='min-w-0 flex-1 text-sm font-medium'>
+                      {copy.developerTitle}
+                    </span>
+                    <ChevronDown
+                      className='text-muted-foreground size-4 shrink-0 transition-transform group-open:rotate-180'
+                      aria-hidden='true'
+                    />
+                  </summary>
+                  <p className='text-muted-foreground mt-3 text-sm leading-7'>
+                    {copy.developerBody}
+                  </p>
+                  <div className='mt-4'>
+                    <GuideCode
+                      label='Bash · OpenAI-compatible API'
+                      value={example}
+                      copy={copy}
+                    />
+                  </div>
+                </details>
+              )}
             </div>
 
             <aside className='space-y-7 lg:sticky lg:top-24'>
               <section className='bg-background rounded-2xl border p-6'>
                 <h2 className='text-base font-semibold'>{copy.accountTitle}</h2>
                 <p className='text-muted-foreground mt-3 text-sm leading-7'>
-                  {copy.accountBody}
+                  {oauth
+                    ? t(
+                        'Pi uses browser authorization. You do not need to create or paste a manual API key.'
+                      )
+                    : copy.accountBody}
                 </p>
                 <ol className='mt-5 space-y-4'>
-                  {copy.accountSteps.map((step, index) => (
+                  {accountSteps.map((step, index) => (
                     <li
                       key={step}
                       className='flex items-start gap-2.5 text-sm leading-6'
@@ -614,7 +641,18 @@ curl ${rootUrl}/v1/chat/completions \
                     </li>
                   ))}
                 </ol>
-                {user ? (
+                {oauth && developerAccessGranted ? (
+                  <Button
+                    className='mt-6 min-h-11 w-full'
+                    onClick={() =>
+                      document
+                        .getElementById('client-setup')
+                        ?.scrollIntoView({ behavior: 'smooth' })
+                    }
+                  >
+                    {t('Continue client setup')}
+                  </Button>
+                ) : user ? (
                   <Button
                     className='mt-6 min-h-11 w-full whitespace-normal'
                     onClick={developerAccessGranted ? createKey : requestAccess}
@@ -660,18 +698,20 @@ curl ${rootUrl}/v1/chat/completions \
                   </Link>
                 ) : null}
               </section>
-              <section className='px-1 sm:px-2'>
-                <ShieldCheck
-                  className='text-muted-foreground size-5'
-                  aria-hidden='true'
-                />
-                <h2 className='mt-3 text-sm font-semibold'>
-                  {copy.securityTitle}
-                </h2>
-                <p className='text-muted-foreground mt-2 text-sm leading-7'>
-                  {copy.securityBody}
-                </p>
-              </section>
+              {!oauth && (
+                <section className='px-1 sm:px-2'>
+                  <ShieldCheck
+                    className='text-muted-foreground size-5'
+                    aria-hidden='true'
+                  />
+                  <h2 className='mt-3 text-sm font-semibold'>
+                    {copy.securityTitle}
+                  </h2>
+                  <p className='text-muted-foreground mt-2 text-sm leading-7'>
+                    {copy.securityBody}
+                  </p>
+                </section>
+              )}
             </aside>
           </div>
         </div>

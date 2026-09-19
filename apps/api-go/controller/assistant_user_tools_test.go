@@ -137,3 +137,10 @@ func TestAssistantMathToolTraceShowsSafeExpressionResultAndActionableErrors(t *t
 	assert.Equal(t, "missing_math_expression", missing.ErrorCode)
 	assert.Nil(t, missing.Result)
 }
+
+func TestAssistantAccountSetupNextStepUsesObservedProgress(t *testing.T) {
+	require.Contains(t, assistantAccountSetupNextStep(model.OnboardingState{}), "explicit confirmation")
+	require.Contains(t, assistantAccountSetupNextStep(model.OnboardingState{CredentialComplete: true}), "OAuth clients do not need")
+	require.Contains(t, assistantAccountSetupNextStep(model.OnboardingState{CredentialComplete: true, APIKeyCreated: true}), "test its first request")
+	require.Contains(t, assistantAccountSetupNextStep(model.OnboardingState{FirstRequestComplete: true}), "Setup is complete")
+}

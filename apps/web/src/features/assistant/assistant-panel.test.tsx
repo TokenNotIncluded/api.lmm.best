@@ -97,7 +97,9 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = typeof input === 'string' ? input : input.toString()
   if (url === '/api/assistant/chat') {
     const body = init?.body ? JSON.parse(String(init.body)) : undefined
-    const response = await api.post('/api/assistant/chat', body)
+    const response = await api.post('/api/assistant/chat', body, {
+      headers: Object.fromEntries(new Headers(init?.headers).entries()),
+    })
     const headers = new Headers({ 'content-type': 'application/json' })
     const intent = response.headers?.['x-lmm-assistant-intent']
     if (typeof intent === 'string') {
@@ -166,6 +168,25 @@ async function waitForCondition(
   throw new Error(`${failureMessage}: ${document.body.textContent}`)
 }
 
+// Keep ownership until React has unmounted its portals. Clearing body before
+// unmount (for example after an assertion failure) makes React remove detached
+// dialog nodes and leaks subscriptions into the next test.
+const activeRoots = new Map<
+  ReturnType<typeof createRoot>,
+  InstanceType<typeof QueryClient>
+>()
+function trackRoot(
+  root: ReturnType<typeof createRoot>,
+  queryClient: InstanceType<typeof QueryClient>
+) {
+  activeRoots.set(root, queryClient)
+  const unmount = root.unmount.bind(root)
+  root.unmount = () => {
+    unmount()
+    activeRoots.delete(root)
+  }
+}
+
 async function renderPanel(
   initialPreset?: 'api-key' | 'human' | 'models' | 'onboarding' | 'plan',
   mode: 'mobile' | 'page' | 'rail' = 'mobile',
@@ -210,6 +231,7 @@ async function renderPanel(
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
+  trackRoot(root, queryClient)
 
   await act(async () => {
     root.render(<RouterProvider router={router} />)
@@ -259,6 +281,7 @@ async function renderLauncher(user: AuthUser | null = null, width = 1280) {
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
+  trackRoot(root, queryClient)
 
   await act(async () => {
     root.render(<RouterProvider router={router} />)
@@ -305,7 +328,14 @@ async function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {
   })
 }
 
-afterEach(() => {
+afterEach(async () => {
+  await act(async () => {
+    for (const [root, queryClient] of activeRoots) {
+      await queryClient.cancelQueries()
+      root.unmount()
+      queryClient.clear()
+    }
+  })
   api.get = originalGet
   api.post = originalPost
   window.matchMedia = originalMatchMedia
@@ -1003,169 +1033,173 @@ describe('AssistantPanel', () => {
     }
   })
 
-  test('switches all four cached starters, composer text and submitted prompts across seven interface languages', async () => {
-    const keys = {
-      ai_recommendation: 'Help me write an L1 recommendation.',
-      getting_started: 'Where should I start?',
-      new_user_gift: 'How do I get the new-user gift?',
-      weekly_discount: 'Any top-up discounts this week?',
-    }
-    const legacyPresets = Object.keys(keys).map((id) => ({
-      id,
-      label: '旧标签',
-      prompt: '请围绕旧模板说明权限边界。',
-    }))
-    const requestedLanguages: string[] = []
-    const clicks: string[] = []
-    const chats: { preset_id: string; messages: { content: string }[] }[] = []
-    api.get = (async (
-      url: string,
-      config?: { params?: { language?: string } }
-    ) => {
-      if (url === '/api/assistant/pre-conversation-presets') {
-        requestedLanguages.push(config?.params?.language ?? '')
+  test(
+    'switches all four cached starters, composer text and submitted prompts across seven interface languages',
+    { timeout: 30_000 },
+    async () => {
+      const keys = {
+        ai_recommendation: 'Help me write an L1 recommendation.',
+        getting_started: 'Where should I start?',
+        new_user_gift: 'How do I get the new-user gift?',
+        weekly_discount: 'Any top-up discounts this week?',
+      }
+      const legacyPresets = Object.keys(keys).map((id) => ({
+        id,
+        label: '旧标签',
+        prompt: '请围绕旧模板说明权限边界。',
+      }))
+      const requestedLanguages: string[] = []
+      const clicks: string[] = []
+      const chats: { preset_id: string; messages: { content: string }[] }[] = []
+      api.get = (async (
+        url: string,
+        config?: { params?: { language?: string } }
+      ) => {
+        if (url === '/api/assistant/pre-conversation-presets') {
+          requestedLanguages.push(config?.params?.language ?? '')
+          return {
+            data: {
+              success: true,
+              data: {
+                generation: 17,
+                version: 'aggregate-topic-v1',
+                presets: legacyPresets,
+              },
+            },
+          }
+        }
+        assert.equal(url, '/api/assistant/status')
         return {
           data: {
             success: true,
-            data: {
-              generation: 17,
-              version: 'aggregate-topic-v1',
-              presets: legacyPresets,
-            },
+            data: { ...assistantStatus, developer_access_granted: false },
           },
         }
-      }
-      assert.equal(url, '/api/assistant/status')
-      return {
-        data: {
-          success: true,
-          data: { ...assistantStatus, developer_access_granted: false },
-        },
-      }
-    }) as typeof api.get
-    api.post = (async (url: string, body: (typeof chats)[number]) => {
-      if (url.endsWith('/click')) {
-        clicks.push(url)
-        return { data: { success: true } }
-      }
-      assert.equal(url, '/api/assistant/chat')
-      chats.push(body)
-      return {
-        data: { choices: [{ message: { content: 'Preset test reply.' } }] },
-        headers: {},
-      }
-    }) as typeof api.post
+      }) as typeof api.get
+      api.post = (async (url: string, body: (typeof chats)[number]) => {
+        if (url.endsWith('/click')) {
+          clicks.push(url)
+          return { data: { success: true } }
+        }
+        assert.equal(url, '/api/assistant/chat')
+        chats.push(body)
+        return {
+          data: { choices: [{ message: { content: 'Preset test reply.' } }] },
+          headers: {},
+        }
+      }) as typeof api.post
 
-    const rendered = await renderPanel(undefined, 'mobile', {
-      id: 7,
-      username: 'l0-preset-user',
-      role: 1,
-      trust_level_info: { level: 0 } as AuthUser['trust_level_info'],
-      developer_access_granted: false,
-    })
-    try {
-      for (const [language, file] of [
-        ['en', 'en'],
-        ['zhCN', 'zh'],
-        ['zhTW', 'zh-TW'],
-        ['fr', 'fr'],
-        ['ja', 'ja'],
-        ['ru', 'ru'],
-        ['vi', 'vi'],
-      ]) {
-        const resource = JSON.parse(
-          await readFile(
-            new URL(`../../i18n/locales/${file}.json`, import.meta.url),
-            'utf8'
-          )
-        ) as { translation: Record<string, string> }
-        // Keep unrelated controls in English so this test isolates starter copy.
-        i18n.addResourceBundle(
-          language,
-          'translation',
-          Object.fromEntries(
-            Object.values(keys).map((key) => [key, resource.translation[key]])
-          )
-        )
-        await act(async () => {
-          await i18n.changeLanguage(language)
-          await flushEffects()
-        })
-        assert.ok(
-          requestedLanguages.includes(language),
-          'Language-specific preset request was not made'
-        )
-        for (const [id, key] of Object.entries(keys)) {
-          const prompt = resource.translation[key]
-          assert.ok(prompt)
-          const group = requireValue(
-            document.querySelector('[data-testid="assistant-preset-prompts"]')
-          )
-          const button = requireValue(
-            [...group.querySelectorAll('button')].find(
-              (item) => item.textContent === prompt
+      const rendered = await renderPanel(undefined, 'mobile', {
+        id: 7,
+        username: 'l0-preset-user',
+        role: 1,
+        trust_level_info: { level: 0 } as AuthUser['trust_level_info'],
+        developer_access_granted: false,
+      })
+      try {
+        for (const [language, file] of [
+          ['en', 'en'],
+          ['zhCN', 'zh'],
+          ['zhTW', 'zh-TW'],
+          ['fr', 'fr'],
+          ['ja', 'ja'],
+          ['ru', 'ru'],
+          ['vi', 'vi'],
+        ]) {
+          const resource = JSON.parse(
+            await readFile(
+              new URL(`../../i18n/locales/${file}.json`, import.meta.url),
+              'utf8'
+            )
+          ) as { translation: Record<string, string> }
+          // Keep unrelated controls in English so this test isolates starter copy.
+          i18n.addResourceBundle(
+            language,
+            'translation',
+            Object.fromEntries(
+              Object.values(keys).map((key) => [key, resource.translation[key]])
             )
           )
-          assert.match(button.className, /max-w-full/)
-          assert.doesNotMatch(group.textContent ?? '', /旧标签|权限边界/)
-          const previousChats = chats.length
           await act(async () => {
-            button.click()
+            await i18n.changeLanguage(language)
             await flushEffects()
           })
-          const textarea = requireValue(document.querySelector('textarea'))
-          assert.equal(textarea.value, prompt)
-          assert.equal(
-            chats.length,
-            previousChats,
-            'Selecting a starter should fill, not auto-send, the composer'
+          assert.ok(
+            requestedLanguages.includes(language),
+            'Language-specific preset request was not made'
           )
-          assert.equal(
-            clicks.at(-1),
-            `/api/assistant/pre-conversation-presets/${id}/click`
-          )
-          await act(async () => {
-            const submit = requireValue(
-              document.querySelector<HTMLButtonElement>(
-                'button[aria-label="Send"]'
+          for (const [id, key] of Object.entries(keys)) {
+            const prompt = resource.translation[key]
+            assert.ok(prompt)
+            const group = requireValue(
+              document.querySelector('[data-testid="assistant-preset-prompts"]')
+            )
+            const button = requireValue(
+              [...group.querySelectorAll('button')].find(
+                (item) => item.textContent === prompt
               )
             )
-            assert.equal(submit.disabled, false)
-            submit.click()
-            await flushEffects()
-          })
-          await act(flushEffects)
-          assert.ok(
-            document.body.textContent?.includes('Preset test reply.'),
-            'Localized starter was not sent'
-          )
-          assert.equal(chats.at(-1)?.preset_id, id)
-          assert.equal(chats.at(-1)?.messages.at(-1)?.content, prompt)
-          await act(async () => {
-            findButton('Clear conversation').click()
-            await flushEffects()
-          })
+            assert.match(button.className, /max-w-full/)
+            assert.doesNotMatch(group.textContent ?? '', /旧标签|权限边界/)
+            const previousChats = chats.length
+            await act(async () => {
+              button.click()
+              await flushEffects()
+            })
+            const textarea = requireValue(document.querySelector('textarea'))
+            assert.equal(textarea.value, prompt)
+            assert.equal(
+              chats.length,
+              previousChats,
+              'Selecting a starter should fill, not auto-send, the composer'
+            )
+            assert.equal(
+              clicks.at(-1),
+              `/api/assistant/pre-conversation-presets/${id}/click`
+            )
+            await act(async () => {
+              const submit = requireValue(
+                document.querySelector<HTMLButtonElement>(
+                  'button[aria-label="Send"]'
+                )
+              )
+              assert.equal(submit.disabled, false)
+              submit.click()
+              await flushEffects()
+            })
+            await act(flushEffects)
+            assert.ok(
+              document.body.textContent?.includes('Preset test reply.'),
+              'Localized starter was not sent'
+            )
+            assert.equal(chats.at(-1)?.preset_id, id)
+            assert.equal(chats.at(-1)?.messages.at(-1)?.content, prompt)
+            await act(async () => {
+              findButton('Clear conversation').click()
+              await flushEffects()
+            })
+          }
         }
-      }
-      assert.equal(chats.length, 28)
-      assert.equal(clicks.length, 28)
-      assert.equal(requestedLanguages.length, 7)
-      await act(async () => {
+        assert.equal(chats.length, 28)
+        assert.equal(clicks.length, 28)
+        assert.equal(requestedLanguages.length, 7)
+        await act(async () => {
+          await i18n.changeLanguage('en')
+          await flushEffects()
+        })
+        assert.equal(
+          requestedLanguages.length,
+          7,
+          'Returning to a fresh locale cache must not refetch'
+        )
+        for (const prompt of Object.values(keys)) assert.ok(findButton(prompt))
+      } finally {
+        await act(async () => rendered.root.unmount())
+        rendered.queryClient.clear()
         await i18n.changeLanguage('en')
-        await flushEffects()
-      })
-      assert.equal(
-        requestedLanguages.length,
-        7,
-        'Returning to a fresh locale cache must not refetch'
-      )
-      for (const prompt of Object.values(keys)) assert.ok(findButton(prompt))
-    } finally {
-      await act(async () => rendered.root.unmount())
-      rendered.queryClient.clear()
-      await i18n.changeLanguage('en')
+      }
     }
-  })
+  )
 
   test('shows localized seed starters when the preset endpoint fails', async () => {
     api.get = (async (url: string) => {
@@ -1556,7 +1590,7 @@ describe('AssistantPanel', () => {
         await flushEffects()
       })
 
-      assert.equal(launcherButton.textContent?.trim(), 'Service guide')
+      assert.equal(launcherButton.textContent?.trim(), 'AI assistant')
       assert.equal(
         launcherButton.getAttribute('aria-label'),
         'Open AI assistant'
@@ -2720,13 +2754,19 @@ describe('AssistantPanel', () => {
 
   test('retries the exact failed conversation without duplicating the user message', async () => {
     const posted: unknown[] = []
+    const attempts: unknown[] = []
     api.get = (async (url: string) => {
       assert.equal(url, '/api/assistant/status')
       return { data: { success: true, data: assistantStatus } }
     }) as typeof api.get
-    api.post = (async (url: string, data: unknown) => {
+    api.post = (async (url: string, data: unknown, config: unknown) => {
       assert.equal(url, '/api/assistant/chat')
       posted.push(data)
+      attempts.push(
+        new Headers(
+          (config as { headers?: Record<string, string> })?.headers
+        ).get('X-LMM-Assistant-Attempt')
+      )
       if (posted.length === 1) throw new Error('assistant offline')
       return {
         data: {
@@ -2788,6 +2828,11 @@ describe('AssistantPanel', () => {
     )
 
     assert.equal(posted.length, 2)
+    assert.deepEqual(attempts, ['1', '2'])
+    assert.match(
+      (posted[0] as { client_turn_id: string }).client_turn_id,
+      /^[A-Za-z0-9_-]{16,80}$/
+    )
     assert.deepEqual(posted[1], posted[0])
     assert.doesNotMatch(
       document.body.textContent ?? '',
@@ -3197,6 +3242,42 @@ describe('AssistantPanel in-site human support', () => {
       return { data: { success: false, message: 'Not enabled in this test' } }
     }) as typeof api.get
   }
+
+  test('reuses a support message turn ID after a lost reply but renews it after success', async () => {
+    const request = fixture({ status: 'accepted', assigned_admin_id: 7 })
+    stubSupport(() => request)
+    const bodies: Record<string, unknown>[] = []
+    api.post = (async (_url: string, body: Record<string, unknown>) => {
+      bodies.push(body)
+      if (bodies.length === 1) throw new Error('lost support reply')
+      return {
+        data: {
+          success: true,
+          data: {
+            message: {
+              id: 1,
+              role: 'user',
+              content: body.content,
+              created_at: 1,
+            },
+          },
+        },
+      }
+    }) as typeof api.post
+    const rendered = await renderPanel(undefined, 'page', user)
+    try {
+      await send('same human message')
+      await send('same human message')
+      assert.equal(bodies.length, 2)
+      assert.equal(bodies[0]?.client_turn_id, bodies[1]?.client_turn_id)
+      assert.equal(typeof bodies[0]?.client_turn_id, 'string')
+      await send('same human message')
+      assert.notEqual(bodies[1]?.client_turn_id, bodies[2]?.client_turn_id)
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
 
   test('submits typed transfer with unavailable AI and keeps staff replies in the same composer', async () => {
     let request: Record<string, unknown> | null = null

@@ -39,6 +39,11 @@ import {
 } from '@/components/ui/card'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { PiOAuthGuide } from '@/features/guide/pi-oauth-guide'
+import {
+  readSetupPreferences,
+  saveSetupPreferences,
+} from '@/features/onboarding/setup-preferences'
 
 import { ClientKeyImport } from './client-key-import'
 import {
@@ -52,6 +57,7 @@ import {
   getCodexConfigPath,
   getCodexInstallCommand,
   getGuideEligibleModels,
+  getPythonSDKExample,
   getOpenAICompatibleClientJSON,
   isMobileSetupPlatform,
   selectGuideModel,
@@ -86,7 +92,11 @@ const PLATFORM_LABELS: Record<AssistantSetupPlatform, string> = {
   android: 'Android',
   ios: 'iOS / iPadOS',
 }
-type ClientTab =
+export type ClientTab =
+  | 'pi'
+  | 'astrbot'
+  | 'openai-sdk'
+  | 'anthropic-sdk'
   | 'cherry-studio'
   | 'chatbox'
   | 'claude-code'
@@ -188,15 +198,18 @@ export function AssistantSetupTool(props: {
   onRequestAccess: () => void
   onAskQuestion?: (question: string) => void
   publicGuide?: boolean
+  onClientChange?: (client: ClientTab) => void
 }) {
   const { t } = useTranslation()
   const [platform, setPlatform] = useState<AssistantSetupPlatform>(
-    detectBrowserSetupPlatform
+    () => readSetupPreferences()?.platform ?? detectBrowserSetupPlatform()
   )
-  const [clientTab, setClientTab] = useState<ClientTab>(() =>
-    isMobileSetupPlatform(detectBrowserSetupPlatform())
-      ? 'chatbox'
-      : 'cherry-studio'
+  const [clientTab, setClientTab] = useState<ClientTab>(
+    () =>
+      readSetupPreferences()?.client ??
+      (isMobileSetupPlatform(detectBrowserSetupPlatform())
+        ? 'chatbox'
+        : 'cherry-studio')
   )
   const [selectedModel, setSelectedModel] = useState('')
   const mobile = isMobileSetupPlatform(platform)
@@ -208,6 +221,10 @@ export function AssistantSetupTool(props: {
     : ''
   const modelValue = model || '<MODEL_ID>'
   const clientNames: Record<ClientTab, string> = {
+    pi: 'Pi (OAuth)',
+    astrbot: 'AstrBot',
+    'openai-sdk': 'OpenAI SDK',
+    'anthropic-sdk': 'Anthropic SDK',
     'cherry-studio': 'Cherry Studio',
     chatbox: 'Chatbox',
     'claude-code': 'Claude Code',
@@ -220,11 +237,15 @@ export function AssistantSetupTool(props: {
   const clients: ClientTab[] = mobile
     ? ['chatbox', 'chatgpt']
     : [
-        'cherry-studio',
-        'chatbox',
-        'cc-switch',
+        'pi',
         'claude-code',
         'codex',
+        'cc-switch',
+        'astrbot',
+        'openai-sdk',
+        'anthropic-sdk',
+        'cherry-studio',
+        'chatbox',
         'claude-desktop',
         'chatgpt',
         'openai-compatible',
@@ -310,6 +331,13 @@ export function AssistantSetupTool(props: {
                   variant={platform === item ? 'default' : 'outline'}
                   aria-pressed={platform === item}
                   onClick={() => {
+                    const client = isMobileSetupPlatform(item)
+                      ? 'chatbox'
+                      : isMobileSetupPlatform(platform)
+                        ? 'cherry-studio'
+                        : clientTab
+                    saveSetupPreferences({ platform: item, client })
+                    props.onClientChange?.(client)
                     setPlatform(item)
                     if (isMobileSetupPlatform(item)) setClientTab('chatbox')
                     else if (isMobileSetupPlatform(platform)) {
@@ -331,20 +359,20 @@ export function AssistantSetupTool(props: {
           ) : null}
         </div>
 
-        {!canConnect ? (
+        {clientTab === 'pi' ? null : !canConnect ? (
           <Alert>
             <AlertTitle>
               {t(
                 props.publicGuide
                   ? 'Start with the installation'
-                  : 'Ask for L1 access'
+                  : 'Request API access'
               )}
             </AlertTitle>
             <AlertDescription>
               {t(
                 props.publicGuide
                   ? 'Browse the download and setup steps freely. Sign in and complete access setup to see your connection values and create an API key.'
-                  : 'You can install clients while L0 access is under review. API requests become available after L1 approval.'
+                  : 'You can install clients during review. API requests become available after access is approved.'
               )}
             </AlertDescription>
           </Alert>
@@ -378,7 +406,11 @@ export function AssistantSetupTool(props: {
 
         <Tabs
           value={clientTab}
-          onValueChange={(value) => setClientTab(value as ClientTab)}
+          onValueChange={(value) => {
+            setClientTab(value as ClientTab)
+            props.onClientChange?.(value as ClientTab)
+            saveSetupPreferences({ platform, client: value as ClientTab })
+          }}
           className='min-w-0'
         >
           <TabsList className='flex h-auto w-full flex-wrap justify-start gap-1.5 p-1.5 group-data-horizontal/tabs:h-auto'>
@@ -502,6 +534,70 @@ export function AssistantSetupTool(props: {
 
           {!mobile ? (
             <>
+              <TabsContent value='pi' className='mt-5'>
+                <PiOAuthGuide />
+              </TabsContent>
+              <TabsContent value='astrbot' className='mt-5 grid gap-5'>
+                <p className='text-sm leading-7'>
+                  {t(
+                    'In AstrBot, open Providers → Chat Completion and add an OpenAI Compatible provider. Fill in the fields below, save and fetch models, enable your model, then select it under Config → AI → Model.'
+                  )}
+                </p>
+                {canConnect && (
+                  <div className='rounded-xl border px-4'>
+                    <ConnectionValue
+                      label='API Base URL'
+                      value={props.openAIBaseUrl}
+                    />
+                    <ConnectionValue label='API Key' value='<YOUR_API_KEY>' />
+                    <ConnectionValue label={t('Model ID')} value={modelValue} />
+                  </div>
+                )}
+                <OfficialLink
+                  href='https://docs.astrbot.app/en/providers/llm.html'
+                  label={t('Official setup guide')}
+                />
+                {createKey}
+              </TabsContent>
+              {(['openai-sdk', 'anthropic-sdk'] as const).map((sdk) => (
+                <TabsContent key={sdk} value={sdk} className='mt-5 grid gap-5'>
+                  <p className='text-sm leading-7'>
+                    {t(
+                      'Install Python and the SDK. Copy the example into a .py file and run it; enter your LMM API key only in the local password prompt. Choose a model supporting this SDK protocol.'
+                    )}
+                  </p>
+                  <CodeSnippet
+                    label={t('Install SDK')}
+                    value={`python -m pip install ${sdk === 'openai-sdk' ? 'openai' : 'anthropic'}`}
+                  />
+                  {canConnect && (
+                    <CodeSnippet
+                      label={t('Python request example')}
+                      value={getPythonSDKExample(
+                        sdk,
+                        sdk === 'openai-sdk'
+                          ? props.openAIBaseUrl
+                          : props.rootUrl,
+                        model
+                      )}
+                    />
+                  )}
+                  <p className='text-muted-foreground text-xs'>
+                    {t(
+                      'Running this example sends one request and may use your balance. Check its result in Usage Logs.'
+                    )}
+                  </p>
+                  <OfficialLink
+                    href={
+                      sdk === 'openai-sdk'
+                        ? 'https://developers.openai.com/api/docs/libraries'
+                        : 'https://github.com/anthropics/anthropic-sdk-python'
+                    }
+                    label={t('Official setup guide')}
+                  />
+                  {createKey}
+                </TabsContent>
+              ))}
               <TabsContent value='cc-switch' className='mt-5 grid gap-5'>
                 <p className='text-muted-foreground text-sm leading-6'>
                   {t(
@@ -912,7 +1008,7 @@ export function AssistantSetupTool(props: {
           </TabsContent>
         </Tabs>
 
-        {!canConnect ? (
+        {!canConnect && clientTab !== 'pi' ? (
           <Button
             type='button'
             className='min-h-11'
@@ -921,7 +1017,7 @@ export function AssistantSetupTool(props: {
             {t(
               props.publicGuide
                 ? 'Continue to account setup'
-                : 'Unlock L1 access'
+                : 'Request API access'
             )}
             <HugeiconsIcon
               icon={ArrowRight01Icon}

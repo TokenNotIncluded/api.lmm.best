@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { nanoid } from 'nanoid'
 import { useEffect, useRef, useState } from 'react'
 
 import { useAuthStore } from '@/stores/auth-store'
@@ -51,6 +52,12 @@ export function useAssistantSupport(
   )
   const enabled = Boolean(userId) && visible && documentVisible
   const scope = `${userId}:${sessionId}:${conversationId}:${viewRevision}`
+  const pendingMessage = useRef<{
+    scope: string
+    requestId: number
+    content: string
+    turnId: string
+  } | null>(null)
   const currentScope = useRef(scope)
   const busyRef = useRef<symbol | null>(null)
   if (currentScope.current !== scope) busyRef.current = null
@@ -178,15 +185,32 @@ export function useAssistantSupport(
           }),
         (value) => updateRequest(value.request)
       ),
-    send: (content: string) =>
-      current
-        ? mutate(
-            () => sendAssistantSupportMessage(current.id, content),
-            () => {
-              void client.invalidateQueries({ queryKey: detailKey })
-            }
-          )
-        : Promise.resolve(undefined),
+    send: (content: string) => {
+      if (!current) return Promise.resolve(undefined)
+      if (
+        !pendingMessage.current ||
+        pendingMessage.current.scope !== scope ||
+        pendingMessage.current.requestId !== current.id ||
+        pendingMessage.current.content !== content
+      ) {
+        pendingMessage.current = {
+          scope,
+          requestId: current.id,
+          content,
+          turnId: nanoid(),
+        }
+      }
+      const turnId = pendingMessage.current.turnId
+      return mutate(
+        () => sendAssistantSupportMessage(current.id, content, turnId),
+        () => {
+          if (pendingMessage.current?.turnId === turnId) {
+            pendingMessage.current = null
+          }
+          void client.invalidateQueries({ queryKey: detailKey })
+        }
+      )
+    },
     close: () =>
       current
         ? mutate(

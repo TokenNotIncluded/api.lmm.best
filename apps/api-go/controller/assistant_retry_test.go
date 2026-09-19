@@ -591,3 +591,101 @@ func TestAssistantRetryDoesNotDuplicateFirstTurnConversationOnReplay(t *testing.
 	assert.EqualValues(t, 2, historyMessageCount)
 	assert.EqualValues(t, 1, firstQuestion.Count)
 }
+
+func TestAssistantClientTurnReplaysSavedReplyWithoutTimeOrAttemptHeuristics(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupTokenControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(
+		&model.AssistantLead{},
+		&model.AssistantTurnReceipt{},
+		&model.AssistantProfileBucket{},
+		&model.AssistantFirstQuestionStat{},
+		&model.User{},
+		&model.UserOAuthBinding{},
+		&model.AssistantUserProfile{},
+		&model.TopUp{},
+		&model.DeveloperAccessRequest{},
+	))
+	withAssistantSettings(t, true, "assistant-retry-replay-model")
+	originalSettings := setting.GetAssistantSettings()
+	setting.SetAssistantCacheEnabled(true)
+	require.NoError(t, setting.UpdateAssistantCacheTTLMinutes("10"))
+	t.Cleanup(func() {
+		setting.SetAssistantCacheEnabled(originalSettings.CacheEnabled)
+		_ = setting.UpdateAssistantCacheTTLMinutes(strconv.Itoa(originalSettings.CacheTTLMinutes))
+	})
+
+	user := model.User{
+		Username: "assistant-retry-replay-user",
+		Password: "password",
+		Role:     common.RoleCommonUser,
+		Status:   common.UserStatusEnabled,
+		Group:    "default",
+	}
+	require.NoError(t, db.Create(&user).Error)
+
+	message := "replay this assistant answer without creating another conversation"
+	settings := setting.GetAssistantSettings()
+	userContext := assistantUserContextForRequest(user.Id, message)
+	cacheKey := assistantCacheKey(
+		settings,
+		[]assistantOpenAIMessage{{Role: "user", Content: message}},
+		userContext,
+	)
+	require.NotEmpty(t, cacheKey)
+	storeAssistantCachedResponse(
+		settings,
+		cacheKey,
+		http.StatusOK,
+		[]byte(`{"choices":[{"message":{"role":"assistant","content":"cached answer"}}]}`),
+	)
+
+	engine := gin.New()
+	engine.POST("/api/assistant/chat", func(c *gin.Context) {
+		c.Set("id", user.Id)
+		PrepareAssistantRequest(c)
+	})
+
+	// A lost successful response can make the browser replay the same first
+	// turn after attempt 1 has already populated the response cache. The
+	// replay must attach to the original conversation rather than append a
+	// second user/assistant pair.
+	for attempt := 1; attempt <= 2; attempt++ {
+		request := httptest.NewRequest(
+			http.MethodPost,
+			"/api/assistant/chat",
+			strings.NewReader(`{"client_turn_id":"browser_turn_123456789","message":"`+message+`"}`),
+		)
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("X-LMM-Assistant-Attempt", "1")
+		response := httptest.NewRecorder()
+		engine.ServeHTTP(response, request)
+		assert.Equal(t, http.StatusOK, response.Code)
+		if attempt == 1 {
+			assert.Equal(t, "HIT", response.Header().Get("X-LMM-Assistant-Cache"))
+			require.NoError(t, db.Model(&model.AssistantConversation{}).Where("user_id = ?", user.Id).Update("updated_at", 1).Error)
+		}
+		assert.Contains(t, response.Body.String(), "cached answer")
+	}
+
+	// Model two requests that both missed the initial lookup: the late finisher
+	// must return the winner's answer and conversation, not its own new text.
+	lateContext, _ := gin.CreateTestContext(httptest.NewRecorder())
+	lateContext.Set("id", user.Id)
+	lateContext.Set("assistant_history_latest_message", message)
+	lateContext.Set("assistant_client_turn_id", "browser_turn_123456789")
+	lateBody := assistantHistoryResponseBody(lateContext, http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","content":"late different answer"}}]}`))
+	assert.Contains(t, string(lateBody), "cached answer")
+	assert.NotContains(t, string(lateBody), "late different answer")
+	assert.Positive(t, assistantHistoryConversationID(lateContext))
+
+	var conversationCount int64
+	var historyMessageCount int64
+	var firstQuestion model.AssistantFirstQuestionStat
+	require.NoError(t, db.Model(&model.AssistantConversation{}).Count(&conversationCount).Error)
+	require.NoError(t, db.Model(&model.AssistantHistoryMessage{}).Count(&historyMessageCount).Error)
+	require.NoError(t, db.First(&firstQuestion).Error)
+	assert.EqualValues(t, 1, conversationCount)
+	assert.EqualValues(t, 2, historyMessageCount)
+	assert.EqualValues(t, 1, firstQuestion.Count)
+}

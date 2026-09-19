@@ -1,3 +1,5 @@
+import { useQuery } from '@tanstack/react-query'
+import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -16,8 +18,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQuery } from '@tanstack/react-query'
-import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
+import { isAxiosError } from 'axios'
 import {
   ArrowLeft,
   CalendarClock,
@@ -58,6 +59,7 @@ import {
 } from '@/features/performance-metrics/lib/format'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { DEFAULT_TOKEN_UNIT } from '../constants'
 import { usePricingData } from '../hooks/use-pricing-data'
@@ -68,6 +70,7 @@ import {
   isDynamicPricingModel,
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
+import { getModelCatalogFailure } from '../lib/model-availability'
 import {
   getAvailableGroups,
   getConfiguredGroupRatio,
@@ -81,9 +84,11 @@ import type {
   TokenUnit,
 } from '../types'
 import { DynamicPricingBreakdown } from './dynamic-pricing-breakdown'
+import { ModelAvailability } from './model-availability'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelDetailsApi } from './model-details-api'
 import { ModelDetailsPerformance } from './model-details-performance'
+import { RequestEstimator } from './request-estimator'
 
 // ----------------------------------------------------------------------------
 // Local UI helpers
@@ -1163,6 +1168,7 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
   return (
     <div className='@container/details space-y-4'>
       <ModelHeader model={props.model} />
+      <ModelAvailability model={props.model} usableGroup={props.usableGroup} />
 
       <Tabs defaultValue='overview' className='gap-4'>
         <TabsList className='bg-muted/60 grid w-full grid-cols-3 gap-1 rounded-lg p-1 group-data-horizontal/tabs:h-auto'>
@@ -1206,6 +1212,7 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
               tokenUnit={props.tokenUnit}
               showRechargePrice={showRechargePrice}
             />
+            <RequestEstimator {...props} />
           </section>
 
           <ModelBackendDetailsSection model={props.model} />
@@ -1264,6 +1271,7 @@ export function ModelDetails() {
   const { modelId } = useParams({ from: '/pricing/$modelId/' })
   const search = useSearch({ from: '/pricing/$modelId/' })
   const navigate = useNavigate()
+  const user = useAuthStore((state) => state.auth.user)
 
   const {
     models,
@@ -1272,6 +1280,8 @@ export function ModelDetails() {
     endpointMap,
     autoGroups,
     isLoading,
+    error,
+    refetch,
     priceRate,
     usdExchangeRate,
   } = usePricingData()
@@ -1313,15 +1323,46 @@ export function ModelDetails() {
     )
   }
 
+  if (error) {
+    const accessDenied =
+      getModelCatalogFailure(
+        isAxiosError(error) ? error.response?.status : undefined
+      ) === 'access'
+    return (
+      <PublicLayout>
+        <div className='mx-auto max-w-2xl space-y-3 px-4'>
+          <h2 className='text-base font-semibold'>
+            {accessDenied
+              ? t('Model catalog access is required')
+              : t('Model catalog could not be loaded')}
+          </h2>
+          {accessDenied ? (
+            <a className='text-primary underline' href='/getting-started'>
+              {t('Getting started')}
+            </a>
+          ) : (
+            <Button onClick={() => void refetch()}>{t('Retry')}</Button>
+          )}
+        </div>
+      </PublicLayout>
+    )
+  }
+
   if (!model) {
     return (
       <PublicLayout>
         <div className='mx-auto max-w-2xl px-4 text-center sm:px-6'>
           <h2 className='mb-1 text-base font-semibold'>
-            {t('Model not found')}
+            {t('Model is not in this catalog')}
           </h2>
           <p className='text-muted-foreground mb-4 text-sm'>
-            {t("The model you're looking for doesn't exist.")}
+            {user
+              ? t(
+                  'This model may be unavailable to your account or absent from the catalog. Check your model ID and account access.'
+                )
+              : t(
+                  'Check the model ID or sign in to see your account model catalog.'
+                )}
           </p>
           <Button onClick={handleBack} variant='outline' size='sm'>
             {t('Back to Models')}

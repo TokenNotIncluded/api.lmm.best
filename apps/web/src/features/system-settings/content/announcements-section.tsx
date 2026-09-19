@@ -72,6 +72,7 @@ type Announcement = {
   publishDate: string
   type: 'default' | 'ongoing' | 'success' | 'warning' | 'error'
   extra?: string
+  mandatory?: boolean
 }
 
 type AnnouncementsSectionProps = {
@@ -80,6 +81,7 @@ type AnnouncementsSectionProps = {
 }
 
 const announcementSchema = z.object({
+  mandatory: z.boolean(),
   content: z
     .string()
     .min(1, 'Content is required')
@@ -154,6 +156,7 @@ export function AnnouncementsSection({
       publishDate: new Date().toISOString(),
       type: 'default',
       extra: '',
+      mandatory: false,
     },
   })
 
@@ -198,6 +201,7 @@ export function AnnouncementsSection({
       publishDate: new Date().toISOString(),
       type: 'default',
       extra: '',
+      mandatory: false,
     })
     setShowDialog(true)
   }
@@ -209,6 +213,7 @@ export function AnnouncementsSection({
       publishDate: announcement.publishDate,
       type: announcement.type,
       extra: announcement.extra || '',
+      mandatory: announcement.mandatory === true,
     })
     setShowDialog(true)
   }
@@ -473,6 +478,17 @@ export function AnnouncementsSection({
             onSubmit={form.handleSubmit(handleSubmitForm)}
             className='space-y-4'
           >
+            <FormField
+              control={form.control}
+              name='mandatory'
+              render={({ field }) => (
+                <SettingsSwitchField
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                  label={t('Require reading before entering the console')}
+                />
+              )}
+            />
             <FormField
               control={form.control}
               name='content'

@@ -1,24 +1,3 @@
-/*
-Copyright (C) 2023-2026 QuantumNous
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as
-published by the Free Software Foundation, either version 3 of the
-License, or (at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-GNU Affero General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License
-along with this program. If not, see <https://www.gnu.org/licenses/>.
-
-For commercial licensing, please contact support@quantumnous.com
-*/
-/*
-Copyright (C) 2026 LIghtJUNction
-*/
 import {
   Award01Icon,
   Bug01Icon,
@@ -90,6 +69,29 @@ import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { TitledCard } from '@/components/ui/titled-card'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
+import { BountyDecision } from '@/features/open-source-bounties/bounty-decision'
+import { BountyProgress } from '@/features/open-source-bounties/bounty-progress'
 import { useStatus } from '@/hooks/use-status'
 import { getSelf } from '@/lib/api'
 import { getBackendCapabilities } from '@/lib/backend-capabilities'
@@ -1175,6 +1177,14 @@ export function OpenSourceBounties({
           </>
         }
       >
+        {acceptProject && (
+          <div className='space-y-3'>
+            <BountyDecision project={acceptProject} />
+            <p className='max-h-40 overflow-auto text-sm whitespace-pre-wrap'>
+              {acceptProject.rules}
+            </p>
+          </div>
+        )}
         <div className='flex flex-col gap-2 py-2'>
           <Label htmlFor='bounty-github-handle'>{t('GitHub handle')}</Label>
           <Input
@@ -1561,6 +1571,11 @@ export function BountyCard({
           }
         />
       </div>
+      <BountyDecision project={project} />
+      <details className='text-sm'>
+        <summary className='cursor-pointer'>{t('Acceptance rules')}</summary>
+        <p className='mt-2 whitespace-pre-wrap'>{project.rules}</p>
+      </details>
       <div className='mt-auto flex flex-wrap gap-2'>
         <Button
           variant='outline'
@@ -1986,6 +2001,7 @@ function ChallengeCard({
             value={formatQuota(challenge.tip_quota)}
           />
         </div>
+        <BountyProgress challenge={challenge} />
         <RatingView
           title={t('Verifier rating of your work')}
           score={challenge.owner_rating_score}
