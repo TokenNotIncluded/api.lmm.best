@@ -127,7 +127,7 @@ func (r *productionRuntime) recoverIncident20260920(ctx context.Context) (produc
 		return fail(err)
 	}
 	// Save the two exact new default grants before a bounded, migration-locked repair.
-	query := fmt.Sprintf(`SELECT COALESCE(json_agg(t ORDER BY id),'[]'::json) FROM %s.casbin_rules t WHERE ptype='p' AND v0='role:admin' AND v1='acquisition'`, m.DatabaseSchema)
+	query := fmt.Sprintf(`SELECT COALESCE(json_agg(t ORDER BY id),'[]'::json) FROM %s.casbin_rule t WHERE ptype='p' AND v0='role:admin' AND v1='acquisition'`, m.DatabaseSchema)
 	snapshot, err := r.runner.Run(ctx, productionCommand{Name: commandPSQL, Args: []string{"-X", "--no-password", "-At", "-v", "ON_ERROR_STOP=1", "-c", query, databaseURL}, Env: environment, Sensitive: true, Timeout: 15 * time.Second, OutputLimit: 16384})
 	if err != nil {
 		return fail(err)
@@ -204,9 +204,9 @@ func incident20260920RepairSQL(schema string) string {
 	return fmt.Sprintf(`BEGIN; SET LOCAL lock_timeout='5s'; SET LOCAL statement_timeout='15s';
  DO $repair$ DECLARE n int; BEGIN
  IF NOT pg_try_advisory_xact_lock(5498135663004418049) THEN RAISE EXCEPTION 'migration lock unavailable'; END IF;
- SELECT count(*) INTO n FROM %s.casbin_rules WHERE ptype='p' AND v0='role:admin' AND v1='acquisition';
+ SELECT count(*) INTO n FROM %s.casbin_rule WHERE ptype='p' AND v0='role:admin' AND v1='acquisition';
  IF n<>2 THEN RAISE EXCEPTION 'grant set changed'; END IF;
- DELETE FROM %s.casbin_rules WHERE ptype='p' AND v0='role:admin' AND v1='acquisition' AND v2 IN ('read','write') AND v3='allow' AND v4='' AND v5='';
+ DELETE FROM %s.casbin_rule WHERE ptype='p' AND v0='role:admin' AND v1='acquisition' AND v2 IN ('read','write') AND v3='allow' AND v4='' AND v5='';
  GET DIAGNOSTICS n=ROW_COUNT; IF n<>2 THEN RAISE EXCEPTION 'grant shape changed'; END IF;
  END $repair$; COMMIT;`, schema, schema)
 }

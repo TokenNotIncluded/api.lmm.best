@@ -4,6 +4,7 @@ package appcli
 
 import (
 	"encoding/json"
+	"github.com/LIghtJUNction/api.lmm.best/model"
 	"strings"
 	"testing"
 )
@@ -41,5 +42,11 @@ func TestIncident20260920OnlyRepairsExactDefaultGrants(t *testing.T) {
 func TestIncident20260920RejectsUnboundState(t *testing.T) {
 	if validateIncident20260920(productionManifest{}, productionStatus{}) == nil {
 		t.Fatal("accepted unbound incident")
+	}
+}
+
+func TestIncident20260920UsesAuthoritativeTableName(t *testing.T) {
+	if !strings.Contains(incident20260920RepairSQL("public"), "public."+(model.CasbinRule{}).TableName()+" WHERE") {
+		t.Fatal("wrong authorization table")
 	}
 }
