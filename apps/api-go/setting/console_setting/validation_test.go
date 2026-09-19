@@ -46,3 +46,21 @@ func TestValidateAnnouncementsCountsEmojiAsTwoBrowserCharacters(t *testing.T) {
 		t.Fatal("251 surrogate-pair emoji should exceed the 500 UTF-16-unit limit")
 	}
 }
+
+func TestMandatoryAnnouncementRequiresStableUniqueID(t *testing.T) {
+	valid := `[{"id":1,"mandatory":true,"content":"Read this","publishDate":"2025-01-01T00:00:00Z"}]`
+	if err := ValidateConsoleSettings(valid, "Announcements"); err != nil {
+		t.Fatal(err)
+	}
+	invalid := []string{
+		`[{"mandatory":true,"content":"Read this","publishDate":"2025-01-01T00:00:00Z"}]`,
+		`[{"id":1,"mandatory":"yes","content":"Read this","publishDate":"2025-01-01T00:00:00Z"}]`,
+		`[{"id":1.5,"mandatory":true,"content":"Read this","publishDate":"2025-01-01T00:00:00Z"}]`,
+		`[{"id":1,"mandatory":true,"content":"One","publishDate":"2025-01-01T00:00:00Z"},{"id":1,"mandatory":true,"content":"Two","publishDate":"2025-01-02T00:00:00Z"}]`,
+	}
+	for _, input := range invalid {
+		if err := ValidateConsoleSettings(input, "Announcements"); err == nil {
+			t.Errorf("accepted invalid mandatory announcement: %s", input)
+		}
+	}
+}

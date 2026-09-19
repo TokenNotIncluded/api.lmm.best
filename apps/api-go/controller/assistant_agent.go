@@ -3187,13 +3187,35 @@ func executeAssistantAccountTool(userID int) map[string]any {
 		}
 	}
 	if access.Granted {
-		result["next_step"] = "Continue setup through the assistant; API-key creation still requires explicit UI confirmation."
+		fullUser, err := model.GetUserById(userID, false)
+		if err != nil {
+			return map[string]any{"ok": false, "error": "account setup status could not be loaded"}
+		}
+		onboarding, err := model.GetOnboardingStateForUser(fullUser)
+		if err != nil {
+			return map[string]any{"ok": false, "error": "account setup status could not be loaded"}
+		}
+		result["onboarding"] = onboarding
+		result["wallet_quota"] = fullUser.Quota
+		result["next_step"] = assistantAccountSetupNextStep(onboarding)
 	} else if request != nil && request.Status == model.DeveloperAccessRequestPending {
 		result["next_step"] = "Tell the user the recommendation is pending administrator review."
 	} else {
 		result["next_step"] = "Continue the onboarding conversation and prepare an L1 recommendation only after collecting a concrete use case."
 	}
 	return result
+}
+
+// Choose from server-observed setup state. OAuth credentials do not require a
+// second manual API key; wallet quota alone does not determine subscription access.
+func assistantAccountSetupNextStep(state model.OnboardingState) string {
+	if state.FirstRequestComplete {
+		return "Setup is complete. Offer usage records or help with the user's next task; do not create another key unless requested."
+	}
+	if state.CredentialComplete {
+		return "A credential already exists. Help configure the selected client and test its first request. OAuth clients do not need a manual API key."
+	}
+	return "Ask which client the user wants to use. For an OAuth client guide authorization; otherwise prepare an API key and request explicit confirmation before creating it. Check available funding before a paid test request."
 }
 
 // quotePOSIXShellLiteral returns a single shell word without leaving any part of

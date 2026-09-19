@@ -96,6 +96,16 @@ function isRetryableAssistantError(error: unknown): boolean {
   return false
 }
 
+export function isAssistantTurnUnavailable(error: unknown): boolean {
+  if (!axios.isAxiosError(error) && !(error instanceof AssistantStreamError)) {
+    return false
+  }
+  const payload = error.response?.data as AssistantChatPayload | undefined
+  return (
+    (payload?.error?.code ?? payload?.code) === 'ASSISTANT_TURN_UNAVAILABLE'
+  )
+}
+
 export function isAssistantRequestAborted(error: unknown): boolean {
   return (
     axios.isCancel(error) ||
@@ -1471,7 +1481,9 @@ export async function sendAssistantMessage(
   conversationId?: number,
   presetId?: string,
   handlers?: AssistantStreamHandlers,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  replay = false,
+  clientTurnId?: string
 ): Promise<AssistantReply> {
   const normalizedMessage =
     redactAssistantMessageForRequest(message).content.trim()
@@ -1482,6 +1494,7 @@ export async function sendAssistantMessage(
     conversationId,
     presetId
   )
+  if (clientTurnId) requestBody.client_turn_id = clientTurnId
   return withAssistantDeadline(async (signal) => {
     for (
       let attempt = 1;
@@ -1494,7 +1507,7 @@ export async function sendAssistantMessage(
         if (handlers?.onDelta) {
           return await sendAssistantMessageStream(
             requestBody,
-            attempt,
+            replay ? attempt + 1 : attempt,
             handlers,
             signal
           )
@@ -1506,7 +1519,9 @@ export async function sendAssistantMessage(
             skipBusinessError: true,
             skipErrorHandler: true,
             signal,
-            headers: { 'X-LMM-Assistant-Attempt': String(attempt) },
+            headers: {
+              'X-LMM-Assistant-Attempt': String(replay ? attempt + 1 : attempt),
+            },
           }
         )
         throwIfAssistantAborted(signal)

@@ -31,6 +31,7 @@ import {
   getCodexInstallCommand,
   getOpenAICompatibleClientJSON,
   getGuideEligibleModels,
+  getPythonSDKExample,
   selectGuideModel,
 } from './setup-guide'
 
@@ -217,6 +218,35 @@ describe('assistant setup guide', () => {
         'env_key = "LMM_API_KEY"',
         'wire_api = "responses"',
       ].join('\n')
+    )
+  })
+  test('SDK presets prompt locally and preserve each SDK base path', () => {
+    const openai = getPythonSDKExample(
+      'openai-sdk',
+      'https://api.example/v1/',
+      'selected-model'
+    )
+    const anthropic = getPythonSDKExample(
+      'anthropic-sdk',
+      'https://api.example/',
+      'selected-model'
+    )
+    assert.match(openai, /base_url="https:\/\/api.example\/v1"/)
+    assert.match(anthropic, /base_url="https:\/\/api.example"/)
+    assert.match(openai, /chat.completions.create/)
+    assert.match(anthropic, /messages.create/)
+    for (const code of [openai, anthropic]) {
+      assert.match(code, /getpass\("LMM API Key: "\)/)
+      assert.match(code, /model="selected-model"/)
+      assert.doesNotMatch(code, /<YOUR_API_KEY>/)
+    }
+    assert.match(
+      getPythonSDKExample(
+        'openai-sdk',
+        'https://api.example/v1',
+        'bad"\nmodel'
+      ),
+      /model="bad\\"\\nmodel"/
     )
   })
 })

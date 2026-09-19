@@ -1,21 +1,3 @@
-/*
-Copyright (C) 2023-2026 QuantumNous
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as
-published by the Free Software Foundation, either version 3 of the
-License, or (at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-GNU Affero General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License
-along with this program. If not, see <https://www.gnu.org/licenses/>.
-
-For commercial licensing, please contact support@quantumnous.com
-*/
 import {
   Award01Icon,
   CancelCircleIcon,
@@ -45,6 +27,25 @@ import {
   submitChallenge,
   withdrawChallenge,
 } from '@/features/open-source-bounties/api'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import { BountyProgress } from '@/features/open-source-bounties/bounty-progress'
 import type { BountyChallenge } from '@/features/open-source-bounties/types'
 import { validateBountySubmissionLinks } from '@/features/open-source-bounties/validation'
 import { formatQuota } from '@/lib/format'
@@ -229,8 +230,12 @@ export function AcceptedChallengeList() {
                   </div>
                   <span className='font-serif text-xl tabular-nums'>
                     {formatQuota(challenge.reward_quota)}
+                    <span className='block text-xs font-normal'>
+                      {t('API account balance')}
+                    </span>
                   </span>
                 </div>
+                <BountyProgress challenge={challenge} />
                 {challenge.repository_url ? (
                   <a
                     href={challenge.repository_url}

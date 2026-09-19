@@ -124,7 +124,7 @@ function ComplianceLinks() {
     },
     {
       key: 'pricing',
-      label: t('Pricing'),
+      label: t('Models and pricing'),
       href: '/pricing',
     },
   ]
@@ -316,7 +316,7 @@ export function Footer(props: FooterProps) {
                     className='text-muted-foreground hover:text-primary block transition-colors duration-150'
                     to='/pricing'
                   >
-                    {t('Model Square')}
+                    {t('Models and pricing')}
                   </Link>
                   <Link
                     className='text-muted-foreground hover:text-primary block transition-colors duration-150'

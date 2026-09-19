@@ -33,6 +33,7 @@ import { Footer } from '@/components/layout/components/footer'
 import { NavigationProgress } from '@/components/navigation-progress'
 import { Toaster } from '@/components/ui/sonner'
 import { ThemeCustomizationProvider } from '@/context/theme-customization-provider'
+import { SourceConsent } from '@/features/acquisition/consent'
 import { saveAffiliateCode } from '@/features/auth/lib/storage'
 import { GeneralError } from '@/features/errors/general-error'
 import { NotFoundError } from '@/features/errors/not-found-error'
@@ -100,6 +101,7 @@ function RootComponent() {
     <ThemeCustomizationProvider>
       <NavigationProgress />
       <Outlet />
+      <SourceConsent />
       {isHomeIntroSurface && <Footer />}
       {isHomeIntroSurface && <FeedbackRewardButton />}
       <Toaster closeButton duration={5000} position='top-center' richColors />

@@ -717,3 +717,69 @@ func TestAssistantHistoryHumanGroupingKeepsLatestWholeMessagesWithinByteBudget(t
 		assert.True(t, strings.HasSuffix(part, strings.Repeat("界", 1000)))
 	}
 }
+
+func TestAssistantTenTurnsRemainOneConversationAndRetryDoesNotAppend(t *testing.T) {
+	owner, _, _, _ := setupAssistantHistoryTestDB(t)
+	var conversationID int64
+	for turn := 1; turn <= 10; turn++ {
+		question := fmt.Sprintf("Question %d", turn)
+		answer := fmt.Sprintf("Answer %d", turn)
+		id, err := RecordAssistantConversationTurnForRequest(owner.Id, conversationID, question, answer)
+		require.NoError(t, err)
+		if conversationID != 0 {
+			require.Equal(t, conversationID, id)
+		}
+		conversationID = id
+		require.NoError(t, RecordAssistantConversationTurnForRetry(owner.Id, conversationID, question, answer))
+	}
+	var conversations int64
+	require.NoError(t, DB.Model(&AssistantConversation{}).Where("user_id = ?", owner.Id).Count(&conversations).Error)
+	require.EqualValues(t, 1, conversations)
+	var messages []AssistantHistoryMessage
+	require.NoError(t, DB.Where("conversation_id = ?", conversationID).Order("sequence ASC").Find(&messages).Error)
+	require.Len(t, messages, 20)
+	for index, message := range messages {
+		require.Equal(t, index+1, message.Sequence)
+	}
+	// Recovery without an ID must never attach a lost first reply to an older
+	// multi-turn conversation just because one of its questions matches.
+	recovered, err := FindRecentAssistantConversationForRetry(owner.Id, "Question 1", time.Now().Add(-time.Minute))
+	require.NoError(t, err)
+	require.Nil(t, recovered)
+	recovered, err = FindRecentAssistantConversationForRetry(owner.Id, "Question 10", time.Now().Add(-time.Minute))
+	require.NoError(t, err)
+	require.Nil(t, recovered)
+}
+
+func TestAssistantTurnReceiptsSeparateAccountsAndSurviveTrimming(t *testing.T) {
+	owner, other, _, _ := setupAssistantHistoryTestDB(t)
+	require.NoError(t, DB.AutoMigrate(&AssistantTurnReceipt{}))
+	turn := "client_turn_123456789"
+	id, err := RecordAssistantConversationTurnForRequest(owner.Id, 0, "same question", "first answer", turn)
+	require.NoError(t, err)
+	again, err := RecordAssistantConversationTurnForRequest(owner.Id, 0, "same question", "duplicate answer", turn)
+	require.NoError(t, err)
+	require.Equal(t, id, again)
+	different, err := RecordAssistantConversationTurnForRequest(owner.Id, 0, "same question", "new answer", turn+"_new")
+	require.NoError(t, err)
+	require.NotEqual(t, id, different)
+	separate, err := RecordAssistantConversationTurnForRequest(other.Id, 0, "same question", "other answer", turn)
+	require.NoError(t, err)
+	require.NotEqual(t, id, separate)
+	_, err = RecordAssistantConversationTurnForRequest(owner.Id, 0, "changed question", "no", turn)
+	require.ErrorIs(t, err, ErrAssistantTurnConflict)
+	answer, err := LookupAssistantTurn(owner.Id, turn, 0, "same question")
+	require.NoError(t, err)
+	require.Equal(t, "first answer", answer.Content)
+	require.NoError(t, DB.Delete(answer).Error)
+	_, err = LookupAssistantTurn(owner.Id, turn, 0, "same question")
+	require.ErrorIs(t, err, ErrAssistantTurnExpired)
+	_, err = RecordAssistantConversationTurnForRequest(owner.Id, 0, "same question", "must not recreate", turn)
+	require.ErrorIs(t, err, ErrAssistantTurnExpired)
+	migrateUserAssistantData(t)
+	require.NoError(t, DB.Transaction(func(tx *gorm.DB) error { return deleteUserAssistantData(tx, owner.Id) }))
+	var remaining int64
+	require.NoError(t, DB.Model(&AssistantTurnReceipt{}).Count(&remaining).Error)
+	require.EqualValues(t, 1, remaining) // The other account retains its own receipt.
+
+}

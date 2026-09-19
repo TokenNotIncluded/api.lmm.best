@@ -21,7 +21,7 @@ export default defineConfig(({ envMode }) => {
   const devProxy = personaDebugEnabled
     ? {}
     : (Object.fromEntries(
-        (['/api', '/mj', '/pg'] as const).map((key) => [
+        (['/api', '/mj', '/pg', '/mcp'] as const).map((key) => [
           key,
           { target: serverUrl, changeOrigin: true },
         ])

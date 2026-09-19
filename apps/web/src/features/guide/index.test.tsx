@@ -219,7 +219,13 @@ describe('Guide when the AI assistant is disabled', () => {
       container.querySelector('#client-setup a[target="_blank"]'),
       'Official downloads remain accessible'
     )
+    await click(findButton(container, 'Pi (OAuth)'))
     assert.ok(container.querySelector('#pi-oauth'))
+    assert.doesNotMatch(
+      container.textContent ?? '',
+      /Create a key and import|Create an API key/
+    )
+
     assert.match(
       container.textContent ?? '',
       /pi install git:github.com\/TokenNotIncluded\/pi-lmm-provider/
@@ -230,6 +236,7 @@ describe('Guide when the AI assistant is disabled', () => {
       )
     )
 
+    await click(findButton(container, 'Cherry Studio'))
     await click(findButton(container, 'Continue to account setup'))
 
     assert.equal(router.state.location.pathname, '/sign-in')

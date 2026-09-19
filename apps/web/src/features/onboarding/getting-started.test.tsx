@@ -209,6 +209,7 @@ async function renderPage(
     )
     await flushEffects()
   })
+  await act(flushEffects)
   return {
     container,
     root,
@@ -244,7 +245,7 @@ describe('getting started access boundaries', () => {
     const modelSquare = page.container.querySelector('a[href="/pricing"]')
 
     assert.ok(modelSquare)
-    assert.equal(modelSquare.textContent?.includes('Model Square'), true)
+    assert.equal(modelSquare.textContent?.includes('Models and pricing'), true)
     await unmountPage(page)
   })
 
@@ -363,7 +364,7 @@ describe('getting started access boundaries', () => {
     unsubscribe()
   })
 
-  test('keeps a pending recommendation to one compact status line', async () => {
+  test('shows pending application details and recommendation', async () => {
     const page = await renderPage(
       false,
       { data: { success: true, data: [] } },
@@ -390,13 +391,13 @@ describe('getting started access boundaries', () => {
       page.container.textContent?.includes(
         'I am building a small Claude Code integration.'
       ),
-      false
+      true
     )
     assert.equal(
       page.container.textContent?.includes(
         'Recommend L1 for a documented development use case.'
       ),
-      false
+      true
     )
     assert.equal(page.container.querySelector('[role="progressbar"]'), null)
     await unmountPage(page)
@@ -425,7 +426,8 @@ describe('getting started access boundaries', () => {
     const deadline = Date.now() + 2_000
     while (
       Date.now() < deadline &&
-      useAuthStore.getState().auth.user?.developer_access_granted !== true
+      (useAuthStore.getState().auth.user?.developer_access_granted !== true ||
+        page.router.state.location.pathname !== '/dashboard')
     ) {
       await act(flushEffects)
     }

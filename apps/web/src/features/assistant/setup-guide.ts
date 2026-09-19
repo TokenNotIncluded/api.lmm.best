@@ -228,3 +228,17 @@ export function getCodexConfig(baseUrl: string, model: string): string {
     'wire_api = "responses"',
   ].join('\n')
 }
+
+/** SDK examples prompt locally for secrets; copied code never contains a real key. */
+export function getPythonSDKExample(
+  sdk: 'openai-sdk' | 'anthropic-sdk',
+  baseUrl: string,
+  model: string
+): string {
+  const modelLiteral = JSON.stringify(model || '<MODEL_ID>')
+  const urlLiteral = JSON.stringify(baseUrl.replace(/\/+$/, ''))
+  if (sdk === 'anthropic-sdk') {
+    return `from getpass import getpass\nfrom anthropic import Anthropic\n\nclient = Anthropic(base_url=${urlLiteral}, api_key=getpass("LMM API Key: "))\nmessage = client.messages.create(\n    model=${modelLiteral},\n    max_tokens=128,\n    messages=[{"role": "user", "content": "Hello"}],\n)\nfor block in message.content:\n    if block.type == "text":\n        print(block.text)\n`
+  }
+  return `from getpass import getpass\nfrom openai import OpenAI\n\nclient = OpenAI(base_url=${urlLiteral}, api_key=getpass("LMM API Key: "))\nresponse = client.chat.completions.create(\n    model=${modelLiteral},\n    messages=[{"role": "user", "content": "Hello"}],\n    max_tokens=128,\n)\nprint(response.choices[0].message.content)\n`
+}

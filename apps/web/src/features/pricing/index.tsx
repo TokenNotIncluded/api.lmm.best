@@ -203,7 +203,7 @@ export function Pricing() {
           {/* Centered page title, gpt.ge-style. */}
           <div className='mb-3 pt-10 text-center sm:pt-14'>
             <h1 className='text-foreground text-3xl font-bold sm:text-4xl'>
-              {t('Model Square')}
+              {t('Models and pricing')}
             </h1>
             <p className='text-muted-foreground mt-3 text-sm sm:text-base'>
               {t('This site currently has {{count}} models enabled', {

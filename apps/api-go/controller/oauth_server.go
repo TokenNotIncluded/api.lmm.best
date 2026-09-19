@@ -121,12 +121,12 @@ func (h *OAuthHTTP) Metadata(c *gin.Context) {
 	metadata.RevocationEndpoint = h.Integration.Issuer + "/api/oauth2/revoke"
 	// Group scopes are consent-generated and can disclose deployment structure.
 	// Public discovery advertises the fixed application and built-in MCP scopes.
-	metadata.ScopesSupported = append([]string{service.OAuthCatalogScope, service.OAuthBalanceScope, service.OAuthUsageScope, service.OAuthInvokeScope}, service.OAuthBuiltinMCPScopes()...)
+	metadata.ScopesSupported = append(append([]string{service.OAuthCatalogScope, service.OAuthBalanceScope, service.OAuthUsageScope, service.OAuthInvokeScope}, service.OAuthBuiltinMCPScopes()...), service.OAuthMarketDiscoverScope, service.OAuthMarketInvokeScope, service.OAuthMarketManageScope)
 	c.JSON(200, metadata)
 }
 
 func (h *OAuthHTTP) ResourceMetadata(c *gin.Context) {
-	c.JSON(200, gin.H{"resource": h.Integration.Resource, "authorization_servers": []string{h.Integration.Issuer}, "scopes_supported": append([]string{service.OAuthCatalogScope, service.OAuthBalanceScope, service.OAuthUsageScope, service.OAuthInvokeScope}, service.OAuthBuiltinMCPScopes()...), "bearer_methods_supported": []string{"header"}})
+	c.JSON(200, gin.H{"resource": h.Integration.Resource, "authorization_servers": []string{h.Integration.Issuer}, "scopes_supported": append(append([]string{service.OAuthCatalogScope, service.OAuthBalanceScope, service.OAuthUsageScope, service.OAuthInvokeScope}, service.OAuthBuiltinMCPScopes()...), service.OAuthMarketDiscoverScope, service.OAuthMarketInvokeScope, service.OAuthMarketManageScope), "bearer_methods_supported": []string{"header"}})
 }
 
 func oauthProtocolFailure(c *gin.Context, err error) {
@@ -356,7 +356,7 @@ func (h *OAuthHTTP) Continue(c *gin.Context) {
 		h.failed(c, flow.Language)
 		return
 	}
-	h.render(c, 200, oauthPageData{Language: flow.Language, Mode: "consent", CSRF: csrf, Action: oauthBrowserConsent, Resource: h.Integration.Resource, ClientName: consent.ClientName, Account: user.Username, Groups: groups, CanInvoke: slices.Contains(consent.Scopes, service.OAuthInvokeScope)})
+	h.render(c, 200, oauthPageData{Language: flow.Language, Mode: "consent", CSRF: csrf, Action: oauthBrowserConsent, Resource: h.Integration.Resource, ClientName: consent.ClientName, Account: user.Username, Groups: groups, CanInvoke: slices.Contains(consent.Scopes, service.OAuthInvokeScope), MarketPermissions: marketOAuthPermissionLabels(flow.Language, consent.Scopes)})
 }
 
 func (h *OAuthHTTP) Consent(c *gin.Context) {

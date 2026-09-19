@@ -53,7 +53,11 @@ export function SignalBoard(props: Props) {
     (props.size <= 8 || width === 0 || width >= props.size * 28 + 36)
   return (
     <div ref={host} className='w-full'>
-      {compact ? <SmallBoard {...props} /> : <LargeBoard {...props} />}
+      {compact ? (
+        <SmallBoard key={props.size} {...props} />
+      ) : (
+        <LargeBoard key={props.size} {...props} />
+      )}
     </div>
   )
 }
@@ -61,7 +65,6 @@ function SmallBoard({ size, tiles, powered, hint, blocked, turn }: Props) {
   const { t } = useTranslation(),
     [focus, setFocus] = useState(inputTile(size)),
     buttons = useRef<(HTMLButtonElement | null)[]>([])
-  useEffect(() => setFocus(inputTile(size)), [size])
   const names: Record<number, string> = {
     1: t('North'),
     2: t('East'),

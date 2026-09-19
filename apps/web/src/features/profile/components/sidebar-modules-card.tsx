@@ -77,7 +77,7 @@ type DefaultRouteDef = {
 }
 
 function buildSectionDefs(t: (key: string) => string): SectionDef[] {
-  return [
+  const sections: SectionDef[] = [
     {
       id: 'onboarding',
       title: t('Getting started'),
@@ -87,7 +87,7 @@ function buildSectionDefs(t: (key: string) => string): SectionDef[] {
           id: '/getting-started',
           key: 'getting-started',
           title: t('Getting started'),
-          description: t('Service guide and onboarding'),
+          description: t('Getting started and AI tools'),
         },
         {
           id: '/open-source-bounties',
@@ -314,6 +314,70 @@ function buildSectionDefs(t: (key: string) => string): SectionDef[] {
         },
       ],
     },
+  ]
+  const general = sections.find((section) => section.id === 'general')
+  const chat = sections.find((section) => section.id === 'chat')
+  const ecosystem = sections.find((section) => section.id === 'forge')
+  const personal = sections.find((section) => section.id === 'personal')
+  const onboarding = sections[0]
+  const admin = sections.find((section) => section.id === 'admin')
+  if (!general || !chat || !ecosystem || !personal || !onboarding || !admin) {
+    return sections
+  }
+  const developerRoutes = new Set([
+    '/keys',
+    '/usage-logs/common',
+    '/usage-logs/task',
+  ])
+  const module = (id: string, title: string) => ({
+    id,
+    key: id.slice(1),
+    title: t(title),
+    description: t(title),
+  })
+  const developer: SectionDef = {
+    id: 'developer',
+    title: t('Developers'),
+    description: t('Client setup and API usage'),
+    requiresConsole: true,
+    modules: [
+      module('/developer-access', 'API access'),
+      ...general.modules.filter((item) => developerRoutes.has(item.id)),
+      module('/guide', 'Client setup'),
+      module('/status', 'Status detection'),
+      module('/remote-control', 'Remote control'),
+    ],
+  }
+  general.title = t('Use AI')
+  general.description = t('Getting started and AI tools')
+  // Presentation groups no longer align one-to-one with backend capability switches.
+  delete general.configSection
+  general.modules = [
+    module('/getting-started', 'Getting started'),
+    module('/pricing', 'Models and pricing'),
+    ...chat.modules,
+    ...general.modules.filter((item) => !developerRoutes.has(item.id)),
+  ]
+  ecosystem.title = t('Ecosystem')
+  ecosystem.modules.push(
+    module('/tool-market', 'Tool market'),
+    module('/scripts', 'Scripts')
+  )
+  personal.title = t('Account')
+  return [
+    onboarding,
+    general,
+    developer,
+    ecosystem,
+    personal,
+    {
+      id: 'services',
+      title: t('Other services'),
+      description: t('Other services'),
+      requiresConsole: true,
+      modules: [module('/temporary-activations', 'Temporary activations')],
+    },
+    admin,
   ]
 }
 

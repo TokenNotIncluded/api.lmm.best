@@ -19,7 +19,7 @@ test('nginx preserves access boundaries and API bodies while explaining edge out
  backend.listen(0,'127.0.0.1');await once(backend,'listening')
  const reservation=net.createServer();reservation.listen(0,'127.0.0.1');await once(reservation,'listening');const port=reservation.address().port;await new Promise(resolve=>reservation.close(resolve))
  const source=fs.readFileSync(path.join(root,'packaging/common/lmm-api/edge-policy/nginx/lmm-api-locations.conf'),'utf8')
- fs.writeFileSync(path.join(dir,'locations.conf'),source.replaceAll('/var/log/nginx/access.log',path.join(dir,'access.log')).replaceAll('/etc/nginx/lmm-api-mime.types',path.join(root,'packaging/common/lmm-api/edge-policy/nginx/mime.types')).replaceAll('/srv/lmm-api-frontend',frontend).replaceAll('127.0.0.1:3000',`127.0.0.1:${backend.address().port}`))
+ fs.writeFileSync(path.join(dir,'locations.conf'),source.replaceAll('/var/log/nginx/access.log',path.join(dir,'access.log')).replaceAll('/etc/nginx/lmm-api-mime.types',path.join(root,'packaging/common/lmm-api/edge-policy/nginx/mime.types')).replaceAll('/srv/lmm-api-frontend',frontend).replaceAll('http://lmm_api_backend_pool',`http://127.0.0.1:${backend.address().port}`))
  const maps=fs.readFileSync(path.join(root,'packaging/common/lmm-api/edge-policy/nginx/http-map.conf'),'utf8')
  const map=maps.slice(maps.indexOf('map "$request_method:$http_accept"'))
  fs.writeFileSync(path.join(dir,'nginx.conf'),`worker_processes 1;

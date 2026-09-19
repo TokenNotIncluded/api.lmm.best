@@ -559,6 +559,7 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 		user.FinalizeOAuthUserCreation(inviterId)
 	}
 
+	recordAcquisitionRegistration(c, user.Id)
 	return user, nil
 }
 

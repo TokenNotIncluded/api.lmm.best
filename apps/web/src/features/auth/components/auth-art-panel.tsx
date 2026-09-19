@@ -50,7 +50,6 @@ export function GameClock({
   const [now, setNow] = useState(() => performance.now())
   useEffect(() => {
     if (phase !== 'playing' && phase !== 'countdown') return
-    setNow(performance.now())
     const timer = setInterval(() => setNow(performance.now()), 100)
     return () => clearInterval(timer)
   }, [phase, startedAt, readyAt])
@@ -174,7 +173,12 @@ export function AuthArtPanel() {
         </span>
         {state.mode === 'challenge' && (
           <span>
-            {t('Time')}: <GameClock {...state} elapsedMs={state.elapsedMs} />
+            {t('Time')}:{' '}
+            <GameClock
+              key={state.roundId}
+              {...state}
+              elapsedMs={state.elapsedMs}
+            />
           </span>
         )}
       </div>
@@ -199,6 +203,7 @@ export function AuthArtPanel() {
               t('Loading...')
             ) : (
               <GameClock
+                key={state.roundId}
                 {...state}
                 elapsedMs={state.elapsedMs}
                 displayCountdown
