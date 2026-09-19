@@ -1,15 +1,15 @@
 # GitHub Actions 入口
 
-工作流从 10 个收敛为 6 个。精简的是触发和重复环境准备，不是发布验收标准。
+GitHub Actions 负责构建、测试、签名和发布产物；服务器部署与运维由操作者手动执行。
 
 | 文件 | 职责 |
 | --- | --- |
 | `ci.yml` | PR 按改动范围检查；main、标签、手动运行和合并队列全量检查；每日 RustSec 扫描 |
-| `pr-check.yml` | 只检查 PR 描述，使用可信 base 代码；编辑描述不触发整套构建 |
 | `server-release-qualification.yml` | 保留生产形态 Go、PostgreSQL、Valkey、迁移和恢复验收，以及每日验收 |
-| `release-go.yml` | Go 签名发布，成功发布后通过内联的 `.github/actions/deploy-production/` 部署 |
-| `release-web.yml` | Web 签名发布，成功发布后通过内联的 `.github/actions/deploy-production/` 部署 |
-| `server-ops.yml` | 独立的人工诊断和明确授权的生产恢复 |
+| `release-go.yml` | 手动触发 Go 签名发布，不连接服务器 |
+| `release-web.yml` | 手动触发 Web 签名发布，不连接服务器 |
+
+PR 描述和格式检查已移除，PR 仍执行与代码改动相关的测试。
 
 GitHub 默认配置的 CodeQL 是仓库设置管理的动态工作流，不是这里额外生成的 YAML；本次不修改它的扫描或权限。
 
@@ -23,9 +23,7 @@ GitHub 默认配置的 CodeQL 是仓库设置管理的动态工作流，不是�
 
 ## 队列与生产隔离
 
-同一 PR 或 main 上被新提交替代的测试可以取消；手动检查、标签检查和生产操作不进入这个取消组。发布和运维继续共用原生产互斥组，且不允许自动取消正在进行的生产操作。重构不修改 SSH、恢复脚本、备份要求或部署动作。
-
-仅改变 `.github/server-ops-343-request.json` 的 main 提交不触发 CI 和服务器验收。请求校验、恢复专用测试及授权仍由原 `server-ops.yml` 执行；任何同时修改源代码的提交仍触发正常检查。这样的请求提交没有完整 main-push 发布证据，不能被当作已验收的发布候选。未完成或取消的 main 检查也不会通过原发布门禁。
+同一 PR 或 main 上被新提交替代的测试可以取消；手动检查与标签检查保留独立运行。服务器部署不属于 Actions 队列。工作流没有生产 SSH 凭据、部署 job 或运维请求入口；服务器迁移和恢复验收只使用 runner 内的隔离测试环境。
 
 `release-go.yml` 和 `release-web.yml` 的路径是签名身份的一部分，因此不为减少文件数量而合并。所有必须的 main-push 检查、CodeQL 和 `Server release qualification gate` 仍需真实通过，不能用 PR 的部分检查、旧提交或手动绿色状态替代。
 

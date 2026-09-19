@@ -215,25 +215,6 @@ class TransactionTests(unittest.TestCase):
 
 
 class WorkflowWiringTests(unittest.TestCase):
-    def test_public_acceptance_runs_inside_the_transaction(self):
-        root = SCRIPT.parent.parent
-        shell = (root / 'scripts/auto-deploy-production-release.sh').read_text()
-        action = (root / '.github/actions/deploy-production/action.yml').read_text()
-        self.assertIn('scripts/production-release-transaction.py', shell)
-        self.assertIn('--expected-backend-version "$expected_backend_version"', shell)
-        self.assertIn('expected_backend_version=${installed_version[lmm-api-go-bin]%-*}', shell)
-        self.assertIn('-- "${probe_runner[@]}" "$probe"', shell)
-        self.assertNotIn('production_promote_with_transport_retry', shell)
-        self.assertNotIn('python3 -B scripts/verify-public-production.py', action)
-
-    def test_receipt_is_retained_outside_deleted_temporary_directory(self):
-        root = SCRIPT.parent.parent
-        action = (root / '.github/actions/deploy-production/action.yml').read_text()
-        self.assertIn('PRODUCTION_RESULT_FILE: ${{ runner.temp }}/lmm-production-result-', action)
-        self.assertIn('path: ${{ runner.temp }}/lmm-production-result-', action)
-        self.assertNotIn('path: ${{ runner.temp }}/\n', action)
-        self.assertIn('if: always()', action)
-
     def test_regression_suite_is_mandatory_in_existing_qualification(self):
         text = (SCRIPT.parent.parent / '.github/workflows/server-release-qualification.yml').read_text()
         self.assertIn('run: python3 -B scripts/test-production-release-transaction.py', text)

@@ -1,13 +1,13 @@
-# Release acceptance and rollback workflow
+# Manual release acceptance and rollback
 
-Status: preparation on draft PR #352. This change repairs the existing native
-package-deployment workflow. It does **not** connect the physical A/B slots to the
-native service/traffic switch, and it is not evidence that production uses A/B.
-The remaining A/B blockers in `production-ab-preparation.md` still apply.
+Server deployment is manual. GitHub Actions only builds, tests, signs, and
+publishes artifacts; it does not connect to production. The local
+`scripts/production-release-transaction.py` wrapper remains available to an
+operator controlling the native CLI and a verified immutable plan.
 
 ## One transaction owns acceptance
 
-The shared deployment action used by the Go and Web release workflows now runs:
+The operator runs the following transaction locally:
 
 ```text
 verify signed candidate and previous Go/Web artifacts
@@ -23,17 +23,17 @@ A Web-only release verifies the unchanged Go version too. Public checks run
 before native confirmation while the local controller plan is still available;
 they are no longer a separate step after the deployment script has deleted its
 temporary workspace. Only a matching native `CONFIRMED` result plus successful
-public acceptance gives the workflow a zero exit code.
+public acceptance gives the local wrapper a zero exit code.
 
 The native controller remains responsible for signatures, host identity,
 package integrity, the global deployment lock, billing drain, single-writer
 ownership, migrations, schema compatibility, observation and health gates.
-The workflow does not restore the database or weaken a native rollback refusal.
+The wrapper does not restore the database or weaken a native rollback refusal.
 
 ## Failure and uncertainty
 
 A settled `ROLLBACK_REQUIRED` activation or failed public acceptance while
-`AWAITING_CONFIRMATION` triggers one native rollback request. The workflow
+`AWAITING_CONFIRMATION` triggers one native rollback request. The wrapper
 re-reads the state immediately before rollback and requires the final native
 state to be `ROLLED_BACK`. A recovered failed release still exits nonzero.
 A successful command that returned `CONFIRMED` instead of `ROLLED_BACK` is not
@@ -52,45 +52,29 @@ Native `CONFIRMED` is terminal; this wrapper cannot roll back a previously
 confirmed release. Selecting and activating the previously confirmed A/B pair
 is still a separate native integration blocker, not implemented here.
 
-Runner cancellation or power loss does not magically execute Python cleanup.
+Controller interruption or power loss does not magically execute Python cleanup.
 The native target workspace remains the recovery authority. The initial result
 marker means "recovery required" until a terminal result replaces it. A host-side
 A/B boot/recovery mechanism and production-shaped crash tests are still needed.
 
-## Evidence and workflow boundaries
+## Evidence and automation boundary
 
-The action retains only six allowlisted result fields: deployment ID, plan
-SHA-256, expected backend version, observed native status, outcome and reason.
-The private result file lives outside the deleted temporary controller folder;
-it is atomically replaced and uploaded with a 14-day retention period. Do not
-upload the controller folder, SSH keys, environment, database backups, or raw
-native stdout/stderr. A cancelled runner can leave only the initial marker;
-that is not a completion receipt.
+The local wrapper writes a private, atomic result file with the deployment ID,
+plan digest, expected version, native status, outcome, and reason. Keep that file
+outside temporary controller directories. Preserve recovery evidence after an
+interrupted operation; a nonterminal receipt is not success.
 
-The separate `workflow_run` fallback no longer deploys old releases lacking the
-shared action. It fails without loading production credentials. Release jobs
-that already own their deployment action are still skipped by this fallback.
-This does not rewrite historical tagged workflow files or revoke their ability
-to be manually rerun; production environment policy remains relevant.
-
-No new workflow is added. The offline regression suite is a mandatory step in
-the existing `Server release qualification` harness and is rerun by the shared
-deployment action before it loads production credentials.
+No GitHub workflow loads production SSH credentials or invokes the deployment
+wrapper. Offline regression tests still run in the isolated server qualification
+workflow; these tests do not access production.
 
 ## Local validation
 
 ```sh
 python3 -B scripts/test-production-release-transaction.py
-bash -n scripts/auto-deploy-production-release.sh
-node --test --test-name-pattern='shared deployment|deployment guard' scripts/workflow-topology.test.mjs
+node --test scripts/workflow-topology.test.mjs
 ```
 
-29 test methods pass, including real local subprocess fixtures with paths
-containing spaces, successful confirmation, failed public acceptance, native
-rollback failure, ambiguous responses, stale evidence and workflow wiring.
-These are offline controller tests, not a real SSH/server migration or A/B
-traffic-switch acceptance test. The 16 selected existing Node context/action
-guard tests also pass locally. The topology assertions for the retired fallback
-and relocated public check were updated rather than removed; the complete
-repository topology suite still requires remote full-source CI.
-No tag, release, production deployment or database operation was performed.
+Tests cover successful confirmation, failed public acceptance, rollback failures,
+ambiguous transport, stale evidence, and the absence of workflow server access.
+They do not prove a real server migration or production traffic switch.

@@ -110,7 +110,8 @@ class ReleaseWorkItemsTests(unittest.TestCase):
                 self.assertIn("  workflow_dispatch:", source)
                 self.assertNotIn("  push:", source)
                 self.assertIn("scripts/verify-release-work-items.py", source)
-                self.assertIn("inputs.deploy && inputs.confirm == 'api.lmm.best'", source)
+                self.assertNotIn("\n  deploy:", source)
+                self.assertNotIn("PRODUCTION_SSH", source)
 
     def test_contract_suite_is_part_of_blocking_ci(self):
         ci = (SCRIPTS.parent / ".github/workflows/ci.yml").read_text()
