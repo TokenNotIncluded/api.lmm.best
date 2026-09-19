@@ -46,6 +46,9 @@ Key differentiators:
 | Deployment | Reviewed `/usr/bin/lmm-api-deploy` script plus manual release operations |
 | Packaging | Provider binaries and immutable runtime assets in `packaging/` |
 
+For existing standalone installations on systemd Linux, see
+[manual cross-distribution deployment](docs/manual-systemd-deployment.md).
+
 Providers install real `lmm-api-go` or `lmm-api-rs` binaries. Production and operator actions always enter through the one-hop `lmm-api` provider symlink. The frontend is released independently.
 
 ## Quick start
