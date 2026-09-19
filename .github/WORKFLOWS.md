@@ -11,10 +11,9 @@ is not a production operations entry point and receives no production credential
 - `ci.yml`: all upstream Go/Rust/Web/integration/package gates, merge-queue support,
   and the migrated translation checker. CI Quality Gate requires translations too.
   A tag still tests the checker; only its branch-to-branch comparison is skipped.
-- `release-go.yml` and `release-web.yml`: retain exact-source release checks,
-  unresolved-work barriers, and signing identities. Releases own their final
-  serialized deployment job through `.github/actions/deploy-production/`. There
-  is no separate `workflow_run`-triggered legacy deployment workflow.
+- Automatic tag-based release and production workflows have been removed.
+  Production deployment is manual; the reusable deployment action and scripts
+  remain available for an explicitly authorized operator-run deployment.
 
 Do not delete upstream qualification workflows to match the former fork's count
 of five files. Server release qualification, root-route acceptance, security audit
@@ -32,8 +31,8 @@ credentials. Raw repair logs stay on the host. See `docs/server-ops.md`.
 
 GitHub concurrency is repository-scoped. All maintained production jobs must stay
 in this upstream repository; the server's native transaction lock remains required.
-The tag-based deployment environment must permit the intended Go/Web release tags;
-this migration does not change its reviewers, secrets or deployment rules.
+The production environment remains available to explicitly authorized manual
+operations; removing the tag workflows does not change its reviewers or secrets.
 
 New and legacy operations never auto-confirm a transaction or bypass a
 pending recovery.
