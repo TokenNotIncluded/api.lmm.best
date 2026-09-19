@@ -10467,6 +10467,24 @@ const acquisitionCostCopy = {
 }
 
 async function main() {
+  if (process.argv.includes('--merge-locale-conflicts')) {
+    const { execFileSync } = await import('node:child_process')
+    for (const locale of ['en', 'zh', 'zh-TW', 'fr', 'ja', 'ru', 'vi']) {
+      const file = `apps/web/src/i18n/locales/${locale}.json`
+      const [base, ours, theirs] = [1, 2, 3].map(stage => JSON.parse(execFileSync('git', ['show', `:${stage}:${file}`], {encoding: 'utf8', maxBuffer: 16 * 1024 * 1024})))
+      const merged = {}
+      for (const key of new Set([...Object.keys(ours.translation), ...Object.keys(theirs.translation)])) {
+        const a = base.translation[key], b = ours.translation[key], c = theirs.translation[key]
+        if (b !== c && b !== a && c !== a) throw new Error(`Resolve translation meaning before merging: ${locale}: ${key}`)
+        const value = b !== a ? b : c
+        if (value !== undefined) merged[key] = value
+      }
+      ours.translation = Object.fromEntries(Object.entries(merged).sort(([a], [b]) => a.localeCompare(b)))
+      await fs.writeFile(path.join(LOCALES_DIR, `${locale}.json`), stableStringify(ours), 'utf8')
+    }
+    return
+  }
+
   // Allow scoped additions without overwriting unrelated in-progress translations.
   const paymentOnly = process.argv.includes('--only-payment-pricing')
   const homeOnly = process.argv.includes('--only-home-editorial')
@@ -10546,6 +10564,382 @@ async function main() {
     totalAdded += count
   }
   console.log(`Total: ${totalAdded} translations applied`)
+}
+
+const webMcpKeys = {
+  en: {
+    'View source on GitHub': 'View source on GitHub',
+    'Star count unavailable': 'Star count unavailable',
+    'GitHub stars': 'GitHub stars',
+    'Let your browser agent work with LMM.':
+      'Let your browser agent work with LMM.',
+    'Discover site information, model prices, public scripts, and account status through structured browser tools.':
+      'Discover site information, model prices, public scripts, and account status through structured browser tools.',
+    'Available tools': 'Available tools',
+    'Browser support': 'Browser support',
+    'WebMCP is available in this browser.':
+      'WebMCP is available in this browser.',
+    'WebMCP is not available in this browser. The normal interface still works.':
+      'WebMCP is not available in this browser. The normal interface still works.',
+    'Check browser support': 'Check browser support',
+    'Clear boundaries': 'Clear boundaries',
+    'API keys, passwords, payments, and script execution are not exposed through these tools.':
+      'API keys, passwords, payments, and script execution are not exposed through these tools.',
+    'WebMCP documentation': 'WebMCP documentation',
+    'Site information and public page links':
+      'Site information and public page links',
+    'Navigate to supported LMM pages': 'Navigate to supported LMM pages',
+    'Public model prices and billing units':
+      'Public model prices and billing units',
+    'Current sign-in and access status': 'Current sign-in and access status',
+    'Public script names and download links':
+      'Public script names and download links',
+    'Project repositories and GitHub stars':
+      'Project repositories and GitHub stars',
+  },
+  zh: {
+    'View source on GitHub': '查看 GitHub 源码',
+    'Star count unavailable': '暂时无法获取 Star 数量',
+    'GitHub stars': 'GitHub Star 数量',
+    'Let your browser agent work with LMM.': '让浏览器智能体使用 LMM。',
+    'Discover site information, model prices, public scripts, and account status through structured browser tools.':
+      '通过结构化浏览器工具查询站点信息、模型价格、公开脚本和账户状态。',
+    'Available tools': '可用工具',
+    'Browser support': '浏览器支持',
+    'WebMCP is available in this browser.': '此浏览器支持 WebMCP。',
+    'WebMCP is not available in this browser. The normal interface still works.':
+      '此浏览器暂不支持 WebMCP，常规界面仍可正常使用。',
+    'Check browser support': '检测浏览器支持',
+    'Clear boundaries': '工具权限范围',
+    'API keys, passwords, payments, and script execution are not exposed through these tools.':
+      '这些工具不会提供 API 密钥或密码，也不会执行付款或运行脚本。',
+    'WebMCP documentation': 'WebMCP 文档',
+    'Site information and public page links': '站点信息与公开页面链接',
+    'Navigate to supported LMM pages': '打开支持的 LMM 页面',
+    'Public model prices and billing units': '公开模型价格与计费单位',
+    'Current sign-in and access status': '当前登录与访问权限状态',
+    'Public script names and download links': '公开脚本名称与下载链接',
+    'Project repositories and GitHub stars': '项目仓库与 GitHub Star 数量',
+  },
+  'zh-TW': {
+    'View source on GitHub': '檢視 GitHub 原始碼',
+    'Star count unavailable': '暫時無法取得 Star 數量',
+    'GitHub stars': 'GitHub Star 數量',
+    'Let your browser agent work with LMM.': '讓瀏覽器智慧代理使用 LMM。',
+    'Discover site information, model prices, public scripts, and account status through structured browser tools.':
+      '透過結構化瀏覽器工具查詢網站資訊、模型價格、公開腳本及帳戶狀態。',
+    'Available tools': '可用工具',
+    'Browser support': '瀏覽器支援',
+    'WebMCP is available in this browser.': '此瀏覽器支援 WebMCP。',
+    'WebMCP is not available in this browser. The normal interface still works.':
+      '此瀏覽器尚未支援 WebMCP，一般介面仍可正常使用。',
+    'Check browser support': '檢查瀏覽器支援',
+    'Clear boundaries': '工具權限範圍',
+    'API keys, passwords, payments, and script execution are not exposed through these tools.':
+      '這些工具不會提供 API 金鑰或密碼，也不會執行付款或執行腳本。',
+    'WebMCP documentation': 'WebMCP 文件',
+    'Site information and public page links': '網站資訊與公開頁面連結',
+    'Navigate to supported LMM pages': '開啟支援的 LMM 頁面',
+    'Public model prices and billing units': '公開模型價格與計費單位',
+    'Current sign-in and access status': '目前登入與存取權限狀態',
+    'Public script names and download links': '公開腳本名稱與下載連結',
+    'Project repositories and GitHub stars': '專案儲存庫與 GitHub Star 數量',
+  },
+  fr: {
+    'View source on GitHub': 'Voir le code sur GitHub',
+    'Star count unavailable': 'Nombre d’étoiles indisponible',
+    'GitHub stars': 'Étoiles GitHub',
+    'Let your browser agent work with LMM.':
+      'Votre agent de navigateur peut utiliser LMM.',
+    'Discover site information, model prices, public scripts, and account status through structured browser tools.':
+      'Consultez les informations du site, les tarifs des modèles, les scripts publics et l’état du compte via des outils structurés du navigateur.',
+    'Available tools': 'Outils disponibles',
+    'Browser support': 'Compatibilité du navigateur',
+    'WebMCP is available in this browser.':
+      'WebMCP est disponible dans ce navigateur.',
+    'WebMCP is not available in this browser. The normal interface still works.':
+      'WebMCP n’est pas disponible dans ce navigateur. L’interface habituelle reste accessible.',
+    'Check browser support': 'Vérifier la compatibilité',
+    'Clear boundaries': 'Périmètre des outils',
+    'API keys, passwords, payments, and script execution are not exposed through these tools.':
+      'Ces outils ne divulguent ni clés API ni mots de passe, et ne permettent ni paiement ni exécution de scripts.',
+    'WebMCP documentation': 'Documentation WebMCP',
+    'Site information and public page links':
+      'Informations du site et liens publics',
+    'Navigate to supported LMM pages': 'Ouvrir les pages LMM prises en charge',
+    'Public model prices and billing units':
+      'Tarifs publics des modèles et unités de facturation',
+    'Current sign-in and access status': 'État de connexion et droits d’accès',
+    'Public script names and download links':
+      'Noms des scripts publics et liens de téléchargement',
+    'Project repositories and GitHub stars':
+      'Dépôts du projet et étoiles GitHub',
+  },
+  ja: {
+    'View source on GitHub': 'GitHub でソースを見る',
+    'Star count unavailable': 'スター数を取得できません',
+    'GitHub stars': 'GitHub スター数',
+    'Let your browser agent work with LMM.':
+      'ブラウザーのエージェントから LMM を使えます。',
+    'Discover site information, model prices, public scripts, and account status through structured browser tools.':
+      '構造化されたブラウザーツールで、サイト情報、モデル料金、公開スクリプト、アカウント状態を確認できます。',
+    'Available tools': '利用可能なツール',
+    'Browser support': 'ブラウザーの対応状況',
+    'WebMCP is available in this browser.':
+      'このブラウザーは WebMCP に対応しています。',
+    'WebMCP is not available in this browser. The normal interface still works.':
+      'このブラウザーは WebMCP に対応していません。通常の画面はそのまま使えます。',
+    'Check browser support': '対応状況を確認',
+    'Clear boundaries': 'ツールの権限範囲',
+    'API keys, passwords, payments, and script execution are not exposed through these tools.':
+      'これらのツールは API キーやパスワードを公開せず、支払いやスクリプトの実行も行いません。',
+    'WebMCP documentation': 'WebMCP ドキュメント',
+    'Site information and public page links':
+      'サイト情報と公開ページへのリンク',
+    'Navigate to supported LMM pages': '対応する LMM ページを開く',
+    'Public model prices and billing units': '公開モデル料金と課金単位',
+    'Current sign-in and access status': '現在のログイン状態とアクセス権限',
+    'Public script names and download links':
+      '公開スクリプト名とダウンロードリンク',
+    'Project repositories and GitHub stars':
+      'プロジェクトのリポジトリと GitHub スター数',
+  },
+  ru: {
+    'View source on GitHub': 'Исходный код на GitHub',
+    'Star count unavailable': 'Число звёзд недоступно',
+    'GitHub stars': 'Звёзды GitHub',
+    'Let your browser agent work with LMM.':
+      'Работайте с LMM через агента браузера.',
+    'Discover site information, model prices, public scripts, and account status through structured browser tools.':
+      'Получайте сведения о сайте, цены моделей, публичные скрипты и состояние аккаунта через структурированные инструменты браузера.',
+    'Available tools': 'Доступные инструменты',
+    'Browser support': 'Поддержка браузером',
+    'WebMCP is available in this browser.': 'WebMCP доступен в этом браузере.',
+    'WebMCP is not available in this browser. The normal interface still works.':
+      'WebMCP недоступен в этом браузере. Обычный интерфейс продолжает работать.',
+    'Check browser support': 'Проверить поддержку',
+    'Clear boundaries': 'Границы доступа',
+    'API keys, passwords, payments, and script execution are not exposed through these tools.':
+      'Эти инструменты не раскрывают API-ключи и пароли, не выполняют платежи и не запускают скрипты.',
+    'WebMCP documentation': 'Документация WebMCP',
+    'Site information and public page links':
+      'Сведения о сайте и ссылки на публичные страницы',
+    'Navigate to supported LMM pages': 'Переход на поддерживаемые страницы LMM',
+    'Public model prices and billing units':
+      'Публичные цены моделей и единицы тарификации',
+    'Current sign-in and access status': 'Текущее состояние входа и доступа',
+    'Public script names and download links':
+      'Названия публичных скриптов и ссылки для скачивания',
+    'Project repositories and GitHub stars':
+      'Репозитории проекта и звёзды GitHub',
+  },
+  vi: {
+    'View source on GitHub': 'Xem mã nguồn trên GitHub',
+    'Star count unavailable': 'Không tải được số sao',
+    'GitHub stars': 'Số sao GitHub',
+    'Let your browser agent work with LMM.':
+      'Cho phép trợ lý trình duyệt sử dụng LMM.',
+    'Discover site information, model prices, public scripts, and account status through structured browser tools.':
+      'Tra cứu thông tin trang web, giá mô hình, tập lệnh công khai và trạng thái tài khoản qua các công cụ trình duyệt có cấu trúc.',
+    'Available tools': 'Công cụ khả dụng',
+    'Browser support': 'Hỗ trợ trình duyệt',
+    'WebMCP is available in this browser.': 'Trình duyệt này hỗ trợ WebMCP.',
+    'WebMCP is not available in this browser. The normal interface still works.':
+      'Trình duyệt này chưa hỗ trợ WebMCP. Giao diện thông thường vẫn hoạt động.',
+    'Check browser support': 'Kiểm tra hỗ trợ trình duyệt',
+    'Clear boundaries': 'Phạm vi quyền hạn',
+    'API keys, passwords, payments, and script execution are not exposed through these tools.':
+      'Các công cụ này không cung cấp khóa API hay mật khẩu, không thanh toán và không chạy tập lệnh.',
+    'WebMCP documentation': 'Tài liệu WebMCP',
+    'Site information and public page links':
+      'Thông tin trang web và liên kết trang công khai',
+    'Navigate to supported LMM pages': 'Mở các trang LMM được hỗ trợ',
+    'Public model prices and billing units':
+      'Giá mô hình công khai và đơn vị tính phí',
+    'Current sign-in and access status':
+      'Trạng thái đăng nhập và quyền truy cập hiện tại',
+    'Public script names and download links':
+      'Tên tập lệnh công khai và liên kết tải xuống',
+    'Project repositories and GitHub stars':
+      'Kho mã nguồn dự án và số sao GitHub',
+  },
+}
+for (const [locale, values] of Object.entries(webMcpKeys)) {
+  Object.assign(newKeys[locale], values)
+}
+
+const signalGameKeys = {
+  en: {
+    'Signal path': 'Signal path',
+    'Rotate the tiles to connect input to output.':
+      'Rotate the tiles to connect input to output.',
+    Moves: 'Moves',
+    'Circuits solved': 'Circuits solved',
+    North: 'North',
+    East: 'East',
+    South: 'South',
+    West: 'West',
+    'Rotate tile at row {{row}}, column {{column}}':
+      'Rotate tile at row {{row}}, column {{column}}',
+    'Connected to input': 'Connected to input',
+    'Connected in {{count}} moves!': 'Connected in {{count}} moves!',
+    'Signal reached {{count}} tiles': 'Signal reached {{count}} tiles',
+    'New circuit': 'New circuit',
+    'Play again': 'Play again',
+    'Restart circuit': 'Restart circuit',
+    'Use arrow keys to move and Enter to rotate.':
+      'Use arrow keys to move and Enter to rotate.',
+    'Just for fun. You can sign in or register at any time.':
+      'Just for fun. You can sign in or register at any time.',
+    'Play a round': 'Play a round',
+  },
+  zh: {
+    'Signal path': '接通信号',
+    'Rotate the tiles to connect input to output.':
+      '转动线路格，让入口的信号抵达终点。',
+    Moves: '步数',
+    'Circuits solved': '已接通',
+    North: '上方',
+    East: '右侧',
+    South: '下方',
+    West: '左侧',
+    'Rotate tile at row {{row}}, column {{column}}':
+      '转动第 {{row}} 行、第 {{column}} 列的格子',
+    'Connected to input': '已连接入口',
+    'Connected in {{count}} moves!': '接通了！共用 {{count}} 步',
+    'Signal reached {{count}} tiles': '信号已到达 {{count}} 个格子',
+    'New circuit': '换一张图',
+    'Play again': '再来一局',
+    'Restart circuit': '重新开始这局',
+    'Use arrow keys to move and Enter to rotate.':
+      '也可用方向键选格，按 Enter 转动。',
+    'Just for fun. You can sign in or register at any time.':
+      '纯粹玩一下，随时都能登录或注册。',
+    'Play a round': '玩一局',
+  },
+  'zh-TW': {
+    'Signal path': '接通信號',
+    'Rotate the tiles to connect input to output.':
+      '轉動線路格，讓入口的訊號抵達終點。',
+    Moves: '步數',
+    'Circuits solved': '已接通',
+    North: '上方',
+    East: '右側',
+    South: '下方',
+    West: '左側',
+    'Rotate tile at row {{row}}, column {{column}}':
+      '轉動第 {{row}} 列、第 {{column}} 欄的格子',
+    'Connected to input': '已連接入口',
+    'Connected in {{count}} moves!': '接通了！共用 {{count}} 步',
+    'Signal reached {{count}} tiles': '訊號已抵達 {{count}} 個格子',
+    'New circuit': '換一張圖',
+    'Play again': '再來一局',
+    'Restart circuit': '重新開始這局',
+    'Use arrow keys to move and Enter to rotate.':
+      '也可用方向鍵選格，按 Enter 轉動。',
+    'Just for fun. You can sign in or register at any time.':
+      '輕鬆玩一下，隨時都能登入或註冊。',
+    'Play a round': '玩一局',
+  },
+  fr: {
+    'Signal path': 'Circuit du signal',
+    'Rotate the tiles to connect input to output.':
+      'Tournez les cases pour relier l’entrée à la sortie.',
+    Moves: 'Coups',
+    'Circuits solved': 'Circuits réussis',
+    North: 'Haut',
+    East: 'Droite',
+    South: 'Bas',
+    West: 'Gauche',
+    'Rotate tile at row {{row}}, column {{column}}':
+      'Tourner la case, ligne {{row}}, colonne {{column}}',
+    'Connected to input': 'Relié à l’entrée',
+    'Connected in {{count}} moves!': 'Connecté en {{count}} coups !',
+    'Signal reached {{count}} tiles': 'Le signal atteint {{count}} cases',
+    'New circuit': 'Nouveau circuit',
+    'Play again': 'Rejouer',
+    'Restart circuit': 'Recommencer ce circuit',
+    'Use arrow keys to move and Enter to rotate.':
+      'Utilisez les flèches pour vous déplacer et Entrée pour tourner.',
+    'Just for fun. You can sign in or register at any time.':
+      'Juste pour le plaisir. Connexion et inscription restent accessibles.',
+    'Play a round': 'Faire une partie',
+  },
+  ja: {
+    'Signal path': 'シグナル回路',
+    'Rotate the tiles to connect input to output.':
+      'タイルを回して、入力から出力までつなげましょう。',
+    Moves: '手数',
+    'Circuits solved': 'クリア数',
+    North: '上',
+    East: '右',
+    South: '下',
+    West: '左',
+    'Rotate tile at row {{row}}, column {{column}}':
+      '{{row}} 行 {{column}} 列のタイルを回転',
+    'Connected to input': '入力に接続済み',
+    'Connected in {{count}} moves!': '{{count}} 手で接続できました！',
+    'Signal reached {{count}} tiles': '信号が {{count}} マスまで到達',
+    'New circuit': '新しい回路',
+    'Play again': 'もう一度遊ぶ',
+    'Restart circuit': 'この回路をやり直す',
+    'Use arrow keys to move and Enter to rotate.':
+      '矢印キーで移動、Enter キーで回転できます。',
+    'Just for fun. You can sign in or register at any time.':
+      '気軽に遊べるミニゲームです。ログインや登録はいつでもできます。',
+    'Play a round': 'ひと遊びする',
+  },
+  ru: {
+    'Signal path': 'Путь сигнала',
+    'Rotate the tiles to connect input to output.':
+      'Поворачивайте плитки, чтобы соединить вход с выходом.',
+    Moves: 'Ходы',
+    'Circuits solved': 'Собрано цепей',
+    North: 'Вверх',
+    East: 'Вправо',
+    South: 'Вниз',
+    West: 'Влево',
+    'Rotate tile at row {{row}}, column {{column}}':
+      'Повернуть плитку: строка {{row}}, столбец {{column}}',
+    'Connected to input': 'Соединено со входом',
+    'Connected in {{count}} moves!': 'Соединено за {{count}} ходов!',
+    'Signal reached {{count}} tiles': 'Сигнал достиг {{count}} плиток',
+    'New circuit': 'Новая цепь',
+    'Play again': 'Играть ещё',
+    'Restart circuit': 'Начать эту цепь заново',
+    'Use arrow keys to move and Enter to rotate.':
+      'Стрелки — выбор плитки, Enter — поворот.',
+    'Just for fun. You can sign in or register at any time.':
+      'Просто для развлечения. Вход и регистрация доступны в любой момент.',
+    'Play a round': 'Сыграть раунд',
+  },
+  vi: {
+    'Signal path': 'Đường tín hiệu',
+    'Rotate the tiles to connect input to output.':
+      'Xoay các ô để nối đầu vào với đầu ra.',
+    Moves: 'Số lượt',
+    'Circuits solved': 'Mạch đã nối',
+    North: 'Trên',
+    East: 'Phải',
+    South: 'Dưới',
+    West: 'Trái',
+    'Rotate tile at row {{row}}, column {{column}}':
+      'Xoay ô ở hàng {{row}}, cột {{column}}',
+    'Connected to input': 'Đã nối với đầu vào',
+    'Connected in {{count}} moves!': 'Đã nối sau {{count}} lượt!',
+    'Signal reached {{count}} tiles': 'Tín hiệu đã đến {{count}} ô',
+    'New circuit': 'Mạch mới',
+    'Play again': 'Chơi lại',
+    'Restart circuit': 'Bắt đầu lại mạch này',
+    'Use arrow keys to move and Enter to rotate.':
+      'Dùng phím mũi tên để di chuyển, Enter để xoay.',
+    'Just for fun. You can sign in or register at any time.':
+      'Chỉ để giải trí. Bạn vẫn có thể đăng nhập hoặc đăng ký bất cứ lúc nào.',
+    'Play a round': 'Chơi một ván',
+  },
+}
+for (const [locale, values] of Object.entries(signalGameKeys)) {
+  Object.assign(newKeys[locale], values)
 }
 
 main().catch((error) => {

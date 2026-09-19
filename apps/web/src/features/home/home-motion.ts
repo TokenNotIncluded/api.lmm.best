@@ -16,6 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import {
+  createCoreMesh,
+  createSignalPaths,
+  transformCorePoint,
+  type CorePoint,
+} from './home-core'
+import { createWebGLCore, type CoreFilm } from './home-core-webgl'
+
 export function unit(value: number) {
   return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0
 }
@@ -36,43 +44,25 @@ export function storyPosition(top: number, height: number, viewport: number) {
   return unit((viewport * 0.5 - top) / Math.max(height, 1))
 }
 
-type Point = { x: number; y: number; z: number }
-type Face = { points: Point[]; normal: Point }
+type Point = CorePoint
 
-function sculpture(narrow: boolean): Face[] {
-  const faces: Face[] = []
-  const ribs = narrow ? 72 : 112
-  const sides = narrow ? 20 : 32
-  const point = (a: number, b: number): Point => ({
-    x: (1.72 + 0.38 * Math.cos(b)) * Math.cos(a),
-    y: (1.72 + 0.38 * Math.cos(b)) * Math.sin(a),
-    z: 0.38 * Math.sin(b),
-  })
-  for (let rib = 0; rib < ribs; rib++) {
-    const a = (rib / ribs) * Math.PI * 2
-    const next = a + (Math.PI * 2) / ribs
-    for (let side = 0; side < sides; side++) {
-      const b = (side / sides) * Math.PI * 2
-      const end = ((side + 1) / sides) * Math.PI * 2
-      const mid = (b + end) / 2
-      faces.push({
-        points: [point(a, b), point(next, b), point(next, end), point(a, end)],
-        normal: {
-          x: Math.cos(mid) * Math.cos(a),
-          y: Math.cos(mid) * Math.sin(a),
-          z: Math.sin(mid),
-        },
-      })
-    }
-  }
-  return faces
+export function cinemaPosition(
+  top: number,
+  height: number,
+  frameHeight: number,
+  stickyTop = 0
+) {
+  return unit((stickyTop - top) / Math.max(height - frameHeight, 1))
 }
 
-/** Original copper sculpture. No remote media, WebGL dependency, or fake live metrics. */
-function createFilm(canvas: HTMLCanvasElement) {
+/** A conceptual Transformer architecture: matrices, attention branches and residual paths. */
+function createFilm(canvas: HTMLCanvasElement): CoreFilm | null {
+  const accelerated = createWebGLCore(canvas)
+  if (accelerated) return accelerated
   const ctx = canvas.getContext('2d', { alpha: false })
   if (!ctx) return null
-  const mesh = sculpture(canvas.clientWidth < 650)
+  const mesh = createCoreMesh()
+  const signalPaths = createSignalPaths()
   let width = 0
   let height = 0
   let pixelRatio = 0
@@ -94,9 +84,9 @@ function createFilm(canvas: HTMLCanvasElement) {
       ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
     }
     const backdrop = ctx.createLinearGradient(0, h, w, 0)
-    backdrop.addColorStop(0, '#10221d')
-    backdrop.addColorStop(0.55, '#24372c')
-    backdrop.addColorStop(1, '#77806a')
+    backdrop.addColorStop(0, '#f3f0e9')
+    backdrop.addColorStop(0.55, '#f3f0e9')
+    backdrop.addColorStop(1, '#e8e4dc')
     ctx.fillStyle = backdrop
     ctx.fillRect(0, 0, w, h)
     const glow = ctx.createRadialGradient(
@@ -107,19 +97,28 @@ function createFilm(canvas: HTMLCanvasElement) {
       h * 0.4,
       h * 0.8
     )
-    glow.addColorStop(0, '#b8b08366')
-    glow.addColorStop(1, '#b8b08300')
+    glow.addColorStop(0, '#ffffff33')
+    glow.addColorStop(1, '#ffffff00')
     ctx.fillStyle = glow
     ctx.fillRect(0, 0, w, h)
     const narrow = w < 650
-    const cx = w * (narrow ? 0.51 : 0.4)
-    const cy = h * (narrow ? 0.32 : 0.46)
-    const scale = Math.min(w * (narrow ? 0.19 : 0.15), h * 0.19)
+    const cx = w * (narrow ? 0.5 : 0.255)
+    const cy = h * (narrow ? 0.255 : 0.49)
+    const scale = Math.min(
+      w * (narrow ? 0.105 : 0.1),
+      h * (narrow ? 0.15 : 0.095)
+    )
     const ry =
-      0.6 + Math.sin(time * 0.2) * 0.16 + pointer.x * 0.27 + progress * 0.28
+      -0.48 +
+      Math.sin(time * 0.2) * 0.16 +
+      pointer.x * 0.27 +
+      Math.sin(progress * Math.PI * 2) * 0.42
     const rx =
-      -0.22 + Math.cos(time * 0.16) * 0.1 + pointer.y * 0.18 - progress * 0.12
-    const rz = -0.4 + Math.sin(time * 0.12) * 0.09
+      -0.28 +
+      Math.cos(time * 0.16) * 0.035 +
+      pointer.y * 0.12 -
+      Math.sin(progress * Math.PI) * 0.28
+    const rz = -0.16 + Math.sin(time * 0.12) * 0.025 + progress * 0.22
     const [sx, cxr, sy, cyr, sz, czr] = [
       Math.sin(rx),
       Math.cos(rx),
@@ -150,13 +149,55 @@ function createFilm(canvas: HTMLCanvasElement) {
     ctx.fillStyle = shadow
     ctx.fillRect(0, -h * 3, w, h * 6)
     ctx.restore()
+    const project = (p: Point) => {
+      const perspective = 7 / (7 - p.z)
+      return {
+        x: cx + p.x * scale * perspective,
+        y: cy - p.y * scale * perspective,
+        perspective,
+      }
+    }
+    // Fine attention routes stay behind the solid ribbons; no opaque full-screen effects.
+    const paths = signalPaths.map((path) => ({
+      color: path.color,
+      points: path.points.map((p) =>
+        rotate(transformCorePoint(p, { layer: 0, hinge: 0 }, progress))
+      ),
+    }))
+    ctx.lineWidth = narrow ? 0.7 : 0.85
+    for (const path of paths) {
+      ctx.strokeStyle = `rgba(${path.color.join(',')},0.28)`
+      ctx.beginPath()
+      path.points.forEach((p, i) => {
+        const q = project(p)
+        if (i === 0) ctx.moveTo(q.x, q.y)
+        else ctx.lineTo(q.x, q.y)
+      })
+      ctx.stroke()
+    }
     const transformed = mesh
       .map((face) => {
-        const points = face.points.map(rotate)
+        const points = face.points.map((p) =>
+          rotate(transformCorePoint(p, face, progress))
+        )
         return {
+          ...face,
           points,
-          normal: rotate(face.normal),
-          z: points.reduce((sum, p) => sum + p.z, 0) / 4,
+          normal: (() => {
+            const a = points[0],
+              b = points[1],
+              c = points[2]
+            const u = { x: b.x - a.x, y: b.y - a.y, z: b.z - a.z },
+              v = { x: c.x - a.x, y: c.y - a.y, z: c.z - a.z }
+            const n = {
+              x: u.y * v.z - u.z * v.y,
+              y: u.z * v.x - u.x * v.z,
+              z: u.x * v.y - u.y * v.x,
+            }
+            const length = Math.hypot(n.x, n.y, n.z) || 1
+            return { x: n.x / length, y: n.y / length, z: n.z / length }
+          })(),
+          z: points.reduce((sum, p) => sum + p.z, 0) / points.length,
         }
       })
       .sort((a, b) => a.z - b.z)
@@ -170,7 +211,7 @@ function createFilm(canvas: HTMLCanvasElement) {
       const luminance = 0.38 + diffuse * 0.74
       const c = (base: number, shine: number) =>
         Math.round(Math.min(255, base * luminance + specular * shine))
-      ctx.fillStyle = `rgb(${c(206, 75)} ${c(133, 104)} ${c(83, 129)})`
+      ctx.fillStyle = `rgb(${c(face.color[0], 64 * face.shine)} ${c(face.color[1], 88 * face.shine)} ${c(face.color[2], 64 * face.shine)})`
       ctx.beginPath()
       face.points.forEach((p, i) => {
         const perspective = 7 / (7 - p.z)
@@ -185,6 +226,31 @@ function createFilm(canvas: HTMLCanvasElement) {
       ctx.lineWidth = 0.6
       ctx.stroke()
     }
+    // A bounded set of pulses makes input/attention/output continuity legible.
+    paths.forEach((path, index) => {
+      for (let pulse = 0; pulse < 2; pulse++) {
+        const t =
+          (time * 0.14 + index * 0.071 + pulse * 0.5 + progress * 0.8) % 1
+        const cursor = t * (path.points.length - 1)
+        const a = path.points[Math.floor(cursor)]
+        const b =
+          path.points[Math.min(path.points.length - 1, Math.floor(cursor) + 1)]
+        const fraction = cursor % 1
+        const q = project({
+          x: a.x + (b.x - a.x) * fraction,
+          y: a.y + (b.y - a.y) * fraction,
+          z: a.z + (b.z - a.z) * fraction,
+        })
+        ctx.fillStyle = `rgba(${path.color.join(',')},0.12)`
+        ctx.beginPath()
+        ctx.arc(q.x, q.y, 5 * q.perspective, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.fillStyle = '#fff0d3'
+        ctx.beginPath()
+        ctx.arc(q.x, q.y, 1.45 * q.perspective, 0, Math.PI * 2)
+        ctx.fill()
+      }
+    })
     canvas.parentElement?.setAttribute('data-rendered', '')
   }
 }
@@ -195,7 +261,13 @@ export function mountHomeMotion(root: HTMLElement) {
   const inner = root.querySelector<HTMLElement>('[data-cinema-inner]')
   const canvas = root.querySelector<HTMLCanvasElement>('[data-film]')
   if (!cinema || !inner || !canvas) return () => {}
-  const draw = createFilm(canvas)
+  let draw = createFilm(canvas)
+  const scenePanels = [
+    ...root.querySelectorAll<HTMLElement>('[data-cinema-panel]'),
+  ]
+  const sceneSteps = [
+    ...root.querySelectorAll<HTMLElement>('[data-cinema-step]'),
+  ]
   const story = root.querySelector<HTMLElement>('[data-story]')
   const steps = [...root.querySelectorAll<HTMLElement>('[data-story-step]')]
   const toggle = root.querySelector<HTMLButtonElement>('[data-motion-toggle]')
@@ -206,8 +278,12 @@ export function mountHomeMotion(root: HTMLElement) {
     typeof window.ResizeObserver !== 'function'
   ) {
     draw?.(0, { x: 0, y: 0 }, 0)
+    root.dataset.motion = 'static'
     if (toggle) toggle.hidden = true
-    return () => {}
+    return () => {
+      draw?.dispose?.()
+      delete root.dataset.motion
+    }
   }
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)')
   const fine = window.matchMedia('(hover: hover) and (pointer: fine)')
@@ -227,11 +303,13 @@ export function mountHomeMotion(root: HTMLElement) {
   let sceneProgress = 0
 
   const updateControls = () => {
-    root.dataset.motion = reduced.matches
-      ? 'reduced'
-      : paused
-        ? 'paused'
-        : 'playing'
+    root.dataset.motion = !draw
+      ? 'static'
+      : reduced.matches
+        ? 'reduced'
+        : paused
+          ? 'paused'
+          : 'playing'
     if (!toggle) return
     toggle.hidden = reduced.matches || !draw
     toggle.setAttribute('aria-pressed', String(paused))
@@ -253,11 +331,38 @@ export function mountHomeMotion(root: HTMLElement) {
   }
   const readLayout = () => {
     const cinemaRect = cinema.getBoundingClientRect()
-    sceneProgress =
-      reduced.matches || paused
-        ? 0
-        : unit(-cinemaRect.top / Math.max(cinemaRect.height, 1))
+    const frameRect = inner.getBoundingClientRect()
+    const stickyTop = Number.parseFloat(window.getComputedStyle(inner).top) || 0
+    const animated = !!draw && !reduced.matches && window.innerHeight > 600
+    sceneProgress = animated
+      ? cinemaPosition(
+          cinemaRect.top,
+          cinemaRect.height,
+          frameRect.height,
+          stickyTop
+        )
+      : 0
     inner.style.setProperty('--scene-progress', String(sceneProgress))
+    const focused = scenePanels.findIndex((panel) =>
+      panel.contains(document.activeElement)
+    )
+    const chapter =
+      focused >= 0
+        ? focused
+        : Math.min(
+            scenePanels.length - 1,
+            Math.floor(sceneProgress * scenePanels.length)
+          )
+    inner.dataset.chapter = String(chapter)
+    scenePanels.forEach((panel, index) => {
+      const active = !animated || index === chapter
+      panel.toggleAttribute('data-active', active)
+      panel.setAttribute('aria-hidden', String(!active))
+      panel.inert = !active
+    })
+    sceneSteps.forEach((step, index) =>
+      step.toggleAttribute('data-active', index === chapter)
+    )
     if (story) {
       const rect = story.getBoundingClientRect()
       const progress = storyPosition(rect.top, rect.height, window.innerHeight)
@@ -323,8 +428,15 @@ export function mountHomeMotion(root: HTMLElement) {
     if (draw && animate && visible) schedule()
   }
   const update = () => {
+    dirty = true
     measured = true
     schedule()
+  }
+  const filmUnavailable = () => {
+    draw?.dispose?.()
+    draw = null
+    updateControls()
+    update()
   }
   const resize = () => {
     measured = true
@@ -396,6 +508,7 @@ export function mountHomeMotion(root: HTMLElement) {
   const resizeObserver = new window.ResizeObserver(resize)
   resizeObserver.observe(root)
   resizeObserver.observe(cinema)
+  canvas.addEventListener('webglcontextlost', filmUnavailable)
   cinema.addEventListener('pointermove', move, { passive: true })
   cinema.addEventListener('pointerleave', leave)
   toggle?.addEventListener('click', toggleMotion)
@@ -411,9 +524,11 @@ export function mountHomeMotion(root: HTMLElement) {
   schedule()
   return () => {
     disposed = true
+    draw?.dispose?.()
     if (frame !== null) cancelAnimationFrame(frame)
     observer.disconnect()
     resizeObserver.disconnect()
+    canvas.removeEventListener('webglcontextlost', filmUnavailable)
     cinema.removeEventListener('pointermove', move)
     cinema.removeEventListener('pointerleave', leave)
     toggle?.removeEventListener('click', toggleMotion)
@@ -425,6 +540,13 @@ export function mountHomeMotion(root: HTMLElement) {
     reduced.removeEventListener('change', preferences)
     fine.removeEventListener('change', preferences)
     delete root.dataset.motion
+    delete inner.dataset.chapter
+    scenePanels.forEach((panel) => {
+      panel.inert = false
+      panel.removeAttribute('aria-hidden')
+      panel.removeAttribute('data-active')
+    })
+    sceneSteps.forEach((step) => step.removeAttribute('data-active'))
     for (const key of [
       '--pointer-x',
       '--pointer-y',

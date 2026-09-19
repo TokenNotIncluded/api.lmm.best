@@ -7,6 +7,13 @@ published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
 import { getPricing } from '@/features/pricing/api'
+import {
+  fetchRepositoryStars,
+  REPOSITORIES,
+  repositoryUrl,
+  type RepositoryKind,
+} from '@/features/repositories/api'
+import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
 type ToolExecuteOptions = { signal: AbortSignal }
@@ -15,7 +22,11 @@ type ModelContextTool = {
   title?: string
   description: string
   inputSchema: Record<string, unknown>
-  annotations?: { readOnlyHint?: boolean; consequential?: boolean }
+  annotations?: {
+    readOnlyHint?: boolean
+    consequentialHint?: boolean
+    untrustedContentHint?: boolean
+  }
   execute: (
     input: Record<string, unknown>,
     options: ToolExecuteOptions
@@ -42,6 +53,8 @@ const NAVIGABLE_PATHS = {
   '/': '/',
   '/pricing': '/pricing',
   '/guide': '/guide',
+  '/scripts': '/scripts',
+  '/webmcp': '/webmcp',
   '/dashboard/overview': '/dashboard/overview',
   '/wallet': '/wallet',
   '/temporary-activations': '/temporary-activations',
@@ -92,6 +105,8 @@ function toolsFor(router: WebMcpRouter): ModelContextTool[] {
           current_path: window.location.pathname,
           pricing_path: '/pricing',
           guide_path: '/guide',
+          scripts_path: '/scripts',
+          webmcp_path: '/webmcp',
           pi_oauth: true,
         }
       },
@@ -183,6 +198,65 @@ function toolsFor(router: WebMcpRouter): ModelContextTool[] {
       },
     },
     {
+      name: 'lmm_public_scripts',
+      title: 'Read public LMM scripts',
+      description:
+        'List public installer filenames and download links. Does not download, install, or execute a script.',
+      inputSchema: {
+        type: 'object',
+        properties: {},
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: true, untrustedContentHint: true },
+      execute: async (_input, options) => {
+        ensureNotAborted(options.signal)
+        const response = await api.get<{
+          success: boolean
+          data?: { name: string; size?: number; updated?: string }[]
+        }>('/api/scripts', { signal: options.signal })
+        ensureNotAborted(options.signal)
+        if (!response.data.success || !Array.isArray(response.data.data)) {
+          throw new Error('Public scripts unavailable')
+        }
+        return {
+          page: '/scripts',
+          repository: repositoryUrl('scripts'),
+          scripts: response.data.data.map((script) => ({
+            name: script.name,
+            download_url: `${window.location.origin}/scripts/${encodeURIComponent(script.name)}`,
+            size: script.size ?? null,
+            updated: script.updated ?? null,
+          })),
+        }
+      },
+    },
+    {
+      name: 'lmm_source_repositories',
+      title: 'Read LMM source repositories',
+      description:
+        'Return the public project and installer repositories, with GitHub star counts when available. Does not star or modify repositories.',
+      inputSchema: {
+        type: 'object',
+        properties: {},
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: true },
+      execute: async (_input, options) => {
+        ensureNotAborted(options.signal)
+        const rows = await Promise.all(
+          (['project', 'scripts'] as RepositoryKind[]).map(async (kind) => ({
+            repository: REPOSITORIES[kind],
+            url: repositoryUrl(kind),
+            stars: await fetchRepositoryStars(kind, options.signal).catch(
+              () => null
+            ),
+          }))
+        )
+        ensureNotAborted(options.signal)
+        return { repositories: rows }
+      },
+    },
+    {
       name: 'lmm_account_status',
       title: 'Read current LMM account status',
       description:
@@ -201,8 +275,27 @@ function toolsFor(router: WebMcpRouter): ModelContextTool[] {
   ]
 }
 
+export const WEBMCP_TOOL_DESCRIPTIONS = [
+  ['lmm_site_info', 'Site information and public page links'],
+  ['lmm_navigate', 'Navigate to supported LMM pages'],
+  ['lmm_model_prices', 'Public model prices and billing units'],
+  ['lmm_account_status', 'Current sign-in and access status'],
+  ['lmm_public_scripts', 'Public script names and download links'],
+  ['lmm_source_repositories', 'Project repositories and GitHub stars'],
+] as const
+
+export function getWebMcpContext(): ModelContext | null {
+  try {
+    if (typeof document === 'undefined') return null
+    const context = document.modelContext
+    return typeof context?.registerTool === 'function' ? context : null
+  } catch {
+    return null
+  }
+}
+
 export function installWebMcp(router: WebMcpRouter): () => void {
-  const modelContext = document.modelContext
+  const modelContext = getWebMcpContext()
   if (!modelContext) return () => undefined
   let controller = new AbortController()
   let disposed = false

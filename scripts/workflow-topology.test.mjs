@@ -72,7 +72,7 @@ test('signed publication is manual and never deploys', () => {
     assert.match(source, /^  workflow_dispatch:/m);
     assert.doesNotMatch(source, /^  (?:push|pull_request|schedule|workflow_run|deploy):/m);
     assert.doesNotMatch(source, /ssh-private-key|ssh-known-hosts|deploy-production|inputs\.confirm/);
-    assert.match(source, /verify-release-work-items.py/);
+    assert.doesNotMatch(source, /verify-release-work-items.py|issues:\s*read/);
     assert.match(source, /verify-release-commit-checks.sh/);
     assert.match(source, /cosign sign-blob/);
     assert.match(source, /gh release create/);

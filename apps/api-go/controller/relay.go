@@ -439,10 +439,10 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 			return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %s", selectGroup, info.OriginModelName, err.Error()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 		}
 		if channel == nil {
-			// The original attempt already passed distributor admission. If every
-			// remaining retry candidate is protocol-incompatible, keep the real
-			// upstream failure instead of replacing it with a misleading local 400.
-			if rejectedUnsupported && info.LastError != nil {
+			// Exhausting request-local candidates must preserve the upstream
+			// failure. In particular, a sole unavailable channel's 503 must not
+			// become a misleading local get-channel 500 on the next attempt.
+			if info.LastError != nil {
 				return nil, info.LastError
 			}
 			if rejectedUnsupported {

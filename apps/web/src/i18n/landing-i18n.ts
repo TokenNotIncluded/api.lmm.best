@@ -17,7 +17,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import i18next from 'i18next'
-import { initReactI18next } from 'react-i18next'
 
 import enLocale from './locales/en.json'
 
@@ -29,7 +28,9 @@ import enLocale from './locales/en.json'
 // browser locale or a previously saved preference.
 const landingI18n = i18next.createInstance()
 
-void landingI18n.use(initReactI18next).init({
+// The React plugin sets a process-wide default instance. This scoped instance
+// is passed through I18nextProvider and must not replace the application default.
+void landingI18n.init({
   lng: 'en',
   fallbackLng: 'en',
   supportedLngs: ['en'],

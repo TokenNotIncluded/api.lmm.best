@@ -86,6 +86,9 @@ export function useTopNavLinks(): TopNavLink[] {
     })
   }
 
+  links.push({ title: t('Scripts'), href: '/scripts' })
+  links.push({ title: 'WebMCP', href: '/webmcp' })
+
   // Rankings
   const rankings = modules?.rankings
   if (rankings && typeof rankings === 'object' && rankings.enabled) {
