@@ -105,8 +105,9 @@ function render(element: ReactElement) {
 function button(markup: string, text: string) {
   const window = new Window()
   window.document.body.innerHTML = markup
-  const result = [...window.document.querySelectorAll('button')]
-    .find((candidate) => candidate.textContent?.trim() === text)
+  const result = [...window.document.querySelectorAll('button')].find(
+    (candidate) => candidate.textContent?.trim() === text
+  )
   assert.ok(result, `missing button: ${text}`)
   // Inspect the native attribute, not Tailwind's disabled: style variants.
   const state = result.hasAttribute('disabled') ? 'disabled' : 'enabled'
