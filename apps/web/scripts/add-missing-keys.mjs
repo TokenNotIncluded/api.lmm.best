@@ -4000,230 +4000,337 @@ for (const [locale, translations] of Object.entries(
 }
 
 const pricingRedesignTranslations = {
-  "en": {
-    "Pricing group": "Pricing group",
-    "Cost multiplier": "Cost multiplier",
-    "Group cost multipliers": "Group cost multipliers",
-    "Understand how user groups, cost multipliers, profit pricing, and special rules work together.": "Understand how user groups, cost multipliers, profit pricing, and special rules work together.",
-    "decides which channels are used and which base cost multiplier applies.": "decides which channels are used and which base cost multiplier applies.",
-    "decides the top-up ratio, which groups the user can pick for tokens, and whether a cost override applies.": "decides the top-up ratio, which groups the user can pick for tokens, and whether a cost override applies.",
-    "Find the cost multiplier.": "Find the cost multiplier.",
-    "Look for a special cost rule matching this user group and this billing group. If one exists, use its cost multiplier. Otherwise use the billing group base cost from the pricing table.": "Look for a special cost rule matching this user group and this billing group. If one exists, use its cost multiplier. Otherwise use the billing group base cost from the pricing table.",
-    "Special cost rules": "Special cost rules",
-    "Cost basis = 10 × 0.3 = 3": "Cost basis = 10 × 0.3 = 3",
-    "Cost basis = 10 × 1.0 = 10": "Cost basis = 10 × 1.0 = 10",
-    "Cost basis = 10 × 0.8 = 8": "Cost basis = 10 × 0.8 = 8",
-    "Users of vip, when billed as premium, use cost multiplier": "Users of vip, when billed as premium, use cost multiplier",
-    "No rule for vip billed as default → use the base cost of default, 1.0 (the 0.8 of vip is not used)": "No rule for vip billed as default → use the base cost of default, 1.0 (the 0.8 of vip is not used)",
-    "No rule for vip billed as vip → use the base cost of vip, 0.8": "No rule for vip billed as vip → use the base cost of vip, 0.8",
-    "Use the pricing group table to manage the cost multiplier and whether the group appears in the token creation dropdown.": "Use the pricing group table to manage the cost multiplier and whether the group appears in the token creation dropdown.",
-    "In JSON, the user group is the outer key and the billing group is the inner key. The example below means: vip users use cost multiplier 0.8 when billed as standard, and 0.3 when billed as premium.": "In JSON, the user group is the outer key and the billing group is the inner key. The example below means: vip users use cost multiplier 0.8 when billed as standard, and 0.3 when billed as premium.",
-    "Only configured combinations are overridden. All other calls keep the billing group base cost multiplier.": "Only configured combinations are overridden. All other calls keep the billing group base cost multiplier.",
-    "Base cost multipliers": "Base cost multipliers",
-    "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting.": "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting.",
-    "Cost multipliers must be finite numbers greater than or equal to zero.": "Cost multipliers must be finite numbers greater than or equal to zero.",
-    "Optimize by effective cost": "Optimize by effective cost",
-    "Edit cost override": "Edit cost override",
-    "Add cost override": "Add cost override",
-    "Configure a custom cost multiplier for \"{{userGroup}}\" users when using a specific token group.": "Configure a custom cost multiplier for \"{{userGroup}}\" users when using a specific token group.",
-    "Configure a custom cost multiplier for when users use a specific token group.": "Configure a custom cost multiplier for when users use a specific token group.",
-    "Invalid cost multiplier": "Invalid cost multiplier",
-    "Cost multiplier applied when {{userGroup}} uses {{targetGroup}}": "Cost multiplier applied when {{userGroup}} uses {{targetGroup}}",
-    "Save group pricing": "Save group pricing",
-    "Fixed by channel sharing settings": "Fixed by channel sharing settings"
+  en: {
+    'Pricing group': 'Pricing group',
+    'Cost multiplier': 'Cost multiplier',
+    'Group cost multipliers': 'Group cost multipliers',
+    'Understand how user groups, cost multipliers, profit pricing, and special rules work together.':
+      'Understand how user groups, cost multipliers, profit pricing, and special rules work together.',
+    'decides which channels are used and which base cost multiplier applies.':
+      'decides which channels are used and which base cost multiplier applies.',
+    'decides the top-up ratio, which groups the user can pick for tokens, and whether a cost override applies.':
+      'decides the top-up ratio, which groups the user can pick for tokens, and whether a cost override applies.',
+    'Find the cost multiplier.': 'Find the cost multiplier.',
+    'Look for a special cost rule matching this user group and this billing group. If one exists, use its cost multiplier. Otherwise use the billing group base cost from the pricing table.':
+      'Look for a special cost rule matching this user group and this billing group. If one exists, use its cost multiplier. Otherwise use the billing group base cost from the pricing table.',
+    'Special cost rules': 'Special cost rules',
+    'Cost basis = 10 × 0.3 = 3': 'Cost basis = 10 × 0.3 = 3',
+    'Cost basis = 10 × 1.0 = 10': 'Cost basis = 10 × 1.0 = 10',
+    'Cost basis = 10 × 0.8 = 8': 'Cost basis = 10 × 0.8 = 8',
+    'Users of vip, when billed as premium, use cost multiplier':
+      'Users of vip, when billed as premium, use cost multiplier',
+    'No rule for vip billed as default → use the base cost of default, 1.0 (the 0.8 of vip is not used)':
+      'No rule for vip billed as default → use the base cost of default, 1.0 (the 0.8 of vip is not used)',
+    'No rule for vip billed as vip → use the base cost of vip, 0.8':
+      'No rule for vip billed as vip → use the base cost of vip, 0.8',
+    'Use the pricing group table to manage the cost multiplier and whether the group appears in the token creation dropdown.':
+      'Use the pricing group table to manage the cost multiplier and whether the group appears in the token creation dropdown.',
+    'In JSON, the user group is the outer key and the billing group is the inner key. The example below means: vip users use cost multiplier 0.8 when billed as standard, and 0.3 when billed as premium.':
+      'In JSON, the user group is the outer key and the billing group is the inner key. The example below means: vip users use cost multiplier 0.8 when billed as standard, and 0.3 when billed as premium.',
+    'Only configured combinations are overridden. All other calls keep the billing group base cost multiplier.':
+      'Only configured combinations are overridden. All other calls keep the billing group base cost multiplier.',
+    'Base cost multipliers': 'Base cost multipliers',
+    "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting.":
+      "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting.",
+    'Cost multipliers must be finite numbers greater than or equal to zero.':
+      'Cost multipliers must be finite numbers greater than or equal to zero.',
+    'Optimize by effective cost': 'Optimize by effective cost',
+    'Edit cost override': 'Edit cost override',
+    'Add cost override': 'Add cost override',
+    'Configure a custom cost multiplier for "{{userGroup}}" users when using a specific token group.':
+      'Configure a custom cost multiplier for "{{userGroup}}" users when using a specific token group.',
+    'Configure a custom cost multiplier for when users use a specific token group.':
+      'Configure a custom cost multiplier for when users use a specific token group.',
+    'Invalid cost multiplier': 'Invalid cost multiplier',
+    'Cost multiplier applied when {{userGroup}} uses {{targetGroup}}':
+      'Cost multiplier applied when {{userGroup}} uses {{targetGroup}}',
+    'Save group pricing': 'Save group pricing',
+    'Fixed by channel sharing settings': 'Fixed by channel sharing settings',
   },
-  "zh": {
-    "Pricing group": "定价分组",
-    "Cost multiplier": "成本倍率",
-    "Group cost multipliers": "分组成本倍率",
-    "Understand how user groups, cost multipliers, profit pricing, and special rules work together.": "了解用户组、成本倍率、利润定价和特殊规则如何共同生效。",
-    "decides which channels are used and which base cost multiplier applies.": "决定使用哪些渠道以及采用哪个成本基准倍率。",
-    "decides the top-up ratio, which groups the user can pick for tokens, and whether a cost override applies.": "决定充值倍率、用户创建令牌时可选的分组，以及是否应用成本覆盖规则。",
-    "Find the cost multiplier.": "查找成本倍率。",
-    "Look for a special cost rule matching this user group and this billing group. If one exists, use its cost multiplier. Otherwise use the billing group base cost from the pricing table.": "查找匹配用户组和计费组的特殊成本规则；若存在则使用其成本倍率，否则使用定价表中的计费组成本基准。",
-    "Special cost rules": "特殊成本规则",
-    "Cost basis = 10 × 0.3 = 3": "成本基准 = 10 × 0.3 = 3",
-    "Cost basis = 10 × 1.0 = 10": "成本基准 = 10 × 1.0 = 10",
-    "Cost basis = 10 × 0.8 = 8": "成本基准 = 10 × 0.8 = 8",
-    "Users of vip, when billed as premium, use cost multiplier": "vip 用户按 premium 计费时使用成本倍率",
-    "No rule for vip billed as default → use the base cost of default, 1.0 (the 0.8 of vip is not used)": "vip 按 default 计费没有特殊规则 → 使用 default 的成本基准 1.0（不会使用 vip 的 0.8）",
-    "No rule for vip billed as vip → use the base cost of vip, 0.8": "vip 按 vip 计费没有特殊规则 → 使用 vip 的成本基准 0.8",
-    "Use the pricing group table to manage the cost multiplier and whether the group appears in the token creation dropdown.": "使用定价分组表管理成本倍率，以及分组是否出现在令牌创建下拉框中。",
-    "In JSON, the user group is the outer key and the billing group is the inner key. The example below means: vip users use cost multiplier 0.8 when billed as standard, and 0.3 when billed as premium.": "JSON 中外层键是用户组，内层键是计费组。下面示例表示：vip 用户按 standard 计费使用成本倍率 0.8，按 premium 计费使用 0.3。",
-    "Only configured combinations are overridden. All other calls keep the billing group base cost multiplier.": "只有配置的组合会覆盖；其它请求继续使用计费组的成本基准倍率。",
-    "Base cost multipliers": "基础成本倍率",
-    "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting.": "在点击优化前会保留手动顺序。优化会改变所有用户的全局顺序，但运行时仍会过滤每个用户可见的分组；默认按基础成本倍率排序，选择用户组后会先应用其特殊成本覆盖。",
-    "Cost multipliers must be finite numbers greater than or equal to zero.": "成本倍率必须是大于等于 0 的有限数字。",
-    "Optimize by effective cost": "按最终成本优化",
-    "Edit cost override": "编辑成本覆盖",
-    "Add cost override": "添加成本覆盖",
-    "Configure a custom cost multiplier for \"{{userGroup}}\" users when using a specific token group.": "配置“{{userGroup}}”用户使用指定令牌组时的自定义成本倍率。",
-    "Configure a custom cost multiplier for when users use a specific token group.": "配置用户使用指定令牌组时的自定义成本倍率。",
-    "Invalid cost multiplier": "成本倍率无效",
-    "Cost multiplier applied when {{userGroup}} uses {{targetGroup}}": "{{userGroup}} 使用 {{targetGroup}} 时应用的成本倍率",
-    "Save group pricing": "保存分组定价",
-    "Fixed by channel sharing settings": "由渠道共享设置固定"
+  zh: {
+    'Pricing group': '定价分组',
+    'Cost multiplier': '成本倍率',
+    'Group cost multipliers': '分组成本倍率',
+    'Understand how user groups, cost multipliers, profit pricing, and special rules work together.':
+      '了解用户组、成本倍率、利润定价和特殊规则如何共同生效。',
+    'decides which channels are used and which base cost multiplier applies.':
+      '决定使用哪些渠道以及采用哪个成本基准倍率。',
+    'decides the top-up ratio, which groups the user can pick for tokens, and whether a cost override applies.':
+      '决定充值倍率、用户创建令牌时可选的分组，以及是否应用成本覆盖规则。',
+    'Find the cost multiplier.': '查找成本倍率。',
+    'Look for a special cost rule matching this user group and this billing group. If one exists, use its cost multiplier. Otherwise use the billing group base cost from the pricing table.':
+      '查找匹配用户组和计费组的特殊成本规则；若存在则使用其成本倍率，否则使用定价表中的计费组成本基准。',
+    'Special cost rules': '特殊成本规则',
+    'Cost basis = 10 × 0.3 = 3': '成本基准 = 10 × 0.3 = 3',
+    'Cost basis = 10 × 1.0 = 10': '成本基准 = 10 × 1.0 = 10',
+    'Cost basis = 10 × 0.8 = 8': '成本基准 = 10 × 0.8 = 8',
+    'Users of vip, when billed as premium, use cost multiplier':
+      'vip 用户按 premium 计费时使用成本倍率',
+    'No rule for vip billed as default → use the base cost of default, 1.0 (the 0.8 of vip is not used)':
+      'vip 按 default 计费没有特殊规则 → 使用 default 的成本基准 1.0（不会使用 vip 的 0.8）',
+    'No rule for vip billed as vip → use the base cost of vip, 0.8':
+      'vip 按 vip 计费没有特殊规则 → 使用 vip 的成本基准 0.8',
+    'Use the pricing group table to manage the cost multiplier and whether the group appears in the token creation dropdown.':
+      '使用定价分组表管理成本倍率，以及分组是否出现在令牌创建下拉框中。',
+    'In JSON, the user group is the outer key and the billing group is the inner key. The example below means: vip users use cost multiplier 0.8 when billed as standard, and 0.3 when billed as premium.':
+      'JSON 中外层键是用户组，内层键是计费组。下面示例表示：vip 用户按 standard 计费使用成本倍率 0.8，按 premium 计费使用 0.3。',
+    'Only configured combinations are overridden. All other calls keep the billing group base cost multiplier.':
+      '只有配置的组合会覆盖；其它请求继续使用计费组的成本基准倍率。',
+    'Base cost multipliers': '基础成本倍率',
+    "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting.":
+      '在点击优化前会保留手动顺序。优化会改变所有用户的全局顺序，但运行时仍会过滤每个用户可见的分组；默认按基础成本倍率排序，选择用户组后会先应用其特殊成本覆盖。',
+    'Cost multipliers must be finite numbers greater than or equal to zero.':
+      '成本倍率必须是大于等于 0 的有限数字。',
+    'Optimize by effective cost': '按最终成本优化',
+    'Edit cost override': '编辑成本覆盖',
+    'Add cost override': '添加成本覆盖',
+    'Configure a custom cost multiplier for "{{userGroup}}" users when using a specific token group.':
+      '配置“{{userGroup}}”用户使用指定令牌组时的自定义成本倍率。',
+    'Configure a custom cost multiplier for when users use a specific token group.':
+      '配置用户使用指定令牌组时的自定义成本倍率。',
+    'Invalid cost multiplier': '成本倍率无效',
+    'Cost multiplier applied when {{userGroup}} uses {{targetGroup}}':
+      '{{userGroup}} 使用 {{targetGroup}} 时应用的成本倍率',
+    'Save group pricing': '保存分组定价',
+    'Fixed by channel sharing settings': '由渠道共享设置固定',
   },
-  "zh-TW": {
-    "Pricing group": "定價分組",
-    "Cost multiplier": "成本倍率",
-    "Group cost multipliers": "分組成本倍率",
-    "Understand how user groups, cost multipliers, profit pricing, and special rules work together.": "了解使用者群組、成本倍率、利潤定價和特殊規則如何共同生效。",
-    "decides which channels are used and which base cost multiplier applies.": "決定使用哪些渠道以及採用哪個成本基準倍率。",
-    "decides the top-up ratio, which groups the user can pick for tokens, and whether a cost override applies.": "決定充值倍率、使用者建立 Token 時可選的分組，以及是否套用成本覆蓋規則。",
-    "Find the cost multiplier.": "尋找成本倍率。",
-    "Look for a special cost rule matching this user group and this billing group. If one exists, use its cost multiplier. Otherwise use the billing group base cost from the pricing table.": "尋找符合使用者群組和計費群組的特殊成本規則；若存在則使用其成本倍率，否則使用定價表中的計費群組成本基準。",
-    "Special cost rules": "特殊成本規則",
-    "Cost basis = 10 × 0.3 = 3": "成本基準 = 10 × 0.3 = 3",
-    "Cost basis = 10 × 1.0 = 10": "成本基準 = 10 × 1.0 = 10",
-    "Cost basis = 10 × 0.8 = 8": "成本基準 = 10 × 0.8 = 8",
-    "Users of vip, when billed as premium, use cost multiplier": "vip 使用者按 premium 計費時使用成本倍率",
-    "No rule for vip billed as default → use the base cost of default, 1.0 (the 0.8 of vip is not used)": "vip 按 default 計費沒有特殊規則 → 使用 default 的成本基準 1.0（不會使用 vip 的 0.8）",
-    "No rule for vip billed as vip → use the base cost of vip, 0.8": "vip 按 vip 計費沒有特殊規則 → 使用 vip 的成本基準 0.8",
-    "Use the pricing group table to manage the cost multiplier and whether the group appears in the token creation dropdown.": "使用定價分組表管理成本倍率，以及分組是否出現在 Token 建立下拉選單中。",
-    "In JSON, the user group is the outer key and the billing group is the inner key. The example below means: vip users use cost multiplier 0.8 when billed as standard, and 0.3 when billed as premium.": "JSON 中外層鍵是使用者群組，內層鍵是計費群組。以下範例表示：vip 使用者按 standard 計費使用成本倍率 0.8，按 premium 計費使用 0.3。",
-    "Only configured combinations are overridden. All other calls keep the billing group base cost multiplier.": "只有設定的組合會覆蓋；其他請求繼續使用計費群組的成本基準倍率。",
-    "Base cost multipliers": "基礎成本倍率",
-    "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting.": "在點擊最佳化前會保留手動順序。最佳化會改變所有使用者的全域順序，但執行時仍會過濾每個使用者可見的分組；預設按基礎成本倍率排序，選擇使用者群組後會先套用其特殊成本覆蓋。",
-    "Cost multipliers must be finite numbers greater than or equal to zero.": "成本倍率必須是大於等於 0 的有限數字。",
-    "Optimize by effective cost": "按最終成本最佳化",
-    "Edit cost override": "編輯成本覆蓋",
-    "Add cost override": "新增成本覆蓋",
-    "Configure a custom cost multiplier for \"{{userGroup}}\" users when using a specific token group.": "設定「{{userGroup}}」使用者使用指定 Token 群組時的自訂成本倍率。",
-    "Configure a custom cost multiplier for when users use a specific token group.": "設定使用者使用指定 Token 群組時的自訂成本倍率。",
-    "Invalid cost multiplier": "成本倍率無效",
-    "Cost multiplier applied when {{userGroup}} uses {{targetGroup}}": "{{userGroup}} 使用 {{targetGroup}} 時套用的成本倍率",
-    "Save group pricing": "儲存分組定價",
-    "Fixed by channel sharing settings": "由渠道共享設定固定"
+  'zh-TW': {
+    'Pricing group': '定價分組',
+    'Cost multiplier': '成本倍率',
+    'Group cost multipliers': '分組成本倍率',
+    'Understand how user groups, cost multipliers, profit pricing, and special rules work together.':
+      '了解使用者群組、成本倍率、利潤定價和特殊規則如何共同生效。',
+    'decides which channels are used and which base cost multiplier applies.':
+      '決定使用哪些渠道以及採用哪個成本基準倍率。',
+    'decides the top-up ratio, which groups the user can pick for tokens, and whether a cost override applies.':
+      '決定充值倍率、使用者建立 Token 時可選的分組，以及是否套用成本覆蓋規則。',
+    'Find the cost multiplier.': '尋找成本倍率。',
+    'Look for a special cost rule matching this user group and this billing group. If one exists, use its cost multiplier. Otherwise use the billing group base cost from the pricing table.':
+      '尋找符合使用者群組和計費群組的特殊成本規則；若存在則使用其成本倍率，否則使用定價表中的計費群組成本基準。',
+    'Special cost rules': '特殊成本規則',
+    'Cost basis = 10 × 0.3 = 3': '成本基準 = 10 × 0.3 = 3',
+    'Cost basis = 10 × 1.0 = 10': '成本基準 = 10 × 1.0 = 10',
+    'Cost basis = 10 × 0.8 = 8': '成本基準 = 10 × 0.8 = 8',
+    'Users of vip, when billed as premium, use cost multiplier':
+      'vip 使用者按 premium 計費時使用成本倍率',
+    'No rule for vip billed as default → use the base cost of default, 1.0 (the 0.8 of vip is not used)':
+      'vip 按 default 計費沒有特殊規則 → 使用 default 的成本基準 1.0（不會使用 vip 的 0.8）',
+    'No rule for vip billed as vip → use the base cost of vip, 0.8':
+      'vip 按 vip 計費沒有特殊規則 → 使用 vip 的成本基準 0.8',
+    'Use the pricing group table to manage the cost multiplier and whether the group appears in the token creation dropdown.':
+      '使用定價分組表管理成本倍率，以及分組是否出現在 Token 建立下拉選單中。',
+    'In JSON, the user group is the outer key and the billing group is the inner key. The example below means: vip users use cost multiplier 0.8 when billed as standard, and 0.3 when billed as premium.':
+      'JSON 中外層鍵是使用者群組，內層鍵是計費群組。以下範例表示：vip 使用者按 standard 計費使用成本倍率 0.8，按 premium 計費使用 0.3。',
+    'Only configured combinations are overridden. All other calls keep the billing group base cost multiplier.':
+      '只有設定的組合會覆蓋；其他請求繼續使用計費群組的成本基準倍率。',
+    'Base cost multipliers': '基礎成本倍率',
+    "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting.":
+      '在點擊最佳化前會保留手動順序。最佳化會改變所有使用者的全域順序，但執行時仍會過濾每個使用者可見的分組；預設按基礎成本倍率排序，選擇使用者群組後會先套用其特殊成本覆蓋。',
+    'Cost multipliers must be finite numbers greater than or equal to zero.':
+      '成本倍率必須是大於等於 0 的有限數字。',
+    'Optimize by effective cost': '按最終成本最佳化',
+    'Edit cost override': '編輯成本覆蓋',
+    'Add cost override': '新增成本覆蓋',
+    'Configure a custom cost multiplier for "{{userGroup}}" users when using a specific token group.':
+      '設定「{{userGroup}}」使用者使用指定 Token 群組時的自訂成本倍率。',
+    'Configure a custom cost multiplier for when users use a specific token group.':
+      '設定使用者使用指定 Token 群組時的自訂成本倍率。',
+    'Invalid cost multiplier': '成本倍率無效',
+    'Cost multiplier applied when {{userGroup}} uses {{targetGroup}}':
+      '{{userGroup}} 使用 {{targetGroup}} 時套用的成本倍率',
+    'Save group pricing': '儲存分組定價',
+    'Fixed by channel sharing settings': '由渠道共享設定固定',
   },
-  "fr": {
-    "Pricing group": "Groupe tarifaire",
-    "Cost multiplier": "Coefficient de coût",
-    "Group cost multipliers": "Coefficients de coût des groupes",
-    "Understand how user groups, cost multipliers, profit pricing, and special rules work together.": "Comprenez le rôle des groupes utilisateurs, des coûts, du profit et des règles spéciales.",
-    "decides which channels are used and which base cost multiplier applies.": "détermine les canaux utilisés et le coefficient de coût de base appliqué.",
-    "decides the top-up ratio, which groups the user can pick for tokens, and whether a cost override applies.": "détermine le coefficient de recharge, les groupes disponibles pour les tokens et les éventuelles règles de coût.",
-    "Find the cost multiplier.": "Trouver le coefficient de coût.",
-    "Look for a special cost rule matching this user group and this billing group. If one exists, use its cost multiplier. Otherwise use the billing group base cost from the pricing table.": "Cherchez une règle de coût correspondant au groupe utilisateur et au groupe de facturation ; sinon utilisez le coût de base du groupe tarifaire.",
-    "Special cost rules": "Règles de coût spéciales",
-    "Cost basis = 10 × 0.3 = 3": "Base de coût = 10 × 0,3 = 3",
-    "Cost basis = 10 × 1.0 = 10": "Base de coût = 10 × 1,0 = 10",
-    "Cost basis = 10 × 0.8 = 8": "Base de coût = 10 × 0,8 = 8",
-    "Users of vip, when billed as premium, use cost multiplier": "Les utilisateurs vip facturés en premium utilisent le coefficient de coût",
-    "No rule for vip billed as default → use the base cost of default, 1.0 (the 0.8 of vip is not used)": "Sans règle vip facturé en default → coût de base default, 1,0 (le 0,8 de vip ne s’applique pas)",
-    "No rule for vip billed as vip → use the base cost of vip, 0.8": "Sans règle vip facturé en vip → coût de base vip, 0,8",
-    "Use the pricing group table to manage the cost multiplier and whether the group appears in the token creation dropdown.": "Gérez le coefficient de coût et la visibilité du groupe dans la liste de création des tokens.",
-    "In JSON, the user group is the outer key and the billing group is the inner key. The example below means: vip users use cost multiplier 0.8 when billed as standard, and 0.3 when billed as premium.": "Dans le JSON, le groupe utilisateur est la clé externe et le groupe de facturation la clé interne ; vip utilise 0,8 en standard et 0,3 en premium.",
-    "Only configured combinations are overridden. All other calls keep the billing group base cost multiplier.": "Seules les combinaisons configurées sont remplacées ; les autres gardent le coût de base du groupe.",
-    "Base cost multipliers": "Coefficients de coût de base",
-    "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting.": "L’ordre manuel est conservé jusqu’à l’optimisation. Celle-ci applique les remplacements de coût du groupe utilisateur avant le tri.",
-    "Cost multipliers must be finite numbers greater than or equal to zero.": "Les coefficients de coût doivent être des nombres finis supérieurs ou égaux à zéro.",
-    "Optimize by effective cost": "Optimiser par coût effectif",
-    "Edit cost override": "Modifier le remplacement de coût",
-    "Add cost override": "Ajouter un remplacement de coût",
-    "Configure a custom cost multiplier for \"{{userGroup}}\" users when using a specific token group.": "Configurez un coefficient de coût personnalisé pour les utilisateurs « {{userGroup}} » avec un groupe de tokens donné.",
-    "Configure a custom cost multiplier for when users use a specific token group.": "Configurez un coefficient de coût personnalisé pour un groupe de tokens donné.",
-    "Invalid cost multiplier": "Coefficient de coût invalide",
-    "Cost multiplier applied when {{userGroup}} uses {{targetGroup}}": "Coefficient appliqué quand {{userGroup}} utilise {{targetGroup}}",
-    "Save group pricing": "Enregistrer la tarification des groupes",
-    "Fixed by channel sharing settings": "Fixé par les paramètres de partage du canal"
+  fr: {
+    'Pricing group': 'Groupe tarifaire',
+    'Cost multiplier': 'Coefficient de coût',
+    'Group cost multipliers': 'Coefficients de coût des groupes',
+    'Understand how user groups, cost multipliers, profit pricing, and special rules work together.':
+      'Comprenez le rôle des groupes utilisateurs, des coûts, du profit et des règles spéciales.',
+    'decides which channels are used and which base cost multiplier applies.':
+      'détermine les canaux utilisés et le coefficient de coût de base appliqué.',
+    'decides the top-up ratio, which groups the user can pick for tokens, and whether a cost override applies.':
+      'détermine le coefficient de recharge, les groupes disponibles pour les tokens et les éventuelles règles de coût.',
+    'Find the cost multiplier.': 'Trouver le coefficient de coût.',
+    'Look for a special cost rule matching this user group and this billing group. If one exists, use its cost multiplier. Otherwise use the billing group base cost from the pricing table.':
+      'Cherchez une règle de coût correspondant au groupe utilisateur et au groupe de facturation ; sinon utilisez le coût de base du groupe tarifaire.',
+    'Special cost rules': 'Règles de coût spéciales',
+    'Cost basis = 10 × 0.3 = 3': 'Base de coût = 10 × 0,3 = 3',
+    'Cost basis = 10 × 1.0 = 10': 'Base de coût = 10 × 1,0 = 10',
+    'Cost basis = 10 × 0.8 = 8': 'Base de coût = 10 × 0,8 = 8',
+    'Users of vip, when billed as premium, use cost multiplier':
+      'Les utilisateurs vip facturés en premium utilisent le coefficient de coût',
+    'No rule for vip billed as default → use the base cost of default, 1.0 (the 0.8 of vip is not used)':
+      'Sans règle vip facturé en default → coût de base default, 1,0 (le 0,8 de vip ne s’applique pas)',
+    'No rule for vip billed as vip → use the base cost of vip, 0.8':
+      'Sans règle vip facturé en vip → coût de base vip, 0,8',
+    'Use the pricing group table to manage the cost multiplier and whether the group appears in the token creation dropdown.':
+      'Gérez le coefficient de coût et la visibilité du groupe dans la liste de création des tokens.',
+    'In JSON, the user group is the outer key and the billing group is the inner key. The example below means: vip users use cost multiplier 0.8 when billed as standard, and 0.3 when billed as premium.':
+      'Dans le JSON, le groupe utilisateur est la clé externe et le groupe de facturation la clé interne ; vip utilise 0,8 en standard et 0,3 en premium.',
+    'Only configured combinations are overridden. All other calls keep the billing group base cost multiplier.':
+      'Seules les combinaisons configurées sont remplacées ; les autres gardent le coût de base du groupe.',
+    'Base cost multipliers': 'Coefficients de coût de base',
+    "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting.":
+      'L’ordre manuel est conservé jusqu’à l’optimisation. Celle-ci applique les remplacements de coût du groupe utilisateur avant le tri.',
+    'Cost multipliers must be finite numbers greater than or equal to zero.':
+      'Les coefficients de coût doivent être des nombres finis supérieurs ou égaux à zéro.',
+    'Optimize by effective cost': 'Optimiser par coût effectif',
+    'Edit cost override': 'Modifier le remplacement de coût',
+    'Add cost override': 'Ajouter un remplacement de coût',
+    'Configure a custom cost multiplier for "{{userGroup}}" users when using a specific token group.':
+      'Configurez un coefficient de coût personnalisé pour les utilisateurs « {{userGroup}} » avec un groupe de tokens donné.',
+    'Configure a custom cost multiplier for when users use a specific token group.':
+      'Configurez un coefficient de coût personnalisé pour un groupe de tokens donné.',
+    'Invalid cost multiplier': 'Coefficient de coût invalide',
+    'Cost multiplier applied when {{userGroup}} uses {{targetGroup}}':
+      'Coefficient appliqué quand {{userGroup}} utilise {{targetGroup}}',
+    'Save group pricing': 'Enregistrer la tarification des groupes',
+    'Fixed by channel sharing settings':
+      'Fixé par les paramètres de partage du canal',
   },
-  "ja": {
-    "Pricing group": "料金グループ",
-    "Cost multiplier": "コスト倍率",
-    "Group cost multipliers": "グループコスト倍率",
-    "Understand how user groups, cost multipliers, profit pricing, and special rules work together.": "ユーザーグループ、コスト倍率、利益料金、特殊ルールの連携を確認します。",
-    "decides which channels are used and which base cost multiplier applies.": "使用するチャネルと適用する基本コスト倍率を決めます。",
-    "decides the top-up ratio, which groups the user can pick for tokens, and whether a cost override applies.": "チャージ倍率、トークンで選べるグループ、コスト上書きの有無を決めます。",
-    "Find the cost multiplier.": "コスト倍率を確認します。",
-    "Look for a special cost rule matching this user group and this billing group. If one exists, use its cost multiplier. Otherwise use the billing group base cost from the pricing table.": "ユーザーグループと請求グループに一致する特殊コストルールを探し、なければ料金表の基本コストを使います。",
-    "Special cost rules": "特殊コストルール",
-    "Cost basis = 10 × 0.3 = 3": "コスト基準 = 10 × 0.3 = 3",
-    "Cost basis = 10 × 1.0 = 10": "コスト基準 = 10 × 1.0 = 10",
-    "Cost basis = 10 × 0.8 = 8": "コスト基準 = 10 × 0.8 = 8",
-    "Users of vip, when billed as premium, use cost multiplier": "vip ユーザーが premium で請求される場合のコスト倍率",
-    "No rule for vip billed as default → use the base cost of default, 1.0 (the 0.8 of vip is not used)": "vip を default で請求するルールがないため default の基本コスト 1.0 を使います（vip の 0.8 は使いません）。",
-    "No rule for vip billed as vip → use the base cost of vip, 0.8": "vip を vip で請求するルールがないため vip の基本コスト 0.8 を使います。",
-    "Use the pricing group table to manage the cost multiplier and whether the group appears in the token creation dropdown.": "料金グループ表でコスト倍率とトークン作成リストへの表示を管理します。",
-    "In JSON, the user group is the outer key and the billing group is the inner key. The example below means: vip users use cost multiplier 0.8 when billed as standard, and 0.3 when billed as premium.": "JSON の外側キーはユーザーグループ、内側キーは請求グループです。例では vip が standard で 0.8、premium で 0.3 を使います。",
-    "Only configured combinations are overridden. All other calls keep the billing group base cost multiplier.": "設定した組み合わせだけが上書きされ、その他は請求グループの基本コスト倍率を使います。",
-    "Base cost multipliers": "基本コスト倍率",
-    "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting.": "最適化するまで手動順序を保持します。最適化では基本コスト倍率を使い、ユーザーグループを選ぶと特殊コスト上書きを適用して並べ替えます。",
-    "Cost multipliers must be finite numbers greater than or equal to zero.": "コスト倍率は 0 以上の有限数値である必要があります。",
-    "Optimize by effective cost": "実効コストで最適化",
-    "Edit cost override": "コスト上書きを編集",
-    "Add cost override": "コスト上書きを追加",
-    "Configure a custom cost multiplier for \"{{userGroup}}\" users when using a specific token group.": "「{{userGroup}}」ユーザーが指定トークングループを使う際のカスタムコスト倍率を設定します。",
-    "Configure a custom cost multiplier for when users use a specific token group.": "指定トークングループを使う場合のカスタムコスト倍率を設定します。",
-    "Invalid cost multiplier": "無効なコスト倍率",
-    "Cost multiplier applied when {{userGroup}} uses {{targetGroup}}": "{{userGroup}} が {{targetGroup}} を使う場合のコスト倍率",
-    "Save group pricing": "グループ料金を保存",
-    "Fixed by channel sharing settings": "チャネル共有設定で固定"
+  ja: {
+    'Pricing group': '料金グループ',
+    'Cost multiplier': 'コスト倍率',
+    'Group cost multipliers': 'グループコスト倍率',
+    'Understand how user groups, cost multipliers, profit pricing, and special rules work together.':
+      'ユーザーグループ、コスト倍率、利益料金、特殊ルールの連携を確認します。',
+    'decides which channels are used and which base cost multiplier applies.':
+      '使用するチャネルと適用する基本コスト倍率を決めます。',
+    'decides the top-up ratio, which groups the user can pick for tokens, and whether a cost override applies.':
+      'チャージ倍率、トークンで選べるグループ、コスト上書きの有無を決めます。',
+    'Find the cost multiplier.': 'コスト倍率を確認します。',
+    'Look for a special cost rule matching this user group and this billing group. If one exists, use its cost multiplier. Otherwise use the billing group base cost from the pricing table.':
+      'ユーザーグループと請求グループに一致する特殊コストルールを探し、なければ料金表の基本コストを使います。',
+    'Special cost rules': '特殊コストルール',
+    'Cost basis = 10 × 0.3 = 3': 'コスト基準 = 10 × 0.3 = 3',
+    'Cost basis = 10 × 1.0 = 10': 'コスト基準 = 10 × 1.0 = 10',
+    'Cost basis = 10 × 0.8 = 8': 'コスト基準 = 10 × 0.8 = 8',
+    'Users of vip, when billed as premium, use cost multiplier':
+      'vip ユーザーが premium で請求される場合のコスト倍率',
+    'No rule for vip billed as default → use the base cost of default, 1.0 (the 0.8 of vip is not used)':
+      'vip を default で請求するルールがないため default の基本コスト 1.0 を使います（vip の 0.8 は使いません）。',
+    'No rule for vip billed as vip → use the base cost of vip, 0.8':
+      'vip を vip で請求するルールがないため vip の基本コスト 0.8 を使います。',
+    'Use the pricing group table to manage the cost multiplier and whether the group appears in the token creation dropdown.':
+      '料金グループ表でコスト倍率とトークン作成リストへの表示を管理します。',
+    'In JSON, the user group is the outer key and the billing group is the inner key. The example below means: vip users use cost multiplier 0.8 when billed as standard, and 0.3 when billed as premium.':
+      'JSON の外側キーはユーザーグループ、内側キーは請求グループです。例では vip が standard で 0.8、premium で 0.3 を使います。',
+    'Only configured combinations are overridden. All other calls keep the billing group base cost multiplier.':
+      '設定した組み合わせだけが上書きされ、その他は請求グループの基本コスト倍率を使います。',
+    'Base cost multipliers': '基本コスト倍率',
+    "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting.":
+      '最適化するまで手動順序を保持します。最適化では基本コスト倍率を使い、ユーザーグループを選ぶと特殊コスト上書きを適用して並べ替えます。',
+    'Cost multipliers must be finite numbers greater than or equal to zero.':
+      'コスト倍率は 0 以上の有限数値である必要があります。',
+    'Optimize by effective cost': '実効コストで最適化',
+    'Edit cost override': 'コスト上書きを編集',
+    'Add cost override': 'コスト上書きを追加',
+    'Configure a custom cost multiplier for "{{userGroup}}" users when using a specific token group.':
+      '「{{userGroup}}」ユーザーが指定トークングループを使う際のカスタムコスト倍率を設定します。',
+    'Configure a custom cost multiplier for when users use a specific token group.':
+      '指定トークングループを使う場合のカスタムコスト倍率を設定します。',
+    'Invalid cost multiplier': '無効なコスト倍率',
+    'Cost multiplier applied when {{userGroup}} uses {{targetGroup}}':
+      '{{userGroup}} が {{targetGroup}} を使う場合のコスト倍率',
+    'Save group pricing': 'グループ料金を保存',
+    'Fixed by channel sharing settings': 'チャネル共有設定で固定',
   },
-  "ru": {
-    "Pricing group": "Тарифная группа",
-    "Cost multiplier": "Коэффициент затрат",
-    "Group cost multipliers": "Коэффициенты затрат групп",
-    "Understand how user groups, cost multipliers, profit pricing, and special rules work together.": "Узнайте, как работают группы пользователей, затраты, прибыль и специальные правила.",
-    "decides which channels are used and which base cost multiplier applies.": "определяет используемые каналы и базовый коэффициент затрат.",
-    "decides the top-up ratio, which groups the user can pick for tokens, and whether a cost override applies.": "определяет коэффициент пополнения, доступные для токенов группы и применение переопределения затрат.",
-    "Find the cost multiplier.": "Найдите коэффициент затрат.",
-    "Look for a special cost rule matching this user group and this billing group. If one exists, use its cost multiplier. Otherwise use the billing group base cost from the pricing table.": "Найдите специальное правило для группы пользователя и группы тарификации; иначе используйте базовую стоимость группы из таблицы.",
-    "Special cost rules": "Специальные правила затрат",
-    "Cost basis = 10 × 0.3 = 3": "База затрат = 10 × 0,3 = 3",
-    "Cost basis = 10 × 1.0 = 10": "База затрат = 10 × 1,0 = 10",
-    "Cost basis = 10 × 0.8 = 8": "База затрат = 10 × 0,8 = 8",
-    "Users of vip, when billed as premium, use cost multiplier": "Пользователи vip при тарификации premium используют коэффициент затрат",
-    "No rule for vip billed as default → use the base cost of default, 1.0 (the 0.8 of vip is not used)": "Для vip в default нет правила → используется базовая стоимость default 1,0 (0,8 vip не используется).",
-    "No rule for vip billed as vip → use the base cost of vip, 0.8": "Для vip в vip нет правила → используется базовая стоимость vip 0,8.",
-    "Use the pricing group table to manage the cost multiplier and whether the group appears in the token creation dropdown.": "Управляйте коэффициентом затрат и видимостью группы в списке создания токена через таблицу тарифов.",
-    "In JSON, the user group is the outer key and the billing group is the inner key. The example below means: vip users use cost multiplier 0.8 when billed as standard, and 0.3 when billed as premium.": "Во внешнем ключе JSON указана группа пользователя, во внутреннем — группа тарификации; vip использует 0,8 для standard и 0,3 для premium.",
-    "Only configured combinations are overridden. All other calls keep the billing group base cost multiplier.": "Переопределяются только настроенные комбинации; остальные запросы используют базовый коэффициент группы.",
-    "Base cost multipliers": "Базовые коэффициенты затрат",
-    "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting.": "Ручной порядок сохраняется до оптимизации. По умолчанию оптимизация сортирует по базовым затратам и перед сортировкой применяет специальные правила выбранной группы пользователя.",
-    "Cost multipliers must be finite numbers greater than or equal to zero.": "Коэффициенты затрат должны быть конечными числами не меньше нуля.",
-    "Optimize by effective cost": "Оптимизировать по эффективной стоимости",
-    "Edit cost override": "Изменить переопределение затрат",
-    "Add cost override": "Добавить переопределение затрат",
-    "Configure a custom cost multiplier for \"{{userGroup}}\" users when using a specific token group.": "Настройте собственный коэффициент затрат для пользователей «{{userGroup}}» при использовании группы токена.",
-    "Configure a custom cost multiplier for when users use a specific token group.": "Настройте собственный коэффициент затрат для выбранной группы токена.",
-    "Invalid cost multiplier": "Недопустимый коэффициент затрат",
-    "Cost multiplier applied when {{userGroup}} uses {{targetGroup}}": "Коэффициент затрат, когда {{userGroup}} использует {{targetGroup}}",
-    "Save group pricing": "Сохранить тарифы групп",
-    "Fixed by channel sharing settings": "Задано настройками общего канала"
+  ru: {
+    'Pricing group': 'Тарифная группа',
+    'Cost multiplier': 'Коэффициент затрат',
+    'Group cost multipliers': 'Коэффициенты затрат групп',
+    'Understand how user groups, cost multipliers, profit pricing, and special rules work together.':
+      'Узнайте, как работают группы пользователей, затраты, прибыль и специальные правила.',
+    'decides which channels are used and which base cost multiplier applies.':
+      'определяет используемые каналы и базовый коэффициент затрат.',
+    'decides the top-up ratio, which groups the user can pick for tokens, and whether a cost override applies.':
+      'определяет коэффициент пополнения, доступные для токенов группы и применение переопределения затрат.',
+    'Find the cost multiplier.': 'Найдите коэффициент затрат.',
+    'Look for a special cost rule matching this user group and this billing group. If one exists, use its cost multiplier. Otherwise use the billing group base cost from the pricing table.':
+      'Найдите специальное правило для группы пользователя и группы тарификации; иначе используйте базовую стоимость группы из таблицы.',
+    'Special cost rules': 'Специальные правила затрат',
+    'Cost basis = 10 × 0.3 = 3': 'База затрат = 10 × 0,3 = 3',
+    'Cost basis = 10 × 1.0 = 10': 'База затрат = 10 × 1,0 = 10',
+    'Cost basis = 10 × 0.8 = 8': 'База затрат = 10 × 0,8 = 8',
+    'Users of vip, when billed as premium, use cost multiplier':
+      'Пользователи vip при тарификации premium используют коэффициент затрат',
+    'No rule for vip billed as default → use the base cost of default, 1.0 (the 0.8 of vip is not used)':
+      'Для vip в default нет правила → используется базовая стоимость default 1,0 (0,8 vip не используется).',
+    'No rule for vip billed as vip → use the base cost of vip, 0.8':
+      'Для vip в vip нет правила → используется базовая стоимость vip 0,8.',
+    'Use the pricing group table to manage the cost multiplier and whether the group appears in the token creation dropdown.':
+      'Управляйте коэффициентом затрат и видимостью группы в списке создания токена через таблицу тарифов.',
+    'In JSON, the user group is the outer key and the billing group is the inner key. The example below means: vip users use cost multiplier 0.8 when billed as standard, and 0.3 when billed as premium.':
+      'Во внешнем ключе JSON указана группа пользователя, во внутреннем — группа тарификации; vip использует 0,8 для standard и 0,3 для premium.',
+    'Only configured combinations are overridden. All other calls keep the billing group base cost multiplier.':
+      'Переопределяются только настроенные комбинации; остальные запросы используют базовый коэффициент группы.',
+    'Base cost multipliers': 'Базовые коэффициенты затрат',
+    "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting.":
+      'Ручной порядок сохраняется до оптимизации. По умолчанию оптимизация сортирует по базовым затратам и перед сортировкой применяет специальные правила выбранной группы пользователя.',
+    'Cost multipliers must be finite numbers greater than or equal to zero.':
+      'Коэффициенты затрат должны быть конечными числами не меньше нуля.',
+    'Optimize by effective cost': 'Оптимизировать по эффективной стоимости',
+    'Edit cost override': 'Изменить переопределение затрат',
+    'Add cost override': 'Добавить переопределение затрат',
+    'Configure a custom cost multiplier for "{{userGroup}}" users when using a specific token group.':
+      'Настройте собственный коэффициент затрат для пользователей «{{userGroup}}» при использовании группы токена.',
+    'Configure a custom cost multiplier for when users use a specific token group.':
+      'Настройте собственный коэффициент затрат для выбранной группы токена.',
+    'Invalid cost multiplier': 'Недопустимый коэффициент затрат',
+    'Cost multiplier applied when {{userGroup}} uses {{targetGroup}}':
+      'Коэффициент затрат, когда {{userGroup}} использует {{targetGroup}}',
+    'Save group pricing': 'Сохранить тарифы групп',
+    'Fixed by channel sharing settings': 'Задано настройками общего канала',
   },
-  "vi": {
-    "Pricing group": "Nhóm định giá",
-    "Cost multiplier": "Hệ số chi phí",
-    "Group cost multipliers": "Hệ số chi phí nhóm",
-    "Understand how user groups, cost multipliers, profit pricing, and special rules work together.": "Tìm hiểu nhóm người dùng, hệ số chi phí, lợi nhuận và quy tắc đặc biệt phối hợp như thế nào.",
-    "decides which channels are used and which base cost multiplier applies.": "quyết định kênh được dùng và hệ số chi phí cơ bản áp dụng.",
-    "decides the top-up ratio, which groups the user can pick for tokens, and whether a cost override applies.": "quyết định hệ số nạp, nhóm người dùng có thể chọn cho token và việc áp dụng ghi đè chi phí.",
-    "Find the cost multiplier.": "Tìm hệ số chi phí.",
-    "Look for a special cost rule matching this user group and this billing group. If one exists, use its cost multiplier. Otherwise use the billing group base cost from the pricing table.": "Tìm quy tắc chi phí khớp nhóm người dùng và nhóm tính phí; nếu không có thì dùng chi phí cơ bản trong bảng định giá.",
-    "Special cost rules": "Quy tắc chi phí đặc biệt",
-    "Cost basis = 10 × 0.3 = 3": "Cơ sở chi phí = 10 × 0,3 = 3",
-    "Cost basis = 10 × 1.0 = 10": "Cơ sở chi phí = 10 × 1,0 = 10",
-    "Cost basis = 10 × 0.8 = 8": "Cơ sở chi phí = 10 × 0,8 = 8",
-    "Users of vip, when billed as premium, use cost multiplier": "Người dùng vip khi tính phí theo premium dùng hệ số chi phí",
-    "No rule for vip billed as default → use the base cost of default, 1.0 (the 0.8 of vip is not used)": "Không có quy tắc vip theo default → dùng chi phí cơ bản default 1,0 (không dùng 0,8 của vip).",
-    "No rule for vip billed as vip → use the base cost of vip, 0.8": "Không có quy tắc vip theo vip → dùng chi phí cơ bản vip 0,8.",
-    "Use the pricing group table to manage the cost multiplier and whether the group appears in the token creation dropdown.": "Dùng bảng nhóm định giá để quản lý hệ số chi phí và việc nhóm có xuất hiện trong danh sách tạo token hay không.",
-    "In JSON, the user group is the outer key and the billing group is the inner key. The example below means: vip users use cost multiplier 0.8 when billed as standard, and 0.3 when billed as premium.": "Trong JSON, khóa ngoài là nhóm người dùng và khóa trong là nhóm tính phí; ví dụ vip dùng 0,8 khi tính theo standard và 0,3 khi tính theo premium.",
-    "Only configured combinations are overridden. All other calls keep the billing group base cost multiplier.": "Chỉ các tổ hợp được cấu hình mới bị ghi đè; các yêu cầu khác giữ hệ số chi phí cơ bản của nhóm.",
-    "Base cost multipliers": "Hệ số chi phí cơ bản",
-    "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting.": "Thứ tự thủ công được giữ đến khi bạn tối ưu. Mặc định tối ưu theo hệ số chi phí cơ bản và áp dụng ghi đè chi phí của nhóm người dùng trước khi sắp xếp.",
-    "Cost multipliers must be finite numbers greater than or equal to zero.": "Hệ số chi phí phải là số hữu hạn lớn hơn hoặc bằng 0.",
-    "Optimize by effective cost": "Tối ưu theo chi phí hiệu dụng",
-    "Edit cost override": "Sửa ghi đè chi phí",
-    "Add cost override": "Thêm ghi đè chi phí",
-    "Configure a custom cost multiplier for \"{{userGroup}}\" users when using a specific token group.": "Cấu hình hệ số chi phí tùy chỉnh cho người dùng “{{userGroup}}” khi dùng nhóm token cụ thể.",
-    "Configure a custom cost multiplier for when users use a specific token group.": "Cấu hình hệ số chi phí tùy chỉnh khi người dùng dùng nhóm token cụ thể.",
-    "Invalid cost multiplier": "Hệ số chi phí không hợp lệ",
-    "Cost multiplier applied when {{userGroup}} uses {{targetGroup}}": "Hệ số chi phí áp dụng khi {{userGroup}} dùng {{targetGroup}}",
-    "Save group pricing": "Lưu định giá nhóm",
-    "Fixed by channel sharing settings": "Được cố định bởi cài đặt chia sẻ kênh"
-  }
+  vi: {
+    'Pricing group': 'Nhóm định giá',
+    'Cost multiplier': 'Hệ số chi phí',
+    'Group cost multipliers': 'Hệ số chi phí nhóm',
+    'Understand how user groups, cost multipliers, profit pricing, and special rules work together.':
+      'Tìm hiểu nhóm người dùng, hệ số chi phí, lợi nhuận và quy tắc đặc biệt phối hợp như thế nào.',
+    'decides which channels are used and which base cost multiplier applies.':
+      'quyết định kênh được dùng và hệ số chi phí cơ bản áp dụng.',
+    'decides the top-up ratio, which groups the user can pick for tokens, and whether a cost override applies.':
+      'quyết định hệ số nạp, nhóm người dùng có thể chọn cho token và việc áp dụng ghi đè chi phí.',
+    'Find the cost multiplier.': 'Tìm hệ số chi phí.',
+    'Look for a special cost rule matching this user group and this billing group. If one exists, use its cost multiplier. Otherwise use the billing group base cost from the pricing table.':
+      'Tìm quy tắc chi phí khớp nhóm người dùng và nhóm tính phí; nếu không có thì dùng chi phí cơ bản trong bảng định giá.',
+    'Special cost rules': 'Quy tắc chi phí đặc biệt',
+    'Cost basis = 10 × 0.3 = 3': 'Cơ sở chi phí = 10 × 0,3 = 3',
+    'Cost basis = 10 × 1.0 = 10': 'Cơ sở chi phí = 10 × 1,0 = 10',
+    'Cost basis = 10 × 0.8 = 8': 'Cơ sở chi phí = 10 × 0,8 = 8',
+    'Users of vip, when billed as premium, use cost multiplier':
+      'Người dùng vip khi tính phí theo premium dùng hệ số chi phí',
+    'No rule for vip billed as default → use the base cost of default, 1.0 (the 0.8 of vip is not used)':
+      'Không có quy tắc vip theo default → dùng chi phí cơ bản default 1,0 (không dùng 0,8 của vip).',
+    'No rule for vip billed as vip → use the base cost of vip, 0.8':
+      'Không có quy tắc vip theo vip → dùng chi phí cơ bản vip 0,8.',
+    'Use the pricing group table to manage the cost multiplier and whether the group appears in the token creation dropdown.':
+      'Dùng bảng nhóm định giá để quản lý hệ số chi phí và việc nhóm có xuất hiện trong danh sách tạo token hay không.',
+    'In JSON, the user group is the outer key and the billing group is the inner key. The example below means: vip users use cost multiplier 0.8 when billed as standard, and 0.3 when billed as premium.':
+      'Trong JSON, khóa ngoài là nhóm người dùng và khóa trong là nhóm tính phí; ví dụ vip dùng 0,8 khi tính theo standard và 0,3 khi tính theo premium.',
+    'Only configured combinations are overridden. All other calls keep the billing group base cost multiplier.':
+      'Chỉ các tổ hợp được cấu hình mới bị ghi đè; các yêu cầu khác giữ hệ số chi phí cơ bản của nhóm.',
+    'Base cost multipliers': 'Hệ số chi phí cơ bản',
+    "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting.":
+      'Thứ tự thủ công được giữ đến khi bạn tối ưu. Mặc định tối ưu theo hệ số chi phí cơ bản và áp dụng ghi đè chi phí của nhóm người dùng trước khi sắp xếp.',
+    'Cost multipliers must be finite numbers greater than or equal to zero.':
+      'Hệ số chi phí phải là số hữu hạn lớn hơn hoặc bằng 0.',
+    'Optimize by effective cost': 'Tối ưu theo chi phí hiệu dụng',
+    'Edit cost override': 'Sửa ghi đè chi phí',
+    'Add cost override': 'Thêm ghi đè chi phí',
+    'Configure a custom cost multiplier for "{{userGroup}}" users when using a specific token group.':
+      'Cấu hình hệ số chi phí tùy chỉnh cho người dùng “{{userGroup}}” khi dùng nhóm token cụ thể.',
+    'Configure a custom cost multiplier for when users use a specific token group.':
+      'Cấu hình hệ số chi phí tùy chỉnh khi người dùng dùng nhóm token cụ thể.',
+    'Invalid cost multiplier': 'Hệ số chi phí không hợp lệ',
+    'Cost multiplier applied when {{userGroup}} uses {{targetGroup}}':
+      'Hệ số chi phí áp dụng khi {{userGroup}} dùng {{targetGroup}}',
+    'Save group pricing': 'Lưu định giá nhóm',
+    'Fixed by channel sharing settings':
+      'Được cố định bởi cài đặt chia sẻ kênh',
+  },
 }
 
 for (const [locale, translations] of Object.entries(
@@ -10902,628 +11009,808 @@ const keyFollowthroughCopy = {
 }
 
 const retiredPricingKeys = new Set([
-  "JSON map of group → cost multiplier used as the base for that billing group. Dynamic pricing adds the profit multiplier.",
-  "Final charge = model base cost × group cost multiplier × dynamic profit multiplier.",
-  "The group value is a cost basis, not a personal discount. Dynamic pricing supplies the profit multiplier separately.",
-  "Set the base cost multiplier for each routing group. Dynamic pricing adds the live profit multiplier on top; top-up ratio remains an independent balance multiplier.",
-  "Active channel",
-  "Automatically refreshes every 3 seconds.",
-  "Caps the load-driven profit premium. Cost protection can still raise the effective multiplier when needed.",
-  "Configure costs for every active channel before enabling: {{channels}}",
-  "Configured-cost coverage ready",
-  "Conservative channel costs",
-  "Cost EMA",
-  "Cost floor",
-  "Cost for {{channel}}",
-  "Cost protection margin",
-  "Cost × profit pricing preview",
-  "Current dynamic profit multiplier",
-  "Dynamic Profit Pricing",
-  "Dynamic pricing channel costs",
-  "Dynamic pricing model overrides",
-  "Dynamic profit ceiling",
-  "Effective billing multiplier",
-  "Enable dynamic profit pricing",
-  "Engine tick: {{seconds}}s",
-  "Enter a conservative upper-bound USD cost per 1M total tokens. Upstream responses provide usage tokens, but generally not the final dollar cost; unknown-cost channels are blocked while this feature is enabled.",
-  "Enter a positive conservative cost for channel {{channel}}.",
-  "Fill every active channel cost first, then enable.",
-  "Final billing = group cost × dynamic profit",
-  "Formula",
-  "Group Pricing stores the base cost multiplier. This page computes the live profit multiplier on top of that cost.",
-  "Group Pricing supplies the cost multiplier. Dynamic pricing supplies the profit multiplier. Final billing multiplies both.",
-  "Known upstream cost is multiplied by this margin before the cost floor is compared with profit pricing.",
-  "Live profit multiplier preview",
-  "Live safety status is currently unavailable.",
-  "Load EMA",
-  "Minimum multiplier cannot exceed the dynamic ceiling.",
-  "Minimum profit multiplier",
-  "No active channels found",
-  "No model samples yet. The configured minimum is used until the first engine tick.",
-  "No pricing groups configured",
-  "Not ready to enable safely",
-  "Per-model live factors",
-  "Profit multiplier",
-  "Reference model cost (USD / 1M tokens)",
-  "The final charge is the group cost multiplier multiplied by this dynamic profit multiplier.",
-  "The profit multiplier never falls below this value while dynamic pricing is enabled.",
-  "USD / 1M tokens",
-  "Unknown cost",
-  "Use the model cost baseline used to compare upstream cost with the configured group cost multiplier.",
-  "{{configured}} of {{active}} active channels have costs.",
-  "Base prices exclude dynamic profit multipliers and usage discounts. USD estimates also exclude payment discounts and fees; checkout confirms the payable amount."
+  'JSON map of group → cost multiplier used as the base for that billing group. Dynamic pricing adds the profit multiplier.',
+  'Final charge = model base cost × group cost multiplier × dynamic profit multiplier.',
+  'The group value is a cost basis, not a personal discount. Dynamic pricing supplies the profit multiplier separately.',
+  'Set the base cost multiplier for each routing group. Dynamic pricing adds the live profit multiplier on top; top-up ratio remains an independent balance multiplier.',
+  'Active channel',
+  'Automatically refreshes every 3 seconds.',
+  'Caps the load-driven profit premium. Cost protection can still raise the effective multiplier when needed.',
+  'Configure costs for every active channel before enabling: {{channels}}',
+  'Configured-cost coverage ready',
+  'Conservative channel costs',
+  'Cost EMA',
+  'Cost floor',
+  'Cost for {{channel}}',
+  'Cost protection margin',
+  'Cost × profit pricing preview',
+  'Current dynamic profit multiplier',
+  'Dynamic Profit Pricing',
+  'Dynamic pricing channel costs',
+  'Dynamic pricing model overrides',
+  'Dynamic profit ceiling',
+  'Effective billing multiplier',
+  'Enable dynamic profit pricing',
+  'Engine tick: {{seconds}}s',
+  'Enter a conservative upper-bound USD cost per 1M total tokens. Upstream responses provide usage tokens, but generally not the final dollar cost; unknown-cost channels are blocked while this feature is enabled.',
+  'Enter a positive conservative cost for channel {{channel}}.',
+  'Fill every active channel cost first, then enable.',
+  'Final billing = group cost × dynamic profit',
+  'Formula',
+  'Group Pricing stores the base cost multiplier. This page computes the live profit multiplier on top of that cost.',
+  'Group Pricing supplies the cost multiplier. Dynamic pricing supplies the profit multiplier. Final billing multiplies both.',
+  'Known upstream cost is multiplied by this margin before the cost floor is compared with profit pricing.',
+  'Live profit multiplier preview',
+  'Live safety status is currently unavailable.',
+  'Load EMA',
+  'Minimum multiplier cannot exceed the dynamic ceiling.',
+  'Minimum profit multiplier',
+  'No active channels found',
+  'No model samples yet. The configured minimum is used until the first engine tick.',
+  'No pricing groups configured',
+  'Not ready to enable safely',
+  'Per-model live factors',
+  'Profit multiplier',
+  'Reference model cost (USD / 1M tokens)',
+  'The final charge is the group cost multiplier multiplied by this dynamic profit multiplier.',
+  'The profit multiplier never falls below this value while dynamic pricing is enabled.',
+  'USD / 1M tokens',
+  'Unknown cost',
+  'Use the model cost baseline used to compare upstream cost with the configured group cost multiplier.',
+  '{{configured}} of {{active}} active channels have costs.',
+  'Base prices exclude dynamic profit multipliers and usage discounts. USD estimates also exclude payment discounts and fees; checkout confirms the payable amount.',
 ])
 const fixedGroupCopy = {
-  "en": {
-    "JSON map of group → fixed multiplier applied to model prices for that billing group.": "JSON map of group → fixed multiplier applied to model prices for that billing group.",
-    "Before usage discounts, the group price equals the model base price multiplied by the group ratio.": "Before usage discounts, the group price equals the model base price multiplied by the group ratio.",
-    "The group ratio changes model prices for that group. Top-up ratios change credited balance separately.": "The group ratio changes model prices for that group. Top-up ratios change credited balance separately.",
-    "Set a fixed price multiplier for each routing group. The top-up ratio remains an independent balance multiplier.": "Set a fixed price multiplier for each routing group. The top-up ratio remains an independent balance multiplier.",
-    "Legacy pricing adjustment": "Legacy pricing adjustment"
+  en: {
+    'JSON map of group → fixed multiplier applied to model prices for that billing group.':
+      'JSON map of group → fixed multiplier applied to model prices for that billing group.',
+    'Before usage discounts, the group price equals the model base price multiplied by the group ratio.':
+      'Before usage discounts, the group price equals the model base price multiplied by the group ratio.',
+    'The group ratio changes model prices for that group. Top-up ratios change credited balance separately.':
+      'The group ratio changes model prices for that group. Top-up ratios change credited balance separately.',
+    'Set a fixed price multiplier for each routing group. The top-up ratio remains an independent balance multiplier.':
+      'Set a fixed price multiplier for each routing group. The top-up ratio remains an independent balance multiplier.',
+    'Legacy pricing adjustment': 'Legacy pricing adjustment',
   },
-  "zh": {
-    "JSON map of group → fixed multiplier applied to model prices for that billing group.": "JSON 映射：分组 → 该计费分组模型价格采用的固定倍率。",
-    "Before usage discounts, the group price equals the model base price multiplied by the group ratio.": "应用用量优惠前，分组价格等于模型基础价格乘以分组倍率。",
-    "The group ratio changes model prices for that group. Top-up ratios change credited balance separately.": "分组倍率调整该分组的模型价格；充值倍率单独调整到账余额。",
-    "Set a fixed price multiplier for each routing group. The top-up ratio remains an independent balance multiplier.": "为每个路由分组设置固定价格倍率。充值倍率仍独立决定到账余额。",
-    "Legacy pricing adjustment": "旧账单价格调整"
+  zh: {
+    'JSON map of group → fixed multiplier applied to model prices for that billing group.':
+      'JSON 映射：分组 → 该计费分组模型价格采用的固定倍率。',
+    'Before usage discounts, the group price equals the model base price multiplied by the group ratio.':
+      '应用用量优惠前，分组价格等于模型基础价格乘以分组倍率。',
+    'The group ratio changes model prices for that group. Top-up ratios change credited balance separately.':
+      '分组倍率调整该分组的模型价格；充值倍率单独调整到账余额。',
+    'Set a fixed price multiplier for each routing group. The top-up ratio remains an independent balance multiplier.':
+      '为每个路由分组设置固定价格倍率。充值倍率仍独立决定到账余额。',
+    'Legacy pricing adjustment': '旧账单价格调整',
   },
-  "zh-TW": {
-    "JSON map of group → fixed multiplier applied to model prices for that billing group.": "JSON 對應：群組 → 該計費群組模型價格採用的固定倍率。",
-    "Before usage discounts, the group price equals the model base price multiplied by the group ratio.": "套用用量優惠前，群組價格等於模型基礎價格乘以群組倍率。",
-    "The group ratio changes model prices for that group. Top-up ratios change credited balance separately.": "群組倍率調整該群組的模型價格；儲值倍率另行調整入帳餘額。",
-    "Set a fixed price multiplier for each routing group. The top-up ratio remains an independent balance multiplier.": "為每個路由群組設定固定價格倍率。儲值倍率仍獨立決定入帳餘額。",
-    "Legacy pricing adjustment": "舊帳單價格調整"
+  'zh-TW': {
+    'JSON map of group → fixed multiplier applied to model prices for that billing group.':
+      'JSON 對應：群組 → 該計費群組模型價格採用的固定倍率。',
+    'Before usage discounts, the group price equals the model base price multiplied by the group ratio.':
+      '套用用量優惠前，群組價格等於模型基礎價格乘以群組倍率。',
+    'The group ratio changes model prices for that group. Top-up ratios change credited balance separately.':
+      '群組倍率調整該群組的模型價格；儲值倍率另行調整入帳餘額。',
+    'Set a fixed price multiplier for each routing group. The top-up ratio remains an independent balance multiplier.':
+      '為每個路由群組設定固定價格倍率。儲值倍率仍獨立決定入帳餘額。',
+    'Legacy pricing adjustment': '舊帳單價格調整',
   },
-  "fr": {
-    "JSON map of group → fixed multiplier applied to model prices for that billing group.": "Table JSON groupe → multiplicateur fixe appliqué aux prix des modèles de ce groupe.",
-    "Before usage discounts, the group price equals the model base price multiplied by the group ratio.": "Avant les remises d’utilisation, le prix du groupe est le prix de base du modèle multiplié par le ratio du groupe.",
-    "The group ratio changes model prices for that group. Top-up ratios change credited balance separately.": "Le ratio du groupe ajuste les prix des modèles. Le ratio de recharge ajuste séparément le solde crédité.",
-    "Set a fixed price multiplier for each routing group. The top-up ratio remains an independent balance multiplier.": "Définissez un multiplicateur fixe par groupe de routage. Le ratio de recharge reste un multiplicateur indépendant du solde.",
-    "Legacy pricing adjustment": "Ajustement tarifaire historique"
+  fr: {
+    'JSON map of group → fixed multiplier applied to model prices for that billing group.':
+      'Table JSON groupe → multiplicateur fixe appliqué aux prix des modèles de ce groupe.',
+    'Before usage discounts, the group price equals the model base price multiplied by the group ratio.':
+      'Avant les remises d’utilisation, le prix du groupe est le prix de base du modèle multiplié par le ratio du groupe.',
+    'The group ratio changes model prices for that group. Top-up ratios change credited balance separately.':
+      'Le ratio du groupe ajuste les prix des modèles. Le ratio de recharge ajuste séparément le solde crédité.',
+    'Set a fixed price multiplier for each routing group. The top-up ratio remains an independent balance multiplier.':
+      'Définissez un multiplicateur fixe par groupe de routage. Le ratio de recharge reste un multiplicateur indépendant du solde.',
+    'Legacy pricing adjustment': 'Ajustement tarifaire historique',
   },
-  "ja": {
-    "JSON map of group → fixed multiplier applied to model prices for that billing group.": "JSON 対応表：グループ → その課金グループのモデル価格に適用する固定倍率。",
-    "Before usage discounts, the group price equals the model base price multiplied by the group ratio.": "利用割引の適用前は、グループ価格はモデル基本価格にグループ倍率を掛けた値です。",
-    "The group ratio changes model prices for that group. Top-up ratios change credited balance separately.": "グループ倍率はモデル価格を調整します。チャージ倍率は入金残高を別途調整します。",
-    "Set a fixed price multiplier for each routing group. The top-up ratio remains an independent balance multiplier.": "各ルーティンググループに固定価格倍率を設定します。チャージ倍率は残高に独立して適用されます。",
-    "Legacy pricing adjustment": "過去の請求の価格調整"
+  ja: {
+    'JSON map of group → fixed multiplier applied to model prices for that billing group.':
+      'JSON 対応表：グループ → その課金グループのモデル価格に適用する固定倍率。',
+    'Before usage discounts, the group price equals the model base price multiplied by the group ratio.':
+      '利用割引の適用前は、グループ価格はモデル基本価格にグループ倍率を掛けた値です。',
+    'The group ratio changes model prices for that group. Top-up ratios change credited balance separately.':
+      'グループ倍率はモデル価格を調整します。チャージ倍率は入金残高を別途調整します。',
+    'Set a fixed price multiplier for each routing group. The top-up ratio remains an independent balance multiplier.':
+      '各ルーティンググループに固定価格倍率を設定します。チャージ倍率は残高に独立して適用されます。',
+    'Legacy pricing adjustment': '過去の請求の価格調整',
   },
-  "ru": {
-    "JSON map of group → fixed multiplier applied to model prices for that billing group.": "JSON: группа → фиксированный множитель цен моделей в этой расчётной группе.",
-    "Before usage discounts, the group price equals the model base price multiplied by the group ratio.": "До скидок за использование цена группы равна базовой цене модели, умноженной на коэффициент группы.",
-    "The group ratio changes model prices for that group. Top-up ratios change credited balance separately.": "Коэффициент группы меняет цены моделей. Коэффициент пополнения отдельно меняет зачисляемый баланс.",
-    "Set a fixed price multiplier for each routing group. The top-up ratio remains an independent balance multiplier.": "Задайте фиксированный множитель цены для каждой группы маршрутизации. Коэффициент пополнения применяется к балансу отдельно.",
-    "Legacy pricing adjustment": "Корректировка старого тарифа"
+  ru: {
+    'JSON map of group → fixed multiplier applied to model prices for that billing group.':
+      'JSON: группа → фиксированный множитель цен моделей в этой расчётной группе.',
+    'Before usage discounts, the group price equals the model base price multiplied by the group ratio.':
+      'До скидок за использование цена группы равна базовой цене модели, умноженной на коэффициент группы.',
+    'The group ratio changes model prices for that group. Top-up ratios change credited balance separately.':
+      'Коэффициент группы меняет цены моделей. Коэффициент пополнения отдельно меняет зачисляемый баланс.',
+    'Set a fixed price multiplier for each routing group. The top-up ratio remains an independent balance multiplier.':
+      'Задайте фиксированный множитель цены для каждой группы маршрутизации. Коэффициент пополнения применяется к балансу отдельно.',
+    'Legacy pricing adjustment': 'Корректировка старого тарифа',
   },
-  "vi": {
-    "JSON map of group → fixed multiplier applied to model prices for that billing group.": "Ánh xạ JSON: nhóm → hệ số cố định áp dụng cho giá mô hình của nhóm thanh toán đó.",
-    "Before usage discounts, the group price equals the model base price multiplied by the group ratio.": "Trước ưu đãi sử dụng, giá của nhóm bằng giá cơ sở của mô hình nhân với hệ số nhóm.",
-    "The group ratio changes model prices for that group. Top-up ratios change credited balance separately.": "Hệ số nhóm điều chỉnh giá mô hình trong nhóm. Hệ số nạp tiền điều chỉnh số dư được cộng riêng biệt.",
-    "Set a fixed price multiplier for each routing group. The top-up ratio remains an independent balance multiplier.": "Đặt hệ số giá cố định cho từng nhóm định tuyến. Hệ số nạp tiền vẫn là hệ số số dư độc lập.",
-    "Legacy pricing adjustment": "Điều chỉnh giá của hóa đơn cũ"
-  }
+  vi: {
+    'JSON map of group → fixed multiplier applied to model prices for that billing group.':
+      'Ánh xạ JSON: nhóm → hệ số cố định áp dụng cho giá mô hình của nhóm thanh toán đó.',
+    'Before usage discounts, the group price equals the model base price multiplied by the group ratio.':
+      'Trước ưu đãi sử dụng, giá của nhóm bằng giá cơ sở của mô hình nhân với hệ số nhóm.',
+    'The group ratio changes model prices for that group. Top-up ratios change credited balance separately.':
+      'Hệ số nhóm điều chỉnh giá mô hình trong nhóm. Hệ số nạp tiền điều chỉnh số dư được cộng riêng biệt.',
+    'Set a fixed price multiplier for each routing group. The top-up ratio remains an independent balance multiplier.':
+      'Đặt hệ số giá cố định cho từng nhóm định tuyến. Hệ số nạp tiền vẫn là hệ số số dư độc lập.',
+    'Legacy pricing adjustment': 'Điều chỉnh giá của hóa đơn cũ',
+  },
 }
 
 const operationsFinishCopy = {
-  "en": {
-    "Account export failed. Check export permission or narrow the registration period.": "Account export failed. Check export permission or narrow the registration period.",
-    "Corrected source": "Corrected source",
-    "Correction reason": "Correction reason",
-    "Correction was not saved. Reloaded the latest version; check the source, reason and consent before retrying.": "Correction was not saved. Reloaded the latest version; check the source, reason and consent before retrying.",
-    "Explain the evidence without URLs, credentials or personal contact details.": "Explain the evidence without URLs, credentials or personal contact details.",
-    "Export filtered account details": "Export filtered account details",
-    "Exports account IDs and conversion status for the current source and registration period, without email addresses. Maximum 10,000 accounts.": "Exports account IDs and conversion status for the current source and registration period, without email addresses. Maximum 10,000 accounts.",
-    "Manual corrections are shown separately. Observed attribution, channel totals, invitations and payments remain unchanged.": "Manual corrections are shown separately. Observed attribution, channel totals, invitations and payments remain unchanged.",
-    "Manual source correction": "Manual source correction",
-    "No manual source correction recorded.": "No manual source correction recorded.",
-    "Save correction with audit record": "Save correction with audit record",
-    "Showing the latest 100 retained corrections.": "Showing the latest 100 retained corrections.",
-    "API access approved": "API access approved",
-    "API connection": "API connection",
-    "Access application submitted": "Access application submitted",
-    "Apply date range": "Apply date range",
-    "Apply filters": "Apply filters",
-    "Attributed from earlier source records": "Attributed from earlier source records",
-    "Attribution evidence": "Attribution evidence",
-    "Average hours since registration": "Average hours since registration",
-    "Both": "Both",
-    "Choose a valid date range ending no later than today.": "Choose a valid date range ending no later than today.",
-    "Client configuration confirmed": "Client configuration confirmed",
-    "Cohort conversion": "Cohort conversion",
-    "Counts cover consenting browser identifiers, not people. One browser can appear in several channels, so channel counts must not be added together.": "Counts cover consenting browser identifiers, not people. One browser can appear in several channels, so channel counts must not be added together.",
-    "Dates use UTC; the end date is included. Up to 366 days.": "Dates use UTC; the end date is included. Up to 366 days.",
-    "Each account is observed for the same number of days after registration. OAuth and manual keys are alternative paths; payment is independent of first use.": "Each account is observed for the same number of days after registration. OAuth and manual keys are alternative paths; payment is independent of first use.",
-    "End date": "End date",
-    "First successful payment": "First successful payment",
-    "Identifiable browser visitors": "Identifiable browser visitors",
-    "Manual API key created": "Manual API key created",
-    "Mature cohort": "Mature cohort",
-    "Mature cohort conversion": "Mature cohort conversion",
-    "No completion observed": "No completion observed",
-    "No payment attribution recorded yet.": "No payment attribution recorded yet.",
-    "No visitor observations in the retained part of this period.": "No visitor observations in the retained part of this period.",
-    "OAuth authorized": "OAuth authorized",
-    "OAuth authorized or key created": "OAuth authorized or key created",
-    "Observation days": "Observation days",
-    "Observed accounts": "Observed accounts",
-    "Observed browser identifiers": "Observed browser identifiers",
-    "Observing": "Observing",
-    "Payment attribution uses saved evidence and its recorded lookback window. It does not change registration attribution or prove causation.": "Payment attribution uses saved evidence and its recorded lookback window. It does not change registration attribution or prove causation.",
-    "Payments": "Payments",
-    "Rates use only accounts with a complete observation window and known evidence. Timings are from registration, with the timing sample count in parentheses.": "Rates use only accounts with a complete observation window and known evidence. Timings are from registration, with the timing sample count in parentheses.",
-    "Records available from": "Records available from",
-    "Repeat payment": "Repeat payment",
-    "Selected registration period": "Selected registration period",
-    "Some stages lack historical evidence. Unknown accounts are not failed conversions.": "Some stages lack historical evidence. Unknown accounts are not failed conversions.",
-    "Source before first payment": "Source before first payment",
-    "Stage": "Stage",
-    "Start date": "Start date",
-    "These filters apply only to this conversion section. Content filters exclude older registrations without a recorded content label.": "These filters apply only to this conversion section. Content filters exclude older registrations without a recorded content label.",
-    "Today (UTC)": "Today (UTC)",
-    "Visitor records do not cover this entire period. Counts below include only retained observations.": "Visitor records do not cover this entire period. Counts below include only retained observations.",
-    "Payment attribution is still processing or unavailable; missing snapshots are not zero conversions.": "Payment attribution is still processing or unavailable; missing snapshots are not zero conversions.",
-    "Administrator status notice": "Administrator status notice",
-    "Current routing configuration": "Current routing configuration",
-    "Routing availability is a configuration snapshot, not an upstream health probe. Administrator notices do not change request routing.": "Routing availability is a configuration snapshot, not an upstream health probe. Administrator notices do not change request routing.",
-    "Status notice expires": "Status notice expires",
-    "Temporarily unavailable": "Temporarily unavailable",
-    "Congested": "Congested",
-    "This publishes a status notice only. It does not disable channels or change routing. Notices must expire within 30 days.": "This publishes a status notice only. It does not disable channels or change routing. Notices must expire within 30 days.",
-    "Under maintenance": "Under maintenance",
-    "Public operational status": "Public operational status",
-    "Operational status": "Operational status",
-    "Use routing configuration": "Use routing configuration",
-    "Public status explanation": "Public status explanation",
-    "Routable now": "Routable now",
-    "No account access": "No account access",
-    "Not in the model catalog": "Not in the model catalog",
-    "Runtime status unknown": "Runtime status unknown"
+  en: {
+    'Account export failed. Check export permission or narrow the registration period.':
+      'Account export failed. Check export permission or narrow the registration period.',
+    'Corrected source': 'Corrected source',
+    'Correction reason': 'Correction reason',
+    'Correction was not saved. Reloaded the latest version; check the source, reason and consent before retrying.':
+      'Correction was not saved. Reloaded the latest version; check the source, reason and consent before retrying.',
+    'Explain the evidence without URLs, credentials or personal contact details.':
+      'Explain the evidence without URLs, credentials or personal contact details.',
+    'Export filtered account details': 'Export filtered account details',
+    'Exports account IDs and conversion status for the current source and registration period, without email addresses. Maximum 10,000 accounts.':
+      'Exports account IDs and conversion status for the current source and registration period, without email addresses. Maximum 10,000 accounts.',
+    'Manual corrections are shown separately. Observed attribution, channel totals, invitations and payments remain unchanged.':
+      'Manual corrections are shown separately. Observed attribution, channel totals, invitations and payments remain unchanged.',
+    'Manual source correction': 'Manual source correction',
+    'No manual source correction recorded.':
+      'No manual source correction recorded.',
+    'Save correction with audit record': 'Save correction with audit record',
+    'Showing the latest 100 retained corrections.':
+      'Showing the latest 100 retained corrections.',
+    'API access approved': 'API access approved',
+    'API connection': 'API connection',
+    'Access application submitted': 'Access application submitted',
+    'Apply date range': 'Apply date range',
+    'Apply filters': 'Apply filters',
+    'Attributed from earlier source records':
+      'Attributed from earlier source records',
+    'Attribution evidence': 'Attribution evidence',
+    'Average hours since registration': 'Average hours since registration',
+    Both: 'Both',
+    'Choose a valid date range ending no later than today.':
+      'Choose a valid date range ending no later than today.',
+    'Client configuration confirmed': 'Client configuration confirmed',
+    'Cohort conversion': 'Cohort conversion',
+    'Counts cover consenting browser identifiers, not people. One browser can appear in several channels, so channel counts must not be added together.':
+      'Counts cover consenting browser identifiers, not people. One browser can appear in several channels, so channel counts must not be added together.',
+    'Dates use UTC; the end date is included. Up to 366 days.':
+      'Dates use UTC; the end date is included. Up to 366 days.',
+    'Each account is observed for the same number of days after registration. OAuth and manual keys are alternative paths; payment is independent of first use.':
+      'Each account is observed for the same number of days after registration. OAuth and manual keys are alternative paths; payment is independent of first use.',
+    'End date': 'End date',
+    'First successful payment': 'First successful payment',
+    'Identifiable browser visitors': 'Identifiable browser visitors',
+    'Manual API key created': 'Manual API key created',
+    'Mature cohort': 'Mature cohort',
+    'Mature cohort conversion': 'Mature cohort conversion',
+    'No completion observed': 'No completion observed',
+    'No payment attribution recorded yet.':
+      'No payment attribution recorded yet.',
+    'No visitor observations in the retained part of this period.':
+      'No visitor observations in the retained part of this period.',
+    'OAuth authorized': 'OAuth authorized',
+    'OAuth authorized or key created': 'OAuth authorized or key created',
+    'Observation days': 'Observation days',
+    'Observed accounts': 'Observed accounts',
+    'Observed browser identifiers': 'Observed browser identifiers',
+    Observing: 'Observing',
+    'Payment attribution uses saved evidence and its recorded lookback window. It does not change registration attribution or prove causation.':
+      'Payment attribution uses saved evidence and its recorded lookback window. It does not change registration attribution or prove causation.',
+    Payments: 'Payments',
+    'Rates use only accounts with a complete observation window and known evidence. Timings are from registration, with the timing sample count in parentheses.':
+      'Rates use only accounts with a complete observation window and known evidence. Timings are from registration, with the timing sample count in parentheses.',
+    'Records available from': 'Records available from',
+    'Repeat payment': 'Repeat payment',
+    'Selected registration period': 'Selected registration period',
+    'Some stages lack historical evidence. Unknown accounts are not failed conversions.':
+      'Some stages lack historical evidence. Unknown accounts are not failed conversions.',
+    'Source before first payment': 'Source before first payment',
+    Stage: 'Stage',
+    'Start date': 'Start date',
+    'These filters apply only to this conversion section. Content filters exclude older registrations without a recorded content label.':
+      'These filters apply only to this conversion section. Content filters exclude older registrations without a recorded content label.',
+    'Today (UTC)': 'Today (UTC)',
+    'Visitor records do not cover this entire period. Counts below include only retained observations.':
+      'Visitor records do not cover this entire period. Counts below include only retained observations.',
+    'Payment attribution is still processing or unavailable; missing snapshots are not zero conversions.':
+      'Payment attribution is still processing or unavailable; missing snapshots are not zero conversions.',
+    'Administrator status notice': 'Administrator status notice',
+    'Current routing configuration': 'Current routing configuration',
+    'Routing availability is a configuration snapshot, not an upstream health probe. Administrator notices do not change request routing.':
+      'Routing availability is a configuration snapshot, not an upstream health probe. Administrator notices do not change request routing.',
+    'Status notice expires': 'Status notice expires',
+    'Temporarily unavailable': 'Temporarily unavailable',
+    Congested: 'Congested',
+    'This publishes a status notice only. It does not disable channels or change routing. Notices must expire within 30 days.':
+      'This publishes a status notice only. It does not disable channels or change routing. Notices must expire within 30 days.',
+    'Under maintenance': 'Under maintenance',
+    'Public operational status': 'Public operational status',
+    'Operational status': 'Operational status',
+    'Use routing configuration': 'Use routing configuration',
+    'Public status explanation': 'Public status explanation',
+    'Routable now': 'Routable now',
+    'No account access': 'No account access',
+    'Not in the model catalog': 'Not in the model catalog',
+    'Runtime status unknown': 'Runtime status unknown',
   },
-  "zh": {
-    "Account export failed. Check export permission or narrow the registration period.": "账号明细导出失败，请检查导出权限或缩小注册时间范围。",
-    "Corrected source": "修正后的来源",
-    "Correction reason": "修正理由",
-    "Correction was not saved. Reloaded the latest version; check the source, reason and consent before retrying.": "修正未保存。已重新加载最新版本，请检查来源、理由和用户同意状态后重试。",
-    "Explain the evidence without URLs, credentials or personal contact details.": "请说明判断依据，不要填写网址、凭据或个人联系方式。",
-    "Export filtered account details": "导出当前筛选的账号明细",
-    "Exports account IDs and conversion status for the current source and registration period, without email addresses. Maximum 10,000 accounts.": "导出当前来源和注册时间范围内的账号 ID 及转化状态，不含邮箱地址，最多 10,000 个账号。",
-    "Manual corrections are shown separately. Observed attribution, channel totals, invitations and payments remain unchanged.": "人工修正单独展示，不改动自动来源归属、渠道汇总、邀请关系和付款记录。",
-    "Manual source correction": "人工修正来源",
-    "No manual source correction recorded.": "尚无人工来源修正记录。",
-    "Save correction with audit record": "保存修正并记录审计",
-    "Showing the latest 100 retained corrections.": "仅显示最近 100 条保留期内的修正记录。",
-    "API access approved": "API 访问已批准",
-    "API connection": "API 接入",
-    "Access application submitted": "已提交访问申请",
-    "Apply date range": "应用日期范围",
-    "Apply filters": "应用筛选",
-    "Attributed from earlier source records": "由此前来源记录归属",
-    "Attribution evidence": "归属依据",
-    "Average hours since registration": "注册后平均小时数",
-    "Both": "两种方式",
-    "Choose a valid date range ending no later than today.": "请选择有效日期范围，结束日期不能晚于今天。",
-    "Client configuration confirmed": "已确认客户端配置",
-    "Cohort conversion": "同批用户转化",
-    "Counts cover consenting browser identifiers, not people. One browser can appear in several channels, so channel counts must not be added together.": "仅统计同意采集的浏览器标识，不是自然人数。同一浏览器可能来自多个渠道，不能将各渠道数量直接相加。",
-    "Dates use UTC; the end date is included. Up to 366 days.": "日期按 UTC 计算，包含结束日期，最长 366 天。",
-    "Each account is observed for the same number of days after registration. OAuth and manual keys are alternative paths; payment is independent of first use.": "每个账号从注册起观察相同天数。OAuth 和手动 Key 是不同接入路径，付费不要求先完成首次调用。",
-    "End date": "结束日期",
-    "First successful payment": "首次成功付款",
-    "Identifiable browser visitors": "可识别浏览器访客",
-    "Manual API key created": "已创建手动 API Key",
-    "Mature cohort": "已满观察期的账号",
-    "Mature cohort conversion": "已满观察期账号的转化",
-    "No completion observed": "尚未观察到完成",
-    "No payment attribution recorded yet.": "暂无付款来源归属记录。",
-    "No visitor observations in the retained part of this period.": "此期间保留的数据中没有访客记录。",
-    "OAuth authorized": "已完成 OAuth 授权",
-    "OAuth authorized or key created": "已授权 OAuth 或创建 Key",
-    "Observation days": "观察天数",
-    "Observed accounts": "已观察到的账号",
-    "Observed browser identifiers": "已观察到的浏览器标识",
-    "Observing": "观察中",
-    "Payment attribution uses saved evidence and its recorded lookback window. It does not change registration attribution or prove causation.": "付款归属使用已保存的证据及当时的回看范围，不改变注册归属，也不证明渠道导致付款。",
-    "Payments": "付款",
-    "Rates use only accounts with a complete observation window and known evidence. Timings are from registration, with the timing sample count in parentheses.": "转化率仅使用观察期已完整结束且有明确证据的账号。耗时从注册起算，括号内为耗时样本数。",
-    "Records available from": "可用记录起始时间",
-    "Repeat payment": "再次付款",
-    "Selected registration period": "选定的注册时间范围",
-    "Some stages lack historical evidence. Unknown accounts are not failed conversions.": "部分环节缺少历史证据。状态未知的账号不能算作转化失败。",
-    "Source before first payment": "首次付款前来源",
-    "Stage": "环节",
-    "Start date": "开始日期",
-    "These filters apply only to this conversion section. Content filters exclude older registrations without a recorded content label.": "这些筛选只影响本转化区域。内容筛选不包含尚未记录内容标记的历史注册账号。",
-    "Today (UTC)": "今天（UTC）",
-    "Visitor records do not cover this entire period. Counts below include only retained observations.": "访客记录未覆盖整个时间范围，以下数量仅统计仍保留的记录。",
-    "Payment attribution is still processing or unavailable; missing snapshots are not zero conversions.": "付款归属仍在处理或暂不可用；缺少快照不代表没有转化。",
-    "Administrator status notice": "管理员状态声明",
-    "Current routing configuration": "当前路由配置",
-    "Routing availability is a configuration snapshot, not an upstream health probe. Administrator notices do not change request routing.": "可用情况来自当前路由配置，并非上游健康探测。管理员状态声明不会改变请求路由。",
-    "Status notice expires": "状态声明到期时间",
-    "Temporarily unavailable": "暂时不可用",
-    "Congested": "拥堵",
-    "This publishes a status notice only. It does not disable channels or change routing. Notices must expire within 30 days.": "这里只发布状态声明，不会禁用渠道或改变路由。声明必须在 30 天内到期。",
-    "Under maintenance": "维护中",
-    "Public operational status": "公开运行状态",
-    "Operational status": "运行状态",
-    "Use routing configuration": "根据路由配置判断",
-    "Public status explanation": "公开状态说明",
-    "Routable now": "可用（路由已启用）",
-    "No account access": "当前账号无权限",
-    "Not in the model catalog": "未列入模型目录",
-    "Runtime status unknown": "运行状态未知"
+  zh: {
+    'Account export failed. Check export permission or narrow the registration period.':
+      '账号明细导出失败，请检查导出权限或缩小注册时间范围。',
+    'Corrected source': '修正后的来源',
+    'Correction reason': '修正理由',
+    'Correction was not saved. Reloaded the latest version; check the source, reason and consent before retrying.':
+      '修正未保存。已重新加载最新版本，请检查来源、理由和用户同意状态后重试。',
+    'Explain the evidence without URLs, credentials or personal contact details.':
+      '请说明判断依据，不要填写网址、凭据或个人联系方式。',
+    'Export filtered account details': '导出当前筛选的账号明细',
+    'Exports account IDs and conversion status for the current source and registration period, without email addresses. Maximum 10,000 accounts.':
+      '导出当前来源和注册时间范围内的账号 ID 及转化状态，不含邮箱地址，最多 10,000 个账号。',
+    'Manual corrections are shown separately. Observed attribution, channel totals, invitations and payments remain unchanged.':
+      '人工修正单独展示，不改动自动来源归属、渠道汇总、邀请关系和付款记录。',
+    'Manual source correction': '人工修正来源',
+    'No manual source correction recorded.': '尚无人工来源修正记录。',
+    'Save correction with audit record': '保存修正并记录审计',
+    'Showing the latest 100 retained corrections.':
+      '仅显示最近 100 条保留期内的修正记录。',
+    'API access approved': 'API 访问已批准',
+    'API connection': 'API 接入',
+    'Access application submitted': '已提交访问申请',
+    'Apply date range': '应用日期范围',
+    'Apply filters': '应用筛选',
+    'Attributed from earlier source records': '由此前来源记录归属',
+    'Attribution evidence': '归属依据',
+    'Average hours since registration': '注册后平均小时数',
+    Both: '两种方式',
+    'Choose a valid date range ending no later than today.':
+      '请选择有效日期范围，结束日期不能晚于今天。',
+    'Client configuration confirmed': '已确认客户端配置',
+    'Cohort conversion': '同批用户转化',
+    'Counts cover consenting browser identifiers, not people. One browser can appear in several channels, so channel counts must not be added together.':
+      '仅统计同意采集的浏览器标识，不是自然人数。同一浏览器可能来自多个渠道，不能将各渠道数量直接相加。',
+    'Dates use UTC; the end date is included. Up to 366 days.':
+      '日期按 UTC 计算，包含结束日期，最长 366 天。',
+    'Each account is observed for the same number of days after registration. OAuth and manual keys are alternative paths; payment is independent of first use.':
+      '每个账号从注册起观察相同天数。OAuth 和手动 Key 是不同接入路径，付费不要求先完成首次调用。',
+    'End date': '结束日期',
+    'First successful payment': '首次成功付款',
+    'Identifiable browser visitors': '可识别浏览器访客',
+    'Manual API key created': '已创建手动 API Key',
+    'Mature cohort': '已满观察期的账号',
+    'Mature cohort conversion': '已满观察期账号的转化',
+    'No completion observed': '尚未观察到完成',
+    'No payment attribution recorded yet.': '暂无付款来源归属记录。',
+    'No visitor observations in the retained part of this period.':
+      '此期间保留的数据中没有访客记录。',
+    'OAuth authorized': '已完成 OAuth 授权',
+    'OAuth authorized or key created': '已授权 OAuth 或创建 Key',
+    'Observation days': '观察天数',
+    'Observed accounts': '已观察到的账号',
+    'Observed browser identifiers': '已观察到的浏览器标识',
+    Observing: '观察中',
+    'Payment attribution uses saved evidence and its recorded lookback window. It does not change registration attribution or prove causation.':
+      '付款归属使用已保存的证据及当时的回看范围，不改变注册归属，也不证明渠道导致付款。',
+    Payments: '付款',
+    'Rates use only accounts with a complete observation window and known evidence. Timings are from registration, with the timing sample count in parentheses.':
+      '转化率仅使用观察期已完整结束且有明确证据的账号。耗时从注册起算，括号内为耗时样本数。',
+    'Records available from': '可用记录起始时间',
+    'Repeat payment': '再次付款',
+    'Selected registration period': '选定的注册时间范围',
+    'Some stages lack historical evidence. Unknown accounts are not failed conversions.':
+      '部分环节缺少历史证据。状态未知的账号不能算作转化失败。',
+    'Source before first payment': '首次付款前来源',
+    Stage: '环节',
+    'Start date': '开始日期',
+    'These filters apply only to this conversion section. Content filters exclude older registrations without a recorded content label.':
+      '这些筛选只影响本转化区域。内容筛选不包含尚未记录内容标记的历史注册账号。',
+    'Today (UTC)': '今天（UTC）',
+    'Visitor records do not cover this entire period. Counts below include only retained observations.':
+      '访客记录未覆盖整个时间范围，以下数量仅统计仍保留的记录。',
+    'Payment attribution is still processing or unavailable; missing snapshots are not zero conversions.':
+      '付款归属仍在处理或暂不可用；缺少快照不代表没有转化。',
+    'Administrator status notice': '管理员状态声明',
+    'Current routing configuration': '当前路由配置',
+    'Routing availability is a configuration snapshot, not an upstream health probe. Administrator notices do not change request routing.':
+      '可用情况来自当前路由配置，并非上游健康探测。管理员状态声明不会改变请求路由。',
+    'Status notice expires': '状态声明到期时间',
+    'Temporarily unavailable': '暂时不可用',
+    Congested: '拥堵',
+    'This publishes a status notice only. It does not disable channels or change routing. Notices must expire within 30 days.':
+      '这里只发布状态声明，不会禁用渠道或改变路由。声明必须在 30 天内到期。',
+    'Under maintenance': '维护中',
+    'Public operational status': '公开运行状态',
+    'Operational status': '运行状态',
+    'Use routing configuration': '根据路由配置判断',
+    'Public status explanation': '公开状态说明',
+    'Routable now': '可用（路由已启用）',
+    'No account access': '当前账号无权限',
+    'Not in the model catalog': '未列入模型目录',
+    'Runtime status unknown': '运行状态未知',
   },
-  "zh-TW": {
-    "Account export failed. Check export permission or narrow the registration period.": "帳號明細匯出失敗，請檢查匯出權限或縮小註冊時間範圍。",
-    "Corrected source": "修正後的來源",
-    "Correction reason": "修正理由",
-    "Correction was not saved. Reloaded the latest version; check the source, reason and consent before retrying.": "修正未儲存。已重新載入最新版本，請檢查來源、理由和使用者同意狀態後重試。",
-    "Explain the evidence without URLs, credentials or personal contact details.": "請說明判斷依據，不要填寫網址、憑據或個人聯絡方式。",
-    "Export filtered account details": "匯出目前篩選的帳號明細",
-    "Exports account IDs and conversion status for the current source and registration period, without email addresses. Maximum 10,000 accounts.": "匯出目前來源和註冊時間範圍內的帳號 ID 及轉換狀態，不含電子郵件地址，最多 10,000 個帳號。",
-    "Manual corrections are shown separately. Observed attribution, channel totals, invitations and payments remain unchanged.": "人工修正會分開顯示，不變更自動來源歸屬、管道彙總、邀請關係和付款紀錄。",
-    "Manual source correction": "人工修正來源",
-    "No manual source correction recorded.": "尚無人工來源修正紀錄。",
-    "Save correction with audit record": "儲存修正並記錄稽核",
-    "Showing the latest 100 retained corrections.": "僅顯示最近 100 筆保留期間內的修正紀錄。",
-    "API access approved": "API 存取已核准",
-    "API connection": "API 接入",
-    "Access application submitted": "已提交存取申請",
-    "Apply date range": "套用日期範圍",
-    "Apply filters": "套用篩選",
-    "Attributed from earlier source records": "根據較早的來源紀錄歸屬",
-    "Attribution evidence": "歸屬依據",
-    "Average hours since registration": "註冊後平均經過時數",
-    "Both": "兩者皆有",
-    "Choose a valid date range ending no later than today.": "請選擇有效的日期範圍，結束日期不得晚於今天。",
-    "Client configuration confirmed": "已確認用戶端設定",
-    "Cohort conversion": "同期註冊帳號轉換",
-    "Counts cover consenting browser identifiers, not people. One browser can appear in several channels, so channel counts must not be added together.": "此處統計已取得同意的瀏覽器識別碼，並非人數。同一瀏覽器可能出現在多個管道，因此各管道數量不可相加。",
-    "Dates use UTC; the end date is included. Up to 366 days.": "日期以 UTC 為準，包含結束當日，最多 366 天。",
-    "Each account is observed for the same number of days after registration. OAuth and manual keys are alternative paths; payment is independent of first use.": "每個帳號均從註冊日起觀察相同天數。OAuth 與手動 API Key 是不同的接入途徑；付款與首次使用沒有固定先後順序。",
-    "End date": "結束日期",
-    "First successful payment": "首次付款成功",
-    "Identifiable browser visitors": "可識別的瀏覽器訪客",
-    "Manual API key created": "已手動建立 API Key",
-    "Mature cohort": "已滿觀察期的註冊群組",
-    "Mature cohort conversion": "已滿觀察期群組轉換率",
-    "No completion observed": "尚未觀察到完成",
-    "No payment attribution recorded yet.": "尚無付款來源歸屬紀錄。",
-    "No visitor observations in the retained part of this period.": "此期間仍在保留範圍內的部分沒有訪客觀察紀錄。",
-    "OAuth authorized": "已完成 OAuth 授權",
-    "OAuth authorized or key created": "已完成 OAuth 授權或建立 Key",
-    "Observation days": "觀察天數",
-    "Observed accounts": "已觀察到的帳號",
-    "Observed browser identifiers": "已觀察到的瀏覽器識別碼",
-    "Observing": "觀察中",
-    "Payment attribution uses saved evidence and its recorded lookback window. It does not change registration attribution or prove causation.": "付款來源歸屬採用已儲存的依據及當時記錄的回溯期間，不改變註冊來源歸屬，也不代表已證實因果關係。",
-    "Payments": "付款",
-    "Rates use only accounts with a complete observation window and known evidence. Timings are from registration, with the timing sample count in parentheses.": "轉換率僅使用已滿觀察期且具備明確依據的帳號計算。耗時從註冊時計起，括號內為耗時統計的樣本數。",
-    "Records available from": "可用紀錄起始時間",
-    "Repeat payment": "再次付款",
-    "Selected registration period": "已選註冊期間",
-    "Some stages lack historical evidence. Unknown accounts are not failed conversions.": "部分階段缺少歷史依據，不能將狀態未知的帳號算作轉換失敗。",
-    "Source before first payment": "首次付款前來源",
-    "Stage": "階段",
-    "Start date": "開始日期",
-    "These filters apply only to this conversion section. Content filters exclude older registrations without a recorded content label.": "這些篩選僅套用於此轉換區域。依內容篩選時，將排除未記錄內容標記的舊註冊帳號。",
-    "Today (UTC)": "今天（UTC）",
-    "Visitor records do not cover this entire period. Counts below include only retained observations.": "訪客紀錄未涵蓋整個期間，下方數量僅包含仍保留的觀察紀錄。",
-    "Payment attribution is still processing or unavailable; missing snapshots are not zero conversions.": "付款來源歸屬仍在處理中或暫不可用；缺少快照不代表轉換數為零。",
-    "Administrator status notice": "管理員狀態聲明",
-    "Current routing configuration": "目前路由設定",
-    "Routing availability is a configuration snapshot, not an upstream health probe. Administrator notices do not change request routing.": "可用情況來自目前路由設定，並非上游健康探測。管理員狀態聲明不會改變請求路由。",
-    "Status notice expires": "狀態聲明到期時間",
-    "Temporarily unavailable": "暫時無法使用",
-    "Congested": "壅塞",
-    "This publishes a status notice only. It does not disable channels or change routing. Notices must expire within 30 days.": "這裡僅發布狀態聲明，不會停用管道或改變路由。聲明必須在 30 天內到期。",
-    "Under maintenance": "維護中",
-    "Public operational status": "公開運行狀態",
-    "Operational status": "運行狀態",
-    "Use routing configuration": "根據路由設定判斷",
-    "Public status explanation": "公開狀態說明",
-    "Routable now": "可用（路由已啟用）",
-    "No account access": "目前帳號無權限",
-    "Not in the model catalog": "未列入模型目錄",
-    "Runtime status unknown": "運行狀態未知"
+  'zh-TW': {
+    'Account export failed. Check export permission or narrow the registration period.':
+      '帳號明細匯出失敗，請檢查匯出權限或縮小註冊時間範圍。',
+    'Corrected source': '修正後的來源',
+    'Correction reason': '修正理由',
+    'Correction was not saved. Reloaded the latest version; check the source, reason and consent before retrying.':
+      '修正未儲存。已重新載入最新版本，請檢查來源、理由和使用者同意狀態後重試。',
+    'Explain the evidence without URLs, credentials or personal contact details.':
+      '請說明判斷依據，不要填寫網址、憑據或個人聯絡方式。',
+    'Export filtered account details': '匯出目前篩選的帳號明細',
+    'Exports account IDs and conversion status for the current source and registration period, without email addresses. Maximum 10,000 accounts.':
+      '匯出目前來源和註冊時間範圍內的帳號 ID 及轉換狀態，不含電子郵件地址，最多 10,000 個帳號。',
+    'Manual corrections are shown separately. Observed attribution, channel totals, invitations and payments remain unchanged.':
+      '人工修正會分開顯示，不變更自動來源歸屬、管道彙總、邀請關係和付款紀錄。',
+    'Manual source correction': '人工修正來源',
+    'No manual source correction recorded.': '尚無人工來源修正紀錄。',
+    'Save correction with audit record': '儲存修正並記錄稽核',
+    'Showing the latest 100 retained corrections.':
+      '僅顯示最近 100 筆保留期間內的修正紀錄。',
+    'API access approved': 'API 存取已核准',
+    'API connection': 'API 接入',
+    'Access application submitted': '已提交存取申請',
+    'Apply date range': '套用日期範圍',
+    'Apply filters': '套用篩選',
+    'Attributed from earlier source records': '根據較早的來源紀錄歸屬',
+    'Attribution evidence': '歸屬依據',
+    'Average hours since registration': '註冊後平均經過時數',
+    Both: '兩者皆有',
+    'Choose a valid date range ending no later than today.':
+      '請選擇有效的日期範圍，結束日期不得晚於今天。',
+    'Client configuration confirmed': '已確認用戶端設定',
+    'Cohort conversion': '同期註冊帳號轉換',
+    'Counts cover consenting browser identifiers, not people. One browser can appear in several channels, so channel counts must not be added together.':
+      '此處統計已取得同意的瀏覽器識別碼，並非人數。同一瀏覽器可能出現在多個管道，因此各管道數量不可相加。',
+    'Dates use UTC; the end date is included. Up to 366 days.':
+      '日期以 UTC 為準，包含結束當日，最多 366 天。',
+    'Each account is observed for the same number of days after registration. OAuth and manual keys are alternative paths; payment is independent of first use.':
+      '每個帳號均從註冊日起觀察相同天數。OAuth 與手動 API Key 是不同的接入途徑；付款與首次使用沒有固定先後順序。',
+    'End date': '結束日期',
+    'First successful payment': '首次付款成功',
+    'Identifiable browser visitors': '可識別的瀏覽器訪客',
+    'Manual API key created': '已手動建立 API Key',
+    'Mature cohort': '已滿觀察期的註冊群組',
+    'Mature cohort conversion': '已滿觀察期群組轉換率',
+    'No completion observed': '尚未觀察到完成',
+    'No payment attribution recorded yet.': '尚無付款來源歸屬紀錄。',
+    'No visitor observations in the retained part of this period.':
+      '此期間仍在保留範圍內的部分沒有訪客觀察紀錄。',
+    'OAuth authorized': '已完成 OAuth 授權',
+    'OAuth authorized or key created': '已完成 OAuth 授權或建立 Key',
+    'Observation days': '觀察天數',
+    'Observed accounts': '已觀察到的帳號',
+    'Observed browser identifiers': '已觀察到的瀏覽器識別碼',
+    Observing: '觀察中',
+    'Payment attribution uses saved evidence and its recorded lookback window. It does not change registration attribution or prove causation.':
+      '付款來源歸屬採用已儲存的依據及當時記錄的回溯期間，不改變註冊來源歸屬，也不代表已證實因果關係。',
+    Payments: '付款',
+    'Rates use only accounts with a complete observation window and known evidence. Timings are from registration, with the timing sample count in parentheses.':
+      '轉換率僅使用已滿觀察期且具備明確依據的帳號計算。耗時從註冊時計起，括號內為耗時統計的樣本數。',
+    'Records available from': '可用紀錄起始時間',
+    'Repeat payment': '再次付款',
+    'Selected registration period': '已選註冊期間',
+    'Some stages lack historical evidence. Unknown accounts are not failed conversions.':
+      '部分階段缺少歷史依據，不能將狀態未知的帳號算作轉換失敗。',
+    'Source before first payment': '首次付款前來源',
+    Stage: '階段',
+    'Start date': '開始日期',
+    'These filters apply only to this conversion section. Content filters exclude older registrations without a recorded content label.':
+      '這些篩選僅套用於此轉換區域。依內容篩選時，將排除未記錄內容標記的舊註冊帳號。',
+    'Today (UTC)': '今天（UTC）',
+    'Visitor records do not cover this entire period. Counts below include only retained observations.':
+      '訪客紀錄未涵蓋整個期間，下方數量僅包含仍保留的觀察紀錄。',
+    'Payment attribution is still processing or unavailable; missing snapshots are not zero conversions.':
+      '付款來源歸屬仍在處理中或暫不可用；缺少快照不代表轉換數為零。',
+    'Administrator status notice': '管理員狀態聲明',
+    'Current routing configuration': '目前路由設定',
+    'Routing availability is a configuration snapshot, not an upstream health probe. Administrator notices do not change request routing.':
+      '可用情況來自目前路由設定，並非上游健康探測。管理員狀態聲明不會改變請求路由。',
+    'Status notice expires': '狀態聲明到期時間',
+    'Temporarily unavailable': '暫時無法使用',
+    Congested: '壅塞',
+    'This publishes a status notice only. It does not disable channels or change routing. Notices must expire within 30 days.':
+      '這裡僅發布狀態聲明，不會停用管道或改變路由。聲明必須在 30 天內到期。',
+    'Under maintenance': '維護中',
+    'Public operational status': '公開運行狀態',
+    'Operational status': '運行狀態',
+    'Use routing configuration': '根據路由設定判斷',
+    'Public status explanation': '公開狀態說明',
+    'Routable now': '可用（路由已啟用）',
+    'No account access': '目前帳號無權限',
+    'Not in the model catalog': '未列入模型目錄',
+    'Runtime status unknown': '運行狀態未知',
   },
-  "fr": {
-    "Account export failed. Check export permission or narrow the registration period.": "Échec de l’export des comptes. Vérifiez les droits d’export ou réduisez la période d’inscription.",
-    "Corrected source": "Source corrigée",
-    "Correction reason": "Motif de correction",
-    "Correction was not saved. Reloaded the latest version; check the source, reason and consent before retrying.": "Correction non enregistrée. La dernière version a été rechargée ; vérifiez la source, le motif et le consentement avant de réessayer.",
-    "Explain the evidence without URLs, credentials or personal contact details.": "Expliquez les éléments justificatifs sans URL, identifiants secrets ni coordonnées personnelles.",
-    "Export filtered account details": "Exporter les comptes filtrés",
-    "Exports account IDs and conversion status for the current source and registration period, without email addresses. Maximum 10,000 accounts.": "Exporte les identifiants des comptes et leur état de conversion pour la source et la période d’inscription actuelles, sans adresses e-mail. Maximum : 10 000 comptes.",
-    "Manual corrections are shown separately. Observed attribution, channel totals, invitations and payments remain unchanged.": "Les corrections manuelles sont affichées séparément. L’attribution observée, les totaux par canal, les invitations et les paiements restent inchangés.",
-    "Manual source correction": "Correction manuelle de la source",
-    "No manual source correction recorded.": "Aucune correction manuelle de source enregistrée.",
-    "Save correction with audit record": "Enregistrer la correction et sa trace d’audit",
-    "Showing the latest 100 retained corrections.": "Affichage des 100 dernières corrections encore conservées.",
-    "API access approved": "Accès API approuvé",
-    "API connection": "Connexion à l’API",
-    "Access application submitted": "Demande d’accès envoyée",
-    "Apply date range": "Appliquer la période",
-    "Apply filters": "Appliquer les filtres",
-    "Attributed from earlier source records": "Attribué à partir d’observations antérieures",
-    "Attribution evidence": "Preuves d’attribution",
-    "Average hours since registration": "Heures moyennes depuis l’inscription",
-    "Both": "Les deux",
-    "Choose a valid date range ending no later than today.": "Choisissez une période valide se terminant au plus tard aujourd’hui.",
-    "Client configuration confirmed": "Configuration du client confirmée",
-    "Cohort conversion": "Conversion par cohorte",
-    "Counts cover consenting browser identifiers, not people. One browser can appear in several channels, so channel counts must not be added together.": "Ces nombres représentent des identifiants de navigateurs ayant consenti, pas des personnes. Un navigateur peut figurer dans plusieurs canaux ; ne les additionnez pas.",
-    "Dates use UTC; the end date is included. Up to 366 days.": "Dates en UTC, date de fin incluse. Maximum 366 jours.",
-    "Each account is observed for the same number of days after registration. OAuth and manual keys are alternative paths; payment is independent of first use.": "Chaque compte est observé pendant la même durée après son inscription. OAuth et les clés manuelles sont deux parcours distincts ; le paiement est indépendant du premier appel.",
-    "End date": "Date de fin",
-    "First successful payment": "Premier paiement réussi",
-    "Identifiable browser visitors": "Visiteurs identifiables par navigateur",
-    "Manual API key created": "Clé API manuelle créée",
-    "Mature cohort": "Comptes ayant terminé la période d’observation",
-    "Mature cohort conversion": "Conversion des comptes arrivés à échéance",
-    "No completion observed": "Aucune réalisation observée",
-    "No payment attribution recorded yet.": "Aucune attribution de paiement enregistrée.",
-    "No visitor observations in the retained part of this period.": "Aucun visiteur observé dans les données conservées pour cette période.",
-    "OAuth authorized": "Autorisation OAuth obtenue",
-    "OAuth authorized or key created": "OAuth autorisé ou clé créée",
-    "Observation days": "Jours d’observation",
-    "Observed accounts": "Comptes observés",
-    "Observed browser identifiers": "Identifiants de navigateurs observés",
-    "Observing": "En observation",
-    "Payment attribution uses saved evidence and its recorded lookback window. It does not change registration attribution or prove causation.": "L’attribution des paiements utilise les preuves sauvegardées et la fenêtre de recherche enregistrée. Elle ne change pas l’attribution des inscriptions et ne prouve aucun lien causal.",
-    "Payments": "Paiements",
-    "Rates use only accounts with a complete observation window and known evidence. Timings are from registration, with the timing sample count in parentheses.": "Les taux concernent uniquement les comptes ayant terminé leur période d’observation et disposant de preuves. Les durées partent de l’inscription ; le nombre d’échantillons figure entre parenthèses.",
-    "Records available from": "Début des données disponibles",
-    "Repeat payment": "Paiement renouvelé",
-    "Selected registration period": "Période d’inscription sélectionnée",
-    "Some stages lack historical evidence. Unknown accounts are not failed conversions.": "Certaines étapes manquent de preuves historiques. Les comptes au statut inconnu ne sont pas des échecs de conversion.",
-    "Source before first payment": "Source avant le premier paiement",
-    "Stage": "Étape",
-    "Start date": "Date de début",
-    "These filters apply only to this conversion section. Content filters exclude older registrations without a recorded content label.": "Ces filtres ne concernent que cette section de conversion. Le filtre de contenu exclut les anciennes inscriptions sans marqueur de contenu enregistré.",
-    "Today (UTC)": "Aujourd’hui (UTC)",
-    "Visitor records do not cover this entire period. Counts below include only retained observations.": "Les données de visiteurs ne couvrent pas toute la période. Les nombres ci-dessous concernent uniquement les observations conservées.",
-    "Payment attribution is still processing or unavailable; missing snapshots are not zero conversions.": "L’attribution des paiements est en cours ou indisponible ; l’absence de données sauvegardées ne signifie pas zéro conversion.",
-    "Administrator status notice": "Avis de statut administrateur",
-    "Current routing configuration": "Configuration actuelle du routage",
-    "Routing availability is a configuration snapshot, not an upstream health probe. Administrator notices do not change request routing.": "La disponibilité reflète la configuration du routage, pas un test de santé en amont. Les avis administrateur ne modifient pas le routage des requêtes.",
-    "Status notice expires": "Expiration de l’avis",
-    "Temporarily unavailable": "Temporairement indisponible",
-    "Congested": "Saturé",
-    "This publishes a status notice only. It does not disable channels or change routing. Notices must expire within 30 days.": "Publie uniquement un avis de statut, sans désactiver les canaux ni modifier le routage. L’avis doit expirer sous 30 jours.",
-    "Under maintenance": "En maintenance",
-    "Public operational status": "Statut opérationnel public",
-    "Operational status": "Statut opérationnel",
-    "Use routing configuration": "Selon la configuration du routage",
-    "Public status explanation": "Explication publique du statut",
-    "Routable now": "Routage disponible",
-    "No account access": "Accès non autorisé pour ce compte",
-    "Not in the model catalog": "Absent du catalogue de modèles",
-    "Runtime status unknown": "Statut opérationnel inconnu"
+  fr: {
+    'Account export failed. Check export permission or narrow the registration period.':
+      'Échec de l’export des comptes. Vérifiez les droits d’export ou réduisez la période d’inscription.',
+    'Corrected source': 'Source corrigée',
+    'Correction reason': 'Motif de correction',
+    'Correction was not saved. Reloaded the latest version; check the source, reason and consent before retrying.':
+      'Correction non enregistrée. La dernière version a été rechargée ; vérifiez la source, le motif et le consentement avant de réessayer.',
+    'Explain the evidence without URLs, credentials or personal contact details.':
+      'Expliquez les éléments justificatifs sans URL, identifiants secrets ni coordonnées personnelles.',
+    'Export filtered account details': 'Exporter les comptes filtrés',
+    'Exports account IDs and conversion status for the current source and registration period, without email addresses. Maximum 10,000 accounts.':
+      'Exporte les identifiants des comptes et leur état de conversion pour la source et la période d’inscription actuelles, sans adresses e-mail. Maximum : 10 000 comptes.',
+    'Manual corrections are shown separately. Observed attribution, channel totals, invitations and payments remain unchanged.':
+      'Les corrections manuelles sont affichées séparément. L’attribution observée, les totaux par canal, les invitations et les paiements restent inchangés.',
+    'Manual source correction': 'Correction manuelle de la source',
+    'No manual source correction recorded.':
+      'Aucune correction manuelle de source enregistrée.',
+    'Save correction with audit record':
+      'Enregistrer la correction et sa trace d’audit',
+    'Showing the latest 100 retained corrections.':
+      'Affichage des 100 dernières corrections encore conservées.',
+    'API access approved': 'Accès API approuvé',
+    'API connection': 'Connexion à l’API',
+    'Access application submitted': 'Demande d’accès envoyée',
+    'Apply date range': 'Appliquer la période',
+    'Apply filters': 'Appliquer les filtres',
+    'Attributed from earlier source records':
+      'Attribué à partir d’observations antérieures',
+    'Attribution evidence': 'Preuves d’attribution',
+    'Average hours since registration': 'Heures moyennes depuis l’inscription',
+    Both: 'Les deux',
+    'Choose a valid date range ending no later than today.':
+      'Choisissez une période valide se terminant au plus tard aujourd’hui.',
+    'Client configuration confirmed': 'Configuration du client confirmée',
+    'Cohort conversion': 'Conversion par cohorte',
+    'Counts cover consenting browser identifiers, not people. One browser can appear in several channels, so channel counts must not be added together.':
+      'Ces nombres représentent des identifiants de navigateurs ayant consenti, pas des personnes. Un navigateur peut figurer dans plusieurs canaux ; ne les additionnez pas.',
+    'Dates use UTC; the end date is included. Up to 366 days.':
+      'Dates en UTC, date de fin incluse. Maximum 366 jours.',
+    'Each account is observed for the same number of days after registration. OAuth and manual keys are alternative paths; payment is independent of first use.':
+      'Chaque compte est observé pendant la même durée après son inscription. OAuth et les clés manuelles sont deux parcours distincts ; le paiement est indépendant du premier appel.',
+    'End date': 'Date de fin',
+    'First successful payment': 'Premier paiement réussi',
+    'Identifiable browser visitors': 'Visiteurs identifiables par navigateur',
+    'Manual API key created': 'Clé API manuelle créée',
+    'Mature cohort': 'Comptes ayant terminé la période d’observation',
+    'Mature cohort conversion': 'Conversion des comptes arrivés à échéance',
+    'No completion observed': 'Aucune réalisation observée',
+    'No payment attribution recorded yet.':
+      'Aucune attribution de paiement enregistrée.',
+    'No visitor observations in the retained part of this period.':
+      'Aucun visiteur observé dans les données conservées pour cette période.',
+    'OAuth authorized': 'Autorisation OAuth obtenue',
+    'OAuth authorized or key created': 'OAuth autorisé ou clé créée',
+    'Observation days': 'Jours d’observation',
+    'Observed accounts': 'Comptes observés',
+    'Observed browser identifiers': 'Identifiants de navigateurs observés',
+    Observing: 'En observation',
+    'Payment attribution uses saved evidence and its recorded lookback window. It does not change registration attribution or prove causation.':
+      'L’attribution des paiements utilise les preuves sauvegardées et la fenêtre de recherche enregistrée. Elle ne change pas l’attribution des inscriptions et ne prouve aucun lien causal.',
+    Payments: 'Paiements',
+    'Rates use only accounts with a complete observation window and known evidence. Timings are from registration, with the timing sample count in parentheses.':
+      'Les taux concernent uniquement les comptes ayant terminé leur période d’observation et disposant de preuves. Les durées partent de l’inscription ; le nombre d’échantillons figure entre parenthèses.',
+    'Records available from': 'Début des données disponibles',
+    'Repeat payment': 'Paiement renouvelé',
+    'Selected registration period': 'Période d’inscription sélectionnée',
+    'Some stages lack historical evidence. Unknown accounts are not failed conversions.':
+      'Certaines étapes manquent de preuves historiques. Les comptes au statut inconnu ne sont pas des échecs de conversion.',
+    'Source before first payment': 'Source avant le premier paiement',
+    Stage: 'Étape',
+    'Start date': 'Date de début',
+    'These filters apply only to this conversion section. Content filters exclude older registrations without a recorded content label.':
+      'Ces filtres ne concernent que cette section de conversion. Le filtre de contenu exclut les anciennes inscriptions sans marqueur de contenu enregistré.',
+    'Today (UTC)': 'Aujourd’hui (UTC)',
+    'Visitor records do not cover this entire period. Counts below include only retained observations.':
+      'Les données de visiteurs ne couvrent pas toute la période. Les nombres ci-dessous concernent uniquement les observations conservées.',
+    'Payment attribution is still processing or unavailable; missing snapshots are not zero conversions.':
+      'L’attribution des paiements est en cours ou indisponible ; l’absence de données sauvegardées ne signifie pas zéro conversion.',
+    'Administrator status notice': 'Avis de statut administrateur',
+    'Current routing configuration': 'Configuration actuelle du routage',
+    'Routing availability is a configuration snapshot, not an upstream health probe. Administrator notices do not change request routing.':
+      'La disponibilité reflète la configuration du routage, pas un test de santé en amont. Les avis administrateur ne modifient pas le routage des requêtes.',
+    'Status notice expires': 'Expiration de l’avis',
+    'Temporarily unavailable': 'Temporairement indisponible',
+    Congested: 'Saturé',
+    'This publishes a status notice only. It does not disable channels or change routing. Notices must expire within 30 days.':
+      'Publie uniquement un avis de statut, sans désactiver les canaux ni modifier le routage. L’avis doit expirer sous 30 jours.',
+    'Under maintenance': 'En maintenance',
+    'Public operational status': 'Statut opérationnel public',
+    'Operational status': 'Statut opérationnel',
+    'Use routing configuration': 'Selon la configuration du routage',
+    'Public status explanation': 'Explication publique du statut',
+    'Routable now': 'Routage disponible',
+    'No account access': 'Accès non autorisé pour ce compte',
+    'Not in the model catalog': 'Absent du catalogue de modèles',
+    'Runtime status unknown': 'Statut opérationnel inconnu',
   },
-  "ja": {
-    "Account export failed. Check export permission or narrow the registration period.": "アカウント明細をエクスポートできませんでした。エクスポート権限を確認するか、登録期間を絞り込んでください。",
-    "Corrected source": "修正後の流入元",
-    "Correction reason": "修正理由",
-    "Correction was not saved. Reloaded the latest version; check the source, reason and consent before retrying.": "修正は保存されませんでした。最新の内容を再読み込みしました。流入元、理由、ユーザーの同意状態を確認して再試行してください。",
-    "Explain the evidence without URLs, credentials or personal contact details.": "URL、認証情報、個人の連絡先を含めずに、判断の根拠を記載してください。",
-    "Export filtered account details": "絞り込み済みアカウント明細をエクスポート",
-    "Exports account IDs and conversion status for the current source and registration period, without email addresses. Maximum 10,000 accounts.": "現在の流入元と登録期間に該当するアカウント ID と転換状況をエクスポートします。メールアドレスは含みません。上限は 10,000 アカウントです。",
-    "Manual corrections are shown separately. Observed attribution, channel totals, invitations and payments remain unchanged.": "手動修正は別に表示されます。観測に基づく帰属、チャネル別集計、招待関係、支払い記録は変更されません。",
-    "Manual source correction": "流入元の手動修正",
-    "No manual source correction recorded.": "流入元の手動修正は記録されていません。",
-    "Save correction with audit record": "修正と監査記録を保存",
-    "Showing the latest 100 retained corrections.": "保存期間内の最新 100 件の修正を表示しています。",
-    "API access approved": "API アクセス承認済み",
-    "API connection": "API 接続",
-    "Access application submitted": "アクセス申請済み",
-    "Apply date range": "期間を適用",
-    "Apply filters": "絞り込みを適用",
-    "Attributed from earlier source records": "過去の流入元記録から帰属",
-    "Attribution evidence": "帰属の根拠",
-    "Average hours since registration": "登録からの平均時間",
-    "Both": "両方",
-    "Choose a valid date range ending no later than today.": "終了日が今日以前の有効な期間を選択してください。",
-    "Client configuration confirmed": "クライアント設定確認済み",
-    "Cohort conversion": "登録時期別の転換状況",
-    "Counts cover consenting browser identifiers, not people. One browser can appear in several channels, so channel counts must not be added together.": "同意を得たブラウザー識別子を集計しており、人数ではありません。同じブラウザーが複数のチャネルに現れるため、チャネル別の件数は合算できません。",
-    "Dates use UTC; the end date is included. Up to 366 days.": "日付は UTC 基準で、終了日を含みます。最大 366 日間です。",
-    "Each account is observed for the same number of days after registration. OAuth and manual keys are alternative paths; payment is independent of first use.": "各アカウントを登録後の同じ日数で観測します。OAuth と手動作成のキーは代替経路であり、支払いと初回利用の順序は問いません。",
-    "End date": "終了日",
-    "First successful payment": "初回支払い成功",
-    "Identifiable browser visitors": "識別可能なブラウザー訪問者",
-    "Manual API key created": "手動 API キー作成済み",
-    "Mature cohort": "観測期間を満了した登録群",
-    "Mature cohort conversion": "観測期間満了群の転換率",
-    "No completion observed": "完了は未観測",
-    "No payment attribution recorded yet.": "支払いの流入元帰属はまだ記録されていません。",
-    "No visitor observations in the retained part of this period.": "この期間のうち保存対象の範囲に訪問記録はありません。",
-    "OAuth authorized": "OAuth 認可済み",
-    "OAuth authorized or key created": "OAuth 認可またはキー作成済み",
-    "Observation days": "観測日数",
-    "Observed accounts": "観測済みアカウント",
-    "Observed browser identifiers": "観測したブラウザー識別子",
-    "Observing": "観測中",
-    "Payment attribution uses saved evidence and its recorded lookback window. It does not change registration attribution or prove causation.": "支払いの帰属には、保存済みの根拠と記録された遡及期間を使います。登録時の帰属は変更せず、因果関係を証明するものではありません。",
-    "Payments": "支払い",
-    "Rates use only accounts with a complete observation window and known evidence. Timings are from registration, with the timing sample count in parentheses.": "転換率は、観測期間を満了し根拠が確認できるアカウントのみで計算します。所要時間は登録時点から計測し、括弧内に時間集計の対象件数を表示します。",
-    "Records available from": "記録の利用可能開始日時",
-    "Repeat payment": "再度の支払い",
-    "Selected registration period": "選択中の登録期間",
-    "Some stages lack historical evidence. Unknown accounts are not failed conversions.": "一部の段階には過去の根拠がありません。状況不明のアカウントを転換失敗とは扱いません。",
-    "Source before first payment": "初回支払い前の流入元",
-    "Stage": "段階",
-    "Start date": "開始日",
-    "These filters apply only to this conversion section. Content filters exclude older registrations without a recorded content label.": "この絞り込みは転換状況のセクションにのみ適用されます。コンテンツで絞り込むと、コンテンツラベルが記録されていない過去の登録は除外されます。",
-    "Today (UTC)": "今日（UTC）",
-    "Visitor records do not cover this entire period. Counts below include only retained observations.": "訪問記録はこの期間全体を網羅していません。以下の件数には保存済みの観測記録のみを含みます。",
-    "Payment attribution is still processing or unavailable; missing snapshots are not zero conversions.": "支払いの流入元帰属は処理中、または利用できません。スナップショットの欠落は転換件数がゼロであることを意味しません。",
-    "Administrator status notice": "管理者による状態通知",
-    "Current routing configuration": "現在のルーティング設定",
-    "Routing availability is a configuration snapshot, not an upstream health probe. Administrator notices do not change request routing.": "利用状況は現在のルーティング設定に基づき、上流の稼働確認ではありません。管理者の状態通知はリクエストの経路を変更しません。",
-    "Status notice expires": "状態通知の有効期限",
-    "Temporarily unavailable": "一時的に利用不可",
-    "Congested": "混雑中",
-    "This publishes a status notice only. It does not disable channels or change routing. Notices must expire within 30 days.": "状態通知のみを公開します。チャネルの無効化や経路の変更は行いません。通知は30日以内に期限が切れる必要があります。",
-    "Under maintenance": "メンテナンス中",
-    "Public operational status": "公開する稼働状態",
-    "Operational status": "稼働状態",
-    "Use routing configuration": "ルーティング設定に基づく",
-    "Public status explanation": "公開する状態の説明",
-    "Routable now": "利用可能な経路あり",
-    "No account access": "このアカウントには権限がありません",
-    "Not in the model catalog": "モデルカタログに未掲載",
-    "Runtime status unknown": "稼働状態不明"
+  ja: {
+    'Account export failed. Check export permission or narrow the registration period.':
+      'アカウント明細をエクスポートできませんでした。エクスポート権限を確認するか、登録期間を絞り込んでください。',
+    'Corrected source': '修正後の流入元',
+    'Correction reason': '修正理由',
+    'Correction was not saved. Reloaded the latest version; check the source, reason and consent before retrying.':
+      '修正は保存されませんでした。最新の内容を再読み込みしました。流入元、理由、ユーザーの同意状態を確認して再試行してください。',
+    'Explain the evidence without URLs, credentials or personal contact details.':
+      'URL、認証情報、個人の連絡先を含めずに、判断の根拠を記載してください。',
+    'Export filtered account details':
+      '絞り込み済みアカウント明細をエクスポート',
+    'Exports account IDs and conversion status for the current source and registration period, without email addresses. Maximum 10,000 accounts.':
+      '現在の流入元と登録期間に該当するアカウント ID と転換状況をエクスポートします。メールアドレスは含みません。上限は 10,000 アカウントです。',
+    'Manual corrections are shown separately. Observed attribution, channel totals, invitations and payments remain unchanged.':
+      '手動修正は別に表示されます。観測に基づく帰属、チャネル別集計、招待関係、支払い記録は変更されません。',
+    'Manual source correction': '流入元の手動修正',
+    'No manual source correction recorded.':
+      '流入元の手動修正は記録されていません。',
+    'Save correction with audit record': '修正と監査記録を保存',
+    'Showing the latest 100 retained corrections.':
+      '保存期間内の最新 100 件の修正を表示しています。',
+    'API access approved': 'API アクセス承認済み',
+    'API connection': 'API 接続',
+    'Access application submitted': 'アクセス申請済み',
+    'Apply date range': '期間を適用',
+    'Apply filters': '絞り込みを適用',
+    'Attributed from earlier source records': '過去の流入元記録から帰属',
+    'Attribution evidence': '帰属の根拠',
+    'Average hours since registration': '登録からの平均時間',
+    Both: '両方',
+    'Choose a valid date range ending no later than today.':
+      '終了日が今日以前の有効な期間を選択してください。',
+    'Client configuration confirmed': 'クライアント設定確認済み',
+    'Cohort conversion': '登録時期別の転換状況',
+    'Counts cover consenting browser identifiers, not people. One browser can appear in several channels, so channel counts must not be added together.':
+      '同意を得たブラウザー識別子を集計しており、人数ではありません。同じブラウザーが複数のチャネルに現れるため、チャネル別の件数は合算できません。',
+    'Dates use UTC; the end date is included. Up to 366 days.':
+      '日付は UTC 基準で、終了日を含みます。最大 366 日間です。',
+    'Each account is observed for the same number of days after registration. OAuth and manual keys are alternative paths; payment is independent of first use.':
+      '各アカウントを登録後の同じ日数で観測します。OAuth と手動作成のキーは代替経路であり、支払いと初回利用の順序は問いません。',
+    'End date': '終了日',
+    'First successful payment': '初回支払い成功',
+    'Identifiable browser visitors': '識別可能なブラウザー訪問者',
+    'Manual API key created': '手動 API キー作成済み',
+    'Mature cohort': '観測期間を満了した登録群',
+    'Mature cohort conversion': '観測期間満了群の転換率',
+    'No completion observed': '完了は未観測',
+    'No payment attribution recorded yet.':
+      '支払いの流入元帰属はまだ記録されていません。',
+    'No visitor observations in the retained part of this period.':
+      'この期間のうち保存対象の範囲に訪問記録はありません。',
+    'OAuth authorized': 'OAuth 認可済み',
+    'OAuth authorized or key created': 'OAuth 認可またはキー作成済み',
+    'Observation days': '観測日数',
+    'Observed accounts': '観測済みアカウント',
+    'Observed browser identifiers': '観測したブラウザー識別子',
+    Observing: '観測中',
+    'Payment attribution uses saved evidence and its recorded lookback window. It does not change registration attribution or prove causation.':
+      '支払いの帰属には、保存済みの根拠と記録された遡及期間を使います。登録時の帰属は変更せず、因果関係を証明するものではありません。',
+    Payments: '支払い',
+    'Rates use only accounts with a complete observation window and known evidence. Timings are from registration, with the timing sample count in parentheses.':
+      '転換率は、観測期間を満了し根拠が確認できるアカウントのみで計算します。所要時間は登録時点から計測し、括弧内に時間集計の対象件数を表示します。',
+    'Records available from': '記録の利用可能開始日時',
+    'Repeat payment': '再度の支払い',
+    'Selected registration period': '選択中の登録期間',
+    'Some stages lack historical evidence. Unknown accounts are not failed conversions.':
+      '一部の段階には過去の根拠がありません。状況不明のアカウントを転換失敗とは扱いません。',
+    'Source before first payment': '初回支払い前の流入元',
+    Stage: '段階',
+    'Start date': '開始日',
+    'These filters apply only to this conversion section. Content filters exclude older registrations without a recorded content label.':
+      'この絞り込みは転換状況のセクションにのみ適用されます。コンテンツで絞り込むと、コンテンツラベルが記録されていない過去の登録は除外されます。',
+    'Today (UTC)': '今日（UTC）',
+    'Visitor records do not cover this entire period. Counts below include only retained observations.':
+      '訪問記録はこの期間全体を網羅していません。以下の件数には保存済みの観測記録のみを含みます。',
+    'Payment attribution is still processing or unavailable; missing snapshots are not zero conversions.':
+      '支払いの流入元帰属は処理中、または利用できません。スナップショットの欠落は転換件数がゼロであることを意味しません。',
+    'Administrator status notice': '管理者による状態通知',
+    'Current routing configuration': '現在のルーティング設定',
+    'Routing availability is a configuration snapshot, not an upstream health probe. Administrator notices do not change request routing.':
+      '利用状況は現在のルーティング設定に基づき、上流の稼働確認ではありません。管理者の状態通知はリクエストの経路を変更しません。',
+    'Status notice expires': '状態通知の有効期限',
+    'Temporarily unavailable': '一時的に利用不可',
+    Congested: '混雑中',
+    'This publishes a status notice only. It does not disable channels or change routing. Notices must expire within 30 days.':
+      '状態通知のみを公開します。チャネルの無効化や経路の変更は行いません。通知は30日以内に期限が切れる必要があります。',
+    'Under maintenance': 'メンテナンス中',
+    'Public operational status': '公開する稼働状態',
+    'Operational status': '稼働状態',
+    'Use routing configuration': 'ルーティング設定に基づく',
+    'Public status explanation': '公開する状態の説明',
+    'Routable now': '利用可能な経路あり',
+    'No account access': 'このアカウントには権限がありません',
+    'Not in the model catalog': 'モデルカタログに未掲載',
+    'Runtime status unknown': '稼働状態不明',
   },
-  "ru": {
-    "Account export failed. Check export permission or narrow the registration period.": "Не удалось экспортировать данные аккаунтов. Проверьте разрешение на экспорт или сократите период регистрации.",
-    "Corrected source": "Исправленный источник",
-    "Correction reason": "Причина исправления",
-    "Correction was not saved. Reloaded the latest version; check the source, reason and consent before retrying.": "Исправление не сохранено. Загружена последняя версия; проверьте источник, причину и согласие пользователя перед повторной попыткой.",
-    "Explain the evidence without URLs, credentials or personal contact details.": "Опишите основания без URL, секретных учётных данных и личных контактов.",
-    "Export filtered account details": "Экспортировать отфильтрованные аккаунты",
-    "Exports account IDs and conversion status for the current source and registration period, without email addresses. Maximum 10,000 accounts.": "Экспорт идентификаторов аккаунтов и статусов конверсии по текущему источнику и периоду регистрации, без адресов электронной почты. Максимум 10 000 аккаунтов.",
-    "Manual corrections are shown separately. Observed attribution, channel totals, invitations and payments remain unchanged.": "Ручные исправления показаны отдельно. Наблюдаемая атрибуция, итоги по каналам, приглашения и платежи не изменяются.",
-    "Manual source correction": "Ручное исправление источника",
-    "No manual source correction recorded.": "Ручные исправления источника ещё не записаны.",
-    "Save correction with audit record": "Сохранить исправление с записью аудита",
-    "Showing the latest 100 retained corrections.": "Показаны последние 100 исправлений в пределах срока хранения.",
-    "API access approved": "Доступ к API одобрен",
-    "API connection": "Подключение к API",
-    "Access application submitted": "Заявка на доступ подана",
-    "Apply date range": "Применить период",
-    "Apply filters": "Применить фильтры",
-    "Attributed from earlier source records": "Отнесено по предыдущим записям источника",
-    "Attribution evidence": "Основание атрибуции",
-    "Average hours since registration": "Среднее число часов с регистрации",
-    "Both": "Оба способа",
-    "Choose a valid date range ending no later than today.": "Выберите допустимый период с датой окончания не позднее сегодняшней.",
-    "Client configuration confirmed": "Настройка клиента подтверждена",
-    "Cohort conversion": "Конверсия когорты",
-    "Counts cover consenting browser identifiers, not people. One browser can appear in several channels, so channel counts must not be added together.": "Учитываются идентификаторы браузеров с полученным согласием, а не люди. Один браузер может встречаться в нескольких каналах, поэтому показатели каналов нельзя суммировать.",
-    "Dates use UTC; the end date is included. Up to 366 days.": "Даты указаны по UTC; конечная дата включается. Максимум 366 дней.",
-    "Each account is observed for the same number of days after registration. OAuth and manual keys are alternative paths; payment is independent of first use.": "Каждый аккаунт наблюдается одинаковое число дней после регистрации. OAuth и ручное создание ключа — альтернативные пути; оплата не зависит от порядка первого использования.",
-    "End date": "Дата окончания",
-    "First successful payment": "Первый успешный платёж",
-    "Identifiable browser visitors": "Идентифицируемые посетители браузеров",
-    "Manual API key created": "API-ключ создан вручную",
-    "Mature cohort": "Когорта с завершённым периодом наблюдения",
-    "Mature cohort conversion": "Конверсия когорты с завершённым наблюдением",
-    "No completion observed": "Завершение не наблюдалось",
-    "No payment attribution recorded yet.": "Атрибуция платежей ещё не записана.",
-    "No visitor observations in the retained part of this period.": "В сохраняемой части этого периода нет наблюдений посетителей.",
-    "OAuth authorized": "Авторизация OAuth выполнена",
-    "OAuth authorized or key created": "OAuth авторизован или ключ создан",
-    "Observation days": "Дней наблюдения",
-    "Observed accounts": "Наблюдаемые аккаунты",
-    "Observed browser identifiers": "Наблюдаемые идентификаторы браузеров",
-    "Observing": "Наблюдение продолжается",
-    "Payment attribution uses saved evidence and its recorded lookback window. It does not change registration attribution or prove causation.": "Атрибуция платежей использует сохранённые основания и записанное окно ретроспективного поиска. Она не меняет атрибуцию регистрации и не доказывает причинную связь.",
-    "Payments": "Платежи",
-    "Rates use only accounts with a complete observation window and known evidence. Timings are from registration, with the timing sample count in parentheses.": "Доли рассчитываются только по аккаунтам с полным периодом наблюдения и известными основаниями. Время отсчитывается от регистрации; в скобках указано число аккаунтов в выборке для расчёта времени.",
-    "Records available from": "Записи доступны с",
-    "Repeat payment": "Повторный платёж",
-    "Selected registration period": "Выбранный период регистрации",
-    "Some stages lack historical evidence. Unknown accounts are not failed conversions.": "Для некоторых этапов нет исторических свидетельств. Аккаунты с неизвестным статусом не считаются неуспешными конверсиями.",
-    "Source before first payment": "Источник перед первым платежом",
-    "Stage": "Этап",
-    "Start date": "Дата начала",
-    "These filters apply only to this conversion section. Content filters exclude older registrations without a recorded content label.": "Эти фильтры применяются только к разделу конверсии. Фильтрация по материалу исключает старые регистрации без записанной метки материала.",
-    "Today (UTC)": "Сегодня (UTC)",
-    "Visitor records do not cover this entire period. Counts below include only retained observations.": "Записи посетителей не охватывают весь этот период. Показатели ниже учитывают только сохранённые наблюдения.",
-    "Payment attribution is still processing or unavailable; missing snapshots are not zero conversions.": "Атрибуция платежей ещё обрабатывается или недоступна; отсутствие снимков не означает нулевую конверсию.",
-    "Administrator status notice": "Уведомление администратора",
-    "Current routing configuration": "Текущая конфигурация маршрутизации",
-    "Routing availability is a configuration snapshot, not an upstream health probe. Administrator notices do not change request routing.": "Доступность отражает конфигурацию маршрутизации, а не проверку провайдера. Уведомления администратора не меняют маршруты запросов.",
-    "Status notice expires": "Срок действия уведомления",
-    "Temporarily unavailable": "Временно недоступно",
-    "Congested": "Перегрузка",
-    "This publishes a status notice only. It does not disable channels or change routing. Notices must expire within 30 days.": "Публикуется только уведомление: каналы не отключаются, маршрутизация не меняется. Срок действия — не более 30 дней.",
-    "Under maintenance": "На обслуживании",
-    "Public operational status": "Публичный рабочий статус",
-    "Operational status": "Рабочий статус",
-    "Use routing configuration": "По конфигурации маршрутизации",
-    "Public status explanation": "Публичное пояснение статуса",
-    "Routable now": "Маршрут доступен",
-    "No account access": "Нет доступа у аккаунта",
-    "Not in the model catalog": "Нет в каталоге моделей",
-    "Runtime status unknown": "Рабочий статус неизвестен"
+  ru: {
+    'Account export failed. Check export permission or narrow the registration period.':
+      'Не удалось экспортировать данные аккаунтов. Проверьте разрешение на экспорт или сократите период регистрации.',
+    'Corrected source': 'Исправленный источник',
+    'Correction reason': 'Причина исправления',
+    'Correction was not saved. Reloaded the latest version; check the source, reason and consent before retrying.':
+      'Исправление не сохранено. Загружена последняя версия; проверьте источник, причину и согласие пользователя перед повторной попыткой.',
+    'Explain the evidence without URLs, credentials or personal contact details.':
+      'Опишите основания без URL, секретных учётных данных и личных контактов.',
+    'Export filtered account details':
+      'Экспортировать отфильтрованные аккаунты',
+    'Exports account IDs and conversion status for the current source and registration period, without email addresses. Maximum 10,000 accounts.':
+      'Экспорт идентификаторов аккаунтов и статусов конверсии по текущему источнику и периоду регистрации, без адресов электронной почты. Максимум 10 000 аккаунтов.',
+    'Manual corrections are shown separately. Observed attribution, channel totals, invitations and payments remain unchanged.':
+      'Ручные исправления показаны отдельно. Наблюдаемая атрибуция, итоги по каналам, приглашения и платежи не изменяются.',
+    'Manual source correction': 'Ручное исправление источника',
+    'No manual source correction recorded.':
+      'Ручные исправления источника ещё не записаны.',
+    'Save correction with audit record':
+      'Сохранить исправление с записью аудита',
+    'Showing the latest 100 retained corrections.':
+      'Показаны последние 100 исправлений в пределах срока хранения.',
+    'API access approved': 'Доступ к API одобрен',
+    'API connection': 'Подключение к API',
+    'Access application submitted': 'Заявка на доступ подана',
+    'Apply date range': 'Применить период',
+    'Apply filters': 'Применить фильтры',
+    'Attributed from earlier source records':
+      'Отнесено по предыдущим записям источника',
+    'Attribution evidence': 'Основание атрибуции',
+    'Average hours since registration': 'Среднее число часов с регистрации',
+    Both: 'Оба способа',
+    'Choose a valid date range ending no later than today.':
+      'Выберите допустимый период с датой окончания не позднее сегодняшней.',
+    'Client configuration confirmed': 'Настройка клиента подтверждена',
+    'Cohort conversion': 'Конверсия когорты',
+    'Counts cover consenting browser identifiers, not people. One browser can appear in several channels, so channel counts must not be added together.':
+      'Учитываются идентификаторы браузеров с полученным согласием, а не люди. Один браузер может встречаться в нескольких каналах, поэтому показатели каналов нельзя суммировать.',
+    'Dates use UTC; the end date is included. Up to 366 days.':
+      'Даты указаны по UTC; конечная дата включается. Максимум 366 дней.',
+    'Each account is observed for the same number of days after registration. OAuth and manual keys are alternative paths; payment is independent of first use.':
+      'Каждый аккаунт наблюдается одинаковое число дней после регистрации. OAuth и ручное создание ключа — альтернативные пути; оплата не зависит от порядка первого использования.',
+    'End date': 'Дата окончания',
+    'First successful payment': 'Первый успешный платёж',
+    'Identifiable browser visitors': 'Идентифицируемые посетители браузеров',
+    'Manual API key created': 'API-ключ создан вручную',
+    'Mature cohort': 'Когорта с завершённым периодом наблюдения',
+    'Mature cohort conversion': 'Конверсия когорты с завершённым наблюдением',
+    'No completion observed': 'Завершение не наблюдалось',
+    'No payment attribution recorded yet.':
+      'Атрибуция платежей ещё не записана.',
+    'No visitor observations in the retained part of this period.':
+      'В сохраняемой части этого периода нет наблюдений посетителей.',
+    'OAuth authorized': 'Авторизация OAuth выполнена',
+    'OAuth authorized or key created': 'OAuth авторизован или ключ создан',
+    'Observation days': 'Дней наблюдения',
+    'Observed accounts': 'Наблюдаемые аккаунты',
+    'Observed browser identifiers': 'Наблюдаемые идентификаторы браузеров',
+    Observing: 'Наблюдение продолжается',
+    'Payment attribution uses saved evidence and its recorded lookback window. It does not change registration attribution or prove causation.':
+      'Атрибуция платежей использует сохранённые основания и записанное окно ретроспективного поиска. Она не меняет атрибуцию регистрации и не доказывает причинную связь.',
+    Payments: 'Платежи',
+    'Rates use only accounts with a complete observation window and known evidence. Timings are from registration, with the timing sample count in parentheses.':
+      'Доли рассчитываются только по аккаунтам с полным периодом наблюдения и известными основаниями. Время отсчитывается от регистрации; в скобках указано число аккаунтов в выборке для расчёта времени.',
+    'Records available from': 'Записи доступны с',
+    'Repeat payment': 'Повторный платёж',
+    'Selected registration period': 'Выбранный период регистрации',
+    'Some stages lack historical evidence. Unknown accounts are not failed conversions.':
+      'Для некоторых этапов нет исторических свидетельств. Аккаунты с неизвестным статусом не считаются неуспешными конверсиями.',
+    'Source before first payment': 'Источник перед первым платежом',
+    Stage: 'Этап',
+    'Start date': 'Дата начала',
+    'These filters apply only to this conversion section. Content filters exclude older registrations without a recorded content label.':
+      'Эти фильтры применяются только к разделу конверсии. Фильтрация по материалу исключает старые регистрации без записанной метки материала.',
+    'Today (UTC)': 'Сегодня (UTC)',
+    'Visitor records do not cover this entire period. Counts below include only retained observations.':
+      'Записи посетителей не охватывают весь этот период. Показатели ниже учитывают только сохранённые наблюдения.',
+    'Payment attribution is still processing or unavailable; missing snapshots are not zero conversions.':
+      'Атрибуция платежей ещё обрабатывается или недоступна; отсутствие снимков не означает нулевую конверсию.',
+    'Administrator status notice': 'Уведомление администратора',
+    'Current routing configuration': 'Текущая конфигурация маршрутизации',
+    'Routing availability is a configuration snapshot, not an upstream health probe. Administrator notices do not change request routing.':
+      'Доступность отражает конфигурацию маршрутизации, а не проверку провайдера. Уведомления администратора не меняют маршруты запросов.',
+    'Status notice expires': 'Срок действия уведомления',
+    'Temporarily unavailable': 'Временно недоступно',
+    Congested: 'Перегрузка',
+    'This publishes a status notice only. It does not disable channels or change routing. Notices must expire within 30 days.':
+      'Публикуется только уведомление: каналы не отключаются, маршрутизация не меняется. Срок действия — не более 30 дней.',
+    'Under maintenance': 'На обслуживании',
+    'Public operational status': 'Публичный рабочий статус',
+    'Operational status': 'Рабочий статус',
+    'Use routing configuration': 'По конфигурации маршрутизации',
+    'Public status explanation': 'Публичное пояснение статуса',
+    'Routable now': 'Маршрут доступен',
+    'No account access': 'Нет доступа у аккаунта',
+    'Not in the model catalog': 'Нет в каталоге моделей',
+    'Runtime status unknown': 'Рабочий статус неизвестен',
   },
-  "vi": {
-    "Account export failed. Check export permission or narrow the registration period.": "Không thể xuất chi tiết tài khoản. Hãy kiểm tra quyền xuất hoặc thu hẹp khoảng thời gian đăng ký.",
-    "Corrected source": "Nguồn đã sửa",
-    "Correction reason": "Lý do sửa",
-    "Correction was not saved. Reloaded the latest version; check the source, reason and consent before retrying.": "Chưa lưu bản sửa. Đã tải lại phiên bản mới nhất; hãy kiểm tra nguồn, lý do và trạng thái đồng ý trước khi thử lại.",
-    "Explain the evidence without URLs, credentials or personal contact details.": "Giải thích căn cứ xác minh, không nhập URL, thông tin xác thực hay thông tin liên hệ cá nhân.",
-    "Export filtered account details": "Xuất chi tiết tài khoản theo bộ lọc",
-    "Exports account IDs and conversion status for the current source and registration period, without email addresses. Maximum 10,000 accounts.": "Xuất ID tài khoản và trạng thái chuyển đổi theo nguồn và khoảng thời gian đăng ký hiện tại, không gồm địa chỉ email. Tối đa 10.000 tài khoản.",
-    "Manual corrections are shown separately. Observed attribution, channel totals, invitations and payments remain unchanged.": "Các bản sửa thủ công được hiển thị riêng. Nguồn quy thuộc đã quan sát, tổng số theo kênh, quan hệ mời và các khoản thanh toán không thay đổi.",
-    "Manual source correction": "Sửa nguồn thủ công",
-    "No manual source correction recorded.": "Chưa có bản sửa nguồn thủ công.",
-    "Save correction with audit record": "Lưu bản sửa kèm nhật ký kiểm tra",
-    "Showing the latest 100 retained corrections.": "Hiển thị 100 bản sửa gần nhất còn trong thời hạn lưu giữ.",
-    "API access approved": "Đã phê duyệt quyền truy cập API",
-    "API connection": "Kết nối API",
-    "Access application submitted": "Đã gửi đơn xin quyền truy cập",
-    "Apply date range": "Áp dụng khoảng ngày",
-    "Apply filters": "Áp dụng bộ lọc",
-    "Attributed from earlier source records": "Quy thuộc từ các bản ghi nguồn trước đó",
-    "Attribution evidence": "Bằng chứng quy thuộc",
-    "Average hours since registration": "Số giờ trung bình kể từ khi đăng ký",
-    "Both": "Cả hai",
-    "Choose a valid date range ending no later than today.": "Chọn khoảng ngày hợp lệ có ngày kết thúc không muộn hơn hôm nay.",
-    "Client configuration confirmed": "Đã xác nhận cấu hình ứng dụng",
-    "Cohort conversion": "Chuyển đổi theo nhóm đăng ký",
-    "Counts cover consenting browser identifiers, not people. One browser can appear in several channels, so channel counts must not be added together.": "Số liệu tính theo mã nhận diện trình duyệt đã đồng ý, không phải số người. Một trình duyệt có thể xuất hiện ở nhiều kênh, vì vậy không được cộng số lượng giữa các kênh.",
-    "Dates use UTC; the end date is included. Up to 366 days.": "Ngày tính theo UTC và bao gồm ngày kết thúc. Tối đa 366 ngày.",
-    "Each account is observed for the same number of days after registration. OAuth and manual keys are alternative paths; payment is independent of first use.": "Mỗi tài khoản được theo dõi cùng số ngày sau khi đăng ký. OAuth và khóa tạo thủ công là hai cách kết nối thay thế nhau; thanh toán không phải theo thứ tự cố định với lần sử dụng đầu tiên.",
-    "End date": "Ngày kết thúc",
-    "First successful payment": "Thanh toán thành công lần đầu",
-    "Identifiable browser visitors": "Khách truy cập trình duyệt có thể nhận diện",
-    "Manual API key created": "Đã tạo khóa API thủ công",
-    "Mature cohort": "Nhóm đã đủ thời gian theo dõi",
-    "Mature cohort conversion": "Tỷ lệ chuyển đổi của nhóm đã đủ thời gian theo dõi",
-    "No completion observed": "Chưa quan sát thấy hoàn tất",
-    "No payment attribution recorded yet.": "Chưa có bản ghi quy thuộc nguồn thanh toán.",
-    "No visitor observations in the retained part of this period.": "Không có quan sát khách truy cập trong phần còn được lưu giữ của khoảng thời gian này.",
-    "OAuth authorized": "Đã cấp quyền OAuth",
-    "OAuth authorized or key created": "Đã cấp quyền OAuth hoặc tạo khóa",
-    "Observation days": "Số ngày theo dõi",
-    "Observed accounts": "Tài khoản đã quan sát",
-    "Observed browser identifiers": "Mã nhận diện trình duyệt đã quan sát",
-    "Observing": "Đang theo dõi",
-    "Payment attribution uses saved evidence and its recorded lookback window. It does not change registration attribution or prove causation.": "Việc quy thuộc nguồn thanh toán dùng bằng chứng đã lưu và khoảng truy hồi đã ghi nhận. Điều này không thay đổi nguồn quy thuộc khi đăng ký hay chứng minh quan hệ nhân quả.",
-    "Payments": "Thanh toán",
-    "Rates use only accounts with a complete observation window and known evidence. Timings are from registration, with the timing sample count in parentheses.": "Tỷ lệ chỉ tính trên các tài khoản đã đủ thời gian theo dõi và có bằng chứng rõ ràng. Thời gian được tính từ lúc đăng ký; số mẫu dùng để tính thời gian nằm trong ngoặc.",
-    "Records available from": "Bản ghi có sẵn từ",
-    "Repeat payment": "Thanh toán lại",
-    "Selected registration period": "Khoảng thời gian đăng ký đã chọn",
-    "Some stages lack historical evidence. Unknown accounts are not failed conversions.": "Một số giai đoạn thiếu bằng chứng lịch sử. Tài khoản có trạng thái chưa rõ không được tính là chuyển đổi thất bại.",
-    "Source before first payment": "Nguồn trước lần thanh toán đầu tiên",
-    "Stage": "Giai đoạn",
-    "Start date": "Ngày bắt đầu",
-    "These filters apply only to this conversion section. Content filters exclude older registrations without a recorded content label.": "Các bộ lọc này chỉ áp dụng cho phần chuyển đổi. Lọc theo nội dung sẽ loại trừ các đăng ký cũ không có nhãn nội dung được ghi nhận.",
-    "Today (UTC)": "Hôm nay (UTC)",
-    "Visitor records do not cover this entire period. Counts below include only retained observations.": "Bản ghi khách truy cập không bao phủ toàn bộ khoảng thời gian này. Số liệu bên dưới chỉ gồm các quan sát còn được lưu giữ.",
-    "Payment attribution is still processing or unavailable; missing snapshots are not zero conversions.": "Việc quy thuộc nguồn thanh toán vẫn đang xử lý hoặc chưa khả dụng; thiếu bản chụp dữ liệu không có nghĩa là số lượt chuyển đổi bằng không.",
-    "Administrator status notice": "Thông báo trạng thái của quản trị viên",
-    "Current routing configuration": "Cấu hình định tuyến hiện tại",
-    "Routing availability is a configuration snapshot, not an upstream health probe. Administrator notices do not change request routing.": "Khả dụng phản ánh cấu hình định tuyến, không phải kiểm tra sức khỏe nhà cung cấp. Thông báo của quản trị viên không thay đổi tuyến yêu cầu.",
-    "Status notice expires": "Thời hạn thông báo trạng thái",
-    "Temporarily unavailable": "Tạm thời không khả dụng",
-    "Congested": "Đang quá tải",
-    "This publishes a status notice only. It does not disable channels or change routing. Notices must expire within 30 days.": "Chỉ công bố thông báo trạng thái, không tắt kênh hoặc đổi tuyến. Thông báo phải hết hạn trong vòng 30 ngày.",
-    "Under maintenance": "Đang bảo trì",
-    "Public operational status": "Trạng thái vận hành công khai",
-    "Operational status": "Trạng thái vận hành",
-    "Use routing configuration": "Theo cấu hình định tuyến",
-    "Public status explanation": "Giải thích trạng thái công khai",
-    "Routable now": "Có tuyến khả dụng",
-    "No account access": "Tài khoản không có quyền truy cập",
-    "Not in the model catalog": "Không có trong danh mục mô hình",
-    "Runtime status unknown": "Chưa rõ trạng thái vận hành"
-  }
+  vi: {
+    'Account export failed. Check export permission or narrow the registration period.':
+      'Không thể xuất chi tiết tài khoản. Hãy kiểm tra quyền xuất hoặc thu hẹp khoảng thời gian đăng ký.',
+    'Corrected source': 'Nguồn đã sửa',
+    'Correction reason': 'Lý do sửa',
+    'Correction was not saved. Reloaded the latest version; check the source, reason and consent before retrying.':
+      'Chưa lưu bản sửa. Đã tải lại phiên bản mới nhất; hãy kiểm tra nguồn, lý do và trạng thái đồng ý trước khi thử lại.',
+    'Explain the evidence without URLs, credentials or personal contact details.':
+      'Giải thích căn cứ xác minh, không nhập URL, thông tin xác thực hay thông tin liên hệ cá nhân.',
+    'Export filtered account details': 'Xuất chi tiết tài khoản theo bộ lọc',
+    'Exports account IDs and conversion status for the current source and registration period, without email addresses. Maximum 10,000 accounts.':
+      'Xuất ID tài khoản và trạng thái chuyển đổi theo nguồn và khoảng thời gian đăng ký hiện tại, không gồm địa chỉ email. Tối đa 10.000 tài khoản.',
+    'Manual corrections are shown separately. Observed attribution, channel totals, invitations and payments remain unchanged.':
+      'Các bản sửa thủ công được hiển thị riêng. Nguồn quy thuộc đã quan sát, tổng số theo kênh, quan hệ mời và các khoản thanh toán không thay đổi.',
+    'Manual source correction': 'Sửa nguồn thủ công',
+    'No manual source correction recorded.': 'Chưa có bản sửa nguồn thủ công.',
+    'Save correction with audit record': 'Lưu bản sửa kèm nhật ký kiểm tra',
+    'Showing the latest 100 retained corrections.':
+      'Hiển thị 100 bản sửa gần nhất còn trong thời hạn lưu giữ.',
+    'API access approved': 'Đã phê duyệt quyền truy cập API',
+    'API connection': 'Kết nối API',
+    'Access application submitted': 'Đã gửi đơn xin quyền truy cập',
+    'Apply date range': 'Áp dụng khoảng ngày',
+    'Apply filters': 'Áp dụng bộ lọc',
+    'Attributed from earlier source records':
+      'Quy thuộc từ các bản ghi nguồn trước đó',
+    'Attribution evidence': 'Bằng chứng quy thuộc',
+    'Average hours since registration': 'Số giờ trung bình kể từ khi đăng ký',
+    Both: 'Cả hai',
+    'Choose a valid date range ending no later than today.':
+      'Chọn khoảng ngày hợp lệ có ngày kết thúc không muộn hơn hôm nay.',
+    'Client configuration confirmed': 'Đã xác nhận cấu hình ứng dụng',
+    'Cohort conversion': 'Chuyển đổi theo nhóm đăng ký',
+    'Counts cover consenting browser identifiers, not people. One browser can appear in several channels, so channel counts must not be added together.':
+      'Số liệu tính theo mã nhận diện trình duyệt đã đồng ý, không phải số người. Một trình duyệt có thể xuất hiện ở nhiều kênh, vì vậy không được cộng số lượng giữa các kênh.',
+    'Dates use UTC; the end date is included. Up to 366 days.':
+      'Ngày tính theo UTC và bao gồm ngày kết thúc. Tối đa 366 ngày.',
+    'Each account is observed for the same number of days after registration. OAuth and manual keys are alternative paths; payment is independent of first use.':
+      'Mỗi tài khoản được theo dõi cùng số ngày sau khi đăng ký. OAuth và khóa tạo thủ công là hai cách kết nối thay thế nhau; thanh toán không phải theo thứ tự cố định với lần sử dụng đầu tiên.',
+    'End date': 'Ngày kết thúc',
+    'First successful payment': 'Thanh toán thành công lần đầu',
+    'Identifiable browser visitors':
+      'Khách truy cập trình duyệt có thể nhận diện',
+    'Manual API key created': 'Đã tạo khóa API thủ công',
+    'Mature cohort': 'Nhóm đã đủ thời gian theo dõi',
+    'Mature cohort conversion':
+      'Tỷ lệ chuyển đổi của nhóm đã đủ thời gian theo dõi',
+    'No completion observed': 'Chưa quan sát thấy hoàn tất',
+    'No payment attribution recorded yet.':
+      'Chưa có bản ghi quy thuộc nguồn thanh toán.',
+    'No visitor observations in the retained part of this period.':
+      'Không có quan sát khách truy cập trong phần còn được lưu giữ của khoảng thời gian này.',
+    'OAuth authorized': 'Đã cấp quyền OAuth',
+    'OAuth authorized or key created': 'Đã cấp quyền OAuth hoặc tạo khóa',
+    'Observation days': 'Số ngày theo dõi',
+    'Observed accounts': 'Tài khoản đã quan sát',
+    'Observed browser identifiers': 'Mã nhận diện trình duyệt đã quan sát',
+    Observing: 'Đang theo dõi',
+    'Payment attribution uses saved evidence and its recorded lookback window. It does not change registration attribution or prove causation.':
+      'Việc quy thuộc nguồn thanh toán dùng bằng chứng đã lưu và khoảng truy hồi đã ghi nhận. Điều này không thay đổi nguồn quy thuộc khi đăng ký hay chứng minh quan hệ nhân quả.',
+    Payments: 'Thanh toán',
+    'Rates use only accounts with a complete observation window and known evidence. Timings are from registration, with the timing sample count in parentheses.':
+      'Tỷ lệ chỉ tính trên các tài khoản đã đủ thời gian theo dõi và có bằng chứng rõ ràng. Thời gian được tính từ lúc đăng ký; số mẫu dùng để tính thời gian nằm trong ngoặc.',
+    'Records available from': 'Bản ghi có sẵn từ',
+    'Repeat payment': 'Thanh toán lại',
+    'Selected registration period': 'Khoảng thời gian đăng ký đã chọn',
+    'Some stages lack historical evidence. Unknown accounts are not failed conversions.':
+      'Một số giai đoạn thiếu bằng chứng lịch sử. Tài khoản có trạng thái chưa rõ không được tính là chuyển đổi thất bại.',
+    'Source before first payment': 'Nguồn trước lần thanh toán đầu tiên',
+    Stage: 'Giai đoạn',
+    'Start date': 'Ngày bắt đầu',
+    'These filters apply only to this conversion section. Content filters exclude older registrations without a recorded content label.':
+      'Các bộ lọc này chỉ áp dụng cho phần chuyển đổi. Lọc theo nội dung sẽ loại trừ các đăng ký cũ không có nhãn nội dung được ghi nhận.',
+    'Today (UTC)': 'Hôm nay (UTC)',
+    'Visitor records do not cover this entire period. Counts below include only retained observations.':
+      'Bản ghi khách truy cập không bao phủ toàn bộ khoảng thời gian này. Số liệu bên dưới chỉ gồm các quan sát còn được lưu giữ.',
+    'Payment attribution is still processing or unavailable; missing snapshots are not zero conversions.':
+      'Việc quy thuộc nguồn thanh toán vẫn đang xử lý hoặc chưa khả dụng; thiếu bản chụp dữ liệu không có nghĩa là số lượt chuyển đổi bằng không.',
+    'Administrator status notice': 'Thông báo trạng thái của quản trị viên',
+    'Current routing configuration': 'Cấu hình định tuyến hiện tại',
+    'Routing availability is a configuration snapshot, not an upstream health probe. Administrator notices do not change request routing.':
+      'Khả dụng phản ánh cấu hình định tuyến, không phải kiểm tra sức khỏe nhà cung cấp. Thông báo của quản trị viên không thay đổi tuyến yêu cầu.',
+    'Status notice expires': 'Thời hạn thông báo trạng thái',
+    'Temporarily unavailable': 'Tạm thời không khả dụng',
+    Congested: 'Đang quá tải',
+    'This publishes a status notice only. It does not disable channels or change routing. Notices must expire within 30 days.':
+      'Chỉ công bố thông báo trạng thái, không tắt kênh hoặc đổi tuyến. Thông báo phải hết hạn trong vòng 30 ngày.',
+    'Under maintenance': 'Đang bảo trì',
+    'Public operational status': 'Trạng thái vận hành công khai',
+    'Operational status': 'Trạng thái vận hành',
+    'Use routing configuration': 'Theo cấu hình định tuyến',
+    'Public status explanation': 'Giải thích trạng thái công khai',
+    'Routable now': 'Có tuyến khả dụng',
+    'No account access': 'Tài khoản không có quyền truy cập',
+    'Not in the model catalog': 'Không có trong danh mục mô hình',
+    'Runtime status unknown': 'Chưa rõ trạng thái vận hành',
+  },
 }
 
 async function main() {
@@ -11553,10 +11840,11 @@ async function main() {
           'ru:Public': 'Публичный',
         }
         const conflict = b !== c && b !== a && c !== a
-        if (conflict && !Object.hasOwn(decisions, `${locale}:${key}`))
+        if (conflict && !Object.hasOwn(decisions, `${locale}:${key}`)) {
           throw new Error(
             `Resolve translation meaning before merging: ${locale}: ${key}`
           )
+        }
         const value = conflict ? decisions[`${locale}:${key}`] : b !== a ? b : c
         if (value !== undefined) merged[key] = value
       }
@@ -11592,19 +11880,74 @@ async function main() {
   const keyFollowthroughOnly = process.argv.includes('--only-key-followthrough')
   const fixedGroupOnly = process.argv.includes('--only-fixed-group')
   const operationsFinishOnly = process.argv.includes('--only-operations-finish')
-  const scoped = operationsFinishOnly || fixedGroupOnly || keyFollowthroughOnly || competitionOnly || costOnly || clientsOnly || feedbackOnly || logRecoveryOnly || statusOnly || parallelOnly || estimateOnly || activityOnly || toolMarketOnly || acquisitionOnly ||
-    experienceOnly || paymentOnly || homeOnly || waitOnly || assistantToolOnly
-  const entries = operationsFinishOnly ? operationsFinishCopy : fixedGroupOnly ? fixedGroupCopy : keyFollowthroughOnly ? keyFollowthroughCopy : competitionOnly ? Object.fromEntries(Object.entries(signalCompetitionKeys).map(([locale, values]) => [locale, Object.fromEntries(Object.entries(values).filter(([key]) => !['Account', 'Public'].includes(key)))])) : costOnly ? acquisitionCostCopy : clientsOnly ? clientPresetsCopy : feedbackOnly ? sourceFeedbackCopy : logRecoveryOnly ? logRecoveryCopy : statusOnly ? modelStatusCopy : parallelOnly ? parallelExperienceCopy : estimateOnly ? requestEstimateCopy : activityOnly ? acquisitionActivityCopy : toolMarketOnly ? toolMarketCopy : acquisitionOnly ? acquisitionCopy : experienceOnly
-    ? experienceCopy
-    : paymentOnly
-      ? paymentPricingCopy
-      : homeOnly
-        ? homeEditorialCopy
-        : waitOnly
-          ? waitCompanionCopy
-          : assistantToolOnly
-            ? assistantToolCopy
-            : newKeys
+  const scoped =
+    operationsFinishOnly ||
+    fixedGroupOnly ||
+    keyFollowthroughOnly ||
+    competitionOnly ||
+    costOnly ||
+    clientsOnly ||
+    feedbackOnly ||
+    logRecoveryOnly ||
+    statusOnly ||
+    parallelOnly ||
+    estimateOnly ||
+    activityOnly ||
+    toolMarketOnly ||
+    acquisitionOnly ||
+    experienceOnly ||
+    paymentOnly ||
+    homeOnly ||
+    waitOnly ||
+    assistantToolOnly
+  const entries = operationsFinishOnly
+    ? operationsFinishCopy
+    : fixedGroupOnly
+      ? fixedGroupCopy
+      : keyFollowthroughOnly
+        ? keyFollowthroughCopy
+        : competitionOnly
+          ? Object.fromEntries(
+              Object.entries(signalCompetitionKeys).map(([locale, values]) => [
+                locale,
+                Object.fromEntries(
+                  Object.entries(values).filter(
+                    ([key]) => !['Account', 'Public'].includes(key)
+                  )
+                ),
+              ])
+            )
+          : costOnly
+            ? acquisitionCostCopy
+            : clientsOnly
+              ? clientPresetsCopy
+              : feedbackOnly
+                ? sourceFeedbackCopy
+                : logRecoveryOnly
+                  ? logRecoveryCopy
+                  : statusOnly
+                    ? modelStatusCopy
+                    : parallelOnly
+                      ? parallelExperienceCopy
+                      : estimateOnly
+                        ? requestEstimateCopy
+                        : activityOnly
+                          ? acquisitionActivityCopy
+                          : toolMarketOnly
+                            ? toolMarketCopy
+                            : acquisitionOnly
+                              ? acquisitionCopy
+                              : experienceOnly
+                                ? experienceCopy
+                                : paymentOnly
+                                  ? paymentPricingCopy
+                                  : homeOnly
+                                    ? homeEditorialCopy
+                                    : waitOnly
+                                      ? waitCompanionCopy
+                                      : assistantToolOnly
+                                        ? assistantToolCopy
+                                        : newKeys
   let totalAdded = 0
   for (const [locale, baseTranslations] of Object.entries(entries)) {
     const translations = scoped
@@ -11626,7 +11969,10 @@ async function main() {
     const filePath = path.join(LOCALES_DIR, `${locale}.json`)
     const json = JSON.parse(await fs.readFile(filePath, 'utf8'))
     let count = 0
-    for (const key of [...retiredPricingKeys, ...(scoped ? [] : deprecatedCurrencyKeys)]) {
+    for (const key of [
+      ...retiredPricingKeys,
+      ...(scoped ? [] : deprecatedCurrencyKeys),
+    ]) {
       if (Object.hasOwn(json.translation, key)) {
         delete json.translation[key]
         count++

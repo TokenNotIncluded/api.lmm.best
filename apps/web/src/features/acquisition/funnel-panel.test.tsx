@@ -116,10 +116,11 @@ test('partial visitor coverage and unknown funnel evidence remain explicit', asy
         </QueryClientProvider>
       )
     )
-    for (let i = 0; i < 30 && container.textContent?.includes('Loading'); i++)
+    for (let i = 0; i < 30 && container.textContent?.includes('Loading'); i++) {
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 20))
       })
+    }
     assert.match(
       container.textContent || '',
       /Visitor records do not cover this entire period/
