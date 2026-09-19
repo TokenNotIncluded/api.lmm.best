@@ -2,15 +2,6 @@ name: LMM Go backend release
 
 on:
   workflow_dispatch:
-    inputs:
-      deploy:
-        description: Deploy after publication using the native production transaction
-        type: boolean
-        default: false
-      confirm:
-        description: For deployment, enter api.lmm.best
-        type: string
-        required: false
 
 permissions:
   actions: read
@@ -387,34 +378,3 @@ jobs:
           readback=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
             --json tagName,targetCommitish,name,body,isDraft,isPrerelease,assets)
           verify_release "$readback"
-
-  deploy:
-    name: Deploy verified release to ArchDmit
-    needs: [prepare, publish]
-    if: success() && inputs.deploy && inputs.confirm == 'api.lmm.best' && github.event_name == 'workflow_dispatch' && github.repository == 'TokenNotIncluded/api.lmm.best' && startsWith(github.ref, 'refs/tags/go-v')
-    runs-on: ubuntu-latest
-    timeout-minutes: 50
-    permissions:
-      contents: read
-      actions: read
-    environment: production
-    # Both component releases share the production lock. Never interrupt a promotion.
-    concurrency:
-      group: production-auto-deploy
-      cancel-in-progress: false
-    steps:
-      - name: Checkout the exact released revision
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          ref: ${{ needs.prepare.outputs.revision }}
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Deploy the signed release
-        uses: ./.github/actions/deploy-production
-        with:
-          release-tag: ${{ github.ref_name }}
-          release-sha: ${{ needs.prepare.outputs.revision }}
-          github-token: ${{ github.token }}
-          ssh-private-key: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
-          ssh-known-hosts: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}

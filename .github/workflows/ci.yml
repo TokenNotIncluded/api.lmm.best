@@ -7,8 +7,6 @@ on:
     # Feature branches run through pull_request; keep main and tag evidence for releases.
     branches: [main]
     tags: ["*"]
-    # A production operation request is not a source change or release candidate.
-    paths-ignore: [.github/server-ops-343-request.json]
   workflow_dispatch:
     inputs:
       base-ref:
@@ -95,16 +93,9 @@ jobs:
       - name: Test public production acceptance
         run: python3 -B -m unittest discover -s scripts -p test_public_production.py
 
-      - name: Test workflow topology and deployment guards
+      - name: Test workflow topology and manual deployment boundary
         run: |
           node --test scripts/workflow-topology.test.mjs
-          python3 scripts/test-server-ops.py
-          python3 scripts/test-server-repair-startup.py
-          python3 scripts/test-server-ops-commit-request.py
-          python3 scripts/test-server-ops-helper-payload.py
-
-      - name: Test PR description policy
-        run: node --test scripts/pr-quality.test.mjs
 
       - name: Test relay timeout differential comparator
         run: python3 -B -m unittest discover -s apps/api-rust/tests/behavior-oracle/fixtures -p test_relay_timeout_compare.py

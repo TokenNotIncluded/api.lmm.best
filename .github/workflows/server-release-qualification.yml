@@ -7,7 +7,6 @@ on:
   push:
     branches:
       - main
-    paths-ignore: [.github/server-ops-343-request.json]
   workflow_dispatch:
   schedule:
     - cron: "17 3 * * *"
