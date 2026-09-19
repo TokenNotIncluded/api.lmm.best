@@ -89,6 +89,60 @@ function formatUpdated(value: string | undefined, fallback: string) {
   return Number.isNaN(date.getTime()) ? fallback : date.toLocaleString()
 }
 
+function PublicScriptSource({ script }: { script: ScriptMeta }) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const source = useQuery({
+    queryKey: ['public-script-source', script.name, script.updated],
+    enabled: open,
+    staleTime: 30_000,
+    queryFn: async () => {
+      const response = await api.get<string>(
+        `/api/scripts/${encodeURIComponent(script.name)}/raw`,
+        { skipBusinessError: true, responseType: 'text' }
+      )
+      if (typeof response.data !== 'string') {
+        throw new Error('Unable to load script')
+      }
+      return response.data
+    },
+  })
+  return (
+    <details
+      className='border-border/70 border-t'
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <summary className='hover:bg-muted/50 cursor-pointer px-4 py-3 text-sm font-medium'>
+        {script.name}
+      </summary>
+      {open && (
+        <div className='space-y-3 px-4 pb-4'>
+          <a
+            href={scriptUrl(script.name)}
+            download={script.name}
+            className='text-primary text-sm underline underline-offset-4'
+          >
+            {t('Download')}
+          </a>
+          {source.isError ? (
+            <p role='alert' className='text-destructive text-sm'>
+              {t('Unable to load script')}
+            </p>
+          ) : (
+            <pre
+              className='bg-muted max-h-96 overflow-auto rounded-lg p-3 text-xs'
+              tabIndex={0}
+              aria-label={script.name}
+            >
+              <code>{source.isPending ? t('Loading...') : source.data}</code>
+            </pre>
+          )}
+        </div>
+      )}
+    </details>
+  )
+}
+
 export function PublicScriptsPanel({
   fullPage = false,
 }: {
@@ -114,7 +168,7 @@ export function PublicScriptsPanel({
       toast.error(t('Unable to copy command'))
     }
   }
-  if (!menus.length) {
+  if (!scripts.data?.length) {
     if (!fullPage) return null
     return (
       <div className='border-border/70 text-muted-foreground border border-dashed p-8 text-sm'>
@@ -180,6 +234,14 @@ export function PublicScriptsPanel({
           </section>
         )
       })}
+      <details className='border-border/70 rounded-xl border'>
+        <summary className='hover:bg-muted/50 cursor-pointer p-4 text-sm font-medium'>
+          {t('Scripts')} ({scripts.data?.length ?? 0})
+        </summary>
+        {scripts.data?.map((script) => (
+          <PublicScriptSource key={script.name} script={script} />
+        ))}
+      </details>
     </div>
   )
 }
