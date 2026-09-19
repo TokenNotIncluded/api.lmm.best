@@ -26,6 +26,7 @@ import { AxiosError } from 'axios'
 import i18next from 'i18next'
 import { StrictMode, Suspense } from 'react'
 import ReactDOM from 'react-dom/client'
+import { I18nextProvider } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { LoadingState } from '@/components/loading-state'
@@ -41,7 +42,7 @@ import { handleServerError } from '@/lib/handle-server-error'
 import { DirectionProvider } from './context/direction-provider'
 import { FontProvider } from './context/font-provider'
 import { ThemeProvider } from './context/theme-provider'
-import './i18n/config'
+import appI18n from './i18n/config'
 // Generated Routes
 import { routeTree } from './routeTree.gen'
 
@@ -183,15 +184,17 @@ if (!rootElement.innerHTML) {
           </div>
         }
       >
-        <QueryClientProvider client={queryClient}>
-          <ThemeProvider>
-            <FontProvider>
-              <DirectionProvider>
-                <RouterProvider router={router} />
-              </DirectionProvider>
-            </FontProvider>
-          </ThemeProvider>
-        </QueryClientProvider>
+        <I18nextProvider i18n={appI18n}>
+          <QueryClientProvider client={queryClient}>
+            <ThemeProvider>
+              <FontProvider>
+                <DirectionProvider>
+                  <RouterProvider router={router} />
+                </DirectionProvider>
+              </FontProvider>
+            </ThemeProvider>
+          </QueryClientProvider>
+        </I18nextProvider>
       </Suspense>
     </StrictMode>
   )

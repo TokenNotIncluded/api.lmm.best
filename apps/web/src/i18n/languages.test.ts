@@ -22,7 +22,11 @@ Copyright (C) 2026 LIghtJUNction
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
-import { normalizeInterfaceLanguage, toIntlLocale } from './languages'
+import {
+  convertDetectedLanguage,
+  normalizeInterfaceLanguage,
+  toIntlLocale,
+} from './languages'
 
 describe('interface language locale conversion', () => {
   test('keeps the internal Chinese codes separate from Intl locale tags', () => {
@@ -37,4 +41,20 @@ describe('interface language locale conversion', () => {
     assert.equal(toIntlLocale('???'), undefined)
     assert.equal(toIntlLocale(null), undefined)
   })
+})
+
+test('regional browser locales keep their supported interface language', () => {
+  for (const [input, expected] of [
+    ['fr-FR', 'fr'],
+    ['fr_CA', 'fr'],
+    ['ja-JP', 'ja'],
+    ['ru-RU', 'ru'],
+    ['vi-VN', 'vi'],
+    ['en-GB', 'en'],
+  ]) {
+    assert.equal(normalizeInterfaceLanguage(input), expected)
+  }
+  assert.equal(convertDetectedLanguage('zhTW'), 'zhTW')
+  assert.equal(convertDetectedLanguage('zhCN'), 'zhCN')
+  assert.equal(convertDetectedLanguage('zh-Hant-HK'), 'zhTW')
 })
