@@ -2,19 +2,15 @@ package helper
 
 import (
 	"fmt"
-	"math"
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
-	"github.com/LIghtJUNction/api.lmm.best/constant"
 	"github.com/LIghtJUNction/api.lmm.best/logger"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/pkg/billingexpr"
-	"github.com/LIghtJUNction/api.lmm.best/pkg/dynamic_pricing"
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/types"
 	"github.com/LIghtJUNction/api.lmm.best/setting/billing_setting"
-	"github.com/LIghtJUNction/api.lmm.best/setting/dynamic_pricing_setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
 	hosttypes "github.com/LIghtJUNction/api.lmm.best/types"
@@ -35,29 +31,6 @@ func modelPriceNotConfiguredError(modelName string, userId int) error {
 			"Model %s has not been priced by the administrator yet. Please contact the site administrator to enable this model.",
 		modelName, modelName,
 	)
-}
-
-func requestDynamicPricingMultiplier(c *gin.Context, info *relaycommon.RelayInfo) (float64, error) {
-	if !dynamic_pricing_setting.IsEnabled() {
-		return 1.0, nil
-	}
-	if info == nil {
-		return 0, fmt.Errorf("dynamic pricing requires relay information")
-	}
-	channelID := common.GetContextKeyInt(c, constant.ContextKeyChannelId)
-	multiplier, _, err := dynamic_pricing.GetRequestMultiplier(info.OriginModelName, channelID)
-	return multiplier, err
-}
-
-func validateDynamicPricingBillingBase(modelName string, groupRatio, billingBase float64) error {
-	if !dynamic_pricing_setting.IsEnabled() {
-		return nil
-	}
-	if groupRatio <= 0 || math.IsNaN(groupRatio) || math.IsInf(groupRatio, 0) ||
-		billingBase <= 0 || math.IsNaN(billingBase) || math.IsInf(billingBase, 0) {
-		return fmt.Errorf("dynamic pricing blocked model %s: the effective billing base must be positive", modelName)
-	}
-	return nil
 }
 
 // https://docs.claude.com/en/docs/build-with-claude/prompt-caching#1-hour-cache-duration
@@ -171,13 +144,6 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 			}
 		}
 	}
-	billingBase := modelRatio
-	if usePrice {
-		billingBase = modelPrice
-	}
-	if err := validateDynamicPricingBillingBase(info.OriginModelName, groupRatioInfo.GroupRatio, billingBase); err != nil {
-		return hosttypes.PriceData{}, err
-	}
 
 	priceData := hosttypes.PriceData{
 		FreeModel:            freeModel,
@@ -194,16 +160,7 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 		CacheCreation5mRatio: cacheCreationRatio5m,
 		CacheCreation1hRatio: cacheCreationRatio1h,
 	}
-	// 动态定价：在预扣与结算两个路径之前注入倍率，使 pre-consume 与 post-consume 一致。
-	// 两条计费分支的预扣额度计算都必须发生在此注入之后，确保 ratio-billed
-	// (非 usePrice) 模型的 pre-consume 同样包含动态倍率。
-	if dynamic_pricing_setting.IsEnabled() {
-		multiplier, err := requestDynamicPricingMultiplier(c, info)
-		if err != nil {
-			return hosttypes.PriceData{}, err
-		}
-		priceData.AddOtherRatio("dynamic_pricing", multiplier)
-	}
+
 	if !freeModel {
 		if usePrice {
 			for name, ratio := range meta.BillingRatios {
@@ -280,13 +237,6 @@ func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (hostt
 			}
 		}
 	}
-	billingBase := modelRatio
-	if usePrice {
-		billingBase = modelPrice
-	}
-	if err := validateDynamicPricingBillingBase(info.OriginModelName, groupRatioInfo.GroupRatio, billingBase); err != nil {
-		return hosttypes.PriceData{}, err
-	}
 
 	priceData := hosttypes.PriceData{
 		FreeModel:      freeModel,
@@ -295,19 +245,8 @@ func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (hostt
 		UsePrice:       usePrice,
 		GroupRatioInfo: groupRatioInfo,
 	}
-	// 动态定价：按次计费同样应用模型倍率。注入必须位于 Quota 写入之前，
-	// 这样 priceData 额度的所有下游使用（relay_task 的预扣按 OtherRatios 折算、
-	// task_billing 的差额结算）都能看到该倍率。
-	if dynamic_pricing_setting.IsEnabled() {
-		multiplier, err := requestDynamicPricingMultiplier(c, info)
-		if err != nil {
-			return hosttypes.PriceData{}, err
-		}
-		priceData.AddOtherRatio("dynamic_pricing", multiplier)
-	}
 
-	// 预扣额度（基础额度，不含 OtherRatios；下游统一按 OtherRatios 折算，
-	// 此处不可把动态倍率直接折入 Quota，否则 relay_task 会重复应用）。
+	// Store the base quota; task adaptors apply their size/duration ratios once.
 	if !freeModel {
 		var quotaBase float64
 		if usePrice {
@@ -364,9 +303,6 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptT
 	if err != nil {
 		return hosttypes.PriceData{}, fmt.Errorf("model %s tiered expr run failed: %w", info.OriginModelName, err)
 	}
-	if err := validateDynamicPricingBillingBase(info.OriginModelName, groupRatioInfo.GroupRatio, rawCost); err != nil {
-		return hosttypes.PriceData{}, err
-	}
 
 	// Expression coefficients are $/1M tokens prices; convert to quota the same way per-call billing does.
 	quotaBeforeGroup := rawCost / 1_000_000 * common.QuotaPerUnit
@@ -405,19 +341,6 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptT
 		FreeModel:         freeModel,
 		GroupRatioInfo:    groupRatioInfo,
 		QuotaToPreConsume: preConsumedQuota,
-	}
-	if dynamic_pricing_setting.IsEnabled() {
-		mult, err := requestDynamicPricingMultiplier(c, info)
-		if err != nil {
-			return hosttypes.PriceData{}, err
-		}
-		priceData.AddOtherRatio("dynamic_pricing", mult)
-		quota, err := common.QuotaFromFloatStrict(float64(preConsumedQuota) * mult)
-		if err != nil {
-			return hosttypes.PriceData{}, err
-		}
-		priceData.QuotaToPreConsume = quota
-		snapshot.EstimatedQuotaAfterGroup = quota
 	}
 
 	logger.LogDebug(c, "model_price_helper_tiered result: model=%s preConsume=%d quotaBeforeGroup=%.2f groupRatio=%.2f tier=%s", info.OriginModelName, preConsumedQuota, quotaBeforeGroup, groupRatioInfo.GroupRatio, trace.MatchedTier)

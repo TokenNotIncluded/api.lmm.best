@@ -170,6 +170,18 @@ export function ApiKeyCell({ apiKey }: { apiKey: ApiKey }) {
     copyTooltip = t('Copied!')
   }
 
+  if (apiKey.one_time_reveal)
+    {return (
+      <div className='space-y-1'>
+        <code className='text-xs'>{apiKey.key}</code>
+        <p className='text-muted-foreground text-xs'>
+          {t(
+            'Shown only at creation. Use your saved key or revoke and replace it.'
+          )}
+        </p>
+      </div>
+    )}
+
   return (
     <div className='flex max-w-full min-w-0 items-center'>
       <Popover open={popoverOpen} onOpenChange={handlePopoverOpen}>

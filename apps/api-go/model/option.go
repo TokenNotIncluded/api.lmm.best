@@ -13,7 +13,6 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/config"
-	"github.com/LIghtJUNction/api.lmm.best/setting/dynamic_pricing_setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/performance_setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
@@ -38,11 +37,21 @@ func isRetiredIPAccessOptionKey(key string) bool {
 	return retired
 }
 
+func isRetiredDynamicPricingOption(key string) bool {
+	return key == "dynamic_pricing_setting" || strings.HasPrefix(key, "dynamic_pricing_setting.")
+}
+
 func AllOption() ([]*Option, error) {
 	var options []*Option
 	var err error
 	err = DB.Find(&options).Error
-	return options, err
+	active := options[:0]
+	for _, option := range options {
+		if !isRetiredDynamicPricingOption(option.Key) {
+			active = append(active, option)
+		}
+	}
+	return active, err
 }
 
 func InitOptionMap() {
@@ -333,8 +342,8 @@ func validateOptionValue(key string, value string) error {
 	if key == "general_setting.custom_currency_code" {
 		return operation_setting.ValidateCustomCurrencyCode(value)
 	}
-	if dynamic_pricing_setting.IsOptionKey(key) {
-		return dynamic_pricing_setting.ValidateOptionValues(map[string]string{key: value})
+	if isRetiredDynamicPricingOption(key) {
+		return errors.New("dynamic pricing has been removed; use fixed group ratios")
 	}
 	if err := setting.ValidateAssistantOption(key, value); err != nil {
 		return err
@@ -442,9 +451,7 @@ func ValidateOptionValue(key, value string) error {
 }
 
 // ValidateOptionValues checks a related set of option writes without
-// persisting them. Dynamic-pricing fields are validated as one candidate
-// configuration so an import cannot pass each field in isolation while the
-// resulting configuration is unsafe.
+// persisting them. Related settings are validated as one candidate.
 func ValidateOptionValues(values map[string]string) error {
 	if err := validateOptionValues(values); err != nil {
 		return err
@@ -456,17 +463,12 @@ func validateOptionValues(values map[string]string) error {
 	if len(values) == 0 {
 		return errors.New("at least one option is required")
 	}
-	dynamicValues := make(map[string]string)
 	assistantRouteChanged := false
 	assistantReviewRouteChanged := false
 	l1AutoReviewValues := make(map[string]string)
 	for key, value := range values {
 		if setting.IsAssistantL1AutoReviewOption(key) {
 			l1AutoReviewValues[key] = value
-			continue
-		}
-		if dynamic_pricing_setting.IsOptionKey(key) {
-			dynamicValues[key] = value
 			continue
 		}
 		switch key {
@@ -519,11 +521,6 @@ func validateOptionValues(values map[string]string) error {
 	}
 	if len(l1AutoReviewValues) > 0 {
 		if err := validateAssistantL1AutoReviewValues(l1AutoReviewValues); err != nil {
-			return err
-		}
-	}
-	if len(dynamicValues) > 0 {
-		if err := dynamic_pricing_setting.ValidateOptionValues(dynamicValues); err != nil {
 			return err
 		}
 	}
@@ -644,6 +641,12 @@ func UpdateAdvancedSecurityOptions(enabled, onPrompt bool, action, rules string)
 }
 
 func updateOptionMap(key string, value string) (err error) {
+	if isRetiredDynamicPricingOption(key) {
+		common.OptionMapRWMutex.Lock()
+		delete(common.OptionMap, key)
+		common.OptionMapRWMutex.Unlock()
+		return nil
+	}
 	if isRetiredIPAccessOptionKey(key) {
 		common.OptionMapRWMutex.Lock()
 		delete(common.OptionMap, key)

@@ -215,9 +215,18 @@ func ReconcileAcquisitionActivity(ctx context.Context, now int64) error {
 }
 func RunAcquisitionActivity(parent context.Context) {
 	run := func() {
+		now := time.Now().Unix()
+		paymentCtx, paymentCancel := context.WithTimeout(parent, 8*time.Second)
+		if DB != nil {
+			if err := ReconcileAcquisitionFirstPayments(paymentCtx, now); err != nil {
+				healthCtx, healthCancel := context.WithTimeout(parent, time.Second)
+				_ = DB.WithContext(healthCtx).Model(&AcquisitionConfig{}).Where("id = 1").Update("payment_snapshot_status", "source_unavailable").Error
+				healthCancel()
+			}
+		}
+		paymentCancel()
 		ctx, cancel := context.WithTimeout(parent, 15*time.Second)
 		defer cancel()
-		now := time.Now().Unix()
 		if err := ReconcileAcquisitionActivity(ctx, now); err != nil && DB != nil {
 			// Persist a bounded class, never SQL text or database credentials.
 			healthCtx, healthCancel := context.WithTimeout(parent, time.Second)

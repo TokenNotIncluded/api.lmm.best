@@ -112,11 +112,22 @@ export function DataTableRowActions<TData>({
 
   const handleMenuOpenChange = useCallback(
     (open: boolean) => {
-      if (open && !resolvedRealKey && !isRealKeyLoading) {
+      if (
+        open &&
+        !apiKey.one_time_reveal &&
+        !resolvedRealKey &&
+        !isRealKeyLoading
+      ) {
         void resolveRealKey(apiKey.id)
       }
     },
-    [apiKey.id, isRealKeyLoading, resolvedRealKey, resolveRealKey]
+    [
+      apiKey.id,
+      apiKey.one_time_reveal,
+      isRealKeyLoading,
+      resolvedRealKey,
+      resolveRealKey,
+    ]
   )
 
   const getCachedRealKey = useCallback(() => {
@@ -265,6 +276,7 @@ export function DataTableRowActions<TData>({
         onOpenChange={handleMenuOpenChange}
       >
         <DropdownMenuItem
+          disabled={apiKey.one_time_reveal}
           onClick={async () => {
             const realKey = getCachedRealKey()
             if (!realKey) return
@@ -279,6 +291,7 @@ export function DataTableRowActions<TData>({
           </DropdownMenuShortcut>
         </DropdownMenuItem>
         <DropdownMenuItem
+          disabled={apiKey.one_time_reveal}
           onClick={async () => {
             const realKey = getCachedRealKey()
             if (!realKey) return
@@ -298,6 +311,7 @@ export function DataTableRowActions<TData>({
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
+          disabled={apiKey.one_time_reveal}
           onClick={async () => {
             const realKey = await resolveRealKey(apiKey.id)
             if (!realKey) return
@@ -313,7 +327,9 @@ export function DataTableRowActions<TData>({
         </DropdownMenuItem>
         {hasChatPresets && (
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger>{t('Chat')}</DropdownMenuSubTrigger>
+            <DropdownMenuSubTrigger disabled={apiKey.one_time_reveal}>
+              {t('Chat')}
+            </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
               {chatPresets.map((preset) => (
                 <DropdownMenuItem

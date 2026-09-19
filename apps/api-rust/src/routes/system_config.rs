@@ -41,6 +41,10 @@ use std::{
 };
 use tokio::sync::{Mutex, RwLock};
 
+fn is_retired_dynamic_pricing_option(key: &str) -> bool {
+    key == "dynamic_pricing_setting" || key.starts_with("dynamic_pricing_setting.")
+}
+
 const OPTIONS_CACHE_KEY: &str = "lmm:system-config:options";
 const AFFINITY_CACHE_PREFIX: &str = "new-api:channel_affinity:v1:";
 const AUTH_VERSION: &str = "864b7076dbcd0a3c01b5520316720ebf";
@@ -539,7 +543,8 @@ impl fmt::Debug for ProcessRuntimeOptions {
 
 impl ProcessRuntimeOptions {
     #[must_use]
-    pub fn new(initial: BTreeMap<String, String>) -> Self {
+    pub fn new(mut initial: BTreeMap<String, String>) -> Self {
+        initial.retain(|key, _| !is_retired_dynamic_pricing_option(key));
         Self {
             values: Arc::new(RwLock::new(initial)),
             protocol_rollout_base: None,
@@ -589,7 +594,11 @@ impl ProcessRuntimeOptions {
 #[async_trait]
 impl SystemConfigRuntimeWriter for ProcessRuntimeOptions {
     async fn preflight(&self, changes: &[(String, String)]) -> Result<(), ()> {
-        if changes.is_empty() || changes.iter().any(|(key, _)| key.trim().is_empty()) {
+        if changes.is_empty()
+            || changes
+                .iter()
+                .any(|(key, _)| key.trim().is_empty() || is_retired_dynamic_pricing_option(key))
+        {
             return Err(());
         }
         if !changes.iter().any(|(key, _)| is_protocol_rollout_key(key)) {
@@ -612,6 +621,12 @@ impl SystemConfigRuntimeWriter for ProcessRuntimeOptions {
     }
 
     async fn apply_committed(&self, changes: &[(String, String)]) -> Result<(), ()> {
+        if changes
+            .iter()
+            .any(|(key, _)| is_retired_dynamic_pricing_option(key))
+        {
+            return Err(());
+        }
         if changes.is_empty() {
             return Ok(());
         }
@@ -2091,7 +2106,8 @@ async fn cached_options(state: &SystemConfigHttpState) -> Result<BTreeMap<String
         && let Ok(mut connection) = state.valkey.get_multiplexed_async_connection().await
         && let Ok(Some(cached)) = connection.get::<_, Option<String>>(OPTIONS_CACHE_KEY).await
     {
-        if let Ok(options) = serde_json::from_str(&cached) {
+        if let Ok(mut options) = serde_json::from_str::<BTreeMap<String, String>>(&cached) {
+            options.retain(|key, _| !is_retired_dynamic_pricing_option(key));
             return Ok(options);
         }
         tracing::warn!("discarding malformed system-config option cache");
@@ -2121,7 +2137,7 @@ async fn authoritative_options(
         .fetch_all(&state.pg)
         .await
         .map_err(|_| ())?;
-    let options = rows
+    let mut options = rows
         .into_iter()
         .map(|row| {
             Ok((
@@ -2132,6 +2148,7 @@ async fn authoritative_options(
         })
         .collect::<Result<BTreeMap<_, _>, sqlx::Error>>()
         .map_err(|_| ())?;
+    options.retain(|key, _| !is_retired_dynamic_pricing_option(key));
     Ok(options)
 }
 
@@ -2171,7 +2188,9 @@ async fn get_options(
     let completion_ratio_meta = completion_ratio_meta(&options);
     let mut data = options
         .into_iter()
-        .filter(|(key, _)| key != "theme.frontend" && !sensitive(key))
+        .filter(|(key, _)| {
+            key != "theme.frontend" && !sensitive(key) && !is_retired_dynamic_pricing_option(key)
+        })
         .map(|(key, value)| json!({"key": key, "value": value}))
         .collect::<Vec<_>>();
     data.push(json!({"key":"CompletionRatioMeta", "value":completion_ratio_meta}));
@@ -2252,6 +2271,9 @@ fn validate_option_update(
     value: &str,
     options: &BTreeMap<String, String>,
 ) -> Result<(), String> {
+    if is_retired_dynamic_pricing_option(key) {
+        return Err("Dynamic pricing has been removed; use fixed group ratios".to_owned());
+    }
     if key.starts_with("payment_setting.compliance_") {
         return Err("合规确认字段不允许通过通用设置接口修改".to_owned());
     }
@@ -3621,5 +3643,37 @@ mod generic_option_parity_tests {
         }
         assert!(validate_option_update("theme.frontend", "classic", &options).is_err());
         assert!(validate_option_update("theme.frontend", "default", &options).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod retired_dynamic_pricing_tests {
+    use super::{ProcessRuntimeOptions, SystemConfigRuntimeWriter, validate_option_update};
+    use std::collections::BTreeMap;
+
+    #[tokio::test]
+    async fn retired_dynamic_pricing_cannot_load_or_reactivate() {
+        let runtime = ProcessRuntimeOptions::new(BTreeMap::from([
+            (
+                "dynamic_pricing_setting.enabled".to_owned(),
+                "true".to_owned(),
+            ),
+            ("GroupRatio".to_owned(), r#"{"default":1.5}"#.to_owned()),
+        ]));
+        let snapshot = runtime.snapshot().await;
+        assert!(!snapshot.contains_key("dynamic_pricing_setting.enabled"));
+        assert!(snapshot.contains_key("GroupRatio"));
+        for key in [
+            "dynamic_pricing_setting",
+            "dynamic_pricing_setting.enabled",
+            "dynamic_pricing_setting.future_field",
+        ] {
+            let changes = vec![(key.to_owned(), "true".to_owned())];
+            assert!(validate_option_update(key, "true", &snapshot).is_err());
+            assert!(runtime.preflight(&changes).await.is_err());
+            assert!(runtime.apply_committed(&changes).await.is_err());
+        }
+        assert!(validate_option_update("GroupRatio", r#"{"default":1.5}"#, &snapshot).is_ok());
+        assert_eq!(runtime.snapshot().await, snapshot);
     }
 }

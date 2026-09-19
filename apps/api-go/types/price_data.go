@@ -35,7 +35,8 @@ type PriceData struct {
 }
 
 func (p *PriceData) AddOtherRatio(key string, ratio float64) {
-	if !isValidOtherRatio(ratio) {
+	// Ignore retired profit factors, including metadata restored from old tasks.
+	if key == "dynamic_pricing" || !isValidOtherRatio(ratio) {
 		return
 	}
 	if p.otherRatios == nil {

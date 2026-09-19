@@ -100,6 +100,7 @@ import {
 } from './api-key-group-combobox'
 import { useApiKeys } from './api-keys-provider'
 import { AutoGroupOrderEditor } from './auto-group-order-editor'
+import { CreatedApiKey, type CreatedApiKeySecret } from './created-api-key'
 
 type ApiKeyMutateDrawerProps = {
   open: boolean
@@ -121,6 +122,9 @@ export function ApiKeysMutateDrawer({
   const cachedStatus = queryClient.getQueryData<{
     default_use_auto_group?: boolean
   }>(['status'])
+  const [createdSecret, setCreatedSecret] =
+    useState<CreatedApiKeySecret | null>(null)
+  const [creationUncertain, setCreationUncertain] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [initializedTarget, setInitializedTarget] = useState<string | null>(
@@ -322,6 +326,7 @@ export function ApiKeysMutateDrawer({
     data: ApiKeyFormValues,
     confirmedWarningCount = warningConfirmations
   ) => {
+    if (creationUncertain || isSubmitting) return
     if (
       selectedGroupWarning?.enabled &&
       confirmedWarningCount !== warningConfirmationsRequired
@@ -353,6 +358,7 @@ export function ApiKeysMutateDrawer({
         for (let i = 0; i < count; i++) {
           const result = await createApiKey({
             ...basePayload,
+            one_time_reveal: count === 1,
             group_warning_confirmations: confirmedWarningCount,
             name:
               i === 0 && data.name
@@ -360,6 +366,15 @@ export function ApiKeysMutateDrawer({
                 : `${data.name || 'default'}-${Math.random().toString(36).slice(2, 8)}`,
           })
           if (result.success) {
+            if (count === 1 && result.data?.key) {
+              setCreatedSecret({
+                id: result.data.id,
+                name: result.data.name,
+                key: result.data.key,
+              })
+              triggerRefresh()
+              return
+            }
             successCount++
           } else {
             toast.error(result.message || t(ERROR_MESSAGES.CREATE_FAILED))
@@ -378,7 +393,15 @@ export function ApiKeysMutateDrawer({
         }
       }
     } catch {
-      toast.error(t(ERROR_MESSAGES.UNEXPECTED))
+      if (!isUpdate) {
+        setCreationUncertain(true)
+        triggerRefresh()
+        toast.error(
+          t(
+            'Creation could not be confirmed. Check the key list before creating another key; an existing key may need to be revoked.'
+          )
+        )
+      } else toast.error(t(ERROR_MESSAGES.UNEXPECTED))
     } finally {
       setIsSubmitting(false)
     }
@@ -392,6 +415,7 @@ export function ApiKeysMutateDrawer({
       setWarningOpen(true)
       return
     }
+    if (creationUncertain) return
     await saveApiKey(data, warningConfirmations)
   }
 
@@ -432,13 +456,28 @@ export function ApiKeysMutateDrawer({
   const autoGroupsMode = form.watch('auto_groups_mode')
   const unlimitedQuota = form.watch('unlimited_quota')
 
+  if (createdSecret && open) {
+    return (
+      <CreatedApiKey
+        secret={createdSecret}
+        onRevoked={triggerRefresh}
+        onClose={() => {
+          setCreatedSecret(null)
+          onOpenChange(false)
+        }}
+      />
+    )
+  }
   return (
     <Sheet
       open={open}
       onOpenChange={(v) => {
+        if (!v && isSubmitting) return
         onOpenChange(v)
         if (!v) {
           form.reset()
+          setCreatedSecret(null)
+          setCreationUncertain(false)
         }
       }}
     >
@@ -455,6 +494,20 @@ export function ApiKeysMutateDrawer({
               : t('Add a new API key by providing necessary info.')}
           </SheetDescription>
         </SheetHeader>
+        {creationUncertain && (
+          <p role='alert' className='p-4 text-sm'>
+            {t(
+              'Creation could not be confirmed. Check the key list before creating another key; an existing key may need to be revoked.'
+            )}
+          </p>
+        )}
+        {!isUpdate && (
+          <p className='text-muted-foreground px-4 text-xs'>
+            {t(
+              'A single new key is shown only once. Advanced batch creation keeps the existing retrievable-key behavior.'
+            )}
+          </p>
+        )}
         <Form {...form}>
           <form
             id='api-key-form'
@@ -876,7 +929,7 @@ export function ApiKeysMutateDrawer({
           <Button
             type='button'
             onClick={form.handleSubmit(onSubmit, onInvalid)}
-            disabled={!isFormInitialized || isSubmitting}
+            disabled={!isFormInitialized || isSubmitting || creationUncertain}
             className='w-full sm:w-auto'
           >
             {isSubmitting ? t('Saving...') : t('Save changes')}

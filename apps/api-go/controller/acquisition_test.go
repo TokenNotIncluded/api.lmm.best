@@ -23,7 +23,7 @@ func TestAcquisitionRejectsUnconsentedAndTestVisitsWithoutCookies(t *testing.T) 
 }
 func TestAcquisitionConsentRevocationRemovesLinkedSourceOnly(t *testing.T) {
 	db := setupUserOnboardingTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.AcquisitionVisitor{}, &model.AcquisitionVisit{}, &model.AcquisitionAccount{}, &model.AcquisitionActivity{}, &model.AcquisitionConsent{}))
+	require.NoError(t, db.AutoMigrate(&model.AcquisitionVisitor{}, &model.AcquisitionVisit{}, &model.AcquisitionAccount{}, &model.AcquisitionActivity{}, &model.AcquisitionConsent{}, &model.AcquisitionCorrection{}, &model.AcquisitionCorrectionHead{}, &model.AcquisitionFirstPayment{}))
 	raw := "0123456789abcdef0123456789abcdef"
 	hash := model.AcquisitionVisitorHash(raw)
 	require.NoError(t, db.Create(&model.AcquisitionVisitor{ID: hash, UserID: 9}).Error)

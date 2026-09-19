@@ -22,6 +22,7 @@ const (
 )
 
 type Token struct {
+	OneTimeReveal      bool           `json:"one_time_reveal" gorm:"not null;default:false"`
 	Id                 int            `json:"id"`
 	UserId             int            `json:"user_id" gorm:"index"`
 	Key                string         `json:"key" gorm:"type:varchar(128);uniqueIndex"`
@@ -87,7 +88,7 @@ func MaskTokenKey(key string) string {
 }
 
 func (token *Token) GetFullKey() string {
-	if token.OAuthManaged {
+	if token.OAuthManaged || token.OneTimeReveal {
 		return ""
 	}
 	return token.Key
@@ -528,7 +529,7 @@ func BatchDeleteTokens(ids []int, userId int) (int, error) {
 func GetTokenKeysByIds(ids []int, userId int) ([]Token, error) {
 	var tokens []Token
 	err := DB.Select("id", "key").
-		Where("user_id = ? AND id IN (?) AND oauth_managed = ?", userId, ids, false).
+		Where("user_id = ? AND id IN (?) AND oauth_managed = ? AND one_time_reveal = ?", userId, ids, false, false).
 		Find(&tokens).Error
 	return tokens, err
 }

@@ -106,6 +106,10 @@ func CreateModelMeta(c *gin.Context) {
 		return
 	}
 
+	if err := model.ValidateModelOperationalNotice(&m, common.GetTimestamp()); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	if err := m.Insert(); err != nil {
 		common.ApiError(c, err)
 		return
@@ -147,6 +151,23 @@ func UpdateModelMeta(c *gin.Context) {
 			return
 		}
 
+		// Older clients do not send operational fields; ordinary metadata edits
+		// must not silently erase an active administrator notice.
+		if m.OperationalStatus == "" {
+			var existing model.Model
+			if err := model.DB.Select("operational_status", "operational_notice", "operational_until").First(&existing, m.Id).Error; err != nil {
+				common.ApiError(c, err)
+				return
+			}
+			m.OperationalStatus, m.OperationalNotice, m.OperationalUntil = existing.OperationalStatus, existing.OperationalNotice, existing.OperationalUntil
+			if m.OperationalUntil <= common.GetTimestamp() {
+				m.OperationalStatus = "auto"
+			}
+		}
+		if err := model.ValidateModelOperationalNotice(&m, common.GetTimestamp()); err != nil {
+			common.ApiError(c, err)
+			return
+		}
 		if err := m.Update(); err != nil {
 			common.ApiError(c, err)
 			return
