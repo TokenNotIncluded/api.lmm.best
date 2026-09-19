@@ -32,7 +32,7 @@ func (runner *productionDispatchStatusRunner) Run(_ context.Context, command pro
 	if len(remote) == 3 && remote[0] == "sha256sum" && remote[1] == "--" {
 		return []byte(runner.payload + "  " + remote[2] + "\n"), nil
 	}
-	if len(remote) >= 4 && remote[1] == "deploy" && remote[2] == "production" && remote[3] == "status" {
+	if len(remote) >= 4 && remote[1] == "operator" && remote[2] == "production" && remote[3] == "status" {
 		runner.programs = append(runner.programs, remote[0])
 		index := runner.calls
 		if index >= len(runner.statuses) {
@@ -90,12 +90,12 @@ func (runner *productionDispatchFaultRunner) Run(_ context.Context, command prod
 		}
 		return []byte("accepted\n"), nil
 	}
-	if len(remote) >= 4 && remote[1] == "deploy" && remote[2] == "production" && remote[3] == "dispatch-evidence" {
+	if len(remote) >= 4 && remote[1] == "operator" && remote[2] == "production" && remote[3] == "dispatch-evidence" {
 		runner.evidenceCalls++
 		encoded, err := json.Marshal(runner.evidence)
 		return append(encoded, '\n'), err
 	}
-	if len(remote) >= 4 && remote[1] == "deploy" && remote[2] == "production" && remote[3] == "status" && runner.statusPhase != "" {
+	if len(remote) >= 4 && remote[1] == "operator" && remote[2] == "production" && remote[3] == "status" && runner.statusPhase != "" {
 		runner.statusCalls++
 		runner.statusPrograms = append(runner.statusPrograms, remote[0])
 		return json.Marshal(productionStatus{Phase: runner.statusPhase})

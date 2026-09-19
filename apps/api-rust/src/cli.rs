@@ -50,9 +50,9 @@ enum Command {
         #[command(subcommand)]
         command: BackendCommand,
     },
-    Deploy {
+    Operator {
         #[command(subcommand)]
-        command: DeployCommand,
+        command: OperatorCommand,
     },
 }
 
@@ -78,7 +78,7 @@ enum BackendCommand {
 }
 
 #[derive(Subcommand)]
-enum DeployCommand {
+enum OperatorCommand {
     Frontend {
         #[command(subcommand)]
         command: FrontendCommand,
@@ -283,7 +283,7 @@ async fn execute(command: Command, stdout: &mut dyn Write, stderr: &mut dyn Writ
             }
         }
         Command::Backend { command } => backend(command, stdout),
-        Command::Deploy { command } => deploy(command, stdout).await,
+        Command::Operator { command } => operator(command, stdout).await,
     };
     match result {
         Ok(()) => EXIT_OK,
@@ -315,9 +315,9 @@ fn backend(command: BackendCommand, stdout: &mut dyn Write) -> Result<(), String
     }
 }
 
-async fn deploy(command: DeployCommand, stdout: &mut dyn Write) -> Result<(), String> {
+async fn operator(command: OperatorCommand, stdout: &mut dyn Write) -> Result<(), String> {
     match command {
-        DeployCommand::Frontend { command } => {
+        OperatorCommand::Frontend { command } => {
             let current = match command {
                 FrontendCommand::PackageActivate { package_version } => {
                     frontend_deploy::package_activate(&package_version)
@@ -342,7 +342,7 @@ async fn deploy(command: DeployCommand, stdout: &mut dyn Write) -> Result<(), St
             .map_err(|error| error.to_string())?;
             writeln!(stdout, "current={current}").map_err(|error| error.to_string())
         }
-        DeployCommand::Production { command } => {
+        OperatorCommand::Production { command } => {
             let status = match command {
                 ProductionCommand::Status(options) => deployment::target_status(&options.workspace),
                 ProductionCommand::Confirm(options) => {
@@ -375,7 +375,7 @@ async fn deploy(command: DeployCommand, stdout: &mut dyn Write) -> Result<(), St
                 .map_err(|error| error.to_string())?;
             writeln!(stdout).map_err(|error| error.to_string())
         }
-        DeployCommand::Contract { command } => match command {
+        OperatorCommand::Contract { command } => match command {
             ContractCommand::Route { command } => {
                 let contract = route_contract::default_contract_path();
                 let digest = match command {
@@ -391,13 +391,13 @@ async fn deploy(command: DeployCommand, stdout: &mut dyn Write) -> Result<(), St
                 writeln!(stdout, "{digest}").map_err(|error| error.to_string())
             }
         },
-        DeployCommand::Plan => {
+        OperatorCommand::Plan => {
             Err(deployment::DeploymentError::UnsupportedController("plan".to_owned()).to_string())
         }
-        DeployCommand::Stage => {
+        OperatorCommand::Stage => {
             Err(deployment::DeploymentError::UnsupportedController("stage".to_owned()).to_string())
         }
-        DeployCommand::Promote => Err(deployment::DeploymentError::UnsupportedController(
+        OperatorCommand::Promote => Err(deployment::DeploymentError::UnsupportedController(
             "promote".to_owned(),
         )
         .to_string()),
@@ -607,7 +607,7 @@ mod tests {
         let mut stderr = Vec::new();
         assert_eq!(
             dispatch(
-                ["lmm-api", "deploy", "production", "plan"],
+                ["lmm-api", "operator", "production", "plan"],
                 &mut stdout,
                 &mut stderr,
             )

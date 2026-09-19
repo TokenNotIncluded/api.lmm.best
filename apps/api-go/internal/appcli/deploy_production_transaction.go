@@ -758,7 +758,7 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 	}
 	oldIndexSHA, err := sha256File(filepath.Join(runtime.paths.FrontendRoot, "current", "index.html"))
 	if err != nil || oldIndexSHA != webRollback.IndexSHA256 || oldTarget != frontendTargetFor(webRollback) {
-		return productionStatus{}, errors.New("active frontend does not exactly match rollback Web package")
+		return productionStatus{}, fmt.Errorf("active frontend does not exactly match rollback Web package: active target=%q index_sha256=%q; rollback package=%q target=%q index_sha256=%q; read_error=%v", oldTarget, oldIndexSHA, webRollback.Identity, frontendTargetFor(webRollback), webRollback.IndexSHA256, err)
 	}
 	if err := runtime.probeFrontend(ctx, candidateEntrypoint, oldIndexSHA); err != nil {
 		return productionStatus{}, fmt.Errorf("pre-upgrade public frontend probe failed: %w", err)
@@ -1287,10 +1287,51 @@ func (runtime *productionRuntime) rollbackBeforeWriterStop(ctx context.Context, 
 	if err != nil {
 		return true, productionStatus{}, fmt.Errorf("pre-stop rollback writer evidence unavailable: %w", err)
 	}
-	if state["ActiveState"] != "active" {
+	resumeStopped := state["ActiveState"] == "inactive" && state["InvocationID"] == gate.GoInvocationID &&
+		gate.AdmissionClosed && !gate.AdmissionReopened && !gate.StopStartedUTC.IsZero() && manifest.ObservationStartedUTC.IsZero()
+	if state["ActiveState"] != "active" && !resumeStopped {
 		return false, productionStatus{}, nil
 	}
-	if state["MainPID"] != strconv.Itoa(gate.GoPID) || state["InvocationID"] != gate.GoInvocationID {
+	if resumeStopped {
+		// StopVerified is durable before any schema/package mutation. Re-audit
+		// the original exit before resuming this exact, unchanged provider.
+		if err := cleanBillingUnitExit(state, gate.GoPID); err != nil {
+			return true, productionStatus{}, err
+		}
+		if err := runtime.verifyNoUntrackedRefunds(ctx, manifest); err != nil {
+			return true, productionStatus{}, err
+		}
+		since := fmt.Sprintf("@%d.%06d", gate.StopStartedUTC.Unix(), gate.StopStartedUTC.Nanosecond()/1000)
+		journal, err := runtime.runner.Run(ctx, productionCommand{Name: commandJournalctl, Args: []string{"--no-pager", "--output=cat", "--since", since, "-u", runtime.paths.Service, "_PID=" + strconv.Itoa(gate.GoPID), "_SYSTEMD_INVOCATION_ID=" + gate.GoInvocationID}})
+		if err != nil {
+			return true, productionStatus{}, err
+		}
+		if err := validateBillingShutdownJournal(journal); err != nil {
+			return true, productionStatus{}, err
+		}
+		tracked, err := runtime.trackedRefundWriter(ctx, manifest)
+		if err != nil || (tracked && !bytes.Contains(bytes.ToLower(journal), []byte("refund_tasks execution_complete="))) {
+			return true, productionStatus{}, errors.New("unchanged stopped writer lacks refund completion evidence")
+		}
+	}
+	sameWriter := resumeStopped || (state["MainPID"] == strconv.Itoa(gate.GoPID) && state["InvocationID"] == gate.GoInvocationID)
+	if gate.GoPID == 0 && gate.GoInvocationID == "" && gate.StopStartedUTC.IsZero() && !gate.AdmissionClosed {
+		// Admission can time out before stopBillingWriter records an identity.
+		// Only restore ingress if systemd proves this writer predates the gate.
+		started, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl,
+			Args: []string{"show", runtime.paths.Service, "--property=ExecMainStartTimestamp", "--value"},
+			Env:  []string{"LC_ALL=C", "TZ=UTC"}})
+		startTime, parseErr := time.Parse("Mon 2006-01-02 15:04:05 MST", strings.TrimSpace(string(started)))
+		pid, pidErr := strconv.Atoi(state["MainPID"])
+		if err != nil || parseErr != nil || pidErr != nil || pid <= 1 || len(state["InvocationID"]) != 32 || gate.StartedUTC.IsZero() || !startTime.Before(gate.StartedUTC.Truncate(time.Second)) {
+			return true, productionStatus{}, errors.New("cannot prove unchanged writer before admission timeout")
+		}
+		if err := runtime.verifyServiceRestartBaseline(ctx, *manifest); err != nil {
+			return true, productionStatus{}, err
+		}
+		sameWriter = true
+	}
+	if !sameWriter {
 		// A replacement writer cannot use the unchanged-writer shortcut. The
 		// normal rollback must drain and verify this instance before mutation.
 		return false, productionStatus{}, nil
@@ -1311,6 +1352,17 @@ func (runtime *productionRuntime) rollbackBeforeWriterStop(ctx context.Context, 
 	}
 	if err := runtime.verifyPreStopEdgeState(workspace, *manifest); err != nil {
 		return true, productionStatus{}, fmt.Errorf("pre-stop rollback edge evidence failed: %w", err)
+	}
+	if resumeStopped {
+		if err := runtime.runMigration(ctx, workspace, *manifest, migrationRun{name: "unchanged-provider-recovery", binary: runtime.paths.InstalledBinary, mode: "verify"}); err != nil {
+			return true, productionStatus{}, err
+		}
+		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"enable", "--now", runtime.paths.Service}}); err != nil {
+			return true, productionStatus{}, err
+		}
+		if err := runtime.probeBackendLocalEventuallyWithBinary(ctx, workspace, *manifest, runtime.paths.InstalledBinary, manifest.OldVersion); err != nil {
+			return true, productionStatus{}, err
+		}
 	}
 	if err := runtime.reopenBillingAdmission(ctx, workspace, manifest); err != nil {
 		return true, productionStatus{}, fmt.Errorf("pre-stop rollback billing restore failed: %w", err)

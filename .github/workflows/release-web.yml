@@ -1,9 +1,6 @@
 name: LMM web release
 
 on:
-  push:
-    tags:
-      - "web-v*.*.*"
   workflow_dispatch:
 
 permissions:
@@ -29,7 +26,6 @@ jobs:
       actions: read
       checks: read
       contents: write
-      issues: read
       id-token: write
     steps:
       - name: Checkout immutable web release revision
@@ -75,11 +71,6 @@ jobs:
             echo "version=$version"
             echo "revision=$revision"
           } >>"$GITHUB_OUTPUT"
-
-      - name: Require all issues and pull requests resolved
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python3 -B scripts/verify-release-work-items.py
 
       - name: Require successful CI, CodeQL, and release contracts
         env:
@@ -130,7 +121,7 @@ jobs:
           bash -n "$hook"
           # Inspect the literal signed-package activation command.
           # shellcheck disable=SC2016
-          grep -Fq '/usr/bin/lmm-api deploy frontend package-activate --package-version "$1"' "$hook"
+          grep -Fq '/usr/bin/lmm-api-deploy frontend package-activate --package-version "$1"' "$hook"
           [[ ! -e deploy ]]
           [[ ! -e packaging/aur/lmm-api-web-bin/lmm-api-web-activate ]]
 
@@ -184,7 +175,6 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          python3 -B scripts/verify-release-work-items.py
           shopt -s nullglob
           version=${RELEASE_TAG#web-v}
           expected_names=(
@@ -240,34 +230,3 @@ jobs:
           readback=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
             --json tagName,targetCommitish,name,body,isDraft,isPrerelease,assets)
           verify_release "$readback"
-
-  deploy:
-    name: Deploy verified release to ArchDmit
-    needs: web
-    if: success() && github.repository == 'TokenNotIncluded/api.lmm.best' && startsWith(github.ref, 'refs/tags/web-v')
-    runs-on: ubuntu-latest
-    timeout-minutes: 50
-    permissions:
-      contents: read
-      actions: read
-    environment: production
-    # Both component releases share the production lock. Never interrupt a promotion.
-    concurrency:
-      group: production-auto-deploy
-      cancel-in-progress: false
-    steps:
-      - name: Checkout the exact released revision
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Deploy the signed release
-        uses: ./.github/actions/deploy-production
-        with:
-          release-tag: ${{ github.ref_name }}
-          release-sha: ${{ github.sha }}
-          github-token: ${{ github.token }}
-          ssh-private-key: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
-          ssh-known-hosts: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}

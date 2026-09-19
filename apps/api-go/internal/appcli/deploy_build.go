@@ -53,18 +53,18 @@ func runBuildDeploy(args []string, stdout, stderr io.Writer) int {
 		return ExitOK
 	}
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy build: %v\n", ProgramName, err)
+		_, _ = fmt.Fprintf(stderr, "%s build: %v\n", DeployProgramName, err)
 		return ExitUsage
 	}
 	runtime := &buildDeployRuntime{runner: osProductionCommandRunner{}, now: time.Now}
 	result, err := runtime.build(context.Background(), options)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy build: %v\n", ProgramName, err)
+		_, _ = fmt.Fprintf(stderr, "%s build: %v\n", DeployProgramName, err)
 		return ExitError
 	}
 	encoded, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy build: encode result: %v\n", ProgramName, err)
+		_, _ = fmt.Fprintf(stderr, "%s build: encode result: %v\n", DeployProgramName, err)
 		return ExitError
 	}
 	_, _ = stdout.Write(append(encoded, '\n'))

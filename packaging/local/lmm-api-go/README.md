@@ -8,7 +8,7 @@ but does not own `/usr/bin/lmm-api`; the verified CLI selects providers by
 atomically managing that one-hop symlink. Rust remains independently packaged.
 
 ```bash
-apps/api-go/out/lmm-api deploy build \
+scripts/lmm-api-deploy.sh build \
   --repo /absolute/path/to/api.lmm.best \
   --workspace /absolute/marker-owned/workspace
 ```

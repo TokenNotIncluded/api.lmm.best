@@ -96,12 +96,12 @@ func runFrontendPackageActivate(args []string, stdout, stderr io.Writer) int {
 		return ExitOK
 	}
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy frontend package-activate: %v\n", ProgramName, err)
+		_, _ = fmt.Fprintf(stderr, "%s frontend package-activate: %v\n", DeployProgramName, err)
 		return ExitUsage
 	}
 	state, err := defaultFrontendPackageRuntime().activate(context.Background(), options)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy frontend package-activate: %v\n", ProgramName, err)
+		_, _ = fmt.Fprintf(stderr, "%s frontend package-activate: %v\n", DeployProgramName, err)
 		return ExitError
 	}
 	_, _ = fmt.Fprintf(stdout, "release=%s\nphase=%s\n", state.Release, state.Phase)
@@ -115,7 +115,7 @@ func parseFrontendPackageActivateOptions(args []string, stderr io.Writer) (front
 		RevisionFile: defaultFrontendRevisionFile,
 		Keep:         defaultReleaseKeep,
 	}
-	flags := flag.NewFlagSet("deploy frontend package-activate", flag.ContinueOnError)
+	flags := flag.NewFlagSet(DeployProgramName+" frontend package-activate", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&options.PackageVersion, "package-version", "", "installed Web package version")
 	flags.StringVar(&options.Root, "root", defaultFrontendRoot, "frontend release root")

@@ -43,6 +43,9 @@ for entry in "$source_dir"/*; do
       resolved=$(realpath -e -- "$entry") || fail "$package/$name is dangling"
       [[ $resolved == "$CANONICAL_HELPER" ]] || fail "$package/$name escapes the canonical helper"
       ;;
+    lmm-api-deploy)
+      [[ $package == lmm-api-go-bin && -f $entry && ! -L $entry ]] || fail "$package/$name must be a regular binary-package script"
+      ;;
     *) fail "$package contains an unexpected package-base entry: $name" ;;
   esac
 done
@@ -59,11 +62,19 @@ trap cleanup EXIT
 install -m0644 "$source_dir/PKGBUILD" "$stage/PKGBUILD"
 install -m0644 "$source_dir/.SRCINFO" "$stage/.SRCINFO"
 install -m0644 "$CANONICAL_HELPER" "$stage/lmm-api-go-package.sh"
+if [[ $package == lmm-api-go-bin ]]; then
+  install -m0755 "$source_dir/lmm-api-deploy" "$stage/lmm-api-deploy"
+fi
 [[ $(find "$stage" -mindepth 1 -maxdepth 1 -type l -print -quit) == "" ]] ||
   fail 'export unexpectedly contains a symlink'
 mapfile -t exported < <(find "$stage" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort)
-[[ ${exported[*]} == '.SRCINFO PKGBUILD lmm-api-go-package.sh' ]] ||
-  fail 'exported package-base file inventory is invalid'
+if [[ $package == lmm-api-go-bin ]]; then
+  [[ ${exported[*]} == '.SRCINFO PKGBUILD lmm-api-deploy lmm-api-go-package.sh' ]] ||
+    fail 'exported binary package file inventory is invalid'
+else
+  [[ ${exported[*]} == '.SRCINFO PKGBUILD lmm-api-go-package.sh' ]] ||
+    fail 'exported package-base file inventory is invalid'
+fi
 exported_helper_sha256=$(sha256sum "$stage/lmm-api-go-package.sh")
 exported_helper_sha256=${exported_helper_sha256%% *}
 [[ $exported_helper_sha256 == "$CANONICAL_HELPER_SHA256" ]] ||

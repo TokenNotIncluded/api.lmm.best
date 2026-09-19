@@ -9,7 +9,11 @@ import { Window } from 'happy-dom'
 
 const root = path.resolve(import.meta.dirname, '..')
 const html = fs.readFileSync(path.join(root, 'packaging/common/lmm-api/edge-policy/service-unavailable.html'), 'utf8')
-const script = html.match(/<script>([\s\S]*?)<\/script>/)[1]
+const scriptWindow = new Window()
+scriptWindow.document.write(html)
+const script = scriptWindow.document.querySelector('script')?.textContent
+if (typeof script !== 'string') throw new Error('service unavailable page has no script')
+scriptWindow.close()
 async function render(data, language = 'en', live = false) {
  const window = new Window({ settings: { disableJavaScriptEvaluation: true } })
  window.document.write(html)

@@ -17,6 +17,7 @@ import (
 )
 
 const (
+	DeployProgramName   = "lmm-api-deploy"
 	defaultFrontendRoot = "/srv/lmm-api-frontend"
 	defaultReleaseKeep  = 3
 )
@@ -53,7 +54,7 @@ func RunDeploy(args []string, stdout, stderr io.Writer) int {
 		writeDeployUsage(stdout)
 		return ExitOK
 	default:
-		_, _ = fmt.Fprintf(stderr, "%s deploy: unknown target %q\n", ProgramName, args[0])
+		_, _ = fmt.Fprintf(stderr, "%s: unknown target %q\n", DeployProgramName, args[0])
 		writeDeployUsage(stderr)
 		return ExitUsage
 	}
@@ -61,26 +62,26 @@ func RunDeploy(args []string, stdout, stderr io.Writer) int {
 
 func writeDeployUsage(output io.Writer) {
 	_, _ = fmt.Fprintf(output, `Usage:
-  %s deploy build --repo DIR --workspace DIR [--output-dir DIR] [--version VERSION] [--production]
-  %s deploy frontend publish --source DIR --release ID [--root DIR] [--keep N]
-  %s deploy frontend rollback [--release ID] [--root DIR] [--keep N]
-  %s deploy frontend package-activate --package-version VERSION [--root DIR] [--source DIR] [--revision-file FILE] [--keep N]
-  %s deploy contract route print|generate|verify [REVISION_FILE]
-  %s deploy production harden [--env-file FILE] [--drop-in-dir DIR]
-  %s deploy production edge-policy install|verify [--asset-root DIR] [--backup-dir DIR]
-  %s deploy production plan --repo DIR --workspace DIR --deployment-id ID \
+  %s build --repo DIR --workspace DIR [--output-dir DIR] [--version VERSION] [--production]
+  %s frontend publish --source DIR --release ID [--root DIR] [--keep N]
+  %s frontend rollback [--release ID] [--root DIR] [--keep N]
+  %s frontend package-activate --package-version VERSION [--root DIR] [--source DIR] [--revision-file FILE] [--keep N]
+  %s contract route print|generate|verify [REVISION_FILE]
+  %s production harden [--env-file FILE] [--drop-in-dir DIR]
+  %s production edge-policy install|verify [--asset-root DIR] [--backup-dir DIR]
+  %s production plan --repo DIR --workspace DIR --deployment-id ID \
        --go-package FILE --go-release-asset FILE --go-release-bundle FILE \
        --go-rollback-package FILE --go-rollback-release-asset FILE --go-rollback-release-bundle FILE \
        --web-package FILE --web-release-asset FILE --web-release-bundle FILE \
        --web-rollback-package FILE --web-rollback-release-asset FILE --web-rollback-release-bundle FILE \
        --probe-binary FILE [--with-backups --controller-backup-dir DIR]
-  %s deploy production stage|promote|status|confirm|rollback \
+  %s production stage|promote|status|confirm|rollback \
        --plan FILE --plan-sha256 HEX --confirm api.lmm.best
 
 Backups are optional for Go-only, Web-only, and combined releases.
 Selected backups are imported and decrypted only on the controller; only signed verification receipts reach production.
 Target-only recovery commands are listed by the production command's usage.
-`, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName, ProgramName)
+`, DeployProgramName, DeployProgramName, DeployProgramName, DeployProgramName, DeployProgramName, DeployProgramName, DeployProgramName, DeployProgramName, DeployProgramName)
 }
 
 func runFrontendDeploy(args []string, stdout, stderr io.Writer) int {
@@ -92,16 +93,16 @@ func runFrontendDeploy(args []string, stdout, stderr io.Writer) int {
 		return ExitOK
 	}
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy frontend: %v\n", ProgramName, err)
+		_, _ = fmt.Fprintf(stderr, "%s frontend: %v\n", DeployProgramName, err)
 		return ExitUsage
 	}
 	if err := executeFrontendDeploy(options); err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy frontend %s: %v\n", ProgramName, options.Action, err)
+		_, _ = fmt.Fprintf(stderr, "%s frontend %s: %v\n", DeployProgramName, options.Action, err)
 		return ExitError
 	}
 	current, err := currentFrontendRelease(options.Root)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy frontend %s: read current release: %v\n", ProgramName, options.Action, err)
+		_, _ = fmt.Fprintf(stderr, "%s frontend %s: read current release: %v\n", DeployProgramName, options.Action, err)
 		return ExitError
 	}
 	_, _ = fmt.Fprintf(stdout, "current=%s\n", current)
@@ -116,7 +117,7 @@ func parseFrontendDeployOptions(args []string, stderr io.Writer) (frontendDeploy
 	if options.Action != "publish" && options.Action != "rollback" {
 		return frontendDeployOptions{}, fmt.Errorf("unknown action %q", options.Action)
 	}
-	flags := flag.NewFlagSet("deploy frontend "+options.Action, flag.ContinueOnError)
+	flags := flag.NewFlagSet(DeployProgramName+" frontend "+options.Action, flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&options.Root, "root", defaultFrontendRoot, "frontend release root")
 	flags.StringVar(&options.Source, "source", "", "pre-built frontend directory")

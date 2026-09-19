@@ -174,7 +174,7 @@ class PlannedGateTests(unittest.TestCase):
                 block = source.split(f"  {job}:\n", 1)[1].split("\n  ", 1)[0]
                 self.assertIn(f"'{job}'", source.split(f"  {job}:\n", 1)[1][:300])
         self.assertIn("CI_SELECTED: ${{ needs.changes.outputs.required }}", source)
-        self.assertIn("paths-ignore: [.github/server-ops-343-request.json]", source)
+        self.assertNotIn("server-ops-343-request.json", source)
         self.assertNotIn("production-auto-deploy", source)
         self.assertNotIn("continue-on-error", source)
 

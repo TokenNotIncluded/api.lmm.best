@@ -260,11 +260,22 @@ func TestStatusShouldNotAllowRouteOrMethodOverride(t *testing.T) {
 func TestUsageNamesTheCanonicalBackendBinary(t *testing.T) {
 	var output bytes.Buffer
 	WriteUsage(&output)
-	if !strings.Contains(output.String(), "lmm-api request") || !strings.Contains(output.String(), "lmm-api deploy production plan") {
+	if !strings.Contains(output.String(), "lmm-api request") || !strings.Contains(output.String(), "/usr/bin/lmm-api-deploy build") {
 		t.Fatalf("usage does not name %s: %q", ProgramName, output.String())
 	}
-	if strings.Contains(output.String(), "lmm-api-go request") || strings.Contains(output.String(), "lmm-api-deploy") {
-		t.Fatalf("usage exposes a second command-line entry point: %q", output.String())
+	if strings.Contains(output.String(), "lmm-api deploy") || strings.Contains(output.String(), "lmm-api-go request") {
+		t.Fatalf("usage exposes a removed or provider-specific command-line entry point: %q", output.String())
+	}
+}
+
+func TestDeploySubcommandIsRemoved(t *testing.T) {
+	var stderr bytes.Buffer
+	result := Dispatch([]string{"deploy", "help"}, "test", io.Discard, &stderr)
+	if result.ExitCode != ExitUsage || result.Mode != ModeExit {
+		t.Fatalf("removed deploy command result=%#v stderr=%q", result, stderr.String())
+	}
+	if strings.Contains(stderr.String(), "lmm-api deploy") {
+		t.Fatalf("removed deploy command leaked the old public syntax: %q", stderr.String())
 	}
 }
 

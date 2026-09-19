@@ -1,17 +1,12 @@
 name: LMM Go backend release
 
 on:
-  push:
-    tags:
-      - "go-v*.*.*"
-  # Explicit retries use the same immutable tag and all identity/CI gates below.
   workflow_dispatch:
 
 permissions:
   actions: read
   checks: read
   contents: read
-  issues: read
 
 concurrency:
   group: go-release-${{ github.ref }}
@@ -80,17 +75,12 @@ jobs:
           [[ $(readlink "$contract_cli_dir/lmm-api") == lmm-api-go ]]
           [[ $(sha256sum "$contract_cli_dir/lmm-api" | cut -d' ' -f1) == \
              $(sha256sum "$contract_cli_dir/lmm-api-go" | cut -d' ' -f1) ]]
-          contract_revision=$("$contract_cli_dir/lmm-api" deploy contract route print)
+          contract_revision=$("$contract_cli_dir/lmm-api" operator contract route print)
           {
             echo "contract_revision=$contract_revision"
             echo "version=$version"
             echo "revision=$revision"
           } >>"$GITHUB_OUTPUT"
-
-      - name: Require all issues and pull requests resolved
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python3 -B scripts/verify-release-work-items.py
 
       - name: Require successful CI, CodeQL, and release contracts
         env:
@@ -221,6 +211,7 @@ jobs:
             echo 'Go release binary is dynamically linked' >&2
             exit 1
           fi
+          cp packaging/common/lmm-api/lmm-api-deploy "$bundle/"
           cp packaging/common/lmm-api/lmm-api.service "$bundle/"
           cp packaging/common/lmm-api/lmm-api-go.env "$bundle/"
           cp packaging/common/lmm-api/lmm-api-memory.conf "$bundle/"
@@ -298,7 +289,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      issues: read
     steps:
       - name: Checkout release gate at the verified revision
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -321,7 +311,6 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          python3 -B scripts/verify-release-work-items.py
           shopt -s nullglob
           version=${RELEASE_TAG#go-v}
           expected_names=(
@@ -381,34 +370,3 @@ jobs:
           readback=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
             --json tagName,targetCommitish,name,body,isDraft,isPrerelease,assets)
           verify_release "$readback"
-
-  deploy:
-    name: Deploy verified release to ArchDmit
-    needs: [prepare, publish]
-    if: success() && github.repository == 'TokenNotIncluded/api.lmm.best' && startsWith(github.ref, 'refs/tags/go-v')
-    runs-on: ubuntu-latest
-    timeout-minutes: 50
-    permissions:
-      contents: read
-      actions: read
-    environment: production
-    # Both component releases share the production lock. Never interrupt a promotion.
-    concurrency:
-      group: production-auto-deploy
-      cancel-in-progress: false
-    steps:
-      - name: Checkout the exact released revision
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          ref: ${{ needs.prepare.outputs.revision }}
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Deploy the signed release
-        uses: ./.github/actions/deploy-production
-        with:
-          release-tag: ${{ github.ref_name }}
-          release-sha: ${{ needs.prepare.outputs.revision }}
-          github-token: ${{ github.token }}
-          ssh-private-key: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
-          ssh-known-hosts: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}

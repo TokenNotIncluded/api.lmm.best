@@ -37,9 +37,9 @@ Production services and operator actions MUST invoke `/usr/bin/lmm-api`:
 ```text
 /usr/bin/lmm-api serve
 /usr/bin/lmm-api migrate --verify
-/usr/bin/lmm-api deploy production status ...
-/usr/bin/lmm-api deploy production confirm ...
-/usr/bin/lmm-api deploy production rollback ...
+/usr/bin/lmm-api-deploy production status ...
+/usr/bin/lmm-api-deploy production confirm ...
+/usr/bin/lmm-api-deploy production rollback ...
 ```
 
 Deployment code MUST NOT directly execute `/usr/bin/lmm-api-go` or
@@ -89,7 +89,7 @@ transaction lock. A failure after that boundary becomes `ROLLBACK_REQUIRED` and
 retains the lock and evidence. Recovery requires an explicit operator command:
 
 ```text
-/usr/bin/lmm-api deploy production rollback ...
+/usr/bin/lmm-api-deploy production rollback ...
 ```
 
 Healthy promotion completes the observation gate and stops at
@@ -128,7 +128,7 @@ confirmed with the live health endpoint before the page announces availability.
 An operator can publish a reviewed explanation and a real estimate with:
 
 ```sh
-/usr/bin/lmm-api deploy production maintenance \
+/usr/bin/lmm-api-deploy production maintenance \
   --deployment-id "$DEPLOYMENT_ID" --confirm api.lmm.best \
   --state maintenance --service "LMM Best API" \
   --message "Scheduled service update" \
@@ -172,3 +172,22 @@ validated refund execution report during graceful shutdown: accepted equals
 finished, active and failed are zero, and execution_complete is true. This
 establishes execution completion; it does not certify historical financial
 correctness. Historical intent-log absence is not required for these writers.
+## Staging from a legacy native CLI
+
+The controller supports the signed Go 0.2.52 `deploy` bootstrap and the current
+private `operator` protocol. Before creating a workspace it verifies the
+installed one-hop provider link, root ownership, safe mode and exact frozen
+rollback payload hash, then selects the entry point from a read-only help call.
+Unknown or ambiguous help fails before workspace creation. The public entry
+point remains `/usr/bin/lmm-api-deploy`.
+
+An SSH error after workspace creation is not permission to invoke a second
+command spelling. The controller can recover the response only from the exact
+root-owned native workspace and ACTIVE transaction markers. A manifest, status,
+foreign transaction, unsafe path or incomplete marker requires reconciliation;
+it is never relabelled WORKSPACE_CREATED. Existing controller workspace state
+continues directly through signed artifact staging and native validation.
+
+This bootstrap compatibility does not prove database rollback compatibility.
+The authorization baseline change tracked in #386 requires a separate isolated
+upgrade rehearsal and an approved manual rollout plan.
