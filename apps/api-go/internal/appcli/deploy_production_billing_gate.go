@@ -367,7 +367,7 @@ func (runtime *productionRuntime) verifyBillingStopJournal(ctx context.Context, 
 	if gate.StopStartedUTC.IsZero() {
 		return errors.New("missing stop journal boundary")
 	}
-	out, err := runtime.runner.Run(ctx, productionCommand{Name: commandJournalctl, Args: []string{"--no-pager", "--output=cat", "--since", "@" + strconv.FormatInt(gate.StopStartedUTC.Unix(), 10), "-u", runtime.paths.Service, "_PID=" + strconv.Itoa(gate.GoPID), "_SYSTEMD_INVOCATION_ID=" + gate.GoInvocationID}})
+	out, err := runtime.runner.Run(ctx, productionCommand{Name: commandJournalctl, Args: []string{"--no-pager", "--output=cat", "--since", fmt.Sprintf("@%d.%06d", gate.StopStartedUTC.Unix(), gate.StopStartedUTC.Nanosecond()/1000), "-u", runtime.paths.Service, "_PID=" + strconv.Itoa(gate.GoPID), "_SYSTEMD_INVOCATION_ID=" + gate.GoInvocationID}})
 	if err != nil {
 		return err
 	}
