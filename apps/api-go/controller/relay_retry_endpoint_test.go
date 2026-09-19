@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/constant"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
+	"github.com/LIghtJUNction/api.lmm.best/relaykit/types"
 	"github.com/LIghtJUNction/api.lmm.best/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -92,4 +94,19 @@ func TestGetChannelRetrySkipsUnsupportedEndpointCandidates(t *testing.T) {
 	_, excluded := retryParam.ExcludedChannelIDs[unsupported.Id]
 	require.True(t, excluded, "unsupported retry candidate should be excluded request-locally")
 	require.Equal(t, compatible.Id, common.GetContextKeyInt(ctx, constant.ContextKeyChannelId))
+
+	// Preserve the final upstream failure after the last candidate is excluded.
+	upstream := types.NewErrorWithStatusCode(errors.New("upstream unavailable"), types.ErrorCodeBadResponse, http.StatusServiceUnavailable)
+	info.LastError = upstream
+	retryParam.ExcludeChannel(compatible.Id)
+	selected, apiErr = getChannel(ctx, info, retryParam)
+	require.Nil(t, selected)
+	require.Same(t, upstream, apiErr)
+	require.Equal(t, http.StatusServiceUnavailable, apiErr.StatusCode)
+
+	info.LastError = nil
+	selected, apiErr = getChannel(ctx, info, retryParam)
+	require.Nil(t, selected)
+	require.NotNil(t, apiErr)
+	require.NotSame(t, upstream, apiErr)
 }
