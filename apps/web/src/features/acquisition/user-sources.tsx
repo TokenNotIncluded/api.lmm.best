@@ -1,3 +1,14 @@
+import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
+
+import { Button } from '@/components/ui/button'
+import { hasPermission } from '@/lib/admin-permissions'
+import { api } from '@/lib/api'
+import { useAuthStore } from '@/stores/auth-store'
+
+import { SourceAccountExport } from './account-export'
+import { SELF_SOURCE_LABELS } from './self-source-labels'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -16,16 +27,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
-import { useTranslation } from 'react-i18next'
-
-import { Button } from '@/components/ui/button'
-import { hasPermission } from '@/lib/admin-permissions'
-import { api } from '@/lib/api'
-import { useAuthStore } from '@/stores/auth-store'
-
-import { SELF_SOURCE_LABELS } from './self-source-labels'
+import { SourceCorrections } from './source-corrections'
 
 function sourceLabel(source: string | undefined, t: (key: string) => string) {
   if (!source || source === 'unknown') return t('Direct / unknown source')
@@ -105,6 +107,7 @@ export function SourceUsers({
       <h2 className='text-lg font-semibold'>
         {t('Channel accounts')}: {sourceLabel(source, t)}
       </h2>
+      <SourceAccountExport source={source} from={from} to={to} />
       {query.isPending ? (
         <p>{t('Loading')}</p>
       ) : query.isError ? (
@@ -301,6 +304,7 @@ export function UserSourceDetails({ userID }: { userID: number }) {
           >
             {t('Return to channel report')}
           </a>
+          <SourceCorrections key={userID} userID={userID} />
           <h4 className='font-medium'>{t('Recent source observations')}</h4>
           {data.recent.length === 0 ? (
             <p className='text-muted-foreground text-sm'>

@@ -3,14 +3,10 @@ package controller
 import (
 	"math"
 	"sort"
-	"strconv"
 	"strings"
 
-	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
-	"github.com/LIghtJUNction/api.lmm.best/service/authz"
 	"github.com/LIghtJUNction/api.lmm.best/setting/billing_setting"
-	"github.com/LIghtJUNction/api.lmm.best/setting/dynamic_pricing_setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
 )
 
@@ -19,7 +15,7 @@ const assistantAdminPricingAuditPageSize = 100
 func assistantAdminPricingAuditTools() []assistantOpenAIToolDefinition {
 	return []assistantOpenAIToolDefinition{{Type: "function", Function: assistantOpenAIToolFunction{
 		Name:        "audit_admin_model_pricing",
-		Description: "For administrators, audit live enabled model pricing, detect missing/invalid/free rates and conflicting modes, inspect group multipliers and dynamic-pricing cost coverage. Read-only. Paginate until next_offset is absent before claiming the entire catalog was checked. Rates are base prices before group, trust, subscription and dynamic adjustments; the audit cannot establish profitability without upstream invoices and traffic mix.",
+		Description: "For administrators, audit live enabled model pricing, detect missing/invalid/free rates and conflicting modes, inspect fixed group multipliers. Read-only. Paginate until next_offset is absent before claiming the entire catalog was checked. Rates are base prices before group, trust and subscription adjustments; the audit cannot establish profitability without upstream invoices and traffic mix.",
 		Parameters: objectSchema(map[string]any{
 			"model_ids": map[string]any{"type": "array", "maxItems": assistantAdminPricingAuditPageSize, "items": map[string]any{"type": "string", "maxLength": 200}},
 			"offset":    map[string]any{"type": "integer", "minimum": 0},
@@ -121,7 +117,7 @@ func assistantAdminPricingAuditRow(pricing model.Pricing, ratios, prices, groups
 }
 
 func executeAssistantAdminPricingAuditTool(userID int, input map[string]any) map[string]any {
-	user, err := assistantAdminUser(userID)
+	_, err := assistantAdminUser(userID)
 	if err != nil {
 		return map[string]any{"ok": false, "error": err.Error()}
 	}
@@ -184,46 +180,10 @@ func executeAssistantAdminPricingAuditTool(userID int, input map[string]any) map
 	result := map[string]any{
 		"ok": true, "read_only": true, "models": rows, "total_models": len(filtered), "offset": offset,
 		"missing_requested_models": missing, "truncated": end < len(filtered),
-		"rate_scope": "Base USD accounting rates before group overrides, trust discounts, subscriptions and dynamic multipliers; no profitability guarantee without upstream costs and measured traffic mix.",
-	}
-	if authz.Can(userID, user.Role, authz.ChannelRead) {
-		result["dynamic_pricing"] = assistantAdminPricingCostCoverage()
-	} else {
-		result["dynamic_pricing"] = map[string]any{"coverage_available": false, "reason": "channel read permission is required"}
+		"rate_scope": "Base USD accounting rates before group overrides, trust discounts and subscriptions; no profitability guarantee without upstream costs and measured traffic mix.",
 	}
 	if end < len(filtered) {
 		result["next_offset"] = end
 	}
-	return result
-}
-
-func assistantAdminPricingCostCoverage() map[string]any {
-	settings := dynamic_pricing_setting.GetSetting()
-	result := map[string]any{"enabled": settings.Enabled, "configured_cost_count": len(settings.ChannelCosts)}
-	if err := settings.Validate(); err != nil {
-		result["configuration_valid"] = false
-	} else {
-		result["configuration_valid"] = true
-	}
-	// Fetch identifiers only. Channel credentials never enter the tool process.
-	var ids []int
-	if err := model.DB.Model(&model.Channel{}).Where("status = ?", common.ChannelStatusEnabled).Order("id").Limit(assistantAdminMaxChannelRows+1).Pluck("id", &ids).Error; err != nil {
-		result["coverage_available"] = false
-		return result
-	}
-	result["coverage_available"] = true
-	result["coverage_truncated"] = len(ids) > assistantAdminMaxChannelRows
-	ids = ids[:min(len(ids), assistantAdminMaxChannelRows)]
-	missing := make([]int, 0)
-	for _, id := range ids {
-		cost, exists := settings.ChannelCosts[strconv.Itoa(id)]
-		if !exists || !assistantAuditNonNegative(cost) || cost == 0 {
-			missing = append(missing, id)
-		}
-	}
-	result["checked_active_channels"] = len(ids)
-	result["missing_cost_count_in_checked_channels"] = len(missing)
-	result["missing_cost_channel_ids"] = missing[:min(len(missing), assistantAdminPricingAuditPageSize)]
-	result["missing_cost_ids_truncated"] = len(missing) > assistantAdminPricingAuditPageSize
 	return result
 }

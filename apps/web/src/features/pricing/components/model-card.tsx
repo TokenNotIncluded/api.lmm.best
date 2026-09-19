@@ -36,6 +36,7 @@ import { formatPrice, formatRequestPrice } from '../lib/price'
 import type { PricingModel, TokenUnit } from '../types'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelPerfBadge } from './model-perf-badge'
+import { ModelRuntimeBadge } from './model-runtime-badge'
 
 export interface ModelCardProps {
   model: PricingModel
@@ -255,6 +256,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
             </span>
           )}
           <ModelBillingModeBadge model={props.model} />
+          <ModelRuntimeBadge state={props.model.runtime_state} />
         </div>
         <div className='flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-0.5 min-[460px]:col-start-1 min-[460px]:row-start-2 sm:gap-x-3 sm:gap-y-1'>
           {bottomTags.map((item) => (

@@ -34,6 +34,9 @@ export interface BoundChannel {
  * Model entity from API
  */
 export interface Model {
+  operational_status?: 'auto' | 'congested' | 'maintenance' | 'unavailable'
+  operational_notice?: string
+  operational_until?: number
   id: number
   model_name: string
   description?: string

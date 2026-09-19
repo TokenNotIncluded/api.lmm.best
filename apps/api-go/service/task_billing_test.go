@@ -1289,3 +1289,14 @@ func TestSettle_NonPerCallBilling_AppliesAdaptorAdjustment(t *testing.T) {
 	require.NotNil(t, log)
 	assert.Equal(t, model.LogTypeRefund, log.Type)
 }
+
+func TestTaskBillingIgnoresRetiredProfitFactorInHistoricalMetadata(t *testing.T) {
+	context := &model.TaskBillingContext{OtherRatios: map[string]float64{"dynamic_pricing": 3, "duration": 2}}
+	price := taskBillingContextPriceData(context)
+	require.NotNil(t, price)
+	require.Equal(t, 2.0, price.OtherRatioMultiplier())
+	require.Equal(t, 200.0, price.ApplyOtherRatiosToFloat(100))
+	require.NotContains(t, price.OtherRatios(), "dynamic_pricing")
+	require.Equal(t, 3.0, context.OtherRatios["dynamic_pricing"], "historical records are not rewritten")
+	require.Nil(t, taskBillingContextPriceData(&model.TaskBillingContext{OtherRatios: map[string]float64{"dynamic_pricing": 4}}))
+}

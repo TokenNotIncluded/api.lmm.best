@@ -1,72 +1,39 @@
 package model
 
 import (
-	"testing"
-
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/setting/config"
-	"github.com/LIghtJUNction/api.lmm.best/setting/dynamic_pricing_setting"
-
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
+	"testing"
 )
 
-func setupDynamicPricingOptionTest(t *testing.T) (*gorm.DB, *dynamic_pricing_setting.DynamicPricingSetting) {
-	t.Helper()
-	previousDB := DB
-	previousOptions := common.OptionMap
+func TestRetiredDynamicPricingOptionsCannotBeLoadedOrWritten(t *testing.T) {
+	oldDB, oldOptions := DB, common.OptionMap
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&Option{}))
 	DB = db
-	common.OptionMap = map[string]string{}
-
-	cfg := config.GlobalConfig.Get("dynamic_pricing_setting").(*dynamic_pricing_setting.DynamicPricingSetting)
-	previousSetting := dynamic_pricing_setting.GetSetting()
-	cfg.Enabled = false
-	cfg.MinFactor = 1
-	cfg.RequireChannelCost = true
-	cfg.BasePriceUSDPerMillion = 1
-	cfg.MaxFactor = 3
-	cfg.ChannelCosts = map[string]float64{}
-
-	t.Cleanup(func() {
-		*cfg = previousSetting
-		DB = previousDB
-		common.OptionMap = previousOptions
-	})
-	return db, cfg
-}
-
-func TestUpdateOptionsBulkValidatesDynamicPricingAsOneConfiguration(t *testing.T) {
-	db, cfg := setupDynamicPricingOptionTest(t)
-	values := map[string]string{
-		"dynamic_pricing_setting.enabled":       "true",
-		"dynamic_pricing_setting.min_factor":    "1.25",
-		"dynamic_pricing_setting.channel_costs": `{"7":2.5}`,
+	common.OptionMap = map[string]string{"dynamic_pricing_setting.enabled": "true"}
+	t.Cleanup(func() { DB = oldDB; common.OptionMap = oldOptions; sqlDB, _ := db.DB(); _ = sqlDB.Close() })
+	for _, key := range []string{"dynamic_pricing_setting", "dynamic_pricing_setting.enabled", "dynamic_pricing_setting.min_factor", "dynamic_pricing_setting.any_future_field"} {
+		require.NoError(t, db.Create(&Option{Key: key, Value: "true"}).Error)
+		require.ErrorContains(t, ValidateOptionValue(key, "true"), "removed")
+		require.Error(t, UpdateOption(key, "false"))
+		require.Error(t, UpdateOptionsBulk(map[string]string{key: "false", "GroupRatio": `{"default":1}`}))
+		require.NoError(t, updateOptionMap(key, "true"))
+		require.NotContains(t, common.OptionMap, key)
 	}
-
-	require.NoError(t, UpdateOptionsBulk(values))
-	require.True(t, cfg.Enabled)
-	require.Equal(t, 1.25, cfg.MinFactor)
-	require.Equal(t, 2.5, cfg.ChannelCosts["7"])
-	for key, value := range values {
-		require.Equal(t, value, requireOptionValue(t, db, key))
+	options, err := AllOption()
+	require.NoError(t, err)
+	require.Empty(t, options)
+	var persisted []Option
+	require.NoError(t, db.Find(&persisted).Error)
+	require.Len(t, persisted, 4)
+	for _, option := range persisted {
+		require.Equal(t, "true", option.Value)
 	}
-}
-
-func TestUpdateOptionsBulkRejectsUnsafeDynamicPricingWithoutWrites(t *testing.T) {
-	db, cfg := setupDynamicPricingOptionTest(t)
-	err := UpdateOptionsBulk(map[string]string{
-		"dynamic_pricing_setting.enabled":    "true",
-		"dynamic_pricing_setting.min_factor": "4",
-	})
-	require.Error(t, err)
-	require.False(t, cfg.Enabled)
-	require.Equal(t, int64(0), func() int64 {
-		var count int64
-		require.NoError(t, db.Model(&Option{}).Count(&count).Error)
-		return count
-	}())
+	require.Nil(t, config.GlobalConfig.Get("dynamic_pricing_setting"))
+	require.NoError(t, ValidateOptionValue("GroupRatio", `{"default":1.5}`))
 }

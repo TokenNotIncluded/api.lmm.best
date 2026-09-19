@@ -27,7 +27,26 @@ export type PricingVendor = {
   description?: string
 }
 
+export type ModelRuntimeState = {
+  status:
+    | 'available'
+    | 'congested'
+    | 'maintenance'
+    | 'unavailable'
+    | 'no_access'
+    | 'not_listed'
+    | 'unknown'
+  source:
+    | 'administrator_notice'
+    | 'routing_configuration'
+    | 'account_permissions'
+  observed_at: number
+  notice?: string
+  expires_at?: number
+}
+
 export type PricingModel = {
+  runtime_state?: ModelRuntimeState
   id: number
   model_name: string
   description?: string
