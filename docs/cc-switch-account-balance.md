@@ -54,12 +54,13 @@ quota there; it does not imply an unlimited account balance.
 
 ## Migration and release note
 
-Go's normal model migration adds `tokens.account_balance_read` as a non-null
-boolean defaulting to false. Existing keys gain no access automatically. Apply
-the backend migration and release before the new frontend. Older Go releases
-ignore the additive column. The Rust preview does not implement these new
-routes in this change; this feature requires the Go provider. No production
-deployment or provider ownership change is included.
+The additive migration `apps/api-rust/migrations/0010_account_balance_access.sql`
+adds `tokens.account_balance_read` as a non-null boolean defaulting to false.
+Existing keys gain no access automatically. Apply that forward migration (or
+the equivalent Go model migration) before enabling the Rust routes. Older Go
+releases ignore the additive column. Both Go and Rust read the persisted flag
+on every balance request, so revocation is immediate. No production deployment
+or provider ownership change is included.
 
 Release note: keys-page CC Switch imports can include account wallet balance
 after an explicit, revocable owner grant, instead of showing only token usage.

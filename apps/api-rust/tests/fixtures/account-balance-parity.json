@@ -1,0 +1,10 @@
+[
+  {"name":"default-divisor","quota":1250000,"unit":500000,"grant":true,"status":1,"expected_status":200,"remaining":2.5},
+  {"name":"zero-wallet","quota":0,"unit":500000,"grant":true,"status":1,"expected_status":200,"remaining":0.0},
+  {"name":"negative-wallet","quota":-625000,"unit":500000,"grant":true,"status":1,"expected_status":200,"remaining":-1.25},
+  {"name":"custom-divisor","quota":2361,"unit":100,"grant":true,"status":1,"expected_status":200,"remaining":23.61},
+  {"name":"exhausted-key","quota":1250000,"unit":500000,"grant":true,"status":4,"expected_status":200,"remaining":2.5},
+  {"name":"no-consent","quota":1250000,"unit":500000,"grant":false,"status":1,"expected_status":403,"error":"account_balance_access_required"},
+  {"name":"disabled-key","quota":1250000,"unit":500000,"grant":true,"status":2,"expected_status":401,"error":"invalid_api_key"},
+  {"name":"invalid-divisor","quota":1250000,"unit":0,"grant":true,"status":1,"expected_status":503,"error":"account_balance_unavailable"}
+]
