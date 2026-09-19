@@ -32,8 +32,8 @@ import { paymentPricingCopy } from './payment-pricing-copy.mjs'
 import { piGuideCopy } from './pi-guide-copy.mjs'
 import { piOAuthCopy } from './pi-oauth-copy.mjs'
 import { remoteControlCopy } from './remote-control-copy.mjs'
-import { waitCompanionCopy } from './wait-companion-copy.mjs'
 import { toolMarketCopy } from './tool-market-copy.mjs'
+import { waitCompanionCopy } from './wait-companion-copy.mjs'
 
 const LOCALES_DIR = path.resolve('src/i18n/locales')
 
@@ -4000,230 +4000,337 @@ for (const [locale, translations] of Object.entries(
 }
 
 const pricingRedesignTranslations = {
-  "en": {
-    "Pricing group": "Pricing group",
-    "Cost multiplier": "Cost multiplier",
-    "Group cost multipliers": "Group cost multipliers",
-    "Understand how user groups, cost multipliers, profit pricing, and special rules work together.": "Understand how user groups, cost multipliers, profit pricing, and special rules work together.",
-    "decides which channels are used and which base cost multiplier applies.": "decides which channels are used and which base cost multiplier applies.",
-    "decides the top-up ratio, which groups the user can pick for tokens, and whether a cost override applies.": "decides the top-up ratio, which groups the user can pick for tokens, and whether a cost override applies.",
-    "Find the cost multiplier.": "Find the cost multiplier.",
-    "Look for a special cost rule matching this user group and this billing group. If one exists, use its cost multiplier. Otherwise use the billing group base cost from the pricing table.": "Look for a special cost rule matching this user group and this billing group. If one exists, use its cost multiplier. Otherwise use the billing group base cost from the pricing table.",
-    "Special cost rules": "Special cost rules",
-    "Cost basis = 10 × 0.3 = 3": "Cost basis = 10 × 0.3 = 3",
-    "Cost basis = 10 × 1.0 = 10": "Cost basis = 10 × 1.0 = 10",
-    "Cost basis = 10 × 0.8 = 8": "Cost basis = 10 × 0.8 = 8",
-    "Users of vip, when billed as premium, use cost multiplier": "Users of vip, when billed as premium, use cost multiplier",
-    "No rule for vip billed as default → use the base cost of default, 1.0 (the 0.8 of vip is not used)": "No rule for vip billed as default → use the base cost of default, 1.0 (the 0.8 of vip is not used)",
-    "No rule for vip billed as vip → use the base cost of vip, 0.8": "No rule for vip billed as vip → use the base cost of vip, 0.8",
-    "Use the pricing group table to manage the cost multiplier and whether the group appears in the token creation dropdown.": "Use the pricing group table to manage the cost multiplier and whether the group appears in the token creation dropdown.",
-    "In JSON, the user group is the outer key and the billing group is the inner key. The example below means: vip users use cost multiplier 0.8 when billed as standard, and 0.3 when billed as premium.": "In JSON, the user group is the outer key and the billing group is the inner key. The example below means: vip users use cost multiplier 0.8 when billed as standard, and 0.3 when billed as premium.",
-    "Only configured combinations are overridden. All other calls keep the billing group base cost multiplier.": "Only configured combinations are overridden. All other calls keep the billing group base cost multiplier.",
-    "Base cost multipliers": "Base cost multipliers",
-    "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting.": "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting.",
-    "Cost multipliers must be finite numbers greater than or equal to zero.": "Cost multipliers must be finite numbers greater than or equal to zero.",
-    "Optimize by effective cost": "Optimize by effective cost",
-    "Edit cost override": "Edit cost override",
-    "Add cost override": "Add cost override",
-    "Configure a custom cost multiplier for \"{{userGroup}}\" users when using a specific token group.": "Configure a custom cost multiplier for \"{{userGroup}}\" users when using a specific token group.",
-    "Configure a custom cost multiplier for when users use a specific token group.": "Configure a custom cost multiplier for when users use a specific token group.",
-    "Invalid cost multiplier": "Invalid cost multiplier",
-    "Cost multiplier applied when {{userGroup}} uses {{targetGroup}}": "Cost multiplier applied when {{userGroup}} uses {{targetGroup}}",
-    "Save group pricing": "Save group pricing",
-    "Fixed by channel sharing settings": "Fixed by channel sharing settings"
+  en: {
+    'Pricing group': 'Pricing group',
+    'Cost multiplier': 'Cost multiplier',
+    'Group cost multipliers': 'Group cost multipliers',
+    'Understand how user groups, cost multipliers, profit pricing, and special rules work together.':
+      'Understand how user groups, cost multipliers, profit pricing, and special rules work together.',
+    'decides which channels are used and which base cost multiplier applies.':
+      'decides which channels are used and which base cost multiplier applies.',
+    'decides the top-up ratio, which groups the user can pick for tokens, and whether a cost override applies.':
+      'decides the top-up ratio, which groups the user can pick for tokens, and whether a cost override applies.',
+    'Find the cost multiplier.': 'Find the cost multiplier.',
+    'Look for a special cost rule matching this user group and this billing group. If one exists, use its cost multiplier. Otherwise use the billing group base cost from the pricing table.':
+      'Look for a special cost rule matching this user group and this billing group. If one exists, use its cost multiplier. Otherwise use the billing group base cost from the pricing table.',
+    'Special cost rules': 'Special cost rules',
+    'Cost basis = 10 × 0.3 = 3': 'Cost basis = 10 × 0.3 = 3',
+    'Cost basis = 10 × 1.0 = 10': 'Cost basis = 10 × 1.0 = 10',
+    'Cost basis = 10 × 0.8 = 8': 'Cost basis = 10 × 0.8 = 8',
+    'Users of vip, when billed as premium, use cost multiplier':
+      'Users of vip, when billed as premium, use cost multiplier',
+    'No rule for vip billed as default → use the base cost of default, 1.0 (the 0.8 of vip is not used)':
+      'No rule for vip billed as default → use the base cost of default, 1.0 (the 0.8 of vip is not used)',
+    'No rule for vip billed as vip → use the base cost of vip, 0.8':
+      'No rule for vip billed as vip → use the base cost of vip, 0.8',
+    'Use the pricing group table to manage the cost multiplier and whether the group appears in the token creation dropdown.':
+      'Use the pricing group table to manage the cost multiplier and whether the group appears in the token creation dropdown.',
+    'In JSON, the user group is the outer key and the billing group is the inner key. The example below means: vip users use cost multiplier 0.8 when billed as standard, and 0.3 when billed as premium.':
+      'In JSON, the user group is the outer key and the billing group is the inner key. The example below means: vip users use cost multiplier 0.8 when billed as standard, and 0.3 when billed as premium.',
+    'Only configured combinations are overridden. All other calls keep the billing group base cost multiplier.':
+      'Only configured combinations are overridden. All other calls keep the billing group base cost multiplier.',
+    'Base cost multipliers': 'Base cost multipliers',
+    "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting.":
+      "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting.",
+    'Cost multipliers must be finite numbers greater than or equal to zero.':
+      'Cost multipliers must be finite numbers greater than or equal to zero.',
+    'Optimize by effective cost': 'Optimize by effective cost',
+    'Edit cost override': 'Edit cost override',
+    'Add cost override': 'Add cost override',
+    'Configure a custom cost multiplier for "{{userGroup}}" users when using a specific token group.':
+      'Configure a custom cost multiplier for "{{userGroup}}" users when using a specific token group.',
+    'Configure a custom cost multiplier for when users use a specific token group.':
+      'Configure a custom cost multiplier for when users use a specific token group.',
+    'Invalid cost multiplier': 'Invalid cost multiplier',
+    'Cost multiplier applied when {{userGroup}} uses {{targetGroup}}':
+      'Cost multiplier applied when {{userGroup}} uses {{targetGroup}}',
+    'Save group pricing': 'Save group pricing',
+    'Fixed by channel sharing settings': 'Fixed by channel sharing settings',
   },
-  "zh": {
-    "Pricing group": "定价分组",
-    "Cost multiplier": "成本倍率",
-    "Group cost multipliers": "分组成本倍率",
-    "Understand how user groups, cost multipliers, profit pricing, and special rules work together.": "了解用户组、成本倍率、利润定价和特殊规则如何共同生效。",
-    "decides which channels are used and which base cost multiplier applies.": "决定使用哪些渠道以及采用哪个成本基准倍率。",
-    "decides the top-up ratio, which groups the user can pick for tokens, and whether a cost override applies.": "决定充值倍率、用户创建令牌时可选的分组，以及是否应用成本覆盖规则。",
-    "Find the cost multiplier.": "查找成本倍率。",
-    "Look for a special cost rule matching this user group and this billing group. If one exists, use its cost multiplier. Otherwise use the billing group base cost from the pricing table.": "查找匹配用户组和计费组的特殊成本规则；若存在则使用其成本倍率，否则使用定价表中的计费组成本基准。",
-    "Special cost rules": "特殊成本规则",
-    "Cost basis = 10 × 0.3 = 3": "成本基准 = 10 × 0.3 = 3",
-    "Cost basis = 10 × 1.0 = 10": "成本基准 = 10 × 1.0 = 10",
-    "Cost basis = 10 × 0.8 = 8": "成本基准 = 10 × 0.8 = 8",
-    "Users of vip, when billed as premium, use cost multiplier": "vip 用户按 premium 计费时使用成本倍率",
-    "No rule for vip billed as default → use the base cost of default, 1.0 (the 0.8 of vip is not used)": "vip 按 default 计费没有特殊规则 → 使用 default 的成本基准 1.0（不会使用 vip 的 0.8）",
-    "No rule for vip billed as vip → use the base cost of vip, 0.8": "vip 按 vip 计费没有特殊规则 → 使用 vip 的成本基准 0.8",
-    "Use the pricing group table to manage the cost multiplier and whether the group appears in the token creation dropdown.": "使用定价分组表管理成本倍率，以及分组是否出现在令牌创建下拉框中。",
-    "In JSON, the user group is the outer key and the billing group is the inner key. The example below means: vip users use cost multiplier 0.8 when billed as standard, and 0.3 when billed as premium.": "JSON 中外层键是用户组，内层键是计费组。下面示例表示：vip 用户按 standard 计费使用成本倍率 0.8，按 premium 计费使用 0.3。",
-    "Only configured combinations are overridden. All other calls keep the billing group base cost multiplier.": "只有配置的组合会覆盖；其它请求继续使用计费组的成本基准倍率。",
-    "Base cost multipliers": "基础成本倍率",
-    "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting.": "在点击优化前会保留手动顺序。优化会改变所有用户的全局顺序，但运行时仍会过滤每个用户可见的分组；默认按基础成本倍率排序，选择用户组后会先应用其特殊成本覆盖。",
-    "Cost multipliers must be finite numbers greater than or equal to zero.": "成本倍率必须是大于等于 0 的有限数字。",
-    "Optimize by effective cost": "按最终成本优化",
-    "Edit cost override": "编辑成本覆盖",
-    "Add cost override": "添加成本覆盖",
-    "Configure a custom cost multiplier for \"{{userGroup}}\" users when using a specific token group.": "配置“{{userGroup}}”用户使用指定令牌组时的自定义成本倍率。",
-    "Configure a custom cost multiplier for when users use a specific token group.": "配置用户使用指定令牌组时的自定义成本倍率。",
-    "Invalid cost multiplier": "成本倍率无效",
-    "Cost multiplier applied when {{userGroup}} uses {{targetGroup}}": "{{userGroup}} 使用 {{targetGroup}} 时应用的成本倍率",
-    "Save group pricing": "保存分组定价",
-    "Fixed by channel sharing settings": "由渠道共享设置固定"
+  zh: {
+    'Pricing group': '定价分组',
+    'Cost multiplier': '成本倍率',
+    'Group cost multipliers': '分组成本倍率',
+    'Understand how user groups, cost multipliers, profit pricing, and special rules work together.':
+      '了解用户组、成本倍率、利润定价和特殊规则如何共同生效。',
+    'decides which channels are used and which base cost multiplier applies.':
+      '决定使用哪些渠道以及采用哪个成本基准倍率。',
+    'decides the top-up ratio, which groups the user can pick for tokens, and whether a cost override applies.':
+      '决定充值倍率、用户创建令牌时可选的分组，以及是否应用成本覆盖规则。',
+    'Find the cost multiplier.': '查找成本倍率。',
+    'Look for a special cost rule matching this user group and this billing group. If one exists, use its cost multiplier. Otherwise use the billing group base cost from the pricing table.':
+      '查找匹配用户组和计费组的特殊成本规则；若存在则使用其成本倍率，否则使用定价表中的计费组成本基准。',
+    'Special cost rules': '特殊成本规则',
+    'Cost basis = 10 × 0.3 = 3': '成本基准 = 10 × 0.3 = 3',
+    'Cost basis = 10 × 1.0 = 10': '成本基准 = 10 × 1.0 = 10',
+    'Cost basis = 10 × 0.8 = 8': '成本基准 = 10 × 0.8 = 8',
+    'Users of vip, when billed as premium, use cost multiplier':
+      'vip 用户按 premium 计费时使用成本倍率',
+    'No rule for vip billed as default → use the base cost of default, 1.0 (the 0.8 of vip is not used)':
+      'vip 按 default 计费没有特殊规则 → 使用 default 的成本基准 1.0（不会使用 vip 的 0.8）',
+    'No rule for vip billed as vip → use the base cost of vip, 0.8':
+      'vip 按 vip 计费没有特殊规则 → 使用 vip 的成本基准 0.8',
+    'Use the pricing group table to manage the cost multiplier and whether the group appears in the token creation dropdown.':
+      '使用定价分组表管理成本倍率，以及分组是否出现在令牌创建下拉框中。',
+    'In JSON, the user group is the outer key and the billing group is the inner key. The example below means: vip users use cost multiplier 0.8 when billed as standard, and 0.3 when billed as premium.':
+      'JSON 中外层键是用户组，内层键是计费组。下面示例表示：vip 用户按 standard 计费使用成本倍率 0.8，按 premium 计费使用 0.3。',
+    'Only configured combinations are overridden. All other calls keep the billing group base cost multiplier.':
+      '只有配置的组合会覆盖；其它请求继续使用计费组的成本基准倍率。',
+    'Base cost multipliers': '基础成本倍率',
+    "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting.":
+      '在点击优化前会保留手动顺序。优化会改变所有用户的全局顺序，但运行时仍会过滤每个用户可见的分组；默认按基础成本倍率排序，选择用户组后会先应用其特殊成本覆盖。',
+    'Cost multipliers must be finite numbers greater than or equal to zero.':
+      '成本倍率必须是大于等于 0 的有限数字。',
+    'Optimize by effective cost': '按最终成本优化',
+    'Edit cost override': '编辑成本覆盖',
+    'Add cost override': '添加成本覆盖',
+    'Configure a custom cost multiplier for "{{userGroup}}" users when using a specific token group.':
+      '配置“{{userGroup}}”用户使用指定令牌组时的自定义成本倍率。',
+    'Configure a custom cost multiplier for when users use a specific token group.':
+      '配置用户使用指定令牌组时的自定义成本倍率。',
+    'Invalid cost multiplier': '成本倍率无效',
+    'Cost multiplier applied when {{userGroup}} uses {{targetGroup}}':
+      '{{userGroup}} 使用 {{targetGroup}} 时应用的成本倍率',
+    'Save group pricing': '保存分组定价',
+    'Fixed by channel sharing settings': '由渠道共享设置固定',
   },
-  "zh-TW": {
-    "Pricing group": "定價分組",
-    "Cost multiplier": "成本倍率",
-    "Group cost multipliers": "分組成本倍率",
-    "Understand how user groups, cost multipliers, profit pricing, and special rules work together.": "了解使用者群組、成本倍率、利潤定價和特殊規則如何共同生效。",
-    "decides which channels are used and which base cost multiplier applies.": "決定使用哪些渠道以及採用哪個成本基準倍率。",
-    "decides the top-up ratio, which groups the user can pick for tokens, and whether a cost override applies.": "決定充值倍率、使用者建立 Token 時可選的分組，以及是否套用成本覆蓋規則。",
-    "Find the cost multiplier.": "尋找成本倍率。",
-    "Look for a special cost rule matching this user group and this billing group. If one exists, use its cost multiplier. Otherwise use the billing group base cost from the pricing table.": "尋找符合使用者群組和計費群組的特殊成本規則；若存在則使用其成本倍率，否則使用定價表中的計費群組成本基準。",
-    "Special cost rules": "特殊成本規則",
-    "Cost basis = 10 × 0.3 = 3": "成本基準 = 10 × 0.3 = 3",
-    "Cost basis = 10 × 1.0 = 10": "成本基準 = 10 × 1.0 = 10",
-    "Cost basis = 10 × 0.8 = 8": "成本基準 = 10 × 0.8 = 8",
-    "Users of vip, when billed as premium, use cost multiplier": "vip 使用者按 premium 計費時使用成本倍率",
-    "No rule for vip billed as default → use the base cost of default, 1.0 (the 0.8 of vip is not used)": "vip 按 default 計費沒有特殊規則 → 使用 default 的成本基準 1.0（不會使用 vip 的 0.8）",
-    "No rule for vip billed as vip → use the base cost of vip, 0.8": "vip 按 vip 計費沒有特殊規則 → 使用 vip 的成本基準 0.8",
-    "Use the pricing group table to manage the cost multiplier and whether the group appears in the token creation dropdown.": "使用定價分組表管理成本倍率，以及分組是否出現在 Token 建立下拉選單中。",
-    "In JSON, the user group is the outer key and the billing group is the inner key. The example below means: vip users use cost multiplier 0.8 when billed as standard, and 0.3 when billed as premium.": "JSON 中外層鍵是使用者群組，內層鍵是計費群組。以下範例表示：vip 使用者按 standard 計費使用成本倍率 0.8，按 premium 計費使用 0.3。",
-    "Only configured combinations are overridden. All other calls keep the billing group base cost multiplier.": "只有設定的組合會覆蓋；其他請求繼續使用計費群組的成本基準倍率。",
-    "Base cost multipliers": "基礎成本倍率",
-    "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting.": "在點擊最佳化前會保留手動順序。最佳化會改變所有使用者的全域順序，但執行時仍會過濾每個使用者可見的分組；預設按基礎成本倍率排序，選擇使用者群組後會先套用其特殊成本覆蓋。",
-    "Cost multipliers must be finite numbers greater than or equal to zero.": "成本倍率必須是大於等於 0 的有限數字。",
-    "Optimize by effective cost": "按最終成本最佳化",
-    "Edit cost override": "編輯成本覆蓋",
-    "Add cost override": "新增成本覆蓋",
-    "Configure a custom cost multiplier for \"{{userGroup}}\" users when using a specific token group.": "設定「{{userGroup}}」使用者使用指定 Token 群組時的自訂成本倍率。",
-    "Configure a custom cost multiplier for when users use a specific token group.": "設定使用者使用指定 Token 群組時的自訂成本倍率。",
-    "Invalid cost multiplier": "成本倍率無效",
-    "Cost multiplier applied when {{userGroup}} uses {{targetGroup}}": "{{userGroup}} 使用 {{targetGroup}} 時套用的成本倍率",
-    "Save group pricing": "儲存分組定價",
-    "Fixed by channel sharing settings": "由渠道共享設定固定"
+  'zh-TW': {
+    'Pricing group': '定價分組',
+    'Cost multiplier': '成本倍率',
+    'Group cost multipliers': '分組成本倍率',
+    'Understand how user groups, cost multipliers, profit pricing, and special rules work together.':
+      '了解使用者群組、成本倍率、利潤定價和特殊規則如何共同生效。',
+    'decides which channels are used and which base cost multiplier applies.':
+      '決定使用哪些渠道以及採用哪個成本基準倍率。',
+    'decides the top-up ratio, which groups the user can pick for tokens, and whether a cost override applies.':
+      '決定充值倍率、使用者建立 Token 時可選的分組，以及是否套用成本覆蓋規則。',
+    'Find the cost multiplier.': '尋找成本倍率。',
+    'Look for a special cost rule matching this user group and this billing group. If one exists, use its cost multiplier. Otherwise use the billing group base cost from the pricing table.':
+      '尋找符合使用者群組和計費群組的特殊成本規則；若存在則使用其成本倍率，否則使用定價表中的計費群組成本基準。',
+    'Special cost rules': '特殊成本規則',
+    'Cost basis = 10 × 0.3 = 3': '成本基準 = 10 × 0.3 = 3',
+    'Cost basis = 10 × 1.0 = 10': '成本基準 = 10 × 1.0 = 10',
+    'Cost basis = 10 × 0.8 = 8': '成本基準 = 10 × 0.8 = 8',
+    'Users of vip, when billed as premium, use cost multiplier':
+      'vip 使用者按 premium 計費時使用成本倍率',
+    'No rule for vip billed as default → use the base cost of default, 1.0 (the 0.8 of vip is not used)':
+      'vip 按 default 計費沒有特殊規則 → 使用 default 的成本基準 1.0（不會使用 vip 的 0.8）',
+    'No rule for vip billed as vip → use the base cost of vip, 0.8':
+      'vip 按 vip 計費沒有特殊規則 → 使用 vip 的成本基準 0.8',
+    'Use the pricing group table to manage the cost multiplier and whether the group appears in the token creation dropdown.':
+      '使用定價分組表管理成本倍率，以及分組是否出現在 Token 建立下拉選單中。',
+    'In JSON, the user group is the outer key and the billing group is the inner key. The example below means: vip users use cost multiplier 0.8 when billed as standard, and 0.3 when billed as premium.':
+      'JSON 中外層鍵是使用者群組，內層鍵是計費群組。以下範例表示：vip 使用者按 standard 計費使用成本倍率 0.8，按 premium 計費使用 0.3。',
+    'Only configured combinations are overridden. All other calls keep the billing group base cost multiplier.':
+      '只有設定的組合會覆蓋；其他請求繼續使用計費群組的成本基準倍率。',
+    'Base cost multipliers': '基礎成本倍率',
+    "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting.":
+      '在點擊最佳化前會保留手動順序。最佳化會改變所有使用者的全域順序，但執行時仍會過濾每個使用者可見的分組；預設按基礎成本倍率排序，選擇使用者群組後會先套用其特殊成本覆蓋。',
+    'Cost multipliers must be finite numbers greater than or equal to zero.':
+      '成本倍率必須是大於等於 0 的有限數字。',
+    'Optimize by effective cost': '按最終成本最佳化',
+    'Edit cost override': '編輯成本覆蓋',
+    'Add cost override': '新增成本覆蓋',
+    'Configure a custom cost multiplier for "{{userGroup}}" users when using a specific token group.':
+      '設定「{{userGroup}}」使用者使用指定 Token 群組時的自訂成本倍率。',
+    'Configure a custom cost multiplier for when users use a specific token group.':
+      '設定使用者使用指定 Token 群組時的自訂成本倍率。',
+    'Invalid cost multiplier': '成本倍率無效',
+    'Cost multiplier applied when {{userGroup}} uses {{targetGroup}}':
+      '{{userGroup}} 使用 {{targetGroup}} 時套用的成本倍率',
+    'Save group pricing': '儲存分組定價',
+    'Fixed by channel sharing settings': '由渠道共享設定固定',
   },
-  "fr": {
-    "Pricing group": "Groupe tarifaire",
-    "Cost multiplier": "Coefficient de coût",
-    "Group cost multipliers": "Coefficients de coût des groupes",
-    "Understand how user groups, cost multipliers, profit pricing, and special rules work together.": "Comprenez le rôle des groupes utilisateurs, des coûts, du profit et des règles spéciales.",
-    "decides which channels are used and which base cost multiplier applies.": "détermine les canaux utilisés et le coefficient de coût de base appliqué.",
-    "decides the top-up ratio, which groups the user can pick for tokens, and whether a cost override applies.": "détermine le coefficient de recharge, les groupes disponibles pour les tokens et les éventuelles règles de coût.",
-    "Find the cost multiplier.": "Trouver le coefficient de coût.",
-    "Look for a special cost rule matching this user group and this billing group. If one exists, use its cost multiplier. Otherwise use the billing group base cost from the pricing table.": "Cherchez une règle de coût correspondant au groupe utilisateur et au groupe de facturation ; sinon utilisez le coût de base du groupe tarifaire.",
-    "Special cost rules": "Règles de coût spéciales",
-    "Cost basis = 10 × 0.3 = 3": "Base de coût = 10 × 0,3 = 3",
-    "Cost basis = 10 × 1.0 = 10": "Base de coût = 10 × 1,0 = 10",
-    "Cost basis = 10 × 0.8 = 8": "Base de coût = 10 × 0,8 = 8",
-    "Users of vip, when billed as premium, use cost multiplier": "Les utilisateurs vip facturés en premium utilisent le coefficient de coût",
-    "No rule for vip billed as default → use the base cost of default, 1.0 (the 0.8 of vip is not used)": "Sans règle vip facturé en default → coût de base default, 1,0 (le 0,8 de vip ne s’applique pas)",
-    "No rule for vip billed as vip → use the base cost of vip, 0.8": "Sans règle vip facturé en vip → coût de base vip, 0,8",
-    "Use the pricing group table to manage the cost multiplier and whether the group appears in the token creation dropdown.": "Gérez le coefficient de coût et la visibilité du groupe dans la liste de création des tokens.",
-    "In JSON, the user group is the outer key and the billing group is the inner key. The example below means: vip users use cost multiplier 0.8 when billed as standard, and 0.3 when billed as premium.": "Dans le JSON, le groupe utilisateur est la clé externe et le groupe de facturation la clé interne ; vip utilise 0,8 en standard et 0,3 en premium.",
-    "Only configured combinations are overridden. All other calls keep the billing group base cost multiplier.": "Seules les combinaisons configurées sont remplacées ; les autres gardent le coût de base du groupe.",
-    "Base cost multipliers": "Coefficients de coût de base",
-    "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting.": "L’ordre manuel est conservé jusqu’à l’optimisation. Celle-ci applique les remplacements de coût du groupe utilisateur avant le tri.",
-    "Cost multipliers must be finite numbers greater than or equal to zero.": "Les coefficients de coût doivent être des nombres finis supérieurs ou égaux à zéro.",
-    "Optimize by effective cost": "Optimiser par coût effectif",
-    "Edit cost override": "Modifier le remplacement de coût",
-    "Add cost override": "Ajouter un remplacement de coût",
-    "Configure a custom cost multiplier for \"{{userGroup}}\" users when using a specific token group.": "Configurez un coefficient de coût personnalisé pour les utilisateurs « {{userGroup}} » avec un groupe de tokens donné.",
-    "Configure a custom cost multiplier for when users use a specific token group.": "Configurez un coefficient de coût personnalisé pour un groupe de tokens donné.",
-    "Invalid cost multiplier": "Coefficient de coût invalide",
-    "Cost multiplier applied when {{userGroup}} uses {{targetGroup}}": "Coefficient appliqué quand {{userGroup}} utilise {{targetGroup}}",
-    "Save group pricing": "Enregistrer la tarification des groupes",
-    "Fixed by channel sharing settings": "Fixé par les paramètres de partage du canal"
+  fr: {
+    'Pricing group': 'Groupe tarifaire',
+    'Cost multiplier': 'Coefficient de coût',
+    'Group cost multipliers': 'Coefficients de coût des groupes',
+    'Understand how user groups, cost multipliers, profit pricing, and special rules work together.':
+      'Comprenez le rôle des groupes utilisateurs, des coûts, du profit et des règles spéciales.',
+    'decides which channels are used and which base cost multiplier applies.':
+      'détermine les canaux utilisés et le coefficient de coût de base appliqué.',
+    'decides the top-up ratio, which groups the user can pick for tokens, and whether a cost override applies.':
+      'détermine le coefficient de recharge, les groupes disponibles pour les tokens et les éventuelles règles de coût.',
+    'Find the cost multiplier.': 'Trouver le coefficient de coût.',
+    'Look for a special cost rule matching this user group and this billing group. If one exists, use its cost multiplier. Otherwise use the billing group base cost from the pricing table.':
+      'Cherchez une règle de coût correspondant au groupe utilisateur et au groupe de facturation ; sinon utilisez le coût de base du groupe tarifaire.',
+    'Special cost rules': 'Règles de coût spéciales',
+    'Cost basis = 10 × 0.3 = 3': 'Base de coût = 10 × 0,3 = 3',
+    'Cost basis = 10 × 1.0 = 10': 'Base de coût = 10 × 1,0 = 10',
+    'Cost basis = 10 × 0.8 = 8': 'Base de coût = 10 × 0,8 = 8',
+    'Users of vip, when billed as premium, use cost multiplier':
+      'Les utilisateurs vip facturés en premium utilisent le coefficient de coût',
+    'No rule for vip billed as default → use the base cost of default, 1.0 (the 0.8 of vip is not used)':
+      'Sans règle vip facturé en default → coût de base default, 1,0 (le 0,8 de vip ne s’applique pas)',
+    'No rule for vip billed as vip → use the base cost of vip, 0.8':
+      'Sans règle vip facturé en vip → coût de base vip, 0,8',
+    'Use the pricing group table to manage the cost multiplier and whether the group appears in the token creation dropdown.':
+      'Gérez le coefficient de coût et la visibilité du groupe dans la liste de création des tokens.',
+    'In JSON, the user group is the outer key and the billing group is the inner key. The example below means: vip users use cost multiplier 0.8 when billed as standard, and 0.3 when billed as premium.':
+      'Dans le JSON, le groupe utilisateur est la clé externe et le groupe de facturation la clé interne ; vip utilise 0,8 en standard et 0,3 en premium.',
+    'Only configured combinations are overridden. All other calls keep the billing group base cost multiplier.':
+      'Seules les combinaisons configurées sont remplacées ; les autres gardent le coût de base du groupe.',
+    'Base cost multipliers': 'Coefficients de coût de base',
+    "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting.":
+      'L’ordre manuel est conservé jusqu’à l’optimisation. Celle-ci applique les remplacements de coût du groupe utilisateur avant le tri.',
+    'Cost multipliers must be finite numbers greater than or equal to zero.':
+      'Les coefficients de coût doivent être des nombres finis supérieurs ou égaux à zéro.',
+    'Optimize by effective cost': 'Optimiser par coût effectif',
+    'Edit cost override': 'Modifier le remplacement de coût',
+    'Add cost override': 'Ajouter un remplacement de coût',
+    'Configure a custom cost multiplier for "{{userGroup}}" users when using a specific token group.':
+      'Configurez un coefficient de coût personnalisé pour les utilisateurs « {{userGroup}} » avec un groupe de tokens donné.',
+    'Configure a custom cost multiplier for when users use a specific token group.':
+      'Configurez un coefficient de coût personnalisé pour un groupe de tokens donné.',
+    'Invalid cost multiplier': 'Coefficient de coût invalide',
+    'Cost multiplier applied when {{userGroup}} uses {{targetGroup}}':
+      'Coefficient appliqué quand {{userGroup}} utilise {{targetGroup}}',
+    'Save group pricing': 'Enregistrer la tarification des groupes',
+    'Fixed by channel sharing settings':
+      'Fixé par les paramètres de partage du canal',
   },
-  "ja": {
-    "Pricing group": "料金グループ",
-    "Cost multiplier": "コスト倍率",
-    "Group cost multipliers": "グループコスト倍率",
-    "Understand how user groups, cost multipliers, profit pricing, and special rules work together.": "ユーザーグループ、コスト倍率、利益料金、特殊ルールの連携を確認します。",
-    "decides which channels are used and which base cost multiplier applies.": "使用するチャネルと適用する基本コスト倍率を決めます。",
-    "decides the top-up ratio, which groups the user can pick for tokens, and whether a cost override applies.": "チャージ倍率、トークンで選べるグループ、コスト上書きの有無を決めます。",
-    "Find the cost multiplier.": "コスト倍率を確認します。",
-    "Look for a special cost rule matching this user group and this billing group. If one exists, use its cost multiplier. Otherwise use the billing group base cost from the pricing table.": "ユーザーグループと請求グループに一致する特殊コストルールを探し、なければ料金表の基本コストを使います。",
-    "Special cost rules": "特殊コストルール",
-    "Cost basis = 10 × 0.3 = 3": "コスト基準 = 10 × 0.3 = 3",
-    "Cost basis = 10 × 1.0 = 10": "コスト基準 = 10 × 1.0 = 10",
-    "Cost basis = 10 × 0.8 = 8": "コスト基準 = 10 × 0.8 = 8",
-    "Users of vip, when billed as premium, use cost multiplier": "vip ユーザーが premium で請求される場合のコスト倍率",
-    "No rule for vip billed as default → use the base cost of default, 1.0 (the 0.8 of vip is not used)": "vip を default で請求するルールがないため default の基本コスト 1.0 を使います（vip の 0.8 は使いません）。",
-    "No rule for vip billed as vip → use the base cost of vip, 0.8": "vip を vip で請求するルールがないため vip の基本コスト 0.8 を使います。",
-    "Use the pricing group table to manage the cost multiplier and whether the group appears in the token creation dropdown.": "料金グループ表でコスト倍率とトークン作成リストへの表示を管理します。",
-    "In JSON, the user group is the outer key and the billing group is the inner key. The example below means: vip users use cost multiplier 0.8 when billed as standard, and 0.3 when billed as premium.": "JSON の外側キーはユーザーグループ、内側キーは請求グループです。例では vip が standard で 0.8、premium で 0.3 を使います。",
-    "Only configured combinations are overridden. All other calls keep the billing group base cost multiplier.": "設定した組み合わせだけが上書きされ、その他は請求グループの基本コスト倍率を使います。",
-    "Base cost multipliers": "基本コスト倍率",
-    "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting.": "最適化するまで手動順序を保持します。最適化では基本コスト倍率を使い、ユーザーグループを選ぶと特殊コスト上書きを適用して並べ替えます。",
-    "Cost multipliers must be finite numbers greater than or equal to zero.": "コスト倍率は 0 以上の有限数値である必要があります。",
-    "Optimize by effective cost": "実効コストで最適化",
-    "Edit cost override": "コスト上書きを編集",
-    "Add cost override": "コスト上書きを追加",
-    "Configure a custom cost multiplier for \"{{userGroup}}\" users when using a specific token group.": "「{{userGroup}}」ユーザーが指定トークングループを使う際のカスタムコスト倍率を設定します。",
-    "Configure a custom cost multiplier for when users use a specific token group.": "指定トークングループを使う場合のカスタムコスト倍率を設定します。",
-    "Invalid cost multiplier": "無効なコスト倍率",
-    "Cost multiplier applied when {{userGroup}} uses {{targetGroup}}": "{{userGroup}} が {{targetGroup}} を使う場合のコスト倍率",
-    "Save group pricing": "グループ料金を保存",
-    "Fixed by channel sharing settings": "チャネル共有設定で固定"
+  ja: {
+    'Pricing group': '料金グループ',
+    'Cost multiplier': 'コスト倍率',
+    'Group cost multipliers': 'グループコスト倍率',
+    'Understand how user groups, cost multipliers, profit pricing, and special rules work together.':
+      'ユーザーグループ、コスト倍率、利益料金、特殊ルールの連携を確認します。',
+    'decides which channels are used and which base cost multiplier applies.':
+      '使用するチャネルと適用する基本コスト倍率を決めます。',
+    'decides the top-up ratio, which groups the user can pick for tokens, and whether a cost override applies.':
+      'チャージ倍率、トークンで選べるグループ、コスト上書きの有無を決めます。',
+    'Find the cost multiplier.': 'コスト倍率を確認します。',
+    'Look for a special cost rule matching this user group and this billing group. If one exists, use its cost multiplier. Otherwise use the billing group base cost from the pricing table.':
+      'ユーザーグループと請求グループに一致する特殊コストルールを探し、なければ料金表の基本コストを使います。',
+    'Special cost rules': '特殊コストルール',
+    'Cost basis = 10 × 0.3 = 3': 'コスト基準 = 10 × 0.3 = 3',
+    'Cost basis = 10 × 1.0 = 10': 'コスト基準 = 10 × 1.0 = 10',
+    'Cost basis = 10 × 0.8 = 8': 'コスト基準 = 10 × 0.8 = 8',
+    'Users of vip, when billed as premium, use cost multiplier':
+      'vip ユーザーが premium で請求される場合のコスト倍率',
+    'No rule for vip billed as default → use the base cost of default, 1.0 (the 0.8 of vip is not used)':
+      'vip を default で請求するルールがないため default の基本コスト 1.0 を使います（vip の 0.8 は使いません）。',
+    'No rule for vip billed as vip → use the base cost of vip, 0.8':
+      'vip を vip で請求するルールがないため vip の基本コスト 0.8 を使います。',
+    'Use the pricing group table to manage the cost multiplier and whether the group appears in the token creation dropdown.':
+      '料金グループ表でコスト倍率とトークン作成リストへの表示を管理します。',
+    'In JSON, the user group is the outer key and the billing group is the inner key. The example below means: vip users use cost multiplier 0.8 when billed as standard, and 0.3 when billed as premium.':
+      'JSON の外側キーはユーザーグループ、内側キーは請求グループです。例では vip が standard で 0.8、premium で 0.3 を使います。',
+    'Only configured combinations are overridden. All other calls keep the billing group base cost multiplier.':
+      '設定した組み合わせだけが上書きされ、その他は請求グループの基本コスト倍率を使います。',
+    'Base cost multipliers': '基本コスト倍率',
+    "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting.":
+      '最適化するまで手動順序を保持します。最適化では基本コスト倍率を使い、ユーザーグループを選ぶと特殊コスト上書きを適用して並べ替えます。',
+    'Cost multipliers must be finite numbers greater than or equal to zero.':
+      'コスト倍率は 0 以上の有限数値である必要があります。',
+    'Optimize by effective cost': '実効コストで最適化',
+    'Edit cost override': 'コスト上書きを編集',
+    'Add cost override': 'コスト上書きを追加',
+    'Configure a custom cost multiplier for "{{userGroup}}" users when using a specific token group.':
+      '「{{userGroup}}」ユーザーが指定トークングループを使う際のカスタムコスト倍率を設定します。',
+    'Configure a custom cost multiplier for when users use a specific token group.':
+      '指定トークングループを使う場合のカスタムコスト倍率を設定します。',
+    'Invalid cost multiplier': '無効なコスト倍率',
+    'Cost multiplier applied when {{userGroup}} uses {{targetGroup}}':
+      '{{userGroup}} が {{targetGroup}} を使う場合のコスト倍率',
+    'Save group pricing': 'グループ料金を保存',
+    'Fixed by channel sharing settings': 'チャネル共有設定で固定',
   },
-  "ru": {
-    "Pricing group": "Тарифная группа",
-    "Cost multiplier": "Коэффициент затрат",
-    "Group cost multipliers": "Коэффициенты затрат групп",
-    "Understand how user groups, cost multipliers, profit pricing, and special rules work together.": "Узнайте, как работают группы пользователей, затраты, прибыль и специальные правила.",
-    "decides which channels are used and which base cost multiplier applies.": "определяет используемые каналы и базовый коэффициент затрат.",
-    "decides the top-up ratio, which groups the user can pick for tokens, and whether a cost override applies.": "определяет коэффициент пополнения, доступные для токенов группы и применение переопределения затрат.",
-    "Find the cost multiplier.": "Найдите коэффициент затрат.",
-    "Look for a special cost rule matching this user group and this billing group. If one exists, use its cost multiplier. Otherwise use the billing group base cost from the pricing table.": "Найдите специальное правило для группы пользователя и группы тарификации; иначе используйте базовую стоимость группы из таблицы.",
-    "Special cost rules": "Специальные правила затрат",
-    "Cost basis = 10 × 0.3 = 3": "База затрат = 10 × 0,3 = 3",
-    "Cost basis = 10 × 1.0 = 10": "База затрат = 10 × 1,0 = 10",
-    "Cost basis = 10 × 0.8 = 8": "База затрат = 10 × 0,8 = 8",
-    "Users of vip, when billed as premium, use cost multiplier": "Пользователи vip при тарификации premium используют коэффициент затрат",
-    "No rule for vip billed as default → use the base cost of default, 1.0 (the 0.8 of vip is not used)": "Для vip в default нет правила → используется базовая стоимость default 1,0 (0,8 vip не используется).",
-    "No rule for vip billed as vip → use the base cost of vip, 0.8": "Для vip в vip нет правила → используется базовая стоимость vip 0,8.",
-    "Use the pricing group table to manage the cost multiplier and whether the group appears in the token creation dropdown.": "Управляйте коэффициентом затрат и видимостью группы в списке создания токена через таблицу тарифов.",
-    "In JSON, the user group is the outer key and the billing group is the inner key. The example below means: vip users use cost multiplier 0.8 when billed as standard, and 0.3 when billed as premium.": "Во внешнем ключе JSON указана группа пользователя, во внутреннем — группа тарификации; vip использует 0,8 для standard и 0,3 для premium.",
-    "Only configured combinations are overridden. All other calls keep the billing group base cost multiplier.": "Переопределяются только настроенные комбинации; остальные запросы используют базовый коэффициент группы.",
-    "Base cost multipliers": "Базовые коэффициенты затрат",
-    "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting.": "Ручной порядок сохраняется до оптимизации. По умолчанию оптимизация сортирует по базовым затратам и перед сортировкой применяет специальные правила выбранной группы пользователя.",
-    "Cost multipliers must be finite numbers greater than or equal to zero.": "Коэффициенты затрат должны быть конечными числами не меньше нуля.",
-    "Optimize by effective cost": "Оптимизировать по эффективной стоимости",
-    "Edit cost override": "Изменить переопределение затрат",
-    "Add cost override": "Добавить переопределение затрат",
-    "Configure a custom cost multiplier for \"{{userGroup}}\" users when using a specific token group.": "Настройте собственный коэффициент затрат для пользователей «{{userGroup}}» при использовании группы токена.",
-    "Configure a custom cost multiplier for when users use a specific token group.": "Настройте собственный коэффициент затрат для выбранной группы токена.",
-    "Invalid cost multiplier": "Недопустимый коэффициент затрат",
-    "Cost multiplier applied when {{userGroup}} uses {{targetGroup}}": "Коэффициент затрат, когда {{userGroup}} использует {{targetGroup}}",
-    "Save group pricing": "Сохранить тарифы групп",
-    "Fixed by channel sharing settings": "Задано настройками общего канала"
+  ru: {
+    'Pricing group': 'Тарифная группа',
+    'Cost multiplier': 'Коэффициент затрат',
+    'Group cost multipliers': 'Коэффициенты затрат групп',
+    'Understand how user groups, cost multipliers, profit pricing, and special rules work together.':
+      'Узнайте, как работают группы пользователей, затраты, прибыль и специальные правила.',
+    'decides which channels are used and which base cost multiplier applies.':
+      'определяет используемые каналы и базовый коэффициент затрат.',
+    'decides the top-up ratio, which groups the user can pick for tokens, and whether a cost override applies.':
+      'определяет коэффициент пополнения, доступные для токенов группы и применение переопределения затрат.',
+    'Find the cost multiplier.': 'Найдите коэффициент затрат.',
+    'Look for a special cost rule matching this user group and this billing group. If one exists, use its cost multiplier. Otherwise use the billing group base cost from the pricing table.':
+      'Найдите специальное правило для группы пользователя и группы тарификации; иначе используйте базовую стоимость группы из таблицы.',
+    'Special cost rules': 'Специальные правила затрат',
+    'Cost basis = 10 × 0.3 = 3': 'База затрат = 10 × 0,3 = 3',
+    'Cost basis = 10 × 1.0 = 10': 'База затрат = 10 × 1,0 = 10',
+    'Cost basis = 10 × 0.8 = 8': 'База затрат = 10 × 0,8 = 8',
+    'Users of vip, when billed as premium, use cost multiplier':
+      'Пользователи vip при тарификации premium используют коэффициент затрат',
+    'No rule for vip billed as default → use the base cost of default, 1.0 (the 0.8 of vip is not used)':
+      'Для vip в default нет правила → используется базовая стоимость default 1,0 (0,8 vip не используется).',
+    'No rule for vip billed as vip → use the base cost of vip, 0.8':
+      'Для vip в vip нет правила → используется базовая стоимость vip 0,8.',
+    'Use the pricing group table to manage the cost multiplier and whether the group appears in the token creation dropdown.':
+      'Управляйте коэффициентом затрат и видимостью группы в списке создания токена через таблицу тарифов.',
+    'In JSON, the user group is the outer key and the billing group is the inner key. The example below means: vip users use cost multiplier 0.8 when billed as standard, and 0.3 when billed as premium.':
+      'Во внешнем ключе JSON указана группа пользователя, во внутреннем — группа тарификации; vip использует 0,8 для standard и 0,3 для premium.',
+    'Only configured combinations are overridden. All other calls keep the billing group base cost multiplier.':
+      'Переопределяются только настроенные комбинации; остальные запросы используют базовый коэффициент группы.',
+    'Base cost multipliers': 'Базовые коэффициенты затрат',
+    "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting.":
+      'Ручной порядок сохраняется до оптимизации. По умолчанию оптимизация сортирует по базовым затратам и перед сортировкой применяет специальные правила выбранной группы пользователя.',
+    'Cost multipliers must be finite numbers greater than or equal to zero.':
+      'Коэффициенты затрат должны быть конечными числами не меньше нуля.',
+    'Optimize by effective cost': 'Оптимизировать по эффективной стоимости',
+    'Edit cost override': 'Изменить переопределение затрат',
+    'Add cost override': 'Добавить переопределение затрат',
+    'Configure a custom cost multiplier for "{{userGroup}}" users when using a specific token group.':
+      'Настройте собственный коэффициент затрат для пользователей «{{userGroup}}» при использовании группы токена.',
+    'Configure a custom cost multiplier for when users use a specific token group.':
+      'Настройте собственный коэффициент затрат для выбранной группы токена.',
+    'Invalid cost multiplier': 'Недопустимый коэффициент затрат',
+    'Cost multiplier applied when {{userGroup}} uses {{targetGroup}}':
+      'Коэффициент затрат, когда {{userGroup}} использует {{targetGroup}}',
+    'Save group pricing': 'Сохранить тарифы групп',
+    'Fixed by channel sharing settings': 'Задано настройками общего канала',
   },
-  "vi": {
-    "Pricing group": "Nhóm định giá",
-    "Cost multiplier": "Hệ số chi phí",
-    "Group cost multipliers": "Hệ số chi phí nhóm",
-    "Understand how user groups, cost multipliers, profit pricing, and special rules work together.": "Tìm hiểu nhóm người dùng, hệ số chi phí, lợi nhuận và quy tắc đặc biệt phối hợp như thế nào.",
-    "decides which channels are used and which base cost multiplier applies.": "quyết định kênh được dùng và hệ số chi phí cơ bản áp dụng.",
-    "decides the top-up ratio, which groups the user can pick for tokens, and whether a cost override applies.": "quyết định hệ số nạp, nhóm người dùng có thể chọn cho token và việc áp dụng ghi đè chi phí.",
-    "Find the cost multiplier.": "Tìm hệ số chi phí.",
-    "Look for a special cost rule matching this user group and this billing group. If one exists, use its cost multiplier. Otherwise use the billing group base cost from the pricing table.": "Tìm quy tắc chi phí khớp nhóm người dùng và nhóm tính phí; nếu không có thì dùng chi phí cơ bản trong bảng định giá.",
-    "Special cost rules": "Quy tắc chi phí đặc biệt",
-    "Cost basis = 10 × 0.3 = 3": "Cơ sở chi phí = 10 × 0,3 = 3",
-    "Cost basis = 10 × 1.0 = 10": "Cơ sở chi phí = 10 × 1,0 = 10",
-    "Cost basis = 10 × 0.8 = 8": "Cơ sở chi phí = 10 × 0,8 = 8",
-    "Users of vip, when billed as premium, use cost multiplier": "Người dùng vip khi tính phí theo premium dùng hệ số chi phí",
-    "No rule for vip billed as default → use the base cost of default, 1.0 (the 0.8 of vip is not used)": "Không có quy tắc vip theo default → dùng chi phí cơ bản default 1,0 (không dùng 0,8 của vip).",
-    "No rule for vip billed as vip → use the base cost of vip, 0.8": "Không có quy tắc vip theo vip → dùng chi phí cơ bản vip 0,8.",
-    "Use the pricing group table to manage the cost multiplier and whether the group appears in the token creation dropdown.": "Dùng bảng nhóm định giá để quản lý hệ số chi phí và việc nhóm có xuất hiện trong danh sách tạo token hay không.",
-    "In JSON, the user group is the outer key and the billing group is the inner key. The example below means: vip users use cost multiplier 0.8 when billed as standard, and 0.3 when billed as premium.": "Trong JSON, khóa ngoài là nhóm người dùng và khóa trong là nhóm tính phí; ví dụ vip dùng 0,8 khi tính theo standard và 0,3 khi tính theo premium.",
-    "Only configured combinations are overridden. All other calls keep the billing group base cost multiplier.": "Chỉ các tổ hợp được cấu hình mới bị ghi đè; các yêu cầu khác giữ hệ số chi phí cơ bản của nhóm.",
-    "Base cost multipliers": "Hệ số chi phí cơ bản",
-    "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting.": "Thứ tự thủ công được giữ đến khi bạn tối ưu. Mặc định tối ưu theo hệ số chi phí cơ bản và áp dụng ghi đè chi phí của nhóm người dùng trước khi sắp xếp.",
-    "Cost multipliers must be finite numbers greater than or equal to zero.": "Hệ số chi phí phải là số hữu hạn lớn hơn hoặc bằng 0.",
-    "Optimize by effective cost": "Tối ưu theo chi phí hiệu dụng",
-    "Edit cost override": "Sửa ghi đè chi phí",
-    "Add cost override": "Thêm ghi đè chi phí",
-    "Configure a custom cost multiplier for \"{{userGroup}}\" users when using a specific token group.": "Cấu hình hệ số chi phí tùy chỉnh cho người dùng “{{userGroup}}” khi dùng nhóm token cụ thể.",
-    "Configure a custom cost multiplier for when users use a specific token group.": "Cấu hình hệ số chi phí tùy chỉnh khi người dùng dùng nhóm token cụ thể.",
-    "Invalid cost multiplier": "Hệ số chi phí không hợp lệ",
-    "Cost multiplier applied when {{userGroup}} uses {{targetGroup}}": "Hệ số chi phí áp dụng khi {{userGroup}} dùng {{targetGroup}}",
-    "Save group pricing": "Lưu định giá nhóm",
-    "Fixed by channel sharing settings": "Được cố định bởi cài đặt chia sẻ kênh"
-  }
+  vi: {
+    'Pricing group': 'Nhóm định giá',
+    'Cost multiplier': 'Hệ số chi phí',
+    'Group cost multipliers': 'Hệ số chi phí nhóm',
+    'Understand how user groups, cost multipliers, profit pricing, and special rules work together.':
+      'Tìm hiểu nhóm người dùng, hệ số chi phí, lợi nhuận và quy tắc đặc biệt phối hợp như thế nào.',
+    'decides which channels are used and which base cost multiplier applies.':
+      'quyết định kênh được dùng và hệ số chi phí cơ bản áp dụng.',
+    'decides the top-up ratio, which groups the user can pick for tokens, and whether a cost override applies.':
+      'quyết định hệ số nạp, nhóm người dùng có thể chọn cho token và việc áp dụng ghi đè chi phí.',
+    'Find the cost multiplier.': 'Tìm hệ số chi phí.',
+    'Look for a special cost rule matching this user group and this billing group. If one exists, use its cost multiplier. Otherwise use the billing group base cost from the pricing table.':
+      'Tìm quy tắc chi phí khớp nhóm người dùng và nhóm tính phí; nếu không có thì dùng chi phí cơ bản trong bảng định giá.',
+    'Special cost rules': 'Quy tắc chi phí đặc biệt',
+    'Cost basis = 10 × 0.3 = 3': 'Cơ sở chi phí = 10 × 0,3 = 3',
+    'Cost basis = 10 × 1.0 = 10': 'Cơ sở chi phí = 10 × 1,0 = 10',
+    'Cost basis = 10 × 0.8 = 8': 'Cơ sở chi phí = 10 × 0,8 = 8',
+    'Users of vip, when billed as premium, use cost multiplier':
+      'Người dùng vip khi tính phí theo premium dùng hệ số chi phí',
+    'No rule for vip billed as default → use the base cost of default, 1.0 (the 0.8 of vip is not used)':
+      'Không có quy tắc vip theo default → dùng chi phí cơ bản default 1,0 (không dùng 0,8 của vip).',
+    'No rule for vip billed as vip → use the base cost of vip, 0.8':
+      'Không có quy tắc vip theo vip → dùng chi phí cơ bản vip 0,8.',
+    'Use the pricing group table to manage the cost multiplier and whether the group appears in the token creation dropdown.':
+      'Dùng bảng nhóm định giá để quản lý hệ số chi phí và việc nhóm có xuất hiện trong danh sách tạo token hay không.',
+    'In JSON, the user group is the outer key and the billing group is the inner key. The example below means: vip users use cost multiplier 0.8 when billed as standard, and 0.3 when billed as premium.':
+      'Trong JSON, khóa ngoài là nhóm người dùng và khóa trong là nhóm tính phí; ví dụ vip dùng 0,8 khi tính theo standard và 0,3 khi tính theo premium.',
+    'Only configured combinations are overridden. All other calls keep the billing group base cost multiplier.':
+      'Chỉ các tổ hợp được cấu hình mới bị ghi đè; các yêu cầu khác giữ hệ số chi phí cơ bản của nhóm.',
+    'Base cost multipliers': 'Hệ số chi phí cơ bản',
+    "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting.":
+      'Thứ tự thủ công được giữ đến khi bạn tối ưu. Mặc định tối ưu theo hệ số chi phí cơ bản và áp dụng ghi đè chi phí của nhóm người dùng trước khi sắp xếp.',
+    'Cost multipliers must be finite numbers greater than or equal to zero.':
+      'Hệ số chi phí phải là số hữu hạn lớn hơn hoặc bằng 0.',
+    'Optimize by effective cost': 'Tối ưu theo chi phí hiệu dụng',
+    'Edit cost override': 'Sửa ghi đè chi phí',
+    'Add cost override': 'Thêm ghi đè chi phí',
+    'Configure a custom cost multiplier for "{{userGroup}}" users when using a specific token group.':
+      'Cấu hình hệ số chi phí tùy chỉnh cho người dùng “{{userGroup}}” khi dùng nhóm token cụ thể.',
+    'Configure a custom cost multiplier for when users use a specific token group.':
+      'Cấu hình hệ số chi phí tùy chỉnh khi người dùng dùng nhóm token cụ thể.',
+    'Invalid cost multiplier': 'Hệ số chi phí không hợp lệ',
+    'Cost multiplier applied when {{userGroup}} uses {{targetGroup}}':
+      'Hệ số chi phí áp dụng khi {{userGroup}} dùng {{targetGroup}}',
+    'Save group pricing': 'Lưu định giá nhóm',
+    'Fixed by channel sharing settings':
+      'Được cố định bởi cài đặt chia sẻ kênh',
+  },
 }
 
 for (const [locale, translations] of Object.entries(
@@ -8481,2408 +8588,3229 @@ const experienceCopy = {
 }
 
 const acquisitionCopy = {
-  "en": {
-    "Source privacy": "Source privacy",
-    "Allow source analytics? We retain source labels and entry pages for 90 days, and account attribution for 365 days. No API keys, messages, IP addresses or device fingerprints. Optional; this does not affect access.": "Allow source analytics? We retain source labels and entry pages for 90 days, and account attribution for 365 days. No API keys, messages, IP addresses or device fingerprints. Optional; this does not affect access.",
-    "Allow source analytics": "Allow source analytics",
-    "Do not collect": "Do not collect",
-    "Unable to save promotion link": "Unable to save promotion link",
-    "User acquisition": "User acquisition",
-    "Registration-cohort attribution. Payments are observed through the report update time, grouped by currency. Attribution does not prove causation. API success and retention are not yet available.": "Registration-cohort attribution. Payments are observed through the report update time, grouped by currency. Attribution does not prove causation. API success and retention are not yet available.",
-    "Past {{days}} days": "Past {{days}} days",
-    "Reload report": "Reload report",
-    "Source coverage: {{identified}} / {{total}} registered accounts": "Source coverage: {{identified}} / {{total}} registered accounts",
-    "Direct / unknown source": "Direct / unknown source",
-    "No accounts registered in this period.": "No accounts registered in this period.",
-    "Unknown means no reliable source was recorded; it does not mean the address was typed manually.": "Unknown means no reliable source was recorded; it does not mean the address was typed manually.",
-    "Promotion links": "Promotion links",
-    "Each link keeps a stable identity. Create a new link for a different campaign; renaming or archiving does not rewrite past attribution.": "Each link keeps a stable identity. Create a new link for a different campaign; renaming or archiving does not rewrite past attribution.",
-    "Target page": "Target page",
-    "Create promotion link": "Create promotion link",
-    "No promotion links yet.": "No promotion links yet.",
-    "QR code": "QR code",
-    "Test link": "Test link",
-    "Registrations": "Registrations",
-    "Actual payments": "Actual payments",
-    "Net payments": "Net payments",
-    "Source platform": "Source platform",
-    "Promotion method": "Promotion method",
-    "Campaign": "Campaign",
-    "Content label": "Content label",
-    "View acquisition summaries": "View acquisition summaries",
-    "View aggregate channel and campaign results.": "View aggregate channel and campaign results.",
-    "Manage promotion links": "Manage promotion links",
-    "Create and archive promotion links.": "Create and archive promotion links.",
-    "View acquisition account details": "View acquisition account details",
-    "View account-level source records.": "View account-level source records.",
-    "Export acquisition details": "Export acquisition details",
-    "Export account-level source records.": "Export account-level source records.",
-    "Historical source not recorded": "Historical source not recorded",
-    "Data collection started": "Data collection started",
-    "Operations analytics": "Operations analytics",
-    "Attribution lookback: {{days}} days": "Attribution lookback: {{days}} days",
-    "{{count}} payment records have incomplete amount or currency evidence and are excluded.": "{{count}} payment records have incomplete amount or currency evidence and are excluded.",
-    "{{count}} payment records have incomplete settlement evidence and are excluded.": "{{count}} payment records have incomplete settlement evidence and are excluded.",
-    "Promotion link marker": "Promotion link marker",
-    "Campaign parameters": "Campaign parameters",
-    "Browser-provided source website": "Browser-provided source website",
-    "No identifiable source": "No identifiable source",
-    "Promotion markers identify the link used, not necessarily the platform where it was seen.": "Promotion markers identify the link used, not necessarily the platform where it was seen."
+  en: {
+    'Source privacy': 'Source privacy',
+    'Allow source analytics? We retain source labels and entry pages for 90 days, and account attribution for 365 days. No API keys, messages, IP addresses or device fingerprints. Optional; this does not affect access.':
+      'Allow source analytics? We retain source labels and entry pages for 90 days, and account attribution for 365 days. No API keys, messages, IP addresses or device fingerprints. Optional; this does not affect access.',
+    'Allow source analytics': 'Allow source analytics',
+    'Do not collect': 'Do not collect',
+    'Unable to save promotion link': 'Unable to save promotion link',
+    'User acquisition': 'User acquisition',
+    'Registration-cohort attribution. Payments are observed through the report update time, grouped by currency. Attribution does not prove causation. API success and retention are not yet available.':
+      'Registration-cohort attribution. Payments are observed through the report update time, grouped by currency. Attribution does not prove causation. API success and retention are not yet available.',
+    'Past {{days}} days': 'Past {{days}} days',
+    'Reload report': 'Reload report',
+    'Source coverage: {{identified}} / {{total}} registered accounts':
+      'Source coverage: {{identified}} / {{total}} registered accounts',
+    'Direct / unknown source': 'Direct / unknown source',
+    'No accounts registered in this period.':
+      'No accounts registered in this period.',
+    'Unknown means no reliable source was recorded; it does not mean the address was typed manually.':
+      'Unknown means no reliable source was recorded; it does not mean the address was typed manually.',
+    'Promotion links': 'Promotion links',
+    'Each link keeps a stable identity. Create a new link for a different campaign; renaming or archiving does not rewrite past attribution.':
+      'Each link keeps a stable identity. Create a new link for a different campaign; renaming or archiving does not rewrite past attribution.',
+    'Target page': 'Target page',
+    'Create promotion link': 'Create promotion link',
+    'No promotion links yet.': 'No promotion links yet.',
+    'QR code': 'QR code',
+    'Test link': 'Test link',
+    Registrations: 'Registrations',
+    'Actual payments': 'Actual payments',
+    'Net payments': 'Net payments',
+    'Source platform': 'Source platform',
+    'Promotion method': 'Promotion method',
+    Campaign: 'Campaign',
+    'Content label': 'Content label',
+    'View acquisition summaries': 'View acquisition summaries',
+    'View aggregate channel and campaign results.':
+      'View aggregate channel and campaign results.',
+    'Manage promotion links': 'Manage promotion links',
+    'Create and archive promotion links.':
+      'Create and archive promotion links.',
+    'View acquisition account details': 'View acquisition account details',
+    'View account-level source records.': 'View account-level source records.',
+    'Export acquisition details': 'Export acquisition details',
+    'Export account-level source records.':
+      'Export account-level source records.',
+    'Historical source not recorded': 'Historical source not recorded',
+    'Data collection started': 'Data collection started',
+    'Operations analytics': 'Operations analytics',
+    'Attribution lookback: {{days}} days':
+      'Attribution lookback: {{days}} days',
+    '{{count}} payment records have incomplete amount or currency evidence and are excluded.':
+      '{{count}} payment records have incomplete amount or currency evidence and are excluded.',
+    '{{count}} payment records have incomplete settlement evidence and are excluded.':
+      '{{count}} payment records have incomplete settlement evidence and are excluded.',
+    'Promotion link marker': 'Promotion link marker',
+    'Campaign parameters': 'Campaign parameters',
+    'Browser-provided source website': 'Browser-provided source website',
+    'No identifiable source': 'No identifiable source',
+    'Promotion markers identify the link used, not necessarily the platform where it was seen.':
+      'Promotion markers identify the link used, not necessarily the platform where it was seen.',
   },
-  "zh": {
-    "Source privacy": "来源统计隐私",
-    "Allow source analytics? We retain source labels and entry pages for 90 days, and account attribution for 365 days. No API keys, messages, IP addresses or device fingerprints. Optional; this does not affect access.": "允许统计访问来源吗？来源标记和入口页面保留 90 天，账号来源归属保留 365 天。不收集 API Key、消息、IP 地址或设备指纹。是否允许不影响使用。",
-    "Allow source analytics": "允许来源统计",
-    "Do not collect": "不收集",
-    "Unable to save promotion link": "无法保存推广链接",
-    "User acquisition": "用户来源",
-    "Registration-cohort attribution. Payments are observed through the report update time, grouped by currency. Attribution does not prove causation. API success and retention are not yet available.": "本报表按所选时段注册的账号归属来源，付款统计截至报表更新时间，并按币种区分。来源归属不代表因果关系。成功接入和留存数据暂未提供。",
-    "Past {{days}} days": "近 {{days}} 天",
-    "Reload report": "重新加载报表",
-    "Source coverage: {{identified}} / {{total}} registered accounts": "来源识别覆盖：{{identified}} / {{total}} 个注册账号",
-    "Direct / unknown source": "直接访问 / 来源未知",
-    "No accounts registered in this period.": "此期间没有注册账号。",
-    "Unknown means no reliable source was recorded; it does not mean the address was typed manually.": "未知表示没有可靠的来源记录，不代表用户一定手动输入了网址。",
-    "Promotion links": "推广链接",
-    "Each link keeps a stable identity. Create a new link for a different campaign; renaming or archiving does not rewrite past attribution.": "每条链接都有固定标识。不同活动请新建链接；重命名或归档不会改写历史来源。",
-    "Target page": "目标页面",
-    "Create promotion link": "生成推广链接",
-    "No promotion links yet.": "尚未创建推广链接。",
-    "QR code": "二维码",
-    "Test link": "测试此链接",
-    "Registrations": "注册账号数",
-    "Actual payments": "实际支付",
-    "Net payments": "净实付",
-    "Source platform": "来源平台",
-    "Promotion method": "推广方式",
-    "Campaign": "推广活动",
-    "Content label": "推广内容名称",
-    "View acquisition summaries": "查看来源汇总",
-    "View aggregate channel and campaign results.": "查看渠道和活动的汇总结果。",
-    "Manage promotion links": "管理推广链接",
-    "Create and archive promotion links.": "创建和归档推广链接。",
-    "View acquisition account details": "查看账号来源明细",
-    "View account-level source records.": "查看账号级来源记录。",
-    "Export acquisition details": "导出账号来源明细",
-    "Export account-level source records.": "导出账号级来源记录。",
-    "Historical source not recorded": "历史来源未记录",
-    "Data collection started": "统计开始时间",
-    "Operations analytics": "运营分析",
-    "Attribution lookback: {{days}} days": "来源归属回看：{{days}} 天",
-    "{{count}} payment records have incomplete amount or currency evidence and are excluded.": "{{count}} 条付款记录缺少完整金额或币种依据，未计入统计。",
-    "{{count}} payment records have incomplete settlement evidence and are excluded.": "{{count}} 条付款记录的结算依据不完整，未计入统计。",
-    "Promotion link marker": "推广链接标记",
-    "Campaign parameters": "推广活动参数",
-    "Browser-provided source website": "浏览器提供的来源网站",
-    "No identifiable source": "未获取到可识别的来源",
-    "Promotion markers identify the link used, not necessarily the platform where it was seen.": "推广标记只能说明使用了这条链接，不代表一定在最初投放的平台看到了它。"
+  zh: {
+    'Source privacy': '来源统计隐私',
+    'Allow source analytics? We retain source labels and entry pages for 90 days, and account attribution for 365 days. No API keys, messages, IP addresses or device fingerprints. Optional; this does not affect access.':
+      '允许统计访问来源吗？来源标记和入口页面保留 90 天，账号来源归属保留 365 天。不收集 API Key、消息、IP 地址或设备指纹。是否允许不影响使用。',
+    'Allow source analytics': '允许来源统计',
+    'Do not collect': '不收集',
+    'Unable to save promotion link': '无法保存推广链接',
+    'User acquisition': '用户来源',
+    'Registration-cohort attribution. Payments are observed through the report update time, grouped by currency. Attribution does not prove causation. API success and retention are not yet available.':
+      '本报表按所选时段注册的账号归属来源，付款统计截至报表更新时间，并按币种区分。来源归属不代表因果关系。成功接入和留存数据暂未提供。',
+    'Past {{days}} days': '近 {{days}} 天',
+    'Reload report': '重新加载报表',
+    'Source coverage: {{identified}} / {{total}} registered accounts':
+      '来源识别覆盖：{{identified}} / {{total}} 个注册账号',
+    'Direct / unknown source': '直接访问 / 来源未知',
+    'No accounts registered in this period.': '此期间没有注册账号。',
+    'Unknown means no reliable source was recorded; it does not mean the address was typed manually.':
+      '未知表示没有可靠的来源记录，不代表用户一定手动输入了网址。',
+    'Promotion links': '推广链接',
+    'Each link keeps a stable identity. Create a new link for a different campaign; renaming or archiving does not rewrite past attribution.':
+      '每条链接都有固定标识。不同活动请新建链接；重命名或归档不会改写历史来源。',
+    'Target page': '目标页面',
+    'Create promotion link': '生成推广链接',
+    'No promotion links yet.': '尚未创建推广链接。',
+    'QR code': '二维码',
+    'Test link': '测试此链接',
+    Registrations: '注册账号数',
+    'Actual payments': '实际支付',
+    'Net payments': '净实付',
+    'Source platform': '来源平台',
+    'Promotion method': '推广方式',
+    Campaign: '推广活动',
+    'Content label': '推广内容名称',
+    'View acquisition summaries': '查看来源汇总',
+    'View aggregate channel and campaign results.':
+      '查看渠道和活动的汇总结果。',
+    'Manage promotion links': '管理推广链接',
+    'Create and archive promotion links.': '创建和归档推广链接。',
+    'View acquisition account details': '查看账号来源明细',
+    'View account-level source records.': '查看账号级来源记录。',
+    'Export acquisition details': '导出账号来源明细',
+    'Export account-level source records.': '导出账号级来源记录。',
+    'Historical source not recorded': '历史来源未记录',
+    'Data collection started': '统计开始时间',
+    'Operations analytics': '运营分析',
+    'Attribution lookback: {{days}} days': '来源归属回看：{{days}} 天',
+    '{{count}} payment records have incomplete amount or currency evidence and are excluded.':
+      '{{count}} 条付款记录缺少完整金额或币种依据，未计入统计。',
+    '{{count}} payment records have incomplete settlement evidence and are excluded.':
+      '{{count}} 条付款记录的结算依据不完整，未计入统计。',
+    'Promotion link marker': '推广链接标记',
+    'Campaign parameters': '推广活动参数',
+    'Browser-provided source website': '浏览器提供的来源网站',
+    'No identifiable source': '未获取到可识别的来源',
+    'Promotion markers identify the link used, not necessarily the platform where it was seen.':
+      '推广标记只能说明使用了这条链接，不代表一定在最初投放的平台看到了它。',
   },
-  "zh-TW": {
-    "Source privacy": "來源統計隱私",
-    "Allow source analytics? We retain source labels and entry pages for 90 days, and account attribution for 365 days. No API keys, messages, IP addresses or device fingerprints. Optional; this does not affect access.": "允許統計造訪來源嗎？來源標記和入口頁面保留 90 天，帳號來源歸屬保留 365 天。不收集 API Key、訊息、IP 位址或裝置指紋。是否允許不影響使用。",
-    "Allow source analytics": "允許來源統計",
-    "Do not collect": "不收集",
-    "Unable to save promotion link": "無法儲存推廣連結",
-    "User acquisition": "使用者來源",
-    "Registration-cohort attribution. Payments are observed through the report update time, grouped by currency. Attribution does not prove causation. API success and retention are not yet available.": "本報表按所選時段註冊的帳號歸屬來源，付款統計截至報表更新時間，並按幣別區分。來源歸屬不代表因果關係。成功接入和留存資料暫未提供。",
-    "Past {{days}} days": "近 {{days}} 天",
-    "Reload report": "重新載入報表",
-    "Source coverage: {{identified}} / {{total}} registered accounts": "來源識別涵蓋：{{identified}} / {{total}} 個註冊帳號",
-    "Direct / unknown source": "直接造訪 / 來源未知",
-    "No accounts registered in this period.": "此期間沒有註冊帳號。",
-    "Unknown means no reliable source was recorded; it does not mean the address was typed manually.": "未知表示沒有可靠的來源記錄，不代表使用者一定手動輸入了網址。",
-    "Promotion links": "推廣連結",
-    "Each link keeps a stable identity. Create a new link for a different campaign; renaming or archiving does not rewrite past attribution.": "每條連結都有固定識別碼。不同活動請新建連結；重新命名或封存不會改寫歷史來源。",
-    "Target page": "目標頁面",
-    "Create promotion link": "產生推廣連結",
-    "No promotion links yet.": "尚未建立推廣連結。",
-    "QR code": "QR 碼",
-    "Test link": "測試此連結",
-    "Registrations": "註冊帳號數",
-    "Actual payments": "實際付款",
-    "Net payments": "淨實付",
-    "Source platform": "來源平台",
-    "Promotion method": "推廣方式",
-    "Campaign": "推廣活動",
-    "Content label": "推廣內容名稱",
-    "View acquisition summaries": "查看來源彙總",
-    "View aggregate channel and campaign results.": "查看管道和活動的彙總結果。",
-    "Manage promotion links": "管理推廣連結",
-    "Create and archive promotion links.": "建立和封存推廣連結。",
-    "View acquisition account details": "查看帳號來源明細",
-    "View account-level source records.": "查看帳號層級來源記錄。",
-    "Export acquisition details": "匯出帳號來源明細",
-    "Export account-level source records.": "匯出帳號層級來源記錄。",
-    "Historical source not recorded": "歷史來源未記錄",
-    "Data collection started": "統計開始時間",
-    "Operations analytics": "營運分析",
-    "Attribution lookback: {{days}} days": "來源歸屬回溯：{{days}} 天",
-    "{{count}} payment records have incomplete amount or currency evidence and are excluded.": "{{count}} 筆付款記錄缺少完整金額或幣別依據，未計入統計。",
-    "{{count}} payment records have incomplete settlement evidence and are excluded.": "{{count}} 筆付款記錄的結算依據不完整，未計入統計。",
-    "Promotion link marker": "推廣連結標記",
-    "Campaign parameters": "推廣活動參數",
-    "Browser-provided source website": "瀏覽器提供的來源網站",
-    "No identifiable source": "未取得可識別的來源",
-    "Promotion markers identify the link used, not necessarily the platform where it was seen.": "推廣標記只能說明使用了這條連結，不代表一定在最初投放的平台看到了它。"
+  'zh-TW': {
+    'Source privacy': '來源統計隱私',
+    'Allow source analytics? We retain source labels and entry pages for 90 days, and account attribution for 365 days. No API keys, messages, IP addresses or device fingerprints. Optional; this does not affect access.':
+      '允許統計造訪來源嗎？來源標記和入口頁面保留 90 天，帳號來源歸屬保留 365 天。不收集 API Key、訊息、IP 位址或裝置指紋。是否允許不影響使用。',
+    'Allow source analytics': '允許來源統計',
+    'Do not collect': '不收集',
+    'Unable to save promotion link': '無法儲存推廣連結',
+    'User acquisition': '使用者來源',
+    'Registration-cohort attribution. Payments are observed through the report update time, grouped by currency. Attribution does not prove causation. API success and retention are not yet available.':
+      '本報表按所選時段註冊的帳號歸屬來源，付款統計截至報表更新時間，並按幣別區分。來源歸屬不代表因果關係。成功接入和留存資料暫未提供。',
+    'Past {{days}} days': '近 {{days}} 天',
+    'Reload report': '重新載入報表',
+    'Source coverage: {{identified}} / {{total}} registered accounts':
+      '來源識別涵蓋：{{identified}} / {{total}} 個註冊帳號',
+    'Direct / unknown source': '直接造訪 / 來源未知',
+    'No accounts registered in this period.': '此期間沒有註冊帳號。',
+    'Unknown means no reliable source was recorded; it does not mean the address was typed manually.':
+      '未知表示沒有可靠的來源記錄，不代表使用者一定手動輸入了網址。',
+    'Promotion links': '推廣連結',
+    'Each link keeps a stable identity. Create a new link for a different campaign; renaming or archiving does not rewrite past attribution.':
+      '每條連結都有固定識別碼。不同活動請新建連結；重新命名或封存不會改寫歷史來源。',
+    'Target page': '目標頁面',
+    'Create promotion link': '產生推廣連結',
+    'No promotion links yet.': '尚未建立推廣連結。',
+    'QR code': 'QR 碼',
+    'Test link': '測試此連結',
+    Registrations: '註冊帳號數',
+    'Actual payments': '實際付款',
+    'Net payments': '淨實付',
+    'Source platform': '來源平台',
+    'Promotion method': '推廣方式',
+    Campaign: '推廣活動',
+    'Content label': '推廣內容名稱',
+    'View acquisition summaries': '查看來源彙總',
+    'View aggregate channel and campaign results.':
+      '查看管道和活動的彙總結果。',
+    'Manage promotion links': '管理推廣連結',
+    'Create and archive promotion links.': '建立和封存推廣連結。',
+    'View acquisition account details': '查看帳號來源明細',
+    'View account-level source records.': '查看帳號層級來源記錄。',
+    'Export acquisition details': '匯出帳號來源明細',
+    'Export account-level source records.': '匯出帳號層級來源記錄。',
+    'Historical source not recorded': '歷史來源未記錄',
+    'Data collection started': '統計開始時間',
+    'Operations analytics': '營運分析',
+    'Attribution lookback: {{days}} days': '來源歸屬回溯：{{days}} 天',
+    '{{count}} payment records have incomplete amount or currency evidence and are excluded.':
+      '{{count}} 筆付款記錄缺少完整金額或幣別依據，未計入統計。',
+    '{{count}} payment records have incomplete settlement evidence and are excluded.':
+      '{{count}} 筆付款記錄的結算依據不完整，未計入統計。',
+    'Promotion link marker': '推廣連結標記',
+    'Campaign parameters': '推廣活動參數',
+    'Browser-provided source website': '瀏覽器提供的來源網站',
+    'No identifiable source': '未取得可識別的來源',
+    'Promotion markers identify the link used, not necessarily the platform where it was seen.':
+      '推廣標記只能說明使用了這條連結，不代表一定在最初投放的平台看到了它。',
   },
-  "fr": {
-    "Source privacy": "Confidentialité des sources",
-    "Allow source analytics? We retain source labels and entry pages for 90 days, and account attribution for 365 days. No API keys, messages, IP addresses or device fingerprints. Optional; this does not affect access.": "Autoriser les statistiques de provenance ? Les sources et pages d’entrée sont conservées 90 jours, l’attribution des comptes 365 jours. Aucune clé API, aucun message, aucune adresse IP ni empreinte d’appareil. Facultatif, sans effet sur l’accès.",
-    "Allow source analytics": "Autoriser les statistiques",
-    "Do not collect": "Ne pas collecter",
-    "Unable to save promotion link": "Impossible d’enregistrer le lien",
-    "User acquisition": "Provenance des utilisateurs",
-    "Registration-cohort attribution. Payments are observed through the report update time, grouped by currency. Attribution does not prove causation. API success and retention are not yet available.": "Attribution selon la période d’inscription. Les paiements sont observés jusqu’à la mise à jour, par devise. L’attribution ne prouve pas la causalité. L’activation API et la rétention ne sont pas encore disponibles.",
-    "Past {{days}} days": "{{days}} derniers jours",
-    "Reload report": "Recharger le rapport",
-    "Source coverage: {{identified}} / {{total}} registered accounts": "Sources identifiées : {{identified}} / {{total}} comptes inscrits",
-    "Direct / unknown source": "Accès direct / source inconnue",
-    "No accounts registered in this period.": "Aucune inscription sur cette période.",
-    "Unknown means no reliable source was recorded; it does not mean the address was typed manually.": "Une source inconnue indique l’absence de données fiables, pas forcément une adresse saisie manuellement.",
-    "Promotion links": "Liens de promotion",
-    "Each link keeps a stable identity. Create a new link for a different campaign; renaming or archiving does not rewrite past attribution.": "Chaque lien conserve son identifiant. Créez un nouveau lien pour une autre campagne ; renommer ou archiver ne modifie pas l’historique.",
-    "Target page": "Page de destination",
-    "Create promotion link": "Créer un lien de promotion",
-    "No promotion links yet.": "Aucun lien de promotion.",
-    "QR code": "Code QR",
-    "Test link": "Tester ce lien",
-    "Registrations": "Inscriptions",
-    "Actual payments": "Paiements réels",
-    "Net payments": "Paiements nets",
-    "Source platform": "Plateforme source",
-    "Promotion method": "Méthode de promotion",
-    "Campaign": "Campagne",
-    "Content label": "Libellé du contenu",
-    "View acquisition summaries": "Voir les résumés des sources",
-    "View aggregate channel and campaign results.": "Voir les résultats agrégés par canal et campagne.",
-    "Manage promotion links": "Gérer les liens de promotion",
-    "Create and archive promotion links.": "Créer et archiver les liens de promotion.",
-    "View acquisition account details": "Voir les sources par compte",
-    "View account-level source records.": "Voir les enregistrements de source par compte.",
-    "Export acquisition details": "Exporter les détails des sources",
-    "Export account-level source records.": "Exporter les enregistrements de source par compte.",
-    "Historical source not recorded": "Source historique non enregistrée",
-    "Data collection started": "Début de la collecte",
-    "Operations analytics": "Analyse opérationnelle",
-    "Attribution lookback: {{days}} days": "Fenêtre d’attribution : {{days}} jours",
-    "{{count}} payment records have incomplete amount or currency evidence and are excluded.": "{{count}} paiements sont exclus faute de montant ou de devise fiable.",
-    "{{count}} payment records have incomplete settlement evidence and are excluded.": "{{count}} paiements sont exclus faute de justificatifs de règlement complets.",
-    "Promotion link marker": "Marqueur de lien promotionnel",
-    "Campaign parameters": "Paramètres de campagne",
-    "Browser-provided source website": "Site source fourni par le navigateur",
-    "No identifiable source": "Aucune source identifiable",
-    "Promotion markers identify the link used, not necessarily the platform where it was seen.": "Les marqueurs identifient le lien utilisé, pas nécessairement la plateforme où il a été vu."
+  fr: {
+    'Source privacy': 'Confidentialité des sources',
+    'Allow source analytics? We retain source labels and entry pages for 90 days, and account attribution for 365 days. No API keys, messages, IP addresses or device fingerprints. Optional; this does not affect access.':
+      'Autoriser les statistiques de provenance ? Les sources et pages d’entrée sont conservées 90 jours, l’attribution des comptes 365 jours. Aucune clé API, aucun message, aucune adresse IP ni empreinte d’appareil. Facultatif, sans effet sur l’accès.',
+    'Allow source analytics': 'Autoriser les statistiques',
+    'Do not collect': 'Ne pas collecter',
+    'Unable to save promotion link': 'Impossible d’enregistrer le lien',
+    'User acquisition': 'Provenance des utilisateurs',
+    'Registration-cohort attribution. Payments are observed through the report update time, grouped by currency. Attribution does not prove causation. API success and retention are not yet available.':
+      'Attribution selon la période d’inscription. Les paiements sont observés jusqu’à la mise à jour, par devise. L’attribution ne prouve pas la causalité. L’activation API et la rétention ne sont pas encore disponibles.',
+    'Past {{days}} days': '{{days}} derniers jours',
+    'Reload report': 'Recharger le rapport',
+    'Source coverage: {{identified}} / {{total}} registered accounts':
+      'Sources identifiées : {{identified}} / {{total}} comptes inscrits',
+    'Direct / unknown source': 'Accès direct / source inconnue',
+    'No accounts registered in this period.':
+      'Aucune inscription sur cette période.',
+    'Unknown means no reliable source was recorded; it does not mean the address was typed manually.':
+      'Une source inconnue indique l’absence de données fiables, pas forcément une adresse saisie manuellement.',
+    'Promotion links': 'Liens de promotion',
+    'Each link keeps a stable identity. Create a new link for a different campaign; renaming or archiving does not rewrite past attribution.':
+      'Chaque lien conserve son identifiant. Créez un nouveau lien pour une autre campagne ; renommer ou archiver ne modifie pas l’historique.',
+    'Target page': 'Page de destination',
+    'Create promotion link': 'Créer un lien de promotion',
+    'No promotion links yet.': 'Aucun lien de promotion.',
+    'QR code': 'Code QR',
+    'Test link': 'Tester ce lien',
+    Registrations: 'Inscriptions',
+    'Actual payments': 'Paiements réels',
+    'Net payments': 'Paiements nets',
+    'Source platform': 'Plateforme source',
+    'Promotion method': 'Méthode de promotion',
+    Campaign: 'Campagne',
+    'Content label': 'Libellé du contenu',
+    'View acquisition summaries': 'Voir les résumés des sources',
+    'View aggregate channel and campaign results.':
+      'Voir les résultats agrégés par canal et campagne.',
+    'Manage promotion links': 'Gérer les liens de promotion',
+    'Create and archive promotion links.':
+      'Créer et archiver les liens de promotion.',
+    'View acquisition account details': 'Voir les sources par compte',
+    'View account-level source records.':
+      'Voir les enregistrements de source par compte.',
+    'Export acquisition details': 'Exporter les détails des sources',
+    'Export account-level source records.':
+      'Exporter les enregistrements de source par compte.',
+    'Historical source not recorded': 'Source historique non enregistrée',
+    'Data collection started': 'Début de la collecte',
+    'Operations analytics': 'Analyse opérationnelle',
+    'Attribution lookback: {{days}} days':
+      'Fenêtre d’attribution : {{days}} jours',
+    '{{count}} payment records have incomplete amount or currency evidence and are excluded.':
+      '{{count}} paiements sont exclus faute de montant ou de devise fiable.',
+    '{{count}} payment records have incomplete settlement evidence and are excluded.':
+      '{{count}} paiements sont exclus faute de justificatifs de règlement complets.',
+    'Promotion link marker': 'Marqueur de lien promotionnel',
+    'Campaign parameters': 'Paramètres de campagne',
+    'Browser-provided source website': 'Site source fourni par le navigateur',
+    'No identifiable source': 'Aucune source identifiable',
+    'Promotion markers identify the link used, not necessarily the platform where it was seen.':
+      'Les marqueurs identifient le lien utilisé, pas nécessairement la plateforme où il a été vu.',
   },
-  "ja": {
-    "Source privacy": "流入元データのプライバシー",
-    "Allow source analytics? We retain source labels and entry pages for 90 days, and account attribution for 365 days. No API keys, messages, IP addresses or device fingerprints. Optional; this does not affect access.": "流入元の分析を許可しますか？流入元ラベルと入口ページは90日間、アカウントとの関連付けは365日間保持します。APIキー、メッセージ、IPアドレス、端末の識別情報は収集しません。任意であり、利用権限に影響しません。",
-    "Allow source analytics": "流入元の分析を許可",
-    "Do not collect": "収集しない",
-    "Unable to save promotion link": "紹介リンクを保存できません",
-    "User acquisition": "ユーザーの流入元",
-    "Registration-cohort attribution. Payments are observed through the report update time, grouped by currency. Attribution does not prove causation. API success and retention are not yet available.": "選択期間に登録したアカウントの流入元を集計します。支払いは更新時点まで通貨別に集計します。関連付けは因果関係を証明するものではありません。API利用開始と継続利用のデータは未提供です。",
-    "Past {{days}} days": "過去{{days}}日間",
-    "Reload report": "レポートを再読み込み",
-    "Source coverage: {{identified}} / {{total}} registered accounts": "流入元を識別：登録{{total}}アカウント中{{identified}}",
-    "Direct / unknown source": "直接アクセス / 流入元不明",
-    "No accounts registered in this period.": "この期間に登録したアカウントはありません。",
-    "Unknown means no reliable source was recorded; it does not mean the address was typed manually.": "不明は信頼できる流入元の記録がないことを意味し、URLを手入力したとは限りません。",
-    "Promotion links": "紹介リンク",
-    "Each link keeps a stable identity. Create a new link for a different campaign; renaming or archiving does not rewrite past attribution.": "各リンクの識別子は固定です。別のキャンペーンには新しいリンクを作成してください。名前変更やアーカイブで過去の関連付けは変わりません。",
-    "Target page": "リンク先ページ",
-    "Create promotion link": "紹介リンクを作成",
-    "No promotion links yet.": "紹介リンクはまだありません。",
-    "QR code": "QRコード",
-    "Test link": "リンクをテスト",
-    "Registrations": "登録数",
-    "Actual payments": "実際の支払額",
-    "Net payments": "純支払額",
-    "Source platform": "流入元プラットフォーム",
-    "Promotion method": "紹介方法",
-    "Campaign": "キャンペーン",
-    "Content label": "コンテンツ名",
-    "View acquisition summaries": "流入元の集計を表示",
-    "View aggregate channel and campaign results.": "チャネルとキャンペーンの集計結果を表示します。",
-    "Manage promotion links": "紹介リンクを管理",
-    "Create and archive promotion links.": "紹介リンクを作成・アーカイブします。",
-    "View acquisition account details": "アカウント別の流入元を表示",
-    "View account-level source records.": "アカウント単位の流入元の記録を表示します。",
-    "Export acquisition details": "流入元の明細をエクスポート",
-    "Export account-level source records.": "アカウント単位の流入元の記録をエクスポートします。",
-    "Historical source not recorded": "過去の流入元は未記録",
-    "Data collection started": "集計開始日時",
-    "Operations analytics": "運営分析",
-    "Attribution lookback: {{days}} days": "流入元の参照期間：{{days}}日",
-    "{{count}} payment records have incomplete amount or currency evidence and are excluded.": "金額または通貨の根拠が不十分な支払い{{count}}件を集計から除外しています。",
-    "{{count}} payment records have incomplete settlement evidence and are excluded.": "決済の根拠が不十分な支払い{{count}}件を集計から除外しています。",
-    "Promotion link marker": "紹介リンクの識別子",
-    "Campaign parameters": "キャンペーンパラメーター",
-    "Browser-provided source website": "ブラウザーが提供した参照元サイト",
-    "No identifiable source": "識別できる流入元なし",
-    "Promotion markers identify the link used, not necessarily the platform where it was seen.": "紹介マーカーは使用されたリンクを示しますが、見た場所が元の掲載先とは限りません。"
+  ja: {
+    'Source privacy': '流入元データのプライバシー',
+    'Allow source analytics? We retain source labels and entry pages for 90 days, and account attribution for 365 days. No API keys, messages, IP addresses or device fingerprints. Optional; this does not affect access.':
+      '流入元の分析を許可しますか？流入元ラベルと入口ページは90日間、アカウントとの関連付けは365日間保持します。APIキー、メッセージ、IPアドレス、端末の識別情報は収集しません。任意であり、利用権限に影響しません。',
+    'Allow source analytics': '流入元の分析を許可',
+    'Do not collect': '収集しない',
+    'Unable to save promotion link': '紹介リンクを保存できません',
+    'User acquisition': 'ユーザーの流入元',
+    'Registration-cohort attribution. Payments are observed through the report update time, grouped by currency. Attribution does not prove causation. API success and retention are not yet available.':
+      '選択期間に登録したアカウントの流入元を集計します。支払いは更新時点まで通貨別に集計します。関連付けは因果関係を証明するものではありません。API利用開始と継続利用のデータは未提供です。',
+    'Past {{days}} days': '過去{{days}}日間',
+    'Reload report': 'レポートを再読み込み',
+    'Source coverage: {{identified}} / {{total}} registered accounts':
+      '流入元を識別：登録{{total}}アカウント中{{identified}}',
+    'Direct / unknown source': '直接アクセス / 流入元不明',
+    'No accounts registered in this period.':
+      'この期間に登録したアカウントはありません。',
+    'Unknown means no reliable source was recorded; it does not mean the address was typed manually.':
+      '不明は信頼できる流入元の記録がないことを意味し、URLを手入力したとは限りません。',
+    'Promotion links': '紹介リンク',
+    'Each link keeps a stable identity. Create a new link for a different campaign; renaming or archiving does not rewrite past attribution.':
+      '各リンクの識別子は固定です。別のキャンペーンには新しいリンクを作成してください。名前変更やアーカイブで過去の関連付けは変わりません。',
+    'Target page': 'リンク先ページ',
+    'Create promotion link': '紹介リンクを作成',
+    'No promotion links yet.': '紹介リンクはまだありません。',
+    'QR code': 'QRコード',
+    'Test link': 'リンクをテスト',
+    Registrations: '登録数',
+    'Actual payments': '実際の支払額',
+    'Net payments': '純支払額',
+    'Source platform': '流入元プラットフォーム',
+    'Promotion method': '紹介方法',
+    Campaign: 'キャンペーン',
+    'Content label': 'コンテンツ名',
+    'View acquisition summaries': '流入元の集計を表示',
+    'View aggregate channel and campaign results.':
+      'チャネルとキャンペーンの集計結果を表示します。',
+    'Manage promotion links': '紹介リンクを管理',
+    'Create and archive promotion links.':
+      '紹介リンクを作成・アーカイブします。',
+    'View acquisition account details': 'アカウント別の流入元を表示',
+    'View account-level source records.':
+      'アカウント単位の流入元の記録を表示します。',
+    'Export acquisition details': '流入元の明細をエクスポート',
+    'Export account-level source records.':
+      'アカウント単位の流入元の記録をエクスポートします。',
+    'Historical source not recorded': '過去の流入元は未記録',
+    'Data collection started': '集計開始日時',
+    'Operations analytics': '運営分析',
+    'Attribution lookback: {{days}} days': '流入元の参照期間：{{days}}日',
+    '{{count}} payment records have incomplete amount or currency evidence and are excluded.':
+      '金額または通貨の根拠が不十分な支払い{{count}}件を集計から除外しています。',
+    '{{count}} payment records have incomplete settlement evidence and are excluded.':
+      '決済の根拠が不十分な支払い{{count}}件を集計から除外しています。',
+    'Promotion link marker': '紹介リンクの識別子',
+    'Campaign parameters': 'キャンペーンパラメーター',
+    'Browser-provided source website': 'ブラウザーが提供した参照元サイト',
+    'No identifiable source': '識別できる流入元なし',
+    'Promotion markers identify the link used, not necessarily the platform where it was seen.':
+      '紹介マーカーは使用されたリンクを示しますが、見た場所が元の掲載先とは限りません。',
   },
-  "ru": {
-    "Source privacy": "Конфиденциальность источников",
-    "Allow source analytics? We retain source labels and entry pages for 90 days, and account attribution for 365 days. No API keys, messages, IP addresses or device fingerprints. Optional; this does not affect access.": "Разрешить аналитику источников? Метки источников и страницы входа хранятся 90 дней, атрибуция аккаунтов — 365 дней. Ключи API, сообщения, IP-адреса и отпечатки устройств не собираются. Выбор не влияет на доступ.",
-    "Allow source analytics": "Разрешить аналитику",
-    "Do not collect": "Не собирать",
-    "Unable to save promotion link": "Не удалось сохранить ссылку",
-    "User acquisition": "Источники пользователей",
-    "Registration-cohort attribution. Payments are observed through the report update time, grouped by currency. Attribution does not prove causation. API success and retention are not yet available.": "Атрибуция по периоду регистрации. Платежи учитываются до обновления отчёта, отдельно по валютам. Атрибуция не доказывает причинную связь. Данные подключения API и удержания пока недоступны.",
-    "Past {{days}} days": "Последние {{days}} дн.",
-    "Reload report": "Перезагрузить отчёт",
-    "Source coverage: {{identified}} / {{total}} registered accounts": "Источники определены: {{identified}} из {{total}} зарегистрированных аккаунтов",
-    "Direct / unknown source": "Прямой вход / источник неизвестен",
-    "No accounts registered in this period.": "За этот период нет регистраций.",
-    "Unknown means no reliable source was recorded; it does not mean the address was typed manually.": "Неизвестный источник означает отсутствие надёжной записи, а не обязательно ручной ввод адреса.",
-    "Promotion links": "Рекламные ссылки",
-    "Each link keeps a stable identity. Create a new link for a different campaign; renaming or archiving does not rewrite past attribution.": "Идентификатор ссылки постоянен. Для другой кампании создайте новую ссылку. Переименование и архивирование не меняют историю.",
-    "Target page": "Целевая страница",
-    "Create promotion link": "Создать рекламную ссылку",
-    "No promotion links yet.": "Рекламных ссылок пока нет.",
-    "QR code": "QR-код",
-    "Test link": "Проверить ссылку",
-    "Registrations": "Регистрации",
-    "Actual payments": "Фактические платежи",
-    "Net payments": "Чистые платежи",
-    "Source platform": "Платформа-источник",
-    "Promotion method": "Способ продвижения",
-    "Campaign": "Кампания",
-    "Content label": "Название материала",
-    "View acquisition summaries": "Просмотр сводки источников",
-    "View aggregate channel and campaign results.": "Просмотр сводных результатов каналов и кампаний.",
-    "Manage promotion links": "Управление рекламными ссылками",
-    "Create and archive promotion links.": "Создание и архивирование рекламных ссылок.",
-    "View acquisition account details": "Просмотр источников аккаунтов",
-    "View account-level source records.": "Просмотр записей источников отдельных аккаунтов.",
-    "Export acquisition details": "Экспорт сведений об источниках",
-    "Export account-level source records.": "Экспорт записей источников отдельных аккаунтов.",
-    "Historical source not recorded": "Исторический источник не записан",
-    "Data collection started": "Начало сбора данных",
-    "Operations analytics": "Операционная аналитика",
-    "Attribution lookback: {{days}} days": "Окно атрибуции: {{days}} дн.",
-    "{{count}} payment records have incomplete amount or currency evidence and are excluded.": "Исключено {{count}} платежей с неполными данными о сумме или валюте.",
-    "{{count}} payment records have incomplete settlement evidence and are excluded.": "Исключено {{count}} платежей с неполными данными о расчётах.",
-    "Promotion link marker": "Метка рекламной ссылки",
-    "Campaign parameters": "Параметры кампании",
-    "Browser-provided source website": "Сайт-источник, указанный браузером",
-    "No identifiable source": "Источник не определён",
-    "Promotion markers identify the link used, not necessarily the platform where it was seen.": "Метки определяют использованную ссылку, но не обязательно площадку, где её увидели."
+  ru: {
+    'Source privacy': 'Конфиденциальность источников',
+    'Allow source analytics? We retain source labels and entry pages for 90 days, and account attribution for 365 days. No API keys, messages, IP addresses or device fingerprints. Optional; this does not affect access.':
+      'Разрешить аналитику источников? Метки источников и страницы входа хранятся 90 дней, атрибуция аккаунтов — 365 дней. Ключи API, сообщения, IP-адреса и отпечатки устройств не собираются. Выбор не влияет на доступ.',
+    'Allow source analytics': 'Разрешить аналитику',
+    'Do not collect': 'Не собирать',
+    'Unable to save promotion link': 'Не удалось сохранить ссылку',
+    'User acquisition': 'Источники пользователей',
+    'Registration-cohort attribution. Payments are observed through the report update time, grouped by currency. Attribution does not prove causation. API success and retention are not yet available.':
+      'Атрибуция по периоду регистрации. Платежи учитываются до обновления отчёта, отдельно по валютам. Атрибуция не доказывает причинную связь. Данные подключения API и удержания пока недоступны.',
+    'Past {{days}} days': 'Последние {{days}} дн.',
+    'Reload report': 'Перезагрузить отчёт',
+    'Source coverage: {{identified}} / {{total}} registered accounts':
+      'Источники определены: {{identified}} из {{total}} зарегистрированных аккаунтов',
+    'Direct / unknown source': 'Прямой вход / источник неизвестен',
+    'No accounts registered in this period.': 'За этот период нет регистраций.',
+    'Unknown means no reliable source was recorded; it does not mean the address was typed manually.':
+      'Неизвестный источник означает отсутствие надёжной записи, а не обязательно ручной ввод адреса.',
+    'Promotion links': 'Рекламные ссылки',
+    'Each link keeps a stable identity. Create a new link for a different campaign; renaming or archiving does not rewrite past attribution.':
+      'Идентификатор ссылки постоянен. Для другой кампании создайте новую ссылку. Переименование и архивирование не меняют историю.',
+    'Target page': 'Целевая страница',
+    'Create promotion link': 'Создать рекламную ссылку',
+    'No promotion links yet.': 'Рекламных ссылок пока нет.',
+    'QR code': 'QR-код',
+    'Test link': 'Проверить ссылку',
+    Registrations: 'Регистрации',
+    'Actual payments': 'Фактические платежи',
+    'Net payments': 'Чистые платежи',
+    'Source platform': 'Платформа-источник',
+    'Promotion method': 'Способ продвижения',
+    Campaign: 'Кампания',
+    'Content label': 'Название материала',
+    'View acquisition summaries': 'Просмотр сводки источников',
+    'View aggregate channel and campaign results.':
+      'Просмотр сводных результатов каналов и кампаний.',
+    'Manage promotion links': 'Управление рекламными ссылками',
+    'Create and archive promotion links.':
+      'Создание и архивирование рекламных ссылок.',
+    'View acquisition account details': 'Просмотр источников аккаунтов',
+    'View account-level source records.':
+      'Просмотр записей источников отдельных аккаунтов.',
+    'Export acquisition details': 'Экспорт сведений об источниках',
+    'Export account-level source records.':
+      'Экспорт записей источников отдельных аккаунтов.',
+    'Historical source not recorded': 'Исторический источник не записан',
+    'Data collection started': 'Начало сбора данных',
+    'Operations analytics': 'Операционная аналитика',
+    'Attribution lookback: {{days}} days': 'Окно атрибуции: {{days}} дн.',
+    '{{count}} payment records have incomplete amount or currency evidence and are excluded.':
+      'Исключено {{count}} платежей с неполными данными о сумме или валюте.',
+    '{{count}} payment records have incomplete settlement evidence and are excluded.':
+      'Исключено {{count}} платежей с неполными данными о расчётах.',
+    'Promotion link marker': 'Метка рекламной ссылки',
+    'Campaign parameters': 'Параметры кампании',
+    'Browser-provided source website': 'Сайт-источник, указанный браузером',
+    'No identifiable source': 'Источник не определён',
+    'Promotion markers identify the link used, not necessarily the platform where it was seen.':
+      'Метки определяют использованную ссылку, но не обязательно площадку, где её увидели.',
   },
-  "vi": {
-    "Source privacy": "Quyền riêng tư nguồn truy cập",
-    "Allow source analytics? We retain source labels and entry pages for 90 days, and account attribution for 365 days. No API keys, messages, IP addresses or device fingerprints. Optional; this does not affect access.": "Cho phép phân tích nguồn truy cập? Nhãn nguồn và trang vào được lưu 90 ngày, thông tin quy nguồn tài khoản 365 ngày. Không thu thập khóa API, tin nhắn, địa chỉ IP hay dấu vân tay thiết bị. Lựa chọn không ảnh hưởng quyền truy cập.",
-    "Allow source analytics": "Cho phép phân tích nguồn",
-    "Do not collect": "Không thu thập",
-    "Unable to save promotion link": "Không lưu được liên kết quảng bá",
-    "User acquisition": "Nguồn người dùng",
-    "Registration-cohort attribution. Payments are observed through the report update time, grouped by currency. Attribution does not prove causation. API success and retention are not yet available.": "Quy nguồn theo nhóm tài khoản đăng ký trong kỳ. Thanh toán được tính đến thời điểm cập nhật, tách theo tiền tệ. Quy nguồn không chứng minh quan hệ nhân quả. Chưa có dữ liệu kết nối API thành công và duy trì sử dụng.",
-    "Past {{days}} days": "{{days}} ngày qua",
-    "Reload report": "Tải lại báo cáo",
-    "Source coverage: {{identified}} / {{total}} registered accounts": "Đã xác định nguồn: {{identified}} / {{total}} tài khoản đăng ký",
-    "Direct / unknown source": "Truy cập trực tiếp / nguồn chưa rõ",
-    "No accounts registered in this period.": "Không có tài khoản đăng ký trong kỳ.",
-    "Unknown means no reliable source was recorded; it does not mean the address was typed manually.": "Nguồn chưa rõ nghĩa là không có dữ liệu đáng tin cậy, không nhất thiết do nhập địa chỉ thủ công.",
-    "Promotion links": "Liên kết quảng bá",
-    "Each link keeps a stable identity. Create a new link for a different campaign; renaming or archiving does not rewrite past attribution.": "Mỗi liên kết có mã cố định. Hãy tạo liên kết mới cho chiến dịch khác; đổi tên hoặc lưu trữ không thay đổi nguồn đã ghi nhận.",
-    "Target page": "Trang đích",
-    "Create promotion link": "Tạo liên kết quảng bá",
-    "No promotion links yet.": "Chưa có liên kết quảng bá.",
-    "QR code": "Mã QR",
-    "Test link": "Kiểm tra liên kết",
-    "Registrations": "Số đăng ký",
-    "Actual payments": "Thanh toán thực tế",
-    "Net payments": "Thanh toán ròng",
-    "Source platform": "Nền tảng nguồn",
-    "Promotion method": "Phương thức quảng bá",
-    "Campaign": "Chiến dịch",
-    "Content label": "Tên nội dung quảng bá",
-    "View acquisition summaries": "Xem tổng hợp nguồn",
-    "View aggregate channel and campaign results.": "Xem kết quả tổng hợp theo kênh và chiến dịch.",
-    "Manage promotion links": "Quản lý liên kết quảng bá",
-    "Create and archive promotion links.": "Tạo và lưu trữ liên kết quảng bá.",
-    "View acquisition account details": "Xem chi tiết nguồn tài khoản",
-    "View account-level source records.": "Xem bản ghi nguồn của từng tài khoản.",
-    "Export acquisition details": "Xuất chi tiết nguồn",
-    "Export account-level source records.": "Xuất bản ghi nguồn của từng tài khoản.",
-    "Historical source not recorded": "Chưa ghi nhận nguồn trước đây",
-    "Data collection started": "Bắt đầu thu thập dữ liệu",
-    "Operations analytics": "Phân tích vận hành",
-    "Attribution lookback: {{days}} days": "Khoảng truy nguồn: {{days}} ngày",
-    "{{count}} payment records have incomplete amount or currency evidence and are excluded.": "Đã loại {{count}} bản ghi thanh toán do thiếu bằng chứng về số tiền hoặc tiền tệ.",
-    "{{count}} payment records have incomplete settlement evidence and are excluded.": "Đã loại {{count}} bản ghi thanh toán do thiếu bằng chứng quyết toán đầy đủ.",
-    "Promotion link marker": "Nhãn liên kết quảng bá",
-    "Campaign parameters": "Tham số chiến dịch",
-    "Browser-provided source website": "Trang nguồn do trình duyệt cung cấp",
-    "No identifiable source": "Không xác định được nguồn",
-    "Promotion markers identify the link used, not necessarily the platform where it was seen.": "Nhãn quảng bá chỉ xác định liên kết đã dùng, không nhất thiết là nền tảng nơi người dùng thấy liên kết."
-  }
+  vi: {
+    'Source privacy': 'Quyền riêng tư nguồn truy cập',
+    'Allow source analytics? We retain source labels and entry pages for 90 days, and account attribution for 365 days. No API keys, messages, IP addresses or device fingerprints. Optional; this does not affect access.':
+      'Cho phép phân tích nguồn truy cập? Nhãn nguồn và trang vào được lưu 90 ngày, thông tin quy nguồn tài khoản 365 ngày. Không thu thập khóa API, tin nhắn, địa chỉ IP hay dấu vân tay thiết bị. Lựa chọn không ảnh hưởng quyền truy cập.',
+    'Allow source analytics': 'Cho phép phân tích nguồn',
+    'Do not collect': 'Không thu thập',
+    'Unable to save promotion link': 'Không lưu được liên kết quảng bá',
+    'User acquisition': 'Nguồn người dùng',
+    'Registration-cohort attribution. Payments are observed through the report update time, grouped by currency. Attribution does not prove causation. API success and retention are not yet available.':
+      'Quy nguồn theo nhóm tài khoản đăng ký trong kỳ. Thanh toán được tính đến thời điểm cập nhật, tách theo tiền tệ. Quy nguồn không chứng minh quan hệ nhân quả. Chưa có dữ liệu kết nối API thành công và duy trì sử dụng.',
+    'Past {{days}} days': '{{days}} ngày qua',
+    'Reload report': 'Tải lại báo cáo',
+    'Source coverage: {{identified}} / {{total}} registered accounts':
+      'Đã xác định nguồn: {{identified}} / {{total}} tài khoản đăng ký',
+    'Direct / unknown source': 'Truy cập trực tiếp / nguồn chưa rõ',
+    'No accounts registered in this period.':
+      'Không có tài khoản đăng ký trong kỳ.',
+    'Unknown means no reliable source was recorded; it does not mean the address was typed manually.':
+      'Nguồn chưa rõ nghĩa là không có dữ liệu đáng tin cậy, không nhất thiết do nhập địa chỉ thủ công.',
+    'Promotion links': 'Liên kết quảng bá',
+    'Each link keeps a stable identity. Create a new link for a different campaign; renaming or archiving does not rewrite past attribution.':
+      'Mỗi liên kết có mã cố định. Hãy tạo liên kết mới cho chiến dịch khác; đổi tên hoặc lưu trữ không thay đổi nguồn đã ghi nhận.',
+    'Target page': 'Trang đích',
+    'Create promotion link': 'Tạo liên kết quảng bá',
+    'No promotion links yet.': 'Chưa có liên kết quảng bá.',
+    'QR code': 'Mã QR',
+    'Test link': 'Kiểm tra liên kết',
+    Registrations: 'Số đăng ký',
+    'Actual payments': 'Thanh toán thực tế',
+    'Net payments': 'Thanh toán ròng',
+    'Source platform': 'Nền tảng nguồn',
+    'Promotion method': 'Phương thức quảng bá',
+    Campaign: 'Chiến dịch',
+    'Content label': 'Tên nội dung quảng bá',
+    'View acquisition summaries': 'Xem tổng hợp nguồn',
+    'View aggregate channel and campaign results.':
+      'Xem kết quả tổng hợp theo kênh và chiến dịch.',
+    'Manage promotion links': 'Quản lý liên kết quảng bá',
+    'Create and archive promotion links.': 'Tạo và lưu trữ liên kết quảng bá.',
+    'View acquisition account details': 'Xem chi tiết nguồn tài khoản',
+    'View account-level source records.':
+      'Xem bản ghi nguồn của từng tài khoản.',
+    'Export acquisition details': 'Xuất chi tiết nguồn',
+    'Export account-level source records.':
+      'Xuất bản ghi nguồn của từng tài khoản.',
+    'Historical source not recorded': 'Chưa ghi nhận nguồn trước đây',
+    'Data collection started': 'Bắt đầu thu thập dữ liệu',
+    'Operations analytics': 'Phân tích vận hành',
+    'Attribution lookback: {{days}} days': 'Khoảng truy nguồn: {{days}} ngày',
+    '{{count}} payment records have incomplete amount or currency evidence and are excluded.':
+      'Đã loại {{count}} bản ghi thanh toán do thiếu bằng chứng về số tiền hoặc tiền tệ.',
+    '{{count}} payment records have incomplete settlement evidence and are excluded.':
+      'Đã loại {{count}} bản ghi thanh toán do thiếu bằng chứng quyết toán đầy đủ.',
+    'Promotion link marker': 'Nhãn liên kết quảng bá',
+    'Campaign parameters': 'Tham số chiến dịch',
+    'Browser-provided source website': 'Trang nguồn do trình duyệt cung cấp',
+    'No identifiable source': 'Không xác định được nguồn',
+    'Promotion markers identify the link used, not necessarily the platform where it was seen.':
+      'Nhãn quảng bá chỉ xác định liên kết đã dùng, không nhất thiết là nền tảng nơi người dùng thấy liên kết.',
+  },
 }
 
 const acquisitionActivityCopy = {
-  "en": {
-    "API activation and retention": "API activation and retention",
-    "Only new accounts within this observation period that explicitly allowed expanded analytics are included. Success requires a delivered text API response with output and no recorded stream or request failure. Creating a key or authorizing OAuth is not success.": "Only new accounts within this observation period that explicitly allowed expanded analytics are included. Success requires a delivered text API response with output and no recorded stream or request failure. Creating a key or authorizing OAuth is not success.",
-    "Day 7 retention uses UTC days: accounts with another qualifying request on the seventh day after their first observed success, divided by successful accounts whose full seventh day has been processed. Accounts still under observation are excluded from that denominator.": "Day 7 retention uses UTC days: accounts with another qualifying request on the seventh day after their first observed success, divided by successful accounts whose full seventh day has been processed. Accounts still under observation are excluded from that denominator.",
-    "Activity statistics have not started yet.": "Activity statistics have not started yet.",
-    "Processed through": "Processed through",
-    "No eligible accounts in this registration period.": "No eligible accounts in this registration period.",
-    "Unable to rebuild activity statistics. Please retry.": "Unable to rebuild activity statistics. Please retry.",
-    "Channel accounts": "Channel accounts",
-    "Reload source records": "Reload source records",
-    "No accounts match this source and registration period.": "No accounts match this source and registration period.",
-    "Source and conversion": "Source and conversion",
-    "Registered": "Registered",
-    "First observed source": "First observed source",
-    "Registration source": "Registration source",
-    "First observed successful API response": "First observed successful API response",
-    "Only qualifying API success records are shown here. Missing records do not prove that an account never used the API.": "Only qualifying API success records are shown here. Missing records do not prove that an account never used the API.",
-    "Return to channel report": "Return to channel report",
-    "Recent source observations": "Recent source observations",
-    "No retained source observations are available for this account.": "No retained source observations are available for this account.",
-    "Allow analysis of sources, registrations, successful API use and payments? Entry records are kept for 90 days; account attribution and daily activity for 365 days. No API keys, messages, IP addresses or device fingerprints. Optional; access is unchanged.": "Allow analysis of sources, registrations, successful API use and payments? Entry records are kept for 90 days; account attribution and daily activity for 365 days. No API keys, messages, IP addresses or device fingerprints. Optional; access is unchanged.",
-    "Unable to save privacy settings. Please retry to stop server-side analytics.": "Unable to save privacy settings. Please retry to stop server-side analytics.",
-    "Registration-cohort attribution. Payments are observed through the report update time, grouped by currency. Attribution does not prove causation. API activity has its own processing watermark below.": "Registration-cohort attribution. Payments are observed through the report update time, grouped by currency. Attribution does not prove causation. API activity has its own processing watermark below.",
-    "Eligible accounts": "Eligible accounts",
-    "Observed successful accounts": "Observed successful accounts",
-    "Under observation": "Under observation",
-    "Day 7 retained / eligible": "Day 7 retained / eligible",
-    "Day 7 retention": "Day 7 retention",
-    "Operational log coverage is incomplete. Retention rates are unavailable.": "Operational log coverage is incomplete. Retention rates are unavailable.",
-    "Activity statistics are catching up or temporarily unavailable. Displayed successes are confirmed observations, not a complete current total.": "Activity statistics are catching up or temporarily unavailable. Displayed successes are confirmed observations, not a complete current total.",
-    "Rebuilding activity statistics": "Rebuilding activity statistics",
-    "Rebuild activity statistics": "Rebuild activity statistics",
-    "Successful API response observed": "Successful API response observed",
-    "No successful API response observed yet": "No successful API response observed yet",
-    "Attributed from an earlier source observation": "Attributed from an earlier source observation",
-    "Source observed in the current visit": "Source observed in the current visit",
-    "Export summary": "Export summary",
-    "Recorded attribution windows: {{days}} days": "Recorded attribution windows: {{days}} days",
-    "Lookback days for new registrations": "Lookback days for new registrations",
-    "Changing the default does not rewrite existing source attributions.": "Changing the default does not rewrite existing source attributions.",
-    "Operational log coverage is incomplete. Affected accounts are excluded from retention rates.": "Operational log coverage is incomplete. Affected accounts are excluded from retention rates.",
-    "Missing retention data": "Missing retention data",
-    "Counting rules: text API, UTC day 7": "Counting rules: text API, UTC day 7"
+  en: {
+    'API activation and retention': 'API activation and retention',
+    'Only new accounts within this observation period that explicitly allowed expanded analytics are included. Success requires a delivered text API response with output and no recorded stream or request failure. Creating a key or authorizing OAuth is not success.':
+      'Only new accounts within this observation period that explicitly allowed expanded analytics are included. Success requires a delivered text API response with output and no recorded stream or request failure. Creating a key or authorizing OAuth is not success.',
+    'Day 7 retention uses UTC days: accounts with another qualifying request on the seventh day after their first observed success, divided by successful accounts whose full seventh day has been processed. Accounts still under observation are excluded from that denominator.':
+      'Day 7 retention uses UTC days: accounts with another qualifying request on the seventh day after their first observed success, divided by successful accounts whose full seventh day has been processed. Accounts still under observation are excluded from that denominator.',
+    'Activity statistics have not started yet.':
+      'Activity statistics have not started yet.',
+    'Processed through': 'Processed through',
+    'No eligible accounts in this registration period.':
+      'No eligible accounts in this registration period.',
+    'Unable to rebuild activity statistics. Please retry.':
+      'Unable to rebuild activity statistics. Please retry.',
+    'Channel accounts': 'Channel accounts',
+    'Reload source records': 'Reload source records',
+    'No accounts match this source and registration period.':
+      'No accounts match this source and registration period.',
+    'Source and conversion': 'Source and conversion',
+    Registered: 'Registered',
+    'First observed source': 'First observed source',
+    'Registration source': 'Registration source',
+    'First observed successful API response':
+      'First observed successful API response',
+    'Only qualifying API success records are shown here. Missing records do not prove that an account never used the API.':
+      'Only qualifying API success records are shown here. Missing records do not prove that an account never used the API.',
+    'Return to channel report': 'Return to channel report',
+    'Recent source observations': 'Recent source observations',
+    'No retained source observations are available for this account.':
+      'No retained source observations are available for this account.',
+    'Allow analysis of sources, registrations, successful API use and payments? Entry records are kept for 90 days; account attribution and daily activity for 365 days. No API keys, messages, IP addresses or device fingerprints. Optional; access is unchanged.':
+      'Allow analysis of sources, registrations, successful API use and payments? Entry records are kept for 90 days; account attribution and daily activity for 365 days. No API keys, messages, IP addresses or device fingerprints. Optional; access is unchanged.',
+    'Unable to save privacy settings. Please retry to stop server-side analytics.':
+      'Unable to save privacy settings. Please retry to stop server-side analytics.',
+    'Registration-cohort attribution. Payments are observed through the report update time, grouped by currency. Attribution does not prove causation. API activity has its own processing watermark below.':
+      'Registration-cohort attribution. Payments are observed through the report update time, grouped by currency. Attribution does not prove causation. API activity has its own processing watermark below.',
+    'Eligible accounts': 'Eligible accounts',
+    'Observed successful accounts': 'Observed successful accounts',
+    'Under observation': 'Under observation',
+    'Day 7 retained / eligible': 'Day 7 retained / eligible',
+    'Day 7 retention': 'Day 7 retention',
+    'Operational log coverage is incomplete. Retention rates are unavailable.':
+      'Operational log coverage is incomplete. Retention rates are unavailable.',
+    'Activity statistics are catching up or temporarily unavailable. Displayed successes are confirmed observations, not a complete current total.':
+      'Activity statistics are catching up or temporarily unavailable. Displayed successes are confirmed observations, not a complete current total.',
+    'Rebuilding activity statistics': 'Rebuilding activity statistics',
+    'Rebuild activity statistics': 'Rebuild activity statistics',
+    'Successful API response observed': 'Successful API response observed',
+    'No successful API response observed yet':
+      'No successful API response observed yet',
+    'Attributed from an earlier source observation':
+      'Attributed from an earlier source observation',
+    'Source observed in the current visit':
+      'Source observed in the current visit',
+    'Export summary': 'Export summary',
+    'Recorded attribution windows: {{days}} days':
+      'Recorded attribution windows: {{days}} days',
+    'Lookback days for new registrations':
+      'Lookback days for new registrations',
+    'Changing the default does not rewrite existing source attributions.':
+      'Changing the default does not rewrite existing source attributions.',
+    'Operational log coverage is incomplete. Affected accounts are excluded from retention rates.':
+      'Operational log coverage is incomplete. Affected accounts are excluded from retention rates.',
+    'Missing retention data': 'Missing retention data',
+    'Counting rules: text API, UTC day 7':
+      'Counting rules: text API, UTC day 7',
   },
-  "zh": {
-    "API activation and retention": "API 接入与留存",
-    "Only new accounts within this observation period that explicitly allowed expanded analytics are included. Success requires a delivered text API response with output and no recorded stream or request failure. Creating a key or authorizing OAuth is not success.": "仅统计观察期内新注册、且明确同意扩展统计的账号。成功调用必须已返回文本 API 响应、包含输出，且没有记录到请求或流式错误。创建 Key 或完成 OAuth 授权不算接入成功。",
-    "Day 7 retention uses UTC days: accounts with another qualifying request on the seventh day after their first observed success, divided by successful accounts whose full seventh day has been processed. Accounts still under observation are excluded from that denominator.": "7 日留存按 UTC 自然日计算：首次观察到成功调用后的第 7 天仍有符合条件调用的账号数，除以第 7 天已完整统计的成功接入账号数。仍在观察中的账号不计入分母。",
-    "Activity statistics have not started yet.": "调用统计尚未开始。",
-    "Processed through": "已处理至",
-    "No eligible accounts in this registration period.": "此注册期间没有符合统计条件的账号。",
-    "Unable to rebuild activity statistics. Please retry.": "无法重建调用统计，请重试。",
-    "Channel accounts": "渠道账号",
-    "Reload source records": "重新加载来源记录",
-    "No accounts match this source and registration period.": "此来源和注册期间没有匹配账号。",
-    "Source and conversion": "来源与转化",
-    "Registered": "注册时间",
-    "First observed source": "首次观察到的来源",
-    "Registration source": "注册来源",
-    "First observed successful API response": "首次观察到成功 API 响应",
-    "Only qualifying API success records are shown here. Missing records do not prove that an account never used the API.": "此处仅显示符合统计条件的成功调用。没有记录不代表账号从未使用 API。",
-    "Return to channel report": "返回渠道报表",
-    "Recent source observations": "最近的来源记录",
-    "No retained source observations are available for this account.": "该账号暂无保留中的来源记录。",
-    "Allow analysis of sources, registrations, successful API use and payments? Entry records are kept for 90 days; account attribution and daily activity for 365 days. No API keys, messages, IP addresses or device fingerprints. Optional; access is unchanged.": "允许分析来源、注册、成功 API 调用和付款记录吗？入口记录保留 90 天，账号归属和每日活跃记录保留 365 天。不收集 API Key、消息、IP 地址或设备指纹。是否允许不影响使用。",
-    "Unable to save privacy settings. Please retry to stop server-side analytics.": "隐私设置未保存，请重试以停止服务端统计。",
-    "Registration-cohort attribution. Payments are observed through the report update time, grouped by currency. Attribution does not prove causation. API activity has its own processing watermark below.": "按注册批次归属来源，付款统计截至报表更新时间，并按币种区分。归属不代表因果关系。API 调用统计的处理进度见下方。",
-    "Eligible accounts": "符合条件的账号",
-    "Observed successful accounts": "已观察到成功调用的账号",
-    "Under observation": "观察中",
-    "Day 7 retained / eligible": "第 7 天活跃 / 满观察期账号",
-    "Day 7 retention": "7 日留存率",
-    "Operational log coverage is incomplete. Retention rates are unavailable.": "调用日志不完整，暂不计算留存率。",
-    "Activity statistics are catching up or temporarily unavailable. Displayed successes are confirmed observations, not a complete current total.": "调用统计正在追赶进度或暂时不可用。当前成功数量仅包含已确认的记录，不代表此刻的完整总量。",
-    "Rebuilding activity statistics": "正在重建调用统计",
-    "Rebuild activity statistics": "重建调用统计",
-    "Successful API response observed": "已观察到成功 API 响应",
-    "No successful API response observed yet": "尚未观察到成功 API 响应",
-    "Attributed from an earlier source observation": "根据此前来源记录归属",
-    "Source observed in the current visit": "本次访问直接观察到的来源",
-    "Export summary": "导出汇总",
-    "Recorded attribution windows: {{days}} days": "已记录的归属回看范围：{{days}} 天",
-    "Lookback days for new registrations": "新注册账号的回看天数",
-    "Changing the default does not rewrite existing source attributions.": "修改默认天数不会重写已有来源归属。",
-    "Operational log coverage is incomplete. Affected accounts are excluded from retention rates.": "调用日志存在缺失，受影响账号不计入留存率分母。",
-    "Missing retention data": "留存数据缺失",
-    "Counting rules: text API, UTC day 7": "统计口径：文本 API、UTC 第 7 天"
+  zh: {
+    'API activation and retention': 'API 接入与留存',
+    'Only new accounts within this observation period that explicitly allowed expanded analytics are included. Success requires a delivered text API response with output and no recorded stream or request failure. Creating a key or authorizing OAuth is not success.':
+      '仅统计观察期内新注册、且明确同意扩展统计的账号。成功调用必须已返回文本 API 响应、包含输出，且没有记录到请求或流式错误。创建 Key 或完成 OAuth 授权不算接入成功。',
+    'Day 7 retention uses UTC days: accounts with another qualifying request on the seventh day after their first observed success, divided by successful accounts whose full seventh day has been processed. Accounts still under observation are excluded from that denominator.':
+      '7 日留存按 UTC 自然日计算：首次观察到成功调用后的第 7 天仍有符合条件调用的账号数，除以第 7 天已完整统计的成功接入账号数。仍在观察中的账号不计入分母。',
+    'Activity statistics have not started yet.': '调用统计尚未开始。',
+    'Processed through': '已处理至',
+    'No eligible accounts in this registration period.':
+      '此注册期间没有符合统计条件的账号。',
+    'Unable to rebuild activity statistics. Please retry.':
+      '无法重建调用统计，请重试。',
+    'Channel accounts': '渠道账号',
+    'Reload source records': '重新加载来源记录',
+    'No accounts match this source and registration period.':
+      '此来源和注册期间没有匹配账号。',
+    'Source and conversion': '来源与转化',
+    Registered: '注册时间',
+    'First observed source': '首次观察到的来源',
+    'Registration source': '注册来源',
+    'First observed successful API response': '首次观察到成功 API 响应',
+    'Only qualifying API success records are shown here. Missing records do not prove that an account never used the API.':
+      '此处仅显示符合统计条件的成功调用。没有记录不代表账号从未使用 API。',
+    'Return to channel report': '返回渠道报表',
+    'Recent source observations': '最近的来源记录',
+    'No retained source observations are available for this account.':
+      '该账号暂无保留中的来源记录。',
+    'Allow analysis of sources, registrations, successful API use and payments? Entry records are kept for 90 days; account attribution and daily activity for 365 days. No API keys, messages, IP addresses or device fingerprints. Optional; access is unchanged.':
+      '允许分析来源、注册、成功 API 调用和付款记录吗？入口记录保留 90 天，账号归属和每日活跃记录保留 365 天。不收集 API Key、消息、IP 地址或设备指纹。是否允许不影响使用。',
+    'Unable to save privacy settings. Please retry to stop server-side analytics.':
+      '隐私设置未保存，请重试以停止服务端统计。',
+    'Registration-cohort attribution. Payments are observed through the report update time, grouped by currency. Attribution does not prove causation. API activity has its own processing watermark below.':
+      '按注册批次归属来源，付款统计截至报表更新时间，并按币种区分。归属不代表因果关系。API 调用统计的处理进度见下方。',
+    'Eligible accounts': '符合条件的账号',
+    'Observed successful accounts': '已观察到成功调用的账号',
+    'Under observation': '观察中',
+    'Day 7 retained / eligible': '第 7 天活跃 / 满观察期账号',
+    'Day 7 retention': '7 日留存率',
+    'Operational log coverage is incomplete. Retention rates are unavailable.':
+      '调用日志不完整，暂不计算留存率。',
+    'Activity statistics are catching up or temporarily unavailable. Displayed successes are confirmed observations, not a complete current total.':
+      '调用统计正在追赶进度或暂时不可用。当前成功数量仅包含已确认的记录，不代表此刻的完整总量。',
+    'Rebuilding activity statistics': '正在重建调用统计',
+    'Rebuild activity statistics': '重建调用统计',
+    'Successful API response observed': '已观察到成功 API 响应',
+    'No successful API response observed yet': '尚未观察到成功 API 响应',
+    'Attributed from an earlier source observation': '根据此前来源记录归属',
+    'Source observed in the current visit': '本次访问直接观察到的来源',
+    'Export summary': '导出汇总',
+    'Recorded attribution windows: {{days}} days':
+      '已记录的归属回看范围：{{days}} 天',
+    'Lookback days for new registrations': '新注册账号的回看天数',
+    'Changing the default does not rewrite existing source attributions.':
+      '修改默认天数不会重写已有来源归属。',
+    'Operational log coverage is incomplete. Affected accounts are excluded from retention rates.':
+      '调用日志存在缺失，受影响账号不计入留存率分母。',
+    'Missing retention data': '留存数据缺失',
+    'Counting rules: text API, UTC day 7': '统计口径：文本 API、UTC 第 7 天',
   },
-  "zh-TW": {
-    "API activation and retention": "API 接入與留存",
-    "Only new accounts within this observation period that explicitly allowed expanded analytics are included. Success requires a delivered text API response with output and no recorded stream or request failure. Creating a key or authorizing OAuth is not success.": "僅統計觀察期內新註冊、且明確同意擴充統計的帳號。成功呼叫必須已傳回文字 API 回應、包含輸出，且未記錄請求或串流錯誤。建立 Key 或完成 OAuth 授權不算接入成功。",
-    "Day 7 retention uses UTC days: accounts with another qualifying request on the seventh day after their first observed success, divided by successful accounts whose full seventh day has been processed. Accounts still under observation are excluded from that denominator.": "7 日留存按 UTC 自然日計算：首次觀察到成功呼叫後第 7 天仍有符合條件呼叫的帳號數，除以第 7 天已完整統計的成功接入帳號數。仍在觀察中的帳號不計入分母。",
-    "Activity statistics have not started yet.": "呼叫統計尚未開始。",
-    "Processed through": "已處理至",
-    "No eligible accounts in this registration period.": "此註冊期間沒有符合統計條件的帳號。",
-    "Unable to rebuild activity statistics. Please retry.": "無法重建呼叫統計，請重試。",
-    "Channel accounts": "管道帳號",
-    "Reload source records": "重新載入來源記錄",
-    "No accounts match this source and registration period.": "此來源和註冊期間沒有符合的帳號。",
-    "Source and conversion": "來源與轉換",
-    "Registered": "註冊時間",
-    "First observed source": "首次觀察到的來源",
-    "Registration source": "註冊來源",
-    "First observed successful API response": "首次觀察到成功 API 回應",
-    "Only qualifying API success records are shown here. Missing records do not prove that an account never used the API.": "此處僅顯示符合統計條件的成功呼叫。沒有記錄不代表帳號從未使用 API。",
-    "Return to channel report": "返回管道報表",
-    "Recent source observations": "最近的來源記錄",
-    "No retained source observations are available for this account.": "此帳號目前沒有保留中的來源記錄。",
-    "Allow analysis of sources, registrations, successful API use and payments? Entry records are kept for 90 days; account attribution and daily activity for 365 days. No API keys, messages, IP addresses or device fingerprints. Optional; access is unchanged.": "允許分析來源、註冊、成功 API 呼叫和付款記錄嗎？入口記錄保留 90 天，帳號歸屬和每日活躍記錄保留 365 天。不收集 API Key、訊息、IP 位址或裝置指紋。是否允許不影響使用。",
-    "Unable to save privacy settings. Please retry to stop server-side analytics.": "隱私設定未儲存，請重試以停止伺服器端統計。",
-    "Registration-cohort attribution. Payments are observed through the report update time, grouped by currency. Attribution does not prove causation. API activity has its own processing watermark below.": "按註冊批次歸屬來源，付款統計截至報表更新時間，並按幣別區分。歸屬不代表因果關係。API 呼叫統計的處理進度見下方。",
-    "Eligible accounts": "符合條件的帳號",
-    "Observed successful accounts": "已觀察到成功呼叫的帳號",
-    "Under observation": "觀察中",
-    "Day 7 retained / eligible": "第 7 天活躍 / 滿觀察期帳號",
-    "Day 7 retention": "7 日留存率",
-    "Operational log coverage is incomplete. Retention rates are unavailable.": "呼叫日誌不完整，暫不計算留存率。",
-    "Activity statistics are catching up or temporarily unavailable. Displayed successes are confirmed observations, not a complete current total.": "呼叫統計正在追趕進度或暫時無法使用。目前成功數量僅包含已確認的記錄，不代表此刻的完整總量。",
-    "Rebuilding activity statistics": "正在重建呼叫統計",
-    "Rebuild activity statistics": "重建呼叫統計",
-    "Successful API response observed": "已觀察到成功 API 回應",
-    "No successful API response observed yet": "尚未觀察到成功 API 回應",
-    "Attributed from an earlier source observation": "根據先前來源記錄歸屬",
-    "Source observed in the current visit": "本次造訪直接觀察到的來源",
-    "Export summary": "匯出彙總",
-    "Recorded attribution windows: {{days}} days": "已記錄的歸屬回溯範圍：{{days}} 天",
-    "Lookback days for new registrations": "新註冊帳號的回溯天數",
-    "Changing the default does not rewrite existing source attributions.": "修改預設天數不會重寫既有來源歸屬。",
-    "Operational log coverage is incomplete. Affected accounts are excluded from retention rates.": "呼叫日誌存在缺失，受影響帳號不計入留存率分母。",
-    "Missing retention data": "留存資料缺失",
-    "Counting rules: text API, UTC day 7": "統計口徑：文字 API、UTC 第 7 天"
+  'zh-TW': {
+    'API activation and retention': 'API 接入與留存',
+    'Only new accounts within this observation period that explicitly allowed expanded analytics are included. Success requires a delivered text API response with output and no recorded stream or request failure. Creating a key or authorizing OAuth is not success.':
+      '僅統計觀察期內新註冊、且明確同意擴充統計的帳號。成功呼叫必須已傳回文字 API 回應、包含輸出，且未記錄請求或串流錯誤。建立 Key 或完成 OAuth 授權不算接入成功。',
+    'Day 7 retention uses UTC days: accounts with another qualifying request on the seventh day after their first observed success, divided by successful accounts whose full seventh day has been processed. Accounts still under observation are excluded from that denominator.':
+      '7 日留存按 UTC 自然日計算：首次觀察到成功呼叫後第 7 天仍有符合條件呼叫的帳號數，除以第 7 天已完整統計的成功接入帳號數。仍在觀察中的帳號不計入分母。',
+    'Activity statistics have not started yet.': '呼叫統計尚未開始。',
+    'Processed through': '已處理至',
+    'No eligible accounts in this registration period.':
+      '此註冊期間沒有符合統計條件的帳號。',
+    'Unable to rebuild activity statistics. Please retry.':
+      '無法重建呼叫統計，請重試。',
+    'Channel accounts': '管道帳號',
+    'Reload source records': '重新載入來源記錄',
+    'No accounts match this source and registration period.':
+      '此來源和註冊期間沒有符合的帳號。',
+    'Source and conversion': '來源與轉換',
+    Registered: '註冊時間',
+    'First observed source': '首次觀察到的來源',
+    'Registration source': '註冊來源',
+    'First observed successful API response': '首次觀察到成功 API 回應',
+    'Only qualifying API success records are shown here. Missing records do not prove that an account never used the API.':
+      '此處僅顯示符合統計條件的成功呼叫。沒有記錄不代表帳號從未使用 API。',
+    'Return to channel report': '返回管道報表',
+    'Recent source observations': '最近的來源記錄',
+    'No retained source observations are available for this account.':
+      '此帳號目前沒有保留中的來源記錄。',
+    'Allow analysis of sources, registrations, successful API use and payments? Entry records are kept for 90 days; account attribution and daily activity for 365 days. No API keys, messages, IP addresses or device fingerprints. Optional; access is unchanged.':
+      '允許分析來源、註冊、成功 API 呼叫和付款記錄嗎？入口記錄保留 90 天，帳號歸屬和每日活躍記錄保留 365 天。不收集 API Key、訊息、IP 位址或裝置指紋。是否允許不影響使用。',
+    'Unable to save privacy settings. Please retry to stop server-side analytics.':
+      '隱私設定未儲存，請重試以停止伺服器端統計。',
+    'Registration-cohort attribution. Payments are observed through the report update time, grouped by currency. Attribution does not prove causation. API activity has its own processing watermark below.':
+      '按註冊批次歸屬來源，付款統計截至報表更新時間，並按幣別區分。歸屬不代表因果關係。API 呼叫統計的處理進度見下方。',
+    'Eligible accounts': '符合條件的帳號',
+    'Observed successful accounts': '已觀察到成功呼叫的帳號',
+    'Under observation': '觀察中',
+    'Day 7 retained / eligible': '第 7 天活躍 / 滿觀察期帳號',
+    'Day 7 retention': '7 日留存率',
+    'Operational log coverage is incomplete. Retention rates are unavailable.':
+      '呼叫日誌不完整，暫不計算留存率。',
+    'Activity statistics are catching up or temporarily unavailable. Displayed successes are confirmed observations, not a complete current total.':
+      '呼叫統計正在追趕進度或暫時無法使用。目前成功數量僅包含已確認的記錄，不代表此刻的完整總量。',
+    'Rebuilding activity statistics': '正在重建呼叫統計',
+    'Rebuild activity statistics': '重建呼叫統計',
+    'Successful API response observed': '已觀察到成功 API 回應',
+    'No successful API response observed yet': '尚未觀察到成功 API 回應',
+    'Attributed from an earlier source observation': '根據先前來源記錄歸屬',
+    'Source observed in the current visit': '本次造訪直接觀察到的來源',
+    'Export summary': '匯出彙總',
+    'Recorded attribution windows: {{days}} days':
+      '已記錄的歸屬回溯範圍：{{days}} 天',
+    'Lookback days for new registrations': '新註冊帳號的回溯天數',
+    'Changing the default does not rewrite existing source attributions.':
+      '修改預設天數不會重寫既有來源歸屬。',
+    'Operational log coverage is incomplete. Affected accounts are excluded from retention rates.':
+      '呼叫日誌存在缺失，受影響帳號不計入留存率分母。',
+    'Missing retention data': '留存資料缺失',
+    'Counting rules: text API, UTC day 7': '統計口徑：文字 API、UTC 第 7 天',
   },
-  "fr": {
-    "API activation and retention": "Activation API et rétention",
-    "Only new accounts within this observation period that explicitly allowed expanded analytics are included. Success requires a delivered text API response with output and no recorded stream or request failure. Creating a key or authorizing OAuth is not success.": "Seuls les nouveaux comptes ayant accepté ces statistiques sont inclus. Le succès exige une réponse API texte transmise, avec sortie et sans erreur de requête ou de flux enregistrée. Créer une clé ou autoriser OAuth ne suffit pas.",
-    "Day 7 retention uses UTC days: accounts with another qualifying request on the seventh day after their first observed success, divided by successful accounts whose full seventh day has been processed. Accounts still under observation are excluded from that denominator.": "La rétention J7 suit les jours UTC : comptes avec une nouvelle requête valide au septième jour après le premier succès observé, divisés par les comptes dont ce septième jour a été entièrement traité. Les comptes encore en observation sont exclus du dénominateur.",
-    "Activity statistics have not started yet.": "Les statistiques d’activité n’ont pas encore démarré.",
-    "Processed through": "Traité jusqu’au",
-    "No eligible accounts in this registration period.": "Aucun compte éligible dans cette période d’inscription.",
-    "Unable to rebuild activity statistics. Please retry.": "Impossible de recalculer l’activité. Réessayez.",
-    "Channel accounts": "Comptes du canal",
-    "Reload source records": "Recharger les sources",
-    "No accounts match this source and registration period.": "Aucun compte pour cette source et cette période.",
-    "Source and conversion": "Source et conversion",
-    "Registered": "Inscription",
-    "First observed source": "Première source observée",
-    "Registration source": "Source d’inscription",
-    "First observed successful API response": "Première réponse API réussie observée",
-    "Only qualifying API success records are shown here. Missing records do not prove that an account never used the API.": "Seuls les succès API éligibles sont affichés. L’absence de données ne prouve pas que le compte n’a jamais utilisé l’API.",
-    "Return to channel report": "Retour au rapport du canal",
-    "Recent source observations": "Sources récemment observées",
-    "No retained source observations are available for this account.": "Aucune source conservée pour ce compte.",
-    "Allow analysis of sources, registrations, successful API use and payments? Entry records are kept for 90 days; account attribution and daily activity for 365 days. No API keys, messages, IP addresses or device fingerprints. Optional; access is unchanged.": "Autoriser l’analyse des sources, inscriptions, appels API réussis et paiements ? Les entrées sont conservées 90 jours, l’attribution et l’activité quotidienne 365 jours. Aucune clé API, aucun message, aucune adresse IP ni empreinte d’appareil. Facultatif, sans effet sur l’accès.",
-    "Unable to save privacy settings. Please retry to stop server-side analytics.": "Préférences non enregistrées. Réessayez pour arrêter l’analyse côté serveur.",
-    "Registration-cohort attribution. Payments are observed through the report update time, grouped by currency. Attribution does not prove causation. API activity has its own processing watermark below.": "Attribution par période d’inscription. Paiements observés jusqu’à la mise à jour, par devise. L’attribution ne prouve pas la causalité. L’avancement du traitement API est indiqué ci-dessous.",
-    "Eligible accounts": "Comptes éligibles",
-    "Observed successful accounts": "Comptes avec succès observé",
-    "Under observation": "En observation",
-    "Day 7 retained / eligible": "Actifs J7 / comptes observés",
-    "Day 7 retention": "Rétention J7",
-    "Operational log coverage is incomplete. Retention rates are unavailable.": "Les journaux sont incomplets. Le taux de rétention est indisponible.",
-    "Activity statistics are catching up or temporarily unavailable. Displayed successes are confirmed observations, not a complete current total.": "L’activité est en cours de rattrapage ou temporairement indisponible. Les succès affichés sont confirmés mais ne représentent pas un total actuel complet.",
-    "Rebuilding activity statistics": "Recalcul de l’activité",
-    "Rebuild activity statistics": "Recalculer l’activité",
-    "Successful API response observed": "Réponse API réussie observée",
-    "No successful API response observed yet": "Aucun succès API observé",
-    "Attributed from an earlier source observation": "Attribué à une source antérieure",
-    "Source observed in the current visit": "Source observée lors de cette visite",
-    "Export summary": "Exporter le résumé",
-    "Recorded attribution windows: {{days}} days": "Fenêtres d’attribution enregistrées : {{days}} jours",
-    "Lookback days for new registrations": "Fenêtre pour les nouvelles inscriptions",
-    "Changing the default does not rewrite existing source attributions.": "Modifier la valeur par défaut ne réécrit pas les attributions existantes.",
-    "Operational log coverage is incomplete. Affected accounts are excluded from retention rates.": "Les journaux sont incomplets. Les comptes concernés sont exclus du calcul de rétention.",
-    "Missing retention data": "Données de rétention manquantes",
-    "Counting rules: text API, UTC day 7": "Règles : API texte, jour 7 UTC"
+  fr: {
+    'API activation and retention': 'Activation API et rétention',
+    'Only new accounts within this observation period that explicitly allowed expanded analytics are included. Success requires a delivered text API response with output and no recorded stream or request failure. Creating a key or authorizing OAuth is not success.':
+      'Seuls les nouveaux comptes ayant accepté ces statistiques sont inclus. Le succès exige une réponse API texte transmise, avec sortie et sans erreur de requête ou de flux enregistrée. Créer une clé ou autoriser OAuth ne suffit pas.',
+    'Day 7 retention uses UTC days: accounts with another qualifying request on the seventh day after their first observed success, divided by successful accounts whose full seventh day has been processed. Accounts still under observation are excluded from that denominator.':
+      'La rétention J7 suit les jours UTC : comptes avec une nouvelle requête valide au septième jour après le premier succès observé, divisés par les comptes dont ce septième jour a été entièrement traité. Les comptes encore en observation sont exclus du dénominateur.',
+    'Activity statistics have not started yet.':
+      'Les statistiques d’activité n’ont pas encore démarré.',
+    'Processed through': 'Traité jusqu’au',
+    'No eligible accounts in this registration period.':
+      'Aucun compte éligible dans cette période d’inscription.',
+    'Unable to rebuild activity statistics. Please retry.':
+      'Impossible de recalculer l’activité. Réessayez.',
+    'Channel accounts': 'Comptes du canal',
+    'Reload source records': 'Recharger les sources',
+    'No accounts match this source and registration period.':
+      'Aucun compte pour cette source et cette période.',
+    'Source and conversion': 'Source et conversion',
+    Registered: 'Inscription',
+    'First observed source': 'Première source observée',
+    'Registration source': 'Source d’inscription',
+    'First observed successful API response':
+      'Première réponse API réussie observée',
+    'Only qualifying API success records are shown here. Missing records do not prove that an account never used the API.':
+      'Seuls les succès API éligibles sont affichés. L’absence de données ne prouve pas que le compte n’a jamais utilisé l’API.',
+    'Return to channel report': 'Retour au rapport du canal',
+    'Recent source observations': 'Sources récemment observées',
+    'No retained source observations are available for this account.':
+      'Aucune source conservée pour ce compte.',
+    'Allow analysis of sources, registrations, successful API use and payments? Entry records are kept for 90 days; account attribution and daily activity for 365 days. No API keys, messages, IP addresses or device fingerprints. Optional; access is unchanged.':
+      'Autoriser l’analyse des sources, inscriptions, appels API réussis et paiements ? Les entrées sont conservées 90 jours, l’attribution et l’activité quotidienne 365 jours. Aucune clé API, aucun message, aucune adresse IP ni empreinte d’appareil. Facultatif, sans effet sur l’accès.',
+    'Unable to save privacy settings. Please retry to stop server-side analytics.':
+      'Préférences non enregistrées. Réessayez pour arrêter l’analyse côté serveur.',
+    'Registration-cohort attribution. Payments are observed through the report update time, grouped by currency. Attribution does not prove causation. API activity has its own processing watermark below.':
+      'Attribution par période d’inscription. Paiements observés jusqu’à la mise à jour, par devise. L’attribution ne prouve pas la causalité. L’avancement du traitement API est indiqué ci-dessous.',
+    'Eligible accounts': 'Comptes éligibles',
+    'Observed successful accounts': 'Comptes avec succès observé',
+    'Under observation': 'En observation',
+    'Day 7 retained / eligible': 'Actifs J7 / comptes observés',
+    'Day 7 retention': 'Rétention J7',
+    'Operational log coverage is incomplete. Retention rates are unavailable.':
+      'Les journaux sont incomplets. Le taux de rétention est indisponible.',
+    'Activity statistics are catching up or temporarily unavailable. Displayed successes are confirmed observations, not a complete current total.':
+      'L’activité est en cours de rattrapage ou temporairement indisponible. Les succès affichés sont confirmés mais ne représentent pas un total actuel complet.',
+    'Rebuilding activity statistics': 'Recalcul de l’activité',
+    'Rebuild activity statistics': 'Recalculer l’activité',
+    'Successful API response observed': 'Réponse API réussie observée',
+    'No successful API response observed yet': 'Aucun succès API observé',
+    'Attributed from an earlier source observation':
+      'Attribué à une source antérieure',
+    'Source observed in the current visit':
+      'Source observée lors de cette visite',
+    'Export summary': 'Exporter le résumé',
+    'Recorded attribution windows: {{days}} days':
+      'Fenêtres d’attribution enregistrées : {{days}} jours',
+    'Lookback days for new registrations':
+      'Fenêtre pour les nouvelles inscriptions',
+    'Changing the default does not rewrite existing source attributions.':
+      'Modifier la valeur par défaut ne réécrit pas les attributions existantes.',
+    'Operational log coverage is incomplete. Affected accounts are excluded from retention rates.':
+      'Les journaux sont incomplets. Les comptes concernés sont exclus du calcul de rétention.',
+    'Missing retention data': 'Données de rétention manquantes',
+    'Counting rules: text API, UTC day 7': 'Règles : API texte, jour 7 UTC',
   },
-  "ja": {
-    "API activation and retention": "API 利用開始と継続利用",
-    "Only new accounts within this observation period that explicitly allowed expanded analytics are included. Success requires a delivered text API response with output and no recorded stream or request failure. Creating a key or authorizing OAuth is not success.": "観測期間中に登録し、拡張分析を明示的に許可したアカウントのみ対象です。出力を含むテキスト API 応答が送信され、リクエストやストリームのエラーが記録されていない場合を成功とします。キー作成や OAuth 認可だけでは成功に数えません。",
-    "Day 7 retention uses UTC days: accounts with another qualifying request on the seventh day after their first observed success, divided by successful accounts whose full seventh day has been processed. Accounts still under observation are excluded from that denominator.": "7日目の継続率は UTC の日付で計算します。初めて成功を観測した日の7日後に対象リクエストがあったアカウント数を、7日目の集計が完了した成功アカウント数で割ります。観測中のアカウントは分母に含めません。",
-    "Activity statistics have not started yet.": "利用状況の集計はまだ開始されていません。",
-    "Processed through": "処理済みの日時",
-    "No eligible accounts in this registration period.": "この登録期間に集計対象のアカウントはありません。",
-    "Unable to rebuild activity statistics. Please retry.": "利用統計を再集計できません。再試行してください。",
-    "Channel accounts": "チャネルのアカウント",
-    "Reload source records": "流入元の記録を再読み込み",
-    "No accounts match this source and registration period.": "この流入元と登録期間に一致するアカウントはありません。",
-    "Source and conversion": "流入元と利用状況",
-    "Registered": "登録日時",
-    "First observed source": "最初に観測した流入元",
-    "Registration source": "登録時の流入元",
-    "First observed successful API response": "最初に観測した API 応答成功",
-    "Only qualifying API success records are shown here. Missing records do not prove that an account never used the API.": "ここには集計条件を満たす API 成功記録のみ表示します。記録がなくても、API を一度も使っていないとは限りません。",
-    "Return to channel report": "チャネルレポートに戻る",
-    "Recent source observations": "最近の流入元の記録",
-    "No retained source observations are available for this account.": "このアカウントに保持中の流入元の記録はありません。",
-    "Allow analysis of sources, registrations, successful API use and payments? Entry records are kept for 90 days; account attribution and daily activity for 365 days. No API keys, messages, IP addresses or device fingerprints. Optional; access is unchanged.": "流入元、登録、API 呼び出しの成功、支払い記録の分析を許可しますか？入口の記録は90日間、アカウントとの関連付けと日別の利用記録は365日間保持します。API キー、メッセージ、IP アドレス、端末の識別情報は収集しません。任意であり、利用権限に影響しません。",
-    "Unable to save privacy settings. Please retry to stop server-side analytics.": "プライバシー設定を保存できません。サーバー側の分析を停止するには再試行してください。",
-    "Registration-cohort attribution. Payments are observed through the report update time, grouped by currency. Attribution does not prove causation. API activity has its own processing watermark below.": "登録期間に基づく流入元の集計です。支払いは更新時点まで通貨別に集計します。関連付けは因果関係を証明しません。API 利用統計の処理済み日時は以下に表示します。",
-    "Eligible accounts": "対象アカウント",
-    "Observed successful accounts": "成功を観測したアカウント",
-    "Under observation": "観測中",
-    "Day 7 retained / eligible": "7日目の利用継続 / 観測完了",
-    "Day 7 retention": "7日目の継続率",
-    "Operational log coverage is incomplete. Retention rates are unavailable.": "呼び出しログが不完全なため、継続率は算出できません。",
-    "Activity statistics are catching up or temporarily unavailable. Displayed successes are confirmed observations, not a complete current total.": "利用統計は処理中、または一時的に利用できません。表示中の成功数は確認済みの記録であり、現時点の完全な合計ではありません。",
-    "Rebuilding activity statistics": "利用統計を再集計中",
-    "Rebuild activity statistics": "利用統計を再集計",
-    "Successful API response observed": "API 応答の成功を観測済み",
-    "No successful API response observed yet": "API 応答の成功は未観測",
-    "Attributed from an earlier source observation": "以前の流入元の記録から関連付け",
-    "Source observed in the current visit": "今回の訪問で観測した流入元",
-    "Export summary": "集計をエクスポート",
-    "Recorded attribution windows: {{days}} days": "記録済みの参照期間：{{days}}日",
-    "Lookback days for new registrations": "新規登録の参照日数",
-    "Changing the default does not rewrite existing source attributions.": "既定の日数を変更しても既存の流入元の関連付けは変更しません。",
-    "Operational log coverage is incomplete. Affected accounts are excluded from retention rates.": "呼び出しログに欠落があるため、該当アカウントは継続率の分母から除外します。",
-    "Missing retention data": "継続利用データ欠落",
-    "Counting rules: text API, UTC day 7": "集計ルール：テキスト API、UTC 7日目"
+  ja: {
+    'API activation and retention': 'API 利用開始と継続利用',
+    'Only new accounts within this observation period that explicitly allowed expanded analytics are included. Success requires a delivered text API response with output and no recorded stream or request failure. Creating a key or authorizing OAuth is not success.':
+      '観測期間中に登録し、拡張分析を明示的に許可したアカウントのみ対象です。出力を含むテキスト API 応答が送信され、リクエストやストリームのエラーが記録されていない場合を成功とします。キー作成や OAuth 認可だけでは成功に数えません。',
+    'Day 7 retention uses UTC days: accounts with another qualifying request on the seventh day after their first observed success, divided by successful accounts whose full seventh day has been processed. Accounts still under observation are excluded from that denominator.':
+      '7日目の継続率は UTC の日付で計算します。初めて成功を観測した日の7日後に対象リクエストがあったアカウント数を、7日目の集計が完了した成功アカウント数で割ります。観測中のアカウントは分母に含めません。',
+    'Activity statistics have not started yet.':
+      '利用状況の集計はまだ開始されていません。',
+    'Processed through': '処理済みの日時',
+    'No eligible accounts in this registration period.':
+      'この登録期間に集計対象のアカウントはありません。',
+    'Unable to rebuild activity statistics. Please retry.':
+      '利用統計を再集計できません。再試行してください。',
+    'Channel accounts': 'チャネルのアカウント',
+    'Reload source records': '流入元の記録を再読み込み',
+    'No accounts match this source and registration period.':
+      'この流入元と登録期間に一致するアカウントはありません。',
+    'Source and conversion': '流入元と利用状況',
+    Registered: '登録日時',
+    'First observed source': '最初に観測した流入元',
+    'Registration source': '登録時の流入元',
+    'First observed successful API response': '最初に観測した API 応答成功',
+    'Only qualifying API success records are shown here. Missing records do not prove that an account never used the API.':
+      'ここには集計条件を満たす API 成功記録のみ表示します。記録がなくても、API を一度も使っていないとは限りません。',
+    'Return to channel report': 'チャネルレポートに戻る',
+    'Recent source observations': '最近の流入元の記録',
+    'No retained source observations are available for this account.':
+      'このアカウントに保持中の流入元の記録はありません。',
+    'Allow analysis of sources, registrations, successful API use and payments? Entry records are kept for 90 days; account attribution and daily activity for 365 days. No API keys, messages, IP addresses or device fingerprints. Optional; access is unchanged.':
+      '流入元、登録、API 呼び出しの成功、支払い記録の分析を許可しますか？入口の記録は90日間、アカウントとの関連付けと日別の利用記録は365日間保持します。API キー、メッセージ、IP アドレス、端末の識別情報は収集しません。任意であり、利用権限に影響しません。',
+    'Unable to save privacy settings. Please retry to stop server-side analytics.':
+      'プライバシー設定を保存できません。サーバー側の分析を停止するには再試行してください。',
+    'Registration-cohort attribution. Payments are observed through the report update time, grouped by currency. Attribution does not prove causation. API activity has its own processing watermark below.':
+      '登録期間に基づく流入元の集計です。支払いは更新時点まで通貨別に集計します。関連付けは因果関係を証明しません。API 利用統計の処理済み日時は以下に表示します。',
+    'Eligible accounts': '対象アカウント',
+    'Observed successful accounts': '成功を観測したアカウント',
+    'Under observation': '観測中',
+    'Day 7 retained / eligible': '7日目の利用継続 / 観測完了',
+    'Day 7 retention': '7日目の継続率',
+    'Operational log coverage is incomplete. Retention rates are unavailable.':
+      '呼び出しログが不完全なため、継続率は算出できません。',
+    'Activity statistics are catching up or temporarily unavailable. Displayed successes are confirmed observations, not a complete current total.':
+      '利用統計は処理中、または一時的に利用できません。表示中の成功数は確認済みの記録であり、現時点の完全な合計ではありません。',
+    'Rebuilding activity statistics': '利用統計を再集計中',
+    'Rebuild activity statistics': '利用統計を再集計',
+    'Successful API response observed': 'API 応答の成功を観測済み',
+    'No successful API response observed yet': 'API 応答の成功は未観測',
+    'Attributed from an earlier source observation':
+      '以前の流入元の記録から関連付け',
+    'Source observed in the current visit': '今回の訪問で観測した流入元',
+    'Export summary': '集計をエクスポート',
+    'Recorded attribution windows: {{days}} days':
+      '記録済みの参照期間：{{days}}日',
+    'Lookback days for new registrations': '新規登録の参照日数',
+    'Changing the default does not rewrite existing source attributions.':
+      '既定の日数を変更しても既存の流入元の関連付けは変更しません。',
+    'Operational log coverage is incomplete. Affected accounts are excluded from retention rates.':
+      '呼び出しログに欠落があるため、該当アカウントは継続率の分母から除外します。',
+    'Missing retention data': '継続利用データ欠落',
+    'Counting rules: text API, UTC day 7':
+      '集計ルール：テキスト API、UTC 7日目',
   },
-  "ru": {
-    "API activation and retention": "Подключение API и удержание",
-    "Only new accounts within this observation period that explicitly allowed expanded analytics are included. Success requires a delivered text API response with output and no recorded stream or request failure. Creating a key or authorizing OAuth is not success.": "Учитываются только новые аккаунты, явно разрешившие расширенную аналитику. Успех — переданный текстовый ответ API с выводом, без зарегистрированной ошибки запроса или потока. Создание ключа или авторизация OAuth не считаются подключением.",
-    "Day 7 retention uses UTC days: accounts with another qualifying request on the seventh day after their first observed success, divided by successful accounts whose full seventh day has been processed. Accounts still under observation are excluded from that denominator.": "Удержание D7 считается по дням UTC: аккаунты с повторным подходящим запросом на седьмой день после первого наблюдаемого успеха делятся на успешные аккаунты с полностью обработанным седьмым днём. Ещё наблюдаемые аккаунты исключены из знаменателя.",
-    "Activity statistics have not started yet.": "Статистика активности ещё не запущена.",
-    "Processed through": "Обработано до",
-    "No eligible accounts in this registration period.": "В этом периоде регистрации нет подходящих аккаунтов.",
-    "Unable to rebuild activity statistics. Please retry.": "Не удалось пересчитать активность. Повторите попытку.",
-    "Channel accounts": "Аккаунты канала",
-    "Reload source records": "Перезагрузить записи источников",
-    "No accounts match this source and registration period.": "Нет аккаунтов для этого источника и периода регистрации.",
-    "Source and conversion": "Источник и конверсия",
-    "Registered": "Дата регистрации",
-    "First observed source": "Первый наблюдаемый источник",
-    "Registration source": "Источник регистрации",
-    "First observed successful API response": "Первый наблюдаемый успешный ответ API",
-    "Only qualifying API success records are shown here. Missing records do not prove that an account never used the API.": "Здесь показаны только подходящие записи об успехе API. Отсутствие записей не означает, что аккаунт никогда не использовал API.",
-    "Return to channel report": "Вернуться к отчёту канала",
-    "Recent source observations": "Последние наблюдения источников",
-    "No retained source observations are available for this account.": "Для этого аккаунта нет сохранённых наблюдений источника.",
-    "Allow analysis of sources, registrations, successful API use and payments? Entry records are kept for 90 days; account attribution and daily activity for 365 days. No API keys, messages, IP addresses or device fingerprints. Optional; access is unchanged.": "Разрешить анализ источников, регистраций, успешных вызовов API и платежей? Входы хранятся 90 дней, атрибуция и ежедневная активность — 365 дней. Без ключей API, сообщений, IP-адресов и отпечатков устройств. Выбор не влияет на доступ.",
-    "Unable to save privacy settings. Please retry to stop server-side analytics.": "Не удалось сохранить настройки. Повторите попытку, чтобы остановить серверную аналитику.",
-    "Registration-cohort attribution. Payments are observed through the report update time, grouped by currency. Attribution does not prove causation. API activity has its own processing watermark below.": "Атрибуция по периоду регистрации. Платежи учтены до обновления отчёта, отдельно по валютам. Это не доказывает причинную связь. Срок обработки API указан ниже.",
-    "Eligible accounts": "Подходящие аккаунты",
-    "Observed successful accounts": "Аккаунты с наблюдаемым успехом",
-    "Under observation": "Наблюдение продолжается",
-    "Day 7 retained / eligible": "Активны D7 / полный период",
-    "Day 7 retention": "Удержание D7",
-    "Operational log coverage is incomplete. Retention rates are unavailable.": "Журналы неполные. Удержание рассчитать нельзя.",
-    "Activity statistics are catching up or temporarily unavailable. Displayed successes are confirmed observations, not a complete current total.": "Статистика догоняет данные или временно недоступна. Показаны подтверждённые успехи, а не полный текущий итог.",
-    "Rebuilding activity statistics": "Пересчёт активности",
-    "Rebuild activity statistics": "Пересчитать активность",
-    "Successful API response observed": "Наблюдался успешный ответ API",
-    "No successful API response observed yet": "Успешный ответ API ещё не наблюдался",
-    "Attributed from an earlier source observation": "Атрибуция по предыдущему наблюдению",
-    "Source observed in the current visit": "Источник наблюдался в этом посещении",
-    "Export summary": "Экспортировать сводку",
-    "Recorded attribution windows: {{days}} days": "Записанные окна атрибуции: {{days}} дн.",
-    "Lookback days for new registrations": "Окно для новых регистраций",
-    "Changing the default does not rewrite existing source attributions.": "Изменение значения по умолчанию не меняет существующую атрибуцию.",
-    "Operational log coverage is incomplete. Affected accounts are excluded from retention rates.": "В журналах есть пробелы. Затронутые аккаунты исключены из расчёта удержания.",
-    "Missing retention data": "Нет данных об удержании",
-    "Counting rules: text API, UTC day 7": "Правила: текстовый API, день 7 по UTC"
+  ru: {
+    'API activation and retention': 'Подключение API и удержание',
+    'Only new accounts within this observation period that explicitly allowed expanded analytics are included. Success requires a delivered text API response with output and no recorded stream or request failure. Creating a key or authorizing OAuth is not success.':
+      'Учитываются только новые аккаунты, явно разрешившие расширенную аналитику. Успех — переданный текстовый ответ API с выводом, без зарегистрированной ошибки запроса или потока. Создание ключа или авторизация OAuth не считаются подключением.',
+    'Day 7 retention uses UTC days: accounts with another qualifying request on the seventh day after their first observed success, divided by successful accounts whose full seventh day has been processed. Accounts still under observation are excluded from that denominator.':
+      'Удержание D7 считается по дням UTC: аккаунты с повторным подходящим запросом на седьмой день после первого наблюдаемого успеха делятся на успешные аккаунты с полностью обработанным седьмым днём. Ещё наблюдаемые аккаунты исключены из знаменателя.',
+    'Activity statistics have not started yet.':
+      'Статистика активности ещё не запущена.',
+    'Processed through': 'Обработано до',
+    'No eligible accounts in this registration period.':
+      'В этом периоде регистрации нет подходящих аккаунтов.',
+    'Unable to rebuild activity statistics. Please retry.':
+      'Не удалось пересчитать активность. Повторите попытку.',
+    'Channel accounts': 'Аккаунты канала',
+    'Reload source records': 'Перезагрузить записи источников',
+    'No accounts match this source and registration period.':
+      'Нет аккаунтов для этого источника и периода регистрации.',
+    'Source and conversion': 'Источник и конверсия',
+    Registered: 'Дата регистрации',
+    'First observed source': 'Первый наблюдаемый источник',
+    'Registration source': 'Источник регистрации',
+    'First observed successful API response':
+      'Первый наблюдаемый успешный ответ API',
+    'Only qualifying API success records are shown here. Missing records do not prove that an account never used the API.':
+      'Здесь показаны только подходящие записи об успехе API. Отсутствие записей не означает, что аккаунт никогда не использовал API.',
+    'Return to channel report': 'Вернуться к отчёту канала',
+    'Recent source observations': 'Последние наблюдения источников',
+    'No retained source observations are available for this account.':
+      'Для этого аккаунта нет сохранённых наблюдений источника.',
+    'Allow analysis of sources, registrations, successful API use and payments? Entry records are kept for 90 days; account attribution and daily activity for 365 days. No API keys, messages, IP addresses or device fingerprints. Optional; access is unchanged.':
+      'Разрешить анализ источников, регистраций, успешных вызовов API и платежей? Входы хранятся 90 дней, атрибуция и ежедневная активность — 365 дней. Без ключей API, сообщений, IP-адресов и отпечатков устройств. Выбор не влияет на доступ.',
+    'Unable to save privacy settings. Please retry to stop server-side analytics.':
+      'Не удалось сохранить настройки. Повторите попытку, чтобы остановить серверную аналитику.',
+    'Registration-cohort attribution. Payments are observed through the report update time, grouped by currency. Attribution does not prove causation. API activity has its own processing watermark below.':
+      'Атрибуция по периоду регистрации. Платежи учтены до обновления отчёта, отдельно по валютам. Это не доказывает причинную связь. Срок обработки API указан ниже.',
+    'Eligible accounts': 'Подходящие аккаунты',
+    'Observed successful accounts': 'Аккаунты с наблюдаемым успехом',
+    'Under observation': 'Наблюдение продолжается',
+    'Day 7 retained / eligible': 'Активны D7 / полный период',
+    'Day 7 retention': 'Удержание D7',
+    'Operational log coverage is incomplete. Retention rates are unavailable.':
+      'Журналы неполные. Удержание рассчитать нельзя.',
+    'Activity statistics are catching up or temporarily unavailable. Displayed successes are confirmed observations, not a complete current total.':
+      'Статистика догоняет данные или временно недоступна. Показаны подтверждённые успехи, а не полный текущий итог.',
+    'Rebuilding activity statistics': 'Пересчёт активности',
+    'Rebuild activity statistics': 'Пересчитать активность',
+    'Successful API response observed': 'Наблюдался успешный ответ API',
+    'No successful API response observed yet':
+      'Успешный ответ API ещё не наблюдался',
+    'Attributed from an earlier source observation':
+      'Атрибуция по предыдущему наблюдению',
+    'Source observed in the current visit':
+      'Источник наблюдался в этом посещении',
+    'Export summary': 'Экспортировать сводку',
+    'Recorded attribution windows: {{days}} days':
+      'Записанные окна атрибуции: {{days}} дн.',
+    'Lookback days for new registrations': 'Окно для новых регистраций',
+    'Changing the default does not rewrite existing source attributions.':
+      'Изменение значения по умолчанию не меняет существующую атрибуцию.',
+    'Operational log coverage is incomplete. Affected accounts are excluded from retention rates.':
+      'В журналах есть пробелы. Затронутые аккаунты исключены из расчёта удержания.',
+    'Missing retention data': 'Нет данных об удержании',
+    'Counting rules: text API, UTC day 7':
+      'Правила: текстовый API, день 7 по UTC',
   },
-  "vi": {
-    "API activation and retention": "Kết nối API và duy trì sử dụng",
-    "Only new accounts within this observation period that explicitly allowed expanded analytics are included. Success requires a delivered text API response with output and no recorded stream or request failure. Creating a key or authorizing OAuth is not success.": "Chỉ tính tài khoản mới trong kỳ đã đồng ý mở rộng phân tích. Thành công phải là phản hồi API văn bản đã gửi, có đầu ra và không ghi nhận lỗi yêu cầu hay luồng. Tạo khóa hoặc cấp quyền OAuth chưa được tính là kết nối thành công.",
-    "Day 7 retention uses UTC days: accounts with another qualifying request on the seventh day after their first observed success, divided by successful accounts whose full seventh day has been processed. Accounts still under observation are excluded from that denominator.": "Duy trì ngày 7 tính theo ngày UTC: số tài khoản có yêu cầu hợp lệ vào ngày thứ 7 sau lần thành công đầu tiên được ghi nhận, chia cho số tài khoản thành công đã thống kê trọn ngày thứ 7. Không đưa tài khoản đang theo dõi vào mẫu số.",
-    "Activity statistics have not started yet.": "Thống kê hoạt động chưa bắt đầu.",
-    "Processed through": "Đã xử lý đến",
-    "No eligible accounts in this registration period.": "Không có tài khoản đủ điều kiện trong kỳ đăng ký này.",
-    "Unable to rebuild activity statistics. Please retry.": "Không thể tính lại thống kê hoạt động. Vui lòng thử lại.",
-    "Channel accounts": "Tài khoản theo kênh",
-    "Reload source records": "Tải lại bản ghi nguồn",
-    "No accounts match this source and registration period.": "Không có tài khoản khớp nguồn và kỳ đăng ký này.",
-    "Source and conversion": "Nguồn và chuyển đổi",
-    "Registered": "Ngày đăng ký",
-    "First observed source": "Nguồn đầu tiên ghi nhận",
-    "Registration source": "Nguồn đăng ký",
-    "First observed successful API response": "Phản hồi API thành công đầu tiên ghi nhận",
-    "Only qualifying API success records are shown here. Missing records do not prove that an account never used the API.": "Chỉ hiển thị lần gọi API thành công đủ điều kiện. Không có bản ghi không đồng nghĩa tài khoản chưa từng dùng API.",
-    "Return to channel report": "Về báo cáo kênh",
-    "Recent source observations": "Nguồn truy cập ghi nhận gần đây",
-    "No retained source observations are available for this account.": "Không có bản ghi nguồn còn được lưu cho tài khoản này.",
-    "Allow analysis of sources, registrations, successful API use and payments? Entry records are kept for 90 days; account attribution and daily activity for 365 days. No API keys, messages, IP addresses or device fingerprints. Optional; access is unchanged.": "Cho phép phân tích nguồn, đăng ký, lần gọi API thành công và thanh toán? Lưu bản ghi truy cập 90 ngày, quy nguồn tài khoản và hoạt động hằng ngày 365 ngày. Không thu thập khóa API, tin nhắn, địa chỉ IP hay dấu vân tay thiết bị. Lựa chọn không ảnh hưởng quyền truy cập.",
-    "Unable to save privacy settings. Please retry to stop server-side analytics.": "Không lưu được cài đặt riêng tư. Hãy thử lại để dừng phân tích trên máy chủ.",
-    "Registration-cohort attribution. Payments are observed through the report update time, grouped by currency. Attribution does not prove causation. API activity has its own processing watermark below.": "Quy nguồn theo kỳ đăng ký; thanh toán tính đến lúc cập nhật và tách theo tiền tệ. Quy nguồn không chứng minh quan hệ nhân quả. Tiến độ xử lý hoạt động API nằm bên dưới.",
-    "Eligible accounts": "Tài khoản đủ điều kiện",
-    "Observed successful accounts": "Tài khoản đã ghi nhận thành công",
-    "Under observation": "Đang theo dõi",
-    "Day 7 retained / eligible": "Hoạt động ngày 7 / đủ kỳ quan sát",
-    "Day 7 retention": "Tỷ lệ duy trì ngày 7",
-    "Operational log coverage is incomplete. Retention rates are unavailable.": "Nhật ký gọi API chưa đầy đủ, chưa thể tính tỷ lệ duy trì.",
-    "Activity statistics are catching up or temporarily unavailable. Displayed successes are confirmed observations, not a complete current total.": "Thống kê đang cập nhật hoặc tạm không khả dụng. Số thành công hiển thị là bản ghi đã xác nhận, chưa phải tổng đầy đủ hiện tại.",
-    "Rebuilding activity statistics": "Đang tính lại thống kê hoạt động",
-    "Rebuild activity statistics": "Tính lại thống kê hoạt động",
-    "Successful API response observed": "Đã ghi nhận phản hồi API thành công",
-    "No successful API response observed yet": "Chưa ghi nhận phản hồi API thành công",
-    "Attributed from an earlier source observation": "Quy nguồn từ bản ghi trước đó",
-    "Source observed in the current visit": "Nguồn ghi nhận trực tiếp trong lượt này",
-    "Export summary": "Xuất tổng hợp",
-    "Recorded attribution windows: {{days}} days": "Khoảng truy nguồn đã ghi nhận: {{days}} ngày",
-    "Lookback days for new registrations": "Số ngày truy nguồn cho đăng ký mới",
-    "Changing the default does not rewrite existing source attributions.": "Đổi mặc định không ghi lại nguồn đã được quy trước đó.",
-    "Operational log coverage is incomplete. Affected accounts are excluded from retention rates.": "Nhật ký có phần thiếu. Loại tài khoản bị ảnh hưởng khỏi mẫu số tính duy trì.",
-    "Missing retention data": "Thiếu dữ liệu duy trì",
-    "Counting rules: text API, UTC day 7": "Quy tắc: API văn bản, ngày 7 UTC"
-  }
+  vi: {
+    'API activation and retention': 'Kết nối API và duy trì sử dụng',
+    'Only new accounts within this observation period that explicitly allowed expanded analytics are included. Success requires a delivered text API response with output and no recorded stream or request failure. Creating a key or authorizing OAuth is not success.':
+      'Chỉ tính tài khoản mới trong kỳ đã đồng ý mở rộng phân tích. Thành công phải là phản hồi API văn bản đã gửi, có đầu ra và không ghi nhận lỗi yêu cầu hay luồng. Tạo khóa hoặc cấp quyền OAuth chưa được tính là kết nối thành công.',
+    'Day 7 retention uses UTC days: accounts with another qualifying request on the seventh day after their first observed success, divided by successful accounts whose full seventh day has been processed. Accounts still under observation are excluded from that denominator.':
+      'Duy trì ngày 7 tính theo ngày UTC: số tài khoản có yêu cầu hợp lệ vào ngày thứ 7 sau lần thành công đầu tiên được ghi nhận, chia cho số tài khoản thành công đã thống kê trọn ngày thứ 7. Không đưa tài khoản đang theo dõi vào mẫu số.',
+    'Activity statistics have not started yet.':
+      'Thống kê hoạt động chưa bắt đầu.',
+    'Processed through': 'Đã xử lý đến',
+    'No eligible accounts in this registration period.':
+      'Không có tài khoản đủ điều kiện trong kỳ đăng ký này.',
+    'Unable to rebuild activity statistics. Please retry.':
+      'Không thể tính lại thống kê hoạt động. Vui lòng thử lại.',
+    'Channel accounts': 'Tài khoản theo kênh',
+    'Reload source records': 'Tải lại bản ghi nguồn',
+    'No accounts match this source and registration period.':
+      'Không có tài khoản khớp nguồn và kỳ đăng ký này.',
+    'Source and conversion': 'Nguồn và chuyển đổi',
+    Registered: 'Ngày đăng ký',
+    'First observed source': 'Nguồn đầu tiên ghi nhận',
+    'Registration source': 'Nguồn đăng ký',
+    'First observed successful API response':
+      'Phản hồi API thành công đầu tiên ghi nhận',
+    'Only qualifying API success records are shown here. Missing records do not prove that an account never used the API.':
+      'Chỉ hiển thị lần gọi API thành công đủ điều kiện. Không có bản ghi không đồng nghĩa tài khoản chưa từng dùng API.',
+    'Return to channel report': 'Về báo cáo kênh',
+    'Recent source observations': 'Nguồn truy cập ghi nhận gần đây',
+    'No retained source observations are available for this account.':
+      'Không có bản ghi nguồn còn được lưu cho tài khoản này.',
+    'Allow analysis of sources, registrations, successful API use and payments? Entry records are kept for 90 days; account attribution and daily activity for 365 days. No API keys, messages, IP addresses or device fingerprints. Optional; access is unchanged.':
+      'Cho phép phân tích nguồn, đăng ký, lần gọi API thành công và thanh toán? Lưu bản ghi truy cập 90 ngày, quy nguồn tài khoản và hoạt động hằng ngày 365 ngày. Không thu thập khóa API, tin nhắn, địa chỉ IP hay dấu vân tay thiết bị. Lựa chọn không ảnh hưởng quyền truy cập.',
+    'Unable to save privacy settings. Please retry to stop server-side analytics.':
+      'Không lưu được cài đặt riêng tư. Hãy thử lại để dừng phân tích trên máy chủ.',
+    'Registration-cohort attribution. Payments are observed through the report update time, grouped by currency. Attribution does not prove causation. API activity has its own processing watermark below.':
+      'Quy nguồn theo kỳ đăng ký; thanh toán tính đến lúc cập nhật và tách theo tiền tệ. Quy nguồn không chứng minh quan hệ nhân quả. Tiến độ xử lý hoạt động API nằm bên dưới.',
+    'Eligible accounts': 'Tài khoản đủ điều kiện',
+    'Observed successful accounts': 'Tài khoản đã ghi nhận thành công',
+    'Under observation': 'Đang theo dõi',
+    'Day 7 retained / eligible': 'Hoạt động ngày 7 / đủ kỳ quan sát',
+    'Day 7 retention': 'Tỷ lệ duy trì ngày 7',
+    'Operational log coverage is incomplete. Retention rates are unavailable.':
+      'Nhật ký gọi API chưa đầy đủ, chưa thể tính tỷ lệ duy trì.',
+    'Activity statistics are catching up or temporarily unavailable. Displayed successes are confirmed observations, not a complete current total.':
+      'Thống kê đang cập nhật hoặc tạm không khả dụng. Số thành công hiển thị là bản ghi đã xác nhận, chưa phải tổng đầy đủ hiện tại.',
+    'Rebuilding activity statistics': 'Đang tính lại thống kê hoạt động',
+    'Rebuild activity statistics': 'Tính lại thống kê hoạt động',
+    'Successful API response observed': 'Đã ghi nhận phản hồi API thành công',
+    'No successful API response observed yet':
+      'Chưa ghi nhận phản hồi API thành công',
+    'Attributed from an earlier source observation':
+      'Quy nguồn từ bản ghi trước đó',
+    'Source observed in the current visit':
+      'Nguồn ghi nhận trực tiếp trong lượt này',
+    'Export summary': 'Xuất tổng hợp',
+    'Recorded attribution windows: {{days}} days':
+      'Khoảng truy nguồn đã ghi nhận: {{days}} ngày',
+    'Lookback days for new registrations': 'Số ngày truy nguồn cho đăng ký mới',
+    'Changing the default does not rewrite existing source attributions.':
+      'Đổi mặc định không ghi lại nguồn đã được quy trước đó.',
+    'Operational log coverage is incomplete. Affected accounts are excluded from retention rates.':
+      'Nhật ký có phần thiếu. Loại tài khoản bị ảnh hưởng khỏi mẫu số tính duy trì.',
+    'Missing retention data': 'Thiếu dữ liệu duy trì',
+    'Counting rules: text API, UTC day 7': 'Quy tắc: API văn bản, ngày 7 UTC',
+  },
 }
 
 const requestEstimateCopy = {
-  "en": {
-    "Request cost estimate": "Request cost estimate",
-    "Cached input tokens": "Cached input tokens",
-    "Estimate unavailable": "Estimate unavailable",
-    "No available groups": "No available groups",
-    "One request, selected group multiplier included. Cached tokens are part of input. Excludes cache writes, media and tool fees; actual charges may differ.": "One request, selected group multiplier included. Cached tokens are part of input. Excludes cache writes, media and tool fees; actual charges may differ.",
-    "Check token counts and group prices. Dynamic or special billing requires the pricing rules above.": "Check token counts and group prices. Dynamic or special billing requires the pricing rules above."
+  en: {
+    'Request cost estimate': 'Request cost estimate',
+    'Cached input tokens': 'Cached input tokens',
+    'Estimate unavailable': 'Estimate unavailable',
+    'No available groups': 'No available groups',
+    'One request, selected group multiplier included. Cached tokens are part of input. Excludes cache writes, media and tool fees; actual charges may differ.':
+      'One request, selected group multiplier included. Cached tokens are part of input. Excludes cache writes, media and tool fees; actual charges may differ.',
+    'Check token counts and group prices. Dynamic or special billing requires the pricing rules above.':
+      'Check token counts and group prices. Dynamic or special billing requires the pricing rules above.',
   },
-  "zh": {
-    "Request cost estimate": "单次请求费用估算",
-    "Cached input tokens": "缓存命中的输入 Tokens",
-    "Estimate unavailable": "暂时无法估算",
-    "No available groups": "没有可用分组",
-    "One request, selected group multiplier included. Cached tokens are part of input. Excludes cache writes, media and tool fees; actual charges may differ.": "按一次请求估算，已包含所选分组倍率。缓存 Tokens 属于输入的一部分。不含缓存写入、媒体和工具费用，实际扣费可能不同。",
-    "Check token counts and group prices. Dynamic or special billing requires the pricing rules above.": "请检查 Tokens 数量及分组价格。动态或特殊计费请参照上方规则。"
+  zh: {
+    'Request cost estimate': '单次请求费用估算',
+    'Cached input tokens': '缓存命中的输入 Tokens',
+    'Estimate unavailable': '暂时无法估算',
+    'No available groups': '没有可用分组',
+    'One request, selected group multiplier included. Cached tokens are part of input. Excludes cache writes, media and tool fees; actual charges may differ.':
+      '按一次请求估算，已包含所选分组倍率。缓存 Tokens 属于输入的一部分。不含缓存写入、媒体和工具费用，实际扣费可能不同。',
+    'Check token counts and group prices. Dynamic or special billing requires the pricing rules above.':
+      '请检查 Tokens 数量及分组价格。动态或特殊计费请参照上方规则。',
   },
-  "zh-TW": {
-    "Request cost estimate": "單次請求費用估算",
-    "Cached input tokens": "快取命中的輸入 Tokens",
-    "Estimate unavailable": "暫時無法估算",
-    "No available groups": "沒有可用分組",
-    "One request, selected group multiplier included. Cached tokens are part of input. Excludes cache writes, media and tool fees; actual charges may differ.": "按一次請求估算，已包含所選分組倍率。快取 Tokens 屬於輸入的一部分。不含快取寫入、媒體和工具費用，實際扣費可能不同。",
-    "Check token counts and group prices. Dynamic or special billing requires the pricing rules above.": "請檢查 Tokens 數量及分組價格。動態或特殊計費請參照上方規則。"
+  'zh-TW': {
+    'Request cost estimate': '單次請求費用估算',
+    'Cached input tokens': '快取命中的輸入 Tokens',
+    'Estimate unavailable': '暫時無法估算',
+    'No available groups': '沒有可用分組',
+    'One request, selected group multiplier included. Cached tokens are part of input. Excludes cache writes, media and tool fees; actual charges may differ.':
+      '按一次請求估算，已包含所選分組倍率。快取 Tokens 屬於輸入的一部分。不含快取寫入、媒體和工具費用，實際扣費可能不同。',
+    'Check token counts and group prices. Dynamic or special billing requires the pricing rules above.':
+      '請檢查 Tokens 數量及分組價格。動態或特殊計費請參照上方規則。',
   },
-  "fr": {
-    "Request cost estimate": "Coût estimé par requête",
-    "Cached input tokens": "Tokens d’entrée en cache",
-    "Estimate unavailable": "Estimation indisponible",
-    "No available groups": "Aucun groupe disponible",
-    "One request, selected group multiplier included. Cached tokens are part of input. Excludes cache writes, media and tool fees; actual charges may differ.": "Une requête, multiplicateur du groupe inclus. Le cache fait partie de l’entrée. Hors écriture du cache, médias et outils ; le montant réel peut varier.",
-    "Check token counts and group prices. Dynamic or special billing requires the pricing rules above.": "Vérifiez les tokens et les tarifs du groupe. Pour les tarifs dynamiques ou spéciaux, consultez les règles ci-dessus."
+  fr: {
+    'Request cost estimate': 'Coût estimé par requête',
+    'Cached input tokens': 'Tokens d’entrée en cache',
+    'Estimate unavailable': 'Estimation indisponible',
+    'No available groups': 'Aucun groupe disponible',
+    'One request, selected group multiplier included. Cached tokens are part of input. Excludes cache writes, media and tool fees; actual charges may differ.':
+      'Une requête, multiplicateur du groupe inclus. Le cache fait partie de l’entrée. Hors écriture du cache, médias et outils ; le montant réel peut varier.',
+    'Check token counts and group prices. Dynamic or special billing requires the pricing rules above.':
+      'Vérifiez les tokens et les tarifs du groupe. Pour les tarifs dynamiques ou spéciaux, consultez les règles ci-dessus.',
   },
-  "ja": {
-    "Request cost estimate": "リクエスト費用の見積もり",
-    "Cached input tokens": "キャッシュ済み入力トークン",
-    "Estimate unavailable": "見積もりできません",
-    "No available groups": "利用可能なグループがありません",
-    "One request, selected group multiplier included. Cached tokens are part of input. Excludes cache writes, media and tool fees; actual charges may differ.": "1回分の見積もりで、選択したグループの倍率を含みます。キャッシュは入力の一部です。キャッシュ書き込み、メディア、ツールの料金は含まず、実際の請求額は異なる場合があります。",
-    "Check token counts and group prices. Dynamic or special billing requires the pricing rules above.": "トークン数とグループ料金を確認してください。動的・特殊料金は上記のルールを参照してください。"
+  ja: {
+    'Request cost estimate': 'リクエスト費用の見積もり',
+    'Cached input tokens': 'キャッシュ済み入力トークン',
+    'Estimate unavailable': '見積もりできません',
+    'No available groups': '利用可能なグループがありません',
+    'One request, selected group multiplier included. Cached tokens are part of input. Excludes cache writes, media and tool fees; actual charges may differ.':
+      '1回分の見積もりで、選択したグループの倍率を含みます。キャッシュは入力の一部です。キャッシュ書き込み、メディア、ツールの料金は含まず、実際の請求額は異なる場合があります。',
+    'Check token counts and group prices. Dynamic or special billing requires the pricing rules above.':
+      'トークン数とグループ料金を確認してください。動的・特殊料金は上記のルールを参照してください。',
   },
-  "ru": {
-    "Request cost estimate": "Стоимость одного запроса",
-    "Cached input tokens": "Входные токены из кэша",
-    "Estimate unavailable": "Оценка недоступна",
-    "No available groups": "Нет доступных групп",
-    "One request, selected group multiplier included. Cached tokens are part of input. Excludes cache writes, media and tool fees; actual charges may differ.": "Один запрос с учётом множителя группы. Кэш входит во входные токены. Без записи в кэш, медиа и инструментов; итоговая сумма может отличаться.",
-    "Check token counts and group prices. Dynamic or special billing requires the pricing rules above.": "Проверьте число токенов и тарифы группы. Для динамической или особой тарификации смотрите правила выше."
+  ru: {
+    'Request cost estimate': 'Стоимость одного запроса',
+    'Cached input tokens': 'Входные токены из кэша',
+    'Estimate unavailable': 'Оценка недоступна',
+    'No available groups': 'Нет доступных групп',
+    'One request, selected group multiplier included. Cached tokens are part of input. Excludes cache writes, media and tool fees; actual charges may differ.':
+      'Один запрос с учётом множителя группы. Кэш входит во входные токены. Без записи в кэш, медиа и инструментов; итоговая сумма может отличаться.',
+    'Check token counts and group prices. Dynamic or special billing requires the pricing rules above.':
+      'Проверьте число токенов и тарифы группы. Для динамической или особой тарификации смотрите правила выше.',
   },
-  "vi": {
-    "Request cost estimate": "Ước tính phí mỗi yêu cầu",
-    "Cached input tokens": "Token đầu vào từ bộ nhớ đệm",
-    "Estimate unavailable": "Chưa thể ước tính",
-    "No available groups": "Không có nhóm khả dụng",
-    "One request, selected group multiplier included. Cached tokens are part of input. Excludes cache writes, media and tool fees; actual charges may differ.": "Một yêu cầu, đã tính hệ số nhóm. Token đệm là một phần đầu vào. Chưa gồm phí ghi bộ nhớ đệm, đa phương tiện và công cụ; phí thực tế có thể khác.",
-    "Check token counts and group prices. Dynamic or special billing requires the pricing rules above.": "Kiểm tra số token và giá nhóm. Với phí động hoặc đặc biệt, xem quy tắc ở trên."
-  }
+  vi: {
+    'Request cost estimate': 'Ước tính phí mỗi yêu cầu',
+    'Cached input tokens': 'Token đầu vào từ bộ nhớ đệm',
+    'Estimate unavailable': 'Chưa thể ước tính',
+    'No available groups': 'Không có nhóm khả dụng',
+    'One request, selected group multiplier included. Cached tokens are part of input. Excludes cache writes, media and tool fees; actual charges may differ.':
+      'Một yêu cầu, đã tính hệ số nhóm. Token đệm là một phần đầu vào. Chưa gồm phí ghi bộ nhớ đệm, đa phương tiện và công cụ; phí thực tế có thể khác.',
+    'Check token counts and group prices. Dynamic or special billing requires the pricing rules above.':
+      'Kiểm tra số token và giá nhóm. Với phí động hoặc đặc biệt, xem quy tắc ở trên.',
+  },
 }
 
 const parallelExperienceCopy = {
-  "en": {
-    "Use AI": "Use AI",
-    "Models and pricing": "Models and pricing",
-    "Developers": "Developers",
-    "Ecosystem": "Ecosystem",
-    "Other services": "Other services",
-    "Client setup and API usage": "Client setup and API usage",
-    "Getting started and AI tools": "Getting started and AI tools",
-    "Current escrow: {{amount}} in API account balance.": "Current escrow: {{amount}} in API account balance.",
-    "Delivery timeline": "Delivery timeline",
-    "Dispute opened": "Dispute opened",
-    "Evidence: Issue or PR; follow the acceptance rules.": "Evidence: Issue or PR; follow the acceptance rules.",
-    "If rejected, open a dispute within 7 days. A platform administrator reviews the evidence.": "If rejected, open a dispute within 7 days. A platform administrator reviews the evidence.",
-    "Next: complete the work and submit GitHub evidence.": "Next: complete the work and submit GitHub evidence.",
-    "Reserved slots": "Reserved slots",
-    "Reviewed by the publisher: {{name}}": "Reviewed by the publisher: {{name}}",
-    "Reward credited to API balance": "Reward credited to API balance",
-    "Rewards are credited to your API account balance.": "Rewards are credited to your API account balance.",
-    "Waiting for publisher review": "Waiting for publisher review",
-    "API account balance": "API account balance",
-    "Active deliveries": "Active deliveries"
+  en: {
+    'Use AI': 'Use AI',
+    'Models and pricing': 'Models and pricing',
+    Developers: 'Developers',
+    Ecosystem: 'Ecosystem',
+    'Other services': 'Other services',
+    'Client setup and API usage': 'Client setup and API usage',
+    'Getting started and AI tools': 'Getting started and AI tools',
+    'Current escrow: {{amount}} in API account balance.':
+      'Current escrow: {{amount}} in API account balance.',
+    'Delivery timeline': 'Delivery timeline',
+    'Dispute opened': 'Dispute opened',
+    'Evidence: Issue or PR; follow the acceptance rules.':
+      'Evidence: Issue or PR; follow the acceptance rules.',
+    'If rejected, open a dispute within 7 days. A platform administrator reviews the evidence.':
+      'If rejected, open a dispute within 7 days. A platform administrator reviews the evidence.',
+    'Next: complete the work and submit GitHub evidence.':
+      'Next: complete the work and submit GitHub evidence.',
+    'Reserved slots': 'Reserved slots',
+    'Reviewed by the publisher: {{name}}':
+      'Reviewed by the publisher: {{name}}',
+    'Reward credited to API balance': 'Reward credited to API balance',
+    'Rewards are credited to your API account balance.':
+      'Rewards are credited to your API account balance.',
+    'Waiting for publisher review': 'Waiting for publisher review',
+    'API account balance': 'API account balance',
+    'Active deliveries': 'Active deliveries',
   },
-  "zh": {
-    "Use AI": "使用 AI",
-    "Models and pricing": "模型与价格",
-    "Developers": "开发者",
-    "Ecosystem": "生态",
-    "Other services": "其他服务",
-    "Client setup and API usage": "客户端配置与 API 调用",
-    "Getting started and AI tools": "新手引导与 AI 工具",
-    "Current escrow: {{amount}} in API account balance.": "当前托管：{{amount}} API 账户余额。",
-    "Delivery timeline": "任务进度",
-    "Dispute opened": "已发起申诉",
-    "Evidence: Issue or PR; follow the acceptance rules.": "提交 Issue 或 PR 作为凭据，具体以验收规则为准。",
-    "If rejected, open a dispute within 7 days. A platform administrator reviews the evidence.": "被拒绝后可在 7 天内申诉，由平台管理员审核证据。",
-    "Next: complete the work and submit GitHub evidence.": "下一步：完成任务并提交 GitHub 凭据。",
-    "Reserved slots": "已占名额",
-    "Reviewed by the publisher: {{name}}": "审核发布者：{{name}}",
-    "Reward credited to API balance": "奖励已转入 API 余额",
-    "Rewards are credited to your API account balance.": "奖励发放到 API 账户余额。",
-    "Waiting for publisher review": "等待发布者审核",
-    "API account balance": "API 账户余额",
-    "Active deliveries": "进行中的任务"
+  zh: {
+    'Use AI': '使用 AI',
+    'Models and pricing': '模型与价格',
+    Developers: '开发者',
+    Ecosystem: '生态',
+    'Other services': '其他服务',
+    'Client setup and API usage': '客户端配置与 API 调用',
+    'Getting started and AI tools': '新手引导与 AI 工具',
+    'Current escrow: {{amount}} in API account balance.':
+      '当前托管：{{amount}} API 账户余额。',
+    'Delivery timeline': '任务进度',
+    'Dispute opened': '已发起申诉',
+    'Evidence: Issue or PR; follow the acceptance rules.':
+      '提交 Issue 或 PR 作为凭据，具体以验收规则为准。',
+    'If rejected, open a dispute within 7 days. A platform administrator reviews the evidence.':
+      '被拒绝后可在 7 天内申诉，由平台管理员审核证据。',
+    'Next: complete the work and submit GitHub evidence.':
+      '下一步：完成任务并提交 GitHub 凭据。',
+    'Reserved slots': '已占名额',
+    'Reviewed by the publisher: {{name}}': '审核发布者：{{name}}',
+    'Reward credited to API balance': '奖励已转入 API 余额',
+    'Rewards are credited to your API account balance.':
+      '奖励发放到 API 账户余额。',
+    'Waiting for publisher review': '等待发布者审核',
+    'API account balance': 'API 账户余额',
+    'Active deliveries': '进行中的任务',
   },
-  "zh-TW": {
-    "Use AI": "使用 AI",
-    "Models and pricing": "模型與價格",
-    "Developers": "開發者",
-    "Ecosystem": "生態",
-    "Other services": "其他服務",
-    "Client setup and API usage": "用戶端設定與 API 呼叫",
-    "Getting started and AI tools": "入門引導與 AI 工具",
-    "Current escrow: {{amount}} in API account balance.": "目前託管：{{amount}} API 帳戶餘額。",
-    "Delivery timeline": "任務進度",
-    "Dispute opened": "已提出申訴",
-    "Evidence: Issue or PR; follow the acceptance rules.": "提交 Issue 或 PR 作為憑據，具體以驗收規則為準。",
-    "If rejected, open a dispute within 7 days. A platform administrator reviews the evidence.": "被拒絕後可在 7 天內申訴，由平台管理員審核證據。",
-    "Next: complete the work and submit GitHub evidence.": "下一步：完成任務並提交 GitHub 憑據。",
-    "Reserved slots": "已佔名額",
-    "Reviewed by the publisher: {{name}}": "審核發布者：{{name}}",
-    "Reward credited to API balance": "獎勵已轉入 API 餘額",
-    "Rewards are credited to your API account balance.": "獎勵發放至 API 帳戶餘額。",
-    "Waiting for publisher review": "等待發布者審核",
-    "API account balance": "API 帳戶餘額",
-    "Active deliveries": "進行中的任務"
+  'zh-TW': {
+    'Use AI': '使用 AI',
+    'Models and pricing': '模型與價格',
+    Developers: '開發者',
+    Ecosystem: '生態',
+    'Other services': '其他服務',
+    'Client setup and API usage': '用戶端設定與 API 呼叫',
+    'Getting started and AI tools': '入門引導與 AI 工具',
+    'Current escrow: {{amount}} in API account balance.':
+      '目前託管：{{amount}} API 帳戶餘額。',
+    'Delivery timeline': '任務進度',
+    'Dispute opened': '已提出申訴',
+    'Evidence: Issue or PR; follow the acceptance rules.':
+      '提交 Issue 或 PR 作為憑據，具體以驗收規則為準。',
+    'If rejected, open a dispute within 7 days. A platform administrator reviews the evidence.':
+      '被拒絕後可在 7 天內申訴，由平台管理員審核證據。',
+    'Next: complete the work and submit GitHub evidence.':
+      '下一步：完成任務並提交 GitHub 憑據。',
+    'Reserved slots': '已佔名額',
+    'Reviewed by the publisher: {{name}}': '審核發布者：{{name}}',
+    'Reward credited to API balance': '獎勵已轉入 API 餘額',
+    'Rewards are credited to your API account balance.':
+      '獎勵發放至 API 帳戶餘額。',
+    'Waiting for publisher review': '等待發布者審核',
+    'API account balance': 'API 帳戶餘額',
+    'Active deliveries': '進行中的任務',
   },
-  "fr": {
-    "Use AI": "Utiliser l’IA",
-    "Models and pricing": "Modèles et tarifs",
-    "Developers": "Développeurs",
-    "Ecosystem": "Écosystème",
-    "Other services": "Autres services",
-    "Client setup and API usage": "Configuration des clients et utilisation de l’API",
-    "Getting started and AI tools": "Premiers pas et outils IA",
-    "Current escrow: {{amount}} in API account balance.": "Séquestre actuel : {{amount}} de solde API.",
-    "Delivery timeline": "Suivi de la tâche",
-    "Dispute opened": "Litige ouvert",
-    "Evidence: Issue or PR; follow the acceptance rules.": "Preuve : Issue ou PR, selon les critères d’acceptation.",
-    "If rejected, open a dispute within 7 days. A platform administrator reviews the evidence.": "En cas de refus, ouvrez un litige sous 7 jours. Un administrateur examinera les preuves.",
-    "Next: complete the work and submit GitHub evidence.": "Ensuite : terminez le travail et soumettez une preuve GitHub.",
-    "Reserved slots": "Places réservées",
-    "Reviewed by the publisher: {{name}}": "Évaluation par l’auteur : {{name}}",
-    "Reward credited to API balance": "Récompense créditée au solde API",
-    "Rewards are credited to your API account balance.": "Les récompenses sont créditées au solde de votre compte API.",
-    "Waiting for publisher review": "En attente de l’évaluation de l’auteur",
-    "API account balance": "Solde du compte API",
-    "Active deliveries": "Tâches en cours"
+  fr: {
+    'Use AI': 'Utiliser l’IA',
+    'Models and pricing': 'Modèles et tarifs',
+    Developers: 'Développeurs',
+    Ecosystem: 'Écosystème',
+    'Other services': 'Autres services',
+    'Client setup and API usage':
+      'Configuration des clients et utilisation de l’API',
+    'Getting started and AI tools': 'Premiers pas et outils IA',
+    'Current escrow: {{amount}} in API account balance.':
+      'Séquestre actuel : {{amount}} de solde API.',
+    'Delivery timeline': 'Suivi de la tâche',
+    'Dispute opened': 'Litige ouvert',
+    'Evidence: Issue or PR; follow the acceptance rules.':
+      'Preuve : Issue ou PR, selon les critères d’acceptation.',
+    'If rejected, open a dispute within 7 days. A platform administrator reviews the evidence.':
+      'En cas de refus, ouvrez un litige sous 7 jours. Un administrateur examinera les preuves.',
+    'Next: complete the work and submit GitHub evidence.':
+      'Ensuite : terminez le travail et soumettez une preuve GitHub.',
+    'Reserved slots': 'Places réservées',
+    'Reviewed by the publisher: {{name}}': 'Évaluation par l’auteur : {{name}}',
+    'Reward credited to API balance': 'Récompense créditée au solde API',
+    'Rewards are credited to your API account balance.':
+      'Les récompenses sont créditées au solde de votre compte API.',
+    'Waiting for publisher review': 'En attente de l’évaluation de l’auteur',
+    'API account balance': 'Solde du compte API',
+    'Active deliveries': 'Tâches en cours',
   },
-  "ja": {
-    "Use AI": "AI を使う",
-    "Models and pricing": "モデルと料金",
-    "Developers": "開発者向け",
-    "Ecosystem": "エコシステム",
-    "Other services": "その他のサービス",
-    "Client setup and API usage": "クライアント設定と API 利用",
-    "Getting started and AI tools": "はじめ方と AI ツール",
-    "Current escrow: {{amount}} in API account balance.": "現在の預託額：API アカウント残高 {{amount}}。",
-    "Delivery timeline": "タスクの進捗",
-    "Dispute opened": "異議申し立て済み",
-    "Evidence: Issue or PR; follow the acceptance rules.": "証拠として Issue または PR を提出してください。詳細は受け入れ条件に従います。",
-    "If rejected, open a dispute within 7 days. A platform administrator reviews the evidence.": "却下された場合は7日以内に異議を申し立てられます。プラットフォーム管理者が証拠を確認します。",
-    "Next: complete the work and submit GitHub evidence.": "次の手順：作業を完了し、GitHub の証拠を提出します。",
-    "Reserved slots": "予約済み枠",
-    "Reviewed by the publisher: {{name}}": "審査担当の公開者：{{name}}",
-    "Reward credited to API balance": "報酬を API 残高に反映済み",
-    "Rewards are credited to your API account balance.": "報酬は API アカウント残高に加算されます。",
-    "Waiting for publisher review": "公開者の審査待ち",
-    "API account balance": "API アカウント残高",
-    "Active deliveries": "進行中のタスク"
+  ja: {
+    'Use AI': 'AI を使う',
+    'Models and pricing': 'モデルと料金',
+    Developers: '開発者向け',
+    Ecosystem: 'エコシステム',
+    'Other services': 'その他のサービス',
+    'Client setup and API usage': 'クライアント設定と API 利用',
+    'Getting started and AI tools': 'はじめ方と AI ツール',
+    'Current escrow: {{amount}} in API account balance.':
+      '現在の預託額：API アカウント残高 {{amount}}。',
+    'Delivery timeline': 'タスクの進捗',
+    'Dispute opened': '異議申し立て済み',
+    'Evidence: Issue or PR; follow the acceptance rules.':
+      '証拠として Issue または PR を提出してください。詳細は受け入れ条件に従います。',
+    'If rejected, open a dispute within 7 days. A platform administrator reviews the evidence.':
+      '却下された場合は7日以内に異議を申し立てられます。プラットフォーム管理者が証拠を確認します。',
+    'Next: complete the work and submit GitHub evidence.':
+      '次の手順：作業を完了し、GitHub の証拠を提出します。',
+    'Reserved slots': '予約済み枠',
+    'Reviewed by the publisher: {{name}}': '審査担当の公開者：{{name}}',
+    'Reward credited to API balance': '報酬を API 残高に反映済み',
+    'Rewards are credited to your API account balance.':
+      '報酬は API アカウント残高に加算されます。',
+    'Waiting for publisher review': '公開者の審査待ち',
+    'API account balance': 'API アカウント残高',
+    'Active deliveries': '進行中のタスク',
   },
-  "ru": {
-    "Use AI": "Использование ИИ",
-    "Models and pricing": "Модели и цены",
-    "Developers": "Разработчикам",
-    "Ecosystem": "Экосистема",
-    "Other services": "Другие сервисы",
-    "Client setup and API usage": "Настройка клиентов и использование API",
-    "Getting started and AI tools": "Начало работы и инструменты ИИ",
-    "Current escrow: {{amount}} in API account balance.": "В эскроу: {{amount}} баланса API.",
-    "Delivery timeline": "Ход выполнения",
-    "Dispute opened": "Спор открыт",
-    "Evidence: Issue or PR; follow the acceptance rules.": "Подтверждение: Issue или PR согласно условиям приёмки.",
-    "If rejected, open a dispute within 7 days. A platform administrator reviews the evidence.": "При отказе откройте спор в течение 7 дней. Администратор платформы проверит доказательства.",
-    "Next: complete the work and submit GitHub evidence.": "Далее: завершите работу и предоставьте подтверждение на GitHub.",
-    "Reserved slots": "Занятые места",
-    "Reviewed by the publisher: {{name}}": "Проверяет автор задания: {{name}}",
-    "Reward credited to API balance": "Награда зачислена на баланс API",
-    "Rewards are credited to your API account balance.": "Награды зачисляются на баланс вашего аккаунта API.",
-    "Waiting for publisher review": "Ожидает проверки автором",
-    "API account balance": "Баланс аккаунта API",
-    "Active deliveries": "Активные задания"
+  ru: {
+    'Use AI': 'Использование ИИ',
+    'Models and pricing': 'Модели и цены',
+    Developers: 'Разработчикам',
+    Ecosystem: 'Экосистема',
+    'Other services': 'Другие сервисы',
+    'Client setup and API usage': 'Настройка клиентов и использование API',
+    'Getting started and AI tools': 'Начало работы и инструменты ИИ',
+    'Current escrow: {{amount}} in API account balance.':
+      'В эскроу: {{amount}} баланса API.',
+    'Delivery timeline': 'Ход выполнения',
+    'Dispute opened': 'Спор открыт',
+    'Evidence: Issue or PR; follow the acceptance rules.':
+      'Подтверждение: Issue или PR согласно условиям приёмки.',
+    'If rejected, open a dispute within 7 days. A platform administrator reviews the evidence.':
+      'При отказе откройте спор в течение 7 дней. Администратор платформы проверит доказательства.',
+    'Next: complete the work and submit GitHub evidence.':
+      'Далее: завершите работу и предоставьте подтверждение на GitHub.',
+    'Reserved slots': 'Занятые места',
+    'Reviewed by the publisher: {{name}}': 'Проверяет автор задания: {{name}}',
+    'Reward credited to API balance': 'Награда зачислена на баланс API',
+    'Rewards are credited to your API account balance.':
+      'Награды зачисляются на баланс вашего аккаунта API.',
+    'Waiting for publisher review': 'Ожидает проверки автором',
+    'API account balance': 'Баланс аккаунта API',
+    'Active deliveries': 'Активные задания',
   },
-  "vi": {
-    "Use AI": "Sử dụng AI",
-    "Models and pricing": "Mô hình và giá",
-    "Developers": "Nhà phát triển",
-    "Ecosystem": "Hệ sinh thái",
-    "Other services": "Dịch vụ khác",
-    "Client setup and API usage": "Cấu hình ứng dụng và sử dụng API",
-    "Getting started and AI tools": "Bắt đầu và công cụ AI",
-    "Current escrow: {{amount}} in API account balance.": "Đang ký quỹ: {{amount}} số dư tài khoản API.",
-    "Delivery timeline": "Tiến độ nhiệm vụ",
-    "Dispute opened": "Đã mở khiếu nại",
-    "Evidence: Issue or PR; follow the acceptance rules.": "Bằng chứng: Issue hoặc PR theo tiêu chí nghiệm thu.",
-    "If rejected, open a dispute within 7 days. A platform administrator reviews the evidence.": "Nếu bị từ chối, hãy khiếu nại trong 7 ngày. Quản trị viên nền tảng sẽ xem xét bằng chứng.",
-    "Next: complete the work and submit GitHub evidence.": "Tiếp theo: hoàn thành công việc và gửi bằng chứng GitHub.",
-    "Reserved slots": "Suất đã giữ",
-    "Reviewed by the publisher: {{name}}": "Người đăng xét duyệt: {{name}}",
-    "Reward credited to API balance": "Đã cộng thưởng vào số dư API",
-    "Rewards are credited to your API account balance.": "Phần thưởng được cộng vào số dư tài khoản API.",
-    "Waiting for publisher review": "Chờ người đăng xét duyệt",
-    "API account balance": "Số dư tài khoản API",
-    "Active deliveries": "Nhiệm vụ đang thực hiện"
-  }
+  vi: {
+    'Use AI': 'Sử dụng AI',
+    'Models and pricing': 'Mô hình và giá',
+    Developers: 'Nhà phát triển',
+    Ecosystem: 'Hệ sinh thái',
+    'Other services': 'Dịch vụ khác',
+    'Client setup and API usage': 'Cấu hình ứng dụng và sử dụng API',
+    'Getting started and AI tools': 'Bắt đầu và công cụ AI',
+    'Current escrow: {{amount}} in API account balance.':
+      'Đang ký quỹ: {{amount}} số dư tài khoản API.',
+    'Delivery timeline': 'Tiến độ nhiệm vụ',
+    'Dispute opened': 'Đã mở khiếu nại',
+    'Evidence: Issue or PR; follow the acceptance rules.':
+      'Bằng chứng: Issue hoặc PR theo tiêu chí nghiệm thu.',
+    'If rejected, open a dispute within 7 days. A platform administrator reviews the evidence.':
+      'Nếu bị từ chối, hãy khiếu nại trong 7 ngày. Quản trị viên nền tảng sẽ xem xét bằng chứng.',
+    'Next: complete the work and submit GitHub evidence.':
+      'Tiếp theo: hoàn thành công việc và gửi bằng chứng GitHub.',
+    'Reserved slots': 'Suất đã giữ',
+    'Reviewed by the publisher: {{name}}': 'Người đăng xét duyệt: {{name}}',
+    'Reward credited to API balance': 'Đã cộng thưởng vào số dư API',
+    'Rewards are credited to your API account balance.':
+      'Phần thưởng được cộng vào số dư tài khoản API.',
+    'Waiting for publisher review': 'Chờ người đăng xét duyệt',
+    'API account balance': 'Số dư tài khoản API',
+    'Active deliveries': 'Nhiệm vụ đang thực hiện',
+  },
 }
 
 const modelStatusCopy = {
-  "zh": {
-    "Loading status": "正在加载状态",
-    "Model status could not be loaded": "无法加载模型状态",
-    "Recent calls succeeded": "近期调用成功",
-    "Recent calls include failures": "近期调用中有失败",
-    "No recent model status": "暂无近期模型状态",
-    "Sign in to check model access": "登录后查看模型权限",
-    "API access is required": "需要 API 访问权限",
-    "Your account has an eligible model group": "当前账号有可用的模型分组",
-    "No eligible model group for this account": "当前账号没有符合条件的模型分组",
-    "Model availability": "模型可用情况",
-    "Latest observed request interval": "最近观测到的请求时段",
-    "Recent means within one hour. Historical calls across groups do not guarantee your next request; key restrictions and balance still apply.": "近期指一小时内。各分组的历史调用不保证下一次请求成功；仍受 Key 限制和余额影响。",
-    "Model catalog access is required": "需要模型目录访问权限",
-    "Model catalog could not be loaded": "无法加载模型目录",
-    "Model is not in this catalog": "当前目录中没有此模型",
-    "This model may be unavailable to your account or absent from the catalog. Check your model ID and account access.": "此模型可能不在当前账号权限范围内，或未列入目录。请检查模型 ID 和账号权限。",
-    "Check the model ID or sign in to see your account model catalog.": "请检查模型 ID，或登录查看当前账号的模型目录。",
-    "This saved reply is no longer available. Send a new message to continue.": "已保存的回复已不可用。请发送新消息继续。"
+  zh: {
+    'Loading status': '正在加载状态',
+    'Model status could not be loaded': '无法加载模型状态',
+    'Recent calls succeeded': '近期调用成功',
+    'Recent calls include failures': '近期调用中有失败',
+    'No recent model status': '暂无近期模型状态',
+    'Sign in to check model access': '登录后查看模型权限',
+    'API access is required': '需要 API 访问权限',
+    'Your account has an eligible model group': '当前账号有可用的模型分组',
+    'No eligible model group for this account':
+      '当前账号没有符合条件的模型分组',
+    'Model availability': '模型可用情况',
+    'Latest observed request interval': '最近观测到的请求时段',
+    'Recent means within one hour. Historical calls across groups do not guarantee your next request; key restrictions and balance still apply.':
+      '近期指一小时内。各分组的历史调用不保证下一次请求成功；仍受 Key 限制和余额影响。',
+    'Model catalog access is required': '需要模型目录访问权限',
+    'Model catalog could not be loaded': '无法加载模型目录',
+    'Model is not in this catalog': '当前目录中没有此模型',
+    'This model may be unavailable to your account or absent from the catalog. Check your model ID and account access.':
+      '此模型可能不在当前账号权限范围内，或未列入目录。请检查模型 ID 和账号权限。',
+    'Check the model ID or sign in to see your account model catalog.':
+      '请检查模型 ID，或登录查看当前账号的模型目录。',
+    'This saved reply is no longer available. Send a new message to continue.':
+      '已保存的回复已不可用。请发送新消息继续。',
   },
-  "zh-TW": {
-    "Loading status": "正在載入狀態",
-    "Model status could not be loaded": "無法載入模型狀態",
-    "Recent calls succeeded": "近期呼叫成功",
-    "Recent calls include failures": "近期呼叫中有失敗",
-    "No recent model status": "暫無近期模型狀態",
-    "Sign in to check model access": "登入後查看模型權限",
-    "API access is required": "需要 API 存取權限",
-    "Your account has an eligible model group": "目前帳號有可用的模型群組",
-    "No eligible model group for this account": "目前帳號沒有符合條件的模型群組",
-    "Model availability": "模型可用情況",
-    "Latest observed request interval": "最近觀測到的請求時段",
-    "Recent means within one hour. Historical calls across groups do not guarantee your next request; key restrictions and balance still apply.": "近期指一小時內。各群組的歷史呼叫不保證下一次請求成功；仍受 Key 限制和餘額影響。",
-    "Model catalog access is required": "需要模型目錄存取權限",
-    "Model catalog could not be loaded": "無法載入模型目錄",
-    "Model is not in this catalog": "目前目錄中沒有此模型",
-    "This model may be unavailable to your account or absent from the catalog. Check your model ID and account access.": "此模型可能不在目前帳號權限範圍內，或未列入目錄。請檢查模型 ID 和帳號權限。",
-    "Check the model ID or sign in to see your account model catalog.": "請檢查模型 ID，或登入查看目前帳號的模型目錄。",
-    "This saved reply is no longer available. Send a new message to continue.": "已儲存的回覆已無法使用。請傳送新訊息繼續。"
+  'zh-TW': {
+    'Loading status': '正在載入狀態',
+    'Model status could not be loaded': '無法載入模型狀態',
+    'Recent calls succeeded': '近期呼叫成功',
+    'Recent calls include failures': '近期呼叫中有失敗',
+    'No recent model status': '暫無近期模型狀態',
+    'Sign in to check model access': '登入後查看模型權限',
+    'API access is required': '需要 API 存取權限',
+    'Your account has an eligible model group': '目前帳號有可用的模型群組',
+    'No eligible model group for this account':
+      '目前帳號沒有符合條件的模型群組',
+    'Model availability': '模型可用情況',
+    'Latest observed request interval': '最近觀測到的請求時段',
+    'Recent means within one hour. Historical calls across groups do not guarantee your next request; key restrictions and balance still apply.':
+      '近期指一小時內。各群組的歷史呼叫不保證下一次請求成功；仍受 Key 限制和餘額影響。',
+    'Model catalog access is required': '需要模型目錄存取權限',
+    'Model catalog could not be loaded': '無法載入模型目錄',
+    'Model is not in this catalog': '目前目錄中沒有此模型',
+    'This model may be unavailable to your account or absent from the catalog. Check your model ID and account access.':
+      '此模型可能不在目前帳號權限範圍內，或未列入目錄。請檢查模型 ID 和帳號權限。',
+    'Check the model ID or sign in to see your account model catalog.':
+      '請檢查模型 ID，或登入查看目前帳號的模型目錄。',
+    'This saved reply is no longer available. Send a new message to continue.':
+      '已儲存的回覆已無法使用。請傳送新訊息繼續。',
   },
-  "fr": {
-    "Loading status": "Chargement de l’état",
-    "Model status could not be loaded": "Impossible de charger l’état du modèle",
-    "Recent calls succeeded": "Appels récents réussis",
-    "Recent calls include failures": "Des appels récents ont échoué",
-    "No recent model status": "Aucun état récent du modèle",
-    "Sign in to check model access": "Connectez-vous pour vérifier l’accès au modèle",
-    "API access is required": "Accès API requis",
-    "Your account has an eligible model group": "Votre compte dispose d’un groupe admissible",
-    "No eligible model group for this account": "Aucun groupe admissible pour ce compte",
-    "Model availability": "Disponibilité du modèle",
-    "Latest observed request interval": "Dernier intervalle de requêtes observé",
-    "Recent means within one hour. Historical calls across groups do not guarantee your next request; key restrictions and balance still apply.": "Récent signifie moins d’une heure. Les appels passés des groupes ne garantissent pas votre prochaine requête ; les restrictions de clé et le solde restent applicables.",
-    "Model catalog access is required": "Accès au catalogue de modèles requis",
-    "Model catalog could not be loaded": "Impossible de charger le catalogue",
-    "Model is not in this catalog": "Modèle absent de ce catalogue",
-    "This model may be unavailable to your account or absent from the catalog. Check your model ID and account access.": "Ce modèle peut être inaccessible à votre compte ou absent du catalogue. Vérifiez son identifiant et vos droits d’accès.",
-    "Check the model ID or sign in to see your account model catalog.": "Vérifiez l’identifiant du modèle ou connectez-vous pour consulter votre catalogue.",
-    "This saved reply is no longer available. Send a new message to continue.": "Cette réponse enregistrée n’est plus disponible. Envoyez un nouveau message pour continuer."
+  fr: {
+    'Loading status': 'Chargement de l’état',
+    'Model status could not be loaded':
+      'Impossible de charger l’état du modèle',
+    'Recent calls succeeded': 'Appels récents réussis',
+    'Recent calls include failures': 'Des appels récents ont échoué',
+    'No recent model status': 'Aucun état récent du modèle',
+    'Sign in to check model access':
+      'Connectez-vous pour vérifier l’accès au modèle',
+    'API access is required': 'Accès API requis',
+    'Your account has an eligible model group':
+      'Votre compte dispose d’un groupe admissible',
+    'No eligible model group for this account':
+      'Aucun groupe admissible pour ce compte',
+    'Model availability': 'Disponibilité du modèle',
+    'Latest observed request interval':
+      'Dernier intervalle de requêtes observé',
+    'Recent means within one hour. Historical calls across groups do not guarantee your next request; key restrictions and balance still apply.':
+      'Récent signifie moins d’une heure. Les appels passés des groupes ne garantissent pas votre prochaine requête ; les restrictions de clé et le solde restent applicables.',
+    'Model catalog access is required': 'Accès au catalogue de modèles requis',
+    'Model catalog could not be loaded': 'Impossible de charger le catalogue',
+    'Model is not in this catalog': 'Modèle absent de ce catalogue',
+    'This model may be unavailable to your account or absent from the catalog. Check your model ID and account access.':
+      'Ce modèle peut être inaccessible à votre compte ou absent du catalogue. Vérifiez son identifiant et vos droits d’accès.',
+    'Check the model ID or sign in to see your account model catalog.':
+      'Vérifiez l’identifiant du modèle ou connectez-vous pour consulter votre catalogue.',
+    'This saved reply is no longer available. Send a new message to continue.':
+      'Cette réponse enregistrée n’est plus disponible. Envoyez un nouveau message pour continuer.',
   },
-  "ja": {
-    "Loading status": "状態を読み込み中",
-    "Model status could not be loaded": "モデルの状態を読み込めません",
-    "Recent calls succeeded": "最近の呼び出しは成功しました",
-    "Recent calls include failures": "最近の呼び出しに失敗があります",
-    "No recent model status": "最近のモデル状態はありません",
-    "Sign in to check model access": "ログインしてモデル権限を確認",
-    "API access is required": "API 利用権限が必要です",
-    "Your account has an eligible model group": "このアカウントには対象モデルのグループがあります",
-    "No eligible model group for this account": "このアカウントには対象グループがありません",
-    "Model availability": "モデルの利用状況",
-    "Latest observed request interval": "最後に観測したリクエスト時間帯",
-    "Recent means within one hour. Historical calls across groups do not guarantee your next request; key restrictions and balance still apply.": "最近とは1時間以内です。各グループの過去の呼び出しは次のリクエストの成功を保証しません。キーの制限と残高も適用されます。",
-    "Model catalog access is required": "モデルカタログの閲覧権限が必要です",
-    "Model catalog could not be loaded": "モデルカタログを読み込めません",
-    "Model is not in this catalog": "このカタログにモデルはありません",
-    "This model may be unavailable to your account or absent from the catalog. Check your model ID and account access.": "このモデルはアカウントの権限外か、カタログに未掲載の可能性があります。モデル ID と権限を確認してください。",
-    "Check the model ID or sign in to see your account model catalog.": "モデル ID を確認するか、ログインしてアカウントのモデルカタログをご覧ください。",
-    "This saved reply is no longer available. Send a new message to continue.": "保存された返信は利用できなくなりました。新しいメッセージを送信してください。"
+  ja: {
+    'Loading status': '状態を読み込み中',
+    'Model status could not be loaded': 'モデルの状態を読み込めません',
+    'Recent calls succeeded': '最近の呼び出しは成功しました',
+    'Recent calls include failures': '最近の呼び出しに失敗があります',
+    'No recent model status': '最近のモデル状態はありません',
+    'Sign in to check model access': 'ログインしてモデル権限を確認',
+    'API access is required': 'API 利用権限が必要です',
+    'Your account has an eligible model group':
+      'このアカウントには対象モデルのグループがあります',
+    'No eligible model group for this account':
+      'このアカウントには対象グループがありません',
+    'Model availability': 'モデルの利用状況',
+    'Latest observed request interval': '最後に観測したリクエスト時間帯',
+    'Recent means within one hour. Historical calls across groups do not guarantee your next request; key restrictions and balance still apply.':
+      '最近とは1時間以内です。各グループの過去の呼び出しは次のリクエストの成功を保証しません。キーの制限と残高も適用されます。',
+    'Model catalog access is required': 'モデルカタログの閲覧権限が必要です',
+    'Model catalog could not be loaded': 'モデルカタログを読み込めません',
+    'Model is not in this catalog': 'このカタログにモデルはありません',
+    'This model may be unavailable to your account or absent from the catalog. Check your model ID and account access.':
+      'このモデルはアカウントの権限外か、カタログに未掲載の可能性があります。モデル ID と権限を確認してください。',
+    'Check the model ID or sign in to see your account model catalog.':
+      'モデル ID を確認するか、ログインしてアカウントのモデルカタログをご覧ください。',
+    'This saved reply is no longer available. Send a new message to continue.':
+      '保存された返信は利用できなくなりました。新しいメッセージを送信してください。',
   },
-  "ru": {
-    "Loading status": "Загрузка статуса",
-    "Model status could not be loaded": "Не удалось загрузить статус модели",
-    "Recent calls succeeded": "Недавние вызовы успешны",
-    "Recent calls include failures": "Среди недавних вызовов есть ошибки",
-    "No recent model status": "Нет свежих данных о модели",
-    "Sign in to check model access": "Войдите для проверки доступа к модели",
-    "API access is required": "Требуется доступ к API",
-    "Your account has an eligible model group": "У аккаунта есть подходящая группа моделей",
-    "No eligible model group for this account": "У аккаунта нет подходящей группы моделей",
-    "Model availability": "Доступность модели",
-    "Latest observed request interval": "Последний наблюдаемый интервал запросов",
-    "Recent means within one hour. Historical calls across groups do not guarantee your next request; key restrictions and balance still apply.": "Недавние данные — за последний час. История вызовов по группам не гарантирует успех следующего запроса; ограничения ключа и баланс по-прежнему учитываются.",
-    "Model catalog access is required": "Требуется доступ к каталогу моделей",
-    "Model catalog could not be loaded": "Не удалось загрузить каталог моделей",
-    "Model is not in this catalog": "Модели нет в этом каталоге",
-    "This model may be unavailable to your account or absent from the catalog. Check your model ID and account access.": "Модель может быть недоступна вашему аккаунту или отсутствовать в каталоге. Проверьте ID модели и права доступа.",
-    "Check the model ID or sign in to see your account model catalog.": "Проверьте ID модели или войдите, чтобы увидеть каталог своего аккаунта.",
-    "This saved reply is no longer available. Send a new message to continue.": "Сохранённый ответ больше недоступен. Отправьте новое сообщение, чтобы продолжить."
+  ru: {
+    'Loading status': 'Загрузка статуса',
+    'Model status could not be loaded': 'Не удалось загрузить статус модели',
+    'Recent calls succeeded': 'Недавние вызовы успешны',
+    'Recent calls include failures': 'Среди недавних вызовов есть ошибки',
+    'No recent model status': 'Нет свежих данных о модели',
+    'Sign in to check model access': 'Войдите для проверки доступа к модели',
+    'API access is required': 'Требуется доступ к API',
+    'Your account has an eligible model group':
+      'У аккаунта есть подходящая группа моделей',
+    'No eligible model group for this account':
+      'У аккаунта нет подходящей группы моделей',
+    'Model availability': 'Доступность модели',
+    'Latest observed request interval':
+      'Последний наблюдаемый интервал запросов',
+    'Recent means within one hour. Historical calls across groups do not guarantee your next request; key restrictions and balance still apply.':
+      'Недавние данные — за последний час. История вызовов по группам не гарантирует успех следующего запроса; ограничения ключа и баланс по-прежнему учитываются.',
+    'Model catalog access is required': 'Требуется доступ к каталогу моделей',
+    'Model catalog could not be loaded': 'Не удалось загрузить каталог моделей',
+    'Model is not in this catalog': 'Модели нет в этом каталоге',
+    'This model may be unavailable to your account or absent from the catalog. Check your model ID and account access.':
+      'Модель может быть недоступна вашему аккаунту или отсутствовать в каталоге. Проверьте ID модели и права доступа.',
+    'Check the model ID or sign in to see your account model catalog.':
+      'Проверьте ID модели или войдите, чтобы увидеть каталог своего аккаунта.',
+    'This saved reply is no longer available. Send a new message to continue.':
+      'Сохранённый ответ больше недоступен. Отправьте новое сообщение, чтобы продолжить.',
   },
-  "vi": {
-    "Loading status": "Đang tải trạng thái",
-    "Model status could not be loaded": "Không thể tải trạng thái mô hình",
-    "Recent calls succeeded": "Các lệnh gọi gần đây thành công",
-    "Recent calls include failures": "Có lệnh gọi gần đây thất bại",
-    "No recent model status": "Chưa có trạng thái mô hình gần đây",
-    "Sign in to check model access": "Đăng nhập để kiểm tra quyền truy cập mô hình",
-    "API access is required": "Cần quyền truy cập API",
-    "Your account has an eligible model group": "Tài khoản có nhóm mô hình đủ điều kiện",
-    "No eligible model group for this account": "Tài khoản chưa có nhóm mô hình đủ điều kiện",
-    "Model availability": "Khả năng sử dụng mô hình",
-    "Latest observed request interval": "Khoảng thời gian yêu cầu được ghi nhận gần nhất",
-    "Recent means within one hour. Historical calls across groups do not guarantee your next request; key restrictions and balance still apply.": "Gần đây là trong một giờ. Lịch sử gọi của các nhóm không bảo đảm yêu cầu tiếp theo thành công; giới hạn khóa và số dư vẫn áp dụng.",
-    "Model catalog access is required": "Cần quyền xem danh mục mô hình",
-    "Model catalog could not be loaded": "Không thể tải danh mục mô hình",
-    "Model is not in this catalog": "Mô hình không có trong danh mục này",
-    "This model may be unavailable to your account or absent from the catalog. Check your model ID and account access.": "Mô hình có thể ngoài quyền truy cập của tài khoản hoặc không có trong danh mục. Hãy kiểm tra ID mô hình và quyền truy cập.",
-    "Check the model ID or sign in to see your account model catalog.": "Kiểm tra ID mô hình hoặc đăng nhập để xem danh mục mô hình của tài khoản.",
-    "This saved reply is no longer available. Send a new message to continue.": "Câu trả lời đã lưu không còn khả dụng. Hãy gửi tin nhắn mới để tiếp tục."
+  vi: {
+    'Loading status': 'Đang tải trạng thái',
+    'Model status could not be loaded': 'Không thể tải trạng thái mô hình',
+    'Recent calls succeeded': 'Các lệnh gọi gần đây thành công',
+    'Recent calls include failures': 'Có lệnh gọi gần đây thất bại',
+    'No recent model status': 'Chưa có trạng thái mô hình gần đây',
+    'Sign in to check model access':
+      'Đăng nhập để kiểm tra quyền truy cập mô hình',
+    'API access is required': 'Cần quyền truy cập API',
+    'Your account has an eligible model group':
+      'Tài khoản có nhóm mô hình đủ điều kiện',
+    'No eligible model group for this account':
+      'Tài khoản chưa có nhóm mô hình đủ điều kiện',
+    'Model availability': 'Khả năng sử dụng mô hình',
+    'Latest observed request interval':
+      'Khoảng thời gian yêu cầu được ghi nhận gần nhất',
+    'Recent means within one hour. Historical calls across groups do not guarantee your next request; key restrictions and balance still apply.':
+      'Gần đây là trong một giờ. Lịch sử gọi của các nhóm không bảo đảm yêu cầu tiếp theo thành công; giới hạn khóa và số dư vẫn áp dụng.',
+    'Model catalog access is required': 'Cần quyền xem danh mục mô hình',
+    'Model catalog could not be loaded': 'Không thể tải danh mục mô hình',
+    'Model is not in this catalog': 'Mô hình không có trong danh mục này',
+    'This model may be unavailable to your account or absent from the catalog. Check your model ID and account access.':
+      'Mô hình có thể ngoài quyền truy cập của tài khoản hoặc không có trong danh mục. Hãy kiểm tra ID mô hình và quyền truy cập.',
+    'Check the model ID or sign in to see your account model catalog.':
+      'Kiểm tra ID mô hình hoặc đăng nhập để xem danh mục mô hình của tài khoản.',
+    'This saved reply is no longer available. Send a new message to continue.':
+      'Câu trả lời đã lưu không còn khả dụng. Hãy gửi tin nhắn mới để tiếp tục.',
   },
-  "en": {
-    "Loading status": "Loading status",
-    "Model status could not be loaded": "Model status could not be loaded",
-    "Recent calls succeeded": "Recent calls succeeded",
-    "Recent calls include failures": "Recent calls include failures",
-    "No recent model status": "No recent model status",
-    "Sign in to check model access": "Sign in to check model access",
-    "API access is required": "API access is required",
-    "Your account has an eligible model group": "Your account has an eligible model group",
-    "No eligible model group for this account": "No eligible model group for this account",
-    "Model availability": "Model availability",
-    "Latest observed request interval": "Latest observed request interval",
-    "Recent means within one hour. Historical calls across groups do not guarantee your next request; key restrictions and balance still apply.": "Recent means within one hour. Historical calls across groups do not guarantee your next request; key restrictions and balance still apply.",
-    "Model catalog access is required": "Model catalog access is required",
-    "Model catalog could not be loaded": "Model catalog could not be loaded",
-    "Model is not in this catalog": "Model is not in this catalog",
-    "This model may be unavailable to your account or absent from the catalog. Check your model ID and account access.": "This model may be unavailable to your account or absent from the catalog. Check your model ID and account access.",
-    "Check the model ID or sign in to see your account model catalog.": "Check the model ID or sign in to see your account model catalog.",
-    "This saved reply is no longer available. Send a new message to continue.": "This saved reply is no longer available. Send a new message to continue."
-  }
+  en: {
+    'Loading status': 'Loading status',
+    'Model status could not be loaded': 'Model status could not be loaded',
+    'Recent calls succeeded': 'Recent calls succeeded',
+    'Recent calls include failures': 'Recent calls include failures',
+    'No recent model status': 'No recent model status',
+    'Sign in to check model access': 'Sign in to check model access',
+    'API access is required': 'API access is required',
+    'Your account has an eligible model group':
+      'Your account has an eligible model group',
+    'No eligible model group for this account':
+      'No eligible model group for this account',
+    'Model availability': 'Model availability',
+    'Latest observed request interval': 'Latest observed request interval',
+    'Recent means within one hour. Historical calls across groups do not guarantee your next request; key restrictions and balance still apply.':
+      'Recent means within one hour. Historical calls across groups do not guarantee your next request; key restrictions and balance still apply.',
+    'Model catalog access is required': 'Model catalog access is required',
+    'Model catalog could not be loaded': 'Model catalog could not be loaded',
+    'Model is not in this catalog': 'Model is not in this catalog',
+    'This model may be unavailable to your account or absent from the catalog. Check your model ID and account access.':
+      'This model may be unavailable to your account or absent from the catalog. Check your model ID and account access.',
+    'Check the model ID or sign in to see your account model catalog.':
+      'Check the model ID or sign in to see your account model catalog.',
+    'This saved reply is no longer available. Send a new message to continue.':
+      'This saved reply is no longer available. Send a new message to continue.',
+  },
 }
 
 const logRecoveryCopy = {
-  "en": {
-    "A request limit was reached. This record does not identify whether the limit belongs to your account or the upstream provider.": "A request limit was reached. This record does not identify whether the limit belongs to your account or the upstream provider.",
-    "Account balance or plan quota is insufficient. Check your billing source.": "Account balance or plan quota is insufficient. Check your billing source.",
-    "Authentication or access was rejected. Check the API key and model permissions.": "Authentication or access was rejected. Check the API key and model permissions.",
-    "Cache read tokens": "Cache read tokens",
-    "Cache write tokens": "Cache write tokens",
-    "Charge recorded in this entry": "Charge recorded in this entry",
-    "Check API key": "Check API key",
-    "Check balance and plan": "Check balance and plan",
-    "Check client configuration": "Check client configuration",
-    "Copy Request ID": "Copy Request ID",
-    "Copy safe error details": "Copy safe error details",
-    "Diagnose request limit": "Diagnose request limit",
-    "Help me diagnose this API request.": "Help me diagnose this API request.",
-    "Not recorded": "Not recorded",
-    "Plan quota used in this entry": "Plan quota used in this entry",
-    "Refund recorded in this entry": "Refund recorded in this entry",
-    "Request and billing summary": "Request and billing summary",
-    "Review the request details with the assistant before retrying.": "Review the request details with the assistant before retrying.",
-    "The API key quota could not be reserved. Check the key limit and availability.": "The API key quota could not be reserved. Check the key limit and availability.",
-    "The endpoint or model was not found. Check the client configuration and model access.": "The endpoint or model was not found. Check the client configuration and model access.",
-    "This entry does not reconcile other charges or refunds for the same request. Final net charge is not available here.": "This entry does not reconcile other charges or refunds for the same request. Final net charge is not available here.",
-    "Only diagnostic metadata is copied; raw error bodies are omitted.": "Only diagnostic metadata is copied; raw error bodies are omitted."
+  en: {
+    'A request limit was reached. This record does not identify whether the limit belongs to your account or the upstream provider.':
+      'A request limit was reached. This record does not identify whether the limit belongs to your account or the upstream provider.',
+    'Account balance or plan quota is insufficient. Check your billing source.':
+      'Account balance or plan quota is insufficient. Check your billing source.',
+    'Authentication or access was rejected. Check the API key and model permissions.':
+      'Authentication or access was rejected. Check the API key and model permissions.',
+    'Cache read tokens': 'Cache read tokens',
+    'Cache write tokens': 'Cache write tokens',
+    'Charge recorded in this entry': 'Charge recorded in this entry',
+    'Check API key': 'Check API key',
+    'Check balance and plan': 'Check balance and plan',
+    'Check client configuration': 'Check client configuration',
+    'Copy Request ID': 'Copy Request ID',
+    'Copy safe error details': 'Copy safe error details',
+    'Diagnose request limit': 'Diagnose request limit',
+    'Help me diagnose this API request.': 'Help me diagnose this API request.',
+    'Not recorded': 'Not recorded',
+    'Plan quota used in this entry': 'Plan quota used in this entry',
+    'Refund recorded in this entry': 'Refund recorded in this entry',
+    'Request and billing summary': 'Request and billing summary',
+    'Review the request details with the assistant before retrying.':
+      'Review the request details with the assistant before retrying.',
+    'The API key quota could not be reserved. Check the key limit and availability.':
+      'The API key quota could not be reserved. Check the key limit and availability.',
+    'The endpoint or model was not found. Check the client configuration and model access.':
+      'The endpoint or model was not found. Check the client configuration and model access.',
+    'This entry does not reconcile other charges or refunds for the same request. Final net charge is not available here.':
+      'This entry does not reconcile other charges or refunds for the same request. Final net charge is not available here.',
+    'Only diagnostic metadata is copied; raw error bodies are omitted.':
+      'Only diagnostic metadata is copied; raw error bodies are omitted.',
   },
-  "zh": {
-    "A request limit was reached. This record does not identify whether the limit belongs to your account or the upstream provider.": "请求触发了限制。这条记录无法确定限制来自你的账户还是上游服务。",
-    "Account balance or plan quota is insufficient. Check your billing source.": "账户余额或套餐额度不足，请检查当前扣费来源。",
-    "Authentication or access was rejected. Check the API key and model permissions.": "身份验证或访问被拒绝，请检查 API Key 和模型权限。",
-    "Cache read tokens": "缓存读取 Tokens",
-    "Cache write tokens": "缓存写入 Tokens",
-    "Charge recorded in this entry": "本条记录扣费",
-    "Check API key": "检查 API Key",
-    "Check balance and plan": "检查余额与套餐",
-    "Check client configuration": "检查客户端配置",
-    "Copy Request ID": "复制 Request ID",
-    "Copy safe error details": "复制脱敏错误详情",
-    "Diagnose request limit": "排查请求限制",
-    "Help me diagnose this API request.": "帮我排查这次 API 请求。",
-    "Not recorded": "未记录",
-    "Plan quota used in this entry": "本条记录消耗的套餐额度",
-    "Refund recorded in this entry": "本条记录退款",
-    "Request and billing summary": "请求与费用摘要",
-    "Review the request details with the assistant before retrying.": "重试前，让助手一起检查请求详情。",
-    "The API key quota could not be reserved. Check the key limit and availability.": "无法预扣 API Key 额度，请检查 Key 的额度限制和可用状态。",
-    "The endpoint or model was not found. Check the client configuration and model access.": "未找到接口或模型，请检查客户端配置和模型访问权限。",
-    "This entry does not reconcile other charges or refunds for the same request. Final net charge is not available here.": "此处未合并同一请求的其他扣费或退款记录，无法确定最终净扣费。",
-    "Only diagnostic metadata is copied; raw error bodies are omitted.": "仅复制排查所需的元数据，原始错误正文不会被复制。"
+  zh: {
+    'A request limit was reached. This record does not identify whether the limit belongs to your account or the upstream provider.':
+      '请求触发了限制。这条记录无法确定限制来自你的账户还是上游服务。',
+    'Account balance or plan quota is insufficient. Check your billing source.':
+      '账户余额或套餐额度不足，请检查当前扣费来源。',
+    'Authentication or access was rejected. Check the API key and model permissions.':
+      '身份验证或访问被拒绝，请检查 API Key 和模型权限。',
+    'Cache read tokens': '缓存读取 Tokens',
+    'Cache write tokens': '缓存写入 Tokens',
+    'Charge recorded in this entry': '本条记录扣费',
+    'Check API key': '检查 API Key',
+    'Check balance and plan': '检查余额与套餐',
+    'Check client configuration': '检查客户端配置',
+    'Copy Request ID': '复制 Request ID',
+    'Copy safe error details': '复制脱敏错误详情',
+    'Diagnose request limit': '排查请求限制',
+    'Help me diagnose this API request.': '帮我排查这次 API 请求。',
+    'Not recorded': '未记录',
+    'Plan quota used in this entry': '本条记录消耗的套餐额度',
+    'Refund recorded in this entry': '本条记录退款',
+    'Request and billing summary': '请求与费用摘要',
+    'Review the request details with the assistant before retrying.':
+      '重试前，让助手一起检查请求详情。',
+    'The API key quota could not be reserved. Check the key limit and availability.':
+      '无法预扣 API Key 额度，请检查 Key 的额度限制和可用状态。',
+    'The endpoint or model was not found. Check the client configuration and model access.':
+      '未找到接口或模型，请检查客户端配置和模型访问权限。',
+    'This entry does not reconcile other charges or refunds for the same request. Final net charge is not available here.':
+      '此处未合并同一请求的其他扣费或退款记录，无法确定最终净扣费。',
+    'Only diagnostic metadata is copied; raw error bodies are omitted.':
+      '仅复制排查所需的元数据，原始错误正文不会被复制。',
   },
-  "zh-TW": {
-    "A request limit was reached. This record does not identify whether the limit belongs to your account or the upstream provider.": "請求觸發了限制。這筆紀錄無法確定限制來自你的帳戶還是上游服務。",
-    "Account balance or plan quota is insufficient. Check your billing source.": "帳戶餘額或方案額度不足，請檢查目前的扣款來源。",
-    "Authentication or access was rejected. Check the API key and model permissions.": "身分驗證或存取遭拒，請檢查 API Key 和模型權限。",
-    "Cache read tokens": "快取讀取 Tokens",
-    "Cache write tokens": "快取寫入 Tokens",
-    "Charge recorded in this entry": "本筆紀錄扣款",
-    "Check API key": "檢查 API Key",
-    "Check balance and plan": "檢查餘額與方案",
-    "Check client configuration": "檢查用戶端設定",
-    "Copy Request ID": "複製 Request ID",
-    "Copy safe error details": "複製已遮蔽敏感資訊的錯誤詳情",
-    "Diagnose request limit": "排查請求限制",
-    "Help me diagnose this API request.": "幫我排查這次 API 請求。",
-    "Not recorded": "未記錄",
-    "Plan quota used in this entry": "本筆紀錄使用的方案額度",
-    "Refund recorded in this entry": "本筆紀錄退款",
-    "Request and billing summary": "請求與費用摘要",
-    "Review the request details with the assistant before retrying.": "重試前，請助手一起檢查請求詳情。",
-    "The API key quota could not be reserved. Check the key limit and availability.": "無法預扣 API Key 額度，請檢查 Key 的額度限制與可用狀態。",
-    "The endpoint or model was not found. Check the client configuration and model access.": "找不到端點或模型，請檢查用戶端設定和模型存取權限。",
-    "This entry does not reconcile other charges or refunds for the same request. Final net charge is not available here.": "此處未合併同一請求的其他扣款或退款紀錄，無法確定最終淨扣款。",
-    "Only diagnostic metadata is copied; raw error bodies are omitted.": "僅複製排查所需的中繼資料，不複製原始錯誤正文。"
+  'zh-TW': {
+    'A request limit was reached. This record does not identify whether the limit belongs to your account or the upstream provider.':
+      '請求觸發了限制。這筆紀錄無法確定限制來自你的帳戶還是上游服務。',
+    'Account balance or plan quota is insufficient. Check your billing source.':
+      '帳戶餘額或方案額度不足，請檢查目前的扣款來源。',
+    'Authentication or access was rejected. Check the API key and model permissions.':
+      '身分驗證或存取遭拒，請檢查 API Key 和模型權限。',
+    'Cache read tokens': '快取讀取 Tokens',
+    'Cache write tokens': '快取寫入 Tokens',
+    'Charge recorded in this entry': '本筆紀錄扣款',
+    'Check API key': '檢查 API Key',
+    'Check balance and plan': '檢查餘額與方案',
+    'Check client configuration': '檢查用戶端設定',
+    'Copy Request ID': '複製 Request ID',
+    'Copy safe error details': '複製已遮蔽敏感資訊的錯誤詳情',
+    'Diagnose request limit': '排查請求限制',
+    'Help me diagnose this API request.': '幫我排查這次 API 請求。',
+    'Not recorded': '未記錄',
+    'Plan quota used in this entry': '本筆紀錄使用的方案額度',
+    'Refund recorded in this entry': '本筆紀錄退款',
+    'Request and billing summary': '請求與費用摘要',
+    'Review the request details with the assistant before retrying.':
+      '重試前，請助手一起檢查請求詳情。',
+    'The API key quota could not be reserved. Check the key limit and availability.':
+      '無法預扣 API Key 額度，請檢查 Key 的額度限制與可用狀態。',
+    'The endpoint or model was not found. Check the client configuration and model access.':
+      '找不到端點或模型，請檢查用戶端設定和模型存取權限。',
+    'This entry does not reconcile other charges or refunds for the same request. Final net charge is not available here.':
+      '此處未合併同一請求的其他扣款或退款紀錄，無法確定最終淨扣款。',
+    'Only diagnostic metadata is copied; raw error bodies are omitted.':
+      '僅複製排查所需的中繼資料，不複製原始錯誤正文。',
   },
-  "fr": {
-    "A request limit was reached. This record does not identify whether the limit belongs to your account or the upstream provider.": "Une limite de requêtes a été atteinte. Cette entrée ne permet pas de déterminer si elle provient de votre compte ou du fournisseur en amont.",
-    "Account balance or plan quota is insufficient. Check your billing source.": "Le solde du compte ou le quota du forfait est insuffisant. Vérifiez la source de facturation.",
-    "Authentication or access was rejected. Check the API key and model permissions.": "Authentification ou accès refusé. Vérifiez la clé API et les droits sur le modèle.",
-    "Cache read tokens": "Tokens lus en cache",
-    "Cache write tokens": "Tokens écrits en cache",
-    "Charge recorded in this entry": "Débit enregistré ici",
-    "Check API key": "Vérifier la clé API",
-    "Check balance and plan": "Vérifier le solde et le forfait",
-    "Check client configuration": "Vérifier la configuration du client",
-    "Copy Request ID": "Copier le Request ID",
-    "Copy safe error details": "Copier les détails expurgés",
-    "Diagnose request limit": "Diagnostiquer la limite",
-    "Help me diagnose this API request.": "Aidez-moi à diagnostiquer cette requête API.",
-    "Not recorded": "Non enregistré",
-    "Plan quota used in this entry": "Quota du forfait utilisé ici",
-    "Refund recorded in this entry": "Remboursement enregistré ici",
-    "Request and billing summary": "Résumé de la requête et des frais",
-    "Review the request details with the assistant before retrying.": "Examinez les détails avec l’assistant avant de réessayer.",
-    "The API key quota could not be reserved. Check the key limit and availability.": "Impossible de réserver le quota de la clé API. Vérifiez sa limite et sa disponibilité.",
-    "The endpoint or model was not found. Check the client configuration and model access.": "Point de terminaison ou modèle introuvable. Vérifiez la configuration du client et l’accès au modèle.",
-    "This entry does not reconcile other charges or refunds for the same request. Final net charge is not available here.": "Cette entrée ne rapproche pas les autres débits ou remboursements de la même requête. Le débit net final n’est pas disponible ici.",
-    "Only diagnostic metadata is copied; raw error bodies are omitted.": "Seules les métadonnées de diagnostic sont copiées ; le corps brut des erreurs est omis."
+  fr: {
+    'A request limit was reached. This record does not identify whether the limit belongs to your account or the upstream provider.':
+      'Une limite de requêtes a été atteinte. Cette entrée ne permet pas de déterminer si elle provient de votre compte ou du fournisseur en amont.',
+    'Account balance or plan quota is insufficient. Check your billing source.':
+      'Le solde du compte ou le quota du forfait est insuffisant. Vérifiez la source de facturation.',
+    'Authentication or access was rejected. Check the API key and model permissions.':
+      'Authentification ou accès refusé. Vérifiez la clé API et les droits sur le modèle.',
+    'Cache read tokens': 'Tokens lus en cache',
+    'Cache write tokens': 'Tokens écrits en cache',
+    'Charge recorded in this entry': 'Débit enregistré ici',
+    'Check API key': 'Vérifier la clé API',
+    'Check balance and plan': 'Vérifier le solde et le forfait',
+    'Check client configuration': 'Vérifier la configuration du client',
+    'Copy Request ID': 'Copier le Request ID',
+    'Copy safe error details': 'Copier les détails expurgés',
+    'Diagnose request limit': 'Diagnostiquer la limite',
+    'Help me diagnose this API request.':
+      'Aidez-moi à diagnostiquer cette requête API.',
+    'Not recorded': 'Non enregistré',
+    'Plan quota used in this entry': 'Quota du forfait utilisé ici',
+    'Refund recorded in this entry': 'Remboursement enregistré ici',
+    'Request and billing summary': 'Résumé de la requête et des frais',
+    'Review the request details with the assistant before retrying.':
+      'Examinez les détails avec l’assistant avant de réessayer.',
+    'The API key quota could not be reserved. Check the key limit and availability.':
+      'Impossible de réserver le quota de la clé API. Vérifiez sa limite et sa disponibilité.',
+    'The endpoint or model was not found. Check the client configuration and model access.':
+      'Point de terminaison ou modèle introuvable. Vérifiez la configuration du client et l’accès au modèle.',
+    'This entry does not reconcile other charges or refunds for the same request. Final net charge is not available here.':
+      'Cette entrée ne rapproche pas les autres débits ou remboursements de la même requête. Le débit net final n’est pas disponible ici.',
+    'Only diagnostic metadata is copied; raw error bodies are omitted.':
+      'Seules les métadonnées de diagnostic sont copiées ; le corps brut des erreurs est omis.',
   },
-  "ja": {
-    "A request limit was reached. This record does not identify whether the limit belongs to your account or the upstream provider.": "リクエスト制限に達しました。この記録だけでは、アカウント側と上流プロバイダー側のどちらの制限か判断できません。",
-    "Account balance or plan quota is insufficient. Check your billing source.": "アカウント残高またはプランの利用枠が不足しています。課金元を確認してください。",
-    "Authentication or access was rejected. Check the API key and model permissions.": "認証またはアクセスが拒否されました。API キーとモデルの権限を確認してください。",
-    "Cache read tokens": "キャッシュ読み取りトークン",
-    "Cache write tokens": "キャッシュ書き込みトークン",
-    "Charge recorded in this entry": "この記録の請求額",
-    "Check API key": "API キーを確認",
-    "Check balance and plan": "残高とプランを確認",
-    "Check client configuration": "クライアント設定を確認",
-    "Copy Request ID": "Request ID をコピー",
-    "Copy safe error details": "機密情報を除いたエラー詳細をコピー",
-    "Diagnose request limit": "リクエスト制限を調べる",
-    "Help me diagnose this API request.": "この API リクエストの問題を調べてください。",
-    "Not recorded": "記録なし",
-    "Plan quota used in this entry": "この記録のプラン利用量",
-    "Refund recorded in this entry": "この記録の返金額",
-    "Request and billing summary": "リクエストと料金の概要",
-    "Review the request details with the assistant before retrying.": "再試行する前に、アシスタントとリクエストの詳細を確認してください。",
-    "The API key quota could not be reserved. Check the key limit and availability.": "API キーの利用枠を仮確保できませんでした。キーの上限と利用状態を確認してください。",
-    "The endpoint or model was not found. Check the client configuration and model access.": "エンドポイントまたはモデルが見つかりません。クライアント設定とモデルのアクセス権を確認してください。",
-    "This entry does not reconcile other charges or refunds for the same request. Final net charge is not available here.": "ここでは同じリクエストの他の請求や返金と照合していないため、最終的な差引請求額は確認できません。",
-    "Only diagnostic metadata is copied; raw error bodies are omitted.": "診断用のメタデータのみコピーし、エラーの元の本文は除外します。"
+  ja: {
+    'A request limit was reached. This record does not identify whether the limit belongs to your account or the upstream provider.':
+      'リクエスト制限に達しました。この記録だけでは、アカウント側と上流プロバイダー側のどちらの制限か判断できません。',
+    'Account balance or plan quota is insufficient. Check your billing source.':
+      'アカウント残高またはプランの利用枠が不足しています。課金元を確認してください。',
+    'Authentication or access was rejected. Check the API key and model permissions.':
+      '認証またはアクセスが拒否されました。API キーとモデルの権限を確認してください。',
+    'Cache read tokens': 'キャッシュ読み取りトークン',
+    'Cache write tokens': 'キャッシュ書き込みトークン',
+    'Charge recorded in this entry': 'この記録の請求額',
+    'Check API key': 'API キーを確認',
+    'Check balance and plan': '残高とプランを確認',
+    'Check client configuration': 'クライアント設定を確認',
+    'Copy Request ID': 'Request ID をコピー',
+    'Copy safe error details': '機密情報を除いたエラー詳細をコピー',
+    'Diagnose request limit': 'リクエスト制限を調べる',
+    'Help me diagnose this API request.':
+      'この API リクエストの問題を調べてください。',
+    'Not recorded': '記録なし',
+    'Plan quota used in this entry': 'この記録のプラン利用量',
+    'Refund recorded in this entry': 'この記録の返金額',
+    'Request and billing summary': 'リクエストと料金の概要',
+    'Review the request details with the assistant before retrying.':
+      '再試行する前に、アシスタントとリクエストの詳細を確認してください。',
+    'The API key quota could not be reserved. Check the key limit and availability.':
+      'API キーの利用枠を仮確保できませんでした。キーの上限と利用状態を確認してください。',
+    'The endpoint or model was not found. Check the client configuration and model access.':
+      'エンドポイントまたはモデルが見つかりません。クライアント設定とモデルのアクセス権を確認してください。',
+    'This entry does not reconcile other charges or refunds for the same request. Final net charge is not available here.':
+      'ここでは同じリクエストの他の請求や返金と照合していないため、最終的な差引請求額は確認できません。',
+    'Only diagnostic metadata is copied; raw error bodies are omitted.':
+      '診断用のメタデータのみコピーし、エラーの元の本文は除外します。',
   },
-  "ru": {
-    "A request limit was reached. This record does not identify whether the limit belongs to your account or the upstream provider.": "Достигнут лимит запросов. Эта запись не позволяет определить, установлен ли он для вашего аккаунта или вышестоящим провайдером.",
-    "Account balance or plan quota is insufficient. Check your billing source.": "Недостаточно средств или квоты тарифа. Проверьте источник оплаты.",
-    "Authentication or access was rejected. Check the API key and model permissions.": "В аутентификации или доступе отказано. Проверьте API-ключ и права на модель.",
-    "Cache read tokens": "Токены чтения кэша",
-    "Cache write tokens": "Токены записи кэша",
-    "Charge recorded in this entry": "Списание в этой записи",
-    "Check API key": "Проверить API-ключ",
-    "Check balance and plan": "Проверить баланс и тариф",
-    "Check client configuration": "Проверить настройки клиента",
-    "Copy Request ID": "Скопировать Request ID",
-    "Copy safe error details": "Скопировать очищенные сведения об ошибке",
-    "Diagnose request limit": "Проверить лимит запросов",
-    "Help me diagnose this API request.": "Помогите разобраться с этим API-запросом.",
-    "Not recorded": "Не записано",
-    "Plan quota used in this entry": "Квота тарифа, использованная в этой записи",
-    "Refund recorded in this entry": "Возврат в этой записи",
-    "Request and billing summary": "Сводка запроса и оплаты",
-    "Review the request details with the assistant before retrying.": "Перед повторной попыткой проверьте сведения о запросе с помощником.",
-    "The API key quota could not be reserved. Check the key limit and availability.": "Не удалось зарезервировать квоту API-ключа. Проверьте лимит и доступность ключа.",
-    "The endpoint or model was not found. Check the client configuration and model access.": "Конечная точка или модель не найдена. Проверьте настройки клиента и доступ к модели.",
-    "This entry does not reconcile other charges or refunds for the same request. Final net charge is not available here.": "Другие списания и возвраты по этому запросу здесь не сопоставляются. Итоговое списание за вычетом возвратов недоступно.",
-    "Only diagnostic metadata is copied; raw error bodies are omitted.": "Копируются только диагностические метаданные; исходное тело ошибки исключается."
+  ru: {
+    'A request limit was reached. This record does not identify whether the limit belongs to your account or the upstream provider.':
+      'Достигнут лимит запросов. Эта запись не позволяет определить, установлен ли он для вашего аккаунта или вышестоящим провайдером.',
+    'Account balance or plan quota is insufficient. Check your billing source.':
+      'Недостаточно средств или квоты тарифа. Проверьте источник оплаты.',
+    'Authentication or access was rejected. Check the API key and model permissions.':
+      'В аутентификации или доступе отказано. Проверьте API-ключ и права на модель.',
+    'Cache read tokens': 'Токены чтения кэша',
+    'Cache write tokens': 'Токены записи кэша',
+    'Charge recorded in this entry': 'Списание в этой записи',
+    'Check API key': 'Проверить API-ключ',
+    'Check balance and plan': 'Проверить баланс и тариф',
+    'Check client configuration': 'Проверить настройки клиента',
+    'Copy Request ID': 'Скопировать Request ID',
+    'Copy safe error details': 'Скопировать очищенные сведения об ошибке',
+    'Diagnose request limit': 'Проверить лимит запросов',
+    'Help me diagnose this API request.':
+      'Помогите разобраться с этим API-запросом.',
+    'Not recorded': 'Не записано',
+    'Plan quota used in this entry':
+      'Квота тарифа, использованная в этой записи',
+    'Refund recorded in this entry': 'Возврат в этой записи',
+    'Request and billing summary': 'Сводка запроса и оплаты',
+    'Review the request details with the assistant before retrying.':
+      'Перед повторной попыткой проверьте сведения о запросе с помощником.',
+    'The API key quota could not be reserved. Check the key limit and availability.':
+      'Не удалось зарезервировать квоту API-ключа. Проверьте лимит и доступность ключа.',
+    'The endpoint or model was not found. Check the client configuration and model access.':
+      'Конечная точка или модель не найдена. Проверьте настройки клиента и доступ к модели.',
+    'This entry does not reconcile other charges or refunds for the same request. Final net charge is not available here.':
+      'Другие списания и возвраты по этому запросу здесь не сопоставляются. Итоговое списание за вычетом возвратов недоступно.',
+    'Only diagnostic metadata is copied; raw error bodies are omitted.':
+      'Копируются только диагностические метаданные; исходное тело ошибки исключается.',
   },
-  "vi": {
-    "A request limit was reached. This record does not identify whether the limit belongs to your account or the upstream provider.": "Đã đạt giới hạn yêu cầu. Bản ghi này không xác định được giới hạn thuộc tài khoản của bạn hay nhà cung cấp phía trên.",
-    "Account balance or plan quota is insufficient. Check your billing source.": "Số dư tài khoản hoặc hạn mức gói không đủ. Hãy kiểm tra nguồn thanh toán.",
-    "Authentication or access was rejected. Check the API key and model permissions.": "Xác thực hoặc quyền truy cập bị từ chối. Hãy kiểm tra khóa API và quyền dùng mô hình.",
-    "Cache read tokens": "Token đọc bộ nhớ đệm",
-    "Cache write tokens": "Token ghi bộ nhớ đệm",
-    "Charge recorded in this entry": "Khoản trừ trong bản ghi này",
-    "Check API key": "Kiểm tra khóa API",
-    "Check balance and plan": "Kiểm tra số dư và gói",
-    "Check client configuration": "Kiểm tra cấu hình ứng dụng",
-    "Copy Request ID": "Sao chép Request ID",
-    "Copy safe error details": "Sao chép lỗi đã ẩn thông tin nhạy cảm",
-    "Diagnose request limit": "Kiểm tra giới hạn yêu cầu",
-    "Help me diagnose this API request.": "Hãy giúp tôi chẩn đoán yêu cầu API này.",
-    "Not recorded": "Chưa ghi nhận",
-    "Plan quota used in this entry": "Hạn mức gói đã dùng trong bản ghi này",
-    "Refund recorded in this entry": "Khoản hoàn trong bản ghi này",
-    "Request and billing summary": "Tóm tắt yêu cầu và chi phí",
-    "Review the request details with the assistant before retrying.": "Kiểm tra chi tiết yêu cầu cùng trợ lý trước khi thử lại.",
-    "The API key quota could not be reserved. Check the key limit and availability.": "Không thể giữ trước hạn mức khóa API. Hãy kiểm tra giới hạn và trạng thái sử dụng của khóa.",
-    "The endpoint or model was not found. Check the client configuration and model access.": "Không tìm thấy điểm cuối hoặc mô hình. Hãy kiểm tra cấu hình ứng dụng và quyền truy cập mô hình.",
-    "This entry does not reconcile other charges or refunds for the same request. Final net charge is not available here.": "Bản ghi này không đối chiếu các khoản trừ hoặc hoàn khác của cùng yêu cầu. Chưa thể xác định khoản trừ ròng cuối cùng tại đây.",
-    "Only diagnostic metadata is copied; raw error bodies are omitted.": "Chỉ sao chép siêu dữ liệu chẩn đoán; nội dung lỗi gốc được loại bỏ."
-  }
+  vi: {
+    'A request limit was reached. This record does not identify whether the limit belongs to your account or the upstream provider.':
+      'Đã đạt giới hạn yêu cầu. Bản ghi này không xác định được giới hạn thuộc tài khoản của bạn hay nhà cung cấp phía trên.',
+    'Account balance or plan quota is insufficient. Check your billing source.':
+      'Số dư tài khoản hoặc hạn mức gói không đủ. Hãy kiểm tra nguồn thanh toán.',
+    'Authentication or access was rejected. Check the API key and model permissions.':
+      'Xác thực hoặc quyền truy cập bị từ chối. Hãy kiểm tra khóa API và quyền dùng mô hình.',
+    'Cache read tokens': 'Token đọc bộ nhớ đệm',
+    'Cache write tokens': 'Token ghi bộ nhớ đệm',
+    'Charge recorded in this entry': 'Khoản trừ trong bản ghi này',
+    'Check API key': 'Kiểm tra khóa API',
+    'Check balance and plan': 'Kiểm tra số dư và gói',
+    'Check client configuration': 'Kiểm tra cấu hình ứng dụng',
+    'Copy Request ID': 'Sao chép Request ID',
+    'Copy safe error details': 'Sao chép lỗi đã ẩn thông tin nhạy cảm',
+    'Diagnose request limit': 'Kiểm tra giới hạn yêu cầu',
+    'Help me diagnose this API request.':
+      'Hãy giúp tôi chẩn đoán yêu cầu API này.',
+    'Not recorded': 'Chưa ghi nhận',
+    'Plan quota used in this entry': 'Hạn mức gói đã dùng trong bản ghi này',
+    'Refund recorded in this entry': 'Khoản hoàn trong bản ghi này',
+    'Request and billing summary': 'Tóm tắt yêu cầu và chi phí',
+    'Review the request details with the assistant before retrying.':
+      'Kiểm tra chi tiết yêu cầu cùng trợ lý trước khi thử lại.',
+    'The API key quota could not be reserved. Check the key limit and availability.':
+      'Không thể giữ trước hạn mức khóa API. Hãy kiểm tra giới hạn và trạng thái sử dụng của khóa.',
+    'The endpoint or model was not found. Check the client configuration and model access.':
+      'Không tìm thấy điểm cuối hoặc mô hình. Hãy kiểm tra cấu hình ứng dụng và quyền truy cập mô hình.',
+    'This entry does not reconcile other charges or refunds for the same request. Final net charge is not available here.':
+      'Bản ghi này không đối chiếu các khoản trừ hoặc hoàn khác của cùng yêu cầu. Chưa thể xác định khoản trừ ròng cuối cùng tại đây.',
+    'Only diagnostic metadata is copied; raw error bodies are omitted.':
+      'Chỉ sao chép siêu dữ liệu chẩn đoán; nội dung lỗi gốc được loại bỏ.',
+  },
 }
 
 const sourceFeedbackCopy = {
-  "en": {
-    "How did you first hear about LMM? (optional)": "How did you first hear about LMM? (optional)",
-    "Content title or platform (optional, no URLs)": "Content title or platform (optional, no URLs)",
-    "Skip": "Skip",
-    "Unable to save source feedback. Please retry.": "Unable to save source feedback. Please retry.",
-    "Search engine": "Search engine",
-    "Community": "Community",
-    "Social media": "Social media",
-    "Documentation": "Documentation",
-    "Friend recommendation": "Friend recommendation",
-    "Client recommendation": "Client recommendation",
-    "Self-reported source": "Self-reported source",
-    "Optional source feedback is kept for 365 days, separate from automatic attribution. Skip or delete it anytime. Do not include personal details or credentials.": "Optional source feedback is kept for 365 days, separate from automatic attribution. Skip or delete it anytime. Do not include personal details or credentials.",
-    "Original request submitted": "Original request submitted",
-    "Review completed": "Review completed",
-    "Describe your intended API use in 5–2000 characters. Do not include credentials.": "Describe your intended API use in 5–2000 characters. Do not include credentials.",
-    "Submitting replaces this application and sends it for review again. The previous review note is cleared; the AI recommendation is retained.": "Submitting replaces this application and sends it for review again. The previous review note is cleared; the AI recommendation is retained.",
-    "Could not submit the access request. Your text is preserved; check the status and try again.": "Could not submit the access request. Your text is preserved; check the status and try again.",
-    "Confirm and submit application": "Confirm and submit application",
-    "You can browse challenges and ask the AI assistant to apply for API access.": "You can browse challenges and ask the AI assistant to apply for API access.",
-    "Describe your intended API use to the AI assistant. Eligible applications may be approved automatically; others remain under review.": "Describe your intended API use to the AI assistant. Eligible applications may be approved automatically; others remain under review.",
-    "For example: help me apply for API access and configure CC Switch": "For example: help me apply for API access and configure CC Switch",
-    "No external referrer was observed in this preview. A tagged link does not prove where someone saw it.": "No external referrer was observed in this preview. A tagged link does not prove where someone saw it.",
-    "Not provided": "Not provided",
-    "Open target in test mode": "Open target in test mode",
-    "Preview requests and test links are excluded from acquisition statistics.": "Preview requests and test links are excluded from acquisition statistics.",
-    "Preview source recognition without recording a visit.": "Preview source recognition without recording a visit.",
-    "Promotion link preview": "Promotion link preview",
-    "Recognition basis: saved promotion link identifier.": "Recognition basis: saved promotion link identifier.",
-    "Unable to preview this promotion link.": "Unable to preview this promotion link."
+  en: {
+    'How did you first hear about LMM? (optional)':
+      'How did you first hear about LMM? (optional)',
+    'Content title or platform (optional, no URLs)':
+      'Content title or platform (optional, no URLs)',
+    Skip: 'Skip',
+    'Unable to save source feedback. Please retry.':
+      'Unable to save source feedback. Please retry.',
+    'Search engine': 'Search engine',
+    Community: 'Community',
+    'Social media': 'Social media',
+    Documentation: 'Documentation',
+    'Friend recommendation': 'Friend recommendation',
+    'Client recommendation': 'Client recommendation',
+    'Self-reported source': 'Self-reported source',
+    'Optional source feedback is kept for 365 days, separate from automatic attribution. Skip or delete it anytime. Do not include personal details or credentials.':
+      'Optional source feedback is kept for 365 days, separate from automatic attribution. Skip or delete it anytime. Do not include personal details or credentials.',
+    'Original request submitted': 'Original request submitted',
+    'Review completed': 'Review completed',
+    'Describe your intended API use in 5–2000 characters. Do not include credentials.':
+      'Describe your intended API use in 5–2000 characters. Do not include credentials.',
+    'Submitting replaces this application and sends it for review again. The previous review note is cleared; the AI recommendation is retained.':
+      'Submitting replaces this application and sends it for review again. The previous review note is cleared; the AI recommendation is retained.',
+    'Could not submit the access request. Your text is preserved; check the status and try again.':
+      'Could not submit the access request. Your text is preserved; check the status and try again.',
+    'Confirm and submit application': 'Confirm and submit application',
+    'You can browse challenges and ask the AI assistant to apply for API access.':
+      'You can browse challenges and ask the AI assistant to apply for API access.',
+    'Describe your intended API use to the AI assistant. Eligible applications may be approved automatically; others remain under review.':
+      'Describe your intended API use to the AI assistant. Eligible applications may be approved automatically; others remain under review.',
+    'For example: help me apply for API access and configure CC Switch':
+      'For example: help me apply for API access and configure CC Switch',
+    'No external referrer was observed in this preview. A tagged link does not prove where someone saw it.':
+      'No external referrer was observed in this preview. A tagged link does not prove where someone saw it.',
+    'Not provided': 'Not provided',
+    'Open target in test mode': 'Open target in test mode',
+    'Preview requests and test links are excluded from acquisition statistics.':
+      'Preview requests and test links are excluded from acquisition statistics.',
+    'Preview source recognition without recording a visit.':
+      'Preview source recognition without recording a visit.',
+    'Promotion link preview': 'Promotion link preview',
+    'Recognition basis: saved promotion link identifier.':
+      'Recognition basis: saved promotion link identifier.',
+    'Unable to preview this promotion link.':
+      'Unable to preview this promotion link.',
   },
-  "zh": {
-    "How did you first hear about LMM? (optional)": "你最初从哪里知道 LMM？（可跳过）",
-    "Content title or platform (optional, no URLs)": "内容标题或平台（可不填，请勿输入网址）",
-    "Skip": "跳过",
-    "Unable to save source feedback. Please retry.": "来源说明保存失败，请重试。",
-    "Search engine": "搜索引擎",
-    "Community": "社区",
-    "Social media": "社交平台",
-    "Documentation": "项目文档",
-    "Friend recommendation": "朋友推荐",
-    "Client recommendation": "客户端推荐",
-    "Self-reported source": "用户自述来源",
-    "Optional source feedback is kept for 365 days, separate from automatic attribution. Skip or delete it anytime. Do not include personal details or credentials.": "来源说明自愿填写，保存 365 天，与自动归属分开记录。可随时跳过或删除，请勿填写个人隐私或凭据。",
-    "Original request submitted": "首次申请时间",
-    "Review completed": "审核完成时间",
-    "Describe your intended API use in 5–2000 characters. Do not include credentials.": "请用 5–2000 个字符说明 API 用途，不要包含凭证。",
-    "Submitting replaces this application and sends it for review again. The previous review note is cleared; the AI recommendation is retained.": "提交后将替换当前申请并重新审核。此前的审核备注会被清除，AI 建议会保留。",
-    "Could not submit the access request. Your text is preserved; check the status and try again.": "申请未能提交。已保留你的文字，请检查状态后重试。",
-    "Confirm and submit application": "确认并提交申请",
-    "You can browse challenges and ask the AI assistant to apply for API access.": "你可以浏览挑战，并请 AI 助手协助申请 API 访问权限。",
-    "Describe your intended API use to the AI assistant. Eligible applications may be approved automatically; others remain under review.": "向 AI 助手说明 API 用途。符合条件的申请可能自动通过，其他申请继续等待审核。",
-    "For example: help me apply for API access and configure CC Switch": "例如：帮我申请 API 访问权限并配置 CC Switch",
-    "No external referrer was observed in this preview. A tagged link does not prove where someone saw it.": "此预览没有观察到外部来源网站。使用带标记的链接，并不能证明用户在哪里看到它。",
-    "Not provided": "未提供",
-    "Open target in test mode": "以测试模式打开目标页面",
-    "Preview requests and test links are excluded from acquisition statistics.": "预览请求和测试链接不计入来源统计。",
-    "Preview source recognition without recording a visit.": "预览来源识别结果，不记录访问。",
-    "Promotion link preview": "推广链接预览",
-    "Recognition basis: saved promotion link identifier.": "识别依据：已保存的推广链接标识。",
-    "Unable to preview this promotion link.": "无法预览此推广链接。"
+  zh: {
+    'How did you first hear about LMM? (optional)':
+      '你最初从哪里知道 LMM？（可跳过）',
+    'Content title or platform (optional, no URLs)':
+      '内容标题或平台（可不填，请勿输入网址）',
+    Skip: '跳过',
+    'Unable to save source feedback. Please retry.':
+      '来源说明保存失败，请重试。',
+    'Search engine': '搜索引擎',
+    Community: '社区',
+    'Social media': '社交平台',
+    Documentation: '项目文档',
+    'Friend recommendation': '朋友推荐',
+    'Client recommendation': '客户端推荐',
+    'Self-reported source': '用户自述来源',
+    'Optional source feedback is kept for 365 days, separate from automatic attribution. Skip or delete it anytime. Do not include personal details or credentials.':
+      '来源说明自愿填写，保存 365 天，与自动归属分开记录。可随时跳过或删除，请勿填写个人隐私或凭据。',
+    'Original request submitted': '首次申请时间',
+    'Review completed': '审核完成时间',
+    'Describe your intended API use in 5–2000 characters. Do not include credentials.':
+      '请用 5–2000 个字符说明 API 用途，不要包含凭证。',
+    'Submitting replaces this application and sends it for review again. The previous review note is cleared; the AI recommendation is retained.':
+      '提交后将替换当前申请并重新审核。此前的审核备注会被清除，AI 建议会保留。',
+    'Could not submit the access request. Your text is preserved; check the status and try again.':
+      '申请未能提交。已保留你的文字，请检查状态后重试。',
+    'Confirm and submit application': '确认并提交申请',
+    'You can browse challenges and ask the AI assistant to apply for API access.':
+      '你可以浏览挑战，并请 AI 助手协助申请 API 访问权限。',
+    'Describe your intended API use to the AI assistant. Eligible applications may be approved automatically; others remain under review.':
+      '向 AI 助手说明 API 用途。符合条件的申请可能自动通过，其他申请继续等待审核。',
+    'For example: help me apply for API access and configure CC Switch':
+      '例如：帮我申请 API 访问权限并配置 CC Switch',
+    'No external referrer was observed in this preview. A tagged link does not prove where someone saw it.':
+      '此预览没有观察到外部来源网站。使用带标记的链接，并不能证明用户在哪里看到它。',
+    'Not provided': '未提供',
+    'Open target in test mode': '以测试模式打开目标页面',
+    'Preview requests and test links are excluded from acquisition statistics.':
+      '预览请求和测试链接不计入来源统计。',
+    'Preview source recognition without recording a visit.':
+      '预览来源识别结果，不记录访问。',
+    'Promotion link preview': '推广链接预览',
+    'Recognition basis: saved promotion link identifier.':
+      '识别依据：已保存的推广链接标识。',
+    'Unable to preview this promotion link.': '无法预览此推广链接。',
   },
-  "zh-TW": {
-    "How did you first hear about LMM? (optional)": "你最初從哪裡知道 LMM？（可略過）",
-    "Content title or platform (optional, no URLs)": "內容標題或平台（可不填，請勿輸入網址）",
-    "Skip": "略過",
-    "Unable to save source feedback. Please retry.": "來源說明儲存失敗，請重試。",
-    "Search engine": "搜尋引擎",
-    "Community": "社群",
-    "Social media": "社群平台",
-    "Documentation": "專案文件",
-    "Friend recommendation": "朋友推薦",
-    "Client recommendation": "用戶端推薦",
-    "Self-reported source": "使用者自述來源",
-    "Optional source feedback is kept for 365 days, separate from automatic attribution. Skip or delete it anytime. Do not include personal details or credentials.": "來源說明自願填寫，保存 365 天，與自動歸屬分開記錄。可隨時略過或刪除，請勿填寫個人隱私或憑據。",
-    "Original request submitted": "首次申請時間",
-    "Review completed": "審核完成時間",
-    "Describe your intended API use in 5–2000 characters. Do not include credentials.": "請用 5–2000 個字元說明 API 用途，不要包含憑證。",
-    "Submitting replaces this application and sends it for review again. The previous review note is cleared; the AI recommendation is retained.": "提交後將替換目前申請並重新審核。先前的審核備註會被清除，AI 建議會保留。",
-    "Could not submit the access request. Your text is preserved; check the status and try again.": "申請未能提交。已保留你的文字，請檢查狀態後重試。",
-    "Confirm and submit application": "確認並提交申請",
-    "You can browse challenges and ask the AI assistant to apply for API access.": "你可以瀏覽挑戰，並請 AI 助手協助申請 API 存取權限。",
-    "Describe your intended API use to the AI assistant. Eligible applications may be approved automatically; others remain under review.": "向 AI 助手說明 API 用途。符合條件的申請可能自動通過，其他申請繼續等待審核。",
-    "For example: help me apply for API access and configure CC Switch": "例如：幫我申請 API 存取權限並設定 CC Switch",
-    "No external referrer was observed in this preview. A tagged link does not prove where someone saw it.": "此預覽未觀察到外部來源網站。使用帶標記的連結，不能證明使用者在哪裡看到它。",
-    "Not provided": "未提供",
-    "Open target in test mode": "以測試模式開啟目標頁面",
-    "Preview requests and test links are excluded from acquisition statistics.": "預覽請求和測試連結不計入來源統計。",
-    "Preview source recognition without recording a visit.": "預覽來源辨識結果，不記錄造訪。",
-    "Promotion link preview": "推廣連結預覽",
-    "Recognition basis: saved promotion link identifier.": "辨識依據：已儲存的推廣連結識別碼。",
-    "Unable to preview this promotion link.": "無法預覽此推廣連結。"
+  'zh-TW': {
+    'How did you first hear about LMM? (optional)':
+      '你最初從哪裡知道 LMM？（可略過）',
+    'Content title or platform (optional, no URLs)':
+      '內容標題或平台（可不填，請勿輸入網址）',
+    Skip: '略過',
+    'Unable to save source feedback. Please retry.':
+      '來源說明儲存失敗，請重試。',
+    'Search engine': '搜尋引擎',
+    Community: '社群',
+    'Social media': '社群平台',
+    Documentation: '專案文件',
+    'Friend recommendation': '朋友推薦',
+    'Client recommendation': '用戶端推薦',
+    'Self-reported source': '使用者自述來源',
+    'Optional source feedback is kept for 365 days, separate from automatic attribution. Skip or delete it anytime. Do not include personal details or credentials.':
+      '來源說明自願填寫，保存 365 天，與自動歸屬分開記錄。可隨時略過或刪除，請勿填寫個人隱私或憑據。',
+    'Original request submitted': '首次申請時間',
+    'Review completed': '審核完成時間',
+    'Describe your intended API use in 5–2000 characters. Do not include credentials.':
+      '請用 5–2000 個字元說明 API 用途，不要包含憑證。',
+    'Submitting replaces this application and sends it for review again. The previous review note is cleared; the AI recommendation is retained.':
+      '提交後將替換目前申請並重新審核。先前的審核備註會被清除，AI 建議會保留。',
+    'Could not submit the access request. Your text is preserved; check the status and try again.':
+      '申請未能提交。已保留你的文字，請檢查狀態後重試。',
+    'Confirm and submit application': '確認並提交申請',
+    'You can browse challenges and ask the AI assistant to apply for API access.':
+      '你可以瀏覽挑戰，並請 AI 助手協助申請 API 存取權限。',
+    'Describe your intended API use to the AI assistant. Eligible applications may be approved automatically; others remain under review.':
+      '向 AI 助手說明 API 用途。符合條件的申請可能自動通過，其他申請繼續等待審核。',
+    'For example: help me apply for API access and configure CC Switch':
+      '例如：幫我申請 API 存取權限並設定 CC Switch',
+    'No external referrer was observed in this preview. A tagged link does not prove where someone saw it.':
+      '此預覽未觀察到外部來源網站。使用帶標記的連結，不能證明使用者在哪裡看到它。',
+    'Not provided': '未提供',
+    'Open target in test mode': '以測試模式開啟目標頁面',
+    'Preview requests and test links are excluded from acquisition statistics.':
+      '預覽請求和測試連結不計入來源統計。',
+    'Preview source recognition without recording a visit.':
+      '預覽來源辨識結果，不記錄造訪。',
+    'Promotion link preview': '推廣連結預覽',
+    'Recognition basis: saved promotion link identifier.':
+      '辨識依據：已儲存的推廣連結識別碼。',
+    'Unable to preview this promotion link.': '無法預覽此推廣連結。',
   },
-  "fr": {
-    "How did you first hear about LMM? (optional)": "Comment avez-vous découvert LMM ? (facultatif)",
-    "Content title or platform (optional, no URLs)": "Titre ou plateforme (facultatif, sans URL)",
-    "Skip": "Passer",
-    "Unable to save source feedback. Please retry.": "Impossible d’enregistrer la réponse. Réessayez.",
-    "Search engine": "Moteur de recherche",
-    "Community": "Communauté",
-    "Social media": "Réseaux sociaux",
-    "Documentation": "Documentation",
-    "Friend recommendation": "Recommandation d’un proche",
-    "Client recommendation": "Recommandation d’un client logiciel",
-    "Self-reported source": "Source déclarée",
-    "Optional source feedback is kept for 365 days, separate from automatic attribution. Skip or delete it anytime. Do not include personal details or credentials.": "Réponse facultative conservée 365 jours, séparément de l’attribution automatique. Vous pouvez passer ou la supprimer. N’indiquez aucune donnée personnelle ni aucun identifiant secret.",
-    "Original request submitted": "Première demande envoyée",
-    "Review completed": "Examen terminé",
-    "Describe your intended API use in 5–2000 characters. Do not include credentials.": "Décrivez votre usage de l’API en 5 à 2000 caractères. Ne saisissez aucun identifiant secret.",
-    "Submitting replaces this application and sends it for review again. The previous review note is cleared; the AI recommendation is retained.": "L’envoi remplace cette demande et relance son examen. La note précédente est effacée ; la recommandation IA est conservée.",
-    "Could not submit the access request. Your text is preserved; check the status and try again.": "Impossible d’envoyer la demande. Votre texte est conservé ; vérifiez le statut et réessayez.",
-    "Confirm and submit application": "Confirmer et envoyer la demande",
-    "You can browse challenges and ask the AI assistant to apply for API access.": "Vous pouvez parcourir les défis et demander à l’assistant IA de vous aider à obtenir l’accès API.",
-    "Describe your intended API use to the AI assistant. Eligible applications may be approved automatically; others remain under review.": "Décrivez votre usage prévu de l’API à l’assistant IA. Les demandes admissibles peuvent être approuvées automatiquement ; les autres restent en examen.",
-    "For example: help me apply for API access and configure CC Switch": "Par exemple : aidez-moi à demander l’accès API et à configurer CC Switch",
-    "No external referrer was observed in this preview. A tagged link does not prove where someone saw it.": "Aucun site référent externe n’a été observé dans cet aperçu. Un lien balisé ne prouve pas où il a été vu.",
-    "Not provided": "Non fourni",
-    "Open target in test mode": "Ouvrir la cible en mode test",
-    "Preview requests and test links are excluded from acquisition statistics.": "Les aperçus et les liens de test sont exclus des statistiques d’acquisition.",
-    "Preview source recognition without recording a visit.": "Prévisualisez l’identification de la source sans enregistrer de visite.",
-    "Promotion link preview": "Aperçu du lien promotionnel",
-    "Recognition basis: saved promotion link identifier.": "Base d’identification : identifiant du lien promotionnel enregistré.",
-    "Unable to preview this promotion link.": "Impossible de prévisualiser ce lien promotionnel."
+  fr: {
+    'How did you first hear about LMM? (optional)':
+      'Comment avez-vous découvert LMM ? (facultatif)',
+    'Content title or platform (optional, no URLs)':
+      'Titre ou plateforme (facultatif, sans URL)',
+    Skip: 'Passer',
+    'Unable to save source feedback. Please retry.':
+      'Impossible d’enregistrer la réponse. Réessayez.',
+    'Search engine': 'Moteur de recherche',
+    Community: 'Communauté',
+    'Social media': 'Réseaux sociaux',
+    Documentation: 'Documentation',
+    'Friend recommendation': 'Recommandation d’un proche',
+    'Client recommendation': 'Recommandation d’un client logiciel',
+    'Self-reported source': 'Source déclarée',
+    'Optional source feedback is kept for 365 days, separate from automatic attribution. Skip or delete it anytime. Do not include personal details or credentials.':
+      'Réponse facultative conservée 365 jours, séparément de l’attribution automatique. Vous pouvez passer ou la supprimer. N’indiquez aucune donnée personnelle ni aucun identifiant secret.',
+    'Original request submitted': 'Première demande envoyée',
+    'Review completed': 'Examen terminé',
+    'Describe your intended API use in 5–2000 characters. Do not include credentials.':
+      'Décrivez votre usage de l’API en 5 à 2000 caractères. Ne saisissez aucun identifiant secret.',
+    'Submitting replaces this application and sends it for review again. The previous review note is cleared; the AI recommendation is retained.':
+      'L’envoi remplace cette demande et relance son examen. La note précédente est effacée ; la recommandation IA est conservée.',
+    'Could not submit the access request. Your text is preserved; check the status and try again.':
+      'Impossible d’envoyer la demande. Votre texte est conservé ; vérifiez le statut et réessayez.',
+    'Confirm and submit application': 'Confirmer et envoyer la demande',
+    'You can browse challenges and ask the AI assistant to apply for API access.':
+      'Vous pouvez parcourir les défis et demander à l’assistant IA de vous aider à obtenir l’accès API.',
+    'Describe your intended API use to the AI assistant. Eligible applications may be approved automatically; others remain under review.':
+      'Décrivez votre usage prévu de l’API à l’assistant IA. Les demandes admissibles peuvent être approuvées automatiquement ; les autres restent en examen.',
+    'For example: help me apply for API access and configure CC Switch':
+      'Par exemple : aidez-moi à demander l’accès API et à configurer CC Switch',
+    'No external referrer was observed in this preview. A tagged link does not prove where someone saw it.':
+      'Aucun site référent externe n’a été observé dans cet aperçu. Un lien balisé ne prouve pas où il a été vu.',
+    'Not provided': 'Non fourni',
+    'Open target in test mode': 'Ouvrir la cible en mode test',
+    'Preview requests and test links are excluded from acquisition statistics.':
+      'Les aperçus et les liens de test sont exclus des statistiques d’acquisition.',
+    'Preview source recognition without recording a visit.':
+      'Prévisualisez l’identification de la source sans enregistrer de visite.',
+    'Promotion link preview': 'Aperçu du lien promotionnel',
+    'Recognition basis: saved promotion link identifier.':
+      'Base d’identification : identifiant du lien promotionnel enregistré.',
+    'Unable to preview this promotion link.':
+      'Impossible de prévisualiser ce lien promotionnel.',
   },
-  "ja": {
-    "How did you first hear about LMM? (optional)": "LMM を最初に知ったきっかけは？（任意）",
-    "Content title or platform (optional, no URLs)": "コンテンツ名またはプラットフォーム（任意、URL 不可）",
-    "Skip": "スキップ",
-    "Unable to save source feedback. Please retry.": "回答を保存できませんでした。再試行してください。",
-    "Search engine": "検索エンジン",
-    "Community": "コミュニティ",
-    "Social media": "SNS",
-    "Documentation": "ドキュメント",
-    "Friend recommendation": "友人の紹介",
-    "Client recommendation": "クライアントアプリの紹介",
-    "Self-reported source": "ユーザー申告の流入元",
-    "Optional source feedback is kept for 365 days, separate from automatic attribution. Skip or delete it anytime. Do not include personal details or credentials.": "任意の回答は自動判定とは別に365日間保存されます。いつでもスキップまたは削除できます。個人情報や認証情報は入力しないでください。",
-    "Original request submitted": "初回申請日時",
-    "Review completed": "審査完了日時",
-    "Describe your intended API use in 5–2000 characters. Do not include credentials.": "API の用途を5～2000文字で記入してください。認証情報は含めないでください。",
-    "Submitting replaces this application and sends it for review again. The previous review note is cleared; the AI recommendation is retained.": "送信すると現在の申請を更新して再審査します。以前の審査メモは消去され、AI の推薦文は保持されます。",
-    "Could not submit the access request. Your text is preserved; check the status and try again.": "申請を送信できませんでした。入力内容は保持されています。状態を確認して再試行してください。",
-    "Confirm and submit application": "確認して申請を送信",
-    "You can browse challenges and ask the AI assistant to apply for API access.": "チャレンジを閲覧し、AI アシスタントに API 利用権限の申請を相談できます。",
-    "Describe your intended API use to the AI assistant. Eligible applications may be approved automatically; others remain under review.": "AI アシスタントに API の用途を説明してください。条件を満たす申請は自動承認される場合があり、それ以外は審査を待ちます。",
-    "For example: help me apply for API access and configure CC Switch": "例：API 利用権限の申請と CC Switch の設定を手伝ってください",
-    "No external referrer was observed in this preview. A tagged link does not prove where someone saw it.": "このプレビューでは外部参照元は観測されていません。タグ付きリンクだけでは、そのリンクを見た場所を証明できません。",
-    "Not provided": "未提供",
-    "Open target in test mode": "テストモードで対象ページを開く",
-    "Preview requests and test links are excluded from acquisition statistics.": "プレビューのリクエストとテストリンクは流入統計に含まれません。",
-    "Preview source recognition without recording a visit.": "訪問を記録せずに流入元の識別結果を確認します。",
-    "Promotion link preview": "プロモーションリンクのプレビュー",
-    "Recognition basis: saved promotion link identifier.": "識別の根拠：保存済みプロモーションリンクの識別子。",
-    "Unable to preview this promotion link.": "このプロモーションリンクをプレビューできません。"
+  ja: {
+    'How did you first hear about LMM? (optional)':
+      'LMM を最初に知ったきっかけは？（任意）',
+    'Content title or platform (optional, no URLs)':
+      'コンテンツ名またはプラットフォーム（任意、URL 不可）',
+    Skip: 'スキップ',
+    'Unable to save source feedback. Please retry.':
+      '回答を保存できませんでした。再試行してください。',
+    'Search engine': '検索エンジン',
+    Community: 'コミュニティ',
+    'Social media': 'SNS',
+    Documentation: 'ドキュメント',
+    'Friend recommendation': '友人の紹介',
+    'Client recommendation': 'クライアントアプリの紹介',
+    'Self-reported source': 'ユーザー申告の流入元',
+    'Optional source feedback is kept for 365 days, separate from automatic attribution. Skip or delete it anytime. Do not include personal details or credentials.':
+      '任意の回答は自動判定とは別に365日間保存されます。いつでもスキップまたは削除できます。個人情報や認証情報は入力しないでください。',
+    'Original request submitted': '初回申請日時',
+    'Review completed': '審査完了日時',
+    'Describe your intended API use in 5–2000 characters. Do not include credentials.':
+      'API の用途を5～2000文字で記入してください。認証情報は含めないでください。',
+    'Submitting replaces this application and sends it for review again. The previous review note is cleared; the AI recommendation is retained.':
+      '送信すると現在の申請を更新して再審査します。以前の審査メモは消去され、AI の推薦文は保持されます。',
+    'Could not submit the access request. Your text is preserved; check the status and try again.':
+      '申請を送信できませんでした。入力内容は保持されています。状態を確認して再試行してください。',
+    'Confirm and submit application': '確認して申請を送信',
+    'You can browse challenges and ask the AI assistant to apply for API access.':
+      'チャレンジを閲覧し、AI アシスタントに API 利用権限の申請を相談できます。',
+    'Describe your intended API use to the AI assistant. Eligible applications may be approved automatically; others remain under review.':
+      'AI アシスタントに API の用途を説明してください。条件を満たす申請は自動承認される場合があり、それ以外は審査を待ちます。',
+    'For example: help me apply for API access and configure CC Switch':
+      '例：API 利用権限の申請と CC Switch の設定を手伝ってください',
+    'No external referrer was observed in this preview. A tagged link does not prove where someone saw it.':
+      'このプレビューでは外部参照元は観測されていません。タグ付きリンクだけでは、そのリンクを見た場所を証明できません。',
+    'Not provided': '未提供',
+    'Open target in test mode': 'テストモードで対象ページを開く',
+    'Preview requests and test links are excluded from acquisition statistics.':
+      'プレビューのリクエストとテストリンクは流入統計に含まれません。',
+    'Preview source recognition without recording a visit.':
+      '訪問を記録せずに流入元の識別結果を確認します。',
+    'Promotion link preview': 'プロモーションリンクのプレビュー',
+    'Recognition basis: saved promotion link identifier.':
+      '識別の根拠：保存済みプロモーションリンクの識別子。',
+    'Unable to preview this promotion link.':
+      'このプロモーションリンクをプレビューできません。',
   },
-  "ru": {
-    "How did you first hear about LMM? (optional)": "Как вы впервые узнали о LMM? (необязательно)",
-    "Content title or platform (optional, no URLs)": "Название материала или платформа (необязательно, без URL)",
-    "Skip": "Пропустить",
-    "Unable to save source feedback. Please retry.": "Не удалось сохранить ответ. Повторите попытку.",
-    "Search engine": "Поисковая система",
-    "Community": "Сообщество",
-    "Social media": "Социальные сети",
-    "Documentation": "Документация",
-    "Friend recommendation": "Рекомендация знакомых",
-    "Client recommendation": "Рекомендация приложения",
-    "Self-reported source": "Источник со слов пользователя",
-    "Optional source feedback is kept for 365 days, separate from automatic attribution. Skip or delete it anytime. Do not include personal details or credentials.": "Добровольный ответ хранится 365 дней отдельно от автоматической атрибуции. Его можно пропустить или удалить. Не указывайте личные данные или учётные секреты.",
-    "Original request submitted": "Дата первой заявки",
-    "Review completed": "Рассмотрение завершено",
-    "Describe your intended API use in 5–2000 characters. Do not include credentials.": "Опишите предполагаемое использование API в 5–2000 символах. Не указывайте секретные данные.",
-    "Submitting replaces this application and sends it for review again. The previous review note is cleared; the AI recommendation is retained.": "Отправка заменит текущую заявку и запустит повторное рассмотрение. Предыдущее примечание будет удалено, рекомендация ИИ сохранится.",
-    "Could not submit the access request. Your text is preserved; check the status and try again.": "Не удалось отправить заявку. Текст сохранён; проверьте статус и повторите попытку.",
-    "Confirm and submit application": "Подтвердить и отправить заявку",
-    "You can browse challenges and ask the AI assistant to apply for API access.": "Вы можете просматривать задания и обратиться к ИИ-помощнику для подачи заявки на доступ к API.",
-    "Describe your intended API use to the AI assistant. Eligible applications may be approved automatically; others remain under review.": "Опишите ИИ-помощнику предполагаемое использование API. Подходящие заявки могут одобряться автоматически; остальные остаются на рассмотрении.",
-    "For example: help me apply for API access and configure CC Switch": "Например: помоги подать заявку на доступ к API и настроить CC Switch",
-    "No external referrer was observed in this preview. A tagged link does not prove where someone saw it.": "В этом предпросмотре внешний источник перехода не наблюдался. Метка ссылки не доказывает, где пользователь её увидел.",
-    "Not provided": "Не указано",
-    "Open target in test mode": "Открыть целевую страницу в тестовом режиме",
-    "Preview requests and test links are excluded from acquisition statistics.": "Предпросмотры и тестовые ссылки исключены из статистики привлечения.",
-    "Preview source recognition without recording a visit.": "Проверьте определение источника без записи посещения.",
-    "Promotion link preview": "Предпросмотр рекламной ссылки",
-    "Recognition basis: saved promotion link identifier.": "Основание определения: сохранённый идентификатор рекламной ссылки.",
-    "Unable to preview this promotion link.": "Не удалось открыть предпросмотр рекламной ссылки."
+  ru: {
+    'How did you first hear about LMM? (optional)':
+      'Как вы впервые узнали о LMM? (необязательно)',
+    'Content title or platform (optional, no URLs)':
+      'Название материала или платформа (необязательно, без URL)',
+    Skip: 'Пропустить',
+    'Unable to save source feedback. Please retry.':
+      'Не удалось сохранить ответ. Повторите попытку.',
+    'Search engine': 'Поисковая система',
+    Community: 'Сообщество',
+    'Social media': 'Социальные сети',
+    Documentation: 'Документация',
+    'Friend recommendation': 'Рекомендация знакомых',
+    'Client recommendation': 'Рекомендация приложения',
+    'Self-reported source': 'Источник со слов пользователя',
+    'Optional source feedback is kept for 365 days, separate from automatic attribution. Skip or delete it anytime. Do not include personal details or credentials.':
+      'Добровольный ответ хранится 365 дней отдельно от автоматической атрибуции. Его можно пропустить или удалить. Не указывайте личные данные или учётные секреты.',
+    'Original request submitted': 'Дата первой заявки',
+    'Review completed': 'Рассмотрение завершено',
+    'Describe your intended API use in 5–2000 characters. Do not include credentials.':
+      'Опишите предполагаемое использование API в 5–2000 символах. Не указывайте секретные данные.',
+    'Submitting replaces this application and sends it for review again. The previous review note is cleared; the AI recommendation is retained.':
+      'Отправка заменит текущую заявку и запустит повторное рассмотрение. Предыдущее примечание будет удалено, рекомендация ИИ сохранится.',
+    'Could not submit the access request. Your text is preserved; check the status and try again.':
+      'Не удалось отправить заявку. Текст сохранён; проверьте статус и повторите попытку.',
+    'Confirm and submit application': 'Подтвердить и отправить заявку',
+    'You can browse challenges and ask the AI assistant to apply for API access.':
+      'Вы можете просматривать задания и обратиться к ИИ-помощнику для подачи заявки на доступ к API.',
+    'Describe your intended API use to the AI assistant. Eligible applications may be approved automatically; others remain under review.':
+      'Опишите ИИ-помощнику предполагаемое использование API. Подходящие заявки могут одобряться автоматически; остальные остаются на рассмотрении.',
+    'For example: help me apply for API access and configure CC Switch':
+      'Например: помоги подать заявку на доступ к API и настроить CC Switch',
+    'No external referrer was observed in this preview. A tagged link does not prove where someone saw it.':
+      'В этом предпросмотре внешний источник перехода не наблюдался. Метка ссылки не доказывает, где пользователь её увидел.',
+    'Not provided': 'Не указано',
+    'Open target in test mode': 'Открыть целевую страницу в тестовом режиме',
+    'Preview requests and test links are excluded from acquisition statistics.':
+      'Предпросмотры и тестовые ссылки исключены из статистики привлечения.',
+    'Preview source recognition without recording a visit.':
+      'Проверьте определение источника без записи посещения.',
+    'Promotion link preview': 'Предпросмотр рекламной ссылки',
+    'Recognition basis: saved promotion link identifier.':
+      'Основание определения: сохранённый идентификатор рекламной ссылки.',
+    'Unable to preview this promotion link.':
+      'Не удалось открыть предпросмотр рекламной ссылки.',
   },
-  "vi": {
-    "How did you first hear about LMM? (optional)": "Bạn biết đến LMM lần đầu từ đâu? (không bắt buộc)",
-    "Content title or platform (optional, no URLs)": "Tên nội dung hoặc nền tảng (tùy chọn, không nhập URL)",
-    "Skip": "Bỏ qua",
-    "Unable to save source feedback. Please retry.": "Không lưu được câu trả lời. Vui lòng thử lại.",
-    "Search engine": "Công cụ tìm kiếm",
-    "Community": "Cộng đồng",
-    "Social media": "Mạng xã hội",
-    "Documentation": "Tài liệu dự án",
-    "Friend recommendation": "Bạn bè giới thiệu",
-    "Client recommendation": "Ứng dụng giới thiệu",
-    "Self-reported source": "Nguồn do người dùng khai báo",
-    "Optional source feedback is kept for 365 days, separate from automatic attribution. Skip or delete it anytime. Do not include personal details or credentials.": "Câu trả lời tự nguyện được lưu 365 ngày, tách biệt với nguồn tự động. Có thể bỏ qua hoặc xóa bất cứ lúc nào. Không nhập thông tin cá nhân hay thông tin xác thực.",
-    "Original request submitted": "Thời điểm gửi đơn đầu tiên",
-    "Review completed": "Đã hoàn tất xét duyệt",
-    "Describe your intended API use in 5–2000 characters. Do not include credentials.": "Mô tả mục đích dùng API bằng 5–2000 ký tự. Không đưa thông tin xác thực vào.",
-    "Submitting replaces this application and sends it for review again. The previous review note is cleared; the AI recommendation is retained.": "Gửi sẽ thay thế đơn hiện tại và xét duyệt lại. Ghi chú xét duyệt cũ sẽ bị xóa; đề xuất AI được giữ lại.",
-    "Could not submit the access request. Your text is preserved; check the status and try again.": "Không thể gửi đơn. Nội dung của bạn được giữ lại; hãy kiểm tra trạng thái và thử lại.",
-    "Confirm and submit application": "Xác nhận và gửi đơn",
-    "You can browse challenges and ask the AI assistant to apply for API access.": "Bạn có thể xem thử thách và nhờ trợ lý AI hỗ trợ xin quyền truy cập API.",
-    "Describe your intended API use to the AI assistant. Eligible applications may be approved automatically; others remain under review.": "Mô tả mục đích dùng API cho trợ lý AI. Đơn đủ điều kiện có thể được duyệt tự động; các đơn khác tiếp tục chờ xét duyệt.",
-    "For example: help me apply for API access and configure CC Switch": "Ví dụ: giúp tôi xin quyền truy cập API và cấu hình CC Switch",
-    "No external referrer was observed in this preview. A tagged link does not prove where someone saw it.": "Không ghi nhận trang giới thiệu bên ngoài trong bản xem trước này. Liên kết có gắn thẻ không chứng minh người dùng đã thấy nó ở đâu.",
-    "Not provided": "Chưa cung cấp",
-    "Open target in test mode": "Mở trang đích ở chế độ thử nghiệm",
-    "Preview requests and test links are excluded from acquisition statistics.": "Yêu cầu xem trước và liên kết thử nghiệm không được tính vào thống kê nguồn khách hàng.",
-    "Preview source recognition without recording a visit.": "Xem trước kết quả nhận diện nguồn mà không ghi nhận lượt truy cập.",
-    "Promotion link preview": "Xem trước liên kết quảng bá",
-    "Recognition basis: saved promotion link identifier.": "Căn cứ nhận diện: mã liên kết quảng bá đã lưu.",
-    "Unable to preview this promotion link.": "Không thể xem trước liên kết quảng bá này."
-  }
+  vi: {
+    'How did you first hear about LMM? (optional)':
+      'Bạn biết đến LMM lần đầu từ đâu? (không bắt buộc)',
+    'Content title or platform (optional, no URLs)':
+      'Tên nội dung hoặc nền tảng (tùy chọn, không nhập URL)',
+    Skip: 'Bỏ qua',
+    'Unable to save source feedback. Please retry.':
+      'Không lưu được câu trả lời. Vui lòng thử lại.',
+    'Search engine': 'Công cụ tìm kiếm',
+    Community: 'Cộng đồng',
+    'Social media': 'Mạng xã hội',
+    Documentation: 'Tài liệu dự án',
+    'Friend recommendation': 'Bạn bè giới thiệu',
+    'Client recommendation': 'Ứng dụng giới thiệu',
+    'Self-reported source': 'Nguồn do người dùng khai báo',
+    'Optional source feedback is kept for 365 days, separate from automatic attribution. Skip or delete it anytime. Do not include personal details or credentials.':
+      'Câu trả lời tự nguyện được lưu 365 ngày, tách biệt với nguồn tự động. Có thể bỏ qua hoặc xóa bất cứ lúc nào. Không nhập thông tin cá nhân hay thông tin xác thực.',
+    'Original request submitted': 'Thời điểm gửi đơn đầu tiên',
+    'Review completed': 'Đã hoàn tất xét duyệt',
+    'Describe your intended API use in 5–2000 characters. Do not include credentials.':
+      'Mô tả mục đích dùng API bằng 5–2000 ký tự. Không đưa thông tin xác thực vào.',
+    'Submitting replaces this application and sends it for review again. The previous review note is cleared; the AI recommendation is retained.':
+      'Gửi sẽ thay thế đơn hiện tại và xét duyệt lại. Ghi chú xét duyệt cũ sẽ bị xóa; đề xuất AI được giữ lại.',
+    'Could not submit the access request. Your text is preserved; check the status and try again.':
+      'Không thể gửi đơn. Nội dung của bạn được giữ lại; hãy kiểm tra trạng thái và thử lại.',
+    'Confirm and submit application': 'Xác nhận và gửi đơn',
+    'You can browse challenges and ask the AI assistant to apply for API access.':
+      'Bạn có thể xem thử thách và nhờ trợ lý AI hỗ trợ xin quyền truy cập API.',
+    'Describe your intended API use to the AI assistant. Eligible applications may be approved automatically; others remain under review.':
+      'Mô tả mục đích dùng API cho trợ lý AI. Đơn đủ điều kiện có thể được duyệt tự động; các đơn khác tiếp tục chờ xét duyệt.',
+    'For example: help me apply for API access and configure CC Switch':
+      'Ví dụ: giúp tôi xin quyền truy cập API và cấu hình CC Switch',
+    'No external referrer was observed in this preview. A tagged link does not prove where someone saw it.':
+      'Không ghi nhận trang giới thiệu bên ngoài trong bản xem trước này. Liên kết có gắn thẻ không chứng minh người dùng đã thấy nó ở đâu.',
+    'Not provided': 'Chưa cung cấp',
+    'Open target in test mode': 'Mở trang đích ở chế độ thử nghiệm',
+    'Preview requests and test links are excluded from acquisition statistics.':
+      'Yêu cầu xem trước và liên kết thử nghiệm không được tính vào thống kê nguồn khách hàng.',
+    'Preview source recognition without recording a visit.':
+      'Xem trước kết quả nhận diện nguồn mà không ghi nhận lượt truy cập.',
+    'Promotion link preview': 'Xem trước liên kết quảng bá',
+    'Recognition basis: saved promotion link identifier.':
+      'Căn cứ nhận diện: mã liên kết quảng bá đã lưu.',
+    'Unable to preview this promotion link.':
+      'Không thể xem trước liên kết quảng bá này.',
+  },
 }
 
 const clientPresetsCopy = {
-  "zh": {
-    "In AstrBot, open Providers → Chat Completion and add an OpenAI Compatible provider. Fill in the fields below, save and fetch models, enable your model, then select it under Config → AI → Model.": "在 AstrBot 中打开「服务提供商 → 对话补全」，添加 OpenAI 兼容提供商。填写下方内容，保存并获取模型，启用模型，再到「配置 → AI → 模型」中选用。",
-    "Install Python and the SDK. Copy the example into a .py file and run it; enter your LMM API key only in the local password prompt. Choose a model supporting this SDK protocol.": "安装 Python 和 SDK，将示例复制到 .py 文件后运行。仅在本地密码提示中输入 LMM API Key，并选择支持该 SDK 接口的模型。",
-    "Install SDK": "安装 SDK",
-    "Python request example": "Python 请求示例",
-    "Running this example sends one request and may use your balance. Check its result in Usage Logs.": "运行示例会发送一次请求，可能消耗余额。请在调用记录中查看结果。",
-    "Install Pi": "安装 Pi",
-    "Sign in with OAuth": "通过 OAuth 登录",
-    "Pi uses browser authorization. You do not need to create or paste a manual API key.": "Pi 使用浏览器授权，无需手动创建或粘贴 API Key。",
-    "You can install clients during review. API requests become available after access is approved.": "审核期间可以先安装客户端。权限通过后即可发送 API 请求。"
+  zh: {
+    'In AstrBot, open Providers → Chat Completion and add an OpenAI Compatible provider. Fill in the fields below, save and fetch models, enable your model, then select it under Config → AI → Model.':
+      '在 AstrBot 中打开「服务提供商 → 对话补全」，添加 OpenAI 兼容提供商。填写下方内容，保存并获取模型，启用模型，再到「配置 → AI → 模型」中选用。',
+    'Install Python and the SDK. Copy the example into a .py file and run it; enter your LMM API key only in the local password prompt. Choose a model supporting this SDK protocol.':
+      '安装 Python 和 SDK，将示例复制到 .py 文件后运行。仅在本地密码提示中输入 LMM API Key，并选择支持该 SDK 接口的模型。',
+    'Install SDK': '安装 SDK',
+    'Python request example': 'Python 请求示例',
+    'Running this example sends one request and may use your balance. Check its result in Usage Logs.':
+      '运行示例会发送一次请求，可能消耗余额。请在调用记录中查看结果。',
+    'Install Pi': '安装 Pi',
+    'Sign in with OAuth': '通过 OAuth 登录',
+    'Pi uses browser authorization. You do not need to create or paste a manual API key.':
+      'Pi 使用浏览器授权，无需手动创建或粘贴 API Key。',
+    'You can install clients during review. API requests become available after access is approved.':
+      '审核期间可以先安装客户端。权限通过后即可发送 API 请求。',
   },
-  "zh-TW": {
-    "In AstrBot, open Providers → Chat Completion and add an OpenAI Compatible provider. Fill in the fields below, save and fetch models, enable your model, then select it under Config → AI → Model.": "在 AstrBot 中開啟「服務提供商 → 對話補全」，新增 OpenAI 相容提供商。填寫下方內容，儲存並取得模型，啟用模型，再到「設定 → AI → 模型」中選用。",
-    "Install Python and the SDK. Copy the example into a .py file and run it; enter your LMM API key only in the local password prompt. Choose a model supporting this SDK protocol.": "安裝 Python 和 SDK，將範例複製到 .py 檔案後執行。僅在本機密碼提示中輸入 LMM API Key，並選擇支援該 SDK 介面的模型。",
-    "Install SDK": "安裝 SDK",
-    "Python request example": "Python 請求範例",
-    "Running this example sends one request and may use your balance. Check its result in Usage Logs.": "執行範例會傳送一次請求，可能消耗餘額。請在呼叫記錄中查看結果。",
-    "Install Pi": "安裝 Pi",
-    "Sign in with OAuth": "透過 OAuth 登入",
-    "Pi uses browser authorization. You do not need to create or paste a manual API key.": "Pi 使用瀏覽器授權，無需手動建立或貼上 API Key。",
-    "You can install clients during review. API requests become available after access is approved.": "審核期間可以先安裝用戶端。權限通過後即可傳送 API 請求。"
+  'zh-TW': {
+    'In AstrBot, open Providers → Chat Completion and add an OpenAI Compatible provider. Fill in the fields below, save and fetch models, enable your model, then select it under Config → AI → Model.':
+      '在 AstrBot 中開啟「服務提供商 → 對話補全」，新增 OpenAI 相容提供商。填寫下方內容，儲存並取得模型，啟用模型，再到「設定 → AI → 模型」中選用。',
+    'Install Python and the SDK. Copy the example into a .py file and run it; enter your LMM API key only in the local password prompt. Choose a model supporting this SDK protocol.':
+      '安裝 Python 和 SDK，將範例複製到 .py 檔案後執行。僅在本機密碼提示中輸入 LMM API Key，並選擇支援該 SDK 介面的模型。',
+    'Install SDK': '安裝 SDK',
+    'Python request example': 'Python 請求範例',
+    'Running this example sends one request and may use your balance. Check its result in Usage Logs.':
+      '執行範例會傳送一次請求，可能消耗餘額。請在呼叫記錄中查看結果。',
+    'Install Pi': '安裝 Pi',
+    'Sign in with OAuth': '透過 OAuth 登入',
+    'Pi uses browser authorization. You do not need to create or paste a manual API key.':
+      'Pi 使用瀏覽器授權，無需手動建立或貼上 API Key。',
+    'You can install clients during review. API requests become available after access is approved.':
+      '審核期間可以先安裝用戶端。權限通過後即可傳送 API 請求。',
   },
-  "fr": {
-    "In AstrBot, open Providers → Chat Completion and add an OpenAI Compatible provider. Fill in the fields below, save and fetch models, enable your model, then select it under Config → AI → Model.": "Dans AstrBot, ouvrez Providers → Chat Completion et ajoutez un fournisseur OpenAI Compatible. Remplissez les champs ci-dessous, enregistrez et récupérez les modèles, activez le vôtre, puis sélectionnez-le dans Config → AI → Model.",
-    "Install Python and the SDK. Copy the example into a .py file and run it; enter your LMM API key only in the local password prompt. Choose a model supporting this SDK protocol.": "Installez Python et le SDK. Copiez l’exemple dans un fichier .py et exécutez-le ; saisissez votre clé API LMM uniquement dans l’invite locale de mot de passe. Choisissez un modèle compatible avec le protocole du SDK.",
-    "Install SDK": "Installer le SDK",
-    "Python request example": "Exemple de requête Python",
-    "Running this example sends one request and may use your balance. Check its result in Usage Logs.": "Cet exemple envoie une requête et peut consommer votre solde. Consultez son résultat dans les journaux d’utilisation.",
-    "Install Pi": "Installer Pi",
-    "Sign in with OAuth": "Connexion avec OAuth",
-    "Pi uses browser authorization. You do not need to create or paste a manual API key.": "Pi utilise l’autorisation du navigateur. Aucune création ni saisie manuelle de clé API n’est nécessaire.",
-    "You can install clients during review. API requests become available after access is approved.": "Vous pouvez installer les clients pendant l’examen. Les requêtes API sont disponibles une fois l’accès approuvé."
+  fr: {
+    'In AstrBot, open Providers → Chat Completion and add an OpenAI Compatible provider. Fill in the fields below, save and fetch models, enable your model, then select it under Config → AI → Model.':
+      'Dans AstrBot, ouvrez Providers → Chat Completion et ajoutez un fournisseur OpenAI Compatible. Remplissez les champs ci-dessous, enregistrez et récupérez les modèles, activez le vôtre, puis sélectionnez-le dans Config → AI → Model.',
+    'Install Python and the SDK. Copy the example into a .py file and run it; enter your LMM API key only in the local password prompt. Choose a model supporting this SDK protocol.':
+      'Installez Python et le SDK. Copiez l’exemple dans un fichier .py et exécutez-le ; saisissez votre clé API LMM uniquement dans l’invite locale de mot de passe. Choisissez un modèle compatible avec le protocole du SDK.',
+    'Install SDK': 'Installer le SDK',
+    'Python request example': 'Exemple de requête Python',
+    'Running this example sends one request and may use your balance. Check its result in Usage Logs.':
+      'Cet exemple envoie une requête et peut consommer votre solde. Consultez son résultat dans les journaux d’utilisation.',
+    'Install Pi': 'Installer Pi',
+    'Sign in with OAuth': 'Connexion avec OAuth',
+    'Pi uses browser authorization. You do not need to create or paste a manual API key.':
+      'Pi utilise l’autorisation du navigateur. Aucune création ni saisie manuelle de clé API n’est nécessaire.',
+    'You can install clients during review. API requests become available after access is approved.':
+      'Vous pouvez installer les clients pendant l’examen. Les requêtes API sont disponibles une fois l’accès approuvé.',
   },
-  "ja": {
-    "In AstrBot, open Providers → Chat Completion and add an OpenAI Compatible provider. Fill in the fields below, save and fetch models, enable your model, then select it under Config → AI → Model.": "AstrBot で Providers → Chat Completion を開き、OpenAI Compatible を追加します。以下の項目を入力して保存し、モデルを取得・有効化した後、Config → AI → Model で選択してください。",
-    "Install Python and the SDK. Copy the example into a .py file and run it; enter your LMM API key only in the local password prompt. Choose a model supporting this SDK protocol.": "Python と SDK をインストールし、例を .py ファイルにコピーして実行します。LMM API キーはローカルのパスワード入力画面だけに入力し、この SDK のプロトコルに対応するモデルを選んでください。",
-    "Install SDK": "SDK をインストール",
-    "Python request example": "Python リクエスト例",
-    "Running this example sends one request and may use your balance. Check its result in Usage Logs.": "この例を実行するとリクエストが1回送信され、残高を消費する場合があります。呼び出し履歴で結果を確認してください。",
-    "Install Pi": "Pi をインストール",
-    "Sign in with OAuth": "OAuth でログイン",
-    "Pi uses browser authorization. You do not need to create or paste a manual API key.": "Pi はブラウザーで認可します。API キーを手動で作成・貼り付ける必要はありません。",
-    "You can install clients during review. API requests become available after access is approved.": "審査中にクライアントをインストールできます。承認後に API リクエストを送信できます。"
+  ja: {
+    'In AstrBot, open Providers → Chat Completion and add an OpenAI Compatible provider. Fill in the fields below, save and fetch models, enable your model, then select it under Config → AI → Model.':
+      'AstrBot で Providers → Chat Completion を開き、OpenAI Compatible を追加します。以下の項目を入力して保存し、モデルを取得・有効化した後、Config → AI → Model で選択してください。',
+    'Install Python and the SDK. Copy the example into a .py file and run it; enter your LMM API key only in the local password prompt. Choose a model supporting this SDK protocol.':
+      'Python と SDK をインストールし、例を .py ファイルにコピーして実行します。LMM API キーはローカルのパスワード入力画面だけに入力し、この SDK のプロトコルに対応するモデルを選んでください。',
+    'Install SDK': 'SDK をインストール',
+    'Python request example': 'Python リクエスト例',
+    'Running this example sends one request and may use your balance. Check its result in Usage Logs.':
+      'この例を実行するとリクエストが1回送信され、残高を消費する場合があります。呼び出し履歴で結果を確認してください。',
+    'Install Pi': 'Pi をインストール',
+    'Sign in with OAuth': 'OAuth でログイン',
+    'Pi uses browser authorization. You do not need to create or paste a manual API key.':
+      'Pi はブラウザーで認可します。API キーを手動で作成・貼り付ける必要はありません。',
+    'You can install clients during review. API requests become available after access is approved.':
+      '審査中にクライアントをインストールできます。承認後に API リクエストを送信できます。',
   },
-  "ru": {
-    "In AstrBot, open Providers → Chat Completion and add an OpenAI Compatible provider. Fill in the fields below, save and fetch models, enable your model, then select it under Config → AI → Model.": "В AstrBot откройте Providers → Chat Completion и добавьте провайдера OpenAI Compatible. Заполните поля ниже, сохраните настройки и загрузите модели, включите нужную модель и выберите её в Config → AI → Model.",
-    "Install Python and the SDK. Copy the example into a .py file and run it; enter your LMM API key only in the local password prompt. Choose a model supporting this SDK protocol.": "Установите Python и SDK. Скопируйте пример в файл .py и запустите его; вводите API-ключ LMM только в локальном запросе пароля. Выберите модель, поддерживающую протокол этого SDK.",
-    "Install SDK": "Установить SDK",
-    "Python request example": "Пример запроса Python",
-    "Running this example sends one request and may use your balance. Check its result in Usage Logs.": "Запуск примера отправляет один запрос и может списать средства с баланса. Результат смотрите в журнале вызовов.",
-    "Install Pi": "Установить Pi",
-    "Sign in with OAuth": "Войти через OAuth",
-    "Pi uses browser authorization. You do not need to create or paste a manual API key.": "Pi использует авторизацию в браузере. Создавать или вставлять API-ключ вручную не требуется.",
-    "You can install clients during review. API requests become available after access is approved.": "Во время рассмотрения можно установить клиенты. API-запросы станут доступны после одобрения доступа."
+  ru: {
+    'In AstrBot, open Providers → Chat Completion and add an OpenAI Compatible provider. Fill in the fields below, save and fetch models, enable your model, then select it under Config → AI → Model.':
+      'В AstrBot откройте Providers → Chat Completion и добавьте провайдера OpenAI Compatible. Заполните поля ниже, сохраните настройки и загрузите модели, включите нужную модель и выберите её в Config → AI → Model.',
+    'Install Python and the SDK. Copy the example into a .py file and run it; enter your LMM API key only in the local password prompt. Choose a model supporting this SDK protocol.':
+      'Установите Python и SDK. Скопируйте пример в файл .py и запустите его; вводите API-ключ LMM только в локальном запросе пароля. Выберите модель, поддерживающую протокол этого SDK.',
+    'Install SDK': 'Установить SDK',
+    'Python request example': 'Пример запроса Python',
+    'Running this example sends one request and may use your balance. Check its result in Usage Logs.':
+      'Запуск примера отправляет один запрос и может списать средства с баланса. Результат смотрите в журнале вызовов.',
+    'Install Pi': 'Установить Pi',
+    'Sign in with OAuth': 'Войти через OAuth',
+    'Pi uses browser authorization. You do not need to create or paste a manual API key.':
+      'Pi использует авторизацию в браузере. Создавать или вставлять API-ключ вручную не требуется.',
+    'You can install clients during review. API requests become available after access is approved.':
+      'Во время рассмотрения можно установить клиенты. API-запросы станут доступны после одобрения доступа.',
   },
-  "vi": {
-    "In AstrBot, open Providers → Chat Completion and add an OpenAI Compatible provider. Fill in the fields below, save and fetch models, enable your model, then select it under Config → AI → Model.": "Trong AstrBot, mở Providers → Chat Completion và thêm nhà cung cấp OpenAI Compatible. Điền các trường bên dưới, lưu và lấy danh sách mô hình, bật mô hình rồi chọn tại Config → AI → Model.",
-    "Install Python and the SDK. Copy the example into a .py file and run it; enter your LMM API key only in the local password prompt. Choose a model supporting this SDK protocol.": "Cài Python và SDK. Sao chép ví dụ vào tệp .py rồi chạy; chỉ nhập API Key LMM tại lời nhắc mật khẩu cục bộ. Chọn mô hình hỗ trợ giao thức của SDK này.",
-    "Install SDK": "Cài SDK",
-    "Python request example": "Ví dụ yêu cầu Python",
-    "Running this example sends one request and may use your balance. Check its result in Usage Logs.": "Chạy ví dụ sẽ gửi một yêu cầu và có thể sử dụng số dư. Xem kết quả trong nhật ký sử dụng.",
-    "Install Pi": "Cài Pi",
-    "Sign in with OAuth": "Đăng nhập bằng OAuth",
-    "Pi uses browser authorization. You do not need to create or paste a manual API key.": "Pi dùng cấp quyền qua trình duyệt. Bạn không cần tự tạo hoặc dán API Key.",
-    "You can install clients during review. API requests become available after access is approved.": "Bạn có thể cài ứng dụng trong lúc chờ duyệt. Yêu cầu API khả dụng sau khi được cấp quyền."
+  vi: {
+    'In AstrBot, open Providers → Chat Completion and add an OpenAI Compatible provider. Fill in the fields below, save and fetch models, enable your model, then select it under Config → AI → Model.':
+      'Trong AstrBot, mở Providers → Chat Completion và thêm nhà cung cấp OpenAI Compatible. Điền các trường bên dưới, lưu và lấy danh sách mô hình, bật mô hình rồi chọn tại Config → AI → Model.',
+    'Install Python and the SDK. Copy the example into a .py file and run it; enter your LMM API key only in the local password prompt. Choose a model supporting this SDK protocol.':
+      'Cài Python và SDK. Sao chép ví dụ vào tệp .py rồi chạy; chỉ nhập API Key LMM tại lời nhắc mật khẩu cục bộ. Chọn mô hình hỗ trợ giao thức của SDK này.',
+    'Install SDK': 'Cài SDK',
+    'Python request example': 'Ví dụ yêu cầu Python',
+    'Running this example sends one request and may use your balance. Check its result in Usage Logs.':
+      'Chạy ví dụ sẽ gửi một yêu cầu và có thể sử dụng số dư. Xem kết quả trong nhật ký sử dụng.',
+    'Install Pi': 'Cài Pi',
+    'Sign in with OAuth': 'Đăng nhập bằng OAuth',
+    'Pi uses browser authorization. You do not need to create or paste a manual API key.':
+      'Pi dùng cấp quyền qua trình duyệt. Bạn không cần tự tạo hoặc dán API Key.',
+    'You can install clients during review. API requests become available after access is approved.':
+      'Bạn có thể cài ứng dụng trong lúc chờ duyệt. Yêu cầu API khả dụng sau khi được cấp quyền.',
   },
-  "en": {
-    "In AstrBot, open Providers → Chat Completion and add an OpenAI Compatible provider. Fill in the fields below, save and fetch models, enable your model, then select it under Config → AI → Model.": "In AstrBot, open Providers → Chat Completion and add an OpenAI Compatible provider. Fill in the fields below, save and fetch models, enable your model, then select it under Config → AI → Model.",
-    "Install Python and the SDK. Copy the example into a .py file and run it; enter your LMM API key only in the local password prompt. Choose a model supporting this SDK protocol.": "Install Python and the SDK. Copy the example into a .py file and run it; enter your LMM API key only in the local password prompt. Choose a model supporting this SDK protocol.",
-    "Install SDK": "Install SDK",
-    "Python request example": "Python request example",
-    "Running this example sends one request and may use your balance. Check its result in Usage Logs.": "Running this example sends one request and may use your balance. Check its result in Usage Logs.",
-    "Install Pi": "Install Pi",
-    "Sign in with OAuth": "Sign in with OAuth",
-    "Pi uses browser authorization. You do not need to create or paste a manual API key.": "Pi uses browser authorization. You do not need to create or paste a manual API key.",
-    "You can install clients during review. API requests become available after access is approved.": "You can install clients during review. API requests become available after access is approved."
-  }
+  en: {
+    'In AstrBot, open Providers → Chat Completion and add an OpenAI Compatible provider. Fill in the fields below, save and fetch models, enable your model, then select it under Config → AI → Model.':
+      'In AstrBot, open Providers → Chat Completion and add an OpenAI Compatible provider. Fill in the fields below, save and fetch models, enable your model, then select it under Config → AI → Model.',
+    'Install Python and the SDK. Copy the example into a .py file and run it; enter your LMM API key only in the local password prompt. Choose a model supporting this SDK protocol.':
+      'Install Python and the SDK. Copy the example into a .py file and run it; enter your LMM API key only in the local password prompt. Choose a model supporting this SDK protocol.',
+    'Install SDK': 'Install SDK',
+    'Python request example': 'Python request example',
+    'Running this example sends one request and may use your balance. Check its result in Usage Logs.':
+      'Running this example sends one request and may use your balance. Check its result in Usage Logs.',
+    'Install Pi': 'Install Pi',
+    'Sign in with OAuth': 'Sign in with OAuth',
+    'Pi uses browser authorization. You do not need to create or paste a manual API key.':
+      'Pi uses browser authorization. You do not need to create or paste a manual API key.',
+    'You can install clients during review. API requests become available after access is approved.':
+      'You can install clients during review. API requests become available after access is approved.',
+  },
 }
 
 const acquisitionCostCopy = {
-  "en": {
-    "Compare spend with attributed registrations for this promotion link only.": "Compare spend with attributed registrations for this promotion link only.",
-    "Cost per first paying account": "Cost per first paying account",
-    "Cost per registration": "Cost per registration",
-    "First paying accounts": "First paying accounts",
-    "Observation days after registration": "Observation days after registration",
-    "Observing until {{date}}; payer cost is not final.": "Observing until {{date}}; payer cost is not final.",
-    "Only retained, attributed accounts are counted. Successful cash payments count once per account; gifts and API usage are excluded. No currency conversion or profit calculation is performed. Overlapping cohorts must not be added together.": "Only retained, attributed accounts are counted. Successful cash payments count once per account; gifts and API usage are excluded. No currency conversion or profit calculation is performed. Overlapping cohorts must not be added together.",
-    "Promotion cost": "Promotion cost",
-    "Promotion cost comparison": "Promotion cost comparison",
-    "Recorded spend": "Recorded spend",
-    "Registration end, exclusive (UTC)": "Registration end, exclusive (UTC)",
-    "Registration start (UTC)": "Registration start (UTC)",
-    "Save spend": "Save spend",
-    "Select a valid cohort and currency.": "Select a valid cohort and currency.",
-    "Some payment records lack settlement evidence. Payer cost is unavailable.": "Some payment records lack settlement evidence. Payer cost is unavailable.",
-    "Spend for this exact cohort": "Spend for this exact cohort",
-    "Unable to load this cost comparison. Choose a cohort within the retained year.": "Unable to load this cost comparison. Choose a cohort within the retained year.",
-    "Unable to save promotion spend.": "Unable to save promotion spend."
+  en: {
+    'Compare spend with attributed registrations for this promotion link only.':
+      'Compare spend with attributed registrations for this promotion link only.',
+    'Cost per first paying account': 'Cost per first paying account',
+    'Cost per registration': 'Cost per registration',
+    'First paying accounts': 'First paying accounts',
+    'Observation days after registration':
+      'Observation days after registration',
+    'Observing until {{date}}; payer cost is not final.':
+      'Observing until {{date}}; payer cost is not final.',
+    'Only retained, attributed accounts are counted. Successful cash payments count once per account; gifts and API usage are excluded. No currency conversion or profit calculation is performed. Overlapping cohorts must not be added together.':
+      'Only retained, attributed accounts are counted. Successful cash payments count once per account; gifts and API usage are excluded. No currency conversion or profit calculation is performed. Overlapping cohorts must not be added together.',
+    'Promotion cost': 'Promotion cost',
+    'Promotion cost comparison': 'Promotion cost comparison',
+    'Recorded spend': 'Recorded spend',
+    'Registration end, exclusive (UTC)': 'Registration end, exclusive (UTC)',
+    'Registration start (UTC)': 'Registration start (UTC)',
+    'Save spend': 'Save spend',
+    'Select a valid cohort and currency.':
+      'Select a valid cohort and currency.',
+    'Some payment records lack settlement evidence. Payer cost is unavailable.':
+      'Some payment records lack settlement evidence. Payer cost is unavailable.',
+    'Spend for this exact cohort': 'Spend for this exact cohort',
+    'Unable to load this cost comparison. Choose a cohort within the retained year.':
+      'Unable to load this cost comparison. Choose a cohort within the retained year.',
+    'Unable to save promotion spend.': 'Unable to save promotion spend.',
   },
-  "zh": {
-    "Compare spend with attributed registrations for this promotion link only.": "仅对照这条推广链接归属的注册用户与推广支出。",
-    "Cost per first paying account": "每首次付费账号成本",
-    "Cost per registration": "每注册账号成本",
-    "First paying accounts": "首次付费账号",
-    "Observation days after registration": "注册后观察天数",
-    "Observing until {{date}}; payer cost is not final.": "观察至 {{date}}，付费获客成本尚未定案。",
-    "Only retained, attributed accounts are counted. Successful cash payments count once per account; gifts and API usage are excluded. No currency conversion or profit calculation is performed. Overlapping cohorts must not be added together.": "只统计保留期内且能归属来源的账号。成功现金付款按账号去重，不计赠送余额和 API 消费。不换算币种，不计算利润。重叠批次不能相加。",
-    "Promotion cost": "推广成本",
-    "Promotion cost comparison": "推广成本对照",
-    "Recorded spend": "已录入支出",
-    "Registration end, exclusive (UTC)": "注册截止日期，不含当天（UTC）",
-    "Registration start (UTC)": "注册起始日期（UTC）",
-    "Save spend": "保存支出",
-    "Select a valid cohort and currency.": "请选择有效的注册批次和币种。",
-    "Some payment records lack settlement evidence. Payer cost is unavailable.": "部分付款记录缺少结算依据，无法计算首次付费账号成本。",
-    "Spend for this exact cohort": "该批次对应的支出",
-    "Unable to load this cost comparison. Choose a cohort within the retained year.": "无法加载成本对照，请选择保留期一年内的注册批次。",
-    "Unable to save promotion spend.": "无法保存推广支出。"
+  zh: {
+    'Compare spend with attributed registrations for this promotion link only.':
+      '仅对照这条推广链接归属的注册用户与推广支出。',
+    'Cost per first paying account': '每首次付费账号成本',
+    'Cost per registration': '每注册账号成本',
+    'First paying accounts': '首次付费账号',
+    'Observation days after registration': '注册后观察天数',
+    'Observing until {{date}}; payer cost is not final.':
+      '观察至 {{date}}，付费获客成本尚未定案。',
+    'Only retained, attributed accounts are counted. Successful cash payments count once per account; gifts and API usage are excluded. No currency conversion or profit calculation is performed. Overlapping cohorts must not be added together.':
+      '只统计保留期内且能归属来源的账号。成功现金付款按账号去重，不计赠送余额和 API 消费。不换算币种，不计算利润。重叠批次不能相加。',
+    'Promotion cost': '推广成本',
+    'Promotion cost comparison': '推广成本对照',
+    'Recorded spend': '已录入支出',
+    'Registration end, exclusive (UTC)': '注册截止日期，不含当天（UTC）',
+    'Registration start (UTC)': '注册起始日期（UTC）',
+    'Save spend': '保存支出',
+    'Select a valid cohort and currency.': '请选择有效的注册批次和币种。',
+    'Some payment records lack settlement evidence. Payer cost is unavailable.':
+      '部分付款记录缺少结算依据，无法计算首次付费账号成本。',
+    'Spend for this exact cohort': '该批次对应的支出',
+    'Unable to load this cost comparison. Choose a cohort within the retained year.':
+      '无法加载成本对照，请选择保留期一年内的注册批次。',
+    'Unable to save promotion spend.': '无法保存推广支出。',
   },
-  "zh-TW": {
-    "Compare spend with attributed registrations for this promotion link only.": "僅對照這條推廣連結歸屬的註冊使用者與推廣支出。",
-    "Cost per first paying account": "每首次付費帳號成本",
-    "Cost per registration": "每註冊帳號成本",
-    "First paying accounts": "首次付費帳號",
-    "Observation days after registration": "註冊後觀察天數",
-    "Observing until {{date}}; payer cost is not final.": "觀察至 {{date}}，付費獲客成本尚未定案。",
-    "Only retained, attributed accounts are counted. Successful cash payments count once per account; gifts and API usage are excluded. No currency conversion or profit calculation is performed. Overlapping cohorts must not be added together.": "僅統計保留期間內且能歸屬來源的帳號。成功現金付款按帳號去重，不計贈送餘額和 API 消費。不換算幣別，不計算利潤。重疊批次不可相加。",
-    "Promotion cost": "推廣成本",
-    "Promotion cost comparison": "推廣成本對照",
-    "Recorded spend": "已輸入支出",
-    "Registration end, exclusive (UTC)": "註冊截止日期，不含當天（UTC）",
-    "Registration start (UTC)": "註冊起始日期（UTC）",
-    "Save spend": "儲存支出",
-    "Select a valid cohort and currency.": "請選擇有效的註冊批次與幣別。",
-    "Some payment records lack settlement evidence. Payer cost is unavailable.": "部分付款紀錄缺少結算依據，無法計算首次付費帳號成本。",
-    "Spend for this exact cohort": "此批次對應的支出",
-    "Unable to load this cost comparison. Choose a cohort within the retained year.": "無法載入成本對照，請選擇保留期間一年內的註冊批次。",
-    "Unable to save promotion spend.": "無法儲存推廣支出。"
+  'zh-TW': {
+    'Compare spend with attributed registrations for this promotion link only.':
+      '僅對照這條推廣連結歸屬的註冊使用者與推廣支出。',
+    'Cost per first paying account': '每首次付費帳號成本',
+    'Cost per registration': '每註冊帳號成本',
+    'First paying accounts': '首次付費帳號',
+    'Observation days after registration': '註冊後觀察天數',
+    'Observing until {{date}}; payer cost is not final.':
+      '觀察至 {{date}}，付費獲客成本尚未定案。',
+    'Only retained, attributed accounts are counted. Successful cash payments count once per account; gifts and API usage are excluded. No currency conversion or profit calculation is performed. Overlapping cohorts must not be added together.':
+      '僅統計保留期間內且能歸屬來源的帳號。成功現金付款按帳號去重，不計贈送餘額和 API 消費。不換算幣別，不計算利潤。重疊批次不可相加。',
+    'Promotion cost': '推廣成本',
+    'Promotion cost comparison': '推廣成本對照',
+    'Recorded spend': '已輸入支出',
+    'Registration end, exclusive (UTC)': '註冊截止日期，不含當天（UTC）',
+    'Registration start (UTC)': '註冊起始日期（UTC）',
+    'Save spend': '儲存支出',
+    'Select a valid cohort and currency.': '請選擇有效的註冊批次與幣別。',
+    'Some payment records lack settlement evidence. Payer cost is unavailable.':
+      '部分付款紀錄缺少結算依據，無法計算首次付費帳號成本。',
+    'Spend for this exact cohort': '此批次對應的支出',
+    'Unable to load this cost comparison. Choose a cohort within the retained year.':
+      '無法載入成本對照，請選擇保留期間一年內的註冊批次。',
+    'Unable to save promotion spend.': '無法儲存推廣支出。',
   },
-  "fr": {
-    "Compare spend with attributed registrations for this promotion link only.": "Comparez les dépenses aux inscriptions attribuées uniquement à ce lien promotionnel.",
-    "Cost per first paying account": "Coût par premier compte payant",
-    "Cost per registration": "Coût par inscription",
-    "First paying accounts": "Premiers comptes payants",
-    "Observation days after registration": "Jours d’observation après inscription",
-    "Observing until {{date}}; payer cost is not final.": "Observation jusqu’au {{date}} ; le coût par compte payant n’est pas définitif.",
-    "Only retained, attributed accounts are counted. Successful cash payments count once per account; gifts and API usage are excluded. No currency conversion or profit calculation is performed. Overlapping cohorts must not be added together.": "Seuls les comptes conservés et attribués sont comptés. Les paiements monétaires réussis sont dédupliqués par compte ; crédits offerts et consommation API sont exclus. Aucun change ni calcul de bénéfice. N’additionnez pas les cohortes qui se chevauchent.",
-    "Promotion cost": "Coût promotionnel",
-    "Promotion cost comparison": "Comparaison des coûts promotionnels",
-    "Recorded spend": "Dépenses enregistrées",
-    "Registration end, exclusive (UTC)": "Fin des inscriptions, exclue (UTC)",
-    "Registration start (UTC)": "Début des inscriptions (UTC)",
-    "Save spend": "Enregistrer les dépenses",
-    "Select a valid cohort and currency.": "Sélectionnez une cohorte et une devise valides.",
-    "Some payment records lack settlement evidence. Payer cost is unavailable.": "Certains paiements manquent de preuves de règlement. Le coût par premier compte payant est indisponible.",
-    "Spend for this exact cohort": "Dépenses de cette cohorte précise",
-    "Unable to load this cost comparison. Choose a cohort within the retained year.": "Comparaison indisponible. Choisissez une cohorte dans l’année de conservation.",
-    "Unable to save promotion spend.": "Impossible d’enregistrer les dépenses promotionnelles."
+  fr: {
+    'Compare spend with attributed registrations for this promotion link only.':
+      'Comparez les dépenses aux inscriptions attribuées uniquement à ce lien promotionnel.',
+    'Cost per first paying account': 'Coût par premier compte payant',
+    'Cost per registration': 'Coût par inscription',
+    'First paying accounts': 'Premiers comptes payants',
+    'Observation days after registration':
+      'Jours d’observation après inscription',
+    'Observing until {{date}}; payer cost is not final.':
+      'Observation jusqu’au {{date}} ; le coût par compte payant n’est pas définitif.',
+    'Only retained, attributed accounts are counted. Successful cash payments count once per account; gifts and API usage are excluded. No currency conversion or profit calculation is performed. Overlapping cohorts must not be added together.':
+      'Seuls les comptes conservés et attribués sont comptés. Les paiements monétaires réussis sont dédupliqués par compte ; crédits offerts et consommation API sont exclus. Aucun change ni calcul de bénéfice. N’additionnez pas les cohortes qui se chevauchent.',
+    'Promotion cost': 'Coût promotionnel',
+    'Promotion cost comparison': 'Comparaison des coûts promotionnels',
+    'Recorded spend': 'Dépenses enregistrées',
+    'Registration end, exclusive (UTC)': 'Fin des inscriptions, exclue (UTC)',
+    'Registration start (UTC)': 'Début des inscriptions (UTC)',
+    'Save spend': 'Enregistrer les dépenses',
+    'Select a valid cohort and currency.':
+      'Sélectionnez une cohorte et une devise valides.',
+    'Some payment records lack settlement evidence. Payer cost is unavailable.':
+      'Certains paiements manquent de preuves de règlement. Le coût par premier compte payant est indisponible.',
+    'Spend for this exact cohort': 'Dépenses de cette cohorte précise',
+    'Unable to load this cost comparison. Choose a cohort within the retained year.':
+      'Comparaison indisponible. Choisissez une cohorte dans l’année de conservation.',
+    'Unable to save promotion spend.':
+      'Impossible d’enregistrer les dépenses promotionnelles.',
   },
-  "ja": {
-    "Compare spend with attributed registrations for this promotion link only.": "このプロモーションリンクに帰属する登録と支出のみを比較します。",
-    "Cost per first paying account": "初回支払いアカウントあたりの費用",
-    "Cost per registration": "登録アカウントあたりの費用",
-    "First paying accounts": "初回支払いアカウント",
-    "Observation days after registration": "登録後の観測日数",
-    "Observing until {{date}}; payer cost is not final.": "{{date}} まで観測中です。支払いアカウント獲得費用は未確定です。",
-    "Only retained, attributed accounts are counted. Successful cash payments count once per account; gifts and API usage are excluded. No currency conversion or profit calculation is performed. Overlapping cohorts must not be added together.": "保存期間内で流入元に帰属できるアカウントのみ集計します。成功した実払いはアカウント単位で重複を除き、付与残高と API 利用額を含めません。通貨換算や利益計算は行いません。重複する登録期間の集計を合算しないでください。",
-    "Promotion cost": "プロモーション費用",
-    "Promotion cost comparison": "プロモーション費用の比較",
-    "Recorded spend": "記録済み支出",
-    "Registration end, exclusive (UTC)": "登録終了日・当日を含まない（UTC）",
-    "Registration start (UTC)": "登録開始日（UTC）",
-    "Save spend": "支出を保存",
-    "Select a valid cohort and currency.": "有効な登録期間と通貨を選択してください。",
-    "Some payment records lack settlement evidence. Payer cost is unavailable.": "一部の支払いに決済の根拠が不足しているため、初回支払いアカウントあたりの費用を算出できません。",
-    "Spend for this exact cohort": "この登録期間に対応する支出",
-    "Unable to load this cost comparison. Choose a cohort within the retained year.": "費用を比較できません。保存期間の1年以内の登録期間を選択してください。",
-    "Unable to save promotion spend.": "プロモーション支出を保存できません。"
+  ja: {
+    'Compare spend with attributed registrations for this promotion link only.':
+      'このプロモーションリンクに帰属する登録と支出のみを比較します。',
+    'Cost per first paying account': '初回支払いアカウントあたりの費用',
+    'Cost per registration': '登録アカウントあたりの費用',
+    'First paying accounts': '初回支払いアカウント',
+    'Observation days after registration': '登録後の観測日数',
+    'Observing until {{date}}; payer cost is not final.':
+      '{{date}} まで観測中です。支払いアカウント獲得費用は未確定です。',
+    'Only retained, attributed accounts are counted. Successful cash payments count once per account; gifts and API usage are excluded. No currency conversion or profit calculation is performed. Overlapping cohorts must not be added together.':
+      '保存期間内で流入元に帰属できるアカウントのみ集計します。成功した実払いはアカウント単位で重複を除き、付与残高と API 利用額を含めません。通貨換算や利益計算は行いません。重複する登録期間の集計を合算しないでください。',
+    'Promotion cost': 'プロモーション費用',
+    'Promotion cost comparison': 'プロモーション費用の比較',
+    'Recorded spend': '記録済み支出',
+    'Registration end, exclusive (UTC)': '登録終了日・当日を含まない（UTC）',
+    'Registration start (UTC)': '登録開始日（UTC）',
+    'Save spend': '支出を保存',
+    'Select a valid cohort and currency.':
+      '有効な登録期間と通貨を選択してください。',
+    'Some payment records lack settlement evidence. Payer cost is unavailable.':
+      '一部の支払いに決済の根拠が不足しているため、初回支払いアカウントあたりの費用を算出できません。',
+    'Spend for this exact cohort': 'この登録期間に対応する支出',
+    'Unable to load this cost comparison. Choose a cohort within the retained year.':
+      '費用を比較できません。保存期間の1年以内の登録期間を選択してください。',
+    'Unable to save promotion spend.': 'プロモーション支出を保存できません。',
   },
-  "ru": {
-    "Compare spend with attributed registrations for this promotion link only.": "Сравните расходы с регистрациями, отнесёнными только к этой рекламной ссылке.",
-    "Cost per first paying account": "Стоимость первого платящего аккаунта",
-    "Cost per registration": "Стоимость регистрации",
-    "First paying accounts": "Впервые заплатившие аккаунты",
-    "Observation days after registration": "Дней наблюдения после регистрации",
-    "Observing until {{date}}; payer cost is not final.": "Наблюдение до {{date}}; стоимость привлечения плательщика ещё не окончательная.",
-    "Only retained, attributed accounts are counted. Successful cash payments count once per account; gifts and API usage are excluded. No currency conversion or profit calculation is performed. Overlapping cohorts must not be added together.": "Учитываются только сохранённые аккаунты с установленным источником. Успешные денежные платежи считаются один раз на аккаунт; подарки и расход API исключены. Конвертация валют и расчёт прибыли не выполняются. Пересекающиеся когорты нельзя суммировать.",
-    "Promotion cost": "Расходы на продвижение",
-    "Promotion cost comparison": "Сравнение расходов на продвижение",
-    "Recorded spend": "Записанные расходы",
-    "Registration end, exclusive (UTC)": "Конец регистрации, не включая дату (UTC)",
-    "Registration start (UTC)": "Начало регистрации (UTC)",
-    "Save spend": "Сохранить расходы",
-    "Select a valid cohort and currency.": "Выберите допустимую когорту и валюту.",
-    "Some payment records lack settlement evidence. Payer cost is unavailable.": "Для некоторых платежей нет подтверждения расчёта. Стоимость первого платящего аккаунта недоступна.",
-    "Spend for this exact cohort": "Расходы именно на эту когорту",
-    "Unable to load this cost comparison. Choose a cohort within the retained year.": "Не удалось загрузить сравнение. Выберите когорту за сохраняемый год.",
-    "Unable to save promotion spend.": "Не удалось сохранить расходы на продвижение."
+  ru: {
+    'Compare spend with attributed registrations for this promotion link only.':
+      'Сравните расходы с регистрациями, отнесёнными только к этой рекламной ссылке.',
+    'Cost per first paying account': 'Стоимость первого платящего аккаунта',
+    'Cost per registration': 'Стоимость регистрации',
+    'First paying accounts': 'Впервые заплатившие аккаунты',
+    'Observation days after registration': 'Дней наблюдения после регистрации',
+    'Observing until {{date}}; payer cost is not final.':
+      'Наблюдение до {{date}}; стоимость привлечения плательщика ещё не окончательная.',
+    'Only retained, attributed accounts are counted. Successful cash payments count once per account; gifts and API usage are excluded. No currency conversion or profit calculation is performed. Overlapping cohorts must not be added together.':
+      'Учитываются только сохранённые аккаунты с установленным источником. Успешные денежные платежи считаются один раз на аккаунт; подарки и расход API исключены. Конвертация валют и расчёт прибыли не выполняются. Пересекающиеся когорты нельзя суммировать.',
+    'Promotion cost': 'Расходы на продвижение',
+    'Promotion cost comparison': 'Сравнение расходов на продвижение',
+    'Recorded spend': 'Записанные расходы',
+    'Registration end, exclusive (UTC)':
+      'Конец регистрации, не включая дату (UTC)',
+    'Registration start (UTC)': 'Начало регистрации (UTC)',
+    'Save spend': 'Сохранить расходы',
+    'Select a valid cohort and currency.':
+      'Выберите допустимую когорту и валюту.',
+    'Some payment records lack settlement evidence. Payer cost is unavailable.':
+      'Для некоторых платежей нет подтверждения расчёта. Стоимость первого платящего аккаунта недоступна.',
+    'Spend for this exact cohort': 'Расходы именно на эту когорту',
+    'Unable to load this cost comparison. Choose a cohort within the retained year.':
+      'Не удалось загрузить сравнение. Выберите когорту за сохраняемый год.',
+    'Unable to save promotion spend.':
+      'Не удалось сохранить расходы на продвижение.',
   },
-  "vi": {
-    "Compare spend with attributed registrations for this promotion link only.": "Chỉ đối chiếu chi phí với lượt đăng ký được quy cho liên kết quảng bá này.",
-    "Cost per first paying account": "Chi phí mỗi tài khoản trả tiền lần đầu",
-    "Cost per registration": "Chi phí mỗi tài khoản đăng ký",
-    "First paying accounts": "Tài khoản trả tiền lần đầu",
-    "Observation days after registration": "Số ngày theo dõi sau đăng ký",
-    "Observing until {{date}}; payer cost is not final.": "Theo dõi đến {{date}}; chi phí thu hút người trả tiền chưa phải kết quả cuối cùng.",
-    "Only retained, attributed accounts are counted. Successful cash payments count once per account; gifts and API usage are excluded. No currency conversion or profit calculation is performed. Overlapping cohorts must not be added together.": "Chỉ tính tài khoản còn trong thời hạn lưu giữ và có nguồn được quy thuộc. Thanh toán tiền thực thành công được tính một lần mỗi tài khoản; loại trừ số dư tặng và tiêu thụ API. Không quy đổi tiền tệ hay tính lợi nhuận. Không cộng các nhóm thời gian chồng lấp.",
-    "Promotion cost": "Chi phí quảng bá",
-    "Promotion cost comparison": "Đối chiếu chi phí quảng bá",
-    "Recorded spend": "Chi phí đã ghi nhận",
-    "Registration end, exclusive (UTC)": "Ngày kết thúc đăng ký, không bao gồm ngày này (UTC)",
-    "Registration start (UTC)": "Ngày bắt đầu đăng ký (UTC)",
-    "Save spend": "Lưu chi phí",
-    "Select a valid cohort and currency.": "Chọn nhóm đăng ký và loại tiền hợp lệ.",
-    "Some payment records lack settlement evidence. Payer cost is unavailable.": "Một số khoản thanh toán thiếu bằng chứng quyết toán. Chưa thể tính chi phí mỗi tài khoản trả tiền lần đầu.",
-    "Spend for this exact cohort": "Chi phí cho đúng nhóm đăng ký này",
-    "Unable to load this cost comparison. Choose a cohort within the retained year.": "Không thể tải đối chiếu chi phí. Hãy chọn nhóm đăng ký trong thời hạn lưu giữ một năm.",
-    "Unable to save promotion spend.": "Không thể lưu chi phí quảng bá."
-  }
+  vi: {
+    'Compare spend with attributed registrations for this promotion link only.':
+      'Chỉ đối chiếu chi phí với lượt đăng ký được quy cho liên kết quảng bá này.',
+    'Cost per first paying account': 'Chi phí mỗi tài khoản trả tiền lần đầu',
+    'Cost per registration': 'Chi phí mỗi tài khoản đăng ký',
+    'First paying accounts': 'Tài khoản trả tiền lần đầu',
+    'Observation days after registration': 'Số ngày theo dõi sau đăng ký',
+    'Observing until {{date}}; payer cost is not final.':
+      'Theo dõi đến {{date}}; chi phí thu hút người trả tiền chưa phải kết quả cuối cùng.',
+    'Only retained, attributed accounts are counted. Successful cash payments count once per account; gifts and API usage are excluded. No currency conversion or profit calculation is performed. Overlapping cohorts must not be added together.':
+      'Chỉ tính tài khoản còn trong thời hạn lưu giữ và có nguồn được quy thuộc. Thanh toán tiền thực thành công được tính một lần mỗi tài khoản; loại trừ số dư tặng và tiêu thụ API. Không quy đổi tiền tệ hay tính lợi nhuận. Không cộng các nhóm thời gian chồng lấp.',
+    'Promotion cost': 'Chi phí quảng bá',
+    'Promotion cost comparison': 'Đối chiếu chi phí quảng bá',
+    'Recorded spend': 'Chi phí đã ghi nhận',
+    'Registration end, exclusive (UTC)':
+      'Ngày kết thúc đăng ký, không bao gồm ngày này (UTC)',
+    'Registration start (UTC)': 'Ngày bắt đầu đăng ký (UTC)',
+    'Save spend': 'Lưu chi phí',
+    'Select a valid cohort and currency.':
+      'Chọn nhóm đăng ký và loại tiền hợp lệ.',
+    'Some payment records lack settlement evidence. Payer cost is unavailable.':
+      'Một số khoản thanh toán thiếu bằng chứng quyết toán. Chưa thể tính chi phí mỗi tài khoản trả tiền lần đầu.',
+    'Spend for this exact cohort': 'Chi phí cho đúng nhóm đăng ký này',
+    'Unable to load this cost comparison. Choose a cohort within the retained year.':
+      'Không thể tải đối chiếu chi phí. Hãy chọn nhóm đăng ký trong thời hạn lưu giữ một năm.',
+    'Unable to save promotion spend.': 'Không thể lưu chi phí quảng bá.',
+  },
 }
 
 const keyFollowthroughCopy = {
-  "zh": {
-    "Configure with CC Switch": "使用 CC Switch 配置",
-    "Revoking stops clients using this key. Confirm to continue.": "撤销后，使用此 Key 的客户端将停止访问。请确认后继续。",
-    "Other client setup guides": "其他客户端配置指南",
-    "This is the only time the full API key is available. Save it before closing; it cannot be retrieved later.": "这是唯一一次查看完整 API Key 的机会。关闭前请妥善保存，以后无法再次获取。",
-    "Confirm revocation": "确认撤销",
-    "Revoke this key": "撤销此 Key",
-    "Check key connection": "检查 Key 连接",
-    "I saved the key, close": "已保存 Key，关闭",
-    "The connection check only verifies this key and lists models. It does not complete your first successful model request.": "连接检查仅验证 Key 并获取模型列表，不算完成首次成功模型请求。",
-    "A single new key is shown only once. Advanced batch creation keeps the existing retrievable-key behavior.": "单个新 Key 只显示一次。高级批量创建保留原有可再次获取 Key 的方式。",
-    "Creation could not be confirmed. Check the key list before creating another key; an existing key may need to be revoked.": "无法确认是否创建成功。再次创建前请检查 Key 列表；如已有 Key，可能需要先撤销。",
-    "Shown only at creation. Use your saved key or revoke and replace it.": "仅在创建时显示。请使用已保存的 Key，或撤销后重新创建。",
-    "Keys shown only at creation are excluded from batch copy.": "批量复制不包含仅在创建时显示的 Key。",
-    "Key authentication succeeded. No model request was sent or billed.": "Key 验证成功，未发送模型请求，也未产生调用费用。",
-    "Key check failed. Check access, expiry and allowed IP addresses.": "Key 检查失败，请检查访问权限、有效期和 IP 白名单。",
-    "Could not revoke the key. Try again from API Keys.": "未能撤销 Key，请在 API Key 页面重试。",
-    "Latest API request": "最近一次 API 请求",
-    "Unable to load the latest request.": "无法加载最近一次请求。",
-    "Your first API request will appear here. No request record is available yet.": "首次 API 请求的记录会显示在这里，目前暂无请求记录。",
-    "Usage recorded; check details for the request outcome.": "已记录用量，请查看详情确认请求结果。"
+  zh: {
+    'Configure with CC Switch': '使用 CC Switch 配置',
+    'Revoking stops clients using this key. Confirm to continue.':
+      '撤销后，使用此 Key 的客户端将停止访问。请确认后继续。',
+    'Other client setup guides': '其他客户端配置指南',
+    'This is the only time the full API key is available. Save it before closing; it cannot be retrieved later.':
+      '这是唯一一次查看完整 API Key 的机会。关闭前请妥善保存，以后无法再次获取。',
+    'Confirm revocation': '确认撤销',
+    'Revoke this key': '撤销此 Key',
+    'Check key connection': '检查 Key 连接',
+    'I saved the key, close': '已保存 Key，关闭',
+    'The connection check only verifies this key and lists models. It does not complete your first successful model request.':
+      '连接检查仅验证 Key 并获取模型列表，不算完成首次成功模型请求。',
+    'A single new key is shown only once. Advanced batch creation keeps the existing retrievable-key behavior.':
+      '单个新 Key 只显示一次。高级批量创建保留原有可再次获取 Key 的方式。',
+    'Creation could not be confirmed. Check the key list before creating another key; an existing key may need to be revoked.':
+      '无法确认是否创建成功。再次创建前请检查 Key 列表；如已有 Key，可能需要先撤销。',
+    'Shown only at creation. Use your saved key or revoke and replace it.':
+      '仅在创建时显示。请使用已保存的 Key，或撤销后重新创建。',
+    'Keys shown only at creation are excluded from batch copy.':
+      '批量复制不包含仅在创建时显示的 Key。',
+    'Key authentication succeeded. No model request was sent or billed.':
+      'Key 验证成功，未发送模型请求，也未产生调用费用。',
+    'Key check failed. Check access, expiry and allowed IP addresses.':
+      'Key 检查失败，请检查访问权限、有效期和 IP 白名单。',
+    'Could not revoke the key. Try again from API Keys.':
+      '未能撤销 Key，请在 API Key 页面重试。',
+    'Latest API request': '最近一次 API 请求',
+    'Unable to load the latest request.': '无法加载最近一次请求。',
+    'Your first API request will appear here. No request record is available yet.':
+      '首次 API 请求的记录会显示在这里，目前暂无请求记录。',
+    'Usage recorded; check details for the request outcome.':
+      '已记录用量，请查看详情确认请求结果。',
   },
-  "zh-TW": {
-    "Configure with CC Switch": "使用 CC Switch 設定",
-    "Revoking stops clients using this key. Confirm to continue.": "撤銷後，使用此 Key 的用戶端將停止存取。請確認後繼續。",
-    "Other client setup guides": "其他用戶端設定指南",
-    "This is the only time the full API key is available. Save it before closing; it cannot be retrieved later.": "這是唯一一次查看完整 API Key 的機會。關閉前請妥善保存，以後無法再次取得。",
-    "Confirm revocation": "確認撤銷",
-    "Revoke this key": "撤銷此 Key",
-    "Check key connection": "檢查 Key 連線",
-    "I saved the key, close": "已保存 Key，關閉",
-    "The connection check only verifies this key and lists models. It does not complete your first successful model request.": "連線檢查僅驗證 Key 並取得模型清單，不算完成首次成功模型請求。",
-    "A single new key is shown only once. Advanced batch creation keeps the existing retrievable-key behavior.": "單個新 Key 只顯示一次。進階批次建立保留原有可再次取得 Key 的方式。",
-    "Creation could not be confirmed. Check the key list before creating another key; an existing key may need to be revoked.": "無法確認是否建立成功。再次建立前請檢查 Key 清單；如已有 Key，可能需要先撤銷。",
-    "Shown only at creation. Use your saved key or revoke and replace it.": "僅在建立時顯示。請使用已保存的 Key，或撤銷後重新建立。",
-    "Keys shown only at creation are excluded from batch copy.": "批次複製不包含僅在建立時顯示的 Key。",
-    "Key authentication succeeded. No model request was sent or billed.": "Key 驗證成功，未傳送模型請求，也未產生呼叫費用。",
-    "Key check failed. Check access, expiry and allowed IP addresses.": "Key 檢查失敗，請檢查存取權限、有效期和 IP 白名單。",
-    "Could not revoke the key. Try again from API Keys.": "未能撤銷 Key，請在 API Key 頁面重試。",
-    "Latest API request": "最近一次 API 請求",
-    "Unable to load the latest request.": "無法載入最近一次請求。",
-    "Your first API request will appear here. No request record is available yet.": "首次 API 請求的紀錄會顯示在這裡，目前暫無請求紀錄。",
-    "Usage recorded; check details for the request outcome.": "已記錄用量，請查看詳情確認請求結果。"
+  'zh-TW': {
+    'Configure with CC Switch': '使用 CC Switch 設定',
+    'Revoking stops clients using this key. Confirm to continue.':
+      '撤銷後，使用此 Key 的用戶端將停止存取。請確認後繼續。',
+    'Other client setup guides': '其他用戶端設定指南',
+    'This is the only time the full API key is available. Save it before closing; it cannot be retrieved later.':
+      '這是唯一一次查看完整 API Key 的機會。關閉前請妥善保存，以後無法再次取得。',
+    'Confirm revocation': '確認撤銷',
+    'Revoke this key': '撤銷此 Key',
+    'Check key connection': '檢查 Key 連線',
+    'I saved the key, close': '已保存 Key，關閉',
+    'The connection check only verifies this key and lists models. It does not complete your first successful model request.':
+      '連線檢查僅驗證 Key 並取得模型清單，不算完成首次成功模型請求。',
+    'A single new key is shown only once. Advanced batch creation keeps the existing retrievable-key behavior.':
+      '單個新 Key 只顯示一次。進階批次建立保留原有可再次取得 Key 的方式。',
+    'Creation could not be confirmed. Check the key list before creating another key; an existing key may need to be revoked.':
+      '無法確認是否建立成功。再次建立前請檢查 Key 清單；如已有 Key，可能需要先撤銷。',
+    'Shown only at creation. Use your saved key or revoke and replace it.':
+      '僅在建立時顯示。請使用已保存的 Key，或撤銷後重新建立。',
+    'Keys shown only at creation are excluded from batch copy.':
+      '批次複製不包含僅在建立時顯示的 Key。',
+    'Key authentication succeeded. No model request was sent or billed.':
+      'Key 驗證成功，未傳送模型請求，也未產生呼叫費用。',
+    'Key check failed. Check access, expiry and allowed IP addresses.':
+      'Key 檢查失敗，請檢查存取權限、有效期和 IP 白名單。',
+    'Could not revoke the key. Try again from API Keys.':
+      '未能撤銷 Key，請在 API Key 頁面重試。',
+    'Latest API request': '最近一次 API 請求',
+    'Unable to load the latest request.': '無法載入最近一次請求。',
+    'Your first API request will appear here. No request record is available yet.':
+      '首次 API 請求的紀錄會顯示在這裡，目前暫無請求紀錄。',
+    'Usage recorded; check details for the request outcome.':
+      '已記錄用量，請查看詳情確認請求結果。',
   },
-  "fr": {
-    "Configure with CC Switch": "Configurer avec CC Switch",
-    "Revoking stops clients using this key. Confirm to continue.": "La révocation bloque les clients utilisant cette clé. Confirmez pour continuer.",
-    "Other client setup guides": "Guides des autres clients",
-    "This is the only time the full API key is available. Save it before closing; it cannot be retrieved later.": "La clé API complète est disponible uniquement maintenant. Enregistrez-la avant de fermer ; elle ne pourra plus être récupérée.",
-    "Confirm revocation": "Confirmer la révocation",
-    "Revoke this key": "Révoquer cette clé",
-    "Check key connection": "Vérifier la connexion",
-    "I saved the key, close": "Clé enregistrée, fermer",
-    "The connection check only verifies this key and lists models. It does not complete your first successful model request.": "Cette vérification authentifie la clé et liste les modèles. Elle ne constitue pas votre première requête de modèle réussie.",
-    "A single new key is shown only once. Advanced batch creation keeps the existing retrievable-key behavior.": "Une nouvelle clé individuelle est affichée une seule fois. La création avancée par lot conserve la récupération ultérieure des clés.",
-    "Creation could not be confirmed. Check the key list before creating another key; an existing key may need to be revoked.": "Création non confirmée. Vérifiez la liste avant de créer une autre clé ; une clé existante pourrait devoir être révoquée.",
-    "Shown only at creation. Use your saved key or revoke and replace it.": "Affichée uniquement à la création. Utilisez votre copie ou révoquez et remplacez la clé.",
-    "Keys shown only at creation are excluded from batch copy.": "Les clés affichées uniquement à la création sont exclues de la copie par lot.",
-    "Key authentication succeeded. No model request was sent or billed.": "Clé authentifiée. Aucune requête de modèle envoyée ni facturée.",
-    "Key check failed. Check access, expiry and allowed IP addresses.": "Échec de vérification. Vérifiez les droits, l’expiration et les adresses IP autorisées.",
-    "Could not revoke the key. Try again from API Keys.": "Impossible de révoquer la clé. Réessayez depuis la page des clés API.",
-    "Latest API request": "Dernière requête API",
-    "Unable to load the latest request.": "Impossible de charger la dernière requête.",
-    "Your first API request will appear here. No request record is available yet.": "Votre première requête API apparaîtra ici. Aucun enregistrement n’est disponible pour le moment.",
-    "Usage recorded; check details for the request outcome.": "Utilisation enregistrée ; consultez les détails pour connaître le résultat."
+  fr: {
+    'Configure with CC Switch': 'Configurer avec CC Switch',
+    'Revoking stops clients using this key. Confirm to continue.':
+      'La révocation bloque les clients utilisant cette clé. Confirmez pour continuer.',
+    'Other client setup guides': 'Guides des autres clients',
+    'This is the only time the full API key is available. Save it before closing; it cannot be retrieved later.':
+      'La clé API complète est disponible uniquement maintenant. Enregistrez-la avant de fermer ; elle ne pourra plus être récupérée.',
+    'Confirm revocation': 'Confirmer la révocation',
+    'Revoke this key': 'Révoquer cette clé',
+    'Check key connection': 'Vérifier la connexion',
+    'I saved the key, close': 'Clé enregistrée, fermer',
+    'The connection check only verifies this key and lists models. It does not complete your first successful model request.':
+      'Cette vérification authentifie la clé et liste les modèles. Elle ne constitue pas votre première requête de modèle réussie.',
+    'A single new key is shown only once. Advanced batch creation keeps the existing retrievable-key behavior.':
+      'Une nouvelle clé individuelle est affichée une seule fois. La création avancée par lot conserve la récupération ultérieure des clés.',
+    'Creation could not be confirmed. Check the key list before creating another key; an existing key may need to be revoked.':
+      'Création non confirmée. Vérifiez la liste avant de créer une autre clé ; une clé existante pourrait devoir être révoquée.',
+    'Shown only at creation. Use your saved key or revoke and replace it.':
+      'Affichée uniquement à la création. Utilisez votre copie ou révoquez et remplacez la clé.',
+    'Keys shown only at creation are excluded from batch copy.':
+      'Les clés affichées uniquement à la création sont exclues de la copie par lot.',
+    'Key authentication succeeded. No model request was sent or billed.':
+      'Clé authentifiée. Aucune requête de modèle envoyée ni facturée.',
+    'Key check failed. Check access, expiry and allowed IP addresses.':
+      'Échec de vérification. Vérifiez les droits, l’expiration et les adresses IP autorisées.',
+    'Could not revoke the key. Try again from API Keys.':
+      'Impossible de révoquer la clé. Réessayez depuis la page des clés API.',
+    'Latest API request': 'Dernière requête API',
+    'Unable to load the latest request.':
+      'Impossible de charger la dernière requête.',
+    'Your first API request will appear here. No request record is available yet.':
+      'Votre première requête API apparaîtra ici. Aucun enregistrement n’est disponible pour le moment.',
+    'Usage recorded; check details for the request outcome.':
+      'Utilisation enregistrée ; consultez les détails pour connaître le résultat.',
   },
-  "ja": {
-    "Configure with CC Switch": "CC Switch で設定",
-    "Revoking stops clients using this key. Confirm to continue.": "取り消すと、このキーを使うクライアントはアクセスできなくなります。確認して続行してください。",
-    "Other client setup guides": "その他のクライアント設定ガイド",
-    "This is the only time the full API key is available. Save it before closing; it cannot be retrieved later.": "完全な API キーを確認できるのは今回だけです。閉じる前に保存してください。後から再取得はできません。",
-    "Confirm revocation": "取り消しを確認",
-    "Revoke this key": "このキーを取り消す",
-    "Check key connection": "キーの接続を確認",
-    "I saved the key, close": "キーを保存したので閉じる",
-    "The connection check only verifies this key and lists models. It does not complete your first successful model request.": "接続確認ではキーの認証とモデル一覧の取得のみを行います。初回モデルリクエストの成功には数えません。",
-    "A single new key is shown only once. Advanced batch creation keeps the existing retrievable-key behavior.": "新しいキーを1つ作成する場合、表示は1回だけです。高度な一括作成では、従来どおりキーを再取得できます。",
-    "Creation could not be confirmed. Check the key list before creating another key; an existing key may need to be revoked.": "作成の完了を確認できません。再作成する前にキー一覧を確認してください。すでに作成されたキーの取り消しが必要な場合があります。",
-    "Shown only at creation. Use your saved key or revoke and replace it.": "作成時のみ表示されます。保存したキーを使うか、取り消して再作成してください。",
-    "Keys shown only at creation are excluded from batch copy.": "作成時のみ表示されるキーは一括コピーに含まれません。",
-    "Key authentication succeeded. No model request was sent or billed.": "キーの認証に成功しました。モデルリクエストは送信されず、料金も発生していません。",
-    "Key check failed. Check access, expiry and allowed IP addresses.": "キーの確認に失敗しました。権限、有効期限、許可された IP アドレスを確認してください。",
-    "Could not revoke the key. Try again from API Keys.": "キーを取り消せませんでした。API キーページから再試行してください。",
-    "Latest API request": "最新の API リクエスト",
-    "Unable to load the latest request.": "最新のリクエストを読み込めません。",
-    "Your first API request will appear here. No request record is available yet.": "最初の API リクエストの記録がここに表示されます。現在、記録はありません。",
-    "Usage recorded; check details for the request outcome.": "使用量が記録されました。リクエストの結果は詳細で確認してください。"
+  ja: {
+    'Configure with CC Switch': 'CC Switch で設定',
+    'Revoking stops clients using this key. Confirm to continue.':
+      '取り消すと、このキーを使うクライアントはアクセスできなくなります。確認して続行してください。',
+    'Other client setup guides': 'その他のクライアント設定ガイド',
+    'This is the only time the full API key is available. Save it before closing; it cannot be retrieved later.':
+      '完全な API キーを確認できるのは今回だけです。閉じる前に保存してください。後から再取得はできません。',
+    'Confirm revocation': '取り消しを確認',
+    'Revoke this key': 'このキーを取り消す',
+    'Check key connection': 'キーの接続を確認',
+    'I saved the key, close': 'キーを保存したので閉じる',
+    'The connection check only verifies this key and lists models. It does not complete your first successful model request.':
+      '接続確認ではキーの認証とモデル一覧の取得のみを行います。初回モデルリクエストの成功には数えません。',
+    'A single new key is shown only once. Advanced batch creation keeps the existing retrievable-key behavior.':
+      '新しいキーを1つ作成する場合、表示は1回だけです。高度な一括作成では、従来どおりキーを再取得できます。',
+    'Creation could not be confirmed. Check the key list before creating another key; an existing key may need to be revoked.':
+      '作成の完了を確認できません。再作成する前にキー一覧を確認してください。すでに作成されたキーの取り消しが必要な場合があります。',
+    'Shown only at creation. Use your saved key or revoke and replace it.':
+      '作成時のみ表示されます。保存したキーを使うか、取り消して再作成してください。',
+    'Keys shown only at creation are excluded from batch copy.':
+      '作成時のみ表示されるキーは一括コピーに含まれません。',
+    'Key authentication succeeded. No model request was sent or billed.':
+      'キーの認証に成功しました。モデルリクエストは送信されず、料金も発生していません。',
+    'Key check failed. Check access, expiry and allowed IP addresses.':
+      'キーの確認に失敗しました。権限、有効期限、許可された IP アドレスを確認してください。',
+    'Could not revoke the key. Try again from API Keys.':
+      'キーを取り消せませんでした。API キーページから再試行してください。',
+    'Latest API request': '最新の API リクエスト',
+    'Unable to load the latest request.': '最新のリクエストを読み込めません。',
+    'Your first API request will appear here. No request record is available yet.':
+      '最初の API リクエストの記録がここに表示されます。現在、記録はありません。',
+    'Usage recorded; check details for the request outcome.':
+      '使用量が記録されました。リクエストの結果は詳細で確認してください。',
   },
-  "ru": {
-    "Configure with CC Switch": "Настроить через CC Switch",
-    "Revoking stops clients using this key. Confirm to continue.": "После отзыва клиенты с этим ключом потеряют доступ. Подтвердите действие.",
-    "Other client setup guides": "Настройка других клиентов",
-    "This is the only time the full API key is available. Save it before closing; it cannot be retrieved later.": "Полный API-ключ доступен только сейчас. Сохраните его перед закрытием; получить его повторно будет невозможно.",
-    "Confirm revocation": "Подтвердить отзыв",
-    "Revoke this key": "Отозвать ключ",
-    "Check key connection": "Проверить подключение",
-    "I saved the key, close": "Ключ сохранён, закрыть",
-    "The connection check only verifies this key and lists models. It does not complete your first successful model request.": "Проверка только проверяет ключ и получает список моделей. Она не считается первым успешным запросом к модели.",
-    "A single new key is shown only once. Advanced batch creation keeps the existing retrievable-key behavior.": "Новый одиночный ключ показывается один раз. Расширенное пакетное создание сохраняет возможность повторного получения ключей.",
-    "Creation could not be confirmed. Check the key list before creating another key; an existing key may need to be revoked.": "Создание не подтверждено. Перед повторной попыткой проверьте список ключей: возможно, созданный ключ нужно отозвать.",
-    "Shown only at creation. Use your saved key or revoke and replace it.": "Показывается только при создании. Используйте сохранённую копию или отзовите и замените ключ.",
-    "Keys shown only at creation are excluded from batch copy.": "Ключи, показываемые только при создании, исключены из пакетного копирования.",
-    "Key authentication succeeded. No model request was sent or billed.": "Ключ прошёл проверку. Запрос к модели не отправлялся и не оплачивался.",
-    "Key check failed. Check access, expiry and allowed IP addresses.": "Проверка ключа не удалась. Проверьте доступ, срок действия и разрешённые IP-адреса.",
-    "Could not revoke the key. Try again from API Keys.": "Не удалось отозвать ключ. Повторите попытку на странице API-ключей.",
-    "Latest API request": "Последний API-запрос",
-    "Unable to load the latest request.": "Не удалось загрузить последний запрос.",
-    "Your first API request will appear here. No request record is available yet.": "Здесь появится первый API-запрос. Пока записей нет.",
-    "Usage recorded; check details for the request outcome.": "Использование записано; результат запроса смотрите в подробностях."
+  ru: {
+    'Configure with CC Switch': 'Настроить через CC Switch',
+    'Revoking stops clients using this key. Confirm to continue.':
+      'После отзыва клиенты с этим ключом потеряют доступ. Подтвердите действие.',
+    'Other client setup guides': 'Настройка других клиентов',
+    'This is the only time the full API key is available. Save it before closing; it cannot be retrieved later.':
+      'Полный API-ключ доступен только сейчас. Сохраните его перед закрытием; получить его повторно будет невозможно.',
+    'Confirm revocation': 'Подтвердить отзыв',
+    'Revoke this key': 'Отозвать ключ',
+    'Check key connection': 'Проверить подключение',
+    'I saved the key, close': 'Ключ сохранён, закрыть',
+    'The connection check only verifies this key and lists models. It does not complete your first successful model request.':
+      'Проверка только проверяет ключ и получает список моделей. Она не считается первым успешным запросом к модели.',
+    'A single new key is shown only once. Advanced batch creation keeps the existing retrievable-key behavior.':
+      'Новый одиночный ключ показывается один раз. Расширенное пакетное создание сохраняет возможность повторного получения ключей.',
+    'Creation could not be confirmed. Check the key list before creating another key; an existing key may need to be revoked.':
+      'Создание не подтверждено. Перед повторной попыткой проверьте список ключей: возможно, созданный ключ нужно отозвать.',
+    'Shown only at creation. Use your saved key or revoke and replace it.':
+      'Показывается только при создании. Используйте сохранённую копию или отзовите и замените ключ.',
+    'Keys shown only at creation are excluded from batch copy.':
+      'Ключи, показываемые только при создании, исключены из пакетного копирования.',
+    'Key authentication succeeded. No model request was sent or billed.':
+      'Ключ прошёл проверку. Запрос к модели не отправлялся и не оплачивался.',
+    'Key check failed. Check access, expiry and allowed IP addresses.':
+      'Проверка ключа не удалась. Проверьте доступ, срок действия и разрешённые IP-адреса.',
+    'Could not revoke the key. Try again from API Keys.':
+      'Не удалось отозвать ключ. Повторите попытку на странице API-ключей.',
+    'Latest API request': 'Последний API-запрос',
+    'Unable to load the latest request.':
+      'Не удалось загрузить последний запрос.',
+    'Your first API request will appear here. No request record is available yet.':
+      'Здесь появится первый API-запрос. Пока записей нет.',
+    'Usage recorded; check details for the request outcome.':
+      'Использование записано; результат запроса смотрите в подробностях.',
   },
-  "vi": {
-    "Configure with CC Switch": "Cấu hình bằng CC Switch",
-    "Revoking stops clients using this key. Confirm to continue.": "Thu hồi sẽ ngừng quyền truy cập của ứng dụng dùng khóa này. Hãy xác nhận để tiếp tục.",
-    "Other client setup guides": "Hướng dẫn cấu hình ứng dụng khác",
-    "This is the only time the full API key is available. Save it before closing; it cannot be retrieved later.": "Đây là lần duy nhất có thể xem API Key đầy đủ. Hãy lưu trước khi đóng; bạn sẽ không thể lấy lại sau đó.",
-    "Confirm revocation": "Xác nhận thu hồi",
-    "Revoke this key": "Thu hồi khóa này",
-    "Check key connection": "Kiểm tra kết nối khóa",
-    "I saved the key, close": "Đã lưu khóa, đóng",
-    "The connection check only verifies this key and lists models. It does not complete your first successful model request.": "Kiểm tra chỉ xác thực khóa và lấy danh sách mô hình. Đây không được tính là yêu cầu mô hình thành công đầu tiên.",
-    "A single new key is shown only once. Advanced batch creation keeps the existing retrievable-key behavior.": "Khóa mới tạo riêng lẻ chỉ hiển thị một lần. Tạo hàng loạt nâng cao vẫn cho phép lấy lại khóa như trước.",
-    "Creation could not be confirmed. Check the key list before creating another key; an existing key may need to be revoked.": "Chưa xác nhận được việc tạo khóa. Kiểm tra danh sách trước khi tạo khóa khác; có thể cần thu hồi khóa đã tồn tại.",
-    "Shown only at creation. Use your saved key or revoke and replace it.": "Chỉ hiển thị khi tạo. Dùng bản đã lưu hoặc thu hồi rồi tạo khóa thay thế.",
-    "Keys shown only at creation are excluded from batch copy.": "Sao chép hàng loạt không bao gồm khóa chỉ hiển thị khi tạo.",
-    "Key authentication succeeded. No model request was sent or billed.": "Xác thực khóa thành công. Không gửi yêu cầu mô hình và không phát sinh phí gọi.",
-    "Key check failed. Check access, expiry and allowed IP addresses.": "Kiểm tra khóa thất bại. Hãy kiểm tra quyền truy cập, hạn dùng và địa chỉ IP được phép.",
-    "Could not revoke the key. Try again from API Keys.": "Không thể thu hồi khóa. Hãy thử lại tại trang API Key.",
-    "Latest API request": "Yêu cầu API gần nhất",
-    "Unable to load the latest request.": "Không tải được yêu cầu gần nhất.",
-    "Your first API request will appear here. No request record is available yet.": "Yêu cầu API đầu tiên sẽ xuất hiện ở đây. Hiện chưa có bản ghi.",
-    "Usage recorded; check details for the request outcome.": "Đã ghi nhận mức sử dụng; xem chi tiết để biết kết quả yêu cầu."
+  vi: {
+    'Configure with CC Switch': 'Cấu hình bằng CC Switch',
+    'Revoking stops clients using this key. Confirm to continue.':
+      'Thu hồi sẽ ngừng quyền truy cập của ứng dụng dùng khóa này. Hãy xác nhận để tiếp tục.',
+    'Other client setup guides': 'Hướng dẫn cấu hình ứng dụng khác',
+    'This is the only time the full API key is available. Save it before closing; it cannot be retrieved later.':
+      'Đây là lần duy nhất có thể xem API Key đầy đủ. Hãy lưu trước khi đóng; bạn sẽ không thể lấy lại sau đó.',
+    'Confirm revocation': 'Xác nhận thu hồi',
+    'Revoke this key': 'Thu hồi khóa này',
+    'Check key connection': 'Kiểm tra kết nối khóa',
+    'I saved the key, close': 'Đã lưu khóa, đóng',
+    'The connection check only verifies this key and lists models. It does not complete your first successful model request.':
+      'Kiểm tra chỉ xác thực khóa và lấy danh sách mô hình. Đây không được tính là yêu cầu mô hình thành công đầu tiên.',
+    'A single new key is shown only once. Advanced batch creation keeps the existing retrievable-key behavior.':
+      'Khóa mới tạo riêng lẻ chỉ hiển thị một lần. Tạo hàng loạt nâng cao vẫn cho phép lấy lại khóa như trước.',
+    'Creation could not be confirmed. Check the key list before creating another key; an existing key may need to be revoked.':
+      'Chưa xác nhận được việc tạo khóa. Kiểm tra danh sách trước khi tạo khóa khác; có thể cần thu hồi khóa đã tồn tại.',
+    'Shown only at creation. Use your saved key or revoke and replace it.':
+      'Chỉ hiển thị khi tạo. Dùng bản đã lưu hoặc thu hồi rồi tạo khóa thay thế.',
+    'Keys shown only at creation are excluded from batch copy.':
+      'Sao chép hàng loạt không bao gồm khóa chỉ hiển thị khi tạo.',
+    'Key authentication succeeded. No model request was sent or billed.':
+      'Xác thực khóa thành công. Không gửi yêu cầu mô hình và không phát sinh phí gọi.',
+    'Key check failed. Check access, expiry and allowed IP addresses.':
+      'Kiểm tra khóa thất bại. Hãy kiểm tra quyền truy cập, hạn dùng và địa chỉ IP được phép.',
+    'Could not revoke the key. Try again from API Keys.':
+      'Không thể thu hồi khóa. Hãy thử lại tại trang API Key.',
+    'Latest API request': 'Yêu cầu API gần nhất',
+    'Unable to load the latest request.': 'Không tải được yêu cầu gần nhất.',
+    'Your first API request will appear here. No request record is available yet.':
+      'Yêu cầu API đầu tiên sẽ xuất hiện ở đây. Hiện chưa có bản ghi.',
+    'Usage recorded; check details for the request outcome.':
+      'Đã ghi nhận mức sử dụng; xem chi tiết để biết kết quả yêu cầu.',
   },
-  "en": {
-    "Configure with CC Switch": "Configure with CC Switch",
-    "Revoking stops clients using this key. Confirm to continue.": "Revoking stops clients using this key. Confirm to continue.",
-    "Other client setup guides": "Other client setup guides",
-    "This is the only time the full API key is available. Save it before closing; it cannot be retrieved later.": "This is the only time the full API key is available. Save it before closing; it cannot be retrieved later.",
-    "Confirm revocation": "Confirm revocation",
-    "Revoke this key": "Revoke this key",
-    "Check key connection": "Check key connection",
-    "I saved the key, close": "I saved the key, close",
-    "The connection check only verifies this key and lists models. It does not complete your first successful model request.": "The connection check only verifies this key and lists models. It does not complete your first successful model request.",
-    "A single new key is shown only once. Advanced batch creation keeps the existing retrievable-key behavior.": "A single new key is shown only once. Advanced batch creation keeps the existing retrievable-key behavior.",
-    "Creation could not be confirmed. Check the key list before creating another key; an existing key may need to be revoked.": "Creation could not be confirmed. Check the key list before creating another key; an existing key may need to be revoked.",
-    "Shown only at creation. Use your saved key or revoke and replace it.": "Shown only at creation. Use your saved key or revoke and replace it.",
-    "Keys shown only at creation are excluded from batch copy.": "Keys shown only at creation are excluded from batch copy.",
-    "Key authentication succeeded. No model request was sent or billed.": "Key authentication succeeded. No model request was sent or billed.",
-    "Key check failed. Check access, expiry and allowed IP addresses.": "Key check failed. Check access, expiry and allowed IP addresses.",
-    "Could not revoke the key. Try again from API Keys.": "Could not revoke the key. Try again from API Keys.",
-    "Latest API request": "Latest API request",
-    "Unable to load the latest request.": "Unable to load the latest request.",
-    "Your first API request will appear here. No request record is available yet.": "Your first API request will appear here. No request record is available yet.",
-    "Usage recorded; check details for the request outcome.": "Usage recorded; check details for the request outcome."
-  }
+  en: {
+    'Configure with CC Switch': 'Configure with CC Switch',
+    'Revoking stops clients using this key. Confirm to continue.':
+      'Revoking stops clients using this key. Confirm to continue.',
+    'Other client setup guides': 'Other client setup guides',
+    'This is the only time the full API key is available. Save it before closing; it cannot be retrieved later.':
+      'This is the only time the full API key is available. Save it before closing; it cannot be retrieved later.',
+    'Confirm revocation': 'Confirm revocation',
+    'Revoke this key': 'Revoke this key',
+    'Check key connection': 'Check key connection',
+    'I saved the key, close': 'I saved the key, close',
+    'The connection check only verifies this key and lists models. It does not complete your first successful model request.':
+      'The connection check only verifies this key and lists models. It does not complete your first successful model request.',
+    'A single new key is shown only once. Advanced batch creation keeps the existing retrievable-key behavior.':
+      'A single new key is shown only once. Advanced batch creation keeps the existing retrievable-key behavior.',
+    'Creation could not be confirmed. Check the key list before creating another key; an existing key may need to be revoked.':
+      'Creation could not be confirmed. Check the key list before creating another key; an existing key may need to be revoked.',
+    'Shown only at creation. Use your saved key or revoke and replace it.':
+      'Shown only at creation. Use your saved key or revoke and replace it.',
+    'Keys shown only at creation are excluded from batch copy.':
+      'Keys shown only at creation are excluded from batch copy.',
+    'Key authentication succeeded. No model request was sent or billed.':
+      'Key authentication succeeded. No model request was sent or billed.',
+    'Key check failed. Check access, expiry and allowed IP addresses.':
+      'Key check failed. Check access, expiry and allowed IP addresses.',
+    'Could not revoke the key. Try again from API Keys.':
+      'Could not revoke the key. Try again from API Keys.',
+    'Latest API request': 'Latest API request',
+    'Unable to load the latest request.': 'Unable to load the latest request.',
+    'Your first API request will appear here. No request record is available yet.':
+      'Your first API request will appear here. No request record is available yet.',
+    'Usage recorded; check details for the request outcome.':
+      'Usage recorded; check details for the request outcome.',
+  },
 }
 
 const retiredPricingKeys = new Set([
-  "JSON map of group → cost multiplier used as the base for that billing group. Dynamic pricing adds the profit multiplier.",
-  "Final charge = model base cost × group cost multiplier × dynamic profit multiplier.",
-  "The group value is a cost basis, not a personal discount. Dynamic pricing supplies the profit multiplier separately.",
-  "Set the base cost multiplier for each routing group. Dynamic pricing adds the live profit multiplier on top; top-up ratio remains an independent balance multiplier.",
-  "Active channel",
-  "Automatically refreshes every 3 seconds.",
-  "Caps the load-driven profit premium. Cost protection can still raise the effective multiplier when needed.",
-  "Configure costs for every active channel before enabling: {{channels}}",
-  "Configured-cost coverage ready",
-  "Conservative channel costs",
-  "Cost EMA",
-  "Cost floor",
-  "Cost for {{channel}}",
-  "Cost protection margin",
-  "Cost × profit pricing preview",
-  "Current dynamic profit multiplier",
-  "Dynamic Profit Pricing",
-  "Dynamic pricing channel costs",
-  "Dynamic pricing model overrides",
-  "Dynamic profit ceiling",
-  "Effective billing multiplier",
-  "Enable dynamic profit pricing",
-  "Engine tick: {{seconds}}s",
-  "Enter a conservative upper-bound USD cost per 1M total tokens. Upstream responses provide usage tokens, but generally not the final dollar cost; unknown-cost channels are blocked while this feature is enabled.",
-  "Enter a positive conservative cost for channel {{channel}}.",
-  "Fill every active channel cost first, then enable.",
-  "Final billing = group cost × dynamic profit",
-  "Formula",
-  "Group Pricing stores the base cost multiplier. This page computes the live profit multiplier on top of that cost.",
-  "Group Pricing supplies the cost multiplier. Dynamic pricing supplies the profit multiplier. Final billing multiplies both.",
-  "Known upstream cost is multiplied by this margin before the cost floor is compared with profit pricing.",
-  "Live profit multiplier preview",
-  "Live safety status is currently unavailable.",
-  "Load EMA",
-  "Minimum multiplier cannot exceed the dynamic ceiling.",
-  "Minimum profit multiplier",
-  "No active channels found",
-  "No model samples yet. The configured minimum is used until the first engine tick.",
-  "No pricing groups configured",
-  "Not ready to enable safely",
-  "Per-model live factors",
-  "Profit multiplier",
-  "Reference model cost (USD / 1M tokens)",
-  "The final charge is the group cost multiplier multiplied by this dynamic profit multiplier.",
-  "The profit multiplier never falls below this value while dynamic pricing is enabled.",
-  "USD / 1M tokens",
-  "Unknown cost",
-  "Use the model cost baseline used to compare upstream cost with the configured group cost multiplier.",
-  "{{configured}} of {{active}} active channels have costs.",
-  "Base prices exclude dynamic profit multipliers and usage discounts. USD estimates also exclude payment discounts and fees; checkout confirms the payable amount."
+  'JSON map of group → cost multiplier used as the base for that billing group. Dynamic pricing adds the profit multiplier.',
+  'Final charge = model base cost × group cost multiplier × dynamic profit multiplier.',
+  'The group value is a cost basis, not a personal discount. Dynamic pricing supplies the profit multiplier separately.',
+  'Set the base cost multiplier for each routing group. Dynamic pricing adds the live profit multiplier on top; top-up ratio remains an independent balance multiplier.',
+  'Active channel',
+  'Automatically refreshes every 3 seconds.',
+  'Caps the load-driven profit premium. Cost protection can still raise the effective multiplier when needed.',
+  'Configure costs for every active channel before enabling: {{channels}}',
+  'Configured-cost coverage ready',
+  'Conservative channel costs',
+  'Cost EMA',
+  'Cost floor',
+  'Cost for {{channel}}',
+  'Cost protection margin',
+  'Cost × profit pricing preview',
+  'Current dynamic profit multiplier',
+  'Dynamic Profit Pricing',
+  'Dynamic pricing channel costs',
+  'Dynamic pricing model overrides',
+  'Dynamic profit ceiling',
+  'Effective billing multiplier',
+  'Enable dynamic profit pricing',
+  'Engine tick: {{seconds}}s',
+  'Enter a conservative upper-bound USD cost per 1M total tokens. Upstream responses provide usage tokens, but generally not the final dollar cost; unknown-cost channels are blocked while this feature is enabled.',
+  'Enter a positive conservative cost for channel {{channel}}.',
+  'Fill every active channel cost first, then enable.',
+  'Final billing = group cost × dynamic profit',
+  'Formula',
+  'Group Pricing stores the base cost multiplier. This page computes the live profit multiplier on top of that cost.',
+  'Group Pricing supplies the cost multiplier. Dynamic pricing supplies the profit multiplier. Final billing multiplies both.',
+  'Known upstream cost is multiplied by this margin before the cost floor is compared with profit pricing.',
+  'Live profit multiplier preview',
+  'Live safety status is currently unavailable.',
+  'Load EMA',
+  'Minimum multiplier cannot exceed the dynamic ceiling.',
+  'Minimum profit multiplier',
+  'No active channels found',
+  'No model samples yet. The configured minimum is used until the first engine tick.',
+  'No pricing groups configured',
+  'Not ready to enable safely',
+  'Per-model live factors',
+  'Profit multiplier',
+  'Reference model cost (USD / 1M tokens)',
+  'The final charge is the group cost multiplier multiplied by this dynamic profit multiplier.',
+  'The profit multiplier never falls below this value while dynamic pricing is enabled.',
+  'USD / 1M tokens',
+  'Unknown cost',
+  'Use the model cost baseline used to compare upstream cost with the configured group cost multiplier.',
+  '{{configured}} of {{active}} active channels have costs.',
+  'Base prices exclude dynamic profit multipliers and usage discounts. USD estimates also exclude payment discounts and fees; checkout confirms the payable amount.',
 ])
 const fixedGroupCopy = {
-  "en": {
-    "JSON map of group → fixed multiplier applied to model prices for that billing group.": "JSON map of group → fixed multiplier applied to model prices for that billing group.",
-    "Before usage discounts, the group price equals the model base price multiplied by the group ratio.": "Before usage discounts, the group price equals the model base price multiplied by the group ratio.",
-    "The group ratio changes model prices for that group. Top-up ratios change credited balance separately.": "The group ratio changes model prices for that group. Top-up ratios change credited balance separately.",
-    "Set a fixed price multiplier for each routing group. The top-up ratio remains an independent balance multiplier.": "Set a fixed price multiplier for each routing group. The top-up ratio remains an independent balance multiplier.",
-    "Legacy pricing adjustment": "Legacy pricing adjustment"
+  en: {
+    'JSON map of group → fixed multiplier applied to model prices for that billing group.':
+      'JSON map of group → fixed multiplier applied to model prices for that billing group.',
+    'Before usage discounts, the group price equals the model base price multiplied by the group ratio.':
+      'Before usage discounts, the group price equals the model base price multiplied by the group ratio.',
+    'The group ratio changes model prices for that group. Top-up ratios change credited balance separately.':
+      'The group ratio changes model prices for that group. Top-up ratios change credited balance separately.',
+    'Set a fixed price multiplier for each routing group. The top-up ratio remains an independent balance multiplier.':
+      'Set a fixed price multiplier for each routing group. The top-up ratio remains an independent balance multiplier.',
+    'Legacy pricing adjustment': 'Legacy pricing adjustment',
   },
-  "zh": {
-    "JSON map of group → fixed multiplier applied to model prices for that billing group.": "JSON 映射：分组 → 该计费分组模型价格采用的固定倍率。",
-    "Before usage discounts, the group price equals the model base price multiplied by the group ratio.": "应用用量优惠前，分组价格等于模型基础价格乘以分组倍率。",
-    "The group ratio changes model prices for that group. Top-up ratios change credited balance separately.": "分组倍率调整该分组的模型价格；充值倍率单独调整到账余额。",
-    "Set a fixed price multiplier for each routing group. The top-up ratio remains an independent balance multiplier.": "为每个路由分组设置固定价格倍率。充值倍率仍独立决定到账余额。",
-    "Legacy pricing adjustment": "旧账单价格调整"
+  zh: {
+    'JSON map of group → fixed multiplier applied to model prices for that billing group.':
+      'JSON 映射：分组 → 该计费分组模型价格采用的固定倍率。',
+    'Before usage discounts, the group price equals the model base price multiplied by the group ratio.':
+      '应用用量优惠前，分组价格等于模型基础价格乘以分组倍率。',
+    'The group ratio changes model prices for that group. Top-up ratios change credited balance separately.':
+      '分组倍率调整该分组的模型价格；充值倍率单独调整到账余额。',
+    'Set a fixed price multiplier for each routing group. The top-up ratio remains an independent balance multiplier.':
+      '为每个路由分组设置固定价格倍率。充值倍率仍独立决定到账余额。',
+    'Legacy pricing adjustment': '旧账单价格调整',
   },
-  "zh-TW": {
-    "JSON map of group → fixed multiplier applied to model prices for that billing group.": "JSON 對應：群組 → 該計費群組模型價格採用的固定倍率。",
-    "Before usage discounts, the group price equals the model base price multiplied by the group ratio.": "套用用量優惠前，群組價格等於模型基礎價格乘以群組倍率。",
-    "The group ratio changes model prices for that group. Top-up ratios change credited balance separately.": "群組倍率調整該群組的模型價格；儲值倍率另行調整入帳餘額。",
-    "Set a fixed price multiplier for each routing group. The top-up ratio remains an independent balance multiplier.": "為每個路由群組設定固定價格倍率。儲值倍率仍獨立決定入帳餘額。",
-    "Legacy pricing adjustment": "舊帳單價格調整"
+  'zh-TW': {
+    'JSON map of group → fixed multiplier applied to model prices for that billing group.':
+      'JSON 對應：群組 → 該計費群組模型價格採用的固定倍率。',
+    'Before usage discounts, the group price equals the model base price multiplied by the group ratio.':
+      '套用用量優惠前，群組價格等於模型基礎價格乘以群組倍率。',
+    'The group ratio changes model prices for that group. Top-up ratios change credited balance separately.':
+      '群組倍率調整該群組的模型價格；儲值倍率另行調整入帳餘額。',
+    'Set a fixed price multiplier for each routing group. The top-up ratio remains an independent balance multiplier.':
+      '為每個路由群組設定固定價格倍率。儲值倍率仍獨立決定入帳餘額。',
+    'Legacy pricing adjustment': '舊帳單價格調整',
   },
-  "fr": {
-    "JSON map of group → fixed multiplier applied to model prices for that billing group.": "Table JSON groupe → multiplicateur fixe appliqué aux prix des modèles de ce groupe.",
-    "Before usage discounts, the group price equals the model base price multiplied by the group ratio.": "Avant les remises d’utilisation, le prix du groupe est le prix de base du modèle multiplié par le ratio du groupe.",
-    "The group ratio changes model prices for that group. Top-up ratios change credited balance separately.": "Le ratio du groupe ajuste les prix des modèles. Le ratio de recharge ajuste séparément le solde crédité.",
-    "Set a fixed price multiplier for each routing group. The top-up ratio remains an independent balance multiplier.": "Définissez un multiplicateur fixe par groupe de routage. Le ratio de recharge reste un multiplicateur indépendant du solde.",
-    "Legacy pricing adjustment": "Ajustement tarifaire historique"
+  fr: {
+    'JSON map of group → fixed multiplier applied to model prices for that billing group.':
+      'Table JSON groupe → multiplicateur fixe appliqué aux prix des modèles de ce groupe.',
+    'Before usage discounts, the group price equals the model base price multiplied by the group ratio.':
+      'Avant les remises d’utilisation, le prix du groupe est le prix de base du modèle multiplié par le ratio du groupe.',
+    'The group ratio changes model prices for that group. Top-up ratios change credited balance separately.':
+      'Le ratio du groupe ajuste les prix des modèles. Le ratio de recharge ajuste séparément le solde crédité.',
+    'Set a fixed price multiplier for each routing group. The top-up ratio remains an independent balance multiplier.':
+      'Définissez un multiplicateur fixe par groupe de routage. Le ratio de recharge reste un multiplicateur indépendant du solde.',
+    'Legacy pricing adjustment': 'Ajustement tarifaire historique',
   },
-  "ja": {
-    "JSON map of group → fixed multiplier applied to model prices for that billing group.": "JSON 対応表：グループ → その課金グループのモデル価格に適用する固定倍率。",
-    "Before usage discounts, the group price equals the model base price multiplied by the group ratio.": "利用割引の適用前は、グループ価格はモデル基本価格にグループ倍率を掛けた値です。",
-    "The group ratio changes model prices for that group. Top-up ratios change credited balance separately.": "グループ倍率はモデル価格を調整します。チャージ倍率は入金残高を別途調整します。",
-    "Set a fixed price multiplier for each routing group. The top-up ratio remains an independent balance multiplier.": "各ルーティンググループに固定価格倍率を設定します。チャージ倍率は残高に独立して適用されます。",
-    "Legacy pricing adjustment": "過去の請求の価格調整"
+  ja: {
+    'JSON map of group → fixed multiplier applied to model prices for that billing group.':
+      'JSON 対応表：グループ → その課金グループのモデル価格に適用する固定倍率。',
+    'Before usage discounts, the group price equals the model base price multiplied by the group ratio.':
+      '利用割引の適用前は、グループ価格はモデル基本価格にグループ倍率を掛けた値です。',
+    'The group ratio changes model prices for that group. Top-up ratios change credited balance separately.':
+      'グループ倍率はモデル価格を調整します。チャージ倍率は入金残高を別途調整します。',
+    'Set a fixed price multiplier for each routing group. The top-up ratio remains an independent balance multiplier.':
+      '各ルーティンググループに固定価格倍率を設定します。チャージ倍率は残高に独立して適用されます。',
+    'Legacy pricing adjustment': '過去の請求の価格調整',
   },
-  "ru": {
-    "JSON map of group → fixed multiplier applied to model prices for that billing group.": "JSON: группа → фиксированный множитель цен моделей в этой расчётной группе.",
-    "Before usage discounts, the group price equals the model base price multiplied by the group ratio.": "До скидок за использование цена группы равна базовой цене модели, умноженной на коэффициент группы.",
-    "The group ratio changes model prices for that group. Top-up ratios change credited balance separately.": "Коэффициент группы меняет цены моделей. Коэффициент пополнения отдельно меняет зачисляемый баланс.",
-    "Set a fixed price multiplier for each routing group. The top-up ratio remains an independent balance multiplier.": "Задайте фиксированный множитель цены для каждой группы маршрутизации. Коэффициент пополнения применяется к балансу отдельно.",
-    "Legacy pricing adjustment": "Корректировка старого тарифа"
+  ru: {
+    'JSON map of group → fixed multiplier applied to model prices for that billing group.':
+      'JSON: группа → фиксированный множитель цен моделей в этой расчётной группе.',
+    'Before usage discounts, the group price equals the model base price multiplied by the group ratio.':
+      'До скидок за использование цена группы равна базовой цене модели, умноженной на коэффициент группы.',
+    'The group ratio changes model prices for that group. Top-up ratios change credited balance separately.':
+      'Коэффициент группы меняет цены моделей. Коэффициент пополнения отдельно меняет зачисляемый баланс.',
+    'Set a fixed price multiplier for each routing group. The top-up ratio remains an independent balance multiplier.':
+      'Задайте фиксированный множитель цены для каждой группы маршрутизации. Коэффициент пополнения применяется к балансу отдельно.',
+    'Legacy pricing adjustment': 'Корректировка старого тарифа',
   },
-  "vi": {
-    "JSON map of group → fixed multiplier applied to model prices for that billing group.": "Ánh xạ JSON: nhóm → hệ số cố định áp dụng cho giá mô hình của nhóm thanh toán đó.",
-    "Before usage discounts, the group price equals the model base price multiplied by the group ratio.": "Trước ưu đãi sử dụng, giá của nhóm bằng giá cơ sở của mô hình nhân với hệ số nhóm.",
-    "The group ratio changes model prices for that group. Top-up ratios change credited balance separately.": "Hệ số nhóm điều chỉnh giá mô hình trong nhóm. Hệ số nạp tiền điều chỉnh số dư được cộng riêng biệt.",
-    "Set a fixed price multiplier for each routing group. The top-up ratio remains an independent balance multiplier.": "Đặt hệ số giá cố định cho từng nhóm định tuyến. Hệ số nạp tiền vẫn là hệ số số dư độc lập.",
-    "Legacy pricing adjustment": "Điều chỉnh giá của hóa đơn cũ"
-  }
+  vi: {
+    'JSON map of group → fixed multiplier applied to model prices for that billing group.':
+      'Ánh xạ JSON: nhóm → hệ số cố định áp dụng cho giá mô hình của nhóm thanh toán đó.',
+    'Before usage discounts, the group price equals the model base price multiplied by the group ratio.':
+      'Trước ưu đãi sử dụng, giá của nhóm bằng giá cơ sở của mô hình nhân với hệ số nhóm.',
+    'The group ratio changes model prices for that group. Top-up ratios change credited balance separately.':
+      'Hệ số nhóm điều chỉnh giá mô hình trong nhóm. Hệ số nạp tiền điều chỉnh số dư được cộng riêng biệt.',
+    'Set a fixed price multiplier for each routing group. The top-up ratio remains an independent balance multiplier.':
+      'Đặt hệ số giá cố định cho từng nhóm định tuyến. Hệ số nạp tiền vẫn là hệ số số dư độc lập.',
+    'Legacy pricing adjustment': 'Điều chỉnh giá của hóa đơn cũ',
+  },
 }
 
 const operationsFinishCopy = {
-  "en": {
-    "Account export failed. Check export permission or narrow the registration period.": "Account export failed. Check export permission or narrow the registration period.",
-    "Corrected source": "Corrected source",
-    "Correction reason": "Correction reason",
-    "Correction was not saved. Reloaded the latest version; check the source, reason and consent before retrying.": "Correction was not saved. Reloaded the latest version; check the source, reason and consent before retrying.",
-    "Explain the evidence without URLs, credentials or personal contact details.": "Explain the evidence without URLs, credentials or personal contact details.",
-    "Export filtered account details": "Export filtered account details",
-    "Exports account IDs and conversion status for the current source and registration period, without email addresses. Maximum 10,000 accounts.": "Exports account IDs and conversion status for the current source and registration period, without email addresses. Maximum 10,000 accounts.",
-    "Manual corrections are shown separately. Observed attribution, channel totals, invitations and payments remain unchanged.": "Manual corrections are shown separately. Observed attribution, channel totals, invitations and payments remain unchanged.",
-    "Manual source correction": "Manual source correction",
-    "No manual source correction recorded.": "No manual source correction recorded.",
-    "Save correction with audit record": "Save correction with audit record",
-    "Showing the latest 100 retained corrections.": "Showing the latest 100 retained corrections.",
-    "API access approved": "API access approved",
-    "API connection": "API connection",
-    "Access application submitted": "Access application submitted",
-    "Apply date range": "Apply date range",
-    "Apply filters": "Apply filters",
-    "Attributed from earlier source records": "Attributed from earlier source records",
-    "Attribution evidence": "Attribution evidence",
-    "Average hours since registration": "Average hours since registration",
-    "Both": "Both",
-    "Choose a valid date range ending no later than today.": "Choose a valid date range ending no later than today.",
-    "Client configuration confirmed": "Client configuration confirmed",
-    "Cohort conversion": "Cohort conversion",
-    "Counts cover consenting browser identifiers, not people. One browser can appear in several channels, so channel counts must not be added together.": "Counts cover consenting browser identifiers, not people. One browser can appear in several channels, so channel counts must not be added together.",
-    "Dates use UTC; the end date is included. Up to 366 days.": "Dates use UTC; the end date is included. Up to 366 days.",
-    "Each account is observed for the same number of days after registration. OAuth and manual keys are alternative paths; payment is independent of first use.": "Each account is observed for the same number of days after registration. OAuth and manual keys are alternative paths; payment is independent of first use.",
-    "End date": "End date",
-    "First successful payment": "First successful payment",
-    "Identifiable browser visitors": "Identifiable browser visitors",
-    "Manual API key created": "Manual API key created",
-    "Mature cohort": "Mature cohort",
-    "Mature cohort conversion": "Mature cohort conversion",
-    "No completion observed": "No completion observed",
-    "No payment attribution recorded yet.": "No payment attribution recorded yet.",
-    "No visitor observations in the retained part of this period.": "No visitor observations in the retained part of this period.",
-    "OAuth authorized": "OAuth authorized",
-    "OAuth authorized or key created": "OAuth authorized or key created",
-    "Observation days": "Observation days",
-    "Observed accounts": "Observed accounts",
-    "Observed browser identifiers": "Observed browser identifiers",
-    "Observing": "Observing",
-    "Payment attribution uses saved evidence and its recorded lookback window. It does not change registration attribution or prove causation.": "Payment attribution uses saved evidence and its recorded lookback window. It does not change registration attribution or prove causation.",
-    "Payments": "Payments",
-    "Rates use only accounts with a complete observation window and known evidence. Timings are from registration, with the timing sample count in parentheses.": "Rates use only accounts with a complete observation window and known evidence. Timings are from registration, with the timing sample count in parentheses.",
-    "Records available from": "Records available from",
-    "Repeat payment": "Repeat payment",
-    "Selected registration period": "Selected registration period",
-    "Some stages lack historical evidence. Unknown accounts are not failed conversions.": "Some stages lack historical evidence. Unknown accounts are not failed conversions.",
-    "Source before first payment": "Source before first payment",
-    "Stage": "Stage",
-    "Start date": "Start date",
-    "These filters apply only to this conversion section. Content filters exclude older registrations without a recorded content label.": "These filters apply only to this conversion section. Content filters exclude older registrations without a recorded content label.",
-    "Today (UTC)": "Today (UTC)",
-    "Visitor records do not cover this entire period. Counts below include only retained observations.": "Visitor records do not cover this entire period. Counts below include only retained observations.",
-    "Payment attribution is still processing or unavailable; missing snapshots are not zero conversions.": "Payment attribution is still processing or unavailable; missing snapshots are not zero conversions.",
-    "Administrator status notice": "Administrator status notice",
-    "Current routing configuration": "Current routing configuration",
-    "Routing availability is a configuration snapshot, not an upstream health probe. Administrator notices do not change request routing.": "Routing availability is a configuration snapshot, not an upstream health probe. Administrator notices do not change request routing.",
-    "Status notice expires": "Status notice expires",
-    "Temporarily unavailable": "Temporarily unavailable",
-    "Congested": "Congested",
-    "This publishes a status notice only. It does not disable channels or change routing. Notices must expire within 30 days.": "This publishes a status notice only. It does not disable channels or change routing. Notices must expire within 30 days.",
-    "Under maintenance": "Under maintenance",
-    "Public operational status": "Public operational status",
-    "Operational status": "Operational status",
-    "Use routing configuration": "Use routing configuration",
-    "Public status explanation": "Public status explanation",
-    "Routable now": "Routable now",
-    "No account access": "No account access",
-    "Not in the model catalog": "Not in the model catalog",
-    "Runtime status unknown": "Runtime status unknown"
+  en: {
+    'Account export failed. Check export permission or narrow the registration period.':
+      'Account export failed. Check export permission or narrow the registration period.',
+    'Corrected source': 'Corrected source',
+    'Correction reason': 'Correction reason',
+    'Correction was not saved. Reloaded the latest version; check the source, reason and consent before retrying.':
+      'Correction was not saved. Reloaded the latest version; check the source, reason and consent before retrying.',
+    'Explain the evidence without URLs, credentials or personal contact details.':
+      'Explain the evidence without URLs, credentials or personal contact details.',
+    'Export filtered account details': 'Export filtered account details',
+    'Exports account IDs and conversion status for the current source and registration period, without email addresses. Maximum 10,000 accounts.':
+      'Exports account IDs and conversion status for the current source and registration period, without email addresses. Maximum 10,000 accounts.',
+    'Manual corrections are shown separately. Observed attribution, channel totals, invitations and payments remain unchanged.':
+      'Manual corrections are shown separately. Observed attribution, channel totals, invitations and payments remain unchanged.',
+    'Manual source correction': 'Manual source correction',
+    'No manual source correction recorded.':
+      'No manual source correction recorded.',
+    'Save correction with audit record': 'Save correction with audit record',
+    'Showing the latest 100 retained corrections.':
+      'Showing the latest 100 retained corrections.',
+    'API access approved': 'API access approved',
+    'API connection': 'API connection',
+    'Access application submitted': 'Access application submitted',
+    'Apply date range': 'Apply date range',
+    'Apply filters': 'Apply filters',
+    'Attributed from earlier source records':
+      'Attributed from earlier source records',
+    'Attribution evidence': 'Attribution evidence',
+    'Average hours since registration': 'Average hours since registration',
+    Both: 'Both',
+    'Choose a valid date range ending no later than today.':
+      'Choose a valid date range ending no later than today.',
+    'Client configuration confirmed': 'Client configuration confirmed',
+    'Cohort conversion': 'Cohort conversion',
+    'Counts cover consenting browser identifiers, not people. One browser can appear in several channels, so channel counts must not be added together.':
+      'Counts cover consenting browser identifiers, not people. One browser can appear in several channels, so channel counts must not be added together.',
+    'Dates use UTC; the end date is included. Up to 366 days.':
+      'Dates use UTC; the end date is included. Up to 366 days.',
+    'Each account is observed for the same number of days after registration. OAuth and manual keys are alternative paths; payment is independent of first use.':
+      'Each account is observed for the same number of days after registration. OAuth and manual keys are alternative paths; payment is independent of first use.',
+    'End date': 'End date',
+    'First successful payment': 'First successful payment',
+    'Identifiable browser visitors': 'Identifiable browser visitors',
+    'Manual API key created': 'Manual API key created',
+    'Mature cohort': 'Mature cohort',
+    'Mature cohort conversion': 'Mature cohort conversion',
+    'No completion observed': 'No completion observed',
+    'No payment attribution recorded yet.':
+      'No payment attribution recorded yet.',
+    'No visitor observations in the retained part of this period.':
+      'No visitor observations in the retained part of this period.',
+    'OAuth authorized': 'OAuth authorized',
+    'OAuth authorized or key created': 'OAuth authorized or key created',
+    'Observation days': 'Observation days',
+    'Observed accounts': 'Observed accounts',
+    'Observed browser identifiers': 'Observed browser identifiers',
+    Observing: 'Observing',
+    'Payment attribution uses saved evidence and its recorded lookback window. It does not change registration attribution or prove causation.':
+      'Payment attribution uses saved evidence and its recorded lookback window. It does not change registration attribution or prove causation.',
+    Payments: 'Payments',
+    'Rates use only accounts with a complete observation window and known evidence. Timings are from registration, with the timing sample count in parentheses.':
+      'Rates use only accounts with a complete observation window and known evidence. Timings are from registration, with the timing sample count in parentheses.',
+    'Records available from': 'Records available from',
+    'Repeat payment': 'Repeat payment',
+    'Selected registration period': 'Selected registration period',
+    'Some stages lack historical evidence. Unknown accounts are not failed conversions.':
+      'Some stages lack historical evidence. Unknown accounts are not failed conversions.',
+    'Source before first payment': 'Source before first payment',
+    Stage: 'Stage',
+    'Start date': 'Start date',
+    'These filters apply only to this conversion section. Content filters exclude older registrations without a recorded content label.':
+      'These filters apply only to this conversion section. Content filters exclude older registrations without a recorded content label.',
+    'Today (UTC)': 'Today (UTC)',
+    'Visitor records do not cover this entire period. Counts below include only retained observations.':
+      'Visitor records do not cover this entire period. Counts below include only retained observations.',
+    'Payment attribution is still processing or unavailable; missing snapshots are not zero conversions.':
+      'Payment attribution is still processing or unavailable; missing snapshots are not zero conversions.',
+    'Administrator status notice': 'Administrator status notice',
+    'Current routing configuration': 'Current routing configuration',
+    'Routing availability is a configuration snapshot, not an upstream health probe. Administrator notices do not change request routing.':
+      'Routing availability is a configuration snapshot, not an upstream health probe. Administrator notices do not change request routing.',
+    'Status notice expires': 'Status notice expires',
+    'Temporarily unavailable': 'Temporarily unavailable',
+    Congested: 'Congested',
+    'This publishes a status notice only. It does not disable channels or change routing. Notices must expire within 30 days.':
+      'This publishes a status notice only. It does not disable channels or change routing. Notices must expire within 30 days.',
+    'Under maintenance': 'Under maintenance',
+    'Public operational status': 'Public operational status',
+    'Operational status': 'Operational status',
+    'Use routing configuration': 'Use routing configuration',
+    'Public status explanation': 'Public status explanation',
+    'Routable now': 'Routable now',
+    'No account access': 'No account access',
+    'Not in the model catalog': 'Not in the model catalog',
+    'Runtime status unknown': 'Runtime status unknown',
   },
-  "zh": {
-    "Account export failed. Check export permission or narrow the registration period.": "账号明细导出失败，请检查导出权限或缩小注册时间范围。",
-    "Corrected source": "修正后的来源",
-    "Correction reason": "修正理由",
-    "Correction was not saved. Reloaded the latest version; check the source, reason and consent before retrying.": "修正未保存。已重新加载最新版本，请检查来源、理由和用户同意状态后重试。",
-    "Explain the evidence without URLs, credentials or personal contact details.": "请说明判断依据，不要填写网址、凭据或个人联系方式。",
-    "Export filtered account details": "导出当前筛选的账号明细",
-    "Exports account IDs and conversion status for the current source and registration period, without email addresses. Maximum 10,000 accounts.": "导出当前来源和注册时间范围内的账号 ID 及转化状态，不含邮箱地址，最多 10,000 个账号。",
-    "Manual corrections are shown separately. Observed attribution, channel totals, invitations and payments remain unchanged.": "人工修正单独展示，不改动自动来源归属、渠道汇总、邀请关系和付款记录。",
-    "Manual source correction": "人工修正来源",
-    "No manual source correction recorded.": "尚无人工来源修正记录。",
-    "Save correction with audit record": "保存修正并记录审计",
-    "Showing the latest 100 retained corrections.": "仅显示最近 100 条保留期内的修正记录。",
-    "API access approved": "API 访问已批准",
-    "API connection": "API 接入",
-    "Access application submitted": "已提交访问申请",
-    "Apply date range": "应用日期范围",
-    "Apply filters": "应用筛选",
-    "Attributed from earlier source records": "由此前来源记录归属",
-    "Attribution evidence": "归属依据",
-    "Average hours since registration": "注册后平均小时数",
-    "Both": "两种方式",
-    "Choose a valid date range ending no later than today.": "请选择有效日期范围，结束日期不能晚于今天。",
-    "Client configuration confirmed": "已确认客户端配置",
-    "Cohort conversion": "同批用户转化",
-    "Counts cover consenting browser identifiers, not people. One browser can appear in several channels, so channel counts must not be added together.": "仅统计同意采集的浏览器标识，不是自然人数。同一浏览器可能来自多个渠道，不能将各渠道数量直接相加。",
-    "Dates use UTC; the end date is included. Up to 366 days.": "日期按 UTC 计算，包含结束日期，最长 366 天。",
-    "Each account is observed for the same number of days after registration. OAuth and manual keys are alternative paths; payment is independent of first use.": "每个账号从注册起观察相同天数。OAuth 和手动 Key 是不同接入路径，付费不要求先完成首次调用。",
-    "End date": "结束日期",
-    "First successful payment": "首次成功付款",
-    "Identifiable browser visitors": "可识别浏览器访客",
-    "Manual API key created": "已创建手动 API Key",
-    "Mature cohort": "已满观察期的账号",
-    "Mature cohort conversion": "已满观察期账号的转化",
-    "No completion observed": "尚未观察到完成",
-    "No payment attribution recorded yet.": "暂无付款来源归属记录。",
-    "No visitor observations in the retained part of this period.": "此期间保留的数据中没有访客记录。",
-    "OAuth authorized": "已完成 OAuth 授权",
-    "OAuth authorized or key created": "已授权 OAuth 或创建 Key",
-    "Observation days": "观察天数",
-    "Observed accounts": "已观察到的账号",
-    "Observed browser identifiers": "已观察到的浏览器标识",
-    "Observing": "观察中",
-    "Payment attribution uses saved evidence and its recorded lookback window. It does not change registration attribution or prove causation.": "付款归属使用已保存的证据及当时的回看范围，不改变注册归属，也不证明渠道导致付款。",
-    "Payments": "付款",
-    "Rates use only accounts with a complete observation window and known evidence. Timings are from registration, with the timing sample count in parentheses.": "转化率仅使用观察期已完整结束且有明确证据的账号。耗时从注册起算，括号内为耗时样本数。",
-    "Records available from": "可用记录起始时间",
-    "Repeat payment": "再次付款",
-    "Selected registration period": "选定的注册时间范围",
-    "Some stages lack historical evidence. Unknown accounts are not failed conversions.": "部分环节缺少历史证据。状态未知的账号不能算作转化失败。",
-    "Source before first payment": "首次付款前来源",
-    "Stage": "环节",
-    "Start date": "开始日期",
-    "These filters apply only to this conversion section. Content filters exclude older registrations without a recorded content label.": "这些筛选只影响本转化区域。内容筛选不包含尚未记录内容标记的历史注册账号。",
-    "Today (UTC)": "今天（UTC）",
-    "Visitor records do not cover this entire period. Counts below include only retained observations.": "访客记录未覆盖整个时间范围，以下数量仅统计仍保留的记录。",
-    "Payment attribution is still processing or unavailable; missing snapshots are not zero conversions.": "付款归属仍在处理或暂不可用；缺少快照不代表没有转化。",
-    "Administrator status notice": "管理员状态声明",
-    "Current routing configuration": "当前路由配置",
-    "Routing availability is a configuration snapshot, not an upstream health probe. Administrator notices do not change request routing.": "可用情况来自当前路由配置，并非上游健康探测。管理员状态声明不会改变请求路由。",
-    "Status notice expires": "状态声明到期时间",
-    "Temporarily unavailable": "暂时不可用",
-    "Congested": "拥堵",
-    "This publishes a status notice only. It does not disable channels or change routing. Notices must expire within 30 days.": "这里只发布状态声明，不会禁用渠道或改变路由。声明必须在 30 天内到期。",
-    "Under maintenance": "维护中",
-    "Public operational status": "公开运行状态",
-    "Operational status": "运行状态",
-    "Use routing configuration": "根据路由配置判断",
-    "Public status explanation": "公开状态说明",
-    "Routable now": "可用（路由已启用）",
-    "No account access": "当前账号无权限",
-    "Not in the model catalog": "未列入模型目录",
-    "Runtime status unknown": "运行状态未知"
+  zh: {
+    'Account export failed. Check export permission or narrow the registration period.':
+      '账号明细导出失败，请检查导出权限或缩小注册时间范围。',
+    'Corrected source': '修正后的来源',
+    'Correction reason': '修正理由',
+    'Correction was not saved. Reloaded the latest version; check the source, reason and consent before retrying.':
+      '修正未保存。已重新加载最新版本，请检查来源、理由和用户同意状态后重试。',
+    'Explain the evidence without URLs, credentials or personal contact details.':
+      '请说明判断依据，不要填写网址、凭据或个人联系方式。',
+    'Export filtered account details': '导出当前筛选的账号明细',
+    'Exports account IDs and conversion status for the current source and registration period, without email addresses. Maximum 10,000 accounts.':
+      '导出当前来源和注册时间范围内的账号 ID 及转化状态，不含邮箱地址，最多 10,000 个账号。',
+    'Manual corrections are shown separately. Observed attribution, channel totals, invitations and payments remain unchanged.':
+      '人工修正单独展示，不改动自动来源归属、渠道汇总、邀请关系和付款记录。',
+    'Manual source correction': '人工修正来源',
+    'No manual source correction recorded.': '尚无人工来源修正记录。',
+    'Save correction with audit record': '保存修正并记录审计',
+    'Showing the latest 100 retained corrections.':
+      '仅显示最近 100 条保留期内的修正记录。',
+    'API access approved': 'API 访问已批准',
+    'API connection': 'API 接入',
+    'Access application submitted': '已提交访问申请',
+    'Apply date range': '应用日期范围',
+    'Apply filters': '应用筛选',
+    'Attributed from earlier source records': '由此前来源记录归属',
+    'Attribution evidence': '归属依据',
+    'Average hours since registration': '注册后平均小时数',
+    Both: '两种方式',
+    'Choose a valid date range ending no later than today.':
+      '请选择有效日期范围，结束日期不能晚于今天。',
+    'Client configuration confirmed': '已确认客户端配置',
+    'Cohort conversion': '同批用户转化',
+    'Counts cover consenting browser identifiers, not people. One browser can appear in several channels, so channel counts must not be added together.':
+      '仅统计同意采集的浏览器标识，不是自然人数。同一浏览器可能来自多个渠道，不能将各渠道数量直接相加。',
+    'Dates use UTC; the end date is included. Up to 366 days.':
+      '日期按 UTC 计算，包含结束日期，最长 366 天。',
+    'Each account is observed for the same number of days after registration. OAuth and manual keys are alternative paths; payment is independent of first use.':
+      '每个账号从注册起观察相同天数。OAuth 和手动 Key 是不同接入路径，付费不要求先完成首次调用。',
+    'End date': '结束日期',
+    'First successful payment': '首次成功付款',
+    'Identifiable browser visitors': '可识别浏览器访客',
+    'Manual API key created': '已创建手动 API Key',
+    'Mature cohort': '已满观察期的账号',
+    'Mature cohort conversion': '已满观察期账号的转化',
+    'No completion observed': '尚未观察到完成',
+    'No payment attribution recorded yet.': '暂无付款来源归属记录。',
+    'No visitor observations in the retained part of this period.':
+      '此期间保留的数据中没有访客记录。',
+    'OAuth authorized': '已完成 OAuth 授权',
+    'OAuth authorized or key created': '已授权 OAuth 或创建 Key',
+    'Observation days': '观察天数',
+    'Observed accounts': '已观察到的账号',
+    'Observed browser identifiers': '已观察到的浏览器标识',
+    Observing: '观察中',
+    'Payment attribution uses saved evidence and its recorded lookback window. It does not change registration attribution or prove causation.':
+      '付款归属使用已保存的证据及当时的回看范围，不改变注册归属，也不证明渠道导致付款。',
+    Payments: '付款',
+    'Rates use only accounts with a complete observation window and known evidence. Timings are from registration, with the timing sample count in parentheses.':
+      '转化率仅使用观察期已完整结束且有明确证据的账号。耗时从注册起算，括号内为耗时样本数。',
+    'Records available from': '可用记录起始时间',
+    'Repeat payment': '再次付款',
+    'Selected registration period': '选定的注册时间范围',
+    'Some stages lack historical evidence. Unknown accounts are not failed conversions.':
+      '部分环节缺少历史证据。状态未知的账号不能算作转化失败。',
+    'Source before first payment': '首次付款前来源',
+    Stage: '环节',
+    'Start date': '开始日期',
+    'These filters apply only to this conversion section. Content filters exclude older registrations without a recorded content label.':
+      '这些筛选只影响本转化区域。内容筛选不包含尚未记录内容标记的历史注册账号。',
+    'Today (UTC)': '今天（UTC）',
+    'Visitor records do not cover this entire period. Counts below include only retained observations.':
+      '访客记录未覆盖整个时间范围，以下数量仅统计仍保留的记录。',
+    'Payment attribution is still processing or unavailable; missing snapshots are not zero conversions.':
+      '付款归属仍在处理或暂不可用；缺少快照不代表没有转化。',
+    'Administrator status notice': '管理员状态声明',
+    'Current routing configuration': '当前路由配置',
+    'Routing availability is a configuration snapshot, not an upstream health probe. Administrator notices do not change request routing.':
+      '可用情况来自当前路由配置，并非上游健康探测。管理员状态声明不会改变请求路由。',
+    'Status notice expires': '状态声明到期时间',
+    'Temporarily unavailable': '暂时不可用',
+    Congested: '拥堵',
+    'This publishes a status notice only. It does not disable channels or change routing. Notices must expire within 30 days.':
+      '这里只发布状态声明，不会禁用渠道或改变路由。声明必须在 30 天内到期。',
+    'Under maintenance': '维护中',
+    'Public operational status': '公开运行状态',
+    'Operational status': '运行状态',
+    'Use routing configuration': '根据路由配置判断',
+    'Public status explanation': '公开状态说明',
+    'Routable now': '可用（路由已启用）',
+    'No account access': '当前账号无权限',
+    'Not in the model catalog': '未列入模型目录',
+    'Runtime status unknown': '运行状态未知',
   },
-  "zh-TW": {
-    "Account export failed. Check export permission or narrow the registration period.": "帳號明細匯出失敗，請檢查匯出權限或縮小註冊時間範圍。",
-    "Corrected source": "修正後的來源",
-    "Correction reason": "修正理由",
-    "Correction was not saved. Reloaded the latest version; check the source, reason and consent before retrying.": "修正未儲存。已重新載入最新版本，請檢查來源、理由和使用者同意狀態後重試。",
-    "Explain the evidence without URLs, credentials or personal contact details.": "請說明判斷依據，不要填寫網址、憑據或個人聯絡方式。",
-    "Export filtered account details": "匯出目前篩選的帳號明細",
-    "Exports account IDs and conversion status for the current source and registration period, without email addresses. Maximum 10,000 accounts.": "匯出目前來源和註冊時間範圍內的帳號 ID 及轉換狀態，不含電子郵件地址，最多 10,000 個帳號。",
-    "Manual corrections are shown separately. Observed attribution, channel totals, invitations and payments remain unchanged.": "人工修正會分開顯示，不變更自動來源歸屬、管道彙總、邀請關係和付款紀錄。",
-    "Manual source correction": "人工修正來源",
-    "No manual source correction recorded.": "尚無人工來源修正紀錄。",
-    "Save correction with audit record": "儲存修正並記錄稽核",
-    "Showing the latest 100 retained corrections.": "僅顯示最近 100 筆保留期間內的修正紀錄。",
-    "API access approved": "API 存取已核准",
-    "API connection": "API 接入",
-    "Access application submitted": "已提交存取申請",
-    "Apply date range": "套用日期範圍",
-    "Apply filters": "套用篩選",
-    "Attributed from earlier source records": "根據較早的來源紀錄歸屬",
-    "Attribution evidence": "歸屬依據",
-    "Average hours since registration": "註冊後平均經過時數",
-    "Both": "兩者皆有",
-    "Choose a valid date range ending no later than today.": "請選擇有效的日期範圍，結束日期不得晚於今天。",
-    "Client configuration confirmed": "已確認用戶端設定",
-    "Cohort conversion": "同期註冊帳號轉換",
-    "Counts cover consenting browser identifiers, not people. One browser can appear in several channels, so channel counts must not be added together.": "此處統計已取得同意的瀏覽器識別碼，並非人數。同一瀏覽器可能出現在多個管道，因此各管道數量不可相加。",
-    "Dates use UTC; the end date is included. Up to 366 days.": "日期以 UTC 為準，包含結束當日，最多 366 天。",
-    "Each account is observed for the same number of days after registration. OAuth and manual keys are alternative paths; payment is independent of first use.": "每個帳號均從註冊日起觀察相同天數。OAuth 與手動 API Key 是不同的接入途徑；付款與首次使用沒有固定先後順序。",
-    "End date": "結束日期",
-    "First successful payment": "首次付款成功",
-    "Identifiable browser visitors": "可識別的瀏覽器訪客",
-    "Manual API key created": "已手動建立 API Key",
-    "Mature cohort": "已滿觀察期的註冊群組",
-    "Mature cohort conversion": "已滿觀察期群組轉換率",
-    "No completion observed": "尚未觀察到完成",
-    "No payment attribution recorded yet.": "尚無付款來源歸屬紀錄。",
-    "No visitor observations in the retained part of this period.": "此期間仍在保留範圍內的部分沒有訪客觀察紀錄。",
-    "OAuth authorized": "已完成 OAuth 授權",
-    "OAuth authorized or key created": "已完成 OAuth 授權或建立 Key",
-    "Observation days": "觀察天數",
-    "Observed accounts": "已觀察到的帳號",
-    "Observed browser identifiers": "已觀察到的瀏覽器識別碼",
-    "Observing": "觀察中",
-    "Payment attribution uses saved evidence and its recorded lookback window. It does not change registration attribution or prove causation.": "付款來源歸屬採用已儲存的依據及當時記錄的回溯期間，不改變註冊來源歸屬，也不代表已證實因果關係。",
-    "Payments": "付款",
-    "Rates use only accounts with a complete observation window and known evidence. Timings are from registration, with the timing sample count in parentheses.": "轉換率僅使用已滿觀察期且具備明確依據的帳號計算。耗時從註冊時計起，括號內為耗時統計的樣本數。",
-    "Records available from": "可用紀錄起始時間",
-    "Repeat payment": "再次付款",
-    "Selected registration period": "已選註冊期間",
-    "Some stages lack historical evidence. Unknown accounts are not failed conversions.": "部分階段缺少歷史依據，不能將狀態未知的帳號算作轉換失敗。",
-    "Source before first payment": "首次付款前來源",
-    "Stage": "階段",
-    "Start date": "開始日期",
-    "These filters apply only to this conversion section. Content filters exclude older registrations without a recorded content label.": "這些篩選僅套用於此轉換區域。依內容篩選時，將排除未記錄內容標記的舊註冊帳號。",
-    "Today (UTC)": "今天（UTC）",
-    "Visitor records do not cover this entire period. Counts below include only retained observations.": "訪客紀錄未涵蓋整個期間，下方數量僅包含仍保留的觀察紀錄。",
-    "Payment attribution is still processing or unavailable; missing snapshots are not zero conversions.": "付款來源歸屬仍在處理中或暫不可用；缺少快照不代表轉換數為零。",
-    "Administrator status notice": "管理員狀態聲明",
-    "Current routing configuration": "目前路由設定",
-    "Routing availability is a configuration snapshot, not an upstream health probe. Administrator notices do not change request routing.": "可用情況來自目前路由設定，並非上游健康探測。管理員狀態聲明不會改變請求路由。",
-    "Status notice expires": "狀態聲明到期時間",
-    "Temporarily unavailable": "暫時無法使用",
-    "Congested": "壅塞",
-    "This publishes a status notice only. It does not disable channels or change routing. Notices must expire within 30 days.": "這裡僅發布狀態聲明，不會停用管道或改變路由。聲明必須在 30 天內到期。",
-    "Under maintenance": "維護中",
-    "Public operational status": "公開運行狀態",
-    "Operational status": "運行狀態",
-    "Use routing configuration": "根據路由設定判斷",
-    "Public status explanation": "公開狀態說明",
-    "Routable now": "可用（路由已啟用）",
-    "No account access": "目前帳號無權限",
-    "Not in the model catalog": "未列入模型目錄",
-    "Runtime status unknown": "運行狀態未知"
+  'zh-TW': {
+    'Account export failed. Check export permission or narrow the registration period.':
+      '帳號明細匯出失敗，請檢查匯出權限或縮小註冊時間範圍。',
+    'Corrected source': '修正後的來源',
+    'Correction reason': '修正理由',
+    'Correction was not saved. Reloaded the latest version; check the source, reason and consent before retrying.':
+      '修正未儲存。已重新載入最新版本，請檢查來源、理由和使用者同意狀態後重試。',
+    'Explain the evidence without URLs, credentials or personal contact details.':
+      '請說明判斷依據，不要填寫網址、憑據或個人聯絡方式。',
+    'Export filtered account details': '匯出目前篩選的帳號明細',
+    'Exports account IDs and conversion status for the current source and registration period, without email addresses. Maximum 10,000 accounts.':
+      '匯出目前來源和註冊時間範圍內的帳號 ID 及轉換狀態，不含電子郵件地址，最多 10,000 個帳號。',
+    'Manual corrections are shown separately. Observed attribution, channel totals, invitations and payments remain unchanged.':
+      '人工修正會分開顯示，不變更自動來源歸屬、管道彙總、邀請關係和付款紀錄。',
+    'Manual source correction': '人工修正來源',
+    'No manual source correction recorded.': '尚無人工來源修正紀錄。',
+    'Save correction with audit record': '儲存修正並記錄稽核',
+    'Showing the latest 100 retained corrections.':
+      '僅顯示最近 100 筆保留期間內的修正紀錄。',
+    'API access approved': 'API 存取已核准',
+    'API connection': 'API 接入',
+    'Access application submitted': '已提交存取申請',
+    'Apply date range': '套用日期範圍',
+    'Apply filters': '套用篩選',
+    'Attributed from earlier source records': '根據較早的來源紀錄歸屬',
+    'Attribution evidence': '歸屬依據',
+    'Average hours since registration': '註冊後平均經過時數',
+    Both: '兩者皆有',
+    'Choose a valid date range ending no later than today.':
+      '請選擇有效的日期範圍，結束日期不得晚於今天。',
+    'Client configuration confirmed': '已確認用戶端設定',
+    'Cohort conversion': '同期註冊帳號轉換',
+    'Counts cover consenting browser identifiers, not people. One browser can appear in several channels, so channel counts must not be added together.':
+      '此處統計已取得同意的瀏覽器識別碼，並非人數。同一瀏覽器可能出現在多個管道，因此各管道數量不可相加。',
+    'Dates use UTC; the end date is included. Up to 366 days.':
+      '日期以 UTC 為準，包含結束當日，最多 366 天。',
+    'Each account is observed for the same number of days after registration. OAuth and manual keys are alternative paths; payment is independent of first use.':
+      '每個帳號均從註冊日起觀察相同天數。OAuth 與手動 API Key 是不同的接入途徑；付款與首次使用沒有固定先後順序。',
+    'End date': '結束日期',
+    'First successful payment': '首次付款成功',
+    'Identifiable browser visitors': '可識別的瀏覽器訪客',
+    'Manual API key created': '已手動建立 API Key',
+    'Mature cohort': '已滿觀察期的註冊群組',
+    'Mature cohort conversion': '已滿觀察期群組轉換率',
+    'No completion observed': '尚未觀察到完成',
+    'No payment attribution recorded yet.': '尚無付款來源歸屬紀錄。',
+    'No visitor observations in the retained part of this period.':
+      '此期間仍在保留範圍內的部分沒有訪客觀察紀錄。',
+    'OAuth authorized': '已完成 OAuth 授權',
+    'OAuth authorized or key created': '已完成 OAuth 授權或建立 Key',
+    'Observation days': '觀察天數',
+    'Observed accounts': '已觀察到的帳號',
+    'Observed browser identifiers': '已觀察到的瀏覽器識別碼',
+    Observing: '觀察中',
+    'Payment attribution uses saved evidence and its recorded lookback window. It does not change registration attribution or prove causation.':
+      '付款來源歸屬採用已儲存的依據及當時記錄的回溯期間，不改變註冊來源歸屬，也不代表已證實因果關係。',
+    Payments: '付款',
+    'Rates use only accounts with a complete observation window and known evidence. Timings are from registration, with the timing sample count in parentheses.':
+      '轉換率僅使用已滿觀察期且具備明確依據的帳號計算。耗時從註冊時計起，括號內為耗時統計的樣本數。',
+    'Records available from': '可用紀錄起始時間',
+    'Repeat payment': '再次付款',
+    'Selected registration period': '已選註冊期間',
+    'Some stages lack historical evidence. Unknown accounts are not failed conversions.':
+      '部分階段缺少歷史依據，不能將狀態未知的帳號算作轉換失敗。',
+    'Source before first payment': '首次付款前來源',
+    Stage: '階段',
+    'Start date': '開始日期',
+    'These filters apply only to this conversion section. Content filters exclude older registrations without a recorded content label.':
+      '這些篩選僅套用於此轉換區域。依內容篩選時，將排除未記錄內容標記的舊註冊帳號。',
+    'Today (UTC)': '今天（UTC）',
+    'Visitor records do not cover this entire period. Counts below include only retained observations.':
+      '訪客紀錄未涵蓋整個期間，下方數量僅包含仍保留的觀察紀錄。',
+    'Payment attribution is still processing or unavailable; missing snapshots are not zero conversions.':
+      '付款來源歸屬仍在處理中或暫不可用；缺少快照不代表轉換數為零。',
+    'Administrator status notice': '管理員狀態聲明',
+    'Current routing configuration': '目前路由設定',
+    'Routing availability is a configuration snapshot, not an upstream health probe. Administrator notices do not change request routing.':
+      '可用情況來自目前路由設定，並非上游健康探測。管理員狀態聲明不會改變請求路由。',
+    'Status notice expires': '狀態聲明到期時間',
+    'Temporarily unavailable': '暫時無法使用',
+    Congested: '壅塞',
+    'This publishes a status notice only. It does not disable channels or change routing. Notices must expire within 30 days.':
+      '這裡僅發布狀態聲明，不會停用管道或改變路由。聲明必須在 30 天內到期。',
+    'Under maintenance': '維護中',
+    'Public operational status': '公開運行狀態',
+    'Operational status': '運行狀態',
+    'Use routing configuration': '根據路由設定判斷',
+    'Public status explanation': '公開狀態說明',
+    'Routable now': '可用（路由已啟用）',
+    'No account access': '目前帳號無權限',
+    'Not in the model catalog': '未列入模型目錄',
+    'Runtime status unknown': '運行狀態未知',
   },
-  "fr": {
-    "Account export failed. Check export permission or narrow the registration period.": "Échec de l’export des comptes. Vérifiez les droits d’export ou réduisez la période d’inscription.",
-    "Corrected source": "Source corrigée",
-    "Correction reason": "Motif de correction",
-    "Correction was not saved. Reloaded the latest version; check the source, reason and consent before retrying.": "Correction non enregistrée. La dernière version a été rechargée ; vérifiez la source, le motif et le consentement avant de réessayer.",
-    "Explain the evidence without URLs, credentials or personal contact details.": "Expliquez les éléments justificatifs sans URL, identifiants secrets ni coordonnées personnelles.",
-    "Export filtered account details": "Exporter les comptes filtrés",
-    "Exports account IDs and conversion status for the current source and registration period, without email addresses. Maximum 10,000 accounts.": "Exporte les identifiants des comptes et leur état de conversion pour la source et la période d’inscription actuelles, sans adresses e-mail. Maximum : 10 000 comptes.",
-    "Manual corrections are shown separately. Observed attribution, channel totals, invitations and payments remain unchanged.": "Les corrections manuelles sont affichées séparément. L’attribution observée, les totaux par canal, les invitations et les paiements restent inchangés.",
-    "Manual source correction": "Correction manuelle de la source",
-    "No manual source correction recorded.": "Aucune correction manuelle de source enregistrée.",
-    "Save correction with audit record": "Enregistrer la correction et sa trace d’audit",
-    "Showing the latest 100 retained corrections.": "Affichage des 100 dernières corrections encore conservées.",
-    "API access approved": "Accès API approuvé",
-    "API connection": "Connexion à l’API",
-    "Access application submitted": "Demande d’accès envoyée",
-    "Apply date range": "Appliquer la période",
-    "Apply filters": "Appliquer les filtres",
-    "Attributed from earlier source records": "Attribué à partir d’observations antérieures",
-    "Attribution evidence": "Preuves d’attribution",
-    "Average hours since registration": "Heures moyennes depuis l’inscription",
-    "Both": "Les deux",
-    "Choose a valid date range ending no later than today.": "Choisissez une période valide se terminant au plus tard aujourd’hui.",
-    "Client configuration confirmed": "Configuration du client confirmée",
-    "Cohort conversion": "Conversion par cohorte",
-    "Counts cover consenting browser identifiers, not people. One browser can appear in several channels, so channel counts must not be added together.": "Ces nombres représentent des identifiants de navigateurs ayant consenti, pas des personnes. Un navigateur peut figurer dans plusieurs canaux ; ne les additionnez pas.",
-    "Dates use UTC; the end date is included. Up to 366 days.": "Dates en UTC, date de fin incluse. Maximum 366 jours.",
-    "Each account is observed for the same number of days after registration. OAuth and manual keys are alternative paths; payment is independent of first use.": "Chaque compte est observé pendant la même durée après son inscription. OAuth et les clés manuelles sont deux parcours distincts ; le paiement est indépendant du premier appel.",
-    "End date": "Date de fin",
-    "First successful payment": "Premier paiement réussi",
-    "Identifiable browser visitors": "Visiteurs identifiables par navigateur",
-    "Manual API key created": "Clé API manuelle créée",
-    "Mature cohort": "Comptes ayant terminé la période d’observation",
-    "Mature cohort conversion": "Conversion des comptes arrivés à échéance",
-    "No completion observed": "Aucune réalisation observée",
-    "No payment attribution recorded yet.": "Aucune attribution de paiement enregistrée.",
-    "No visitor observations in the retained part of this period.": "Aucun visiteur observé dans les données conservées pour cette période.",
-    "OAuth authorized": "Autorisation OAuth obtenue",
-    "OAuth authorized or key created": "OAuth autorisé ou clé créée",
-    "Observation days": "Jours d’observation",
-    "Observed accounts": "Comptes observés",
-    "Observed browser identifiers": "Identifiants de navigateurs observés",
-    "Observing": "En observation",
-    "Payment attribution uses saved evidence and its recorded lookback window. It does not change registration attribution or prove causation.": "L’attribution des paiements utilise les preuves sauvegardées et la fenêtre de recherche enregistrée. Elle ne change pas l’attribution des inscriptions et ne prouve aucun lien causal.",
-    "Payments": "Paiements",
-    "Rates use only accounts with a complete observation window and known evidence. Timings are from registration, with the timing sample count in parentheses.": "Les taux concernent uniquement les comptes ayant terminé leur période d’observation et disposant de preuves. Les durées partent de l’inscription ; le nombre d’échantillons figure entre parenthèses.",
-    "Records available from": "Début des données disponibles",
-    "Repeat payment": "Paiement renouvelé",
-    "Selected registration period": "Période d’inscription sélectionnée",
-    "Some stages lack historical evidence. Unknown accounts are not failed conversions.": "Certaines étapes manquent de preuves historiques. Les comptes au statut inconnu ne sont pas des échecs de conversion.",
-    "Source before first payment": "Source avant le premier paiement",
-    "Stage": "Étape",
-    "Start date": "Date de début",
-    "These filters apply only to this conversion section. Content filters exclude older registrations without a recorded content label.": "Ces filtres ne concernent que cette section de conversion. Le filtre de contenu exclut les anciennes inscriptions sans marqueur de contenu enregistré.",
-    "Today (UTC)": "Aujourd’hui (UTC)",
-    "Visitor records do not cover this entire period. Counts below include only retained observations.": "Les données de visiteurs ne couvrent pas toute la période. Les nombres ci-dessous concernent uniquement les observations conservées.",
-    "Payment attribution is still processing or unavailable; missing snapshots are not zero conversions.": "L’attribution des paiements est en cours ou indisponible ; l’absence de données sauvegardées ne signifie pas zéro conversion.",
-    "Administrator status notice": "Avis de statut administrateur",
-    "Current routing configuration": "Configuration actuelle du routage",
-    "Routing availability is a configuration snapshot, not an upstream health probe. Administrator notices do not change request routing.": "La disponibilité reflète la configuration du routage, pas un test de santé en amont. Les avis administrateur ne modifient pas le routage des requêtes.",
-    "Status notice expires": "Expiration de l’avis",
-    "Temporarily unavailable": "Temporairement indisponible",
-    "Congested": "Saturé",
-    "This publishes a status notice only. It does not disable channels or change routing. Notices must expire within 30 days.": "Publie uniquement un avis de statut, sans désactiver les canaux ni modifier le routage. L’avis doit expirer sous 30 jours.",
-    "Under maintenance": "En maintenance",
-    "Public operational status": "Statut opérationnel public",
-    "Operational status": "Statut opérationnel",
-    "Use routing configuration": "Selon la configuration du routage",
-    "Public status explanation": "Explication publique du statut",
-    "Routable now": "Routage disponible",
-    "No account access": "Accès non autorisé pour ce compte",
-    "Not in the model catalog": "Absent du catalogue de modèles",
-    "Runtime status unknown": "Statut opérationnel inconnu"
+  fr: {
+    'Account export failed. Check export permission or narrow the registration period.':
+      'Échec de l’export des comptes. Vérifiez les droits d’export ou réduisez la période d’inscription.',
+    'Corrected source': 'Source corrigée',
+    'Correction reason': 'Motif de correction',
+    'Correction was not saved. Reloaded the latest version; check the source, reason and consent before retrying.':
+      'Correction non enregistrée. La dernière version a été rechargée ; vérifiez la source, le motif et le consentement avant de réessayer.',
+    'Explain the evidence without URLs, credentials or personal contact details.':
+      'Expliquez les éléments justificatifs sans URL, identifiants secrets ni coordonnées personnelles.',
+    'Export filtered account details': 'Exporter les comptes filtrés',
+    'Exports account IDs and conversion status for the current source and registration period, without email addresses. Maximum 10,000 accounts.':
+      'Exporte les identifiants des comptes et leur état de conversion pour la source et la période d’inscription actuelles, sans adresses e-mail. Maximum : 10 000 comptes.',
+    'Manual corrections are shown separately. Observed attribution, channel totals, invitations and payments remain unchanged.':
+      'Les corrections manuelles sont affichées séparément. L’attribution observée, les totaux par canal, les invitations et les paiements restent inchangés.',
+    'Manual source correction': 'Correction manuelle de la source',
+    'No manual source correction recorded.':
+      'Aucune correction manuelle de source enregistrée.',
+    'Save correction with audit record':
+      'Enregistrer la correction et sa trace d’audit',
+    'Showing the latest 100 retained corrections.':
+      'Affichage des 100 dernières corrections encore conservées.',
+    'API access approved': 'Accès API approuvé',
+    'API connection': 'Connexion à l’API',
+    'Access application submitted': 'Demande d’accès envoyée',
+    'Apply date range': 'Appliquer la période',
+    'Apply filters': 'Appliquer les filtres',
+    'Attributed from earlier source records':
+      'Attribué à partir d’observations antérieures',
+    'Attribution evidence': 'Preuves d’attribution',
+    'Average hours since registration': 'Heures moyennes depuis l’inscription',
+    Both: 'Les deux',
+    'Choose a valid date range ending no later than today.':
+      'Choisissez une période valide se terminant au plus tard aujourd’hui.',
+    'Client configuration confirmed': 'Configuration du client confirmée',
+    'Cohort conversion': 'Conversion par cohorte',
+    'Counts cover consenting browser identifiers, not people. One browser can appear in several channels, so channel counts must not be added together.':
+      'Ces nombres représentent des identifiants de navigateurs ayant consenti, pas des personnes. Un navigateur peut figurer dans plusieurs canaux ; ne les additionnez pas.',
+    'Dates use UTC; the end date is included. Up to 366 days.':
+      'Dates en UTC, date de fin incluse. Maximum 366 jours.',
+    'Each account is observed for the same number of days after registration. OAuth and manual keys are alternative paths; payment is independent of first use.':
+      'Chaque compte est observé pendant la même durée après son inscription. OAuth et les clés manuelles sont deux parcours distincts ; le paiement est indépendant du premier appel.',
+    'End date': 'Date de fin',
+    'First successful payment': 'Premier paiement réussi',
+    'Identifiable browser visitors': 'Visiteurs identifiables par navigateur',
+    'Manual API key created': 'Clé API manuelle créée',
+    'Mature cohort': 'Comptes ayant terminé la période d’observation',
+    'Mature cohort conversion': 'Conversion des comptes arrivés à échéance',
+    'No completion observed': 'Aucune réalisation observée',
+    'No payment attribution recorded yet.':
+      'Aucune attribution de paiement enregistrée.',
+    'No visitor observations in the retained part of this period.':
+      'Aucun visiteur observé dans les données conservées pour cette période.',
+    'OAuth authorized': 'Autorisation OAuth obtenue',
+    'OAuth authorized or key created': 'OAuth autorisé ou clé créée',
+    'Observation days': 'Jours d’observation',
+    'Observed accounts': 'Comptes observés',
+    'Observed browser identifiers': 'Identifiants de navigateurs observés',
+    Observing: 'En observation',
+    'Payment attribution uses saved evidence and its recorded lookback window. It does not change registration attribution or prove causation.':
+      'L’attribution des paiements utilise les preuves sauvegardées et la fenêtre de recherche enregistrée. Elle ne change pas l’attribution des inscriptions et ne prouve aucun lien causal.',
+    Payments: 'Paiements',
+    'Rates use only accounts with a complete observation window and known evidence. Timings are from registration, with the timing sample count in parentheses.':
+      'Les taux concernent uniquement les comptes ayant terminé leur période d’observation et disposant de preuves. Les durées partent de l’inscription ; le nombre d’échantillons figure entre parenthèses.',
+    'Records available from': 'Début des données disponibles',
+    'Repeat payment': 'Paiement renouvelé',
+    'Selected registration period': 'Période d’inscription sélectionnée',
+    'Some stages lack historical evidence. Unknown accounts are not failed conversions.':
+      'Certaines étapes manquent de preuves historiques. Les comptes au statut inconnu ne sont pas des échecs de conversion.',
+    'Source before first payment': 'Source avant le premier paiement',
+    Stage: 'Étape',
+    'Start date': 'Date de début',
+    'These filters apply only to this conversion section. Content filters exclude older registrations without a recorded content label.':
+      'Ces filtres ne concernent que cette section de conversion. Le filtre de contenu exclut les anciennes inscriptions sans marqueur de contenu enregistré.',
+    'Today (UTC)': 'Aujourd’hui (UTC)',
+    'Visitor records do not cover this entire period. Counts below include only retained observations.':
+      'Les données de visiteurs ne couvrent pas toute la période. Les nombres ci-dessous concernent uniquement les observations conservées.',
+    'Payment attribution is still processing or unavailable; missing snapshots are not zero conversions.':
+      'L’attribution des paiements est en cours ou indisponible ; l’absence de données sauvegardées ne signifie pas zéro conversion.',
+    'Administrator status notice': 'Avis de statut administrateur',
+    'Current routing configuration': 'Configuration actuelle du routage',
+    'Routing availability is a configuration snapshot, not an upstream health probe. Administrator notices do not change request routing.':
+      'La disponibilité reflète la configuration du routage, pas un test de santé en amont. Les avis administrateur ne modifient pas le routage des requêtes.',
+    'Status notice expires': 'Expiration de l’avis',
+    'Temporarily unavailable': 'Temporairement indisponible',
+    Congested: 'Saturé',
+    'This publishes a status notice only. It does not disable channels or change routing. Notices must expire within 30 days.':
+      'Publie uniquement un avis de statut, sans désactiver les canaux ni modifier le routage. L’avis doit expirer sous 30 jours.',
+    'Under maintenance': 'En maintenance',
+    'Public operational status': 'Statut opérationnel public',
+    'Operational status': 'Statut opérationnel',
+    'Use routing configuration': 'Selon la configuration du routage',
+    'Public status explanation': 'Explication publique du statut',
+    'Routable now': 'Routage disponible',
+    'No account access': 'Accès non autorisé pour ce compte',
+    'Not in the model catalog': 'Absent du catalogue de modèles',
+    'Runtime status unknown': 'Statut opérationnel inconnu',
   },
-  "ja": {
-    "Account export failed. Check export permission or narrow the registration period.": "アカウント明細をエクスポートできませんでした。エクスポート権限を確認するか、登録期間を絞り込んでください。",
-    "Corrected source": "修正後の流入元",
-    "Correction reason": "修正理由",
-    "Correction was not saved. Reloaded the latest version; check the source, reason and consent before retrying.": "修正は保存されませんでした。最新の内容を再読み込みしました。流入元、理由、ユーザーの同意状態を確認して再試行してください。",
-    "Explain the evidence without URLs, credentials or personal contact details.": "URL、認証情報、個人の連絡先を含めずに、判断の根拠を記載してください。",
-    "Export filtered account details": "絞り込み済みアカウント明細をエクスポート",
-    "Exports account IDs and conversion status for the current source and registration period, without email addresses. Maximum 10,000 accounts.": "現在の流入元と登録期間に該当するアカウント ID と転換状況をエクスポートします。メールアドレスは含みません。上限は 10,000 アカウントです。",
-    "Manual corrections are shown separately. Observed attribution, channel totals, invitations and payments remain unchanged.": "手動修正は別に表示されます。観測に基づく帰属、チャネル別集計、招待関係、支払い記録は変更されません。",
-    "Manual source correction": "流入元の手動修正",
-    "No manual source correction recorded.": "流入元の手動修正は記録されていません。",
-    "Save correction with audit record": "修正と監査記録を保存",
-    "Showing the latest 100 retained corrections.": "保存期間内の最新 100 件の修正を表示しています。",
-    "API access approved": "API アクセス承認済み",
-    "API connection": "API 接続",
-    "Access application submitted": "アクセス申請済み",
-    "Apply date range": "期間を適用",
-    "Apply filters": "絞り込みを適用",
-    "Attributed from earlier source records": "過去の流入元記録から帰属",
-    "Attribution evidence": "帰属の根拠",
-    "Average hours since registration": "登録からの平均時間",
-    "Both": "両方",
-    "Choose a valid date range ending no later than today.": "終了日が今日以前の有効な期間を選択してください。",
-    "Client configuration confirmed": "クライアント設定確認済み",
-    "Cohort conversion": "登録時期別の転換状況",
-    "Counts cover consenting browser identifiers, not people. One browser can appear in several channels, so channel counts must not be added together.": "同意を得たブラウザー識別子を集計しており、人数ではありません。同じブラウザーが複数のチャネルに現れるため、チャネル別の件数は合算できません。",
-    "Dates use UTC; the end date is included. Up to 366 days.": "日付は UTC 基準で、終了日を含みます。最大 366 日間です。",
-    "Each account is observed for the same number of days after registration. OAuth and manual keys are alternative paths; payment is independent of first use.": "各アカウントを登録後の同じ日数で観測します。OAuth と手動作成のキーは代替経路であり、支払いと初回利用の順序は問いません。",
-    "End date": "終了日",
-    "First successful payment": "初回支払い成功",
-    "Identifiable browser visitors": "識別可能なブラウザー訪問者",
-    "Manual API key created": "手動 API キー作成済み",
-    "Mature cohort": "観測期間を満了した登録群",
-    "Mature cohort conversion": "観測期間満了群の転換率",
-    "No completion observed": "完了は未観測",
-    "No payment attribution recorded yet.": "支払いの流入元帰属はまだ記録されていません。",
-    "No visitor observations in the retained part of this period.": "この期間のうち保存対象の範囲に訪問記録はありません。",
-    "OAuth authorized": "OAuth 認可済み",
-    "OAuth authorized or key created": "OAuth 認可またはキー作成済み",
-    "Observation days": "観測日数",
-    "Observed accounts": "観測済みアカウント",
-    "Observed browser identifiers": "観測したブラウザー識別子",
-    "Observing": "観測中",
-    "Payment attribution uses saved evidence and its recorded lookback window. It does not change registration attribution or prove causation.": "支払いの帰属には、保存済みの根拠と記録された遡及期間を使います。登録時の帰属は変更せず、因果関係を証明するものではありません。",
-    "Payments": "支払い",
-    "Rates use only accounts with a complete observation window and known evidence. Timings are from registration, with the timing sample count in parentheses.": "転換率は、観測期間を満了し根拠が確認できるアカウントのみで計算します。所要時間は登録時点から計測し、括弧内に時間集計の対象件数を表示します。",
-    "Records available from": "記録の利用可能開始日時",
-    "Repeat payment": "再度の支払い",
-    "Selected registration period": "選択中の登録期間",
-    "Some stages lack historical evidence. Unknown accounts are not failed conversions.": "一部の段階には過去の根拠がありません。状況不明のアカウントを転換失敗とは扱いません。",
-    "Source before first payment": "初回支払い前の流入元",
-    "Stage": "段階",
-    "Start date": "開始日",
-    "These filters apply only to this conversion section. Content filters exclude older registrations without a recorded content label.": "この絞り込みは転換状況のセクションにのみ適用されます。コンテンツで絞り込むと、コンテンツラベルが記録されていない過去の登録は除外されます。",
-    "Today (UTC)": "今日（UTC）",
-    "Visitor records do not cover this entire period. Counts below include only retained observations.": "訪問記録はこの期間全体を網羅していません。以下の件数には保存済みの観測記録のみを含みます。",
-    "Payment attribution is still processing or unavailable; missing snapshots are not zero conversions.": "支払いの流入元帰属は処理中、または利用できません。スナップショットの欠落は転換件数がゼロであることを意味しません。",
-    "Administrator status notice": "管理者による状態通知",
-    "Current routing configuration": "現在のルーティング設定",
-    "Routing availability is a configuration snapshot, not an upstream health probe. Administrator notices do not change request routing.": "利用状況は現在のルーティング設定に基づき、上流の稼働確認ではありません。管理者の状態通知はリクエストの経路を変更しません。",
-    "Status notice expires": "状態通知の有効期限",
-    "Temporarily unavailable": "一時的に利用不可",
-    "Congested": "混雑中",
-    "This publishes a status notice only. It does not disable channels or change routing. Notices must expire within 30 days.": "状態通知のみを公開します。チャネルの無効化や経路の変更は行いません。通知は30日以内に期限が切れる必要があります。",
-    "Under maintenance": "メンテナンス中",
-    "Public operational status": "公開する稼働状態",
-    "Operational status": "稼働状態",
-    "Use routing configuration": "ルーティング設定に基づく",
-    "Public status explanation": "公開する状態の説明",
-    "Routable now": "利用可能な経路あり",
-    "No account access": "このアカウントには権限がありません",
-    "Not in the model catalog": "モデルカタログに未掲載",
-    "Runtime status unknown": "稼働状態不明"
+  ja: {
+    'Account export failed. Check export permission or narrow the registration period.':
+      'アカウント明細をエクスポートできませんでした。エクスポート権限を確認するか、登録期間を絞り込んでください。',
+    'Corrected source': '修正後の流入元',
+    'Correction reason': '修正理由',
+    'Correction was not saved. Reloaded the latest version; check the source, reason and consent before retrying.':
+      '修正は保存されませんでした。最新の内容を再読み込みしました。流入元、理由、ユーザーの同意状態を確認して再試行してください。',
+    'Explain the evidence without URLs, credentials or personal contact details.':
+      'URL、認証情報、個人の連絡先を含めずに、判断の根拠を記載してください。',
+    'Export filtered account details':
+      '絞り込み済みアカウント明細をエクスポート',
+    'Exports account IDs and conversion status for the current source and registration period, without email addresses. Maximum 10,000 accounts.':
+      '現在の流入元と登録期間に該当するアカウント ID と転換状況をエクスポートします。メールアドレスは含みません。上限は 10,000 アカウントです。',
+    'Manual corrections are shown separately. Observed attribution, channel totals, invitations and payments remain unchanged.':
+      '手動修正は別に表示されます。観測に基づく帰属、チャネル別集計、招待関係、支払い記録は変更されません。',
+    'Manual source correction': '流入元の手動修正',
+    'No manual source correction recorded.':
+      '流入元の手動修正は記録されていません。',
+    'Save correction with audit record': '修正と監査記録を保存',
+    'Showing the latest 100 retained corrections.':
+      '保存期間内の最新 100 件の修正を表示しています。',
+    'API access approved': 'API アクセス承認済み',
+    'API connection': 'API 接続',
+    'Access application submitted': 'アクセス申請済み',
+    'Apply date range': '期間を適用',
+    'Apply filters': '絞り込みを適用',
+    'Attributed from earlier source records': '過去の流入元記録から帰属',
+    'Attribution evidence': '帰属の根拠',
+    'Average hours since registration': '登録からの平均時間',
+    Both: '両方',
+    'Choose a valid date range ending no later than today.':
+      '終了日が今日以前の有効な期間を選択してください。',
+    'Client configuration confirmed': 'クライアント設定確認済み',
+    'Cohort conversion': '登録時期別の転換状況',
+    'Counts cover consenting browser identifiers, not people. One browser can appear in several channels, so channel counts must not be added together.':
+      '同意を得たブラウザー識別子を集計しており、人数ではありません。同じブラウザーが複数のチャネルに現れるため、チャネル別の件数は合算できません。',
+    'Dates use UTC; the end date is included. Up to 366 days.':
+      '日付は UTC 基準で、終了日を含みます。最大 366 日間です。',
+    'Each account is observed for the same number of days after registration. OAuth and manual keys are alternative paths; payment is independent of first use.':
+      '各アカウントを登録後の同じ日数で観測します。OAuth と手動作成のキーは代替経路であり、支払いと初回利用の順序は問いません。',
+    'End date': '終了日',
+    'First successful payment': '初回支払い成功',
+    'Identifiable browser visitors': '識別可能なブラウザー訪問者',
+    'Manual API key created': '手動 API キー作成済み',
+    'Mature cohort': '観測期間を満了した登録群',
+    'Mature cohort conversion': '観測期間満了群の転換率',
+    'No completion observed': '完了は未観測',
+    'No payment attribution recorded yet.':
+      '支払いの流入元帰属はまだ記録されていません。',
+    'No visitor observations in the retained part of this period.':
+      'この期間のうち保存対象の範囲に訪問記録はありません。',
+    'OAuth authorized': 'OAuth 認可済み',
+    'OAuth authorized or key created': 'OAuth 認可またはキー作成済み',
+    'Observation days': '観測日数',
+    'Observed accounts': '観測済みアカウント',
+    'Observed browser identifiers': '観測したブラウザー識別子',
+    Observing: '観測中',
+    'Payment attribution uses saved evidence and its recorded lookback window. It does not change registration attribution or prove causation.':
+      '支払いの帰属には、保存済みの根拠と記録された遡及期間を使います。登録時の帰属は変更せず、因果関係を証明するものではありません。',
+    Payments: '支払い',
+    'Rates use only accounts with a complete observation window and known evidence. Timings are from registration, with the timing sample count in parentheses.':
+      '転換率は、観測期間を満了し根拠が確認できるアカウントのみで計算します。所要時間は登録時点から計測し、括弧内に時間集計の対象件数を表示します。',
+    'Records available from': '記録の利用可能開始日時',
+    'Repeat payment': '再度の支払い',
+    'Selected registration period': '選択中の登録期間',
+    'Some stages lack historical evidence. Unknown accounts are not failed conversions.':
+      '一部の段階には過去の根拠がありません。状況不明のアカウントを転換失敗とは扱いません。',
+    'Source before first payment': '初回支払い前の流入元',
+    Stage: '段階',
+    'Start date': '開始日',
+    'These filters apply only to this conversion section. Content filters exclude older registrations without a recorded content label.':
+      'この絞り込みは転換状況のセクションにのみ適用されます。コンテンツで絞り込むと、コンテンツラベルが記録されていない過去の登録は除外されます。',
+    'Today (UTC)': '今日（UTC）',
+    'Visitor records do not cover this entire period. Counts below include only retained observations.':
+      '訪問記録はこの期間全体を網羅していません。以下の件数には保存済みの観測記録のみを含みます。',
+    'Payment attribution is still processing or unavailable; missing snapshots are not zero conversions.':
+      '支払いの流入元帰属は処理中、または利用できません。スナップショットの欠落は転換件数がゼロであることを意味しません。',
+    'Administrator status notice': '管理者による状態通知',
+    'Current routing configuration': '現在のルーティング設定',
+    'Routing availability is a configuration snapshot, not an upstream health probe. Administrator notices do not change request routing.':
+      '利用状況は現在のルーティング設定に基づき、上流の稼働確認ではありません。管理者の状態通知はリクエストの経路を変更しません。',
+    'Status notice expires': '状態通知の有効期限',
+    'Temporarily unavailable': '一時的に利用不可',
+    Congested: '混雑中',
+    'This publishes a status notice only. It does not disable channels or change routing. Notices must expire within 30 days.':
+      '状態通知のみを公開します。チャネルの無効化や経路の変更は行いません。通知は30日以内に期限が切れる必要があります。',
+    'Under maintenance': 'メンテナンス中',
+    'Public operational status': '公開する稼働状態',
+    'Operational status': '稼働状態',
+    'Use routing configuration': 'ルーティング設定に基づく',
+    'Public status explanation': '公開する状態の説明',
+    'Routable now': '利用可能な経路あり',
+    'No account access': 'このアカウントには権限がありません',
+    'Not in the model catalog': 'モデルカタログに未掲載',
+    'Runtime status unknown': '稼働状態不明',
   },
-  "ru": {
-    "Account export failed. Check export permission or narrow the registration period.": "Не удалось экспортировать данные аккаунтов. Проверьте разрешение на экспорт или сократите период регистрации.",
-    "Corrected source": "Исправленный источник",
-    "Correction reason": "Причина исправления",
-    "Correction was not saved. Reloaded the latest version; check the source, reason and consent before retrying.": "Исправление не сохранено. Загружена последняя версия; проверьте источник, причину и согласие пользователя перед повторной попыткой.",
-    "Explain the evidence without URLs, credentials or personal contact details.": "Опишите основания без URL, секретных учётных данных и личных контактов.",
-    "Export filtered account details": "Экспортировать отфильтрованные аккаунты",
-    "Exports account IDs and conversion status for the current source and registration period, without email addresses. Maximum 10,000 accounts.": "Экспорт идентификаторов аккаунтов и статусов конверсии по текущему источнику и периоду регистрации, без адресов электронной почты. Максимум 10 000 аккаунтов.",
-    "Manual corrections are shown separately. Observed attribution, channel totals, invitations and payments remain unchanged.": "Ручные исправления показаны отдельно. Наблюдаемая атрибуция, итоги по каналам, приглашения и платежи не изменяются.",
-    "Manual source correction": "Ручное исправление источника",
-    "No manual source correction recorded.": "Ручные исправления источника ещё не записаны.",
-    "Save correction with audit record": "Сохранить исправление с записью аудита",
-    "Showing the latest 100 retained corrections.": "Показаны последние 100 исправлений в пределах срока хранения.",
-    "API access approved": "Доступ к API одобрен",
-    "API connection": "Подключение к API",
-    "Access application submitted": "Заявка на доступ подана",
-    "Apply date range": "Применить период",
-    "Apply filters": "Применить фильтры",
-    "Attributed from earlier source records": "Отнесено по предыдущим записям источника",
-    "Attribution evidence": "Основание атрибуции",
-    "Average hours since registration": "Среднее число часов с регистрации",
-    "Both": "Оба способа",
-    "Choose a valid date range ending no later than today.": "Выберите допустимый период с датой окончания не позднее сегодняшней.",
-    "Client configuration confirmed": "Настройка клиента подтверждена",
-    "Cohort conversion": "Конверсия когорты",
-    "Counts cover consenting browser identifiers, not people. One browser can appear in several channels, so channel counts must not be added together.": "Учитываются идентификаторы браузеров с полученным согласием, а не люди. Один браузер может встречаться в нескольких каналах, поэтому показатели каналов нельзя суммировать.",
-    "Dates use UTC; the end date is included. Up to 366 days.": "Даты указаны по UTC; конечная дата включается. Максимум 366 дней.",
-    "Each account is observed for the same number of days after registration. OAuth and manual keys are alternative paths; payment is independent of first use.": "Каждый аккаунт наблюдается одинаковое число дней после регистрации. OAuth и ручное создание ключа — альтернативные пути; оплата не зависит от порядка первого использования.",
-    "End date": "Дата окончания",
-    "First successful payment": "Первый успешный платёж",
-    "Identifiable browser visitors": "Идентифицируемые посетители браузеров",
-    "Manual API key created": "API-ключ создан вручную",
-    "Mature cohort": "Когорта с завершённым периодом наблюдения",
-    "Mature cohort conversion": "Конверсия когорты с завершённым наблюдением",
-    "No completion observed": "Завершение не наблюдалось",
-    "No payment attribution recorded yet.": "Атрибуция платежей ещё не записана.",
-    "No visitor observations in the retained part of this period.": "В сохраняемой части этого периода нет наблюдений посетителей.",
-    "OAuth authorized": "Авторизация OAuth выполнена",
-    "OAuth authorized or key created": "OAuth авторизован или ключ создан",
-    "Observation days": "Дней наблюдения",
-    "Observed accounts": "Наблюдаемые аккаунты",
-    "Observed browser identifiers": "Наблюдаемые идентификаторы браузеров",
-    "Observing": "Наблюдение продолжается",
-    "Payment attribution uses saved evidence and its recorded lookback window. It does not change registration attribution or prove causation.": "Атрибуция платежей использует сохранённые основания и записанное окно ретроспективного поиска. Она не меняет атрибуцию регистрации и не доказывает причинную связь.",
-    "Payments": "Платежи",
-    "Rates use only accounts with a complete observation window and known evidence. Timings are from registration, with the timing sample count in parentheses.": "Доли рассчитываются только по аккаунтам с полным периодом наблюдения и известными основаниями. Время отсчитывается от регистрации; в скобках указано число аккаунтов в выборке для расчёта времени.",
-    "Records available from": "Записи доступны с",
-    "Repeat payment": "Повторный платёж",
-    "Selected registration period": "Выбранный период регистрации",
-    "Some stages lack historical evidence. Unknown accounts are not failed conversions.": "Для некоторых этапов нет исторических свидетельств. Аккаунты с неизвестным статусом не считаются неуспешными конверсиями.",
-    "Source before first payment": "Источник перед первым платежом",
-    "Stage": "Этап",
-    "Start date": "Дата начала",
-    "These filters apply only to this conversion section. Content filters exclude older registrations without a recorded content label.": "Эти фильтры применяются только к разделу конверсии. Фильтрация по материалу исключает старые регистрации без записанной метки материала.",
-    "Today (UTC)": "Сегодня (UTC)",
-    "Visitor records do not cover this entire period. Counts below include only retained observations.": "Записи посетителей не охватывают весь этот период. Показатели ниже учитывают только сохранённые наблюдения.",
-    "Payment attribution is still processing or unavailable; missing snapshots are not zero conversions.": "Атрибуция платежей ещё обрабатывается или недоступна; отсутствие снимков не означает нулевую конверсию.",
-    "Administrator status notice": "Уведомление администратора",
-    "Current routing configuration": "Текущая конфигурация маршрутизации",
-    "Routing availability is a configuration snapshot, not an upstream health probe. Administrator notices do not change request routing.": "Доступность отражает конфигурацию маршрутизации, а не проверку провайдера. Уведомления администратора не меняют маршруты запросов.",
-    "Status notice expires": "Срок действия уведомления",
-    "Temporarily unavailable": "Временно недоступно",
-    "Congested": "Перегрузка",
-    "This publishes a status notice only. It does not disable channels or change routing. Notices must expire within 30 days.": "Публикуется только уведомление: каналы не отключаются, маршрутизация не меняется. Срок действия — не более 30 дней.",
-    "Under maintenance": "На обслуживании",
-    "Public operational status": "Публичный рабочий статус",
-    "Operational status": "Рабочий статус",
-    "Use routing configuration": "По конфигурации маршрутизации",
-    "Public status explanation": "Публичное пояснение статуса",
-    "Routable now": "Маршрут доступен",
-    "No account access": "Нет доступа у аккаунта",
-    "Not in the model catalog": "Нет в каталоге моделей",
-    "Runtime status unknown": "Рабочий статус неизвестен"
+  ru: {
+    'Account export failed. Check export permission or narrow the registration period.':
+      'Не удалось экспортировать данные аккаунтов. Проверьте разрешение на экспорт или сократите период регистрации.',
+    'Corrected source': 'Исправленный источник',
+    'Correction reason': 'Причина исправления',
+    'Correction was not saved. Reloaded the latest version; check the source, reason and consent before retrying.':
+      'Исправление не сохранено. Загружена последняя версия; проверьте источник, причину и согласие пользователя перед повторной попыткой.',
+    'Explain the evidence without URLs, credentials or personal contact details.':
+      'Опишите основания без URL, секретных учётных данных и личных контактов.',
+    'Export filtered account details':
+      'Экспортировать отфильтрованные аккаунты',
+    'Exports account IDs and conversion status for the current source and registration period, without email addresses. Maximum 10,000 accounts.':
+      'Экспорт идентификаторов аккаунтов и статусов конверсии по текущему источнику и периоду регистрации, без адресов электронной почты. Максимум 10 000 аккаунтов.',
+    'Manual corrections are shown separately. Observed attribution, channel totals, invitations and payments remain unchanged.':
+      'Ручные исправления показаны отдельно. Наблюдаемая атрибуция, итоги по каналам, приглашения и платежи не изменяются.',
+    'Manual source correction': 'Ручное исправление источника',
+    'No manual source correction recorded.':
+      'Ручные исправления источника ещё не записаны.',
+    'Save correction with audit record':
+      'Сохранить исправление с записью аудита',
+    'Showing the latest 100 retained corrections.':
+      'Показаны последние 100 исправлений в пределах срока хранения.',
+    'API access approved': 'Доступ к API одобрен',
+    'API connection': 'Подключение к API',
+    'Access application submitted': 'Заявка на доступ подана',
+    'Apply date range': 'Применить период',
+    'Apply filters': 'Применить фильтры',
+    'Attributed from earlier source records':
+      'Отнесено по предыдущим записям источника',
+    'Attribution evidence': 'Основание атрибуции',
+    'Average hours since registration': 'Среднее число часов с регистрации',
+    Both: 'Оба способа',
+    'Choose a valid date range ending no later than today.':
+      'Выберите допустимый период с датой окончания не позднее сегодняшней.',
+    'Client configuration confirmed': 'Настройка клиента подтверждена',
+    'Cohort conversion': 'Конверсия когорты',
+    'Counts cover consenting browser identifiers, not people. One browser can appear in several channels, so channel counts must not be added together.':
+      'Учитываются идентификаторы браузеров с полученным согласием, а не люди. Один браузер может встречаться в нескольких каналах, поэтому показатели каналов нельзя суммировать.',
+    'Dates use UTC; the end date is included. Up to 366 days.':
+      'Даты указаны по UTC; конечная дата включается. Максимум 366 дней.',
+    'Each account is observed for the same number of days after registration. OAuth and manual keys are alternative paths; payment is independent of first use.':
+      'Каждый аккаунт наблюдается одинаковое число дней после регистрации. OAuth и ручное создание ключа — альтернативные пути; оплата не зависит от порядка первого использования.',
+    'End date': 'Дата окончания',
+    'First successful payment': 'Первый успешный платёж',
+    'Identifiable browser visitors': 'Идентифицируемые посетители браузеров',
+    'Manual API key created': 'API-ключ создан вручную',
+    'Mature cohort': 'Когорта с завершённым периодом наблюдения',
+    'Mature cohort conversion': 'Конверсия когорты с завершённым наблюдением',
+    'No completion observed': 'Завершение не наблюдалось',
+    'No payment attribution recorded yet.':
+      'Атрибуция платежей ещё не записана.',
+    'No visitor observations in the retained part of this period.':
+      'В сохраняемой части этого периода нет наблюдений посетителей.',
+    'OAuth authorized': 'Авторизация OAuth выполнена',
+    'OAuth authorized or key created': 'OAuth авторизован или ключ создан',
+    'Observation days': 'Дней наблюдения',
+    'Observed accounts': 'Наблюдаемые аккаунты',
+    'Observed browser identifiers': 'Наблюдаемые идентификаторы браузеров',
+    Observing: 'Наблюдение продолжается',
+    'Payment attribution uses saved evidence and its recorded lookback window. It does not change registration attribution or prove causation.':
+      'Атрибуция платежей использует сохранённые основания и записанное окно ретроспективного поиска. Она не меняет атрибуцию регистрации и не доказывает причинную связь.',
+    Payments: 'Платежи',
+    'Rates use only accounts with a complete observation window and known evidence. Timings are from registration, with the timing sample count in parentheses.':
+      'Доли рассчитываются только по аккаунтам с полным периодом наблюдения и известными основаниями. Время отсчитывается от регистрации; в скобках указано число аккаунтов в выборке для расчёта времени.',
+    'Records available from': 'Записи доступны с',
+    'Repeat payment': 'Повторный платёж',
+    'Selected registration period': 'Выбранный период регистрации',
+    'Some stages lack historical evidence. Unknown accounts are not failed conversions.':
+      'Для некоторых этапов нет исторических свидетельств. Аккаунты с неизвестным статусом не считаются неуспешными конверсиями.',
+    'Source before first payment': 'Источник перед первым платежом',
+    Stage: 'Этап',
+    'Start date': 'Дата начала',
+    'These filters apply only to this conversion section. Content filters exclude older registrations without a recorded content label.':
+      'Эти фильтры применяются только к разделу конверсии. Фильтрация по материалу исключает старые регистрации без записанной метки материала.',
+    'Today (UTC)': 'Сегодня (UTC)',
+    'Visitor records do not cover this entire period. Counts below include only retained observations.':
+      'Записи посетителей не охватывают весь этот период. Показатели ниже учитывают только сохранённые наблюдения.',
+    'Payment attribution is still processing or unavailable; missing snapshots are not zero conversions.':
+      'Атрибуция платежей ещё обрабатывается или недоступна; отсутствие снимков не означает нулевую конверсию.',
+    'Administrator status notice': 'Уведомление администратора',
+    'Current routing configuration': 'Текущая конфигурация маршрутизации',
+    'Routing availability is a configuration snapshot, not an upstream health probe. Administrator notices do not change request routing.':
+      'Доступность отражает конфигурацию маршрутизации, а не проверку провайдера. Уведомления администратора не меняют маршруты запросов.',
+    'Status notice expires': 'Срок действия уведомления',
+    'Temporarily unavailable': 'Временно недоступно',
+    Congested: 'Перегрузка',
+    'This publishes a status notice only. It does not disable channels or change routing. Notices must expire within 30 days.':
+      'Публикуется только уведомление: каналы не отключаются, маршрутизация не меняется. Срок действия — не более 30 дней.',
+    'Under maintenance': 'На обслуживании',
+    'Public operational status': 'Публичный рабочий статус',
+    'Operational status': 'Рабочий статус',
+    'Use routing configuration': 'По конфигурации маршрутизации',
+    'Public status explanation': 'Публичное пояснение статуса',
+    'Routable now': 'Маршрут доступен',
+    'No account access': 'Нет доступа у аккаунта',
+    'Not in the model catalog': 'Нет в каталоге моделей',
+    'Runtime status unknown': 'Рабочий статус неизвестен',
   },
-  "vi": {
-    "Account export failed. Check export permission or narrow the registration period.": "Không thể xuất chi tiết tài khoản. Hãy kiểm tra quyền xuất hoặc thu hẹp khoảng thời gian đăng ký.",
-    "Corrected source": "Nguồn đã sửa",
-    "Correction reason": "Lý do sửa",
-    "Correction was not saved. Reloaded the latest version; check the source, reason and consent before retrying.": "Chưa lưu bản sửa. Đã tải lại phiên bản mới nhất; hãy kiểm tra nguồn, lý do và trạng thái đồng ý trước khi thử lại.",
-    "Explain the evidence without URLs, credentials or personal contact details.": "Giải thích căn cứ xác minh, không nhập URL, thông tin xác thực hay thông tin liên hệ cá nhân.",
-    "Export filtered account details": "Xuất chi tiết tài khoản theo bộ lọc",
-    "Exports account IDs and conversion status for the current source and registration period, without email addresses. Maximum 10,000 accounts.": "Xuất ID tài khoản và trạng thái chuyển đổi theo nguồn và khoảng thời gian đăng ký hiện tại, không gồm địa chỉ email. Tối đa 10.000 tài khoản.",
-    "Manual corrections are shown separately. Observed attribution, channel totals, invitations and payments remain unchanged.": "Các bản sửa thủ công được hiển thị riêng. Nguồn quy thuộc đã quan sát, tổng số theo kênh, quan hệ mời và các khoản thanh toán không thay đổi.",
-    "Manual source correction": "Sửa nguồn thủ công",
-    "No manual source correction recorded.": "Chưa có bản sửa nguồn thủ công.",
-    "Save correction with audit record": "Lưu bản sửa kèm nhật ký kiểm tra",
-    "Showing the latest 100 retained corrections.": "Hiển thị 100 bản sửa gần nhất còn trong thời hạn lưu giữ.",
-    "API access approved": "Đã phê duyệt quyền truy cập API",
-    "API connection": "Kết nối API",
-    "Access application submitted": "Đã gửi đơn xin quyền truy cập",
-    "Apply date range": "Áp dụng khoảng ngày",
-    "Apply filters": "Áp dụng bộ lọc",
-    "Attributed from earlier source records": "Quy thuộc từ các bản ghi nguồn trước đó",
-    "Attribution evidence": "Bằng chứng quy thuộc",
-    "Average hours since registration": "Số giờ trung bình kể từ khi đăng ký",
-    "Both": "Cả hai",
-    "Choose a valid date range ending no later than today.": "Chọn khoảng ngày hợp lệ có ngày kết thúc không muộn hơn hôm nay.",
-    "Client configuration confirmed": "Đã xác nhận cấu hình ứng dụng",
-    "Cohort conversion": "Chuyển đổi theo nhóm đăng ký",
-    "Counts cover consenting browser identifiers, not people. One browser can appear in several channels, so channel counts must not be added together.": "Số liệu tính theo mã nhận diện trình duyệt đã đồng ý, không phải số người. Một trình duyệt có thể xuất hiện ở nhiều kênh, vì vậy không được cộng số lượng giữa các kênh.",
-    "Dates use UTC; the end date is included. Up to 366 days.": "Ngày tính theo UTC và bao gồm ngày kết thúc. Tối đa 366 ngày.",
-    "Each account is observed for the same number of days after registration. OAuth and manual keys are alternative paths; payment is independent of first use.": "Mỗi tài khoản được theo dõi cùng số ngày sau khi đăng ký. OAuth và khóa tạo thủ công là hai cách kết nối thay thế nhau; thanh toán không phải theo thứ tự cố định với lần sử dụng đầu tiên.",
-    "End date": "Ngày kết thúc",
-    "First successful payment": "Thanh toán thành công lần đầu",
-    "Identifiable browser visitors": "Khách truy cập trình duyệt có thể nhận diện",
-    "Manual API key created": "Đã tạo khóa API thủ công",
-    "Mature cohort": "Nhóm đã đủ thời gian theo dõi",
-    "Mature cohort conversion": "Tỷ lệ chuyển đổi của nhóm đã đủ thời gian theo dõi",
-    "No completion observed": "Chưa quan sát thấy hoàn tất",
-    "No payment attribution recorded yet.": "Chưa có bản ghi quy thuộc nguồn thanh toán.",
-    "No visitor observations in the retained part of this period.": "Không có quan sát khách truy cập trong phần còn được lưu giữ của khoảng thời gian này.",
-    "OAuth authorized": "Đã cấp quyền OAuth",
-    "OAuth authorized or key created": "Đã cấp quyền OAuth hoặc tạo khóa",
-    "Observation days": "Số ngày theo dõi",
-    "Observed accounts": "Tài khoản đã quan sát",
-    "Observed browser identifiers": "Mã nhận diện trình duyệt đã quan sát",
-    "Observing": "Đang theo dõi",
-    "Payment attribution uses saved evidence and its recorded lookback window. It does not change registration attribution or prove causation.": "Việc quy thuộc nguồn thanh toán dùng bằng chứng đã lưu và khoảng truy hồi đã ghi nhận. Điều này không thay đổi nguồn quy thuộc khi đăng ký hay chứng minh quan hệ nhân quả.",
-    "Payments": "Thanh toán",
-    "Rates use only accounts with a complete observation window and known evidence. Timings are from registration, with the timing sample count in parentheses.": "Tỷ lệ chỉ tính trên các tài khoản đã đủ thời gian theo dõi và có bằng chứng rõ ràng. Thời gian được tính từ lúc đăng ký; số mẫu dùng để tính thời gian nằm trong ngoặc.",
-    "Records available from": "Bản ghi có sẵn từ",
-    "Repeat payment": "Thanh toán lại",
-    "Selected registration period": "Khoảng thời gian đăng ký đã chọn",
-    "Some stages lack historical evidence. Unknown accounts are not failed conversions.": "Một số giai đoạn thiếu bằng chứng lịch sử. Tài khoản có trạng thái chưa rõ không được tính là chuyển đổi thất bại.",
-    "Source before first payment": "Nguồn trước lần thanh toán đầu tiên",
-    "Stage": "Giai đoạn",
-    "Start date": "Ngày bắt đầu",
-    "These filters apply only to this conversion section. Content filters exclude older registrations without a recorded content label.": "Các bộ lọc này chỉ áp dụng cho phần chuyển đổi. Lọc theo nội dung sẽ loại trừ các đăng ký cũ không có nhãn nội dung được ghi nhận.",
-    "Today (UTC)": "Hôm nay (UTC)",
-    "Visitor records do not cover this entire period. Counts below include only retained observations.": "Bản ghi khách truy cập không bao phủ toàn bộ khoảng thời gian này. Số liệu bên dưới chỉ gồm các quan sát còn được lưu giữ.",
-    "Payment attribution is still processing or unavailable; missing snapshots are not zero conversions.": "Việc quy thuộc nguồn thanh toán vẫn đang xử lý hoặc chưa khả dụng; thiếu bản chụp dữ liệu không có nghĩa là số lượt chuyển đổi bằng không.",
-    "Administrator status notice": "Thông báo trạng thái của quản trị viên",
-    "Current routing configuration": "Cấu hình định tuyến hiện tại",
-    "Routing availability is a configuration snapshot, not an upstream health probe. Administrator notices do not change request routing.": "Khả dụng phản ánh cấu hình định tuyến, không phải kiểm tra sức khỏe nhà cung cấp. Thông báo của quản trị viên không thay đổi tuyến yêu cầu.",
-    "Status notice expires": "Thời hạn thông báo trạng thái",
-    "Temporarily unavailable": "Tạm thời không khả dụng",
-    "Congested": "Đang quá tải",
-    "This publishes a status notice only. It does not disable channels or change routing. Notices must expire within 30 days.": "Chỉ công bố thông báo trạng thái, không tắt kênh hoặc đổi tuyến. Thông báo phải hết hạn trong vòng 30 ngày.",
-    "Under maintenance": "Đang bảo trì",
-    "Public operational status": "Trạng thái vận hành công khai",
-    "Operational status": "Trạng thái vận hành",
-    "Use routing configuration": "Theo cấu hình định tuyến",
-    "Public status explanation": "Giải thích trạng thái công khai",
-    "Routable now": "Có tuyến khả dụng",
-    "No account access": "Tài khoản không có quyền truy cập",
-    "Not in the model catalog": "Không có trong danh mục mô hình",
-    "Runtime status unknown": "Chưa rõ trạng thái vận hành"
-  }
+  vi: {
+    'Account export failed. Check export permission or narrow the registration period.':
+      'Không thể xuất chi tiết tài khoản. Hãy kiểm tra quyền xuất hoặc thu hẹp khoảng thời gian đăng ký.',
+    'Corrected source': 'Nguồn đã sửa',
+    'Correction reason': 'Lý do sửa',
+    'Correction was not saved. Reloaded the latest version; check the source, reason and consent before retrying.':
+      'Chưa lưu bản sửa. Đã tải lại phiên bản mới nhất; hãy kiểm tra nguồn, lý do và trạng thái đồng ý trước khi thử lại.',
+    'Explain the evidence without URLs, credentials or personal contact details.':
+      'Giải thích căn cứ xác minh, không nhập URL, thông tin xác thực hay thông tin liên hệ cá nhân.',
+    'Export filtered account details': 'Xuất chi tiết tài khoản theo bộ lọc',
+    'Exports account IDs and conversion status for the current source and registration period, without email addresses. Maximum 10,000 accounts.':
+      'Xuất ID tài khoản và trạng thái chuyển đổi theo nguồn và khoảng thời gian đăng ký hiện tại, không gồm địa chỉ email. Tối đa 10.000 tài khoản.',
+    'Manual corrections are shown separately. Observed attribution, channel totals, invitations and payments remain unchanged.':
+      'Các bản sửa thủ công được hiển thị riêng. Nguồn quy thuộc đã quan sát, tổng số theo kênh, quan hệ mời và các khoản thanh toán không thay đổi.',
+    'Manual source correction': 'Sửa nguồn thủ công',
+    'No manual source correction recorded.': 'Chưa có bản sửa nguồn thủ công.',
+    'Save correction with audit record': 'Lưu bản sửa kèm nhật ký kiểm tra',
+    'Showing the latest 100 retained corrections.':
+      'Hiển thị 100 bản sửa gần nhất còn trong thời hạn lưu giữ.',
+    'API access approved': 'Đã phê duyệt quyền truy cập API',
+    'API connection': 'Kết nối API',
+    'Access application submitted': 'Đã gửi đơn xin quyền truy cập',
+    'Apply date range': 'Áp dụng khoảng ngày',
+    'Apply filters': 'Áp dụng bộ lọc',
+    'Attributed from earlier source records':
+      'Quy thuộc từ các bản ghi nguồn trước đó',
+    'Attribution evidence': 'Bằng chứng quy thuộc',
+    'Average hours since registration': 'Số giờ trung bình kể từ khi đăng ký',
+    Both: 'Cả hai',
+    'Choose a valid date range ending no later than today.':
+      'Chọn khoảng ngày hợp lệ có ngày kết thúc không muộn hơn hôm nay.',
+    'Client configuration confirmed': 'Đã xác nhận cấu hình ứng dụng',
+    'Cohort conversion': 'Chuyển đổi theo nhóm đăng ký',
+    'Counts cover consenting browser identifiers, not people. One browser can appear in several channels, so channel counts must not be added together.':
+      'Số liệu tính theo mã nhận diện trình duyệt đã đồng ý, không phải số người. Một trình duyệt có thể xuất hiện ở nhiều kênh, vì vậy không được cộng số lượng giữa các kênh.',
+    'Dates use UTC; the end date is included. Up to 366 days.':
+      'Ngày tính theo UTC và bao gồm ngày kết thúc. Tối đa 366 ngày.',
+    'Each account is observed for the same number of days after registration. OAuth and manual keys are alternative paths; payment is independent of first use.':
+      'Mỗi tài khoản được theo dõi cùng số ngày sau khi đăng ký. OAuth và khóa tạo thủ công là hai cách kết nối thay thế nhau; thanh toán không phải theo thứ tự cố định với lần sử dụng đầu tiên.',
+    'End date': 'Ngày kết thúc',
+    'First successful payment': 'Thanh toán thành công lần đầu',
+    'Identifiable browser visitors':
+      'Khách truy cập trình duyệt có thể nhận diện',
+    'Manual API key created': 'Đã tạo khóa API thủ công',
+    'Mature cohort': 'Nhóm đã đủ thời gian theo dõi',
+    'Mature cohort conversion':
+      'Tỷ lệ chuyển đổi của nhóm đã đủ thời gian theo dõi',
+    'No completion observed': 'Chưa quan sát thấy hoàn tất',
+    'No payment attribution recorded yet.':
+      'Chưa có bản ghi quy thuộc nguồn thanh toán.',
+    'No visitor observations in the retained part of this period.':
+      'Không có quan sát khách truy cập trong phần còn được lưu giữ của khoảng thời gian này.',
+    'OAuth authorized': 'Đã cấp quyền OAuth',
+    'OAuth authorized or key created': 'Đã cấp quyền OAuth hoặc tạo khóa',
+    'Observation days': 'Số ngày theo dõi',
+    'Observed accounts': 'Tài khoản đã quan sát',
+    'Observed browser identifiers': 'Mã nhận diện trình duyệt đã quan sát',
+    Observing: 'Đang theo dõi',
+    'Payment attribution uses saved evidence and its recorded lookback window. It does not change registration attribution or prove causation.':
+      'Việc quy thuộc nguồn thanh toán dùng bằng chứng đã lưu và khoảng truy hồi đã ghi nhận. Điều này không thay đổi nguồn quy thuộc khi đăng ký hay chứng minh quan hệ nhân quả.',
+    Payments: 'Thanh toán',
+    'Rates use only accounts with a complete observation window and known evidence. Timings are from registration, with the timing sample count in parentheses.':
+      'Tỷ lệ chỉ tính trên các tài khoản đã đủ thời gian theo dõi và có bằng chứng rõ ràng. Thời gian được tính từ lúc đăng ký; số mẫu dùng để tính thời gian nằm trong ngoặc.',
+    'Records available from': 'Bản ghi có sẵn từ',
+    'Repeat payment': 'Thanh toán lại',
+    'Selected registration period': 'Khoảng thời gian đăng ký đã chọn',
+    'Some stages lack historical evidence. Unknown accounts are not failed conversions.':
+      'Một số giai đoạn thiếu bằng chứng lịch sử. Tài khoản có trạng thái chưa rõ không được tính là chuyển đổi thất bại.',
+    'Source before first payment': 'Nguồn trước lần thanh toán đầu tiên',
+    Stage: 'Giai đoạn',
+    'Start date': 'Ngày bắt đầu',
+    'These filters apply only to this conversion section. Content filters exclude older registrations without a recorded content label.':
+      'Các bộ lọc này chỉ áp dụng cho phần chuyển đổi. Lọc theo nội dung sẽ loại trừ các đăng ký cũ không có nhãn nội dung được ghi nhận.',
+    'Today (UTC)': 'Hôm nay (UTC)',
+    'Visitor records do not cover this entire period. Counts below include only retained observations.':
+      'Bản ghi khách truy cập không bao phủ toàn bộ khoảng thời gian này. Số liệu bên dưới chỉ gồm các quan sát còn được lưu giữ.',
+    'Payment attribution is still processing or unavailable; missing snapshots are not zero conversions.':
+      'Việc quy thuộc nguồn thanh toán vẫn đang xử lý hoặc chưa khả dụng; thiếu bản chụp dữ liệu không có nghĩa là số lượt chuyển đổi bằng không.',
+    'Administrator status notice': 'Thông báo trạng thái của quản trị viên',
+    'Current routing configuration': 'Cấu hình định tuyến hiện tại',
+    'Routing availability is a configuration snapshot, not an upstream health probe. Administrator notices do not change request routing.':
+      'Khả dụng phản ánh cấu hình định tuyến, không phải kiểm tra sức khỏe nhà cung cấp. Thông báo của quản trị viên không thay đổi tuyến yêu cầu.',
+    'Status notice expires': 'Thời hạn thông báo trạng thái',
+    'Temporarily unavailable': 'Tạm thời không khả dụng',
+    Congested: 'Đang quá tải',
+    'This publishes a status notice only. It does not disable channels or change routing. Notices must expire within 30 days.':
+      'Chỉ công bố thông báo trạng thái, không tắt kênh hoặc đổi tuyến. Thông báo phải hết hạn trong vòng 30 ngày.',
+    'Under maintenance': 'Đang bảo trì',
+    'Public operational status': 'Trạng thái vận hành công khai',
+    'Operational status': 'Trạng thái vận hành',
+    'Use routing configuration': 'Theo cấu hình định tuyến',
+    'Public status explanation': 'Giải thích trạng thái công khai',
+    'Routable now': 'Có tuyến khả dụng',
+    'No account access': 'Tài khoản không có quyền truy cập',
+    'Not in the model catalog': 'Không có trong danh mục mô hình',
+    'Runtime status unknown': 'Chưa rõ trạng thái vận hành',
+  },
 }
 
 async function main() {
@@ -10890,18 +11818,44 @@ async function main() {
     const { execFileSync } = await import('node:child_process')
     for (const locale of ['en', 'zh', 'zh-TW', 'fr', 'ja', 'ru', 'vi']) {
       const file = `apps/web/src/i18n/locales/${locale}.json`
-      const [base, ours, theirs] = [1, 2, 3].map(stage => JSON.parse(execFileSync('git', ['show', `:${stage}:${file}`], {encoding: 'utf8', maxBuffer: 16 * 1024 * 1024})))
+      const [base, ours, theirs] = [1, 2, 3].map((stage) =>
+        JSON.parse(
+          execFileSync('git', ['show', `:${stage}:${file}`], {
+            encoding: 'utf8',
+            maxBuffer: 16 * 1024 * 1024,
+          })
+        )
+      )
       const merged = {}
-      for (const key of new Set([...Object.keys(ours.translation), ...Object.keys(theirs.translation)])) {
-        const a = base.translation[key], b = ours.translation[key], c = theirs.translation[key]
-        const decisions = { 'zh:Account': '账户', 'zh-TW:Account': '帳戶', 'ru:Public': 'Публичный' }
+      for (const key of new Set([
+        ...Object.keys(ours.translation),
+        ...Object.keys(theirs.translation),
+      ])) {
+        const a = base.translation[key],
+          b = ours.translation[key],
+          c = theirs.translation[key]
+        const decisions = {
+          'zh:Account': '账户',
+          'zh-TW:Account': '帳戶',
+          'ru:Public': 'Публичный',
+        }
         const conflict = b !== c && b !== a && c !== a
-        if (conflict && !Object.hasOwn(decisions, `${locale}:${key}`)) throw new Error(`Resolve translation meaning before merging: ${locale}: ${key}`)
+        if (conflict && !Object.hasOwn(decisions, `${locale}:${key}`)) {
+          throw new Error(
+            `Resolve translation meaning before merging: ${locale}: ${key}`
+          )
+        }
         const value = conflict ? decisions[`${locale}:${key}`] : b !== a ? b : c
         if (value !== undefined) merged[key] = value
       }
-      ours.translation = Object.fromEntries(Object.entries(merged).sort(([a], [b]) => a.localeCompare(b)))
-      await fs.writeFile(path.join(LOCALES_DIR, `${locale}.json`), stableStringify(ours), 'utf8')
+      ours.translation = Object.fromEntries(
+        Object.entries(merged).sort(([a], [b]) => a.localeCompare(b))
+      )
+      await fs.writeFile(
+        path.join(LOCALES_DIR, `${locale}.json`),
+        stableStringify(ours),
+        'utf8'
+      )
     }
     return
   }
@@ -10926,19 +11880,74 @@ async function main() {
   const keyFollowthroughOnly = process.argv.includes('--only-key-followthrough')
   const fixedGroupOnly = process.argv.includes('--only-fixed-group')
   const operationsFinishOnly = process.argv.includes('--only-operations-finish')
-  const scoped = operationsFinishOnly || fixedGroupOnly || keyFollowthroughOnly || competitionOnly || costOnly || clientsOnly || feedbackOnly || logRecoveryOnly || statusOnly || parallelOnly || estimateOnly || activityOnly || toolMarketOnly || acquisitionOnly ||
-    experienceOnly || paymentOnly || homeOnly || waitOnly || assistantToolOnly
-  const entries = operationsFinishOnly ? operationsFinishCopy : fixedGroupOnly ? fixedGroupCopy : keyFollowthroughOnly ? keyFollowthroughCopy : competitionOnly ? Object.fromEntries(Object.entries(signalCompetitionKeys).map(([locale, values]) => [locale, Object.fromEntries(Object.entries(values).filter(([key]) => !['Account', 'Public'].includes(key)))])) : costOnly ? acquisitionCostCopy : clientsOnly ? clientPresetsCopy : feedbackOnly ? sourceFeedbackCopy : logRecoveryOnly ? logRecoveryCopy : statusOnly ? modelStatusCopy : parallelOnly ? parallelExperienceCopy : estimateOnly ? requestEstimateCopy : activityOnly ? acquisitionActivityCopy : toolMarketOnly ? toolMarketCopy : acquisitionOnly ? acquisitionCopy : experienceOnly
-    ? experienceCopy
-    : paymentOnly
-      ? paymentPricingCopy
-      : homeOnly
-        ? homeEditorialCopy
-        : waitOnly
-          ? waitCompanionCopy
-          : assistantToolOnly
-            ? assistantToolCopy
-            : newKeys
+  const scoped =
+    operationsFinishOnly ||
+    fixedGroupOnly ||
+    keyFollowthroughOnly ||
+    competitionOnly ||
+    costOnly ||
+    clientsOnly ||
+    feedbackOnly ||
+    logRecoveryOnly ||
+    statusOnly ||
+    parallelOnly ||
+    estimateOnly ||
+    activityOnly ||
+    toolMarketOnly ||
+    acquisitionOnly ||
+    experienceOnly ||
+    paymentOnly ||
+    homeOnly ||
+    waitOnly ||
+    assistantToolOnly
+  const entries = operationsFinishOnly
+    ? operationsFinishCopy
+    : fixedGroupOnly
+      ? fixedGroupCopy
+      : keyFollowthroughOnly
+        ? keyFollowthroughCopy
+        : competitionOnly
+          ? Object.fromEntries(
+              Object.entries(signalCompetitionKeys).map(([locale, values]) => [
+                locale,
+                Object.fromEntries(
+                  Object.entries(values).filter(
+                    ([key]) => !['Account', 'Public'].includes(key)
+                  )
+                ),
+              ])
+            )
+          : costOnly
+            ? acquisitionCostCopy
+            : clientsOnly
+              ? clientPresetsCopy
+              : feedbackOnly
+                ? sourceFeedbackCopy
+                : logRecoveryOnly
+                  ? logRecoveryCopy
+                  : statusOnly
+                    ? modelStatusCopy
+                    : parallelOnly
+                      ? parallelExperienceCopy
+                      : estimateOnly
+                        ? requestEstimateCopy
+                        : activityOnly
+                          ? acquisitionActivityCopy
+                          : toolMarketOnly
+                            ? toolMarketCopy
+                            : acquisitionOnly
+                              ? acquisitionCopy
+                              : experienceOnly
+                                ? experienceCopy
+                                : paymentOnly
+                                  ? paymentPricingCopy
+                                  : homeOnly
+                                    ? homeEditorialCopy
+                                    : waitOnly
+                                      ? waitCompanionCopy
+                                      : assistantToolOnly
+                                        ? assistantToolCopy
+                                        : newKeys
   let totalAdded = 0
   for (const [locale, baseTranslations] of Object.entries(entries)) {
     const translations = scoped
@@ -10960,7 +11969,10 @@ async function main() {
     const filePath = path.join(LOCALES_DIR, `${locale}.json`)
     const json = JSON.parse(await fs.readFile(filePath, 'utf8'))
     let count = 0
-    for (const key of [...retiredPricingKeys, ...(scoped ? [] : deprecatedCurrencyKeys)]) {
+    for (const key of [
+      ...retiredPricingKeys,
+      ...(scoped ? [] : deprecatedCurrencyKeys),
+    ]) {
       if (Object.hasOwn(json.translation, key)) {
         delete json.translation[key]
         count++
@@ -11856,7 +12868,43 @@ const signalCompetitionKeys = {
       'Mở {{url}} và chơi một thử thách Signal path {{size}} × {{size}} qua WebMCP. Trước khi bắt đầu, điền ID mô hình thực, tên harness và tên Agent vào lmm_signal_start. Hỏi tôi nếu không biết thông tin nhận dạng, không tự bịa. Đọc lmm_signal_state, chờ đếm ngược ba giây rồi dùng lmm_signal_rotate với round_id đã nhận. Không dùng gợi ý. Dừng khi thắng hoặc đạt {{limit}} lượt xoay, không tự mở ván mới; báo số lượt và thời gian. Chỉ dùng lmm_signal_submit khi tôi yêu cầu gửi kết quả, bằng tài khoản tôi đang đăng nhập. Nếu chưa đăng nhập, yêu cầu tôi đăng nhập thủ công và giữ bản ghi trên thiết bị. Không tạo tài khoản hay thanh toán.',
   },
 }
-for (const [locale, values] of Object.entries(signalCompetitionKeys)) { Object.assign(newKeys[locale], values) }
+for (const [locale, values] of Object.entries(signalCompetitionKeys)) {
+  Object.assign(newKeys[locale], values)
+}
+
+const integrationGameLocaleKeys = {
+  en: {
+    'The SMS provider has insufficient balance. Contact site support; this is not your wallet balance.':
+      'The SMS provider has insufficient balance. Contact site support; this is not your wallet balance.',
+  },
+  fr: {
+    'The SMS provider has insufficient balance. Contact site support; this is not your wallet balance.':
+      'Le fournisseur SMS manque de fonds. Contactez l’assistance du site ; il ne s’agit pas du solde de votre portefeuille.',
+  },
+  ja: {
+    'The SMS provider has insufficient balance. Contact site support; this is not your wallet balance.':
+      'SMS 提供元の残高が不足しています。サイトのサポートにお問い合わせください。お客様のウォレット残高とは別の問題です。',
+  },
+  ru: {
+    'The SMS provider has insufficient balance. Contact site support; this is not your wallet balance.':
+      'У поставщика SMS недостаточно средств. Обратитесь в поддержку сайта: это не связано с балансом вашего кошелька.',
+  },
+  vi: {
+    'The SMS provider has insufficient balance. Contact site support; this is not your wallet balance.':
+      'Nhà cung cấp SMS không đủ số dư. Hãy liên hệ hỗ trợ trang web; đây không phải số dư ví của bạn.',
+  },
+  'zh-TW': {
+    'The SMS provider has insufficient balance. Contact site support; this is not your wallet balance.':
+      '接碼供應商餘額不足，請聯絡網站支援；這不是你的帳戶餘額不足。',
+  },
+  zh: {
+    'The SMS provider has insufficient balance. Contact site support; this is not your wallet balance.':
+      '接码供应商余额不足，请联系站点支持；这不是你的账户余额不足。',
+  },
+}
+for (const [locale, values] of Object.entries(integrationGameLocaleKeys)) {
+  Object.assign(newKeys[locale], values)
+}
 
 main().catch((error) => {
   console.error(error)

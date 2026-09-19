@@ -34,7 +34,8 @@ export function customAcquisitionRange(
     endDay > now ||
     to <= from ||
     to - from > 366 * DAY
-  )
-    {return null}
+  ) {
+    return null
+  }
   return { from, to }
 }

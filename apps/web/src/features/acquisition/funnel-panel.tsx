@@ -263,7 +263,13 @@ export function AcquisitionFunnelPanel({ from, to }: AcquisitionRange) {
             )}
           </p>
           <h3 className='font-medium'>{t('Source before first payment')}</h3>
-          {query.data.payment_snapshot_status !== 'ready' && <p role='status'>{t('Payment attribution is still processing or unavailable; missing snapshots are not zero conversions.')}</p>}
+          {query.data.payment_snapshot_status !== 'ready' && (
+            <p role='status'>
+              {t(
+                'Payment attribution is still processing or unavailable; missing snapshots are not zero conversions.'
+              )}
+            </p>
+          )}
           <p className='text-muted-foreground text-sm'>
             {t(
               'Payment attribution uses saved evidence and its recorded lookback window. It does not change registration attribution or prove causation.'

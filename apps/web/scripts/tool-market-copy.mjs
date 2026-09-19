@@ -129,9 +129,11 @@ You have not published any services yet.|你还没有发布服务。|你尚未�
   .split('\n')
   .map((row) => row.split('|'))
 const locales = ['en', 'zh', 'zh-TW', 'fr', 'ja', 'ru', 'vi']
-for (const row of rows)
-  if (row.length !== locales.length)
+for (const row of rows) {
+  if (row.length !== locales.length) {
     throw new Error(`Invalid tool market translation: ${row[0]}`)
+  }
+}
 export const toolMarketCopy = Object.fromEntries(
   locales.map((locale, index) => [
     locale,

@@ -304,7 +304,9 @@ describe('ForgeHome code preview accessibility', () => {
   test('switches complete request examples with arrow keys and exposes the active panel', async () => {
     const rendered = await renderHome(null)
     await act(async () => {
-      const selector = Array.from(rendered.container.querySelectorAll('button')).find((button) => button.textContent === 'Other clients / API key')
+      const selector = Array.from(
+        rendered.container.querySelectorAll('button')
+      ).find((button) => button.textContent === 'Other clients / API key')
       assert.ok(selector)
       selector.click()
     })
@@ -362,7 +364,9 @@ describe('ForgeHome API examples', () => {
   test('provides complete Claude and Gemini request bodies with JSON headers', async () => {
     const rendered = await renderHome(null)
     await act(async () => {
-      const selector = Array.from(rendered.container.querySelectorAll('button')).find((button) => button.textContent === 'Other clients / API key')
+      const selector = Array.from(
+        rendered.container.querySelectorAll('button')
+      ).find((button) => button.textContent === 'Other clients / API key')
       assert.ok(selector)
       selector.click()
     })

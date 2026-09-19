@@ -1,4 +1,3 @@
-import { AccountStatus } from '@/features/onboarding/account-status'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -17,6 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
+import { AccountStatus } from '@/features/onboarding/account-status'
 import { LatestRequestCard } from '@/features/onboarding/latest-request-card'
 import { ROLE } from '@/lib/roles'
 import { cn } from '@/lib/utils'

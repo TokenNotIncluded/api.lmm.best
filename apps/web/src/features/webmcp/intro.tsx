@@ -30,7 +30,12 @@ export function WebMcpPage() {
           'Discover site information, model prices, public scripts, and account status through structured browser tools.'
         )}
       </p>
-      <a href='/games/signal#ai-guide' className='mt-5 inline-block underline underline-offset-4'>{t('Let an AI play through WebMCP')}</a>
+      <a
+        href='/games/signal#ai-guide'
+        className='mt-5 inline-block underline underline-offset-4'
+      >
+        {t('Let an AI play through WebMCP')}
+      </a>
       <div className='mt-10 grid gap-10 lg:grid-cols-[minmax(0,2fr)_minmax(15rem,1fr)]'>
         <section aria-labelledby='webmcp-tools-title'>
           <h2 id='webmcp-tools-title' className='text-xl font-semibold'>

@@ -125,11 +125,10 @@ func SaveSignalGameRecord(record *SignalGameRecord) error {
 			if existing.UserId != record.UserId {
 				return ErrSignalGameConflict
 			}
-			if record.Public && !existing.Public {
-				if err = tx.Model(&existing).Update("public", true).Error; err != nil {
-					return err
-				}
-				existing.Public = true
+			existing.Public = existing.Public || record.Public
+			existing.Email, existing.Note = record.Email, record.Note
+			if err = tx.Model(&existing).Updates(map[string]interface{}{"public": existing.Public, "email": existing.Email, "note": existing.Note}).Error; err != nil {
+				return err
 			}
 			*record = existing
 			return nil

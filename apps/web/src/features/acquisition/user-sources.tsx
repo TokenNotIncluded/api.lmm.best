@@ -1,14 +1,3 @@
-import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
-import { useTranslation } from 'react-i18next'
-
-import { Button } from '@/components/ui/button'
-import { hasPermission } from '@/lib/admin-permissions'
-import { api } from '@/lib/api'
-import { useAuthStore } from '@/stores/auth-store'
-
-import { SourceAccountExport } from './account-export'
-import { SELF_SOURCE_LABELS } from './self-source-labels'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -27,6 +16,20 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
+import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
+
+import { Button } from '@/components/ui/button'
+import { hasPermission } from '@/lib/admin-permissions'
+import { api } from '@/lib/api'
+import { useAuthStore } from '@/stores/auth-store'
+
+import { SourceAccountExport } from './account-export'
+import { SELF_SOURCE_LABELS } from './self-source-labels'
 import { SourceCorrections } from './source-corrections'
 
 function sourceLabel(source: string | undefined, t: (key: string) => string) {

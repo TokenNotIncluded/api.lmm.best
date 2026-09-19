@@ -1,4 +1,5 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
+import { ArrowRight } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -31,10 +32,33 @@ const arrows: Record<string, number> = {
   ArrowLeft: 8,
 }
 export function SignalBoard(props: Props) {
-  return props.size === 5 ? (
-    <SmallBoard {...props} />
-  ) : (
-    <LargeBoard key={props.size} {...props} />
+  const host = useRef<HTMLDivElement>(null)
+  const [width, setWidth] = useState(0)
+  useEffect(() => {
+    const element = host.current
+    if (!element) return
+    const measure = () => setWidth(element.clientWidth)
+    measure()
+    const observer =
+      typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null
+    observer?.observe(element)
+    window.addEventListener('resize', measure)
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', measure)
+    }
+  }, [])
+  const compact =
+    props.size <= 12 &&
+    (props.size <= 8 || width === 0 || width >= props.size * 28 + 36)
+  return (
+    <div ref={host} className='w-full'>
+      {compact ? (
+        <SmallBoard key={props.size} {...props} />
+      ) : (
+        <LargeBoard key={props.size} {...props} />
+      )}
+    </div>
   )
 }
 function SmallBoard({ size, tiles, powered, hint, blocked, turn }: Props) {
@@ -48,8 +72,19 @@ function SmallBoard({ size, tiles, powered, hint, blocked, turn }: Props) {
     8: t('West'),
   }
   return (
-    <div className='signal-game-board-wrap'>
-      <span className='signal-game-port signal-game-input'>→</span>
+    <div
+      className='signal-game-board-wrap'
+      style={{
+        maxWidth: size === 5 ? '22rem' : size === 8 ? '28rem' : '34rem',
+        marginInline: 'auto',
+      }}
+    >
+      <span
+        className='signal-game-port signal-game-input'
+        style={{ top: `${((Math.floor(size / 2) + 0.5) / size) * 100}%` }}
+      >
+        <ArrowRight aria-hidden='true' />
+      </span>
       <div
         className='signal-game-board'
         role='grid'
@@ -58,7 +93,12 @@ function SmallBoard({ size, tiles, powered, hint, blocked, turn }: Props) {
         aria-colcount={size}
       >
         {Array.from({ length: size }, (_, row) => (
-          <div role='row' className='signal-game-row' key={row}>
+          <div
+            role='row'
+            className='signal-game-row'
+            key={row}
+            style={{ gridTemplateColumns: `repeat(${size}, minmax(0, 1fr))` }}
+          >
             {tiles.slice(row * size, (row + 1) * size).map((mask, col) => {
               const index = row * size + col,
                 ports = PORTS.filter((p) => mask & p),
@@ -110,7 +150,12 @@ function SmallBoard({ size, tiles, powered, hint, blocked, turn }: Props) {
           </div>
         ))}
       </div>
-      <span className='signal-game-port signal-game-output'>→</span>
+      <span
+        className='signal-game-port signal-game-output'
+        style={{ top: `${((Math.floor(size / 2) + 0.5) / size) * 100}%` }}
+      >
+        <ArrowRight aria-hidden='true' />
+      </span>
     </div>
   )
 }
@@ -206,11 +251,18 @@ function LargeBoard({ size, tiles, powered, hint, blocked, turn }: Props) {
     const observer =
       typeof ResizeObserver === 'function' ? new ResizeObserver(draw) : null
     observer?.observe(view)
+    const themeObserver =
+      typeof MutationObserver === 'function' ? new MutationObserver(draw) : null
+    themeObserver?.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class', 'data-theme'],
+    })
     window.addEventListener('resize', draw)
     return () => {
       view.removeEventListener('scroll', draw)
       observer?.disconnect()
       window.removeEventListener('resize', draw)
+      themeObserver?.disconnect()
     }
   }, [draw])
   const reveal = (index: number) => {
@@ -230,9 +282,13 @@ function LargeBoard({ size, tiles, powered, hint, blocked, turn }: Props) {
         Math.floor(size / 2) * cell - view.clientHeight / 2
       )
     }
+    setFocus(inputTile(size))
   }, [size, cell])
   return (
-    <div className='signal-large-board'>
+    <div
+      className='signal-large-board'
+      style={{ maxWidth: size * cell + 2, width: '100%', marginInline: 'auto' }}
+    >
       <div className='mb-2 flex flex-wrap items-center gap-2'>
         <Button
           type='button'
@@ -272,7 +328,11 @@ function LargeBoard({ size, tiles, powered, hint, blocked, turn }: Props) {
           {t('Output')}
         </Button>
       </div>
-      <div ref={viewport} className='signal-game-viewport'>
+      <div
+        ref={viewport}
+        className='signal-game-viewport'
+        style={{ height: `min(55vh, ${size * cell + 2}px, 28rem)` }}
+      >
         <div style={{ width: size * cell, height: size * cell }}>
           <canvas
             ref={canvas}
@@ -289,6 +349,20 @@ function LargeBoard({ size, tiles, powered, hint, blocked, turn }: Props) {
                   left: view.scrollLeft,
                   top: view.scrollTop,
                 }
+              }
+            }}
+            onPointerMove={(e) => {
+              const start = pointer.current,
+                view = viewport.current
+              if (
+                start &&
+                view &&
+                e.pointerType === 'mouse' &&
+                e.buttons === 1 &&
+                Math.hypot(e.clientX - start.x, e.clientY - start.y) > 6
+              ) {
+                view.scrollLeft = start.left + start.x - e.clientX
+                view.scrollTop = start.top + start.y - e.clientY
               }
             }}
             onPointerCancel={() => {

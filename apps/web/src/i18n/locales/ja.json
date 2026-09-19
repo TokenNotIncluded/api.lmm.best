@@ -7825,6 +7825,7 @@
     "The setup wizard will use this database during initialization.": "セットアップウィザードは初期化時にこのデータベースを使用します。",
     "The site is not available at the moment.": "現在、このサイトは利用できません。",
     "The slug is appended to the URL:": "スラッグがURLに追加されます:",
+    "The SMS provider has insufficient balance. Contact site support; this is not your wallet balance.": "SMS 提供元の残高が不足しています。サイトのサポートにお問い合わせください。お客様のウォレット残高とは別の問題です。",
     "The sync will fetch missing models and vendors from the selected source. Existing records are updated only when you approve conflicts.": "同期により、選択されたソースから不足しているモデルとベンダーが取得されます。既存のレコードは、競合を承認した場合にのみ更新されます。",
     "The system automatically attaches the project, Issue, pull request, completion note, payment history, and mutual ratings.": "システムはプロジェクト、Issue、プルリクエスト、完了メモ、支払い履歴、相互評価を自動的に添付します。",
     "The system automatically attaches the project, Issue, pull request, encrypted review message, payment history, and mutual ratings.": "システムはプロジェクト、Issue、プル リクエスト、暗号化されたレビューメッセージ、支払い履歴、相互評価を自動的に添付します。",

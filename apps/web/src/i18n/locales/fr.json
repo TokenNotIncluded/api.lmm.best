@@ -7825,6 +7825,7 @@
     "The setup wizard will use this database during initialization.": "L'assistant de configuration utilisera cette base de données lors de l'initialisation.",
     "The site is not available at the moment.": "Le site n'est pas disponible pour le moment.",
     "The slug is appended to the URL:": "Le slug est ajouté à l'URL :",
+    "The SMS provider has insufficient balance. Contact site support; this is not your wallet balance.": "Le fournisseur SMS manque de fonds. Contactez l’assistance du site ; il ne s’agit pas du solde de votre portefeuille.",
     "The sync will fetch missing models and vendors from the selected source. Existing records are updated only when you approve conflicts.": "La synchronisation récupérera les modèles et fournisseurs manquants à partir de la source sélectionnée. Les enregistrements existants ne sont mis à jour que lorsque vous approuvez les conflits.",
     "The system automatically attaches the project, Issue, pull request, completion note, payment history, and mutual ratings.": "Le système joint automatiquement le projet, l’Issue, la pull request, la note d’achèvement, l’historique des paiements et les évaluations mutuelles.",
     "The system automatically attaches the project, Issue, pull request, encrypted review message, payment history, and mutual ratings.": "Le système joint automatiquement le projet, l'Issue, la pull request, le message de révision chiffré, l'historique de paiement et les évaluations mutuelles.",

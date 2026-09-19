@@ -164,6 +164,25 @@ describe('SMS balance notice and action boundaries', () => {
     )
   })
 
+  test('provider balance is never described as the customer balance floor', () => {
+    const t = ((key: string) => key) as never
+    const result = describeSmsAccessError(
+      {
+        response: {
+          status: 503,
+          data: {
+            code: 'PROVIDER_BALANCE_INSUFFICIENT',
+            message: 'HeroSMS provider balance is insufficient',
+          },
+        },
+      },
+      t
+    )
+    assert.equal(result.title, 'Purchasing unavailable')
+    assert.match(result.description, /provider/)
+    assert.doesNotMatch(result.description, /at least USD 10/)
+  })
+
   test('below-floor notice is persistent and shows the actual USD balance', () => {
     const markup = render(
       <SmsBalanceNotice

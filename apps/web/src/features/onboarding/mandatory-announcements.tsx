@@ -40,8 +40,9 @@ async function loadAnnouncements() {
     skipErrorHandler: true,
     skipBusinessError: true,
   })
-  if (!response.data.success || !Array.isArray(response.data.data))
-    {throw new Error('Unable to load announcements')}
+  if (!response.data.success || !Array.isArray(response.data.data)) {
+    throw new Error('Unable to load announcements')
+  }
   return response.data.data as MandatoryAnnouncement[]
 }
 
@@ -92,8 +93,9 @@ export function MandatoryAnnouncements({ children }: { children: ReactNode }) {
             { id: next.id, revision: next.revision },
             { skipErrorHandler: true, skipBusinessError: true }
           )
-          if (!response.data.success)
-            {throw new Error('Unable to confirm reading')}
+          if (!response.data.success) {
+            throw new Error('Unable to confirm reading')
+          }
           await query.refetch({ throwOnError: true })
         } catch (error) {
           // A conflict can mean the publication changed while it was being read.
