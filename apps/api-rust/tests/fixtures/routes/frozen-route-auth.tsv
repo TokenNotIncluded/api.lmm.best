@@ -199,12 +199,14 @@ POST	/api/token/	user
 PUT	/api/token/	user
 DELETE	/api/token/:id	user
 GET	/api/token/:id	user
+PUT	/api/token/:id/account-balance-access	user
 POST	/api/token/:id/key	user
 POST	/api/token/batch	user
 POST	/api/token/batch/keys	user
 GET	/api/token/search	user
 GET	/api/uptime/status	public
 GET	/api/usage/token/	token
+GET	/v1/balance	token
 GET	/api/user-agreement	public
 GET	/api/user/	user
 POST	/api/user/	user
