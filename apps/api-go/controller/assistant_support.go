@@ -21,6 +21,8 @@ const assistantSupportGuardKey = "assistant_support_guard_enabled"
 func assistantSupportError(c *gin.Context, err error) {
 	status, code, message := http.StatusInternalServerError, "ASSISTANT_SUPPORT_UNAVAILABLE", "人工支持暂时不可用，请稍后重试。"
 	switch {
+	case errors.Is(err, model.ErrAssistantTurnConflict), errors.Is(err, model.ErrAssistantTurnExpired):
+		status, code, message = http.StatusConflict, "ASSISTANT_TURN_UNAVAILABLE", "Saved turn cannot be reused; send a new message."
 	case errors.Is(err, model.ErrAssistantSupportNotFound), errors.Is(err, model.ErrAssistantConversationNotFound):
 		status, code, message = http.StatusNotFound, "ASSISTANT_SUPPORT_NOT_FOUND", "人工支持请求或对话不存在。"
 	case errors.Is(err, model.ErrAssistantSupportForbidden):
@@ -145,13 +147,14 @@ func SendAssistantSupportMessage(c *gin.Context) {
 		return
 	}
 	var input struct {
-		Content string `json:"content"`
+		Content      string `json:"content"`
+		ClientTurnID string `json:"client_turn_id,omitempty"`
 	}
-	if c.ShouldBindJSON(&input) != nil {
+	if c.ShouldBindJSON(&input) != nil || (input.ClientTurnID != "" && !assistantClientTurnPattern.MatchString(input.ClientTurnID)) {
 		assistantSupportError(c, model.ErrAssistantSupportInvalid)
 		return
 	}
-	message, err := model.AddAssistantSupportMessage(assistantActorUserID(c), id, input.Content)
+	message, err := model.AddAssistantSupportMessage(assistantActorUserID(c), id, input.Content, input.ClientTurnID)
 	if err != nil {
 		assistantSupportError(c, err)
 		return
@@ -222,7 +225,7 @@ func RouteAssistantHumanSupport(c *gin.Context) {
 		}
 		return
 	}
-	if input.ConversationID < 0 {
+	if input.ConversationID < 0 || (input.ClientTurnID != "" && !assistantClientTurnPattern.MatchString(input.ClientTurnID)) {
 		assistantSupportError(c, model.ErrAssistantSupportInvalid)
 		return
 	}
@@ -242,6 +245,18 @@ func RouteAssistantHumanSupport(c *gin.Context) {
 	actorID := assistantActorUserID(c)
 	c.Set(assistantActorUserIDKey, actorID)
 	c.Set(assistantSupportGuardKey, true)
+	c.Set("assistant_client_turn_id", input.ClientTurnID)
+	if input.ClientTurnID != "" {
+		saved, err := model.LookupAssistantSupportTurn(actorID, input.ClientTurnID, input.ConversationID, message)
+		if err != nil {
+			assistantSupportError(c, err)
+			return
+		}
+		if saved != nil {
+			writeAssistantSupportCompletion(c, assistantSupportCompletion(saved))
+			return
+		}
+	}
 	request, err := model.GetActiveAssistantSupportRequest(actorID)
 	if err != nil {
 		assistantSupportError(c, err)
@@ -259,7 +274,7 @@ func RouteAssistantHumanSupport(c *gin.Context) {
 		c.Next()
 		return
 	}
-	if _, err := model.AddAssistantSupportMessage(actorID, request.Id, message); err != nil {
+	if _, err := model.AddAssistantSupportMessage(actorID, request.Id, message, input.ClientTurnID); err != nil {
 		assistantSupportError(c, err)
 		return
 	}
@@ -318,7 +333,7 @@ func assistantSupportInterruptedBody(c *gin.Context, err error) []byte {
 	if errors.Is(err, model.ErrAssistantSupportAIBlocked) {
 		if request, lookupErr := model.GetActiveAssistantSupportRequest(assistantActorUserID(c)); lookupErr == nil && assistantSupportPausesAI(request) && (assistantHistoryConversationID(c) == 0 || request.ConversationId == assistantHistoryConversationID(c)) {
 			if latest := c.GetString("assistant_history_latest_message"); latest != "" && !c.GetBool("assistant_support_message_forwarded") {
-				if _, sendErr := model.AddAssistantSupportMessage(assistantActorUserID(c), request.Id, latest); sendErr != nil {
+				if _, sendErr := model.AddAssistantSupportMessage(assistantActorUserID(c), request.Id, latest, c.GetString("assistant_client_turn_id")); sendErr != nil {
 					body, _ := json.Marshal(gin.H{"success": false, "code": "ASSISTANT_SUPPORT_STATE_CHANGED", "message": "人工支持状态已变化，当前消息未发送，请刷新后重试。"})
 					return body
 				}

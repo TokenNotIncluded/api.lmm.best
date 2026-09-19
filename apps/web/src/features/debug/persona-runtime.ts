@@ -60,6 +60,7 @@ type DebugEvent = {
 const DEBUG_EVENT = 'lmm:persona-debug-change'
 const BLOCKED_DEBUG_REQUEST = 'PERSONA_DEBUG_UNMOCKED_REQUEST'
 const now = Math.floor(Date.now() / 1000)
+const debugAnnouncementReads = new Set<string>()
 
 function trustLevel(level: number): TrustLevelInfo {
   return {
@@ -311,8 +312,14 @@ function initialConversations(): MockConversation[] {
   ]
 }
 
+// Development-only URL selection keeps local QA stable across HMR reloads.
+function initialDebugPersona(): DebugPersonaId {
+  if (typeof window === 'undefined') return 'l0'
+  const value = new URLSearchParams(window.location.search).get('debug_persona')
+  return DEBUG_PERSONA_IDS.includes(value as DebugPersonaId) ? value as DebugPersonaId : 'l0'
+}
 let state: DebugState = {
-  activePersona: 'l0',
+  activePersona: initialDebugPersona(),
   conversations: initialConversations(),
 }
 
@@ -533,6 +540,30 @@ const debugAdapter: AxiosAdapter = async (config) => {
   const path = url.pathname
   const method = (config.method ?? 'get').toUpperCase()
 
+  if (method === 'GET' && path === '/api/admin/acquisition/links') {
+    return response(config, envelope({items:[{ id: '0123456789abcdef0123456789abcdef', name: 'Local documentation example', source: 'documentation', medium: 'readme', campaign: 'local-preview', content: 'setup-guide', target: '/guide', archived: false }],total:1,page:1}))
+  }
+  if (method === 'GET' && /^\/api\/admin\/acquisition\/links\/[^/]+\/preview$/.test(path)) {
+    return response(config, envelope({link_id:'0123456789abcdef0123456789abcdef',target:'/guide',source:'documentation',medium:'readme',campaign:'local-preview',content:'setup-guide',evidence:'promotion_link',referrer_host:'',excluded:true,archived:false}))
+  }
+  if (method === 'GET' && path === '/api/acquisition/self-report') return response(config, envelope(null))
+  if (method === 'GET' && path === '/api/admin/acquisition/report') {
+    return response(config, envelope({
+      from: now-30*86400, to:now, unclassified_payment_rows:0, lookback_days:30, applied_lookback_days:[30], started_at:now-20*86400, observed_until:now,
+      channels:[{source:'documentation',evidence:'promotion_link',registrations:3,identified_registrations:3},{source:'unknown',evidence:'unavailable',registrations:2,identified_registrations:0}],
+      payments:[{source:'documentation',currency:'USD',paid_micros:10000000,refund_micros:2000000,net_micros:8000000,paying_accounts:1}],
+      activity_state:{started_at:now-20*86400,scanned_through:now-60,updated_at:now,status:'ready',incomplete:false},
+      activity:[{source:'documentation',eligible_accounts:3,successful_accounts:2,mature_accounts:1,retained_accounts:1,observing_accounts:1,incomplete_accounts:0,retention_rate:1}],
+    }))
+  }
+  if (method === 'GET' && path === '/api/admin/acquisition/users') {
+    return response(config, envelope({total:3,items:[1003,1004,1005].map((id,index)=>({user_id:id,registered_at:now-(15-index*5)*86400,source:'documentation',evidence:'promotion_link',first_success_at:index<2?now-(12-index*5)*86400:0}))}))
+  }
+  if (method === 'GET' && /^\/api\/admin\/acquisition\/users\/\d+$/.test(path)) {
+    return response(config,envelope({user_id:Number(path.split('/').at(-1)),registered_at:now-15*86400,historical:false,first_success_at:now-12*86400,attribution:{first_source:'documentation',first_observed_at:now-15*86400-300,registration_source:'documentation',registration_campaign:'local-preview',registration_inferred:false,registration_visit_id:1,lookback_days:30},recent:[{id:1,source:'documentation',evidence:'promotion_link',created_at:now-15*86400-300,referrer_host:'github.com',landing:'/guide'}]}))
+  }
+  if (path === '/api/acquisition/consent' && ['POST','DELETE'].includes(method)) return response(config,envelope({allowed:method==='POST'}))
+  if (path === '/api/admin/acquisition/activity/rebuild' && method==='POST') return response(config,envelope({scheduled:true}))
   if (method === 'GET' && path === '/api/status') {
     return response(
       config,
@@ -552,6 +583,41 @@ const debugAdapter: AxiosAdapter = async (config) => {
   }
   if (method === 'POST' && path === '/api/user/auth/refresh') {
     return response(config, envelope(authBundle(state.activePersona)))
+  }
+  if (method === 'GET' && path === '/api/user/self/announcements') {
+    const required =
+      new URLSearchParams(window.location.search).get(
+        'required-announcements'
+      ) === '1'
+    return response(
+      config,
+      envelope(
+        required
+          ? [1, 2].map((id) => ({
+              id,
+              revision: `debug-announcement-${id}`,
+              publishDate: '2026-09-01T00:00:00Z',
+              content:
+                id === 1
+                  ? Array.from(
+                      { length: 16 },
+                      (_, index) =>
+                        `### Reading section ${index + 1}\n\nThis is a local test announcement. Scroll through every section to enable confirmation.`
+                    ).join('\n\n')
+                  : 'This is the second local test announcement. Confirm it to enter the console.',
+              read_at: debugAnnouncementReads.has(`${activeUser().id}:${id}`)
+                ? now
+                : 0,
+            }))
+          : []
+      )
+    )
+  }
+  if (method === 'POST' && path === '/api/user/self/announcements/read') {
+    const data =
+      typeof config.data === 'string' ? JSON.parse(config.data) : config.data
+    debugAnnouncementReads.add(`${activeUser().id}:${data.id}`)
+    return response(config, envelope([]))
   }
   if (method === 'GET' && path === '/api/user/self') {
     return response(config, envelope(activeUser()))
@@ -579,6 +645,12 @@ const debugAdapter: AxiosAdapter = async (config) => {
   }
   if (method === 'GET' && path === '/api/uptime/status') {
     return response(config, envelope([]))
+  }
+  if (method === 'GET' && path === '/api/ratio-notifications') {
+    return response(config, envelope([]))
+  }
+  if (method === 'GET' && path === '/api/token/auto-groups') {
+    return response(config, envelope({ groups: [activeUser().group || 'default'], max_count: 5 }))
   }
   if (method === 'GET' && path === '/api/token/') {
     const developerAccessGranted =

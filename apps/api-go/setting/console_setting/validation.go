@@ -220,7 +220,21 @@ func validateAnnouncements(announcementsStr string) error {
 	validTypes := map[string]bool{
 		"default": true, "ongoing": true, "success": true, "warning": true, "error": true,
 	}
+	mandatoryIDs := map[float64]bool{}
 	for i, ann := range list {
+		if value, exists := ann["mandatory"]; exists {
+			mandatory, ok := value.(bool)
+			if !ok {
+				return fmt.Errorf("第%d个公告的强制阅读设置必须为布尔值", i+1)
+			}
+			if mandatory {
+				id, ok := ann["id"].(float64)
+				if !ok || id <= 0 || id > 9007199254740991 || id != float64(int64(id)) || mandatoryIDs[id] {
+					return fmt.Errorf("第%d个强制公告需要唯一的正整数ID", i+1)
+				}
+				mandatoryIDs[id] = true
+			}
+		}
 		content, ok := ann["content"].(string)
 		if !ok || content == "" {
 			return fmt.Errorf("第%d个公告缺少内容字段", i+1)

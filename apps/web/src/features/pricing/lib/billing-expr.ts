@@ -868,6 +868,61 @@ export function evaluateBillingExpression(
   return { value: requireNumber(evaluate(root)), matchedTier }
 }
 
+/** Evaluate a text-only request with total input (including cache), matching
+ * BuildTieredTokenParams in the server. Inspect every branch before evaluation:
+ * an unselected request/time-dependent branch must not silently become a quote.
+ */
+export function evaluateTextRequestExpression(
+  expression: string,
+  input: number,
+  output: number,
+  cached: number
+): number {
+  if (stripExprVersion(expression.trim()).version !== 1) {
+    throw new Error('unsupported expression version')
+  }
+  const root = parseRestrictedExpr(expression)
+  const variables = new Set<string>()
+  const allowedVariables = new Set(BILLING_VARS.map((item) => item.key))
+  const allowedCalls = new Set(['tier', 'max', 'min', 'abs', 'ceil', 'floor'])
+  const pending = [root]
+  while (pending.length > 0) {
+    const node = pending.pop()
+    if (!node) break
+    switch (node.kind) {
+      case 'identifier':
+        if (!allowedVariables.has(node.name)) {
+          throw new Error('unknown variable')
+        }
+        variables.add(node.name)
+        break
+      case 'call':
+        if (!allowedCalls.has(node.name)) {
+          throw new Error('request context required')
+        }
+        pending.push(...node.args)
+        break
+      case 'conditional':
+        pending.push(node.test, node.consequent, node.alternate)
+        break
+      case 'binary':
+        pending.push(node.left, node.right)
+        break
+      case 'unary':
+        pending.push(node.value)
+        break
+      case 'literal':
+        break
+    }
+  }
+  return evaluateBillingExpression(expression, {
+    p: variables.has('cr') ? input - cached : input,
+    c: output,
+    cr: cached,
+    len: input,
+  }).value
+}
+
 export function normalizeTierLabel(label: string | undefined): string {
   if (!label) return ''
   return label

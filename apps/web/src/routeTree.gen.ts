@@ -60,6 +60,7 @@ import { Route as AuthenticatedKeysIndexRouteImport } from './routes/_authentica
 import { Route as AuthenticatedModelsIndexRouteImport } from './routes/_authenticated/models/index'
 import { Route as AuthenticatedModelsSectionRouteImport } from './routes/_authenticated/models/$section'
 import { Route as AuthenticatedOpenSourceBountiesIndexRouteImport } from './routes/_authenticated/open-source-bounties/index'
+import { Route as AuthenticatedOperationsSourcesRouteImport } from './routes/_authenticated/operations/sources'
 import { Route as AuthenticatedPlaygroundIndexRouteImport } from './routes/_authenticated/playground/index'
 import { Route as AuthenticatedProfileIndexRouteImport } from './routes/_authenticated/profile/index'
 import { Route as AuthenticatedPublicRelayIndexRouteImport } from './routes/_authenticated/public-relay/index'
@@ -73,6 +74,7 @@ import { Route as AuthenticatedSystemInfoIndexRouteImport } from './routes/_auth
 import { Route as AuthenticatedSystemSettingsIndexRouteImport } from './routes/_authenticated/system-settings/index'
 import { Route as AuthenticatedTemporaryActivationsIndexRouteImport } from './routes/_authenticated/temporary-activations/index'
 import { Route as AuthenticatedTodosIndexRouteImport } from './routes/_authenticated/todos/index'
+import { Route as AuthenticatedToolMarketIndexRouteImport } from './routes/_authenticated/tool-market/index'
 import { Route as AuthenticatedUsageLogsIndexRouteImport } from './routes/_authenticated/usage-logs/index'
 import { Route as AuthenticatedUsageLogsSectionRouteImport } from './routes/_authenticated/usage-logs/$section'
 import { Route as AuthenticatedUsersIndexRouteImport } from './routes/_authenticated/users/index'
@@ -362,6 +364,12 @@ const AuthenticatedOpenSourceBountiesIndexRoute =
     path: '/open-source-bounties/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedOperationsSourcesRoute =
+  AuthenticatedOperationsSourcesRouteImport.update({
+    id: '/operations/sources',
+    path: '/operations/sources',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedPlaygroundIndexRoute =
   AuthenticatedPlaygroundIndexRouteImport.update({
     id: '/playground/',
@@ -439,6 +447,12 @@ const AuthenticatedTodosIndexRoute = AuthenticatedTodosIndexRouteImport.update({
   path: '/todos/',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedToolMarketIndexRoute =
+  AuthenticatedToolMarketIndexRouteImport.update({
+    id: '/tool-market/',
+    path: '/tool-market/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedUsageLogsIndexRoute =
   AuthenticatedUsageLogsIndexRouteImport.update({
     id: '/usage-logs/',
@@ -596,6 +610,7 @@ export interface FileRoutesByFullPath {
   '/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
+  '/operations/sources': typeof AuthenticatedOperationsSourcesRoute
   '/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/channels/': typeof AuthenticatedChannelsIndexRoute
@@ -622,6 +637,7 @@ export interface FileRoutesByFullPath {
   '/system-settings/': typeof AuthenticatedSystemSettingsIndexRoute
   '/temporary-activations/': typeof AuthenticatedTemporaryActivationsIndexRoute
   '/todos/': typeof AuthenticatedTodosIndexRoute
+  '/tool-market/': typeof AuthenticatedToolMarketIndexRoute
   '/usage-logs/': typeof AuthenticatedUsageLogsIndexRoute
   '/users/': typeof AuthenticatedUsersIndexRoute
   '/wallet/': typeof AuthenticatedWalletIndexRoute
@@ -679,6 +695,7 @@ export interface FileRoutesByTo {
   '/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
+  '/operations/sources': typeof AuthenticatedOperationsSourcesRoute
   '/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/channels': typeof AuthenticatedChannelsIndexRoute
@@ -705,6 +722,7 @@ export interface FileRoutesByTo {
   '/system-settings': typeof AuthenticatedSystemSettingsIndexRoute
   '/temporary-activations': typeof AuthenticatedTemporaryActivationsIndexRoute
   '/todos': typeof AuthenticatedTodosIndexRoute
+  '/tool-market': typeof AuthenticatedToolMarketIndexRoute
   '/usage-logs': typeof AuthenticatedUsageLogsIndexRoute
   '/users': typeof AuthenticatedUsersIndexRoute
   '/wallet': typeof AuthenticatedWalletIndexRoute
@@ -766,6 +784,7 @@ export interface FileRoutesById {
   '/_authenticated/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/_authenticated/models/$section': typeof AuthenticatedModelsSectionRoute
+  '/_authenticated/operations/sources': typeof AuthenticatedOperationsSourcesRoute
   '/_authenticated/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
   '/_authenticated/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/_authenticated/channels/': typeof AuthenticatedChannelsIndexRoute
@@ -792,6 +811,7 @@ export interface FileRoutesById {
   '/_authenticated/system-settings/': typeof AuthenticatedSystemSettingsIndexRoute
   '/_authenticated/temporary-activations/': typeof AuthenticatedTemporaryActivationsIndexRoute
   '/_authenticated/todos/': typeof AuthenticatedTodosIndexRoute
+  '/_authenticated/tool-market/': typeof AuthenticatedToolMarketIndexRoute
   '/_authenticated/usage-logs/': typeof AuthenticatedUsageLogsIndexRoute
   '/_authenticated/users/': typeof AuthenticatedUsersIndexRoute
   '/_authenticated/wallet/': typeof AuthenticatedWalletIndexRoute
@@ -852,6 +872,7 @@ export interface FileRouteTypes {
     | '/dashboard/$section'
     | '/errors/$error'
     | '/models/$section'
+    | '/operations/sources'
     | '/subscriptions/reset'
     | '/usage-logs/$section'
     | '/channels/'
@@ -878,6 +899,7 @@ export interface FileRouteTypes {
     | '/system-settings/'
     | '/temporary-activations/'
     | '/todos/'
+    | '/tool-market/'
     | '/usage-logs/'
     | '/users/'
     | '/wallet/'
@@ -935,6 +957,7 @@ export interface FileRouteTypes {
     | '/dashboard/$section'
     | '/errors/$error'
     | '/models/$section'
+    | '/operations/sources'
     | '/subscriptions/reset'
     | '/usage-logs/$section'
     | '/channels'
@@ -961,6 +984,7 @@ export interface FileRouteTypes {
     | '/system-settings'
     | '/temporary-activations'
     | '/todos'
+    | '/tool-market'
     | '/usage-logs'
     | '/users'
     | '/wallet'
@@ -1021,6 +1045,7 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard/$section'
     | '/_authenticated/errors/$error'
     | '/_authenticated/models/$section'
+    | '/_authenticated/operations/sources'
     | '/_authenticated/subscriptions/reset'
     | '/_authenticated/usage-logs/$section'
     | '/_authenticated/channels/'
@@ -1047,6 +1072,7 @@ export interface FileRouteTypes {
     | '/_authenticated/system-settings/'
     | '/_authenticated/temporary-activations/'
     | '/_authenticated/todos/'
+    | '/_authenticated/tool-market/'
     | '/_authenticated/usage-logs/'
     | '/_authenticated/users/'
     | '/_authenticated/wallet/'
@@ -1455,6 +1481,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedOpenSourceBountiesIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/operations/sources': {
+      id: '/_authenticated/operations/sources'
+      path: '/operations/sources'
+      fullPath: '/operations/sources'
+      preLoaderRoute: typeof AuthenticatedOperationsSourcesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/playground/': {
       id: '/_authenticated/playground/'
       path: '/playground'
@@ -1544,6 +1577,13 @@ declare module '@tanstack/react-router' {
       path: '/todos'
       fullPath: '/todos/'
       preLoaderRoute: typeof AuthenticatedTodosIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/tool-market/': {
+      id: '/_authenticated/tool-market/'
+      path: '/tool-market'
+      fullPath: '/tool-market/'
+      preLoaderRoute: typeof AuthenticatedToolMarketIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/usage-logs/': {
@@ -1781,6 +1821,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedDashboardSectionRoute: typeof AuthenticatedDashboardSectionRoute
   AuthenticatedErrorsErrorRoute: typeof AuthenticatedErrorsErrorRoute
   AuthenticatedModelsSectionRoute: typeof AuthenticatedModelsSectionRoute
+  AuthenticatedOperationsSourcesRoute: typeof AuthenticatedOperationsSourcesRoute
   AuthenticatedSubscriptionsResetRoute: typeof AuthenticatedSubscriptionsResetRoute
   AuthenticatedUsageLogsSectionRoute: typeof AuthenticatedUsageLogsSectionRoute
   AuthenticatedChannelsIndexRoute: typeof AuthenticatedChannelsIndexRoute
@@ -1806,6 +1847,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedSystemInfoIndexRoute: typeof AuthenticatedSystemInfoIndexRoute
   AuthenticatedTemporaryActivationsIndexRoute: typeof AuthenticatedTemporaryActivationsIndexRoute
   AuthenticatedTodosIndexRoute: typeof AuthenticatedTodosIndexRoute
+  AuthenticatedToolMarketIndexRoute: typeof AuthenticatedToolMarketIndexRoute
   AuthenticatedUsageLogsIndexRoute: typeof AuthenticatedUsageLogsIndexRoute
   AuthenticatedUsersIndexRoute: typeof AuthenticatedUsersIndexRoute
   AuthenticatedWalletIndexRoute: typeof AuthenticatedWalletIndexRoute
@@ -1820,6 +1862,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedDashboardSectionRoute: AuthenticatedDashboardSectionRoute,
   AuthenticatedErrorsErrorRoute: AuthenticatedErrorsErrorRoute,
   AuthenticatedModelsSectionRoute: AuthenticatedModelsSectionRoute,
+  AuthenticatedOperationsSourcesRoute: AuthenticatedOperationsSourcesRoute,
   AuthenticatedSubscriptionsResetRoute: AuthenticatedSubscriptionsResetRoute,
   AuthenticatedUsageLogsSectionRoute: AuthenticatedUsageLogsSectionRoute,
   AuthenticatedChannelsIndexRoute: AuthenticatedChannelsIndexRoute,
@@ -1850,6 +1893,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedTemporaryActivationsIndexRoute:
     AuthenticatedTemporaryActivationsIndexRoute,
   AuthenticatedTodosIndexRoute: AuthenticatedTodosIndexRoute,
+  AuthenticatedToolMarketIndexRoute: AuthenticatedToolMarketIndexRoute,
   AuthenticatedUsageLogsIndexRoute: AuthenticatedUsageLogsIndexRoute,
   AuthenticatedUsersIndexRoute: AuthenticatedUsersIndexRoute,
   AuthenticatedWalletIndexRoute: AuthenticatedWalletIndexRoute,

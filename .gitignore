@@ -62,3 +62,8 @@ go.work.sum
 # Python test/import caches are not source artifacts.
 __pycache__/
 *.py[cod]
+
+# Local browser captures, generated release/media artifacts, and design sessions.
+/.playwright-cli/
+/output/
+/apps/web/.impeccable/

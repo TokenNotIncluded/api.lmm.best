@@ -1,21 +1,3 @@
-/*
-Copyright (C) 2023-2026 QuantumNous
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as
-published by the Free Software Foundation, either version 3 of the
-License, or (at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-GNU Affero General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License
-along with this program. If not, see <https://www.gnu.org/licenses/>.
-
-For commercial licensing, please contact support@quantumnous.com
-*/
 import {
   ArrowLeft01Icon,
   ArrowRight01Icon,
@@ -41,6 +23,27 @@ import {
   acceptBounty,
   getBountyDetail,
 } from '@/features/open-source-bounties/api'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import { BountyDecision } from '@/features/open-source-bounties/bounty-decision'
+import { BountyProgress } from '@/features/open-source-bounties/bounty-progress'
+import { bountyAvailableSlots } from '@/features/open-source-bounties/timeline'
 import { useStatus } from '@/hooks/use-status'
 import { toIntlLocale } from '@/i18n/languages'
 import { getBackendCapabilities } from '@/lib/backend-capabilities'
@@ -136,6 +139,7 @@ export function ChallengeDetailPage(props: ChallengeDetailPageProps) {
   const acceptanceState = getChallengeAcceptanceState(project.viewer_challenge)
   const canAccept =
     project.status === 'published' &&
+    bountyAvailableSlots(project) > 0 &&
     (acceptanceState === 'available' || acceptanceState === 'retryable')
   const developerAccessGranted = user?.developer_access_granted === true
   const isRetry = acceptanceState === 'retryable'
@@ -250,7 +254,12 @@ export function ChallengeDetailPage(props: ChallengeDetailPageProps) {
               <p className='my-3 font-serif text-4xl tabular-nums'>
                 {formatQuota(project.net_reward_quota || project.reward_quota)}
               </p>
-              <p className='mb-7 text-sm'>{t('per approved delivery')}</p>
+              <p className='mb-7 text-sm'>
+                {t('per approved delivery')} · {t('API account balance')}
+              </p>
+              <div className='mb-6'>
+                <BountyDecision project={project} />
+              </div>
               {acceptanceAction}
             </aside>
           </div>
@@ -300,6 +309,7 @@ export function ChallengeDetailPage(props: ChallengeDetailPageProps) {
                       {t(challenge.status)}
                     </span>
                   </div>
+                  <BountyProgress challenge={challenge} />
                   <div className='flex flex-wrap gap-4 text-sm'>
                     {challenge.issue_url && (
                       <a
@@ -393,6 +403,10 @@ export function ChallengeDetailPage(props: ChallengeDetailPageProps) {
         }
       >
         <div className='flex flex-col gap-3'>
+          <BountyDecision project={project} />
+          <p className='max-h-40 overflow-auto text-sm whitespace-pre-wrap'>
+            {project.rules}
+          </p>
           <Label htmlFor='github-handle'>{t('GitHub handle')}</Label>
           <Input
             id='github-handle'

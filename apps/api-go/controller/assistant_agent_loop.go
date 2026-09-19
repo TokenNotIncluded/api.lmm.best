@@ -405,6 +405,21 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 			}
 			if streamSession != nil {
 				enrichedBody := assistantHistoryResponseBody(c, status, normalizedBody)
+				if c.GetBool("assistant_turn_unavailable") {
+					writeAssistantError(c, http.StatusConflict, "ASSISTANT_TURN_UNAVAILABLE", errors.New("saved turn cannot be reused; send a new message"))
+					return
+				}
+				if canonical, exists := c.Get("assistant_history_canonical_content"); exists && c.GetBool("assistant_history_canonical_changed") {
+					if text, ok := canonical.(string); ok && text != streamSession.safeContent() {
+						if err := streamSession.resetContent(); err != nil {
+							return
+						}
+						if err := streamSession.appendContent(text); err != nil {
+							return
+						}
+						streamTurn = true
+					}
+				}
 				if c.GetBool("assistant_support_response_replaced") {
 					writeAssistantSupportCompletion(c, enrichedBody)
 					return

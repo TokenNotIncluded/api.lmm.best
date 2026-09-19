@@ -61,7 +61,9 @@ export type OnboardingStage =
   | 'complete'
 
 export interface OnboardingState {
+  details_available?: boolean
   activation_complete: boolean
+  api_key_created?: boolean
   credential_complete: boolean
   first_request_complete: boolean
   stage: OnboardingStage

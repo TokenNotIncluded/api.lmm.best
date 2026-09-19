@@ -34,10 +34,12 @@ import {
   getAuthenticatedLandingRoute,
   getOnboardingState,
 } from '@/lib/console-activation'
+import { formatDateTimeObject } from '@/lib/time'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { getDeveloperAccessRequest, type DeveloperAccessRequest } from './api'
+import { AccountStatus } from './account-status'
 import { claimOnboardingAssistantPrompt } from './pending-review-assistant'
+import { useAccountNextStep } from './use-account-next-step'
 import { useAuthUserRefresh } from './use-auth-user-refresh'
 
 export function GettingStarted() {
@@ -49,47 +51,20 @@ export function GettingStarted() {
   const trustLevel = user?.trust_level_info?.level ?? 0
   const [prompt, setPrompt] = useState('')
   const userId = user?.id ?? 0
-  const [accessRequest, setAccessRequest] =
-    useState<DeveloperAccessRequest | null>(null)
-  const [requestLoaded, setRequestLoaded] = useState(false)
+  const { request } = useAccountNextStep()
+  const accessRequest = request.data
+  const requestLoaded = request.isSuccess
+  const { refetch: refetchAccessRequest } = request
 
   useEffect(() => {
-    if (onboarding.stage !== 'activate') {
-      setRequestLoaded(true)
-      return
+    if (onboarding.activationComplete) return
+    const onFocus = () => {
+      void refetchAccessRequest()
     }
-    let cancelled = false
-    let pollTimer: ReturnType<typeof setInterval> | undefined
-    const load = async () => {
-      try {
-        const request = await getDeveloperAccessRequest()
-        if (cancelled) return
-        setAccessRequest(request ? { ...request } : request)
-        setRequestLoaded(true)
-        if (request?.status === 'pending' && !pollTimer) {
-          pollTimer = setInterval(() => {
-            void load()
-          }, 5_000)
-        }
-        if (request?.status !== 'pending' && pollTimer) {
-          clearInterval(pollTimer)
-          pollTimer = undefined
-        }
-      } catch {
-        if (!cancelled) setRequestLoaded(true)
-      }
-    }
-    void load()
-    const handleFocus = () => {
-      void load()
-    }
-    window.addEventListener('focus', handleFocus)
-    return () => {
-      cancelled = true
-      window.removeEventListener('focus', handleFocus)
-      if (pollTimer) clearInterval(pollTimer)
-    }
-  }, [onboarding.stage])
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [onboarding.activationComplete, refetchAccessRequest])
+
   const pendingRequestId =
     accessRequest?.status === 'pending' ? accessRequest.id : 0
   useEffect(() => {
@@ -143,10 +118,11 @@ export function GettingStarted() {
               data-icon='inline-start'
               aria-hidden='true'
             />
-            {t('Model Square')}
+            {t('Models and pricing')}
           </Button>
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
+          <AccountStatus />
           <div className='mx-auto flex w-full max-w-2xl flex-col pb-12 sm:pb-16'>
             <section
               className='px-1 py-8 sm:px-2 sm:py-12'
@@ -156,13 +132,54 @@ export function GettingStarted() {
                 <h2 className='text-2xl font-medium'>{t('How can I help?')}</h2>
                 <p className='text-muted-foreground text-sm leading-6'>
                   {t(
-                    'L0 accounts can browse challenges and ask the AI assistant to request L1 access.'
+                    'You can browse challenges and ask the AI assistant to apply for API access.'
                   )}
                 </p>
               </div>
 
               <Separator className='my-8' />
               <div className='grid gap-3 text-sm leading-6'>
+                {accessRequest ? (
+                  <dl className='space-y-3'>
+                    <div>
+                      <dt className='text-muted-foreground'>
+                        {t('Created At')}
+                      </dt>
+                      <dd>
+                        {formatDateTimeObject(
+                          new Date(accessRequest.created_at * 1000)
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className='text-muted-foreground'>{t('Reason')}</dt>
+                      <dd className='break-words whitespace-pre-wrap'>
+                        {accessRequest.reason}
+                      </dd>
+                    </div>
+                    {accessRequest.ai_recommendation ? (
+                      <div>
+                        <dt className='text-muted-foreground'>
+                          {t('AI recommendation')}
+                        </dt>
+                        <dd className='break-words whitespace-pre-wrap'>
+                          {accessRequest.ai_recommendation}
+                        </dd>
+                      </div>
+                    ) : null}
+                    {accessRequest.admin_note &&
+                    accessRequest.status !== 'rejected' ? (
+                      <div>
+                        <dt className='text-muted-foreground'>
+                          {t('Administrator note')}
+                        </dt>
+                        <dd className='break-words whitespace-pre-wrap'>
+                          {accessRequest.admin_note}
+                        </dd>
+                      </div>
+                    ) : null}
+                  </dl>
+                ) : null}
                 {accessRequest?.status === 'pending' ? (
                   <div className='grid gap-1' data-testid='l0-pending-request'>
                     <p className='font-medium'>
@@ -234,9 +251,9 @@ export function GettingStarted() {
   const tutorialSteps = [
     {
       complete: onboarding.activationComplete,
-      title: t('Unlock L1 access'),
+      title: t('Request API access'),
       description: t(
-        'Discuss your use case with the AI assistant. After three completed turns, it can grant L1 directly; earlier requests continue through automatic review with human fallback.'
+        'Describe your intended API use to the AI assistant. Eligible applications may be approved automatically; others remain under review.'
       ),
       preset: 'onboarding' as const,
     },
@@ -263,6 +280,7 @@ export function GettingStarted() {
     <SectionPageLayout>
       <SectionPageLayout.Title>{t('Getting started')}</SectionPageLayout.Title>
       <SectionPageLayout.Content>
+        <AccountStatus />
         <div className='mx-auto flex w-full max-w-4xl flex-col gap-6 pb-10 sm:gap-8 sm:pb-14'>
           <section className='bg-muted/30 border-y px-5 py-8 sm:px-8 sm:py-12'>
             <div className='flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between'>
@@ -281,6 +299,7 @@ export function GettingStarted() {
               </div>
               <div className='flex shrink-0 flex-wrap gap-2'>
                 <Badge variant='outline'>
+                  {t('API access enabled')} ·{' '}
                   {t('L{{level}}', { level: trustLevel })}
                 </Badge>
                 <Badge variant='secondary'>{stageLabel}</Badge>
@@ -297,7 +316,7 @@ export function GettingStarted() {
                 maxLength={4000}
                 className='h-12 flex-1'
                 placeholder={t(
-                  'For example: help me activate L1 and configure CC Switch'
+                  'For example: help me apply for API access and configure CC Switch'
                 )}
                 aria-label={t('Tell the AI assistant what you need')}
               />

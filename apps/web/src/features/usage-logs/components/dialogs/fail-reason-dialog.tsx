@@ -1,3 +1,13 @@
+import { Copy, Check } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
+
+import { Dialog } from '@/components/dialog'
+import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { requestAssistantOpen } from '@/features/assistant/assistant-events'
+import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
+
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -16,14 +26,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Copy, Check } from 'lucide-react'
-import { useTranslation } from 'react-i18next'
-
-import { Dialog } from '@/components/dialog'
-import { Button } from '@/components/ui/button'
-import { Label } from '@/components/ui/label'
-import { ScrollArea } from '@/components/ui/scroll-area'
-import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
+import { safeLogDiagnostic } from '../../lib/recovery'
 
 interface FailReasonDialogProps {
   failReason: string
@@ -37,6 +40,7 @@ export function FailReasonDialog({
   onOpenChange,
 }: FailReasonDialogProps) {
   const { t } = useTranslation()
+  const safeReason = safeLogDiagnostic(failReason)
   const { copiedText, copyToClipboard } = useCopyToClipboard({ notify: false })
 
   return (
@@ -49,6 +53,22 @@ export function FailReasonDialog({
       contentHeight='auto'
       bodyClassName='space-y-4'
     >
+      <Button
+        type='button'
+        variant='outline'
+        onClick={() => {
+          onOpenChange(false)
+          requestAssistantOpen(
+            'usage',
+            `${t('Help me diagnose this API request.')}\n${safeReason}`
+          )
+        }}
+      >
+        {t('Ask AI assistant')}
+      </Button>
+      <p className='text-muted-foreground text-sm'>
+        {t('Only diagnostic metadata is copied; raw error bodies are omitted.')}
+      </p>
       <ScrollArea className='max-h-[500px] pr-4'>
         <div className='space-y-4 py-4'>
           <div className='space-y-2'>
@@ -60,17 +80,17 @@ export function FailReasonDialog({
                 variant='ghost'
                 size='sm'
                 className='absolute top-2 right-2 h-8 w-8 p-0'
-                onClick={() => copyToClipboard(failReason)}
+                onClick={() => copyToClipboard(safeReason)}
                 title={t('Copy to clipboard')}
               >
-                {copiedText === failReason ? (
+                {copiedText === safeReason ? (
                   <Check className='console-status-success-icon size-4' />
                 ) : (
                   <Copy className='size-4' />
                 )}
               </Button>
               <p className='console-status-danger-text overflow-wrap-anywhere pr-10 text-sm leading-relaxed break-all whitespace-pre-wrap'>
-                {failReason || '-'}
+                {safeReason || '-'}
               </p>
             </div>
           </div>

@@ -333,7 +333,7 @@ func InitLogDB(session *StartupMigrationSession) (err error) {
 }
 
 func mainMigrationModels() []interface{} {
-	return []interface{}{
+	return append([]interface{}{
 		&RatioNotification{}, &RatioDelivery{},
 		&Channel{}, &Token{}, &UserRankingRevision{}, &User{}, &UserSession{}, &AuthFlow{}, &ExternalIdentityClaim{},
 		&PasskeyCredential{}, &Option{}, &Redemption{}, &Ability{}, &Log{}, &Midjourney{},
@@ -351,14 +351,14 @@ func mainMigrationModels() []interface{} {
 		&UserOAuthBinding{}, &PerfMetric{}, &SystemInstance{}, &SystemTask{}, &SystemTaskLock{},
 		&CasbinRule{}, &AuthzRole{},
 		&WaffoPancakeWebhookReceipt{}, &CompanyBillingProfile{},
-		&AssistantLead{}, &AssistantProfileBucket{}, &AssistantUserProfile{}, &AssistantUserProfileAudit{}, &AssistantMemory{}, &AssistantFirstQuestionStat{}, &PromptPresetRow{}, &PromptPresetStat{}, &PromptConversionRef{}, &PromptConversationRef{}, &AssistantConversation{}, &AssistantSupportRequest{}, &AssistantHistoryMessage{}, &AssistantSecureCard{}, &AssistantSecurityIncident{}, &AssistantSecurityReviewNotice{}, &AssistantRequestReview{}, &AssistantReviewReset{}, &AssistantNewUserGift{}, &AssistantWeeklyDiscount{}, &AssistantGiftRiskKey{}, &AssistantGiftRiskMemory{}, &AssistantRegistrationProfile{}, &AssistantRegistrationFingerprint{}, &AssistantRegistrationCase{}, &AssistantRegistrationEvent{}, &AdvancedSecurityEvent{},
+		&AssistantLead{}, &AssistantProfileBucket{}, &AssistantUserProfile{}, &AssistantUserProfileAudit{}, &AssistantMemory{}, &AssistantFirstQuestionStat{}, &PromptPresetRow{}, &PromptPresetStat{}, &PromptConversionRef{}, &PromptConversationRef{}, &AssistantConversation{}, &AssistantTurnReceipt{}, &AssistantSupportRequest{}, &AssistantHistoryMessage{}, &AssistantSecureCard{}, &AssistantSecurityIncident{}, &AssistantSecurityReviewNotice{}, &AssistantRequestReview{}, &AssistantReviewReset{}, &AssistantNewUserGift{}, &AssistantWeeklyDiscount{}, &AssistantGiftRiskKey{}, &AssistantGiftRiskMemory{}, &AssistantRegistrationProfile{}, &AssistantRegistrationFingerprint{}, &AssistantRegistrationCase{}, &AssistantRegistrationEvent{}, &AdvancedSecurityEvent{},
 		&ViolationFeeState{}, &ViolationFeeRecord{}, &ViolationFeeAppeal{},
 		&ReferralReward{}, &ReferralLedgerEntry{}, &ReferralModerationEvent{},
 		&FinanceLedgerEntry{}, &FinancePaymentMethod{},
 		&HeroSMSEmailOrder{}, &HeroSMSEmailActivation{}, &HeroSMSEmailQuotaLedger{}, &HeroSMSSMSOrder{}, &HeroSMSSMSQuotaLedger{}, &HeroSMSProviderPurchaseLease{},
-		&ReleaseNote{}, &ReleaseNoteRead{}, &UnifiedTodoRead{}, &L1OnboardingTodo{},
+		&ReleaseNote{}, &ReleaseNoteRead{}, &AnnouncementRead{}, &AcquisitionLink{}, &AcquisitionVisitor{}, &AcquisitionVisit{}, &AcquisitionAccount{}, &AcquisitionConfig{}, &AcquisitionActivity{}, &AcquisitionActivityState{}, &AcquisitionConsent{}, &AcquisitionSelfReport{}, &AcquisitionCost{}, &AcquisitionActivityGap{}, &UnifiedTodoRead{}, &L1OnboardingTodo{},
 		&PublicRelayContribution{}, &PublicRelayReport{}, &PublicRelayTip{}, &PublicRelayReview{}, &PublicRelayPreference{},
-	}
+	}, toolMarketModels()...)
 }
 
 func migrateDB() error {
@@ -546,6 +546,7 @@ func migrateDBFast() error {
 		{&PromptConversionRef{}, "PromptConversionRef"},
 		{&PromptConversationRef{}, "PromptConversationRef"},
 		{&AssistantConversation{}, "AssistantConversation"},
+		{&AssistantTurnReceipt{}, "AssistantTurnReceipt"},
 		{&AssistantSupportRequest{}, "AssistantSupportRequest"},
 		{&AssistantHistoryMessage{}, "AssistantHistoryMessage"},
 		{&AssistantSecureCard{}, "AssistantSecureCard"},
@@ -562,6 +563,18 @@ func migrateDBFast() error {
 		{&RatioNotification{}, "RatioNotification"},
 		{&RatioDelivery{}, "RatioDelivery"},
 		{&ReleaseNoteRead{}, "ReleaseNoteRead"},
+		{&AnnouncementRead{}, "AnnouncementRead"},
+		{&AcquisitionLink{}, "AcquisitionLink"},
+		{&AcquisitionVisitor{}, "AcquisitionVisitor"},
+		{&AcquisitionVisit{}, "AcquisitionVisit"},
+		{&AcquisitionAccount{}, "AcquisitionAccount"},
+		{&AcquisitionConfig{}, "AcquisitionConfig"},
+		{&AcquisitionActivity{}, "AcquisitionActivity"},
+		{&AcquisitionActivityState{}, "AcquisitionActivityState"},
+		{&AcquisitionConsent{}, "AcquisitionConsent"},
+		{&AcquisitionSelfReport{}, "AcquisitionSelfReport"},
+		{&AcquisitionCost{}, "AcquisitionCost"},
+		{&AcquisitionActivityGap{}, "AcquisitionActivityGap"},
 		{&UnifiedTodoRead{}, "UnifiedTodoRead"},
 		{&L1OnboardingTodo{}, "L1OnboardingTodo"},
 		{&PublicRelayContribution{}, "PublicRelayContribution"},
@@ -571,6 +584,12 @@ func migrateDBFast() error {
 		{&PublicRelayPreference{}, "PublicRelayPreference"},
 	}
 	// 动态计算migration数量，确保errChan缓冲区足够大
+	for _, marketModel := range toolMarketModels() {
+		migrations = append(migrations, struct {
+			model interface{}
+			name  string
+		}{marketModel, fmt.Sprintf("%T", marketModel)})
+	}
 	errChan := make(chan error, len(migrations))
 
 	for _, m := range migrations {

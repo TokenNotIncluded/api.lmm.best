@@ -389,13 +389,39 @@ func AcceptAssistantSupportRequest(adminID, id int) (*AssistantSupportRequest, e
 	})
 }
 
-func AddAssistantSupportMessage(actorID, id int, content string) (*AssistantHistoryMessageView, error) {
+func AddAssistantSupportMessage(actorID, id int, content string, clientTurnID ...string) (*AssistantHistoryMessageView, error) {
 	content = strings.TrimSpace(content)
 	if content == "" || utf8.RuneCountInString(content) > assistantHistoryMessageMaxRunes || len(content) > 4*assistantHistoryMessageMaxRunes {
 		return nil, ErrAssistantSupportInvalid
 	}
+	turnID := ""
+	if len(clientTurnID) > 0 {
+		turnID = clientTurnID[0]
+	}
 	var view AssistantHistoryMessageView
 	_, err := withAssistantSupportWrite(actorID, id, func(tx *gorm.DB, actor *User, request *AssistantSupportRequest) error {
+		// Check actor rights before receipt lookup; a matching ID conveys no access.
+		if actor.Id != request.UserId && (!assistantSupportIsAdmin(actor) || request.AssignedAdminId != actor.Id) {
+			return ErrAssistantSupportForbidden
+		}
+		if turnID != "" {
+			var receipt AssistantTurnReceipt
+			err := tx.Where("turn_key = ?", assistantTurnKey(actorID, turnID)).First(&receipt).Error
+			if err == nil {
+				if receipt.SupportRequestID != id {
+					return ErrAssistantTurnConflict
+				}
+				saved, err := lookupAssistantTurnTx(tx, actorID, turnID, request.ConversationId, content)
+				if err != nil {
+					return err
+				}
+				view = assistantSupportMessageView(*saved)
+				return nil
+			}
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+		}
 		if request.Status != AssistantSupportStatusPending && request.Status != AssistantSupportStatusAccepted {
 			return ErrAssistantSupportConflict
 		}
@@ -409,6 +435,11 @@ func AddAssistantSupportMessage(actorID, id int, content string) (*AssistantHist
 		message, err := appendAssistantHistoryMessageTx(tx, request.ConversationId, role, content)
 		if err != nil {
 			return err
+		}
+		if turnID != "" {
+			if err := tx.Create(&AssistantTurnReceipt{TurnKey: assistantTurnKey(actorID, turnID), ConversationID: request.ConversationId, MessageID: message.Id, InputDigest: assistantTurnDigest(content), SupportRequestID: id}).Error; err != nil {
+				return err
+			}
 		}
 		if role == AssistantHistoryRoleHuman {
 			message.ActorUserId = actor.Id

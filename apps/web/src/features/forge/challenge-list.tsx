@@ -1,3 +1,16 @@
+import {
+  ArrowRight01Icon,
+  CircleDotIcon,
+  GitPullRequestIcon,
+} from '@hugeicons/core-free-icons'
+import { HugeiconsIcon } from '@hugeicons/react'
+import { useQuery } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
+import { useTranslation } from 'react-i18next'
+
+import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
+import { listBounties } from '@/features/open-source-bounties/api'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -16,19 +29,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import {
-  ArrowRight01Icon,
-  CircleDotIcon,
-  GitPullRequestIcon,
-} from '@hugeicons/core-free-icons'
-import { HugeiconsIcon } from '@hugeicons/react'
-import { useQuery } from '@tanstack/react-query'
-import { Link } from '@tanstack/react-router'
-import { useTranslation } from 'react-i18next'
-
-import { Button } from '@/components/ui/button'
-import { Skeleton } from '@/components/ui/skeleton'
-import { listBounties } from '@/features/open-source-bounties/api'
+import { BountyDecision } from '@/features/open-source-bounties/bounty-decision'
 import { useStatus } from '@/hooks/use-status'
 import { getBackendCapabilities } from '@/lib/backend-capabilities'
 import { formatQuota } from '@/lib/format'
@@ -202,6 +203,9 @@ export function ChallengeList(props: ChallengeListProps) {
               strokeWidth={2}
               aria-hidden='true'
             />
+            <div className='col-span-full'>
+              <BountyDecision project={challenge} compact />
+            </div>
           </Link>
         ))}
       </div>

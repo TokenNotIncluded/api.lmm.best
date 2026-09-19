@@ -33,6 +33,7 @@ func SetRouter(router *gin.Engine) error {
 	}
 	SetOpenSourceBountyMCPRouter(router)
 	SetDrawingMCPRouter(router, largeRequestAdmission)
+	SetToolMarketMCPRouter(router)
 	SetDashboardRouter(router)
 	SetRelayRouter(router, largeRequestAdmission)
 	SetVideoRouter(router)

@@ -1,6 +1,9 @@
 package model
 
-import "gorm.io/gorm"
+import (
+	"fmt"
+	"gorm.io/gorm"
+)
 
 // lockAssistantOwner serializes private assistant writes with account
 // deletion. A scoped lookup deliberately rejects soft-deleted owners.
@@ -39,6 +42,11 @@ func deleteUserAssistantData(tx *gorm.DB, userID int) error {
 		return err
 	}
 
+	if tx.Migrator().HasTable(&AssistantTurnReceipt{}) {
+		if err := tx.Where("conversation_id IN (?) OR turn_key LIKE ?", conversations, fmt.Sprintf("%d:%%", userID)).Delete(&AssistantTurnReceipt{}).Error; err != nil {
+			return err
+		}
+	}
 	deletes := []struct {
 		model any
 		where string

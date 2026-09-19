@@ -9,7 +9,6 @@ the Free Software Foundation, either version 3 of the License, or
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Check,
-  ChevronDown,
   Copy,
   ExternalLink,
   FileCode2,
@@ -21,10 +20,6 @@ import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
-import {
-  CodeBlock,
-  CodeBlockCopyButton,
-} from '@/components/ai-elements/code-block'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -62,45 +57,16 @@ const scriptBaseUrl = () =>
 function scriptUrl(name: string) {
   return `${scriptBaseUrl()}/scripts/${encodeURIComponent(name)}`
 }
-function platformsFor(name: string): Platform[] {
-  const extension = name.toLowerCase().split('.').pop()
-  return extension === 'ps1' || extension === 'cmd' || extension === 'bat'
-    ? ['windows']
-    : ['linux', 'macos']
-}
 function commandFor(name: string, platform: Platform) {
   const url = scriptUrl(name)
   if (platform === 'windows') {
     if (name.toLowerCase().endsWith('.ps1')) {
-      return `Invoke-WebRequest -Uri "${url}" -OutFile "${name}"; powershell -ExecutionPolicy Bypass -File ".\\${name}"`
+      return `irm "${url}" | iex`
     }
     return `Invoke-WebRequest -Uri "${url}" -OutFile "${name}"; .\\${name}`
   }
   const shell = name.toLowerCase().endsWith('.zsh') ? 'zsh' : 'bash'
   return `curl -fsSL "${url}" | ${shell}`
-}
-async function readScript(name: string, publicOnly = false) {
-  const response = await api.get<ScriptResponse | string>(
-    `/api/scripts/${encodeURIComponent(name)}${publicOnly ? '/raw' : ''}`,
-    { skipBusinessError: true }
-  )
-  if (publicOnly && typeof response.data === 'string') {
-    return response.data
-  }
-  if (
-    !publicOnly &&
-    typeof response.data !== 'string' &&
-    response.data.success &&
-    response.data.data &&
-    !Array.isArray(response.data.data)
-  ) {
-    return response.data.data.content
-  }
-  throw new Error(
-    typeof response.data === 'string'
-      ? 'Unable to load script'
-      : response.data.message || 'Unable to load script'
-  )
 }
 function useScriptList() {
   return useQuery({
@@ -123,6 +89,60 @@ function formatUpdated(value: string | undefined, fallback: string) {
   return Number.isNaN(date.getTime()) ? fallback : date.toLocaleString()
 }
 
+function PublicScriptSource({ script }: { script: ScriptMeta }) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const source = useQuery({
+    queryKey: ['public-script-source', script.name, script.updated],
+    enabled: open,
+    staleTime: 30_000,
+    queryFn: async () => {
+      const response = await api.get<string>(
+        `/api/scripts/${encodeURIComponent(script.name)}/raw`,
+        { skipBusinessError: true, responseType: 'text' }
+      )
+      if (typeof response.data !== 'string') {
+        throw new Error('Unable to load script')
+      }
+      return response.data
+    },
+  })
+  return (
+    <details
+      className='border-border/70 border-t'
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <summary className='hover:bg-muted/50 cursor-pointer px-4 py-3 text-sm font-medium'>
+        {script.name}
+      </summary>
+      {open && (
+        <div className='space-y-3 px-4 pb-4'>
+          <a
+            href={scriptUrl(script.name)}
+            download={script.name}
+            className='text-primary text-sm underline underline-offset-4'
+          >
+            {t('Download')}
+          </a>
+          {source.isError ? (
+            <p role='alert' className='text-destructive text-sm'>
+              {t('Unable to load script')}
+            </p>
+          ) : (
+            <pre
+              className='bg-muted max-h-96 overflow-auto rounded-lg p-3 text-xs'
+              tabIndex={0}
+              aria-label={script.name}
+            >
+              <code>{source.isPending ? t('Loading...') : source.data}</code>
+            </pre>
+          )}
+        </div>
+      )}
+    </details>
+  )
+}
+
 export function PublicScriptsPanel({
   fullPage = false,
 }: {
@@ -130,27 +150,10 @@ export function PublicScriptsPanel({
 }) {
   const { t } = useTranslation()
   const scripts = useScriptList()
-  const [openName, setOpenName] = useState<string | null>(null)
-  const [content, setContent] = useState('')
-  const [loadingName, setLoadingName] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
-  const toggleScript = async (name: string) => {
-    if (openName === name) {
-      setOpenName(null)
-      return
-    }
-    setLoadingName(name)
-    try {
-      setContent(await readScript(name, true))
-      setOpenName(name)
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : t('Unable to load script')
-      )
-    } finally {
-      setLoadingName(null)
-    }
-  }
+  const menus = ['menu.sh', 'menu.ps1'].flatMap(
+    (name) => scripts.data?.filter((script) => script.name === name) ?? []
+  )
   const copyCommand = async (name: string, platform: Platform) => {
     try {
       await navigator.clipboard.writeText(commandFor(name, platform))
@@ -191,78 +194,54 @@ export function PublicScriptsPanel({
           </a>
         </div>
       )}
-      {scripts.data.map((script) => {
-        const platforms = platformsFor(script.name)
+      {menus.map((script) => {
+        const platform = script.name.endsWith('.ps1') ? 'windows' : 'linux'
+        const id = `${script.name}:${platform}`
         return (
-          <div key={script.name} className='border-border/70 border'>
-            <button
-              type='button'
-              className='hover:bg-muted/50 flex min-h-12 w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition-colors'
-              onClick={() => void toggleScript(script.name)}
-              aria-expanded={openName === script.name}
+          <section
+            key={script.name}
+            className='border-border/70 space-y-3 rounded-xl border p-4 sm:p-5'
+          >
+            <div className='flex items-center justify-between gap-3'>
+              <h2 className='font-medium'>
+                {platform === 'windows'
+                  ? 'Windows · PowerShell'
+                  : 'Linux / macOS · Bash'}
+              </h2>
+              <Button
+                type='button'
+                size='sm'
+                variant='outline'
+                onClick={() => void copyCommand(script.name, platform)}
+              >
+                {copied === id ? (
+                  <Check className='me-2 size-4' />
+                ) : (
+                  <Copy className='me-2 size-4' />
+                )}
+                {t('Copy')}
+              </Button>
+            </div>
+            <pre className='bg-muted overflow-x-auto rounded-lg p-3 text-sm break-all whitespace-pre-wrap'>
+              <code>{commandFor(script.name, platform)}</code>
+            </pre>
+            <a
+              className='text-muted-foreground text-xs underline underline-offset-4'
+              href={scriptUrl(script.name)}
             >
-              <span className='flex min-w-0 items-center gap-2'>
-                <FileCode2
-                  className='text-muted-foreground size-4 shrink-0'
-                  aria-hidden='true'
-                />
-                <span className='truncate font-medium'>{script.name}</span>
-                <span className='text-muted-foreground hidden text-xs sm:inline'>
-                  {formatUpdated(script.updated, t('Unknown update time'))}
-                </span>
-              </span>
-              <span className='text-muted-foreground flex shrink-0 items-center gap-2 text-xs'>
-                {script.fetches ?? 0} {t('fetches')}
-                <ChevronDown
-                  className={`size-4 transition-transform ${openName === script.name ? 'rotate-180' : ''}`}
-                  aria-hidden='true'
-                />
-              </span>
-            </button>
-            {openName === script.name && (
-              <div className='space-y-3 border-t p-3'>
-                <div className='max-h-80 overflow-auto'>
-                  <CodeBlock
-                    code={
-                      loadingName === script.name ? t('Loading...') : content
-                    }
-                    language={
-                      script.name.endsWith('.ps1') ? 'powershell' : 'bash'
-                    }
-                  >
-                    <CodeBlockCopyButton />
-                  </CodeBlock>
-                </div>
-                <div className='grid gap-2 sm:grid-cols-2'>
-                  {platforms.map((platform) => {
-                    const id = `${script.name}:${platform}`
-                    return (
-                      <Button
-                        key={platform}
-                        type='button'
-                        size='sm'
-                        variant='outline'
-                        onClick={() => void copyCommand(script.name, platform)}
-                      >
-                        {copied === id ? (
-                          <Check className='me-2 size-4' />
-                        ) : (
-                          <Copy className='me-2 size-4' />
-                        )}
-                        {platform === 'linux'
-                          ? 'Linux'
-                          : platform === 'macos'
-                            ? 'macOS'
-                            : 'Windows'}
-                      </Button>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
+              {script.name}
+            </a>
+          </section>
         )
       })}
+      <details className='border-border/70 rounded-xl border'>
+        <summary className='hover:bg-muted/50 cursor-pointer p-4 text-sm font-medium'>
+          {t('Scripts')} ({scripts.data?.length ?? 0})
+        </summary>
+        {scripts.data?.map((script) => (
+          <PublicScriptSource key={script.name} script={script} />
+        ))}
+      </details>
     </div>
   )
 }
