@@ -7,7 +7,7 @@ import { cinemaPosition } from './home-motion'
 
 test('the abstract Transformer remains finite across the entire reversible scroll sequence', () => {
   const mesh = createCoreMesh()
-  assert.ok(mesh.length > 700 && mesh.length < 1800)
+  assert.ok(mesh.length > 5000 && mesh.length < 16000)
   for (const progress of [0, 0.2, 0.4, 0.6, 0.8, 1]) {
     for (const face of mesh) {
       for (const point of face.points) {
@@ -18,12 +18,12 @@ test('the abstract Transformer remains finite across the entire reversible scrol
       }
     }
   }
-  const lid = mesh.find((face) => face.hinge === 1.5)
-  assert.ok(lid)
-  const assembled = transformCorePoint(lid.points[0], lid, 0)
-  const expanded = transformCorePoint(lid.points[0], lid, 0.55)
-  assert.ok(Math.abs(expanded.z - assembled.z) > 0.15)
-  const closed = transformCorePoint(lid.points[0], lid, 1)
+  const tensor = mesh.find((face) => Math.abs(face.points[0].z) > 0.3)
+  assert.ok(tensor)
+  const assembled = transformCorePoint(tensor.points[0], tensor, 0)
+  const expanded = transformCorePoint(tensor.points[0], tensor, 0.55)
+  assert.ok(Math.abs(expanded.z - assembled.z) > 0.5)
+  const closed = transformCorePoint(tensor.points[0], tensor, 1)
   assert.equal(closed.x, assembled.x)
   assert.equal(closed.z, assembled.z)
 })
