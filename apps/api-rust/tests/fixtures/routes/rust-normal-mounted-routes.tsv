@@ -299,6 +299,7 @@ POST	/api/token/	apps/api-rust/src/main.rs
 PUT	/api/token/	apps/api-rust/src/main.rs
 DELETE	/api/token/:id	apps/api-rust/src/main.rs
 GET	/api/token/:id	apps/api-rust/src/main.rs
+PUT	/api/token/:id/account-balance-access	apps/api-rust/src/main.rs
 POST	/api/token/:id/key	apps/api-rust/src/main.rs
 GET	/api/token/auto-groups	apps/api-rust/src/main.rs
 POST	/api/token/batch	apps/api-rust/src/main.rs
@@ -306,6 +307,7 @@ POST	/api/token/batch/keys	apps/api-rust/src/main.rs
 GET	/api/token/search	apps/api-rust/src/main.rs
 GET	/api/uptime/status	apps/api-rust/src/main.rs:262;apps/api-rust/src/routes/control_public.rs:207
 GET	/api/usage/token/	apps/api-rust/src/routes/public_catalog.rs
+GET	/v1/balance	apps/api-rust/src/routes/public_catalog.rs
 GET	/api/user-agreement	apps/api-rust/src/main.rs:262;apps/api-rust/src/routes/control_public.rs:207
 GET	/api/user/	apps/api-rust/src/main.rs
 POST	/api/user/	apps/api-rust/src/main.rs

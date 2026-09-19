@@ -63,7 +63,7 @@ struct AuthLegacyHeaderState {
     version: String,
 }
 
-/// Isolated dependencies for the nine API-token routes. The normal C1
+/// Isolated dependencies for the ten API-token routes. The normal C1
 /// listener uses current-Go policy; the explicit `test_instance` candidate
 /// listener selects historical frozen-ledger parity.
 #[derive(Clone)]
@@ -490,7 +490,9 @@ async fn enforce_api_token_critical_rate_limit(
 ) -> Response {
     if !matches!(
         request.uri().path(),
-        path if path.ends_with("/key") || path == "/api/token/batch/keys"
+        path if path.ends_with("/key")
+            || path.ends_with("/account-balance-access")
+            || path == "/api/token/batch/keys"
     ) {
         return next.run(request).await;
     }
