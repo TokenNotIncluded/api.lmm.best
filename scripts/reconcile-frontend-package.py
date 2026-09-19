@@ -72,7 +72,13 @@ def save(state):
         os.close(descriptor)
 
 
-def health(expected_index):
+def health(expected_index, public_index=None):
+    origin = subprocess.run(['/usr/bin/curl', '--fail', '--silent', '--show-error',
+                             '--noproxy', '*', '--resolve', 'api.lmm.best:443:45.59.187.63',
+                             'https://api.lmm.best/?frontend-reconcile=0.1.76'],
+                            capture_output=True, timeout=20)
+    if origin.returncode or hashlib.sha256(origin.stdout).hexdigest() != expected_index:
+        raise RuntimeError('Arch frontend differs from the expected release')
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     for base in ('http://127.0.0.1:3000', 'https://api.lmm.best'):
         for route in ('/api/livez', '/api/status'):
@@ -84,7 +90,7 @@ def health(expected_index):
                 raise RuntimeError('backend changed during frontend recovery')
     with opener.open(urllib.request.Request('https://api.lmm.best/?frontend-reconcile=0.1.76', headers={'Cache-Control': 'no-cache'}), timeout=15) as response:
         actual = hashlib.sha256(response.read()).hexdigest()
-    if actual != expected_index:
+    if actual != (public_index or expected_index):
         raise RuntimeError('public frontend differs from the expected release')
 
 
@@ -128,7 +134,7 @@ def rollback(plan, state):
     frontend_command('rollback', '--release', OLD_TARGET.removeprefix('releases/'))
     if os.readlink(ROOT / 'current') != OLD_TARGET or run('/usr/bin/pacman', '-Q', 'lmm-api-web-bin') != OLD_PACKAGE:
         raise RuntimeError('rollback did not restore original state')
-    health(plan['old_index_sha256'])
+    health(plan['old_index_sha256'], plan['public_index_sha256'])
     state['phase'] = 'ROLLED_BACK'
     save(state)
     return state
@@ -155,7 +161,7 @@ def apply(plan, script):
         raise RuntimeError('active frontend content changed')
     candidate = verified_package(plan, 'candidate')
     verified_package(plan, 'rollback')
-    health(plan['old_index_sha256'])
+    health(plan['old_index_sha256'], plan['public_index_sha256'])
     run('/usr/bin/nginx', '-t')
     shutil.copytree(ROOT / OLD_TARGET, WORK / 'previous-frontend')
     if tree_digest(WORK / 'previous-frontend') != plan['old_tree_sha256']:

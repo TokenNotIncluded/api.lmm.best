@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 import importlib.util
 import json
+import io
+import hashlib
+import subprocess
 import os
 from pathlib import Path
 import tempfile
@@ -27,6 +30,26 @@ class RecoveryTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'unsafe entry'):
                 MODULE.tree_digest(root)
 
+    def test_health_checks_arch_origin_and_distinct_public_frontend(self):
+        origin_body, public_body = b'arch-old', b'ubuntu-new'
+        origin_hash = hashlib.sha256(origin_body).hexdigest()
+        public_hash = hashlib.sha256(public_body).hexdigest()
+        class Opener:
+            def open(self, request, **kwargs):
+                url = request if isinstance(request, str) else request.full_url
+                if '/api/' in url:
+                    return io.BytesIO(json.dumps({'success': True, 'data': {'version': '0.2.51'}}).encode())
+                return io.BytesIO(public_body)
+        with patch.object(MODULE.urllib.request, 'build_opener', return_value=Opener()), patch.object(MODULE.subprocess, 'run') as command:
+            command.return_value = subprocess.CompletedProcess([], 0, origin_body, b'')
+            MODULE.health(origin_hash, public_hash)
+            self.assertIn('api.lmm.best:443:45.59.187.63', command.call_args.args[0])
+            with self.assertRaisesRegex(RuntimeError, 'public frontend'):
+                MODULE.health(origin_hash, origin_hash)
+            command.return_value = subprocess.CompletedProcess([], 0, public_body, b'')
+            with self.assertRaisesRegex(RuntimeError, 'Arch frontend'):
+                MODULE.health(origin_hash, public_hash)
+
     def exercise(self, fail_health=False, drift=False):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -42,7 +65,7 @@ class RecoveryTests(unittest.TestCase):
             (source / 'index.html').write_text('new page')
             revision = 'a' * 40
             target = 'releases/0.1.76-1.g' + revision[:12]
-            plan = {'old_tree_sha256': MODULE.tree_digest(old), 'old_index_sha256': MODULE.digest(old / 'index.html')}
+            plan = {'old_tree_sha256': MODULE.tree_digest(old), 'old_index_sha256': MODULE.digest(old / 'index.html'), 'public_index_sha256': MODULE.digest(source / 'index.html')}
             (work / 'plan.json').write_text(json.dumps(plan))
             events = []
             installed = [MODULE.OLD_PACKAGE]
@@ -81,7 +104,7 @@ class RecoveryTests(unittest.TestCase):
                 events.append(('verify', label))
                 return work / label
 
-            def health(index):
+            def health(index, public_index=None):
                 events.append(('health', index))
                 health_count[0] += 1
                 if fail_health and health_count[0] == 2:
