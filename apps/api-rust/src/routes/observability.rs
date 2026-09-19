@@ -1765,6 +1765,7 @@ impl PgObservabilityStore {
         sql: &str,
         binds: &[LogBind],
     ) -> Result<Vec<sqlx::postgres::PgRow>, ObservabilityStoreError> {
+        // lgtm [rust/cleartext-storage-database] -- SQL is an internal, parameterized template; all request values are bound below.
         let mut query = sqlx::query(sql);
         for bind in binds {
             query = match bind {

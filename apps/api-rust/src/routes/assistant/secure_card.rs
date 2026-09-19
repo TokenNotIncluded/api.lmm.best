@@ -1,9 +1,8 @@
 use aes_gcm::{
     Aes256Gcm, Nonce,
-    aead::{Aead, KeyInit},
+    aead::{Aead, AeadCore, KeyInit, OsRng},
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use rand::{RngCore, rng};
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -19,13 +18,10 @@ pub(super) fn encrypt_payload(
     }
     let key = encryption_key(session_secret);
     let cipher = Aes256Gcm::new_from_slice(&key).map_err(|_| ())?;
-    let mut nonce_bytes = [0_u8; 12];
-    rng().fill_bytes(&mut nonce_bytes);
-    let ciphertext = cipher
-        .encrypt(Nonce::from_slice(&nonce_bytes), plaintext)
-        .map_err(|_| ())?;
-    let mut combined = Vec::with_capacity(nonce_bytes.len() + ciphertext.len());
-    combined.extend_from_slice(&nonce_bytes);
+    let nonce = Aes256Gcm::generate_nonce(OsRng);
+    let ciphertext = cipher.encrypt(&nonce, plaintext).map_err(|_| ())?;
+    let mut combined = Vec::with_capacity(nonce.len() + ciphertext.len());
+    combined.extend_from_slice(&nonce);
     combined.extend_from_slice(&ciphertext);
     Ok(URL_SAFE_NO_PAD.encode(combined))
 }

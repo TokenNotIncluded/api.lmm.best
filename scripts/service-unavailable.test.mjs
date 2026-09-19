@@ -9,7 +9,7 @@ import { Window } from 'happy-dom'
 
 const root = path.resolve(import.meta.dirname, '..')
 const html = fs.readFileSync(path.join(root, 'packaging/common/lmm-api/edge-policy/service-unavailable.html'), 'utf8')
-const script = html.match(/<script>([\s\S]*?)<\/script>/)[1]
+const script = html.match(/<script\b[^>]*>([\s\S]*?)<\/script>/i)[1]
 async function render(data, language = 'en', live = false) {
  const window = new Window({ settings: { disableJavaScriptEvaluation: true } })
  window.document.write(html)

@@ -2,7 +2,19 @@ import { appendFileSync, readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 
 const normalize = (text) => text.trim().replace(/\s+/g, ' ')
-const visible = (text) => text.replace(/<!--[\s\S]*?-->/g, '')
+function visible(text) {
+  let output = ''
+  let cursor = 0
+  while (cursor < text.length) {
+    const start = text.indexOf('<!--', cursor)
+    if (start < 0) return output + text.slice(cursor)
+    output += text.slice(cursor, start)
+    const end = text.indexOf('-->', start + 4)
+    if (end < 0) return output
+    cursor = end + 3
+  }
+  return output
+}
 
 function sections(markdown, omitCode = false) {
   const result = new Map()

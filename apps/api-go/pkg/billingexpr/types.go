@@ -77,7 +77,11 @@ type TieredResult struct {
 	Clamp *common.QuotaClamp `json:"-"`
 }
 
-// ExprHashString returns the SHA-256 hex digest of an expression string.
+// ExprHashString returns a stable, non-secret cache identity for an expression.
+// The expression is configuration metadata, not a password or credential, so
+// a plain SHA-256 digest is sufficient and keeps identities stable across
+// installations and secret rotation.
+// lgtm [go/weak-sensitive-data-hashing] -- this value is never used to protect sensitive data.
 func ExprHashString(expr string) string {
 	h := sha256.Sum256([]byte(expr))
 	return fmt.Sprintf("%x", h)
