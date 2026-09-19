@@ -65,7 +65,10 @@ test('scroll motion retains passive listeners, cancellation and observer cleanup
 test('section progress drives the current scene and story styles', () => {
   assert.match(motion, /setProperty\('--scene-progress',/)
   assert.match(motion, /setProperty\('--story-progress',/)
-  assert.match(css, /var\(--scene-progress,\s*0\)/)
+  assert.match(
+    motion,
+    /draw\(reduced\.matches \? 0 : clock, pointer, sceneProgress\)/
+  )
   assert.match(css, /var\(--story-progress\)/)
 })
 
@@ -74,7 +77,7 @@ test('missing observer constructors preserve static content', () => {
   assert.match(motion, /typeof window\.ResizeObserver !== 'function'/)
   assert.match(
     motion,
-    /draw\?\.\(0, \{ x: 0, y: 0 \}, 0\)\s*if \(toggle\) toggle\.hidden = true\s*return \(\) => \{\}/
+    /draw\?\.\(0, \{ x: 0, y: 0 \}, 0\)\s*root\.dataset\.motion = 'static'\s*if \(toggle\) toggle\.hidden = true\s*return \(\) => \{\s*delete root\.dataset\.motion\s*\}/
   )
   assert.match(css, /\.lmm-story:not\(\[data-chapter\]\)/)
 })
