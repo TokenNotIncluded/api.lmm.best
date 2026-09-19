@@ -10,6 +10,9 @@ import (
 )
 
 func ListHeroSMSSMSCountries(c *gin.Context) {
+	if !heroSMSSMSCatalogBalance(c) {
+		return
+	}
 	countries, err := model.GetHeroSMSSMSCountries(
 		c.Request.Context(),
 		c.Query("service"),
@@ -22,6 +25,9 @@ func ListHeroSMSSMSCountries(c *gin.Context) {
 }
 
 func ListHeroSMSSMSServices(c *gin.Context) {
+	if !heroSMSSMSCatalogBalance(c) {
+		return
+	}
 	services, err := model.GetHeroSMSSMSServices(c.Request.Context())
 	if err != nil {
 		heroSMSError(c, err)
@@ -31,6 +37,9 @@ func ListHeroSMSSMSServices(c *gin.Context) {
 }
 
 func ListHeroSMSSMSOperators(c *gin.Context) {
+	if !heroSMSSMSCatalogBalance(c) {
+		return
+	}
 	countryID, err := strconv.Atoi(c.Query("country"))
 	if err != nil || countryID < 0 {
 		heroSMSError(c, model.NewHeroSMSError(http.StatusBadRequest, "INVALID_REQUEST", "invalid HeroSMS country"))
@@ -45,6 +54,9 @@ func ListHeroSMSSMSOperators(c *gin.Context) {
 }
 
 func GetHeroSMSSMSOffer(c *gin.Context) {
+	if !heroSMSSMSCatalogBalance(c) {
+		return
+	}
 	countryID, err := strconv.Atoi(c.Query("country"))
 	if err != nil || countryID < 0 {
 		heroSMSError(c, model.NewHeroSMSError(http.StatusBadRequest, "INVALID_REQUEST", "invalid HeroSMS country"))
@@ -75,6 +87,14 @@ func GetHeroSMSSMSOffer(c *gin.Context) {
 		return
 	}
 	heroSMSJSON(c, http.StatusOK, offer)
+}
+
+func heroSMSSMSCatalogBalance(c *gin.Context) bool {
+	if err := model.CheckHeroSMSSMSPurchaseBalance(c.Request.Context(), c.GetInt("id")); err != nil {
+		heroSMSError(c, err)
+		return false
+	}
+	return true
 }
 
 func CreateHeroSMSSMSOrder(c *gin.Context) {
