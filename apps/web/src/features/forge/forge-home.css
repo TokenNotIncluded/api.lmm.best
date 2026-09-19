@@ -303,8 +303,8 @@ For commercial licensing, please contact support@quantumnous.com
 .lmm-core-continue {
   position: absolute;
   z-index: 3;
-  right: 2.4rem;
-  bottom: 1.8rem;
+  left: 2.4rem;
+  top: 1.8rem;
   font-size: 0.78rem;
 }
 .lmm-core-continue svg,
@@ -1305,8 +1305,8 @@ For commercial licensing, please contact support@quantumnous.com
     font-size: 0.52rem;
   }
   .lmm-core-continue {
-    right: 1.2rem;
-    bottom: 1.2rem;
+    left: 1.2rem;
+    top: 1.2rem;
     font-size: 0.65rem;
   }
   .lmm-cinema .lmm-motion-toggle {

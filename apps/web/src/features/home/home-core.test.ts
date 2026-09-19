@@ -5,7 +5,7 @@ import { test } from 'node:test'
 import { createCoreMesh, transformCorePoint } from './home-core'
 import { cinemaPosition } from './home-motion'
 
-test('the machined core remains finite across the entire reversible scroll sequence', () => {
+test('the abstract Transformer remains finite across the entire reversible scroll sequence', () => {
   const mesh = createCoreMesh()
   assert.ok(mesh.length > 700 && mesh.length < 1800)
   for (const progress of [0, 0.2, 0.4, 0.6, 0.8, 1]) {
@@ -18,10 +18,11 @@ test('the machined core remains finite across the entire reversible scroll seque
       }
     }
   }
-  const lid = mesh.find((face) => face.hinge === 1)!
+  const lid = mesh.find((face) => face.hinge === 1.5)
+  assert.ok(lid)
   const assembled = transformCorePoint(lid.points[0], lid, 0)
   const expanded = transformCorePoint(lid.points[0], lid, 0.55)
-  assert.ok(Math.abs(expanded.z - assembled.z) > 0.5)
+  assert.ok(Math.abs(expanded.z - assembled.z) > 0.15)
   const closed = transformCorePoint(lid.points[0], lid, 1)
   assert.equal(closed.x, assembled.x)
   assert.equal(closed.z, assembled.z)

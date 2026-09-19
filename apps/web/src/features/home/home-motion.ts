@@ -16,7 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { createCoreMesh, transformCorePoint, type CorePoint } from './home-core'
+import {
+  createCoreMesh,
+  createSignalPaths,
+  transformCorePoint,
+  type CorePoint,
+} from './home-core'
 
 export function unit(value: number) {
   return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0
@@ -49,11 +54,12 @@ export function cinemaPosition(
   return unit((stickyTop - top) / Math.max(height - frameHeight, 1))
 }
 
-/** An authored mechanical core, shaded locally without downloading a 3D model. */
+/** An abstract Transformer sculpture: attention heads, residual paths and token flow. */
 function createFilm(canvas: HTMLCanvasElement) {
   const ctx = canvas.getContext('2d', { alpha: false })
   if (!ctx) return null
   const mesh = createCoreMesh()
+  const signalPaths = createSignalPaths()
   let width = 0
   let height = 0
   let pixelRatio = 0
@@ -75,9 +81,9 @@ function createFilm(canvas: HTMLCanvasElement) {
       ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
     }
     const backdrop = ctx.createLinearGradient(0, h, w, 0)
-    backdrop.addColorStop(0, '#10221d')
-    backdrop.addColorStop(0.55, '#24372c')
-    backdrop.addColorStop(1, '#77806a')
+    backdrop.addColorStop(0, '#13221d')
+    backdrop.addColorStop(0.55, '#26392c')
+    backdrop.addColorStop(1, '#58604b')
     ctx.fillStyle = backdrop
     ctx.fillRect(0, 0, w, h)
     const glow = ctx.createRadialGradient(
@@ -96,14 +102,14 @@ function createFilm(canvas: HTMLCanvasElement) {
     const cx = w * (narrow ? 0.5 : 0.255)
     const cy = h * (narrow ? 0.255 : 0.49)
     const scale = Math.min(
-      w * (narrow ? 0.165 : 0.083),
-      h * (narrow ? 0.15 : 0.19)
+      w * (narrow ? 0.19 : 0.105),
+      h * (narrow ? 0.15 : 0.21)
     )
     const ry =
-      0.6 +
+      -0.48 +
       Math.sin(time * 0.2) * 0.16 +
       pointer.x * 0.27 +
-      progress * Math.PI * 1.68
+      progress * Math.PI * 1.8
     const rx =
       -0.28 +
       Math.cos(time * 0.16) * 0.035 +
@@ -140,6 +146,32 @@ function createFilm(canvas: HTMLCanvasElement) {
     ctx.fillStyle = shadow
     ctx.fillRect(0, -h * 3, w, h * 6)
     ctx.restore()
+    const project = (p: Point) => {
+      const perspective = 7 / (7 - p.z)
+      return {
+        x: cx + p.x * scale * perspective,
+        y: cy - p.y * scale * perspective,
+        perspective,
+      }
+    }
+    // Fine attention routes stay behind the solid ribbons; no opaque full-screen effects.
+    const paths = signalPaths.map((path) => ({
+      color: path.color,
+      points: path.points.map((p) =>
+        rotate(transformCorePoint(p, { layer: 0, hinge: 0 }, progress))
+      ),
+    }))
+    ctx.lineWidth = narrow ? 0.7 : 0.85
+    for (const path of paths) {
+      ctx.strokeStyle = `rgba(${path.color.join(',')},0.28)`
+      ctx.beginPath()
+      path.points.forEach((p, i) => {
+        const q = project(p)
+        if (i === 0) ctx.moveTo(q.x, q.y)
+        else ctx.lineTo(q.x, q.y)
+      })
+      ctx.stroke()
+    }
     const transformed = mesh
       .map((face) => {
         const points = face.points.map((p) =>
@@ -176,7 +208,7 @@ function createFilm(canvas: HTMLCanvasElement) {
       const luminance = 0.38 + diffuse * 0.74
       const c = (base: number, shine: number) =>
         Math.round(Math.min(255, base * luminance + specular * shine))
-      ctx.fillStyle = `rgb(${c(face.color[0], 75 * face.shine)} ${c(face.color[1], 94 * face.shine)} ${c(face.color[2], 104 * face.shine)})`
+      ctx.fillStyle = `rgb(${c(face.color[0], 64 * face.shine)} ${c(face.color[1], 88 * face.shine)} ${c(face.color[2], 64 * face.shine)})`
       ctx.beginPath()
       face.points.forEach((p, i) => {
         const perspective = 7 / (7 - p.z)
@@ -191,6 +223,31 @@ function createFilm(canvas: HTMLCanvasElement) {
       ctx.lineWidth = 0.6
       ctx.stroke()
     }
+    // A bounded set of pulses makes input/attention/output continuity legible.
+    paths.forEach((path, index) => {
+      for (let pulse = 0; pulse < 2; pulse++) {
+        const t =
+          (time * 0.14 + index * 0.071 + pulse * 0.5 + progress * 0.8) % 1
+        const cursor = t * (path.points.length - 1)
+        const a = path.points[Math.floor(cursor)]
+        const b =
+          path.points[Math.min(path.points.length - 1, Math.floor(cursor) + 1)]
+        const fraction = cursor % 1
+        const q = project({
+          x: a.x + (b.x - a.x) * fraction,
+          y: a.y + (b.y - a.y) * fraction,
+          z: a.z + (b.z - a.z) * fraction,
+        })
+        ctx.fillStyle = `rgba(${path.color.join(',')},0.12)`
+        ctx.beginPath()
+        ctx.arc(q.x, q.y, 5 * q.perspective, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.fillStyle = '#fff0d3'
+        ctx.beginPath()
+        ctx.arc(q.x, q.y, 1.45 * q.perspective, 0, Math.PI * 2)
+        ctx.fill()
+      }
+    })
     canvas.parentElement?.setAttribute('data-rendered', '')
   }
 }
