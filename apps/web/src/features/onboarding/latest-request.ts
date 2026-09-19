@@ -13,8 +13,9 @@ export async function loadLatestRequest(): Promise<UsageLog | null> {
   ])
   const records: UsageLog[] = []
   for (const result of results) {
-    if (!result.success || !result.data || !Array.isArray(result.data.items))
-      {throw new Error('Latest request unavailable')}
+    if (!result.success || !result.data || !Array.isArray(result.data.items)) {
+      throw new Error('Latest request unavailable')
+    }
     for (const item of result.data.items) {
       const parsed = usageLogSchema.safeParse(item)
       if (!parsed.success) throw new Error('Invalid request record')
@@ -34,11 +35,13 @@ export function latestRequestStatus(
     log.type === 5 ||
     other?.stream_status?.status === 'error' ||
     other?.stream_status?.end_error
-  )
-    {return 'failed'}
+  ) {
+    return 'failed'
+  }
   try {
-    if (JSON.parse(log.other || '{}').acquisition_success_v1 === true)
-      {return 'successful'}
+    if (JSON.parse(log.other || '{}').acquisition_success_v1 === true) {
+      return 'successful'
+    }
   } catch {
     /* Legacy records may not include success evidence. */
   }

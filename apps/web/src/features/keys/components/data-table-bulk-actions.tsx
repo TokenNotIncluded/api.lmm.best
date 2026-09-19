@@ -56,10 +56,11 @@ export function DataTableBulkActions<TData>({
       const ids = selectedRows
         .filter((row) => !(row.original as ApiKey).one_time_reveal)
         .map((row) => (row.original as ApiKey).id)
-      if (ids.length !== selectedRows.length)
-        {toast.info(
+      if (ids.length !== selectedRows.length) {
+        toast.info(
           t('Keys shown only at creation are excluded from batch copy.')
-        )}
+        )
+      }
       if (ids.length === 0) return
       const keysMap = await resolveRealKeysBatch(ids)
 
