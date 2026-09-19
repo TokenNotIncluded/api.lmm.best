@@ -17,7 +17,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Link } from '@tanstack/react-router'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { LanguageSwitcher } from '@/components/language-switcher'
 import { LmmBrandMark } from '@/components/lmm-brand-mark'
@@ -34,6 +35,8 @@ type AuthLayoutProps = {
 
 export function AuthLayout({ children }: AuthLayoutProps) {
   const { systemName } = useSystemConfig()
+  const { t } = useTranslation()
+  const [mobileGameOpen, setMobileGameOpen] = useState(false)
   useEffect(() => {
     const previousTitle = document.title
     document.title = systemName
@@ -61,10 +64,19 @@ export function AuthLayout({ children }: AuthLayoutProps) {
         <div className='no-scrollbar container min-h-0 overflow-y-auto lg:pt-24'>
           <div className='mx-auto flex min-h-full w-full max-w-md flex-col justify-center px-5 py-7 sm:px-8 sm:py-12'>
             {children}
+            <details
+              className='mt-8 w-full lg:hidden'
+              onToggle={(event) => setMobileGameOpen(event.currentTarget.open)}
+            >
+              <summary className='text-muted-foreground cursor-pointer py-3 text-center text-sm underline underline-offset-4'>
+                {t('Play a round')}
+              </summary>
+              {mobileGameOpen && <AuthArtPanel />}
+            </details>
           </div>
         </div>
       </div>
-      <div className='hidden lg:sticky lg:top-0 lg:col-start-2 lg:row-start-1 lg:block lg:h-svh lg:min-h-[42rem] lg:p-3 lg:pl-0'>
+      <div className='hidden lg:sticky lg:top-0 lg:col-start-2 lg:row-start-1 lg:block lg:h-svh lg:min-h-0 lg:overflow-y-auto lg:p-3 lg:pl-0'>
         <AuthArtPanel />
       </div>
     </div>

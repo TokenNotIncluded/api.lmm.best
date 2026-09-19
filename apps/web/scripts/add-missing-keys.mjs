@@ -8771,6 +8771,180 @@ for (const [locale, values] of Object.entries(webMcpKeys)) {
   Object.assign(newKeys[locale], values)
 }
 
+const signalGameKeys = {
+  en: {
+    'Signal path': 'Signal path',
+    'Rotate the tiles to connect input to output.':
+      'Rotate the tiles to connect input to output.',
+    Moves: 'Moves',
+    'Circuits solved': 'Circuits solved',
+    North: 'North',
+    East: 'East',
+    South: 'South',
+    West: 'West',
+    'Rotate tile at row {{row}}, column {{column}}':
+      'Rotate tile at row {{row}}, column {{column}}',
+    'Connected to input': 'Connected to input',
+    'Connected in {{count}} moves!': 'Connected in {{count}} moves!',
+    'Signal reached {{count}} tiles': 'Signal reached {{count}} tiles',
+    'New circuit': 'New circuit',
+    'Play again': 'Play again',
+    'Restart circuit': 'Restart circuit',
+    'Use arrow keys to move and Enter to rotate.':
+      'Use arrow keys to move and Enter to rotate.',
+    'Just for fun. You can sign in or register at any time.':
+      'Just for fun. You can sign in or register at any time.',
+    'Play a round': 'Play a round',
+  },
+  zh: {
+    'Signal path': '接通信号',
+    'Rotate the tiles to connect input to output.':
+      '转动线路格，让入口的信号抵达终点。',
+    Moves: '步数',
+    'Circuits solved': '已接通',
+    North: '上方',
+    East: '右侧',
+    South: '下方',
+    West: '左侧',
+    'Rotate tile at row {{row}}, column {{column}}':
+      '转动第 {{row}} 行、第 {{column}} 列的格子',
+    'Connected to input': '已连接入口',
+    'Connected in {{count}} moves!': '接通了！共用 {{count}} 步',
+    'Signal reached {{count}} tiles': '信号已到达 {{count}} 个格子',
+    'New circuit': '换一张图',
+    'Play again': '再来一局',
+    'Restart circuit': '重新开始这局',
+    'Use arrow keys to move and Enter to rotate.':
+      '也可用方向键选格，按 Enter 转动。',
+    'Just for fun. You can sign in or register at any time.':
+      '纯粹玩一下，随时都能登录或注册。',
+    'Play a round': '玩一局',
+  },
+  'zh-TW': {
+    'Signal path': '接通信號',
+    'Rotate the tiles to connect input to output.':
+      '轉動線路格，讓入口的訊號抵達終點。',
+    Moves: '步數',
+    'Circuits solved': '已接通',
+    North: '上方',
+    East: '右側',
+    South: '下方',
+    West: '左側',
+    'Rotate tile at row {{row}}, column {{column}}':
+      '轉動第 {{row}} 列、第 {{column}} 欄的格子',
+    'Connected to input': '已連接入口',
+    'Connected in {{count}} moves!': '接通了！共用 {{count}} 步',
+    'Signal reached {{count}} tiles': '訊號已抵達 {{count}} 個格子',
+    'New circuit': '換一張圖',
+    'Play again': '再來一局',
+    'Restart circuit': '重新開始這局',
+    'Use arrow keys to move and Enter to rotate.':
+      '也可用方向鍵選格，按 Enter 轉動。',
+    'Just for fun. You can sign in or register at any time.':
+      '輕鬆玩一下，隨時都能登入或註冊。',
+    'Play a round': '玩一局',
+  },
+  fr: {
+    'Signal path': 'Circuit du signal',
+    'Rotate the tiles to connect input to output.':
+      'Tournez les cases pour relier l’entrée à la sortie.',
+    Moves: 'Coups',
+    'Circuits solved': 'Circuits réussis',
+    North: 'Haut',
+    East: 'Droite',
+    South: 'Bas',
+    West: 'Gauche',
+    'Rotate tile at row {{row}}, column {{column}}':
+      'Tourner la case, ligne {{row}}, colonne {{column}}',
+    'Connected to input': 'Relié à l’entrée',
+    'Connected in {{count}} moves!': 'Connecté en {{count}} coups !',
+    'Signal reached {{count}} tiles': 'Le signal atteint {{count}} cases',
+    'New circuit': 'Nouveau circuit',
+    'Play again': 'Rejouer',
+    'Restart circuit': 'Recommencer ce circuit',
+    'Use arrow keys to move and Enter to rotate.':
+      'Utilisez les flèches pour vous déplacer et Entrée pour tourner.',
+    'Just for fun. You can sign in or register at any time.':
+      'Juste pour le plaisir. Connexion et inscription restent accessibles.',
+    'Play a round': 'Faire une partie',
+  },
+  ja: {
+    'Signal path': 'シグナル回路',
+    'Rotate the tiles to connect input to output.':
+      'タイルを回して、入力から出力までつなげましょう。',
+    Moves: '手数',
+    'Circuits solved': 'クリア数',
+    North: '上',
+    East: '右',
+    South: '下',
+    West: '左',
+    'Rotate tile at row {{row}}, column {{column}}':
+      '{{row}} 行 {{column}} 列のタイルを回転',
+    'Connected to input': '入力に接続済み',
+    'Connected in {{count}} moves!': '{{count}} 手で接続できました！',
+    'Signal reached {{count}} tiles': '信号が {{count}} マスまで到達',
+    'New circuit': '新しい回路',
+    'Play again': 'もう一度遊ぶ',
+    'Restart circuit': 'この回路をやり直す',
+    'Use arrow keys to move and Enter to rotate.':
+      '矢印キーで移動、Enter キーで回転できます。',
+    'Just for fun. You can sign in or register at any time.':
+      '気軽に遊べるミニゲームです。ログインや登録はいつでもできます。',
+    'Play a round': 'ひと遊びする',
+  },
+  ru: {
+    'Signal path': 'Путь сигнала',
+    'Rotate the tiles to connect input to output.':
+      'Поворачивайте плитки, чтобы соединить вход с выходом.',
+    Moves: 'Ходы',
+    'Circuits solved': 'Собрано цепей',
+    North: 'Вверх',
+    East: 'Вправо',
+    South: 'Вниз',
+    West: 'Влево',
+    'Rotate tile at row {{row}}, column {{column}}':
+      'Повернуть плитку: строка {{row}}, столбец {{column}}',
+    'Connected to input': 'Соединено со входом',
+    'Connected in {{count}} moves!': 'Соединено за {{count}} ходов!',
+    'Signal reached {{count}} tiles': 'Сигнал достиг {{count}} плиток',
+    'New circuit': 'Новая цепь',
+    'Play again': 'Играть ещё',
+    'Restart circuit': 'Начать эту цепь заново',
+    'Use arrow keys to move and Enter to rotate.':
+      'Стрелки — выбор плитки, Enter — поворот.',
+    'Just for fun. You can sign in or register at any time.':
+      'Просто для развлечения. Вход и регистрация доступны в любой момент.',
+    'Play a round': 'Сыграть раунд',
+  },
+  vi: {
+    'Signal path': 'Đường tín hiệu',
+    'Rotate the tiles to connect input to output.':
+      'Xoay các ô để nối đầu vào với đầu ra.',
+    Moves: 'Số lượt',
+    'Circuits solved': 'Mạch đã nối',
+    North: 'Trên',
+    East: 'Phải',
+    South: 'Dưới',
+    West: 'Trái',
+    'Rotate tile at row {{row}}, column {{column}}':
+      'Xoay ô ở hàng {{row}}, cột {{column}}',
+    'Connected to input': 'Đã nối với đầu vào',
+    'Connected in {{count}} moves!': 'Đã nối sau {{count}} lượt!',
+    'Signal reached {{count}} tiles': 'Tín hiệu đã đến {{count}} ô',
+    'New circuit': 'Mạch mới',
+    'Play again': 'Chơi lại',
+    'Restart circuit': 'Bắt đầu lại mạch này',
+    'Use arrow keys to move and Enter to rotate.':
+      'Dùng phím mũi tên để di chuyển, Enter để xoay.',
+    'Just for fun. You can sign in or register at any time.':
+      'Chỉ để giải trí. Bạn vẫn có thể đăng nhập hoặc đăng ký bất cứ lúc nào.',
+    'Play a round': 'Chơi một ván',
+  },
+}
+for (const [locale, values] of Object.entries(signalGameKeys)) {
+  Object.assign(newKeys[locale], values)
+}
+
 main().catch((error) => {
   console.error(error)
   process.exitCode = 1
