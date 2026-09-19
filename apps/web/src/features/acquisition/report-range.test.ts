@@ -23,6 +23,7 @@ test('invalid, reversed, future and oversized date windows never become a query'
     ['2026-09-01', '2026-09-20'],
     ['2024-01-01', '2026-09-19'],
     ['', ''],
-  ])
-    {assert.equal(customAcquisitionRange(start, end, now), null)}
+  ]) {
+    assert.equal(customAcquisitionRange(start, end, now), null)
+  }
 })
