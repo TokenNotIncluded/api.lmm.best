@@ -35,6 +35,12 @@ test('registers safe read/navigation tools and aborts them on cleanup', async ()
     assert.deepEqual(
       registered.map((tool) => tool.name),
       [
+        'lmm_signal_state',
+        'lmm_signal_start',
+        'lmm_signal_rotate',
+        'lmm_signal_hint',
+        'lmm_signal_records',
+        'lmm_signal_submit',
         'lmm_site_info',
         'lmm_navigate',
         'lmm_model_prices',
@@ -152,7 +158,7 @@ for (const mode of ['sync', 'throw', 'reject'] as const) {
         subscribe: () => () => undefined,
       })
       await new Promise((resolve) => setTimeout(resolve, 0))
-      assert.equal(calls, 6)
+      assert.equal(calls, 12)
       cleanup()
     } finally {
       if (previous) Object.defineProperty(globalThis, 'document', previous)

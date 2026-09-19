@@ -79,6 +79,7 @@ import { Route as AuthenticatedUsageLogsSectionRouteImport } from './routes/_aut
 import { Route as AuthenticatedUsersIndexRouteImport } from './routes/_authenticated/users/index'
 import { Route as AuthenticatedWalletIndexRouteImport } from './routes/_authenticated/wallet/index'
 import { Route as AuthenticatedWorkspaceIndexRouteImport } from './routes/_authenticated/workspace/index'
+import { Route as GamesSignalIndexRouteImport } from './routes/games/signal/index'
 import { Route as PricingModelIdIndexRouteImport } from './routes/pricing/$modelId/index'
 import { Route as AuthenticatedSystemSettingsAuthIndexRouteImport } from './routes/_authenticated/system-settings/auth/index'
 import { Route as AuthenticatedSystemSettingsAuthSectionRouteImport } from './routes/_authenticated/system-settings/auth/$section'
@@ -474,6 +475,11 @@ const AuthenticatedWorkspaceIndexRoute =
     path: '/workspace/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const GamesSignalIndexRoute = GamesSignalIndexRouteImport.update({
+  id: '/games/signal/',
+  path: '/games/signal/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PricingModelIdIndexRoute = PricingModelIdIndexRouteImport.update({
   id: '/pricing/$modelId/',
   path: '/pricing/$modelId/',
@@ -633,6 +639,7 @@ export interface FileRoutesByFullPath {
   '/users/': typeof AuthenticatedUsersIndexRoute
   '/wallet/': typeof AuthenticatedWalletIndexRoute
   '/workspace/': typeof AuthenticatedWorkspaceIndexRoute
+  '/games/signal/': typeof GamesSignalIndexRoute
   '/pricing/$modelId/': typeof PricingModelIdIndexRoute
   '/system-settings/auth/$section': typeof AuthenticatedSystemSettingsAuthSectionRoute
   '/system-settings/billing/$section': typeof AuthenticatedSystemSettingsBillingSectionRoute
@@ -717,6 +724,7 @@ export interface FileRoutesByTo {
   '/users': typeof AuthenticatedUsersIndexRoute
   '/wallet': typeof AuthenticatedWalletIndexRoute
   '/workspace': typeof AuthenticatedWorkspaceIndexRoute
+  '/games/signal': typeof GamesSignalIndexRoute
   '/pricing/$modelId': typeof PricingModelIdIndexRoute
   '/system-settings/auth/$section': typeof AuthenticatedSystemSettingsAuthSectionRoute
   '/system-settings/billing/$section': typeof AuthenticatedSystemSettingsBillingSectionRoute
@@ -805,6 +813,7 @@ export interface FileRoutesById {
   '/_authenticated/users/': typeof AuthenticatedUsersIndexRoute
   '/_authenticated/wallet/': typeof AuthenticatedWalletIndexRoute
   '/_authenticated/workspace/': typeof AuthenticatedWorkspaceIndexRoute
+  '/games/signal/': typeof GamesSignalIndexRoute
   '/pricing/$modelId/': typeof PricingModelIdIndexRoute
   '/_authenticated/system-settings/auth/$section': typeof AuthenticatedSystemSettingsAuthSectionRoute
   '/_authenticated/system-settings/billing/$section': typeof AuthenticatedSystemSettingsBillingSectionRoute
@@ -892,6 +901,7 @@ export interface FileRouteTypes {
     | '/users/'
     | '/wallet/'
     | '/workspace/'
+    | '/games/signal/'
     | '/pricing/$modelId/'
     | '/system-settings/auth/$section'
     | '/system-settings/billing/$section'
@@ -976,6 +986,7 @@ export interface FileRouteTypes {
     | '/users'
     | '/wallet'
     | '/workspace'
+    | '/games/signal'
     | '/pricing/$modelId'
     | '/system-settings/auth/$section'
     | '/system-settings/billing/$section'
@@ -1063,6 +1074,7 @@ export interface FileRouteTypes {
     | '/_authenticated/users/'
     | '/_authenticated/wallet/'
     | '/_authenticated/workspace/'
+    | '/games/signal/'
     | '/pricing/$modelId/'
     | '/_authenticated/system-settings/auth/$section'
     | '/_authenticated/system-settings/billing/$section'
@@ -1106,6 +1118,7 @@ export interface RootRouteChildren {
   SetupIndexRoute: typeof SetupIndexRoute
   StatusIndexRoute: typeof StatusIndexRoute
   WebmcpIndexRoute: typeof WebmcpIndexRoute
+  GamesSignalIndexRoute: typeof GamesSignalIndexRoute
   PricingModelIdIndexRoute: typeof PricingModelIdIndexRoute
 }
 
@@ -1601,6 +1614,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedWorkspaceIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/games/signal/': {
+      id: '/games/signal/'
+      path: '/games/signal'
+      fullPath: '/games/signal/'
+      preLoaderRoute: typeof GamesSignalIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/pricing/$modelId/': {
       id: '/pricing/$modelId/'
       path: '/pricing/$modelId'
@@ -1905,6 +1925,7 @@ const rootRouteChildren: RootRouteChildren = {
   SetupIndexRoute: SetupIndexRoute,
   StatusIndexRoute: StatusIndexRoute,
   WebmcpIndexRoute: WebmcpIndexRoute,
+  GamesSignalIndexRoute: GamesSignalIndexRoute,
   PricingModelIdIndexRoute: PricingModelIdIndexRoute,
 }
 export const routeTree = rootRouteImport
