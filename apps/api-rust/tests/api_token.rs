@@ -425,6 +425,82 @@ async fn mixed_case_deleted_at_create_update_preserves_active_rows_and_rejects_i
 
 #[tokio::test]
 #[ignore = "requires isolated PostgreSQL 18 and Valkey; use tests/scripts/run-real-integration-gates.sh"]
+async fn account_balance_access_is_owner_scoped_and_exposed_in_token_response() {
+    let database_url = env::var("LMM_API_TOKEN_TEST_DATABASE_URL")
+        .expect("set LMM_API_TOKEN_TEST_DATABASE_URL for the isolated PostgreSQL 18 harness");
+    let valkey_url = env::var("LMM_API_TOKEN_TEST_VALKEY_URL")
+        .expect("set LMM_API_TOKEN_TEST_VALKEY_URL for the isolated Valkey harness");
+    let pool = PgPoolOptions::new()
+        .max_connections(3)
+        .connect(&database_url)
+        .await
+        .expect("isolated PostgreSQL 18");
+    reset(&pool).await;
+    sqlx::query("ALTER TABLE tokens ADD COLUMN oauth_managed BOOLEAN NOT NULL DEFAULT FALSE")
+        .execute(&pool)
+        .await
+        .expect("oauth-managed fixture column");
+    sqlx::query("INSERT INTO tokens (id,user_id,key,status,expired_time,account_balance_read,oauth_managed) VALUES (1,7,'owner-balance',1,-1,FALSE,FALSE),(2,8,'foreign-balance',1,-1,FALSE,FALSE),(3,7,'oauth-balance',1,-1,FALSE,TRUE)")
+        .execute(&pool)
+        .await
+        .expect("balance fixture tokens");
+    let router = router_for(pool.clone(), &valkey_url);
+    let owner = ApiTokenPrincipal {
+        user_id: 7,
+        role: 1,
+        preferred_language: None,
+    };
+    let enabled = body(
+        call_raw(
+            &router,
+            "PUT",
+            "/api/token/1/account-balance-access",
+            br#"{"enabled":true}"#,
+            owner,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(enabled, json!({"success":true}));
+    let listed = body(call_raw(&router, "GET", "/api/token/1", b"", owner).await).await;
+    assert_eq!(listed["success"], true);
+    assert_eq!(listed["data"]["account_balance_read"], true);
+
+    let foreign = body(
+        call_raw(
+            &router,
+            "PUT",
+            "/api/token/1/account-balance-access",
+            br#"{"enabled":true}"#,
+            ApiTokenPrincipal {
+                user_id: 8,
+                role: 1,
+                preferred_language: None,
+            },
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(foreign["success"], false);
+    assert_eq!(foreign["message"], "API key not found");
+
+    let oauth = body(
+        call_raw(
+            &router,
+            "PUT",
+            "/api/token/3/account-balance-access",
+            br#"{"enabled":true}"#,
+            owner,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(oauth["success"], false);
+    assert_eq!(oauth["message"], "API key not found");
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL 18 and Valkey; use tests/scripts/run-real-integration-gates.sh"]
 async fn create_missing_and_explicit_zero_fields_use_go_model_defaults() {
     let database_url = env::var("LMM_API_TOKEN_TEST_DATABASE_URL")
         .expect("set LMM_API_TOKEN_TEST_DATABASE_URL for the isolated PostgreSQL 18 harness");
@@ -1672,7 +1748,7 @@ async fn reset(pool: &PgPool) {
         .execute(pool)
         .await
         .unwrap();
-    sqlx::query("CREATE TABLE tokens (id BIGSERIAL PRIMARY KEY,user_id BIGINT,key TEXT,status BIGINT,name TEXT,created_time BIGINT,accessed_time BIGINT,expired_time BIGINT,remain_quota BIGINT,unlimited_quota BOOL,model_limits_enabled BOOL,model_limits TEXT,allow_ips TEXT,used_quota BIGINT,\"group\" TEXT,cross_group_retry BOOL,deleted_at TIMESTAMPTZ)").execute(pool).await.unwrap();
+    sqlx::query("CREATE TABLE tokens (id BIGSERIAL PRIMARY KEY,user_id BIGINT,key TEXT,status BIGINT,name TEXT,created_time BIGINT,accessed_time BIGINT,expired_time BIGINT,remain_quota BIGINT,unlimited_quota BOOL,account_balance_read BOOL NOT NULL DEFAULT FALSE,model_limits_enabled BOOL,model_limits TEXT,allow_ips TEXT,used_quota BIGINT,\"group\" TEXT,cross_group_retry BOOL,deleted_at TIMESTAMPTZ)").execute(pool).await.unwrap();
     sqlx::query("CREATE TABLE options (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
         .execute(pool)
         .await

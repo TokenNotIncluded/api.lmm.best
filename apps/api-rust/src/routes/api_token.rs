@@ -15,7 +15,7 @@ use axum::{
     extract::{DefaultBodyLimit, Extension, Path, RawQuery, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{get, post, put},
 };
 use hmac::{Hmac, Mac};
 use rand::{Rng, distr::Alphanumeric};
@@ -89,6 +89,10 @@ pub fn api_token_router(state: ApiTokenHttpState) -> Router {
         .route("/api/token/batch/keys", post(batch_keys))
         .route("/api/token/{id}", get(detail).delete(remove))
         .route("/api/token/{id}/key", post(key))
+        .route(
+            "/api/token/{id}/account-balance-access",
+            put(account_balance_access),
+        )
         // Token mutation handlers intentionally extract raw `Bytes` to keep
         // their legacy JSON error envelope. Keep that compatibility shape,
         // but bound the allocation before extraction.
@@ -752,6 +756,33 @@ return 1
         let _ = self.invalidate(keys).await;
         Ok(rows.len())
     }
+
+    async fn set_account_balance_access(
+        &self,
+        user_id: i64,
+        token_id: i64,
+        enabled: bool,
+    ) -> Result<bool, TokenError> {
+        if user_id <= 0 || token_id <= 0 {
+            return Ok(false);
+        }
+        // The additive account-balance migration owns this column.  Keep the
+        // mutation owner-scoped and explicitly exclude OAuth-managed keys so
+        // a dashboard principal can never grant access to a provider key.
+        let result = sqlx::query(
+            "UPDATE tokens SET account_balance_read = $1 \
+             WHERE id = $2 AND user_id = $3 \
+               AND deleted_at IS NULL \
+               AND COALESCE((to_jsonb(tokens)->>'oauth_managed')::boolean, TRUE) = FALSE",
+        )
+        .bind(enabled)
+        .bind(token_id)
+        .bind(user_id)
+        .execute(&self.pg)
+        .await
+        .map_err(TokenError::db)?;
+        Ok(result.rows_affected() == 1)
+    }
 }
 
 async fn list(
@@ -849,6 +880,67 @@ async fn key(
         },
         Err(error) => error.response_for(request_locale(&principal, &headers)),
     })
+}
+
+#[derive(Debug, Deserialize)]
+struct AccountBalanceAccessRequest {
+    enabled: Option<bool>,
+}
+
+async fn account_balance_access(
+    State(state): State<ApiTokenHttpState>,
+    principal: Option<Extension<ApiTokenPrincipal>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let principal = match require_principal(principal, &headers) {
+        Ok(principal) => principal,
+        Err(response) => return response,
+    };
+    let id = match legacy_id(&id) {
+        Ok(id) if id > 0 => id,
+        _ => {
+            return no_store(balance_access_failure(
+                StatusCode::BAD_REQUEST,
+                "Invalid balance access request",
+            ));
+        }
+    };
+    let request = match decode_legacy_json::<AccountBalanceAccessRequest>(&body) {
+        Ok(request) if request.enabled.is_some() => request,
+        _ => {
+            return no_store(balance_access_failure(
+                StatusCode::BAD_REQUEST,
+                "Invalid balance access request",
+            ));
+        }
+    };
+    match state
+        .service
+        .set_account_balance_access(principal.user_id, id, request.enabled.unwrap_or(false))
+        .await
+    {
+        // Match controller.SetAccountBalanceAccess: the successful envelope
+        // contains only the boolean, while failures carry the legacy message.
+        Ok(true) => no_store(Json(serde_json::json!({"success": true})).into_response()),
+        Ok(false) => no_store(balance_access_failure(
+            StatusCode::NOT_FOUND,
+            "API key not found",
+        )),
+        Err(_) => no_store(balance_access_failure(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Balance access unavailable",
+        )),
+    }
+}
+
+fn balance_access_failure(status: StatusCode, message: &'static str) -> Response {
+    (
+        status,
+        Json(serde_json::json!({"success": false, "message": message})),
+    )
+        .into_response()
 }
 async fn create(
     State(state): State<ApiTokenHttpState>,
@@ -1890,12 +1982,13 @@ struct ApiToken {
     group: String,
     cross_group_retry: bool,
     auto_groups: Option<Vec<String>>,
+    account_balance_read: bool,
     #[serde(skip)]
     auto_groups_raw: String,
     #[serde(rename = "DeletedAt")]
     deleted_at: Option<()>,
 }
-const TOKEN_SELECT: &str = "SELECT id, user_id, COALESCE(key,''), COALESCE(status,0)::BIGINT, COALESCE(name,''), COALESCE(created_time,0), COALESCE(accessed_time,0), COALESCE(expired_time,0), COALESCE(remain_quota,0), COALESCE(unlimited_quota,FALSE), COALESCE(model_limits_enabled,FALSE), COALESCE(model_limits,''), allow_ips, COALESCE(used_quota,0), COALESCE(\"group\",''), COALESCE(cross_group_retry,FALSE), COALESCE(to_jsonb(tokens)->>'auto_groups','') AS auto_groups FROM tokens";
+const TOKEN_SELECT: &str = "SELECT id, user_id, COALESCE(key,''), COALESCE(status,0)::BIGINT, COALESCE(name,''), COALESCE(created_time,0), COALESCE(accessed_time,0), COALESCE(expired_time,0), COALESCE(remain_quota,0), COALESCE(unlimited_quota,FALSE), COALESCE(model_limits_enabled,FALSE), COALESCE(model_limits,''), allow_ips, COALESCE(used_quota,0), COALESCE(\"group\",''), COALESCE(cross_group_retry,FALSE), COALESCE(to_jsonb(tokens)->>'auto_groups','') AS auto_groups, COALESCE((to_jsonb(tokens)->>'account_balance_read')::boolean,FALSE) AS account_balance_read FROM tokens";
 fn token_from_row(row: &sqlx::postgres::PgRow) -> Result<ApiToken, TokenError> {
     let auto_groups_raw: String = row.try_get(16).map_err(TokenError::db)?;
     Ok(ApiToken {
@@ -1917,6 +2010,7 @@ fn token_from_row(row: &sqlx::postgres::PgRow) -> Result<ApiToken, TokenError> {
         cross_group_retry: row.try_get(15).map_err(TokenError::db)?,
         auto_groups: parse_auto_groups(&auto_groups_raw),
         auto_groups_raw,
+        account_balance_read: row.try_get(17).map_err(TokenError::db)?,
         deleted_at: None,
     })
 }

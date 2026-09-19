@@ -19,6 +19,8 @@ pub const COMPANY_BILLING_PROFILE_SCHEMA_CONTRACT_ID: i64 = 7;
 pub const WAFFO_SUBSCRIPTION_SCHEMA_CONTRACT_ID: i64 = 8;
 /// The first schema contract that binds subscription refunds to immutable payment evidence.
 pub const SUBSCRIPTION_PAYMENT_REFUND_SCHEMA_CONTRACT_ID: i64 = 9;
+/// The first schema contract that exposes owner-granted account-wallet balance reads.
+pub const ACCOUNT_BALANCE_ACCESS_SCHEMA_CONTRACT_ID: i64 = 10;
 
 #[derive(Clone, Copy)]
 struct ColumnRequirement {
@@ -1203,6 +1205,41 @@ pub fn verify_subscription_payment_refund_schema(
     if has_foreign_keys {
         return Err(MigrationError::Manifest(
             "forward schema foreign key mismatch for subscription_payment_refunds".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+/// Verifies the additive contract-10 account-balance permission column.
+///
+/// The column lives on the existing `tokens` table, so this check deliberately
+/// validates only its exact type, nullability, and default. It does not require
+/// any historical key to be granted access.
+pub fn verify_account_balance_access_schema(
+    transaction: &mut Transaction<'_>,
+    schema: &str,
+) -> Result<(), MigrationError> {
+    let row = transaction.query_opt(
+        "SELECT data_type,is_nullable,column_default FROM information_schema.columns \
+         WHERE table_schema=$1 AND table_name='tokens' AND column_name='account_balance_read'",
+        &[&schema],
+    )?;
+    let compatible = row.is_some_and(|row| {
+        let data_type: String = row.get(0);
+        let nullable: String = row.get(1);
+        let default: Option<String> = row.get(2);
+        data_type == "boolean"
+            && nullable == "NO"
+            && default.is_some_and(|value| {
+                matches!(
+                    value.trim().to_ascii_lowercase().as_str(),
+                    "false" | "false::boolean"
+                )
+            })
+    });
+    if !compatible {
+        return Err(MigrationError::Manifest(
+            "forward schema account-balance access column/default contract mismatch".to_owned(),
         ));
     }
     Ok(())
