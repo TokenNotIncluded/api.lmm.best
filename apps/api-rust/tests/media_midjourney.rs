@@ -536,7 +536,7 @@ async fn dynamic_midjourney_auth_and_route_status_contract_holds_over_a_real_tcp
     let (base_url, server) = spawn_tcp_router(app(backend)).await;
     let client = reqwest::Client::new();
 
-    // lgtm [rust/cleartext-transmission] -- this is an isolated loopback HTTP test server; production routes use TLS at the edge.
+    // codeql[rust/cleartext-transmission] -- this is an isolated loopback HTTP test server; production routes use TLS at the edge.
     let public_image = client
         .get(format!(
             "{base_url}{}",

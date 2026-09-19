@@ -2,7 +2,7 @@ import { appendFileSync, readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 
 const normalize = (text) => text.trim().replace(/\s+/g, ' ')
-function visible(text) {
+export function visible(text) {
   let output = ''
   let cursor = 0
   while (cursor < text.length) {
