@@ -43,6 +43,7 @@ import { DirectionProvider } from './context/direction-provider'
 import { FontProvider } from './context/font-provider'
 import { ThemeProvider } from './context/theme-provider'
 import appI18n from './i18n/config'
+import { RouteLanguageProvider } from './i18n/route-language-provider'
 // Generated Routes
 import { routeTree } from './routeTree.gen'
 
@@ -100,6 +101,7 @@ bindAuthCache(queryClient)
 // Create a new router instance
 const router = createRouter({
   routeTree,
+  InnerWrap: RouteLanguageProvider,
   context: { queryClient },
   defaultPreload: 'intent',
   defaultPendingComponent: LoadingState,

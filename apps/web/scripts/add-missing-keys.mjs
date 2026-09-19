@@ -8569,6 +8569,208 @@ async function main() {
   console.log(`Total: ${totalAdded} translations applied`)
 }
 
+const webMcpKeys = {
+  en: {
+    'View source on GitHub': 'View source on GitHub',
+    'Star count unavailable': 'Star count unavailable',
+    'GitHub stars': 'GitHub stars',
+    'Let your browser agent work with LMM.':
+      'Let your browser agent work with LMM.',
+    'Discover site information, model prices, public scripts, and account status through structured browser tools.':
+      'Discover site information, model prices, public scripts, and account status through structured browser tools.',
+    'Available tools': 'Available tools',
+    'Browser support': 'Browser support',
+    'WebMCP is available in this browser.':
+      'WebMCP is available in this browser.',
+    'WebMCP is not available in this browser. The normal interface still works.':
+      'WebMCP is not available in this browser. The normal interface still works.',
+    'Check browser support': 'Check browser support',
+    'Clear boundaries': 'Clear boundaries',
+    'API keys, passwords, payments, and script execution are not exposed through these tools.':
+      'API keys, passwords, payments, and script execution are not exposed through these tools.',
+    'WebMCP documentation': 'WebMCP documentation',
+    'Site information and public page links':
+      'Site information and public page links',
+    'Navigate to supported LMM pages': 'Navigate to supported LMM pages',
+    'Public model prices and billing units':
+      'Public model prices and billing units',
+    'Current sign-in and access status': 'Current sign-in and access status',
+    'Public script names and download links':
+      'Public script names and download links',
+    'Project repositories and GitHub stars':
+      'Project repositories and GitHub stars',
+  },
+  zh: {
+    'View source on GitHub': '查看 GitHub 源码',
+    'Star count unavailable': '暂时无法获取 Star 数量',
+    'GitHub stars': 'GitHub Star 数量',
+    'Let your browser agent work with LMM.': '让浏览器智能体使用 LMM。',
+    'Discover site information, model prices, public scripts, and account status through structured browser tools.':
+      '通过结构化浏览器工具查询站点信息、模型价格、公开脚本和账户状态。',
+    'Available tools': '可用工具',
+    'Browser support': '浏览器支持',
+    'WebMCP is available in this browser.': '此浏览器支持 WebMCP。',
+    'WebMCP is not available in this browser. The normal interface still works.':
+      '此浏览器暂不支持 WebMCP，常规界面仍可正常使用。',
+    'Check browser support': '检测浏览器支持',
+    'Clear boundaries': '工具权限范围',
+    'API keys, passwords, payments, and script execution are not exposed through these tools.':
+      '这些工具不会提供 API 密钥或密码，也不会执行付款或运行脚本。',
+    'WebMCP documentation': 'WebMCP 文档',
+    'Site information and public page links': '站点信息与公开页面链接',
+    'Navigate to supported LMM pages': '打开支持的 LMM 页面',
+    'Public model prices and billing units': '公开模型价格与计费单位',
+    'Current sign-in and access status': '当前登录与访问权限状态',
+    'Public script names and download links': '公开脚本名称与下载链接',
+    'Project repositories and GitHub stars': '项目仓库与 GitHub Star 数量',
+  },
+  'zh-TW': {
+    'View source on GitHub': '檢視 GitHub 原始碼',
+    'Star count unavailable': '暫時無法取得 Star 數量',
+    'GitHub stars': 'GitHub Star 數量',
+    'Let your browser agent work with LMM.': '讓瀏覽器智慧代理使用 LMM。',
+    'Discover site information, model prices, public scripts, and account status through structured browser tools.':
+      '透過結構化瀏覽器工具查詢網站資訊、模型價格、公開腳本及帳戶狀態。',
+    'Available tools': '可用工具',
+    'Browser support': '瀏覽器支援',
+    'WebMCP is available in this browser.': '此瀏覽器支援 WebMCP。',
+    'WebMCP is not available in this browser. The normal interface still works.':
+      '此瀏覽器尚未支援 WebMCP，一般介面仍可正常使用。',
+    'Check browser support': '檢查瀏覽器支援',
+    'Clear boundaries': '工具權限範圍',
+    'API keys, passwords, payments, and script execution are not exposed through these tools.':
+      '這些工具不會提供 API 金鑰或密碼，也不會執行付款或執行腳本。',
+    'WebMCP documentation': 'WebMCP 文件',
+    'Site information and public page links': '網站資訊與公開頁面連結',
+    'Navigate to supported LMM pages': '開啟支援的 LMM 頁面',
+    'Public model prices and billing units': '公開模型價格與計費單位',
+    'Current sign-in and access status': '目前登入與存取權限狀態',
+    'Public script names and download links': '公開腳本名稱與下載連結',
+    'Project repositories and GitHub stars': '專案儲存庫與 GitHub Star 數量',
+  },
+  fr: {
+    'View source on GitHub': 'Voir le code sur GitHub',
+    'Star count unavailable': 'Nombre d’étoiles indisponible',
+    'GitHub stars': 'Étoiles GitHub',
+    'Let your browser agent work with LMM.':
+      'Votre agent de navigateur peut utiliser LMM.',
+    'Discover site information, model prices, public scripts, and account status through structured browser tools.':
+      'Consultez les informations du site, les tarifs des modèles, les scripts publics et l’état du compte via des outils structurés du navigateur.',
+    'Available tools': 'Outils disponibles',
+    'Browser support': 'Compatibilité du navigateur',
+    'WebMCP is available in this browser.':
+      'WebMCP est disponible dans ce navigateur.',
+    'WebMCP is not available in this browser. The normal interface still works.':
+      'WebMCP n’est pas disponible dans ce navigateur. L’interface habituelle reste accessible.',
+    'Check browser support': 'Vérifier la compatibilité',
+    'Clear boundaries': 'Périmètre des outils',
+    'API keys, passwords, payments, and script execution are not exposed through these tools.':
+      'Ces outils ne divulguent ni clés API ni mots de passe, et ne permettent ni paiement ni exécution de scripts.',
+    'WebMCP documentation': 'Documentation WebMCP',
+    'Site information and public page links':
+      'Informations du site et liens publics',
+    'Navigate to supported LMM pages': 'Ouvrir les pages LMM prises en charge',
+    'Public model prices and billing units':
+      'Tarifs publics des modèles et unités de facturation',
+    'Current sign-in and access status': 'État de connexion et droits d’accès',
+    'Public script names and download links':
+      'Noms des scripts publics et liens de téléchargement',
+    'Project repositories and GitHub stars':
+      'Dépôts du projet et étoiles GitHub',
+  },
+  ja: {
+    'View source on GitHub': 'GitHub でソースを見る',
+    'Star count unavailable': 'スター数を取得できません',
+    'GitHub stars': 'GitHub スター数',
+    'Let your browser agent work with LMM.':
+      'ブラウザーのエージェントから LMM を使えます。',
+    'Discover site information, model prices, public scripts, and account status through structured browser tools.':
+      '構造化されたブラウザーツールで、サイト情報、モデル料金、公開スクリプト、アカウント状態を確認できます。',
+    'Available tools': '利用可能なツール',
+    'Browser support': 'ブラウザーの対応状況',
+    'WebMCP is available in this browser.':
+      'このブラウザーは WebMCP に対応しています。',
+    'WebMCP is not available in this browser. The normal interface still works.':
+      'このブラウザーは WebMCP に対応していません。通常の画面はそのまま使えます。',
+    'Check browser support': '対応状況を確認',
+    'Clear boundaries': 'ツールの権限範囲',
+    'API keys, passwords, payments, and script execution are not exposed through these tools.':
+      'これらのツールは API キーやパスワードを公開せず、支払いやスクリプトの実行も行いません。',
+    'WebMCP documentation': 'WebMCP ドキュメント',
+    'Site information and public page links':
+      'サイト情報と公開ページへのリンク',
+    'Navigate to supported LMM pages': '対応する LMM ページを開く',
+    'Public model prices and billing units': '公開モデル料金と課金単位',
+    'Current sign-in and access status': '現在のログイン状態とアクセス権限',
+    'Public script names and download links':
+      '公開スクリプト名とダウンロードリンク',
+    'Project repositories and GitHub stars':
+      'プロジェクトのリポジトリと GitHub スター数',
+  },
+  ru: {
+    'View source on GitHub': 'Исходный код на GitHub',
+    'Star count unavailable': 'Число звёзд недоступно',
+    'GitHub stars': 'Звёзды GitHub',
+    'Let your browser agent work with LMM.':
+      'Работайте с LMM через агента браузера.',
+    'Discover site information, model prices, public scripts, and account status through structured browser tools.':
+      'Получайте сведения о сайте, цены моделей, публичные скрипты и состояние аккаунта через структурированные инструменты браузера.',
+    'Available tools': 'Доступные инструменты',
+    'Browser support': 'Поддержка браузером',
+    'WebMCP is available in this browser.': 'WebMCP доступен в этом браузере.',
+    'WebMCP is not available in this browser. The normal interface still works.':
+      'WebMCP недоступен в этом браузере. Обычный интерфейс продолжает работать.',
+    'Check browser support': 'Проверить поддержку',
+    'Clear boundaries': 'Границы доступа',
+    'API keys, passwords, payments, and script execution are not exposed through these tools.':
+      'Эти инструменты не раскрывают API-ключи и пароли, не выполняют платежи и не запускают скрипты.',
+    'WebMCP documentation': 'Документация WebMCP',
+    'Site information and public page links':
+      'Сведения о сайте и ссылки на публичные страницы',
+    'Navigate to supported LMM pages': 'Переход на поддерживаемые страницы LMM',
+    'Public model prices and billing units':
+      'Публичные цены моделей и единицы тарификации',
+    'Current sign-in and access status': 'Текущее состояние входа и доступа',
+    'Public script names and download links':
+      'Названия публичных скриптов и ссылки для скачивания',
+    'Project repositories and GitHub stars':
+      'Репозитории проекта и звёзды GitHub',
+  },
+  vi: {
+    'View source on GitHub': 'Xem mã nguồn trên GitHub',
+    'Star count unavailable': 'Không tải được số sao',
+    'GitHub stars': 'Số sao GitHub',
+    'Let your browser agent work with LMM.':
+      'Cho phép trợ lý trình duyệt sử dụng LMM.',
+    'Discover site information, model prices, public scripts, and account status through structured browser tools.':
+      'Tra cứu thông tin trang web, giá mô hình, tập lệnh công khai và trạng thái tài khoản qua các công cụ trình duyệt có cấu trúc.',
+    'Available tools': 'Công cụ khả dụng',
+    'Browser support': 'Hỗ trợ trình duyệt',
+    'WebMCP is available in this browser.': 'Trình duyệt này hỗ trợ WebMCP.',
+    'WebMCP is not available in this browser. The normal interface still works.':
+      'Trình duyệt này chưa hỗ trợ WebMCP. Giao diện thông thường vẫn hoạt động.',
+    'Check browser support': 'Kiểm tra hỗ trợ trình duyệt',
+    'Clear boundaries': 'Phạm vi quyền hạn',
+    'API keys, passwords, payments, and script execution are not exposed through these tools.':
+      'Các công cụ này không cung cấp khóa API hay mật khẩu, không thanh toán và không chạy tập lệnh.',
+    'WebMCP documentation': 'Tài liệu WebMCP',
+    'Site information and public page links':
+      'Thông tin trang web và liên kết trang công khai',
+    'Navigate to supported LMM pages': 'Mở các trang LMM được hỗ trợ',
+    'Public model prices and billing units':
+      'Giá mô hình công khai và đơn vị tính phí',
+    'Current sign-in and access status':
+      'Trạng thái đăng nhập và quyền truy cập hiện tại',
+    'Public script names and download links':
+      'Tên tập lệnh công khai và liên kết tải xuống',
+    'Project repositories and GitHub stars':
+      'Kho mã nguồn dự án và số sao GitHub',
+  },
+}
+for (const [locale, values] of Object.entries(webMcpKeys)) {
+  Object.assign(newKeys[locale], values)
+}
+
 main().catch((error) => {
   console.error(error)
   process.exitCode = 1
