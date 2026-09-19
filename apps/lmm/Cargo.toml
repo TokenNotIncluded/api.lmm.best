@@ -1,11 +1,25 @@
 [package]
-name = "lmm"
+name = "lmm-cli"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
-description = "LMM software setup and integration CLI"
+description = "LMM CLI preview: software discovery, setup planning, and read-only OAuth access"
 license = "AGPL-3.0-only"
-publish = false
+publish = ["crates-io"]
+repository = "https://github.com/TokenNotIncluded/api.lmm.best"
+homepage = "https://api.lmm.best"
+readme = "README.md"
+keywords = ["lmm", "cli", "oauth", "ai"]
+categories = ["command-line-utilities"]
+include = ["Cargo.toml", "Cargo.lock", "README.md", "LICENSE", "src/**", "tests/**", "docs/**"]
+
+[lib]
+name = "lmm"
+path = "src/lib.rs"
+
+[[bin]]
+name = "lmm"
+path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.6", features = ["derive"] }
