@@ -29,7 +29,6 @@ pub mod control_tasks;
 pub mod deployment;
 pub mod developer_access;
 pub mod discount_code;
-pub mod dynamic_pricing;
 pub mod epay;
 pub mod finance;
 pub mod finance_export;

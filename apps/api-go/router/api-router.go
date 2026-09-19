@@ -481,16 +481,6 @@ func SetApiRouter(router *gin.Engine) {
 			heroSMSRoute.POST("/sms/orders/:id/cancel", middleware.DisableCache(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("hero-sms-sms-cancel"), middleware.RequestBodyLimit(heroSMSMutationRequestMaxBytes), controller.CancelHeroSMSSMSOrder)
 		}
 
-		dynamicPricingRoute := apiRouter.Group("/dynamic_pricing")
-		dynamicPricingRoute.Use(middleware.AdminAuth())
-		{
-			dynamicPricingRoute.GET("/status", controller.GetDynamicPricingStatus)
-		}
-		dynamicPricingSettingRoute := apiRouter.Group("/dynamic_pricing")
-		dynamicPricingSettingRoute.Use(middleware.RootAuth())
-		{
-			dynamicPricingSettingRoute.PUT("/setting", controller.UpdateDynamicPricingSetting)
-		}
 		// Custom OAuth provider management (root only)
 		customOAuthRoute := apiRouter.Group("/custom-oauth-provider")
 		customOAuthRoute.Use(middleware.RootAuth())

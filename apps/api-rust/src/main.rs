@@ -65,7 +65,6 @@ use lmm_api_rs::{
         },
         developer_access::{DeveloperAccessState, router as developer_access_router},
         discount_code::{DiscountCodeState, router as discount_code_router},
-        dynamic_pricing::{DynamicPricingState, router as dynamic_pricing_router},
         epay::{
             DashboardTopupAuthorizer, DisabledEpayGateway, DisabledTopupRepository, UserTopupState,
             router as epay_router,
@@ -699,14 +698,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             &app_state,
             discount_code_router(DiscountCodeState::new(pg.clone(), Arc::clone(&auth))),
         );
-        let dynamic_pricing = http::api_global_rate_limited_surface(
-            &app_state,
-            dynamic_pricing_router(DynamicPricingState::new(
-                pg.clone(),
-                valkey.clone(),
-                Arc::clone(&auth),
-            )),
-        );
         // Balance purchases are the first payment write family whose complete
         // ledger is local to PostgreSQL. The provider-capable checkout and
         // callback routes remain separately frozen until their Go SDK
@@ -1026,7 +1017,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .merge(user_rankings)
             .merge(gifts)
             .merge(discount_code)
-            .merge(dynamic_pricing)
             .merge(subscription_balance_pay)
             .merge(billing_provider_payments)
             .merge(waffo_webhooks)

@@ -163,7 +163,7 @@ func oauthGroupRatio(user *model.User, group string) *float64 {
 	return oauthNumber(ratio)
 }
 
-func oauthPricing(name string, groupRatio, trustRatio *float64, channelIDs []int, updated int64) OAuthCatalogPricing {
+func oauthPricing(name string, groupRatio, trustRatio *float64, updated int64) OAuthCatalogPricing {
 	p := OAuthCatalogPricing{Currency: "USD", Unit: "unknown", PriceBasis: "unknown", GroupMultiplier: groupRatio, TrustMultiplier: trustRatio, FinalCostDependsOnUsage: true, UpdatedAt: updated}
 	if billing_setting.GetBillingMode(name) == billing_setting.BillingModeTieredExpr {
 		p.Unit, p.PriceBasis = "expression", "tiered_expression"
@@ -233,7 +233,6 @@ func (s *OAuthIntegration) Catalog(ctx context.Context, user *model.User, grant 
 		result.Groups = append(result.Groups, OAuthCatalogGroup{ID: OAuthGroupID(group), Name: group, Scope: OAuthGroupScope(group), Multiplier: oauthGroupRatio(user, group)})
 	}
 	entries := make(map[string]*OAuthCatalogModel)
-	channelIDs := make(map[string]map[int]struct{})
 	for _, row := range rows {
 		apis := oauthAPIs(row.ChannelType, row.Model)
 		if len(apis) == 0 || row.Model == "" || len(row.Model) > 512 {
@@ -244,9 +243,7 @@ func (s *OAuthIntegration) Catalog(ctx context.Context, user *model.User, grant 
 		if entry == nil {
 			entry = &OAuthCatalogModel{ID: id, GroupID: OAuthGroupID(row.Group), Group: row.Group, UpstreamModel: row.Model, Name: row.Group + " / " + row.Model, APIs: []string{}}
 			entries[id] = entry
-			channelIDs[id] = make(map[int]struct{})
 		}
-		channelIDs[id][row.ChannelID] = struct{}{}
 		for _, api := range apis {
 			if !slices.Contains(entry.APIs, api) {
 				entry.APIs = append(entry.APIs, api)
@@ -255,11 +252,7 @@ func (s *OAuthIntegration) Catalog(ctx context.Context, user *model.User, grant 
 	}
 	for _, entry := range entries {
 		slices.Sort(entry.APIs)
-		ids := make([]int, 0, len(channelIDs[entry.ID]))
-		for channelID := range channelIDs[entry.ID] {
-			ids = append(ids, channelID)
-		}
-		entry.Pricing = oauthPricing(entry.UpstreamModel, oauthGroupRatio(user, entry.Group), multiplier, ids, now)
+		entry.Pricing = oauthPricing(entry.UpstreamModel, oauthGroupRatio(user, entry.Group), multiplier, now)
 		entry.NativeCost = entry.Pricing.NativeCost
 		result.Models = append(result.Models, *entry)
 	}
