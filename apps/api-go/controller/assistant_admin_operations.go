@@ -396,7 +396,7 @@ func assistantAdminHandlerReadOnly(method, handler string) bool {
 	switch handler {
 	case
 		"GetOptions", "GetUsdExchangeRate", "GetHeroSMSOptions", "GetProjectUpdate",
-		"GetChannelAffinityCacheStats", "ListWaffoPancakeSubscriptionProductOptions", "GetDynamicPricingStatus", "GetCustomOAuthProvider",
+		"GetChannelAffinityCacheStats", "ListWaffoPancakeSubscriptionProductOptions", "GetCustomOAuthProvider",
 		"GetCustomOAuthProviders", "GetPerformanceStats", "GetLogFiles", "GetSyncableChannels",
 		"GetAllChannels", "SearchChannels", "ChannelListModels", "EnabledListModels",
 		"GetChannelOps", "GetChannel", "GetTagModels", "GetCodexChannelUsage",

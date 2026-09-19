@@ -38,8 +38,6 @@ read and merge the current map before replacing it. A request combining
 unlocking and repricing still preserves the previously locked price.
 
 Locks protect exact configuration keys in the table. Lock a wildcard entry
-itself to protect shared wildcard pricing. Existing user-group ratios and
-the separate [dynamic pricing multiplier](./dynamic-pricing.md) continue to
-apply. This change targets the Go production provider; Rust remains a
+itself to protect shared wildcard pricing. Existing fixed user-group ratios and trust discounts continue to apply. This change targets the Go production provider; Rust remains a
 separate preview implementation. Upgrade Go before enabling the new web
 controls. No data migration is required for existing installations.

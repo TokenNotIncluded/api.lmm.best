@@ -22,6 +22,7 @@ import { useMemo } from 'react'
 import { useStatus } from '@/hooks/use-status'
 
 import { getPricing } from '../api'
+import { useModelRuntime } from './use-model-runtime'
 
 export function usePricingData(options?: { enabled?: boolean }) {
   const { status } = useStatus()
@@ -63,8 +64,20 @@ export function usePricingData(options?: { enabled?: boolean }) {
     })
   }, [data])
 
+  const runtime = useModelRuntime(
+    models.map((model) => model.model_name),
+    options?.enabled ?? true
+  )
+  const liveModels = useMemo(
+    () =>
+      models.map((model) => ({
+        ...model,
+        runtime_state: runtime[model.model_name],
+      })),
+    [models, runtime]
+  )
   return {
-    models,
+    models: liveModels,
     vendors: data?.vendors ?? [],
     groupRatio: data?.group_ratio ?? {},
     usableGroup: data?.usable_group ?? {},

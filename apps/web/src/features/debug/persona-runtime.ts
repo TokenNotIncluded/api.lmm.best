@@ -583,8 +583,10 @@ const debugAdapter: AxiosAdapter = async (config) => {
       })
     )
   }
-  if (method === 'GET' && path === '/api/acquisition/self-report')
-    return response(config, envelope(null))
+  if (method === 'GET' && path === '/api/acquisition/self-report') return response(config, envelope(null))
+  if (method === 'GET' && path === '/api/log/self') return response(config, envelope({items:[],total:0,page:1,page_size:1}))
+  if (method === 'GET' && path === '/api/admin/acquisition/visitors') return response(config, envelope({from:now-30*86400,to:now,available_from:now-20*86400,coverage_complete:false,observed_visitors:5,channels:[{source:'documentation',visitors:3},{source:'unknown',visitors:2}]}))
+  if (method === 'GET' && path === '/api/admin/acquisition/funnel') return response(config, envelope({from:now-30*86400,to:now,observed_until:now,observation_days:30,attribution:'registration',payment_snapshot_updated_at:now,payment_snapshot_status:'ready',unavailable:['historical_permission_events'],first_payment_sources:[{source:'documentation',evidence:'promotion_link',rule:'last_external_before_payment_v1',lookback_days:30,inferred:true,accounts:1}],channels:[{source:'documentation',registrations:3,mature_accounts:1,observing_accounts:2,stages:['application_submitted','access_approved','oauth_authorized','api_key_created','credential_ready','client_configured','first_successful_request','first_payment','repeat_payment'].map(id=>({id,observed:id==='client_configured'?0:1,not_observed:0,unknown:id==='client_configured'?3:0,mature_observed:id==='client_configured'?0:1,mature_known:id==='client_configured'?0:1,observing:2,conversion_rate:id==='client_configured'?null:1,timing_accounts:id==='client_configured'?0:1,mean_seconds_from_registration:id==='client_configured'?null:3600}))}]}))
   if (method === 'GET' && path === '/api/admin/acquisition/report') {
     return response(
       config,

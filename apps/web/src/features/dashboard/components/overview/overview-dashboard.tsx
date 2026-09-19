@@ -1,3 +1,4 @@
+import { AccountStatus } from '@/features/onboarding/account-status'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -16,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { AccountStatus } from '@/features/onboarding/account-status'
+import { LatestRequestCard } from '@/features/onboarding/latest-request-card'
 import { ROLE } from '@/lib/roles'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
@@ -44,7 +45,12 @@ export function OverviewDashboard() {
 
   return (
     <div className='dashboard-editorial flex flex-col gap-10'>
-      {!isAdmin && <AccountStatus />}
+      {!isAdmin && (
+        <>
+          <AccountStatus />
+          <LatestRequestCard />
+        </>
+      )}
       <SummaryCards />
 
       {showContentPanels && (

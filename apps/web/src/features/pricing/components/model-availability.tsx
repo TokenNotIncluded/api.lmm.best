@@ -21,9 +21,11 @@ import { Button } from '@/components/ui/button'
 import { getPerfMetrics } from '@/features/performance-metrics/api'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { useModelRuntime } from '../hooks/use-model-runtime'
 import { getRecentModelObservation } from '../lib/model-availability'
 import { getAvailableGroups } from '../lib/model-helpers'
 import type { PricingModel } from '../types'
+import { ModelRuntimeBadge } from './model-runtime-badge'
 
 export function ModelAvailability({
   model,
@@ -33,6 +35,8 @@ export function ModelAvailability({
   usableGroup: Record<string, { desc: string; ratio: number }>
 }) {
   const { t } = useTranslation()
+  const runtime = useModelRuntime([model.model_name], !model.runtime_state)
+  const current = model.runtime_state ?? runtime[model.model_name]
   const user = useAuthStore((state) => state.auth.user)
   const metrics = useQuery({
     queryKey: ['perf-metrics', model.model_name],
@@ -67,6 +71,38 @@ export function ModelAvailability({
       className='space-y-2 border-b pb-4'
       aria-label={t('Model availability')}
     >
+      <p className='text-sm font-medium'>
+        <ModelRuntimeBadge state={current} />
+      </p>
+      {current && (
+        <p className='text-muted-foreground text-xs'>
+          {t(
+            current.source === 'administrator_notice'
+              ? 'Administrator status notice'
+              : 'Current routing configuration'
+          )}{' '}
+          ·{' '}
+          <time dateTime={new Date(current.observed_at * 1000).toISOString()}>
+            {new Date(current.observed_at * 1000).toLocaleString()}
+          </time>
+        </p>
+      )}
+      {current?.notice && (
+        <p className='text-sm break-words whitespace-pre-wrap'>
+          {current.notice}
+        </p>
+      )}
+      {!!current?.expires_at && (
+        <p className='text-muted-foreground text-xs'>
+          {t('Status notice expires')}:{' '}
+          {new Date(current.expires_at * 1000).toLocaleString()}
+        </p>
+      )}
+      <p className='text-muted-foreground text-xs'>
+        {t(
+          'Routing availability is a configuration snapshot, not an upstream health probe. Administrator notices do not change request routing.'
+        )}
+      </p>
       <p className='text-sm font-medium'>{access}</p>
       {(!user || user.developer_access_granted !== true) && (
         <a

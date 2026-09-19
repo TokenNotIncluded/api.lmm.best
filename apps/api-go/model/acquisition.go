@@ -66,6 +66,7 @@ type AcquisitionAccount struct {
 	RegistrationVisitID  int64  `json:"registration_visit_id"`
 	RegistrationSource   string `json:"registration_source" gorm:"type:varchar(80);index"`
 	RegistrationLinkID   string `json:"registration_link_id" gorm:"type:varchar(32);index"`
+	RegistrationContent  string `json:"registration_content" gorm:"type:varchar(80)"`
 	RegistrationCampaign string `json:"registration_campaign" gorm:"type:varchar(80)"`
 	RegistrationEvidence string `json:"registration_evidence" gorm:"type:varchar(32)"`
 	RegistrationAt       int64  `json:"registration_at" gorm:"index"`
@@ -337,6 +338,7 @@ func AttributeAcquisitionRegistration(ctx context.Context, userID int, visitorID
 					account.RegistrationSource = selected.Source
 					account.RegistrationLinkID = selected.LinkID
 					account.RegistrationCampaign = selected.Campaign
+					account.RegistrationContent = selected.Content
 					account.RegistrationEvidence = selected.Evidence
 				} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 					return err

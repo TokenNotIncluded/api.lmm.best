@@ -94,10 +94,9 @@ discount), and `trust_discount_ratio`.
   per request after the group/trust factor.
 - `tiered_expr` / `expression`: `billing_expression` is the live billing rule;
   no false fixed price is returned for a usage-dependent expression.
-- `dynamic_pricing: true` means channel selection/time-dependent adjustments may
-  change the final rate. Returned numbers are configured base rates, not a locked
-  quote. Images, audio, tools, resolution/quality and cache-duration policies can
-  add or alter charges. Final cost is determined by the actual request and usage.
+- Returned numbers are configured rates, not a locked quote. Images, audio,
+  tools, resolution/quality and cache-duration policies can add or alter charges.
+  Final cost is determined by the actual request and usage.
 
 Price configuration is read from the same live settings used for billing.
 The available-model catalog is cached; newly enabled models can appear after

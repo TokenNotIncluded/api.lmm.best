@@ -293,7 +293,7 @@ export function PricingToolbar(props: PricingToolbarProps) {
           </p>
           <p>
             {t(
-              'Base prices exclude dynamic profit multipliers and usage discounts. USD estimates also exclude payment discounts and fees; checkout confirms the payable amount.'
+              'Base prices exclude usage discounts. USD estimates also exclude payment discounts and fees; checkout confirms the payable amount.'
             )}
           </p>
         </AlertDescription>

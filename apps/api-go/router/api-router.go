@@ -174,6 +174,7 @@ func SetApiRouter(router *gin.Engine) {
 		// Nginx uses /internal/access-ip-policy outside the API rate-limit group.
 		apiRouter.GET("/internal/access-ip-policy", middleware.DisableCache(), controller.CheckIPAccessRoutingPolicy)
 		apiRouter.GET("/pricing", middleware.HeaderNavModuleAuth("pricing"), controller.GetPricing)
+		apiRouter.POST("/pricing/runtime", middleware.RequestBodyLimit(64<<10), middleware.HeaderNavModuleAuth("pricing"), controller.GetModelRuntimeStates)
 		perfMetricsRoute := apiRouter.Group("/perf-metrics")
 		perfMetricsRoute.Use(middleware.HeaderNavModulePublicOrUserAuth("pricing"))
 		{

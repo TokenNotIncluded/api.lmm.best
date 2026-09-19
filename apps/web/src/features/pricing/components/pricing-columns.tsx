@@ -44,6 +44,7 @@ import {
 import type { PricingModel, TokenUnit } from '../types'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelPerfStatus } from './model-perf-badge'
+import { ModelRuntimeBadge } from './model-runtime-badge'
 
 // ----------------------------------------------------------------------------
 // Pricing Table Columns
@@ -460,7 +461,12 @@ export function usePricingColumns(
       header: t('Status'),
       cell: ({ row }) => {
         const perf = getPerf(row.original.model_name)
-        return <ModelPerfStatus perf={perf} />
+        return (
+          <div className='space-y-1'>
+            <ModelRuntimeBadge state={row.original.runtime_state} />
+            <ModelPerfStatus perf={perf} />
+          </div>
+        )
       },
       size: 130,
       enableSorting: false,

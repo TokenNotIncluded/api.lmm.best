@@ -51,7 +51,10 @@ func GrantAcquisitionConsent(ctx context.Context, userID int) error {
 }
 
 func revokeAcquisitionAccountTx(tx *gorm.DB, userID int) error {
-	// All consent mutations lock the analytics account before the preference;
+	if _, err := lockAcquisitionCorrection(tx, userID); err != nil {
+		return err
+	}
+	// Corrections lock first, then the analytics account and preference;
 	// no lock is taken on the billing/authentication user row.
 	stub := AcquisitionAccount{UserID: userID, RegistrationSource: "unknown", CreatedAt: time.Now().Unix()}
 	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&stub).Error; err != nil {
@@ -64,6 +67,15 @@ func revokeAcquisitionAccountTx(tx *gorm.DB, userID int) error {
 		return err
 	}
 	if err := tx.Where("user_id = ?", userID).Delete(&AcquisitionActivity{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("user_id = ?", userID).Delete(&AcquisitionCorrection{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("user_id = ?", userID).Delete(&AcquisitionCorrectionHead{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("user_id = ?", userID).Delete(&AcquisitionFirstPayment{}).Error; err != nil {
 		return err
 	}
 	return tx.Where("user_id = ?", userID).Delete(&AcquisitionAccount{}).Error
