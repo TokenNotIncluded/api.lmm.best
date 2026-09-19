@@ -619,6 +619,16 @@ func CreateHeroSMSSMSOrder(ctx context.Context, userID int, request HeroSMSSMSPu
 	if currentMultiplier.String() != quote.Multiplier {
 		return nil, 0, 0, newHeroSMSError(http.StatusConflict, "PRICE_CHANGED", "HeroSMS price multiplier changed")
 	}
+	// Replay paid attempts above, then reject new unaffordable purchases before
+	// provider I/O can mask the real reason. Reservation still rechecks atomically.
+	if err := CheckHeroSMSSMSPurchaseBalance(ctx, userID); err != nil {
+		// A concurrent identical attempt may have reserved the balance since
+		// the initial lookup. Its committed order remains the replay authority.
+		if view, quota, status, found, replayErr := replayHeroSMSSMSIdempotentOrder(userID, idempotencyHash, payloadHash); found || replayErr != nil {
+			return view, quota, status, replayErr
+		}
+		return nil, 0, 0, err
+	}
 	providerOffer, err := client.GetSMSOffer(ctx, quote.CountryID, quote.Service)
 	if err != nil {
 		return nil, 0, 0, mapHeroSMSProviderError(err)
@@ -758,6 +768,26 @@ func CreateHeroSMSSMSOrder(ctx context.Context, userID int, request HeroSMSSMSPu
 	return view, newQuota, http.StatusCreated, nil
 }
 
+// CheckHeroSMSSMSPurchaseBalance gates new-purchase catalogs and attempts only.
+// Existing orders, cancellation and idempotent replay do not use this gate.
+func CheckHeroSMSSMSPurchaseBalance(ctx context.Context, userID int) error {
+	if userID <= 0 {
+		return newHeroSMSError(http.StatusUnauthorized, "UNAUTHORIZED", "authentication required")
+	}
+	var user User
+	if err := DB.WithContext(ctx).Select("quota").First(&user, userID).Error; err != nil {
+		return err
+	}
+	return heroSMSSMSMinimumBalanceError(user.Quota, common.GetTrustQuota())
+}
+
+func heroSMSSMSMinimumBalanceError(quota, minimumQuota int) error {
+	if quota < minimumQuota {
+		return newHeroSMSError(http.StatusPaymentRequired, "TEMPORARY_SMS_MINIMUM_BALANCE", "Temporary SMS purchases require a balance of at least USD 10")
+	}
+	return nil
+}
+
 func reserveHeroSMSSMSQuota(order *HeroSMSSMSOrder) (int, error) {
 	newQuota := 0
 	err := DB.Transaction(func(tx *gorm.DB) error {
@@ -768,8 +798,8 @@ func reserveHeroSMSSMSQuota(order *HeroSMSSMSOrder) (int, error) {
 		// This is a starting-balance floor for new purchases, not a surcharge
 		// or a minimum remaining balance. Existing orders replay before this transaction.
 		minimumQuota := common.GetTrustQuota()
-		if user.Quota < minimumQuota {
-			return newHeroSMSError(http.StatusPaymentRequired, "TEMPORARY_SMS_MINIMUM_BALANCE", "Temporary SMS purchases require a balance of at least USD 10")
+		if err := heroSMSSMSMinimumBalanceError(user.Quota, minimumQuota); err != nil {
+			return err
 		}
 		if user.Quota < order.ChargeQuota {
 			return newHeroSMSError(http.StatusPaymentRequired, "INSUFFICIENT_BALANCE", "insufficient quota balance")
