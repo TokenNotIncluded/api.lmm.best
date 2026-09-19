@@ -22,6 +22,7 @@ Copyright (C) 2026 LIghtJUNction
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
+import { Window } from 'happy-dom'
 import { createInstance } from 'i18next'
 import type { ComponentProps, ReactElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -102,16 +103,15 @@ function render(element: ReactElement) {
 }
 
 function button(markup: string, text: string) {
-  const buttons = markup.match(/<button\b[^>]*>[\s\S]*?<\/button>/g) ?? []
-  const result = buttons.find(
-    (candidate) => candidate.replaceAll(/<[^>]*>/g, '').trim() === text
-  )
+  const window = new Window()
+  window.document.body.innerHTML = markup
+  const result = [...window.document.querySelectorAll('button')]
+    .find((candidate) => candidate.textContent?.trim() === text)
   assert.ok(result, `missing button: ${text}`)
-  const attributes = result
-    .slice(0, result.indexOf('>') + 1)
-    .replaceAll(/="[^"]*"/g, '=""')
   // Inspect the native attribute, not Tailwind's disabled: style variants.
-  return /\sdisabled(?:\s|=|>)/.test(attributes) ? 'disabled' : 'enabled'
+  const state = result.hasAttribute('disabled') ? 'disabled' : 'enabled'
+  window.close()
+  return state
 }
 
 describe('SMS balance notice and action boundaries', () => {

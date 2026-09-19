@@ -456,14 +456,40 @@ async fn clear_self_oauth_binding(
     Extension(identity): Extension<ProfileIdentity>,
     Path(binding_type): Path<String>,
 ) -> Result<Response, ProfileError> {
-    let Some((column, provider)) = self_oauth_binding_column(&binding_type) else {
-        // Go's controller keeps this legacy API error at HTTP 200 and exposes
-        // only the success/message envelope for invalid binding names.
-        return Ok(Json(serde_json::json!({
-            "success": false,
-            "message": "invalid parameters"
-        }))
-        .into_response());
+    let (provider, statement) = match binding_type.trim().to_ascii_lowercase().as_str() {
+        "github" => (
+            "github",
+            "UPDATE users SET github_id = '' WHERE id = $1 AND deleted_at IS NULL",
+        ),
+        "discord" => (
+            "discord",
+            "UPDATE users SET discord_id = '' WHERE id = $1 AND deleted_at IS NULL",
+        ),
+        "oidc" => (
+            "oidc",
+            "UPDATE users SET oidc_id = '' WHERE id = $1 AND deleted_at IS NULL",
+        ),
+        "wechat" => (
+            "wechat",
+            "UPDATE users SET wechat_id = '' WHERE id = $1 AND deleted_at IS NULL",
+        ),
+        "telegram" => (
+            "telegram",
+            "UPDATE users SET telegram_id = '' WHERE id = $1 AND deleted_at IS NULL",
+        ),
+        "linuxdo" => (
+            "linuxdo",
+            "UPDATE users SET linux_do_id = '' WHERE id = $1 AND deleted_at IS NULL",
+        ),
+        _ => {
+            // Go's controller keeps this legacy API error at HTTP 200 and exposes
+            // only the success/message envelope for invalid binding names.
+            return Ok(Json(serde_json::json!({
+                "success": false,
+                "message": "invalid parameters"
+            }))
+            .into_response());
+        }
     };
     let mut transaction = state
         .pg
@@ -480,8 +506,7 @@ async fn clear_self_oauth_binding(
     if exists.is_none() {
         return Err(ProfileError::not_found());
     }
-    let statement = format!("UPDATE users SET {column} = '' WHERE id = $1 AND deleted_at IS NULL");
-    sqlx::query(&statement)
+    sqlx::query(statement)
         .bind(identity.user_id)
         .execute(&mut *transaction)
         .await

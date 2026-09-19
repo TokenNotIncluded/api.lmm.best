@@ -12,7 +12,7 @@ use std::{
 
 use aes_gcm::{
     Aes256Gcm, Nonce,
-    aead::{Aead, KeyInit},
+    aead::{Aead, AeadCore, KeyInit, OsRng},
 };
 use async_trait::async_trait;
 use axum::{
@@ -24,7 +24,6 @@ use axum::{
     routing::{delete, get, post},
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use rand::RngCore;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -2545,13 +2544,11 @@ fn weak_key_material(secret: &str) -> bool {
 fn encrypt_persistent(purpose: &str, plaintext: &str) -> Result<String, HeroSmsApiError> {
     let key = persistent_key(purpose)?;
     let cipher = Aes256Gcm::new_from_slice(&key).map_err(|_| not_configured())?;
-    let mut nonce_bytes = [0_u8; 12];
-    rand::rng().fill_bytes(&mut nonce_bytes);
-    let nonce = Nonce::from_slice(&nonce_bytes);
+    let nonce = Aes256Gcm::generate_nonce(OsRng);
     let ciphertext = cipher
-        .encrypt(nonce, plaintext.as_bytes())
+        .encrypt(&nonce, plaintext.as_bytes())
         .map_err(|_| not_configured())?;
-    let mut payload = nonce_bytes.to_vec();
+    let mut payload = nonce.to_vec();
     payload.extend(ciphertext);
     Ok(format!(
         "{PERSISTENT_CIPHER_ENVELOPE}{}",

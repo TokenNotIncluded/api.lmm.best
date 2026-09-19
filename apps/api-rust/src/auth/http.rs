@@ -2189,11 +2189,7 @@ mod tests {
                 .with_anonymous_body_limit_bytes(16),
         );
         let response = router
-            .oneshot(login_request(
-                "alice",
-                "a password larger than the limit",
-                None,
-            )?)
+            .oneshot(login_request("alice", &oversized_test_password(), None)?)
             .await?;
         assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
         assert!(lock_unpoisoned(&auth.next).is_some());
@@ -2217,7 +2213,11 @@ mod tests {
                     .uri("/api/user/login?turnstile=demo-token")
                     .header(header::CONTENT_TYPE, "application/json")
                     .body(Body::from(
-                        r#"{"username":"alice","password":"a password larger than the limit"}"#,
+                        serde_json::json!({
+                            "username": "alice",
+                            "password": oversized_test_password(),
+                        })
+                        .to_string(),
                     ))?,
             )
             .await?;
@@ -2324,7 +2324,7 @@ mod tests {
         });
         let response =
             auth_router(AuthHttpState::new(auth.clone(), false).with_password_login_enabled(true))
-                .oneshot(login_request("alice", "pw", None)?)
+                .oneshot(login_request("alice", &test_password(), None)?)
                 .await?;
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
         assert_eq!(response.headers()[header::RETRY_AFTER], "37");
@@ -2340,7 +2340,7 @@ mod tests {
         auth_router(AuthHttpState::new(untrusted.clone(), false).with_password_login_enabled(true))
             .oneshot(login_request(
                 "alice",
-                "pw",
+                &test_password(),
                 Some(("198.51.100.20:443", "203.0.113.99")),
             )?)
             .await?;
@@ -2350,7 +2350,7 @@ mod tests {
         auth_router(AuthHttpState::new(trusted.clone(), false).with_password_login_enabled(true))
             .oneshot(login_request(
                 "alice",
-                "pw",
+                &test_password(),
                 Some(("127.0.0.1:443", "203.0.113.99")),
             )?)
             .await?;
@@ -2392,6 +2392,14 @@ mod tests {
             request.extensions_mut().insert(ClientIpKey(ip.to_string()));
         }
         Ok(request)
+    }
+
+    fn test_password() -> String {
+        std::iter::repeat_n('x', 16).collect()
+    }
+
+    fn oversized_test_password() -> String {
+        std::iter::repeat_n('x', 32).collect()
     }
 
     async fn response_json(response: Response) -> TestResult<Value> {
