@@ -289,6 +289,7 @@ interface SmsCatalogQueryOptions {
   operator: string
   bidMaxPriceUSD: string
   pageVisible: boolean
+  catalogEnabled: boolean
 }
 
 function useSmsCatalogQueries({
@@ -297,27 +298,32 @@ function useSmsCatalogQueries({
   operator,
   bidMaxPriceUSD,
   pageVisible,
+  catalogEnabled,
 }: SmsCatalogQueryOptions) {
   const allCountries = useQuery({
     queryKey: smsKeys.countries(),
     queryFn: () => listHeroSmsSmsCountries(),
+    enabled: catalogEnabled,
+    retry: false,
     staleTime: 5 * 60 * 1000,
   })
   const countries = useQuery({
     queryKey: smsKeys.countries(service),
     queryFn: () => listHeroSmsSmsCountries(service),
-    enabled: service !== '',
+    enabled: catalogEnabled && service !== '',
     staleTime: 5 * 60 * 1000,
   })
   const services = useQuery({
     queryKey: smsKeys.services,
     queryFn: listHeroSmsSmsServices,
+    enabled: catalogEnabled,
+    retry: false,
     staleTime: 5 * 60 * 1000,
   })
   const operators = useQuery({
     queryKey: smsKeys.operators(country),
     queryFn: () => listHeroSmsSmsOperators(Number(country)),
-    enabled: country !== '',
+    enabled: catalogEnabled && country !== '',
     staleTime: 5 * 60 * 1000,
     retry: false,
   })
@@ -329,7 +335,7 @@ function useSmsCatalogQueries({
         service,
         operator: operator.trim() || undefined,
       }),
-    enabled: country !== '' && service !== '',
+    enabled: catalogEnabled && country !== '' && service !== '',
     retry: false,
   })
   const bidOffer = useQuery({
@@ -342,6 +348,7 @@ function useSmsCatalogQueries({
         maxPriceUSD: bidMaxPriceUSD,
       }),
     enabled:
+      catalogEnabled &&
       country !== '' &&
       service !== '' &&
       Number.isFinite(Number(bidMaxPriceUSD)) &&
@@ -378,6 +385,7 @@ interface SmsMarketplaceQueryOptions {
   bidEnabled: boolean
   bidPrice: string
   pageVisible: boolean
+  catalogEnabled: boolean
 }
 
 function useSmsMarketplaceQueries({
@@ -388,6 +396,7 @@ function useSmsMarketplaceQueries({
   bidEnabled,
   bidPrice,
   pageVisible,
+  catalogEnabled,
 }: SmsMarketplaceQueryOptions) {
   const normalizedBidPrice = bidEnabled ? bidPrice.trim() : ''
   const debouncedBidPrice = useDebounce(normalizedBidPrice, 400)
@@ -397,6 +406,7 @@ function useSmsMarketplaceQueries({
     operator,
     bidMaxPriceUSD: debouncedBidPrice,
     pageVisible,
+    catalogEnabled,
   })
   const tierOffer = queries.offer.data
     ? selectHeroSmsPriceTier(queries.offer.data, selectedTierPrice)
@@ -713,6 +723,7 @@ export function HeroSmsSmsActivationPanel() {
     bidEnabled,
     bidPrice,
     pageVisible,
+    catalogEnabled: purchaseBalance.canPurchase,
   })
 
   const historyDetailQuery = useQuery({
@@ -889,9 +900,10 @@ export function HeroSmsSmsActivationPanel() {
     t,
   })
   const catalogError = queries.services.error ?? queries.allCountries.error
-  const catalogFeedback = catalogError
-    ? describeSmsAccessError(catalogError, t)
-    : null
+  const catalogFeedback =
+    purchaseBalance.canPurchase && catalogError
+      ? describeSmsAccessError(catalogError, t)
+      : null
 
   return (
     <div className='space-y-6'>
@@ -905,75 +917,83 @@ export function HeroSmsSmsActivationPanel() {
         {...purchaseBalance}
         onRefresh={() => void purchaseBalance.refresh()}
       />
-      <div className='grid gap-4 xl:grid-cols-[minmax(0,430px)_minmax(0,1fr)]'>
-        <SmsPurchaseCard
-          language={language}
-          services={queries.services.data ?? []}
-          countries={queries.countries.data ?? []}
-          favoriteCountries={queries.allCountries.data ?? []}
-          servicesState={{
-            isPending: queries.services.isPending,
-            isError: queries.services.isError,
-            onRetry: () => void queries.services.refetch(),
-          }}
-          countriesState={{
-            isPending: queries.countries.isPending,
-            isError: queries.countries.isError,
-            onRetry: () => void queries.countries.refetch(),
-          }}
-          favorites={favorites}
-          channel={receivingChannel}
-          service={service}
-          country={country}
-          operator={operator}
-          operators={queries.operators.data ?? []}
-          operatorsState={{
-            isPending: queries.operators.isPending,
-            isError: queries.operators.isError,
-            onRetry: () => void queries.operators.refetch(),
-          }}
-          selectedTierPrice={selectedTierPrice}
-          bidEnabled={bidEnabled}
-          bidPrice={bidPrice}
-          quantity={view.effectiveQuantity}
-          selectedService={selectedService}
-          selectedCountry={selectedCountry}
-          selectedIsFavorite={favoriteController.selected}
-          offer={effectiveOffer}
-          catalogOffer={queries.offer.data}
-          offerIsFetching={effectiveOfferQuery.isFetching}
-          offerIsError={effectiveOfferQuery.isError}
-          offerError={effectiveOfferQuery.error}
-          batchProgress={batchProgress}
-          batchResult={batchResult}
-          batchFeedback={view.batchFeedback}
-          canPurchase={view.canPurchase && purchaseBalance.canPurchase}
-          reconciliationPending={
-            reconciliation.pending || queries.current.isFetching
-          }
-          onChannelChange={selectReceivingChannel}
-          onServiceChange={selectService}
-          onCountryChange={selectCountry}
-          onOperatorChange={selectOperator}
-          onTierChange={(price) => {
-            setSelectedTierPrice(price)
-            setBidEnabled(false)
-          }}
-          onBidEnabledChange={setBidEnabled}
-          onBidPriceChange={(value) => {
-            setBidPrice(value)
-            setBidEnabled(true)
-          }}
-          onQuantityChange={setQuantity}
-          onSelectFavorite={selectFavorite}
-          onRemoveFavorite={favoriteController.remove}
-          onToggleFavorite={favoriteController.toggle}
-          onRefreshOffer={() => void refetchEffectiveOffer()}
-          onReconcile={() => void reconciliation.run()}
-          onPurchase={() => {
-            if (purchaseBalance.canPurchase) setConfirmOpen(true)
-          }}
-        />
+      <div
+        className={
+          purchaseBalance.canPurchase
+            ? 'grid gap-4 xl:grid-cols-[minmax(0,430px)_minmax(0,1fr)]'
+            : 'space-y-4'
+        }
+      >
+        {purchaseBalance.canPurchase && (
+          <SmsPurchaseCard
+            language={language}
+            services={queries.services.data ?? []}
+            countries={queries.countries.data ?? []}
+            favoriteCountries={queries.allCountries.data ?? []}
+            servicesState={{
+              isPending: queries.services.isPending,
+              isError: queries.services.isError,
+              onRetry: () => void queries.services.refetch(),
+            }}
+            countriesState={{
+              isPending: queries.countries.isPending,
+              isError: queries.countries.isError,
+              onRetry: () => void queries.countries.refetch(),
+            }}
+            favorites={favorites}
+            channel={receivingChannel}
+            service={service}
+            country={country}
+            operator={operator}
+            operators={queries.operators.data ?? []}
+            operatorsState={{
+              isPending: queries.operators.isPending,
+              isError: queries.operators.isError,
+              onRetry: () => void queries.operators.refetch(),
+            }}
+            selectedTierPrice={selectedTierPrice}
+            bidEnabled={bidEnabled}
+            bidPrice={bidPrice}
+            quantity={view.effectiveQuantity}
+            selectedService={selectedService}
+            selectedCountry={selectedCountry}
+            selectedIsFavorite={favoriteController.selected}
+            offer={effectiveOffer}
+            catalogOffer={queries.offer.data}
+            offerIsFetching={effectiveOfferQuery.isFetching}
+            offerIsError={effectiveOfferQuery.isError}
+            offerError={effectiveOfferQuery.error}
+            batchProgress={batchProgress}
+            batchResult={batchResult}
+            batchFeedback={view.batchFeedback}
+            canPurchase={view.canPurchase && purchaseBalance.canPurchase}
+            reconciliationPending={
+              reconciliation.pending || queries.current.isFetching
+            }
+            onChannelChange={selectReceivingChannel}
+            onServiceChange={selectService}
+            onCountryChange={selectCountry}
+            onOperatorChange={selectOperator}
+            onTierChange={(price) => {
+              setSelectedTierPrice(price)
+              setBidEnabled(false)
+            }}
+            onBidEnabledChange={setBidEnabled}
+            onBidPriceChange={(value) => {
+              setBidPrice(value)
+              setBidEnabled(true)
+            }}
+            onQuantityChange={setQuantity}
+            onSelectFavorite={selectFavorite}
+            onRemoveFavorite={favoriteController.remove}
+            onToggleFavorite={favoriteController.toggle}
+            onRefreshOffer={() => void refetchEffectiveOffer()}
+            onReconcile={() => void reconciliation.run()}
+            onPurchase={() => {
+              if (purchaseBalance.canPurchase) setConfirmOpen(true)
+            }}
+          />
+        )}
         <SmsActiveOrdersCard
           orders={currentOrders}
           countries={countryMap}

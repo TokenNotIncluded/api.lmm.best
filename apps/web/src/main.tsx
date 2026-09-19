@@ -67,7 +67,7 @@ const queryClient = new QueryClient({
 
         return !(
           error instanceof AxiosError &&
-          [401, 403].includes(error.response?.status ?? 0)
+          [401, 402, 403].includes(error.response?.status ?? 0)
         )
       },
       // Keep focused tabs from silently re-running heavy pages like logs.
@@ -89,7 +89,7 @@ const queryClient = new QueryClient({
   queryCache: new QueryCache({
     onError: (error) => {
       if (error instanceof AxiosError) {
-        if (error.response?.status === 500) {
+        if (error.response?.status === 500 && !error.config?.skipErrorHandler) {
           toast.error(i18next.t('Internal Server Error!'))
         }
       }
