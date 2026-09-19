@@ -8,185 +8,235 @@ export type CoreFace = {
   hinge: number
   shine: number
 }
-const copper = [189, 128, 78] as const
-const alloy = [206, 211, 190] as const
-const board = [32, 64, 57] as const
-const ceramic = [36, 43, 41] as const
-const gold = [211, 175, 108] as const
+export type SignalPath = { points: CorePoint[]; color: CoreFace['color'] }
+const copper = [206, 132, 89] as const
+const ivory = [236, 229, 207] as const
+const jade = [132, 164, 132] as const
+const gold = [222, 181, 113] as const
 const smooth = (a: number, b: number, p: number) => {
   const t = Math.min(1, Math.max(0, (p - a) / (b - a)))
   return t * t * (3 - 2 * t)
 }
+const point = (x: number, y: number, z: number): CorePoint => ({ x, y, z })
+const heads = [-0.96, -0.32, 0.32, 0.96]
 
-/** Authored beveled plates, chip packages, contacts and bus traces, not a stock torus. */
+/** Conceptual token → parallel attention → feed-forward → output flow, not a model specification. */
+export function createSignalPaths(): SignalPath[] {
+  const paths: SignalPath[] = []
+  for (let i = 0; i < 12; i++) {
+    const inputX = (i - 5.5) * 0.19
+    const headX = heads[i % heads.length]
+    const z = ((i % 3) - 1) * 0.34
+    const points = Array.from({ length: 49 }, (_, j) => {
+      const t = j / 48
+      const y = -1.72 + t * 3.44
+      const branch = Math.sin(Math.PI * t) ** 2
+      return point(
+        inputX * (1 - branch) + headX * branch,
+        y,
+        z + Math.sin(t * Math.PI * 2 + i * 0.3) * 0.15 * branch
+      )
+    })
+    paths.push({ points, color: i % 3 === 0 ? copper : ivory })
+  }
+  // Residual routes bypass the attention block and rejoin above it.
+  for (const side of [-1, 1]) {
+    paths.push({
+      points: Array.from({ length: 65 }, (_, j) => {
+        const t = j / 64
+        return point(
+          side * (0.45 + Math.sin(Math.PI * t) * 1.03),
+          -1.25 + t * 2.65,
+          -0.15 + Math.sin(t * Math.PI) * 0.15
+        )
+      }),
+      color: gold,
+    })
+  }
+  return paths
+}
+
+/** Sculpted attention ribbons and token facets; no external model or GPU runtime. */
 export function createCoreMesh(): CoreFace[] {
   const faces: CoreFace[] = []
-  const plate = (
-    x: number,
-    y: number,
-    z: number,
-    w: number,
-    h: number,
-    depth: number,
+  const face = (
+    points: CorePoint[],
     color: CoreFace['color'],
-    layer: number,
-    cut = 0.035,
+    layer = 0,
     hinge = 0,
     shine = 1
   ) => {
-    const a = w / 2,
-      b = h / 2,
-      c = Math.min(cut, a / 2, b / 2)
-    const outline = [
-      [-a + c, -b],
-      [a - c, -b],
-      [a, -b + c],
-      [a, b - c],
-      [a - c, b],
-      [-a + c, b],
-      [-a, b - c],
-      [-a, -b + c],
-    ]
-    const front = outline.map(([px, py]) => ({
-      x: x + px,
-      y: y + py,
-      z: z + depth / 2,
-    }))
-    const back = front.map((p) => ({ ...p, z: z - depth / 2 }))
-    faces.push({
-      points: front,
-      normal: { x: 0, y: 0, z: 1 },
-      color,
-      layer,
-      hinge,
-      shine,
+    faces.push({ points, normal: point(0, 0, 1), color, layer, hinge, shine })
+  }
+  const ribbon = (
+    curve: (t: number) => CorePoint,
+    width: number,
+    color: CoreFace['color'],
+    layer: number,
+    hinge: number,
+    segments = 48
+  ) => {
+    const rails = Array.from({ length: segments + 1 }, (_, i) => {
+      const t = i / segments
+      const p = curve(t)
+      const twist = t * Math.PI * 2 + hinge * 0.6
+      const dx = (Math.cos(twist) * width) / 2
+      const dz = (Math.sin(twist) * width) / 2
+      return [point(p.x - dx, p.y, p.z - dz), point(p.x + dx, p.y, p.z + dz)]
     })
-    faces.push({
-      points: [...back].reverse(),
-      normal: { x: 0, y: 0, z: -1 },
-      color,
-      layer,
-      hinge,
-      shine,
-    })
-    for (let i = 0; i < front.length; i++) {
-      const j = (i + 1) % front.length,
-        dx = front[j].x - front[i].x,
-        dy = front[j].y - front[i].y,
-        len = Math.hypot(dx, dy)
-      faces.push({
-        points: [back[i], back[j], front[j], front[i]],
-        normal: { x: dy / len, y: -dx / len, z: 0 },
+    for (let i = 0; i < segments; i++) {
+      face(
+        [rails[i][0], rails[i + 1][0], rails[i + 1][1], rails[i][1]],
         color,
         layer,
+        hinge
+      )
+      // A narrow folded rim catches light without a flat billboard outline.
+      const rim = [rails[i][0], rails[i + 1][0]].map((p) =>
+        point(p.x, p.y + 0.026, p.z)
+      )
+      face(
+        [rails[i][0], rim[0], rim[1], rails[i + 1][0]],
+        ivory,
+        layer,
         hinge,
-        shine,
-      })
-    }
-  }
-  // Chassis, routed board and the socket are separate objects with real thickness.
-  plate(0, 0, -0.42, 3.06, 2.58, 0.16, alloy, -1, 0.2)
-  plate(0, 0, -0.27, 2.9, 2.42, 0.09, copper, -0.8, 0.16)
-  plate(0, 0, -0.13, 2.8, 2.3, 0.11, board, -0.65, 0.13, 0, 0.25)
-  plate(0, 0, 0.1, 1.72, 1.62, 0.25, ceramic, 0, 0.12, 0, 0.45)
-  plate(0, 0, 0.265, 1.55, 1.45, 0.06, gold, 0, 0.1)
-  plate(0, 0, 0.34, 1.36, 1.27, 0.09, board, 0, 0.08, 0, 0.6)
-  // A fine tiled die is revealed when the two machined heat-spreader leaves open.
-  for (let row = 0; row < 5; row++) {
-    for (let col = 0; col < 6; col++) {
-      plate(
-        (col - 2.5) * 0.194,
-        (row - 2) * 0.213,
-        0.405,
-        0.172,
-        0.19,
-        0.028,
-        row % 2 ? alloy : copper,
-        0,
-        0.012
+        0.6
       )
     }
   }
-  plate(-0.385, 0, 0.58, 0.75, 1.52, 0.13, alloy, 0.6, 0.075, -1)
-  plate(0.385, 0, 0.58, 0.75, 1.52, 0.13, copper, 0.6, 0.075, 1)
-  // Heat-sink machining: individual ribs catch the key light as the core turns.
-  for (let i = 0; i < 10; i++) {
-    const y = (i - 4.5) * 0.126
-    plate(-0.385, y, 0.67, 0.59, 0.034, 0.045, alloy, 0.6, 0.01, -1)
-    plate(0.385, y, 0.67, 0.59, 0.034, 0.045, copper, 0.6, 0.01, 1)
-  }
-  // Socket contacts, visible bus traces and small memory packages.
-  for (let i = 0; i < 12; i++) {
-    const offset = (i - 5.5) * 0.12
-    for (const side of [-1, 1]) {
-      plate(side * 0.97, offset, 0.05, 0.19, 0.043, 0.045, gold, -0.25, 0.009)
-      plate(offset, side * 0.92, 0.05, 0.043, 0.19, 0.045, gold, -0.25, 0.009)
-    }
-  }
-  for (const side of [-1, 1]) {
+  const token = (
+    x: number,
+    y: number,
+    z: number,
+    r: number,
+    color: CoreFace['color'],
+    layer: number
+  ) => {
+    const equator = [
+      point(x - r, y, z),
+      point(x, y, z + r),
+      point(x + r, y, z),
+      point(x, y, z - r),
+    ]
     for (let i = 0; i < 4; i++) {
-      const y = (i - 1.5) * 0.47
-      plate(
-        side * 1.245,
-        y,
-        -0.01,
-        0.27,
-        0.34,
-        0.1,
-        ceramic,
-        -0.65,
-        0.025,
-        0,
-        0.3
+      face(
+        [equator[i], equator[(i + 1) % 4], point(x, y + r * 1.5, z)],
+        color,
+        layer
       )
-      plate(
-        side * 1.245,
-        y,
-        0.047,
-        0.17,
-        0.22,
-        0.014,
-        alloy,
-        -0.65,
-        0.018,
-        0,
-        0.4
+      face(
+        [equator[(i + 1) % 4], equator[i], point(x, y - r * 1.5, z)],
+        color,
+        layer
       )
-      plate(side * 0.99, y, -0.061, 0.35, 0.018, 0.012, copper, -0.65, 0.003)
     }
   }
-  for (const x of [-1.3, 1.3]) {
-    for (const y of [-1.07, 1.07]) {
-      plate(x, y, -0.015, 0.14, 0.14, 0.08, alloy, -0.65, 0.055)
-      plate(x, y, 0.034, 0.084, 0.016, 0.01, ceramic, -0.65, 0.002)
+  // Four parallel heads: open, twisted silk-like loops with distinguishable depths.
+  for (let head = 0; head < heads.length; head++) {
+    const x = heads[head]
+    const z = head % 2 ? 0.17 : -0.17
+    ribbon(
+      (t) => {
+        const a = t * Math.PI * 2
+        return point(
+          x + Math.cos(a) * 0.24,
+          -0.35 + Math.sin(a) * 0.58,
+          z + Math.sin(a * 2) * 0.18
+        )
+      },
+      0.2,
+      head % 2 ? copper : ivory,
+      -0.3,
+      head - 1.5
+    )
+    // Attention intersections form a fine internal lattice, not a solid slab.
+    for (let i = 0; i < 3; i++) {
+      ribbon(
+        (t) =>
+          point(
+            x + (t - 0.5) * 0.36,
+            -0.65 + i * 0.27 + Math.sin(t * Math.PI) * 0.11,
+            z + 0.02
+          ),
+        0.045,
+        jade,
+        -0.3,
+        head - 1.5,
+        12
+      )
+    }
+  }
+  // Feed-forward fan: narrow folded strips expand, project and converge.
+  for (let i = 0; i < 11; i++) {
+    const x = (i - 5) * 0.15
+    ribbon(
+      (t) =>
+        point(
+          x * (0.62 + Math.sin(t * Math.PI) * 0.6),
+          0.42 + t * 0.65,
+          (t - 0.5) * 0.6 + Math.sin(t * Math.PI) * 0.16
+        ),
+      0.062,
+      i % 3 === 0 ? copper : ivory,
+      0.8,
+      0,
+      20
+    )
+  }
+  // Two add/norm seams connect all heads. Thin curled bands leave the flow visible.
+  for (const y of [-1.1, 0.27, 1.22]) {
+    ribbon(
+      (t) =>
+        point(
+          (t - 0.5) * 2.3,
+          y + Math.sin(t * Math.PI) * 0.055,
+          Math.sin(t * Math.PI * 2) * 0.1
+        ),
+      0.075,
+      gold,
+      y,
+      0,
+      36
+    )
+  }
+  for (const path of createSignalPaths().slice(-2)) {
+    ribbon(
+      (t) => path.points[Math.min(64, Math.round(t * 64))],
+      0.045,
+      gold,
+      0,
+      0,
+      64
+    )
+  }
+  for (const y of [-1.72, 1.72]) {
+    for (let i = 0; i < 12; i++) {
+      token(
+        (i - 5.5) * 0.19,
+        y,
+        ((i % 3) - 1) * 0.34,
+        0.065,
+        i % 3 === 0 ? copper : ivory,
+        y
+      )
     }
   }
   return faces
 }
 
-/** Explode, unfold, then recombine. Scroll is reversible and never changes topology. */
+/** Reversible expansion opens the heads, twists the stream, then returns to its assembled shape. */
 export function transformCorePoint(
   point: CorePoint,
-  face: Pick<CoreFace, 'layer' | 'hinge'>,
+  _face: Pick<CoreFace, 'layer' | 'hinge'>,
   progress: number
 ): CorePoint {
-  const spread = smooth(0.06, 0.38, progress) * (1 - smooth(0.72, 1, progress))
-  const fold = smooth(0.24, 0.55, progress) * (1 - smooth(0.76, 1, progress))
-  const twist = face.layer * spread * 0.18
-  let x = point.x * Math.cos(twist) - point.y * Math.sin(twist)
-  const y = point.x * Math.sin(twist) + point.y * Math.cos(twist)
-  let z = point.z + face.layer * spread * 1.7
-  if (face.hinge) {
-    const pivot = face.hinge * 0.79,
-      angle = face.hinge * fold * 1.24
-    const dx = x - pivot,
-      dz = z - (0.58 + face.layer * spread * 1.7)
-    x = pivot + dx * Math.cos(angle) + dz * Math.sin(angle)
-    z =
-      0.58 +
-      face.layer * spread * 1.7 -
-      dx * Math.sin(angle) +
-      dz * Math.cos(angle)
+  const spread = smooth(0.04, 0.38, progress) * (1 - smooth(0.74, 1, progress))
+  const twist = Math.sin(point.y * 1.1) * spread * 0.48
+  const x = point.x * (1 + spread * 0.35)
+  const z = point.z * (1 + spread * 0.65)
+  return {
+    x: x * Math.cos(twist) - z * Math.sin(twist),
+    y: point.y * (1 + spread * 0.23),
+    z: x * Math.sin(twist) + z * Math.cos(twist),
   }
-  return { x, y: y * (1 - smooth(0.72, 1, progress) * 0.07), z }
 }
