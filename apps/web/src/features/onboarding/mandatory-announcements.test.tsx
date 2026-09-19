@@ -288,7 +288,9 @@ test('a network error offers a real exit and one successful retry restores the w
         container.querySelector('a[href="/"]')?.textContent,
         'Back to home'
       )
-      await act(async () => container.querySelector('button')!.click())
+      const copyButton = container.querySelector('button')
+      assert.ok(copyButton)
+      await act(async () => copyButton.click())
       await flushQuery()
       assert.equal(requests, 2)
       assert.ok(container.querySelector('[data-testid="workspace"]'))

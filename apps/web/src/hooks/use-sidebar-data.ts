@@ -169,7 +169,7 @@ export function useSidebarData(): SidebarData {
         id: 'developer',
         title: t('Developers'),
         items: [
-          { title: t('API access'), url: '/developer-access', icon: Key },
+          { title: t('Integration guide'), url: '/developers', icon: FileText },
           { title: t('API Keys'), url: '/keys', icon: Key },
           { title: t('Client setup'), url: '/guide', icon: Compass },
           { title: t('Usage Logs'), url: '/usage-logs/common', icon: FileText },

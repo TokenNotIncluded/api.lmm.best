@@ -162,6 +162,7 @@ const NON_BLOCKING_PUBLIC_PATHS = [
   '/',
   '/challenges',
   '/pricing',
+  '/developers',
   '/status',
   '/games/signal',
   '/privacy-policy',

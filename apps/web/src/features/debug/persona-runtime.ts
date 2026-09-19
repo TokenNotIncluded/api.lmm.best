@@ -51,6 +51,9 @@ type MockConversation = {
 type DebugState = {
   activePersona: DebugPersonaId
   conversations: MockConversation[]
+  preferences?: Partial<
+    Record<DebugPersonaId, Pick<AuthUser, 'language' | 'sidebar_modules'>>
+  >
 }
 
 type DebugEvent = {
@@ -365,7 +368,10 @@ function isBackendPath(pathname: string): boolean {
 }
 
 function cloneUser(persona: DebugPersonaId): AuthUser {
-  return structuredClone(DEBUG_USERS[persona])
+  return {
+    ...structuredClone(DEBUG_USERS[persona]),
+    ...state.preferences?.[persona],
+  }
 }
 
 function authBundle(persona: DebugPersonaId): AuthBundle {
@@ -541,6 +547,82 @@ const debugAdapter: AxiosAdapter = async (config) => {
   const url = requestPath(config)
   const path = url.pathname
   const method = (config.method ?? 'get').toUpperCase()
+
+  if (method === 'PUT' && path === '/api/user/self') {
+    let data: Record<string, unknown>
+    try {
+      data =
+        typeof config.data === 'string' ? JSON.parse(config.data) : config.data
+    } catch {
+      rejectRequest(config, 400, 'Invalid local preview preference')
+    }
+    if (
+      !data ||
+      Array.isArray(data) ||
+      Object.keys(data).length === 0 ||
+      Object.keys(data).some(
+        (key) => !['language', 'sidebar_modules'].includes(key)
+      )
+    ) {
+      rejectRequest(
+        config,
+        400,
+        'This preview only saves language and sidebar preferences locally'
+      )
+    }
+    const preferences: Pick<AuthUser, 'language' | 'sidebar_modules'> = {}
+    if (data.language !== undefined) {
+      if (
+        typeof data.language !== 'string' ||
+        !['en', 'zh', 'zh-TW', 'fr', 'ja', 'ru', 'vi'].includes(data.language)
+      ) {
+        rejectRequest(config, 400, 'Invalid local preview language')
+      }
+      preferences.language = data.language
+    }
+    if (data.sidebar_modules !== undefined) {
+      if (
+        typeof data.sidebar_modules !== 'string' ||
+        data.sidebar_modules.length > 65536
+      ) {
+        rejectRequest(config, 400, 'Invalid local preview sidebar preference')
+      }
+      preferences.sidebar_modules = data.sidebar_modules
+    }
+    state = {
+      ...state,
+      preferences: {
+        ...state.preferences,
+        [state.activePersona]: {
+          ...state.preferences?.[state.activePersona],
+          ...preferences,
+        },
+      },
+    }
+    return response(config, envelope(activeUser()))
+  }
+
+  // Empty, read-only SMS fixtures let low-balance page entry be tested without
+  // making a provider call. Purchase and other mutations remain unmocked.
+  if (method === 'GET' && path === '/api/hero-sms/sms/orders/current-list') {
+    return response(config, envelope({ items: [] }))
+  }
+  if (method === 'GET' && path === '/api/hero-sms/sms/orders') {
+    return response(
+      config,
+      envelope({ items: [], total: 0, page: 1, size: 50 })
+    )
+  }
+  if (
+    method === 'GET' &&
+    [
+      '/api/hero-sms/sms/countries',
+      '/api/hero-sms/sms/services',
+      '/api/hero-sms/sms/operators',
+    ].includes(path)
+  ) {
+    return response(config, envelope([]))
+  }
 
   if (method === 'GET' && path === '/api/admin/acquisition/links') {
     return response(

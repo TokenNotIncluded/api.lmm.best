@@ -89,7 +89,7 @@ function fixture() {
     Object.defineProperty(globalThis, key, { configurable: true, value })
   }
   document.body.innerHTML = `<main>
-    <section data-cinema><div data-cinema-inner><canvas data-film></canvas></div></section>
+    <section data-cinema><div data-cinema-inner><div data-token-cloud aria-hidden="true"></div><canvas data-film></canvas></div></section>
     <button data-motion-toggle><span data-play-label>Play</span><span data-pause-label>Pause</span></button>
     <section data-story>
       <div data-story-step></div><div data-story-step></div><div data-story-step></div>
@@ -147,11 +147,13 @@ test('motion uses the feature-tested window observers and releases all owned wor
   const page = fixture()
   try {
     page.mount()
+    assert.ok(page.root.querySelectorAll('[data-token-particle]').length > 0)
     page.visible(true)
     page.tick()
     assert.equal(page.root.dataset.motion, 'playing')
     assert.equal(page.frames.size, 1)
     page.stop()
+    assert.equal(page.root.querySelectorAll('[data-token-particle]').length, 0)
     assert.equal(page.disconnected, 2)
     assert.equal(page.frames.size, 0)
     assert.equal(page.root.dataset.motion, undefined)
