@@ -1,0 +1,51 @@
+name: LMM CLI
+
+on:
+  pull_request:
+    paths: ['apps/lmm/**', 'apps/api-go/**/oauth*.go', '.github/workflows/lmm.yml']
+  push:
+    branches: [main]
+    paths: ['apps/lmm/**', 'apps/api-go/**/oauth*.go', '.github/workflows/lmm.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  oauth-contract:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api-go
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: apps/api-go/go.sum
+      - run: go test ./oauthserver
+      - run: go test ./router -run TestOAuth
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: apps/lmm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust checks
+        run: rustup component add rustfmt clippy
+      - run: cargo fmt --all --check
+      - run: cargo clippy --locked --all-targets --all-features -- -D warnings
+      - run: cargo test --locked --all-targets
+      - run: cargo build --locked --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lmm-preview-${{ matrix.os }}
+          if-no-files-found: error
+          path: |
+            apps/lmm/target/release/lmm
+            apps/lmm/target/release/lmm.exe

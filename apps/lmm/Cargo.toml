@@ -1,0 +1,38 @@
+[package]
+name = "lmm"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "LMM software setup and integration CLI"
+license = "AGPL-3.0-only"
+publish = false
+
+[dependencies]
+clap = { version = "4.6", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+thiserror = "2.0"
+base64 = "0.22"
+rand = "0.8"
+url = "2.5"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+keyring = { version = "3.6", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust", "vendored"] }
+fs2 = "0.4"
+open = "5.3"
+httparse = "1.10"
+zeroize = { version = "1.8", features = ["derive"] }
+
+[dev-dependencies]
+tempfile = "3.27"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
+
+[profile.release]
+lto = "thin"
+strip = true

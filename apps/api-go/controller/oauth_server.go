@@ -185,6 +185,8 @@ func (h *OAuthHTTP) render(c *gin.Context, status int, data oauthPageData) {
 	hostName := "Pi"
 	if data.ClientName == service.OAuthDshClientName {
 		hostName = "DSH"
+	} else if data.ClientName == service.OAuthCLIClientName {
+		hostName = "LMM CLI"
 	}
 	data.Copy.Title = strings.ReplaceAll(data.Copy.Title, "Pi", hostName)
 	data.Copy.Failed = strings.ReplaceAll(data.Copy.Failed, "Pi", hostName)
@@ -354,7 +356,7 @@ func (h *OAuthHTTP) Continue(c *gin.Context) {
 		h.failed(c, flow.Language)
 		return
 	}
-	h.render(c, 200, oauthPageData{Language: flow.Language, Mode: "consent", CSRF: csrf, Action: oauthBrowserConsent, Resource: h.Integration.Resource, ClientName: consent.ClientName, Account: user.Username, Groups: groups})
+	h.render(c, 200, oauthPageData{Language: flow.Language, Mode: "consent", CSRF: csrf, Action: oauthBrowserConsent, Resource: h.Integration.Resource, ClientName: consent.ClientName, Account: user.Username, Groups: groups, CanInvoke: slices.Contains(consent.Scopes, service.OAuthInvokeScope)})
 }
 
 func (h *OAuthHTTP) Consent(c *gin.Context) {

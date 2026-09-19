@@ -191,7 +191,9 @@ func (h *oauthHTTPTest) approve(t *testing.T) (oauthserver.TokenResponse, string
 	require.Equal(t, strings.Repeat("s", 32), target.Query().Get("state"))
 	code := target.Query().Get("code")
 	require.NotEmpty(t, code)
-	exchange := url.Values{"client_id": {service.OAuthPiClientID}, "grant_type": {"authorization_code"}, "code": {code}, "redirect_uri": {"http://127.0.0.1:35679/oauth/lmm/callback"}, "resource": {h.integration.Resource}, "code_verifier": {h.verifier}}.Encode()
+	authorization, err := url.ParseQuery(h.query)
+	require.NoError(t, err)
+	exchange := url.Values{"client_id": {authorization.Get("client_id")}, "grant_type": {"authorization_code"}, "code": {code}, "redirect_uri": {"http://127.0.0.1:35679/oauth/lmm/callback"}, "resource": {h.integration.Resource}, "code_verifier": {h.verifier}}.Encode()
 	token := h.request("POST", "/api/oauth2/token", exchange, map[string]string{"Content-Type": "application/x-www-form-urlencoded"})
 	require.Equal(t, 200, token.Code, token.Body.String())
 	var result oauthserver.TokenResponse
