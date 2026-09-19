@@ -454,7 +454,7 @@ func PrepareAssistantConversation(userID int, conversationID int64, firstMessage
 // RecordAssistantSecurityRefusal persists one redacted refusal turn and
 // atomically restricts the conversation. Repeated reports for the same
 // conversation are idempotent and never duplicate the security incident.
-func RecordAssistantSecurityRefusal(userID int, conversationID int64, userContent, assistantContent, reason string) (int64, bool, error) {
+func RecordAssistantSecurityRefusal(userID int, conversationID int64, userContent, assistantContent, reason string, clientTurnID ...string) (int64, bool, error) {
 	if userID <= 0 || conversationID < 0 || strings.TrimSpace(userContent) == "" || strings.TrimSpace(assistantContent) == "" {
 		return 0, false, gorm.ErrInvalidData
 	}
@@ -466,11 +466,28 @@ func RecordAssistantSecurityRefusal(userID int, conversationID int64, userConten
 		reason = reason[:64]
 	}
 
+	turnID := ""
+	if len(clientTurnID) > 0 {
+		turnID = clientTurnID[0]
+	}
 	var recordedConversationID int64
 	created := false
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		if err := lockAssistantOwner(tx, userID); err != nil {
 			return err
+		}
+		if turnID != "" {
+			prior, err := lookupAssistantTurnTx(tx, userID, turnID, conversationID, userContent)
+			if err != nil {
+				return err
+			}
+			if prior != nil {
+				if prior.Role != AssistantHistoryRoleAssistant {
+					return ErrAssistantTurnConflict
+				}
+				recordedConversationID = prior.ConversationId
+				return nil
+			}
 		}
 		blocked, err := blockAssistantAIForSupportTx(tx, userID, conversationID)
 		if err != nil {
@@ -509,8 +526,14 @@ func RecordAssistantSecurityRefusal(userID int, conversationID int64, userConten
 		if _, err := appendAssistantHistoryMessageTx(tx, conversation.Id, AssistantHistoryRoleUser, userContent); err != nil {
 			return err
 		}
-		if _, err := appendAssistantHistoryMessageTx(tx, conversation.Id, AssistantHistoryRoleAssistant, assistantContent); err != nil {
+		answer, err := appendAssistantHistoryMessageTx(tx, conversation.Id, AssistantHistoryRoleAssistant, assistantContent)
+		if err != nil {
 			return err
+		}
+		if turnID != "" {
+			if err := tx.Create(&AssistantTurnReceipt{TurnKey: assistantTurnKey(userID, turnID), ConversationID: conversation.Id, MessageID: answer.Id, InputDigest: assistantTurnDigest(userContent)}).Error; err != nil {
+				return err
+			}
 		}
 		now := common.GetTimestamp()
 		if err := tx.Model(&conversation).Updates(map[string]any{
@@ -565,9 +588,10 @@ func FindRecentAssistantConversationForRetry(userID int, firstMessage string, si
 		Where("assistant_conversations.user_id = ?", userID).
 		Where("assistant_conversations.archived_at = 0").
 		Where("assistant_conversations.updated_at >= ?", since.Unix()).
-		Where("history.role = ? AND history.content = ?", AssistantHistoryRoleUser, firstMessage).
+		Where("history.role = ? AND history.content = ? AND history.sequence = 1", AssistantHistoryRoleUser, firstMessage).
 		Joins("JOIN assistant_history_messages AS assistant_history ON assistant_history.conversation_id = assistant_conversations.id").
-		Where("assistant_history.role = ?", AssistantHistoryRoleAssistant).
+		Where("assistant_history.role = ? AND assistant_history.sequence = 2", AssistantHistoryRoleAssistant).
+		Where("NOT EXISTS (SELECT 1 FROM assistant_history_messages AS later_history WHERE later_history.conversation_id = assistant_conversations.id AND later_history.sequence > 2)").
 		Order("assistant_conversations.updated_at DESC, assistant_conversations.id DESC").
 		First(&conversation).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -848,14 +872,31 @@ func trimAssistantHistoryTx(tx *gorm.DB, conversationID int64) error {
 // RecordAssistantConversationTurnForRequest records a complete successful turn.
 // A zero conversation ID creates the conversation in the same transaction, so
 // failed or empty upstream responses cannot leave empty conversation shells.
-func RecordAssistantConversationTurnForRequest(userID int, conversationID int64, userContent, assistantContent string) (int64, error) {
+func RecordAssistantConversationTurnForRequest(userID int, conversationID int64, userContent, assistantContent string, clientTurnID ...string) (int64, error) {
 	if userID <= 0 || conversationID < 0 {
 		return 0, gorm.ErrInvalidData
+	}
+	turnID := ""
+	if len(clientTurnID) > 0 {
+		turnID = clientTurnID[0]
 	}
 	var recordedConversationID int64
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		if err := lockAssistantOwner(tx, userID); err != nil {
 			return err
+		}
+		if turnID != "" {
+			prior, err := lookupAssistantTurnTx(tx, userID, turnID, conversationID, userContent)
+			if err != nil {
+				return err
+			}
+			if prior != nil {
+				if prior.Role != AssistantHistoryRoleAssistant {
+					return ErrAssistantTurnConflict
+				}
+				recordedConversationID = prior.ConversationId
+				return nil
+			}
 		}
 		blocked, err := blockAssistantAIForSupportTx(tx, userID, conversationID)
 		if err != nil {
@@ -892,8 +933,15 @@ func RecordAssistantConversationTurnForRequest(userID int, conversationID int64,
 		if _, err := appendAssistantHistoryMessageTx(tx, conversation.Id, AssistantHistoryRoleUser, userContent); err != nil {
 			return err
 		}
-		if _, err := appendAssistantHistoryMessageTx(tx, conversation.Id, AssistantHistoryRoleAssistant, assistantContent); err != nil {
+		answer, err := appendAssistantHistoryMessageTx(tx, conversation.Id, AssistantHistoryRoleAssistant, assistantContent)
+		if err != nil {
 			return err
+		}
+		if turnID != "" {
+			receipt := AssistantTurnReceipt{TurnKey: assistantTurnKey(userID, turnID), ConversationID: conversation.Id, MessageID: answer.Id, InputDigest: assistantTurnDigest(userContent)}
+			if err := tx.Create(&receipt).Error; err != nil {
+				return err
+			}
 		}
 		now := common.GetTimestamp()
 		return tx.Model(&conversation).Updates(map[string]any{

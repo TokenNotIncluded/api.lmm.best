@@ -214,6 +214,28 @@ describe('AssistantSetupTool', () => {
     assert.match(container.textContent ?? '', /wire_api = "responses"/)
     assert.match(container.textContent ?? '', /gpt-5\.6-codex/)
 
+    await act(async () => {
+      findButton('AstrBot').click()
+      await flushEffects()
+    })
+    assert.match(container.textContent ?? '', /save and fetch models/)
+    assert.match(container.textContent ?? '', /API Base URL/)
+    for (const sdk of ['OpenAI SDK', 'Anthropic SDK']) {
+      await act(async () => {
+        findButton(sdk).click()
+        await flushEffects()
+      })
+      assert.match(container.textContent ?? '', /getpass/)
+      assert.match(container.textContent ?? '', /gpt-5\.6-codex/)
+    }
+    await act(async () => {
+      findButton('Pi (OAuth)').click()
+      await flushEffects()
+    })
+    assert.match(container.textContent ?? '', /pi install/)
+    assert.throws(() => findButton('Create API key'))
+    assert.equal(container.querySelector('select[aria-label="Model ID"]'), null)
+
     await act(async () => root.unmount())
   })
 
@@ -241,7 +263,7 @@ describe('AssistantSetupTool', () => {
       await flushEffects()
     })
 
-    assert.match(container.textContent ?? '', /Ask for L1 access/)
+    assert.match(container.textContent ?? '', /Request API access/)
     await act(async () => {
       findButton('Windows').click()
       findButton('Claude Code').click()
@@ -268,7 +290,7 @@ describe('AssistantSetupTool', () => {
     assert.match(container.textContent ?? '', /CC Switch one-click import/)
 
     await act(async () => {
-      findButton('Unlock L1 access').click()
+      findButton('Request API access').click()
       await flushEffects()
     })
     assert.equal(accessRequests, 1)

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/constant"
 	"github.com/LIghtJUNction/api.lmm.best/logger"
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
 	"github.com/LIghtJUNction/api.lmm.best/relay/helper"
@@ -108,9 +109,19 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		if streamResponse.Response != nil {
 			lastResponse = streamResponse.Response
 			if lastResponse.Usage != nil {
-				*usage = dto.Usage{}
-				service.ApplyResponsesUsage(usage, lastResponse.Usage)
-				hasUsage = true
+				candidate := &dto.Usage{}
+				service.ApplyResponsesUsage(candidate, lastResponse.Usage)
+				// Lifecycle placeholders do not report consumption. An explicit
+				// terminal usage report, including zero, remains authoritative.
+				finalUsage := false
+				switch streamResponse.Type {
+				case "response.completed", "response.done", "response.failed", "response.incomplete", "response.cancelled", "response.canceled":
+					finalUsage = true
+				}
+				if service.ValidUsage(candidate) || finalUsage {
+					*usage = *candidate
+					hasUsage = true
+				}
 			}
 		}
 		writeErr := writeResponsesEvent(c, streamResponse.Type, data)
@@ -186,6 +197,9 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			// 非正常结束，使用输出文本的 token 数量
 			completionTokens := service.CountTextToken(tempStr, info.UpstreamModelName)
 			usage.CompletionTokens = completionTokens
+			if completionTokens > 0 {
+				common.SetContextKey(c, constant.ContextKeyLocalCountTokens, true)
+			}
 		}
 	}
 

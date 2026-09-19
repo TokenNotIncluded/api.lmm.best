@@ -21,21 +21,24 @@ import (
 )
 
 const (
-	OAuthPiClientID       = "lmm-pi"
-	OAuthPiClientName     = "LMM for Pi"
-	OAuthDshClientID      = "lmm-dsh"
-	OAuthDshClientName    = "LMM for DSH"
-	OAuthCLIClientID      = "lmm"
-	OAuthCLIClientName    = "LMM CLI"
-	OAuthNativeRedirect   = "http://127.0.0.1/oauth/lmm/callback"
-	OAuthPiRedirect       = OAuthNativeRedirect
-	OAuthCatalogScope     = "catalog:read"
-	OAuthBalanceScope     = "balance:read"
-	OAuthUsageScope       = "usage:read"
-	OAuthInvokeScope      = "models:invoke"
-	OAuthMCPBountiesScope = "mcp:bounties"
-	OAuthMCPDrawingScope  = "mcp:drawing"
-	OAuthGroupHeader      = "X-LMM-Group"
+	OAuthPiClientID          = "lmm-pi"
+	OAuthPiClientName        = "LMM for Pi"
+	OAuthDshClientID         = "lmm-dsh"
+	OAuthDshClientName       = "LMM for DSH"
+	OAuthCLIClientID         = "lmm"
+	OAuthCLIClientName       = "LMM CLI"
+	OAuthNativeRedirect      = "http://127.0.0.1/oauth/lmm/callback"
+	OAuthPiRedirect          = OAuthNativeRedirect
+	OAuthCatalogScope        = "catalog:read"
+	OAuthBalanceScope        = "balance:read"
+	OAuthUsageScope          = "usage:read"
+	OAuthInvokeScope         = "models:invoke"
+	OAuthMCPBountiesScope    = "mcp:bounties"
+	OAuthMCPDrawingScope     = "mcp:drawing"
+	OAuthMarketDiscoverScope = "market:discover"
+	OAuthMarketInvokeScope   = "market:invoke"
+	OAuthMarketManageScope   = "market:manage"
+	OAuthGroupHeader         = "X-LMM-Group"
 )
 
 func OAuthBuiltinMCPScopes() []string { return []string{OAuthMCPBountiesScope, OAuthMCPDrawingScope} }
@@ -110,6 +113,7 @@ func NewOAuthIntegration(db *gorm.DB, cfg OAuthServerConfig) (*OAuthIntegration,
 	slices.Sort(groups)
 	scopes := []string{OAuthCatalogScope, OAuthBalanceScope, OAuthUsageScope, OAuthInvokeScope}
 	scopes = append(scopes, OAuthBuiltinMCPScopes()...)
+	scopes = append(scopes, OAuthMarketDiscoverScope, OAuthMarketInvokeScope, OAuthMarketManageScope)
 	for i, group := range groups {
 		if !validOAuthGroup(group) || i > 0 && groups[i-1] == group {
 			return nil, errors.New("invalid or repeated OAuth group")
@@ -263,6 +267,13 @@ func (s *OAuthIntegration) ConsentQuery(raw string, user *model.User) (string, [
 		append(slices.Clone(legacyBase), OAuthBuiltinMCPScopes()...),
 		currentBase,
 		append(slices.Clone(currentBase), OAuthBuiltinMCPScopes()...),
+	}
+	// Market scopes are opt-in, never added to historical consent or refresh.
+	// Discovery is required; invocation and tool-set management are independent.
+	for _, base := range slices.Clone(profiles) {
+		for _, extra := range [][]string{{OAuthMarketDiscoverScope}, {OAuthMarketDiscoverScope, OAuthMarketInvokeScope}, {OAuthMarketDiscoverScope, OAuthMarketManageScope}, {OAuthMarketDiscoverScope, OAuthMarketInvokeScope, OAuthMarketManageScope}} {
+			profiles = append(profiles, append(slices.Clone(base), extra...))
+		}
 	}
 	if query.Get("client_id") == OAuthCLIClientID {
 		profiles = [][]string{{OAuthCatalogScope, OAuthBalanceScope}}

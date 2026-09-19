@@ -310,6 +310,8 @@ func Register(c *gin.Context) {
 		return
 	}
 
+	recordAcquisitionRegistration(c, cleanUser.Id)
+
 	// 获取插入后的用户ID
 	var insertedUser model.User
 	if err := model.DB.Where("username = ?", cleanUser.Username).First(&insertedUser).Error; err != nil {
@@ -623,9 +625,11 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 		"trust_level_info":         accessSnapshot.TrustLevel,
 		"trust_level_tiers":        model.GetTrustLevelTierViews(accessSnapshot.TrustLevel.Level),
 		"onboarding": gin.H{
+			"details_available":        err == nil,
 			"activation_complete":      onboarding.ActivationComplete,
 			"paid_activation_complete": onboarding.PaidActivationComplete,
 			"credential_complete":      onboarding.CredentialComplete,
+			"api_key_created":          onboarding.APIKeyCreated,
 			"first_request_complete":   onboarding.FirstRequestComplete,
 			"stage":                    onboarding.Stage,
 		},

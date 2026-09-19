@@ -1,0 +1,22 @@
+[Unit]
+Description=LMM API encrypted application and cache links to ArchDmit
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/ssh -F /dev/null -NT -i /etc/lmm-api/credentials/cluster-tunnel -o IdentitiesOnly=yes -o IdentityAgent=none -o BatchMode=yes -o StrictHostKeyChecking=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=10 -o ServerAliveCountMax=3 -o ConnectTimeout=10 -o Compression=no -L 127.0.0.1:16380:127.0.0.1:6380 -L 127.0.0.1:13001:127.0.0.1:3000 -R 127.0.0.1:13002:127.0.0.1:3000 -p 222 root@45.59.187.63
+Restart=always
+RestartSec=3s
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

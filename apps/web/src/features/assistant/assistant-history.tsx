@@ -118,7 +118,7 @@ function HistoryMessage(props: {
             {isHuman
               ? `${t('Human technical support')} · ${props.message.actor_name || t('Administrator')}`
               : isAssistant
-                ? t('Service guide')
+                ? t('AI assistant')
                 : t('You')}
           </p>
           {props.message.created_at ? (

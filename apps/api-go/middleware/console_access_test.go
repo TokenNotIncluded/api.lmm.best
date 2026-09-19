@@ -26,6 +26,8 @@ func TestPreActivationRouteMatrixKeepsChallengesReadOnly(t *testing.T) {
 		{http.MethodGet, "/api/security/stats"},
 		{http.MethodGet, "/api/release-notes/latest"},
 		{http.MethodGet, "/api/user/self/onboarding/todo"},
+		{http.MethodGet, "/api/user/self/announcements"},
+		{http.MethodPost, "/api/user/self/announcements/read"},
 		{http.MethodPost, "/api/release-notes/7/read"},
 		{http.MethodPut, "/api/user/self"},
 		{http.MethodPut, "/api/user/sessions/settings"},
@@ -43,6 +45,9 @@ func TestPreActivationRouteMatrixKeepsChallengesReadOnly(t *testing.T) {
 		method string
 		path   string
 	}{
+		{http.MethodPost, "/api/user/self/announcements"},
+		{http.MethodGet, "/api/user/self/announcements/read"},
+		{http.MethodGet, "/api/user/42/announcements"},
 		{http.MethodGet, "/api/token"},
 		{http.MethodGet, "/api/open-source-bounties/accepted"},
 		{http.MethodGet, "/api/open-source-bounties/disputes/mine"},

@@ -129,7 +129,7 @@ function ModelRow({
         variant='ghost'
         size='icon-sm'
         className='size-9 shrink-0'
-        aria-label={t('Model Square')}
+        aria-label={t('Models and pricing')}
         render={<Link to='/pricing' onClick={onClose} />}
       >
         <ExternalLink className='size-4' />
@@ -224,7 +224,7 @@ export function ModelPlazaPanel() {
           <SheetHeader className='border-border/70 border-b pr-14'>
             <SheetTitle className='flex items-center gap-2'>
               <Box className='text-primary size-4' />
-              {t('Model Square')}
+              {t('Models and pricing')}
             </SheetTitle>
             <SheetDescription>{t('Search models')}</SheetDescription>
           </SheetHeader>
@@ -321,7 +321,7 @@ export function ModelPlazaPanel() {
                   className='h-auto p-0 text-xs'
                   render={<Link to='/pricing' onClick={closePanel} />}
                 >
-                  {t('Model Square')}
+                  {t('Models and pricing')}
                   <ExternalLink className='ml-1 size-3' />
                 </Button>
               </div>

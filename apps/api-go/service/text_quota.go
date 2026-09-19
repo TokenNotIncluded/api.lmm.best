@@ -612,6 +612,7 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	attachQuotaSaturation(ctx, relayInfo, other)
 	appendSubscriptionSettlementLog(other, relayInfo, settlementErr)
 
+	other["acquisition_success_v1"] = acquisitionTextResponseSucceeded(ctx, relayInfo, summary.CompletionTokens, originUsage != nil && !estimatedMissingUsage, adminRejectReason != "")
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
 		ChannelId:        relayInfo.ChannelId,
 		PromptTokens:     summary.PromptTokens,

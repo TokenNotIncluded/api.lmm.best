@@ -28,6 +28,7 @@ import {
 import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
 import { lazy, Suspense, useEffect } from 'react'
 
+import { SourceConsent } from '@/features/acquisition/consent'
 import { FeedbackRewardButton } from '@/components/feedback-reward-button'
 import { Footer } from '@/components/layout/components/footer'
 import { NavigationProgress } from '@/components/navigation-progress'
@@ -100,6 +101,7 @@ function RootComponent() {
     <ThemeCustomizationProvider>
       <NavigationProgress />
       <Outlet />
+      <SourceConsent />
       {isHomeIntroSurface && <Footer />}
       {isHomeIntroSurface && <FeedbackRewardButton />}
       <Toaster closeButton duration={5000} position='top-center' richColors />

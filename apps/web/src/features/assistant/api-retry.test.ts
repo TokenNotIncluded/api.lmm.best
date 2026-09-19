@@ -24,6 +24,7 @@ import { api } from '@/lib/api'
 import {
   ASSISTANT_MAX_REQUEST_ATTEMPTS,
   archiveAssistantConversation,
+  isAssistantTurnUnavailable,
   sendAssistantMessage,
   submitAssistantAccountDisableRequest,
   submitAssistantAdminChange,
@@ -219,4 +220,42 @@ describe('assistant retry write boundary', () => {
       assert.deepEqual(calls, [write.url], write.name)
     }
   })
+})
+
+test('manual retry is marked as a replay and preserves the existing thread', async () => {
+  const calls: AssistantPostCall[] = []
+  await withAssistantPost(
+    async (url, data, config) => {
+      calls.push({ url, data, config: config as AssistantPostConfig })
+      return assistantResponse()
+    },
+    () =>
+      sendAssistantMessage(
+        'continue',
+        [],
+        42,
+        undefined,
+        undefined,
+        undefined,
+        true
+      )
+  )
+  const call = calls[0]
+  assert.ok(call)
+  assert.equal(assistantAttempt(call.config), '2')
+  assert.equal((call.data as { conversation_id: number }).conversation_id, 42)
+})
+
+test('expired or conflicting turn receipts are terminal, not retryable transport failures', () => {
+  assert.equal(
+    isAssistantTurnUnavailable({
+      isAxiosError: true,
+      response: {
+        status: 409,
+        data: { error: { code: 'ASSISTANT_TURN_UNAVAILABLE' } },
+      },
+    }),
+    true
+  )
+  assert.equal(isAssistantTurnUnavailable(assistantAxiosError(503)), false)
 })

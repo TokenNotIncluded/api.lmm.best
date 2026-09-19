@@ -54,7 +54,7 @@ export function ForgePublicShell(props: ForgePublicShellProps) {
       logo={<BrandLogo src={logo} className='size-7 object-contain' />}
       navLinks={[
         { title: 'Home', href: '/' },
-        { title: 'Model Square', href: '/pricing' },
+        { title: 'Models and pricing', href: '/pricing' },
         { title: 'Guide', href: '/guide' },
         { title: 'Challenges', href: '/challenges' },
         ...(securityLink ? [securityLink] : []),

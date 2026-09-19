@@ -57,6 +57,45 @@ func TestResponsesCreatedOnlyUsagePolicy(t *testing.T) {
 	}
 }
 
+func TestResponsesZeroUsageDoesNotSuppressObservedOutput(t *testing.T) {
+	for _, ending := range []string{"", "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n"} {
+		for _, deltaType := range []string{"response.output_text.delta", "response.function_call_arguments.delta", "response.reasoning_text.delta"} {
+			t.Run(fmt.Sprintf("%s/completed=%t", deltaType, ending != ""), func(t *testing.T) {
+				body := "data: {\"type\":\"response.created\",\"response\":{\"usage\":{\"input_tokens\":0,\"output_tokens\":0,\"total_tokens\":0}}}\n\n" +
+					fmt.Sprintf("data: {\"type\":%q,\"delta\":\"actual output consumed tokens\"}\n\n", deltaType) + ending
+				usage, apiErr, _, info := runResponsesTerminalTest(t, strings.NewReader(body), false)
+				require.Nil(t, apiErr)
+				require.Positive(t, usage.CompletionTokens)
+				require.Equal(t, 12, usage.PromptTokens)
+				require.Equal(t, usage.PromptTokens+usage.CompletionTokens, usage.TotalTokens)
+				require.Equal(t, ending == "", info.StreamStatus.HasErrors())
+			})
+		}
+	}
+}
+
+func TestResponsesZeroUsageDoesNotEraseMeasuredUsage(t *testing.T) {
+	body := "data: {\"type\":\"response.created\",\"response\":{\"usage\":{\"input_tokens\":100,\"output_tokens\":7,\"total_tokens\":107,\"input_tokens_details\":{\"cached_tokens\":80}}}}\n\n" +
+		"data: {\"type\":\"response.in_progress\",\"response\":{\"usage\":{\"input_tokens\":0,\"output_tokens\":0,\"total_tokens\":0}}}\n\n" +
+		"data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n"
+	usage, apiErr, _, _ := runResponsesTerminalTest(t, strings.NewReader(body), false)
+	require.Nil(t, apiErr)
+	require.Equal(t, 100, usage.PromptTokens)
+	require.Equal(t, 7, usage.CompletionTokens)
+	require.Equal(t, 107, usage.TotalTokens)
+	require.Equal(t, 80, usage.PromptTokensDetails.CachedTokens)
+}
+
+func TestResponsesZeroUsageWithoutOutputRemainsUnbilled(t *testing.T) {
+	body := "data: {\"type\":\"response.created\",\"response\":{\"usage\":{\"input_tokens\":0,\"output_tokens\":0,\"total_tokens\":0}}}\n\n"
+	usage, apiErr, _, info := runResponsesTerminalTest(t, strings.NewReader(body), false)
+	require.Nil(t, apiErr)
+	require.Zero(t, usage.TotalTokens)
+	require.Zero(t, usage.PromptTokens)
+	require.Zero(t, usage.CompletionTokens)
+	require.True(t, info.StreamStatus.HasErrors())
+}
+
 type responsesFailedWriter struct {
 	*httptest.ResponseRecorder
 	writes int

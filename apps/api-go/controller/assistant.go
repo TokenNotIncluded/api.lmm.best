@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -130,7 +131,10 @@ const assistantConversationRestrictedContent = `这段对话已因安全策略�
 
 This conversation has ended under the safety policy and cannot accept more messages. Start a new conversation for a legitimate use case, or use the security page to report a false positive. This does not automatically suspend the account.`
 
+var assistantClientTurnPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{16,80}$`)
+
 type assistantChatInput struct {
+	ClientTurnID   string                   `json:"client_turn_id,omitempty"`
 	Message        string                   `json:"message"`
 	Messages       []assistantOpenAIMessage `json:"messages"`
 	ConversationID int64                    `json:"conversation_id"`
@@ -384,6 +388,7 @@ func writeAssistantSecurityRefusal(c *gin.Context) {
 			latestMessage,
 			assistantSecurityRefusalContent,
 			model.AssistantSecurityIncidentCategory,
+			c.GetString("assistant_client_turn_id"),
 		)
 		if err != nil {
 			common.SysError(fmt.Sprintf("failed to record assistant security incident for user %d: %v", actorUserID, err))
@@ -523,12 +528,27 @@ func recordAssistantHistoryResponse(c *gin.Context, status int, body []byte) {
 	}
 	recordedConversationID := conversationID
 	var recordErr error
-	if c.GetBool("assistant_history_replay") {
+	if turnID := c.GetString("assistant_client_turn_id"); turnID != "" {
+		recordedConversationID, recordErr = model.RecordAssistantConversationTurnForRequest(actorUserID, conversationID, latestMessage, content, turnID)
+		if recordErr == nil {
+			saved, err := model.LookupAssistantTurn(actorUserID, turnID, recordedConversationID, latestMessage)
+			if err != nil {
+				recordErr = err
+			} else if saved != nil {
+				c.Set("assistant_history_canonical_content", saved.Content)
+				c.Set("assistant_history_canonical_changed", saved.Content != model.RedactAssistantHistoryContent(content))
+			}
+		}
+	} else if c.GetBool("assistant_history_replay") {
 		recordErr = model.RecordAssistantConversationTurnForRetry(actorUserID, conversationID, latestMessage, content)
 	} else {
 		recordedConversationID, recordErr = model.RecordAssistantConversationTurnForRequest(actorUserID, conversationID, latestMessage, content)
 	}
 	if recordErr != nil {
+		if errors.Is(recordErr, model.ErrAssistantTurnConflict) || errors.Is(recordErr, model.ErrAssistantTurnExpired) {
+			c.Set("assistant_turn_unavailable", true)
+			return
+		}
 		if errors.Is(recordErr, model.ErrAssistantSupportAIBlocked) {
 			c.Set("assistant_support_history_blocked", true)
 			return
@@ -566,6 +586,9 @@ func trimAssistantHistoryToRuneBudget(messages []model.AssistantHistoryMessage, 
 
 func writeAssistantHistoryResponse(c *gin.Context, status int, body []byte) {
 	body = assistantHistoryResponseBody(c, status, body)
+	if c.GetBool("assistant_turn_unavailable") {
+		status = http.StatusConflict
+	}
 	c.Data(status, "application/json; charset=utf-8", body)
 }
 
@@ -576,6 +599,9 @@ func assistantHistoryResponseBody(c *gin.Context, status int, body []byte) []byt
 		}
 	}
 	recordAssistantHistoryResponse(c, status, body)
+	if c.GetBool("assistant_turn_unavailable") {
+		return []byte(`{"error":{"code":"ASSISTANT_TURN_UNAVAILABLE","message":"Saved turn cannot be reused; send a new message."},"retryable":false}`)
+	}
 	if c.GetBool("assistant_support_history_blocked") {
 		return assistantSupportInterruptedBody(c, model.ErrAssistantSupportAIBlocked)
 	}
@@ -583,6 +609,15 @@ func assistantHistoryResponseBody(c *gin.Context, status int, body []byte) []byt
 	if conversationID > 0 {
 		var payload map[string]any
 		if json.Unmarshal(body, &payload) == nil {
+			if canonical, exists := c.Get("assistant_history_canonical_content"); exists {
+				if choices, ok := payload["choices"].([]any); ok && len(choices) > 0 {
+					if choice, ok := choices[0].(map[string]any); ok {
+						if message, ok := choice["message"].(map[string]any); ok {
+							message["content"] = canonical
+						}
+					}
+				}
+			}
 			payload["lmm_assistant_history"] = gin.H{
 				"conversation_id": conversationID,
 				"privacy_notice":  model.AssistantHistoryPrivacyNotice,
@@ -632,6 +667,11 @@ func PrepareAssistantRequest(c *gin.Context) {
 		writeAssistantError(c, http.StatusBadRequest, "ASSISTANT_INVALID_CONVERSATION", errors.New("conversation_id must be zero or a positive integer"))
 		return
 	}
+	if input.ClientTurnID != "" && !assistantClientTurnPattern.MatchString(input.ClientTurnID) {
+		writeAssistantError(c, http.StatusBadRequest, "ASSISTANT_INVALID_TURN", errors.New("invalid client turn identifier"))
+		return
+	}
+	c.Set("assistant_client_turn_id", input.ClientTurnID)
 	input.Message = strings.TrimSpace(input.Message)
 	conversation := []assistantOpenAIMessage{{Role: "user", Content: input.Message}}
 	latestMessage := input.Message
@@ -695,8 +735,40 @@ func PrepareAssistantRequest(c *gin.Context) {
 	if actorUserID > 0 {
 		c.Set("assistant_history_latest_message", latestMessage)
 		resolvedConversationID := input.ConversationID
+		if input.ClientTurnID != "" {
+			saved, err := model.LookupAssistantTurn(actorUserID, input.ClientTurnID, input.ConversationID, latestMessage)
+			if err != nil {
+				if errors.Is(err, model.ErrAssistantTurnConflict) || errors.Is(err, model.ErrAssistantTurnExpired) {
+					writeAssistantError(c, http.StatusConflict, "ASSISTANT_TURN_UNAVAILABLE", err)
+				} else {
+					writeAssistantError(c, http.StatusInternalServerError, "ASSISTANT_HISTORY_UNAVAILABLE", errors.New("assistant conversation history is unavailable"))
+				}
+				return
+			}
+			if saved != nil {
+				if saved.Role != model.AssistantHistoryRoleAssistant {
+					writeAssistantError(c, http.StatusConflict, "ASSISTANT_TURN_UNAVAILABLE", model.ErrAssistantTurnConflict)
+					return
+				}
+				// Enforce ownership and current restriction/support state before replay.
+				if _, err := model.PrepareAssistantConversation(actorUserID, saved.ConversationId, ""); err != nil {
+					writeAssistantError(c, http.StatusConflict, "ASSISTANT_TURN_UNAVAILABLE", errors.New("conversation is no longer available"))
+					return
+				}
+				c.Set("assistant_history_conversation_id", saved.ConversationId)
+				if err := assistantSupportGuardError(c); err != nil {
+					writeAssistantError(c, http.StatusConflict, "ASSISTANT_TURN_UNAVAILABLE", err)
+					return
+				}
+				c.Set("assistant_history_pre_recorded", true)
+				body, _ := json.Marshal(gin.H{"choices": []gin.H{{"message": gin.H{"role": "assistant", "content": saved.Content}}}})
+				c.Abort()
+				writeAssistantHistoryResponse(c, http.StatusOK, body)
+				return
+			}
+		}
 		retryAttempt := assistantRequestAttempt(c) > 1
-		if resolvedConversationID == 0 && retryAttempt {
+		if resolvedConversationID == 0 && retryAttempt && input.ClientTurnID == "" {
 			recentConversation, findErr := model.FindRecentAssistantConversationForRetry(
 				actorUserID,
 				latestMessage,

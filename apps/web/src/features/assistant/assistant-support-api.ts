@@ -104,11 +104,15 @@ export async function getAssistantSupport(id: number) {
     )
   )
 }
-export async function sendAssistantSupportMessage(id: number, content: string) {
+export async function sendAssistantSupportMessage(
+  id: number,
+  content: string,
+  clientTurnId?: string
+) {
   return unwrap(
     await api.post<Envelope<{ message: AssistantSupportMessage }>>(
       `/api/assistant/support/${id}/messages`,
-      { content },
+      { content, ...(clientTurnId ? { client_turn_id: clientTurnId } : {}) },
       options
     )
   )

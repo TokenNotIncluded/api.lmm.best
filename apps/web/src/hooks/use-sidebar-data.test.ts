@@ -23,7 +23,7 @@ const source = readFileSync(
 describe('authenticated sidebar discovery', () => {
   test('keeps pre-activation links on publicly reachable surfaces', () => {
     const onboardingStart = source.indexOf("id: 'onboarding'")
-    const activatedForgeStart = source.indexOf("id: 'forge'", onboardingStart)
+    const activatedForgeStart = source.indexOf("id: 'general'", onboardingStart)
     const onboardingSection =
       onboardingStart >= 0 && activatedForgeStart > onboardingStart
         ? source.slice(onboardingStart, activatedForgeStart)
@@ -32,7 +32,7 @@ describe('authenticated sidebar discovery', () => {
     assert.ok(onboardingSection)
     assert.match(onboardingSection, /title: t\('Challenges'\)/)
     assert.match(onboardingSection, /url: '\/challenges'/)
-    assert.match(onboardingSection, /title: t\('Model Square'\)/)
+    assert.match(onboardingSection, /title: t\('Models and pricing'\)/)
     assert.match(onboardingSection, /url: '\/pricing'/)
     assert.doesNotMatch(
       onboardingSection,
@@ -65,17 +65,41 @@ describe('authenticated sidebar discovery', () => {
         : ''
 
     assert.ok(activatedGeneralSection)
-    assert.match(activatedGeneralSection, /title: t\('Model Square'\)/)
+    assert.match(activatedGeneralSection, /title: t\('Models and pricing'\)/)
     assert.match(activatedGeneralSection, /url: '\/pricing'/)
     assert.match(activatedGeneralSection, /interaction: 'model-panel'/)
   })
 
-  test('exposes Pi remote control in the authenticated general section', () => {
-    const generalStart = source.indexOf("id: 'general'")
-    const personalStart = source.indexOf("id: 'personal'", generalStart)
+  test('exposes Pi remote control in the developer section', () => {
+    const generalStart = source.indexOf("id: 'developer'")
+    const personalStart = source.indexOf("id: 'forge'", generalStart)
     const activatedGeneralSection = source.slice(generalStart, personalStart)
 
     assert.match(activatedGeneralSection, /title: t\('Remote control'\)/)
     assert.match(activatedGeneralSection, /url: '\/remote-control'/)
+  })
+  test('separates developer tools, ecosystem, account and standalone services', () => {
+    const activated = source.slice(source.indexOf("id: 'general'"))
+    const section = (id: string, next: string) =>
+      activated.slice(
+        activated.indexOf(`id: '${id}'`),
+        activated.indexOf(`id: '${next}'`)
+      )
+    assert.match(section('general', 'developer'), /title: t\('Use AI'\)/)
+    assert.match(section('general', 'developer'), /url: '\/getting-started'/)
+    assert.match(section('general', 'developer'), /url: '\/chat-management'/)
+    assert.match(section('developer', 'forge'), /url: '\/keys'/)
+    assert.match(section('developer', 'forge'), /url: '\/guide'/)
+    assert.match(section('forge', 'personal'), /url: '\/scripts'/)
+    assert.match(section('personal', 'services'), /url: '\/wallet'/)
+    assert.doesNotMatch(
+      section('personal', 'services'),
+      /temporary-activations/
+    )
+    assert.match(section('services', 'admin'), /url: '\/temporary-activations'/)
+    assert.doesNotMatch(
+      activated.slice(0, activated.indexOf("id: 'admin'")),
+      /url: '\/(users|operations|channels)/
+    )
   })
 })
