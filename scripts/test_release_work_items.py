@@ -103,26 +103,12 @@ class ReleaseWorkItemsTests(unittest.TestCase):
                     self.assertEqual(result.returncode, expected)
                     self.assertNotIn("secret-cli-diagnostic", result.stderr)
 
-    def test_both_release_workflows_have_early_and_final_barriers(self):
+    def test_automatic_release_workflows_are_removed_for_manual_deployment(self):
         for component in ("go", "web"):
-            text = (SCRIPTS.parent / f".github/workflows/release-{component}.yml").read_text()
             with self.subTest(component=component):
-                self.assertEqual(text.count("python3 -B scripts/verify-release-work-items.py"), 2)
-                self.assertIn("issues: read", text)
-                early = text.index("python3 -B scripts/verify-release-work-items.py")
-                self.assertLess(early, text.index("scripts/verify-release-commit-checks.sh"))
-                label = "Go" if component == "go" else "web"
-                publish = text.index(f"      - name: Publish immutable {label} release")
-                final = text.index("python3 -B scripts/verify-release-work-items.py", early + 1)
-                self.assertGreater(final, publish)
-                self.assertLess(final, text.index("gh release create", publish))
-                self.assertNotIn("continue-on-error", text)
-        go = (SCRIPTS.parent / ".github/workflows/release-go.yml").read_text().split("  publish:\n", 1)[1]
-        self.assertIn("issues: read", go)
-        self.assertIn("ref: ${{ needs.prepare.outputs.revision }}", go)
-        self.assertIn("persist-credentials: false", go)
-        web = (SCRIPTS.parent / ".github/workflows/release-web.yml").read_text().split("  web:\n", 1)[1]
-        self.assertIn("issues: read", web)
+                self.assertFalse(
+                    (SCRIPTS.parent / f".github/workflows/release-{component}.yml").exists()
+                )
 
     def test_contract_suite_is_part_of_blocking_ci(self):
         ci = (SCRIPTS.parent / ".github/workflows/ci.yml").read_text()

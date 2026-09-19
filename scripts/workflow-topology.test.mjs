@@ -23,9 +23,11 @@ function job(source, id) {
 test('migration preserves qualification and has no separate legacy deployment workflow', () => {
   const files = readdirSync(new URL('.github/workflows/', root))
     .filter((name) => /\.ya?ml$/.test(name)).sort();
-  assert.deepEqual(files, ['ci.yml', 'pr-check.yml', 'release-go.yml',
-    'release-web.yml', 'server-ops.yml', 'server-release-qualification.yml']);
+  assert.deepEqual(files, ['ci.yml', 'pr-check.yml', 'server-ops.yml',
+    'server-release-qualification.yml']);
   assert.match(workflow('server-release-qualification'), /qualify-go-migration-startup.sh/);
+  assert.throws(() => workflow('release-go'), /ENOENT/);
+  assert.throws(() => workflow('release-web'), /ENOENT/);
 });
 
 test('server operations stay manual, main-only, and share the production lock', () => {
@@ -97,35 +99,12 @@ test('PR metadata policy stays isolated, read-only, and on trusted base code', (
   assert.doesNotMatch(pr, /: write|secrets\.|pull_request\.head\./);
 });
 
-for (const [component, needs, revision] of [
-  ['go', '[prepare, publish]', 'needs.prepare.outputs.revision'],
-  ['web', 'web', 'github.sha'],
-]) {
-  test(`${component} deploy depends on publication, keeps the production lock, and cannot run on a branch`, () => {
-    const source = workflow(`release-${component}`);
-    const deploy = job(source, 'deploy');
-    assert.ok(deploy.includes(`    needs: ${needs}\n`));
-    assert.ok(deploy.includes(`if: success() && github.repository == 'TokenNotIncluded/api.lmm.best' && startsWith(github.ref, 'refs/tags/${component}-v')`));
-    assert.match(deploy, /environment: production/);
-    assert.match(deploy, /group: production-auto-deploy\n      cancel-in-progress: false/);
-    assert.match(deploy, /timeout-minutes: 50/);
-    assert.match(deploy, /permissions:\n      contents: read\n      actions: read/);
-    assert.ok(deploy.includes(`ref: \${{ ${revision} }}`));
-    assert.ok(deploy.includes(`release-sha: \${{ ${revision} }}`));
-    assert.match(deploy, /fetch-depth: 0/);
-    assert.match(deploy, /persist-credentials: false/);
-    assert.match(deploy, /uses: \.\/\.github\/actions\/deploy-production/);
-    assert.match(deploy, /release-tag: \$\{\{ github\.ref_name \}\}/);
-    assert.match(deploy, /github-token: \$\{\{ github\.token \}\}/);
-    for (const [input, secret] of [['ssh-private-key', 'PRODUCTION_SSH_PRIVATE_KEY'], ['ssh-known-hosts', 'PRODUCTION_SSH_KNOWN_HOSTS']]) {
-      assert.ok(deploy.includes(`${input}: \${{ secrets.${secret} }}`));
-    }
-    assert.doesNotMatch(deploy, /always\(\)|continue-on-error|: write/);
-    assert.ok(source.includes(`/.github/workflows/release-${component}.yml@refs/tags/`),
-      'existing Sigstore signing identity must not be renamed');
-    assert.match(source, /bash scripts\/verify-release-commit-checks\.sh/);
-  });
-}
+test('automatic release workflows stay removed while manual deployment support remains', () => {
+  assert.throws(() => read('.github/workflows/release-go.yml'), /ENOENT/);
+  assert.throws(() => read('.github/workflows/release-web.yml'), /ENOENT/);
+  assert.match(action, /using: composite/);
+  assert.match(action, /run: bash scripts\/auto-deploy-production-release\.sh/);
+});
 
 test('shared deployment keeps the signed-package script and pinned verification tool', () => {
   assert.match(action, /using: composite/);
