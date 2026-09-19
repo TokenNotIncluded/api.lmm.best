@@ -26,7 +26,6 @@ jobs:
       actions: read
       checks: read
       contents: write
-      issues: read
       id-token: write
     steps:
       - name: Checkout immutable web release revision
@@ -72,11 +71,6 @@ jobs:
             echo "version=$version"
             echo "revision=$revision"
           } >>"$GITHUB_OUTPUT"
-
-      - name: Require all issues and pull requests resolved
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python3 -B scripts/verify-release-work-items.py
 
       - name: Require successful CI, CodeQL, and release contracts
         env:
@@ -181,7 +175,6 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          python3 -B scripts/verify-release-work-items.py
           shopt -s nullglob
           version=${RELEASE_TAG#web-v}
           expected_names=(

@@ -12,7 +12,7 @@ No workflow connects to a production server or receives server credentials.
   on immutable component tags. Publication ends with a GitHub Release.
 
 Release workflow paths are part of the Sigstore certificate identity. Keep their
-names and the existing source-check, work-item, signature, and immutability gates.
+names and the existing source-check, signature, and immutability gates.
 Tag pushes never deploy, and release workflows have no deployment input or job.
 
 Server workflows, their shared deployment action, incident-request trigger, and
@@ -28,3 +28,6 @@ observation, and health checks. See `docs/production-release-transaction.md` and
 Validate changes with actionlint, `node --test scripts/workflow-topology.test.mjs`,
 and the CI/release Python tests. Workflow boundary tests reject production SSH
 references and server access steps while retaining runner-only qualification.
+
+Open issues and pull requests do not block publication. Release eligibility is
+based on the exact revision, required CI checks, signatures, and immutable assets.
