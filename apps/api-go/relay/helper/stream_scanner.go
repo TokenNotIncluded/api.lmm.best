@@ -205,8 +205,11 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 				wg.Done()
 			}()
 
-			// 添加超时保护，防止 goroutine 无限运行
-			maxPingDuration := 30 * time.Minute // 最大 ping 持续时间
+			// MaxKeepaliveDuration limits the wall-clock lifetime of the keepalive goroutine.
+			// The goroutine already exits on context cancellation and stream end, so this is
+			// defense-in-depth. If it fires, we deliberately stop the stream instead of leaving
+			// it running without keepalive.
+			maxPingDuration := time.Duration(common.MaxKeepaliveDuration) * time.Minute
 			pingTimeout := time.NewTimer(maxPingDuration)
 			defer pingTimeout.Stop()
 
@@ -234,7 +237,9 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 					// 监听客户端断开连接
 					return
 				case <-pingTimeout.C:
-					logger.LogError(c, "ping goroutine max duration reached")
+					logger.LogError(c, "ping goroutine max duration reached, stopping stream")
+					info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonTimeout, fmt.Errorf("keepalive exceeded maximum duration"))
+					stop()
 					return
 				}
 			}
@@ -315,31 +320,37 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 				continue
 			}
 
-			if len(data) < 6 {
+			// Check for bare [DONE] terminator first, before stripping prefix
+			trimmed := strings.TrimSpace(data)
+			if trimmed == "[DONE]" {
+				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonDone, nil)
+				logger.LogDebug(c, "received [DONE], stopping scanner")
+				return
+			}
+
+			// Only process lines with data: prefix
+			if len(data) < 6 || !strings.HasPrefix(data, "data:") {
 				continue
 			}
-			if data[:5] != "data:" && data[:6] != "[DONE]" {
-				continue
-			}
-			data = data[5:]
-			data = strings.TrimSpace(data)
+			data = strings.TrimSpace(data[5:])
 			if data == "" {
 				continue
 			}
-			if !strings.HasPrefix(data, "[DONE]") {
-				info.SetFirstResponseTime()
-				info.ReceivedResponseCount++
-
-				select {
-				case dataChan <- data:
-				case <-ctx.Done():
-					return
-				case <-stopChan:
-					return
-				}
-			} else {
+			// Check for prefixed [DONE] (data: [DONE])
+			if data == "[DONE]" {
 				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonDone, nil)
 				logger.LogDebug(c, "received [DONE], stopping scanner")
+				return
+			}
+
+			info.SetFirstResponseTime()
+			info.ReceivedResponseCount++
+
+			select {
+			case dataChan <- data:
+			case <-ctx.Done():
+				return
+			case <-stopChan:
 				return
 			}
 		}

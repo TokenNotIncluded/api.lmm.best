@@ -284,10 +284,25 @@ func FetchUpstreamRatios(c *gin.Context) {
 			var resp *http.Response
 			var lastErr error
 			for attempt := 0; attempt < 3; attempt++ {
+				// Check if request context was cancelled before retry
+				if ctx.Err() != nil {
+					logger.LogWarn(c.Request.Context(), fmt.Sprintf("request cancelled before attempt %d on %s", attempt+1, chItem.Name))
+					ch <- upstreamResult{Name: uniqueName, Err: "request cancelled"}
+					return
+				}
+
 				resp, lastErr = client.Do(httpReq)
 				if lastErr == nil {
 					break
 				}
+
+				// Don't retry on cancellation
+				if ctx.Err() != nil {
+					logger.LogWarn(c.Request.Context(), "request cancelled during retry on "+chItem.Name)
+					ch <- upstreamResult{Name: uniqueName, Err: "request cancelled"}
+					return
+				}
+
 				time.Sleep(time.Duration(200*(1<<attempt)) * time.Millisecond)
 			}
 			if lastErr != nil {
@@ -485,6 +500,12 @@ func FetchUpstreamRatios(c *gin.Context) {
 			}
 			if len(billingExprMap) > 0 {
 				converted[billing_setting.BillingExprField] = valueMap(billingExprMap)
+			}
+
+			// Final check before sending result - don't queue work if the request was cancelled
+			if ctx.Err() != nil {
+				logger.LogWarn(c.Request.Context(), "request cancelled before sending result for "+chItem.Name)
+				return
 			}
 
 			ch <- upstreamResult{Name: uniqueName, Data: converted}
@@ -744,17 +765,20 @@ func convertOpenRouterToRatioData(reader io.Reader) (map[string]any, error) {
 		promptPrice, promptErr := strconv.ParseFloat(m.Pricing.Prompt, 64)
 		completionPrice, compErr := strconv.ParseFloat(m.Pricing.Completion, 64)
 
+		// Reject models where both prices are missing or invalid
 		if promptErr != nil && compErr != nil {
-			// Both unparseable — skip this model
 			continue
 		}
 
-		// Treat parse errors as 0
-		if promptErr != nil {
-			promptPrice = 0
+		// Missing prices: reject the model instead of treating as 0
+		// Only explicit "0" or "0.0" in the JSON should be treated as free
+		if promptErr != nil || compErr != nil {
+			continue
 		}
-		if compErr != nil {
-			completionPrice = 0
+
+		// Validate parsed values are finite and non-negative
+		if !isValidNonNegativeCost(promptPrice) || !isValidNonNegativeCost(completionPrice) {
+			continue
 		}
 
 		// Negative values are sentinel values (e.g., -1 for dynamic/variable pricing) — skip
@@ -775,18 +799,34 @@ func convertOpenRouterToRatioData(reader io.Reader) (map[string]any, error) {
 		// Normal case: promptPrice > 0
 		ratio := promptPrice * 1000 * ratio_setting.USD
 		ratio = roundRatioValue(ratio)
+
+		// Validate computed ratio is finite
+		if !isValidNonNegativeCost(ratio) {
+			continue
+		}
 		modelRatioMap[m.ID] = ratio
 
 		compRatio := completionPrice / promptPrice
 		compRatio = roundRatioValue(compRatio)
+
+		// Validate computed completion ratio is finite
+		if !isValidNonNegativeCost(compRatio) {
+			continue
+		}
 		completionRatioMap[m.ID] = compRatio
 
 		// Convert input_cache_read to cache_ratio (= cache_read_price / prompt_price)
 		if m.Pricing.InputCacheRead != "" {
-			if cachePrice, err := strconv.ParseFloat(m.Pricing.InputCacheRead, 64); err == nil && cachePrice >= 0 {
-				cacheRatio := cachePrice / promptPrice
-				cacheRatio = roundRatioValue(cacheRatio)
-				cacheRatioMap[m.ID] = cacheRatio
+			if cachePrice, err := strconv.ParseFloat(m.Pricing.InputCacheRead, 64); err == nil {
+				if isValidNonNegativeCost(cachePrice) && cachePrice >= 0 {
+					cacheRatio := cachePrice / promptPrice
+					cacheRatio = roundRatioValue(cacheRatio)
+
+					// Validate computed cache ratio is finite
+					if isValidNonNegativeCost(cacheRatio) {
+						cacheRatioMap[m.ID] = cacheRatio
+					}
+				}
 			}
 		}
 	}

@@ -254,6 +254,7 @@ oauth.connect_failed: "無法連接至 {{.Provider}} 伺服器，請稍後重試
 oauth.token_failed: "{{.Provider}} 獲取 Token 失敗，請檢查設定"
 oauth.user_info_empty: "{{.Provider}} 獲取使用者資訊為空，請檢查設定"
 oauth.trust_level_low: "Linux DO 信任等級未達到管理員設定的最低信任等級"
+oauth.trust_level_low_require_assistant: "您的 Linux DO 信任等級較低，需要與 AI 助手對話以申請開發者存取權限。請造訪控制台與助手溝通。"
 oauth.email_verification_required: "管理員已開啟信箱驗證，但該 OAuth 供應者未確認已驗證的信箱位址。請改用已驗證信箱的供應者，或使用密碼註冊。"
 
 # Model layer error messages

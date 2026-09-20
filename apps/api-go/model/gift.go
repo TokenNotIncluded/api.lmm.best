@@ -2,6 +2,7 @@ package model
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -236,7 +237,9 @@ func claimGiftWithTransaction(claim *GiftClaim, userId int, quota int) error {
 	}
 	if common.RedisEnabled {
 		go func() {
-			_ = cacheIncrUserQuota(userId, int64(quota))
+			if err := cacheIncrUserQuota(userId, int64(quota)); err != nil {
+				common.SysError(fmt.Sprintf("failed to invalidate quota cache after gift claim for user %d: %s", userId, err.Error()))
+			}
 		}()
 	}
 	return nil
