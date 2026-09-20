@@ -62,16 +62,24 @@ capability gate, because that fix did not exist yet on 2026-09-19.
 
 ## 4. What is still outstanding before any deployment decision
 
-1. **Re-run (or extend) the isolated rehearsal to cover `#391`/#406.**
-   The new `MANAGED_BILLING_SETTLEMENT_CAPABILITY` marker has full unit
-   coverage (`TestProductionBillingGateBlocksManagedBillingRollbackBeforeWriterStop`,
-   `TestManagedBillingSettlementCapabilityMarkerProtocol`) and passing CI,
-   but no package has ever actually been built with the marker embedded,
-   and no rollback has been attempted against real `subscription_pre_consume_records`
-   rows with `billing_managed=true` in an isolated environment. This is
-   the same class of evidence §3 already produced for the authz gate and
-   should be produced the same way before the billing gate is trusted for
-   a real rollback decision.
+1. **A real signed release carrying the marker does not exist yet.**
+   `#406`'s `MANAGED_BILLING_SETTLEMENT_CAPABILITY` propagation
+   (bsdtar extraction, manifest field, capability-gated query) is fully
+   covered by deterministic unit tests
+   (`TestProductionBillingGateBlocksManagedBillingRollbackBeforeWriterStop`,
+   `TestManagedBillingSettlementCapabilityMarkerProtocol`) and by the CI
+   packaging fixture script, none of which depend on real production data
+   — the marker is a static file byte-check, and the SQL query it gates
+   (`COALESCE((to_jsonb(r)->>'billing_managed')::boolean, false)`) is
+   unchanged from what already runs in production today. Re-running the
+   full isolated production-snapshot rehearsal from §3 a second time would
+   therefore not add meaningful evidence beyond what CI already proves;
+   the actual missing artifact is a real tagged, cosign-signed release
+   build with the marker present. Cutting that release is a public,
+   externally-visible action (new GitHub release assets, AUR-consumable
+   source URLs) — a materially different and larger decision than
+   engineering verification, and it is intentionally not done as part of
+   this plan.
 2. **Frontend/package drift reconciliation.** Live frontend
    (`0.1.77-menu`, package metadata `0.1.81-1`) and backend (`0.2.52`)
    versions must be reconciled through the signed native frontend path
@@ -80,9 +88,11 @@ capability gate, because that fix did not exist yet on 2026-09-19.
    approval".
 3. **Final combined-source qualification** of the bridge -> main path as
    a single rollout (not just the two isolated migrate/verify legs
-   already tested).
-4. **Owner manual approval of the concrete rollout plan** (this document,
-   once the above are closed).
+   already tested), exercised once a real bridge release exists.
+4. **Owner sign-off to cut the bridge/candidate release and deploy.**
+   Everything through source-level verification and CI is done; cutting
+   an actual release and deploying it are the two remaining actions this
+   plan does not take on its own.
 
 ## 5. Recommended path once §4 is closed
 
