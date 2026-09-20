@@ -489,6 +489,7 @@ export function ToolMarket() {
                           <article
                             key={tool.tool_id}
                             className='space-y-3 border-b pb-5'
+                            data-tool-version={tool.version_id}
                           >
                             <div className='flex flex-wrap justify-between gap-3'>
                               <h4 className='font-semibold break-all'>

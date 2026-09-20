@@ -22,7 +22,7 @@ Copyright (C) 2026 LIghtJUNction
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { TFunction } from 'i18next'
 import { Copy, Gift, ImagePlus, Plus, Sparkles } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -66,6 +66,8 @@ type FormState = {
   description: string
   coverImage: string
   coverPrompt: string
+  coverGroup: string
+  coverModel: string
   drawMode: RedPacketDrawMode
   perUserLimit: number
   startAt: string
@@ -78,6 +80,8 @@ const emptyForm: FormState = {
   coverImage: '',
   coverPrompt:
     '设计一张简洁、高级、具有节日感的数字红包封面，不要出现具体金额，适合 AI API 开发者社区。',
+  coverGroup: 'image-2',
+  coverModel: 'image-2',
   drawMode: 'random',
   perUserLimit: 1,
   startAt: '',
@@ -176,6 +180,38 @@ export function RedPackets() {
   const [form, setForm] = useState<FormState>(emptyForm)
   const [selected, setSelected] = useState<Record<string, number>>({})
   const [generatingCover, setGeneratingCover] = useState(false)
+
+  const userGroupsQuery = useQuery({
+    queryKey: ['userGroups'],
+    queryFn: async () => {
+      const response = await api.get<{
+        success?: boolean
+        data?: Record<string, { ratio: number; desc?: string }>
+      }>('/api/user/groups')
+      return response.data.data ?? {}
+    },
+  })
+  const coverModelsQuery = useQuery({
+    queryKey: ['red-packet-cover-models', form.coverGroup],
+    queryFn: async () => {
+      const response = await api.get<{
+        success?: boolean
+        data?: string[]
+      }>('/api/user/models', { params: { group: form.coverGroup } })
+      return (response.data.data ?? [])
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b))
+    },
+    enabled: open && Boolean(form.coverGroup),
+    staleTime: 60_000,
+  })
+
+  useEffect(() => {
+    const models = coverModelsQuery.data ?? []
+    if (models.length > 0 && !models.includes(form.coverModel)) {
+      setForm((previous) => ({ ...previous, coverModel: models[0] }))
+    }
+  }, [coverModelsQuery.data, form.coverModel])
 
   const packetsQuery = useQuery({
     queryKey: ['red-packets', 'admin'],
@@ -283,17 +319,24 @@ export function RedPackets() {
   const generateCover = async () => {
     const prompt = form.coverPrompt.trim()
     if (!prompt) return
+    if (!form.coverModel || !coverModelsQuery.data?.includes(form.coverModel)) {
+      toast.error(t('Choose an available image model'))
+      return
+    }
     setGeneratingCover(true)
     try {
       const response = await api.post<{
         data?: Array<{ url?: string; b64_json?: string }>
-      }>('/pg/images/generations?group=image-2', {
-        model: 'image-2',
-        prompt,
-        n: 1,
-        size: '1536x1024',
-        response_format: 'b64_json',
-      })
+      }>(
+        `/red-packet-cover/images/generations?group=${encodeURIComponent(form.coverGroup)}`,
+        {
+          model: form.coverModel,
+          prompt,
+          n: 1,
+          size: '1536x1024',
+          response_format: 'b64_json',
+        }
+      )
       const image = response.data.data?.[0]
       const cover = image?.b64_json
         ? `data:image/png;base64,${image.b64_json}`
@@ -485,6 +528,55 @@ export function RedPackets() {
                   className='aspect-[3/1] w-full rounded-lg object-cover'
                 />
               ) : null}
+              <div className='grid gap-3 sm:grid-cols-2'>
+                <div className='space-y-2'>
+                  <Label>{t('Group')}</Label>
+                  <select
+                    className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
+                    value={form.coverGroup}
+                    onChange={(event) =>
+                      setForm((v) => ({ ...v, coverGroup: event.target.value }))
+                    }
+                  >
+                    {Object.keys(userGroupsQuery.data ?? {}).map((group) => (
+                      <option key={group} value={group}>
+                        {group}
+                      </option>
+                    ))}
+                    {!userGroupsQuery.data ||
+                    Object.keys(userGroupsQuery.data).length === 0 ? (
+                      <option value='image-2'>image-2</option>
+                    ) : null}
+                  </select>
+                </div>
+                <div className='space-y-2'>
+                  <Label>{t('Model')}</Label>
+                  <select
+                    className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
+                    value={form.coverModel}
+                    disabled={
+                      coverModelsQuery.isPending ||
+                      !coverModelsQuery.data?.length
+                    }
+                    onChange={(event) =>
+                      setForm((v) => ({ ...v, coverModel: event.target.value }))
+                    }
+                  >
+                    {coverModelsQuery.data?.map((model) => (
+                      <option key={model} value={model}>
+                        {model}
+                      </option>
+                    ))}
+                    {!coverModelsQuery.data?.length && (
+                      <option value=''>
+                        {coverModelsQuery.isPending
+                          ? t('Loading…')
+                          : t('No available image models')}
+                      </option>
+                    )}
+                  </select>
+                </div>
+              </div>
               <Textarea
                 value={form.coverPrompt}
                 onChange={(event) =>
@@ -496,7 +588,12 @@ export function RedPackets() {
                 <Button
                   type='button'
                   variant='outline'
-                  disabled={generatingCover}
+                  disabled={
+                    generatingCover ||
+                    coverModelsQuery.isPending ||
+                    !coverModelsQuery.data?.length ||
+                    !form.coverModel
+                  }
                   onClick={() => void generateCover()}
                 >
                   <Sparkles className='mr-2 size-4' />

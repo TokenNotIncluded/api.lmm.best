@@ -102,8 +102,10 @@ export function ChallengeDetailPage(props: ChallengeDetailPageProps) {
     queryKey,
     queryFn: () => getBountyDetail(props.challengeId),
     enabled:
+      Number.isSafeInteger(props.challengeId) &&
       props.challengeId > 0 &&
       (Boolean(user) || (capabilitiesReady && canReadPublicBounties)),
+    retry: false,
   })
   const mutation = useMutation({
     mutationFn: () => acceptBounty(props.challengeId, githubHandle.trim()),
@@ -129,6 +131,37 @@ export function ChallengeDetailPage(props: ChallengeDetailPageProps) {
         <main className='mx-auto flex max-w-6xl flex-col gap-5 px-5 pt-32 pb-24 md:px-10'>
           <Skeleton className='h-12 w-2/3' />
           <Skeleton className='h-48 w-full' />
+        </main>
+      </ForgePublicShell>
+    )
+  }
+
+  if (query.isError) {
+    return (
+      <ForgePublicShell>
+        <main className='mx-auto max-w-4xl px-5 pt-32 pb-24 md:px-10'>
+          <h1 className='mb-4 font-serif text-4xl'>
+            {t('Challenge temporarily unavailable')}
+          </h1>
+          <p className='text-muted-foreground mb-6 max-w-2xl text-sm leading-6'>
+            {t(
+              'The challenge service did not return a usable response. Retry the request or browse the public challenge list.'
+            )}
+          </p>
+          <div className='flex flex-wrap gap-3'>
+            <Button variant='outline' onClick={() => void query.refetch()}>
+              {t('Retry')}
+            </Button>
+            <Button variant='ghost' render={<Link to='/challenges' />}>
+              <HugeiconsIcon
+                icon={ArrowLeft01Icon}
+                data-icon='inline-start'
+                strokeWidth={2}
+                aria-hidden='true'
+              />
+              {t('Browse challenges')}
+            </Button>
+          </div>
         </main>
       </ForgePublicShell>
     )

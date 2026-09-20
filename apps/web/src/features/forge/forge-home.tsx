@@ -115,6 +115,7 @@ export function ForgeHome() {
   const [message, setMessage] = useState('')
   const [messageFocused, setMessageFocused] = useState(false)
   const [codeTab, setCodeTab] = useState<CodeTab>('Chat')
+  const [activeExplore, setActiveExplore] = useState('market')
   const piCopy = useCopyFeedback()
   const codeCopy = useCopyFeedback()
   const assistantEnabled = status?.assistant?.enabled !== false
@@ -296,34 +297,105 @@ export function ForgeHome() {
             </p>
           </>
         }
-        destinations={
-          <>
-            <Link to='/pricing'>
-              <span>{t('Models and pricing')}</span>
-              <ArrowRight aria-hidden='true' />
-            </Link>
-            <Link to='/challenges'>
-              <span>{t('Open-source bounties')}</span>
-              <ArrowRight aria-hidden='true' />
-            </Link>
-            <Link to='/scripts'>
-              <span>{t('Public scripts')}</span>
-              <ArrowRight aria-hidden='true' />
-            </Link>
-            {securityLink && (
-              <Link
-                to={securityLink.requiresAuth ? '/sign-in' : '/security'}
-                search={
-                  securityLink.requiresAuth
-                    ? { redirect: '/security' }
-                    : undefined
+        explore={
+          <div className='lmm-explore-console'>
+            <nav className='lmm-destinations' aria-label={t('Explore LMM')}>
+              {[
+                [
+                  'market',
+                  '/tool-market',
+                  'Tool market',
+                  'Browse, publish, authorize and run tools.',
+                ],
+                [
+                  'pricing',
+                  '/pricing',
+                  'Models and pricing',
+                  'Compare model capabilities and account pricing.',
+                ],
+                [
+                  'challenges',
+                  '/challenges',
+                  'Open-source bounties',
+                  'Find focused work with funded reward slots.',
+                ],
+                [
+                  'scripts',
+                  '/scripts',
+                  'Public scripts',
+                  'Use the reviewed installation and setup scripts.',
+                ],
+                ...(securityLink
+                  ? [
+                      [
+                        'security',
+                        securityLink.requiresAuth ? '/sign-in' : '/security',
+                        'Security',
+                        'Review account and platform security controls.',
+                      ],
+                    ]
+                  : []),
+              ].map(([id, href, label]) => (
+                <a
+                  key={id}
+                  href={
+                    id === 'security' && securityLink?.requiresAuth
+                      ? '/sign-in?redirect=%2Fsecurity'
+                      : href
+                  }
+                  aria-current={activeExplore === id ? 'page' : undefined}
+                  onMouseEnter={() => setActiveExplore(id)}
+                  onFocus={() => setActiveExplore(id)}
+                  onClick={() => setActiveExplore(id)}
+                >
+                  <span>
+                    <small>{t('Explore')}</small>
+                    <strong>{t(label)}</strong>
+                  </span>
+                  <ArrowRight aria-hidden='true' />
+                </a>
+              ))}
+            </nav>
+            <div className='lmm-explore-preview' aria-live='polite'>
+              {(() => {
+                const descriptions: Record<string, string> = {
+                  market: 'Browse, publish, authorize and run tools.',
+                  pricing: 'Compare model capabilities and account pricing.',
+                  challenges: 'Find focused work with funded reward slots.',
+                  scripts: 'Use the reviewed installation and setup scripts.',
+                  security: 'Review account and platform security controls.',
                 }
-              >
-                <span>{t('Security')}</span>
-                <ArrowRight aria-hidden='true' />
-              </Link>
-            )}
-          </>
+                const labels: Record<string, string> = {
+                  market: 'Tool market',
+                  pricing: 'Models and pricing',
+                  challenges: 'Open-source bounties',
+                  scripts: 'Public scripts',
+                  security: 'Security',
+                }
+                return (
+                  <>
+                    <span className='lmm-explore-preview-index'>
+                      0
+                      {Math.max(
+                        1,
+                        [
+                          'market',
+                          'pricing',
+                          'challenges',
+                          'scripts',
+                          'security',
+                        ].indexOf(activeExplore) + 1
+                      )}
+                    </span>
+                    <strong>{t(labels[activeExplore] ?? labels.market)}</strong>
+                    <p>
+                      {t(descriptions[activeExplore] ?? descriptions.market)}
+                    </p>
+                  </>
+                )
+              })()}
+            </div>
+          </div>
         }
         scripts={<PublicScriptsPanel />}
         purchase={<PurchaseJourney />}

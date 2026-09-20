@@ -12,6 +12,7 @@ for (const key of [
   'HTMLElement',
   'HTMLInputElement',
   'HTMLButtonElement',
+  'customElements',
   'Node',
   'Element',
   'Event',
@@ -29,6 +30,21 @@ for (const key of [
     value: dom[key],
   })
 }
+Object.defineProperty(globalThis, 'matchMedia', {
+  configurable: true,
+  value: (media: string) => ({
+    matches: false,
+    media,
+    onchange: null,
+    addEventListener() {},
+    removeEventListener() {},
+    addListener() {},
+    removeListener() {},
+    dispatchEvent() {
+      return false
+    },
+  }),
+})
 Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
   configurable: true,
   value: true,
