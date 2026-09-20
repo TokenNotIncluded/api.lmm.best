@@ -13,9 +13,9 @@ func TestChoicesToOpenAIImageDateReturnsEveryImage(t *testing.T) {
 		name string
 		raw  string
 		want []struct {
-			url     string
-			b64     string
-			prompt  string
+			url    string
+			b64    string
+			prompt string
 		}
 	}{
 		{
