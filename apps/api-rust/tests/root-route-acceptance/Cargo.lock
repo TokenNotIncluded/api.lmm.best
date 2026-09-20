@@ -1477,6 +1477,7 @@ dependencies = [
  "hex",
  "hmac",
  "http",
+ "http-body-util",
  "httpdate",
  "humantime",
  "ipnet",
