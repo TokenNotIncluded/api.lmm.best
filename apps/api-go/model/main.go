@@ -55,14 +55,13 @@ var DB *gorm.DB
 
 var LOG_DB *gorm.DB
 
-func CheckSetup() {
-	checkSetup()
+func CheckSetup() error {
+	return checkSetup()
 }
 
 func CheckSetupForStartup(allowMigrationWrite bool) error {
 	if allowMigrationWrite {
-		checkSetup()
-		return nil
+		return checkSetup()
 	}
 	if err := verifySetupState(); err != nil {
 		return err
@@ -89,7 +88,7 @@ func verifySetupState() error {
 	return nil
 }
 
-func checkSetup() {
+func checkSetup() error {
 	setup := GetSetup()
 	if setup == nil {
 		// No setup record exists, check if we have a root user
@@ -103,7 +102,7 @@ func checkSetup() {
 			}
 			err := DB.Create(&newSetup).Error
 			if err != nil {
-				common.SysLog("failed to create setup record: " + err.Error())
+				return fmt.Errorf("create setup record: %w", err)
 			}
 			constant.SetSetup(true)
 		} else {
@@ -115,6 +114,7 @@ func checkSetup() {
 		common.SysLog("system is already initialized at: " + time.Unix(setup.InitializedAt, 0).String())
 		constant.SetSetup(true)
 	}
+	return nil
 }
 
 func isClickHouseDSN(dsn string) bool {
