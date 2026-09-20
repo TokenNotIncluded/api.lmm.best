@@ -26,6 +26,7 @@ type fakeProductionRunner struct {
 	managedBillingRows                            string
 	managedOAuthTokenRows                         string
 	oauthManagedTokenIsolation                    bool
+	managedBillingSettlementIsolation             bool
 	journalLossAfterAdmission                     bool
 	preStopProbeFailure                           bool
 	t                                             *testing.T
@@ -330,6 +331,8 @@ func (runner *fakeProductionRunner) bsdtar(args []string) ([]byte, error) {
 	case strings.HasSuffix(member, "/API_ROUTE_CONTRACT_REVISION"):
 		return []byte(contract + "\n"), nil
 	case strings.HasSuffix(member, "/OAUTH_MANAGED_TOKEN_CAPABILITY") && name == productionAURPackageName && runner.oauthManagedTokenIsolation:
+		return []byte("v1\n"), nil
+	case strings.HasSuffix(member, "/MANAGED_BILLING_SETTLEMENT_CAPABILITY") && name == productionAURPackageName && runner.managedBillingSettlementIsolation:
 		return []byte("v1\n"), nil
 	case name == productionWebPackageName && strings.HasSuffix(member, "/index.html"):
 		return os.ReadFile(index)
