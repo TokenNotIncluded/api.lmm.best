@@ -193,6 +193,11 @@ var OpenAIFirstOutputTimeout int // unit is second
 var RelayMaxIdleConns int
 var RelayMaxIdleConnsPerHost int
 
+// MaxKeepaliveDuration is the maximum wall-clock duration for SSE keepalive goroutines
+// in both pre-response and stream phases. Used to prevent unbounded goroutine lifetime
+// while still accommodating long-running streams. Unit is minutes.
+var MaxKeepaliveDuration int // unit is minutes
+
 var GeminiSafetySetting string
 
 // https://docs.cohere.com/docs/safety-modes Type; NONE/CONTEXTUAL/STRICT

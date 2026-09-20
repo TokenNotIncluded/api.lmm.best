@@ -295,6 +295,24 @@ func HandleOAuth(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	// Check for low trust level before user creation
+	trustLevelLow, _ := oauthUser.Extra["trust_level_low"].(bool)
+	if trustLevelLow {
+		isLowRisk := assessLinuxDORiskLevel(c, oauthUser)
+		if !isLowRisk {
+			// High risk: require dialogue with AI assistant
+			c.JSON(http.StatusForbidden, gin.H{
+				"success": false,
+				"message": i18n.T(c, i18n.MsgOAuthTrustLevelLowRequireAssistant),
+				"code":    "TRUST_LEVEL_LOW_REQUIRE_ASSISTANT",
+			})
+			return
+		}
+		// Low risk: proceed with registration and auto-grant L1
+		common.SysLog(fmt.Sprintf("[OAuth] Low-risk LinuxDO user (trust_level=%v) approved for auto-L1 grant: provider_id=%s",
+			oauthUser.Extra["trust_level"], oauthUser.ProviderUserID))
+	}
+
 	user, err := findOrCreateOAuthUser(c, provider, oauthUser, payload.AffiliateCode, payload.AcceptedLegal)
 	if err != nil {
 		var gateErr *registrationGateError
@@ -319,6 +337,13 @@ func HandleOAuth(c *gin.Context) {
 			common.ApiError(c, err)
 		}
 		return
+	}
+
+	// Auto-grant L1 for low-risk users with low trust level
+	if trustLevelLow {
+		if err := autoGrantL1ForLowRiskUser(c, user, oauthUser); err != nil {
+			common.SysError(fmt.Sprintf("[OAuth] Failed to auto-grant L1 for low-risk user %d: %v", user.Id, err))
+		}
 	}
 	if err := applyLinuxDOPaymentRestriction(provider, oauthUser, user); err != nil {
 		common.ApiError(c, err)

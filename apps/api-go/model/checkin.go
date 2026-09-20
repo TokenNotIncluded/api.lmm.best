@@ -3,6 +3,7 @@ package model
 import (
 	cryptorand "crypto/rand"
 	"errors"
+	"fmt"
 	"math/big"
 	"time"
 
@@ -148,7 +149,9 @@ func userCheckinWithTransaction(checkin *Checkin, userId int, quotaAwarded int) 
 	// 事务成功后，异步更新缓存（无 Redis 时跳过，避免空跑并与测试 cleanup 竞态）
 	if common.RedisEnabled {
 		go func() {
-			_ = cacheIncrUserQuota(userId, int64(quotaAwarded))
+			if err := cacheIncrUserQuota(userId, int64(quotaAwarded)); err != nil {
+				common.SysError(fmt.Sprintf("failed to invalidate quota cache after checkin for user %d: %s", userId, err.Error()))
+			}
 		}()
 	}
 
