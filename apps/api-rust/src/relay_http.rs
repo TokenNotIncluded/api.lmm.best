@@ -354,7 +354,7 @@ impl Default for RelayTimeoutConfig {
     fn default() -> Self {
         Self {
             response_headers: Some(Duration::from_secs(1800)),
-            idle: Duration::from_secs(300),
+            idle: Duration::from_secs(900),
             total: None,
         }
     }
@@ -415,7 +415,7 @@ impl RelayTimeoutConfig {
             &mut lookup,
             "LMM_RELAY_IDLE_TIMEOUT_SECONDS",
             "STREAMING_TIMEOUT",
-            300,
+            900,
             false,
         )?;
         let total = read(

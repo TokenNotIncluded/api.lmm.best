@@ -10,7 +10,7 @@ reqwest client or send a builder directly to bypass the controlled response.
 | Rust variable | Go fallback | Default | Zero |
 | --- | --- | --- | --- |
 | `LMM_RELAY_RESPONSE_HEADER_TIMEOUT_SECONDS` | `RELAY_RESPONSE_HEADER_TIMEOUT` | 1800 seconds | Disable header deadline |
-| `LMM_RELAY_IDLE_TIMEOUT_SECONDS` | `STREAMING_TIMEOUT` | 300 seconds | Startup error |
+| `LMM_RELAY_IDLE_TIMEOUT_SECONDS` | `STREAMING_TIMEOUT` | 900 seconds | Startup error |
 | `LMM_RELAY_TIMEOUT_SECONDS` | `RELAY_TIMEOUT` | 0 seconds | Disable total deadline |
 
 Rust settings take precedence over Go aliases, then defaults. A present invalid
