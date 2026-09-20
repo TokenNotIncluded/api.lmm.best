@@ -83,6 +83,7 @@ flate2.workspace = true
 fs2.workspace = true
 humantime.workspace = true
 http.workspace = true
+http-body-util = "0.1.3"
 httpdate.workspace = true
 ipnet.workspace = true
 jsonwebtoken.workspace = true

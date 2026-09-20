@@ -15,6 +15,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestAssistantChatBodyLimitContract(t *testing.T) {
+	require.EqualValues(t, 64<<10, assistantRequestMaxBytes,
+		"update the Go/Rust assistant boundary regressions when changing the wire budget")
+}
+
 func TestListModelsSupportsOpenAIAndGeminiAuthentication(t *testing.T) {
 	setupRelayRouterTestDB(t)
 

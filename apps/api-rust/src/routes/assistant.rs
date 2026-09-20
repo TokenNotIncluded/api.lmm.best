@@ -77,7 +77,9 @@ const ASSISTANT_TOOL_CALLS_PER_TURN: usize = 4;
 const ASSISTANT_RESPONSE_CACHE_NAMESPACE: &str = "new-api:assistant-response:v1";
 const DEFAULT_MAX_USER_TOKENS: i64 = 1_000;
 const ASSISTANT_BODY_LIMIT_BYTES: usize = 64 * 1_024;
-const ASSISTANT_CHAT_BODY_LIMIT_BYTES: usize = 64 * 1_024 * 1_024;
+// Match Go router/relay-router.go's assistantRequestMaxBytes transport budget.
+// Text and tool-argument limits do not replace the serialized JSON byte ceiling.
+const ASSISTANT_CHAT_BODY_LIMIT_BYTES: usize = ASSISTANT_BODY_LIMIT_BYTES;
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 struct AssistantOpenAiMessage {
@@ -1660,6 +1662,9 @@ async fn assistant_chat(
             ));
         }
     }
+    if assistant_chat_declared_body_too_large(request.headers()) {
+        return with_auth_version(StatusCode::PAYLOAD_TOO_LARGE.into_response());
+    }
     let mut settings = match state.store.settings().await {
         Ok(settings) => settings,
         Err(error) => return api_error(error),
@@ -1741,7 +1746,26 @@ async fn assistant_chat_input(
 ) -> Result<AssistantChatInput, Response> {
     let body = to_bytes(request.into_body(), ASSISTANT_CHAT_BODY_LIMIT_BYTES)
         .await
-        .map_err(|_| invalid_assistant_chat_request())?;
+        .map_err(|error| {
+            if std::error::Error::source(&error)
+                .is_some_and(|source| source.is::<http_body_util::LengthLimitError>())
+            {
+                with_auth_version(
+                    (
+                        StatusCode::PAYLOAD_TOO_LARGE,
+                        Json(json!({
+                            "success": false,
+                            "code": "ASSISTANT_REQUEST_TOO_LARGE",
+                            "message": "request body too large",
+                            "retryable": false,
+                        })),
+                    )
+                        .into_response(),
+                )
+            } else {
+                invalid_assistant_chat_request()
+            }
+        })?;
     if body.is_empty() {
         return Err(invalid_assistant_chat_request());
     }
@@ -1751,6 +1775,14 @@ async fn assistant_chat_input(
         return Ok(AssistantChatInput::default());
     }
     serde_json::from_value(value).map_err(|_| invalid_assistant_chat_request())
+}
+
+fn assistant_chat_declared_body_too_large(headers: &HeaderMap) -> bool {
+    headers
+        .get(header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+        .is_some_and(|length| length > ASSISTANT_CHAT_BODY_LIMIT_BYTES as u64)
 }
 
 fn invalid_assistant_chat_request() -> Response {

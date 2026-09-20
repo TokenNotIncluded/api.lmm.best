@@ -34,6 +34,24 @@ Reference implementations: `apps/api-go/model/option_price_lock.go` and
 `apps/api-go/controller/option.go`. This change does not advertise a new frontend
 capability or transfer any production route ownership.
 
+## Assistant chat request budget
+
+`POST /api/assistant/chat` uses the current Go transport budget of 65,536
+serialized JSON bytes in Rust as well (Go `router/relay-router.go`). This
+replaces Rust's former 64 MiB ceiling. Authentication and user rate limiting
+still precede the limit. A declared oversized `Content-Length` is rejected
+without polling the body, with an empty HTTP 413 response. A body that exceeds
+the budget while being read returns HTTP 413 with
+`ASSISTANT_REQUEST_TOO_LARGE`, `request body too large`, and `retryable: false`.
+Ordinary body I/O errors retain the existing invalid-request response.
+
+The 4,000-character per-message and 12,000-character conversation limits are
+separate from the byte budget. JSON escaping, metadata and tool arguments count
+toward the 65,536-byte envelope; individual semantic limits are not a promise
+that every combination or encoding fits. Tests cover boundary sizes, streamed
+overflow, early declared-length rejection, and a 12,000 four-byte-character
+conversation with 16 KiB of tool metadata. No production route ownership changes.
+
 ## Remaining migration blockers
 
 This is a source review, not an end-to-end certification. At the baseline the
