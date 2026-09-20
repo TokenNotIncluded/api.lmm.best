@@ -334,20 +334,21 @@ type productionTransactionOptions struct {
 }
 
 type productionPackageTransition struct {
-	CandidatePackageName               string `json:"candidate_package_name"`
-	RollbackPackageName                string `json:"rollback_package_name"`
-	Changed                            bool   `json:"changed"`
-	CandidatePath                      string `json:"candidate_path"`
-	RollbackPath                       string `json:"rollback_path"`
-	CandidateIdentity                  string `json:"candidate_identity"`
-	RollbackIdentity                   string `json:"rollback_identity"`
-	CandidateSHA256                    string `json:"candidate_sha256"`
-	RollbackSHA256                     string `json:"rollback_sha256"`
-	CandidateGitRevision               string `json:"candidate_git_revision"`
-	RollbackGitRevision                string `json:"rollback_git_revision"`
-	CandidateContractRevision          string `json:"candidate_contract_revision"`
-	RollbackContractRevision           string `json:"rollback_contract_revision"`
-	RollbackOAuthManagedTokenIsolation bool   `json:"rollback_oauth_managed_token_isolation"`
+	CandidatePackageName                      string `json:"candidate_package_name"`
+	RollbackPackageName                       string `json:"rollback_package_name"`
+	Changed                                   bool   `json:"changed"`
+	CandidatePath                             string `json:"candidate_path"`
+	RollbackPath                              string `json:"rollback_path"`
+	CandidateIdentity                         string `json:"candidate_identity"`
+	RollbackIdentity                          string `json:"rollback_identity"`
+	CandidateSHA256                           string `json:"candidate_sha256"`
+	RollbackSHA256                            string `json:"rollback_sha256"`
+	CandidateGitRevision                      string `json:"candidate_git_revision"`
+	RollbackGitRevision                       string `json:"rollback_git_revision"`
+	CandidateContractRevision                 string `json:"candidate_contract_revision"`
+	RollbackContractRevision                  string `json:"rollback_contract_revision"`
+	RollbackOAuthManagedTokenIsolation        bool   `json:"rollback_oauth_managed_token_isolation"`
+	RollbackManagedBillingSettlementIsolation bool   `json:"rollback_managed_billing_settlement_isolation"`
 }
 
 type productionFrontendTransition struct {
@@ -479,15 +480,16 @@ func packageIntegrityClean(output []byte, name string) bool {
 }
 
 type productionPackageMetadata struct {
-	Name                       string
-	Version                    string
-	Identity                   string
-	GitRevision                string
-	ContractRevision           string
-	IndexSHA256                string
-	BinarySHA256               string
-	ReleaseAssetSHA256         string
-	OAuthManagedTokenIsolation bool
+	Name                              string
+	Version                           string
+	Identity                          string
+	GitRevision                       string
+	ContractRevision                  string
+	IndexSHA256                       string
+	BinarySHA256                      string
+	ReleaseAssetSHA256                string
+	OAuthManagedTokenIsolation        bool
+	ManagedBillingSettlementIsolation bool
 }
 
 func parseNamedPackageIdentity(output []byte, expected string) (productionPackageMetadata, error) {
@@ -548,6 +550,8 @@ func (runtime *productionRuntime) packageMetadata(ctx context.Context, packagePa
 	if packageName == productionAURPackageName {
 		capability, capabilityErr := readMember("OAUTH_MANAGED_TOKEN_CAPABILITY")
 		metadata.OAuthManagedTokenIsolation = capabilityErr == nil && capability == "v1"
+		billingCapability, billingCapabilityErr := readMember("MANAGED_BILLING_SETTLEMENT_CAPABILITY")
+		metadata.ManagedBillingSettlementIsolation = billingCapabilityErr == nil && billingCapability == "v1"
 	}
 	if packageName == productionWebPackageName {
 		index, err := runtime.runner.Run(ctx, productionCommand{Name: commandBsdtar, Args: []string{"-xOf", packagePath, "usr/share/lmm-api-web/frontend-dist/index.html"}})

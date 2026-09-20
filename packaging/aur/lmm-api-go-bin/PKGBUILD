@@ -102,6 +102,10 @@ prepare() {
       [[ -f ${bundle}/REFUND_TASK_DRAIN_CAPABILITY && ! -L ${bundle}/REFUND_TASK_DRAIN_CAPABILITY ]] || return 1
       [[ $(<"${bundle}/REFUND_TASK_DRAIN_CAPABILITY") == v1 ]] || return 1
     fi
+    if [[ -e ${bundle}/MANAGED_BILLING_SETTLEMENT_CAPABILITY ]]; then
+      [[ -f ${bundle}/MANAGED_BILLING_SETTLEMENT_CAPABILITY && ! -L ${bundle}/MANAGED_BILLING_SETTLEMENT_CAPABILITY ]] || return 1
+      [[ $(<"${bundle}/MANAGED_BILLING_SETTLEMENT_CAPABILITY") == v1 ]] || return 1
+    fi
     grep -Fqx 'Environment=LMM_API_FRONTEND_DIR=/srv/lmm-api-frontend/current' \
       "${bundle}/lmm-api.service"
   fi
@@ -168,6 +172,10 @@ package() {
   if [[ -f ${bundle}/REFUND_TASK_DRAIN_CAPABILITY ]]; then
     install -Dm0644 "${bundle}/REFUND_TASK_DRAIN_CAPABILITY" \
       "${pkgdir}/usr/share/doc/${pkgname}/REFUND_TASK_DRAIN_CAPABILITY"
+  fi
+  if [[ -f ${bundle}/MANAGED_BILLING_SETTLEMENT_CAPABILITY ]]; then
+    install -Dm0644 "${bundle}/MANAGED_BILLING_SETTLEMENT_CAPABILITY" \
+      "${pkgdir}/usr/share/doc/${pkgname}/MANAGED_BILLING_SETTLEMENT_CAPABILITY"
   fi
 
   install -d -m0755 "${pkgdir}/usr/share/lmm-api-go/edge-policy"

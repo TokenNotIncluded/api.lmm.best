@@ -250,6 +250,11 @@ jobs:
               "$bundle/REFUND_TASK_DRAIN_CAPABILITY"
             [[ $(<"$bundle/REFUND_TASK_DRAIN_CAPABILITY") == v1 ]]
           fi
+          if [[ -f packaging/common/lmm-api/MANAGED_BILLING_SETTLEMENT_CAPABILITY ]]; then
+            cp packaging/common/lmm-api/MANAGED_BILLING_SETTLEMENT_CAPABILITY \
+              "$bundle/MANAGED_BILLING_SETTLEMENT_CAPABILITY"
+            [[ $(<"$bundle/MANAGED_BILLING_SETTLEMENT_CAPABILITY") == v1 ]]
+          fi
           rm -- "$bundle/lmm-api"
           [[ ! -e "$bundle/lmm-api" && ! -L "$bundle/lmm-api" ]]
           [[ ! -e "$bundle/frontend-dist" ]]

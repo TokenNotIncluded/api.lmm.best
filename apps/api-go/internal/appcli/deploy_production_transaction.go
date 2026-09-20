@@ -148,7 +148,8 @@ func transitionFromMetadata(changed bool, candidatePath, rollbackPath, candidate
 		CandidateSHA256: candidateSHA, RollbackSHA256: rollbackSHA,
 		CandidateGitRevision: candidate.GitRevision, RollbackGitRevision: rollback.GitRevision,
 		CandidateContractRevision: candidate.ContractRevision, RollbackContractRevision: rollback.ContractRevision,
-		RollbackOAuthManagedTokenIsolation: rollback.OAuthManagedTokenIsolation,
+		RollbackOAuthManagedTokenIsolation:        rollback.OAuthManagedTokenIsolation,
+		RollbackManagedBillingSettlementIsolation: rollback.ManagedBillingSettlementIsolation,
 	}
 }
 
