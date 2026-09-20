@@ -97,6 +97,54 @@ func TestProductionBillingGateBlocksManagedRollback(t *testing.T) {
 	}
 }
 
+func TestProductionBillingGateBlocksManagedBillingRollbackBeforeWriterStop(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		rows       string
+		capability bool
+		blocked    bool
+	}{
+		{name: "managed without settlement capability", rows: "1", blocked: true},
+		{name: "managed with settlement capability", rows: "1", capability: true},
+		{name: "no managed rows", rows: "0"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			f := newProductionFixture(t)
+			f.runner.managedBillingSettlementIsolation = test.capability
+			if _, err := f.runtime.apply(context.Background(), f.workspace, f.options); err != nil {
+				t.Fatal(err)
+			}
+			f.runner.managedBillingRows = test.rows
+			before := len(f.runner.events)
+			_, err := f.runtime.rollback(context.Background(), f.workspace, "billing-capability-review")
+			if test.blocked {
+				if err == nil || !strings.Contains(err.Error(), "managed billing records block old writer rollback") {
+					t.Fatalf("rollback error=%v", err)
+				}
+				for _, event := range f.runner.events[before:] {
+					if event == "systemd-stop" || event == "paru-go" {
+						t.Fatalf("mutation before capability gate: %s", event)
+					}
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("rollback with compatible/no managed rows failed: %v", err)
+			}
+		})
+	}
+}
+
+func TestManagedBillingSettlementCapabilityMarkerProtocol(t *testing.T) {
+	marker, err := os.ReadFile("../../../../packaging/common/lmm-api/MANAGED_BILLING_SETTLEMENT_CAPABILITY")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(marker)); got != "v1" {
+		t.Fatalf("shared capability marker = %q, want v1", got)
+	}
+}
+
 func TestProductionBillingGateBlocksOAuthManagedRollbackBeforeWriterStop(t *testing.T) {
 	for _, test := range []struct {
 		name       string

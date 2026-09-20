@@ -513,7 +513,7 @@ func (runtime *productionRuntime) refuseManagedBillingRollback(ctx context.Conte
 	if err != nil {
 		return errors.New("cannot verify managed billing rollback eligibility")
 	}
-	if strings.TrimSpace(string(out)) != "0" {
+	if strings.TrimSpace(string(out)) != "0" && !manifest.Go.RollbackManagedBillingSettlementIsolation {
 		return errors.New("managed billing records block old writer rollback; keep admission closed and reconcile with compatible code")
 	}
 	query = `SELECT COUNT(*) FROM "` + manifest.DatabaseSchema + `".tokens AS t WHERE COALESCE((to_jsonb(t)->>'oauth_managed')::boolean, false)`
