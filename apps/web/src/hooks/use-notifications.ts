@@ -117,8 +117,8 @@ export function useNotifications() {
     refetchInterval: userId > 0 ? 60_000 : false,
     retry: false,
   })
-  const announcements = useMemo<Record<string, unknown>[]>(
-    () => [
+  const announcements = useMemo<Record<string, unknown>[]>(() => {
+    const combined = [
       ...(userId > 0
         ? (ratioFeed.data?.pages ?? []).flatMap((page) =>
             page.events.map((event) => ratioAnnouncement(event, userId, t))
@@ -130,9 +130,16 @@ export function useNotifications() {
             20
           )
         : []),
-    ],
-    [announcementsEnabled, statusAnnouncements, ratioFeed.data, userId, t]
-  )
+    ]
+    // Ratio-change events and regular announcements come from separate feeds;
+    // interleave them by actual publish time instead of feed order so newer
+    // items always lead the timeline regardless of which feed they came from.
+    return combined.sort(
+      (a, b) =>
+        new Date((b.publishDate as string) ?? 0).getTime() -
+        new Date((a.publishDate as string) ?? 0).getTime()
+    )
+  }, [announcementsEnabled, statusAnnouncements, ratioFeed.data, userId, t])
   const bountyNotificationsEnabled =
     userId > 0 &&
     isConsoleActivated(authUser) &&
