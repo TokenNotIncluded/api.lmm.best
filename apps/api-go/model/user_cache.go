@@ -153,7 +153,7 @@ func cacheGetUserBase(userId int) (*UserBase, error) {
 // Spendable quota mutations commit to DB before this cache notification. This
 // legacy delta-shaped helper only invalidates: delayed increments could count
 // an already committed credit twice after a concurrent hydration.
-func cacheIncrUserQuota(userId int, delta int64) error {
+func cacheIncrUserQuota(userId int, _ int64) error {
 	if !common.RedisEnabled {
 		return nil
 	}
@@ -163,8 +163,8 @@ func cacheIncrUserQuota(userId int, delta int64) error {
 	return invalidateUserCache(userId)
 }
 
-func cacheDecrUserQuota(userId int, delta int64) error {
-	return cacheIncrUserQuota(userId, -delta)
+func cacheDecrUserQuota(userId int, _ int64) error {
+	return cacheIncrUserQuota(userId, 0)
 }
 
 // syncCreditUserQuotaCache 在授信事务提交后失效缓存；后续读取从数据库水合。
