@@ -158,11 +158,7 @@ test('malformed discovery documents are rejected without changing the form value
     const values = configuration(true)
     const before = { ...values }
     await assert.rejects(
-      discoverOIDCSettings(
-        values,
-        configuration(false),
-        async () => document
-      ),
+      discoverOIDCSettings(values, configuration(false), async () => document),
       (error: unknown) =>
         error instanceof OIDCDiscoveryError && error.kind === 'fetch'
     )
