@@ -68,6 +68,10 @@ export function ServiceEditor({
       tools.map((tool) => [tool.name, String(tool.price_quota / units)])
     )
   )
+  const [inspectedEndpoint, setInspectedEndpoint] = useState(
+    initial?.version.endpoint ?? ''
+  )
+  const [inspectVersion, setInspectVersion] = useState(0)
   const inspect = useMutation({
     retry: false,
     mutationFn: () => marketAPI.inspect(endpoint),
@@ -75,6 +79,8 @@ export function ServiceEditor({
       setTools(data)
       setSelected(data.map((tool) => tool.name))
       setPrices(Object.fromEntries(data.map((tool) => [tool.name, '0'])))
+      setInspectedEndpoint(endpoint)
+      setInspectVersion((value) => value + 1)
     },
   })
   const save = useMutation({
@@ -91,6 +97,9 @@ export function ServiceEditor({
             ids.some((id) => !Number.isSafeInteger(id) || id <= 0)))
       ) {
         throw new Error('Invalid input')
+      }
+      if (!inspectVersion || inspectedEndpoint !== endpoint) {
+        throw new Error('Inspect the current endpoint before saving')
       }
       const input: DraftInput = {
         name,
@@ -167,6 +176,8 @@ export function ServiceEditor({
                 setEndpoint(e.target.value)
                 setTools([])
                 setSelected([])
+                setInspectedEndpoint('')
+                setInspectVersion(0)
               }}
             />
             <FieldDescription>
@@ -216,7 +227,7 @@ export function ServiceEditor({
               </legend>
               <p className='text-muted-foreground text-sm'>
                 {t(
-                  'Select the tools to publish and review their permissions. Prices are per successful call in platform credits.'
+                  'Select the tools to publish and review their permissions. Prices are per successful call in platform credits; failed and expired calls are refunded.'
                 )}
               </p>
               {tools.map((tool) => (
@@ -255,6 +266,10 @@ export function ServiceEditor({
                         <Input
                           id={`price-${tool.name}`}
                           inputMode='decimal'
+                          type='number'
+                          min='0'
+                          max='1000000'
+                          step='0.000001'
                           value={prices[tool.name] ?? '0'}
                           onChange={(e) =>
                             setPrices((current) => ({
@@ -339,7 +354,10 @@ export function ServiceEditor({
             </p>
           )}
           <div className='flex gap-2'>
-            <Button type='submit' disabled={pending || !selected.length}>
+            <Button
+              type='submit'
+              disabled={pending || !selected.length || !inspectVersion}
+            >
               {save.isPending ? t('Saving…') : t('Save draft')}
             </Button>
             <Button

@@ -20,6 +20,14 @@ const motion = readFileSync(
   'utf8'
 )
 
+test('homepage exposes a keyboard-accessible interactive explore console', () => {
+  assert.match(source, /lmm-explore-console/)
+  assert.match(source, /aria-current={activeExplore === id/)
+  assert.match(source, /onFocus=\{\(\) => setActiveExplore\(id\)\}/)
+  assert.match(css, /\.lmm-explore-console/)
+  assert.match(css, /@media \(max-width: 680px\)/)
+})
+
 test('homepage does not load optional GPU ornament runtimes or announce a rotating hardcoded catalog', () => {
   assert.doesNotMatch(
     source,
