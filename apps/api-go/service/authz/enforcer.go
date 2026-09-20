@@ -126,6 +126,11 @@ func verifyBuiltInAuthorizationData(db *gorm.DB) error {
 			return fmt.Errorf("built-in authorization policy for %q has an invalid shape", policy.V0)
 		}
 		if _, ok := expectedPolicies[key]; !ok {
+			if isFutureBuiltInReadWritePolicy(policy) {
+				// A newer binary may have added a different resource. This
+				// runtime cannot authorize it; retain the row for forward use.
+				continue
+			}
 			return fmt.Errorf("unexpected built-in authorization policy %q/%q/%q/%q", key.subject, key.resource, key.action, key.effect)
 		}
 		actualPolicies[key] = struct{}{}
