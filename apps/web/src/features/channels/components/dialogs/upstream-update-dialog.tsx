@@ -40,6 +40,18 @@ interface UpstreamUpdateDialogProps {
 }
 
 export function UpstreamUpdateDialog(props: UpstreamUpdateDialogProps) {
+  if (!props.open) return null
+
+  const sessionKey = JSON.stringify([
+    props.preferredTab,
+    props.addModels,
+    props.removeModels,
+  ])
+
+  return <UpstreamUpdateSession key={sessionKey} {...props} />
+}
+
+function UpstreamUpdateSession(props: UpstreamUpdateDialogProps) {
   const { t } = useTranslation()
   const [activeTab, setActiveTab] = useState(props.preferredTab)
   const [searchAdd, setSearchAdd] = useState('')
@@ -48,7 +60,7 @@ export function UpstreamUpdateDialog(props: UpstreamUpdateDialogProps) {
     () => new Set(props.addModels)
   )
   const [selectedRemove, setSelectedRemove] = useState<Set<string>>(
-    () => new Set(props.removeModels)
+    () => new Set<string>()
   )
   const [partialConfirmOpen, setPartialConfirmOpen] = useState(false)
 
@@ -131,8 +143,7 @@ export function UpstreamUpdateDialog(props: UpstreamUpdateDialogProps) {
               onClick={handleConfirm}
               disabled={
                 props.confirmLoading ||
-                (props.addModels.length === 0 &&
-                  props.removeModels.length === 0)
+                (selectedAdd.size === 0 && selectedRemove.size === 0)
               }
             >
               {t('Confirm')}
