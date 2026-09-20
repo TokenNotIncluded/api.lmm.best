@@ -35,7 +35,6 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/system_setting"
 
-	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
@@ -242,17 +241,11 @@ func runServer() {
 			common.FatalLog("failed to configure pprof listen address: " + err.Error())
 			return
 		}
-		gopool.Go(func() {
-			profileServer := &http.Server{
-				Addr:              pprofAddress,
-				Handler:           pprofHandler(),
-				ReadHeaderTimeout: 5 * time.Second,
-			}
-			if err := profileServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		loops.Go(func(ctx context.Context) {
+			if err := runDiagnosticServer(ctx, pprofAddress, pprofHandler()); err != nil && !errors.Is(err, context.Canceled) {
 				common.SysError(fmt.Sprintf("pprof server stopped: %v", err))
 			}
 		})
-		go common.Monitor()
 		common.SysLog("pprof enabled on " + pprofAddress)
 	}
 
@@ -398,6 +391,7 @@ func edgeAccessBindPolicy(configuredBindAddress, listenAddress string) error {
 	if configured != "" && !isExactLoopbackHost(configured) {
 		return fmt.Errorf("IP access routing requires LMM_API_BIND_ADDRESS to be exactly 127.0.0.1 or ::1")
 	}
+
 	host, _, err := net.SplitHostPort(listenAddress)
 	if err != nil || !isExactLoopbackHost(host) {
 		return fmt.Errorf("IP access routing requires the final HTTP listen address to be loopback")
