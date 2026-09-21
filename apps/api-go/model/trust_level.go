@@ -9,6 +9,7 @@ import (
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/pkg/cachex"
+	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
@@ -131,7 +132,18 @@ type paidTopUpAggregate struct {
 	PaidAmountMicros   int64
 	PaidAmount         float64
 	LastPaidCompleteAt int64
-	ActivationComplete bool
+	// PaidRows counts the qualifying real-money recharges. It is kept next to
+	// the amount so a cached aggregate can be re-judged against the current
+	// threshold instead of freezing the verdict that was in force when the
+	// aggregate was built.
+	PaidRows int64
+}
+
+// paidActivationComplete applies the current boundary policy to a cached
+// aggregate. Deciding here rather than at query time means an administrator
+// raising or lowering the threshold takes effect immediately.
+func (aggregate paidTopUpAggregate) paidActivationComplete(policy DeveloperAccessPolicy) bool {
+	return policy.paidActivationComplete(aggregate.PaidRows, aggregate.PaidAmountMicros)
 }
 
 // UserAccessSnapshot is the canonical payment-derived state for one user
@@ -378,7 +390,7 @@ func getFreshPaidTopUpAggregatesContext(ctx context.Context, userIDs []int) (map
 			PaidAmountMicros:   paidAmountMicros,
 			PaidAmount:         float64(paidAmountMicros) / 1_000_000,
 			LastPaidCompleteAt: summary.LastPaidCompleteAt,
-			ActivationComplete: summary.ActivationCompleteRows > 0,
+			PaidRows:           summary.ActivationCompleteRows,
 		}
 	}
 	return result, nil
@@ -440,7 +452,8 @@ func GetTrustLevelInfoForUser(user *User) (TrustLevelInfo, error) {
 		return TrustLevelInfo{}, err
 	}
 	anchor := trustActivityAnchor(user.CreatedAt, user.LastAPIActivityAt, aggregate.LastPaidCompleteAt)
-	return EvaluateTrustLevelWithActivation(user.Role, user.TrustLevelOverride, aggregate.PaidAmount, aggregate.ActivationComplete || user.ConsoleActivatedAt > 0, anchor, time.Now().Unix()), nil
+	paidActivationComplete := aggregate.paidActivationComplete(CurrentDeveloperAccessPolicy())
+	return EvaluateTrustLevelWithActivation(user.Role, user.TrustLevelOverride, aggregate.PaidAmount, paidActivationComplete || user.ConsoleActivatedAt > 0, anchor, time.Now().Unix()), nil
 }
 
 // GetFreshTrustLevelInfoForUser bypasses the bounded discount cache for
@@ -467,11 +480,32 @@ func explicitDeveloperAccessDecision(role int, overrideLevel *int) (DeveloperAcc
 // developer-access decision. Its fields are deliberately private so callers
 // cannot manufacture a client-controlled policy.
 type DeveloperAccessPolicy struct {
-	localAcceptance bool
+	localAcceptance         bool
+	paidActivationEnabled   bool
+	paidActivationMinMicros int64
 }
 
 func CurrentDeveloperAccessPolicy() DeveloperAccessPolicy {
-	return DeveloperAccessPolicy{localAcceptance: LocalAcceptanceDeveloperAccessEnabled()}
+	developerAccess := operation_setting.GetDeveloperAccessSetting()
+	return DeveloperAccessPolicy{
+		localAcceptance:         LocalAcceptanceDeveloperAccessEnabled(),
+		paidActivationEnabled:   developerAccess.PaidActivationEnabled,
+		paidActivationMinMicros: operation_setting.PaidActivationMinAmountMicros(),
+	}
+}
+
+// paidActivationComplete decides whether recharge history on its own clears
+// the L1 boundary. A threshold of zero keeps the historical rule that any
+// successful real-money recharge qualifies, and disabling paid activation
+// sends every account to manual review no matter how much it has spent.
+func (policy DeveloperAccessPolicy) paidActivationComplete(paidRows int64, paidAmountMicros int64) bool {
+	if !policy.paidActivationEnabled || paidRows <= 0 {
+		return false
+	}
+	if policy.paidActivationMinMicros <= 0 {
+		return true
+	}
+	return paidAmountMicros >= policy.paidActivationMinMicros
 }
 
 func ordinaryDeveloperAccessStateWithPolicy(paidActivationComplete, consoleActivated bool, policy DeveloperAccessPolicy) DeveloperAccessState {
@@ -501,16 +535,21 @@ func GetFreshUserAccessSnapshot(user *User) (UserAccessSnapshot, error) {
 	if err != nil {
 		return UserAccessSnapshot{}, err
 	}
-	activationComplete := aggregate.ActivationComplete || user.ConsoleActivatedAt > 0
+	// One policy snapshot for the whole response keeps the trust level, the
+	// access decision, and the onboarding stage from disagreeing if an
+	// administrator edits the threshold mid-request.
+	policy := CurrentDeveloperAccessPolicy()
+	paidActivationComplete := aggregate.paidActivationComplete(policy)
+	activationComplete := paidActivationComplete || user.ConsoleActivatedAt > 0
 	anchor := trustActivityAnchor(user.CreatedAt, user.LastAPIActivityAt, aggregate.LastPaidCompleteAt)
 	return UserAccessSnapshot{
 		TrustLevel: EvaluateTrustLevelWithActivation(
 			user.Role, nil, aggregate.PaidAmount, activationComplete, anchor, time.Now().Unix(),
 		),
-		DeveloperAccess:        ordinaryDeveloperAccessState(aggregate.ActivationComplete, user.ConsoleActivatedAt > 0),
+		DeveloperAccess:        ordinaryDeveloperAccessStateWithPolicy(paidActivationComplete, user.ConsoleActivatedAt > 0, policy),
 		PaidAmountMicros:       aggregate.PaidAmountMicros,
 		LastPaidCompleteAt:     aggregate.LastPaidCompleteAt,
-		PaidActivationComplete: aggregate.ActivationComplete,
+		PaidActivationComplete: paidActivationComplete,
 	}, nil
 }
 
@@ -529,7 +568,8 @@ func GetTrustLevelInfoForUserBase(user *UserBase) (TrustLevelInfo, error) {
 		return TrustLevelInfo{}, err
 	}
 	anchor := trustActivityAnchor(user.CreatedAt, user.LastAPIActivityAt, aggregate.LastPaidCompleteAt)
-	return EvaluateTrustLevelWithActivation(user.Role, user.TrustLevelOverride, aggregate.PaidAmount, aggregate.ActivationComplete || user.ConsoleActivatedAt > 0, anchor, time.Now().Unix()), nil
+	paidActivationComplete := aggregate.paidActivationComplete(CurrentDeveloperAccessPolicy())
+	return EvaluateTrustLevelWithActivation(user.Role, user.TrustLevelOverride, aggregate.PaidAmount, paidActivationComplete || user.ConsoleActivatedAt > 0, anchor, time.Now().Unix()), nil
 }
 
 func GetTrustLevelInfoByUserID(userID int) (TrustLevelInfo, error) {
@@ -562,10 +602,11 @@ func developerAccessStateForUserBase(tx *gorm.DB, user *UserBase, policy Develop
 	if tx == nil {
 		return DeveloperAccessState{}, gorm.ErrInvalidDB
 	}
-	paid, err := HasSuccessfulPaidTopUpWithTx(tx, user.Id, true)
+	facts, err := paidTopUpFactsWithTx(tx, user.Id, true)
 	if err != nil {
 		return DeveloperAccessState{}, err
 	}
+	paid := policy.paidActivationComplete(facts.Rows, facts.AmountMicros)
 	return ordinaryDeveloperAccessStateWithPolicy(paid, false, policy), nil
 }
 
@@ -678,6 +719,7 @@ func EnrichUsersTrustLevelsContext(ctx context.Context, users []*User) error {
 		return err
 	}
 	now := time.Now().Unix()
+	policy := CurrentDeveloperAccessPolicy()
 	for _, user := range users {
 		if user == nil {
 			continue
@@ -694,7 +736,7 @@ func EnrichUsersTrustLevelsContext(ctx context.Context, users []*User) error {
 				user.Role,
 				user.TrustLevelOverride,
 				aggregate.PaidAmount,
-				aggregate.ActivationComplete || user.ConsoleActivatedAt > 0,
+				aggregate.paidActivationComplete(policy) || user.ConsoleActivatedAt > 0,
 				anchor,
 				now,
 			)

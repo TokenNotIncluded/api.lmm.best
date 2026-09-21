@@ -596,6 +596,7 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 	permissions["console_activated_at"] = consoleActivatedAt
 	docsAccess := onboarding.ActivationComplete
 	permissions["docs_access"] = docsAccess
+	developerAccess := operation_setting.GetDeveloperAccessSetting()
 	return map[string]interface{}{
 		"id":                       user.Id,
 		"developer_access_granted": onboarding.ActivationComplete,
@@ -628,10 +629,15 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 			"details_available":        err == nil,
 			"activation_complete":      onboarding.ActivationComplete,
 			"paid_activation_complete": onboarding.PaidActivationComplete,
-			"credential_complete":      onboarding.CredentialComplete,
-			"api_key_created":          onboarding.APIKeyCreated,
-			"first_request_complete":   onboarding.FirstRequestComplete,
-			"stage":                    onboarding.Stage,
+			// The client shows how far a recharge still has to go before it
+			// unlocks the console on its own, so it needs the same threshold
+			// the server judges against rather than a hardcoded copy.
+			"paid_activation_enabled":    developerAccess.PaidActivationEnabled,
+			"paid_activation_min_amount": developerAccess.PaidActivationMinAmount,
+			"credential_complete":        onboarding.CredentialComplete,
+			"api_key_created":            onboarding.APIKeyCreated,
+			"first_request_complete":     onboarding.FirstRequestComplete,
+			"stage":                      onboarding.Stage,
 		},
 		"sidebar_modules": userSetting.SidebarModules, // 正确提取sidebar_modules字段
 		"permissions":     permissions,

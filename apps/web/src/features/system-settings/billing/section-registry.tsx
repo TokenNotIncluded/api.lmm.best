@@ -93,6 +93,14 @@ const BILLING_SECTIONS = [
             enable_free_model_pre_consume:
               settings['quota_setting.enable_free_model_pre_consume'],
           },
+          developer_access_setting: {
+            paid_activation_enabled:
+              settings['developer_access_setting.paid_activation_enabled'] ??
+              true,
+            paid_activation_min_amount:
+              settings['developer_access_setting.paid_activation_min_amount'] ??
+              1,
+          },
         }}
         complianceConfirmed={
           (settings['payment_setting.compliance_confirmed'] ?? false) &&

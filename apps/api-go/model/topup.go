@@ -707,29 +707,60 @@ func HasSuccessfulPaidTopUp(userId int) (bool, error) {
 // matching fact rows so a concurrent update or deletion is serialized before
 // credential commit.
 func HasSuccessfulPaidTopUpWithTx(tx *gorm.DB, userId int, lockFacts bool) (bool, error) {
+	facts, err := paidTopUpFactsWithTx(tx, userId, lockFacts)
+	if err != nil {
+		return false, err
+	}
+	return facts.Rows > 0, nil
+}
+
+// paidTopUpFacts is the durable recharge history the access boundary is
+// judged against. Both numbers come from the same locked scan so the row
+// count and the amount can never describe different moments in time.
+type paidTopUpFacts struct {
+	Rows         int64
+	AmountMicros int64
+}
+
+// paidTopUpFactsWithTx reads the qualifying recharge history for one account.
+// The amount is summed rather than merely counted because the boundary is a
+// cumulative threshold, and the locking path still pins every contributing
+// row so a concurrent refund cannot land between the check and the grant.
+func paidTopUpFactsWithTx(tx *gorm.DB, userId int, lockFacts bool) (paidTopUpFacts, error) {
 	if userId <= 0 {
-		return false, nil
+		return paidTopUpFacts{}, nil
 	}
 	if tx == nil {
-		return false, gorm.ErrInvalidDB
+		return paidTopUpFacts{}, gorm.ErrInvalidDB
 	}
 
 	creditedQuotaExpression, creditedQuotaArgs := positiveNormalizedCreditedQuotaSQL()
 	query := successfulExternalPaidTopUpQuery(tx.Model(&TopUp{})).
 		Where("user_id = ?", userId).
 		Where("("+creditedQuotaExpression+") > 0", creditedQuotaArgs...)
-	if !lockFacts {
-		var matchingRows int64
-		if err := query.Count(&matchingRows).Error; err != nil {
-			return false, err
-		}
-		return matchingRows > 0, nil
+
+	type paidTopUpRow struct {
+		Id            int
+		CreditedQuota float64
 	}
-	var matchingIDs []int
-	if err := lockForUpdate(query).Order("id").Pluck("id", &matchingIDs).Error; err != nil {
-		return false, err
+	var rows []paidTopUpRow
+	// Aggregating in Go rather than through SUM keeps the row identifiers in
+	// the result set, which is what FOR UPDATE needs to lock.
+	scan := query.Select("id, ("+creditedQuotaExpression+") AS credited_quota", creditedQuotaArgs...).Order("id")
+	if lockFacts {
+		scan = lockForUpdate(scan)
 	}
-	return len(matchingIDs) > 0, nil
+	if err := scan.Scan(&rows).Error; err != nil {
+		return paidTopUpFacts{}, err
+	}
+
+	facts := paidTopUpFacts{Rows: int64(len(rows))}
+	var creditedQuota float64
+	for _, row := range rows {
+		creditedQuota += row.CreditedQuota
+	}
+	facts.AmountMicros = creditedQuotaToUSDMicros(creditedQuota)
+	return facts, nil
 }
 
 func positiveNormalizedCreditedQuotaSQL() (string, []interface{}) {

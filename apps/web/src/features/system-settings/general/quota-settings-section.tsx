@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import type { ChangeEvent } from 'react'
-import type { Resolver } from 'react-hook-form'
+import { useWatch, type Resolver } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import * as z from 'zod'
 
@@ -78,6 +78,10 @@ const quotaSchema = z.object({
   quota_setting: z.object({
     enable_free_model_pre_consume: z.boolean(),
   }),
+  developer_access_setting: z.object({
+    paid_activation_enabled: z.boolean(),
+    paid_activation_min_amount: z.coerce.number().min(0),
+  }),
 })
 
 type QuotaFormValues = z.infer<typeof quotaSchema>
@@ -122,6 +126,13 @@ export function QuotaSettingsSection({
         }
       },
     })
+
+  // The threshold only means anything while a recharge is allowed to grant
+  // access on its own, so the input follows the switch.
+  const paidActivationEnabled = useWatch({
+    control: form.control,
+    name: 'developer_access_setting.paid_activation_enabled',
+  })
 
   return (
     <SettingsSection title={t('Quota Settings')}>
@@ -302,6 +313,65 @@ export function QuotaSettingsSection({
                   <FormDescription>
                     {t(
                       'Public percentage deducted from each listed reward when a bounty is published. The fee is credited to the enabled super administrator account, and the remainder is locked as contributor escrow.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <SettingsFormGridItem span='full'>
+              <FormField
+                control={form.control}
+                name='developer_access_setting.paid_activation_enabled'
+                render={({ field }) => (
+                  <SettingsSwitchItem>
+                    <SettingsSwitchContent>
+                      <FormLabel>
+                        {t('Let a recharge unlock the console')}
+                      </FormLabel>
+                      <FormDescription>
+                        {t(
+                          'When enabled, an account that has paid at least the amount below reaches L1 without waiting for a manual review. Turning this off sends every account through review.'
+                        )}
+                      </FormDescription>
+                    </SettingsSwitchContent>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                        disabled={updateOption.isPending}
+                      />
+                    </FormControl>
+                  </SettingsSwitchItem>
+                )}
+              />
+            </SettingsFormGridItem>
+
+            <FormField
+              control={form.control}
+              name='developer_access_setting.paid_activation_min_amount'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>
+                    {t('Recharge required to reach L1 (USD)')}
+                  </FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      min={0}
+                      step={0.01}
+                      value={field.value ?? ''}
+                      onChange={handleNumberChange(field.onChange)}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                      disabled={!paidActivationEnabled}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Cumulative credited amount from successful real-money recharges. Set it to 0 to let any successful recharge qualify.'
                     )}
                   </FormDescription>
                   <FormMessage />
