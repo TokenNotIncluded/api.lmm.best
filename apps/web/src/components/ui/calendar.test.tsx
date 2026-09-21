@@ -17,9 +17,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
-import { describe, test } from 'node:test'
+import { after, describe, test } from 'node:test'
 
 import { Window } from 'happy-dom'
+import { CalendarDay } from 'react-day-picker'
 
 const domWindow = new Window()
 domWindow.document.write('<!doctype html><html><body></body></html>')
@@ -43,7 +44,13 @@ for (const key of [
 
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
-const { Calendar } = await import('./calendar')
+Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
+  configurable: true,
+  value: true,
+})
+const { CalendarDayButton } = await import('./calendar')
+
+after(() => domWindow.close())
 
 describe('Calendar locale formatting', () => {
   for (const locale of ['zhCN', 'zhTW'] as const) {
@@ -51,16 +58,25 @@ describe('Calendar locale formatting', () => {
       const container = document.createElement('div')
       document.body.append(container)
       const root = createRoot(container)
-      await act(async () =>
-        root.render(<Calendar locale={{ code: locale } as never} />)
-      )
-      const marker = container
-        .querySelector('[data-day]')
-        ?.getAttribute('data-day')
-      assert.ok(marker)
-      assert.notEqual(marker, '')
-      root.unmount()
-      container.remove()
+      const date = new Date(2026, 8, 21)
+      try {
+        await act(async () => {
+          root.render(
+            <CalendarDayButton
+              day={new CalendarDay(date, date)}
+              modifiers={{}}
+              locale={{ code: locale }}
+            />
+          )
+        })
+        assert.equal(
+          container.querySelector('[data-day]')?.getAttribute('data-day'),
+          date.toLocaleDateString(locale === 'zhCN' ? 'zh-CN' : 'zh-TW')
+        )
+      } finally {
+        await act(async () => root.unmount())
+        container.remove()
+      }
     })
   }
 })
