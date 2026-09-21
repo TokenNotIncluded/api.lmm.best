@@ -93,10 +93,6 @@ func PricingQueryAccess() gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "pricing context unavailable"})
 			return
 		}
-		if allowed, err := trustLevelAllowsDeveloperAccess(user); err != nil || !allowed {
-			abortRelayAsNotFound(c)
-			return
-		}
 		group := user.Group
 		if token.Group != "" {
 			if _, allowed := service.GetUserUsableGroups(user.Group)[token.Group]; !allowed || (token.Group != "auto" && !ratio_setting.ContainsGroupRatio(token.Group)) {

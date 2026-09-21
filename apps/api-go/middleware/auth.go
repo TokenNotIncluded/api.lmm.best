@@ -571,10 +571,6 @@ func TokenAuthReadOnly() func(c *gin.Context) {
 			c.Abort()
 			return
 		}
-		if granted, trustErr := trustLevelAllowsDeveloperAccess(userCache); trustErr != nil || !granted {
-			abortRelayAsNotFound(c)
-			return
-		}
 
 		c.Set("id", token.UserId)
 		c.Set("token_id", token.Id)
@@ -666,9 +662,6 @@ func authenticateRelayToken(c *gin.Context) *relayTokenAuthFailure {
 	if userCache.Status != common.UserStatusEnabled {
 		return newRelayTokenAuthFailure(errors.New("user is disabled"), http.StatusForbidden,
 			common.TranslateMessage(c, i18n.MsgAuthUserBanned), "")
-	}
-	if granted, trustErr := trustLevelAllowsDeveloperAccess(userCache); trustErr != nil || !granted {
-		return newRelayTokenAuthFailure(errors.New("account trust level is insufficient"), http.StatusNotFound, "Not Found", types.ErrorCodeAccessDenied)
 	}
 
 	userGroup := userCache.Group
