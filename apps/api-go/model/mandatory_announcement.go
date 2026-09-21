@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/setting/console_setting"
@@ -21,6 +22,10 @@ type MandatoryAnnouncement struct {
 	Extra       string `json:"extra,omitempty"`
 	PublishDate string `json:"publishDate"`
 	Mandatory   bool   `json:"mandatory"`
+	// AckRevision is the administrator-controlled acknowledgement generation.
+	// While it stays unchanged the body may be corrected freely; bumping it is
+	// the explicit way to ask every reader to confirm the notice again.
+	AckRevision string `json:"ackRevision,omitempty"`
 	Revision    string `json:"revision"`
 	ReadAt      int64  `json:"read_at"`
 }
@@ -33,6 +38,21 @@ type AnnouncementRead struct {
 	AnnouncementID int64  `json:"announcement_id" gorm:"not null;uniqueIndex:idx_announcement_read"`
 	Revision       string `json:"revision" gorm:"type:varchar(64);not null;uniqueIndex:idx_announcement_read"`
 	ReadAt         int64  `json:"read_at" gorm:"not null"`
+}
+
+// announcementRevision derives the durable acknowledgement key. Pinning it to
+// an administrator-controlled generation keeps a typo fix from forcing every
+// reader who already confirmed through the notice again. A notice published
+// before the field existed keeps hashing its content, so no acknowledgement
+// recorded by an older release is invalidated by this change.
+func announcementRevision(item MandatoryAnnouncement) string {
+	fields := []any{item.ID, item.Content, item.Extra, item.PublishDate}
+	if generation := strings.TrimSpace(item.AckRevision); generation != "" {
+		fields = []any{item.ID, generation}
+	}
+	encoded, _ := json.Marshal(fields)
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:])
 }
 
 func currentMandatoryAnnouncements(now time.Time) ([]MandatoryAnnouncement, error) {
@@ -56,9 +76,7 @@ func currentMandatoryAnnouncements(now time.Time) ([]MandatoryAnnouncement, erro
 		if published.After(now) {
 			continue
 		}
-		encoded, _ := json.Marshal([]any{item.ID, item.Content, item.Extra, item.PublishDate})
-		digest := sha256.Sum256(encoded)
-		item.Revision = hex.EncodeToString(digest[:])
+		item.Revision = announcementRevision(item)
 		item.ReadAt = 0
 		result = append(result, item)
 	}

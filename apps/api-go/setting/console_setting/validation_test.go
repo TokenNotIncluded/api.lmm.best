@@ -64,3 +64,26 @@ func TestMandatoryAnnouncementRequiresStableUniqueID(t *testing.T) {
 		}
 	}
 }
+
+func TestAnnouncementAckRevisionMustBeAShortPrintableToken(t *testing.T) {
+	valid := []string{
+		`[{"id":1,"mandatory":true,"content":"Read this","publishDate":"2025-01-01T00:00:00Z","ackRevision":"2"}]`,
+		`[{"id":1,"mandatory":true,"content":"Read this","publishDate":"2025-01-01T00:00:00Z","ackRevision":"v1.2-final"}]`,
+		`[{"id":1,"mandatory":true,"content":"Read this","publishDate":"2025-01-01T00:00:00Z","ackRevision":""}]`,
+	}
+	for _, input := range valid {
+		if err := ValidateConsoleSettings(input, "Announcements"); err != nil {
+			t.Errorf("rejected a valid acknowledgement generation %s: %v", input, err)
+		}
+	}
+	invalid := []string{
+		`[{"id":1,"mandatory":true,"content":"Read this","publishDate":"2025-01-01T00:00:00Z","ackRevision":2}]`,
+		`[{"id":1,"mandatory":true,"content":"Read this","publishDate":"2025-01-01T00:00:00Z","ackRevision":"has space"}]`,
+		`[{"id":1,"mandatory":true,"content":"Read this","publishDate":"2025-01-01T00:00:00Z","ackRevision":"` + strings.Repeat("9", 33) + `"}]`,
+	}
+	for _, input := range invalid {
+		if err := ValidateConsoleSettings(input, "Announcements"); err == nil {
+			t.Errorf("accepted an invalid acknowledgement generation: %s", input)
+		}
+	}
+}
