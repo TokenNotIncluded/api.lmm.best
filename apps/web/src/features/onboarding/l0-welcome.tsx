@@ -20,7 +20,10 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
 import { SourceQuestionnaire } from '@/features/acquisition/source-questionnaire'
-import { requestAssistantOpen } from '@/features/assistant/assistant-events'
+import {
+  requestAssistantOpen,
+  requestAssistantSend,
+} from '@/features/assistant/assistant-events'
 import { getAssistantPromptValidation } from '@/features/assistant/assistant-prompt-validation'
 import { PiOAuthGuide } from '@/features/guide/pi-oauth-guide'
 import { toIntlLocale } from '@/i18n/languages'
@@ -59,7 +62,7 @@ export function L0Welcome({
     !getAssistantPromptValidation(prompt, true).invalid
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (validPrompt) requestAssistantOpen(undefined, prompt.trim())
+    if (validPrompt) requestAssistantSend(undefined, prompt.trim())
   }
 
   return (
@@ -115,7 +118,9 @@ export function L0Welcome({
             <Button
               variant='outline'
               className='h-auto min-h-11 px-3 py-2 whitespace-normal'
-              onClick={() => requestAssistantOpen('models')}
+              onClick={() =>
+                requestAssistantSend(undefined, t('Help me choose a model'))
+              }
             >
               {t('Help me choose a model')}
             </Button>

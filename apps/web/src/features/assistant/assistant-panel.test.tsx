@@ -1757,6 +1757,56 @@ describe('AssistantPanel', () => {
     }
   })
 
+  test('opens backend-authorized plan checkout from an L0 entry point', async () => {
+    let offerReads = 0
+    api.get = (async (url: string) => {
+      if (url === '/api/assistant/status') {
+        return {
+          data: {
+            success: true,
+            data: { ...assistantStatus, developer_access_granted: false },
+          },
+        }
+      }
+      if (url === '/api/assistant/offers') {
+        offerReads += 1
+        return {
+          data: {
+            success: true,
+            data: {
+              ok: true,
+              developer_access_granted: false,
+              read_only: false,
+              checkout_available: true,
+              payment_hidden: false,
+              payment_compliance_confirmed: true,
+              plans: [],
+              topup_discounts: {},
+            },
+          },
+        }
+      }
+      return { data: { success: true, data: {} } }
+    }) as typeof api.get
+    const rendered = await renderPanel('plan', 'mobile', registrationUser)
+    try {
+      await act(async () =>
+        waitForCondition(
+          () => document.querySelector('a[href="/wallet"]') !== null,
+          'L0 plan checkout did not render'
+        )
+      )
+      assert.equal(offerReads, 1)
+      assert.match(
+        document.body.textContent ?? '',
+        /Review plans and exact checkout prices/
+      )
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+
   test('keeps L0 guidance useful without exposing account or payment actions', async () => {
     api.get = (async (url: string) => {
       if (url === '/api/assistant/status') {

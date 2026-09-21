@@ -512,7 +512,7 @@ describe('getting started access boundaries', () => {
     const page = await renderPage(true)
     await act(flushEffects)
 
-    // Wallet is a developer-only route: checkout must use the assistant.
+    // The welcome page opens plan advice before the account's checkout.
     assert.equal(page.container.querySelector('a[href="/wallet"]'), null)
     const payment = [...page.container.querySelectorAll('button')].find(
       (button) => button.textContent?.includes('Explore plans and top-ups')
@@ -608,10 +608,9 @@ describe('getting started access boundaries', () => {
         new window.Event('submit', { bubbles: true, cancelable: true })
       )
     })
-    assert.equal(
-      consumeQueuedAssistantRequest()?.message,
-      'Help me build a tool'
-    )
+    const queued = consumeQueuedAssistantRequest()
+    assert.equal(queued?.message, 'Help me build a tool')
+    assert.equal(queued?.autoSend, true)
     await unmountPage(page)
   })
 
