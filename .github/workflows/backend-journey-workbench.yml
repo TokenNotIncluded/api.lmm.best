@@ -3,20 +3,110 @@ on:
   push:
     branches: [codex/backend-journey-workbench-20260922]
 permissions:
-  contents: read
+  contents: write
+concurrency:
+  group: backend-journey-workbench
+  cancel-in-progress: true
 jobs:
-  source:
+  verify:
     if: github.ref == 'refs/heads/codex/backend-journey-workbench-20260922'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 40
+    env:
+      GOMAXPROCS: "2"
+      GOTOOLCHAIN: auto
+      EVIDENCE: ${{ github.workspace }}/journey-evidence
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
-          persist-credentials: false
-      - name: Export the pinned worktree for offline review
-        run: git archive --format=tar.gz --output="$RUNNER_TEMP/backend-journey-source.tar.gz" HEAD
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+          fetch-depth: 0
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
         with:
-          name: backend-journey-source
-          path: ${{ runner.temp }}/backend-journey-source.tar.gz
-          retention-days: 2
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: apps/api-go/go.sum
+      - name: Reproduce regressions on unchanged main sources
+        working-directory: apps/api-go
+        run: |
+          mkdir -p "$EVIDENCE"
+          gofmt -w controller/backend_journey_test.go model/backend_journey_test.go middleware/backend_journey_test.go router/backend_journey_test.go
+          set +e
+          go test -json -p 2 -count=1 ./model ./controller ./middleware ./router -run '^TestBackendJourney' > "$EVIDENCE/baseline.jsonl" 2> "$EVIDENCE/baseline.stderr"
+          result=$?
+          set -e
+          python3 - "$EVIDENCE/baseline.jsonl" "$result" <<'PY'
+          import json,sys
+          rows=[json.loads(line) for line in open(sys.argv[1]) if line.startswith('{')]
+          failures=[r for r in rows if r.get('Action')=='fail' and r.get('Test','').startswith('TestBackendJourney')]
+          print('baseline exit:',sys.argv[2], 'failing test/subtest nodes:',len(failures))
+          for r in failures: print(r.get('Package'),r['Test'])
+          if not failures or sys.argv[2]=='0': raise SystemExit('No genuine test failure was reproduced; inspect stderr for build errors')
+          PY
+      - name: Apply bounded source fixes
+        run: |
+          python3 scripts/backend-journey-repair.py
+          git diff --check
+          git diff > "$EVIDENCE/source.diff"
+      - name: Run regression tests against the fixes
+        working-directory: apps/api-go
+        run: |
+          if ! go test -json -p 2 -count=1 ./model ./controller ./middleware ./router -run '^TestBackendJourney' > "$EVIDENCE/fixed.jsonl" 2> "$EVIDENCE/fixed.stderr"; then
+            tail -100 "$EVIDENCE/fixed.jsonl"
+            cat "$EVIDENCE/fixed.stderr"
+            exit 1
+          fi
+          python3 - "$EVIDENCE/fixed.jsonl" <<'PY'
+          import json,sys
+          rows=[json.loads(line) for line in open(sys.argv[1]) if line.startswith('{')]
+          tests=[r for r in rows if r.get('Action')=='pass' and r.get('Test')]
+          print('passing test/subtest nodes:',len(tests))
+          for r in rows:
+            if r.get('Action')=='pass' and not r.get('Test'): print(r.get('Package'),r.get('Elapsed'))
+          PY
+      - name: Run affected package suites
+        working-directory: apps/api-go
+        run: |
+          if ! go test -json -p 2 -count=1 ./model ./controller ./middleware ./router > "$EVIDENCE/packages.jsonl" 2> "$EVIDENCE/packages.stderr"; then
+            tail -120 "$EVIDENCE/packages.jsonl"
+            cat "$EVIDENCE/packages.stderr"
+            exit 1
+          fi
+      - name: Check targeted concurrency and static analysis
+        working-directory: apps/api-go
+        run: |
+          go test -race -p 2 -count=1 ./model ./controller ./middleware ./router -run '^TestBackendJourney' > "$EVIDENCE/race.log" 2>&1
+          go vet ./model ./controller ./middleware ./router > "$EVIDENCE/vet.log" 2>&1
+          CGO_ENABLED=0 go build -p 2 -trimpath -o "$RUNNER_TEMP/lmm-api-journey" . > "$EVIDENCE/build.log" 2>&1
+      - name: Publish only the reviewed source and tests on a clean feature branch
+        env:
+          BASE: a726bf8e08e09833c300a3e159567f1729037e03
+          TARGET: fix/backend-user-journeys-20260922
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git read-tree "$BASE"
+          git add CHANGELOG.md \
+            apps/api-go/controller/backend_journey_test.go apps/api-go/controller/token.go apps/api-go/controller/user.go \
+            apps/api-go/middleware/auth.go apps/api-go/middleware/backend_journey_test.go apps/api-go/middleware/console_access_test.go \
+            apps/api-go/model/backend_journey_test.go apps/api-go/model/checkin.go apps/api-go/model/topup.go apps/api-go/model/user.go \
+            apps/api-go/router/backend_journey_test.go
+          git diff --cached --check
+          tree=$(git write-tree)
+          commit=$(printf '%s\n' 'fix: restore backend user journeys and account-state consistency' | git commit-tree "$tree" -p "$BASE")
+          if git ls-remote --exit-code --heads origin "$TARGET" > "$EVIDENCE/existing-branch.txt"; then
+            echo 'Refusing to replace an existing feature branch'
+            exit 1
+          fi
+          git push origin "$commit:refs/heads/$TARGET"
+          printf '%s\n' "$commit" > "$EVIDENCE/commit.txt"
+          git diff "$BASE" "$commit" > "$EVIDENCE/final.patch"
+          git archive --format=tar.gz --output="$EVIDENCE/repaired-source.tar.gz" "$commit"
+      - name: Preserve exact evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: backend-journey-results-${{ github.run_attempt }}
+          path: journey-evidence/
+          retention-days: 7
