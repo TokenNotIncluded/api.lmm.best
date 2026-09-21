@@ -1,11 +1,9 @@
 # Codewhale LMM OAuth adapter
 
-Source: `packages/codewhale-lmm-provider`. This is presently an ordinary directory,
-not a Git submodule: the remote repository creation operation is not available
-through the active GitHub connector. The package's explicit maintainer publication
-script creates `TokenNotIncluded/codewhale-lmm-provider`, pushes committed source,
-and proposes conversion into a pinned submodule in a separate parent PR. No
-nonexistent remote is added to `.gitmodules`.
+Source: `packages/codewhale-lmm-provider`, pinned as a Git submodule to
+`TokenNotIncluded/codewhale-lmm-provider`. Adapter source, tests, CI and package
+metadata live in the independent repository; this parent repository owns the
+server-side OAuth client registration and the pinned submodule revision.
 
 The backend registers public native client `lmm-codewhale` / `LMM for Codewhale`.
 It reuses the existing PKCE S256, state/issuer-bound loopback callback, resource,
