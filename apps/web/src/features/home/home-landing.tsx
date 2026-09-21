@@ -22,6 +22,8 @@ import { Button } from '@/components/ui/button'
 import type { ConnectionMethod } from '@/features/onboarding/next-step'
 import { RepositoryLink } from '@/features/repositories/repository-link'
 
+import { HomePrecisionHero } from './home-precision-hero'
+
 type HomeLandingProps = {
   rootRef: Ref<HTMLElement>
   t: (key: string) => string
@@ -104,6 +106,11 @@ export function HomeLanding({
   const steps = connectionMethod === 'oauth' ? OAUTH_STEPS : STEPS
   return (
     <main className='lmm-home' ref={rootRef}>
+      <HomePrecisionHero
+        t={t}
+        primaryAction={primaryAction}
+        pricingAction={pricingAction}
+      />
       <section
         className='lmm-cinema'
         data-cinema
@@ -121,13 +128,13 @@ export function HomeLanding({
             data-active
             aria-labelledby='lmm-home-title'
           >
-            <h1 id='lmm-home-title'>
+            <h2 id='lmm-home-title'>
               {headline.split(/(?<=[，,])\s*/u).map((phrase) => (
                 <span className='lmm-title-phrase' key={phrase}>
                   {phrase}
                 </span>
               ))}
-            </h1>
+            </h2>
             <p className='lmm-intro-description'>
               {t(
                 'Choose your client to get started. Available models and account pricing are shown after access approval.'

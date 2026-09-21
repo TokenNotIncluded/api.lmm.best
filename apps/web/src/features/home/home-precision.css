@@ -1,0 +1,198 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@400;500;600&family=Syncopate:wght@700&display=swap');
+
+/* Only the homepage hero owns this dark palette; account surfaces keep theirs. */
+.lmm-home .lmm-precision {
+  --precision-muted: #a3abb7;
+  --precision-rule: rgb(255 255 255 / 12%);
+  position: relative;
+  isolation: isolate;
+  color-scheme: dark;
+  background: #07080a;
+  color: #fff;
+  min-height: calc(100svh - 4rem);
+  padding: 1.8rem var(--home-gutter, 5vw) 0;
+  overflow: clip;
+  font-family: Inter, var(--font-body), sans-serif;
+}
+.lmm-precision :is(a,button):focus-visible {
+  outline: 2px solid #6ee7b7;
+  outline-offset: 5px;
+}
+.lmm-precision-backdrop,
+.lmm-precision-backdrop video,
+.lmm-precision-vignette,
+.lmm-precision-grid { position: absolute; inset: 0; pointer-events: none; }
+.lmm-precision-backdrop { z-index: -1; overflow: hidden; }
+.lmm-precision-backdrop video {
+  width: 100%; height: 100%; object-fit: cover; opacity: 0;
+  transition: opacity 600ms;
+}
+.lmm-precision[data-video-ready='true'] .lmm-precision-backdrop video { opacity: .4; }
+.lmm-precision-sculpture {
+  position: absolute; width: min(62vw, 900px); height: auto;
+  right: -2%; top: -6%; opacity: .88;
+  filter: drop-shadow(0 25px 35px #000);
+}
+.lmm-precision[data-video-ready='true'] .lmm-precision-sculpture { opacity: .4; }
+.lmm-precision-vignette {
+  background: linear-gradient(90deg, #07080a 0%, #07080aeb 20%, #07080a30 70%),
+    linear-gradient(0deg, #07080a 0%, transparent 50%, #07080a44 100%);
+}
+.lmm-precision-grid {
+  background-image: linear-gradient(#ffffff08 1px, transparent 1px), linear-gradient(90deg, #ffffff08 1px, transparent 1px);
+  background-size: 60px 60px;
+  mask-image: linear-gradient(90deg, #0004, #000 80%);
+}
+.lmm-precision-topline {
+  display: flex; justify-content: space-between; gap: 1rem;
+  font: 400 9px/1.5 'Space Grotesk', monospace;
+  letter-spacing: .18em; color: #9ba4b0;
+}
+.lmm-precision-body {
+  display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(270px, .8fr);
+  gap: 6%; align-items: center;
+  max-width: 1450px; margin: 0 auto;
+  padding: clamp(3rem, 7vh, 6rem) 0 4rem;
+  min-height: calc(100svh - 13rem);
+}
+.lmm-precision-kicker { display: flex; align-items: center; gap: .9rem; margin: 0 0 1.8rem; text-transform: uppercase; font: 500 10px/1.5 'Space Grotesk', sans-serif; letter-spacing: .19em; }
+.lmm-precision-kicker i { width: 2.4rem; height: 1px; background: #aeb4bd; }
+.lmm-precision-kicker b { width: 4px; height: 4px; background: #fff; border-radius: 50%; }
+.lmm-home .lmm-precision-title {
+  margin: 0; color: #fff; font-family: Syncopate, 'Arial Black', sans-serif;
+  font-weight: 700; font-size: clamp(2rem, 4.8vw, 5rem);
+  line-height: 1.14; letter-spacing: -.055em; text-wrap: nowrap;
+}
+.lmm-precision-title > span { display: block; }
+.lmm-precision-title > span:nth-child(even) { color: #92969e; }
+.lmm-precision-title > span:nth-child(3) { margin-top: .17em; }
+.lmm-precision-description { max-width: 30rem; margin: 1.9rem 0 0; color: #b5bdc9; font-size: .95rem; line-height: 1.8; }
+.lmm-precision-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 1.6rem; margin-top: 1.8rem; }
+.lmm-precision-actions > :first-child {
+  position: relative; min-height: 3.3rem; display: inline-flex; align-items: center; justify-content: center; gap: 1rem;
+  padding: .7rem 1.4rem; background: transparent; color: #fff; border: 1px solid #ffffff75; border-radius: 0;
+  font: 500 .78rem/1.5 'Space Grotesk', sans-serif; transition: background 180ms, color 180ms;
+  box-shadow: none; text-decoration: none;
+}
+.lmm-precision-actions > :first-child:hover { background: #fff; color: #07080a; }
+.lmm-precision-actions svg { width: 1rem; height: 1rem; }
+.lmm-precision-demo-button { display: inline-flex; align-items: center; gap: .8rem; min-height: 44px; border: 0; padding: 0; background: transparent; color: #d4d8df; font: 500 .72rem/1.5 'Space Grotesk', sans-serif; }
+.lmm-precision-demo-button > span { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid #ffffff40; border-radius: 50%; font-size: 18px; transition: border-color 180ms; }
+.lmm-precision-demo-button:hover > span { border-color: #fff; }
+.lmm-precision-secondary { margin-top: .65rem; color: #b8c0cc; }
+.lmm-precision-secondary a { font-size: .76rem; min-height: 44px; }
+.lmm-precision-access { margin: .2rem 0 0; max-width: 31rem; color: #9ba4b0; font-size: .69rem; line-height: 1.8; }
+.lmm-precision-hud {
+  position: relative; align-self: end; margin: 0 0 .2rem; padding: 1.4rem 1.5rem;
+  background: linear-gradient(125deg, #11171bd9, #080b0dc9);
+  border: 1px solid #ffffff14; backdrop-filter: blur(14px);
+  font-family: 'Space Grotesk', sans-serif;
+}
+.lmm-precision-hud::after {
+  content: ''; position: absolute; inset: -1px; pointer-events: none;
+  background:
+    linear-gradient(#b1bbc9, #b1bbc9) left top / 15px 1px,
+    linear-gradient(#b1bbc9, #b1bbc9) left top / 1px 15px,
+    linear-gradient(#b1bbc9, #b1bbc9) right top / 15px 1px,
+    linear-gradient(#b1bbc9, #b1bbc9) right top / 1px 15px,
+    linear-gradient(#b1bbc9, #b1bbc9) left bottom / 15px 1px,
+    linear-gradient(#b1bbc9, #b1bbc9) left bottom / 1px 15px,
+    linear-gradient(#b1bbc9, #b1bbc9) right bottom / 15px 1px,
+    linear-gradient(#b1bbc9, #b1bbc9) right bottom / 1px 15px;
+  background-repeat: no-repeat;
+}
+.lmm-precision-hud-header { display: flex; align-items: center; justify-content: space-between; gap: .75rem; font-size: .58rem; letter-spacing: .055em; text-transform: uppercase; color: #a7b2c0; }
+.lmm-precision-hud-header > span:first-child { display: flex; gap: .55rem; align-items: center; }
+.lmm-precision-hud-header i { display: inline-block; flex-shrink: 0; width: 5px; height: 5px; border-radius: 50%; background: #a7b2c0; }
+.lmm-precision-hud-header [data-confirmed='true'] i { background: #10b981; box-shadow: 0 0 9px #10b98155; }
+.lmm-precision-hud-label { margin: 2.1rem 0 1rem; font-size: .63rem; text-transform: uppercase; letter-spacing: .16em; color: #a7b2c0; }
+.lmm-precision-routes { display: grid; gap: 1.1rem; margin: 0; }
+.lmm-precision-routes > div { border-bottom: 1px solid #ffffff15; padding-bottom: .7rem; }
+.lmm-precision-routes dt { font-size: .75rem; color: #e7eaf0; margin-bottom: .35rem; }
+.lmm-precision-routes dd { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin: 0; color: #96a7b9; font-size: .62rem; }
+.lmm-precision-routes code { overflow-wrap: anywhere; }
+.lmm-precision-routes dd > span { color: #6ee7b7; }
+.lmm-precision-auth { display: flex; justify-content: space-between; flex-wrap: wrap; gap: .5rem; margin-top: 1.2rem; font-size: .62rem; color: #a7b2c0; }
+.lmm-precision-auth > span:last-child { color: #6ee7b7; }
+.lmm-precision-hud-note { margin: 1rem 0 0; color: #a4aeba; font-size: .61rem; line-height: 1.65; }
+.lmm-precision-hud-link { display: flex; justify-content: space-between; align-items: center; min-height: 44px; margin-top: .3rem; color: #e1e7ef; font-size: .7rem; text-decoration: none; }
+.lmm-precision-hud-link:hover { text-decoration: underline; }
+.lmm-precision-metrics { border-top: 1px solid var(--precision-rule); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 1.8rem 0 2rem; }
+.lmm-precision-metric { display: flex; align-items: center; gap: 1.3rem; padding-right: 1.5rem; }
+.lmm-precision-metric + .lmm-precision-metric { border-left: 1px solid var(--precision-rule); padding-left: 2rem; }
+.lmm-precision-number { font: 700 clamp(1.8rem, 2.8vw, 3rem)/1 Syncopate, sans-serif; min-width: 1.2em; font-variant-numeric: tabular-nums; }
+.lmm-precision-metric strong { display: block; text-transform: uppercase; font: 500 .65rem/1.6 'Space Grotesk', sans-serif; letter-spacing: .11em; }
+.lmm-precision-metric div > span { display: block; margin-top: .35rem; color: #99a4b2; font-size: .61rem; }
+.lmm-precision-pause { display: block; position: absolute; top: 3.4rem; right: var(--home-gutter, 5vw); min-height: 44px; background: transparent; color: #aeb8c6; border: 0; padding: .5rem 0 .5rem 1rem; font: 400 10px/1.5 'Space Grotesk', sans-serif; }
+.lmm-precision-resume-label { display: none; }
+.lmm-precision[data-user-paused='true'] .lmm-precision-pause-label { display: none; }
+.lmm-precision[data-user-paused='true'] .lmm-precision-resume-label { display: inline; }
+.lmm-precision-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.lmm-precision-dialog { margin: auto; width: min(900px, calc(100vw - 2rem)); max-height: calc(100svh - 2rem); overflow: auto; border: 1px solid #ffffff40; background: #0c0f13; color: #fff; padding: 1.2rem; }
+.lmm-precision-dialog::backdrop { background: #000c; backdrop-filter: blur(9px); }
+.lmm-precision-dialog-heading { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1rem; }
+.lmm-precision-dialog-heading h2 { font-size: 1.05rem; margin: 0; }
+.lmm-precision-dialog-heading button { width: 44px; height: 44px; background: transparent; color: #fff; border: 1px solid #ffffff40; font-size: 1.5rem; }
+.lmm-precision-dialog video { display: block; width: 100%; aspect-ratio: 16/9; background: #07080a; }
+.lmm-precision-dialog > p { font-size: .8rem; line-height: 1.7; color: #c0c9d6; }
+.lmm-precision-dialog > a { display: inline-flex; align-items: center; min-height: 44px; font-size: .85rem; color: #6ee7b7; }
+.lmm-precision-demo-error { display: none; }
+.lmm-precision[data-demo-error='true'] .lmm-precision-demo-error { display: block; }
+/* Reuse the real navigation, including its account controls and mobile drawer. */
+body:has(.lmm-precision) .public-header.forge-public-header {
+  position: relative; background: #07080a; color: #fff; border: 0;
+  backdrop-filter: none; box-shadow: none;
+  --foreground: #fff; --muted-foreground: #b4becb; --background: #07080a;
+  --primary: #fff; --primary-foreground: #07080a;
+}
+@media (min-width: 1500px) { .lmm-precision-hud { margin-bottom: 1.5rem; } }
+@media (max-width: 1000px) {
+  .lmm-precision-body { gap: 3%; grid-template-columns: minmax(0, 1.2fr) minmax(260px, .85fr); }
+  .lmm-home .lmm-precision-title { font-size: clamp(1.9rem, 4.6vw, 3.2rem); }
+  .lmm-precision-hud { padding: 1.2rem; }
+  .lmm-precision-actions { gap: 1rem; }
+}
+@media (max-width: 720px) {
+  .lmm-home .lmm-precision { padding-top: 1.4rem; }
+  .lmm-precision-topline { font-size: 8px; }
+  .lmm-precision-topline > span:last-child { display: none; }
+  .lmm-precision-pause { top: .65rem; font-size: 9px; }
+  .lmm-precision-body { display: block; padding: 3rem 0 2rem; min-height: 0; }
+  .lmm-home .lmm-precision-title { font-size: clamp(1.85rem, 7vw, 3.8rem); letter-spacing: -.06em; }
+  .lmm-precision-kicker { margin-bottom: 1.5rem; font-size: 9px; }
+  .lmm-precision-sculpture { width: 95vw; right: -36%; top: 1%; opacity: .65; }
+  .lmm-precision-vignette { background: linear-gradient(90deg, #07080ade, #07080a44), linear-gradient(0deg, #07080a 30%, transparent); }
+  .lmm-precision-description { max-width: 26rem; font-size: .85rem; }
+  .lmm-precision-hud { margin-top: 2.5rem; }
+  .lmm-precision-hud-label { margin-top: 1.4rem; }
+  .lmm-precision-metrics { padding: 1.5rem 0; gap: 0; }
+  .lmm-precision-metric { display: block; padding-right: .5rem; }
+  .lmm-precision-metric + .lmm-precision-metric { padding-left: .8rem; }
+  .lmm-precision-number { display: block; font-size: 1.8rem; margin-bottom: .8rem; }
+  .lmm-precision-metric strong { font-size: .58rem; letter-spacing: 0; }
+  .lmm-precision-metric div > span { font-size: .55rem; line-height: 1.6; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lmm-precision *, .lmm-precision *::before, .lmm-precision *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+
+@keyframes precision-live { 50% { opacity: .3; } }
+.lmm-precision[data-animated='true'] .lmm-precision-kicker b { animation: precision-live 2.8s ease-in-out infinite; }
