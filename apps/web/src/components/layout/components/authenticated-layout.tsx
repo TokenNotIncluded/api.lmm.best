@@ -27,7 +27,6 @@ import { LayoutProvider } from '@/context/layout-provider'
 import { ModelPlazaProvider } from '@/context/model-plaza-provider'
 import { SearchProvider } from '@/context/search-provider'
 import { AssistantLauncher } from '@/features/assistant/assistant-launcher'
-import { AccountStatus } from '@/features/onboarding/account-status'
 import { MandatoryAnnouncements } from '@/features/onboarding/mandatory-announcements'
 import { ModelPlazaPanel } from '@/features/pricing/components/model-plaza-panel'
 import { ReleaseNoteDialog } from '@/features/release-notes/release-note-dialog'
@@ -77,20 +76,9 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
                       : 'pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-16 xl:pb-0'
                   )}
                 >
-                  {assistantPage ? (
-                    <div className='flex h-full min-h-0 flex-col'>
-                      <div className='max-h-[45dvh] shrink-0 overflow-y-auto px-4 pt-4'>
-                        <AccountStatus showRequestDetails />
-                      </div>
-                      <div className='min-h-0 flex-1'>
-                        <AssistantLauncher page />
-                      </div>
-                    </div>
-                  ) : (
-                    (props.children ?? <AnimatedOutlet />)
-                  )}
+                  {props.children ?? <AnimatedOutlet />}
                 </SidebarInset>
-                {assistantPage ? null : <AssistantLauncher />}
+                <AssistantLauncher hideMobileLauncher={assistantPage} />
               </div>
               <AccessRestrictionNotice className='shrink-0' />
               <ReleaseNoteDialog />

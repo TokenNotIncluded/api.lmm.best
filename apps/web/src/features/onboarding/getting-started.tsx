@@ -24,10 +24,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
 import { Separator } from '@/components/ui/separator'
-import {
-  peekQueuedAssistantRequest,
-  requestAssistantOpen,
-} from '@/features/assistant/assistant-events'
+import { requestAssistantOpen } from '@/features/assistant/assistant-events'
 import { ChallengeList } from '@/features/forge/challenge-list'
 import { PiOAuthGuide } from '@/features/guide/pi-oauth-guide'
 import {
@@ -39,7 +36,7 @@ import { formatDateTimeObject } from '@/lib/time'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { AccountStatus } from './account-status'
-import { claimOnboardingAssistantPrompt } from './pending-review-assistant'
+import { L0Welcome } from './l0-welcome'
 import { useAccountNextStep } from './use-account-next-step'
 import { useAuthUserRefresh } from './use-auth-user-refresh'
 
@@ -51,7 +48,6 @@ export function GettingStarted() {
   const onboarding = getOnboardingState(user)
   const trustLevel = user?.trust_level_info?.level ?? 0
   const [prompt, setPrompt] = useState('')
-  const userId = user?.id ?? 0
   const { request } = useAccountNextStep()
   const accessRequest = request.data
   const requestLoaded = request.isSuccess
@@ -65,15 +61,6 @@ export function GettingStarted() {
     window.addEventListener('focus', onFocus)
     return () => window.removeEventListener('focus', onFocus)
   }, [onboarding.activationComplete, refetchAccessRequest])
-
-  const pendingRequestId =
-    accessRequest?.status === 'pending' ? accessRequest.id : 0
-  useEffect(() => {
-    if (!requestLoaded || onboarding.stage !== 'activate') return
-    if (!claimOnboardingAssistantPrompt(userId, pendingRequestId)) return
-    if (peekQueuedAssistantRequest()?.autoSend) return
-    requestAssistantOpen('onboarding')
-  }, [onboarding.stage, pendingRequestId, requestLoaded, userId])
 
   useEffect(() => {
     if (!requestLoaded || accessRequest?.status !== 'approved') {
@@ -123,143 +110,119 @@ export function GettingStarted() {
           </Button>
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
-          <AccountStatus />
-          <div className='mx-auto flex w-full max-w-2xl flex-col pb-12 sm:pb-16'>
-            <section
-              className='px-1 py-8 sm:px-2 sm:py-12'
-              data-testid='l0-conversation'
-            >
-              <div className='grid gap-3' role='log' aria-live='polite'>
-                <h2 className='text-2xl font-medium'>{t('How can I help?')}</h2>
-                <p className='text-muted-foreground text-sm leading-6'>
-                  {t(
-                    'Browse models and prices, add funds, and start using the supported features right away. API keys and developer tools unlock after access approval.'
-                  )}
+          <L0Welcome user={user}>
+            <div className='grid gap-3 text-sm leading-6'>
+              {request.isError ? (
+                <div role='alert' className='space-y-2'>
+                  <p>{t('Unable to load access status')}</p>
+                  <Button
+                    variant='outline'
+                    disabled={request.isFetching}
+                    onClick={() => void request.refetch()}
+                  >
+                    {t('Reload account status')}
+                  </Button>
+                </div>
+              ) : !requestLoaded ? (
+                <p role='status' className='text-muted-foreground'>
+                  {t('Loading')}
                 </p>
-              </div>
-              <div className='mt-6 flex flex-wrap gap-2'>
-                <Button size='sm' render={<Link to='/wallet' />}>
-                  {t('Add funds and start')}
-                </Button>
-                <Button
-                  variant='outline'
-                  size='sm'
-                  render={<Link to='/pricing' />}
-                >
-                  {t('Browse models and pricing')}
-                </Button>
-                <Button
-                  variant='outline'
-                  size='sm'
-                  render={<Link to='/challenges' />}
-                >
-                  {t('Browse open challenges')}
-                </Button>
-              </div>
-
-              <Separator className='my-8' />
-              <div className='grid gap-3 text-sm leading-6'>
-                {accessRequest ? (
-                  <dl className='space-y-3'>
+              ) : null}
+              {accessRequest ? (
+                <dl className='space-y-3'>
+                  <div>
+                    <dt className='text-muted-foreground'>{t('Created At')}</dt>
+                    <dd>
+                      {formatDateTimeObject(
+                        new Date(accessRequest.created_at * 1000)
+                      )}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className='text-muted-foreground'>{t('Reason')}</dt>
+                    <dd className='break-words whitespace-pre-wrap'>
+                      {accessRequest.reason}
+                    </dd>
+                  </div>
+                  {accessRequest.ai_recommendation ? (
                     <div>
                       <dt className='text-muted-foreground'>
-                        {t('Created At')}
+                        {t('AI recommendation')}
                       </dt>
-                      <dd>
-                        {formatDateTimeObject(
-                          new Date(accessRequest.created_at * 1000)
-                        )}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className='text-muted-foreground'>{t('Reason')}</dt>
                       <dd className='break-words whitespace-pre-wrap'>
-                        {accessRequest.reason}
+                        {accessRequest.ai_recommendation}
                       </dd>
                     </div>
-                    {accessRequest.ai_recommendation ? (
-                      <div>
-                        <dt className='text-muted-foreground'>
-                          {t('AI recommendation')}
-                        </dt>
-                        <dd className='break-words whitespace-pre-wrap'>
-                          {accessRequest.ai_recommendation}
-                        </dd>
-                      </div>
-                    ) : null}
-                    {accessRequest.admin_note &&
-                    accessRequest.status !== 'rejected' ? (
-                      <div>
-                        <dt className='text-muted-foreground'>
-                          {t('Administrator note')}
-                        </dt>
-                        <dd className='break-words whitespace-pre-wrap'>
-                          {accessRequest.admin_note}
-                        </dd>
-                      </div>
-                    ) : null}
-                  </dl>
-                ) : null}
-                {accessRequest?.status === 'pending' ? (
-                  <div className='grid gap-1' data-testid='l0-pending-request'>
-                    <p className='font-medium'>
-                      {accessRequest.ai_recommendation
-                        ? t('AI recommendation submitted')
-                        : t('Access request submitted')}
-                    </p>
-                    <p className='text-muted-foreground text-xs'>
-                      {t('Pending review')}
-                    </p>
-                  </div>
-                ) : null}
-                {accessRequest?.status === 'rejected' ? (
-                  <div className='grid gap-1'>
-                    <p className='text-destructive font-medium'>
-                      {t('Access request rejected')}
-                    </p>
-                    {accessRequest.admin_note ? (
-                      <p className='text-muted-foreground whitespace-pre-wrap'>
+                  ) : null}
+                  {accessRequest.admin_note &&
+                  accessRequest.status !== 'rejected' ? (
+                    <div>
+                      <dt className='text-muted-foreground'>
+                        {t('Administrator note')}
+                      </dt>
+                      <dd className='break-words whitespace-pre-wrap'>
                         {accessRequest.admin_note}
-                      </p>
-                    ) : null}
-                  </div>
-                ) : null}
-                {accessRequest?.status === 'approved' ? (
-                  <div className='grid gap-1'>
-                    <p className='font-medium'>
-                      {t('Access request approved')}
+                      </dd>
+                    </div>
+                  ) : null}
+                </dl>
+              ) : null}
+              {accessRequest?.status === 'pending' ? (
+                <div className='grid gap-1' data-testid='l0-pending-request'>
+                  <p className='font-medium'>
+                    {accessRequest.ai_recommendation
+                      ? t('AI recommendation submitted')
+                      : t('Access request submitted')}
+                  </p>
+                  <p className='text-muted-foreground text-xs'>
+                    {t('Pending review')}
+                  </p>
+                </div>
+              ) : null}
+              {accessRequest?.status === 'rejected' ? (
+                <div className='grid gap-1'>
+                  <p className='text-destructive font-medium'>
+                    {t('Access request rejected')}
+                  </p>
+                  {accessRequest.admin_note ? (
+                    <p className='text-muted-foreground whitespace-pre-wrap'>
+                      {accessRequest.admin_note}
                     </p>
-                    <p className='text-muted-foreground'>
-                      {t(
-                        'Your developer access is active. Continue setup to create a key and connect your client.'
-                      )}
-                    </p>
-                  </div>
-                ) : null}
-                {requestLoaded && accessRequest?.status === 'approved' ? (
-                  <Button
-                    type='button'
-                    size='sm'
-                    className='w-fit'
-                    onClick={() => void continueAfterApproval()}
-                  >
-                    {t('Continue setup')}
-                  </Button>
-                ) : (
-                  <Button
-                    type='button'
-                    variant='link'
-                    size='sm'
-                    className='w-fit px-0'
-                    onClick={() => requestAssistantOpen('onboarding')}
-                  >
-                    {assistantAction}
-                  </Button>
-                )}
-              </div>
-            </section>
-            <PiOAuthGuide />
-          </div>
+                  ) : null}
+                </div>
+              ) : null}
+              {accessRequest?.status === 'approved' ? (
+                <div className='grid gap-1'>
+                  <p className='font-medium'>{t('Access request approved')}</p>
+                  <p className='text-muted-foreground'>
+                    {t(
+                      'Your developer access is active. Continue setup to create a key and connect your client.'
+                    )}
+                  </p>
+                </div>
+              ) : null}
+              {requestLoaded && accessRequest?.status === 'approved' ? (
+                <Button
+                  type='button'
+                  size='sm'
+                  className='w-fit'
+                  onClick={() => void continueAfterApproval()}
+                >
+                  {t('Continue setup')}
+                </Button>
+              ) : (
+                <Button
+                  type='button'
+                  variant='link'
+                  size='sm'
+                  className='w-fit px-0'
+                  onClick={() => requestAssistantOpen('onboarding')}
+                >
+                  {assistantAction}
+                </Button>
+              )}
+            </div>
+          </L0Welcome>
         </SectionPageLayout.Content>
       </SectionPageLayout>
     )

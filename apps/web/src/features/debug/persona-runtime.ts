@@ -96,6 +96,8 @@ const DEBUG_USERS: Record<DebugPersonaId, AuthUser> = {
     developer_access_granted: false,
     trust_level_info: trustLevel(0),
     onboarding: {
+      paid_activation_enabled: true,
+      paid_activation_min_amount: 1,
       activation_complete: false,
       credential_complete: false,
       first_request_complete: false,
