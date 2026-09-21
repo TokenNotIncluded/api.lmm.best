@@ -160,12 +160,22 @@ func responsesRequestMessagesToChat(req *dto.OpenAIResponsesRequest) ([]dto.Mess
 		if err := kitutil.Unmarshal(req.Input, &items); err != nil {
 			return nil, fmt.Errorf("invalid input array: %w", err)
 		}
+		var pendingMedia []any
 		for _, item := range items {
-			nextMessages, err := responsesInputItemToChatMessages(item, messages)
+			itemType := strings.TrimSpace(kitutil.Interface2String(item["type"]))
+			if len(pendingMedia) > 0 && itemType != responsesInputTypeFunctionCallOutput {
+				messages = append(messages, dto.Message{Role: "user", Content: pendingMedia})
+				pendingMedia = nil
+			}
+			nextMessages, mediaParts, err := responsesInputItemToChatMessages(item, messages)
 			if err != nil {
 				return nil, err
 			}
 			messages = nextMessages
+			pendingMedia = append(pendingMedia, mediaParts...)
+		}
+		if len(pendingMedia) > 0 {
+			messages = append(messages, dto.Message{Role: "user", Content: pendingMedia})
 		}
 		return messages, nil
 	default:
@@ -173,25 +183,26 @@ func responsesRequestMessagesToChat(req *dto.OpenAIResponsesRequest) ([]dto.Mess
 	}
 }
 
-func responsesInputItemToChatMessages(item map[string]any, messages []dto.Message) ([]dto.Message, error) {
+func responsesInputItemToChatMessages(item map[string]any, messages []dto.Message) ([]dto.Message, []any, error) {
 	itemType := strings.TrimSpace(kitutil.Interface2String(item["type"]))
 	switch itemType {
 	case responsesInputTypeFunctionCall:
 		toolCall, err := responsesFunctionCallItemToChatToolCall(item)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return appendToolCallToLastAssistant(messages, toolCall), nil
+		return appendToolCallToLastAssistant(messages, toolCall), nil, nil
 	case responsesInputTypeCustomToolCall:
 		toolCall, err := responsesCustomToolCallItemToChatToolCall(item)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return appendToolCallToLastAssistant(messages, toolCall), nil
+		return appendToolCallToLastAssistant(messages, toolCall), nil, nil
 	case responsesInputTypeFunctionCallOutput:
 		callID := strings.TrimSpace(kitutil.Interface2String(item["call_id"]))
-		content := responseToolOutputToChatContent(item["output"])
-		return append(messages, dto.Message{Role: "tool", ToolCallId: callID, Content: content}), nil
+		content, mediaParts := splitResponseToolOutputMedia(item["output"])
+		messages = append(messages, dto.Message{Role: "tool", ToolCallId: callID, Content: content})
+		return messages, mediaParts, nil
 	}
 
 	role := strings.TrimSpace(kitutil.Interface2String(item["role"]))
@@ -200,9 +211,9 @@ func responsesInputItemToChatMessages(item map[string]any, messages []dto.Messag
 	}
 	content, err := responsesInputContentToChatContent(item["content"])
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return append(messages, dto.Message{Role: role, Content: content}), nil
+	return append(messages, dto.Message{Role: role, Content: content}), nil, nil
 }
 
 func responsesInputContentToChatContent(content any) (any, error) {
@@ -538,6 +549,95 @@ func responseToolOutputToChatContent(value any) any {
 			return fmt.Sprintf("%v", v)
 		}
 		return string(raw)
+	}
+}
+
+func splitResponseToolOutputMedia(value any) (any, []any) {
+	var rawParts []any
+	switch typed := value.(type) {
+	case []any:
+		rawParts = typed
+	case []map[string]any:
+		rawParts = make([]any, 0, len(typed))
+		for _, part := range typed {
+			rawParts = append(rawParts, part)
+		}
+	default:
+		return responseToolOutputToChatContent(value), nil
+	}
+	if len(rawParts) == 0 {
+		return responseToolOutputToChatContent(value), nil
+	}
+
+	texts := make([]string, 0, len(rawParts))
+	mediaParts := make([]any, 0, len(rawParts))
+	for _, rawPart := range rawParts {
+		part, ok := rawPart.(map[string]any)
+		if !ok {
+			return responseToolOutputToChatContent(value), nil
+		}
+		switch strings.TrimSpace(kitutil.Interface2String(part["type"])) {
+		case "input_text", "output_text", "text":
+			if text := kitutil.Interface2String(part["text"]); text != "" {
+				texts = append(texts, text)
+			}
+		case "input_image", "input_file", "input_audio", "input_video":
+			mediaParts = append(mediaParts, part)
+		default:
+			return responseToolOutputToChatContent(value), nil
+		}
+	}
+	if len(mediaParts) == 0 {
+		return strings.Join(texts, "\n"), nil
+	}
+
+	converted, err := responsesContentPartsToChatContent(mediaParts)
+	if err != nil {
+		return responseToolOutputToChatContent(value), nil
+	}
+	chatParts, ok := converted.([]any)
+	if !ok || len(chatParts) == 0 {
+		return responseToolOutputToChatContent(value), nil
+	}
+	if len(texts) == 0 {
+		return responseToolOutputMediaPlaceholder(mediaParts), chatParts
+	}
+	return strings.Join(texts, "\n"), chatParts
+}
+
+func responseToolOutputMediaPlaceholder(mediaParts []any) string {
+	labels := make([]string, 0, len(mediaParts))
+	seen := make(map[string]struct{}, len(mediaParts))
+	for _, rawPart := range mediaParts {
+		part, ok := rawPart.(map[string]any)
+		if !ok {
+			continue
+		}
+		label := responseToolOutputMediaPlaceholderLabel(strings.TrimSpace(kitutil.Interface2String(part["type"])))
+		if label == "" {
+			continue
+		}
+		if _, exists := seen[label]; exists {
+			continue
+		}
+		seen[label] = struct{}{}
+		labels = append(labels, label)
+	}
+	return strings.Join(labels, " ")
+}
+
+func responseToolOutputMediaPlaceholderLabel(partType string) string {
+	switch partType {
+	case "input_image":
+		return "[image]"
+	case "input_file":
+		return "[file]"
+	case "input_audio":
+		return "[audio]"
+	case "input_video":
+		return "[video]"
+	default:
+		return ""
 	}
 }
 
