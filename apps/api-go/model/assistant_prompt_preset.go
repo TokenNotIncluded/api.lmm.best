@@ -91,6 +91,112 @@ type PromptPreset struct {
 	Prompt string `json:"prompt"`
 	Label  string `json:"label,omitempty"`
 	Source string `json:"source,omitempty"`
+	// Translations holds administrator-provided per-locale copy for a custom
+	// preset. It is never serialized: the endpoint returns the already-selected
+	// locale, so the client cannot drift from the server's choice.
+	Translations map[string]PromptPresetCopy `json:"-"`
+}
+
+// PromptPresetCopy is one localized label/prompt pair for a custom preset.
+type PromptPresetCopy struct {
+	Label  string `json:"label"`
+	Prompt string `json:"prompt"`
+}
+
+// localizedPromptPresetLabel is the locale used when a custom preset omits the
+// requested language. Administrators edit a default that every locale falls
+// back to, so an unconfigured language never renders an empty starter.
+const localizedPromptPresetLabel = "default"
+
+type promptPresetCopyValue struct {
+	value string
+}
+
+// UnmarshalJSON accepts either the legacy plain string or a per-locale object,
+// so presets saved before multilingual support keep working unchanged.
+func (value *promptPresetCopyValue) UnmarshalJSON(data []byte) error {
+	var text string
+	if err := json.Unmarshal(data, &text); err == nil {
+		value.value = text
+		return nil
+	}
+	var byLocale map[string]string
+	if err := json.Unmarshal(data, &byLocale); err != nil {
+		return errors.New("preset copy must be a string or a locale map of strings")
+	}
+	encoded, err := json.Marshal(byLocale)
+	if err != nil {
+		return err
+	}
+	value.value = string(encoded)
+	return nil
+}
+
+// customPromptPresetEntry is the administrator-authored shape. Both fields may
+// be a single string (legacy) or a map of locale to string.
+type customPromptPresetEntry struct {
+	ID     string                `json:"id"`
+	Label  promptPresetCopyValue `json:"label"`
+	Prompt promptPresetCopyValue `json:"prompt"`
+}
+
+func (entry customPromptPresetEntry) copies() (map[string]PromptPresetCopy, string, string, bool) {
+	labels, labelDefault, labelLocalized := splitPromptPresetCopy(entry.Label.value)
+	prompts, promptDefault, promptLocalized := splitPromptPresetCopy(entry.Prompt.value)
+	locales := map[string]struct{}{}
+	for locale := range labels {
+		locales[locale] = struct{}{}
+	}
+	for locale := range prompts {
+		locales[locale] = struct{}{}
+	}
+	translations := make(map[string]PromptPresetCopy, len(locales))
+	for locale := range locales {
+		pair := PromptPresetCopy{Label: labels[locale], Prompt: prompts[locale]}
+		if pair.Label == "" {
+			pair.Label = labelDefault
+		}
+		if pair.Prompt == "" {
+			pair.Prompt = promptDefault
+		}
+		if pair.Label == "" || pair.Prompt == "" {
+			return nil, "", "", false
+		}
+		translations[normalizePromptPresetLanguage(locale)] = pair
+	}
+	defaultCopy, ok := translations[localizedPromptPresetLabel]
+	if !ok {
+		if !labelLocalized && !promptLocalized {
+			defaultCopy = PromptPresetCopy{Label: labelDefault, Prompt: promptDefault}
+		} else {
+			return nil, "", "", false
+		}
+	}
+	return translations, defaultCopy.Label, defaultCopy.Prompt, true
+}
+
+// splitPromptPresetCopy distinguishes a legacy single string from a locale map.
+func splitPromptPresetCopy(raw string) (map[string]string, string, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil, "", false
+	}
+	if !strings.HasPrefix(trimmed, "{") {
+		return nil, trimmed, false
+	}
+	var byLocale map[string]string
+	if err := json.Unmarshal([]byte(trimmed), &byLocale); err != nil {
+		return nil, trimmed, false
+	}
+	normalized := make(map[string]string, len(byLocale))
+	for locale, text := range byLocale {
+		text = strings.TrimSpace(text)
+		if text == "" {
+			continue
+		}
+		normalized[normalizePromptPresetLanguage(locale)] = text
+	}
+	return normalized, "", true
 }
 
 type PromptPresetSet struct {
@@ -218,17 +324,35 @@ func configuredPromptPresets() ([]PromptPreset, bool) {
 	if strings.TrimSpace(raw) == "" {
 		return nil, false
 	}
-	var entries []PromptPreset
-	if err := json.Unmarshal([]byte(raw), &entries); err != nil || len(entries) > 20 {
+	var configured []customPromptPresetEntry
+	if err := json.Unmarshal([]byte(raw), &configured); err != nil || len(configured) > 20 {
 		return nil, false
 	}
-	for i := range entries {
-		entries[i].Id = strings.TrimSpace(entries[i].Id)
-		entries[i].Label = strings.TrimSpace(entries[i].Label)
-		entries[i].Prompt = strings.TrimSpace(entries[i].Prompt)
-		entries[i].Source = "custom"
+	entries := make([]PromptPreset, 0, len(configured))
+	for _, entry := range configured {
+		translations, label, prompt, ok := entry.copies()
+		if !ok {
+			return nil, false
+		}
+		entries = append(entries, PromptPreset{
+			Id: strings.TrimSpace(entry.ID), Label: label, Prompt: prompt,
+			Source: "custom", Translations: translations,
+		})
 	}
 	return entries, true
+}
+
+// customPromptPresetVariants returns every accepted copy for a custom preset so
+// a first turn is attributed regardless of the locale the client displayed.
+func customPromptPresetVariants(preset PromptPreset) []string {
+	if preset.Source != "custom" || len(preset.Translations) == 0 {
+		return nil
+	}
+	variants := make([]string, 0, len(preset.Translations))
+	for _, copy := range preset.Translations {
+		variants = append(variants, copy.Prompt)
+	}
+	return variants
 }
 
 func findPromptPreset(presetId string) (*PromptPresetRef, string, error) {
@@ -262,6 +386,18 @@ func ResolvePromptPreset(presetId string, prompt string) (*PromptPresetRef, erro
 	normalized := normalize(prompt)
 	if normalized == normalize(expectedPrompt) {
 		return attribution, nil
+	}
+	if current, err := GetPromptPresets(); err == nil {
+		for _, preset := range current.Presets {
+			if preset.Id != attribution.PresetId {
+				continue
+			}
+			for _, variant := range customPromptPresetVariants(preset) {
+				if normalized == normalize(variant) {
+					return attribution, nil
+				}
+			}
+		}
 	}
 	// Only exact, reviewed translations for this current preset qualify.
 	// Arbitrary edits, another preset's copy and unknown IDs remain unattributed.

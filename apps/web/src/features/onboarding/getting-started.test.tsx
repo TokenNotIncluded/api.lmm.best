@@ -508,21 +508,27 @@ describe('getting started access boundaries', () => {
     unsubscribe()
   })
 
-  test('shows only the read-only access conversation to L0', async () => {
+  test('lets L0 browse and fund the account before approval', async () => {
     const page = await renderPage(true)
     await act(flushEffects)
 
-    assert.equal(page.container.querySelector('a[href="/wallet"]'), null)
-    assert.equal(page.gets.includes('/api/user/topup/info'), false)
+    // A new account must be able to buy and use the product immediately.
+    const wallet = page.container.querySelector('a[href="/wallet"]')
+    assert.ok(wallet, 'L0 must reach the wallet')
+    assert.equal(wallet.textContent?.includes('Add funds and start'), true)
+    assert.ok(page.container.querySelector('a[href="/pricing"]'))
+    assert.ok(page.container.querySelector('a[href="/challenges"]'))
     assert.equal(page.container.textContent?.includes('How can I help?'), true)
-    assert.equal(page.container.querySelector('a[href="/challenges"]'), null)
+    assert.equal(
+      page.container.textContent?.includes(
+        'API keys and developer tools unlock after access approval.'
+      ),
+      true
+    )
+    // Developer-only actions stay gated by the server.
     assert.equal(page.container.textContent?.includes('Create API key'), false)
     assert.equal(
       page.container.textContent?.includes('Open setup guide'),
-      false
-    )
-    assert.equal(
-      page.gets.some((url) => url.startsWith('/api/open-source-bounties?')),
       false
     )
     await unmountPage(page)

@@ -89,6 +89,7 @@ import { cn } from '@/lib/utils'
 import { useAuthStore, type AuthUser } from '@/stores/auth-store'
 
 import {
+  assistantRunFailureDetails,
   getAssistantAvailableModels,
   getAssistantErrorInfo,
   getAssistantPreConversationPresets,
@@ -712,6 +713,24 @@ function assistantFailureMessage(
   translate: ReturnType<typeof useTranslation>['t']
 ) {
   const { code } = getAssistantErrorInfo(error)
+  if (code === 'ASSISTANT_REQUEST_TIMEOUT') {
+    // A stopped run is not a generic failure: say whether a tool already ran
+    // and whether the step budget or the wall clock ran out.
+    const details = assistantRunFailureDetails(error)
+    if (details?.work_started) {
+      return translate(
+        'The assistant ran out of time after starting work. Review the actions shown in this conversation before retrying, so an operation is not repeated.'
+      )
+    }
+    if (details?.max_steps != null && details.steps === details.max_steps) {
+      return translate(
+        'The assistant used its whole step budget without finishing. Ask a narrower question, or retry to continue from a smaller request.'
+      )
+    }
+    return translate(
+      'The assistant request timed out before producing an answer. Retry the message; no action had started.'
+    )
+  }
   if (code === 'ASSISTANT_ROUTING_GROUP_UNAVAILABLE') {
     return translate(
       'Assistant routing is unavailable. Check the configured group and model ID, then retry.'

@@ -52,6 +52,11 @@ const (
 	assistantAgentContextMaxBytes         = 512 << 10
 	assistantAgentContextTargetBytes      = 384 << 10
 	assistantAgentMaxConcurrent           = 16
+	// Structural, content-free diagnostics for a stopped assistant run.
+	assistantRunStepKey      = "assistant_run_step"
+	assistantRunMaxStepsKey  = "assistant_run_max_steps"
+	assistantRunTimeoutKey   = "assistant_run_timeout_ms"
+	assistantRunStartedAtKey = "assistant_run_started_at"
 )
 
 var (
@@ -1693,9 +1698,51 @@ func assistantAgentRequestStopped(c *gin.Context) bool {
 	code, message := "ASSISTANT_REQUEST_CANCELLED", "assistant request was cancelled"
 	if errors.Is(err, context.DeadlineExceeded) {
 		code, message = "ASSISTANT_REQUEST_TIMEOUT", "assistant request exceeded its time limit; inspect completed actions before retrying"
+		// A timeout is the one failure an operator cannot reproduce from the
+		// response alone. Record bounded, non-content diagnostics so a slow
+		// upstream, an exhausted step budget, or an already-started write can be
+		// told apart without inspecting prompts or credentials.
+		common.SysError(fmt.Sprintf(
+			"assistant request stopped by deadline: request_id=%s step=%d max_steps=%d timeout_ms=%d elapsed_ms=%d work_started=%t",
+			c.GetString(common.RequestIdKey), c.GetInt(assistantRunStepKey), c.GetInt(assistantRunMaxStepsKey),
+			c.GetInt64(assistantRunTimeoutKey), time.Since(assistantRunStartedAt(c)).Milliseconds(), c.GetBool("assistant_work_started"),
+		))
 	}
 	writeAssistantError(c, http.StatusRequestTimeout, code, errors.New(message))
 	return true
+}
+
+func assistantRunStartedAt(c *gin.Context) time.Time {
+	if c == nil {
+		return time.Now()
+	}
+	if value, exists := c.Get(assistantRunStartedAtKey); exists {
+		switch at := value.(type) {
+		case time.Time:
+			return at
+		case *time.Time:
+			if at != nil {
+				return *at
+			}
+		}
+	}
+	return time.Now()
+}
+
+// assistantRunDiagnostics exposes bounded structural facts about a stopped run.
+// It never includes prompts, tool arguments, or credentials.
+func assistantRunDiagnostics(c *gin.Context) map[string]any {
+	if c == nil {
+		return nil
+	}
+	diagnostics := map[string]any{
+		"steps":        c.GetInt(assistantRunStepKey),
+		"max_steps":    c.GetInt(assistantRunMaxStepsKey),
+		"work_started": c.GetBool("assistant_work_started"),
+		"elapsed_ms":   time.Since(assistantRunStartedAt(c)).Milliseconds(),
+		"timeout_ms":   c.GetInt64(assistantRunTimeoutKey),
+	}
+	return diagnostics
 }
 
 func assistantToolCallReadOnly(c *gin.Context, call assistantOpenAIToolCall) bool {
