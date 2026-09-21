@@ -31,7 +31,8 @@ const en = {
   checking: 'Checking access…',
   waiting: 'Awaiting payment confirmation. Do not pay again.',
   error: 'Refresh failed. Retrying; do not pay again.',
-  timeout: 'Checks stopped. Review your order or contact support before paying again.',
+  timeout:
+    'Checks stopped. Review your order or contact support before paying again.',
   help: 'Need help choosing?',
   plans: 'Plans & top-ups',
   support: 'Contact support',

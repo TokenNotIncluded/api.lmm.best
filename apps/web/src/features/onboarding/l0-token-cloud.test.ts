@@ -19,16 +19,21 @@ function fixture({ reduced = false, contextAvailable = true } = {}) {
   let disconnects = 0
   const positions: number[][] = []
   const context = {
-    clearRect() { paints++; positions.length = 0 },
+    clearRect() {
+      paints++
+      positions.length = 0
+    },
     setTransform() {},
-    fillText(_text: string, x: number, y: number) { positions.push([x, y]) },
+    fillText(_text: string, x: number, y: number) {
+      positions.push([x, y])
+    },
   }
   const media = Object.assign(new EventTarget(), { matches: reduced })
   const doc = Object.assign(new EventTarget(), { hidden: false })
   const canvas = Object.assign(new EventTarget(), {
     width: 0,
     height: 0,
-    getContext: () => contextAvailable ? context : null,
+    getContext: () => (contextAvailable ? context : null),
     getBoundingClientRect: () => {
       measurements++
       return { top: 10, bottom: 310, left: 0, width: 900, height: 300 }
@@ -37,29 +42,48 @@ function fixture({ reduced = false, contextAvailable = true } = {}) {
   const toggle = Object.assign(new EventTarget(), {
     disabled: false,
     attrs: {} as Record<string, string>,
-    setAttribute(key: string, value: string) { this.attrs[key] = value },
+    setAttribute(key: string, value: string) {
+      this.attrs[key] = value
+    },
   })
-  const observers: Array<{ callback: (entries: Array<{ isIntersecting: boolean }>) => void }> = []
+  const observers: Array<{
+    callback: (entries: Array<{ isIntersecting: boolean }>) => void
+  }> = []
   class Observer {
-    constructor(callback: (entries: Array<{ isIntersecting: boolean }>) => void) { observers.push({ callback }) }
+    constructor(
+      callback: (entries: Array<{ isIntersecting: boolean }>) => void
+    ) {
+      observers.push({ callback })
+    }
     observe() {}
-    disconnect() { disconnects++ }
+    disconnect() {
+      disconnects++
+    }
   }
   const win = Object.assign(new EventTarget(), {
     devicePixelRatio: 3,
     innerHeight: 800,
     matchMedia: () => media,
     getComputedStyle: () => ({ color: 'rgb(255, 255, 255)' }),
-    requestAnimationFrame: (fn: FrameRequestCallback) => { frames.set(++nextFrame, fn); return nextFrame },
-    cancelAnimationFrame: (id: number) => { frames.delete(id) },
+    requestAnimationFrame: (fn: FrameRequestCallback) => {
+      frames.set(++nextFrame, fn)
+      return nextFrame
+    },
+    cancelAnimationFrame: (id: number) => {
+      frames.delete(id)
+    },
     ResizeObserver: Observer,
     IntersectionObserver: Observer,
     MutationObserver: Observer,
   })
   const root = {
-    ownerDocument: Object.assign(doc, { defaultView: win, documentElement: {} }),
+    ownerDocument: Object.assign(doc, {
+      defaultView: win,
+      documentElement: {},
+    }),
     dataset: {} as Record<string, string>,
-    querySelector: (selector: string) => selector === 'canvas' ? canvas : toggle,
+    querySelector: (selector: string) =>
+      selector === 'canvas' ? canvas : toggle,
   }
   const mount = () => mountL0TokenCloud(root as unknown as HTMLElement)
   const step = (time: number) => {
@@ -68,10 +92,26 @@ function fixture({ reduced = false, contextAvailable = true } = {}) {
     pending.forEach((callback) => callback(time))
   }
   return {
-    root, canvas, toggle, frames, doc, media, win, observers, positions, mount, step,
-    get paints() { return paints },
-    get measurements() { return measurements },
-    get disconnects() { return disconnects },
+    root,
+    canvas,
+    toggle,
+    frames,
+    doc,
+    media,
+    win,
+    observers,
+    positions,
+    mount,
+    step,
+    get paints() {
+      return paints
+    },
+    get measurements() {
+      return measurements
+    },
+    get disconnects() {
+      return disconnects
+    },
   }
 }
 
@@ -166,9 +206,12 @@ test('mouse input affects the cloud but touch leaves scrolling alone', () => {
   const f = fixture()
   const dispose = f.mount()
   f.step(100)
-  const event = (pointerType: string) => Object.assign(new Event('pointermove'), {
-    pointerType, clientX: 450, clientY: 150,
-  })
+  const event = (pointerType: string) =>
+    Object.assign(new Event('pointermove'), {
+      pointerType,
+      clientX: 450,
+      clientY: 150,
+    })
   const touch = event('touch')
   f.canvas.dispatchEvent(touch)
   assert.equal(touch.defaultPrevented, false)
@@ -176,6 +219,14 @@ test('mouse input affects the cloud but touch leaves scrolling alone', () => {
   const withoutPointer = f.positions.map((p) => [...p])
   f.canvas.dispatchEvent(event('mouse'))
   f.step(168)
-  assert.ok(f.positions.some((position, i) => Math.hypot(position[0] - withoutPointer[i][0], position[1] - withoutPointer[i][1]) > 1))
+  assert.ok(
+    f.positions.some(
+      (position, i) =>
+        Math.hypot(
+          position[0] - withoutPointer[i][0],
+          position[1] - withoutPointer[i][1]
+        ) > 1
+    )
+  )
   dispose()
 })

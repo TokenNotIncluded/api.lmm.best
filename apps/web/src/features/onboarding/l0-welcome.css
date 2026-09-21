@@ -509,7 +509,8 @@ License, or (at your option) any later version.
   margin-top: 20px;
 }
 .l0-welcome a:hover,
-.l0-welcome button:not(:disabled):not(.l0-activation-primary):not(.l0-welcome-send):hover,
+.l0-welcome
+  button:not(:disabled):not(.l0-activation-primary):not(.l0-welcome-send):hover,
 .l0-welcome summary:hover {
   color: var(--l0-ink);
 }

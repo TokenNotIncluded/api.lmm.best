@@ -19,7 +19,7 @@ export function createL0Tokens(width: number) {
   }
   const clusters = [
     { x: 0.28, y: 0.55, rx: 0.19, ry: 0.31 },
-    { x: 0.52, y: 0.39, rx: 0.18, ry: 0.30 },
+    { x: 0.52, y: 0.39, rx: 0.18, ry: 0.3 },
     { x: 0.73, y: 0.57, rx: 0.16, ry: 0.28 },
   ]
   return Array.from({ length: count }, (_, index) => {
@@ -85,12 +85,14 @@ export function mountL0TokenCloud(root: HTMLElement): () => void {
       const dx = pointer.x - x
       const dy = pointer.y - y
       const distance = Math.hypot(dx, dy)
-      const influence =
-        Math.max(0, 1 - distance / 150) * pointer.strength
+      const influence = Math.max(0, 1 - distance / 150) * pointer.strength
       const pull = pointer.pressed ? -0.6 : 0.24
       x += dx * influence * pull
       y += dy * influence * pull
-      ctx.globalAlpha = Math.min(0.88, 0.16 + token.depth * 0.52 + influence * 0.2)
+      ctx.globalAlpha = Math.min(
+        0.88,
+        0.16 + token.depth * 0.52 + influence * 0.2
+      )
       ctx.font = `${10 + Math.round(token.depth * 4)}px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`
       ctx.fillText(token.glyph, x, y)
     }
@@ -137,13 +139,15 @@ export function mountL0TokenCloud(root: HTMLElement): () => void {
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
     color = win.getComputedStyle(canvas).color
     tokens = createL0Tokens(width)
-    visible = bounds.bottom > 0 && bounds.top < win.innerHeight && bounds.width > 0
+    visible =
+      bounds.bottom > 0 && bounds.top < win.innerHeight && bounds.width > 0
     paint()
     sync()
   }
   const scroll = () => {
     bounds = canvas.getBoundingClientRect()
-    visible = bounds.bottom > 0 && bounds.top < win.innerHeight && bounds.width > 0
+    visible =
+      bounds.bottom > 0 && bounds.top < win.innerHeight && bounds.width > 0
     sync()
   }
   const move = (event: PointerEvent) => {
@@ -171,14 +175,18 @@ export function mountL0TokenCloud(root: HTMLElement): () => void {
     paused = !paused
     sync()
   }
-  const resizeObserver = win.ResizeObserver ? new win.ResizeObserver(measure) : null
+  const resizeObserver = win.ResizeObserver
+    ? new win.ResizeObserver(measure)
+    : null
   const intersection = win.IntersectionObserver
     ? new win.IntersectionObserver(([entry]) => {
         visible = entry.isIntersecting
         sync()
       })
     : null
-  const themeObserver = win.MutationObserver ? new win.MutationObserver(measure) : null
+  const themeObserver = win.MutationObserver
+    ? new win.MutationObserver(measure)
+    : null
 
   toggle.addEventListener('click', pause)
   canvas.addEventListener('pointerenter', enter)
