@@ -1,7 +1,7 @@
 # Maintainer: LIghtJUNction
 
 pkgname=lmm-api-go-git
-pkgver=0.1.20.r1291.g1db462ebe
+pkgver=0.1.20.r1291.ged1da82d9
 pkgrel=1
 pkgdesc='LMM API Go backend, native CLI, systemd service, and web frontend (git)'
 arch=('x86_64' 'aarch64')
