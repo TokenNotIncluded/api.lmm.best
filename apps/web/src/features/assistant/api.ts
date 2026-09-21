@@ -637,6 +637,48 @@ export type AssistantErrorInfo = {
   status?: number
 }
 
+/** Structural facts the server reports when a run stops. Never contains content. */
+export type AssistantRunFailureDetails = {
+  steps?: number
+  max_steps?: number
+  work_started?: boolean
+  elapsed_ms?: number
+  timeout_ms?: number
+}
+
+export function assistantRunFailureDetails(
+  error: unknown
+): AssistantRunFailureDetails | undefined {
+  if (!error || typeof error !== 'object') return undefined
+  // Streaming failures surface the server event payload directly, while
+  // buffered JSON failures wrap it in the axios response.
+  const candidate = error as {
+    response?: { data?: unknown }
+    status?: unknown
+    code?: unknown
+  }
+  const payload =
+    candidate.response?.data && typeof candidate.response.data === 'object'
+      ? candidate.response.data
+      : candidate
+  const source = payload as Record<string, unknown>
+  const number = (value: unknown) =>
+    typeof value === 'number' && Number.isFinite(value) ? value : undefined
+  const details: AssistantRunFailureDetails = {
+    steps: number(source.steps),
+    max_steps: number(source.max_steps),
+    work_started:
+      typeof source.work_started === 'boolean'
+        ? source.work_started
+        : undefined,
+    elapsed_ms: number(source.elapsed_ms),
+    timeout_ms: number(source.timeout_ms),
+  }
+  return Object.values(details).some((value) => value !== undefined)
+    ? details
+    : undefined
+}
+
 export function getAssistantErrorInfo(error: unknown): AssistantErrorInfo {
   if (!error || typeof error !== 'object') {
     return {}

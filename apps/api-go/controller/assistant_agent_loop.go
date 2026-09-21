@@ -90,7 +90,12 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 		timeout = assistantAgentDefaultTimeout
 	}
 	timeout = min(timeout, 5*time.Minute)
+	started := time.Now()
 	ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
+	// Store milliseconds: gin's typed getters assert the concrete type, and a
+	// time.Duration would silently read back as zero.
+	c.Set(assistantRunTimeoutKey, timeout.Milliseconds())
+	c.Set(assistantRunStartedAtKey, started)
 	defer cancel()
 	originalRequest := c.Request
 	c.Request = c.Request.WithContext(ctx)
@@ -102,7 +107,9 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 	// Watch only the stream session, never Gin from another goroutine. A
 	// terminal deadline event still reaches the browser while a legacy tool
 	// unwinds; the handler keeps ownership until the tool actually returns.
-	stopWatch := streamSession.watch(ctx, cancel, 10*time.Second)
+	stopWatch := streamSession.watch(ctx, cancel, 10*time.Second, func() map[string]any {
+		return assistantRunDiagnostics(c)
+	})
 	defer stopWatch()
 	defer func() {
 		if recover() != nil {
@@ -215,6 +222,9 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 		}
 	}
 	cacheKey := c.GetString("assistant_cache_key")
+	// Record the resolved budget before the loop so a deadline inside the first
+	// turn still reports the plan the run was actually allowed to use.
+	c.Set(assistantRunMaxStepsKey, maxSteps)
 	usedCacheSensitiveTool := false
 	agentEnabled := maxSteps > 1 && (settings.AgentLoopEnabled || forceL0Assessment || forceConversationTitle || forceRecommendationWorkflow || forceCreateKeyWorkflow || forceImageGenerationWorkflow || forcePublicActivityWorkflow || forceNewUserGiftWorkflow || forceWeeklyDiscountWorkflow || forceHumanSupportWorkflow || forceReadChain)
 	var tools []assistantOpenAIToolDefinition
@@ -238,6 +248,7 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 	stalledRounds := 0
 
 	for step := 0; step < maxSteps; step++ {
+		c.Set(assistantRunStepKey, step+1)
 		if assistantHumanSupportInterrupted(c) || assistantAgentRequestStopped(c) {
 			return
 		}

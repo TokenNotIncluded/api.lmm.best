@@ -840,18 +840,22 @@ For commercial licensing, please contact support@quantumnous.com
 .lmm-home .forge-home-submit-icon {
   display: block;
 }
-.lmm-destinations {
+.lmm-explore-console {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+  grid-template-columns: minmax(0, 1.15fr) minmax(15rem, 0.85fr);
   gap: 2rem;
   margin-top: 2.5rem;
+}
+.lmm-destinations {
+  display: grid;
+  gap: 0;
 }
 .lmm-destinations a {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 1.5rem;
-  min-height: 6rem;
+  min-height: 5.5rem;
   border-block: 1px solid var(--home-rule);
   color: inherit;
   text-decoration: none;
@@ -860,9 +864,57 @@ For commercial licensing, please contact support@quantumnous.com
     border-color 220ms ease,
     color 220ms ease;
 }
-.lmm-destinations a:hover {
+.lmm-destinations a:hover,
+.lmm-destinations a[aria-current='page'] {
   border-block-color: var(--home-accent);
   color: var(--home-accent);
+}
+.lmm-destinations a:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid var(--ring);
+  outline-offset: 4px;
+}
+.lmm-destinations a span {
+  display: grid;
+  gap: 0.35rem;
+}
+.lmm-destinations a small {
+  color: var(--muted-foreground);
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.lmm-destinations a strong {
+  font-size: 1.1rem;
+  font-weight: 500;
+}
+.lmm-explore-preview {
+  display: grid;
+  align-content: center;
+  min-height: 20rem;
+  padding: 2rem;
+  border-block: 1px solid var(--home-rule);
+  background: color-mix(in srgb, var(--card) 72%, transparent);
+}
+.lmm-explore-preview-index {
+  color: var(--home-accent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+}
+.lmm-explore-preview strong {
+  margin-top: 2.5rem;
+  font-family: var(--font-serif, Georgia, serif);
+  font-size: clamp(1.75rem, 4vw, 3.2rem);
+  font-weight: 400;
+  line-height: 1.05;
+}
+.lmm-explore-preview p {
+  max-width: 26rem;
+  margin-top: 1rem;
+  color: var(--muted-foreground);
+  line-height: 1.6;
 }
 .lmm-destinations svg {
   width: 1.2rem;
@@ -949,6 +1001,14 @@ For commercial licensing, please contact support@quantumnous.com
   }
 }
 @media (max-width: 680px) {
+  .lmm-explore-console {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+  .lmm-explore-preview {
+    min-height: 13rem;
+    padding: 1.5rem;
+  }
   .lmm-intro {
     padding-top: 2.7rem;
   }

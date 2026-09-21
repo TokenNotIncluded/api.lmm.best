@@ -30,7 +30,7 @@ type HomeLandingProps = {
   assistant: ReactNode
   pi: ReactNode
   code: ReactNode
-  destinations: ReactNode
+  explore: ReactNode
   scripts: ReactNode
   purchase: ReactNode
   connectionMethod: ConnectionMethod
@@ -94,7 +94,7 @@ export function HomeLanding({
   assistant,
   pi,
   code,
-  destinations,
+  explore,
   scripts,
   purchase,
   connectionMethod,
@@ -411,7 +411,7 @@ export function HomeLanding({
           <p className='lmm-eyebrow'>04 / LMM</p>
           <h2 id='lmm-explore-title'>{t('Make room for your next idea.')}</h2>
         </div>
-        <div className='lmm-destinations'>{destinations}</div>
+        <div className='lmm-destinations'>{explore}</div>
       </section>
       <section
         className='lmm-section lmm-resources'
