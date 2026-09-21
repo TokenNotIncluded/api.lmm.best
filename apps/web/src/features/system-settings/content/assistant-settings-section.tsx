@@ -116,7 +116,7 @@ const DEFAULT_CONVERSATION_STARTERS: ConversationStarter[] = [
   },
 ]
 
-export function normalizeConversationStarterCopy(
+function normalizeConversationStarterCopy(
   value: unknown
 ): ConversationStarterCopy | null {
   // Legacy rows store one plain string; treat it as the default language.
