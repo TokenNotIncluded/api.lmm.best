@@ -148,6 +148,12 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 	}
 
 	userContext := assistantUserContextFromGin(c)
+	if userContext.ConversationTitleNeeded {
+		// History already derives a redacted fallback title from the question.
+		// Optional metadata must not cost a model round trip before the answer.
+		userContext = skipAssistantConversationTitle(c)
+		c.Set(assistantPromptKey, "") // discard the prepared title-request prompt
+	}
 	adminAutomationAllowed := false
 	if settings.AgentLoopEnabled && userContext.AdministratorMode {
 		_, authErr := validateAssistantAdminAutomationSession(c, assistantActorUserID(c))
@@ -177,23 +183,15 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 	forceWeeklyDiscountWorkflow := assistantWeeklyDiscountWorkflowRequired(userContext)
 	forceSupportBooking := assistantSupportBookingDecision(userContext.LatestUserRequest) > 0 || (!settings.AgentLoopEnabled && assistantSupportBookingAuthorized(c))
 	forceHumanSupportWorkflow := forceSupportBooking || assistantHumanSupportWorkflowRequired(userContext)
-	forceConversationTitle := userContext.ConversationTitleNeeded
+	forceTaskWorkflow := assistantNamedToolChoiceName(assistantToolChoiceForContext(userContext)) != ""
 	forceReadChain := assistantLiveReadRequired(userContext)
 	if forceL0Assessment && maxSteps < 2 {
 		maxSteps = 2
 	}
-	if forceConversationTitle {
-		// Reserve an actual task tool and answer after the title attempt,
-		// including when the general-purpose loop is disabled.
-		minimum := 2
-		taskContext := userContext
-		taskContext.ConversationTitleNeeded = false
-		if assistantNamedToolChoiceName(assistantToolChoiceForContext(taskContext)) != "" {
-			minimum++
-		}
-		if maxSteps < minimum {
-			maxSteps = minimum
-		}
+	// Removing title generation must not remove the task/answer budget for
+	// mandatory tools such as arithmetic when the optional loop is disabled.
+	if forceTaskWorkflow && maxSteps < 2 {
+		maxSteps = 2
 	}
 	if minimum := assistantRecommendationWorkflowMinSteps(userContext); maxSteps < minimum {
 		maxSteps = minimum
@@ -217,7 +215,7 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 		maxSteps = minimum
 	}
 	if !settings.AgentLoopEnabled {
-		if !forceL0Assessment && !forceConversationTitle && !forceRecommendationWorkflow && !forceCreateKeyWorkflow && !forceImageGenerationWorkflow && !forcePublicActivityWorkflow && !forceNewUserGiftWorkflow && !forceWeeklyDiscountWorkflow && !forceHumanSupportWorkflow && !forceReadChain {
+		if !forceL0Assessment && !forceTaskWorkflow && !forceRecommendationWorkflow && !forceCreateKeyWorkflow && !forceImageGenerationWorkflow && !forcePublicActivityWorkflow && !forceNewUserGiftWorkflow && !forceWeeklyDiscountWorkflow && !forceHumanSupportWorkflow && !forceReadChain {
 			maxSteps = 1
 		}
 	}
@@ -226,7 +224,7 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 	// turn still reports the plan the run was actually allowed to use.
 	c.Set(assistantRunMaxStepsKey, maxSteps)
 	usedCacheSensitiveTool := false
-	agentEnabled := maxSteps > 1 && (settings.AgentLoopEnabled || forceL0Assessment || forceConversationTitle || forceRecommendationWorkflow || forceCreateKeyWorkflow || forceImageGenerationWorkflow || forcePublicActivityWorkflow || forceNewUserGiftWorkflow || forceWeeklyDiscountWorkflow || forceHumanSupportWorkflow || forceReadChain)
+	agentEnabled := maxSteps > 1 && (settings.AgentLoopEnabled || forceL0Assessment || forceTaskWorkflow || forceRecommendationWorkflow || forceCreateKeyWorkflow || forceImageGenerationWorkflow || forcePublicActivityWorkflow || forceNewUserGiftWorkflow || forceWeeklyDiscountWorkflow || forceHumanSupportWorkflow || forceReadChain)
 	var tools []assistantOpenAIToolDefinition
 	var calledTools, successfulTools map[string]bool
 	toolTraces := make([]assistantToolTrace, 0, assistantToolCallsPerTurn)
@@ -273,7 +271,11 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 			request.ToolChoice = assistantToolChoiceForAgentStep(userContext, calledTools, successfulTools)
 		}
 
+		plannedRead, serverRead := assistantPlannedReadCall(request, userContext, calledTools, step)
 		phase := "model"
+		if serverRead {
+			phase = "tool"
+		}
 		if agentEnabled && (step == maxSteps-1 || finalAnswerOnly) {
 			phase = "answer"
 			request.Messages = append([]assistantOpenAIMessage(nil), messages...)
@@ -287,7 +289,17 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 		var status int
 		var body []byte
 		var err error
-		if streamTurn {
+		if serverRead {
+			// The server already chose this authorized, argument-free read.
+			// Reuse the normal tool path below (budgets, cancellation, live
+			// permissions, receipts), without asking a model to echo its name.
+			status = http.StatusOK
+			body, err = common.MarshalLimit(assistantOpenAIResponse{
+				Choices: []assistantOpenAIResponseChoice{{Message: assistantOpenAIResponseMessage{
+					ToolCalls: []assistantOpenAIToolCall{plannedRead},
+				}}},
+			}, assistantUpstreamResponseMaxBytes)
+		} else if streamTurn {
 			attempts := 0
 			status, body, err = relayAssistantTurnWithRetryUsing(c, request, rootRequestID, step, func(c *gin.Context, request assistantOpenAIRequest, rootRequestID string, step int) (int, []byte, error) {
 				if attempts > 0 {
@@ -324,53 +336,6 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 					continue
 				}
 			}
-			forcedTool := assistantNamedToolChoiceName(request.ToolChoice)
-			if forcedTool == "set_conversation_title" && assistantNamedToolChoiceUnsupported(body) {
-				// A provider's optional metadata limitation must not block the
-				// actual task. History already supplies a safe fallback title.
-				userContext = skipAssistantConversationTitle(c)
-				continue
-			}
-			if assistantNamedToolChoiceUnsupported(body) && assistantServerReadFallbackAllowed(forcedTool) {
-				// The provider cannot select the read explicitly. Execute the
-				// bounded server-owned read, append its verified result, then let
-				// the next streamed model turn draft from that context.
-				call := assistantOpenAIToolCall{
-					ID:       fmt.Sprintf("assistant-server-read-%d", step+1),
-					Type:     "function",
-					Function: assistantOpenAIToolCallFunction{Name: forcedTool},
-				}
-				call = agent.NormalizeCalls([]assistantOpenAIToolCall{call}, step, usedCallIDs)[0]
-				c.Set("assistant_work_started", true)
-				streamSession.markWorkStarted()
-				if err := streamSession.progress("tool", step+1); err != nil {
-					cancel()
-					return
-				}
-				result := executeAssistantAgentTool(c, call)
-				totalToolCalls++
-				if c.IsAborted() {
-					return
-				}
-				resultJSON := assistantAgentToolResultJSON(result)
-				calledTools[forcedTool] = true
-				if ok, _ := result["ok"].(bool); ok {
-					successfulTools[forcedTool] = true
-				}
-				usedCacheSensitiveTool = true
-				toolTraces = append(toolTraces, buildAssistantToolTrace(call, result))
-				c.Set(assistantClientToolsKey, toolTraces)
-				messages = append(messages, assistantOpenAIMessage{
-					Role:      "assistant",
-					ToolCalls: []assistantOpenAIToolCall{call},
-				})
-				messages = append(messages, assistantOpenAIMessage{
-					Role:       "tool",
-					Content:    string(resultJSON),
-					ToolCallID: call.ID,
-				})
-				continue
-			}
 			writeAssistantUpstreamError(c, "ASSISTANT_UPSTREAM_FAILED", "AI assistant upstream request failed")
 			return
 		}
@@ -381,23 +346,7 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 			return
 		}
 		message := response.Choices[0].Message
-		if assistantNamedToolChoiceName(request.ToolChoice) == "set_conversation_title" &&
-			(len(message.ToolCalls) != 1 || strings.TrimSpace(message.ToolCalls[0].Function.Name) != "set_conversation_title") {
-			userContext = skipAssistantConversationTitle(c)
-			// Reuse a complete answer to a plain question. A task that still
-			// needs an authoritative tool read must go through that workflow;
-			// never accept unsupported account or pricing claims as a fallback.
-			nextChoice := assistantToolChoiceForAgentStep(userContext, calledTools, successfulTools)
-			if assistantNamedToolChoiceName(nextChoice) != "" || len(message.ToolCalls) > 0 || strings.TrimSpace(assistantResponseContent(message.Content)) == "" {
-				if err := streamSession.resetContent(); err != nil {
-					writeAssistantError(c, http.StatusBadGateway, "ASSISTANT_STREAM_WRITE_FAILED", errors.New("assistant stream output failed"))
-					return
-				}
-				continue
-			}
-			request.ToolChoice = nil
-		}
-		if forceConversationTitle || forceRecommendationWorkflow || forceCreateKeyWorkflow || forceImageGenerationWorkflow || forcePublicActivityWorkflow || forceNewUserGiftWorkflow || forceWeeklyDiscountWorkflow || forceHumanSupportWorkflow || forceReadChain {
+		if forceTaskWorkflow || forceRecommendationWorkflow || forceCreateKeyWorkflow || forceImageGenerationWorkflow || forcePublicActivityWorkflow || forceNewUserGiftWorkflow || forceWeeklyDiscountWorkflow || forceHumanSupportWorkflow || forceReadChain {
 			requiredTool := assistantNamedToolChoiceName(request.ToolChoice)
 			if requiredTool != "" && (len(message.ToolCalls) != 1 || strings.TrimSpace(message.ToolCalls[0].Function.Name) != requiredTool) {
 				writeAssistantError(c, http.StatusBadGateway, "ASSISTANT_REQUIRED_TOOL_MISSING", errors.New("assistant did not follow the required tool workflow"))
@@ -451,7 +400,7 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 			c.Data(status, "application/json; charset=utf-8", normalizedBody)
 			return
 		}
-		if (!settings.AgentLoopEnabled && !forceL0Assessment && !forceConversationTitle && !forceRecommendationWorkflow && !forceCreateKeyWorkflow && !forceImageGenerationWorkflow && !forcePublicActivityWorkflow && !forceNewUserGiftWorkflow && !forceWeeklyDiscountWorkflow && !forceHumanSupportWorkflow && !forceReadChain) || step >= maxSteps-1 || finalAnswerOnly {
+		if (!settings.AgentLoopEnabled && !forceL0Assessment && !forceTaskWorkflow && !forceRecommendationWorkflow && !forceCreateKeyWorkflow && !forceImageGenerationWorkflow && !forcePublicActivityWorkflow && !forceNewUserGiftWorkflow && !forceWeeklyDiscountWorkflow && !forceHumanSupportWorkflow && !forceReadChain) || step >= maxSteps-1 || finalAnswerOnly {
 			writeAssistantError(c, http.StatusBadGateway, "ASSISTANT_AGENT_MAX_STEPS", errors.New("assistant agent reached its step limit before producing a final answer"))
 			return
 		}
@@ -542,4 +491,24 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 	}
 
 	writeAssistantError(c, http.StatusBadGateway, "ASSISTANT_AGENT_MAX_STEPS", errors.New("assistant agent reached its step limit"))
+}
+
+// Only pre-execute the existing narrow allowlist of argument-free reads,
+// and only when the deterministic workflow explicitly selected an exposed
+// tool. Parameterized reads and every mutation still go through the model.
+func assistantPlannedReadCall(request assistantOpenAIRequest, userContext assistantUserContext, calledTools map[string]bool, step int) (assistantOpenAIToolCall, bool) {
+	name := assistantNamedToolChoiceName(request.ToolChoice)
+	if calledTools[name] || !assistantServerReadFallbackAllowed(name) || !assistantToolAllowedForContext(name, userContext) {
+		return assistantOpenAIToolCall{}, false
+	}
+	for _, tool := range request.Tools {
+		if tool.Type == "function" && tool.Function.Name == name {
+			return assistantOpenAIToolCall{
+				ID:       fmt.Sprintf("assistant-server-read-%d", step+1),
+				Type:     "function",
+				Function: assistantOpenAIToolCallFunction{Name: name, Arguments: "{}"},
+			}, true
+		}
+	}
+	return assistantOpenAIToolCall{}, false
 }
