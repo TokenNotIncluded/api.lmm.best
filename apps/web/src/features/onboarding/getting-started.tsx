@@ -33,6 +33,7 @@ import { PiOAuthGuide } from '@/features/guide/pi-oauth-guide'
 import {
   getAuthenticatedLandingRoute,
   getOnboardingState,
+  isConsoleActivated,
 } from '@/lib/console-activation'
 import { formatDateTimeObject } from '@/lib/time'
 import { useAuthStore } from '@/stores/auth-store'
@@ -556,21 +557,50 @@ export function GettingStarted() {
                 </p>
               </div>
               <div className='flex flex-wrap gap-2'>
-                <Button variant='outline' render={<Link to='/dashboard' />}>
-                  <HugeiconsIcon
-                    icon={DashboardSquare01Icon}
-                    strokeWidth={2}
-                    data-icon='inline-start'
-                    aria-hidden='true'
-                  />
-                  {t('Dashboard')}
-                </Button>
-                <Button
-                  variant='outline'
-                  render={<Link to='/open-source-bounties' />}
-                >
-                  {t('Open-source bounties')}
-                </Button>
+                {/*
+                  L0 accounts are confined to the contributor surface, so the
+                  console links would only bounce them back to this page.
+                */}
+                {isConsoleActivated(user) ? (
+                  <>
+                    <Button variant='outline' render={<Link to='/dashboard' />}>
+                      <HugeiconsIcon
+                        icon={DashboardSquare01Icon}
+                        strokeWidth={2}
+                        data-icon='inline-start'
+                        aria-hidden='true'
+                      />
+                      {t('Dashboard')}
+                    </Button>
+                    <Button
+                      variant='outline'
+                      render={<Link to='/open-source-bounties' />}
+                    >
+                      {t('Open-source bounties')}
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      variant='outline'
+                      render={<Link to='/tool-market' />}
+                    >
+                      <HugeiconsIcon
+                        icon={DashboardSquare01Icon}
+                        strokeWidth={2}
+                        data-icon='inline-start'
+                        aria-hidden='true'
+                      />
+                      {t('Tool market')}
+                    </Button>
+                    <Button
+                      variant='outline'
+                      render={<Link to='/challenges' />}
+                    >
+                      {t('Browse challenges')}
+                    </Button>
+                  </>
+                )}
               </div>
             </div>
           </section>
