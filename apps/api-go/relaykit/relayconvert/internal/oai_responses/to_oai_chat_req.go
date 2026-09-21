@@ -160,12 +160,22 @@ func responsesRequestMessagesToChat(req *dto.OpenAIResponsesRequest) ([]dto.Mess
 		if err := kitutil.Unmarshal(req.Input, &items); err != nil {
 			return nil, fmt.Errorf("invalid input array: %w", err)
 		}
+		var pendingMedia []any
 		for _, item := range items {
-			nextMessages, err := responsesInputItemToChatMessages(item, messages)
+			itemType := strings.TrimSpace(kitutil.Interface2String(item["type"]))
+			if len(pendingMedia) > 0 && itemType != responsesInputTypeFunctionCallOutput {
+				messages = append(messages, dto.Message{Role: "user", Content: pendingMedia})
+				pendingMedia = nil
+			}
+			nextMessages, mediaParts, err := responsesInputItemToChatMessages(item, messages)
 			if err != nil {
 				return nil, err
 			}
 			messages = nextMessages
+			pendingMedia = append(pendingMedia, mediaParts...)
+		}
+		if len(pendingMedia) > 0 {
+			messages = append(messages, dto.Message{Role: "user", Content: pendingMedia})
 		}
 		return messages, nil
 	default:
@@ -173,29 +183,26 @@ func responsesRequestMessagesToChat(req *dto.OpenAIResponsesRequest) ([]dto.Mess
 	}
 }
 
-func responsesInputItemToChatMessages(item map[string]any, messages []dto.Message) ([]dto.Message, error) {
+func responsesInputItemToChatMessages(item map[string]any, messages []dto.Message) ([]dto.Message, []any, error) {
 	itemType := strings.TrimSpace(kitutil.Interface2String(item["type"]))
 	switch itemType {
 	case responsesInputTypeFunctionCall:
 		toolCall, err := responsesFunctionCallItemToChatToolCall(item)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return appendToolCallToLastAssistant(messages, toolCall), nil
+		return appendToolCallToLastAssistant(messages, toolCall), nil, nil
 	case responsesInputTypeCustomToolCall:
 		toolCall, err := responsesCustomToolCallItemToChatToolCall(item)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return appendToolCallToLastAssistant(messages, toolCall), nil
+		return appendToolCallToLastAssistant(messages, toolCall), nil, nil
 	case responsesInputTypeFunctionCallOutput:
 		callID := strings.TrimSpace(kitutil.Interface2String(item["call_id"]))
 		content, mediaParts := splitResponseToolOutputMedia(item["output"])
 		messages = append(messages, dto.Message{Role: "tool", ToolCallId: callID, Content: content})
-		if len(mediaParts) > 0 {
-			messages = append(messages, dto.Message{Role: "user", Content: mediaParts})
-		}
-		return messages, nil
+		return messages, mediaParts, nil
 	}
 
 	role := strings.TrimSpace(kitutil.Interface2String(item["role"]))
@@ -204,9 +211,9 @@ func responsesInputItemToChatMessages(item map[string]any, messages []dto.Messag
 	}
 	content, err := responsesInputContentToChatContent(item["content"])
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return append(messages, dto.Message{Role: role, Content: content}), nil
+	return append(messages, dto.Message{Role: role, Content: content}), nil, nil
 }
 
 func responsesInputContentToChatContent(content any) (any, error) {
