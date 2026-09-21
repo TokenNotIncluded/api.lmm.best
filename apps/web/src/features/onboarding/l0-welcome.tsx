@@ -9,13 +9,7 @@ License, or (at your option) any later version.
 import { ArrowRight01Icon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { Link, useNavigate } from '@tanstack/react-router'
-import {
-  type FormEvent,
-  type ReactNode,
-  useEffect,
-  useRef,
-  useState,
-} from 'react'
+import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Badge } from '@/components/ui/badge'
@@ -98,8 +92,11 @@ export function L0Welcome({
         <span className='l0-welcome-wordmark' aria-hidden='true'>
           LMM /
         </span>
-        <a href='#l0-activation-title' className='l0-welcome-account-link'>
-          {t('Account and access')}
+        <a
+          href='#l0-activation-title'
+          className='l0-welcome-account-link'
+          aria-label={t('Account and access')}
+        >
           <Badge variant='outline'>
             {t('L{{level}}', { level: user?.trust_level_info?.level ?? 0 })}
           </Badge>
@@ -108,31 +105,36 @@ export function L0Welcome({
       </div>
 
       <section className='l0-welcome-hero' aria-labelledby='l0-welcome-title'>
-        <div className='l0-cloud' ref={cloudRef} data-testid='l0-token-cloud'>
-          <div className='l0-cloud-fallback' aria-hidden='true'>
-            {FALLBACK_TOKENS.map((glyph) => (
-              <span key={glyph}>{glyph}</span>
-            ))}
+        <div className='l0-welcome-heading'>
+          <h2 id='l0-welcome-title'>{copy.greeting}</h2>
+          <div className='l0-cloud' ref={cloudRef} data-testid='l0-token-cloud'>
+            <div className='l0-cloud-fallback' aria-hidden='true'>
+              {FALLBACK_TOKENS.map((glyph) => (
+                <span key={glyph}>{glyph}</span>
+              ))}
+            </div>
+            <canvas aria-hidden='true' />
+            <button type='button' data-cloud-pause aria-pressed='false'>
+              <span className='l0-cloud-pause'>{t('Pause')}</span>
+              <span className='l0-cloud-resume'>{t('Resume')}</span>
+            </button>
           </div>
-          <canvas aria-hidden='true' />
-          <button type='button' data-cloud-pause aria-pressed='false'>
-            <span className='l0-cloud-pause'>{t('Pause')}</span>
-            <span className='l0-cloud-resume'>{t('Resume')}</span>
-          </button>
         </div>
         <div className='l0-welcome-composer'>
-          <h2 id='l0-welcome-title'>{t('Your next idea starts here.')}</h2>
           <form onSubmit={submit}>
             <label htmlFor='l0-question' className='l0-welcome-prompt-label'>
               {t('What would you like to do?')}
             </label>
             <div className='l0-welcome-input-row'>
+              <span className='l0-welcome-input-mark' aria-hidden='true'>
+                ›
+              </span>
               <Input
                 id='l0-question'
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
                 maxLength={4000}
-                placeholder={t('Describe your idea or ask a question')}
+                placeholder={copy.prompt}
                 aria-describedby='l0-privacy'
                 className='l0-welcome-input'
               />
@@ -146,27 +148,27 @@ export function L0Welcome({
               </Button>
             </div>
           </form>
-          <div className='l0-welcome-shortcuts'>
-            <button
-              type='button'
-              onClick={() =>
-                requestAssistantSend(undefined, t('Help me choose a model'))
-              }
-            >
-              {t('Help me choose a model')} <span aria-hidden='true'>↗</span>
-            </button>
-            <button
-              type='button'
-              onClick={() => requestAssistantOpen('client-setup')}
-            >
-              {t('Connect my coding tools')} <span aria-hidden='true'>↗</span>
-            </button>
+          <div className='l0-welcome-composer-meta'>
+            <div className='l0-welcome-shortcuts'>
+              <button
+                type='button'
+                onClick={() =>
+                  requestAssistantSend(undefined, t('Help me choose a model'))
+                }
+              >
+                {copy.models} <span aria-hidden='true'>↗</span>
+              </button>
+              <button
+                type='button'
+                onClick={() => requestAssistantOpen('client-setup')}
+              >
+                {copy.tools} <span aria-hidden='true'>↗</span>
+              </button>
+            </div>
+            <p id='l0-privacy' className='l0-welcome-privacy'>
+              {copy.privacy}
+            </p>
           </div>
-          <p id='l0-privacy' className='l0-welcome-privacy'>
-            {t(
-              'Never paste a password, API key, session cookie, or other secret into the conversation.'
-            )}
-          </p>
         </div>
       </section>
 
@@ -178,42 +180,29 @@ export function L0Welcome({
       >
         <div className='l0-activation-main'>
           <div className='l0-activation-copy'>
-            <p className='l0-activation-eyebrow' aria-hidden='true'>
-              L0 → L1
-            </p>
-            <h2 id='l0-activation-title' tabIndex={-1}>
-              {canTopUp
-                ? copy.title
-                : access.mode === 'sync'
-                  ? copy.sync
-                  : copy.review}
-            </h2>
-            <p>
-              {canTopUp
-                ? copy.description
-                : access.mode === 'sync'
-                  ? copy.syncNote
-                  : access.mode === 'unknown'
-                    ? copy.unknown
-                    : copy.reviewNote}
-            </p>
-            {showThreshold && (
-              <div
-                className='l0-activation-credit'
-                data-testid='l0-paid-progress'
-              >
-                <span>
-                  {copy.remaining} <strong>{money(access.remaining)}</strong>
-                </span>
-                <Progress
-                  value={Math.min(100, (access.paid / access.threshold) * 100)}
-                  aria-label={t('Progress to L{{level}}', { level: 1 })}
-                />
-              </div>
-            )}
-            {canTopUp && access.threshold === 0 && (
-              <p className='l0-activation-credit'>{copy.minimum}</p>
-            )}
+            <div className='l0-activation-levels' aria-hidden='true'>
+              <span>L0</span>
+              <span className='l0-activation-connector'>→</span>
+              <span>L1</span>
+            </div>
+            <div>
+              <h2 id='l0-activation-title' tabIndex={-1}>
+                {canTopUp
+                  ? copy.title
+                  : access.mode === 'sync'
+                    ? copy.sync
+                    : copy.review}
+              </h2>
+              <p>
+                {canTopUp
+                  ? copy.description
+                  : access.mode === 'sync'
+                    ? copy.syncNote
+                    : access.mode === 'unknown'
+                      ? copy.unknown
+                      : copy.reviewNote}
+              </p>
+            </div>
           </div>
           <div className='l0-activation-actions'>
             {canTopUp ? (
@@ -242,15 +231,36 @@ export function L0Welcome({
             </a>
           </div>
         </div>
+        {showThreshold && (
+          <div className='l0-activation-credit' data-testid='l0-paid-progress'>
+            <span>
+              {copy.remaining} <strong>{money(access.remaining)}</strong>
+            </span>
+            <Progress
+              value={Math.min(100, (access.paid / access.threshold) * 100)}
+              aria-label={t('Progress to L{{level}}', { level: 1 })}
+            />
+          </div>
+        )}
+        {canTopUp && access.threshold === 0 && (
+          <p className='l0-activation-minimum'>{copy.minimum}</p>
+        )}
         <div className='l0-activation-footer'>
-          <p>{canTopUp || access.mode === 'sync' ? copy.eligibility : ''}</p>
+          {canTopUp || access.mode === 'sync' ? (
+            <details className='l0-activation-rules'>
+              <summary>{copy.rules}</summary>
+              <p>{copy.eligibility}</p>
+            </details>
+          ) : (
+            <span />
+          )}
           <button
             type='button'
             data-testid='l0-check-payment'
             disabled={!user || checkState === 'checking'}
             onClick={check}
           >
-            {copy.check}
+            {copy.check} <span aria-hidden='true'>↻</span>
           </button>
         </div>
         <p className='l0-activation-feedback' role='status' aria-live='polite'>
@@ -263,13 +273,13 @@ export function L0Welcome({
         aria-label={t('Explore before you commit')}
       >
         {[
-          { to: '/pricing', title: t('Models and pricing') },
-          { to: '/tool-market', title: t('Tool market') },
-          { to: '/challenges', title: t('Browse open challenges') },
-        ].map((item, index) => (
+          { to: '/pricing', title: t('Models and pricing'), mark: '[]' },
+          { to: '/tool-market', title: t('Tool market'), mark: '/>' },
+          { to: '/challenges', title: t('Browse open challenges'), mark: '{}' },
+        ].map((item) => (
           <Link key={item.to} to={item.to}>
             <span className='l0-welcome-index' aria-hidden='true'>
-              0{index + 1}
+              {item.mark}
             </span>
             <span>{item.title}</span>
             <span className='l0-welcome-destination-arrow' aria-hidden='true'>
@@ -282,45 +292,23 @@ export function L0Welcome({
       <section className='l0-welcome-access' aria-labelledby='l0-access-title'>
         <div className='l0-welcome-access-intro'>
           <h2 id='l0-access-title' tabIndex={-1}>
-            {t('Apply with your use case')}
+            {copy.application}
           </h2>
-          <p>
-            {t('API keys and developer tools unlock after access approval.')}
-          </p>
-          <div className='l0-welcome-support'>
-            <span>{t('Need a person?')}</span>
-            <button
-              type='button'
-              onClick={() => requestAssistantOpen('human')}
-            >
-              {t('Talk to support')} <span aria-hidden='true'>↗</span>
-            </button>
-          </div>
+          <button type='button' onClick={() => requestAssistantOpen('human')}>
+            {copy.support} <span aria-hidden='true'>↗</span>
+          </button>
         </div>
-        <div className='l0-welcome-access-body'>
-          <p className='l0-welcome-access-note'>
-            {t(
-              'Describe what you want to build. Eligible requests may be approved automatically; others go to review.'
-            )}
-          </p>
-          {children}
-          <div className='l0-welcome-plans'>
-            <span>{copy.help}</span>
-            <Button variant='link' onClick={() => requestAssistantOpen('plan')}>
-              {t('Explore plans and top-ups')}
-              <HugeiconsIcon
-                icon={ArrowRight01Icon}
-                data-icon='inline-end'
-                aria-hidden='true'
-              />
-            </Button>
-          </div>
-        </div>
+        <div className='l0-welcome-access-body'>{children}</div>
       </section>
-      <details className='l0-welcome-oauth'>
-        <summary>{t('Already use Pi? Connect with OAuth')}</summary>
-        <PiOAuthGuide />
-      </details>
+      <div className='l0-welcome-bottom'>
+        <details className='l0-welcome-oauth'>
+          <summary>{copy.oauth}</summary>
+          <PiOAuthGuide />
+        </details>
+        <button type='button' onClick={() => requestAssistantOpen('plan')}>
+          {copy.plans} <span aria-hidden='true'>↗</span>
+        </button>
+      </div>
       <div className='l0-welcome-source'>
         <SourceQuestionnaire />
       </div>
