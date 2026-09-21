@@ -152,3 +152,42 @@ func TestResponsesRequestToChatCompletionsRequestKeepsNonMediaToolOutputs(t *tes
 		})
 	}
 }
+
+func TestResponsesRequestToChatCompletionsRequestKeepsParallelToolOutputsContiguous(t *testing.T) {
+	const dataURL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+
+	got, err := ResponsesRequestToChatCompletionsRequest(&dto.OpenAIResponsesRequest{
+		Model: "gpt-test",
+		Input: mustRawMessage(t, []map[string]any{
+			{"type": "function_call", "call_id": "call_1", "name": "screenshot", "arguments": "{}"},
+			{"type": "function_call", "call_id": "call_2", "name": "read_file", "arguments": "{}"},
+			{
+				"type":    "function_call_output",
+				"call_id": "call_1",
+				"output": []map[string]any{
+					{"type": "input_image", "image_url": dataURL},
+				},
+			},
+			{"type": "function_call_output", "call_id": "call_2", "output": "file contents"},
+			{"role": "user", "content": "what do you see?"},
+		}),
+	})
+	require.NoError(t, err)
+
+	require.Len(t, got.Messages, 5)
+	assert.Equal(t, "assistant", got.Messages[0].Role)
+	assert.Len(t, got.Messages[0].ParseToolCalls(), 2)
+	assert.Equal(t, "tool", got.Messages[1].Role)
+	assert.Equal(t, "call_1", got.Messages[1].ToolCallId)
+	assert.Equal(t, "[image]", got.Messages[1].StringContent())
+	assert.Equal(t, "tool", got.Messages[2].Role)
+	assert.Equal(t, "call_2", got.Messages[2].ToolCallId)
+	assert.Equal(t, "file contents", got.Messages[2].StringContent())
+
+	assert.Equal(t, "user", got.Messages[3].Role)
+	media := got.Messages[3].ParseContent()
+	require.Len(t, media, 1)
+	assert.Equal(t, dto.ContentTypeImageURL, media[0].Type)
+	assert.Equal(t, "user", got.Messages[4].Role)
+	assert.Equal(t, "what do you see?", got.Messages[4].StringContent())
+}
