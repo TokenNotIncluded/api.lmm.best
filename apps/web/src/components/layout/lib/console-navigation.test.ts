@@ -171,3 +171,22 @@ describe('single console navigation contract', () => {
     assert.match(source, /showConfigDrawer=\{focusedOnboarding\}/)
   })
 })
+
+describe('console search matches visible navigation', () => {
+  const source = readFileSync(
+    new URL('../../command-menu.tsx', import.meta.url),
+    'utf8'
+  )
+
+  test('uses the shared role/module-filtered sidebar view', () => {
+    assert.match(source, /const \{ navGroups \} = useSidebarView\(\)/)
+    assert.doesNotMatch(source, /useSidebarData|getNavGroupsForPath/)
+  })
+
+  test('keeps disabled destinations disabled and preserves model panels', () => {
+    assert.match(source, /disabled=\{navItem.disabled\}/)
+    assert.match(source, /disabled=\{navItem.disabled \|\| subItem.disabled\}/)
+    assert.match(source, /navItem.interaction === 'model-panel'/)
+    assert.match(source, /subItem.interaction === 'model-panel'/)
+  })
+})
