@@ -1,32 +1,59 @@
-name: L0 stage verification workspace
+name: L0 stage verified source transfer
 on:
   push:
     branches: [verify/l0-stage-20260922]
 permissions:
   contents: read
 jobs:
-  snapshot:
+  verify:
+    if: github.repository == 'TokenNotIncluded/api.lmm.best'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
-        with:
-          persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: '1.3.14'
       - run: bun install --frozen-lockfile
-      - name: Package source and locked dependencies for offline verification
+      - name: Normalize protected-header baseline
+        run: bun run --filter @lmm/web format
+      - name: Apply the visually tested patch and verify all source hashes
+        shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/l0-stage-workspace
-          git archive HEAD > /tmp/l0-stage-workspace/source.tar
-          tar -cf - node_modules | gzip -1 > /tmp/l0-stage-workspace/dependencies.tar.gz
-          cp "$(command -v bun)" /tmp/l0-stage-workspace/bun
-          gzip -1 /tmp/l0-stage-workspace/bun
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: l0-stage-offline-workspace
-          path: /tmp/l0-stage-workspace
-          retention-days: 1
-          compression-level: 0
+          printf '%s  %s\n' fa000dc210263d6a3708202e1f29e9e0bb68128fb5fce2742e15437f3e3f52d9 verification/l0-stage.patch.xz | sha256sum --check --status
+          xz --decompress --stdout verification/l0-stage.patch.xz > "$RUNNER_TEMP/l0-stage.patch"
+          git apply --check "$RUNNER_TEMP/l0-stage.patch"
+          git apply "$RUNNER_TEMP/l0-stage.patch"
+          python3 - <<'PY'
+          import hashlib, json, pathlib, subprocess
+          manifest = json.loads(pathlib.Path('verification/l0-stage-manifest.json').read_text())
+          for name, expected in manifest.items():
+              assert name.startswith('apps/web/src/features/onboarding/')
+              data = pathlib.Path(name).read_bytes()
+              actual = hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
+              assert actual == expected, (name, actual, expected)
+              print(actual, name)
+          subprocess.run(['git', 'add', '--', *manifest], check=True)
+          PY
+      - name: Verify formatting, types and integration checks
+        run: |
+          set -euo pipefail
+          bun run --filter @lmm/web format:check
+          bun run --filter @lmm/web typecheck
+          cd apps/web
+          for file in l0-token-cloud.test.ts l0-paid-welcome.test.tsx; do
+            bun test --preload ./scripts/test-preload.mjs --timeout 15000 "./src/features/onboarding/$file"
+          done
+      - name: Store only verified onboarding files on the isolated branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/verify/l0-stage-20260922
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'refactor(web): stage-based L0 scenes, retained conversation and verified motion'
+          git push origin HEAD:refs/heads/verify/l0-stage-20260922
+          git log -1 --format=%H
