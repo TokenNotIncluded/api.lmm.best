@@ -562,7 +562,7 @@ func splitResponseToolOutputMedia(value any) (any, []any) {
 		return responseToolOutputToChatContent(value), nil
 	}
 
-	var text strings.Builder
+	texts := make([]string, 0, len(rawParts))
 	mediaParts := make([]any, 0, len(rawParts))
 	for _, rawPart := range rawParts {
 		part, ok := rawPart.(map[string]any)
@@ -571,7 +571,9 @@ func splitResponseToolOutputMedia(value any) (any, []any) {
 		}
 		switch strings.TrimSpace(kitutil.Interface2String(part["type"])) {
 		case "input_text", "output_text", "text":
-			text.WriteString(kitutil.Interface2String(part["text"]))
+			if text := kitutil.Interface2String(part["text"]); text != "" {
+				texts = append(texts, text)
+			}
 		case "input_image", "input_file", "input_audio", "input_video":
 			mediaParts = append(mediaParts, part)
 		default:
@@ -590,7 +592,46 @@ func splitResponseToolOutputMedia(value any) (any, []any) {
 	if !ok || len(chatParts) == 0 {
 		return responseToolOutputToChatContent(value), nil
 	}
-	return text.String(), chatParts
+	if len(texts) == 0 {
+		return responseToolOutputMediaPlaceholder(mediaParts), chatParts
+	}
+	return strings.Join(texts, "\n"), chatParts
+}
+
+func responseToolOutputMediaPlaceholder(mediaParts []any) string {
+	labels := make([]string, 0, len(mediaParts))
+	seen := make(map[string]struct{}, len(mediaParts))
+	for _, rawPart := range mediaParts {
+		part, ok := rawPart.(map[string]any)
+		if !ok {
+			continue
+		}
+		label := responseToolOutputMediaPlaceholderLabel(strings.TrimSpace(kitutil.Interface2String(part["type"])))
+		if label == "" {
+			continue
+		}
+		if _, exists := seen[label]; exists {
+			continue
+		}
+		seen[label] = struct{}{}
+		labels = append(labels, label)
+	}
+	return strings.Join(labels, " ")
+}
+
+func responseToolOutputMediaPlaceholderLabel(partType string) string {
+	switch partType {
+	case "input_image":
+		return "[image]"
+	case "input_file":
+		return "[file]"
+	case "input_audio":
+		return "[audio]"
+	case "input_video":
+		return "[video]"
+	default:
+		return ""
+	}
 }
 
 func responsesRawFloat(raw json.RawMessage) (*float64, error) {
