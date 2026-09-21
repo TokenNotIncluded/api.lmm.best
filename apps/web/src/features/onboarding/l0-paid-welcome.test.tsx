@@ -100,7 +100,7 @@ after(() => {
   dom.close()
 })
 
-test('compact L0 preserves status and goes directly to checkout', async () => {
+test('L0 stage preserves mounted chat, keyboard navigation, disclosures, status and direct checkout', async () => {
   const user = {
     id: 707,
     username: 'paid-onboarding-test',
@@ -165,6 +165,81 @@ test('compact L0 preserves status and goes directly to checkout', async () => {
       await flush()
     })
     await act(flush)
+    const tab = (name: string) => {
+      const node = container.querySelector<HTMLButtonElement>(`#l0-tab-${name}`)
+      assert.ok(node)
+      return node
+    }
+    const panel = (name: string) => {
+      const node = container.querySelector<HTMLElement>(`#l0-panel-${name}`)
+      assert.ok(node)
+      return node
+    }
+    assert.equal(panel('chat').hidden, false)
+    assert.equal(panel('explore').hidden, true)
+    assert.equal(panel('access').hidden, true)
+    assert.equal(tab('chat').tabIndex, 0)
+    assert.equal(tab('explore').tabIndex, -1)
+    const composer = container.querySelector('.l0-composer')
+    await act(async () => {
+      tab('explore').click()
+      await flush()
+    })
+    assert.equal(panel('chat').hidden, true)
+    assert.equal(panel('explore').hidden, false)
+    assert.equal(container.querySelector('.l0-composer'), composer)
+    assert.equal(
+      container.querySelector('.l0-discover-link')?.getAttribute('href'),
+      '/pricing'
+    )
+    const choices = container.querySelectorAll<HTMLButtonElement>(
+      '.l0-discover-switch button'
+    )
+    for (const [index, path] of [
+      '/pricing',
+      '/tool-market',
+      '/challenges',
+    ].entries()) {
+      await act(async () => {
+        choices[index].click()
+        await flush()
+      })
+      assert.equal(container.querySelectorAll('.l0-discover-link').length, 1)
+      assert.equal(
+        container.querySelector('.l0-discover-link')?.getAttribute('href'),
+        path
+      )
+    }
+    await act(async () => {
+      tab('explore').dispatchEvent(
+        new dom.KeyboardEvent('keydown', {
+          key: 'End',
+          bubbles: true,
+        }) as unknown as Event
+      )
+      await flush()
+    })
+    assert.equal(panel('access').hidden, false)
+    assert.equal(document.activeElement, tab('access'))
+    await act(async () => {
+      tab('access').dispatchEvent(
+        new dom.KeyboardEvent('keydown', {
+          key: 'Escape',
+          bubbles: true,
+        }) as unknown as Event
+      )
+      await flush()
+    })
+    assert.equal(panel('chat').hidden, false)
+    assert.equal(document.activeElement, tab('chat'))
+    assert.equal(container.querySelector('.l0-composer'), composer)
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('.l0-account-status')?.click()
+      await flush()
+    })
+    assert.equal(panel('access').hidden, false)
+    assert.equal(document.activeElement, tab('access'))
+    assert.deepEqual(opened, [])
     const details = container.querySelector<HTMLDetailsElement>(
       '[data-testid="l0-account-details"]'
     )
