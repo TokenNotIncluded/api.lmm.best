@@ -198,6 +198,22 @@ var RelayMaxIdleConnsPerHost int
 // while still accommodating long-running streams. Unit is minutes.
 var MaxKeepaliveDuration int // unit is minutes
 
+// DefaultMaxKeepaliveDuration is the keepalive lifetime assumed whenever
+// configuration has not produced a usable one. Unit is minutes.
+const DefaultMaxKeepaliveDuration = 120
+
+// KeepaliveMaxDuration resolves the keepalive goroutine lifetime. The guard
+// stops the stream when it fires, so a non-positive value would cut every
+// stream short the moment it started; that degrades to the documented default
+// rather than acting as "expire immediately".
+func KeepaliveMaxDuration() time.Duration {
+	minutes := MaxKeepaliveDuration
+	if minutes <= 0 {
+		minutes = DefaultMaxKeepaliveDuration
+	}
+	return time.Duration(minutes) * time.Minute
+}
+
 var GeminiSafetySetting string
 
 // https://docs.cohere.com/docs/safety-modes Type; NONE/CONTEXTUAL/STRICT

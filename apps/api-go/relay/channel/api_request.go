@@ -475,7 +475,7 @@ func startPingKeepAlive(c *gin.Context, pingInterval time.Duration) (context.Can
 
 		// MaxKeepaliveDuration limits the wall-clock lifetime of the pre-response keepalive.
 		// Consistent with the stream-phase keepalive in stream_scanner.go.
-		maxPingDuration := time.Duration(common2.MaxKeepaliveDuration) * time.Minute
+		maxPingDuration := common2.KeepaliveMaxDuration()
 		pingTimeout := time.NewTimer(maxPingDuration)
 		defer pingTimeout.Stop()
 

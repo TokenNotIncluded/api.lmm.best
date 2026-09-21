@@ -209,7 +209,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			// The goroutine already exits on context cancellation and stream end, so this is
 			// defense-in-depth. If it fires, we deliberately stop the stream instead of leaving
 			// it running without keepalive.
-			maxPingDuration := time.Duration(common.MaxKeepaliveDuration) * time.Minute
+			maxPingDuration := common.KeepaliveMaxDuration()
 			pingTimeout := time.NewTimer(maxPingDuration)
 			defer pingTimeout.Stop()
 
