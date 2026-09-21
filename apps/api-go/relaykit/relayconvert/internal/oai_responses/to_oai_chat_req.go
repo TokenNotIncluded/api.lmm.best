@@ -190,8 +190,12 @@ func responsesInputItemToChatMessages(item map[string]any, messages []dto.Messag
 		return appendToolCallToLastAssistant(messages, toolCall), nil
 	case responsesInputTypeFunctionCallOutput:
 		callID := strings.TrimSpace(kitutil.Interface2String(item["call_id"]))
-		content := responseToolOutputToChatContent(item["output"])
-		return append(messages, dto.Message{Role: "tool", ToolCallId: callID, Content: content}), nil
+		content, mediaParts := splitResponseToolOutputMedia(item["output"])
+		messages = append(messages, dto.Message{Role: "tool", ToolCallId: callID, Content: content})
+		if len(mediaParts) > 0 {
+			messages = append(messages, dto.Message{Role: "user", Content: mediaParts})
+		}
+		return messages, nil
 	}
 
 	role := strings.TrimSpace(kitutil.Interface2String(item["role"]))
@@ -539,6 +543,54 @@ func responseToolOutputToChatContent(value any) any {
 		}
 		return string(raw)
 	}
+}
+
+func splitResponseToolOutputMedia(value any) (any, []any) {
+	var rawParts []any
+	switch typed := value.(type) {
+	case []any:
+		rawParts = typed
+	case []map[string]any:
+		rawParts = make([]any, 0, len(typed))
+		for _, part := range typed {
+			rawParts = append(rawParts, part)
+		}
+	default:
+		return responseToolOutputToChatContent(value), nil
+	}
+	if len(rawParts) == 0 {
+		return responseToolOutputToChatContent(value), nil
+	}
+
+	var text strings.Builder
+	mediaParts := make([]any, 0, len(rawParts))
+	for _, rawPart := range rawParts {
+		part, ok := rawPart.(map[string]any)
+		if !ok {
+			return responseToolOutputToChatContent(value), nil
+		}
+		switch strings.TrimSpace(kitutil.Interface2String(part["type"])) {
+		case "input_text", "output_text", "text":
+			text.WriteString(kitutil.Interface2String(part["text"]))
+		case "input_image", "input_file", "input_audio", "input_video":
+			mediaParts = append(mediaParts, part)
+		default:
+			return responseToolOutputToChatContent(value), nil
+		}
+	}
+	if len(mediaParts) == 0 {
+		return responseToolOutputToChatContent(value), nil
+	}
+
+	converted, err := responsesContentPartsToChatContent(mediaParts)
+	if err != nil {
+		return responseToolOutputToChatContent(value), nil
+	}
+	chatParts, ok := converted.([]any)
+	if !ok || len(chatParts) == 0 {
+		return responseToolOutputToChatContent(value), nil
+	}
+	return text.String(), chatParts
 }
 
 func responsesRawFloat(raw json.RawMessage) (*float64, error) {
