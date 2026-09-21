@@ -78,7 +78,17 @@ test('a confirmed paid flag asks for synchronization, never another top-up', () 
 })
 
 test('Chinese, traditional Chinese and fallback copy remain explicit about eligibility', () => {
-  for (const language of ['zhCN', 'zh-CN', 'zhTW', 'zh-TW', 'en', 'fr', 'ru', 'ja', 'vi']) {
+  for (const language of [
+    'zhCN',
+    'zh-CN',
+    'zhTW',
+    'zh-TW',
+    'en',
+    'fr',
+    'ru',
+    'ja',
+    'vi',
+  ]) {
     const copy = getL0AccessCopy(language)
     assert.match(copy.eligibility, /LinuxDO Credit/)
     assert.ok(copy.topup.includes('L1'))
@@ -115,7 +125,9 @@ test('no overlapping requests and no late callbacks after unmount', async () => 
     interval: 5,
     read: () => {
       calls++
-      return new Promise((done) => { resolve = done })
+      return new Promise((done) => {
+        resolve = done
+      })
     },
     report: (state) => reports.push(state),
   })
@@ -136,7 +148,10 @@ test('hidden tabs do not poll; visibility resumes checks and cleanup removes the
   const stop = watchL0Access({
     userId: 7,
     target,
-    read: async () => { calls++; return account() },
+    read: async () => {
+      calls++
+      return account()
+    },
     report: () => {},
   })
   await delay()
@@ -158,7 +173,9 @@ test('failure is visible and checking has a deadline rather than polling forever
     target: page(),
     interval: 5,
     duration: 20,
-    read: async () => { throw new Error('offline') },
+    read: async () => {
+      throw new Error('offline')
+    },
     report: (state) => reports.push(state),
   })
   await delay(60)
@@ -177,7 +194,10 @@ test('a different account response stops the old account watcher', async () => {
     userId: 7,
     target: page(),
     interval: 5,
-    read: async () => { calls++; return { ...account(), id: 8 } },
+    read: async () => {
+      calls++
+      return { ...account(), id: 8 }
+    },
     report: (state) => reports.push(state),
   })
   await delay(20)
