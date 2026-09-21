@@ -1,0 +1,72 @@
+name: Backend journey PostgreSQL verification
+on:
+  push:
+    branches: [codex/backend-journey-postgres-20260922]
+permissions:
+  contents: read
+jobs:
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: journey
+          POSTGRES_PASSWORD: journey-isolated-test
+          POSTGRES_DB: journey
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      GOMAXPROCS: "2"
+      TEST_POSTGRES_DSN: postgres://journey:journey-isolated-test@127.0.0.1:5432/journey?sslmode=disable
+      TEST_POSTGRES_ISOLATED_SCHEMA: "1"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: apps/api-go/go.sum
+      - name: Reproduce old filter errors on real PostgreSQL
+        working-directory: apps/api-go
+        run: |
+          mkdir -p ../../postgres-evidence
+          set +e
+          go test -json -count=1 ./model -run '^TestBackendJourneyL0Postgres' > ../../postgres-evidence/baseline.jsonl 2> ../../postgres-evidence/baseline.stderr
+          result=$?
+          set -e
+          python3 - "$result" <<'PY'
+          import json,sys
+          rows=[json.loads(line) for line in open('../../postgres-evidence/baseline.jsonl') if line.startswith('{')]
+          fails=[r for r in rows if r.get('Action')=='fail' and r.get('Test')]
+          print('baseline failing nodes:',len(fails))
+          if sys.argv[1]=='0' or not fails: raise SystemExit('Expected actual failing tests, not a build failure or a skipped run')
+          PY
+      - name: Apply exactly the same reviewed repair
+        run: python3 scripts/backend-journey-repair.py
+      - name: Verify policy, rounding and paginated SQL
+        working-directory: apps/api-go
+        run: |
+          go test -json -count=1 ./model -run '^TestBackendJourneyL0Postgres' > ../../postgres-evidence/fixed.jsonl 2> ../../postgres-evidence/fixed.stderr
+          python3 - <<'PY'
+          import json
+          rows=[json.loads(line) for line in open('../../postgres-evidence/fixed.jsonl') if line.startswith('{')]
+          passed=[r for r in rows if r.get('Action')=='pass' and r.get('Test')]
+          assert len(passed)==9, ('expected eight subtests and their parent', passed)
+          print('PostgreSQL passed: eight policy/rounding cases, no skips')
+          PY
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: backend-journey-postgres
+          path: postgres-evidence/
+          retention-days: 7
