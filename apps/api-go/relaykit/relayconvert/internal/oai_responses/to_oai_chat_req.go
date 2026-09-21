@@ -588,7 +588,7 @@ func splitResponseToolOutputMedia(value any) (any, []any) {
 		}
 	}
 	if len(mediaParts) == 0 {
-		return responseToolOutputToChatContent(value), nil
+		return strings.Join(texts, "\n"), nil
 	}
 
 	converted, err := responsesContentPartsToChatContent(mediaParts)
