@@ -7,3 +7,6 @@
 [submodule "packages/lmm-scripts"]
 	path = packages/lmm-scripts
 	url = https://github.com/TokenNotIncluded/lmm-scripts.git
+[submodule "packages/codewhale-lmm-provider"]
+	path = packages/codewhale-lmm-provider
+	url = https://github.com/TokenNotIncluded/codewhale-lmm-provider.git
