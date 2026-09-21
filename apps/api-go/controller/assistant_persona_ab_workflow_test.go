@@ -112,7 +112,7 @@ func TestPersonaABClassificationLanguageMatrix(t *testing.T) {
 		},
 		{
 			name:         "generic technical noun is not cost sensitivity",
-			message:     "技术文档在哪里？",
+			message:      "技术文档在哪里？",
 			wantProfile:  assistantProfileL0Applicant,
 			wantPayment:  assistantPaymentOfferNone,
 			wantSignal:   "l0_access",
