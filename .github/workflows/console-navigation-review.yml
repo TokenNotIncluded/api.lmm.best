@@ -4,6 +4,10 @@ on:
   pull_request:
     paths:
       - "apps/web/src/components/layout/**"
+      - "apps/web/src/components/command-menu.tsx"
+      - "apps/web/src/components/data-table/core/**"
+      - "apps/web/src/features/acquisition/consent.tsx"
+      - "apps/web/src/debug-main.tsx"
       - "apps/web/scripts/console-navigation-review.mjs"
       - ".github/workflows/console-navigation-review.yml"
 
@@ -59,6 +63,22 @@ jobs:
           done
           test "$ready" = 1
           node scripts/console-navigation-review.mjs
+      - name: Collect independent frontend quality evidence
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/console-review"
+          failed=0
+          for check in format:check copyright:check lint typecheck test build bundle:check; do
+            if bun run --filter @lmm/web "$check" > "$RUNNER_TEMP/console-review/${check//:/-}.log" 2>&1; then
+              printf '%s: PASS\n' "$check" | tee -a "$RUNNER_TEMP/console-review/quality.txt"
+            else
+              failed=1
+              printf '%s: FAIL\n' "$check" | tee -a "$RUNNER_TEMP/console-review/quality.txt"
+              tail -n 40 "$RUNNER_TEMP/console-review/${check//:/-}.log"
+            fi
+          done
+          exit "$failed"
       - name: Upload screenshots, assertions, and diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
