@@ -89,8 +89,19 @@ async function session(persona, viewport) {
   try {
     await page.goto(baseUrl, { waitUntil: 'domcontentloaded' })
     await page.getByTestId('persona-debug-trigger').click()
+    // The runtime starts as L0; selecting the current persona is a no-op.
+    // Change identities first so the L0 case also exercises real navigation.
+    if (persona === 'l0') {
+      await page.getByTestId('persona-debug-option-l1').click()
+      await page.waitForURL(/\/dashboard/)
+      if (!(await page.getByTestId('persona-debug-panel').isVisible())) {
+        await page.getByTestId('persona-debug-trigger').click()
+      }
+    }
     await page.getByTestId(`persona-debug-option-${persona}`).click()
-    await page.waitForURL(persona === 'l0' ? /\/getting-started/ : /\/dashboard/)
+    await page.waitForURL(
+      persona === 'l0' ? /\/getting-started/ : /\/dashboard/
+    )
     assert.equal(
       await page.locator('html').getAttribute('data-persona-debug'),
       'true'

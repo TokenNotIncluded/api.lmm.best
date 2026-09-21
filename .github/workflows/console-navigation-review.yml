@@ -63,6 +63,17 @@ jobs:
           done
           test "$ready" = 1
           node scripts/console-navigation-review.mjs
+      - name: Upload browser evidence before quality checks
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: console-navigation-visuals
+          path: |
+            ${{ runner.temp }}/console-review/*.png
+            ${{ runner.temp }}/console-review/*.json
+            ${{ runner.temp }}/console-review/format.patch
+          retention-days: 7
+          if-no-files-found: warn
       - name: Collect independent frontend quality evidence
         if: ${{ !cancelled() }}
         shell: bash
