@@ -64,6 +64,9 @@ func (s *BillingSession) Settle(actualQuota int) error {
 		s.fundingSettled, s.settled = true, true
 		return nil
 	}
+	if actualQuota < 0 || s.refunded {
+		return errors.New("invalid billing settlement")
+	}
 	if s.settled {
 		return nil
 	}
@@ -204,6 +207,8 @@ func (s *BillingSession) needsRefundLocked() bool {
 
 // GetPreConsumedQuota 返回实际预扣的额度。
 func (s *BillingSession) GetPreConsumedQuota() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.preConsumedQuota
 }
 
