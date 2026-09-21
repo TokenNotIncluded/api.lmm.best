@@ -128,7 +128,6 @@ func TestResponsesRequestToChatCompletionsRequestKeepsNonMediaToolOutputs(t *tes
 	}{
 		{name: "object", output: map[string]any{"ok": true}, want: `{"ok":true}`},
 		{name: "arbitrary array", output: []any{1, 2}, want: `[1,2]`},
-		{name: "text-only content parts", output: []any{map[string]any{"type": "input_text", "text": "plain"}}, want: `[{"text":"plain","type":"input_text"}]`},
 		{name: "unknown content part", output: []any{map[string]any{"type": "custom", "data": "x"}}, want: `[{"data":"x","type":"custom"}]`},
 	}
 
@@ -151,6 +150,28 @@ func TestResponsesRequestToChatCompletionsRequestKeepsNonMediaToolOutputs(t *tes
 			assert.JSONEq(t, tt.want, got.Messages[0].StringContent())
 		})
 	}
+}
+
+func TestResponsesRequestToChatCompletionsRequestNormalizesTextOnlyToolOutputParts(t *testing.T) {
+	got, err := ResponsesRequestToChatCompletionsRequest(&dto.OpenAIResponsesRequest{
+		Model: "gpt-test",
+		Input: mustRawMessage(t, []map[string]any{
+			{
+				"type":    "function_call_output",
+				"call_id": "call_1",
+				"output": []any{
+					map[string]any{"type": "input_text", "text": "first"},
+					map[string]any{"type": "output_text", "text": ""},
+					map[string]any{"type": "text", "text": "second"},
+				},
+			},
+		}),
+	})
+	require.NoError(t, err)
+	require.Len(t, got.Messages, 1)
+	assert.Equal(t, "tool", got.Messages[0].Role)
+	assert.Equal(t, "call_1", got.Messages[0].ToolCallId)
+	assert.Equal(t, "first\nsecond", got.Messages[0].StringContent())
 }
 
 func TestResponsesRequestToChatCompletionsRequestKeepsParallelToolOutputsContiguous(t *testing.T) {
