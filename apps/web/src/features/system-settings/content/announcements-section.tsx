@@ -534,13 +534,14 @@ export function AnnouncementsSection({
                         'Leave this off to correct the wording without sending readers who already confirmed back through the announcement.'
                       )}
                     />
-                    {editingAnnouncement && !editingAnnouncement.ackRevision && (
-                      <p className='text-muted-foreground text-sm'>
-                        {t(
-                          'This announcement was created before confirmations were pinned, so saving it asks everyone to confirm once more.'
-                        )}
-                      </p>
-                    )}
+                    {editingAnnouncement &&
+                      !editingAnnouncement.ackRevision && (
+                        <p className='text-muted-foreground text-sm'>
+                          {t(
+                            'This announcement was created before confirmations were pinned, so saving it asks everyone to confirm once more.'
+                          )}
+                        </p>
+                      )}
                   </div>
                 )}
               />
