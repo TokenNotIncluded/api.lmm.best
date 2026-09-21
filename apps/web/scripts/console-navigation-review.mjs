@@ -22,23 +22,48 @@ import path from 'node:path'
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE ?? 'playwright')
 // Never accept a production target: identities and responses are synthetic.
 const baseUrl = 'http://127.0.0.1:4174'
-const output = path.resolve(process.env.CONSOLE_REVIEW_OUTPUT ?? 'console-review')
+const output = path.resolve(
+  process.env.CONSOLE_REVIEW_OUTPUT ?? 'console-review'
+)
 await mkdir(output, { recursive: true })
 const evidence = []
 const browser = await chromium.launch({ headless: true })
 
+async function captureFailure(page, error, name) {
+  await page.screenshot({
+    path: path.join(output, `${name}-failed.png`),
+    fullPage: true,
+    animations: 'disabled',
+  })
+  await writeFile(
+    path.join(output, `${name}-failed.json`),
+    JSON.stringify({ error: String(error), url: page.url() }, null, 2)
+  )
+}
+
 async function session(persona, viewport) {
-  const context = await browser.newContext({ viewport, locale: 'en-US', serviceWorkers: 'block' })
+  const context = await browser.newContext({
+    viewport,
+    locale: 'en-US',
+    serviceWorkers: 'block',
+  })
   await context.addInitScript(() => localStorage.setItem('i18nextLng', 'en'))
   const errors = []
   await context.route('**/*', async (route) => {
     const url = new URL(route.request().url())
     if (url.origin !== baseUrl) return route.abort('blockedbyclient')
     if (url.pathname === '/api/status') {
-      return route.fulfill({ json: { success: true, data: {
-        system_name: 'LMM Best', logo: '/logo.png',
-        assistant: { enabled: true }, announcements_enabled: false,
-      } } })
+      return route.fulfill({
+        json: {
+          success: true,
+          data: {
+            system_name: 'LMM Best',
+            logo: '/logo.png',
+            assistant: { enabled: true },
+            announcements_enabled: false,
+          },
+        },
+      })
     }
     if (url.pathname.startsWith('/api/')) {
       errors.push(`Unexpected backend request: ${url.pathname}`)
@@ -52,7 +77,10 @@ async function session(persona, viewport) {
   await page.getByTestId('persona-debug-trigger').click()
   await page.getByTestId(`persona-debug-option-${persona}`).click()
   await page.waitForURL(persona === 'l0' ? /\/getting-started/ : /\/dashboard/)
-  assert.equal(await page.locator('html').getAttribute('data-persona-debug'), 'true')
+  assert.equal(
+    await page.locator('html').getAttribute('data-persona-debug'),
+    'true'
+  )
   return { context, page, errors }
 }
 
@@ -62,29 +90,60 @@ async function snapshot(page, name, errors) {
     width: document.documentElement.clientWidth,
     scroll: document.documentElement.scrollWidth,
   }))
-  assert.ok(dimensions.scroll <= dimensions.width + 1, JSON.stringify(dimensions))
-  assert.equal(await page.locator('header nav').count(), 0, 'parallel top navigation')
+  assert.ok(
+    dimensions.scroll <= dimensions.width + 1,
+    JSON.stringify(dimensions)
+  )
+  assert.equal(
+    await page.locator('[data-slot="sidebar-inset"] > header nav').count(),
+    0,
+    'parallel top navigation'
+  )
   assert.deepEqual(errors, [], 'browser/runtime errors')
-  await page.screenshot({ path: path.join(output, `${name}.png`), fullPage: true, animations: 'disabled' })
-  evidence.push({ name, viewport: page.viewportSize(), dimensions, errors: [...errors] })
+  await page.screenshot({
+    path: path.join(output, `${name}.png`),
+    fullPage: true,
+    animations: 'disabled',
+  })
+  evidence.push({
+    name,
+    viewport: page.viewportSize(),
+    dimensions,
+    errors: [...errors],
+  })
 }
 
 try {
-  for (const viewport of [{ width: 1440, height: 1000 }, { width: 834, height: 1112 }]) {
+  for (const viewport of [
+    { width: 1440, height: 1000 },
+    { width: 834, height: 1112 },
+  ]) {
     const { context, page, errors } = await session('l1', viewport)
     try {
       const nav = page.getByRole('navigation', { name: 'Sidebar', exact: true })
       await nav.locator('a[href="/keys"]').click()
       await page.waitForURL(/\/keys/)
-      await page.getByTestId('console-location').filter({ hasText: 'API Keys' }).waitFor()
-      const sidebar = await page.locator('[data-slot="sidebar-container"]').boundingBox()
-      const header = await page.locator('header').boundingBox()
+      await page
+        .getByTestId('console-location')
+        .filter({ hasText: 'API Keys' })
+        .waitFor()
+      const sidebar = await page
+        .locator('[data-slot="sidebar-container"]')
+        .boundingBox()
+      const header = await page
+        .locator('[data-slot="sidebar-inset"] > header')
+        .boundingBox()
       assert.ok(sidebar && header && header.x >= sidebar.x + sidebar.width - 1)
       const ecosystem = page.getByTestId('console-section-forge')
-      const trigger = ecosystem.getByRole('button', { name: 'Ecosystem', exact: true })
+      const trigger = ecosystem.getByRole('button', {
+        name: 'Ecosystem',
+        exact: true,
+      })
       assert.equal(await trigger.getAttribute('aria-expanded'), 'false')
       await trigger.click()
-      await ecosystem.locator('a[href="/tool-market"]').waitFor({ state: 'visible' })
+      await ecosystem
+        .locator('a[href="/tool-market"]')
+        .waitFor({ state: 'visible' })
       await trigger.click()
       assert.equal(await trigger.getAttribute('aria-expanded'), 'false')
       await page.getByRole('button', { name: 'Search', exact: true }).click()
@@ -93,21 +152,35 @@ try {
       await page.getByRole('dialog').waitFor({ state: 'hidden' })
       await snapshot(page, `keys-${viewport.width}`, errors)
       if (viewport.width === 1440) {
-        await page.evaluate(() => document.documentElement.classList.add('dark'))
+        await page.evaluate(() =>
+          document.documentElement.classList.add('dark')
+        )
         await snapshot(page, 'keys-1440-dark', errors)
-        await page.evaluate(() => document.documentElement.classList.remove('dark'))
+        await page.evaluate(() =>
+          document.documentElement.classList.remove('dark')
+        )
         await nav.locator('a[href="/getting-started"]').click()
         await page.waitForURL(/\/getting-started/)
         await nav.waitFor({ state: 'visible' })
         await snapshot(page, 'assistant-navigation-1440', errors)
       }
-    } finally { await context.close() }
+    } catch (error) {
+      await captureFailure(page, error, `view-${page.viewportSize().width}`)
+      throw error
+    } finally {
+      await context.close()
+    }
   }
 
   for (const width of [390, 320]) {
-    const { context, page, errors } = await session('l1', { width, height: 844 })
+    const { context, page, errors } = await session('l1', {
+      width,
+      height: 844,
+    })
     try {
-      await page.getByRole('button', { name: 'Toggle Sidebar', exact: true }).click()
+      await page
+        .getByRole('button', { name: 'Toggle Sidebar', exact: true })
+        .click()
       const nav = page.getByRole('navigation', { name: 'Sidebar', exact: true })
       await nav.waitFor({ state: 'visible' })
       await snapshot(page, `navigation-${width}`, errors)
@@ -115,7 +188,12 @@ try {
       await page.waitForURL(/\/keys/)
       await nav.waitFor({ state: 'hidden' })
       await snapshot(page, `keys-${width}`, errors)
-    } finally { await context.close() }
+    } catch (error) {
+      await captureFailure(page, error, `view-${page.viewportSize().width}`)
+      throw error
+    } finally {
+      await context.close()
+    }
   }
 
   const admin = await session('admin', { width: 1440, height: 1000 })
@@ -126,16 +204,32 @@ try {
     await trigger.click()
     await section.locator('a[href="/channels"]').waitFor({ state: 'visible' })
     await snapshot(admin.page, 'admin-navigation', admin.errors)
-  } finally { await admin.context.close() }
+  } catch (error) {
+    await captureFailure(admin.page, error, 'admin')
+    throw error
+  } finally {
+    await admin.context.close()
+  }
 
   const l0 = await session('l0', { width: 390, height: 844 })
   try {
     assert.equal(await l0.page.locator('[data-slot="sidebar"]').count(), 0)
-    assert.equal(await l0.page.getByRole('button', { name: 'Toggle Sidebar' }).count(), 0)
+    assert.equal(
+      await l0.page.getByRole('button', { name: 'Toggle Sidebar' }).count(),
+      0
+    )
     await snapshot(l0.page, 'l0-focused', l0.errors)
-  } finally { await l0.context.close() }
+  } catch (error) {
+    await captureFailure(l0.page, error, 'l0')
+    throw error
+  } finally {
+    await l0.context.close()
+  }
 } finally {
-  await writeFile(path.join(output, 'report.json'), JSON.stringify(evidence, null, 2))
+  await writeFile(
+    path.join(output, 'report.json'),
+    JSON.stringify(evidence, null, 2)
+  )
   await browser.close()
 }
 console.log(`Validated ${evidence.length} console views; artifacts: ${output}`)

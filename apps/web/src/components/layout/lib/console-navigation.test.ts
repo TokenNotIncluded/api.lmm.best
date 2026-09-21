@@ -56,8 +56,14 @@ describe('console navigation organization', () => {
       [{ id: 'general', title: 'AI', items: [drawing] }],
       'Console'
     )
-    assert.deepEqual(result.flatMap((group) => group.items), [drawing])
-    assert.equal(result.some((group) => group.id === 'console-primary'), false)
+    assert.deepEqual(
+      result.flatMap((group) => group.items),
+      [drawing]
+    )
+    assert.equal(
+      result.some((group) => group.id === 'console-primary'),
+      false
+    )
   })
 
   test('preserves every entry exactly once and never mutates source groups', () => {
@@ -66,7 +72,8 @@ describe('console navigation organization', () => {
     const before = groups.flatMap((group) => group.items)
     const after = result.flatMap((group) => group.items)
     assert.equal(after.length, before.length)
-    for (const item of before) assert.equal(after.filter((x) => x === item).length, 1)
+    for (const item of before)
+      assert.equal(after.filter((x) => x === item).length, 1)
     assert.equal(JSON.stringify(groups), original)
   })
 
@@ -84,7 +91,10 @@ describe('console navigation organization', () => {
     assert.equal(organizeConsoleNavigation(onboarding, 'Console'), onboarding)
     assert.deepEqual(organizeConsoleNavigation([], 'Console'), [])
     assert.deepEqual(
-      organizeConsoleNavigation([{ id: 'empty', title: '', items: [] }], 'Console'),
+      organizeConsoleNavigation(
+        [{ id: 'empty', title: '', items: [] }],
+        'Console'
+      ),
       []
     )
   })
@@ -98,23 +108,50 @@ describe('current location and secondary site links', () => {
   })
 
   test('prefers the specific destination and supports aliases and nested items', () => {
-    const nested: NavGroup[] = [{ title: 'Admin', items: [
-      { title: 'Subscriptions', url: '/subscriptions' },
-      { title: 'Reset', url: '/subscriptions/reset' },
-      { title: 'Logs', items: [{
-        title: 'Task Logs', url: '/usage-logs/task', activeUrls: ['/usage-logs/drawing'],
-      }] },
-    ] }]
+    const nested: NavGroup[] = [
+      {
+        title: 'Admin',
+        items: [
+          { title: 'Subscriptions', url: '/subscriptions' },
+          { title: 'Reset', url: '/subscriptions/reset' },
+          {
+            title: 'Logs',
+            items: [
+              {
+                title: 'Task Logs',
+                url: '/usage-logs/task',
+                activeUrls: ['/usage-logs/drawing'],
+              },
+            ],
+          },
+        ],
+      },
+    ]
     assert.equal(getConsolePageTitle(nested, '/subscriptions/reset'), 'Reset')
-    assert.equal(getConsolePageTitle(nested, '/usage-logs/drawing'), 'Task Logs')
+    assert.equal(
+      getConsolePageTitle(nested, '/usage-logs/drawing'),
+      'Task Logs'
+    )
   })
 
   test('removes duplicate site links without dropping external/disabled semantics', () => {
-    const external = { title: 'Docs', href: 'https://example.invalid/docs', external: true }
-    const disabled = { title: 'Keys unavailable', href: '/keys', disabled: true }
-    assert.deepEqual(getConsoleSiteLinks([
-      { title: 'Keys', href: '/keys' }, external, external, disabled,
-    ], groups), [external, disabled])
+    const external = {
+      title: 'Docs',
+      href: 'https://example.invalid/docs',
+      external: true,
+    }
+    const disabled = {
+      title: 'Keys unavailable',
+      href: '/keys',
+      disabled: true,
+    }
+    assert.deepEqual(
+      getConsoleSiteLinks(
+        [{ title: 'Keys', href: '/keys' }, external, external, disabled],
+        groups
+      ),
+      [external, disabled]
+    )
   })
 })
 
@@ -125,7 +162,10 @@ describe('single console navigation contract', () => {
       'utf8'
     )
     assert.match(source, /showTopNav=\{false\}/)
-    assert.match(source, /focusedOnboarding = assistantPage && !consoleActivated/)
+    assert.match(
+      source,
+      /focusedOnboarding = assistantPage && !consoleActivated/
+    )
     assert.match(source, /focusedOnboarding \? null : <AppSidebar/)
     assert.match(source, /showLanguageSwitcher=\{focusedOnboarding\}/)
     assert.match(source, /showConfigDrawer=\{focusedOnboarding\}/)

@@ -77,7 +77,7 @@ export function ConsoleSearch() {
       <SidebarMenuItem>
         <SidebarMenuButton
           tooltip={t('Search')}
-          className='text-muted-foreground rounded-lg border border-sidebar-border/70'
+          className='text-muted-foreground border-sidebar-border/70 rounded-lg border'
           onClick={() => {
             setOpenMobile(false)
             setOpen(true)
@@ -126,7 +126,7 @@ export function ConsoleNavSection({ group }: { group: NavGroupProps }) {
             <span className='min-w-0 flex-1 truncate'>{group.title}</span>
             {hasUnread && (
               <span
-                className='size-1.5 shrink-0 rounded-full bg-primary'
+                className='bg-primary size-1.5 shrink-0 rounded-full'
                 aria-hidden='true'
               />
             )}
@@ -156,7 +156,7 @@ export function ConsoleSidebarFooter({ groups }: { groups: NavGroupProps[] }) {
       )
 
   return (
-    <SidebarFooter className='gap-2 border-t border-sidebar-border/60 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]'>
+    <SidebarFooter className='border-sidebar-border/60 gap-2 border-t p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]'>
       {links.length > 0 && (
         <SidebarGroup className='p-0'>
           <SidebarMenu>

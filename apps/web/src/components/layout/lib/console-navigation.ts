@@ -72,8 +72,7 @@ export function getConsolePageTitle(groups: NavGroup[], href: string) {
         if (typeof url !== 'string') return false
         const base = url.split(/[?#]/)[0].replace(/\/+$/, '') || '/'
         return (
-          pathname === base ||
-          (base !== '/' && pathname.startsWith(`${base}/`))
+          pathname === base || (base !== '/' && pathname.startsWith(`${base}/`))
         )
       })
     )
