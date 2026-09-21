@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { realpathSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
@@ -67,7 +68,11 @@ export async function main(argv = process.argv.slice(2), signal) {
   }
   return 0;
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+function isMainModule() {
+  try { return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href; }
+  catch { return false; }
+}
+if (isMainModule()) {
   const controller = new AbortController();
   const stop = () => controller.abort();
   process.once('SIGINT', stop);

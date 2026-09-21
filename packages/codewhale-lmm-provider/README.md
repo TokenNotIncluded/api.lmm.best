@@ -90,7 +90,7 @@ npm run check
 npm run pack:check
 ```
 
-本地 Linux / Node.js 22.16.0 已执行 33 项测试，全部通过，包括真实 HTTP 回环 PKCE、跨进程刷新互斥、崩溃日志、撤销失败保留、分组隔离、SSE 与取消、临时配置清理，以及模拟宿主进程调用本地桥。模拟宿主不是官方 Codewhale 二进制；尚未完成真实生产授权、Codewhale TUI、账单核对或 Windows/Termux 实机验收。Go 注册测试随父项目提交，需在父项目依赖可用的环境运行。
+本地 Linux / Node.js 22.16.0 已执行 36 项测试，全部通过，包括真实 HTTP 回环 PKCE、跨进程刷新互斥、崩溃日志、撤销失败保留、分组隔离、SSE 与取消、临时配置清理，以及模拟宿主进程调用本地桥。模拟宿主不是官方 Codewhale 二进制；尚未完成真实生产授权、Codewhale TUI、账单核对或 Windows/Termux 实机验收。Go 注册测试已在父项目首轮 GitHub CI 通过；本地没有运行 Go 依赖环境。
 
 ## 独立仓库与子模块
 
