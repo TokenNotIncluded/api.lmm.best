@@ -90,6 +90,10 @@ cd apps/api-rust && cargo test --locked
 CI uses `--pinned` to verify the checked-in Go release's signed tag, ancestry,
 final-release status, checksums, GitHub asset digests, and Sigstore bundles. A
 subsequent release or AUR update does not invalidate an existing authentic pin.
+Ancestry is satisfied by commit reachability, or, for a pin that predates a
+content-neutral history rewrite, by the released tree still being reachable
+from main. Renaming commits must not orphan a release that still reproduces
+byte for byte; publishing source main never carried must still be rejected.
 Before publishing an AUR update, run `verify-go-release-pins.sh --latest` in the
 same workspace. This also requires the latest final Go release and rejects
 candidates older than the live AUR packages. Omitting the flag retains this

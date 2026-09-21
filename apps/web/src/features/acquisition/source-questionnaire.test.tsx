@@ -93,6 +93,20 @@ test('source feedback is optional and a failed deletion remains retryable', asyn
     assert.ok(value)
     return value
   }
+  const waitForButton = async (name: string) => {
+    const deadline = Date.now() + 2000
+    while (
+      ![...container.querySelectorAll('button')].some(
+        (value) => value.textContent === name
+      ) &&
+      Date.now() < deadline
+    ) {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      })
+    }
+    return button(name)
+  }
   try {
     await act(async () =>
       root.render(
@@ -104,14 +118,14 @@ test('source feedback is optional and a failed deletion remains retryable', asyn
     assert.equal(reads, 0)
     await act(async () => {
       button('How did you first hear about LMM? (optional)').click()
-      await new Promise((resolve) => setTimeout(resolve, 20))
     })
+    await waitForButton('Skip')
     await act(async () => button('Skip').click())
     assert.equal(deletes, 0)
     await act(async () => {
       button('How did you first hear about LMM? (optional)').click()
-      await new Promise((resolve) => setTimeout(resolve, 20))
     })
+    await waitForButton('Delete')
     await act(async () => button('Delete').click())
     assert.ok(container.querySelector('[role="alert"]'))
     await act(async () => button('Delete').click())

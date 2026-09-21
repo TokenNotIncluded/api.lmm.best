@@ -23,7 +23,8 @@ var (
 		"light-green": true, "teal": true, "light-blue": true, "indigo": true,
 		"violet": true, "grey": true, "slate": true,
 	}
-	slugRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+	slugRegex        = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+	ackRevisionRegex = regexp.MustCompile(`^[a-zA-Z0-9_.-]{1,32}$`)
 )
 
 func parseJSONArray(jsonStr string, typeName string) ([]map[string]interface{}, error) {
@@ -263,6 +264,17 @@ func validateAnnouncements(announcementsStr string) error {
 		if extra, exists := ann["extra"]; exists {
 			if extraStr, ok := extra.(string); ok && exceedsMaxCharacters(extraStr, 200) {
 				return fmt.Errorf("第%d个公告的说明长度不能超过200字符", i+1)
+			}
+		}
+		// The acknowledgement generation is the durable key readers are matched
+		// against, so it must stay a short, stable, printable token.
+		if value, exists := ann["ackRevision"]; exists {
+			generation, ok := value.(string)
+			if !ok {
+				return fmt.Errorf("第%d个公告的确认版本必须为字符串", i+1)
+			}
+			if generation != "" && !ackRevisionRegex.MatchString(generation) {
+				return fmt.Errorf("第%d个公告的确认版本只能包含字母、数字、点、下划线和连字符，且不超过32字符", i+1)
 			}
 		}
 	}
