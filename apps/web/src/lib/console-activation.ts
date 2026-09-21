@@ -178,12 +178,14 @@ export function getAuthenticatedLandingRoute(
 }
 
 export function isContributorRoute(pathname: string): boolean {
-  // L0 gets one authenticated surface only. Public challenge browsing lives
-  // outside the console under /challenges; wallet and bounty-management
-  // routes must remain unavailable until L1 is approved.
+  // L0 can explore and reach checkout before paid activation. Payment methods
+  // remain subject to the server's payment access gate; developer and bounty
+  // management routes still require L1.
   return (
     pathname === '/getting-started' ||
     pathname.startsWith('/getting-started/') ||
+    pathname === '/wallet' ||
+    pathname === '/wallet/' ||
     pathname === '/tool-market' ||
     pathname.startsWith('/tool-market/')
   )

@@ -450,6 +450,12 @@ func TestAssistantNewConversationPersistsOnlyAfterSuccessfulAnswer(t *testing.T)
 		PrepareAssistantRequest(c)
 	}, func(c *gin.Context) {
 		requestCount++
+		context := assistantUserContextFromGin(c)
+		assert.False(t, context.ConversationTitleNeeded)
+		assert.NotEqual(t, "set_conversation_title", assistantNamedToolChoiceName(assistantToolChoiceForContext(context)))
+		for _, tool := range assistantToolDefinitionsForContext(context) {
+			assert.NotEqual(t, "set_conversation_title", tool.Function.Name)
+		}
 		var before int64
 		require.NoError(t, db.Model(&model.AssistantConversation{}).Where("user_id = ?", user.Id).Count(&before).Error)
 		assert.Zero(t, before)
@@ -484,6 +490,9 @@ func TestAssistantNewConversationPersistsOnlyAfterSuccessfulAnswer(t *testing.T)
 	var messages int64
 	require.NoError(t, db.Model(&model.AssistantHistoryMessage{}).Count(&messages).Error)
 	assert.EqualValues(t, 2, messages)
+	var stored model.AssistantConversation
+	require.NoError(t, db.Where("user_id = ?", user.Id).First(&stored).Error)
+	assert.Equal(t, "successful question", stored.Title)
 }
 
 func TestTrimAssistantHistoryToRuneBudgetKeepsNewestCompletePairs(t *testing.T) {
