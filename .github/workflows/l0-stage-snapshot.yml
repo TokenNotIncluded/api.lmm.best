@@ -21,10 +21,10 @@ jobs:
           set -euo pipefail
           mkdir -p /tmp/l0-stage-workspace
           git archive HEAD > /tmp/l0-stage-workspace/source.tar
-          tar -czf /tmp/l0-stage-workspace/dependencies.tar.gz node_modules apps/web/node_modules
+          tar -cf - node_modules | gzip -1 > /tmp/l0-stage-workspace/dependencies.tar.gz
           cp "$(command -v bun)" /tmp/l0-stage-workspace/bun
-          gzip /tmp/l0-stage-workspace/bun
-      - uses: actions/upload-artifact@v4
+          gzip -1 /tmp/l0-stage-workspace/bun
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: l0-stage-offline-workspace
           path: /tmp/l0-stage-workspace
