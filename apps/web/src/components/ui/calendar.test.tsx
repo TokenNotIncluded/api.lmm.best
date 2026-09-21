@@ -137,7 +137,7 @@ describe('Calendar locale formatting', () => {
         assert.equal(select.value, '8')
         await act(async () => {
           select.value = '9'
-          select.dispatchEvent(new domWindow.Event('change', { bubbles: true }))
+          select.dispatchEvent(new Event('change', { bubbles: true }))
         })
         assert.ok(changedMonth)
         assert.equal(changedMonth.getFullYear(), 2026)
