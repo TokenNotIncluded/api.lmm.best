@@ -36,8 +36,12 @@ type assistantStreamSession struct {
 	rawContent   strings.Builder
 	emittedSafe  string
 	supportCheck func() error
-	workStarted  bool
-	cancel       context.CancelFunc
+	// diagnostics reports bounded, content-free facts about the run so a
+	// terminal error can explain whether work already started. It is read only
+	// while writing the terminal event.
+	diagnostics func() map[string]any
+	workStarted bool
+	cancel      context.CancelFunc
 }
 
 func newAssistantStreamSession(writer gin.ResponseWriter) *assistantStreamSession {
@@ -66,12 +70,13 @@ func (s *assistantStreamSession) start() error {
 
 // watch owns no Gin state. All writes, including a terminal timeout, use the
 // same session mutex; stop joins it before the HTTP handler returns.
-func (s *assistantStreamSession) watch(ctx context.Context, cancel context.CancelFunc, interval time.Duration) func() {
+func (s *assistantStreamSession) watch(ctx context.Context, cancel context.CancelFunc, interval time.Duration, diagnostics func() map[string]any) func() {
 	if s == nil {
 		return func() {}
 	}
 	s.mu.Lock()
 	s.cancel = cancel
+	s.diagnostics = diagnostics
 	s.mu.Unlock()
 	stop, done := make(chan struct{}), make(chan struct{})
 	go func() {
@@ -242,13 +247,21 @@ func (s *assistantStreamSession) fail(status int, code, message string, mutation
 	if status < http.StatusBadRequest {
 		status = http.StatusBadGateway
 	}
-	err := s.writeJSONEventLocked("error", map[string]any{
+	payload := map[string]any{
 		"success":   false,
 		"code":      code,
 		"message":   message,
 		"status":    status,
 		"retryable": assistantErrorRetryable(status, code, s.workStarted || (len(mutationAttempted) > 0 && mutationAttempted[0])),
-	})
+	}
+	// Structural context only: it lets the client say whether work already
+	// started and whether the step budget or the wall clock ran out.
+	if s.diagnostics != nil {
+		for key, value := range s.diagnostics() {
+			payload[key] = value
+		}
+	}
+	err := s.writeJSONEventLocked("error", payload)
 	s.finished = true
 	return err
 }

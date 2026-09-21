@@ -60,8 +60,9 @@ export function localizeAssistantPreConversationPresets(
   t: (key: string) => string
 ): AssistantPreConversationPreset[] {
   return (presets ?? fallbackPresets).map((preset) => {
-    // Use stable IDs rather than legacy Chinese labels/prompts. This also fixes
-    // old cached responses and updates immediately when the UI language changes.
+    // A custom preset is localized by the server from the administrator's copy
+    // for this language, so its text is already the right one. Unknown IDs are
+    // never translated as keys.
     if (
       preset.source === 'custom' ||
       !Object.hasOwn(requiredPresetKeys, preset.id)
