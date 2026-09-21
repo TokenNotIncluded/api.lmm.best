@@ -36,7 +36,6 @@ import {
   History,
   KeyRound,
   MessageCircle,
-  PanelLeft,
   Plus,
   Square,
   Wrench,
@@ -64,7 +63,6 @@ import {
 } from '@/components/ai-elements/prompt-input'
 import { Response } from '@/components/ai-elements/response'
 import { sideDrawerContentClassName } from '@/components/drawer-layout'
-import { LmmBrandMark } from '@/components/lmm-brand-mark'
 import {
   Alert,
   AlertAction,
@@ -258,80 +256,6 @@ function getBaseUrl(): string {
   return `${window.location.origin}/v1`
 }
 
-const ASSISTANT_LAYOUT_STORAGE_KEY = 'lmm-assistant-layout'
-
-function readAssistantClassicLayout(): boolean {
-  if (typeof window === 'undefined') return false
-  try {
-    return (
-      window.localStorage.getItem(ASSISTANT_LAYOUT_STORAGE_KEY) === 'classic'
-    )
-  } catch {
-    return false
-  }
-}
-
-function AssistantClassicWelcome() {
-  const { t } = useTranslation()
-  const { systemName } = useSystemConfig()
-  const prompts = [
-    [t('Examples'), t('Explain an API setup')],
-    [t('Examples'), t('Compare live model pricing')],
-    [t('Examples'), t('Draft an access request')],
-  ]
-
-  return (
-    <div
-      className='assistant-classic-welcome mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center px-5 py-12 sm:px-8 sm:py-20'
-      data-testid='assistant-classic-welcome'
-    >
-      <div className='flex items-start gap-3 sm:gap-4'>
-        <div className='mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-[#19c37d] text-[#202123]'>
-          <LmmBrandMark className='size-6' />
-        </div>
-        <div className='min-w-0'>
-          <p className='text-xs font-medium tracking-wide text-[#b5b5bd] uppercase'>
-            {systemName}
-          </p>
-          <h2 className='mt-1 text-xl font-semibold tracking-tight text-[#f1f1f1] sm:text-2xl'>
-            {t('How can I help?')}
-          </h2>
-          <p className='mt-2 max-w-xl text-sm leading-6 text-[#c5c5d2]'>
-            {t('Guidance for plans, setup, API keys, costs, and support.')}
-          </p>
-        </div>
-      </div>
-
-      <div
-        className='mt-10 border-y border-[#4b4d56]'
-        aria-label={t('Examples')}
-      >
-        {prompts.map(([category, prompt], index) => (
-          <div
-            key={prompt}
-            className='flex items-center gap-4 border-b border-[#4b4d56] py-4 last:border-b-0'
-          >
-            <span className='w-6 shrink-0 text-xs text-[#8e8ea0] tabular-nums'>
-              {String(index + 1).padStart(2, '0')}
-            </span>
-            <span className='w-20 shrink-0 text-xs text-[#8e8ea0]'>
-              {category}
-            </span>
-            <span className='min-w-0 text-sm leading-6 text-[#ececf1]'>
-              {prompt}
-            </span>
-          </div>
-        ))}
-      </div>
-
-      <p className='mt-5 text-xs leading-5 text-[#8e8ea0]'>
-        {t('Permissions still apply')} · {t('Never share secrets in chat')} ·{' '}
-        {t('Write actions need your confirmation')}
-      </p>
-    </div>
-  )
-}
-
 function AssistantModernWelcome(props: {
   description: string
   restricted: boolean
@@ -421,66 +345,6 @@ function AssistantGettingStartedActions(props: {
         </button>
       ))}
     </div>
-  )
-}
-
-function AssistantClassicSidebar(props: {
-  onNewConversation: () => void
-  onOpenHistory: () => void
-  onToggleLayout: () => void
-}) {
-  const { t } = useTranslation()
-  const { systemName } = useSystemConfig()
-  return (
-    <aside
-      className='hidden w-64 shrink-0 flex-col border-r border-[#4b4d56] bg-[#202123] text-[#ececf1] md:flex'
-      data-testid='assistant-classic-sidebar'
-    >
-      <div className='flex items-center gap-3 px-4 py-5'>
-        <LmmBrandMark className='size-8' />
-        <div className='min-w-0'>
-          <p className='truncate text-sm font-semibold'>{systemName}</p>
-          <p className='truncate text-xs text-[#b5b5bd]'>{t('AI assistant')}</p>
-        </div>
-      </div>
-      <div className='px-3'>
-        <Button
-          type='button'
-          variant='outline'
-          className='w-full justify-start border-[#565869] bg-transparent text-[#ececf1] hover:bg-[#2a2b32] hover:text-white'
-          onClick={props.onNewConversation}
-        >
-          <Plus data-icon='inline-start' aria-hidden='true' />
-          {t('New conversation')}
-        </Button>
-      </div>
-      <nav
-        className='mt-5 space-y-1 px-3'
-        aria-label={t('Conversation history')}
-      >
-        <Button
-          type='button'
-          variant='ghost'
-          className='w-full justify-start text-[#c5c5d2] hover:bg-[#2a2b32] hover:text-white'
-          onClick={props.onOpenHistory}
-        >
-          <PanelLeft data-icon='inline-start' aria-hidden='true' />
-          {t('Conversation history')}
-        </Button>
-      </nav>
-      <div className='mt-auto border-t border-[#4b4d56] px-3 py-4'>
-        <Button
-          type='button'
-          variant='ghost'
-          size='sm'
-          className='w-full justify-start text-[#b5b5bd] hover:bg-[#2a2b32] hover:text-white'
-          onClick={props.onToggleLayout}
-        >
-          <PanelLeft data-icon='inline-start' aria-hidden='true' />
-          {t('Use modern layout')}
-        </Button>
-      </div>
-    </aside>
   )
 }
 
@@ -830,7 +694,6 @@ function AssistantPresetPrompts(props: {
 function AssistantPromptComposer(props: {
   footerStatus: string
   placeholder: string
-  classicLayout?: boolean
   restricted: boolean
   terminated: boolean
   routeUnavailable: boolean
@@ -870,12 +733,9 @@ function AssistantPromptComposer(props: {
       <PromptInput
         onSubmit={handleSubmit}
         groupClassName={cn(
-          // gpt.ge-style composer: full-rounded pill on a light card with a
-          // soft shadow; the classic skin keeps its own dark surface.
+          // Full-rounded composer on a light card with a soft shadow.
           'assistant-prompt-input has-[[data-slot=input-group-control]:focus-visible]:border-transparent has-[[data-slot=input-group-control]:focus-visible]:ring-0 rounded-3xl border-transparent',
-          props.classicLayout
-            ? 'rounded-3xl border-[#565869] bg-[#40414f] text-[#ececf1] shadow-[0_8px_24px_rgba(0,0,0,0.22)] ring-1 ring-black/20'
-            : 'assistant-modern-prompt bg-card border-border/60 shadow-sm'
+          'assistant-modern-prompt bg-card border-border/60 shadow-sm'
         )}
         aria-label={t('Ask AI assistant')}
         data-testid='assistant-prompt-form'
@@ -895,18 +755,10 @@ function AssistantPromptComposer(props: {
             disabled={
               props.sending || props.terminated || props.routeUnavailable
             }
-            className={cn(
-              'max-h-24 min-h-10 sm:max-h-32 sm:min-h-12',
-              props.classicLayout && 'text-[#ececf1] placeholder:text-[#b5b5bd]'
-            )}
+            className='max-h-24 min-h-10 sm:max-h-32 sm:min-h-12'
           />
         </PromptInputBody>
-        <PromptInputFooter
-          className={cn(
-            'items-center gap-0.5 px-1.5 py-1 pb-1.5',
-            props.classicLayout && 'text-[#b5b5bd]'
-          )}
-        >
+        <PromptInputFooter className='items-center gap-0.5 px-1.5 py-1 pb-1.5'>
           <span className='text-muted-foreground min-w-0 flex-1 truncate text-[11px]'>
             {props.footerStatus}
           </span>
@@ -932,11 +784,7 @@ function AssistantPromptComposer(props: {
               type='button'
               variant='ghost'
               size='icon-sm'
-              className={cn(
-                'text-muted-foreground hover:text-foreground size-11 sm:size-7',
-                props.classicLayout &&
-                  'text-[#19c37d] hover:bg-[#1aaf73] hover:text-[#202123]'
-              )}
+              className='text-muted-foreground hover:text-foreground size-11 sm:size-7'
               onClick={props.onStop}
               aria-label={t('Stop')}
               title={t('Stop')}
@@ -951,12 +799,7 @@ function AssistantPromptComposer(props: {
               }
               size='icon-sm'
               aria-label={t('Send')}
-              className={cn(
-                'size-11 rounded-full! sm:size-8',
-                props.classicLayout
-                  ? 'bg-[#19c37d] text-[#202123] hover:bg-[#1aaf73]'
-                  : 'bg-primary text-primary-foreground hover:bg-primary/90'
-              )}
+              className='bg-primary text-primary-foreground hover:bg-primary/90 size-11 rounded-full! sm:size-8'
             >
               <HugeiconsIcon
                 icon={ArrowUp01Icon}
@@ -989,9 +832,7 @@ function AssistantPromptComposer(props: {
 function AssistantPanelHeader(props: {
   mode: AssistantPanelMode
   description: string
-  classicLayout: boolean
   onNewConversation: () => void
-  onToggleClassicLayout: () => void
   historyVisible: boolean
   historyDetail: boolean
   onOpenHistory: () => void
@@ -1001,160 +842,7 @@ function AssistantPanelHeader(props: {
   fullscreen?: boolean
   onToggleFullscreen?: () => void
 }) {
-  const { systemName } = useSystemConfig()
   const { t } = useTranslation()
-
-  if (props.classicLayout) {
-    return (
-      <header
-        className={cn(
-          'assistant-classic-header flex min-w-0 shrink-0 items-center gap-2 border-b border-[#4b4d56] bg-[#343541] px-3 py-3 text-[#ececf1] sm:gap-3 sm:px-5',
-          props.mode === 'mobile' && 'pr-12'
-        )}
-        data-testid='assistant-classic-header'
-      >
-        <Button
-          type='button'
-          variant='ghost'
-          size='icon-sm'
-          className='shrink-0 text-[#c5c5d2] hover:bg-[#444654] hover:text-white md:hidden'
-          aria-label={t('New conversation')}
-          title={t('New conversation')}
-          onClick={props.onNewConversation}
-        >
-          <Plus aria-hidden='true' />
-        </Button>
-        <LmmBrandMark className='size-7 sm:size-8' />
-        <div className='min-w-0 flex-1'>
-          <div className='flex min-w-0 items-center gap-2'>
-            <h1 className='truncate text-sm font-semibold sm:text-base'>
-              {systemName}
-            </h1>
-            <span className='hidden rounded-full border border-[#565869] px-2 py-0.5 text-[10px] tracking-wide text-[#b5b5bd] uppercase sm:inline'>
-              {t('Classic chat')}
-            </span>
-          </div>
-          <p className='mt-0.5 hidden truncate text-xs text-[#b5b5bd] sm:block'>
-            {props.description}
-          </p>
-        </div>
-        <div className='flex min-w-0 shrink-0 items-center gap-0.5'>
-          <Button
-            type='button'
-            variant='ghost'
-            size='icon-sm'
-            aria-label={t('Contact support')}
-            title={t('Contact support')}
-            onClick={props.onContactSupport}
-          >
-            <MessageCircle aria-hidden='true' />
-          </Button>
-          <Button
-            type='button'
-            variant='ghost'
-            size='sm'
-            className='hidden text-[#c5c5d2] hover:bg-[#444654] hover:text-white sm:inline-flex'
-            onClick={props.onNewConversation}
-          >
-            <Plus data-icon='inline-start' aria-hidden='true' />
-            <span className='hidden lg:inline'>{t('New conversation')}</span>
-          </Button>
-          <Button
-            type='button'
-            variant='ghost'
-            size='sm'
-            className='max-w-10 shrink-0 gap-1 px-2 text-[#c5c5d2] hover:bg-[#444654] hover:text-white sm:max-w-40'
-            aria-label={
-              props.historyVisible
-                ? props.historyDetail
-                  ? t('Conversation history')
-                  : t('Back')
-                : t('Conversation history')
-            }
-            title={
-              props.historyVisible
-                ? props.historyDetail
-                  ? t('Conversation history')
-                  : t('Back')
-                : t('Conversation history')
-            }
-            onClick={
-              props.historyVisible ? props.onCloseHistory : props.onOpenHistory
-            }
-          >
-            <PanelLeft className='size-4 shrink-0' aria-hidden='true' />
-            <span className='hidden truncate md:inline'>
-              {props.historyVisible
-                ? props.historyDetail
-                  ? t('Conversation history')
-                  : t('Back')
-                : t('Conversation history')}
-            </span>
-          </Button>
-          <Button
-            type='button'
-            variant='ghost'
-            size='sm'
-            className='text-[#c5c5d2] hover:bg-[#444654] hover:text-white'
-            aria-pressed={props.classicLayout}
-            aria-label={t('Modern chat')}
-            title={t('Modern chat')}
-            data-testid='assistant-layout-toggle'
-            onClick={props.onToggleClassicLayout}
-          >
-            <PanelLeft data-icon='inline-start' aria-hidden='true' />
-            <span className='hidden sm:inline'>{t('Modern chat')}</span>
-          </Button>
-          {props.mode !== 'mobile' &&
-          props.mode !== 'page' &&
-          !props.fullscreen ? (
-            <Button
-              type='button'
-              variant='ghost'
-              size='icon-sm'
-              className='text-[#c5c5d2] hover:bg-[#444654] hover:text-white'
-              aria-label={t('Collapse')}
-              title={t('Collapse')}
-              data-testid='assistant-collapse'
-              onClick={() => props.onClose?.()}
-            >
-              <HugeiconsIcon
-                icon={ArrowRight01Icon}
-                strokeWidth={2}
-                aria-hidden='true'
-              />
-            </Button>
-          ) : null}
-          {props.mode !== 'mobile' && props.mode !== 'page' ? (
-            <Button
-              type='button'
-              variant='ghost'
-              size='icon-sm'
-              className='text-[#c5c5d2] hover:bg-[#444654] hover:text-white'
-              aria-label={
-                props.fullscreen
-                  ? t('Exit full screen')
-                  : t('Enter full screen')
-              }
-              title={
-                props.fullscreen
-                  ? t('Exit full screen')
-                  : t('Enter full screen')
-              }
-              data-testid='assistant-fullscreen'
-              onClick={props.onToggleFullscreen}
-            >
-              <HugeiconsIcon
-                icon={props.fullscreen ? Minimize01Icon : Maximize01Icon}
-                strokeWidth={2}
-                aria-hidden='true'
-              />
-            </Button>
-          ) : null}
-        </div>
-      </header>
-    )
-  }
 
   const supportActions = (
     <>
@@ -1241,22 +929,6 @@ function AssistantPanelHeader(props: {
           <History aria-hidden='true' />
         </Button>
         {supportActions}
-        <Button
-          type='button'
-          variant='ghost'
-          size='icon-sm'
-          aria-pressed={props.classicLayout}
-          aria-label={
-            props.classicLayout ? t('Modern chat') : t('Use classic layout')
-          }
-          title={
-            props.classicLayout ? t('Modern chat') : t('Use classic layout')
-          }
-          data-testid='assistant-layout-toggle'
-          onClick={props.onToggleClassicLayout}
-        >
-          <PanelLeft aria-hidden='true' />
-        </Button>
         <div className='ms-auto flex min-w-0 items-center gap-2'>
           <AssistantJourneyProgress presentation='page' />
         </div>
@@ -1389,7 +1061,6 @@ function AssistantPanelSession(props: AssistantPanelProps) {
   const [sending, setSending] = useState(false)
   const [agentStep, setAgentStep] = useState(0)
   const assistantAbortControllerRef = useRef<AbortController | null>(null)
-  const [classicLayout, setClassicLayout] = useState(readAssistantClassicLayout)
   const submittedAutoSendIdRef = useRef<string | undefined>(undefined)
   const [recommendationDraft, setRecommendationDraft] =
     useState<AssistantL1RecommendationAction | null>(null)
@@ -1421,16 +1092,6 @@ function AssistantPanelSession(props: AssistantPanelProps) {
   const openedTargetRef = useRef<AssistantPresetId | undefined>(undefined)
   const activeToolRegionRef = useRef<HTMLDivElement | null>(null)
   const latestAssistantMessageRef = useRef<HTMLDivElement | null>(null)
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(
-        ASSISTANT_LAYOUT_STORAGE_KEY,
-        classicLayout ? 'classic' : 'modern'
-      )
-    } catch {
-      // A private browsing context may deny storage; the in-memory toggle still works.
-    }
-  }, [classicLayout])
   const statusQuery = useQuery({
     queryKey: ['assistant-status', authUser?.id, authSessionId],
     queryFn: getAssistantStatus,
@@ -1721,6 +1382,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
     (target: AssistantPresetId) => {
       const restrictedTarget =
         target === 'onboarding' ||
+        target === 'plan' ||
         target === 'client-setup' ||
         target === 'bounty' ||
         target === 'cost' ||
@@ -2308,7 +1970,6 @@ function AssistantPanelSession(props: AssistantPanelProps) {
       <AssistantPanelHeader
         mode={mode}
         description={assistantDescription}
-        classicLayout={classicLayout}
         onNewConversation={resetConversation}
         onContactSupport={() => {
           if (authUser) {
@@ -2320,7 +1981,6 @@ function AssistantPanelSession(props: AssistantPanelProps) {
           if (openAssistantTarget('human')) setHistoryView(null)
           else void navigate({ to: '/support' })
         }}
-        onToggleClassicLayout={() => setClassicLayout((value) => !value)}
         historyVisible={historyVisible}
         historyDetail={historyView !== null && historyView !== 'list'}
         onOpenHistory={() => setHistoryView('list')}
@@ -2334,17 +1994,11 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         onToggleFullscreen={props.onToggleFullscreen}
       />
       {historyVisible ? (
-        <Conversation
-          className={cn(
-            'min-h-0 min-w-0 flex-1',
-            classicLayout ? 'bg-[#343541] text-[#ececf1]' : 'bg-muted/20'
-          )}
-        >
+        <Conversation className={cn('min-h-0 min-w-0 flex-1', 'bg-muted/20')}>
           <ConversationContent
             className={cn(
               'flex min-h-full min-w-0 flex-col gap-5 overflow-x-hidden px-4 py-5 sm:px-6',
-              mode === 'page' ? 'mx-auto w-full max-w-3xl' : 'max-w-full',
-              classicLayout && 'text-[#ececf1]'
+              mode === 'page' ? 'mx-auto w-full max-w-3xl' : 'max-w-full'
             )}
           >
             {historyView === 'list' ? (
@@ -2386,16 +2040,10 @@ function AssistantPanelSession(props: AssistantPanelProps) {
               }}
             />
           ) : null}
-          <Conversation
-            className={cn(
-              'min-h-0 min-w-0 flex-1',
-              classicLayout ? 'bg-[#343541] text-[#ececf1]' : 'bg-muted/20'
-            )}
-          >
+          <Conversation className={cn('min-h-0 min-w-0 flex-1', 'bg-muted/20')}>
             <ConversationContent
               className={cn(
                 'flex min-h-full min-w-0 flex-col gap-5 overflow-x-hidden px-4 py-5 sm:px-6',
-                classicLayout && 'gap-0 px-0 py-0 text-[#ececf1] sm:px-0',
                 mode === 'page' ? 'mx-auto w-full max-w-3xl' : 'max-w-full'
               )}
             >
@@ -2419,14 +2067,10 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                     className='flex min-h-0 flex-1 flex-col'
                     data-testid='assistant-l0-welcome'
                   >
-                    {classicLayout ? (
-                      <AssistantClassicWelcome />
-                    ) : (
-                      <AssistantModernWelcome
-                        description={assistantDescription}
-                        restricted={accountAccessState === 'restricted'}
-                      />
-                    )}
+                    <AssistantModernWelcome
+                      description={assistantDescription}
+                      restricted={accountAccessState === 'restricted'}
+                    />
                     <AssistantGettingStartedActions
                       disabled={!accountAccessConfirmed}
                       restricted={accountAccessState === 'restricted'}
@@ -2447,40 +2091,15 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                           : undefined
                       }
                       tabIndex={entry.role === 'assistant' ? -1 : undefined}
-                      className={cn(
-                        classicLayout &&
-                          'assistant-classic-message mx-auto w-full max-w-3xl items-start px-5 py-5 sm:px-8 sm:py-6',
-                        classicLayout &&
-                          entry.role === 'user' &&
-                          'justify-end bg-[#343541]',
-                        classicLayout &&
-                          entry.role === 'assistant' &&
-                          'justify-start bg-[#444654]'
-                      )}
-                      data-testid={
-                        classicLayout ? 'assistant-classic-message' : undefined
-                      }
                     >
                       <MessageContent
                         variant='flat'
                         className={cn(
                           entry.error
                             ? 'text-destructive max-w-full min-w-0 gap-3 text-sm leading-6'
-                            : 'max-w-full min-w-0 gap-3 text-sm leading-6',
-                          classicLayout &&
-                            entry.role === 'user' &&
-                            'max-w-[min(86%,48rem)] rounded-2xl bg-[#2a2b32] px-4 py-3 text-[#ececf1] shadow-none',
-                          classicLayout &&
-                            entry.role === 'assistant' &&
-                            'w-full max-w-3xl rounded-none bg-transparent px-0 py-0 text-[#ececf1]'
+                            : 'max-w-full min-w-0 gap-3 text-sm leading-6'
                         )}
                       >
-                        {classicLayout && entry.role === 'assistant' ? (
-                          <div className='mb-3 flex items-center gap-2 text-xs font-medium text-[#f1f1f1]'>
-                            <LmmBrandMark className='size-6' />
-                            <span>{systemName}</span>
-                          </div>
-                        ) : null}
                         {entry.role === 'human' ? (
                           <p className='text-muted-foreground text-xs font-medium'>
                             {t('Human technical support')} ·{' '}
@@ -2570,11 +2189,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                   {!support.aiPaused ? (
                     <div
                       ref={activeToolRegionRef}
-                      className={cn(
-                        'grid gap-5 outline-none',
-                        classicLayout &&
-                          'mx-auto w-full max-w-3xl px-5 py-5 sm:px-8'
-                      )}
+                      className={cn('grid gap-5 outline-none')}
                       data-testid='assistant-active-tool-region'
                       tabIndex={-1}
                     >
@@ -2688,11 +2303,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                   ) : null}
 
                   <div
-                    className={cn(
-                      'flex flex-wrap items-center gap-0.5 pt-1',
-                      classicLayout &&
-                        'mx-auto w-full max-w-3xl px-5 pb-8 sm:px-8'
-                    )}
+                    className={cn('flex flex-wrap items-center gap-0.5 pt-1')}
                   >
                     <Button
                       type='button'
@@ -2769,24 +2380,20 @@ function AssistantPanelSession(props: AssistantPanelProps) {
               })
             }}
             className={cn(
-              'max-h-[35svh] shrink-0 overflow-y-auto px-4 sm:px-6',
-              classicLayout && 'mx-auto w-full max-w-3xl'
+              'max-h-[35svh] shrink-0 overflow-y-auto px-4 sm:px-6'
             )}
           />
           <div
             className={cn(
               'min-w-0 shrink-0 overflow-hidden pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:pb-[max(0.75rem,env(safe-area-inset-bottom))]',
-              classicLayout
-                ? 'bg-[#343541] text-[#ececf1]'
-                : 'bg-background/95 supports-[backdrop-filter]:bg-background/85 backdrop-blur'
+              'bg-background/95 supports-[backdrop-filter]:bg-background/85 backdrop-blur'
             )}
             data-testid='assistant-composer-footer'
           >
             <div
               className={cn(
                 'assistant-composer px-4 py-3 sm:px-6',
-                mode === 'page' && 'mx-auto w-full max-w-3xl',
-                classicLayout && 'px-5 py-4 sm:px-8 sm:py-5'
+                mode === 'page' && 'mx-auto w-full max-w-3xl'
               )}
             >
               {accountAccessConfirmed &&
@@ -2887,7 +2494,6 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                       ? t('Message human support...')
                       : assistantPromptPlaceholder
                   }
-                  classicLayout={classicLayout}
                   restricted={accountAccessState === 'restricted'}
                   terminated={conversationRestricted && !authUser}
                   routeUnavailable={assistantRouteUnavailable && !authUser}
@@ -2929,26 +2535,11 @@ function AssistantPanelSession(props: AssistantPanelProps) {
     return (
       <section
         id='ai-assistant-panel'
-        className={cn(
-          'bg-background flex min-h-0 min-w-0 flex-1',
-          classicLayout && 'assistant-classic-shell bg-[#343541] text-[#ececf1]'
-        )}
-        data-layout={classicLayout ? 'classic' : 'modern'}
+        className='bg-background flex min-h-0 min-w-0 flex-1'
+        data-layout='modern'
         aria-label={t('AI assistant')}
       >
-        {classicLayout ? (
-          <AssistantClassicSidebar
-            onNewConversation={resetConversation}
-            onOpenHistory={() => setHistoryView('list')}
-            onToggleLayout={() => setClassicLayout(false)}
-          />
-        ) : null}
-        <main
-          className={cn(
-            'flex min-h-0 min-w-0 flex-1 flex-col',
-            classicLayout && 'bg-[#343541]'
-          )}
-        >
+        <main className='flex min-h-0 min-w-0 flex-1 flex-col'>
           {panelContent}
         </main>
       </section>
@@ -2963,13 +2554,8 @@ function AssistantPanelSession(props: AssistantPanelProps) {
           role='dialog'
           aria-modal='true'
           aria-label={t('AI assistant')}
-          className={cn(
-            'fixed inset-0 z-50 flex min-h-0 flex-col',
-            classicLayout
-              ? 'assistant-classic-shell bg-[#343541] text-[#ececf1]'
-              : 'bg-background'
-          )}
-          data-layout={classicLayout ? 'classic' : 'modern'}
+          className='bg-background fixed inset-0 z-50 flex min-h-0 flex-col'
+          data-layout='modern'
         >
           {panelContent}
         </div>
@@ -2981,12 +2567,8 @@ function AssistantPanelSession(props: AssistantPanelProps) {
     return (
       <aside
         id='ai-assistant-panel'
-        className={cn(
-          'bg-card flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border shadow-sm',
-          classicLayout &&
-            'assistant-classic-shell border-[#4b4d56] bg-[#343541] text-[#ececf1]'
-        )}
-        data-layout={classicLayout ? 'classic' : 'modern'}
+        className='bg-card flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border shadow-sm'
+        data-layout='modern'
         aria-label={t('AI assistant')}
       >
         {panelContent}
@@ -3007,12 +2589,10 @@ function AssistantPanelSession(props: AssistantPanelProps) {
             // sm+: floating right-side dialog aligned with the shell's
             // rounded-card language (radius follows the theme token).
             'sm:inset-y-2 sm:right-2 sm:left-auto sm:h-auto sm:w-[min(32rem,calc(100vw-1rem))] sm:max-w-none sm:rounded-xl sm:border sm:shadow-lg',
-            classicLayout
-              ? 'assistant-classic-shell bg-[#343541] text-[#ececf1]'
-              : 'bg-background'
+            'bg-background'
           )
         )}
-        data-layout={classicLayout ? 'classic' : 'modern'}
+        data-layout='modern'
       >
         {panelContent}
       </SheetContent>

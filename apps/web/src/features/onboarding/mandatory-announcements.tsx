@@ -77,7 +77,8 @@ export function MandatoryAnnouncements({ children }: { children: ReactNode }) {
   })
   if (!userID) return children
   const items = query.data?.items ?? []
-  const next = items.find((item) => !item.read_at)
+  const nextIndex = items.findIndex((item) => !item.read_at)
+  const next = nextIndex === -1 ? undefined : items[nextIndex]
   if (query.isError || query.isPending) {
     return (
       <main
@@ -107,7 +108,9 @@ export function MandatoryAnnouncements({ children }: { children: ReactNode }) {
     <AnnouncementReader
       key={`${userID}:${next.revision}`}
       item={next}
-      completed={items.filter((item) => item.read_at > 0).length}
+      // The position is the announcement's own place in the published order.
+      // Counting acknowledgements would mislabel a notice inserted earlier.
+      completed={nextIndex}
       total={items.length}
       onContinue={async () => {
         try {

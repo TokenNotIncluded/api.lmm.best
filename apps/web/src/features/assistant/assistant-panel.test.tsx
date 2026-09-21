@@ -868,97 +868,6 @@ describe('AssistantPanel', () => {
     }
   })
 
-  test('switches the page assistant to the persisted classic layout', async () => {
-    api.get = (async (url: string) => {
-      assert.equal(url, '/api/assistant/status')
-      return { data: { success: true, data: assistantStatus } }
-    }) as typeof api.get
-
-    const rendered = await renderPanel(undefined, 'page')
-    try {
-      const panel = document.querySelector<HTMLElement>('#ai-assistant-panel')
-      assert.ok(panel)
-      assert.equal(panel.dataset.layout, 'modern')
-      assert.equal(
-        document.querySelector('[data-testid="assistant-classic-sidebar"]'),
-        null
-      )
-
-      const toggle = document.querySelector<HTMLButtonElement>(
-        '[data-testid="assistant-layout-toggle"]'
-      )
-      assert.ok(toggle)
-      await act(async () => {
-        toggle.click()
-        await flushEffects()
-      })
-
-      assert.equal(panel.dataset.layout, 'classic')
-      assert.ok(
-        document.querySelector('[data-testid="assistant-classic-sidebar"]')
-      )
-      assert.ok(
-        document.querySelector('[data-testid="assistant-classic-welcome"]')
-      )
-      assert.ok(
-        document.querySelector('[data-testid="assistant-classic-header"]')
-      )
-      assert.match(
-        document.querySelector<HTMLElement>(
-          '[data-testid="assistant-classic-header"]'
-        )?.className ?? '',
-        /bg-\[#343541\]/
-      )
-      assert.equal(
-        window.localStorage.getItem('lmm-assistant-layout'),
-        'classic'
-      )
-
-      await act(async () => {
-        const activeToggle = document.querySelector<HTMLButtonElement>(
-          '[data-testid="assistant-layout-toggle"]'
-        )
-        assert.ok(activeToggle)
-        activeToggle.click()
-        await flushEffects()
-      })
-      assert.equal(panel.dataset.layout, 'modern')
-    } finally {
-      await act(async () => rendered.root.unmount())
-      rendered.queryClient.clear()
-    }
-  })
-
-  test('keeps the classic workspace distinct on a narrow assistant sheet', async () => {
-    api.get = (async (url: string) => {
-      assert.equal(url, '/api/assistant/status')
-      return { data: { success: true, data: assistantStatus } }
-    }) as typeof api.get
-    window.localStorage.setItem('lmm-assistant-layout', 'classic')
-
-    const rendered = await renderPanel(undefined, 'mobile')
-    try {
-      const panel = document.querySelector<HTMLElement>('#ai-assistant-panel')
-      assert.ok(panel)
-      assert.equal(panel.dataset.layout, 'classic')
-      assert.ok(
-        document.querySelector('[data-testid="assistant-classic-header"]')
-      )
-      assert.equal(
-        document.querySelector('[data-testid="assistant-classic-sidebar"]'),
-        null
-      )
-      const composer = document.querySelector<HTMLElement>(
-        '[data-testid="assistant-prompt-form"] [data-slot="input-group"]'
-      )
-      assert.ok(composer)
-      assert.match(composer.className, /bg-\[#40414f\]/)
-    } finally {
-      await act(async () => rendered.root.unmount())
-      rendered.queryClient.clear()
-    }
-  })
-
   test('keeps restricted page and mobile composers compact without changing preset content', async () => {
     api.get = (async (url: string) => {
       if (url === '/api/assistant/pre-conversation-presets') {
@@ -1841,6 +1750,56 @@ describe('AssistantPanel', () => {
       assert.doesNotMatch(
         document.body.textContent ?? '',
         /Which option is the best value\?/
+      )
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+
+  test('opens backend-authorized plan checkout from an L0 entry point', async () => {
+    let offerReads = 0
+    api.get = (async (url: string) => {
+      if (url === '/api/assistant/status') {
+        return {
+          data: {
+            success: true,
+            data: { ...assistantStatus, developer_access_granted: false },
+          },
+        }
+      }
+      if (url === '/api/assistant/offers') {
+        offerReads += 1
+        return {
+          data: {
+            success: true,
+            data: {
+              ok: true,
+              developer_access_granted: false,
+              read_only: false,
+              checkout_available: true,
+              payment_hidden: false,
+              payment_compliance_confirmed: true,
+              plans: [],
+              topup_discounts: {},
+            },
+          },
+        }
+      }
+      return { data: { success: true, data: {} } }
+    }) as typeof api.get
+    const rendered = await renderPanel('plan', 'mobile', registrationUser)
+    try {
+      await act(async () =>
+        waitForCondition(
+          () => document.querySelector('a[href="/wallet"]') !== null,
+          'L0 plan checkout did not render'
+        )
+      )
+      assert.equal(offerReads, 1)
+      assert.match(
+        document.body.textContent ?? '',
+        /Review plans and exact checkout prices/
       )
     } finally {
       await act(async () => rendered.root.unmount())

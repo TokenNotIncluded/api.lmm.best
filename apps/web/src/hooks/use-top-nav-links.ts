@@ -20,7 +20,7 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { useStatus } from '@/hooks/use-status'
-import { isConsoleActivated } from '@/lib/console-activation'
+import { getAuthenticatedLandingRoute } from '@/lib/console-activation'
 import { parseHeaderNavModulesFromStatus } from '@/lib/nav-modules'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -70,9 +70,14 @@ export function useTopNavLinks(): TopNavLink[] {
     links.push({ title: t('Home'), href: '/' })
   }
 
-  // Keep the product workspace ahead of the optional developer console.
-  if (modules?.console !== false && isConsoleActivated(auth.user)) {
-    links.push({ title: t('Open workspace'), href: '/open-source-bounties' })
+  // Keep the product workspace ahead of the optional developer console. The
+  // landing route already resolves to the surface the account may actually
+  // open, so an L0 account is sent to onboarding instead of a guarded page.
+  if (modules?.console !== false && isAuthed) {
+    links.push({
+      title: t('Open workspace'),
+      href: getAuthenticatedLandingRoute(auth.user),
+    })
   }
 
   // Pricing

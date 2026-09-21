@@ -133,14 +133,19 @@ async function gateFixture(
     client: InstanceType<typeof QueryClient>,
     rerender: () => Promise<void>
   ) => Promise<void>,
-  signedIn = true
+  signedIn = true,
+  post?: (
+    url: string,
+    body: { id: number; revision: string }
+  ) => Promise<unknown>
 ) {
   const originalGet = api.get
   const originalPost = api.post
   api.get = get as typeof api.get
-  api.post = (async () => {
-    throw new Error('Unexpected announcement acknowledgement')
-  }) as typeof api.post
+  api.post = (post ??
+    (async () => {
+      throw new Error('Unexpected announcement acknowledgement')
+    })) as typeof api.post
   useAuthStore
     .getState()
     .auth.setUser(
@@ -180,6 +185,104 @@ async function gateFixture(
     useAuthStore.getState().auth.setUser(null)
   }
 }
+
+// The reader only unlocks its button once the viewport is scrolled to the end,
+// so a gate test has to drive a real scroll on whichever reader is mounted.
+async function readToBottomAndConfirm(container: HTMLDivElement) {
+  const viewport = container.querySelector('[role="region"]') as HTMLDivElement
+  assert.ok(viewport)
+  Object.defineProperty(viewport, 'clientHeight', {
+    configurable: true,
+    value: 200,
+  })
+  Object.defineProperty(viewport, 'scrollHeight', {
+    configurable: true,
+    value: 1000,
+  })
+  await act(async () => {
+    viewport.scrollTop = 800
+    viewport.dispatchEvent(new Event('scroll', { bubbles: true }))
+  })
+  const button = container.querySelector('footer button') as HTMLButtonElement
+  assert.ok(button)
+  assert.equal(button.disabled, false)
+  await act(async () => button.click())
+  await flushQuery()
+}
+
+test('two required announcements advance in order and then open the workspace', async () => {
+  const read = new Set<number>()
+  const items = () => [
+    {
+      id: 1,
+      content: 'First required notice',
+      publishDate: '2026-09-18',
+      revision: 'r1',
+      read_at: read.has(1) ? 1 : 0,
+    },
+    {
+      id: 2,
+      content: 'Second required notice',
+      publishDate: '2026-09-19',
+      revision: 'r2',
+      read_at: read.has(2) ? 1 : 0,
+    },
+  ]
+  const acknowledged: number[] = []
+  await gateFixture(
+    async () => ({ data: { success: true, data: items() } }),
+    async (container) => {
+      assert.equal(container.querySelector('[data-testid="workspace"]'), null)
+      assert.ok(container.textContent?.includes('Announcement 1 of 2'))
+      await readToBottomAndConfirm(container)
+      assert.deepEqual(acknowledged, [1])
+      assert.ok(container.textContent?.includes('Announcement 2 of 2'))
+      await readToBottomAndConfirm(container)
+      assert.deepEqual(acknowledged, [1, 2])
+      assert.ok(container.querySelector('[data-testid="workspace"]'))
+    },
+    true,
+    async (_url, body) => {
+      acknowledged.push(body.id)
+      read.add(body.id)
+      return { data: { success: true } }
+    }
+  )
+})
+
+test('an announcement published before an acknowledged one is numbered by its own position', async () => {
+  await gateFixture(
+    async () => ({
+      data: {
+        success: true,
+        data: [
+          {
+            id: 9,
+            content: 'Backdated required notice',
+            publishDate: '2026-09-10',
+            revision: 'r9',
+            read_at: 0,
+          },
+          {
+            id: 4,
+            content: 'Already acknowledged notice',
+            publishDate: '2026-09-15',
+            revision: 'r4',
+            read_at: 1,
+          },
+        ],
+      },
+    }),
+    async (container) => {
+      // Counting acknowledgements would say "2 of 2" for the first notice.
+      assert.ok(container.textContent?.includes('Announcement 1 of 2'))
+      assert.equal(
+        container.textContent?.includes('Announcement 2 of 2'),
+        false
+      )
+    }
+  )
+})
 
 test('a legacy 404 opens the workspace and does not retry on remount', async () => {
   let requests = 0

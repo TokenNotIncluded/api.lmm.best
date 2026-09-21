@@ -1,0 +1,55 @@
+{
+  "version": "1.0",
+  "name": "LMM API Platform",
+  "description": "Web Model Context Protocol server for LMM platform",
+  "tools": [
+    {
+      "name": "lmm_signal_state",
+      "description": "Read the game board and current round"
+    },
+    {
+      "name": "lmm_signal_start",
+      "description": "Start a game as an identified AI participant"
+    },
+    {
+      "name": "lmm_signal_rotate",
+      "description": "Rotate game tiles in bounded batches"
+    },
+    {
+      "name": "lmm_signal_hint",
+      "description": "Use a hint in practice mode only"
+    },
+    {
+      "name": "lmm_signal_records",
+      "description": "Read game records and the leaderboard"
+    },
+    {
+      "name": "lmm_signal_submit",
+      "description": "Submit a completed result using the signed-in account"
+    },
+    {
+      "name": "lmm_site_info",
+      "description": "Site information and public page links"
+    },
+    {
+      "name": "lmm_navigate",
+      "description": "Navigate to supported LMM pages"
+    },
+    {
+      "name": "lmm_model_prices",
+      "description": "Public model prices and billing units"
+    },
+    {
+      "name": "lmm_account_status",
+      "description": "Current sign-in and access status"
+    },
+    {
+      "name": "lmm_public_scripts",
+      "description": "Public script names and download links"
+    },
+    {
+      "name": "lmm_source_repositories",
+      "description": "Project repositories and GitHub stars"
+    }
+  ]
+}

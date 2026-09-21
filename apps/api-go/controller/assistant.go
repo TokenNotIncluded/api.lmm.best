@@ -824,7 +824,10 @@ func PrepareAssistantRequest(c *gin.Context) {
 			}
 			c.Set("assistant_history_conversation_id", conversationRecord.Id)
 		}
-		c.Set(assistantConversationTitleNeededKey, input.ConversationID == 0 && resolvedConversationID == 0)
+		// History already derives a bounded, redacted title from the first
+		// message. Do not spend a synchronous model turn generating optional
+		// metadata before answering the user's actual request.
+		c.Set(assistantConversationTitleNeededKey, false)
 		if retryAttempt && resolvedConversationID > 0 {
 			c.Set("assistant_history_replay", true)
 		}
