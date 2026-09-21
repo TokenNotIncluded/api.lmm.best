@@ -68,6 +68,7 @@ describe('authenticated route access', () => {
     })
 
     assert.equal(await runBeforeLoad('/getting-started'), undefined)
+    assert.equal(await runBeforeLoad('/wallet'), undefined)
     const dashboardRedirect = await runBeforeLoad('/dashboard')
     assert.ok(isRedirect(dashboardRedirect))
     assert.equal(dashboardRedirect.options.to, '/getting-started')

@@ -382,6 +382,8 @@ export type BillingSettings = {
   TopUpLink: string
   'general_setting.docs_link': string
   'quota_setting.enable_free_model_pre_consume': boolean
+  'developer_access_setting.paid_activation_enabled': boolean
+  'developer_access_setting.paid_activation_min_amount': number
   QuotaPerUnit: number
   USDExchangeRate: number
   TopUpPlatformUnitsPerCNY: number

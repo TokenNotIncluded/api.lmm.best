@@ -99,7 +99,7 @@ func TestHasSuccessfulPaidTopUpRejectsUnknownNullProviderWithCreditedQuota(t *te
 	assert.False(t, granted)
 	aggregate, err := getFreshPaidTopUpAggregate(48)
 	require.NoError(t, err)
-	assert.False(t, aggregate.ActivationComplete)
+	assert.False(t, aggregate.paidActivationComplete(CurrentDeveloperAccessPolicy()))
 	assert.Zero(t, aggregate.PaidAmountMicros)
 }
 
@@ -121,7 +121,7 @@ func TestSuccessfulExternalTopUpPredicateIsSharedWithTrustAggregation(t *testing
 	aggregate, err := getPaidTopUpAggregate(userID)
 	require.NoError(t, err)
 	assert.Zero(t, aggregate.PaidAmount)
-	assert.False(t, aggregate.ActivationComplete)
+	assert.False(t, aggregate.paidActivationComplete(CurrentDeveloperAccessPolicy()))
 
 	require.NoError(t, db.Create(&TopUp{UserId: userID, TradeNo: "successful-external", Amount: 1, CreditedQuota: int64(common.QuotaPerUnit), Money: 0.01, Status: common.TopUpStatusSuccess, PaymentProvider: PaymentProviderStripe}).Error)
 	activated, err = HasSuccessfulPaidTopUp(userID)
@@ -129,7 +129,7 @@ func TestSuccessfulExternalTopUpPredicateIsSharedWithTrustAggregation(t *testing
 	assert.True(t, activated)
 	aggregate, err = getPaidTopUpAggregate(userID)
 	require.NoError(t, err)
-	assert.True(t, aggregate.ActivationComplete)
+	assert.True(t, aggregate.paidActivationComplete(CurrentDeveloperAccessPolicy()))
 	assert.InDelta(t, 1, aggregate.PaidAmount, 0.0001)
 }
 
@@ -172,7 +172,7 @@ func TestFreshPaidTopUpAggregateNormalizesProviderWriterSemantics(t *testing.T) 
 			require.NoError(t, db.Create(&fixture.topUp).Error)
 			aggregate, err := getFreshPaidTopUpAggregate(fixture.topUp.UserId)
 			require.NoError(t, err)
-			assert.True(t, aggregate.ActivationComplete)
+			assert.True(t, aggregate.paidActivationComplete(CurrentDeveloperAccessPolicy()))
 			assert.InDelta(t, fixture.expected, aggregate.PaidAmount, 0.0001)
 		})
 	}
@@ -196,7 +196,7 @@ func TestFreshPaidTopUpAggregateUsesLegacyWriterFallbackAndCreateTimeAnchor(t *t
 
 	aggregate, err := getFreshPaidTopUpAggregate(topUp.UserId)
 	require.NoError(t, err)
-	assert.True(t, aggregate.ActivationComplete)
+	assert.True(t, aggregate.paidActivationComplete(CurrentDeveloperAccessPolicy()))
 	assert.Equal(t, createdAt, aggregate.LastPaidCompleteAt)
 	assert.InDelta(t, 100, aggregate.PaidAmount, 0.0001)
 }
@@ -220,7 +220,7 @@ func TestFreshPaidTopUpAggregateUsesCreditedQuotaInsteadOfSettledMoney(t *testin
 
 	aggregate, err := getFreshPaidTopUpAggregate(topUp.UserId)
 	require.NoError(t, err)
-	assert.True(t, aggregate.ActivationComplete)
+	assert.True(t, aggregate.paidActivationComplete(CurrentDeveloperAccessPolicy()))
 	assert.InDelta(t, 123.456912, aggregate.PaidAmount, 0.000001)
 }
 
@@ -268,7 +268,7 @@ func TestLinuxDOCreditDoesNotCountAsPaidTopUp(t *testing.T) {
 	ldcAggregate, err := getFreshPaidTopUpAggregate(ldcOnlyUserID)
 	require.NoError(t, err)
 	assert.Zero(t, ldcAggregate.PaidAmount)
-	assert.False(t, ldcAggregate.ActivationComplete)
+	assert.False(t, ldcAggregate.paidActivationComplete(CurrentDeveloperAccessPolicy()))
 
 	granted, err = HasSuccessfulPaidTopUp(mixedUserID)
 	require.NoError(t, err)
@@ -336,6 +336,6 @@ func TestSuccessfulExternalPaymentUnlocksLevelOneFromCreditedQuota(t *testing.T)
 
 	aggregate, err := getFreshPaidTopUpAggregate(topUp.UserId)
 	require.NoError(t, err)
-	info := EvaluateTrustLevelWithActivation(common.RoleCommonUser, nil, aggregate.PaidAmount, aggregate.ActivationComplete, time.Now().Unix(), time.Now().Unix())
+	info := EvaluateTrustLevelWithActivation(common.RoleCommonUser, nil, aggregate.PaidAmount, aggregate.paidActivationComplete(CurrentDeveloperAccessPolicy()), time.Now().Unix(), time.Now().Unix())
 	assert.Equal(t, TrustLevelMinUser+1, info.Level)
 }

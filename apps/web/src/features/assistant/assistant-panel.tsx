@@ -1382,6 +1382,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
     (target: AssistantPresetId) => {
       const restrictedTarget =
         target === 'onboarding' ||
+        target === 'plan' ||
         target === 'client-setup' ||
         target === 'bounty' ||
         target === 'cost' ||

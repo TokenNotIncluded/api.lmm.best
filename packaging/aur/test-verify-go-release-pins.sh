@@ -40,6 +40,17 @@ for arch in amd64 arm64; do
 done
 cp "$work/release.json" "$work/release.valid.json"
 
+# The tree fallback consults real git, so give the script a real repository to
+# read. Its single commit stands in for main after a history rewrite.
+git -C "$work/aur" init --quiet --initial-branch=main
+git -C "$work/aur" add --all
+git -C "$work/aur" -c user.name=fixture -c user.email=fixture@example \
+  -c commit.gpgsign=false commit --quiet --message 'fixture main'
+main_tree=$(git -C "$work/aur" log --format=%T main)
+[[ $main_tree =~ ^[0-9a-f]{40}$ ]] || fail 'fixture repository did not produce a tree'
+printf '{"tree":{"sha":"%s"}}\n' "$main_tree" >"$work/commit.valid.json"
+printf '{"tree":{"sha":"cccccccccccccccccccccccccccccccccccccccc"}}\n' >"$work/commit.orphan.json"
+
 # Replace external services and signature verification, retaining real jq and
 # SHA-256 checks. Unexpected requests fail closed; these tests never use network.
 cat >"$work/mocks.sh" <<'MOCKS'
@@ -55,6 +66,7 @@ curl() {
     https://api.example/repos/example/repo/git/ref/tags/go-v0.2.14) fixture=tag-ref.json ;;
     https://api.example/repos/example/repo/git/tags/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) fixture=tag.json ;;
     https://api.example/repos/example/repo/compare/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb...main) fixture=compare.json ;;
+    https://api.example/repos/example/repo/git/commits/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb) fixture=commit.json ;;
     https://api.example/repos/example/repo/releases/tags/go-v0.2.14) fixture=release.json ;;
     'https://aur.archlinux.org/rpc/v5/info?arg[]=lmm-api-go&arg[]=lmm-api-go-bin') fixture=aur.json ;;
     https://assets.example/*) fixture="assets/${url##*/}" ;;
@@ -89,6 +101,7 @@ reset_fixtures() {
   printf '{"object":{"type":"tag","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}\n' >"$work/tag-ref.json"
   printf '{"verification":{"verified":true},"object":{"type":"commit","sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}\n' >"$work/tag.json"
   printf '{"status":"ahead"}\n' >"$work/compare.json"
+  cp "$work/commit.valid.json" "$work/commit.json"
   printf '[{"tag_name":"go-v0.2.14","draft":false,"prerelease":false},{"tag_name":"go-v0.2.99","draft":false,"prerelease":true}]\n' >"$work/latest.json"
   printf '{"results":[{"Name":"lmm-api-go","Version":"0.2.14-1"},{"Name":"lmm-api-go-bin","Version":"0.2.14-1"}]}\n' >"$work/aur.json"
   rm -f -- "$work/reject-signature"
@@ -139,9 +152,18 @@ expect_rejected 'not an annotated tag' --pinned
 reset_fixtures
 printf '{"verification":{"verified":false},"object":{"type":"commit","sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}\n' >"$work/tag.json"
 expect_rejected 'not a GitHub-verified signed commit tag' --pinned
+# A content-neutral history rewrite orphans the pinned commit without touching
+# the released source, so the tree it shipped is still on main and the pin holds.
 reset_fixtures
 printf '{"status":"diverged"}\n' >"$work/compare.json"
-expect_rejected 'does not identify an ancestor of main' --pinned
+verify_fixture --pinned >"$work/rewritten.out"
+grep -Fq 'predates a history rewrite' "$work/rewritten.out" ||
+  fail 'tree fallback did not report why the commit comparison was bypassed'
+# Source main never carried stays rejected; the fallback is content, not a waiver.
+reset_fixtures
+printf '{"status":"diverged"}\n' >"$work/compare.json"
+cp "$work/commit.orphan.json" "$work/commit.json"
+expect_rejected 'does not identify a tree reachable from main' --pinned
 reset_fixtures
 jq '.prerelease = true' "$work/release.valid.json" >"$work/release.json"
 expect_rejected 'not a final release' --pinned

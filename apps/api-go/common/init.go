@@ -115,7 +115,7 @@ func InitEnv() error {
 	RelayTimeout = GetEnvOrDefault("RELAY_TIMEOUT", 0)
 	RelayIdleConnTimeout = GetEnvOrDefault("RELAY_IDLE_CONN_TIMEOUT", 90)
 	RelayResponseHeaderTimeout = GetEnvOrDefault("RELAY_RESPONSE_HEADER_TIMEOUT", 1800)
-	MaxKeepaliveDuration = GetEnvOrDefault("MAX_KEEPALIVE_DURATION", 120)
+	MaxKeepaliveDuration = GetEnvOrDefault("MAX_KEEPALIVE_DURATION", DefaultMaxKeepaliveDuration)
 	OpenAIFirstOutputTimeout = GetEnvOrDefault("OPENAI_FIRST_OUTPUT_TIMEOUT", 0)
 	if OpenAIFirstOutputTimeout != 0 && (OpenAIFirstOutputTimeout < 30 || OpenAIFirstOutputTimeout > 600) {
 		SysError("OPENAI_FIRST_OUTPUT_TIMEOUT must be 0 or between 30 and 600 seconds; disabling it")

@@ -134,7 +134,10 @@ async function gateFixture(
     rerender: () => Promise<void>
   ) => Promise<void>,
   signedIn = true,
-  post?: (url: string, body: { id: number; revision: string }) => Promise<unknown>
+  post?: (
+    url: string,
+    body: { id: number; revision: string }
+  ) => Promise<unknown>
 ) {
   const originalGet = api.get
   const originalPost = api.post
