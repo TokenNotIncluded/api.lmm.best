@@ -63,10 +63,11 @@ type SidebarContextProps = {
   toggleSidebar: () => void
 }
 
+const { useContext } = React
 const SidebarContext = React.createContext<SidebarContextProps | null>(null)
 
 function useSidebar() {
-  const context = React.useContext(SidebarContext)
+  const context = useContext(SidebarContext)
   if (!context) {
     throw new Error('useSidebar must be used within a SidebarProvider.')
   }

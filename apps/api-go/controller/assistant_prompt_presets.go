@@ -23,7 +23,9 @@ func GetPromptPresets(c *gin.Context) {
 		return
 	}
 	c.Header("Cache-Control", "public, max-age=300")
-	common.ApiSuccess(c, presets)
+	// The explicit query parameter keeps public caches separated by language;
+	// no user/session-specific data is included in this response.
+	common.ApiSuccess(c, model.LocalizePromptPresets(presets, c.DefaultQuery("language", "zh")))
 }
 
 func CountPromptPresetClick(c *gin.Context) {

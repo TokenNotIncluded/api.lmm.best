@@ -91,11 +91,17 @@ export function VendorMutateDialog({
   }, [open, isEdit, currentVendor, form])
 
   const onSubmit = async (values: Record<string, unknown>) => {
+    const currentVendorId = currentVendor?.id
+    if (isEdit && currentVendorId === undefined) return
+
     setIsSaving(true)
     try {
-      const response = isEdit
-        ? await updateVendor({ ...values, id: currentVendor!.id })
-        : await createVendor(values)
+      let response
+      if (isEdit && currentVendorId !== undefined) {
+        response = await updateVendor({ ...values, id: currentVendorId })
+      } else {
+        response = await createVendor(values)
+      }
 
       if (response.success) {
         toast.success(

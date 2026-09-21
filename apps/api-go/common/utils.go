@@ -1,17 +1,15 @@
 package common
 
 import (
-	crand "crypto/rand"
+	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"io"
 	"log"
 	"math/big"
-	"math/rand"
 	"net"
 	"net/url"
 	"os"
@@ -51,18 +49,9 @@ func GetIp() (ip string) {
 
 	for _, a := range ips {
 		if ipNet, ok := a.(*net.IPNet); ok && !ipNet.IP.IsLoopback() {
-			if ipNet.IP.To4() != nil {
+			if isPrivateIPv4(ipNet.IP) {
 				ip = ipNet.IP.String()
-				if strings.HasPrefix(ip, "10") {
-					return
-				}
-				if strings.HasPrefix(ip, "172") {
-					return
-				}
-				if strings.HasPrefix(ip, "192.168") {
-					return
-				}
-				ip = ""
+				return
 			}
 		}
 	}
@@ -79,18 +68,16 @@ func GetNetworkIps() []string {
 
 	for _, a := range ips {
 		if ipNet, ok := a.(*net.IPNet); ok && !ipNet.IP.IsLoopback() {
-			if ipNet.IP.To4() != nil {
-				ip := ipNet.IP.String()
-				// Include common private network ranges
-				if strings.HasPrefix(ip, "10.") ||
-					strings.HasPrefix(ip, "172.") ||
-					strings.HasPrefix(ip, "192.168.") {
-					networkIps = append(networkIps, ip)
-				}
+			if isPrivateIPv4(ipNet.IP) {
+				networkIps = append(networkIps, ipNet.IP.String())
 			}
 		}
 	}
 	return networkIps
+}
+
+func isPrivateIPv4(ip net.IP) bool {
+	return ip.To4() != nil && ip.IsPrivate()
 }
 
 // IsRunningInContainer detects if the application is running inside a container
@@ -208,10 +195,6 @@ func Interface2String(inter interface{}) string {
 	return fmt.Sprintf("%v", inter)
 }
 
-func UnescapeHTML(x string) interface{} {
-	return template.HTML(x)
-}
-
 func IntMax(a int, b int) int {
 	if a >= b {
 		return a
@@ -226,39 +209,51 @@ func GetUUID() string {
 	return code
 }
 
-const keyChars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+const (
+	keyChars     = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	digitChars   = "0123456789"
+	requestIDLen = 39
+)
 
-func GenerateRandomCharsKey(length int) (string, error) {
+func generateRandomChars(length int, alphabet string) (string, error) {
 	b := make([]byte, length)
-	maxI := big.NewInt(int64(len(keyChars)))
+	maxI := big.NewInt(int64(len(alphabet)))
 
 	for i := range b {
-		n, err := crand.Int(crand.Reader, maxI)
+		n, err := cryptorand.Int(cryptorand.Reader, maxI)
 		if err != nil {
 			return "", err
 		}
-		b[i] = keyChars[n.Int64()]
+		b[i] = alphabet[n.Int64()]
 	}
 
 	return string(b), nil
 }
 
+func GenerateRandomCharsKey(length int) (string, error) {
+	return generateRandomChars(length, keyChars)
+}
+
 func GenerateRandomKey(length int) (string, error) {
 	bytes := make([]byte, length*3/4) // 对于48位的输出，这里应该是36
-	if _, err := crand.Read(bytes); err != nil {
+	if _, err := cryptorand.Read(bytes); err != nil {
 		return "", err
 	}
 	return base64.StdEncoding.EncodeToString(bytes), nil
 }
 
 func GenerateKey() (string, error) {
-	//rand.Seed(time.Now().UnixNano())
 	return GenerateRandomCharsKey(48)
 }
 
+// GetRandomInt is used where callers cannot return an entropy error. It keeps
+// the existing [0, max) contract and fails closed if the OS CSPRNG is unavailable.
 func GetRandomInt(max int) int {
-	//rand.Seed(time.Now().UnixNano())
-	return rand.Intn(max)
+	value, err := cryptorand.Int(cryptorand.Reader, big.NewInt(int64(max)))
+	if err != nil {
+		panic(fmt.Errorf("generate random integer: %w", err))
+	}
+	return int(value.Int64())
 }
 
 func GetTimestamp() int64 {
@@ -275,11 +270,25 @@ var requestIdPrefix = func() string {
 		h := sha256.Sum256([]byte(bi.Main.Path))
 		return hex.EncodeToString(h[:4])
 	}
-	return GetRandomString(8)
+	prefix, err := GenerateRandomCharsKey(8)
+	if err != nil {
+		panic(fmt.Errorf("generate request ID prefix: %w", err))
+	}
+	return prefix
 }()
 
 func NewRequestId() string {
-	return GetTimeString() + requestIdPrefix + GetRandomString(8)
+	// Preserve the historical 23-digit + 8-character prefix + 8-character
+	// suffix shape, but do not expose a predictable wall-clock timestamp.
+	leadingDigits, err := generateRandomChars(23, digitChars)
+	if err != nil {
+		panic(fmt.Errorf("generate request ID: %w", err))
+	}
+	suffix, err := GenerateRandomCharsKey(requestIDLen - len(leadingDigits) - len(requestIdPrefix))
+	if err != nil {
+		panic(fmt.Errorf("generate request ID: %w", err))
+	}
+	return leadingDigits + requestIdPrefix + suffix
 }
 
 func Max(a int, b int) int {
@@ -295,8 +304,12 @@ func MessageWithRequestId(message string, id string) string {
 }
 
 func RandomSleep() {
-	// Sleep for 0-3000 ms
-	time.Sleep(time.Duration(rand.Intn(3000)) * time.Millisecond)
+	// Non-security jitter only: spread retries over 0-3000 ms.
+	delay, err := cryptorand.Int(cryptorand.Reader, big.NewInt(3000))
+	if err != nil {
+		return
+	}
+	time.Sleep(time.Duration(delay.Int64()) * time.Millisecond)
 }
 
 func GetPointer[T any](v T) *T {

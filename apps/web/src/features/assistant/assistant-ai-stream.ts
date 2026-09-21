@@ -14,7 +14,16 @@ GNU Affero General Public License for more details.
 You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { readUIMessageStream, type UIMessageChunk } from 'ai'
+// The server owns the SSE envelope. Consume it directly: the old second
+// UIMessage stream had an independent lifetime but no independent consumer UI.
+export function isRetryableAssistantStatus(status: number): boolean {
+  return (
+    status === 408 ||
+    status === 425 ||
+    status === 429 ||
+    (status >= 500 && status <= 599)
+  )
+}
 
 export class AssistantStreamError extends Error {
   readonly response: { status: number; data: unknown }
@@ -25,7 +34,7 @@ export class AssistantStreamError extends Error {
     status: number,
     data: unknown,
     message: string,
-    retryable = status >= 500
+    retryable = isRetryableAssistantStatus(status)
   ) {
     super(message)
     this.name = 'AssistantStreamError'
@@ -35,230 +44,254 @@ export class AssistantStreamError extends Error {
   }
 }
 
-type AssistantStreamPayload = Record<string, unknown>
+// One ceiling covers auth refresh, HTTP, all model/tool rounds and backoff.
+// It must exceed the server's maximum configured 300-second run, not multiply
+// that timeout by the number of browser retries.
+export const ASSISTANT_REQUEST_TIMEOUT_MS = 310_000
+const ASSISTANT_STREAM_IDLE_TIMEOUT_MS = 45_000
+const ASSISTANT_STREAM_EVENT_MAX_CHARS = 512 * 1024
 
-type AssistantAISDKStream = {
-  messageStream: ReadableStream<UIMessageChunk>
-  completion: Promise<AssistantStreamPayload>
+export type AssistantProgress = {
+  phase: 'model' | 'tool' | 'answer'
+  step: number
 }
 
-type AssistantTextEvent =
-  | { type: 'delta'; content: string }
-  | { type: 'replace'; content: string }
+export function assistantTimeoutError(
+  code = 'ASSISTANT_REQUEST_TIMEOUT'
+): AssistantStreamError {
+  const message =
+    'The assistant request timed out. Check completed actions before retrying.'
+  return new AssistantStreamError(
+    408,
+    { code, message, retryable: false },
+    message,
+    false
+  )
+}
 
-// The Go API intentionally owns an SSE envelope so it can redact content and
-// attach product-only confirmation metadata. This adapter turns that envelope
-// into AI SDK UIMessage chunks, keeping the UI on the SDK's streaming state
-// model without exposing provider events to the browser.
-function createAssistantAISDKStream(
-  body: ReadableStream<Uint8Array>,
-  onTextEvent?: (event: AssistantTextEvent) => void
-): AssistantAISDKStream {
-  let resolveCompletion: (payload: AssistantStreamPayload) => void
-  let rejectCompletion: (reason?: unknown) => void
-  const completion = new Promise<AssistantStreamPayload>((resolve, reject) => {
-    resolveCompletion = resolve
-    rejectCompletion = reject
+export function assistantAbortReason(signal: AbortSignal): Error {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new DOMException('The assistant request was cancelled.', 'AbortError')
+}
+
+// Racing the caller as well as aborting fetch matters while auth refresh or a
+// non-conforming stream source is pending. The caller must always settle.
+export async function withAssistantDeadline<T>(
+  run: (signal: AbortSignal) => Promise<T>,
+  parent?: AbortSignal,
+  timeoutMs = ASSISTANT_REQUEST_TIMEOUT_MS
+): Promise<T> {
+  if (parent?.aborted) throw assistantAbortReason(parent)
+  const controller = new AbortController()
+  const abort = () =>
+    controller.abort(parent ? assistantAbortReason(parent) : undefined)
+  parent?.addEventListener('abort', abort, { once: true })
+  const timer = setTimeout(
+    () => controller.abort(assistantTimeoutError()),
+    timeoutMs
+  )
+  let rejectAbort: () => void = () => undefined
+  const cancelled = new Promise<never>((_resolve, reject) => {
+    rejectAbort = () => reject(assistantAbortReason(controller.signal))
+    controller.signal.addEventListener('abort', rejectAbort, { once: true })
   })
+  try {
+    return await Promise.race([run(controller.signal), cancelled])
+  } finally {
+    clearTimeout(timer)
+    parent?.removeEventListener('abort', abort)
+    controller.signal.removeEventListener('abort', rejectAbort)
+    // Stop any response body still draining after a terminal error.
+    controller.abort()
+  }
+}
 
-  const messageStream = new ReadableStream<UIMessageChunk>({
-    start(controller) {
+type AssistantStreamPayload = Record<string, unknown>
+type StreamHandlers = {
+  onDelta?: (content: string) => void
+  onReset?: () => void
+  onProgress?: (progress: AssistantProgress) => void
+}
+type StreamOptions = {
+  signal?: AbortSignal
+  timeoutMs?: number
+  idleTimeoutMs?: number
+}
+
+// Keep the export stable for existing consumers. There is one reader, one
+// terminal result and one cleanup path; HTTP EOF is not a successful answer.
+export async function consumeAssistantAISDKStream(
+  body: ReadableStream<Uint8Array>,
+  handlers: StreamHandlers,
+  options: StreamOptions = {}
+): Promise<AssistantStreamPayload> {
+  return withAssistantDeadline(
+    async (signal) => {
+      const reader = body.getReader()
+      const decoder = new TextDecoder()
       let buffer = ''
       let eventName = ''
       let eventData: string[] = []
-      let textPartIndex = 0
-      let textPartOpen = false
-      let settled = false
-
-      const textPartID = () => `assistant-text-${textPartIndex}`
-      const beginTextPart = () => {
-        if (textPartOpen) return
-        controller.enqueue({ type: 'text-start', id: textPartID() })
-        textPartOpen = true
+      let eventSize = 0
+      let result: AssistantStreamPayload | undefined
+      let activitySeen = false
+      let idleTimer: ReturnType<typeof setTimeout> | undefined
+      let rejectStopped: (error: Error) => void = () => undefined
+      const stopped = new Promise<never>((_resolve, reject) => {
+        rejectStopped = reject
+      })
+      const abort = () => rejectStopped(assistantAbortReason(signal))
+      signal.addEventListener('abort', abort, { once: true })
+      const resetIdle = () => {
+        clearTimeout(idleTimer)
+        idleTimer = setTimeout(
+          () =>
+            rejectStopped(
+              assistantTimeoutError('ASSISTANT_STREAM_IDLE_TIMEOUT')
+            ),
+          options.idleTimeoutMs ?? ASSISTANT_STREAM_IDLE_TIMEOUT_MS
+        )
       }
-      const endTextPart = () => {
-        if (!textPartOpen) return
-        controller.enqueue({ type: 'text-end', id: textPartID() })
-        textPartOpen = false
-      }
-      const fail = (error: Error) => {
-        if (settled) return
-        settled = true
-        rejectCompletion(error)
-        controller.error(error)
-      }
-      const finish = (payload: AssistantStreamPayload) => {
-        if (settled) return
-        settled = true
-        endTextPart()
-        controller.enqueue({ type: 'finish', finishReason: 'stop' })
-        resolveCompletion(payload)
-        controller.close()
-      }
-
+      const protocolError = (message: string) =>
+        new AssistantStreamError(
+          502,
+          { message, retryable: false },
+          message,
+          false
+        )
       const dispatch = () => {
         const data = eventData.join('\n').trim()
-        eventData = []
-        const currentEvent = eventName || 'message'
+        const event = eventName || 'message'
         eventName = ''
-        if (!data || data === '[DONE]' || settled) return
-
+        eventData = []
+        eventSize = 0
+        if (!data || data === '[DONE]' || result) return
         let payload: AssistantStreamPayload
         try {
           payload = JSON.parse(data) as AssistantStreamPayload
+          if (
+            !payload ||
+            typeof payload !== 'object' ||
+            Array.isArray(payload)
+          ) {
+            throw new Error()
+          }
         } catch {
-          fail(
-            new AssistantStreamError(
-              502,
-              { message: 'Assistant stream returned invalid event data' },
-              'Assistant stream returned invalid event data'
-            )
-          )
-          return
+          throw protocolError('Assistant stream returned invalid event data')
         }
-
-        if (currentEvent === 'delta') {
-          if (typeof payload.content === 'string') {
-            onTextEvent?.({ type: 'delta', content: payload.content })
-            beginTextPart()
-            controller.enqueue({
-              type: 'text-delta',
-              id: textPartID(),
-              delta: payload.content,
-            })
-          }
-          return
-        }
-        if (currentEvent === 'replace') {
-          endTextPart()
-          textPartIndex += 1
-          if (typeof payload.content === 'string') {
-            onTextEvent?.({ type: 'replace', content: payload.content })
-            if (payload.content !== '') {
-              beginTextPart()
-              controller.enqueue({
-                type: 'text-delta',
-                id: textPartID(),
-                delta: payload.content,
-              })
-            }
-          }
-          return
-        }
-        if (currentEvent === 'error') {
+        if (event === 'error') {
           const status =
             typeof payload.status === 'number' ? payload.status : 502
           const message =
             typeof payload.message === 'string'
               ? payload.message
               : 'AI assistant stream failed'
-          fail(
-            new AssistantStreamError(
-              status,
-              payload,
-              message,
-              payload.retryable === true || status >= 500
-            )
+          throw new AssistantStreamError(
+            status,
+            payload,
+            message,
+            !activitySeen &&
+              (typeof payload.retryable === 'boolean'
+                ? payload.retryable
+                : isRetryableAssistantStatus(status))
           )
+        }
+        if (event === 'done') {
+          result = payload
           return
         }
-        if (currentEvent === 'done') finish(payload)
+        if (event === 'progress') {
+          if (
+            (payload.phase === 'model' ||
+              payload.phase === 'tool' ||
+              payload.phase === 'answer') &&
+            typeof payload.step === 'number' &&
+            Number.isInteger(payload.step) &&
+            payload.step > 0 &&
+            payload.step <= 32
+          ) {
+            if (payload.phase === 'tool') activitySeen = true
+            handlers.onProgress?.({ phase: payload.phase, step: payload.step })
+          }
+          return
+        }
+        if (
+          (event === 'delta' || event === 'replace') &&
+          typeof payload.content === 'string'
+        ) {
+          activitySeen ||= payload.content.length > 0
+          if (event === 'replace') handlers.onReset?.()
+          if (payload.content) handlers.onDelta?.(payload.content)
+        }
       }
-
       const processLine = (rawLine: string) => {
         const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine
-        if (line === '') {
-          dispatch()
-        } else if (line.startsWith('event:')) {
-          eventName = line.slice(6).trim()
-        } else if (line.startsWith('data:')) {
-          let data = line.slice(5)
-          if (data.startsWith(' ')) data = data.slice(1)
-          eventData.push(data)
+        eventSize += line.length
+        if (eventSize > ASSISTANT_STREAM_EVENT_MAX_CHARS) {
+          throw protocolError('Assistant stream event exceeds its size limit')
+        }
+        if (!line) dispatch()
+        else if (line.startsWith('event:')) eventName = line.slice(6).trim()
+        else if (line.startsWith('data:')) {
+          eventData.push(line.slice(5).replace(/^ /, ''))
         }
       }
-
-      const consume = async () => {
-        try {
-          const reader = body.getReader()
-          const decoder = new TextDecoder()
-          controller.enqueue({ type: 'start', messageId: 'assistant-message' })
-          while (!settled) {
-            const { done, value } = await reader.read()
-            if (done) break
-            buffer += decoder.decode(value, { stream: true })
-            const lines = buffer.split('\n')
-            buffer = lines.pop() || ''
-            lines.forEach(processLine)
+      try {
+        if (signal.aborted) throw assistantAbortReason(signal)
+        resetIdle()
+        while (!result) {
+          const { done, value } = await Promise.race([reader.read(), stopped])
+          if (signal.aborted) throw assistantAbortReason(signal)
+          if (done) {
+            buffer += decoder.decode()
+            if (buffer) processLine(buffer)
+            dispatch()
+            if (!result) {
+              throw protocolError('Assistant stream ended before completion')
+            }
+            break
           }
-          buffer += decoder.decode()
-          if (buffer) buffer.split('\n').forEach(processLine)
-          dispatch()
-          if (!settled) {
-            fail(
-              new AssistantStreamError(
-                502,
-                { message: 'Assistant stream ended before completion' },
-                'Assistant stream ended before completion'
-              )
-            )
+          // Heartbeats reset idle time, never the absolute request deadline.
+          if (value.byteLength) resetIdle()
+          buffer += decoder.decode(value, { stream: true })
+          let index: number
+          while ((index = buffer.indexOf('\n')) >= 0) {
+            const line = buffer.slice(0, index)
+            buffer = buffer.slice(index + 1)
+            processLine(line)
+            if (result) break
           }
-        } catch (error) {
-          if (error instanceof AssistantStreamError) {
-            fail(error)
-            return
+          if (
+            !result &&
+            buffer.length + eventSize > ASSISTANT_STREAM_EVENT_MAX_CHARS
+          ) {
+            throw protocolError('Assistant stream event exceeds its size limit')
           }
-          if (error instanceof Error && error.name === 'AbortError') {
-            fail(error)
-            return
-          }
-          fail(
-            new AssistantStreamError(
-              502,
-              { message: 'Assistant stream could not be read' },
-              error instanceof Error
-                ? error.message
-                : 'Assistant stream could not be read'
-            )
-          )
         }
+        if (!result) {
+          throw protocolError('Assistant stream ended before completion')
+        }
+        return result
+      } catch (error) {
+        if (signal.aborted) throw assistantAbortReason(signal)
+        if (
+          error instanceof AssistantStreamError ||
+          (error instanceof Error && error.name === 'AbortError')
+        ) {
+          throw error
+        }
+        throw protocolError('Assistant stream could not be read')
+      } finally {
+        clearTimeout(idleTimer)
+        signal.removeEventListener('abort', abort)
+        // A custom cancel hook can itself hang. Cancel the reader synchronously
+        // but never make cleanup wait for the underlying source's promise.
+        void reader.cancel().catch(() => undefined)
+        reader.releaseLock()
       }
-
-      void consume()
     },
-  })
-
-  return { messageStream, completion }
-}
-
-export async function consumeAssistantAISDKStream(
-  body: ReadableStream<Uint8Array>,
-  handlers: {
-    onDelta?: (content: string) => void
-    onReset?: () => void
-  }
-): Promise<AssistantStreamPayload> {
-  const { messageStream, completion } = createAssistantAISDKStream(
-    body,
-    (event) => {
-      if (event.type === 'replace') {
-        handlers.onReset?.()
-        if (event.content) handlers.onDelta?.(event.content)
-        return
-      }
-      handlers.onDelta?.(event.content)
-    }
+    options.signal,
+    options.timeoutMs
   )
-  try {
-    for await (const _message of readUIMessageStream({
-      stream: messageStream,
-    })) {
-      // Draining the AI SDK stream preserves its lifecycle validation while the
-      // raw event callback above applies replacement semantics losslessly.
-    }
-  } catch (error) {
-    await completion.catch(() => undefined)
-    throw error
-  }
-  return completion
 }

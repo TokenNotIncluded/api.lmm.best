@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/logger"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/service"
+	"github.com/LIghtJUNction/api.lmm.best/setting"
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
 	"github.com/thanhpk/randstr"
@@ -20,6 +22,10 @@ type SubscriptionWaffoPancakePayRequest struct {
 	PlanId           int    `json:"plan_id"`
 	CheckoutRegion   string `json:"checkout_region"`
 	CheckoutLanguage string `json:"checkout_language"`
+	// Optional strings, decoded by the quote guard so malformed values and
+	// explicit nulls cannot be mistaken for legacy omitted fields.
+	SettlementCurrency json.RawMessage `json:"settlement_currency,omitempty"`
+	SettlementAmount   json.RawMessage `json:"settlement_amount,omitempty"`
 }
 
 func SubscriptionRequestWaffoPancakePay(c *gin.Context) {
@@ -51,11 +57,11 @@ func SubscriptionRequestWaffoPancakePay(c *gin.Context) {
 	// Plan targets its own Pancake product, so we only require credentials
 	// here — not the gateway-level WaffoPancakeProductID.
 	merchantID, privateKey := service.WaffoPancakeCredentials()
-	if merchantID == "" || privateKey == "" {
+	storeID := strings.TrimSpace(setting.WaffoPancakeStoreID)
+	if merchantID == "" || privateKey == "" || storeID == "" {
 		common.ApiErrorMsg(c, "Waffo Pancake 未配置或密钥无效")
 		return
 	}
-
 	userId := c.GetInt("id")
 	user, err := model.GetUserById(userId, false)
 	if err != nil {
@@ -79,19 +85,67 @@ func SubscriptionRequestWaffoPancakePay(c *gin.Context) {
 		}
 	}
 
+	currency := waffoPancakeCheckoutCurrency(c, user, req.CheckoutLanguage)
+	productType := model.NormalizeWaffoPancakeProductType(plan.WaffoPancakeProductType)
+	if !service.WaffoPancakeSupportsSettlementCurrency(currency, productType) {
+		waffoPancakeCheckoutError(c, waffoPancakeUnsupportedSettlementCurrency, "该 Waffo Pancake 商品不支持所选结算货币")
+		return
+	}
+	expectedAmountMicros, settlementCurrency, err := subscriptionSettlementSnapshot(plan, currency)
+	if err != nil {
+		common.ApiErrorMsg(c, "套餐结算金额无效")
+		return
+	}
+	settlementAmount := decimal.NewFromInt(expectedAmountMicros).Shift(-6)
+	if !settlementAmount.IsPositive() {
+		common.ApiErrorMsg(c, "套餐结算金额无效")
+		return
+	}
+	if !requireWaffoPancakeExpectedQuote(c, req.SettlementCurrency, req.SettlementAmount, settlementCurrency, settlementAmount) {
+		return
+	}
+
+	// Validate both the expected quote and local currency compatibility before
+	// any provider request; preserve the exact store/product/type binding.
+	catalog, err := service.ListWaffoPancakeCatalog(c.Request.Context(), merchantID, privateKey)
+	if err != nil {
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo Pancake 套餐商品核验失败 plan_id=%d product_id=%s product_type=%s error=%q", plan.Id, plan.WaffoPancakeProductId, productType, err.Error()))
+		common.ApiErrorMsg(c, "无法核验 Waffo Pancake 套餐商品")
+		return
+	}
+	productActive := service.WaffoPancakeCatalogHasActiveSubscriptionProduct(catalog, storeID, plan.WaffoPancakeProductId)
+	if productType == model.WaffoPancakeProductTypeOneTime {
+		productActive = service.WaffoPancakeCatalogHasActiveOneTimeProduct(catalog, storeID, plan.WaffoPancakeProductId)
+	}
+	if !productActive {
+		common.ApiErrorMsg(c, "套餐绑定的 Waffo Pancake 商品类型不匹配、无效或未启用，请重新创建并绑定")
+		return
+	}
+
 	// WAFFO_PANCAKE_SUB- prefix (vs. wallet's WAFFO_PANCAKE-) drives webhook
 	// dispatch in WaffoPancakeWebhook.
 	tradeNo := fmt.Sprintf("WAFFO_PANCAKE_SUB-%d-%d-%s", userId, time.Now().UnixMilli(), randstr.String(6))
 
+	companyBillingProfile, err := loadAutomaticCompanyBillingProfile(userId)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "无法读取企业账单资料"})
+		return
+	}
+
 	order := &model.SubscriptionOrder{
-		UserId:          userId,
-		PlanId:          plan.Id,
-		Money:           plan.PriceAmount,
-		TradeNo:         tradeNo,
-		PaymentMethod:   model.PaymentMethodWaffoPancake,
-		PaymentProvider: model.PaymentProviderWaffoPancake,
-		CreateTime:      time.Now().Unix(),
-		Status:          common.TopUpStatusPending,
+		UserId:               userId,
+		PlanId:               plan.Id,
+		Money:                plan.PriceAmount,
+		TradeNo:              tradeNo,
+		PaymentMethod:        model.PaymentMethodWaffoPancake,
+		PaymentProvider:      model.PaymentProviderWaffoPancake,
+		CreateTime:           time.Now().Unix(),
+		Status:               common.TopUpStatusPending,
+		PlanSnapshot:         common.GetJsonString(plan),
+		ExpectedAmountMicros: expectedAmountMicros,
+		SettlementCurrency:   settlementCurrency,
+		ProviderProductId:    strings.TrimSpace(plan.WaffoPancakeProductId),
+		ProviderStoreId:      storeID,
 	}
 	if err := order.Insert(); err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo Pancake 订阅订单创建失败 user_id=%d plan_id=%d trade_no=%s error=%q", userId, plan.Id, tradeNo, err.Error()))
@@ -102,9 +156,11 @@ func SubscriptionRequestWaffoPancakePay(c *gin.Context) {
 	expiresInSeconds := 45 * 60
 	session, err := service.CreateWaffoPancakeCheckoutSession(c.Request.Context(), &service.WaffoPancakeCreateSessionParams{
 		ProductID:     plan.WaffoPancakeProductId,
+		Currency:      settlementCurrency,
+		ProductType:   productType,
 		BuyerIdentity: service.WaffoPancakeBuyerIdentityFromUserID(user.Id),
 		PriceSnapshot: &service.WaffoPancakePriceSnapshot{
-			Amount:      decimal.NewFromFloat(plan.PriceAmount).StringFixed(2),
+			Amount:      settlementAmount.StringFixed(2),
 			TaxCategory: "saas",
 		},
 		OrderMetadata: map[string]string{
@@ -116,25 +172,38 @@ func SubscriptionRequestWaffoPancakePay(c *gin.Context) {
 		OrderMerchantExternalID: tradeNo,
 		CheckoutRegion:          req.CheckoutRegion,
 		CheckoutLanguage:        req.CheckoutLanguage,
+		BillingDetail:           waffoPancakeBillingDetailFromProfile(companyBillingProfile),
 	})
 	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo Pancake 订阅结账会话创建失败 user_id=%d plan_id=%d trade_no=%s error=%q", userId, plan.Id, tradeNo, err.Error()))
-		order.Status = common.TopUpStatusFailed
-		_ = order.Update()
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo Pancake 订阅结账会话创建失败 user_id=%d plan_id=%d trade_no=%s currency=%s product_id=%s %s", userId, plan.Id, tradeNo, settlementCurrency, plan.WaffoPancakeProductId, service.FormatWaffoPancakeError(err)))
+		// A transport timeout can happen after Pancake accepted the session.
+		// Keep the durable order pending so a later signed webhook can settle it.
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "拉起支付失败"})
 		return
 	}
-	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Waffo Pancake 订阅订单创建成功 user_id=%d plan_id=%d trade_no=%s session_id=%s money=%.2f", userId, plan.Id, tradeNo, session.SessionID, plan.PriceAmount))
+	if err := validateWaffoPancakeCompanyBilling(c.Request.Context(), session, companyBillingProfile); err != nil {
+		reason := waffoPancakeCompanyBillingFailureReason(err)
+		if transitionErr := model.FailPendingSubscriptionOrderForCheckout(tradeNo, model.PaymentProviderWaffoPancake, reason); transitionErr != nil {
+			logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo Pancake 订阅企业账单失败终态 CAS 失败 user_id=%d plan_id=%d trade_no=%s reason_code=%s error=%q", userId, plan.Id, tradeNo, reason, transitionErr.Error()))
+		} else {
+			logger.LogWarn(c.Request.Context(), fmt.Sprintf("Waffo Pancake 订阅企业账单校验失败 user_id=%d plan_id=%d trade_no=%s reason_code=%s profile_enabled=%t", userId, plan.Id, tradeNo, reason, companyBillingProfile != nil))
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "企业账单资料不完整或暂时无法校验"})
+		return
+	}
+	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Waffo Pancake 订阅订单创建成功 user_id=%d plan_id=%d trade_no=%s session_id=%s plan_price=%.2f plan_currency=%s settlement_amount=%s settlement_currency=%s company_billing_enabled=%t", userId, plan.Id, tradeNo, session.SessionID, plan.PriceAmount, plan.Currency, settlementAmount.StringFixed(2), settlementCurrency, companyBillingProfile != nil))
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "success",
 		"data": gin.H{
-			"checkout_url":     session.CheckoutURL,
-			"session_id":       session.SessionID,
-			"expires_at":       session.ExpiresAt,
-			"order_id":         tradeNo,
-			"token":            session.Token,
-			"token_expires_at": session.TokenExpiresAt,
+			"checkout_url":        session.CheckoutURL,
+			"session_id":          session.SessionID,
+			"expires_at":          session.ExpiresAt,
+			"order_id":            tradeNo,
+			"token":               session.Token,
+			"token_expires_at":    session.TokenExpiresAt,
+			"settlement_amount":   settlementAmount.StringFixed(2),
+			"settlement_currency": settlementCurrency,
 		},
 	})
 }

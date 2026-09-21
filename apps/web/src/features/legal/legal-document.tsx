@@ -32,7 +32,7 @@ import type { LegalDocumentResponse } from './types'
 type LegalDocumentProps = {
   title: string
   queryKey: string
-  fetchDocument: () => Promise<LegalDocumentResponse>
+  fetchDocument: (language: string) => Promise<LegalDocumentResponse>
   emptyMessage: string
 }
 
@@ -42,10 +42,11 @@ export function LegalDocument({
   fetchDocument,
   emptyMessage,
 }: LegalDocumentProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const language = i18n.language
   const { data, isLoading } = useQuery({
-    queryKey: [queryKey],
-    queryFn: fetchDocument,
+    queryKey: [queryKey, language],
+    queryFn: () => fetchDocument(language),
     staleTime: 10 * 60 * 1000,
   })
 

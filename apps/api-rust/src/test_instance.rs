@@ -21,10 +21,14 @@ use axum::{
 use chrono::{Local, SecondsFormat, TimeZone, Utc};
 use lmm_api_rs::{
     auth::DashboardAuth,
-    migration_routes::{
+    routes::{
         admin_catalog::{
             AdminCatalogAuthorizer, AdminCatalogState, CatalogError, CatalogUpstream,
             DashboardAdminCatalogAuthorizer, PgCatalogProvider, UpstreamCatalog,
+        },
+        billing_dashboard::{
+            BillingDashboardState, PgBillingDashboardAuthorizer, PgBillingDashboardStore,
+            billing_dashboard_router,
         },
         billing_payments::{
             BillingConfig, BillingDependencies, BillingHttpState, DashboardBillingAuthorizer,
@@ -40,6 +44,9 @@ use lmm_api_rs::{
         },
         channel_core::{ChannelAdminAuthorizer, ChannelCoreState},
         channel_ops::{ChannelOpsHttpState, DashboardChannelAuthorizer},
+        checkin_affiliate::{
+            CheckinAffiliateState, PgValkeyCheckinEffects, router as checkin_affiliate_router,
+        },
         control_admin::{
             ControlAdminState, DashboardControlAdminAuthorizer, OAuthDiscoveryClient,
             control_admin_router,
@@ -48,15 +55,24 @@ use lmm_api_rs::{
             ControlPublicError, ControlPublicHttpState, PgControlPublicRepository,
             UptimeHeartbeatPage, UptimeKumaClient, UptimeStatusPage, control_public_router,
         },
+        control_tasks::{
+            ControlTaskStatusError, ControlTaskStatusProbe, ControlTasksState, PgControlTaskStore,
+            control_tasks_router,
+        },
         deployment::{
             DeploymentState, DisabledDeploymentJobRunner, PgValkeyDeploymentProvider,
             router as deployment_router,
+        },
+        epay::{
+            DashboardTopupAuthorizer, DisabledEpayGateway, DisabledTopupRepository, UserTopupState,
+            router as epay_router,
         },
         identity_2fa::{
             Identity2FAActor, Identity2FASession, Identity2FAState, SecuritySessionRotation,
             SecuritySessionRotator,
         },
         identity_admin::IdentityAdminState,
+        identity_catalog::{IdentityCatalogState, router as identity_catalog_router},
         identity_federation::{
             DashboardFederationIdentity, DisabledEmailCodeVerifier, FederationError,
             FederationIdentity, FederationPrincipal, FederationState,
@@ -71,62 +87,30 @@ use lmm_api_rs::{
             TaskEffect, media_midjourney_dynamic_router,
         },
         media_tasks::{MediaTaskHttpState, MidjourneyMediaTaskService, media_task_router},
-        missing_billing_dashboard::{
-            BillingDashboardState, PgBillingDashboardAuthorizer, PgBillingDashboardStore,
-            billing_dashboard_router,
-        },
-        missing_billing_webhooks::{
-            DisabledPancakeWebhookVerifier, DisabledWaffoWebhookAvailability,
-            DisabledWaffoWebhookProcessor, DisabledWaffoWebhookVerifier, WaffoWebhookState,
-            missing_billing_webhooks_router,
-        },
-        missing_control_public::{
-            DashboardMissingControlAuthorizer, DashboardMissingControlRateLimiter, HeaderNavAccess,
-            MissingControlPublicState, MissingControlStore, MissingControlStoreError,
-            missing_control_public_router, parse_header_nav_access,
-        },
-        missing_control_ratio_sync::{
-            DashboardRatioSyncAuthorizer, PgRatioSyncRepository, RatioSyncHttpState,
-            TestInstanceDisabledRatioSyncUpstream, ratio_sync_router,
-        },
-        missing_control_tasks::{
-            ControlTaskStatusError, ControlTaskStatusProbe, MissingControlTasksState,
-            PgControlTaskStore, missing_control_tasks_router,
-        },
-        missing_identity_catalog::{IdentityCatalogState, router as identity_catalog_router},
-        missing_identity_checkin_aff::{
-            IdentityCheckinAffState, PgValkeyCheckinEffects, router as identity_checkin_aff_router,
-        },
-        missing_identity_epay::{
-            DashboardTopupAuthorizer, DisabledEpayGateway, DisabledTopupRepository, UserTopupState,
-            router as identity_epay_router,
-        },
-        missing_identity_stripe_creem::{
-            DashboardStripeCreemAuthorizer, DisabledStripeCreemGateway, IdentityStripeCreemState,
-            PgStripeCreemStore, router as identity_stripe_creem_router,
-        },
-        missing_identity_topup::{IdentityTopupState, router as identity_topup_router},
-        missing_identity_waffo::{
-            DisabledTopUpGateway, WaffoTopUpState, router as identity_waffo_router,
-        },
-        missing_relay_misc_new::{
-            MissingRelayAuthRejection, MissingRelayAuthorization, MissingRelayEndpoint,
-            MissingRelayMiscState, MissingRelayService, missing_relay_misc_router,
-        },
-        missing_relay_models_billing::{ModelLookupState, PgStaticModelLookup},
-        missing_relay_video::{
-            RelayVideoAuthorization, RelayVideoHttpState, RelayVideoOperation, RelayVideoService,
-            missing_relay_video_router,
-        },
+        model_lookup::{ModelLookupState, PgStaticModelLookup},
         observability::{
             DashboardObservabilityAuthorizer, ObservabilityState, PgObservabilityStore,
             PgReadOnlyObservabilityTokenAuthorizer, PostgresObservabilityMetrics,
             UnavailableObservabilityMaintenance, observability_router,
         },
         open_source_bounties::{OpenSourceBountyState, router as open_source_bounty_router},
+        public_catalog::{
+            AccountBalanceSnapshot, AccountBalanceToken, DashboardPublicCatalogAuthorizer,
+            DashboardPublicCatalogRateLimiter, HeaderNavAccess, PublicCatalogState,
+            PublicCatalogStore, PublicCatalogStoreError, ValkeyAccountBalanceRateLimiter,
+            parse_header_nav_access, public_catalog_router,
+        },
+        ratio_sync::{
+            DashboardRatioSyncAuthorizer, PgRatioSyncRepository, RatioSyncHttpState,
+            TestInstanceDisabledRatioSyncUpstream, ratio_sync_router,
+        },
         relay_anthropic_gemini::{
             RelayBackend, RelayChannel, RelayFailure, RelayHttpState, RelayIdentity, RelayOutcome,
             RelayProtocol, UpstreamReply, UpstreamRequest, router_with_model_lookup,
+        },
+        relay_compat::{
+            RelayCompatAuthRejection, RelayCompatAuthorization, RelayCompatEndpoint,
+            RelayCompatService, RelayCompatState, relay_compat_router,
         },
         relay_media::{RelayMediaHttpState, RelayMediaService, relay_media_router},
         relay_misc::{
@@ -137,10 +121,25 @@ use lmm_api_rs::{
             OpenAiRelayAuthorization, OpenAiRelayFailure, OpenAiRelayHttpState, OpenAiRelayRequest,
             OpenAiRelayResult, OpenAiRelayService, openai_relay_router,
         },
+        relay_video::{
+            RelayVideoAuthorization, RelayVideoHttpState, RelayVideoOperation, RelayVideoService,
+            relay_video_router,
+        },
+        stripe_creem::{
+            DashboardStripeCreemAuthorizer, DisabledStripeCreemGateway, PgStripeCreemStore,
+            StripeCreemState, router as stripe_creem_router,
+        },
         system_config::{
             DashboardRootAuthorizer, ProjectUpdateClient, SystemConfigHttpState,
             SystemConfigRuntimeWriter, TestInstanceDisabledWaffoPancakeGateway,
             system_config_router,
+        },
+        topup::{TopupState, router as topup_router},
+        waffo::{DisabledTopUpGateway, WaffoTopUpState, router as waffo_router},
+        waffo_webhooks::{
+            DisabledPancakeWebhookVerifier, DisabledWaffoWebhookAvailability,
+            DisabledWaffoWebhookProcessor, DisabledWaffoWebhookVerifier, WaffoWebhookState,
+            waffo_webhooks_router,
         },
     },
 };
@@ -209,14 +208,25 @@ pub fn safe_control_public_surface(pg: PgPool) -> Router {
 /// the durable store plus the listener's shared dashboard session authority.
 /// Keep the constructor here shared with the isolated candidate surface so
 /// the two listeners cannot silently drift in their database/query contract.
-pub fn durable_missing_control_public_surface(pg: PgPool, auth: Arc<dyn DashboardAuth>) -> Router {
-    missing_control_public_router(
-        MissingControlPublicState::new(
-            Arc::new(PgMissingControlStore::new(pg)),
-            Arc::new(DashboardMissingControlAuthorizer::new(Arc::clone(&auth))),
+pub fn durable_public_catalog_surface(
+    pg: PgPool,
+    valkey: redis::Client,
+    dependency_timeout: std::time::Duration,
+    auth: Arc<dyn DashboardAuth>,
+) -> Router {
+    public_catalog_router(
+        PublicCatalogState::new(
+            Arc::new(PgPublicCatalogStore::new(pg)),
+            Arc::new(DashboardPublicCatalogAuthorizer::new(Arc::clone(&auth))),
         )
-        .with_critical_rate_limiter(Arc::new(DashboardMissingControlRateLimiter::new(
+        .with_critical_rate_limiter(Arc::new(DashboardPublicCatalogRateLimiter::new(
             Arc::clone(&auth),
+        )))
+        .with_account_balance_rate_limiter(Arc::new(ValkeyAccountBalanceRateLimiter::new(
+            valkey,
+            30,
+            std::time::Duration::from_secs(60),
+            dependency_timeout,
         )))
         .with_console_access_gate(auth),
     )
@@ -258,6 +268,22 @@ pub fn safe_candidate_surface(
         Arc::new(PgReadOnlyObservabilityTokenAuthorizer::new(pg.clone())),
     ));
 
+    let federation_identity: Arc<dyn FederationIdentity> = match DashboardFederationIdentity::new(
+        Arc::clone(&auth),
+        pg.clone(),
+        &SecretString::from("test-federation-session-secret"),
+        Arc::new(DisabledEmailCodeVerifier),
+    ) {
+        Ok(identity) => Arc::new(identity),
+        Err(error) => {
+            tracing::error!(
+                ?error,
+                "test-instance federation identity setup failed; bindings remain fail-closed"
+            );
+            Arc::new(DenyFederationIdentity)
+        }
+    };
+
     Router::new()
         .merge(billing_payments_router(BillingHttpState::new(
             BillingDependencies {
@@ -293,14 +319,18 @@ pub fn safe_candidate_surface(
                 Arc::new(DisabledDeploymentJobRunner),
             ),
         ))))
-        .merge(lmm_api_rs::migration_routes::identity_security::router(
+        .merge(lmm_api_rs::routes::identity_security::router(
             IdentitySecurityState::new(
                 Arc::new(PgValkeySecurityProvider::new(pg.clone(), valkey.clone())),
-                Arc::new(lmm_api_rs::migration_routes::identity_security::DashboardSecurityAuthorizer::new(Arc::clone(&auth))),
+                Arc::new(
+                    lmm_api_rs::routes::identity_security::DashboardSecurityAuthorizer::new(
+                        Arc::clone(&auth),
+                    ),
+                ),
             )
             .with_passkey_enabled(false),
         ))
-        .merge(lmm_api_rs::migration_routes::identity_2fa::router(
+        .merge(lmm_api_rs::routes::identity_2fa::router(
             Identity2FAState::new(pg.clone(), valkey.clone(), Arc::new(DenySessionRotator)),
         ))
         .merge(identity_federation_provider_router(FederationState::new(
@@ -310,15 +340,7 @@ pub fn safe_candidate_surface(
         )))
         .merge(identity_federation_bindings_router(FederationState::new(
             pg.clone(),
-            Arc::new(
-                DashboardFederationIdentity::new(
-                    Arc::clone(&auth),
-                    pg.clone(),
-                    &SecretString::from("test-federation-session-secret"),
-                    Arc::new(DisabledEmailCodeVerifier),
-                )
-                .expect("test federation identity secret"),
-            ),
+            federation_identity,
             b"test-federation-flow-key",
         )))
         .merge(observability_router(
@@ -326,8 +348,7 @@ pub fn safe_candidate_surface(
                 Arc::new(PgObservabilityStore::new(
                     pg.clone(),
                     Arc::new(
-                        PostgresObservabilityMetrics::new(pg.clone())
-                            .with_valkey(valkey.clone()),
+                        PostgresObservabilityMetrics::new(pg.clone()).with_valkey(valkey.clone()),
                     ),
                     Arc::new(UnavailableObservabilityMaintenance),
                 )),
@@ -342,12 +363,14 @@ pub fn safe_candidate_surface(
             pg.clone(),
             Arc::clone(&auth),
         )))
-        .merge(relay_media_router(RelayMediaHttpState::new(Arc::new(DenyRelayMedia))))
+        .merge(relay_media_router(RelayMediaHttpState::new(Arc::new(
+            DenyRelayMedia,
+        ))))
         .merge(openai_relay_router(OpenAiRelayHttpState::new(
             Arc::new(DenyOpenAiRelay),
             env!("CARGO_PKG_VERSION"),
         )))
-        .merge(lmm_api_rs::migration_routes::admin_catalog::router(
+        .merge(lmm_api_rs::routes::admin_catalog::router(
             AdminCatalogState::new(
                 Arc::new(PgCatalogProvider::new(
                     pg.clone(),
@@ -356,34 +379,32 @@ pub fn safe_candidate_surface(
                 catalog_authorizer,
             ),
         ))
-        .merge(lmm_api_rs::migration_routes::billing_subscriptions::router(
+        .merge(lmm_api_rs::routes::billing_subscriptions::router(
             BillingSubscriptionsState::new(pg.clone(), Some(valkey.clone()), Arc::clone(&auth)),
         ))
-        .merge(lmm_api_rs::migration_routes::channel_core::router(
-            ChannelCoreState {
-                pg: pg.clone(),
-                valkey: valkey.clone(),
-                authorizer: Arc::clone(&channel_authorizer),
-                retry_times: 0,
-            },
+        .merge(lmm_api_rs::routes::channel_core::router(ChannelCoreState {
+            pg: pg.clone(),
+            valkey: valkey.clone(),
+            authorizer: Arc::clone(&channel_authorizer),
+            retry_times: 0,
+        }))
+        .merge(lmm_api_rs::routes::channel_ops::channel_ops_router(
+            ChannelOpsHttpState::new(pg.clone(), valkey.clone(), channel_authorizer),
         ))
-        .merge(
-            lmm_api_rs::migration_routes::channel_ops::channel_ops_router(
-                ChannelOpsHttpState::new(pg.clone(), valkey.clone(), channel_authorizer),
-            ),
-        )
-        .merge(lmm_api_rs::migration_routes::identity_admin::router(
+        .merge(lmm_api_rs::routes::identity_admin::router(
             IdentityAdminState::new(pg.clone(), valkey.clone(), Arc::clone(&auth)),
         ))
-        .merge(lmm_api_rs::migration_routes::identity_profile::router(
+        .merge(lmm_api_rs::routes::identity_profile::router(
             ProfileState::new(pg.clone(), valkey.clone()).with_dashboard_auth(Arc::clone(&auth)),
         ))
         .merge(safe_control_public_surface(pg.clone()))
         // The remainder of the candidate surface uses the same PostgreSQL and
         // dashboard-session authorities. Provider and relay boundaries remain
         // deliberately fail-closed on the isolated test instance.
-        .merge(durable_missing_control_public_surface(
+        .merge(durable_public_catalog_surface(
             pg.clone(),
+            valkey.clone(),
+            std::time::Duration::from_secs(2),
             Arc::clone(&auth),
         ))
         .merge(ratio_sync_router(RatioSyncHttpState::new(
@@ -391,7 +412,7 @@ pub fn safe_candidate_surface(
             Arc::new(TestInstanceDisabledRatioSyncUpstream),
             Arc::new(DashboardRatioSyncAuthorizer::new(Arc::clone(&auth))),
         )))
-        .merge(missing_control_tasks_router(MissingControlTasksState::new(
+        .merge(control_tasks_router(ControlTasksState::new(
             Arc::new(PgControlTaskStore::new(pg.clone())),
             observability_authorizer,
             Arc::new(PgTestStatusProbe::new(pg.clone())),
@@ -400,25 +421,23 @@ pub fn safe_candidate_surface(
             pg.clone(),
             Arc::clone(&auth),
         )))
-        .merge(identity_checkin_aff_router(IdentityCheckinAffState::new(
-            pg.clone(),
-            Arc::clone(&auth),
-        ).with_effects(Arc::new(PgValkeyCheckinEffects::new(pg.clone(), valkey.clone())))))
-        .merge(identity_topup_router(IdentityTopupState::new(
-            pg.clone(),
-            Arc::clone(&auth),
-        )))
-        .merge(identity_epay_router(UserTopupState::new(
+        .merge(checkin_affiliate_router(
+            CheckinAffiliateState::new(pg.clone(), Arc::clone(&auth)).with_effects(Arc::new(
+                PgValkeyCheckinEffects::new(pg.clone(), valkey.clone()),
+            )),
+        ))
+        .merge(topup_router(TopupState::new(pg.clone(), Arc::clone(&auth))))
+        .merge(epay_router(UserTopupState::new(
             Arc::new(DashboardTopupAuthorizer::new(Arc::clone(&auth))),
             Arc::new(DisabledTopupRepository),
             Arc::new(DisabledEpayGateway),
         )))
-        .merge(identity_stripe_creem_router(IdentityStripeCreemState::new(
+        .merge(stripe_creem_router(StripeCreemState::new(
             Arc::new(PgStripeCreemStore::new(pg.clone())),
             Arc::new(DashboardStripeCreemAuthorizer::new(Arc::clone(&auth))),
             Arc::new(DisabledStripeCreemGateway),
         )))
-        .merge(identity_waffo_router(WaffoTopUpState::new(
+        .merge(waffo_router(WaffoTopUpState::new(
             pg.clone(),
             Arc::clone(&auth),
             Arc::new(DisabledTopUpGateway),
@@ -427,18 +446,18 @@ pub fn safe_candidate_surface(
             Arc::new(PgBillingDashboardStore::new(pg.clone())),
             Arc::new(PgBillingDashboardAuthorizer::new(pg.clone())),
         )))
-        .merge(missing_billing_webhooks_router(WaffoWebhookState::new(
+        .merge(waffo_webhooks_router(WaffoWebhookState::new(
             Arc::new(DisabledWaffoWebhookAvailability),
             Arc::new(DisabledPancakeWebhookVerifier),
             Arc::new(DisabledWaffoWebhookVerifier),
             Arc::new(DisabledWaffoWebhookProcessor),
         )))
-        .merge(missing_relay_video_router(RelayVideoHttpState::new(
-            Arc::new(DenyRelayVideo),
-        )))
-        .merge(missing_relay_misc_router(MissingRelayMiscState::new(
-            Arc::new(DenyRelayMisc),
-        )))
+        .merge(relay_video_router(RelayVideoHttpState::new(Arc::new(
+            DenyRelayVideo,
+        ))))
+        .merge(relay_compat_router(RelayCompatState::new(Arc::new(
+            DenyRelayMisc,
+        ))))
         // These four legacy relay seams and the frozen files/fine-tunes 501
         // endpoints must be registered together.  The test-only service
         // authenticates only a fixture token and otherwise never selects an
@@ -446,7 +465,10 @@ pub fn safe_candidate_surface(
         .merge(relay_misc_candidate_router())
         .merge(router_with_model_lookup(
             RelayHttpState::new(Arc::new(TestInstanceRelayBackend)),
-            ModelLookupState::new(Arc::new(PgStaticModelLookup::new(pg.clone())), env!("CARGO_PKG_VERSION")),
+            ModelLookupState::new(
+                Arc::new(PgStaticModelLookup::new(pg.clone())),
+                env!("CARGO_PKG_VERSION"),
+            ),
         ))
         // Setup must be reachable before a test-only root account exists.
         // Privileged routes retain the shared root-session guard and every
@@ -460,9 +482,9 @@ pub fn safe_candidate_surface(
         // test adapter denies every provider protocol after authentication, so
         // an imported snapshot can exercise route/auth compatibility without
         // contacting a selected production channel.
-        .merge(media_midjourney_dynamic_router(MidjourneyHttpState::new(Arc::new(
-            TestInstanceMidjourneyBackend::new(pg.clone()),
-        ))))
+        .merge(media_midjourney_dynamic_router(MidjourneyHttpState::new(
+            Arc::new(TestInstanceMidjourneyBackend::new(pg.clone())),
+        )))
         .merge(media_task_router(MediaTaskHttpState::new(Arc::new(
             MidjourneyMediaTaskService::new(Arc::new(TestInstanceMidjourneyBackend::new(pg))),
         ))))
@@ -470,11 +492,11 @@ pub fn safe_candidate_surface(
 
 /// PostgreSQL-backed read adapter for the legacy public/control endpoints.
 ///
-/// The legacy option payloads are intentionally retained as JSON so unknown
-/// fields survive the staged migration. Missing configuration yields an empty
-/// JSON value rather than an invented successful provider result.
+/// Legacy option payloads remain JSON so unknown fields survive unchanged.
+/// Missing configuration yields an empty JSON value rather than an invented
+/// successful provider result.
 #[derive(Clone)]
-struct PgMissingControlStore {
+struct PgPublicCatalogStore {
     pg: PgPool,
 }
 
@@ -511,17 +533,17 @@ struct PricingVendor {
     icon: String,
 }
 
-impl PgMissingControlStore {
+impl PgPublicCatalogStore {
     fn new(pg: PgPool) -> Self {
         Self { pg }
     }
 
-    async fn option_json(&self, key: &str) -> Result<Option<Value>, MissingControlStoreError> {
+    async fn option_json(&self, key: &str) -> Result<Option<Value>, PublicCatalogStoreError> {
         let value = sqlx::query_scalar::<_, String>("SELECT value FROM options WHERE key = $1")
             .bind(key)
             .fetch_optional(&self.pg)
             .await
-            .map_err(|error| MissingControlStoreError::new(error.to_string()))?;
+            .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?;
         Ok(value.and_then(|value| serde_json::from_str(&value).ok()))
     }
 
@@ -529,7 +551,7 @@ impl PgMissingControlStore {
         &self,
         start: i64,
         end: i64,
-    ) -> Result<Vec<RankingQuotaTotal>, MissingControlStoreError> {
+    ) -> Result<Vec<RankingQuotaTotal>, PublicCatalogStoreError> {
         sqlx::query_as::<_, (String, i64)>(
             "SELECT model_name, SUM(token_used)::BIGINT AS total_tokens \
              FROM quota_data WHERE model_name <> '' AND created_at >= $1 AND created_at <= $2 \
@@ -547,7 +569,7 @@ impl PgMissingControlStore {
                 })
                 .collect()
         })
-        .map_err(|error| MissingControlStoreError::new(error.to_string()))
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))
     }
 
     async fn ranking_buckets(
@@ -555,7 +577,7 @@ impl PgMissingControlStore {
         start: i64,
         end: i64,
         bucket_seconds: i64,
-    ) -> Result<Vec<RankingQuotaBucket>, MissingControlStoreError> {
+    ) -> Result<Vec<RankingQuotaBucket>, PublicCatalogStoreError> {
         sqlx::query_as::<_, (String, i64, i64)>(
             "SELECT model_name, (created_at / $3) * $3 AS bucket, SUM(token_used)::BIGINT AS tokens \
              FROM quota_data WHERE model_name <> '' AND created_at >= $1 AND created_at <= $2 \
@@ -575,12 +597,12 @@ impl PgMissingControlStore {
                 })
                 .collect()
         })
-        .map_err(|error| MissingControlStoreError::new(error.to_string()))
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))
     }
 
     async fn ranking_model_metadata(
         &self,
-    ) -> Result<BTreeMap<String, RankingModelMeta>, MissingControlStoreError> {
+    ) -> Result<BTreeMap<String, RankingModelMeta>, PublicCatalogStoreError> {
         // Go's ranking metadata is built from its pricing cache: only models
         // served by an enabled ability may inherit model/vendor metadata.
         let active_models = sqlx::query_scalar::<_, String>(
@@ -589,7 +611,7 @@ impl PgMissingControlStore {
         )
         .fetch_all(&self.pg)
         .await
-        .map_err(|error| MissingControlStoreError::new(error.to_string()))?
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?
         .into_iter()
         .collect::<BTreeSet<_>>();
         if active_models.is_empty() {
@@ -602,13 +624,13 @@ impl PgMissingControlStore {
         )
         .fetch_all(&self.pg)
         .await
-        .map_err(|error| MissingControlStoreError::new(error.to_string()))?;
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?;
         let vendor_by_id = sqlx::query_as::<_, (i64, String, Option<String>)>(
             "SELECT id, name, icon FROM vendors WHERE deleted_at IS NULL",
         )
         .fetch_all(&self.pg)
         .await
-        .map_err(|error| MissingControlStoreError::new(error.to_string()))?
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?
         .into_iter()
         .map(|(id, name, icon)| (id, (name, icon.unwrap_or_default())))
         .collect::<BTreeMap<_, _>>();
@@ -663,16 +685,28 @@ impl PgMissingControlStore {
 const FROZEN_DASHBOARD_CHANNEL_MODELS_SHA256: &str =
     "cb4e3e3eac50b4f9d251d8768bb2e8e6e347dcd4da6be55bdb6a70a51e2b270e";
 
-fn frozen_dashboard_models() -> Value {
+fn load_frozen_dashboard_models() -> Result<Value, String> {
     let fixture = include_str!("../assets/channel-id2models-go-v1.json");
-    let digest = Sha256::digest(fixture.as_bytes());
-    assert_eq!(
-        format!("{digest:x}"),
-        FROZEN_DASHBOARD_CHANNEL_MODELS_SHA256,
-        "pinned Go channelId2Models fixture changed"
-    );
-    serde_json::from_str(fixture)
-        .expect("checked-in frozen dashboard model catalogue is valid JSON")
+    let actual_digest = format!("{:x}", Sha256::digest(fixture.as_bytes()));
+    if actual_digest != FROZEN_DASHBOARD_CHANNEL_MODELS_SHA256 {
+        return Err(format!(
+            "pinned Go channelId2Models fixture digest mismatch: expected \
+             {FROZEN_DASHBOARD_CHANNEL_MODELS_SHA256}, got {actual_digest}"
+        ));
+    }
+    serde_json::from_str(fixture).map_err(|error| {
+        format!("checked-in frozen dashboard model catalogue is invalid JSON: {error}")
+    })
+}
+
+fn frozen_dashboard_models() -> Value {
+    match load_frozen_dashboard_models() {
+        Ok(models) => models,
+        Err(error) => {
+            tracing::error!(%error, "frozen dashboard model catalogue is unavailable");
+            Value::Object(Map::new())
+        }
+    }
 }
 
 fn object_option<'a>(
@@ -1129,15 +1163,15 @@ fn build_pricing_snapshot(
 }
 
 #[async_trait]
-impl MissingControlStore for PgMissingControlStore {
-    async fn header_nav(&self, module: &str) -> Result<HeaderNavAccess, MissingControlStoreError> {
+impl PublicCatalogStore for PgPublicCatalogStore {
+    async fn header_nav(&self, module: &str) -> Result<HeaderNavAccess, PublicCatalogStoreError> {
         let Some(Value::Object(modules)) = self.option_json("HeaderNavModules").await? else {
             return Ok(HeaderNavAccess::default());
         };
         Ok(parse_header_nav_access(modules.get(module)))
     }
 
-    async fn groups(&self) -> Result<Vec<String>, MissingControlStoreError> {
+    async fn groups(&self) -> Result<Vec<String>, PublicCatalogStoreError> {
         // `controller.GetGroups` enumerates the configured GroupRatio map,
         // not the currently enabled abilities. A group with no active channel
         // must remain visible to the administration UI.
@@ -1153,10 +1187,8 @@ impl MissingControlStore for PgMissingControlStore {
 
     async fn pricing(
         &self,
-        actor: Option<
-            lmm_api_rs::migration_routes::missing_control_public::MissingControlPrincipal,
-        >,
-    ) -> Result<Value, MissingControlStoreError> {
+        actor: Option<lmm_api_rs::routes::public_catalog::PublicCatalogPrincipal>,
+    ) -> Result<Value, PublicCatalogStoreError> {
         // Go's pricing cache is built from every enabled ability.  In
         // particular, its cache refresh uses a left join and does not filter
         // a disabled channel here; changing that would silently remove a
@@ -1169,7 +1201,7 @@ impl MissingControlStore for PgMissingControlStore {
         )
         .fetch_all(&self.pg)
         .await
-        .map_err(|error| MissingControlStoreError::new(error.to_string()))?
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?
         .into_iter()
         .map(|(model_name, group, channel_type)| PricingAbility {
             model_name,
@@ -1196,7 +1228,7 @@ impl MissingControlStore for PgMissingControlStore {
         )
         .fetch_all(&self.pg)
         .await
-        .map_err(|error| MissingControlStoreError::new(error.to_string()))?
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?
         .into_iter()
         .map(
             |(
@@ -1226,7 +1258,7 @@ impl MissingControlStore for PgMissingControlStore {
         )
         .fetch_all(&self.pg)
         .await
-        .map_err(|error| MissingControlStoreError::new(error.to_string()))?
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?
         .into_iter()
         .map(|(id, name, description, icon)| PricingVendor {
             id,
@@ -1256,7 +1288,7 @@ impl MissingControlStore for PgMissingControlStore {
         ])
         .fetch_all(&self.pg)
         .await
-        .map_err(|error| MissingControlStoreError::new(error.to_string()))?
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?
         .into_iter()
         .filter_map(|(key, value)| serde_json::from_str(&value).ok().map(|value| (key, value)))
         .collect::<std::collections::BTreeMap<_, _>>();
@@ -1265,7 +1297,7 @@ impl MissingControlStore for PgMissingControlStore {
                 .bind(actor.user_id)
                 .fetch_optional(&self.pg)
                 .await
-                .map_err(|error| MissingControlStoreError::new(error.to_string()))?
+                .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?
                 .unwrap_or_default()
         } else {
             String::new()
@@ -1279,9 +1311,9 @@ impl MissingControlStore for PgMissingControlStore {
         ))
     }
 
-    async fn rankings(&self, period: &str) -> Result<Value, MissingControlStoreError> {
+    async fn rankings(&self, period: &str) -> Result<Value, PublicCatalogStoreError> {
         let config = ranking_period(period).ok_or_else(|| {
-            MissingControlStoreError::new(format!("invalid ranking period: {period}"))
+            PublicCatalogStoreError::new(format!("invalid ranking period: {period}"))
         })?;
         let now = Utc::now().timestamp();
         let current_start = now - config.duration_seconds;
@@ -1304,13 +1336,13 @@ impl MissingControlStore for PgMissingControlStore {
         ))
     }
 
-    async fn exposed_ratio(&self) -> Result<Option<Value>, MissingControlStoreError> {
+    async fn exposed_ratio(&self) -> Result<Option<Value>, PublicCatalogStoreError> {
         let enabled = sqlx::query_scalar::<_, String>(
             "SELECT value FROM options WHERE key = 'ExposeRatioEnabled'",
         )
         .fetch_optional(&self.pg)
         .await
-        .map_err(|error| MissingControlStoreError::new(error.to_string()))?
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?
         .is_some_and(|value| value.eq_ignore_ascii_case("true") || value == "1");
         if !enabled {
             return Ok(None);
@@ -1331,7 +1363,7 @@ impl MissingControlStore for PgMissingControlStore {
         ])
         .fetch_all(&self.pg)
         .await
-        .map_err(|error| MissingControlStoreError::new(error.to_string()))?;
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?;
         let values = rows
             .into_iter()
             .filter_map(|(key, value)| serde_json::from_str(&value).ok().map(|value| (key, value)))
@@ -1345,7 +1377,7 @@ impl MissingControlStore for PgMissingControlStore {
         })))
     }
 
-    async fn token_usage(&self, key: &str) -> Result<Option<Value>, MissingControlStoreError> {
+    async fn token_usage(&self, key: &str) -> Result<Option<Value>, PublicCatalogStoreError> {
         self.token_usage_for_owner(key, 0).await
     }
 
@@ -1353,7 +1385,7 @@ impl MissingControlStore for PgMissingControlStore {
         &self,
         key: &str,
         owner_id: i64,
-    ) -> Result<Option<Value>, MissingControlStoreError> {
+    ) -> Result<Option<Value>, PublicCatalogStoreError> {
         let row = sqlx::query_as::<_, (String, i64, i64, bool, bool, String, i64)>(
             "SELECT name, used_quota, remain_quota, unlimited_quota, model_limits_enabled, \
              model_limits, expired_time FROM tokens WHERE key = $1 AND deleted_at IS NULL \
@@ -1363,7 +1395,7 @@ impl MissingControlStore for PgMissingControlStore {
         .bind(owner_id)
         .fetch_optional(&self.pg)
         .await
-        .map_err(|error| MissingControlStoreError::new(error.to_string()))?;
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?;
         Ok(row.map(
             |(name, used, remain, unlimited, limits_enabled, limits, expired)| {
                 let model_limits = limits
@@ -1390,8 +1422,8 @@ impl MissingControlStore for PgMissingControlStore {
         &self,
         key: &str,
     ) -> Result<
-        Option<lmm_api_rs::migration_routes::missing_control_public::MissingControlToken>,
-        MissingControlStoreError,
+        Option<lmm_api_rs::routes::public_catalog::PublicCatalogToken>,
+        PublicCatalogStoreError,
     > {
         let Some((status, user_id)) = sqlx::query_as::<_, (i64, i64)>(
             "SELECT COALESCE(status, 1), user_id FROM tokens \
@@ -1401,7 +1433,7 @@ impl MissingControlStore for PgMissingControlStore {
         .bind(key)
         .fetch_optional(&self.pg)
         .await
-        .map_err(|error| MissingControlStoreError::new(error.to_string()))?
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?
         else {
             return Ok(None);
         };
@@ -1411,9 +1443,9 @@ impl MissingControlStore for PgMissingControlStore {
         .bind(user_id)
         .fetch_optional(&self.pg)
         .await
-        .map_err(|error| MissingControlStoreError::new(error.to_string()))?
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?
         else {
-            return Err(MissingControlStoreError::new(format!(
+            return Err(PublicCatalogStoreError::new(format!(
                 "token owner {user_id} is missing"
             )));
         };
@@ -1421,13 +1453,92 @@ impl MissingControlStore for PgMissingControlStore {
             .ok()
             .and_then(|setting| setting.get("language")?.as_str().map(str::to_owned));
         Ok(Some(
-            lmm_api_rs::migration_routes::missing_control_public::MissingControlToken {
+            lmm_api_rs::routes::public_catalog::PublicCatalogToken {
                 user_id,
                 status,
                 user_status,
                 saved_language,
             },
         ))
+    }
+
+    async fn account_balance_token(
+        &self,
+        key: &str,
+    ) -> Result<Option<AccountBalanceToken>, PublicCatalogStoreError> {
+        let row = sqlx::query_as::<_, (i64, i64, i64, Option<String>, bool, bool)>(
+            "SELECT user_id, COALESCE(status, 0), COALESCE(expired_time, 0), allow_ips, \
+                    COALESCE((to_jsonb(tokens)->>'oauth_managed')::boolean, TRUE), \
+                    COALESCE((to_jsonb(tokens)->>'account_balance_read')::boolean, FALSE) \
+             FROM tokens WHERE key = $1 AND deleted_at IS NULL",
+        )
+        .bind(key)
+        .fetch_optional(&self.pg)
+        .await
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?;
+        let Some((user_id, status, expired_time, allow_ips, oauth_managed, account_balance_read)) =
+            row
+        else {
+            return Ok(None);
+        };
+        let user_status = sqlx::query_scalar::<_, i64>(
+            "SELECT COALESCE(status, 0) FROM users WHERE id = $1 AND deleted_at IS NULL",
+        )
+        .bind(user_id)
+        .fetch_optional(&self.pg)
+        .await
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?;
+        let Some(user_status) = user_status else {
+            return Ok(None);
+        };
+        Ok(Some(AccountBalanceToken {
+            user_id,
+            status,
+            expired_time,
+            allow_ips,
+            oauth_managed,
+            account_balance_read,
+            user_status,
+        }))
+    }
+
+    async fn account_balance_for_owner(
+        &self,
+        user_id: i64,
+    ) -> Result<Option<AccountBalanceSnapshot>, PublicCatalogStoreError> {
+        let Some(quota) = sqlx::query_scalar::<_, i64>(
+            "SELECT COALESCE(quota, 0) FROM users WHERE id = $1 AND status = 1 AND deleted_at IS NULL",
+        )
+        .bind(user_id)
+        .fetch_optional(&self.pg)
+        .await
+        .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?
+        else {
+            return Ok(None);
+        };
+        let raw_quota_per_unit =
+            sqlx::query_scalar::<_, String>("SELECT value FROM options WHERE key = 'QuotaPerUnit'")
+                .fetch_optional(&self.pg)
+                .await
+                .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?
+                // Go initializes common.QuotaPerUnit before overlaying saved options.
+                // Absence uses the default; an explicitly invalid value still fails closed.
+                .unwrap_or_else(|| "500000".to_owned());
+        let Ok(quota_per_unit) = raw_quota_per_unit.trim().parse::<f64>() else {
+            return Ok(None);
+        };
+        if !quota_per_unit.is_finite() || quota_per_unit <= 0.0 {
+            return Ok(None);
+        }
+        let updated_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()
+            .and_then(|duration| i64::try_from(duration.as_secs()).ok())
+            .unwrap_or(i64::MAX);
+        Ok(Some(AccountBalanceSnapshot {
+            remaining: quota as f64 / quota_per_unit,
+            updated_at,
+        }))
     }
 }
 
@@ -1942,26 +2053,26 @@ impl RelayVideoService for DenyRelayVideo {
 
 struct DenyRelayMisc;
 #[async_trait]
-impl MissingRelayService for DenyRelayMisc {
+impl RelayCompatService for DenyRelayMisc {
     async fn authorize(
         &self,
-        endpoint: MissingRelayEndpoint,
+        endpoint: RelayCompatEndpoint,
         _: &Request,
-    ) -> MissingRelayAuthorization {
-        MissingRelayAuthorization::Rejected(MissingRelayAuthRejection {
+    ) -> RelayCompatAuthorization {
+        RelayCompatAuthorization::Rejected(RelayCompatAuthRejection {
             status: StatusCode::UNAUTHORIZED,
             code: "AUTH_UNAUTHORIZED",
             message: match endpoint {
-                MissingRelayEndpoint::Realtime | MissingRelayEndpoint::Edits => "Invalid token",
-                MissingRelayEndpoint::PgChatCompletions => "Unauthorized, invalid access token",
-                MissingRelayEndpoint::PgImagesGenerations | MissingRelayEndpoint::PgImagesEdits => {
+                RelayCompatEndpoint::Realtime | RelayCompatEndpoint::Edits => "Invalid token",
+                RelayCompatEndpoint::PgChatCompletions => "Unauthorized, invalid access token",
+                RelayCompatEndpoint::PgImagesGenerations | RelayCompatEndpoint::PgImagesEdits => {
                     "Invalid token"
                 }
             }
             .to_owned(),
         })
     }
-    async fn relay(&self, _: MissingRelayEndpoint, _: Request) -> Response {
+    async fn relay(&self, _: RelayCompatEndpoint, _: Request) -> Response {
         StatusCode::SERVICE_UNAVAILABLE.into_response()
     }
 }
@@ -2074,14 +2185,11 @@ struct TestInstanceMidjourneyBackend {
 
 impl TestInstanceMidjourneyBackend {
     fn new(pg: PgPool) -> Self {
-        let client = reqwest::Client::builder()
-            .no_proxy()
-            .build()
-            .unwrap_or_default();
         Self {
             authentication: PgMidjourneyBackend::new(
                 pg,
-                client,
+                lmm_api_rs::relay_http::RelayHttpClient::new(Default::default())
+                    .expect("relay client"),
                 MidjourneyChannel {
                     id: 0,
                     base_url: "http://127.0.0.1:9/".to_owned(),
@@ -2256,8 +2364,12 @@ impl ProjectUpdateClient for DenyProjectUpdate {
 }
 
 #[cfg(test)]
+#[path = "account_balance_pg_tests.rs"]
+mod account_balance_pg_tests;
+
+#[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, env, sync::Arc};
+    use std::{collections::BTreeMap, env, error::Error, io, sync::Arc};
 
     use axum::{
         body::Body,
@@ -2265,7 +2377,7 @@ mod tests {
     };
     use chrono::Utc;
     use lmm_api_rs::auth::{AuthConfig, DashboardAuth, PgValkeyDashboardAuth};
-    use lmm_api_rs::migration_routes::{
+    use lmm_api_rs::routes::{
         admin_catalog::CatalogUpstream,
         control_public::UptimeKumaClient,
         media_midjourney::{
@@ -2285,12 +2397,58 @@ mod tests {
 
     use super::{
         DenyCatalogUpstream, DenyProjectUpdate, DenyUptimeKuma, LEGACY_PRICING_FIRST_MODEL_VERSION,
-        LEGACY_PRICING_RESPONSE_VERSION, PgMissingControlStore, PricingAbility,
+        LEGACY_PRICING_RESPONSE_VERSION, PgPublicCatalogStore, PricingAbility,
         PricingModelMetadata, PricingVendor, TestInstanceMidjourneyBackend,
         TestInstanceRelayBackend, TestInstanceSetupRuntimeWriter, build_pricing_snapshot,
-        frozen_dashboard_models, relay_misc_candidate_router, safe_candidate_surface,
+        load_frozen_dashboard_models, relay_misc_candidate_router, safe_candidate_surface,
     };
-    use lmm_api_rs::migration_routes::missing_control_public::MissingControlStore;
+    use lmm_api_rs::routes::public_catalog::PublicCatalogStore;
+
+    type TestResult<T = ()> = Result<T, Box<dyn Error>>;
+
+    fn test_error(message: impl Into<String>) -> Box<dyn Error> {
+        Box::new(io::Error::other(message.into()))
+    }
+
+    fn required<T>(value: Option<T>, context: &'static str) -> TestResult<T> {
+        value.ok_or_else(|| test_error(context))
+    }
+
+    fn request(
+        builder: axum::http::request::Builder,
+        body: Body,
+        context: &'static str,
+    ) -> TestResult<Request<Body>> {
+        builder
+            .body(body)
+            .map_err(|error| test_error(format!("{context}: {error}")))
+    }
+
+    fn lazy_pg_pool() -> TestResult<PgPool> {
+        PgPoolOptions::new()
+            .acquire_timeout(Duration::from_millis(10))
+            .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
+            .map_err(|error| test_error(format!("build deferred PostgreSQL fixture pool: {error}")))
+    }
+
+    fn lazy_valkey_client() -> TestResult<redis::Client> {
+        redis::Client::open("redis://127.0.0.1:1/")
+            .map_err(|error| test_error(format!("build deferred Valkey fixture client: {error}")))
+    }
+
+    fn test_dashboard_auth(
+        pg: &PgPool,
+        valkey: &redis::Client,
+    ) -> TestResult<Arc<dyn DashboardAuth>> {
+        Ok(Arc::new(PgValkeyDashboardAuth::new(
+            pg.clone(),
+            valkey.clone(),
+            AuthConfig {
+                session_secret: SecretString::from("TestR5!session-secret-with-entropy-123456"),
+                ..AuthConfig::default()
+            },
+        )?))
+    }
 
     fn config_change(key: &str, value: &str) -> (String, String) {
         (key.to_owned(), value.to_owned())
@@ -2354,13 +2512,16 @@ mod tests {
     }
 
     #[test]
-    fn dashboard_models_use_the_frozen_go_catalogue_shape() {
-        let models = frozen_dashboard_models();
-        let object = models.as_object().expect("channel-type map");
-        let advanced = object
-            .get("58")
-            .and_then(serde_json::Value::as_array)
-            .expect("advanced custom channel list");
+    fn dashboard_models_use_the_frozen_go_catalogue_shape() -> TestResult {
+        let models = load_frozen_dashboard_models().map_err(test_error)?;
+        let object = required(
+            models.as_object(),
+            "dashboard model fixture must be an object",
+        )?;
+        let advanced = required(
+            object.get("58").and_then(serde_json::Value::as_array),
+            "dashboard model fixture must contain an array for channel type 58",
+        )?;
         assert!(!advanced.is_empty());
         assert!(advanced.iter().all(|model| model.is_string()));
         assert_eq!(
@@ -2393,19 +2554,22 @@ mod tests {
         );
         assert_ne!(object.get("46"), object.get("45"));
         assert!(!object.contains_key("999"));
+        Ok(())
     }
 
     #[tokio::test]
     #[ignore = "requires an isolated PostgreSQL database; set LMM_CONTROL_PUBLIC_TEST_DATABASE_URL"]
-    async fn token_auth_pg_lookup_requires_an_active_owner_and_carries_owner_context() {
-        let database_url = env::var("LMM_CONTROL_PUBLIC_TEST_DATABASE_URL").expect(
-            "LMM_CONTROL_PUBLIC_TEST_DATABASE_URL is required for the isolated PostgreSQL harness",
-        );
+    async fn token_auth_pg_lookup_requires_an_active_owner_and_carries_owner_context() -> TestResult
+    {
+        let database_url = env::var("LMM_CONTROL_PUBLIC_TEST_DATABASE_URL").map_err(|error| {
+            test_error(format!(
+                "LMM_CONTROL_PUBLIC_TEST_DATABASE_URL is required for the isolated PostgreSQL harness: {error}"
+            ))
+        })?;
         let pool = PgPoolOptions::new()
             .max_connections(2)
             .connect(&database_url)
-            .await
-            .expect("isolated PostgreSQL must be reachable");
+            .await?;
         let suffix = Uuid::new_v4().simple().to_string();
         let username = format!("control-token-owner-{suffix}");
         let key = format!("control-token-{suffix}");
@@ -2415,8 +2579,7 @@ mod tests {
         )
         .bind(&username)
         .fetch_one(&pool)
-        .await
-        .expect("owner fixture");
+        .await?;
         sqlx::query(
             "INSERT INTO tokens (user_id, key, status, name, created_time, accessed_time, \
              expired_time, remain_quota, unlimited_quota, model_limits_enabled, model_limits, \
@@ -2426,60 +2589,57 @@ mod tests {
         .bind(user_id)
         .bind(&key)
         .execute(&pool)
-        .await
-        .expect("token fixture");
+        .await?;
 
-        let store = PgMissingControlStore::new(pool.clone());
-        let prefix = key.split('-').next().expect("token prefix");
-        let active = store
-            .token_auth_read_only(prefix)
-            .await
-            .expect("active owner lookup")
-            .expect("token");
+        let store = PgPublicCatalogStore::new(pool.clone());
+        let prefix = required(
+            key.split('-').next(),
+            "generated control token must contain a prefix",
+        )?;
+        let active = required(
+            store.token_auth_read_only(prefix).await?,
+            "active owner token lookup must return the fixture token",
+        )?;
         assert_eq!(active.user_id, user_id);
         assert_eq!(active.user_status, 1);
         assert_eq!(active.saved_language.as_deref(), Some("zh-TW"));
         assert!(
             store
                 .token_usage_for_owner(&key, user_id + 1)
-                .await
-                .expect("owner-bound usage lookup")
+                .await?
                 .is_none()
         );
 
         sqlx::query("UPDATE users SET status = 2 WHERE id = $1")
             .bind(user_id)
             .execute(&pool)
-            .await
-            .expect("disable owner");
-        let disabled = store
-            .token_auth_read_only(&key)
-            .await
-            .expect("disabled owner lookup")
-            .expect("token");
+            .await?;
+        let disabled = required(
+            store.token_auth_read_only(&key).await?,
+            "disabled owner lookup must return the fixture token",
+        )?;
         assert_eq!(disabled.user_status, 2);
 
         sqlx::query("UPDATE users SET deleted_at = NOW() WHERE id = $1")
             .bind(user_id)
             .execute(&pool)
-            .await
-            .expect("soft delete owner");
-        let missing_owner = store
-            .token_auth_read_only(&key)
-            .await
-            .expect_err("soft-deleted owner must fail closed");
+            .await?;
+        let Err(missing_owner) = store.token_auth_read_only(&key).await else {
+            return Err(test_error(
+                "soft-deleted owner token lookup must fail closed",
+            ));
+        };
         assert!(missing_owner.0.contains(&user_id.to_string()));
 
         sqlx::query("DELETE FROM tokens WHERE key = $1")
             .bind(&key)
             .execute(&pool)
-            .await
-            .expect("remove token fixture");
+            .await?;
         sqlx::query("DELETE FROM users WHERE id = $1")
             .bind(user_id)
             .execute(&pool)
-            .await
-            .expect("remove owner fixture");
+            .await?;
+        Ok(())
     }
 
     #[tokio::test]
@@ -2698,16 +2858,16 @@ mod tests {
         );
     }
 
-    fn media_backend() -> Arc<TestInstanceMidjourneyBackend> {
-        Arc::new(TestInstanceMidjourneyBackend::new(
-            PgPool::connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
-                .expect("a lazy PostgreSQL URL is valid"),
+    fn media_backend() -> TestResult<Arc<TestInstanceMidjourneyBackend>> {
+        Ok(Arc::new(
+            TestInstanceMidjourneyBackend::new(lazy_pg_pool()?),
         ))
     }
 
     #[tokio::test]
-    async fn media_candidate_routes_are_reachable_and_reject_unauthenticated_requests() {
-        let backend = media_backend();
+    async fn media_candidate_routes_are_reachable_and_reject_unauthenticated_requests() -> TestResult
+    {
+        let backend = media_backend()?;
         let dynamic_backend: Arc<dyn MidjourneyBackend> = backend.clone();
         // Building the combined surface also detects duplicate Axum route
         // registrations before a test instance can start.
@@ -2717,226 +2877,157 @@ mod tests {
             ))),
         );
 
-        let dynamic = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/proxy/mj/submit/imagine")
-                    .body(Body::from(r#"{"prompt":"test"}"#))
-                    .expect("dynamic request is valid"),
-            )
-            .await
-            .expect("router is infallible");
+        let dynamic_request = request(
+            Request::builder()
+                .method("POST")
+                .uri("/proxy/mj/submit/imagine"),
+            Body::from(r#"{"prompt":"test"}"#),
+            "build dynamic Midjourney route request",
+        )?;
+        let dynamic = app.clone().oneshot(dynamic_request).await?;
         assert_eq!(dynamic.status(), StatusCode::UNAUTHORIZED);
 
-        let static_route = app
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/mj/submit/imagine")
-                    .body(Body::from(r#"{"prompt":"test"}"#))
-                    .expect("static request is valid"),
-            )
-            .await
-            .expect("router is infallible");
+        let static_request = request(
+            Request::builder().method("POST").uri("/mj/submit/imagine"),
+            Body::from(r#"{"prompt":"test"}"#),
+            "build static Midjourney route request",
+        )?;
+        let static_route = app.oneshot(static_request).await?;
         assert_eq!(static_route.status(), StatusCode::UNAUTHORIZED);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn relay_misc_routes_are_auth_gated_fail_closed_and_do_not_shadow_model_delete() {
+    async fn relay_misc_routes_are_auth_gated_fail_closed_and_do_not_shadow_model_delete()
+    -> TestResult {
         let app = relay_misc_candidate_router().merge(relay_anthropic_gemini_router(
             RelayHttpState::new(Arc::new(TestInstanceRelayBackend)),
         ));
 
-        let anonymous = app
-            .clone()
-            .oneshot(
-                Request::post("/v1/alpha/search")
-                    .body(Body::from("{}"))
-                    .expect("relay request is valid"),
-            )
-            .await
-            .expect("router is infallible");
+        let anonymous_request = request(
+            Request::post("/v1/alpha/search"),
+            Body::from("{}"),
+            "build anonymous relay request",
+        )?;
+        let anonymous = app.clone().oneshot(anonymous_request).await?;
         assert_eq!(anonymous.status(), StatusCode::UNAUTHORIZED);
 
-        let unavailable = app
-            .clone()
-            .oneshot(
-                Request::post("/v1/alpha/search")
-                    .header("authorization", "Bearer lmm-test-relay-fixture")
-                    .body(Body::from("{}"))
-                    .expect("fixture relay request is valid"),
-            )
-            .await
-            .expect("router is infallible");
+        let unavailable_request = request(
+            Request::post("/v1/alpha/search")
+                .header("authorization", "Bearer lmm-test-relay-fixture"),
+            Body::from("{}"),
+            "build authenticated relay request",
+        )?;
+        let unavailable = app.clone().oneshot(unavailable_request).await?;
         assert_eq!(unavailable.status(), StatusCode::SERVICE_UNAVAILABLE);
 
         // Frozen Go routes owned by RelayNotImplemented return 501 only after
         // the fixture credential passes every relay gate. They never select an
         // upstream or enter the fail-closed provider adapter.
-        let frozen = app
-            .clone()
-            .oneshot(
-                Request::get("/v1/files")
-                    .header("authorization", "Bearer lmm-test-relay-fixture")
-                    .body(Body::empty())
-                    .expect("frozen request is valid"),
-            )
-            .await
-            .expect("router is infallible");
+        let frozen_request = request(
+            Request::get("/v1/files").header("authorization", "Bearer lmm-test-relay-fixture"),
+            Body::empty(),
+            "build frozen files request",
+        )?;
+        let frozen = app.clone().oneshot(frozen_request).await?;
         assert_eq!(frozen.status(), StatusCode::NOT_IMPLEMENTED);
 
-        let model_delete = app
-            .oneshot(
-                Request::delete("/v1/models/model-a")
-                    .header("authorization", "Bearer lmm-test-relay-fixture")
-                    .body(Body::empty())
-                    .expect("model deletion request is valid"),
-            )
-            .await
-            .expect("router is infallible");
+        let model_delete_request = request(
+            Request::delete("/v1/models/model-a")
+                .header("authorization", "Bearer lmm-test-relay-fixture"),
+            Body::empty(),
+            "build frozen model deletion request",
+        )?;
+        let model_delete = app.oneshot(model_delete_request).await?;
         assert_eq!(model_delete.status(), StatusCode::NOT_IMPLEMENTED);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn setup_route_is_mounted_without_enabling_remote_dependencies() {
-        let pg = PgPoolOptions::new()
-            .acquire_timeout(Duration::from_millis(10))
-            .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
-            .expect("a lazy PostgreSQL URL is valid");
-        let valkey =
-            redis::Client::open("redis://127.0.0.1:1/").expect("a lazy Valkey URL is valid");
-        let auth: Arc<dyn DashboardAuth> = Arc::new(
-            PgValkeyDashboardAuth::new(
-                pg.clone(),
-                valkey.clone(),
-                AuthConfig {
-                    session_secret: SecretString::from("TestR5!session-secret-with-entropy-123456"),
-                    ..AuthConfig::default()
-                },
-            )
-            .expect("test auth config is valid"),
-        );
+    async fn setup_route_is_mounted_without_enabling_remote_dependencies() -> TestResult {
+        let pg = lazy_pg_pool()?;
+        let valkey = lazy_valkey_client()?;
+        let auth = test_dashboard_auth(&pg, &valkey)?;
+        let setup_request = request(
+            Request::get("/api/setup"),
+            Body::empty(),
+            "build setup route request",
+        )?;
         let response = safe_candidate_surface(pg, valkey, auth)
-            .oneshot(
-                Request::get("/api/setup")
-                    .body(Body::empty())
-                    .expect("request is valid"),
-            )
-            .await
-            .expect("router is infallible");
+            .oneshot(setup_request)
+            .await?;
         assert_ne!(response.status(), StatusCode::NOT_FOUND);
         assert!(DenyProjectUpdate.latest_main_commit().await.is_err());
+        Ok(())
     }
 
     #[tokio::test]
-    async fn complete_test_surface_mounts_observability_routes_before_authentication() {
-        let pg = PgPoolOptions::new()
-            .acquire_timeout(Duration::from_millis(10))
-            .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
-            .expect("a lazy PostgreSQL URL is valid");
-        let valkey =
-            redis::Client::open("redis://127.0.0.1:1/").expect("a lazy Valkey URL is valid");
-        let auth: Arc<dyn DashboardAuth> = Arc::new(
-            PgValkeyDashboardAuth::new(
-                pg.clone(),
-                valkey.clone(),
-                AuthConfig {
-                    session_secret: SecretString::from("TestR5!session-secret-with-entropy-123456"),
-                    ..AuthConfig::default()
-                },
-            )
-            .expect("test auth config is valid"),
-        );
+    async fn complete_test_surface_mounts_observability_routes_before_authentication() -> TestResult
+    {
+        let pg = lazy_pg_pool()?;
+        let valkey = lazy_valkey_client()?;
+        let auth = test_dashboard_auth(&pg, &valkey)?;
         let app = safe_candidate_surface(pg, valkey, auth);
         for path in ["/api/data/self", "/api/perf-metrics/summary"] {
-            let response = app
-                .clone()
-                .oneshot(
-                    Request::get(path)
-                        .body(Body::empty())
-                        .expect("request is valid"),
-                )
-                .await
-                .expect("router is infallible");
+            let route_request = request(
+                Request::get(path),
+                Body::empty(),
+                "build observability route request",
+            )?;
+            let response = app.clone().oneshot(route_request).await?;
             assert_ne!(response.status(), StatusCode::NOT_FOUND, "{path}");
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn complete_test_surface_mounts_topup_read_routes_before_authentication() {
-        let pg = PgPoolOptions::new()
-            .acquire_timeout(Duration::from_millis(10))
-            .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
-            .expect("a lazy PostgreSQL URL is valid");
-        let valkey =
-            redis::Client::open("redis://127.0.0.1:1/").expect("a lazy Valkey URL is valid");
-        let auth: Arc<dyn DashboardAuth> = Arc::new(
-            PgValkeyDashboardAuth::new(
-                pg.clone(),
-                valkey.clone(),
-                AuthConfig {
-                    session_secret: SecretString::from("TestR5!session-secret-with-entropy-123456"),
-                    ..AuthConfig::default()
-                },
-            )
-            .expect("test auth config is valid"),
-        );
+    async fn complete_test_surface_mounts_topup_read_routes_before_authentication() -> TestResult {
+        let pg = lazy_pg_pool()?;
+        let valkey = lazy_valkey_client()?;
+        let auth = test_dashboard_auth(&pg, &valkey)?;
         for path in ["/api/user/topup/info", "/api/user/topup/self"] {
+            let route_request = request(
+                Request::get(path),
+                Body::empty(),
+                "build top-up route request",
+            )?;
             let response = safe_candidate_surface(pg.clone(), valkey.clone(), Arc::clone(&auth))
-                .oneshot(
-                    Request::get(path)
-                        .body(Body::empty())
-                        .expect("request is valid"),
-                )
-                .await
-                .expect("router is infallible");
+                .oneshot(route_request)
+                .await?;
             assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{path}");
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn complete_test_surface_mounts_checkin_read_route_before_authentication() {
-        let pg = PgPoolOptions::new()
-            .acquire_timeout(Duration::from_millis(10))
-            .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
-            .expect("a lazy PostgreSQL URL is valid");
-        let valkey =
-            redis::Client::open("redis://127.0.0.1:1/").expect("a lazy Valkey URL is valid");
-        let auth: Arc<dyn DashboardAuth> = Arc::new(
-            PgValkeyDashboardAuth::new(
-                pg.clone(),
-                valkey.clone(),
-                AuthConfig {
-                    session_secret: SecretString::from("TestR5!session-secret-with-entropy-123456"),
-                    ..AuthConfig::default()
-                },
-            )
-            .expect("test auth config is valid"),
-        );
+    async fn complete_test_surface_mounts_checkin_read_route_before_authentication() -> TestResult {
+        let pg = lazy_pg_pool()?;
+        let valkey = lazy_valkey_client()?;
+        let auth = test_dashboard_auth(&pg, &valkey)?;
+        let checkin_request = request(
+            Request::get("/api/user/checkin?month=2026-08"),
+            Body::empty(),
+            "build check-in route request",
+        )?;
         let response = safe_candidate_surface(pg, valkey, auth)
-            .oneshot(
-                Request::get("/api/user/checkin?month=2026-08")
-                    .body(Body::empty())
-                    .expect("request is valid"),
-            )
-            .await
-            .expect("router is infallible");
+            .oneshot(checkin_request)
+            .await?;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        Ok(())
     }
 
     #[tokio::test]
     #[ignore = "requires an isolated PostgreSQL database; set LMM_RANKINGS_TEST_DATABASE_URL"]
-    async fn rankings_pg_snapshot_keeps_history_previous_rank_and_vendor_metadata() {
-        let database_url = env::var("LMM_RANKINGS_TEST_DATABASE_URL").expect(
-            "LMM_RANKINGS_TEST_DATABASE_URL is required for the isolated PostgreSQL harness",
-        );
+    async fn rankings_pg_snapshot_keeps_history_previous_rank_and_vendor_metadata() -> TestResult {
+        let database_url = env::var("LMM_RANKINGS_TEST_DATABASE_URL").map_err(|error| {
+            test_error(format!(
+                "LMM_RANKINGS_TEST_DATABASE_URL is required for the isolated PostgreSQL harness: {error}"
+            ))
+        })?;
         let pool = PgPoolOptions::new()
             .max_connections(3)
             .connect(&database_url)
-            .await
-            .expect("isolated PostgreSQL must be reachable");
+            .await?;
         let prefix = format!("rankings-parity-{}", Uuid::new_v4().simple());
         let models = [
             format!("{prefix}-alpha"),
@@ -3000,61 +3091,66 @@ mod tests {
                 .await?;
             }
 
-            let snapshot = PgMissingControlStore::new(pool.clone())
+            let snapshot = PgPublicCatalogStore::new(pool.clone())
                 .rankings("week")
                 .await
-                .map_err(|_| sqlx::Error::Protocol("rankings store unavailable".to_owned()))?;
-            let rows = snapshot["models"].as_array().expect("models array");
-            let alpha = rows
-                .iter()
-                .find(|row| row["model_name"] == models[0])
-                .expect("current alpha model");
+                .map_err(|error| test_error(format!("rankings store unavailable: {error}")))?;
+            let rows = required(
+                snapshot["models"].as_array(),
+                "rankings response must contain a models array",
+            )?;
+            let alpha = required(
+                rows.iter().find(|row| row["model_name"] == models[0]),
+                "rankings response must contain the current alpha model",
+            )?;
             assert_eq!(alpha["rank"], 1);
             assert_eq!(alpha["previous_rank"], 2);
             assert_eq!(alpha["vendor"], vendor_name);
             assert_eq!(alpha["vendor_icon"], "https://example.test/vendor.svg");
             assert_eq!(snapshot["top_movers"][0]["model_name"], models[0]);
             assert_eq!(snapshot["top_droppers"][0]["model_name"], models[1]);
-            assert!(snapshot["models_history"]["buckets"].as_u64().unwrap_or_default() >= 2);
-            assert!(snapshot["vendor_share_history"]["points"]
-                .as_array()
-                .is_some_and(|points| !points.is_empty()));
-            Ok::<(), sqlx::Error>(())
+            let history_buckets = required(
+                snapshot["models_history"]["buckets"].as_u64(),
+                "rankings response must contain a numeric model-history bucket count",
+            )?;
+            assert!(history_buckets >= 2);
+            let vendor_share_points = required(
+                snapshot["vendor_share_history"]["points"].as_array(),
+                "rankings response must contain a vendor-share points array",
+            )?;
+            assert!(!vendor_share_points.is_empty());
+            Ok::<(), Box<dyn Error>>(())
         }
         .await;
 
         sqlx::query("DELETE FROM quota_data WHERE model_name = ANY($1)")
             .bind(models.to_vec())
             .execute(&pool)
-            .await
-            .expect("remove quota fixture");
+            .await?;
         sqlx::query("DELETE FROM abilities WHERE \"group\" = $1")
             .bind(&group)
             .execute(&pool)
-            .await
-            .expect("remove ability fixture");
+            .await?;
         sqlx::query("DELETE FROM models WHERE model_name = ANY($1)")
             .bind(models.to_vec())
             .execute(&pool)
-            .await
-            .expect("remove model fixture");
+            .await?;
         sqlx::query("DELETE FROM channels WHERE key = $1")
             .bind(&prefix)
             .execute(&pool)
-            .await
-            .expect("remove channel fixture");
+            .await?;
         sqlx::query("DELETE FROM vendors WHERE name = $1")
             .bind(&vendor_name)
             .execute(&pool)
-            .await
-            .expect("remove vendor fixture");
-        test.expect("ranking snapshot should preserve the frozen Go contract");
+            .await?;
+        test?;
+        Ok(())
     }
 
     #[tokio::test]
-    async fn media_candidate_deny_adapter_never_attempts_upstream_egress() {
-        let backend = media_backend();
-        let identity = lmm_api_rs::migration_routes::media_midjourney::MidjourneyIdentity {
+    async fn media_candidate_deny_adapter_never_attempts_upstream_egress() -> TestResult {
+        let backend = media_backend()?;
+        let identity = lmm_api_rs::routes::media_midjourney::MidjourneyIdentity {
             user_id: 1,
             token_id: "1".to_owned(),
         };
@@ -3080,36 +3176,34 @@ mod tests {
                 .await,
             Err(MidjourneyFailure::BlockedImage)
         ));
+        Ok(())
     }
 
     #[tokio::test]
-    async fn anthropic_gemini_candidate_is_fail_closed_and_keeps_authenticated_delete_frozen() {
+    async fn anthropic_gemini_candidate_is_fail_closed_and_keeps_authenticated_delete_frozen()
+    -> TestResult {
         let app =
             relay_anthropic_gemini_router(RelayHttpState::new(Arc::new(TestInstanceRelayBackend)));
 
-        let anonymous_post = app
-            .clone()
-            .oneshot(
-                Request::post("/v1/messages")
-                    .body(Body::from(r#"{\"model\":\"claude-test\"}"#))
-                    .expect("request is valid"),
-            )
-            .await
-            .expect("router is infallible");
+        let anonymous_request = request(
+            Request::post("/v1/messages"),
+            Body::from(r#"{\"model\":\"claude-test\"}"#),
+            "build anonymous Anthropic request",
+        )?;
+        let anonymous_post = app.clone().oneshot(anonymous_request).await?;
         // The production Go compatibility boundary conceals missing relay
         // credentials behind the generic public 404 response.  Keep the
         // isolated candidate surface aligned with that contract.
         assert_eq!(anonymous_post.status(), StatusCode::NOT_FOUND);
 
-        let frozen_delete = app
-            .oneshot(
-                Request::delete("/v1/models/gpt-test")
-                    .header("authorization", "Bearer lmm-test-relay-fixture")
-                    .body(Body::empty())
-                    .expect("request is valid"),
-            )
-            .await
-            .expect("router is infallible");
+        let frozen_delete_request = request(
+            Request::delete("/v1/models/gpt-test")
+                .header("authorization", "Bearer lmm-test-relay-fixture"),
+            Body::empty(),
+            "build authenticated frozen model deletion request",
+        )?;
+        let frozen_delete = app.oneshot(frozen_delete_request).await?;
         assert_eq!(frozen_delete.status(), StatusCode::NOT_IMPLEMENTED);
+        Ok(())
     }
 }

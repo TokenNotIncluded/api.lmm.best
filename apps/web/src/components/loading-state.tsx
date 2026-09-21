@@ -21,6 +21,8 @@ import { useTranslation } from 'react-i18next'
 
 import { cn } from '@/lib/utils'
 
+import { WaitCompanion } from './wait-companion'
+
 interface LoadingStateProps {
   className?: string
   message?: string
@@ -41,7 +43,9 @@ export function LoadingState(props: LoadingStateProps) {
   if (props.inline) {
     return (
       <span className={cn('inline-flex items-center gap-2', props.className)}>
-        <Loader2 className={cn(iconSize, 'animate-spin')} />
+        <Loader2
+          className={cn(iconSize, 'animate-spin motion-reduce:animate-none')}
+        />
         {props.message != null && (
           <span className='text-muted-foreground text-sm'>{props.message}</span>
         )}
@@ -56,12 +60,13 @@ export function LoadingState(props: LoadingStateProps) {
         props.className
       )}
     >
-      <div className='animate-spin'>
+      <div className='animate-spin motion-reduce:animate-none'>
         <Loader2 className={iconSize} />
       </div>
       <p className='text-muted-foreground text-sm'>
         {props.message ?? t('Loading...')}
       </p>
+      <WaitCompanion pending className='items-center' />
     </div>
   )
 }

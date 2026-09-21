@@ -75,6 +75,10 @@ func GetGroupEnabledModels(group string) []string {
 // routed through the default group; accepting a model that is not backed by a
 // currently enabled channel would persist a setting that cannot serve users.
 func IsModelEnabledForGroup(group, model string) bool {
+	return isModelEnabledForGroup(DB, group, model)
+}
+
+func isModelEnabledForGroup(db *gorm.DB, group, model string) bool {
 	group = strings.TrimSpace(group)
 	model = strings.TrimSpace(model)
 	if group == "" || model == "" {
@@ -85,7 +89,7 @@ func IsModelEnabledForGroup(group, model string) bool {
 	if groupColumn == "" {
 		groupColumn = `"group"`
 	}
-	err := DB.Table("abilities").
+	err := db.Table("abilities").
 		Joins("JOIN channels ON abilities.channel_id = channels.id").
 		Where("abilities."+groupColumn+" = ? AND abilities.model = ? AND abilities.enabled = ? AND channels.status = ?", group, model, true, common.ChannelStatusEnabled).
 		Count(&count).Error

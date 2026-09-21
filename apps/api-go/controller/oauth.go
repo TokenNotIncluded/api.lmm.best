@@ -320,6 +320,7 @@ func HandleOAuth(c *gin.Context) {
 		}
 		return
 	}
+
 	if err := applyLinuxDOPaymentRestriction(provider, oauthUser, user); err != nil {
 		common.ApiError(c, err)
 		return
@@ -559,6 +560,7 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 		user.FinalizeOAuthUserCreation(inviterId)
 	}
 
+	recordAcquisitionRegistration(c, user.Id)
 	return user, nil
 }
 

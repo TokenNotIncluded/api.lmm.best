@@ -24,12 +24,14 @@ import { z } from 'zod'
 
 export const apiKeySchema = z.object({
   id: z.number(),
+  one_time_reveal: z.boolean().optional(),
   name: z.string(),
   key: z.string(),
   status: z.number(), // 1: enabled, 2: disabled, 3: expired, 4: exhausted
   remain_quota: z.number(),
   used_quota: z.number(),
   unlimited_quota: z.boolean(),
+  account_balance_read: z.boolean().optional(),
   expired_time: z.number(), // -1 for never expires
   created_time: z.number(),
   accessed_time: z.number(),
@@ -46,6 +48,8 @@ export const apiKeySchema = z.object({
   model_limits_enabled: z.boolean(),
   model_limits: z.string().nullish().default(''),
   allow_ips: z.string().nullish().default(''),
+  creation_source: z.string().nullish().optional(),
+  source: z.string().nullish().optional(),
 })
 
 export type ApiKey = z.infer<typeof apiKeySchema>
@@ -63,6 +67,7 @@ export interface ApiResponse<T = unknown> {
 export interface GetApiKeysParams {
   p?: number
   size?: number
+  creation_mode?: ApiKeyCreationMode
 }
 
 export interface GetApiKeysResponse {
@@ -81,9 +86,13 @@ export interface SearchApiKeysParams {
   token?: string
   p?: number
   size?: number
+  creation_mode?: ApiKeyCreationMode
 }
 
+export type ApiKeyCreationMode = 'manual' | 'automatic'
+
 export interface ApiKeyFormData {
+  one_time_reveal?: boolean
   name: string
   remain_quota: number
   expired_time: number
@@ -100,6 +109,13 @@ export interface ApiKeyFormData {
 export interface TokenAutoGroupsConfig {
   groups: string[]
   max_count: number
+}
+
+export interface PreparedDrawingApiKey {
+  id: number
+  name: string
+  group: string
+  created: boolean
 }
 
 // ============================================================================

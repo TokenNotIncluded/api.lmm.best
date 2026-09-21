@@ -70,6 +70,15 @@ func TestProtectedMutationRoutesRejectOversizedJSONBeforeBinding(t *testing.T) {
 
 	require.Equal(t, http.StatusRequestEntityTooLarge, subscriptionResponse.Code)
 
+	resetBody := `{"mode":"hard","targets":[],"padding":"` + strings.Repeat("x", subscriptionResetMutationRequestMaxBytes) + `"}`
+	resetRequest := httptest.NewRequest(http.MethodPost, "/api/subscription/root/reset/preview", strings.NewReader(resetBody))
+	resetRequest.Header.Set("Authorization", "Bearer "+accessToken)
+	resetResponse := httptest.NewRecorder()
+
+	engine.ServeHTTP(resetResponse, resetRequest)
+
+	require.Equal(t, http.StatusRequestEntityTooLarge, resetResponse.Code)
+
 	topUpBody := `{"amount":1,"padding":"` + strings.Repeat("x", topUpMutationRequestMaxBytes) + `"}`
 	topUpRequest := httptest.NewRequest(http.MethodPost, "/api/user/stripe/pay", strings.NewReader(topUpBody))
 	topUpRequest.Header.Set("Authorization", "Bearer "+accessToken)
@@ -87,6 +96,15 @@ func TestProtectedMutationRoutesRejectOversizedJSONBeforeBinding(t *testing.T) {
 	engine.ServeHTTP(affTransferResponse, affTransferRequest)
 
 	require.Equal(t, http.StatusRequestEntityTooLarge, affTransferResponse.Code)
+
+	inviteBody := `{"email":"` + strings.Repeat("x", affiliateInvitationRequestMaxBytes) + `"}`
+	inviteRequest := httptest.NewRequest(http.MethodPost, "/api/user/aff/invite", strings.NewReader(inviteBody))
+	inviteRequest.Header.Set("Authorization", "Bearer "+accessToken)
+	inviteResponse := httptest.NewRecorder()
+
+	engine.ServeHTTP(inviteResponse, inviteRequest)
+
+	require.Equal(t, http.StatusRequestEntityTooLarge, inviteResponse.Code)
 }
 
 func TestEmailBindRouteRejectsOversizedJSONBeforeAuthentication(t *testing.T) {

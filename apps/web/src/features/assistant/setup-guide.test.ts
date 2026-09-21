@@ -30,10 +30,23 @@ import {
   getCodexConfigPath,
   getCodexInstallCommand,
   getOpenAICompatibleClientJSON,
+  getGuideEligibleModels,
+  getPythonSDKExample,
+  selectGuideModel,
 } from './setup-guide'
 
 describe('assistant setup guide', () => {
-  test('detects supported desktop platforms and avoids treating mobile as Linux', () => {
+  test('selects a text model instead of an image model and leaves no fake default', () => {
+    const models = ['gpt-image-2', 'gpt-5.6-codex', 'claude-sonnet-4']
+    assert.deepEqual(getGuideEligibleModels(models), [
+      'gpt-5.6-codex',
+      'claude-sonnet-4',
+    ])
+    assert.equal(selectGuideModel(models), 'gpt-5.6-codex')
+    assert.equal(selectGuideModel(models, 'claude-sonnet-4'), 'claude-sonnet-4')
+    assert.equal(selectGuideModel(['gpt-image-2']), '')
+  })
+  test('detects desktop, Android and iOS platforms including desktop-mode iPads', () => {
     assert.equal(detectAssistantSetupPlatform('Windows', ''), 'windows')
     assert.equal(detectAssistantSetupPlatform('macOS', ''), 'macos')
     assert.equal(detectAssistantSetupPlatform('Linux', ''), 'linux')
@@ -50,7 +63,35 @@ describe('assistant setup guide', () => {
     )
     assert.equal(
       detectAssistantSetupPlatform('', 'Mozilla/5.0 (Linux; Android 15)'),
-      'windows'
+      'android'
+    )
+    assert.equal(
+      detectAssistantSetupPlatform('Linux', 'Mozilla/5.0 (Linux; Android 15)'),
+      'android'
+    )
+    assert.equal(detectAssistantSetupPlatform('iOS', ''), 'ios')
+    assert.equal(
+      detectAssistantSetupPlatform(
+        '',
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0)'
+      ),
+      'ios'
+    )
+    assert.equal(
+      detectAssistantSetupPlatform(
+        'MacIntel',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X)',
+        5
+      ),
+      'ios'
+    )
+    assert.equal(
+      detectAssistantSetupPlatform(
+        'MacIntel',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X)',
+        0
+      ),
+      'macos'
     )
     assert.equal(detectAssistantSetupPlatform('', ''), 'windows')
   })
@@ -177,6 +218,35 @@ describe('assistant setup guide', () => {
         'env_key = "LMM_API_KEY"',
         'wire_api = "responses"',
       ].join('\n')
+    )
+  })
+  test('SDK presets prompt locally and preserve each SDK base path', () => {
+    const openai = getPythonSDKExample(
+      'openai-sdk',
+      'https://api.example/v1/',
+      'selected-model'
+    )
+    const anthropic = getPythonSDKExample(
+      'anthropic-sdk',
+      'https://api.example/',
+      'selected-model'
+    )
+    assert.match(openai, /base_url="https:\/\/api.example\/v1"/)
+    assert.match(anthropic, /base_url="https:\/\/api.example"/)
+    assert.match(openai, /chat.completions.create/)
+    assert.match(anthropic, /messages.create/)
+    for (const code of [openai, anthropic]) {
+      assert.match(code, /getpass\("LMM API Key: "\)/)
+      assert.match(code, /model="selected-model"/)
+      assert.doesNotMatch(code, /<YOUR_API_KEY>/)
+    }
+    assert.match(
+      getPythonSDKExample(
+        'openai-sdk',
+        'https://api.example/v1',
+        'bad"\nmodel'
+      ),
+      /model="bad\\"\\nmodel"/
     )
   })
 })

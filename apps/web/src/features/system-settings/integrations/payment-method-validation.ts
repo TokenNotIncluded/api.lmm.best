@@ -170,18 +170,72 @@ export function isValidPaymentMethodData(
     if (!filtersUsers && 'audience_match' in record) return false
   }
 
+  const hasSettlementCurrency = 'settlement_currency' in record
+  const hasSettlementRate = 'settlement_units_per_usd' in record
+  const hasPlatformRate = 'platform_units_per_usd' in record
+  const hasPreferredPricing =
+    hasSettlementCurrency || hasSettlementRate || hasPlatformRate
   const hasSettlementUnit = 'settlement_unit' in record
+  const hasExplicitDirectRate = 'settlement_units_per_platform_unit' in record
   const hasUnitPrice = 'unit_price' in record
-  if (hasSettlementUnit !== hasUnitPrice) return false
-  if (!hasSettlementUnit) return true
+  const hasLegacyPricing =
+    hasSettlementUnit || hasExplicitDirectRate || hasUnitPrice
 
-  const settlementUnit = record.settlement_unit
+  if (hasPreferredPricing) {
+    if (hasLegacyPricing || !hasSettlementCurrency || !hasSettlementRate) {
+      return false
+    }
+    if (
+      typeof record.settlement_currency !== 'string' ||
+      !/^[A-Za-z]{3}$/.test(record.settlement_currency) ||
+      typeof record.settlement_units_per_usd !== 'string' ||
+      !POSITIVE_DECIMAL_PATTERN.test(record.settlement_units_per_usd) ||
+      Number(record.settlement_units_per_usd) <= 0
+    ) {
+      return false
+    }
+    if (
+      hasPlatformRate &&
+      (typeof record.platform_units_per_usd !== 'string' ||
+        !POSITIVE_DECIMAL_PATTERN.test(record.platform_units_per_usd) ||
+        Number(record.platform_units_per_usd) <= 0)
+    ) {
+      return false
+    }
+    return true
+  }
+
+  if (!hasLegacyPricing) return true
+  if (!hasSettlementUnit || (!hasExplicitDirectRate && !hasUnitPrice)) {
+    return false
+  }
+  if (
+    typeof record.settlement_unit !== 'string' ||
+    !SETTLEMENT_UNIT_PATTERN.test(record.settlement_unit)
+  ) {
+    return false
+  }
+  const explicitDirectRate = record.settlement_units_per_platform_unit
   const unitPrice = record.unit_price
-  return (
-    typeof settlementUnit === 'string' &&
-    SETTLEMENT_UNIT_PATTERN.test(settlementUnit) &&
+  if (
+    hasExplicitDirectRate &&
+    (typeof explicitDirectRate !== 'string' ||
+      !POSITIVE_DECIMAL_PATTERN.test(explicitDirectRate) ||
+      Number(explicitDirectRate) <= 0)
+  ) {
+    return false
+  }
+  if (
+    hasUnitPrice &&
+    (typeof unitPrice !== 'string' ||
+      !POSITIVE_DECIMAL_PATTERN.test(unitPrice) ||
+      Number(unitPrice) <= 0)
+  ) {
+    return false
+  }
+  return !(
+    typeof explicitDirectRate === 'string' &&
     typeof unitPrice === 'string' &&
-    POSITIVE_DECIMAL_PATTERN.test(unitPrice) &&
-    Number(unitPrice) > 0
+    explicitDirectRate !== unitPrice
   )
 }

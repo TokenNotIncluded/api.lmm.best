@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -97,6 +98,16 @@ func TestNewAPIChannelRegistration(t *testing.T) {
 	assert.Empty(t, constant.ChannelBaseURLs[constant.ChannelTypeNewAPI])
 }
 
+func TestOpenHumanChannelRegistration(t *testing.T) {
+	apiType, ok := common.ChannelType2APIType(constant.ChannelTypeOpenHuman)
+
+	require.True(t, ok)
+	assert.Equal(t, constant.APITypeOpenAI, apiType)
+	assert.Equal(t, "OpenHuman", constant.GetChannelTypeName(constant.ChannelTypeOpenHuman))
+	require.Greater(t, len(constant.ChannelBaseURLs), constant.ChannelTypeOpenHuman)
+	assert.Equal(t, constant.ChannelBaseURLs[constant.ChannelTypeOpenAI], constant.ChannelBaseURLs[constant.ChannelTypeOpenHuman])
+}
+
 func TestResponsesCompactChannelSupport(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -105,6 +116,7 @@ func TestResponsesCompactChannelSupport(t *testing.T) {
 		want        bool
 	}{
 		{name: "OpenAI", channelType: constant.ChannelTypeOpenAI, apiType: constant.APITypeOpenAI, want: true},
+		{name: "OpenHuman", channelType: constant.ChannelTypeOpenHuman, apiType: constant.APITypeOpenAI, want: true},
 		{name: "Azure", channelType: constant.ChannelTypeAzure, apiType: constant.APITypeOpenAI, want: true},
 		{name: "Codex", channelType: constant.ChannelTypeCodex, apiType: constant.APITypeCodex, want: true},
 		{name: "Advanced Custom", channelType: constant.ChannelTypeAdvancedCustom, apiType: constant.APITypeAdvancedCustom, want: true},
@@ -262,6 +274,32 @@ func TestSettleTestQuotaUsesTieredBilling(t *testing.T) {
 	require.Equal(t, 1500, quota)
 	require.NotNil(t, result)
 	require.Equal(t, "stream", result.MatchedTier)
+}
+
+func TestSettleTestQuotaRecordsSaturationAudit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}}
+	usage := &dto.Usage{}
+	priceData := types.PriceData{
+		UsePrice:       true,
+		ModelPrice:     math.MaxFloat64,
+		GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1},
+	}
+
+	quota, result := settleTestQuota(info, priceData, usage)
+
+	require.Equal(t, common.MaxQuota, quota)
+	require.Nil(t, result)
+	require.NotNil(t, info.QuotaClamp)
+	require.Equal(t, common.QuotaClampOverflow, info.QuotaClamp.Kind)
+
+	other := buildTestLogOther(ctx, info, priceData, usage, nil)
+	adminInfo, ok := other["admin_info"].(map[string]interface{})
+	require.True(t, ok)
+	saturation, ok := adminInfo["quota_saturation"].(map[string]interface{})
+	require.True(t, ok)
+	require.Equal(t, common.QuotaClampOverflow, saturation["kind"])
 }
 
 func TestBuildTestLogOtherInjectsTieredInfo(t *testing.T) {

@@ -2,6 +2,12 @@ package controller
 
 import (
 	"bytes"
+	"context"
+	"crypto"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,12 +16,119 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/setting"
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/waffo-com/waffo-go/config"
-	"github.com/waffo-com/waffo-go/core"
-	"github.com/waffo-com/waffo-go/utils"
+	waffo "github.com/waffo-com/waffo-go/v2"
+	"github.com/waffo-com/waffo-go/v2/config"
+	"github.com/waffo-com/waffo-go/v2/core"
+	waffonet "github.com/waffo-com/waffo-go/v2/net"
+	"github.com/waffo-com/waffo-go/v2/types/order"
+	"github.com/waffo-com/waffo-go/v2/utils"
 )
+
+type waffoWireTestTransport func(context.Context, *waffonet.HttpRequest) (*waffonet.HttpResponse, error)
+
+func (f waffoWireTestTransport) Send(ctx context.Context, req *waffonet.HttpRequest) (*waffonet.HttpResponse, error) {
+	return f(ctx, req)
+}
+
+func requireWaffoRSASignature(t *testing.T, body []byte, signature, publicKey string) {
+	t.Helper()
+	keyDER, err := base64.StdEncoding.DecodeString(publicKey)
+	require.NoError(t, err)
+	key, err := x509.ParsePKIXPublicKey(keyDER)
+	require.NoError(t, err)
+	rsaKey, ok := key.(*rsa.PublicKey)
+	require.True(t, ok)
+	signatureBytes, err := base64.StdEncoding.DecodeString(signature)
+	require.NoError(t, err)
+	digest := sha256.Sum256(body)
+	require.NoError(t, rsa.VerifyPKCS1v15(rsaKey, crypto.SHA256, digest[:], signatureBytes))
+}
+
+func TestWaffoSDKV2LegacyCheckoutWireContract(t *testing.T) {
+	merchantKeys, err := utils.GenerateKeyPair()
+	require.NoError(t, err)
+	providerKeys, err := utils.GenerateKeyPair()
+	require.NoError(t, err)
+	previousSystemName := common.SystemName
+	common.SystemName = "Legacy Checkout Test"
+	t.Cleanup(func() { common.SystemName = previousSystemName })
+
+	goods := buildWaffoTopUpGoodsInfo(decimal.RequireFromString("12.5"))
+	params := &order.CreateOrderParams{
+		PaymentRequestID:   "WAFFO-v2-wire",
+		MerchantOrderID:    "WAFFO-v2-wire",
+		OrderAmount:        formatWaffoAmount(12.34, getWaffoCurrency()),
+		OrderCurrency:      getWaffoCurrency(),
+		OrderDescription:   goods.GoodsName,
+		OrderRequestedAt:   "2026-09-04T00:00:00.000Z",
+		NotifyURL:          "https://merchant.example/api/waffo/webhook",
+		SuccessRedirectURL: "https://merchant.example/wallet",
+		FailedRedirectURL:  "https://merchant.example/wallet",
+		UserInfo: &order.UserInfo{
+			UserID: "41", UserEmail: getWaffoUserEmail(&model.User{Id: 41}), UserTerminal: "WEB",
+		},
+		PaymentInfo: &order.PaymentInfo{
+			ProductName: "ONE_TIME_PAYMENT", PayMethodType: "CARD", PayMethodName: "CARD",
+		},
+		GoodsInfo: goods,
+	}
+	profile := enabledCompanyBillingProfile()
+	profile.State = "NY"
+	require.NoError(t, validateLegacyWaffoCompanyBilling(profile))
+	applyCompanyBillingToLegacyWaffoOrder(params, profile)
+
+	calls := 0
+	transport := waffoWireTestTransport(func(_ context.Context, req *waffonet.HttpRequest) (*waffonet.HttpResponse, error) {
+		calls++
+		require.Equal(t, http.MethodPost, req.Method)
+		require.Equal(t, config.Sandbox.BaseURL()+"/order/create", req.URL)
+		require.Equal(t, "waffo-go/2.1.0", req.Headers[core.HeaderSDKVersion])
+		require.Equal(t, "waffo-wire-test-key", req.Headers[core.HeaderAPIKey])
+		require.Equal(t, "1.0.0", req.Headers[core.HeaderAPIVersion])
+		require.Equal(t, "application/json", req.Headers[core.HeaderContentType])
+		requireWaffoRSASignature(t, req.Body, req.Headers[core.HeaderSignature], merchantKeys.PublicKey)
+		// Exact shape guards string amount/currency, nested company address,
+		// and omission of unused token, subscription, and x402 fields.
+		require.JSONEq(t, `{
+			"paymentRequestId":"WAFFO-v2-wire","merchantOrderId":"WAFFO-v2-wire",
+			"orderAmount":"12.34","orderCurrency":"USD",
+			"orderDescription":"Recharge 12.5 platform units","orderRequestedAt":"2026-09-04T00:00:00.000Z",
+			"notifyUrl":"https://merchant.example/api/waffo/webhook",
+			"successRedirectUrl":"https://merchant.example/wallet","failedRedirectUrl":"https://merchant.example/wallet",
+			"merchantInfo":{"merchantId":"merchant-wire-test"},
+			"userInfo":{"userId":"41","userEmail":"41@examples.com","userTerminal":"WEB"},
+			"paymentInfo":{"productName":"ONE_TIME_PAYMENT","payMethodType":"CARD","payMethodName":"CARD"},
+			"goodsInfo":{"goodsName":"Recharge 12.5 platform units","appName":"Legacy Checkout Test"},
+			"addressInfo":{"billingAddress":{"country":"US","state":"NY","postalCode":"10001"}}
+		}`, string(req.Body))
+		body := []byte(`{"code":"0","data":{"paymentRequestId":"WAFFO-v2-wire","merchantOrderId":"WAFFO-v2-wire","orderAction":"{\"actionType\":\"REDIRECT\",\"webUrl\":\"https://checkout.example/pay\"}"}}`)
+		signature, err := utils.Sign(string(body), providerKeys.PrivateKey)
+		if err != nil {
+			return nil, err
+		}
+		return waffonet.NewHttpResponse(http.StatusOK, map[string]string{core.HeaderSignature: signature}, body), nil
+	})
+	cfg, err := config.NewConfigBuilder().
+		APIKey("waffo-wire-test-key").
+		PrivateKey(merchantKeys.PrivateKey).
+		WaffoPublicKey(providerKeys.PublicKey).
+		Environment(config.Sandbox).
+		MerchantID("merchant-wire-test").
+		CustomTransport(transport).
+		Build()
+	require.NoError(t, err)
+	// CustomTransport handles every request in memory; no provider is contacted.
+	resp, err := waffo.New(cfg).Order().Create(context.Background(), params, nil)
+	require.NoError(t, err)
+	require.Equal(t, 1, calls)
+	require.True(t, resp.IsSuccess())
+	require.NotNil(t, resp.GetData())
+	require.Equal(t, params.MerchantOrderID, resp.GetData().MerchantOrderID)
+	require.Equal(t, "https://checkout.example/pay", resp.GetData().FetchRedirectURL())
+}
 
 func TestWaffoWebhookReceiptLogOmitsSensitiveValues(t *testing.T) {
 	logLine := waffoWebhookReceiptLog("/api/waffo/webhook", "198.51.100.7", len(`{"secret":"payload"}`))

@@ -244,7 +244,7 @@ func TestPrepareAssistantRequestTerminatesAndReportsConversationWithoutModelSpen
 		&model.User{},
 		&model.TopUp{},
 		&model.DeveloperAccessRequest{},
-		&model.AssistantConversation{},
+		&model.AssistantConversation{}, &model.AssistantSupportRequest{},
 		&model.AssistantHistoryMessage{},
 		&model.AssistantSecurityIncident{},
 		&model.AssistantLead{},
@@ -430,7 +430,7 @@ func TestPrepareAssistantRequestRebuildsExistingConversationFromServerHistory(t 
 func TestAssistantNewConversationPersistsOnlyAfterSuccessfulAnswer(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupTokenControllerTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.AssistantConversation{}, &model.AssistantHistoryMessage{}, &model.AssistantLead{}, &model.AssistantProfileBucket{}, &model.AssistantFirstQuestionStat{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.AssistantConversation{}, &model.AssistantSupportRequest{}, &model.AssistantHistoryMessage{}, &model.AssistantLead{}, &model.AssistantProfileBucket{}, &model.AssistantFirstQuestionStat{}))
 	user := model.User{
 		Username: "assistant-atomic-history-owner",
 		AffCode:  "assistant-atomic-history-owner-aff",
@@ -963,12 +963,19 @@ func TestAssistantCreateKeyAgentConfirmationIsSessionBoundAndExactlyOnce(t *test
 	var card model.AssistantSecureCard
 	require.NoError(t, db.Where("owner_user_id = ?", user.Id).First(&card).Error)
 	assert.Equal(t, conversationRecord.Id, card.ConversationId)
-	assert.NotContains(t, card.Ciphertext, "sk-")
+	revealed, _, err := model.RevealAssistantSecureCard(user.Id, card.Id)
+	require.NoError(t, err)
+	payload, err := model.AssistantSecureCardPayload(revealed)
+	require.NoError(t, err)
+	plaintextKey := payload["api_key"]
+	require.NotEmpty(t, plaintextKey)
+	assert.NotEqual(t, plaintextKey, card.Ciphertext)
+	assert.NotContains(t, card.Ciphertext, plaintextKey)
 }
 
 func TestCreateAssistantDefaultKeyRejectsL0AtCommitTime(t *testing.T) {
 	db := setupTokenControllerTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.TopUp{}, &model.Option{}, &model.AuthFlow{}, &model.UserSession{}, &model.TwoFA{}, &model.TwoFABackupCode{}, &model.Log{}, &model.AssistantConversation{}, &model.AssistantHistoryMessage{}, &model.AssistantSecureCard{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.TopUp{}, &model.Option{}, &model.AuthFlow{}, &model.UserSession{}, &model.TwoFA{}, &model.TwoFABackupCode{}, &model.Log{}, &model.AssistantConversation{}, &model.AssistantSupportRequest{}, &model.AssistantHistoryMessage{}, &model.AssistantSecureCard{}))
 	configureAssistantKeyGroups(t, db)
 	user := model.User{
 		Username:    "assistant-l0-user",
@@ -1291,7 +1298,7 @@ func TestAssistantPricingEndpointAppliesTrustDiscountToGroupRatios(t *testing.T)
 func TestAssistantAgentToolsExposeSafeAndConfirmationGatedActions(t *testing.T) {
 	c, _ := createAssistantKeyTestContext(t, "assistant-tool-user")
 	definitions := assistantToolDefinitions()
-	require.Len(t, definitions, 40)
+	require.Len(t, definitions, 48)
 	names := make(map[string]bool, len(definitions))
 	for _, definition := range definitions {
 		names[definition.Function.Name] = true
@@ -1318,9 +1325,18 @@ func TestAssistantAgentToolsExposeSafeAndConfirmationGatedActions(t *testing.T) 
 	assert.True(t, names["prepare_user_action"])
 	assert.True(t, names["search_web"])
 	assert.True(t, names["get_setup_guide"])
-	assert.True(t, names["prepare_l1_recommendation"])
+	assert.True(t, names["grant_l1_access"])
+	assert.False(t, names["prepare_l1_recommendation"])
+	for _, name := range []string{"get_registration_risk", "notify_registration_risk", "end_registration_conversation", "ban_l0_user"} {
+		assert.True(t, names[name])
+	}
 	assert.True(t, names["request_create_key"])
 	assert.True(t, names["request_human_support"])
+	assert.True(t, names["get_human_support_status"])
+	assert.True(t, names["book_technical_support"])
+	assert.True(t, names["list_admin_operations"])
+	assert.True(t, names["execute_admin_operation"])
+	assert.True(t, names["audit_admin_model_pricing"])
 	assert.True(t, names["get_admin_server_config"])
 	assert.True(t, names["get_admin_assistant_review"])
 	assert.True(t, names["prepare_admin_config_change"])
@@ -1753,7 +1769,9 @@ func TestAssistantAgentToolCatalogueMatchesAccessLevel(t *testing.T) {
 	assert.True(t, l0Names["get_service_facts"])
 	assert.True(t, l0Names["get_available_models"])
 	assert.True(t, l0Names["get_model_pricing"])
-	assert.True(t, l0Names["prepare_l1_recommendation"])
+	assert.False(t, l0Names["prepare_l1_recommendation"])
+	assert.True(t, l0Names["get_registration_risk"])
+	assert.True(t, l0Names["ban_l0_user"])
 	assert.True(t, l0Names["prepare_new_user_gift"])
 	assert.False(t, l0Names["get_plan_offers"])
 	assert.False(t, l0Names["get_admin_server_config"])
@@ -2010,7 +2028,7 @@ func TestAssistantL1RecommendationPreparationDoesNotEditExistingLetter(t *testin
 	assert.Equal(t, existing.AIRecommendation, stored.AIRecommendation)
 }
 
-func TestAssistantAgentDeterministicallyReadsThenPreparesRecommendationEdit(t *testing.T) {
+func TestAssistantAgentReadsHistoricalRecommendationWithoutRetiredEdit(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupTokenControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.TopUp{}, &model.DeveloperAccessRequest{}, &model.AuthFlow{}))
@@ -2051,14 +2069,12 @@ func TestAssistantAgentDeterministicallyReadsThenPreparesRecommendationEdit(t *t
 			assert.Equal(t, "get_l1_recommendation", assistantNamedToolChoiceName(request.ToolChoice))
 			return http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"read-letter","type":"function","function":{"name":"get_l1_recommendation","arguments":"{}"}}]}}]}`), nil
 		case 2:
-			assert.Equal(t, "prepare_l1_recommendation", assistantNamedToolChoiceName(request.ToolChoice))
-			encoded := string(mustAssistantJSON(t, request.Messages))
-			assert.Contains(t, encoded, existing.AIRecommendation)
-			return http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"prepare-edit","type":"function","function":{"name":"prepare_l1_recommendation","arguments":"{\"user_statement\":\"I use the relay for a concrete integration workflow.\",\"recommendation\":\"The revised recommendation clearly describes the user's concrete integration workflow.\"}"}}]}}]}`), nil
-		case 3:
 			assert.Nil(t, request.ToolChoice)
 			assert.Empty(t, request.Tools)
-			return http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","content":"Please review and confirm the revised recommendation in the UI."}}]}`), nil
+			encoded := string(mustAssistantJSON(t, request.Messages))
+			assert.Contains(t, encoded, existing.AIRecommendation)
+			assert.Contains(t, encoded, "read-only historical data")
+			return http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","content":"Recommendation submission is retired. Continue registration verification in this conversation."}}]}`), nil
 		default:
 			return http.StatusInternalServerError, nil, nil
 		}
@@ -2072,15 +2088,12 @@ func TestAssistantAgentDeterministicallyReadsThenPreparesRecommendationEdit(t *t
 		TimeoutSeconds:   45,
 	}, []assistantOpenAIMessage{{Role: "user", Content: "请帮我重写这封推荐信"}})
 
-	assert.Equal(t, 3, turn)
+	assert.Equal(t, 2, turn)
 	assert.Equal(t, http.StatusOK, recorder.Code)
 	var response map[string]any
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
-	action, ok := response["lmm_assistant_action"].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, "l1_recommendation", action["type"])
-	assert.Contains(t, action["recommendation"], "revised recommendation")
-	assert.NotEmpty(t, action["confirmation_token"])
+	_, hasAction := response["lmm_assistant_action"]
+	assert.False(t, hasAction)
 
 	stored, err := model.GetDeveloperAccessRequest(user.Id)
 	require.NoError(t, err)
@@ -2090,10 +2103,10 @@ func TestAssistantAgentDeterministicallyReadsThenPreparesRecommendationEdit(t *t
 	assert.Equal(t, existing.AIRecommendation, stored.AIRecommendation)
 	var flowCount int64
 	require.NoError(t, db.Model(&model.AuthFlow{}).Count(&flowCount).Error)
-	assert.EqualValues(t, 1, flowCount)
+	assert.Zero(t, flowCount)
 }
 
-func TestAssistantAgentReadsThenRoutesRecommendationRemovalToUserUI(t *testing.T) {
+func TestAssistantAgentKeepsRetiredRecommendationRemovalReadOnly(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupTokenControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.TopUp{}, &model.DeveloperAccessRequest{}, &model.AuthFlow{}))
@@ -2138,9 +2151,9 @@ func TestAssistantAgentReadsThenRoutesRecommendationRemovalToUserUI(t *testing.T
 			assert.Empty(t, request.Tools)
 			require.NotEmpty(t, request.Messages)
 			toolResult := request.Messages[len(request.Messages)-1].Content
-			assert.Contains(t, toolResult, `"removal_requires_user_ui":true`)
+			assert.Contains(t, toolResult, `"historical_read_only":true`)
 			assert.Contains(t, toolResult, "Do not call prepare_l1_recommendation")
-			return http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","content":"Clear the Recommendation letter field in the existing UI, then choose Save changes."}}]}`), nil
+			return http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","content":"The recommendation form is retired. Human support can handle a historical-record removal request."}}]}`), nil
 		default:
 			return http.StatusInternalServerError, nil, nil
 		}
@@ -2156,7 +2169,7 @@ func TestAssistantAgentReadsThenRoutesRecommendationRemovalToUserUI(t *testing.T
 
 	assert.Equal(t, 2, turn)
 	assert.Equal(t, http.StatusOK, recorder.Code)
-	assert.Contains(t, recorder.Body.String(), "Save changes")
+	assert.Contains(t, recorder.Body.String(), "form is retired")
 	_, hasAction := c.Get(assistantClientActionKey)
 	assert.False(t, hasAction)
 	stored, err := model.GetDeveloperAccessRequest(user.Id)
@@ -2175,7 +2188,7 @@ func TestAssistantAgentReadsThenRoutesRecommendationRemovalToUserUI(t *testing.T
 		},
 	})
 	assert.Equal(t, false, blocked["ok"])
-	assert.Equal(t, "removal_requires_user_ui", blocked["status"])
+	assert.Equal(t, "tool_not_allowed", blocked["status"])
 	var flowCount int64
 	require.NoError(t, db.Model(&model.AuthFlow{}).Count(&flowCount).Error)
 	assert.Zero(t, flowCount)
@@ -2439,6 +2452,25 @@ func TestAssistantExplicitHumanHandoffUsesConfirmationTool(t *testing.T) {
 	assert.Equal(t, "request_human_support", assistantNamedToolChoiceName(assistantToolChoiceForContext(context)))
 	assert.Equal(t, "request_human_support", assistantNamedToolChoiceName(assistantToolChoiceForAgentStep(context, map[string]bool{}, map[string]bool{})))
 	assert.False(t, assistantHumanSupportRequest("客服入口在哪里？"))
+}
+
+func TestAssistantReadOnlyRequestDoesNotForceKeyOrSupport(t *testing.T) {
+	message := "只读验收：请查询本网站公开的 API 接入地址和支持的接口协议。不要创建密钥、修改配置或提交工单。"
+	context := assistantUserContext{AccessLevel: "L1", LatestUserRequest: message}
+	assert.False(t, assistantExplicitCreateKeyRequest(message))
+	assert.False(t, assistantHumanSupportRequest(message))
+	assert.Equal(t, "", assistantNamedToolChoiceName(assistantToolChoiceForAgentStep(context, map[string]bool{}, map[string]bool{})))
+}
+
+func TestAssistantExplicitReviewRefusalsOverridePendingWorkflows(t *testing.T) {
+	assert.False(t, assistantNewUserGiftRequest("不要给我免费额度"))
+	assert.False(t, assistantWeeklyDiscountRequest("我不需要每周折扣"))
+	assert.False(t, assistantWeeklyDiscountRequest("不要优惠码"))
+	assert.True(t, assistantNewUserGiftRequest("不要解释，帮我领取新用户福利"))
+	assert.True(t, assistantWeeklyDiscountRequest("不要解释，帮我申请本周折扣"))
+	context := assistantUserContext{AccessLevel: "L1", LatestUserRequest: "不要给我免费额度，也不要优惠码", NewUserGiftRequested: true, WeeklyDiscountRequested: true}
+	assert.False(t, assistantNewUserGiftWorkflowRequired(context))
+	assert.False(t, assistantWeeklyDiscountWorkflowRequired(context))
 }
 
 func TestAssistantSetupToolShellQuotesConfiguredValues(t *testing.T) {

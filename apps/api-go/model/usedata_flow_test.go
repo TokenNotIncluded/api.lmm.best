@@ -209,6 +209,29 @@ func TestQuotaDataMergeIsBoundedAndStillAggregatesKnownKeys(t *testing.T) {
 	require.Equal(t, 5, cache[quotaDataKey(first)].TokenUsed)
 }
 
+func TestPersistQuotaDataRejectsWalletBoundaryOverflowAtomically(t *testing.T) {
+	truncateTables(t)
+	existing := QuotaData{
+		UserID: 1, Username: "wallet-boundary", ModelName: "model-a", CreatedAt: 3600,
+		UseGroup: "default", TokenID: 1, ChannelID: 1, NodeName: "node-a",
+		Count: 2, Quota: common.MaxWalletQuota, TokenUsed: 3,
+	}
+	require.NoError(t, DB.Create(&existing).Error)
+
+	err := persistQuotaData(&QuotaData{
+		UserID: 1, Username: "wallet-boundary", ModelName: "model-a", CreatedAt: 3600,
+		UseGroup: "default", TokenID: 1, ChannelID: 1, NodeName: "node-a",
+		Count: 1, Quota: 1, TokenUsed: 1,
+	})
+	require.ErrorIs(t, err, ErrWalletQuotaOutOfRange)
+
+	var stored QuotaData
+	require.NoError(t, DB.First(&stored, existing.Id).Error)
+	require.Equal(t, common.MaxWalletQuota, stored.Quota)
+	require.Equal(t, 2, stored.Count)
+	require.Equal(t, 3, stored.TokenUsed)
+}
+
 func TestQuotaDataConcurrentFlushPreservesCounts(t *testing.T) {
 	truncateTables(t)
 	CacheQuotaDataLock.Lock()

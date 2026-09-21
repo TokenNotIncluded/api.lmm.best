@@ -811,6 +811,28 @@ func testHeroSMSOrderRefundLedgerIsIdempotent(t *testing.T) {
 	require.Equal(t, int64(1), ledgerCount)
 }
 
+func testHeroSMSOrderRefundOverflowRollsBackLedgerAndOrder(t *testing.T) {
+	db := setupHeroSMSTestDB(t)
+	user := createHeroSMSTestUser(t, db, 309, common.MaxWalletQuota)
+	order := HeroSMSEmailOrder{ID: "order-refund-overflow", UserID: user.Id, Operation: "purchase", IdempotencyKeyHash: "order-refund-overflow-hash", RequestPayloadHash: "order-refund-overflow-payload", DomainID: "domain", Site: "demo.com", Domain: "mail.test", Quantity: 1, Status: HeroSMSEmailOrderStatusFailed, ChargeQuota: 100}
+	require.NoError(t, db.Create(&order).Error)
+
+	err := db.Transaction(func(tx *gorm.DB) error {
+		return heroSMSRefundOrderTx(tx, &order, 100, "overflow")
+	})
+	require.ErrorIs(t, err, ErrWalletQuotaOutOfRange)
+
+	var storedUser User
+	require.NoError(t, db.First(&storedUser, user.Id).Error)
+	require.Equal(t, common.MaxWalletQuota, storedUser.Quota)
+	var storedOrder HeroSMSEmailOrder
+	require.NoError(t, db.First(&storedOrder, "id = ?", order.ID).Error)
+	require.Zero(t, storedOrder.RefundedQuota)
+	var ledgerCount int64
+	require.NoError(t, db.Model(&HeroSMSEmailQuotaLedger{}).Where("order_id = ?", order.ID).Count(&ledgerCount).Error)
+	require.Zero(t, ledgerCount)
+}
+
 func testHeroSMSReconciliationRotatesAcrossActiveRows(t *testing.T) {
 	db := setupHeroSMSTestDB(t)
 	user := createHeroSMSTestUser(t, db, 308, 1_000_000)
@@ -928,6 +950,7 @@ func TestHeroSMSEmailFeature(t *testing.T) {
 		{name: "HeroSMSNumericTerminalStatusStopsPolling", run: testHeroSMSNumericTerminalStatusStopsPolling},
 		{name: "HeroSMSRefreshCannotResurrectCancelledActivation", run: testHeroSMSRefreshCannotResurrectCancelledActivation},
 		{name: "HeroSMSOrderRefundLedgerIsIdempotent", run: testHeroSMSOrderRefundLedgerIsIdempotent},
+		{name: "HeroSMSOrderRefundOverflowRollsBackLedgerAndOrder", run: testHeroSMSOrderRefundOverflowRollsBackLedgerAndOrder},
 		{name: "HeroSMSReconciliationRotatesAcrossActiveRows", run: testHeroSMSReconciliationRotatesAcrossActiveRows},
 		{name: "HeroSMSProviderPurchaseLeaseSerializesRequests", run: testHeroSMSProviderPurchaseLeaseSerializesRequests},
 		{name: "HeroSMSSQLiteMigration", run: testHeroSMSSQLiteMigration},

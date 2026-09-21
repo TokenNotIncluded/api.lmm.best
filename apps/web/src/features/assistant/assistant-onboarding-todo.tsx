@@ -18,18 +18,19 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import {
   ArrowRight01Icon,
-  CheckmarkCircle02Icon,
+  Cancel01Icon,
   ReloadIcon,
 } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 
-import { getL1OnboardingTodo } from './api'
-import { getAssistantOnboardingTodoSteps } from './assistant-onboarding-todo-state'
+import { getL1OnboardingTodo } from './api.js'
+import { getAssistantOnboardingTodoSteps } from './assistant-onboarding-todo-state.js'
 
 /** Resolve the next actionable step into a handler + label. */
 function getNextStepAction(
@@ -62,6 +63,18 @@ export function AssistantOnboardingTodo(props: {
   onOpenSetup: () => void
 }) {
   const { t } = useTranslation()
+  const storageKey = `lmm-assistant-onboarding-todo-dismissed:v1:${props.userId}`
+  const [dismissedForUser, setDismissedForUser] = useState<number | null>(
+    () => {
+      try {
+        return globalThis.localStorage?.getItem(storageKey) === '1'
+          ? props.userId
+          : null
+      } catch {
+        return null
+      }
+    }
+  )
   const todoQuery = useQuery({
     queryKey: ['assistant-onboarding-todo', props.userId],
     queryFn: getL1OnboardingTodo,
@@ -74,45 +87,57 @@ export function AssistantOnboardingTodo(props: {
   if (todoQuery.isError || !todoQuery.data?.eligibility.eligible) return null
 
   const steps = getAssistantOnboardingTodoSteps(todoQuery.data)
+  const compact = props.presentation === 'compact'
   const completedCount = steps.filter((step) => step.complete).length
   const isComplete = todoQuery.data.status === 'completed'
+  if (isComplete || dismissedForUser === props.userId) return null
   const next = getNextStepAction(steps, props, t)
+
+  const dismiss = () => {
+    try {
+      globalThis.localStorage?.setItem(storageKey, '1')
+    } catch {
+      // Storage can be blocked by the browser; hiding it for this session is
+      // still preferable to trapping the user behind a permanent checklist.
+    }
+    setDismissedForUser(props.userId)
+  }
 
   return (
     <div
       className='border-border/60 bg-card/40 mx-3 mt-3 flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border px-3 py-2 sm:mx-4'
       data-testid='assistant-onboarding-todo'
-      data-presentation={
-        props.presentation === 'compact' ? 'compact' : 'default'
-      }
+      data-presentation={compact ? 'compact' : 'default'}
     >
-      <HugeiconsIcon
-        icon={isComplete ? CheckmarkCircle02Icon : ReloadIcon}
-        className={
-          isComplete
-            ? 'text-success size-4 shrink-0'
-            : 'text-muted-foreground size-4 shrink-0'
-        }
-        strokeWidth={2}
-        aria-hidden='true'
-      />
-      <span className='min-w-0 flex-1 truncate text-sm font-medium'>
-        {t('First-use checklist')}
-      </span>
-      <Badge variant={isComplete ? 'secondary' : 'outline'}>
+      {!compact ? (
+        <>
+          <HugeiconsIcon
+            icon={ReloadIcon}
+            className='text-muted-foreground size-4 shrink-0'
+            strokeWidth={2}
+            aria-hidden='true'
+          />
+          <span className='min-w-0 flex-1 truncate text-sm font-medium'>
+            {t('First-use checklist')}
+          </span>
+        </>
+      ) : null}
+      <Badge variant='outline' aria-label={t('First-use checklist')}>
         {completedCount}/{steps.length}
       </Badge>
-      <Button
-        type='button'
-        variant='ghost'
-        size='icon-xs'
-        aria-label={t('Refresh')}
-        title={t('Refresh')}
-        onClick={() => void todoQuery.refetch()}
-      >
-        <HugeiconsIcon icon={ReloadIcon} strokeWidth={2} aria-hidden='true' />
-      </Button>
-      {next && !isComplete ? (
+      {!compact ? (
+        <Button
+          type='button'
+          variant='ghost'
+          size='icon-xs'
+          aria-label={t('Refresh')}
+          title={t('Refresh')}
+          onClick={() => void todoQuery.refetch()}
+        >
+          <HugeiconsIcon icon={ReloadIcon} strokeWidth={2} aria-hidden='true' />
+        </Button>
+      ) : null}
+      {next ? (
         <Button
           type='button'
           variant='ghost'
@@ -129,11 +154,16 @@ export function AssistantOnboardingTodo(props: {
           />
         </Button>
       ) : null}
-      {isComplete ? (
-        <span className='text-muted-foreground text-xs'>
-          {t('Setup complete')}
-        </span>
-      ) : null}
+      <Button
+        type='button'
+        variant='ghost'
+        size='icon-xs'
+        aria-label={t('Close')}
+        title={t('Close')}
+        onClick={dismiss}
+      >
+        <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} aria-hidden='true' />
+      </Button>
     </div>
   )
 }

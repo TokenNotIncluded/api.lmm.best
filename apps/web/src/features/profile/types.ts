@@ -92,6 +92,11 @@ export type NotifyType = 'email' | 'webhook' | 'bark' | 'gotify'
 
 export type UsageLeaderboardVisibility = 'public' | 'anonymous' | 'hidden'
 
+export type FiatSettlementCurrency = 'CNY' | 'USD'
+
+/** Empty means follow language; never send the literal "auto". */
+export type SettlementCurrencyPreference = FiatSettlementCurrency | ''
+
 /**
  * Parsed user settings
  */
@@ -122,8 +127,12 @@ export interface UserSettings {
   upstream_model_update_notify_enabled?: boolean
   /** Preferred interface/API response language */
   language?: string
+  /** Customer fiat preference, independent of quota display and credits */
+  settlement_currency?: SettlementCurrencyPreference
   /** How this user's usage appears on the public leaderboard */
   usage_leaderboard_visibility?: UsageLeaderboardVisibility
+  /** L1+ only: bypass IP/region access policy when a valid API key is used */
+  allow_key_bypass_ip_policy?: boolean
 }
 
 /**
@@ -152,6 +161,7 @@ export interface UpdateUserSettingsRequest {
   record_ip_log?: boolean
   upstream_model_update_notify_enabled?: boolean
   usage_leaderboard_visibility?: UsageLeaderboardVisibility
+  allow_key_bypass_ip_policy?: boolean
 }
 
 /**

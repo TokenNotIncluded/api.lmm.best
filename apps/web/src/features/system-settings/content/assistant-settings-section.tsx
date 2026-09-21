@@ -18,9 +18,16 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery } from '@tanstack/react-query'
-import { FileText, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import {
+  ArrowDown,
+  ArrowUp,
+  FileText,
+  Plus,
+  RefreshCw,
+  Trash2,
+} from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -61,6 +68,7 @@ import {
   type AssistantSearchProvider,
 } from '../types'
 import { safeNumberFieldProps } from '../utils/numeric-field'
+import { AssistantL1ReviewSettings } from './assistant-l1-review-settings'
 import {
   assistantSettingsSchema,
   type AssistantSettingsFormValues,
@@ -73,6 +81,171 @@ type AssistantSkillFile = {
 }
 
 const EMPTY_ASSISTANT_MODEL_IDS: string[] = []
+
+type ConversationStarter = { id: string; label: string; prompt: string }
+
+const DEFAULT_CONVERSATION_STARTERS: ConversationStarter[] = [
+  {
+    id: 'getting_started',
+    label: 'Where should I start?',
+    prompt: 'Where should I start?',
+  },
+  {
+    id: 'new_user_gift',
+    label: 'How do I get the new-user gift?',
+    prompt: 'How do I get the new-user gift?',
+  },
+  {
+    id: 'weekly_discount',
+    label: 'Any top-up discounts this week?',
+    prompt: 'Any top-up discounts this week?',
+  },
+  {
+    id: 'ai_recommendation',
+    label: 'Help me write an L1 recommendation.',
+    prompt: 'Help me write an L1 recommendation.',
+  },
+]
+
+function parseConversationStarters(value: string): ConversationStarter[] {
+  if (!value.trim()) return DEFAULT_CONVERSATION_STARTERS
+  try {
+    const parsed = JSON.parse(value) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((item): item is ConversationStarter => {
+      if (!item || typeof item !== 'object') return false
+      const candidate = item as Record<string, unknown>
+      return (
+        typeof candidate.id === 'string' &&
+        typeof candidate.label === 'string' &&
+        typeof candidate.prompt === 'string'
+      )
+    })
+  } catch {
+    return []
+  }
+}
+
+export function ConversationStartersEditor(props: {
+  value: string
+  disabled: boolean
+  onChange: (value: string) => void
+}) {
+  const { t } = useTranslation()
+  const items = parseConversationStarters(props.value)
+  const write = (next: ConversationStarter[]) =>
+    props.onChange(JSON.stringify(next))
+  const update = (index: number, patch: Partial<ConversationStarter>) =>
+    write(
+      items.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, ...patch } : item
+      )
+    )
+  const remove = (index: number) =>
+    write(items.filter((_, itemIndex) => itemIndex !== index))
+  const move = (index: number, direction: -1 | 1) => {
+    const target = index + direction
+    if (target < 0 || target >= items.length) return
+    const next = [...items]
+    ;[next[index], next[target]] = [next[target], next[index]]
+    write(next)
+  }
+  return (
+    <div
+      className='space-y-3'
+      data-testid='assistant-conversation-starters-editor'
+    >
+      <div className='text-muted-foreground text-sm'>
+        {t(
+          'These starter buttons use exactly the custom text you save. They are not translated automatically.'
+        )}
+      </div>
+      {items.map((item, index) => (
+        <div key={item.id} className='space-y-2 rounded-md border p-3'>
+          <div className='flex items-center justify-between gap-2'>
+            <span className='text-muted-foreground text-xs'>
+              {t('Starter {{number}}', { number: index + 1 })}
+            </span>
+            <div className='flex gap-1'>
+              <Button
+                type='button'
+                variant='ghost'
+                size='icon'
+                aria-label={t('Move starter up')}
+                onClick={() => move(index, -1)}
+                disabled={props.disabled || index === 0}
+              >
+                <ArrowUp className='size-4' />
+              </Button>
+              <Button
+                type='button'
+                variant='ghost'
+                size='icon'
+                aria-label={t('Move starter down')}
+                onClick={() => move(index, 1)}
+                disabled={props.disabled || index === items.length - 1}
+              >
+                <ArrowDown className='size-4' />
+              </Button>
+              <Button
+                type='button'
+                variant='ghost'
+                size='icon'
+                aria-label={t('Delete starter')}
+                onClick={() => remove(index)}
+                disabled={props.disabled}
+              >
+                <Trash2 className='size-4' />
+              </Button>
+            </div>
+          </div>
+          <Input
+            aria-label={t('Button label')}
+            value={item.label}
+            maxLength={80}
+            onChange={(event) => update(index, { label: event.target.value })}
+            disabled={props.disabled}
+          />
+          <Textarea
+            aria-label={t('Prompt text')}
+            value={item.prompt}
+            maxLength={2000}
+            rows={2}
+            onChange={(event) => update(index, { prompt: event.target.value })}
+            disabled={props.disabled}
+          />
+        </div>
+      ))}
+      <div className='flex flex-wrap gap-2'>
+        <Button
+          type='button'
+          variant='outline'
+          size='sm'
+          onClick={() =>
+            write([
+              ...items,
+              { id: `custom_${Date.now()}`, label: '', prompt: '' },
+            ])
+          }
+          disabled={props.disabled || items.length >= 20}
+        >
+          <Plus className='mr-1 size-4' />
+          {t('Add starter')}
+        </Button>
+        <Button
+          type='button'
+          variant='ghost'
+          size='sm'
+          onClick={() => props.onChange('')}
+          disabled={props.disabled}
+        >
+          {t('Restore defaults')}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 async function getEnabledAssistantModelIDs(group: string) {
   const response = await api.get<{ data?: unknown }>('/api/assistant/models', {
     params: { group },
@@ -121,17 +294,6 @@ function AssistantSkillFilesEditor(props: {
     0
   )
   const selectedFile = files[selected]
-  const filePaths = files.map((file) => file.path).join('\u0000')
-
-  useEffect(() => {
-    if (files.length === 0) {
-      setSelectedPath(null)
-      return
-    }
-    if (!selectedPath || !files.some((file) => file.path === selectedPath)) {
-      setSelectedPath(files[0].path)
-    }
-  }, [filePaths, files, selectedPath])
 
   const updateFiles = (next: AssistantSkillFile[]) => {
     props.onChange(
@@ -319,16 +481,28 @@ export function AssistantSettingsSection(props: {
     }
   }
 
-  const enabled = form.watch('AssistantEnabled')
-  const agentLoopEnabled = form.watch('AssistantAgentLoopEnabled')
-  const cacheEnabled = form.watch('AssistantCacheEnabled')
-  const reviewEnabled = form.watch('AssistantReviewEnabled')
-  const retentionEnabled = form.watch('AssistantRetentionEnabled')
-  const searchProvider = form.watch('AssistantSearchProvider')
-  const selectedGroup = form.watch('AssistantGroup')
-  const selectedModel = form.watch('AssistantModel')
-  const selectedReviewGroup = form.watch('AssistantReviewGroup')
-  const selectedReviewModel = form.watch('AssistantReviewModel')
+  const [
+    enabled,
+    agentLoopEnabled,
+    cacheEnabled,
+    reviewEnabled,
+    retentionEnabled,
+    searchProvider,
+    selectedGroup,
+    selectedModel,
+  ] = useWatch({
+    control: form.control,
+    name: [
+      'AssistantEnabled',
+      'AssistantAgentLoopEnabled',
+      'AssistantCacheEnabled',
+      'AssistantReviewEnabled',
+      'AssistantRetentionEnabled',
+      'AssistantSearchProvider',
+      'AssistantGroup',
+      'AssistantModel',
+    ],
+  })
   const groupsQuery = useQuery({
     queryKey: ['assistant-routing-groups'],
     queryFn: async () => {
@@ -368,25 +542,6 @@ export function AssistantSettingsSection(props: {
     Boolean(selectedModel) &&
     assistantModelListLoaded &&
     !assistantModels.includes(selectedModel)
-  const assistantReviewModelsQuery = useQuery({
-    queryKey: ['assistant-review-routing-models', selectedReviewGroup],
-    queryFn: () => getEnabledAssistantModelIDs(selectedReviewGroup),
-    enabled: false,
-    staleTime: 60_000,
-    retry: false,
-  })
-  const assistantReviewModels =
-    assistantReviewModelsQuery.data ?? EMPTY_ASSISTANT_MODEL_IDS
-  const assistantReviewModelListLoaded =
-    assistantReviewModelsQuery.data !== undefined
-  const assistantReviewModelOptions = [
-    ...new Set([...assistantReviewModels, selectedReviewModel].filter(Boolean)),
-  ]
-  const selectedReviewModelIsUnavailable =
-    Boolean(selectedReviewModel) &&
-    assistantReviewModelListLoaded &&
-    !assistantReviewModels.includes(selectedReviewModel)
-
   let modelDescription = t(
     'Choose a group, then click Get model list to load its enabled model IDs.'
   )
@@ -401,25 +556,6 @@ export function AssistantSettingsSection(props: {
   } else if (assistantModelListLoaded) {
     modelDescription = t(
       'The assistant sends requests with this exact enabled model ID and the selected routing group.'
-    )
-  }
-  let reviewModelDescription = t(
-    'Choose a group, then click Get model list to load its enabled model IDs.'
-  )
-  if (assistantReviewModelsQuery.isError) {
-    reviewModelDescription = t(
-      'The built-in AI assistant is under maintenance. Please try again later.'
-    )
-  } else if (assistantReviewModelsQuery.isFetching) {
-    reviewModelDescription = t('Loading model list...')
-  } else if (
-    assistantReviewModelListLoaded &&
-    assistantReviewModels.length === 0
-  ) {
-    reviewModelDescription = t('This group has no enabled model IDs.')
-  } else if (assistantReviewModelListLoaded) {
-    reviewModelDescription = t(
-      'Automatic reviews send requests with this exact enabled model ID and the selected routing group.'
     )
   }
   const searchProviderDescription: Record<AssistantSearchProvider, string> = {
@@ -777,6 +913,29 @@ export function AssistantSettingsSection(props: {
 
             <FormField
               control={form.control}
+              name='AssistantPreConversationPresets'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Conversation starter prompts')}</FormLabel>
+                  <FormControl>
+                    <ConversationStartersEditor
+                      value={field.value}
+                      disabled={!enabled}
+                      onChange={field.onChange}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Optional JSON list of starter buttons. Leave empty for reviewed defaults; use [] to hide them.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
               name='AssistantSearchProvider'
               render={({ field }) => (
                 <FormItem>
@@ -1018,7 +1177,7 @@ export function AssistantSettingsSection(props: {
                       <Input
                         type='number'
                         min={1}
-                        max={12}
+                        max={32}
                         step={1}
                         {...safeNumberFieldProps(field)}
                         disabled={!enabled || !agentLoopEnabled}
@@ -1026,7 +1185,7 @@ export function AssistantSettingsSection(props: {
                     </FormControl>
                     <FormDescription>
                       {t(
-                        'Maximum number of model/tool turns in one assistant request (1–12).'
+                        'Maximum number of model/tool turns in one assistant request (1–32).'
                       )}
                     </FormDescription>
                     <FormMessage />
@@ -1044,7 +1203,7 @@ export function AssistantSettingsSection(props: {
                       <Input
                         type='number'
                         min={5}
-                        max={120}
+                        max={300}
                         step={1}
                         {...safeNumberFieldProps(field)}
                         disabled={!enabled || !agentLoopEnabled}
@@ -1052,7 +1211,7 @@ export function AssistantSettingsSection(props: {
                     </FormControl>
                     <FormDescription>
                       {t(
-                        'Hard limit for the complete agent loop (5–120 seconds).'
+                        'Hard limit for the complete agent loop (5–300 seconds).'
                       )}
                     </FormDescription>
                     <FormMessage />
@@ -1112,6 +1271,12 @@ export function AssistantSettingsSection(props: {
               )}
             />
           </div>
+
+          <AssistantL1ReviewSettings
+            groups={assistantGroups}
+            groupsLoading={groupsQuery.isLoading}
+            getModels={getEnabledAssistantModelIDs}
+          />
 
           <div className='grid gap-5 border-t pt-6'>
             <div>
@@ -1196,232 +1361,6 @@ export function AssistantSettingsSection(props: {
                 )}
               />
             </div>
-
-            <div
-              className='grid gap-5 border-t pt-5 sm:grid-cols-2'
-              data-testid='assistant-review-route-fields'
-            >
-              <FormField
-                control={form.control}
-                name='AssistantReviewProbability'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>
-                      {t('Per-request review probability (%)')}
-                    </FormLabel>
-                    <FormControl>
-                      <Input
-                        type='number'
-                        min={0}
-                        max={100}
-                        step={0.1}
-                        {...safeNumberFieldProps(field)}
-                        disabled={!reviewEnabled}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t(
-                        '0 disables sampled reviews. 1.0 means roughly one percent; reviews run in the background and never delay the response.'
-                      )}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name='AssistantReviewGroup'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Routing group')}</FormLabel>
-                    <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
-                      <Select
-                        value={field.value}
-                        onValueChange={(value) => {
-                          field.onChange(value)
-                          form.setValue('AssistantReviewModel', '', {
-                            shouldDirty: true,
-                            shouldValidate: true,
-                          })
-                        }}
-                      >
-                        <FormControl>
-                          <SelectTrigger
-                            className='w-full sm:flex-1'
-                            disabled={!reviewEnabled || groupsQuery.isLoading}
-                          >
-                            <SelectValue placeholder={t('Select a group')} />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent alignItemWithTrigger={false}>
-                          <SelectGroup>
-                            {assistantGroups.map((group) => (
-                              <SelectItem key={group} value={group}>
-                                {group}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                      <Button
-                        type='button'
-                        variant='outline'
-                        className='w-full sm:w-auto'
-                        onClick={() => {
-                          void assistantReviewModelsQuery.refetch()
-                        }}
-                        disabled={
-                          !reviewEnabled ||
-                          !selectedReviewGroup ||
-                          assistantReviewModelsQuery.isFetching
-                        }
-                        data-testid='assistant-review-get-model-list'
-                      >
-                        <RefreshCw
-                          data-icon='inline-start'
-                          className={
-                            assistantReviewModelsQuery.isFetching
-                              ? 'animate-spin'
-                              : undefined
-                          }
-                        />
-                        <span>{t('Get model list')}</span>
-                      </Button>
-                    </div>
-                    <FormDescription>
-                      {t(
-                        'Select the routing group used by automatic reviews, then get its enabled model IDs.'
-                      )}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name='AssistantReviewModel'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Review model')}</FormLabel>
-                    <Select
-                      value={field.value}
-                      onValueChange={(value) => {
-                        if (typeof value !== 'string' || value.trim() === '') {
-                          return
-                        }
-                        form.setValue('AssistantReviewModel', value, {
-                          shouldDirty: true,
-                          shouldTouch: true,
-                          shouldValidate: true,
-                        })
-                        form.clearErrors('AssistantReviewModel')
-                      }}
-                    >
-                      <FormControl>
-                        <SelectTrigger
-                          className='w-full'
-                          disabled={
-                            !reviewEnabled ||
-                            !assistantReviewModelListLoaded ||
-                            assistantReviewModelsQuery.isFetching ||
-                            assistantReviewModelsQuery.isError ||
-                            assistantReviewModels.length === 0
-                          }
-                        >
-                          <SelectValue placeholder={t('Select a model ID')} />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent alignItemWithTrigger={false}>
-                        <SelectGroup>
-                          {assistantReviewModelOptions.map((modelID) => (
-                            <SelectItem key={modelID} value={modelID}>
-                              {modelID}
-                              {modelID === selectedReviewModel &&
-                              selectedReviewModelIsUnavailable
-                                ? ` · ${t('not enabled')}`
-                                : null}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                    <FormDescription>{reviewModelDescription}</FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name='AssistantReviewReasoningEffort'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Reasoning Effort')}</FormLabel>
-                    <Select
-                      value={field.value}
-                      onValueChange={(value) => {
-                        if (
-                          typeof value === 'string' &&
-                          (
-                            ASSISTANT_REASONING_EFFORTS as readonly string[]
-                          ).includes(value)
-                        ) {
-                          field.onChange(value as AssistantReasoningEffort)
-                        }
-                      }}
-                    >
-                      <FormControl>
-                        <SelectTrigger
-                          className='w-full'
-                          disabled={!reviewEnabled}
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent alignItemWithTrigger={false}>
-                        {ASSISTANT_REASONING_EFFORTS.map((effort) => (
-                          <SelectItem key={effort} value={effort}>
-                            {effort}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormDescription>
-                      {t(
-                        'Controls the reasoning hint sent with automatic review requests. Auto lets each model use its native default.'
-                      )}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-
-            <FormField
-              control={form.control}
-              name='AssistantReviewGroupPolicies'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Per-group review policies')}</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      {...field}
-                      className='min-h-28 font-mono text-xs'
-                      placeholder='{"group-name":{"probability":1,"intensity":"standard"}}'
-                      disabled={!reviewEnabled}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t(
-                      'Optional JSON keyed by routing group. Each value accepts probability 0–100 and intensity off, low, standard, or high. Unlisted groups use the global probability.'
-                    )}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
           </div>
 
           <div className='grid gap-5 border-t pt-6'>

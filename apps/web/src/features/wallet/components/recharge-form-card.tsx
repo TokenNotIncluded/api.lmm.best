@@ -24,7 +24,7 @@ import {
   WalletCardsIcon,
 } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
-import { useState, useEffect } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -62,33 +62,40 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { usesDedicatedPaymentPricing } from '@/lib/payment-pricing'
+import { WaitCompanion } from '@/components/wait-companion'
 import { cn } from '@/lib/utils'
 import {
   getDefaultWaffoPancakeCheckoutRegion,
   type WaffoPancakeCheckoutRegion,
 } from '@/lib/waffo-pancake-checkout'
 
+import { PAYMENT_TYPES } from '../constants'
 import {
   getPaymentIcon,
-  getPaymentMaxTopup,
+  getPaymentMaxTopupAmount,
   getPaymentTopupRatio,
   getDefaultPaymentType,
   getTopupAvailability,
   getMinTopupAmount,
   calculatePresetPricing,
-  formatCreditBalance,
-  formatCreditValue,
+  formatPlatformCreditBalance as formatPlatformCreditBalanceBase,
   formatPaymentAmount,
   formatPaymentSettlementRate,
   formatSettlementAmount,
+  getCreditCurrencyLabel,
   getPaymentSettlementUnit,
   isWaffoPancakeCurrencySupported,
   isWaffoPancakePayment,
+  isPositivePaymentAmount,
   isSafeHttpCheckoutUrl,
 } from '../lib'
 import { discountCodeSavings } from '../lib/discount-state'
 import type { TopupAvailability } from '../lib/payment'
+import {
+  formatSettlementQuote,
+  parseSettlementQuote,
+  type SettlementQuote,
+} from '../lib/settlement-quote'
 import type {
   PaymentMethod,
   PresetAmount,
@@ -105,10 +112,16 @@ interface RechargeFormCardProps {
   selectedPreset: number | null
   onSelectPreset: (preset: PresetAmount) => void
   topupAmount: number
-  onTopupAmountChange: (amount: number) => void
+  onTopupAmountChange: (
+    amount: number,
+    options?: { deferQuote?: boolean }
+  ) => void
   paymentAmount: number
+  settlementQuote?: SettlementQuote | null
   selectedPaymentMethod?: PaymentMethod
   calculating: boolean
+  quoteError?: string | null
+  onRetryQuote?: () => void
   onPaymentMethodSelect: (method: PaymentMethod) => void
   paymentLoading: string | null
   redemptionCode: string
@@ -134,6 +147,8 @@ interface RechargeFormCardProps {
     region: WaffoPancakeCheckoutRegion
   ) => void
   neutralMode?: boolean
+  onProceedToPayment?: () => void
+  onRemoveDiscount?: () => void
 }
 
 export function RechargeFormCard({
@@ -144,9 +159,12 @@ export function RechargeFormCard({
   onSelectPreset,
   topupAmount,
   onTopupAmountChange,
-  paymentAmount,
+  paymentAmount: legacyPaymentAmount,
+  settlementQuote,
   selectedPaymentMethod,
   calculating,
+  quoteError,
+  onRetryQuote,
   onPaymentMethodSelect,
   paymentLoading,
   redemptionCode,
@@ -170,25 +188,48 @@ export function RechargeFormCard({
   waffoPancakeCheckoutRegion,
   onWaffoPancakeCheckoutRegionChange,
   neutralMode = false,
+  onProceedToPayment,
+  onRemoveDiscount,
 }: RechargeFormCardProps) {
   const { t, i18n } = useTranslation()
-  const [localAmount, setLocalAmount] = useState(topupAmount.toString())
+  const formatPlatformCreditBalance = (amount: number) =>
+    formatPlatformCreditBalanceBase(amount, t('Platform'))
+  const [amountInput, setAmountInput] = useState(() => ({
+    sourceAmount: topupAmount,
+    value: topupAmount.toString(),
+  }))
+  const localAmount =
+    amountInput.sourceAmount === topupAmount
+      ? amountInput.value
+      : topupAmount.toString()
   const [localWaffoPancakeRegionOverride, setLocalWaffoPancakeRegion] =
     useState<WaffoPancakeCheckoutRegion | null>(null)
+  const holdRef = useRef<{
+    delta: number
+    startedAt: number
+    timeoutId: number | null
+  } | null>(null)
 
-  useEffect(() => {
-    // Empty string must survive, otherwise the field can never be cleared
-    setLocalAmount((prev) =>
-      prev === '' && topupAmount === 0 ? prev : topupAmount.toString()
-    )
-  }, [topupAmount])
+  const handleAmountChange = useCallback(
+    (value: string) => {
+      const parsedValue = Number.parseFloat(value)
+      if (Number.isFinite(parsedValue) && parsedValue >= 0) {
+        setAmountInput({ sourceAmount: parsedValue, value })
+        onTopupAmountChange(parsedValue)
+      } else if (value === '') {
+        setAmountInput({ sourceAmount: 0, value })
+        onTopupAmountChange(0)
+      }
+    },
+    [onTopupAmountChange]
+  )
 
-  const handleAmountChange = (value: string) => {
-    setLocalAmount(value)
-    const numValue = Number.parseInt(value) || 0
-    if (numValue >= 0) {
-      onTopupAmountChange(numValue)
-    }
+  const handlePresetSelect = (preset: PresetAmount) => {
+    setAmountInput({
+      sourceAmount: preset.value,
+      value: preset.value.toString(),
+    })
+    onSelectPreset(preset)
   }
 
   const topupAvailability =
@@ -207,41 +248,149 @@ export function RechargeFormCard({
   const topupGroupRatio = topupInfo?.topup_group_ratio ?? 1
   const redemptionEnabled = topupInfo?.enable_redemption !== false
   const customDiscount = topupInfo?.discount?.[topupAmount] || 1
-  const customHasDiscount = customDiscount > 0 && customDiscount < 1
+  const effectivePaymentMethod =
+    selectedPaymentMethod ??
+    standardMethods.find(
+      (method) => method.type === getDefaultPaymentType(topupInfo)
+    ) ??
+    standardMethods[0] ??
+    (waffoMethods.length > 0
+      ? {
+          name: waffoMethods[0].name,
+          type: PAYMENT_TYPES.WAFFO,
+          icon: waffoMethods[0].icon,
+          settlement_unit: topupInfo?.waffo_currency || 'USD',
+          unit_price: topupInfo?.waffo_unit_price,
+        }
+      : undefined)
+  const maxTopup = getPaymentMaxTopupAmount(effectivePaymentMethod)
+  const clampTopupAmount = useCallback(
+    (value: number) =>
+      Math.max(minTopup, maxTopup === null ? value : Math.min(value, maxTopup)),
+    [maxTopup, minTopup]
+  )
+  const changeAmountBy = useCallback(
+    (delta: number) => {
+      const next = clampTopupAmount(topupAmount + delta)
+      if (next !== topupAmount) {
+        const parsedValue = next
+        onTopupAmountChange(parsedValue, { deferQuote: true })
+        setAmountInput({ sourceAmount: parsedValue, value: String(next) })
+      }
+    },
+    [clampTopupAmount, onTopupAmountChange, topupAmount]
+  )
+  const stopAmountHold = useCallback(() => {
+    const hold = holdRef.current
+    if (!hold) return
+    if (hold.timeoutId !== null) window.clearTimeout(hold.timeoutId)
+    holdRef.current = null
+  }, [])
+  const startAmountHold = useCallback(
+    (delta: number, event: React.PointerEvent<HTMLButtonElement>) => {
+      if (event.pointerType === 'mouse' && event.button !== 0) return
+      event.currentTarget.setPointerCapture?.(event.pointerId)
+      stopAmountHold()
+      changeAmountBy(delta)
+      const hold = {
+        delta,
+        startedAt: Date.now(),
+        timeoutId: null as number | null,
+      }
+      const tick = () => {
+        if (holdRef.current !== hold) return
+        changeAmountBy(delta)
+        const elapsed = Date.now() - hold.startedAt
+        hold.timeoutId = window.setTimeout(
+          tick,
+          Math.max(45, 180 - Math.floor(elapsed / 1000) * 30)
+        )
+      }
+      hold.timeoutId = window.setTimeout(tick, 450)
+      holdRef.current = hold
+    },
+    [changeAmountBy, stopAmountHold]
+  )
+  useEffect(() => stopAmountHold, [stopAmountHold])
+  useEffect(() => {
+    window.addEventListener('blur', stopAmountHold)
+    return () => window.removeEventListener('blur', stopAmountHold)
+  }, [stopAmountHold])
+  const usesSettlementQuote = isWaffoPancakePayment(
+    effectivePaymentMethod?.type ?? ''
+  )
+  const quote = parseSettlementQuote(settlementQuote)
+  const paymentAmount = usesSettlementQuote
+    ? quote
+      ? Number(quote.amount)
+      : 0
+    : legacyPaymentAmount
+  const hasCurrentPaymentAmount =
+    !calculating && isPositivePaymentAmount(paymentAmount)
+  const customHasDiscount =
+    !usesSettlementQuote &&
+    hasCurrentPaymentAmount &&
+    customDiscount > 0 &&
+    customDiscount < 1
   const customOriginalPayment = customHasDiscount
     ? paymentAmount / customDiscount
     : paymentAmount
   const customDiscountAmount = customOriginalPayment - paymentAmount
-  const discountCodeSavingAmount = discountCodeSavings(
-    paymentAmount,
-    discountPercent
-  )
-  const defaultPaymentType = getDefaultPaymentType(topupInfo)
-  const effectivePaymentMethod =
-    selectedPaymentMethod ??
-    standardMethods.find((method) => method.type === defaultPaymentType)
-  const settlementUnit = getPaymentSettlementUnit(effectivePaymentMethod)
+  const effectivePaymentAmount =
+    usesSettlementQuote && quote ? Number(quote.amount) : paymentAmount
+  const discountCodeSavingAmount = hasCurrentPaymentAmount
+    ? usesSettlementQuote
+      ? 0
+      : discountCodeSavings(effectivePaymentAmount, discountPercent)
+    : 0
+  const quoteSavingsAmount =
+    usesSettlementQuote && quote?.savingsAmount
+      ? Number(quote.savingsAmount)
+      : 0
+  const actualSavingAmount = discountCodeSavingAmount || quoteSavingsAmount
+  const quoteOriginalAmount =
+    usesSettlementQuote && quote?.originalAmount
+      ? Number(quote.originalAmount)
+      : 0
+  const settlementUnit = usesSettlementQuote
+    ? null
+    : getPaymentSettlementUnit(effectivePaymentMethod, true)
   const paymentTopupRatio = getPaymentTopupRatio(effectivePaymentMethod)
   const selectedPaymentMethodName =
     neutralMode || !effectivePaymentMethod?.name
       ? t('Payment Method')
       : effectivePaymentMethod.name
   const shouldShowSettlementRule = (paymentMethod: PaymentMethod) =>
-    !usesDedicatedPaymentPricing(paymentMethod.type)
-  const getSettlementRule = (paymentMethod: PaymentMethod) => {
-    const configuredRate = formatPaymentSettlementRate(paymentMethod)
-    if (configuredRate) return configuredRate
-
-    return t('Global settlement')
-  }
+    !isWaffoPancakePayment(paymentMethod.type) &&
+    getPaymentSettlementUnit(paymentMethod, true) !== null
+  const getSettlementRule = (paymentMethod: PaymentMethod) =>
+    formatPaymentSettlementRate(
+      paymentMethod,
+      getCreditCurrencyLabel(t('Platform')),
+      true
+    )
   const formatSelectedPaymentAmount = (amount: number) =>
-    settlementUnit
-      ? formatSettlementAmount(amount, settlementUnit.label)
-      : formatPaymentAmount(amount)
+    usesSettlementQuote
+      ? quote
+        ? amount === Number(quote.amount)
+          ? formatSettlementQuote(quote)
+          : formatPaymentAmount(amount, quote.currency)
+        : t('Payment unavailable')
+      : settlementUnit
+        ? formatSettlementAmount(amount, settlementUnit.label)
+        : formatPaymentAmount(amount, 'USD')
   const formatPresetPaymentAmount = (amount: number) =>
-    settlementUnit
-      ? formatSettlementAmount(amount, settlementUnit.label)
-      : formatPaymentAmount(amount)
+    usesSettlementQuote
+      ? t('Select for a quote')
+      : formatSelectedPaymentAmount(amount)
+  const isUpdatingQuote = calculating || discountApplying
+  const paymentAmountLabel = isUpdatingQuote
+    ? discountApplying
+      ? t('Validating discount...')
+      : t('Calculating...')
+    : hasCurrentPaymentAmount
+      ? formatSelectedPaymentAmount(paymentAmount)
+      : t('Payment unavailable')
   const pancakeCurrencySupported = isWaffoPancakeCurrencySupported()
   const interfaceLanguage = i18n.resolvedLanguage || i18n.language
   const effectiveWaffoPancakeCheckoutRegion =
@@ -262,19 +411,52 @@ export function RechargeFormCard({
     setLocalWaffoPancakeRegion(value)
     onWaffoPancakeCheckoutRegionChange?.(value)
   }
-  const selectedPresetPricing = (() => {
-    if (selectedPreset === null) return null
-    const preset = presetAmounts.find((item) => item.value === selectedPreset)
-    if (!preset) return null
-    const discount =
-      preset.discount || topupInfo?.discount?.[preset.value] || 1.0
-    return calculatePresetPricing(
-      preset.value,
-      (settlementUnit?.unitPrice ?? priceRatio) *
-        topupGroupRatio *
-        paymentTopupRatio,
-      discount
-    )
+  const activeSelectedPreset =
+    selectedPreset !== null && selectedPreset === topupAmount
+      ? selectedPreset
+      : null
+  const selectedPresetDetails =
+    activeSelectedPreset === null
+      ? null
+      : (presetAmounts.find((item) => item.value === activeSelectedPreset) ??
+        null)
+  const configuredSelectedPresetDiscount = selectedPresetDetails
+    ? (selectedPresetDetails.discount ??
+      topupInfo?.discount?.[selectedPresetDetails.value] ??
+      1)
+    : null
+  const selectedPresetDiscount =
+    configuredSelectedPresetDiscount !== null &&
+    Number.isFinite(configuredSelectedPresetDiscount) &&
+    configuredSelectedPresetDiscount > 0 &&
+    configuredSelectedPresetDiscount <= 1
+      ? configuredSelectedPresetDiscount
+      : null
+  const selectedPresetQuoteBreakdown = (() => {
+    if (usesSettlementQuote && quote?.originalAmount) {
+      const originalPrice = Number(quote.originalAmount)
+      const savedAmount = quote.savingsAmount
+        ? Number(quote.savingsAmount)
+        : originalPrice - paymentAmount
+      return {
+        originalPrice,
+        savedAmount,
+        hasDiscount: savedAmount > 0,
+      }
+    }
+    if (
+      usesSettlementQuote ||
+      selectedPresetDiscount === null ||
+      !hasCurrentPaymentAmount
+    ) {
+      return null
+    }
+    const originalPrice = paymentAmount / selectedPresetDiscount
+    return {
+      originalPrice,
+      savedAmount: originalPrice - paymentAmount,
+      hasDiscount: selectedPresetDiscount < 1,
+    }
   })()
 
   if (loading) {
@@ -399,7 +581,7 @@ export function RechargeFormCard({
                     <FieldLabel>
                       {neutralMode
                         ? t('Current account balance')
-                        : t('Credited amount (unit: USD)')}
+                        : t('Platform credit')}
                     </FieldLabel>
                     <FieldDescription>
                       {neutralMode
@@ -416,11 +598,18 @@ export function RechargeFormCard({
                           preset.discount ||
                           topupInfo?.discount?.[preset.value] ||
                           1.0
-                        const defaultPricing = calculatePresetPricing(
-                          preset.value,
-                          priceRatio * topupGroupRatio * paymentTopupRatio,
-                          discount
-                        )
+                        const defaultPricing = usesSettlementQuote
+                          ? {
+                              originalPrice: 0,
+                              actualPrice: 0,
+                              savedAmount: 0,
+                              hasDiscount: false,
+                            }
+                          : calculatePresetPricing(
+                              preset.value,
+                              priceRatio * topupGroupRatio * paymentTopupRatio,
+                              discount
+                            )
                         const configuredSettlementPrice = settlementUnit
                           ? calculatePresetPricing(
                               preset.value,
@@ -441,7 +630,9 @@ export function RechargeFormCard({
                               hasDiscount: discount < 1,
                             }
                           : defaultPricing
-                        const credits = formatCreditBalance(preset.value)
+                        const credits = formatPlatformCreditBalance(
+                          preset.value
+                        )
                         const payment = formatPresetPaymentAmount(actualPrice)
                         const originalPayment =
                           formatPresetPaymentAmount(originalPrice)
@@ -459,28 +650,44 @@ export function RechargeFormCard({
                             variant='outline'
                             className={cn(
                               'flex min-h-32 min-w-0 flex-col items-start rounded-lg px-3 py-2.5 text-left whitespace-normal sm:min-h-24 sm:p-4',
-                              selectedPreset === preset.value
+                              activeSelectedPreset === preset.value
                                 ? 'border-primary bg-primary/5'
                                 : 'border-muted'
                             )}
-                            onClick={() => onSelectPreset(preset)}
-                            aria-pressed={selectedPreset === preset.value}
-                            aria-label={t(
-                              'Preset amount: {{credit}}. Actual payment: {{payment}}. Original payment: {{original}}. {{discount}}',
-                              {
-                                credit: credits,
-                                payment,
-                                original: originalPayment,
-                                discount: discountSummary,
-                              }
-                            )}
+                            onClick={() => handlePresetSelect(preset)}
+                            aria-pressed={activeSelectedPreset === preset.value}
+                            aria-label={
+                              usesSettlementQuote
+                                ? activeSelectedPreset === preset.value &&
+                                  hasCurrentPaymentAmount
+                                  ? t(
+                                      'Preset amount: {{credit}}. Actual payment: {{payment}}.',
+                                      {
+                                        credit: credits,
+                                        payment:
+                                          formatSelectedPaymentAmount(
+                                            paymentAmount
+                                          ),
+                                      }
+                                    )
+                                  : t(
+                                      'Preset amount: {{credit}}. Select to get the current payment quote.',
+                                      { credit: credits }
+                                    )
+                                : t(
+                                    'Preset amount: {{credit}}. Actual payment: {{payment}}. Original payment: {{original}}. {{discount}}',
+                                    {
+                                      credit: credits,
+                                      payment,
+                                      original: originalPayment,
+                                      discount: discountSummary,
+                                    }
+                                  )
+                            }
                           >
                             <div className='flex w-full min-w-0 flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between'>
                               <div className='min-w-0 text-base font-semibold sm:text-lg'>
-                                {formatCreditValue(preset.value)}
-                                <span className='text-muted-foreground text-xs font-normal sm:text-sm'>
-                                  {t('(Platform amount, unit: USD)')}
-                                </span>
+                                {credits}
                               </div>
                               {hasDiscount && (
                                 <Badge variant='secondary'>
@@ -505,27 +712,36 @@ export function RechargeFormCard({
                               'The amount shown on each card is the platform credit. The actual payment and any discount are calculated for the selected payment method.'
                             )}
                           </p>
-                          {selectedPreset !== null && (
+                          {selectedPresetDetails && (
                             <>
                               <p className='text-muted-foreground'>
-                                {t(
-                                  'Selected method: {{method}} · Estimated payment: {{amount}} (original {{original}})',
-                                  {
-                                    method: selectedPaymentMethodName,
-                                    amount: formatPresetPaymentAmount(
-                                      selectedPresetPricing?.actualPrice ?? 0
-                                    ),
-                                    original: formatPresetPaymentAmount(
-                                      selectedPresetPricing?.originalPrice ?? 0
-                                    ),
-                                  }
-                                )}
+                                {selectedPresetQuoteBreakdown
+                                  ? t(
+                                      'Selected method: {{method}} · Estimated payment: {{amount}} (original {{original}})',
+                                      {
+                                        method: selectedPaymentMethodName,
+                                        amount:
+                                          formatSelectedPaymentAmount(
+                                            paymentAmount
+                                          ),
+                                        original: formatSelectedPaymentAmount(
+                                          selectedPresetQuoteBreakdown.originalPrice
+                                        ),
+                                      }
+                                    )
+                                  : t(
+                                      'Selected method: {{method}} · Amount due: {{amount}} (actual payment)',
+                                      {
+                                        method: selectedPaymentMethodName,
+                                        amount: paymentAmountLabel,
+                                      }
+                                    )}
                               </p>
-                              {selectedPresetPricing?.hasDiscount && (
+                              {selectedPresetQuoteBreakdown?.hasDiscount && (
                                 <p className='text-muted-foreground'>
                                   {t('Discount applied {{amount}}', {
-                                    amount: formatPresetPaymentAmount(
-                                      selectedPresetPricing.savedAmount
+                                    amount: formatSelectedPaymentAmount(
+                                      selectedPresetQuoteBreakdown.savedAmount
                                     ),
                                   })}
                                 </p>
@@ -544,7 +760,7 @@ export function RechargeFormCard({
                   <FieldLabel htmlFor='topup-amount'>
                     {neutralMode
                       ? t('Current account balance')
-                      : t('Custom credited amount')}
+                      : t('Custom platform credit')}
                   </FieldLabel>
                   <FieldDescription id='topup-amount-description'>
                     {neutralMode
@@ -557,24 +773,66 @@ export function RechargeFormCard({
                   </FieldDescription>
                   <div className='grid min-w-0 gap-2 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center'>
                     <InputGroup className='h-9 sm:h-10'>
-                      <InputGroupAddon aria-hidden='true'>$</InputGroupAddon>
                       <InputGroupInput
                         id='topup-amount'
-                        type='number'
+                        type='text'
+                        inputMode='decimal'
                         value={localAmount}
                         onChange={(e) => handleAmountChange(e.target.value)}
                         min={minTopup}
                         placeholder={t('Minimum {{amount}}', {
-                          amount: minTopup,
+                          amount: formatPlatformCreditBalance(minTopup),
                         })}
                         aria-describedby='topup-amount-description'
-                        aria-label={t('Custom credited amount in US dollars')}
+                        aria-label={t('Custom platform credit')}
                         className='text-base sm:text-lg'
                       />
                       <InputGroupAddon align='inline-end' aria-hidden='true'>
-                        USD
+                        ({t('Platform')})
                       </InputGroupAddon>
                     </InputGroup>
+                    <div className='flex shrink-0 flex-col gap-1 sm:flex-row'>
+                      <Button
+                        type='button'
+                        variant='outline'
+                        size='icon'
+                        className='size-11 touch-manipulation'
+                        aria-label={t('Increase platform credit')}
+                        disabled={maxTopup !== null && topupAmount >= maxTopup}
+                        onPointerDown={(event) => startAmountHold(1, event)}
+                        onPointerUp={stopAmountHold}
+                        onPointerCancel={stopAmountHold}
+                        onLostPointerCapture={stopAmountHold}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault()
+                            changeAmountBy(1)
+                          }
+                        }}
+                      >
+                        +
+                      </Button>
+                      <Button
+                        type='button'
+                        variant='outline'
+                        size='icon'
+                        className='size-11 touch-manipulation'
+                        aria-label={t('Decrease platform credit')}
+                        disabled={topupAmount <= minTopup}
+                        onPointerDown={(event) => startAmountHold(-1, event)}
+                        onPointerUp={stopAmountHold}
+                        onPointerCancel={stopAmountHold}
+                        onLostPointerCapture={stopAmountHold}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault()
+                            changeAmountBy(-1)
+                          }
+                        }}
+                      >
+                        −
+                      </Button>
+                    </div>
                     <div className='bg-muted flex min-h-9 min-w-0 items-center justify-between gap-2 rounded-md border px-3 lg:min-w-52'>
                       <div className='flex min-w-0 flex-col gap-1 py-1'>
                         <span className='text-muted-foreground text-xs'>
@@ -582,8 +840,7 @@ export function RechargeFormCard({
                             'Selected method: {{method}} · Amount due: {{amount}} (actual payment)',
                             {
                               method: selectedPaymentMethodName,
-                              amount:
-                                formatSelectedPaymentAmount(paymentAmount),
+                              amount: paymentAmountLabel,
                             }
                           )}
                         </span>
@@ -605,11 +862,126 @@ export function RechargeFormCard({
                           )}
                         </div>
                       </div>
-                      {calculating ? <Skeleton className='h-5 w-16' /> : null}
                     </div>
                   </div>
                 </Field>
               </FieldGroup>
+
+              {hasConfigurableTopup ? (
+                <FieldGroup>
+                  <Field>
+                    <div className='flex items-center justify-between gap-2'>
+                      <div className='flex items-center gap-2'>
+                        <IconBadge tone='success' size='xs'>
+                          <HugeiconsIcon icon={GiftIcon} strokeWidth={2} />
+                        </IconBadge>
+                        <Label
+                          htmlFor='discount-code'
+                          className='text-muted-foreground text-xs font-medium tracking-wider uppercase'
+                        >
+                          {discountCodeFromUrl
+                            ? t('Discount code from URL')
+                            : t('Discount code')}
+                        </Label>
+                      </div>
+                      {discountPercent !== null &&
+                        discountPercent !== undefined && (
+                          <Badge
+                            variant='secondary'
+                            className='text-xs font-medium'
+                          >
+                            {t('Discount applied: {{percent}}% off', {
+                              percent: discountPercent,
+                            })}
+                          </Badge>
+                        )}
+                    </div>
+                    <div className='grid grid-cols-[minmax(0,1fr)_auto] gap-2'>
+                      <Input
+                        id='discount-code'
+                        value={discountCode}
+                        onChange={(e) => onDiscountCodeChange?.(e.target.value)}
+                        placeholder={t('Enter your discount code')}
+                        readOnly={discountCodeFromUrl}
+                        aria-readonly={discountCodeFromUrl}
+                        className={cn(
+                          'h-9 min-w-0 uppercase',
+                          discountCodeFromUrl && 'bg-muted font-mono'
+                        )}
+                        autoComplete='off'
+                        maxLength={64}
+                      />
+                      <div className='flex items-center gap-1.5'>
+                        {onRemoveDiscount &&
+                          (discountPercent !== null ||
+                            (!discountCodeFromUrl && discountCode.trim())) && (
+                            <Button
+                              type='button'
+                              onClick={onRemoveDiscount}
+                              disabled={discountApplying}
+                              variant='ghost'
+                              className='text-muted-foreground hover:text-foreground h-9 px-2.5'
+                            >
+                              {t('Remove')}
+                            </Button>
+                          )}
+                        <Button
+                          onClick={onApplyDiscount}
+                          disabled={
+                            discountCodeFromUrl ||
+                            discountApplying ||
+                            !discountCode.trim()
+                          }
+                          variant='outline'
+                          className='h-9 px-4'
+                        >
+                          {discountApplying && (
+                            <HugeiconsIcon
+                              icon={Loading03Icon}
+                              className='animate-spin'
+                              data-icon='inline-start'
+                            />
+                          )}
+                          {discountCodeFromUrl && discountPercent !== null
+                            ? t('Applied')
+                            : t('Apply')}
+                        </Button>
+                      </div>
+                    </div>
+                    {discountCodeFromUrl ? (
+                      <p className='text-muted-foreground text-xs'>
+                        {t(
+                          'This code came from the checkout link and cannot be edited.'
+                        )}
+                      </p>
+                    ) : null}
+                    {discountPercent !== null &&
+                    discountPercent !== undefined ? (
+                      <div className='text-success flex flex-wrap items-center gap-x-3 gap-y-1 text-xs'>
+                        <span>
+                          {t('Discount applied: {{percent}}% off', {
+                            percent: discountPercent,
+                          })}
+                        </span>
+                        {actualSavingAmount > 0 ? (
+                          <span className='font-medium'>
+                            {t('Discount code saves {{amount}}', {
+                              amount:
+                                formatSelectedPaymentAmount(actualSavingAmount),
+                            })}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <p className='text-muted-foreground text-xs'>
+                        {t(
+                          'A valid discount code is applied at checkout and cannot be combined with another code.'
+                        )}
+                      </p>
+                    )}
+                  </Field>
+                </FieldGroup>
+              ) : null}
 
               <FieldGroup>
                 <Field>
@@ -623,7 +995,7 @@ export function RechargeFormCard({
                           method.min_topup || 0,
                           getMinTopupAmount(topupInfo)
                         )
-                        const maxTopup = getPaymentMaxTopup(method)
+                        const maxTopup = getPaymentMaxTopupAmount(method)
                         const belowMinimum = minTopup > topupAmount
                         const aboveMaximum =
                           maxTopup !== null && topupAmount > maxTopup
@@ -634,19 +1006,18 @@ export function RechargeFormCard({
                           disabledReason = t(
                             'Minimum topup amount: {{amount}}',
                             {
-                              amount: minTopup,
+                              amount: formatPlatformCreditBalance(minTopup),
                             }
                           )
-                          disabledLabel = `${t('Minimum:')} ${minTopup}`
+                          disabledLabel = `${t('Minimum:')} ${formatPlatformCreditBalance(minTopup)}`
                         } else if (aboveMaximum) {
                           disabledReason = t(
-                            'Maximum top-up amount: {{amount}} USD credited',
-                            { amount: maxTopup }
+                            'Maximum platform credit per payment: {{amount}}',
+                            { amount: formatPlatformCreditBalance(maxTopup) }
                           )
-                          disabledLabel = t(
-                            'Maximum: {{amount}} USD credited',
-                            { amount: maxTopup }
-                          )
+                          disabledLabel = t('Maximum: {{amount}}', {
+                            amount: formatPlatformCreditBalance(maxTopup),
+                          })
                         }
                         const settlementRule = shouldShowSettlementRule(method)
                           ? getSettlementRule(method)
@@ -657,6 +1028,8 @@ export function RechargeFormCard({
                               number: index + 1,
                             })
                           : method.name
+                        const isSelected =
+                          effectivePaymentMethod?.type === method.type
 
                         const button = (
                           <Button
@@ -670,7 +1043,11 @@ export function RechargeFormCard({
                                 ? `${paymentMethodLabel}. ${disabledReason}`
                                 : paymentMethodLabel
                             }
-                            className='min-h-14 min-w-0 justify-start gap-2 rounded-lg px-3 py-2 text-left'
+                            className={cn(
+                              'min-h-14 min-w-0 justify-start gap-2 rounded-lg px-3 py-2 text-left transition-all',
+                              isSelected &&
+                                'border-primary bg-primary/5 ring-1 ring-primary'
+                            )}
                           >
                             {paymentLoading === method.type ? (
                               <HugeiconsIcon
@@ -808,11 +1185,11 @@ export function RechargeFormCard({
                       const belowMin = waffoMin > topupAmount
                       const disabledReason = belowMin
                         ? t('Minimum topup amount: {{amount}}', {
-                            amount: waffoMin,
+                            amount: formatPlatformCreditBalance(waffoMin),
                           })
                         : undefined
                       const disabledLabel = belowMin
-                        ? `${t('Minimum:')} ${waffoMin}`
+                        ? `${t('Minimum:')} ${formatPlatformCreditBalance(waffoMin)}`
                         : undefined
                       const paymentMethodLabel = neutralMode
                         ? t('Payment option {{number}}', {
@@ -881,6 +1258,83 @@ export function RechargeFormCard({
                   </div>
                 </div>
               )}
+              <WaitCompanion pending={calculating} />
+              {quoteError && !calculating && (
+                <Alert variant='destructive'>
+                  <AlertDescription>
+                    <p>{quoteError}</p>
+                    {onRetryQuote && (
+                      <Button
+                        type='button'
+                        variant='outline'
+                        onClick={onRetryQuote}
+                        disabled={!!paymentLoading}
+                      >
+                        {t('Retry')}
+                      </Button>
+                    )}
+                  </AlertDescription>
+                </Alert>
+              )}
+              {(hasStandardPaymentMethods || hasWaffoPaymentMethods) &&
+                effectivePaymentMethod && (
+                  <div className='bg-muted/40 mt-3 flex flex-col gap-3 rounded-lg border p-3.5 sm:p-4'>
+                    <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+                      <div className='flex min-w-0 flex-col'>
+                        <span className='text-muted-foreground text-xs font-medium'>
+                          {t('Total')}
+                        </span>
+                        <div className='flex items-baseline gap-2'>
+                          <span className='text-xl font-bold sm:text-2xl'>
+                            {paymentAmountLabel}
+                          </span>
+                          {actualSavingAmount > 0 &&
+                            hasCurrentPaymentAmount &&
+                            !isUpdatingQuote && (
+                              <span className='text-muted-foreground text-xs line-through'>
+                                {formatSelectedPaymentAmount(
+                                  quoteOriginalAmount > effectivePaymentAmount
+                                    ? quoteOriginalAmount
+                                    : effectivePaymentAmount +
+                                        discountCodeSavingAmount
+                                )}
+                              </span>
+                            )}
+                        </div>
+                      </div>
+                      <Button
+                        type='button'
+                        size='default'
+                        className='h-10 font-semibold sm:min-w-44'
+                        disabled={
+                          isUpdatingQuote ||
+                          !hasCurrentPaymentAmount ||
+                          Boolean(paymentLoading)
+                        }
+                        onClick={() =>
+                          onProceedToPayment
+                            ? onProceedToPayment()
+                            : onPaymentMethodSelect(effectivePaymentMethod)
+                        }
+                      >
+                        {isUpdatingQuote ? (
+                          <>
+                            <HugeiconsIcon
+                              icon={Loading03Icon}
+                              className='animate-spin'
+                              data-icon='inline-start'
+                            />
+                            {discountApplying
+                              ? t('Validating discount...')
+                              : t('Calculating...')}
+                          </>
+                        ) : (
+                          t('Pay {{amount}}', { amount: paymentAmountLabel })
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                )}
             </>
           )}
         </div>
@@ -973,89 +1427,6 @@ export function RechargeFormCard({
             )}
           </AlertDescription>
         </Alert>
-      ) : null}
-
-      {!neutralMode && hasConfigurableTopup ? (
-        <div className='flex flex-col gap-3 pt-4 sm:pt-6'>
-          <Separator />
-          <div className='flex items-center gap-2'>
-            <IconBadge tone='success' size='xs'>
-              <HugeiconsIcon icon={GiftIcon} strokeWidth={2} />
-            </IconBadge>
-            <Label
-              htmlFor='discount-code'
-              className='text-muted-foreground text-xs font-medium tracking-wider uppercase'
-            >
-              {discountCodeFromUrl
-                ? t('Discount code from URL')
-                : t('Discount code')}
-            </Label>
-          </div>
-          <div className='grid grid-cols-[minmax(0,1fr)_auto] gap-2'>
-            <Input
-              id='discount-code'
-              value={discountCode}
-              onChange={(e) => onDiscountCodeChange?.(e.target.value)}
-              placeholder={t('Enter your discount code')}
-              readOnly={discountCodeFromUrl}
-              aria-readonly={discountCodeFromUrl}
-              className={cn(
-                'h-9 min-w-0 uppercase',
-                discountCodeFromUrl && 'bg-muted font-mono'
-              )}
-              autoComplete='off'
-              maxLength={64}
-            />
-            <Button
-              onClick={onApplyDiscount}
-              disabled={
-                discountCodeFromUrl || discountApplying || !discountCode.trim()
-              }
-              variant='outline'
-              className='h-9 px-4'
-            >
-              {discountApplying && (
-                <HugeiconsIcon
-                  icon={Loading03Icon}
-                  className='animate-spin'
-                  data-icon='inline-start'
-                />
-              )}
-              {discountCodeFromUrl && discountPercent !== null
-                ? t('Applied')
-                : t('Apply')}
-            </Button>
-          </div>
-          {discountCodeFromUrl ? (
-            <p className='text-muted-foreground text-xs'>
-              {t('This code came from the checkout link and cannot be edited.')}
-            </p>
-          ) : null}
-          {discountPercent !== null && discountPercent !== undefined ? (
-            <div className='text-success flex flex-wrap items-center gap-x-3 gap-y-1 text-xs'>
-              <span>
-                {t('Discount applied: {{percent}}% off', {
-                  percent: discountPercent,
-                })}
-              </span>
-              {discountCodeSavingAmount > 0 ? (
-                <span className='font-medium'>
-                  {t('Discount code saves {{amount}}', {
-                    amount: formatSelectedPaymentAmount(
-                      discountCodeSavingAmount
-                    ),
-                  })}
-                </span>
-              ) : null}
-            </div>
-          ) : (
-            <p className='text-muted-foreground text-xs'>
-              {t(
-                'A valid discount code is applied at checkout and cannot be combined with another code.'
-              )}
-            </p>
-          )}
-        </div>
       ) : null}
     </TitledCard>
   )

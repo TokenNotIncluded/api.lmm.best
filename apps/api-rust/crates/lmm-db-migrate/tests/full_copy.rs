@@ -38,7 +38,7 @@ fn full_copy_should_verify_all_tables_and_rollback_both_fault_phases() {
     };
 
     let report = rehearse(&options(&fixtures, "lmm_copy_success", &database_url)).unwrap();
-    assert_eq!(report.table_count, 34);
+    assert_eq!(report.table_count, 35);
     assert_eq!(report.sequence_count, 29);
     assert_eq!(report.financial_aggregates.len(), 15);
     assert!(
@@ -269,6 +269,11 @@ fn create_sqlite_fixture(path: &Path, manifest: &Manifest) {
                 quote(&table.name)
             ))
             .unwrap();
+        if table.name == "company_billing_profiles" {
+            connection
+                .execute("UPDATE company_billing_profiles SET country='US'", [])
+                .unwrap();
+        }
     }
     connection.execute("INSERT INTO abilities (\"group\",model,channel_id,enabled,priority,weight,tag) VALUES (?1,?2,?3,?4,?5,?6,?7)", ("é", "model-z", 3_i64, 0_i64, -2_i64, 7_i64, Option::<String>::None)).unwrap();
     connection.execute("INSERT INTO abilities (\"group\",model,channel_id,enabled,priority,weight,tag) VALUES (?1,?2,?3,?4,?5,?6,?7)", ("A", "model-a", 2_i64, 1_i64, 9_i64, -1_i64, Some("late"))).unwrap();

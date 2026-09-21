@@ -30,8 +30,12 @@ import type {
   PaymentResponse,
   StripePaymentResponse,
   AffiliateCodeResponse,
+  AffiliateInvitationRequest,
+  AffiliateInvitationResponse,
   AffiliateTransferResponse,
   BillingHistoryResponse,
+  BillingHistorySortBy,
+  BillingHistorySortOrder,
   CompleteOrderRequest,
   CreemPaymentRequest,
   CreemPaymentResponse,
@@ -56,12 +60,15 @@ export function isApiSuccess(response: ApiResponse): boolean {
 /**
  * Get topup configuration info
  */
-export async function getTopupInfo(): Promise<TopupInfoResponse> {
+export async function getTopupInfo(
+  signal?: AbortSignal
+): Promise<TopupInfoResponse> {
   // Payment availability is optional onboarding decoration.  The caller
   // renders an inline fallback when this probe is unavailable, so an
   // inactive/legacy listener must not turn a harmless 401/404 into a global
   // toast (or a duplicate error on every focus refresh).
   const res = await api.get('/api/user/topup/info', {
+    signal,
     skipBusinessError: true,
     skipErrorHandler: true,
   })
@@ -135,9 +142,11 @@ export async function requestPayment(
   const res = await api.post('/api/user/pay', request, {
     skipBusinessError: true,
   } as Record<string, unknown>)
+  const legacyUrl = Reflect.get(res, 'url')
   return {
     ...res.data,
-    url: res.data.url || (res as unknown as { url?: string }).url,
+    url:
+      res.data.url || (typeof legacyUrl === 'string' ? legacyUrl : undefined),
   }
 }
 
@@ -210,6 +219,18 @@ export async function getAffiliateCode(): Promise<AffiliateCodeResponse> {
 }
 
 /**
+ * Send the current user's affiliate link through the configured SMTP server.
+ */
+export async function sendAffiliateInvitation(
+  request: AffiliateInvitationRequest
+): Promise<AffiliateInvitationResponse> {
+  const res = await api.post('/api/user/aff/invite', request, {
+    skipBusinessError: true,
+  } as Record<string, unknown>)
+  return res.data
+}
+
+/**
  * Transfer affiliate quota to balance
  */
 export async function transferAffiliateQuota(
@@ -225,11 +246,15 @@ export async function transferAffiliateQuota(
 export async function getUserBillingHistory(
   page: number,
   pageSize: number,
-  keyword?: string
+  keyword?: string,
+  sortBy: BillingHistorySortBy = 'create_time',
+  sortOrder: BillingHistorySortOrder = 'desc'
 ): Promise<ApiResponse<BillingHistoryResponse>> {
   const params = new URLSearchParams({
     p: page.toString(),
     page_size: pageSize.toString(),
+    sort_by: sortBy,
+    sort_order: sortOrder,
   })
   if (keyword) {
     params.append('keyword', keyword)
@@ -244,11 +269,15 @@ export async function getUserBillingHistory(
 export async function getAllBillingHistory(
   page: number,
   pageSize: number,
-  keyword?: string
+  keyword?: string,
+  sortBy: BillingHistorySortBy = 'create_time',
+  sortOrder: BillingHistorySortOrder = 'desc'
 ): Promise<ApiResponse<BillingHistoryResponse>> {
   const params = new URLSearchParams({
     p: page.toString(),
     page_size: pageSize.toString(),
+    sort_by: sortBy,
+    sort_order: sortOrder,
   })
   if (keyword) {
     params.append('keyword', keyword)

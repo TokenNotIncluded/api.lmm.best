@@ -31,7 +31,7 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
-import { formatBillingCurrencyFromUSD } from '@/lib/currency'
+import { formatFiatCurrencyAmount } from '@/lib/currency'
 import { formatQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -116,12 +116,48 @@ function getStatusBadge(user: User, t: (key: string) => string) {
   )
 }
 
+function resolveTopupCurrency(
+  summary: NonNullable<User['topup_summary']>
+): string | null {
+  const preferred = summary.currency?.trim().toUpperCase()
+  if (preferred && preferred !== 'MULTIPLE' && preferred !== 'UNKNOWN') {
+    return preferred
+  }
+  const currencies = new Set(
+    summary.methods
+      .map((method) => method.settlement_currency?.trim().toUpperCase())
+      .filter((currency): currency is string =>
+        Boolean(currency && currency !== 'UNKNOWN')
+      )
+  )
+  if (!preferred && currencies.size === 1) return [...currencies][0]
+  return null
+}
+
+function formatUnknownCurrencyAmount(micros: number): string {
+  return new Intl.NumberFormat(undefined, {
+    maximumFractionDigits: 6,
+  }).format(micros / 1_000_000)
+}
+
 function UserMobileRow({ row }: { row: Row<User> }) {
   const { t } = useTranslation()
   const user = row.original
   const email = user.email?.trim()
   const displayName = user.display_name?.trim()
   const topup = user.topup_summary
+  const topupCurrency = topup ? resolveTopupCurrency(topup) : null
+  let topupMoneyDisplay = '—'
+  if (topup?.currency === 'MULTIPLE') {
+    topupMoneyDisplay = t('Multiple fiat currencies')
+  } else if (topup && topupCurrency) {
+    topupMoneyDisplay = formatFiatCurrencyAmount(
+      topup.money_micros / 1_000_000,
+      topupCurrency
+    )
+  } else if (topup?.methods.length) {
+    topupMoneyDisplay = t('Currency unavailable')
+  }
   const disabled = isUserDeleted(user) || user.status === USER_STATUS.DISABLED
 
   return (
@@ -178,11 +214,7 @@ function UserMobileRow({ row }: { row: Row<User> }) {
           <UserQuotaCell used={user.used_quota} remaining={user.quota} />
         </MobileMetric>
         <MobileMetric label={t('Top-up')}>
-          <div className='truncate tabular-nums'>
-            {formatBillingCurrencyFromUSD(
-              (topup?.money_micros ?? 0) / 1_000_000
-            )}
-          </div>
+          <div className='truncate tabular-nums'>{topupMoneyDisplay}</div>
           <div className='text-muted-foreground mt-0.5 truncate text-xs tabular-nums'>
             {formatQuota(topup?.quota ?? 0)} · {topup?.orders ?? 0}
           </div>
@@ -196,16 +228,24 @@ function UserMobileRow({ row }: { row: Row<User> }) {
                   const label = [method.method.trim(), method.provider?.trim()]
                     .filter(Boolean)
                     .join(' · ')
+                  const currency = method.settlement_currency
+                    ?.trim()
+                    .toUpperCase()
+                  const amount =
+                    currency && currency !== 'UNKNOWN'
+                      ? formatFiatCurrencyAmount(
+                          method.money_micros / 1_000_000,
+                          currency
+                        )
+                      : `${formatUnknownCurrencyAmount(method.money_micros)} (${t('Currency unavailable')})`
                   return (
                     <div
-                      key={`${label}-${method.orders}`}
+                      key={`${label}-${currency}-${method.orders}`}
                       className='flex min-w-0 items-baseline justify-between gap-2'
                     >
                       <span className='min-w-0 truncate'>{label || '—'}</span>
                       <span className='shrink-0 text-right tabular-nums'>
-                        {formatBillingCurrencyFromUSD(
-                          method.money_micros / 1_000_000
-                        )}
+                        {amount}
                         <span className='text-muted-foreground block text-[11px]'>
                           {formatQuota(method.quota)} · {method.orders}
                         </span>

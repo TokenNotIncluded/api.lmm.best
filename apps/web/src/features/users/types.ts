@@ -83,11 +83,13 @@ export const userSchema = z.object({
     .object({
       quota: z.number(),
       money_micros: z.number(),
+      currency: z.string().optional(),
       orders: z.number(),
       methods: z.array(
         z.object({
           method: z.string(),
           provider: z.string().optional(),
+          settlement_currency: z.string().optional(),
           quota: z.number(),
           money_micros: z.number(),
           orders: z.number(),

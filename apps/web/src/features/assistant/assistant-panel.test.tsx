@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import { after, afterEach, describe, test } from 'node:test'
 
 import { Window } from 'happy-dom'
@@ -96,7 +97,9 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = typeof input === 'string' ? input : input.toString()
   if (url === '/api/assistant/chat') {
     const body = init?.body ? JSON.parse(String(init.body)) : undefined
-    const response = await api.post('/api/assistant/chat', body)
+    const response = await api.post('/api/assistant/chat', body, {
+      headers: Object.fromEntries(new Headers(init?.headers).entries()),
+    })
     const headers = new Headers({ 'content-type': 'application/json' })
     const intent = response.headers?.['x-lmm-assistant-intent']
     if (typeof intent === 'string') {
@@ -142,6 +145,14 @@ const assistantPreConversationPresets = {
   ],
 }
 
+const registrationUser: AuthUser = {
+  id: 93,
+  username: 'registration-user',
+  role: 1,
+  developer_access_granted: false,
+  trust_level_info: { level: 0 } as AuthUser['trust_level_info'],
+}
+
 async function flushEffects() {
   await new Promise((resolve) => setTimeout(resolve, 25))
 }
@@ -155,6 +166,25 @@ async function waitForCondition(
     await flushEffects()
   }
   throw new Error(`${failureMessage}: ${document.body.textContent}`)
+}
+
+// Keep ownership until React has unmounted its portals. Clearing body before
+// unmount (for example after an assertion failure) makes React remove detached
+// dialog nodes and leaks subscriptions into the next test.
+const activeRoots = new Map<
+  ReturnType<typeof createRoot>,
+  InstanceType<typeof QueryClient>
+>()
+function trackRoot(
+  root: ReturnType<typeof createRoot>,
+  queryClient: InstanceType<typeof QueryClient>
+) {
+  activeRoots.set(root, queryClient)
+  const unmount = root.unmount.bind(root)
+  root.unmount = () => {
+    unmount()
+    activeRoots.delete(root)
+  }
 }
 
 async function renderPanel(
@@ -201,6 +231,7 @@ async function renderPanel(
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
+  trackRoot(root, queryClient)
 
   await act(async () => {
     root.render(<RouterProvider router={router} />)
@@ -210,13 +241,13 @@ async function renderPanel(
   return { container, queryClient, root }
 }
 
-async function renderLauncher(user: AuthUser | null = null) {
+async function renderLauncher(user: AuthUser | null = null, width = 1280) {
   Object.defineProperty(window, 'innerWidth', {
     configurable: true,
-    value: 1280,
+    value: width,
   })
   window.matchMedia = ((query: string) => ({
-    matches: query === '(min-width: 1280px)',
+    matches: query === '(min-width: 1280px)' && width >= 1280,
     media: query,
     onchange: null,
     addEventListener: () => {},
@@ -250,6 +281,7 @@ async function renderLauncher(user: AuthUser | null = null) {
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
+  trackRoot(root, queryClient)
 
   await act(async () => {
     root.render(<RouterProvider router={router} />)
@@ -296,7 +328,14 @@ async function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {
   })
 }
 
-afterEach(() => {
+afterEach(async () => {
+  await act(async () => {
+    for (const [root, queryClient] of activeRoots) {
+      await queryClient.cancelQueries()
+      root.unmount()
+      queryClient.clear()
+    }
+  })
   api.get = originalGet
   api.post = originalPost
   window.matchMedia = originalMatchMedia
@@ -315,7 +354,383 @@ after(() => {
   domWindow.close()
 })
 
+function requireValue<T>(value: T | null | undefined): T {
+  assert.ok(value != null)
+  return value
+}
+
 describe('AssistantPanel', () => {
+  test('opens installation guidance from the welcome screen without a model request or key access', async () => {
+    let chatRequests = 0
+    api.get = (async (url: string) => {
+      if (url === '/api/assistant/pre-conversation-presets') {
+        return { data: { success: true, data: { presets: [] } } }
+      }
+      assert.equal(url, '/api/assistant/status')
+      return {
+        data: {
+          success: true,
+          data: { ...assistantStatus, developer_access_granted: false },
+        },
+      }
+    }) as typeof api.get
+    api.post = (async () => {
+      chatRequests += 1
+      throw new Error(
+        'Installation guidance should work without a model request'
+      )
+    }) as typeof api.post
+    const rendered = await renderPanel()
+    try {
+      await act(async () => {
+        await waitForCondition(
+          () => !findButton('Download and connect a client').disabled,
+          'Newcomer actions did not become available'
+        )
+        findButton('Download and connect a client').click()
+        await flushEffects()
+      })
+      assert.match(document.body.textContent ?? '', /Client setup guide/)
+      assert.equal(document.querySelector('input[type="password"]'), null)
+      assert.equal(chatRequests, 0)
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+
+  test('opens human support for an L0 user even when model routing is unavailable', async () => {
+    let chatRequests = 0
+    api.get = (async (url: string) => {
+      if (url === '/api/assistant/status') {
+        return {
+          data: {
+            success: true,
+            data: {
+              ...assistantStatus,
+              developer_access_granted: false,
+              route_available: false,
+            },
+          },
+        }
+      }
+      if (url === '/api/assistant/handoffs/self') {
+        return { data: { success: true, data: null } }
+      }
+      throw new Error(`Unexpected GET ${url}`)
+    }) as typeof api.get
+    api.post = (async () => {
+      chatRequests++
+      throw new Error('No model needed')
+    }) as typeof api.post
+    const rendered = await renderPanel()
+    try {
+      await act(async () => {
+        requireValue(
+          document.querySelector<HTMLButtonElement>(
+            'button[aria-label="Contact support"]'
+          )
+        ).click()
+        await flushEffects()
+      })
+      assert.match(
+        document.body.textContent ?? '',
+        /Send a message to an administrator/
+      )
+      assert.equal(chatRequests, 0)
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+
+  for (const lateResult of ['answer', 'error'] as const) {
+    test(`isolates a late ${lateResult} after starting a new conversation`, async () => {
+      const requests: {
+        body: Record<string, unknown>
+        resolve: (value: unknown) => void
+        reject: (reason: Error) => void
+      }[] = []
+      api.get = (async () => ({
+        data: { success: true, data: assistantStatus },
+      })) as typeof api.get
+      api.post = ((_: string, body: Record<string, unknown>) =>
+        new Promise<unknown>((resolve, reject) => {
+          requests.push({ body, resolve, reject })
+        })) as typeof api.post
+      const rendered = await renderPanel()
+      const reply = (content: string, id: number) => ({
+        data: {
+          choices: [{ message: { content } }],
+          lmm_assistant_history: { conversation_id: id },
+        },
+      })
+      const send = async (text: string) => {
+        await setTextareaValue(
+          requireValue(document.querySelector<HTMLTextAreaElement>('textarea')),
+          text
+        )
+        await act(async () => {
+          requireValue(
+            document.querySelector<HTMLButtonElement>(
+              'button[aria-label="Send"]'
+            )
+          ).click()
+          await flushEffects()
+        })
+      }
+      try {
+        await send('Old question')
+        await act(async () => {
+          requireValue(
+            document.querySelector<HTMLButtonElement>(
+              'button[aria-label="New conversation"]'
+            )
+          ).click()
+          await flushEffects()
+        })
+        assert.equal(
+          requireValue(document.querySelector<HTMLTextAreaElement>('textarea'))
+            .disabled,
+          false
+        )
+        await send('Current question')
+        assert.equal(requests.length, 2)
+        await act(async () => {
+          if (lateResult === 'answer') {
+            requireValue(requests[0]).resolve(reply('Stale answer', 101))
+          } else {
+            requireValue(requests[0]).reject(new Error('Stale failure'))
+          }
+          await flushEffects()
+        })
+        assert.doesNotMatch(
+          document.body.textContent ?? '',
+          /Stale answer|could not answer|Response stopped/
+        )
+        assert.equal(
+          requireValue(document.querySelector<HTMLTextAreaElement>('textarea'))
+            .disabled,
+          true
+        )
+        await act(async () => {
+          requireValue(requests[1]).resolve(reply('Current answer', 202))
+          await flushEffects()
+        })
+        assert.match(document.body.textContent ?? '', /Current answer/)
+        await send('Follow up')
+        assert.equal(requireValue(requests[2]).body.conversation_id, 202)
+        await act(async () => {
+          requireValue(requests[2]).resolve(reply('Follow up answer', 202))
+          await flushEffects()
+        })
+      } finally {
+        await act(async () => rendered.root.unmount())
+        rendered.queryClient.clear()
+      }
+    })
+  }
+
+  test('waiting play stays outside the live conversation and returns focus to the arriving answer', async () => {
+    const panelFetch = globalThis.fetch
+    let output: ReadableStreamDefaultController<Uint8Array> | undefined
+    api.get = (async () => ({
+      data: { success: true, data: assistantStatus },
+    })) as typeof api.get
+    globalThis.fetch = (async (
+      _input: RequestInfo | URL,
+      init?: RequestInit
+    ) => {
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            output = controller
+            init?.signal?.addEventListener(
+              'abort',
+              () => controller.error(new DOMException('Stopped', 'AbortError')),
+              { once: true }
+            )
+          },
+        }),
+        { headers: { 'content-type': 'text/event-stream' } }
+      )
+    }) as typeof globalThis.fetch
+    const rendered = await renderPanel()
+    try {
+      await setTextareaValue(
+        requireValue(document.querySelector<HTMLTextAreaElement>('textarea')),
+        'Explain this workflow'
+      )
+      await act(async () => {
+        requireValue(
+          document.querySelector<HTMLButtonElement>('button[aria-label="Send"]')
+        ).click()
+        await flushEffects()
+      })
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 4100))
+      })
+      const companion = requireValue(
+        document.querySelector('[data-testid="wait-companion"]')
+      )
+      assert.equal(companion.closest('[role="log"]'), null)
+      await act(async () => {
+        findButton('Play while you wait').click()
+        await flushEffects()
+      })
+      assert.equal(companion.querySelectorAll('button[aria-pressed]').length, 9)
+      await act(async () => {
+        requireValue(output).enqueue(
+          new TextEncoder().encode(
+            'event: delta\ndata: {"content":"A response is arriving."}\n\n'
+          )
+        )
+        await flushEffects()
+      })
+      assert.ok(
+        document.body.textContent?.includes('The response has started.')
+      )
+      assert.equal(companion.querySelectorAll('button[aria-pressed]').length, 0)
+      await act(async () => {
+        findButton('Back to task').click()
+        await flushEffects()
+      })
+      assert.ok(
+        document.activeElement?.textContent?.includes('A response is arriving.')
+      )
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+      globalThis.fetch = panelFetch
+    }
+  })
+
+  test('keeps a stopped partial answer and retries without duplicating the question', async () => {
+    const panelFetch = globalThis.fetch
+    const posted: unknown[] = []
+    api.get = (async () => ({
+      data: { success: true, data: assistantStatus },
+    })) as typeof api.get
+    globalThis.fetch = (async (
+      _input: RequestInfo | URL,
+      init?: RequestInit
+    ) => {
+      posted.push(JSON.parse(String(init?.body)))
+      if (posted.length > 1) {
+        return new Response(
+          JSON.stringify({
+            choices: [{ message: { content: 'Complete answer' } }],
+          }),
+          {
+            headers: { 'content-type': 'application/json' },
+          }
+        )
+      }
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(
+            new TextEncoder().encode(
+              'event: delta\ndata: {"content":"Partial answer"}\n\n'
+            )
+          )
+          init?.signal?.addEventListener(
+            'abort',
+            () => controller.error(new DOMException('Stopped', 'AbortError')),
+            { once: true }
+          )
+        },
+      })
+      return new Response(body, {
+        headers: { 'content-type': 'text/event-stream' },
+      })
+    }) as typeof globalThis.fetch
+    const rendered = await renderPanel()
+    try {
+      await setTextareaValue(
+        requireValue(document.querySelector<HTMLTextAreaElement>('textarea')),
+        'Help diagnose this request'
+      )
+      await act(async () => {
+        requireValue(
+          document.querySelector<HTMLButtonElement>('button[aria-label="Send"]')
+        ).click()
+        await flushEffects()
+      })
+      await act(async () => {
+        requireValue(
+          document.querySelector<HTMLButtonElement>('button[aria-label="Stop"]')
+        ).click()
+        await flushEffects()
+      })
+      assert.match(document.body.textContent ?? '', /Partial answer/)
+      assert.match(document.body.textContent ?? '', /Response stopped\./)
+      assert.equal(
+        requireValue(document.querySelector<HTMLTextAreaElement>('textarea'))
+          .disabled,
+        false
+      )
+      await act(async () => {
+        findButton('Retry').click()
+        await flushEffects()
+      })
+      assert.deepEqual(posted[1], posted[0])
+      assert.match(document.body.textContent ?? '', /Complete answer/)
+      assert.doesNotMatch(document.body.textContent ?? '', /Response stopped\./)
+      assert.equal(
+        (document.body.textContent ?? '').match(/Help diagnose this request/g)
+          ?.length,
+        1
+      )
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+      globalThis.fetch = panelFetch
+    }
+  })
+
+  test('unlocks the composer while account metadata is still refreshing', async () => {
+    let statusRequests = 0
+    let finishRefresh: (() => void) | undefined
+    api.get = (async (url: string) => {
+      if (url === '/api/assistant/status' && ++statusRequests > 1) {
+        await new Promise<void>((resolve) => {
+          finishRefresh = resolve
+        })
+      }
+      return { data: { success: true, data: assistantStatus } }
+    }) as typeof api.get
+    api.post = (async () => ({
+      data: { choices: [{ message: { content: 'Answer is ready' } }] },
+    })) as typeof api.post
+    const rendered = await renderPanel()
+    try {
+      await setTextareaValue(
+        requireValue(document.querySelector<HTMLTextAreaElement>('textarea')),
+        'How do I get started?'
+      )
+      await act(async () => {
+        requireValue(
+          document.querySelector<HTMLButtonElement>('button[aria-label="Send"]')
+        ).click()
+        await flushEffects()
+      })
+      assert.ok(finishRefresh)
+      assert.match(document.body.textContent ?? '', /Answer is ready/)
+      assert.equal(
+        requireValue(document.querySelector<HTMLTextAreaElement>('textarea'))
+          .disabled,
+        false
+      )
+      assert.equal(document.querySelector('button[aria-label="Stop"]'), null)
+    } finally {
+      await act(async () => {
+        finishRefresh?.()
+        rendered.root.unmount()
+      })
+      rendered.queryClient.clear()
+    }
+  })
+
   test('renders the mobile assistant sheet at the full dynamic viewport size', async () => {
     api.get = (async (url: string) => {
       assert.equal(url, '/api/assistant/status')
@@ -563,6 +978,15 @@ describe('AssistantPanel', () => {
     for (const mode of ['page', 'mobile'] as const) {
       const rendered = await renderPanel(undefined, mode)
       try {
+        await act(async () => {
+          await waitForCondition(
+            () =>
+              document.querySelector(
+                '[data-testid="assistant-preset-prompts"]'
+              ) !== null,
+            'Preset prompts did not finish loading'
+          )
+        })
         const presets = document.querySelector<HTMLElement>(
           '[data-testid="assistant-preset-prompts"]'
         )
@@ -606,6 +1030,238 @@ describe('AssistantPanel', () => {
         await act(async () => rendered.root.unmount())
         rendered.queryClient.clear()
       }
+    }
+  })
+
+  test(
+    'switches all four cached starters, composer text and submitted prompts across seven interface languages',
+    { timeout: 30_000 },
+    async () => {
+      const keys = {
+        ai_recommendation: 'Help me write an L1 recommendation.',
+        getting_started: 'Where should I start?',
+        new_user_gift: 'How do I get the new-user gift?',
+        weekly_discount: 'Any top-up discounts this week?',
+      }
+      const legacyPresets = Object.keys(keys).map((id) => ({
+        id,
+        label: '旧标签',
+        prompt: '请围绕旧模板说明权限边界。',
+      }))
+      const requestedLanguages: string[] = []
+      const clicks: string[] = []
+      const chats: { preset_id: string; messages: { content: string }[] }[] = []
+      api.get = (async (
+        url: string,
+        config?: { params?: { language?: string } }
+      ) => {
+        if (url === '/api/assistant/pre-conversation-presets') {
+          requestedLanguages.push(config?.params?.language ?? '')
+          return {
+            data: {
+              success: true,
+              data: {
+                generation: 17,
+                version: 'aggregate-topic-v1',
+                presets: legacyPresets,
+              },
+            },
+          }
+        }
+        assert.equal(url, '/api/assistant/status')
+        return {
+          data: {
+            success: true,
+            data: { ...assistantStatus, developer_access_granted: false },
+          },
+        }
+      }) as typeof api.get
+      api.post = (async (url: string, body: (typeof chats)[number]) => {
+        if (url.endsWith('/click')) {
+          clicks.push(url)
+          return { data: { success: true } }
+        }
+        assert.equal(url, '/api/assistant/chat')
+        chats.push(body)
+        return {
+          data: { choices: [{ message: { content: 'Preset test reply.' } }] },
+          headers: {},
+        }
+      }) as typeof api.post
+
+      const rendered = await renderPanel(undefined, 'mobile', {
+        id: 7,
+        username: 'l0-preset-user',
+        role: 1,
+        trust_level_info: { level: 0 } as AuthUser['trust_level_info'],
+        developer_access_granted: false,
+      })
+      try {
+        for (const [language, file] of [
+          ['en', 'en'],
+          ['zhCN', 'zh'],
+          ['zhTW', 'zh-TW'],
+          ['fr', 'fr'],
+          ['ja', 'ja'],
+          ['ru', 'ru'],
+          ['vi', 'vi'],
+        ]) {
+          const resource = JSON.parse(
+            await readFile(
+              new URL(`../../i18n/locales/${file}.json`, import.meta.url),
+              'utf8'
+            )
+          ) as { translation: Record<string, string> }
+          // Keep unrelated controls in English so this test isolates starter copy.
+          i18n.addResourceBundle(
+            language,
+            'translation',
+            Object.fromEntries(
+              Object.values(keys).map((key) => [key, resource.translation[key]])
+            )
+          )
+          await act(async () => {
+            await i18n.changeLanguage(language)
+            await flushEffects()
+          })
+          assert.ok(
+            requestedLanguages.includes(language),
+            'Language-specific preset request was not made'
+          )
+          for (const [id, key] of Object.entries(keys)) {
+            const prompt = resource.translation[key]
+            assert.ok(prompt)
+            const group = requireValue(
+              document.querySelector('[data-testid="assistant-preset-prompts"]')
+            )
+            const button = requireValue(
+              [...group.querySelectorAll('button')].find(
+                (item) => item.textContent === prompt
+              )
+            )
+            assert.match(button.className, /max-w-full/)
+            assert.doesNotMatch(group.textContent ?? '', /旧标签|权限边界/)
+            const previousChats = chats.length
+            await act(async () => {
+              button.click()
+              await flushEffects()
+            })
+            const textarea = requireValue(document.querySelector('textarea'))
+            assert.equal(textarea.value, prompt)
+            assert.equal(
+              chats.length,
+              previousChats,
+              'Selecting a starter should fill, not auto-send, the composer'
+            )
+            assert.equal(
+              clicks.at(-1),
+              `/api/assistant/pre-conversation-presets/${id}/click`
+            )
+            await act(async () => {
+              const submit = requireValue(
+                document.querySelector<HTMLButtonElement>(
+                  'button[aria-label="Send"]'
+                )
+              )
+              assert.equal(submit.disabled, false)
+              submit.click()
+              await flushEffects()
+            })
+            await act(flushEffects)
+            assert.ok(
+              document.body.textContent?.includes('Preset test reply.'),
+              'Localized starter was not sent'
+            )
+            assert.equal(chats.at(-1)?.preset_id, id)
+            assert.equal(chats.at(-1)?.messages.at(-1)?.content, prompt)
+            await act(async () => {
+              findButton('Clear conversation').click()
+              await flushEffects()
+            })
+          }
+        }
+        assert.equal(chats.length, 28)
+        assert.equal(clicks.length, 28)
+        assert.equal(requestedLanguages.length, 7)
+        await act(async () => {
+          await i18n.changeLanguage('en')
+          await flushEffects()
+        })
+        assert.equal(
+          requestedLanguages.length,
+          7,
+          'Returning to a fresh locale cache must not refetch'
+        )
+        for (const prompt of Object.values(keys)) assert.ok(findButton(prompt))
+      } finally {
+        await act(async () => rendered.root.unmount())
+        rendered.queryClient.clear()
+        await i18n.changeLanguage('en')
+      }
+    }
+  )
+
+  test('shows localized seed starters when the preset endpoint fails', async () => {
+    api.get = (async (url: string) => {
+      if (url === '/api/assistant/pre-conversation-presets') {
+        throw new Error('preset cache unavailable')
+      }
+      assert.equal(url, '/api/assistant/status')
+      return { data: { success: true, data: assistantStatus } }
+    }) as typeof api.get
+    api.post = (async (url: string) => {
+      assert.equal(
+        url,
+        '/api/assistant/pre-conversation-presets/getting_started/click'
+      )
+      return { data: { success: true } }
+    }) as typeof api.post
+    const resource = JSON.parse(
+      await readFile(
+        new URL('../../i18n/locales/fr.json', import.meta.url),
+        'utf8'
+      )
+    ) as { translation: Record<string, string> }
+    const key = 'Where should I start?'
+    i18n.addResourceBundle(
+      'fr',
+      'translation',
+      { [key]: resource.translation[key] },
+      true,
+      true
+    )
+    await i18n.changeLanguage('fr')
+    const rendered = await renderPanel(undefined, 'mobile', {
+      id: 7,
+      username: 'l0-preset-user',
+      role: 1,
+      trust_level_info: { level: 0 } as AuthUser['trust_level_info'],
+      developer_access_granted: false,
+    })
+    try {
+      await act(async () =>
+        waitForCondition(
+          () =>
+            document.querySelector(
+              '[data-testid="assistant-preset-prompts"]'
+            ) !== null,
+          'Localized fallback starters did not finish loading'
+        )
+      )
+      const group = requireValue(
+        document.querySelector('[data-testid="assistant-preset-prompts"]')
+      )
+      assert.equal(group.querySelectorAll('button').length, 4)
+      const prompt = resource.translation[key]
+      await act(async () => {
+        findButton(prompt).click()
+        await flushEffects()
+      })
+      assert.equal(document.querySelector('textarea')?.value, prompt)
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+      await i18n.changeLanguage('en')
     }
   })
 
@@ -934,12 +1590,49 @@ describe('AssistantPanel', () => {
         await flushEffects()
       })
 
-      assert.equal(launcherButton.textContent?.trim(), 'Service guide')
+      assert.equal(launcherButton.textContent?.trim(), 'AI assistant')
       assert.equal(
         launcherButton.getAttribute('aria-label'),
         'Open AI assistant'
       )
       assert.equal(launcherButton.getAttribute('title'), 'Open AI assistant')
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+
+  test('mounts exactly one assistant panel on a narrow viewport', async () => {
+    api.get = (async (url: string) => {
+      if (url === '/api/status') {
+        return {
+          data: { success: true, data: { assistant: { enabled: true } } },
+        }
+      }
+      assert.equal(url, '/api/assistant/status')
+      return { data: { success: true, data: assistantStatus } }
+    }) as typeof api.get
+    const rendered = await renderLauncher(null, 390)
+    try {
+      const launcherButton = document.querySelector<HTMLButtonElement>(
+        '[data-testid="assistant-launcher"]'
+      )
+      assert.ok(launcherButton)
+      await act(async () => {
+        launcherButton.click()
+        await flushEffects()
+      })
+      await act(async () =>
+        waitForCondition(
+          () => document.querySelector('#ai-assistant-panel') !== null,
+          'Mobile assistant panel did not open'
+        )
+      )
+      assert.equal(document.querySelectorAll('#ai-assistant-panel').length, 1)
+      assert.equal(
+        document.querySelector('[data-testid="assistant-rail"]'),
+        null
+      )
     } finally {
       await act(async () => rendered.root.unmount())
       rendered.queryClient.clear()
@@ -1165,8 +1858,8 @@ describe('AssistantPanel', () => {
           },
         }
       }
-      if (url === '/api/user/developer-access/request') {
-        return { data: { success: true, data: null } }
+      if (url === '/api/assistant/registration-check') {
+        return { data: { success: true, data: { state: 'context_needed' } } }
       }
       if (url === '/api/assistant/pre-conversation-presets') {
         return {
@@ -1176,15 +1869,29 @@ describe('AssistantPanel', () => {
       throw new Error(`Unexpected GET ${url}`)
     }) as typeof api.get
 
-    const rendered = await renderPanel('onboarding')
+    const rendered = await renderPanel('onboarding', 'mobile', registrationUser)
     try {
       await act(async () =>
         waitForCondition(
-          () => document.querySelector('textarea') !== null,
-          'L0 access request did not render'
+          () =>
+            document.body.textContent?.includes('Tell us what you need') ===
+            true,
+          'Authenticated L0 verification did not render'
         )
       )
-      assert.match(document.body.textContent ?? '', /Unlock L1 with AI/)
+      assert.ok(
+        document.querySelector('[data-testid="assistant-registration-status"]')
+      )
+      assert.doesNotMatch(
+        document.body.textContent ?? '',
+        /Submit for review|Confirm AI recommendation/
+      )
+      assert.equal(
+        document.querySelector(
+          'textarea[placeholder="Explain what you want to build and why you need L1 access."]'
+        ),
+        null
+      )
       assert.doesNotMatch(
         document.body.textContent ?? '',
         /Ask an administrator to raise my access level/
@@ -1937,8 +2644,9 @@ describe('AssistantPanel', () => {
     }
   })
 
-  test('opens an explicit confirmation for an AI L1 recommendation', async () => {
-    let submittedRecommendation: unknown
+  test('keeps cached recommendation actions read-only without replaying retired submission', async () => {
+    const posted: string[] = []
+    let registrationReads = 0
     api.get = (async (url: string) => {
       if (url === '/api/assistant/status') {
         return {
@@ -1948,54 +2656,41 @@ describe('AssistantPanel', () => {
           },
         }
       }
-      if (url === '/api/user/developer-access/request') {
-        return { data: { success: true, data: null } }
+      if (url === '/api/assistant/registration-check') {
+        registrationReads += 1
+        return { data: { success: true, data: { state: 'ready' } } }
       }
       throw new Error(`Unexpected GET ${url}`)
     }) as typeof api.get
-    api.post = (async (url: string, data: unknown) => {
-      if (url === '/api/assistant/chat') {
-        return {
-          data: {
-            choices: [
-              {
-                message: {
-                  content: 'I have enough detail to recommend L1 access.',
-                },
-              },
-            ],
-            lmm_assistant_action: {
-              type: 'l1_recommendation',
-              user_statement: 'I will connect Claude Code for private work.',
-              recommendation:
-                'Recommend L1 because the user identified a specific client and purpose.',
-              confirmation_token: 'assistant-confirmation-token',
-            },
-          },
-          headers: { 'x-lmm-assistant-intent': 'onboarding' },
-        }
-      }
-      assert.equal(url, '/api/user/developer-access/request')
-      submittedRecommendation = data
+    api.post = (async (url: string) => {
+      posted.push(url)
+      assert.equal(
+        url,
+        '/api/assistant/chat',
+        'A cached recommendation must never submit a write'
+      )
       return {
         data: {
-          success: true,
-          data: {
-            id: 11,
-            status: 'pending',
-            reason: 'I will connect Claude Code for private work.',
-            source: 'assistant_recommendation',
-            ai_recommendation:
+          choices: [
+            {
+              message: {
+                content: 'I have enough detail to recommend L1 access.',
+              },
+            },
+          ],
+          lmm_assistant_action: {
+            type: 'l1_recommendation',
+            user_statement: 'I will connect Claude Code for private work.',
+            recommendation:
               'Recommend L1 because the user identified a specific client and purpose.',
-            admin_note: '',
-            created_at: 1_786_400_000,
-            reviewed_at: 0,
+            confirmation_token: 'assistant-confirmation-token',
           },
         },
+        headers: { 'x-lmm-assistant-intent': 'onboarding' },
       }
     }) as typeof api.post
 
-    const rendered = await renderPanel()
+    const rendered = await renderPanel(undefined, 'mobile', registrationUser)
     try {
       const textarea = document.querySelector<HTMLTextAreaElement>(
         'textarea[placeholder="Ask AI assistant"]'
@@ -2005,44 +2700,52 @@ describe('AssistantPanel', () => {
         textarea,
         'I want Claude Code access for my private project.'
       )
-      const submit = document.querySelector<HTMLButtonElement>(
-        'button[aria-label="Send"]'
-      )
-      assert.ok(submit)
       await act(async () => {
-        submit.click()
+        findButton('Send').click()
         await flushEffects()
       })
       await act(async () =>
         waitForCondition(
           () =>
-            document.body.textContent?.includes('Confirm AI recommendation') ===
-            true,
-          'AI recommendation confirmation did not render'
+            document.body.textContent?.includes(
+              'No recommendation letter is required.'
+            ) === true,
+          'Cached recommendation did not fall back to read-only verification'
         )
       )
-      assert.match(
-        document.body.textContent ?? '',
-        /Recommend L1 because the user identified a specific client and purpose\./
+      assert.ok(
+        document.querySelector('[data-testid="assistant-registration-status"]')
       )
-
+      assert.doesNotMatch(
+        document.body.textContent ?? '',
+        /Confirm AI recommendation|Confirm and submit|assistant-confirmation-token/
+      )
+      assert.equal(
+        document.querySelector(
+          'textarea[placeholder="Explain what you want to build and why you need L1 access."]'
+        ),
+        null
+      )
+      const readsBeforeRefresh = registrationReads
       await act(async () => {
-        findButton('Confirm and send to administrator').click()
+        const refresh = document.querySelector<HTMLButtonElement>(
+          '[aria-label="Refresh registration status"]'
+        )
+        assert.ok(refresh)
+        refresh.click()
         await flushEffects()
       })
       await act(async () =>
         waitForCondition(
-          () => submittedRecommendation !== undefined,
-          'Confirmed recommendation was not submitted'
+          () => registrationReads > readsBeforeRefresh,
+          'Verification refresh did not perform a read'
         )
       )
-      assert.deepEqual(submittedRecommendation, {
-        reason: 'I will connect Claude Code for private work.',
-        ai_recommendation:
-          'Recommend L1 because the user identified a specific client and purpose.',
-        confirmation_token: 'assistant-confirmation-token',
-        confirmed: true,
-      })
+      assert.deepEqual(posted, ['/api/assistant/chat'])
+      assert.equal(
+        useAuthStore.getState().auth.user?.developer_access_granted,
+        false
+      )
     } finally {
       await act(async () => rendered.root.unmount())
       rendered.queryClient.clear()
@@ -2051,13 +2754,19 @@ describe('AssistantPanel', () => {
 
   test('retries the exact failed conversation without duplicating the user message', async () => {
     const posted: unknown[] = []
+    const attempts: unknown[] = []
     api.get = (async (url: string) => {
       assert.equal(url, '/api/assistant/status')
       return { data: { success: true, data: assistantStatus } }
     }) as typeof api.get
-    api.post = (async (url: string, data: unknown) => {
+    api.post = (async (url: string, data: unknown, config: unknown) => {
       assert.equal(url, '/api/assistant/chat')
       posted.push(data)
+      attempts.push(
+        new Headers(
+          (config as { headers?: Record<string, string> })?.headers
+        ).get('X-LMM-Assistant-Attempt')
+      )
       if (posted.length === 1) throw new Error('assistant offline')
       return {
         data: {
@@ -2119,6 +2828,11 @@ describe('AssistantPanel', () => {
     )
 
     assert.equal(posted.length, 2)
+    assert.deepEqual(attempts, ['1', '2'])
+    assert.match(
+      (posted[0] as { client_turn_id: string }).client_turn_id,
+      /^[A-Za-z0-9_-]{16,80}$/
+    )
     assert.deepEqual(posted[1], posted[0])
     assert.doesNotMatch(
       document.body.textContent ?? '',
@@ -2135,7 +2849,8 @@ describe('AssistantPanel', () => {
     rendered.queryClient.clear()
   })
 
-  test('keeps the direct L1 request path available when the AI request fails', async () => {
+  test('keeps verification visible without reviving legacy letters when AI fails', async () => {
+    let registrationReads = 0
     api.get = (async (url: string) => {
       if (url === '/api/assistant/status') {
         return {
@@ -2145,8 +2860,9 @@ describe('AssistantPanel', () => {
           },
         }
       }
-      if (url === '/api/user/developer-access/request') {
-        return { data: { success: true, data: null } }
+      if (url === '/api/assistant/registration-check') {
+        registrationReads += 1
+        return { data: { success: true, data: { state: 'context_needed' } } }
       }
       throw new Error(`Unexpected GET ${url}`)
     }) as typeof api.get
@@ -2155,7 +2871,7 @@ describe('AssistantPanel', () => {
       throw new Error('assistant offline')
     }) as typeof api.post
 
-    const rendered = await renderPanel('onboarding')
+    const rendered = await renderPanel('onboarding', 'mobile', registrationUser)
     try {
       const textarea = document.querySelector<HTMLTextAreaElement>(
         'textarea[placeholder="Ask AI assistant"]'
@@ -2183,16 +2899,35 @@ describe('AssistantPanel', () => {
         ),
         null
       )
+      assert.equal(
+        [...document.querySelectorAll('button')].some(
+          (button) => button.textContent === 'Write request myself'
+        ),
+        false
+      )
+      assert.ok(findButton('Registration verification'))
+      assert.ok(
+        document.querySelector('[data-testid="assistant-registration-status"]')
+      )
+      const readsBeforeRefresh = registrationReads
       await act(async () => {
-        findButton('Write request myself').click()
+        const refresh = document.querySelector<HTMLButtonElement>(
+          '[aria-label="Refresh registration status"]'
+        )
+        assert.ok(refresh)
+        refresh.click()
         await flushEffects()
       })
-      assert.ok(
-        document.querySelector(
-          'textarea[placeholder="Explain what you want to build and why you need L1 access."]'
+      await act(async () =>
+        waitForCondition(
+          () => registrationReads > readsBeforeRefresh,
+          'Verification refresh must work independently of the failed AI request'
         )
       )
-      assert.ok(findButton('Submit for administrator review'))
+      assert.doesNotMatch(
+        document.body.textContent ?? '',
+        /L1 access is active|Submit for review/
+      )
     } finally {
       await act(async () => rendered.root.unmount())
       rendered.queryClient.clear()
@@ -2242,7 +2977,7 @@ describe('AssistantPanel', () => {
 
       assert.equal(
         [...document.querySelectorAll('button')].some(
-          (button) => button.textContent === 'Submit for administrator review'
+          (button) => button.textContent === 'Registration verification'
         ),
         false
       )
@@ -2310,6 +3045,600 @@ describe('AssistantPanel', () => {
       assert.equal(document.querySelector('.cm-lineNumbers'), null)
       assert.ok(document.querySelector('strong'))
       assert.equal(document.querySelector('script'), null)
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+  test('refreshes global access and never offers manual review after a direct L1 grant', async () => {
+    const l0User: AuthUser = {
+      id: 91,
+      username: 'direct-grant-user',
+      role: 1,
+      developer_access_granted: false,
+    }
+    const l1User = { ...l0User, developer_access_granted: true }
+    let granted = false
+    let selfCalls = 0
+    useAuthStore.getState().auth.setBundle({
+      access_token: 'test-access-token',
+      token_type: 'Bearer',
+      access_expires_at: 1_900_000_000,
+      user: l0User,
+      session: {
+        sid: 'direct-grant-session',
+        current: true,
+        login_method: 'password',
+        ip: '127.0.0.1',
+        user_agent: 'test',
+        created_at: 1,
+        last_active_at: 1,
+        expires_at: 1_900_000_000,
+      },
+    })
+    api.get = (async (url: string) => {
+      if (url === '/api/assistant/status') {
+        return {
+          data: {
+            success: true,
+            data: {
+              ...assistantStatus,
+              developer_access_granted: granted,
+              access_level: granted ? 'L1' : 'L0',
+            },
+          },
+        }
+      }
+      if (url === '/api/user/self') {
+        selfCalls += 1
+        return { data: { success: true, data: l1User } }
+      }
+      if (url === '/api/assistant/pre-conversation-presets') {
+        return {
+          data: { success: true, data: assistantPreConversationPresets },
+        }
+      }
+      if (url === '/api/assistant/available-models') {
+        return { data: { success: true, data: { models: [] } } }
+      }
+      return { data: { success: true, data: null } }
+    }) as typeof api.get
+    api.post = (async (url: string) => {
+      assert.equal(url, '/api/assistant/chat')
+      granted = true
+      return {
+        data: {
+          choices: [
+            {
+              message: {
+                content: 'L1 access is active. No manual review is required.',
+              },
+            },
+          ],
+          lmm_assistant_intent: 'onboarding',
+          lmm_assistant_tools: [
+            { name: 'grant_l1_access', status: 'output-available' },
+          ],
+          lmm_assistant_history: { conversation_id: 41 },
+        },
+      }
+    }) as typeof api.post
+
+    const rendered = await renderPanel('onboarding', 'page', l0User)
+    try {
+      await setTextareaValue(
+        requireValue(
+          document.querySelector<HTMLTextAreaElement>(
+            'textarea[aria-label="Ask AI assistant"]'
+          )
+        ),
+        'Please grant me L1 access now.'
+      )
+      await act(async () => {
+        requireValue(
+          document.querySelector<HTMLButtonElement>('button[aria-label="Send"]')
+        ).click()
+        await flushEffects()
+      })
+      await waitForCondition(
+        () =>
+          useAuthStore.getState().auth.user?.developer_access_granted === true,
+        'Direct grant did not refresh the authenticated user'
+      )
+
+      assert.equal(selfCalls, 1)
+      assert.doesNotMatch(document.body.textContent ?? '', /Submit for review/)
+      assert.doesNotMatch(
+        document.body.textContent ?? '',
+        /Write request myself/
+      )
+      assert.match(document.body.textContent ?? '', /Open client setup guide/)
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+})
+
+describe('AssistantPanel in-site human support', () => {
+  const user: AuthUser = {
+    id: 88,
+    username: 'support-user',
+    role: 1,
+    developer_access_granted: true,
+  }
+  const fixture = (changes: Record<string, unknown> = {}) => ({
+    id: 17,
+    user_id: 88,
+    conversation_id: 91,
+    kind: 'handoff',
+    status: 'pending',
+    topic: 'Connection issue',
+    preferred_time: '',
+    scheduled_at: 0,
+    assigned_admin_id: 0,
+    assigned_admin_name: '',
+    created_at: 1,
+    updated_at: 1,
+    accepted_at: 0,
+    closed_at: 0,
+    ...changes,
+  })
+  async function send(text: string) {
+    await setTextareaValue(
+      requireValue(
+        document.querySelector<HTMLTextAreaElement>(
+          'textarea[aria-label="Ask AI assistant"]'
+        )
+      ),
+      text
+    )
+    await act(async () => {
+      requireValue(
+        document.querySelector<HTMLButtonElement>('button[aria-label="Send"]')
+      ).click()
+      await flushEffects()
+    })
+  }
+  function stubSupport(
+    current: () => Record<string, unknown> | null,
+    messages: () => unknown[] = () => [],
+    options: { eligible?: boolean; routeUnavailable?: boolean } = {}
+  ) {
+    api.get = (async (url: string) => {
+      if (url === '/api/assistant/support/eligibility') {
+        return {
+          data: {
+            success: true,
+            data: { eligible: options.eligible ?? false },
+          },
+        }
+      }
+      if (url === '/api/assistant/support/self') {
+        return { data: { success: true, data: { request: current() } } }
+      }
+      if (url.startsWith('/api/assistant/support/')) {
+        return {
+          data: {
+            success: true,
+            data: { request: current(), messages: messages() },
+          },
+        }
+      }
+      if (url === '/api/assistant/pre-conversation-presets') {
+        return { data: { success: true, data: { presets: [] } } }
+      }
+      if (url === '/api/assistant/status') {
+        return {
+          data: {
+            success: true,
+            data: {
+              ...assistantStatus,
+              route_available: !options.routeUnavailable,
+            },
+          },
+        }
+      }
+      return { data: { success: false, message: 'Not enabled in this test' } }
+    }) as typeof api.get
+  }
+
+  test('reuses a support message turn ID after a lost reply but renews it after success', async () => {
+    const request = fixture({ status: 'accepted', assigned_admin_id: 7 })
+    stubSupport(() => request)
+    const bodies: Record<string, unknown>[] = []
+    api.post = (async (_url: string, body: Record<string, unknown>) => {
+      bodies.push(body)
+      if (bodies.length === 1) throw new Error('lost support reply')
+      return {
+        data: {
+          success: true,
+          data: {
+            message: {
+              id: 1,
+              role: 'user',
+              content: body.content,
+              created_at: 1,
+            },
+          },
+        },
+      }
+    }) as typeof api.post
+    const rendered = await renderPanel(undefined, 'page', user)
+    try {
+      await send('same human message')
+      await send('same human message')
+      assert.equal(bodies.length, 2)
+      assert.equal(bodies[0]?.client_turn_id, bodies[1]?.client_turn_id)
+      assert.equal(typeof bodies[0]?.client_turn_id, 'string')
+      await send('same human message')
+      assert.notEqual(bodies[1]?.client_turn_id, bodies[2]?.client_turn_id)
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+
+  test('submits typed transfer with unavailable AI and keeps staff replies in the same composer', async () => {
+    let request: Record<string, unknown> | null = null
+    const messages: unknown[] = []
+    const posts: { url: string; body: Record<string, unknown> }[] = []
+    stubSupport(
+      () => request,
+      () => messages,
+      { routeUnavailable: true }
+    )
+    api.post = (async (url: string, body: Record<string, unknown>) => {
+      posts.push({ url, body })
+      if (url === '/api/assistant/support') {
+        request = fixture()
+        messages.push({ id: 1, role: 'user', content: '转人工', created_at: 1 })
+        return { data: { success: true, data: { request, created: true } } }
+      }
+      assert.equal(url, '/api/assistant/support/17/messages')
+      const message = {
+        id: 4,
+        role: 'user',
+        content: body.content,
+        created_at: 4,
+      }
+      messages.push(message)
+      return { data: { success: true, data: { message } } }
+    }) as typeof api.post
+    const rendered = await renderPanel(undefined, 'page', user)
+    try {
+      await send('转人工')
+      await act(async () =>
+        waitForCondition(
+          () =>
+            document.body.textContent?.includes(
+              'Waiting for an administrator to join'
+            ) === true,
+          'Transfer status missing'
+        )
+      )
+      request = fixture({
+        status: 'accepted',
+        assigned_admin_id: 7,
+        assigned_admin_name: 'Current staff',
+        accepted_at: 2,
+        updated_at: 2,
+      })
+      messages.push({
+        id: 2,
+        role: 'human',
+        actor_name: 'Previous staff',
+        content: 'I checked the request.',
+        created_at: 2,
+      })
+      messages.push({
+        id: 3,
+        role: 'human',
+        actor_name: 'Current staff',
+        content: 'Please try again.',
+        created_at: 3,
+      })
+      await act(async () => {
+        await rendered.queryClient.invalidateQueries({
+          queryKey: ['assistant-support'],
+        })
+        await rendered.queryClient.invalidateQueries({
+          queryKey: ['assistant-support-detail'],
+        })
+        await flushEffects()
+      })
+      assert.match(
+        document.body.textContent ?? '',
+        /Human technical support · Previous staff/
+      )
+      assert.match(
+        document.body.textContent ?? '',
+        /Human technical support · Current staff/
+      )
+      await send('It works now')
+      await act(async () =>
+        waitForCondition(
+          () => document.body.textContent?.includes('It works now') === true,
+          'Human message did not refresh'
+        )
+      )
+      assert.deepEqual(
+        posts.map((post) => post.url),
+        ['/api/assistant/support', '/api/assistant/support/17/messages']
+      )
+      assert.equal(
+        document.querySelector('[data-testid="assistant-active-tool-region"]'),
+        null
+      )
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+
+  test('keeps AI available for a pending appointment and offers immediate transfer', async () => {
+    const request = fixture({
+      kind: 'appointment',
+      scheduled_at: Math.floor(Date.now() / 1000) + 3600,
+    })
+    stubSupport(
+      () => request,
+      () => [],
+      { eligible: true }
+    )
+    const posts: string[] = []
+    api.post = (async (url: string) => {
+      posts.push(url)
+      assert.equal(url, '/api/assistant/chat')
+      return {
+        data: {
+          choices: [
+            { message: { content: 'Check the client configuration.' } },
+          ],
+          lmm_assistant_history: { conversation_id: 91 },
+        },
+      }
+    }) as typeof api.post
+    const rendered = await renderPanel(undefined, 'page', user)
+    try {
+      await act(async () =>
+        waitForCondition(
+          () =>
+            document.body.textContent?.includes(
+              'Technical support appointment requested'
+            ) === true,
+          'Appointment did not load'
+        )
+      )
+      assert.ok(findButton('Transfer to human'))
+      await send('How can I check the client?')
+      await act(async () =>
+        waitForCondition(
+          () =>
+            document.body.textContent?.includes(
+              'Check the client configuration.'
+            ) === true,
+          'AI stopped for pending appointment'
+        )
+      )
+      assert.deepEqual(posts, ['/api/assistant/chat'])
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+
+  for (const changed of ['account', 'session'] as const) {
+    test(`ignores a transfer response from the previous ${changed} and resets mutation state`, async () => {
+      let resolveOld: ((value: unknown) => void) | undefined
+      stubSupport(() => null)
+      api.post = (() =>
+        new Promise<unknown>((resolve) => {
+          resolveOld = resolve
+        })) as typeof api.post
+      const rendered = await renderPanel(undefined, 'page', user)
+      try {
+        await act(async () => {
+          findButton('Transfer to human').click()
+          await flushEffects()
+        })
+        assert.ok(resolveOld)
+        await act(async () => {
+          if (changed === 'account') {
+            useAuthStore
+              .getState()
+              .auth.setUser({ ...user, id: 89, username: 'next-user' })
+          } else {
+            useAuthStore.getState().auth.setBundle({
+              user,
+              access_token: 'new-test-session',
+              token_type: 'Bearer',
+              access_expires_at: 99,
+              session: {
+                sid: 'new-session',
+                current: true,
+                login_method: 'password',
+                ip: '',
+                user_agent: '',
+                created_at: 1,
+                last_active_at: 1,
+                expires_at: 99,
+              },
+            })
+          }
+          await flushEffects()
+        })
+        assert.equal(findButton('Transfer to human').disabled, false)
+        await act(async () => {
+          resolveOld?.({
+            data: {
+              success: true,
+              data: {
+                request: fixture({ topic: 'Previous account private topic' }),
+                created: true,
+              },
+            },
+          })
+          await flushEffects()
+        })
+        assert.doesNotMatch(
+          document.body.textContent ?? '',
+          /Previous account private topic|Waiting for an administrator to join/
+        )
+        assert.equal(findButton('Transfer to human').disabled, false)
+      } finally {
+        await act(async () => rendered.root.unmount())
+        rendered.queryClient.clear()
+      }
+    })
+  }
+
+  test('shows the paid appointment option and submits the chosen time with its timezone', async () => {
+    let request: Record<string, unknown> | null = null
+    let submitted: Record<string, unknown> | undefined
+    stubSupport(
+      () => request,
+      () => [],
+      { eligible: true }
+    )
+    api.post = (async (url: string, body: Record<string, unknown>) => {
+      assert.equal(url, '/api/assistant/support')
+      submitted = body
+      request = fixture({ ...body, id: 17, conversation_id: 91 })
+      return { data: { success: true, data: { request, created: true } } }
+    }) as typeof api.post
+    const rendered = await renderPanel(undefined, 'page', user)
+    try {
+      await act(async () => {
+        findButton('Book technical support').click()
+        await flushEffects()
+      })
+      await setTextareaValue(
+        requireValue(
+          document.querySelector<HTMLTextAreaElement>(
+            '#assistant-support-topic'
+          )
+        ),
+        'Help install the API client'
+      )
+      const time = new Date(Date.now() + 3600_000).toISOString().slice(0, 16)
+      await act(async () => {
+        const input = requireValue(
+          document.querySelector<HTMLInputElement>('#assistant-support-time')
+        )
+        requireValue(
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+            ?.set
+        ).call(input, time)
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+        await flushEffects()
+      })
+      await act(async () => {
+        findButton('Submit appointment').click()
+        await flushEffects()
+      })
+      assert.equal(submitted?.kind, 'appointment')
+      assert.equal(submitted?.topic, 'Help install the API client')
+      assert.equal(
+        submitted?.scheduled_at,
+        Math.floor(new Date(time).getTime() / 1000)
+      )
+      assert.equal(
+        submitted?.preferred_time,
+        `${time} (${Intl.DateTimeFormat().resolvedOptions().timeZone})`
+      )
+      await act(async () =>
+        waitForCondition(
+          () =>
+            document.body.textContent?.includes(
+              'Technical support appointment requested'
+            ) === true,
+          'Appointment success status missing'
+        )
+      )
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+
+  test('ignores a late support creation after resetting an unsaved conversation', async () => {
+    let resolveOld: ((value: unknown) => void) | undefined
+    stubSupport(() => null)
+    api.post = (() =>
+      new Promise<unknown>((resolve) => {
+        resolveOld = resolve
+      })) as typeof api.post
+    const rendered = await renderPanel(undefined, 'page', user)
+    try {
+      await act(async () => {
+        findButton('Transfer to human').click()
+        await flushEffects()
+      })
+      await act(async () => {
+        requireValue(
+          document.querySelector<HTMLButtonElement>(
+            'button[aria-label="New conversation"]'
+          )
+        ).click()
+        await flushEffects()
+      })
+      assert.equal(findButton('Transfer to human').disabled, false)
+      await act(async () => {
+        resolveOld?.({
+          data: { success: true, data: { request: fixture(), created: true } },
+        })
+        await flushEffects()
+      })
+      assert.doesNotMatch(
+        document.body.textContent ?? '',
+        /Waiting for an administrator to join/
+      )
+      assert.equal(findButton('Transfer to human').disabled, false)
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+
+  test('drops an in-flight AI answer after human transfer starts', async () => {
+    let resolveAI: ((value: unknown) => void) | undefined
+    let request: Record<string, unknown> | null = null
+    stubSupport(() => request)
+    api.post = ((url: string) => {
+      if (url === '/api/assistant/chat') {
+        return new Promise<unknown>((resolve) => {
+          resolveAI = resolve
+        })
+      }
+      assert.equal(url, '/api/assistant/support')
+      request = fixture()
+      return Promise.resolve({
+        data: { success: true, data: { request, created: true } },
+      })
+    }) as typeof api.post
+    const rendered = await renderPanel(undefined, 'page', user)
+    try {
+      await send('Help configure my client')
+      assert.ok(resolveAI)
+      await act(async () => {
+        findButton('Transfer to human').click()
+        await flushEffects()
+      })
+      await act(async () => {
+        resolveAI?.({
+          data: {
+            choices: [{ message: { content: 'Stale AI answer' } }],
+            lmm_assistant_history: { conversation_id: 91 },
+          },
+        })
+        await flushEffects()
+      })
+      assert.doesNotMatch(document.body.textContent ?? '', /Stale AI answer/)
+      assert.match(
+        document.body.textContent ?? '',
+        /Waiting for an administrator to join/
+      )
     } finally {
       await act(async () => rendered.root.unmount())
       rendered.queryClient.clear()

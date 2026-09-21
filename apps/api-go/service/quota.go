@@ -95,7 +95,7 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 		return err
 	}
 
-	token, err := model.GetTokenByKey(strings.TrimPrefix(relayInfo.TokenKey, "sk-"), false)
+	token, err := model.GetRelayBillingToken(relayInfo.TokenId, strings.TrimPrefix(relayInfo.TokenKey, "sk-"))
 	if err != nil {
 		return err
 	}
@@ -137,8 +137,6 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 	}
 
 	quota, clamp := calculateAudioQuota(quotaInfo)
-	noteQuotaClamp(relayInfo, clamp)
-	quota, clamp = applyDynamicPricingToQuota(relayInfo, quota)
 	noteQuotaClamp(relayInfo, clamp)
 
 	if userQuota < quota {
@@ -206,9 +204,6 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 	noteQuotaClamp(relayInfo, clamp)
 	if tieredOk {
 		quota = tieredQuota
-	} else {
-		quota, clamp = applyDynamicPricingToQuota(relayInfo, quota)
-		noteQuotaClamp(relayInfo, clamp)
 	}
 
 	totalTokens := usage.TotalTokens
@@ -269,6 +264,20 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 	})
 }
 
+func roundDerivedTokenCount(value float64) int {
+	if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
+		return -1
+	}
+	rounded := math.Round(value)
+	if rounded > float64(math.MaxInt) {
+		return -1
+	}
+	if rounded == float64(math.MaxInt) {
+		return math.MaxInt
+	}
+	return int(rounded)
+}
+
 func CalcOpenRouterCacheCreateTokens(usage dto.Usage, priceData types.PriceData) int {
 	if priceData.CacheCreationRatio == 1 {
 		return 0
@@ -283,11 +292,12 @@ func CalcOpenRouterCacheCreateTokens(usage dto.Usage, priceData types.PriceData)
 	completionTokens := float64(usage.CompletionTokens)
 	promptCacheReadTokens := float64(usage.PromptTokensDetails.CachedTokens)
 
-	return int(math.Round((cost -
+	value := (cost -
 		totalPromptTokens*quotaPrice +
 		promptCacheReadTokens*(quotaPrice-promptCacheReadPrice) -
 		completionTokens*completionPrice) /
-		(promptCacheCreatePrice - quotaPrice)))
+		(promptCacheCreatePrice - quotaPrice)
+	return roundDerivedTokenCount(value)
 }
 
 func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage, extraContent string) {
@@ -338,9 +348,6 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 	noteQuotaClamp(relayInfo, clamp)
 	if tieredOk {
 		quota = tieredQuota
-	} else {
-		quota, clamp = applyDynamicPricingToQuota(relayInfo, quota)
-		noteQuotaClamp(relayInfo, clamp)
 	}
 
 	totalTokens := usage.TotalTokens
@@ -413,7 +420,7 @@ func PreConsumeTokenQuota(relayInfo *relaycommon.RelayInfo, quota int) error {
 	}
 	// Atomically check and reserve the token quota so concurrent requests
 	// cannot all pass a separate balance check before deducting.
-	token, err := model.GetTokenByKey(relayInfo.TokenKey, false)
+	token, err := model.GetRelayBillingToken(relayInfo.TokenId, relayInfo.TokenKey)
 	if err != nil {
 		return err
 	}

@@ -17,9 +17,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import i18next from 'i18next'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
+import { bootstrapAuthentication } from '@/lib/auth-session'
 import {
   extractVerificationInfo,
   isVerificationRequiredError,
@@ -50,6 +51,7 @@ const defaultMethods: VerificationMethods = {
   has2FA: false,
   hasPasskey: false,
   passkeySupported: false,
+  availability: 'unavailable',
 }
 
 const initialState: InternalState = {
@@ -78,10 +80,6 @@ export function useSecureVerification(
     return result
   }, [])
 
-  useEffect(() => {
-    fetchVerificationMethods()
-  }, [fetchVerificationMethods])
-
   const reset = useCallback(() => {
     setState(initialState)
     setOpen(false)
@@ -93,16 +91,43 @@ export function useSecureVerification(
       apiCall: (proofToken?: string) => Promise<unknown>,
       config: StartVerificationOptions
     ) => {
-      const { scope, preferredMethod, title, description } = config
-      const availableMethods = getPreferredVerificationMethods(
-        await fetchVerificationMethods()
-      )
+      const {
+        scope,
+        preferredMethod,
+        title,
+        description,
+        verificationMethods,
+      } = config
+      const authOutcome = await bootstrapAuthentication()
+      if (authOutcome.kind !== 'authenticated') {
+        let error = new Error(i18next.t('Session expired!'))
+        if (authOutcome.kind === 'transient_error') {
+          error = new Error(i18next.t('Request failed'), {
+            cause: authOutcome.error,
+          })
+        }
+        toast.error(error.message)
+        onError?.(error)
+        return false
+      }
 
-      if (
-        !availableMethods.hasEmail &&
-        !availableMethods.has2FA &&
-        !availableMethods.hasPasskey
-      ) {
+      const checkedMethods =
+        verificationMethods ?? (await fetchVerificationMethods())
+      if (verificationMethods) setMethods(verificationMethods)
+      const availableMethods = getPreferredVerificationMethods(checkedMethods)
+      const hasAvailableMethod =
+        availableMethods.hasEmail ||
+        availableMethods.has2FA ||
+        availableMethods.hasPasskey
+
+      if (!hasAvailableMethod && checkedMethods.availability !== 'complete') {
+        const error = new Error(i18next.t('Request failed'))
+        toast.error(error.message)
+        onError?.(error)
+        return false
+      }
+
+      if (!hasAvailableMethod) {
         toast.error(
           i18next.t(
             'Please bind an email, enable 2FA, or set up a Passkey before proceeding'
@@ -120,15 +145,16 @@ export function useSecureVerification(
         (preferredMethod === 'email' && availableMethods.hasEmail) ||
         (preferredMethod === '2fa' && availableMethods.has2FA) ||
         (preferredMethod === 'passkey' && availableMethods.hasPasskey)
-      const defaultMethod: VerificationMethod | null = preferredMethodAvailable
-        ? (preferredMethod ?? null)
-        : availableMethods.hasEmail
-          ? 'email'
-          : availableMethods.has2FA
-            ? '2fa'
-            : availableMethods.hasPasskey
-              ? 'passkey'
-              : null
+      let defaultMethod: VerificationMethod | null = null
+      if (preferredMethodAvailable && preferredMethod) {
+        defaultMethod = preferredMethod
+      } else if (availableMethods.hasEmail) {
+        defaultMethod = 'email'
+      } else if (availableMethods.has2FA) {
+        defaultMethod = '2fa'
+      } else if (availableMethods.hasPasskey) {
+        defaultMethod = 'passkey'
+      }
 
       setState((prev) => ({
         ...prev,

@@ -5,40 +5,58 @@ script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 repo_root=$(cd -- "$script_dir/../../../.." && pwd -P)
 router_root=${DRAFT_ROUTER_ROOT:-"$repo_root/apps/api-rust/src"}
 baseline=${DRAFT_BASELINE_PATH:-"$repo_root/apps/api-rust/tests/fixtures/routes/legacy-go-routes.tsv"}
-gate=${DRAFT_GATE_PATH:-"$repo_root/apps/api-rust/tests/fixtures/routes/migration-gate.tsv"}
-plan=${DRAFT_PLAN_PATH:-"$repo_root/apps/api-rust/tests/fixtures/routes/migration-plan.tsv"}
-expected_baseline_count=${DRAFT_EXPECT_BASELINE_COUNT:-352}
+gate=${DRAFT_GATE_PATH:-"$repo_root/apps/api-rust/tests/fixtures/routes/route-gate.tsv"}
+plan=${DRAFT_PLAN_PATH:-"$repo_root/apps/api-rust/tests/fixtures/routes/route-plan.tsv"}
+expected_baseline_count=${DRAFT_EXPECT_BASELINE_COUNT:-353}
 report_missing=${DRAFT_REPORT_MISSING:-0}
 require_complete=${DRAFT_REQUIRE_COMPLETE:-0}
 outside_allowlist=${DRAFT_OUTSIDE_BASELINE_ALLOWLIST-"$repo_root/apps/api-rust/tests/fixtures/routes/draft-route-completion-allowlist.tsv"}
 
-[[ -d $router_root ]] || { echo "missing Rust router source root: $router_root" >&2; exit 1; }
-[[ -f $baseline ]] || { echo "missing frozen legacy route baseline: $baseline" >&2; exit 1; }
-[[ -f $gate ]] || { echo "missing migration gate: $gate" >&2; exit 1; }
-[[ -f $plan ]] || { echo "missing migration plan: $plan" >&2; exit 1; }
+[[ -d $router_root ]] || {
+    echo "missing Rust router source root: $router_root" >&2
+    exit 1
+}
+[[ -f $baseline ]] || {
+    echo "missing frozen legacy route baseline: $baseline" >&2
+    exit 1
+}
+[[ -f $gate ]] || {
+    echo "missing route gate: $gate" >&2
+    exit 1
+}
+[[ -f $plan ]] || {
+    echo "missing route plan: $plan" >&2
+    exit 1
+}
 [[ $expected_baseline_count =~ ^[0-9]+$ ]] || {
-  echo "DRAFT_EXPECT_BASELINE_COUNT must be a non-negative integer" >&2
-  exit 1
+    echo "DRAFT_EXPECT_BASELINE_COUNT must be a non-negative integer" >&2
+    exit 1
 }
 [[ $report_missing == 0 || $report_missing == 1 ]] || {
-  echo "DRAFT_REPORT_MISSING must be 0 or 1" >&2
-  exit 1
+    echo "DRAFT_REPORT_MISSING must be 0 or 1" >&2
+    exit 1
 }
 [[ $require_complete == 0 || $require_complete == 1 ]] || {
-  echo "DRAFT_REQUIRE_COMPLETE must be 0 or 1" >&2
-  exit 1
+    echo "DRAFT_REQUIRE_COMPLETE must be 0 or 1" >&2
+    exit 1
 }
 [[ -z $outside_allowlist || -f $outside_allowlist ]] || {
-  echo "DRAFT_OUTSIDE_BASELINE_ALLOWLIST must name an existing TSV file" >&2
-  exit 1
+    echo "DRAFT_OUTSIDE_BASELINE_ALLOWLIST must name an existing TSV file" >&2
+    exit 1
 }
-command -v rg >/dev/null || { echo "ripgrep is required" >&2; exit 1; }
-command -v perl >/dev/null || { echo "perl is required" >&2; exit 1; }
+command -v rg >/dev/null || {
+    echo "ripgrep is required" >&2
+    exit 1
+}
+command -v perl >/dev/null || {
+    echo "perl is required" >&2
+    exit 1
+}
 
 mapfile -t router_files < <(rg --files -g '*.rs' "$router_root" | LC_ALL=C sort)
 [[ ${#router_files[@]} -gt 0 ]] || {
-  echo "no Rust source files found below $router_root" >&2
-  exit 1
+    echo "no Rust source files found below $router_root" >&2
+    exit 1
 }
 
 perl - "$repo_root" "$baseline" "$gate" "$plan" "$outside_allowlist" "$expected_baseline_count" "$report_missing" "$require_complete" "${router_files[@]}" <<'PERL'
@@ -258,14 +276,50 @@ sub is_models_post_alias {
         || $path eq '/v1beta/models/:model/*tail';
 }
 
-# The shared `/v1/models/:model` method router is composed in three places:
-# the focused compatibility candidate, the normal GET catalogue, and the
-# relay's POST/DELETE method router.  These declarations intentionally describe
-# one Axum method surface rather than three independently mounted endpoints.
-sub is_models_shared_alias {
-    return 1 if $_[1] eq '/v1/models/:model'
-        && ($_[0] eq 'GET' || $_[0] eq 'DELETE');
-    return is_models_post_alias(@_);
+# The shared `/v1/models/:model` method router has a small, audited set of
+# duplicate static declarations.  Do not exempt the path globally: an
+# arbitrary file or handler spelling the same route is a competing owner.
+sub is_known_models_shared_alias {
+    my ($method, $candidate_path, $raw_path, $handler, $source_path, $first) = @_;
+    my $billing = 'apps/api-rust/src/routes/model_lookup.rs';
+    my $relay = 'apps/api-rust/src/routes/relay_anthropic_gemini.rs';
+    my $delete_candidate = 'apps/api-rust/src/model_delete_candidate.rs';
+    $handler =~ s/^\s+|\s+$//g;
+
+    if ($method eq 'GET' && $candidate_path eq '/v1/models/:model') {
+        return $source_path eq $billing
+            && $first->{source_path} eq $billing
+            && $handler eq 'retrieve_model_with_state'
+            && $first->{handler} eq 'retrieve_model_with_state'
+            && $raw_path eq '/v1/models/:model'
+            && $first->{raw_path} eq '/v1/models/:model';
+    }
+    if ($method eq 'POST'
+        && ($candidate_path eq '/v1/models/*path' || $candidate_path eq '/v1beta/models/*path')) {
+        my %handlers = map { $_ => 1 } ($handler, $first->{handler});
+        my %paths = map { $_ => 1 } ($raw_path, $first->{raw_path});
+        my $prefix = $candidate_path eq '/v1/models/*path' ? '/v1/models' : '/v1beta/models';
+        return $source_path eq $relay
+            && $first->{source_path} eq $relay
+            && $handlers{gemini_content_single}
+            && $handlers{gemini_content_tail}
+            && $paths{"$prefix/:model"}
+            && $paths{"$prefix/:model/*tail"};
+    }
+    if ($method eq 'DELETE' && $candidate_path eq '/v1/models/:model') {
+        my %owners;
+        $owners{"$first->{source_path}\t$first->{handler}"} = 1;
+        $owners{"$source_path\t$handler"} = 1;
+        my $matches = $raw_path eq '/v1/models/:model'
+            && $first->{raw_path} eq '/v1/models/:model'
+            && $owners{"$relay\tdelete_openai_model_not_implemented"}
+            && $owners{"$delete_candidate\tdelete_model_route"};
+        return 0 if !$matches;
+        # Canonicalize the audited 501 owner to the relay declaration even when
+        # the test-only model-delete module sorts first on disk.
+        return $source_path eq $relay ? 2 : 1;
+    }
+    return 0;
 }
 
 sub method_calls {
@@ -306,7 +360,7 @@ sub function_matches_pattern {
     return 0;
 }
 
-my (%baseline, %baseline_handler, %planned_module, %gate_mount, %candidates, %placeholders, %hard_placeholders, %not_implemented, %outside_allowlist);
+my (%baseline, %baseline_handler, %planned_module, %gate_mount, %gate_retired, %candidates, %candidate_metadata, %route_aliases, %placeholders, %hard_placeholders, %not_implemented, %outside_allowlist);
 my $failed = 0;
 
 open my $baseline_handle, '<', $baseline_path or die "cannot read $baseline_path: $!\n";
@@ -339,7 +393,7 @@ if (scalar(keys %baseline) != $expected_baseline_count) {
 open my $plan_handle, '<', $plan_path or die "cannot read $plan_path: $!\n";
 my $plan_header = <$plan_handle>;
 if (!defined $plan_header) {
-    $failed |= fail('migration plan is empty');
+    $failed |= fail('route plan is empty');
 } else {
     chomp $plan_header;
     $plan_header =~ s/\r$//;
@@ -347,7 +401,7 @@ if (!defined $plan_header) {
     my %column;
     @column{@header_fields} = (0 .. $#header_fields);
     for my $required (qw(method path planned_rust_module)) {
-        $failed |= fail("migration plan is missing $required column") if !exists $column{$required};
+        $failed |= fail("route plan is missing $required column") if !exists $column{$required};
     }
     my $plan_line = 1;
     while (my $line = <$plan_handle>) {
@@ -376,26 +430,26 @@ if (!defined $plan_header) {
 }
 close $plan_handle;
 for my $key (sort keys %baseline) {
-    $failed |= fail("migration plan is missing frozen route " . ($key =~ s/\t/ /r))
+    $failed |= fail("route plan is missing frozen route " . ($key =~ s/\t/ /r))
         if !exists $planned_module{$key};
 }
 for my $key (sort keys %planned_module) {
-    $failed |= fail("migration plan has non-frozen route " . ($key =~ s/\t/ /r))
+    $failed |= fail("route plan has non-frozen route " . ($key =~ s/\t/ /r))
         if !exists $baseline{$key};
 }
 
 open my $gate_handle, '<', $gate_path or die "cannot read $gate_path: $!\n";
 my $header = <$gate_handle>;
 if (!defined $header) {
-    $failed |= fail('migration gate is empty');
+    $failed |= fail('route gate is empty');
 } else {
     chomp $header;
     $header =~ s/\r$//;
     my @header_fields = split /\t/, $header, -1;
     my %column;
     @column{@header_fields} = (0 .. $#header_fields);
-    for my $required (qw(method path mount_state)) {
-        $failed |= fail("migration gate is missing $required column") if !exists $column{$required};
+    for my $required (qw(method path source_state mount_state gate_state evidence)) {
+        $failed |= fail("route gate is missing $required column") if !exists $column{$required};
     }
     my (%seen_gate, $gate_line);
     $gate_line = 1;
@@ -408,16 +462,23 @@ if (!defined $header) {
             $failed |= fail("gate line $gate_line: expected " . scalar(@header_fields) . " fields, got " . scalar(@fields));
             next;
         }
-        next if !exists $column{method} || !exists $column{path} || !exists $column{mount_state};
-        my ($method, $path, $mount) = @fields[@column{qw(method path mount_state)}];
+        next if !exists $column{method} || !exists $column{path} || !exists $column{source_state}
+            || !exists $column{mount_state} || !exists $column{gate_state}
+            || !exists $column{evidence};
+        my ($method, $path, $source, $mount, $state, $evidence) =
+            @fields[@column{qw(method path source_state mount_state gate_state evidence)}];
         my $normalized = normalize_path($path);
-        if (!defined $normalized || $mount !~ /^(?:mounted|unmounted)$/) {
-            $failed |= fail("gate line $gate_line: invalid path or mount state for $method $path");
+        if (!defined $normalized || $source !~ /^(?:absent|present)$/
+            || $mount !~ /^(?:mounted|unmounted)$/ || $state eq '') {
+            $failed |= fail("gate line $gate_line: invalid path or route state for $method $path");
             next;
         }
         my $key = "$method\t$normalized";
         $failed |= fail("gate line $gate_line: duplicate normalized route $method $normalized") if $seen_gate{$key}++;
         $gate_mount{$key} = $mount;
+        $gate_retired{$key} = 1
+            if $source eq 'absent' && $mount eq 'unmounted' && $state eq 'legacy-go'
+            && $evidence =~ /(?:^|;)retired=true(?:;|$)/;
     }
 }
 close $gate_handle;
@@ -550,26 +611,60 @@ for my $file (@source_files) {
             next;
         }
         my %declaration_methods;
+        my $source_path = relative_source_path($file);
+        my $source_location = "$source_path:$line";
         for my $call (@$calls) {
             my ($method, $handler) = @$call;
-            # A *_PATH route is an explicitly named non-owning split mount.
-            # Its owning route must still be emitted through a literal path in
-            # this source tree; skipping aliases keeps read-only/state-specific
-            # mounts from being mistaken for duplicate production ownership.
-            next if $route_alias;
             my $candidate_path = normalize_candidate_path($method, $path);
             next if !defined $candidate_path;
+            # A *_PATH route is an explicitly named non-owning split mount.
+            # It may be deduplicated only when a literal declaration owns the
+            # same normalized method/path elsewhere in the scanned tree.
+            if ($route_alias) {
+                my $alias_key = "$method\t$candidate_path";
+                $route_aliases{$alias_key} //= $source_location;
+                next;
+            }
             if ($declaration_methods{$method}++) {
                 $failed |= fail("$file:$line: ambiguous repeated $method method for $candidate_path");
                 next;
             }
             my $key = "$method\t$candidate_path";
             if (exists $candidates{$key}) {
-                next if is_models_shared_alias($method, $path);
+                my $shared_alias = is_known_models_shared_alias(
+                    $method,
+                    $candidate_path,
+                    $path,
+                    $handler,
+                    $source_path,
+                    $candidate_metadata{$key},
+                );
+                if ($shared_alias) {
+                    if ($method eq 'DELETE' && $candidate_path eq '/v1/models/:model') {
+                        if ($shared_alias == 2) {
+                            $handler =~ s/^\s+|\s+$//g;
+                            $candidates{$key} = $source_location;
+                            $candidate_metadata{$key} = {
+                                source_path => $source_path,
+                                handler => $handler,
+                                raw_path => $path,
+                            };
+                        }
+                        $not_implemented{$key} = 1;
+                        $placeholders{$key} = 1;
+                    }
+                    next;
+                }
                 $failed |= fail("$file:$line: duplicate normalized route $method $candidate_path (first at $candidates{$key})");
                 next;
             }
-            $candidates{$key} = relative_source_path($file) . ":$line";
+            $handler =~ s/^\s+|\s+$//g;
+            $candidates{$key} = $source_location;
+            $candidate_metadata{$key} = {
+                source_path => $source_path,
+                handler => $handler,
+                raw_path => $path,
+            };
             my $route_source = substr($raw, $route_start, $closing - $route_start + 1);
             $hard_placeholders{$key} = 1
                 if $handler =~ $hard_placeholder_pattern
@@ -579,7 +674,9 @@ for my $file (@source_files) {
                     $clean,
                     $handler,
                     $hard_placeholder_pattern,
-                    qr/(?:placeholder|todo|panic)/i,
+                    # `todo` is also a domain noun (`get_todos`). Real `todo!`
+                    # macros are still detected in the handler expression/body.
+                    qr/(?:placeholder|panic)/i,
                 );
             $not_implemented{$key} = 1
                 if $handler =~ $not_implemented_pattern
@@ -597,11 +694,21 @@ for my $file (@source_files) {
     }
 }
 
+for my $key (sort keys %route_aliases) {
+    next if exists $candidates{$key};
+    my ($method, $path) = split /\t/, $key, 2;
+    $failed |= fail("$route_aliases{$key}: non-owning *_PATH alias has no literal owner for $method $path");
+}
+
 exit 1 if $failed;
 
-my (@outside, @approved_outside, @placeholder_routes, @legacy_stub_routes, @missing_routes);
+my (@outside, @approved_outside, @placeholder_routes, @legacy_stub_routes, @route_compatibility);
 my ($frozen_matches, $mounted) = (0, 0);
 for my $key (sort keys %candidates) {
+    if ($gate_retired{$key}) {
+        $failed |= fail("retired frozen route was reintroduced: " . ($key =~ s/\t/ /r));
+        next;
+    }
     if ($baseline{$key}) {
         $frozen_matches++;
         $mounted++ if ($gate_mount{$key} // '') eq 'mounted';
@@ -631,7 +738,8 @@ for my $key (sort keys %candidates) {
     }
 }
 for my $key (sort keys %baseline) {
-    push @missing_routes, "$key\t$baseline_handler{$key}" if !exists $candidates{$key};
+    push @route_compatibility, "$key\t$baseline_handler{$key}"
+        if !$gate_retired{$key} && !exists $candidates{$key};
 }
 for my $key (sort keys %outside_allowlist) {
     my $entry = $outside_allowlist{$key};
@@ -658,7 +766,7 @@ for my $entry (@legacy_stub_routes) {
 }
 if ($report_missing) {
     my %missing_by_module;
-    for my $entry (@missing_routes) {
+    for my $entry (@route_compatibility) {
         my ($method, $path, $handler) = split /\t/, $entry, 3;
         my $key = "$method\t$path";
         my $module = $planned_module{$key};
@@ -671,18 +779,18 @@ if ($report_missing) {
 }
 printf "draft route coverage: candidate-method-paths=%d frozen-matches=%d frozen-total=%d missing=%d mounted=%d placeholders=%d legacy-stubs=%d outside-baseline=%d approved-outside-baseline=%d\n",
     scalar(keys %candidates), $frozen_matches, scalar(keys %baseline),
-    scalar(@missing_routes), $mounted, scalar(@placeholder_routes),
+    scalar(@route_compatibility), $mounted, scalar(@placeholder_routes),
     scalar(@legacy_stub_routes), scalar(@outside), scalar(@approved_outside);
-print "draft coverage is static candidate evidence only; it is not differential verification, migration credit, or production ownership\n";
+print "draft coverage is static candidate evidence only; it is not differential verification, route ownership credit, or production ownership\n";
 if ($require_complete) {
-    my $complete = !@missing_routes
+    my $complete = !@route_compatibility
         && !@placeholder_routes
         && !@legacy_stub_routes
-        && $mounted == scalar(keys %baseline);
+        && $mounted == scalar(keys %baseline) - scalar(keys %gate_retired);
     if (!$complete) {
         printf STDERR "draft completion gate failed: missing=%d placeholders=%d legacy-stubs=%d mounted=%d required-mounted=%d\n",
-            scalar(@missing_routes), scalar(@placeholder_routes), scalar(@legacy_stub_routes),
-            $mounted, scalar(keys %baseline);
+            scalar(@route_compatibility), scalar(@placeholder_routes), scalar(@legacy_stub_routes),
+            $mounted, scalar(keys %baseline) - scalar(keys %gate_retired);
         exit 1;
     }
     printf "draft completion gate passed: missing=0 placeholders=0 legacy-stubs=0 mounted=%d\n",

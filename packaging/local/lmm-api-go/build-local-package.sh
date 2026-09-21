@@ -12,19 +12,38 @@ GO_BINARY=${LMM_API_GO_BINARY:-}
 FRONTEND_DIST=${LMM_API_FRONTEND_DIST:-$REPO_ROOT/apps/web/dist}
 OUTPUT_DIR=${LMM_API_PKGDEST:-}
 
-die() { printf 'build-local-lmm-api-go: %s\n' "$*" >&2; exit 1; }
+die() {
+  printf 'build-local-lmm-api-go: %s\n' "$*" >&2
+  exit 1
+}
 
 while (($#)); do
   case $1 in
-    --workspace) (($# >= 2)) || die '--workspace requires a path'; WORKSPACE=$2; shift 2 ;;
-    --binary) (($# >= 2)) || die '--binary requires a path'; GO_BINARY=$2; shift 2 ;;
-    --frontend) (($# >= 2)) || die '--frontend requires a path'; FRONTEND_DIST=$2; shift 2 ;;
-    --output-dir) (($# >= 2)) || die '--output-dir requires a path'; OUTPUT_DIR=$2; shift 2 ;;
-    -h|--help)
-      printf '%s\n' 'Usage: build-local-package.sh --workspace PATH --binary PATH [--frontend PATH] [--output-dir PATH]'
-      exit 0
-      ;;
-    *) die "unknown argument: $1" ;;
+  --workspace)
+    (($# >= 2)) || die '--workspace requires a path'
+    WORKSPACE=$2
+    shift 2
+    ;;
+  --binary)
+    (($# >= 2)) || die '--binary requires a path'
+    GO_BINARY=$2
+    shift 2
+    ;;
+  --frontend)
+    (($# >= 2)) || die '--frontend requires a path'
+    FRONTEND_DIST=$2
+    shift 2
+    ;;
+  --output-dir)
+    (($# >= 2)) || die '--output-dir requires a path'
+    OUTPUT_DIR=$2
+    shift 2
+    ;;
+  -h | --help)
+    printf '%s\n' 'Usage: build-local-package.sh --workspace PATH --binary PATH [--frontend PATH] [--output-dir PATH]'
+    exit 0
+    ;;
+  *) die "unknown argument: $1" ;;
   esac
 done
 
@@ -58,9 +77,10 @@ trap cleanup EXIT
 mkdir -p -- "$build_dir/makepkg"
 
 install -Dm0644 "$SCRIPT_DIR/PKGBUILD" "$build_dir/PKGBUILD"
-install -Dm0644 "$REPO_ROOT/packaging/common/lmm-api/lmm-api-cli-phase.sh" \
-  "$build_dir/lmm-api-cli-phase.sh"
-install -Dm0755 "$GO_BINARY" "$build_dir/lmm-api"
+install -Dm0644 "$REPO_ROOT/packaging/common/lmm-api/lmm-api-go-package.sh" \
+  "$build_dir/lmm-api-go-package.sh"
+install -Dm0755 "$GO_BINARY" "$build_dir/lmm-api-go"
+install -Dm0755 "$REPO_ROOT/packaging/common/lmm-api/lmm-api-deploy" "$build_dir/lmm-api-deploy"
 install -Dm0644 "$REPO_ROOT/packaging/common/lmm-api/lmm-api.service" "$build_dir/lmm-api.service"
 install -Dm0600 "$REPO_ROOT/packaging/common/lmm-api/lmm-api-go.env" "$build_dir/lmm-api-go.env"
 install -Dm0644 "$REPO_ROOT/packaging/common/lmm-api/lmm-api-operator.sysusers" "$build_dir/lmm-api-operator.sysusers"
@@ -68,15 +88,15 @@ install -Dm0644 "$REPO_ROOT/packaging/common/lmm-api/lmm-api-operator.tmpfiles" 
 install -Dm0440 "$REPO_ROOT/packaging/common/lmm-api/lmm-api-operator.sudoers" "$build_dir/lmm-api-operator.sudoers"
 install -Dm0644 "$REPO_ROOT/packaging/common/lmm-api/geoip2-country-update.service" "$build_dir/geoip2-country-update.service"
 install -Dm0644 "$REPO_ROOT/packaging/common/lmm-api/geoip2-country-update.timer" "$build_dir/geoip2-country-update.timer"
-install -Dm0644 "$REPO_ROOT/deploy/nginx/http-map.conf" "$build_dir/nginx-http-map.conf"
-install -Dm0644 "$REPO_ROOT/deploy/nginx/lmm-api-locations.conf" "$build_dir/nginx-locations.conf"
-install -Dm0644 "$REPO_ROOT/deploy/nginx/mime.types" "$build_dir/nginx-mime.types"
-install -Dm0644 "$REPO_ROOT/deploy/nginx/new-api.conf" "$build_dir/nginx-new-api.conf"
-install -Dm0644 "$REPO_ROOT/deploy/nginx/lmm-api-region-policy.conf" "$build_dir/nginx-region-policy.conf"
+install -Dm0644 "$REPO_ROOT/packaging/common/lmm-api/edge-policy/nginx/http-map.conf" "$build_dir/nginx-http-map.conf"
+install -Dm0644 "$REPO_ROOT/packaging/common/lmm-api/edge-policy/nginx/lmm-api-locations.conf" "$build_dir/nginx-locations.conf"
+install -Dm0644 "$REPO_ROOT/packaging/common/lmm-api/edge-policy/nginx/mime.types" "$build_dir/nginx-mime.types"
+install -Dm0644 "$REPO_ROOT/packaging/common/lmm-api/edge-policy/nginx/new-api.conf" "$build_dir/nginx-new-api.conf"
+install -Dm0644 "$REPO_ROOT/packaging/common/lmm-api/edge-policy/nginx/lmm-api-region-policy.conf" "$build_dir/nginx-region-policy.conf"
 for file in LICENSE NOTICE THIRD-PARTY-LICENSES.md; do
   install -Dm0644 "$REPO_ROOT/$file" "$build_dir/$file"
 done
-git -C "$REPO_ROOT" rev-parse HEAD > "$build_dir/REVISION"
+git -C "$REPO_ROOT" rev-parse HEAD >"$build_dir/REVISION"
 tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
   -C "$FRONTEND_DIST" -cf "$build_dir/frontend-dist.tar" .
 
@@ -91,6 +111,6 @@ matches=("$pkgdest/lmm-api-go-bin-$pkgver-1-x86_64.pkg.tar."*)
 [[ ${#matches[@]} -eq 1 && -f ${matches[0]} ]] || die 'local lmm-api-go package was not produced exactly once'
 destination="$OUTPUT_DIR/${matches[0]##*/}"
 install -Dm0644 "${matches[0]}" "$destination"
-sha256sum "$destination" > "$destination.sha256"
+sha256sum "$destination" >"$destination.sha256"
 pacman -Qip "$destination"
 printf 'package=%s\nsha256_file=%s\n' "$destination" "$destination.sha256"

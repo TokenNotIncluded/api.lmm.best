@@ -12,7 +12,10 @@ use lmm_api_rs::{
         AuthConfig, AuthHttpState, DashboardAuth, DashboardDeveloperAccessPolicy,
         PgValkeyDashboardAuth,
     },
-    migration_routes::{
+    channel_balance_provider::DeepSeekBalanceChannelAdvancedProvider,
+    models::{ModelsHttpState, ModelsListenerMode, PgModelsService},
+    protocol_runtime_registry::validated_current_registry,
+    routes::{
         access_ip::{AccessIpState, router as access_ip_router},
         account_action::{AccountActionState, router as account_action_router},
         admin_catalog::{
@@ -21,6 +24,10 @@ use lmm_api_rs::{
         },
         api_token::{ApiTokenHttpState, PgValkeyApiTokenService},
         assistant::{AssistantRateLimitConfig, AssistantReadState, assistant_read_router},
+        billing_dashboard::{
+            BillingDashboardState, PgBillingDashboardAuthorizer, PgBillingDashboardStore,
+            billing_dashboard_router,
+        },
         billing_payments::{
             BillingConfig, BillingDependencies, BillingHttpState, DashboardBillingAuthorizer,
             DisabledCheckoutProvider, DisabledEpayVerifier, DisabledStripeWebhookVerifier,
@@ -39,6 +46,7 @@ use lmm_api_rs::{
         },
         channel_core::{ChannelCoreState, router as channel_core_router},
         channel_ops::{ChannelOpsHttpState, DashboardChannelAuthorizer, channel_ops_router},
+        checkin_affiliate::{CheckinAffiliateState, router as checkin_affiliate_router},
         control_admin::{
             ControlAdminState, DashboardControlAdminAuthorizer, HttpOAuthDiscoveryClient,
             control_admin_router,
@@ -47,21 +55,30 @@ use lmm_api_rs::{
             ControlPublicHttpState, PgControlPublicRepository, ReqwestUptimeKumaClient,
             control_public_router,
         },
+        control_tasks::{
+            ControlTaskStatusError, ControlTaskStatusProbe, ControlTasksState, PgControlTaskStore,
+            control_tasks_router,
+        },
         deployment::{
             DeploymentJobRunner, DeploymentState, DisabledDeploymentJobRunner,
             IoNetDeploymentJobRunner, PgValkeyDeploymentProvider, router as deployment_router,
         },
         developer_access::{DeveloperAccessState, router as developer_access_router},
         discount_code::{DiscountCodeState, router as discount_code_router},
-        dynamic_pricing::{DynamicPricingState, router as dynamic_pricing_router},
+        epay::{
+            DashboardTopupAuthorizer, DisabledEpayGateway, DisabledTopupRepository, UserTopupState,
+            router as epay_router,
+        },
         finance::{FinanceState, router as finance_router},
         finance_export::{FinanceExportState, router as finance_export_router},
         gifts::{GiftState, router as gift_router},
         hero_sms::{
-            DisabledHeroSmsGateway, HeroSmsState, ReqwestHeroSmsGateway, router as hero_sms_router,
+            DisabledHeroSmsGateway, HeroSmsRateLimitConfig, HeroSmsState, ReqwestHeroSmsGateway,
+            router as hero_sms_router,
         },
         identity_2fa::{Identity2FAState, router as identity_2fa_router},
         identity_admin::{IdentityAdminState, router as identity_admin_router},
+        identity_catalog::{IdentityCatalogState, router as identity_catalog_router},
         identity_federation::{
             DashboardFederationIdentity, FederationState, ValkeyEmailCodeVerifier,
             ValkeyFederationMutationPublisher,
@@ -83,47 +100,7 @@ use lmm_api_rs::{
             MidjourneyHttpState, PgMidjourneyDispatchBackend, media_midjourney_router,
         },
         media_tasks::{MediaTaskHttpState, MidjourneyMediaTaskService, media_provider_task_router},
-        missing_billing_dashboard::{
-            BillingDashboardState, PgBillingDashboardAuthorizer, PgBillingDashboardStore,
-            billing_dashboard_router,
-        },
-        missing_billing_webhooks::{
-            DisabledPancakeWebhookVerifier, DisabledWaffoWebhookAvailability,
-            DisabledWaffoWebhookProcessor, DisabledWaffoWebhookVerifier, WaffoWebhookState,
-            missing_billing_webhooks_router,
-        },
-        missing_control_ratio_sync::{
-            DashboardRatioSyncAuthorizer, HttpRatioSyncUpstream, PgRatioSyncRepository,
-            RatioSyncHttpState, ratio_sync_router,
-        },
-        missing_control_tasks::{
-            ControlTaskStatusError, ControlTaskStatusProbe, MissingControlTasksState,
-            PgControlTaskStore, missing_control_tasks_router,
-        },
-        missing_identity_catalog::{IdentityCatalogState, router as identity_catalog_router},
-        missing_identity_checkin_aff::{
-            IdentityCheckinAffState, router as identity_checkin_aff_router,
-        },
-        missing_identity_epay::{
-            DashboardTopupAuthorizer, DisabledEpayGateway, DisabledTopupRepository, UserTopupState,
-            router as identity_epay_router,
-        },
-        missing_identity_stripe_creem::{
-            DashboardStripeCreemAuthorizer, DisabledStripeCreemGateway, IdentityStripeCreemState,
-            PgStripeCreemStore, amount_router as identity_stripe_amount_router,
-            pay_router as identity_stripe_pay_router,
-        },
-        missing_identity_topup::{IdentityTopupState, router as identity_topup_router},
-        missing_identity_waffo::{
-            DisabledTopUpGateway, WaffoTopUpState, router as identity_waffo_router,
-        },
-        missing_relay_misc_new::{
-            FailClosedRelayMiscService, MissingRelayMiscState, missing_relay_misc_router,
-        },
-        missing_relay_models_billing::{ModelLookupState, PgStaticModelLookup},
-        missing_relay_video::{
-            FailClosedRelayVideoService, RelayVideoHttpState, missing_relay_video_router,
-        },
+        model_lookup::{ModelLookupState, PgStaticModelLookup},
         observability::{
             DashboardObservabilityAuthorizer, ObservabilityAuthorizer, ObservabilityState,
             PgDiskCacheMaintenance, PgObservabilityStore, PgReadOnlyObservabilityTokenAuthorizer,
@@ -134,10 +111,15 @@ use lmm_api_rs::{
         },
         open_source_bounties::{OpenSourceBountyState, router as open_source_bounty_router},
         public_relay::{PublicRelayState, router as public_relay_router},
+        ratio_sync::{
+            DashboardRatioSyncAuthorizer, HttpRatioSyncUpstream, PgRatioSyncRepository,
+            RatioSyncHttpState, ratio_sync_router,
+        },
         relay_anthropic_gemini::{
             RelayHttpState as AnthropicGeminiHttpState, router_with_model_lookup,
         },
         relay_anthropic_gemini_postgres::PgAnthropicGeminiRelayBackend,
+        relay_compat::{FailClosedRelayCompatService, RelayCompatState, relay_compat_router},
         relay_media::{
             MediaUpstreamClient, PgRelayMediaService, RelayMediaHttpState, relay_media_router,
         },
@@ -148,6 +130,7 @@ use lmm_api_rs::{
         relay_openai::{
             OpenAiRelayHttpState, OpenAiUpstreamClient, PgOpenAiRelayService, openai_relay_router,
         },
+        relay_video::{FailClosedRelayVideoService, RelayVideoHttpState, relay_video_router},
         release_notes::{ReleaseNoteState, router as release_note_router},
         responses_websocket::{
             ResponsesWebSocketState, UnconfiguredResponsesWebSocketService,
@@ -155,10 +138,16 @@ use lmm_api_rs::{
         },
         security_admin::{SecurityAdminState, router as security_admin_router},
         security_overview::{SecurityOverviewState, router as security_overview_router},
+        stripe_creem::{
+            DashboardStripeCreemAuthorizer, DisabledStripeCreemGateway, PgStripeCreemStore,
+            StripeCreemState, amount_router as stripe_amount_router,
+            pay_router as stripe_pay_router,
+        },
         system_config::{
             DashboardRootAuthorizer, HttpProjectUpdateClient, HttpWaffoPancakeGateway,
             ProcessRuntimeOptions, SystemConfigHttpState, system_config_router,
         },
+        topup::{TopupState, router as topup_router},
         unified_todo::{UnifiedTodoState, router as unified_todo_router},
         user_assistant_admin::{UserAssistantAdminState, router as user_assistant_admin_router},
         user_rankings::{UserRankingsState, router as user_rankings_router},
@@ -166,9 +155,13 @@ use lmm_api_rs::{
             PgSmtpSecurityEmailSender, ValkeyVerificationCodeStore, VerifyEmailState,
             router as verify_email_router,
         },
+        waffo::{DisabledTopUpGateway, WaffoTopUpState, router as waffo_router},
+        waffo_webhooks::{
+            DisabledPancakeWebhookVerifier, DisabledWaffoWebhookAvailability,
+            DisabledWaffoWebhookProcessor, DisabledWaffoWebhookVerifier, PancakeWebhookVerifier,
+            RsaPancakeWebhookVerifier, WaffoWebhookState, waffo_webhooks_router,
+        },
     },
-    models::{ModelsHttpState, ModelsListenerMode, PgModelsService},
-    protocol_runtime_registry::validated_current_registry,
     status::{PgStatusRepository, StatusHttpState, StatusRepository},
 };
 use lmm_application::{GlobalApiRateLimiter, ValkeyReadinessPolicy};
@@ -213,6 +206,12 @@ impl ControlTaskStatusProbe for ListenerControlTaskStatusProbe {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    match lmm_api_rs::cli::dispatch_environment().await {
+        lmm_api_rs::cli::DispatchOutcome::Serve => {}
+        lmm_api_rs::cli::DispatchOutcome::Exit(0) => return Ok(()),
+        lmm_api_rs::cli::DispatchOutcome::Exit(code) => std::process::exit(code),
+    }
+
     lmm_observability::init()?;
     let config = Config::from_env()?;
     let protocol_registry = Arc::new(validated_current_registry().map_err(|error| {
@@ -318,7 +317,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         listen_addr = %config.listen_addr,
         slot = %config.slot,
         revision = option_env!("LMM_BUILD_REVISION").unwrap_or("unknown"),
-        "Rust migration edge listening"
+        "Rust API listening"
     );
     if local_acceptance {
         tracing::warn!(
@@ -351,7 +350,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tracing::warn!(
             "test-instance candidate surface enabled; remote catalog and uptime clients are denied"
         );
-        let candidates = http::migration_candidate_test_surface(
+        let candidates = http::route_test_surface(
             &app_state,
             test_instance::safe_candidate_surface(pg.clone(), valkey.clone(), Arc::clone(&auth)),
         );
@@ -398,37 +397,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Arc::clone(&auth),
             )),
         );
-        let identity_topup = http::api_global_rate_limited_surface(
+        let topup = http::api_global_rate_limited_surface(
             &app_state,
-            identity_topup_router(IdentityTopupState::new(pg.clone(), Arc::clone(&auth))),
+            topup_router(TopupState::new(pg.clone(), Arc::clone(&auth))),
         );
         // Stripe amount quoting is a deterministic PostgreSQL/configuration
         // calculation.  Checkout is mounted with the same authorizer and a
         // fail-closed gateway so the path cannot 404 through to Go.
-        let identity_stripe_creem_state = IdentityStripeCreemState::new(
+        let stripe_creem_state = StripeCreemState::new(
             Arc::new(PgStripeCreemStore::new(pg.clone())),
             Arc::new(DashboardStripeCreemAuthorizer::new(Arc::clone(&auth))),
             Arc::new(DisabledStripeCreemGateway),
         );
-        let identity_stripe_amount = http::api_global_rate_limited_surface(
+        let stripe_amount = http::api_global_rate_limited_surface(
             &app_state,
-            identity_stripe_amount_router(identity_stripe_creem_state.clone()),
+            stripe_amount_router(stripe_creem_state.clone()),
         );
-        let identity_stripe_pay = http::api_global_rate_limited_surface(
+        let stripe_pay = http::api_global_rate_limited_surface(
             &app_state,
-            identity_stripe_pay_router(identity_stripe_creem_state),
+            stripe_pay_router(stripe_creem_state),
         );
-        let identity_epay = http::api_global_rate_limited_surface(
+        let epay = http::api_global_rate_limited_surface(
             &app_state,
-            identity_epay_router(UserTopupState::new(
+            epay_router(UserTopupState::new(
                 Arc::new(DashboardTopupAuthorizer::new(Arc::clone(&auth))),
                 Arc::new(DisabledTopupRepository),
                 Arc::new(DisabledEpayGateway),
             )),
         );
-        let identity_waffo = http::api_global_rate_limited_surface(
+        let waffo = http::api_global_rate_limited_surface(
             &app_state,
-            identity_waffo_router(WaffoTopUpState::new(
+            waffo_router(WaffoTopUpState::new(
                 pg.clone(),
                 Arc::clone(&auth),
                 Arc::new(DisabledTopUpGateway),
@@ -436,14 +435,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         let identity_checkin = http::api_global_rate_limited_surface(
             &app_state,
-            identity_checkin_aff_router(
-                IdentityCheckinAffState::new(pg.clone(), Arc::clone(&auth))
-                    .with_effects(Arc::new(
-                        lmm_api_rs::migration_routes::missing_identity_checkin_aff::PgValkeyCheckinEffects::new(
-                            pg.clone(),
-                            valkey.clone(),
-                        ),
-                    )),
+            checkin_affiliate_router(
+                CheckinAffiliateState::new(pg.clone(), Arc::clone(&auth)).with_effects(Arc::new(
+                    lmm_api_rs::routes::checkin_affiliate::PgValkeyCheckinEffects::new(
+                        pg.clone(),
+                        valkey.clone(),
+                    ),
+                )),
             ),
         );
         // Account-security routes share the same PostgreSQL/Valkey session
@@ -451,7 +449,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // injected here so the full security router cannot accidentally expose
         // an anonymous account-creation path without the listener-owned
         // body/critical-rate/Turnstile boundary.
-        let identity_security = lmm_api_rs::migration_routes::identity_security::router(
+        let identity_security = lmm_api_rs::routes::identity_security::router(
             IdentitySecurityState::new(
                 Arc::new(PgValkeySecurityProvider::new(pg.clone(), valkey.clone())),
                 Arc::new(DashboardSecurityAuthorizer::new(Arc::clone(&auth))),
@@ -534,22 +532,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             channel_authorizer,
         ));
         // Advanced channel management owns its persisted channel lookup and
-        // outbound protocol boundary in Rust.  The adapter still fails closed
-        // for destinations that do not satisfy its target policy; mounting it
-        // here makes the normal listener's route surface explicit instead of
-        // silently falling through to Go.
+        // outbound protocol boundary in Rust. The DeepSeek decorator owns only
+        // the single-channel balance path; unrelated operations remain on the
+        // existing provider and batch balance refresh stays fail-closed until
+        // its own parity slice is complete.
+        let channel_advanced_provider = Arc::new(StoreBackedChannelAdvancedProvider::new(
+            Arc::new(PgChannelAdvancedStore::new(pg.clone())),
+            Arc::new(
+                ReqwestChannelAdvancedUpstream::new()
+                    .map_err(|_| io::Error::other("failed to initialize advanced channel client"))?
+                    .with_pg_pool(pg.clone()),
+            ),
+        ));
         let channel_advanced = channel_advanced_router(ChannelAdvancedHttpState::new(
             Arc::new(DashboardChannelAdvancedAuthorizer::new(Arc::clone(&auth))),
-            Arc::new(StoreBackedChannelAdvancedProvider::new(
-                Arc::new(PgChannelAdvancedStore::new(pg.clone())),
-                Arc::new(
-                    ReqwestChannelAdvancedUpstream::new()
-                        .map_err(|_| {
-                            io::Error::other("failed to initialize advanced channel client")
-                        })?
-                        .with_pg_pool(pg.clone()),
-                ),
-            )),
+            Arc::new(
+                DeepSeekBalanceChannelAdvancedProvider::new(channel_advanced_provider, pg.clone())
+                    .map_err(|_| {
+                        io::Error::other("failed to initialize DeepSeek balance provider")
+                    })?,
+            ),
         ));
         // Deployment management is mounted on the normal listener with the
         // durable PostgreSQL/Valkey coordinator.  A missing server-owned
@@ -586,7 +588,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         let _subscription_maintenance =
             spawn_subscription_maintenance(pg.clone(), Some(valkey.clone()));
-        let relay_client = lmm_api_rs::outbound_http::relay_client(config.dependency_timeout)
+        let relay_client = lmm_api_rs::relay_http::RelayHttpClient::new(config.relay_timeouts)
             .map_err(|_| io::Error::other("failed to initialize relay HTTP client"))?;
         let assistant_reads = assistant_read_router(
             AssistantReadState::new(
@@ -602,7 +604,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 },
                 DashboardDeveloperAccessPolicy::new(local_acceptance),
             )
-            .with_agent_relay(relay_client.clone(), config.dependency_timeout),
+            .with_agent_relay(relay_client.clone()),
         );
         let developer_access = http::api_global_rate_limited_surface(
             &app_state,
@@ -621,7 +623,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 config.auth_session_secret.clone(),
             )),
         );
-        let hero_sms_gateway: Arc<dyn lmm_api_rs::migration_routes::hero_sms::HeroSmsGateway> =
+        let hero_sms_gateway: Arc<dyn lmm_api_rs::routes::hero_sms::HeroSmsGateway> =
             if local_acceptance {
                 Arc::new(DisabledHeroSmsGateway)
             } else {
@@ -632,11 +634,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
         let hero_sms = http::api_global_rate_limited_surface(
             &app_state,
-            hero_sms_router(HeroSmsState::new(
-                pg.clone(),
-                Arc::clone(&auth),
-                hero_sms_gateway,
-            )),
+            hero_sms_router(
+                HeroSmsState::new(pg.clone(), Arc::clone(&auth), hero_sms_gateway)
+                    .with_sms_user_rate_limit(
+                        valkey.clone(),
+                        HeroSmsRateLimitConfig {
+                            enabled: config.auth_critical_rate_limit_enabled,
+                            max_requests: config.auth_critical_rate_limit,
+                            window: config.auth_critical_rate_limit_window,
+                            dependency_timeout: config.dependency_timeout,
+                        },
+                    ),
+            ),
         );
         let finance_export = http::api_global_rate_limited_surface(
             &app_state,
@@ -689,14 +698,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             &app_state,
             discount_code_router(DiscountCodeState::new(pg.clone(), Arc::clone(&auth))),
         );
-        let dynamic_pricing = http::api_global_rate_limited_surface(
-            &app_state,
-            dynamic_pricing_router(DynamicPricingState::new(
-                pg.clone(),
-                valkey.clone(),
-                Arc::clone(&auth),
-            )),
-        );
         // Balance purchases are the first payment write family whose complete
         // ledger is local to PostgreSQL. The provider-capable checkout and
         // callback routes remain separately frozen until their Go SDK
@@ -735,9 +736,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 BillingConfig::default(),
             )),
         );
-        let billing_webhooks = missing_billing_webhooks_router(WaffoWebhookState::new(
+        let pancake_verifier: Arc<dyn PancakeWebhookVerifier> = if local_acceptance {
+            Arc::new(DisabledPancakeWebhookVerifier)
+        } else {
+            Arc::new(RsaPancakeWebhookVerifier::from_environment().map_err(|_| {
+                io::Error::other("failed to initialize Pancake webhook verification keys")
+            })?)
+        };
+        let waffo_webhooks = waffo_webhooks_router(WaffoWebhookState::new(
             Arc::new(DisabledWaffoWebhookAvailability),
-            Arc::new(DisabledPancakeWebhookVerifier),
+            pancake_verifier,
             Arc::new(DisabledWaffoWebhookVerifier),
             Arc::new(DisabledWaffoWebhookProcessor),
         ));
@@ -753,8 +761,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Arc::clone(&auth),
                 Arc::new(PgReadOnlyObservabilityTokenAuthorizer::new(pg.clone())),
             ));
-        let control_tasks = missing_control_tasks_router(
-            MissingControlTasksState::new(
+        let control_tasks = control_tasks_router(
+            ControlTasksState::new(
                 Arc::new(PgControlTaskStore::new(pg.clone())),
                 Arc::clone(&observability_authorizer),
                 Arc::new(ListenerControlTaskStatusProbe {
@@ -841,7 +849,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             OpenAiRelayHttpState::new(
                 Arc::new(PgOpenAiRelayService::new(
                     pg.clone(),
-                    OpenAiUpstreamClient::new(relay_client.clone(), config.dependency_timeout),
+                    OpenAiUpstreamClient::new(relay_client.clone()),
                     1,
                 )),
                 app_state.status.version().to_owned(),
@@ -869,11 +877,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 64 * 1024 * 1024,
             ))),
         )));
-        let relay_video = missing_relay_video_router(RelayVideoHttpState::new(Arc::new(
+        let relay_video = relay_video_router(RelayVideoHttpState::new(Arc::new(
             FailClosedRelayVideoService::new(),
         )));
-        let relay_misc_new = missing_relay_misc_router(MissingRelayMiscState::new(Arc::new(
-            FailClosedRelayMiscService::new(),
+        let relay_misc_new = relay_compat_router(RelayCompatState::new(Arc::new(
+            FailClosedRelayCompatService::new(),
         )));
         let responses_websocket = responses_websocket_router(ResponsesWebSocketState::new(
             Arc::new(UnconfiguredResponsesWebSocketService),
@@ -897,7 +905,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             AnthropicGeminiHttpState::new(Arc::new(PgAnthropicGeminiRelayBackend::new(
                 pg.clone(),
                 relay_client.clone(),
-                config.dependency_timeout,
             )))
             .with_protocol_runtime(protocol_rollout.clone(), protocol_registry.clone()),
             model_lookup_state.clone(),
@@ -905,7 +912,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let relay_media = relay_media_router(RelayMediaHttpState::new(Arc::new(
             PgRelayMediaService::new(
                 pg.clone(),
-                MediaUpstreamClient::new(relay_client.clone(), config.dependency_timeout),
+                MediaUpstreamClient::new(relay_client.clone()),
                 1,
             ),
         )));
@@ -946,8 +953,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // and the shared session authority.  They have no provider-capable
         // outbound client, so the normal listener can own their route
         // boundary while their positive behavior is independently diffed.
-        let missing_control_public =
-            test_instance::durable_missing_control_public_surface(pg.clone(), Arc::clone(&auth));
+        let public_catalog = test_instance::durable_public_catalog_surface(
+            pg.clone(),
+            valkey.clone(),
+            config.dependency_timeout,
+            Arc::clone(&auth),
+        );
         let system_config = if local_acceptance {
             // Loopback developer access must retain the no-egress adapter;
             // production provider clients are composed only for normal
@@ -976,12 +987,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .merge(identity_catalog)
             .merge(admin_catalog)
             .merge(identity_admin)
-            .merge(identity_topup)
+            .merge(topup)
             .merge(identity_checkin)
-            .merge(identity_stripe_amount)
-            .merge(identity_stripe_pay)
-            .merge(identity_epay)
-            .merge(identity_waffo)
+            .merge(stripe_amount)
+            .merge(stripe_pay)
+            .merge(epay)
+            .merge(waffo)
             .merge(identity_security)
             .merge(verify_email)
             .merge(identity_federation_bindings)
@@ -1010,10 +1021,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .merge(user_rankings)
             .merge(gifts)
             .merge(discount_code)
-            .merge(dynamic_pricing)
             .merge(subscription_balance_pay)
             .merge(billing_provider_payments)
-            .merge(billing_webhooks)
+            .merge(waffo_webhooks)
             .merge(kling_task_reads)
             .merge(billing_subscriptions)
             .merge(billing_dashboard)
@@ -1038,7 +1048,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .merge(relay_misc_active)
             .merge(relay_misc_frozen)
             .merge(control_public)
-            .merge(missing_control_public)
+            .merge(public_catalog)
             .merge(system_config);
         http::router_with_api_token_and_extra(
             app_state,
@@ -1109,15 +1119,15 @@ mod tests {
     #[tokio::test]
     async fn bounded_drain_should_complete_finished_work() {
         let result = bounded_drain(Duration::from_secs(1), future::ready(7)).await;
-        assert_eq!(result.expect("ready work completes"), 7);
+        assert_eq!(result.ok(), Some(7));
     }
 
     #[tokio::test]
     async fn bounded_drain_should_time_out_stuck_work() {
         let result = bounded_drain(Duration::from_millis(1), future::pending::<()>()).await;
         assert_eq!(
-            result.expect_err("stuck work times out").kind(),
-            io::ErrorKind::TimedOut
+            result.err().map(|error| error.kind()),
+            Some(io::ErrorKind::TimedOut)
         );
     }
 }

@@ -81,7 +81,10 @@ func newFakeImplicitTLSSMTPServer(t *testing.T) *fakeSMTPServer {
 	require.NoError(t, err)
 
 	server := &fakeSMTPServer{
-		listener:          tls.NewListener(listener, &tls.Config{Certificates: []tls.Certificate{cert}}),
+		listener: tls.NewListener(listener, &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			MinVersion:   tls.VersionTLS12,
+		}),
 		host:              host,
 		port:              port,
 		cert:              cert,
@@ -152,7 +155,10 @@ func (s *fakeSMTPServer) serve() {
 			if err := writeSMTPLine(rw, "220 2.0.0 Ready to start TLS"); err != nil {
 				return
 			}
-			tlsConn := tls.Server(conn, &tls.Config{Certificates: []tls.Certificate{s.cert}})
+			tlsConn := tls.Server(conn, &tls.Config{
+				Certificates: []tls.Certificate{s.cert},
+				MinVersion:   tls.VersionTLS12,
+			})
 			if err := tlsConn.Handshake(); err != nil {
 				return
 			}

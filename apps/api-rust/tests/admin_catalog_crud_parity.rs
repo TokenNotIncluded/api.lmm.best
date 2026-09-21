@@ -5,7 +5,7 @@ use axum::{
     body::{Body, to_bytes},
     http::{HeaderMap, Request, StatusCode},
 };
-use lmm_api_rs::migration_routes::admin_catalog::{
+use lmm_api_rs::routes::admin_catalog::{
     AdminCatalogActor, AdminCatalogAuthorizer, AdminCatalogState, CatalogError, CatalogOperation,
     MemoryCatalogProvider, router,
 };

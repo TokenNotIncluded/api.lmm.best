@@ -61,7 +61,9 @@ export type OnboardingStage =
   | 'complete'
 
 export interface OnboardingState {
+  details_available?: boolean
   activation_complete: boolean
+  api_key_created?: boolean
   credential_complete: boolean
   first_request_complete: boolean
   stage: OnboardingStage
@@ -81,6 +83,7 @@ export interface AuthUser {
   aff_code?: string
   aff_count?: number
   aff_quota?: number
+  aff_debt?: number
   aff_history_quota?: number
   inviter_id?: number
   github_id?: string

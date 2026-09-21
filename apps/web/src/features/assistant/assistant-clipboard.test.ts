@@ -9,9 +9,25 @@ License, or (at your option) any later version.
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
-import { copyAssistantText } from './assistant-clipboard'
+import {
+  copyAssistantText,
+  notifyAssistantCopyResult,
+} from './assistant-clipboard'
 
 describe('assistant clipboard', () => {
+  test('uses error notifications for failed copy attempts', () => {
+    const notifications: string[] = []
+    const notify = (copied: boolean) =>
+      notifyAssistantCopyResult(copied, {
+        success: () => notifications.push('success'),
+        error: () => notifications.push('error'),
+      })
+
+    notify(true)
+    notify(false)
+    assert.deepEqual(notifications, ['success', 'error'])
+  })
+
   test('waits for an asynchronous write before reporting success', async () => {
     let releaseWrite: (() => void) | undefined
     let settled = false

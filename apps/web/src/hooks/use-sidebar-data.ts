@@ -16,14 +16,19 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
 import { useQuery } from '@tanstack/react-query'
 import {
   Activity,
   Box,
+  Building2,
   Bug,
   Compass,
   CreditCard,
   FileText,
+  Gift as GiftIcon,
   Image as ImageIcon,
   Key,
   LayoutDashboard,
@@ -32,8 +37,11 @@ import {
   ListTodo,
   Medal,
   MessageSquare,
+  MonitorCog,
   PhoneCall,
   Radio,
+  RotateCcw,
+  Server,
   ServerCog,
   Settings,
   Ticket,
@@ -46,6 +54,25 @@ import { useTranslation } from 'react-i18next'
 
 import type { SidebarData } from '@/components/layout/types'
 import { getTodos } from '@/features/todos/api'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import { hasPermission } from '@/lib/admin-permissions'
 import { isConsoleActivated } from '@/lib/console-activation'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
@@ -84,15 +111,22 @@ export function useSidebarData(): SidebarData {
               url: '/getting-started',
               icon: Compass,
             },
+            { title: t('Tool market'), url: '/tool-market', icon: Box },
             {
               title: t('Challenges'),
               url: '/challenges',
               icon: Trophy,
             },
             {
-              title: t('Model Square'),
+              title: t('Models and pricing'),
               url: '/pricing',
               icon: Box,
+              interaction: 'model-panel',
+            },
+            {
+              title: t('Status detection'),
+              url: '/status',
+              icon: Server,
             },
           ],
         },
@@ -103,8 +137,60 @@ export function useSidebarData(): SidebarData {
   return {
     navGroups: [
       {
+        id: 'general',
+        title: t('Use AI'),
+        items: [
+          {
+            title: t('Getting started'),
+            url: '/getting-started',
+            icon: Compass,
+          },
+          {
+            title: t('Models and pricing'),
+            url: '/pricing',
+            icon: Box,
+            interaction: 'model-panel',
+          },
+          {
+            title: t('Conversation records'),
+            url: '/chat-management',
+            icon: MessageSquare,
+          },
+          { title: t('Drawing studio'), url: '/drawing', icon: ImageIcon },
+          { title: t('Overview'), url: '/dashboard/overview', icon: Activity },
+          {
+            title: t('Dashboard'),
+            url: '/dashboard/models',
+            icon: LayoutDashboard,
+          },
+        ],
+      },
+      {
+        id: 'developer',
+        title: t('Developers'),
+        items: [
+          { title: t('Integration guide'), url: '/developers', icon: FileText },
+          { title: t('API Keys'), url: '/keys', icon: Key },
+          { title: t('Client setup'), url: '/guide', icon: Compass },
+          { title: t('Usage Logs'), url: '/usage-logs/common', icon: FileText },
+          {
+            title: t('Task Logs'),
+            url: '/usage-logs/task',
+            activeUrls: ['/usage-logs/drawing'],
+            configUrls: ['/usage-logs/drawing', '/usage-logs/task'],
+            icon: ListTodo,
+          },
+          { title: t('Status detection'), url: '/status', icon: Server },
+          {
+            title: t('Remote control'),
+            url: '/remote-control',
+            icon: MonitorCog,
+          },
+        ],
+      },
+      {
         id: 'forge',
-        title: t('Open-source bounties'),
+        title: t('Ecosystem'),
         items: [
           {
             title: t('Open-source bounties'),
@@ -116,96 +202,20 @@ export function useSidebarData(): SidebarData {
             url: '/public-relay',
             icon: Radio,
           },
-          {
-            title: t('Challenges'),
-            url: '/challenges',
-            icon: Trophy,
-          },
-          {
-            title: t('Rankings'),
-            url: '/rankings',
-            icon: Medal,
-          },
-        ],
-      },
-      {
-        id: 'chat',
-        title: t('Conversations'),
-        items: [
-          {
-            title: t('Conversation records'),
-            url: '/chat-management',
-            icon: MessageSquare,
-          },
-        ],
-      },
-      {
-        id: 'general',
-        title: t('General'),
-        items: [
-          {
-            title: t('Overview'),
-            url: '/dashboard/overview',
-            icon: Activity,
-          },
-          {
-            title: t('Dashboard'),
-            url: '/dashboard/models',
-            icon: LayoutDashboard,
-          },
-          {
-            title: t('Model Square'),
-            url: '/pricing',
-            icon: Box,
-          },
-          {
-            title: t('API Keys'),
-            url: '/keys',
-            icon: Key,
-          },
-          {
-            title: t('Drawing studio'),
-            url: '/drawing',
-            icon: ImageIcon,
-          },
-          {
-            title: t('Usage Logs'),
-            url: '/usage-logs/common',
-            icon: FileText,
-          },
-          {
-            title: t('Task Logs'),
-            url: '/usage-logs/task',
-            activeUrls: ['/usage-logs/drawing'],
-            configUrls: ['/usage-logs/drawing', '/usage-logs/task'],
-            icon: ListTodo,
-          },
+          { title: t('Tool market'), url: '/tool-market', icon: Box },
+          { title: t('Scripts'), url: '/scripts', icon: FileText },
+          { title: t('Challenges'), url: '/challenges', icon: Trophy },
+          { title: t('Rankings'), url: '/rankings', icon: Medal },
         ],
       },
       {
         id: 'personal',
-        title: t('Personal'),
+        title: t('Account'),
         items: [
-          {
-            title: t('Wallet'),
-            url: '/wallet',
-            icon: Wallet,
-          },
-          {
-            title: t('Temporary activations'),
-            url: '/temporary-activations',
-            icon: PhoneCall,
-          },
-          {
-            title: t('Profile'),
-            url: '/profile',
-            icon: User,
-          },
-          {
-            title: t('Submit a ticket'),
-            url: '/support',
-            icon: LifeBuoy,
-          },
+          { title: t('Wallet'), url: '/wallet', icon: Wallet },
+          { title: t('Company'), url: '/company', icon: Building2 },
+          { title: t('Profile'), url: '/profile', icon: User },
+          { title: t('Submit a ticket'), url: '/support', icon: LifeBuoy },
           {
             title: t('To-dos'),
             url: '/todos',
@@ -215,9 +225,36 @@ export function useSidebarData(): SidebarData {
         ],
       },
       {
+        id: 'services',
+        title: t('Other services'),
+        items: [
+          {
+            title: t('Temporary activations'),
+            url: '/temporary-activations',
+            icon: PhoneCall,
+          },
+        ],
+      },
+      {
         id: 'admin',
         title: t('Admin'),
         items: [
+          ...(user &&
+          user.role >= ROLE.ADMIN &&
+          hasPermission(user, 'acquisition', 'read')
+            ? [
+                {
+                  title: t('Operations analytics'),
+                  icon: Users,
+                  items: [
+                    {
+                      title: t('User acquisition'),
+                      url: '/operations/sources',
+                    },
+                  ],
+                },
+              ]
+            : []),
           {
             title: t('Channels'),
             url: '/channels',
@@ -244,9 +281,20 @@ export function useSidebarData(): SidebarData {
             icon: Ticket,
           },
           {
+            title: t('Red Packets'),
+            url: '/red-packets',
+            icon: GiftIcon,
+          },
+          {
             title: t('Subscriptions'),
             url: '/subscriptions',
             icon: CreditCard,
+          },
+          {
+            title: t('Subscription reset'),
+            url: '/subscriptions/reset',
+            icon: RotateCcw,
+            requiredRole: ROLE.SUPER_ADMIN,
           },
           {
             title: t('System Info'),

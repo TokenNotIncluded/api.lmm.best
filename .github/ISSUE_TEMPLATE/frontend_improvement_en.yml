@@ -18,7 +18,7 @@ body:
     attributes:
       label: Submission checks
       options:
-        - label: I searched this repository's [Issues](https://github.com/LIghtJUNction/api.lmm.best/issues) and found no duplicate suggestion.
+        - label: I searched this repository's [Issues](https://github.com/TokenNotIncluded/api.lmm.best/issues) and found no duplicate suggestion.
           required: true
         - label: I identified the page, use case, and a verifiable improvement outcome.
           required: true

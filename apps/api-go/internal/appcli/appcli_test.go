@@ -2,6 +2,7 @@ package appcli
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,6 +17,17 @@ func TestDispatchShouldServeWhenNoCommandIsProvided(t *testing.T) {
 	result := Dispatch(nil, "1.2.3", io.Discard, io.Discard)
 	if result.Mode != ModeServe {
 		t.Fatalf("Dispatch() mode = %v, want ModeServe", result.Mode)
+	}
+}
+
+func TestDispatchShouldRejectUnknownFlagsWithoutStartingServer(t *testing.T) {
+	var stderr bytes.Buffer
+	result := Dispatch([]string{"--port", "3100"}, "1.2.3", io.Discard, &stderr)
+	if result.Mode == ModeServe || result.ExitCode != ExitUsage {
+		t.Fatalf("Dispatch() = %#v, want usage error without server mode", result)
+	}
+	if !strings.Contains(stderr.String(), `unknown command "--port"`) {
+		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
 
@@ -114,8 +126,15 @@ func TestRequestShouldSendNativeHTTPAndPersistOutputs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(cookies, []byte("cookie-secret")) || bytes.Contains(cookies, []byte("secret-token")) {
-		t.Fatalf("cookie store did not preserve only the response cookie")
+	if bytes.Contains(cookies, []byte("cookie-secret")) || bytes.Contains(cookies, []byte("secret-token")) {
+		t.Fatalf("cookie store persisted plaintext credentials")
+	}
+	var encrypted encryptedCookieFile
+	if err := json.Unmarshal(cookies, &encrypted); err != nil {
+		t.Fatalf("decode encrypted cookie envelope: %v", err)
+	}
+	if encrypted.Format != encryptedCookieFileFormat || encrypted.Nonce == "" || encrypted.Ciphertext == "" {
+		t.Fatalf("invalid encrypted cookie envelope: %#v", encrypted)
 	}
 	info, err := os.Stat(cookieFile)
 	if err != nil {
@@ -241,11 +260,22 @@ func TestStatusShouldNotAllowRouteOrMethodOverride(t *testing.T) {
 func TestUsageNamesTheCanonicalBackendBinary(t *testing.T) {
 	var output bytes.Buffer
 	WriteUsage(&output)
-	if !strings.Contains(output.String(), "lmm-api request") || !strings.Contains(output.String(), "lmm-api deploy production plan") {
+	if !strings.Contains(output.String(), "lmm-api request") || !strings.Contains(output.String(), "/usr/bin/lmm-api-deploy build") {
 		t.Fatalf("usage does not name %s: %q", ProgramName, output.String())
 	}
-	if strings.Contains(output.String(), "lmm-api-go request") || strings.Contains(output.String(), "lmm-api-deploy") {
-		t.Fatalf("usage exposes a second command-line entry point: %q", output.String())
+	if strings.Contains(output.String(), "lmm-api deploy") || strings.Contains(output.String(), "lmm-api-go request") {
+		t.Fatalf("usage exposes a removed or provider-specific command-line entry point: %q", output.String())
+	}
+}
+
+func TestDeploySubcommandIsRemoved(t *testing.T) {
+	var stderr bytes.Buffer
+	result := Dispatch([]string{"deploy", "help"}, "test", io.Discard, &stderr)
+	if result.ExitCode != ExitUsage || result.Mode != ModeExit {
+		t.Fatalf("removed deploy command result=%#v stderr=%q", result, stderr.String())
+	}
+	if strings.Contains(stderr.String(), "lmm-api deploy") {
+		t.Fatalf("removed deploy command leaked the old public syntax: %q", stderr.String())
 	}
 }
 

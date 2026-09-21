@@ -104,14 +104,6 @@ export const RAW_JSON_DESCRIPTORS = [
   { key: 'tool_price_setting.prices', label: 'Tool prices' },
   { key: 'channel_affinity_setting.rules', label: 'Channel affinity rules' },
   { key: 'AdvancedSecurityRules', label: 'Advanced security rules' },
-  {
-    key: 'dynamic_pricing_setting.channel_costs',
-    label: 'Dynamic pricing channel costs',
-  },
-  {
-    key: 'dynamic_pricing_setting.per_model',
-    label: 'Dynamic pricing model overrides',
-  },
   { key: 'console_setting.api_info', label: 'API information' },
   { key: 'console_setting.announcements', label: 'Announcements' },
   { key: 'console_setting.faq', label: 'FAQ' },

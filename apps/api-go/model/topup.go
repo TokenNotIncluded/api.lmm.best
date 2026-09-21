@@ -17,9 +17,11 @@ import (
 )
 
 type TopUp struct {
+	ReferralExcluded      bool    `json:"-" gorm:"not null;default:false"`
 	Id                    int     `json:"id"`
 	UserId                int     `json:"user_id" gorm:"index"`
-	Amount                int64   `json:"amount"`
+	Amount                int64   `json:"amount"` // deprecated integer projection
+	PlatformAmountMicros  int64   `json:"platform_amount_micros" gorm:"not null;default:0"`
 	CreditedQuota         int64   `json:"credited_quota" gorm:"not null;default:0"`
 	ExpectedAmountMicros  int64   `json:"expected_amount_micros" gorm:"not null;default:0"`
 	SettledAmountMicros   int64   `json:"settled_amount_micros" gorm:"not null;default:0"`
@@ -36,6 +38,7 @@ type TopUp struct {
 	ProviderStoreId       string  `json:"provider_store_id" gorm:"type:varchar(255);not null;default:''"`
 	ProviderEventId       *string `json:"provider_event_id,omitempty" gorm:"type:varchar(255);uniqueIndex:idx_topup_provider_event,priority:2"`
 	ProviderTransactionId *string `json:"provider_transaction_id,omitempty" gorm:"type:varchar(255);uniqueIndex:idx_topup_provider_transaction,priority:2"`
+	FailureReasonCode     string  `json:"failure_reason_code,omitempty" gorm:"type:varchar(64);not null;default:''"`
 	CreateTime            int64   `json:"create_time"`
 	CompleteTime          int64   `json:"complete_time"`
 	Status                string  `json:"status"`
@@ -49,11 +52,31 @@ const (
 	PaymentMethodBalance      = "balance"
 )
 
+type PaymentOrderFailureReason string
+
+const (
+	PaymentOrderFailureCompanyBillingRequiredFields PaymentOrderFailureReason = "company_billing_required_fields"
+	PaymentOrderFailureCompanyBillingPreview        PaymentOrderFailureReason = "company_billing_preview_unavailable"
+	PaymentOrderFailureCompanyBillingRules          PaymentOrderFailureReason = "company_billing_rules_invalid"
+)
+
+func (reason PaymentOrderFailureReason) valid() bool {
+	switch reason {
+	case PaymentOrderFailureCompanyBillingRequiredFields,
+		PaymentOrderFailureCompanyBillingPreview,
+		PaymentOrderFailureCompanyBillingRules:
+		return true
+	default:
+		return false
+	}
+}
+
 var (
-	ErrPaymentEvidenceConflict = errors.New("payment evidence conflict")
-	ErrInvalidTopUpQuota       = errors.New("invalid top-up quota")
-	ErrTopUpQuotaLimitExceeded = errors.New("top-up quota limit exceeded")
-	settlementLockShards       [64]sync.Mutex
+	ErrPaymentEvidenceConflict     = errors.New("payment evidence conflict")
+	ErrInvalidPaymentFailureReason = errors.New("invalid payment failure reason")
+	ErrInvalidTopUpQuota           = errors.New("invalid top-up quota")
+	ErrTopUpQuotaLimitExceeded     = errors.New("top-up quota limit exceeded")
+	settlementLockShards           [64]sync.Mutex
 )
 
 type ExternalTopUpSettlement struct {
@@ -246,32 +269,13 @@ func uniqueConstraintError(err error) bool {
 		strings.Contains(message, "duplicated key")
 }
 
-// consumeDiscountCodeUsage records a settled order's use of its discount code
-// in the same transaction as the wallet credit. Deleted/legacy codes are
-// tolerated for already-created orders, but an existing exhausted code must
-// fail closed so a one-time reward cannot be applied twice.
-func consumeDiscountCodeUsage(tx *gorm.DB, discountCodeID int) error {
-	if discountCodeID <= 0 {
-		return nil
-	}
-	usage := tx.Model(&DiscountCode{}).
-		Where("id = ? AND (max_uses = 0 OR used_count < max_uses)", discountCodeID).
-		UpdateColumn("used_count", gorm.Expr("used_count + ?", 1))
-	if usage.Error != nil {
-		return usage.Error
-	}
-	if usage.RowsAffected != 0 {
-		return nil
-	}
-
-	var exists int64
-	if err := tx.Model(&DiscountCode{}).Where("id = ?", discountCodeID).Count(&exists).Error; err != nil {
-		return err
-	}
-	if exists > 0 {
-		return ErrDiscountCodeExhausted
-	}
-	return nil
+// consumeDiscountCodeUsage consumes the slot reserved when the order was
+// persisted. It deliberately never re-checks MaxUses after provider payment:
+// a later capacity change must not turn a successful charge into missing
+// wallet credit.
+func consumeDiscountCodeUsage(tx *gorm.DB, topUp *TopUp) error {
+	// Reservation helpers live in discount_code_reservation.go and share this transaction.
+	return consumeReservedDiscountCodeUsageTx(tx, topUp)
 }
 
 // CompleteExternalTopUp is the only external top-up settlement path. It binds
@@ -317,6 +321,9 @@ func completeExternalTopUpOnDB(db *gorm.DB, settlement ExternalTopUpSettlement) 
 			}
 			if completed.PaymentProvider != settlement.PaymentProvider {
 				return ErrPaymentMethodMismatch
+			}
+			if completed.CreditedQuota > int64(common.MaxWalletQuota) || completed.CreditedQuota < int64(common.MinWalletQuota) {
+				return ErrInvalidTopUpQuota
 			}
 
 			expectedAmountMicros := expectedTopUpAmountMicros(&completed)
@@ -395,6 +402,15 @@ func completeExternalTopUpOnDB(db *gorm.DB, settlement ExternalTopUpSettlement) 
 			if completed.PaymentProvider == PaymentProviderCreem && strings.TrimSpace(completed.SettlementCurrency) == "" {
 				return ErrPaymentEvidenceConflict
 			}
+			if completed.PaymentProvider == PaymentProviderEpay && !epayHasImmutableSettlementSnapshot(&completed) {
+				// Historical Epay rows stored only an ambiguous float Money value.
+				// They may represent either already-converted USD or CNY and cannot
+				// be settled safely. Require manual reconciliation instead of
+				// guessing and crediting at today's exchange configuration.
+				// Virtual units such as LDC are valid when the order snapshotted
+				// amount, quota, and currency before the user paid.
+				return ErrPaymentEvidenceConflict
+			}
 
 			bound, err := evidenceAlreadyBound(tx, settlement)
 			if err != nil {
@@ -468,7 +484,10 @@ func completeExternalTopUpOnDB(db *gorm.DB, settlement ExternalTopUpSettlement) 
 			if err := creditTopUpQuota(tx, completed.UserId, quota, userUpdates); err != nil {
 				return err
 			}
-			if err := consumeDiscountCodeUsage(tx, completed.DiscountCodeId); err != nil {
+			if err := grantFirstTopUpReferralTx(tx, &completed); err != nil {
+				return err
+			}
+			if err := consumeDiscountCodeUsage(tx, &completed); err != nil {
 				return err
 			}
 			return nil
@@ -509,12 +528,10 @@ const (
 	PaymentProviderBalance      = "balance"
 )
 
-// LinuxDO Credit is not a fiat payment. The current ePay adapter persists it
-// as provider=epay, method=epay; a few older imports used the descriptive
-// aliases below. None of these rows may unlock paid-only access or contribute
-// to the trust-level USD total.
+// LinuxDO Credit is not fiat. New records should use an explicit LDC alias.
+// Legacy rows also used method=epay; those are internal unless immutable CNY
+// settlement evidence proves they came from the real Epay gateway.
 var linuxDOCreditPaymentMethods = []string{
-	"epay",
 	"ldc",
 	"linuxdo",
 	"linux_do",
@@ -557,16 +574,22 @@ var (
 )
 
 func (topUp *TopUp) Insert() error {
-	var err error
-	err = DB.Create(topUp).Error
-	return err
+	if topUp == nil {
+		return gorm.ErrInvalidData
+	}
+	return DB.Transaction(func(tx *gorm.DB) error {
+		if err := reserveDiscountCodeUsageTx(tx, topUp); err != nil {
+			return err
+		}
+		return tx.Create(topUp).Error
+	})
 }
 
 func topUpQuotaMaxCurrent(creditedQuota int64) (int64, error) {
-	if creditedQuota <= 0 || creditedQuota >= int64(common.MaxQuota) {
+	if creditedQuota <= 0 || creditedQuota > int64(common.MaxWalletQuota) {
 		return 0, ErrInvalidTopUpQuota
 	}
-	return int64(common.MaxQuota) - 1 - creditedQuota, nil
+	return int64(common.MaxWalletQuota) - creditedQuota, nil
 }
 
 // ValidateTopUpQuotaCapacity performs the cheap pre-payment check. Settlement
@@ -581,7 +604,7 @@ func ValidateTopUpQuotaCapacity(userId int, creditedQuota int64) error {
 	if err := DB.Select("quota").Where("id = ?", userId).First(&user).Error; err != nil {
 		return err
 	}
-	if int64(user.Quota) > maxCurrentQuota {
+	if int64(user.Quota) < int64(common.MinWalletQuota) || int64(user.Quota) > maxCurrentQuota {
 		return ErrTopUpQuotaLimitExceeded
 	}
 	return nil
@@ -591,18 +614,25 @@ func ValidateTopUpQuotaCapacity(userId int, creditedQuota int64) error {
 // update. This closes the race where two payment callbacks both pass a
 // separate balance read before crediting the same account.
 func creditTopUpQuota(tx *gorm.DB, userId int, creditedQuota int64, updates map[string]interface{}) error {
-	maxCurrentQuota, err := topUpQuotaMaxCurrent(creditedQuota)
-	if err != nil {
+	if _, err := topUpQuotaMaxCurrent(creditedQuota); err != nil {
 		return err
+	}
+	quotaDelta := int(creditedQuota)
+	if int64(quotaDelta) != creditedQuota {
+		return ErrInvalidTopUpQuota
+	}
+	// Keep this guarded multi-column UPDATE: using ApplyWalletQuotaDelta here
+	// would split the wallet credit from provider metadata stored in updates.
+	query, err := GuardWalletQuotaDelta(tx.Model(&User{}).Where("id = ?", userId), quotaDelta)
+	if err != nil {
+		return ErrInvalidTopUpQuota
 	}
 	updateFields := make(map[string]interface{}, len(updates)+1)
 	for key, value := range updates {
 		updateFields[key] = value
 	}
-	updateFields["quota"] = gorm.Expr("quota + ?", creditedQuota)
-	result := tx.Model(&User{}).
-		Where("id = ? AND quota <= ?", userId, maxCurrentQuota).
-		Updates(updateFields)
+	updateFields["quota"] = gorm.Expr("quota + ?", quotaDelta)
+	result := query.Updates(updateFields)
 	if result.Error != nil {
 		return result.Error
 	}
@@ -734,6 +764,12 @@ func successfulExternalPaidTopUpQuery(query *gorm.DB) *gorm.DB {
 			"NOT (LOWER(COALESCE(payment_provider, '')) = ? AND LOWER(COALESCE(payment_method, '')) IN ?)",
 			PaymentProviderEpay,
 			linuxDOCreditPaymentMethods,
+		).
+		Where(
+			"NOT (LOWER(COALESCE(payment_provider, '')) = ? AND LOWER(COALESCE(payment_method, '')) = ? AND (UPPER(COALESCE(settlement_currency, '')) <> ? OR (expected_amount_micros <= 0 AND settled_amount_micros <= 0)))",
+			PaymentProviderEpay,
+			PaymentProviderEpay,
+			"CNY",
 		)
 }
 
@@ -767,7 +803,10 @@ func standardTopUpCreditedQuotaChecked(amount int64) (int64, error) {
 		return 0, ErrInvalidTopUpQuota
 	}
 	quota := creditedInteger.Int64()
-	if quota <= 0 {
+	if quota <= 0 || quota > int64(common.MaxWalletQuota) {
+		return 0, ErrInvalidTopUpQuota
+	}
+	if err := common.ValidateWalletQuota(int(quota)); err != nil {
 		return 0, ErrInvalidTopUpQuota
 	}
 	return quota, nil
@@ -789,11 +828,11 @@ func normalizedTopUpCreditedQuota(topUp *TopUp) int64 {
 	if topUp == nil {
 		return 0
 	}
+	if topUp.CreditedQuota > 0 && (knownExternalTopUpSource(topUp) || epayHasImmutableSettlementSnapshot(topUp)) {
+		return topUp.CreditedQuota
+	}
 	if !knownExternalTopUpSource(topUp) {
 		return 0
-	}
-	if topUp.CreditedQuota > 0 {
-		return topUp.CreditedQuota
 	}
 	switch {
 	case topUp.PaymentProvider == PaymentProviderCreem || topUp.PaymentMethod == PaymentMethodCreem:
@@ -812,8 +851,58 @@ func normalizedTopUpCreditedQuota(topUp *TopUp) int64 {
 	}
 }
 
+func normalizedTopUpCreditedQuotaInt(topUp *TopUp) (int, error) {
+	quota := normalizedTopUpCreditedQuota(topUp)
+	if quota <= 0 || quota > int64(common.MaxWalletQuota) {
+		return 0, ErrInvalidTopUpQuota
+	}
+	value := int(quota)
+	if int64(value) != quota {
+		return 0, ErrInvalidTopUpQuota
+	}
+	if err := common.ValidateWalletQuota(value); err != nil {
+		return 0, ErrInvalidTopUpQuota
+	}
+	return value, nil
+}
+
+func isLegacyLinuxDOCreditTopUp(topUp *TopUp) bool {
+	if topUp == nil || !strings.EqualFold(strings.TrimSpace(topUp.PaymentProvider), PaymentProviderEpay) {
+		return false
+	}
+	method := strings.ToLower(strings.TrimSpace(topUp.PaymentMethod))
+	for _, internalMethod := range linuxDOCreditPaymentMethods {
+		if method == internalMethod {
+			return true
+		}
+	}
+	if method != PaymentProviderEpay {
+		return false
+	}
+	return !strings.EqualFold(strings.TrimSpace(topUp.SettlementCurrency), "CNY") ||
+		(topUp.ExpectedAmountMicros <= 0 && topUp.SettledAmountMicros <= 0)
+}
+
+// EpayHasImmutableSettlementSnapshot reports whether an Epay order recorded
+// amount, credited quota, and settlement unit before redirecting to the
+// gateway. Historical rows stored only an ambiguous float Money value and
+// cannot be settled safely. Virtual units such as LDC are valid snapshots;
+// requiring CNY here would take payment and then refuse to credit.
+func EpayHasImmutableSettlementSnapshot(topUp *TopUp) bool {
+	return epayHasImmutableSettlementSnapshot(topUp)
+}
+
+func epayHasImmutableSettlementSnapshot(topUp *TopUp) bool {
+	if topUp == nil || topUp.PaymentProvider != PaymentProviderEpay {
+		return false
+	}
+	return topUp.ExpectedAmountMicros > 0 &&
+		topUp.CreditedQuota > 0 &&
+		strings.TrimSpace(topUp.SettlementCurrency) != ""
+}
+
 func knownExternalTopUpSource(topUp *TopUp) bool {
-	if topUp == nil {
+	if topUp == nil || isLegacyLinuxDOCreditTopUp(topUp) {
 		return false
 	}
 	switch topUp.PaymentProvider {
@@ -841,6 +930,59 @@ func topUpActivityAnchor(topUp *TopUp) int64 {
 	return topUp.CreateTime
 }
 
+// FailPendingTopUpForCheckout moves exactly one provider order out of pending.
+// The status predicate is the CAS boundary: a concurrent signed webhook that
+// already settled the order wins, and this path never overwrites that result.
+// Only allowlisted, non-sensitive reason codes can be persisted.
+func FailPendingTopUpForCheckout(tradeNo, expectedPaymentProvider string, reason PaymentOrderFailureReason) error {
+	tradeNo = strings.TrimSpace(tradeNo)
+	expectedPaymentProvider = strings.TrimSpace(expectedPaymentProvider)
+	if tradeNo == "" {
+		return errors.New("未提供支付单号")
+	}
+	if expectedPaymentProvider == "" {
+		return ErrPaymentMethodMismatch
+	}
+	if !reason.valid() {
+		return ErrInvalidPaymentFailureReason
+	}
+
+	return DB.Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&TopUp{}).
+			Where("trade_no = ? AND payment_provider = ? AND status = ?", tradeNo, expectedPaymentProvider, common.TopUpStatusPending).
+			Updates(map[string]interface{}{
+				"status":              common.TopUpStatusFailed,
+				"complete_time":       common.GetTimestamp(),
+				"failure_reason_code": string(reason),
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 1 {
+			var topUp TopUp
+			if err := tx.Select("discount_code_id").Where("trade_no = ?", tradeNo).First(&topUp).Error; err != nil {
+				return err
+			}
+			if topUp.DiscountCodeId != 0 {
+				return releaseDiscountCodeReservationTx(tx, tradeNo)
+			}
+			return nil
+		}
+
+		var current TopUp
+		if err := tx.Select("payment_provider", "status").Where("trade_no = ?", tradeNo).First(&current).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrTopUpNotFound
+			}
+			return err
+		}
+		if current.PaymentProvider != expectedPaymentProvider {
+			return ErrPaymentMethodMismatch
+		}
+		return ErrTopUpStatusInvalid
+	})
+}
+
 func UpdatePendingTopUpStatus(tradeNo string, expectedPaymentProvider string, targetStatus string) error {
 	if tradeNo == "" {
 		return errors.New("未提供支付单号")
@@ -864,7 +1006,13 @@ func UpdatePendingTopUpStatus(tradeNo string, expectedPaymentProvider string, ta
 		}
 
 		topUp.Status = targetStatus
-		return tx.Save(topUp).Error
+		if err := tx.Save(topUp).Error; err != nil {
+			return err
+		}
+		if targetStatus != common.TopUpStatusPending && targetStatus != common.TopUpStatusSuccess {
+			return releaseDiscountCodeReservationTx(tx, topUp.TradeNo)
+		}
+		return nil
 	})
 }
 
@@ -901,14 +1049,14 @@ func RechargeEpay(tradeNo string, actualPaymentMethod string, callerIp string) (
 		if actualPaymentMethod != "" && topUp.PaymentMethod != actualPaymentMethod {
 			topUp.PaymentMethod = actualPaymentMethod
 		}
-		var quotaErr error
-		quotaToAdd, quotaErr = common.QuotaFromDecimalStrict(
-			decimal.NewFromInt(topUp.Amount).Mul(decimal.NewFromFloat(common.QuotaPerUnit)),
-		)
-		if quotaErr != nil || quotaToAdd <= 0 {
+		if !epayHasImmutableSettlementSnapshot(topUp) {
+			return ErrPaymentEvidenceConflict
+		}
+		quotaToAdd = int(topUp.CreditedQuota)
+		if quotaToAdd <= 0 || int64(quotaToAdd) != topUp.CreditedQuota || common.ValidateWalletQuota(quotaToAdd) != nil {
 			return ErrInvalidTopUpQuota
 		}
-		topUp.CreditedQuota = int64(quotaToAdd)
+		topUp.SettledAmountMicros = topUp.ExpectedAmountMicros
 		topUp.CompleteTime = common.GetTimestamp()
 		topUp.Status = common.TopUpStatusSuccess
 		if err := tx.Save(topUp).Error; err != nil {
@@ -988,15 +1136,62 @@ func Recharge(referenceId string, customerId string, callerIp string) (err error
 	return nil
 }
 
-// topUpQueryWindowSeconds 限制充值记录查询的时间窗口（秒）。
-const topUpQueryWindowSeconds int64 = 30 * 24 * 60 * 60
+const defaultTopUpOrderClause = "create_time DESC, id DESC"
 
-// topUpQueryCutoff 返回允许查询的最早 create_time（秒级 Unix 时间戳）。
-func topUpQueryCutoff() int64 {
-	return common.GetTimestamp() - topUpQueryWindowSeconds
+type topUpSortClauses struct {
+	ascending  string
+	descending string
+	adminOnly  bool
 }
 
-func GetUserTopUps(userId int, pageInfo *common.PageInfo) (topups []*TopUp, total int64, err error) {
+var allowedTopUpSortClauses = map[string]topUpSortClauses{
+	"id":             {ascending: "id ASC", descending: "id DESC"},
+	"create_time":    {ascending: "create_time ASC, id ASC", descending: "create_time DESC, id DESC"},
+	"amount":         {ascending: "amount ASC, id ASC", descending: "amount DESC, id DESC"},
+	"money":          {ascending: "money ASC, id ASC", descending: "money DESC, id DESC"},
+	"status":         {ascending: "status ASC, id ASC", descending: "status DESC, id DESC"},
+	"payment_method": {ascending: "payment_method ASC, id ASC", descending: "payment_method DESC, id DESC"},
+	"user_id":        {ascending: "user_id ASC, id ASC", descending: "user_id DESC, id DESC", adminOnly: true},
+	"trade_no":       {ascending: "trade_no ASC, id ASC", descending: "trade_no DESC, id DESC", adminOnly: true},
+}
+
+// TopUpSortSpec contains only a fixed, whitelisted ORDER BY clause. Raw query
+// values never reach GORM's SQL expression API.
+type TopUpSortSpec struct {
+	clause string
+}
+
+func NewTopUpSortSpec(sortBy, sortOrder string, admin bool) TopUpSortSpec {
+	clauses, allowed := allowedTopUpSortClauses[strings.ToLower(strings.TrimSpace(sortBy))]
+	if !allowed || (clauses.adminOnly && !admin) {
+		return TopUpSortSpec{clause: defaultTopUpOrderClause}
+	}
+
+	switch strings.ToLower(strings.TrimSpace(sortOrder)) {
+	case "asc":
+		return TopUpSortSpec{clause: clauses.ascending}
+	case "desc":
+		return TopUpSortSpec{clause: clauses.descending}
+	default:
+		return TopUpSortSpec{clause: defaultTopUpOrderClause}
+	}
+}
+
+func (spec TopUpSortSpec) orderClause() string {
+	if spec.clause == "" {
+		return defaultTopUpOrderClause
+	}
+	return spec.clause
+}
+
+func applyTopUpSort(query *gorm.DB, spec TopUpSortSpec) *gorm.DB {
+	return query.Order(spec.orderClause())
+}
+
+// User top-up history is a durable financial record. Retention/cleanup applies
+// to operational logs only; history queries stay unbounded and rely on indexed
+// user_id plus pagination instead of hiding older orders.
+func GetUserTopUps(userId int, pageInfo *common.PageInfo, sortSpec TopUpSortSpec) (topups []*TopUp, total int64, err error) {
 	// Start transaction
 	tx := DB.Begin()
 	if tx.Error != nil {
@@ -1008,17 +1203,15 @@ func GetUserTopUps(userId int, pageInfo *common.PageInfo) (topups []*TopUp, tota
 		}
 	}()
 
-	cutoff := topUpQueryCutoff()
-
 	// Get total count within transaction
-	err = tx.Model(&TopUp{}).Where("user_id = ? AND create_time >= ?", userId, cutoff).Count(&total).Error
+	err = tx.Model(&TopUp{}).Where("user_id = ?", userId).Count(&total).Error
 	if err != nil {
 		tx.Rollback()
 		return nil, 0, err
 	}
 
 	// Get paginated topups within same transaction
-	err = tx.Where("user_id = ? AND create_time >= ?", userId, cutoff).Order("id desc").Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&topups).Error
+	err = applyTopUpSort(tx.Where("user_id = ?", userId), sortSpec).Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&topups).Error
 	if err != nil {
 		tx.Rollback()
 		return nil, 0, err
@@ -1033,7 +1226,7 @@ func GetUserTopUps(userId int, pageInfo *common.PageInfo) (topups []*TopUp, tota
 }
 
 // GetAllTopUps 获取全平台的充值记录（管理员使用，不限制时间窗口）
-func GetAllTopUps(pageInfo *common.PageInfo) (topups []*TopUp, total int64, err error) {
+func GetAllTopUps(pageInfo *common.PageInfo, sortSpec TopUpSortSpec) (topups []*TopUp, total int64, err error) {
 	tx := DB.Begin()
 	if tx.Error != nil {
 		return nil, 0, tx.Error
@@ -1049,7 +1242,7 @@ func GetAllTopUps(pageInfo *common.PageInfo) (topups []*TopUp, total int64, err 
 		return nil, 0, err
 	}
 
-	if err = tx.Order("id desc").Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&topups).Error; err != nil {
+	if err = applyTopUpSort(tx, sortSpec).Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&topups).Error; err != nil {
 		tx.Rollback()
 		return nil, 0, err
 	}
@@ -1066,7 +1259,7 @@ func GetAllTopUps(pageInfo *common.PageInfo) (topups []*TopUp, total int64, err 
 const searchTopUpCountHardLimit = 10000
 
 // SearchUserTopUps 按订单号搜索某用户的充值记录
-func SearchUserTopUps(userId int, keyword string, pageInfo *common.PageInfo) (topups []*TopUp, total int64, err error) {
+func SearchUserTopUps(userId int, keyword string, pageInfo *common.PageInfo, sortSpec TopUpSortSpec) (topups []*TopUp, total int64, err error) {
 	tx := DB.Begin()
 	if tx.Error != nil {
 		return nil, 0, tx.Error
@@ -1077,7 +1270,7 @@ func SearchUserTopUps(userId int, keyword string, pageInfo *common.PageInfo) (to
 		}
 	}()
 
-	query := tx.Model(&TopUp{}).Where("user_id = ? AND create_time >= ?", userId, topUpQueryCutoff())
+	query := tx.Model(&TopUp{}).Where("user_id = ?", userId)
 	if keyword != "" {
 		pattern, perr := sanitizeLikePattern(keyword)
 		if perr != nil {
@@ -1093,7 +1286,7 @@ func SearchUserTopUps(userId int, keyword string, pageInfo *common.PageInfo) (to
 		return nil, 0, errors.New("搜索充值记录失败")
 	}
 
-	if err = query.Order("id desc").Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&topups).Error; err != nil {
+	if err = applyTopUpSort(query, sortSpec).Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&topups).Error; err != nil {
 		tx.Rollback()
 		common.SysError("failed to search topups: " + err.Error())
 		return nil, 0, errors.New("搜索充值记录失败")
@@ -1106,7 +1299,7 @@ func SearchUserTopUps(userId int, keyword string, pageInfo *common.PageInfo) (to
 }
 
 // SearchAllTopUps 按订单号搜索全平台充值记录（管理员使用，不限制时间窗口）
-func SearchAllTopUps(keyword string, pageInfo *common.PageInfo) (topups []*TopUp, total int64, err error) {
+func SearchAllTopUps(keyword string, pageInfo *common.PageInfo, sortSpec TopUpSortSpec) (topups []*TopUp, total int64, err error) {
 	tx := DB.Begin()
 	if tx.Error != nil {
 		return nil, 0, tx.Error
@@ -1133,7 +1326,7 @@ func SearchAllTopUps(keyword string, pageInfo *common.PageInfo) (topups []*TopUp
 		return nil, 0, errors.New("搜索充值记录失败")
 	}
 
-	if err = query.Order("id desc").Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&topups).Error; err != nil {
+	if err = applyTopUpSort(query, sortSpec).Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Find(&topups).Error; err != nil {
 		tx.Rollback()
 		common.SysError("failed to search topups: " + err.Error())
 		return nil, 0, errors.New("搜索充值记录失败")
@@ -1160,6 +1353,7 @@ func ManualCompleteTopUp(tradeNo string, callerIp string) error {
 	var quotaToAdd int
 	var payMoney float64
 	var paymentMethod string
+	var completed bool
 
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		topUp := &TopUp{}
@@ -1177,15 +1371,17 @@ func ManualCompleteTopUp(tradeNo string, callerIp string) error {
 			return errors.New("订单状态不是待支付，无法补单")
 		}
 
-		quotaToAdd = int(normalizedTopUpCreditedQuota(topUp))
-		if quotaToAdd <= 0 {
+		creditedQuota, quotaErr := normalizedTopUpCreditedQuotaInt(topUp)
+		if quotaErr != nil {
 			return errors.New("无效的充值额度")
 		}
+		quotaToAdd = creditedQuota
 
 		// 标记完成
 		topUp.CreditedQuota = int64(quotaToAdd)
 		topUp.CompleteTime = common.GetTimestamp()
 		topUp.Status = common.TopUpStatusSuccess
+		topUp.ReferralExcluded = true
 		if err := tx.Save(topUp).Error; err != nil {
 			return err
 		}
@@ -1194,18 +1390,22 @@ func ManualCompleteTopUp(tradeNo string, callerIp string) error {
 		if err := creditTopUpQuota(tx, topUp.UserId, int64(quotaToAdd), nil); err != nil {
 			return err
 		}
-		if err := consumeDiscountCodeUsage(tx, topUp.DiscountCodeId); err != nil {
+		if err := consumeDiscountCodeUsage(tx, topUp); err != nil {
 			return err
 		}
 
 		userId = topUp.UserId
 		payMoney = topUp.Money
 		paymentMethod = topUp.PaymentMethod
+		completed = true
 		return nil
 	})
 
 	if err != nil {
 		return err
+	}
+	if !completed {
+		return nil
 	}
 	InvalidatePaidTopUpAggregate(userId)
 
@@ -1322,8 +1522,8 @@ func RechargeWaffo(tradeNo string, callerIp string) (err error) {
 			return errors.New("充值订单状态错误")
 		}
 
-		quotaToAdd = int(normalizedTopUpCreditedQuota(topUp))
-		if quotaToAdd <= 0 {
+		quotaToAdd, err = normalizedTopUpCreditedQuotaInt(topUp)
+		if err != nil {
 			return errors.New("无效的充值额度")
 		}
 
@@ -1386,8 +1586,8 @@ func RechargeWaffoPancake(tradeNo string) (err error) {
 			return errors.New("充值订单状态错误")
 		}
 
-		quotaToAdd = int(normalizedTopUpCreditedQuota(topUp))
-		if quotaToAdd <= 0 {
+		quotaToAdd, err = normalizedTopUpCreditedQuotaInt(topUp)
+		if err != nil {
 			return errors.New("无效的充值额度")
 		}
 

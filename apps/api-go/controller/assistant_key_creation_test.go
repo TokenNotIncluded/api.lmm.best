@@ -76,7 +76,7 @@ func createAssistantKeyFixture(t *testing.T, username string) (*gorm.DB, model.U
 	db := setupTokenControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(
 		&model.User{}, &model.Option{}, &model.AuthFlow{}, &model.TwoFA{}, &model.TwoFABackupCode{}, &model.TopUp{}, &model.UserSession{}, &model.Log{},
-		&model.AssistantConversation{}, &model.AssistantHistoryMessage{}, &model.AssistantSecureCard{},
+		&model.AssistantConversation{}, &model.AssistantSupportRequest{}, &model.AssistantHistoryMessage{}, &model.AssistantSecureCard{},
 	))
 	configureAssistantKeyGroups(t, db)
 	user := model.User{
@@ -222,6 +222,9 @@ func TestAssistantKeyConfirmationIsSessionBoundOneTimeAndOpaque(t *testing.T) {
 	var tokenCount int64
 	require.NoError(t, db.Model(&model.Token{}).Where("user_id = ?", user.Id).Count(&tokenCount).Error)
 	assert.EqualValues(t, 1, tokenCount)
+	var createdToken model.Token
+	require.NoError(t, db.Where("user_id = ?", user.Id).First(&createdToken).Error)
+	assert.Equal(t, model.TokenCreationSourceAssistant, createdToken.CreationSource)
 }
 
 func TestAssistantKeyConfirmationRejectsStaleAuthoritativeStateAndRollsBack(t *testing.T) {

@@ -266,19 +266,64 @@ mod tests {
     };
     use lmm_contracts::relay::protocols;
 
-    fn enabled_config() -> ProtocolRolloutConfig {
-        ProtocolRolloutConfig {
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+    fn current_registry() -> Result<ValidatedRegistry, std::io::Error> {
+        validated_current_registry().map_err(|error| std::io::Error::other(format!("{error:?}")))
+    }
+
+    fn enabled_config() -> Result<ProtocolRolloutConfig, std::io::Error> {
+        Ok(ProtocolRolloutConfig {
             conversion_engine_v2: FlagConfig::enabled(MAX_BASIS_POINTS)
-                .expect("full conversion rollout is bounded"),
+                .map_err(|error| std::io::Error::other(format!("{error:?}")))?,
             ..ProtocolRolloutConfig::default()
-        }
+        })
     }
 
     fn context(source: Protocol, target: Protocol, stream: bool) -> RolloutContext<'static> {
         RolloutContext::new("route-gate-test", source, target, "test-model", stream)
     }
 
-    fn complete_evidence(scope: RouteOwnershipScope) -> OwnershipEvidence {
+    fn cross_protocol_case() -> Result<
+        (
+            ValidatedRegistry,
+            ProtocolRolloutConfig,
+            RolloutContext<'static>,
+            RouteOwnershipScope,
+        ),
+        std::io::Error,
+    > {
+        let source = Protocol::OpenAi;
+        let target = Protocol::Claude;
+        let stream = false;
+        Ok((
+            current_registry()?,
+            enabled_config()?,
+            context(source, target, stream),
+            RouteOwnershipScope {
+                source,
+                target,
+                stream,
+            },
+        ))
+    }
+
+    fn decide_response(
+        config: &ProtocolRolloutConfig,
+        request_context: &RolloutContext<'_>,
+        registry: &ValidatedRegistry,
+        evidence: &OwnershipEvidence,
+    ) -> RouteGateDecision {
+        decide_route(
+            config,
+            request_context,
+            registry,
+            Direction::Response,
+            evidence,
+        )
+    }
+
+    fn complete_evidence(scope: RouteOwnershipScope) -> Result<OwnershipEvidence, std::io::Error> {
         let mut evidence = OwnershipEvidence::closed(scope);
         for class in DifferentialClass::all() {
             evidence.mark_green(*class);
@@ -293,15 +338,16 @@ mod tests {
         });
         evidence
             .set_canary_basis_points(MIN_REVIEW_CANARY_BASIS_POINTS)
-            .expect("review canary is bounded");
+            .map_err(|error| std::io::Error::other(format!("{error:?}")))?;
         evidence.approve_rollout();
-        evidence
+        Ok(evidence)
     }
 
     #[test]
-    fn current_sixteen_route_registry_keeps_cross_protocol_closed_without_trusted_evidence() {
-        let registry = validated_current_registry().expect("current registry validates");
-        let config = enabled_config();
+    fn current_sixteen_route_registry_keeps_cross_protocol_closed_without_trusted_evidence()
+    -> TestResult {
+        let registry = current_registry()?;
+        let config = enabled_config()?;
         for source in protocols() {
             for target in protocols() {
                 if source == target {
@@ -318,7 +364,7 @@ mod tests {
                     &request_context,
                     &registry,
                     Direction::Response,
-                    &complete_evidence(scope),
+                    &complete_evidence(scope)?,
                 );
                 assert!(decision.is_closed(), "{source:?} -> {target:?}");
                 assert!(decision.blockers().iter().any(|blocker| matches!(
@@ -327,11 +373,12 @@ mod tests {
                 )));
             }
         }
+        Ok(())
     }
 
     #[test]
-    fn validated_native_raw_routes_are_admitted_without_v2_or_ownership_evidence() {
-        let registry = validated_current_registry().expect("current registry validates");
+    fn validated_native_raw_routes_are_admitted_without_v2_or_ownership_evidence() -> TestResult {
+        let registry = current_registry()?;
         for protocol in protocols() {
             let config = ProtocolRolloutConfig::default();
             let request_context = context(protocol, protocol, true);
@@ -348,7 +395,10 @@ mod tests {
                 &OwnershipEvidence::closed(scope),
             );
             let RouteGateDecision::NativeRaw { details } = decision else {
-                panic!("validated native raw route was not admitted for {protocol:?}");
+                return Err(std::io::Error::other(format!(
+                    "validated native raw route was not admitted for {protocol:?}"
+                ))
+                .into());
             };
             assert_eq!(details.scope, scope);
             assert!(
@@ -358,24 +408,22 @@ mod tests {
                     .is_some_and(|capability| capability.raw_passthrough)
             );
         }
+        Ok(())
     }
 
     #[test]
-    fn ownership_scope_mismatch_closes_a_cross_protocol_route() {
-        let registry = validated_current_registry().expect("current registry validates");
-        let config = enabled_config();
-        let request_context = context(Protocol::OpenAi, Protocol::Claude, false);
+    fn ownership_scope_mismatch_closes_a_cross_protocol_route() -> TestResult {
+        let (registry, config, request_context, _) = cross_protocol_case()?;
         let wrong_scope = RouteOwnershipScope {
             source: Protocol::OpenAi,
             target: Protocol::Claude,
             stream: true,
         };
-        let decision = decide_route(
+        let decision = decide_response(
             &config,
             &request_context,
             &registry,
-            Direction::Response,
-            &complete_evidence(wrong_scope),
+            &complete_evidence(wrong_scope)?,
         );
         assert!(decision.is_closed());
         assert!(
@@ -383,25 +431,18 @@ mod tests {
                 .blockers()
                 .contains(&RouteGateBlocker::OwnershipScopeMismatch)
         );
+        Ok(())
     }
 
     #[test]
-    fn configuration_rollback_closes_even_complete_cross_protocol_evidence() {
-        let registry = validated_current_registry().expect("current registry validates");
-        let mut config = enabled_config();
+    fn configuration_rollback_closes_even_complete_cross_protocol_evidence() -> TestResult {
+        let (registry, mut config, request_context, scope) = cross_protocol_case()?;
         config.rollback = true;
-        let request_context = context(Protocol::OpenAi, Protocol::Claude, false);
-        let scope = RouteOwnershipScope {
-            source: Protocol::OpenAi,
-            target: Protocol::Claude,
-            stream: false,
-        };
-        let decision = decide_route(
+        let decision = decide_response(
             &config,
             &request_context,
             &registry,
-            Direction::Response,
-            &complete_evidence(scope),
+            &complete_evidence(scope)?,
         );
         assert!(decision.is_closed());
         assert!(
@@ -414,48 +455,29 @@ mod tests {
                 .blockers()
                 .contains(&RouteGateBlocker::ConversionEngineDisabled)
         );
+        Ok(())
     }
 
     #[test]
-    fn ownership_rollback_closes_even_complete_cross_protocol_evidence() {
-        let registry = validated_current_registry().expect("current registry validates");
-        let config = enabled_config();
-        let request_context = context(Protocol::OpenAi, Protocol::Claude, false);
-        let scope = RouteOwnershipScope {
-            source: Protocol::OpenAi,
-            target: Protocol::Claude,
-            stream: false,
-        };
-        let mut evidence = complete_evidence(scope);
+    fn ownership_rollback_closes_even_complete_cross_protocol_evidence() -> TestResult {
+        let (registry, config, request_context, scope) = cross_protocol_case()?;
+        let mut evidence = complete_evidence(scope)?;
         evidence.set_rollback_active(true);
-        let decision = decide_route(
-            &config,
-            &request_context,
-            &registry,
-            Direction::Response,
-            &evidence,
-        );
+        let decision = decide_response(&config, &request_context, &registry, &evidence);
         assert!(decision.is_closed());
         assert!(decision.blockers().contains(&RouteGateBlocker::Ownership(
             OwnershipBlocker::RollbackActive
         )));
+        Ok(())
     }
 
     #[test]
-    fn incomplete_exact_cross_protocol_evidence_remains_closed() {
-        let registry = validated_current_registry().expect("current registry validates");
-        let config = enabled_config();
-        let request_context = context(Protocol::OpenAi, Protocol::Claude, false);
-        let scope = RouteOwnershipScope {
-            source: Protocol::OpenAi,
-            target: Protocol::Claude,
-            stream: false,
-        };
-        let decision = decide_route(
+    fn incomplete_exact_cross_protocol_evidence_remains_closed() -> TestResult {
+        let (registry, config, request_context, scope) = cross_protocol_case()?;
+        let decision = decide_response(
             &config,
             &request_context,
             &registry,
-            Direction::Response,
             &OwnershipEvidence::closed(scope),
         );
         assert!(decision.is_closed());
@@ -471,12 +493,12 @@ mod tests {
         assert!(decision.blockers().contains(&RouteGateBlocker::Ownership(
             OwnershipBlocker::RolloutNotApproved
         )));
+        Ok(())
     }
 
     #[test]
-    fn invalid_rollout_configuration_cannot_admit_cross_protocol_traffic() {
-        let registry = validated_current_registry().expect("current registry validates");
-        let mut config = enabled_config();
+    fn invalid_rollout_configuration_cannot_admit_cross_protocol_traffic() -> TestResult {
+        let (registry, mut config, request_context, scope) = cross_protocol_case()?;
         config
             .conversion_engine_v2
             .overrides
@@ -488,19 +510,12 @@ mod tests {
                 enabled: true,
                 canary_basis_points: MAX_BASIS_POINTS,
             });
-        let request_context = context(Protocol::OpenAi, Protocol::Claude, false);
-        let scope = RouteOwnershipScope {
-            source: Protocol::OpenAi,
-            target: Protocol::Claude,
-            stream: false,
-        };
 
-        let decision = decide_route(
+        let decision = decide_response(
             &config,
             &request_context,
             &registry,
-            Direction::Response,
-            &complete_evidence(scope),
+            &complete_evidence(scope)?,
         );
 
         assert!(decision.is_closed());
@@ -509,5 +524,6 @@ mod tests {
                 .blockers()
                 .contains(&RouteGateBlocker::RolloutConfigInvalid)
         );
+        Ok(())
     }
 }

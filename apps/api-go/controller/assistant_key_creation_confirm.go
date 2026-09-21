@@ -32,7 +32,7 @@ func CreateAssistantDefaultKey(c *gin.Context) {
 		return
 	}
 	var input assistantConfirmKeyInput
-	if err := decodeStrictAssistantJSON(c, &input); err != nil {
+	if err := decodeStrictJSONRequest(c, &input); err != nil {
 		writeAssistantError(c, http.StatusBadRequest, "ASSISTANT_INVALID_REQUEST", errors.New("invalid key confirmation request"))
 		return
 	}
@@ -120,7 +120,7 @@ func buildAssistantKeyMaterialTx(tx *gorm.DB, flow *model.AuthFlow, userID int) 
 	token := &model.Token{
 		UserId: userID, Name: name, Key: key, Group: string(draft.Group),
 		CreatedTime: now, AccessedTime: now, ExpiredTime: -1, UnlimitedQuota: true,
-		ModelLimitsEnabled: false, CrossGroupRetry: false,
+		ModelLimitsEnabled: false, CrossGroupRetry: false, CreationSource: model.TokenCreationSourceAssistant,
 	}
 	return &model.AssistantKeyMaterial{
 		Token: token, ConversationID: draft.ConversationID,

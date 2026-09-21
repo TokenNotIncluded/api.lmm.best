@@ -20,17 +20,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-var completionRatioMetaOptionKeys = []string{
-	"ModelPrice",
-	"ModelRatio",
-	"CompletionRatio",
-	"CacheRatio",
-	"CreateCacheRatio",
-	"ImageRatio",
-	"AudioRatio",
-	"AudioCompletionRatio",
-}
-
 func isPaymentComplianceOptionKey(key string) bool {
 	return strings.HasPrefix(key, "payment_setting.compliance_")
 }
@@ -44,44 +33,9 @@ func isPositiveOptionValue(value string) bool {
 	return err == nil && floatValue > 0
 }
 
-func collectModelNamesFromOptionValue(raw string, modelNames map[string]struct{}) {
-	if strings.TrimSpace(raw) == "" {
-		return
-	}
-
-	var parsed map[string]any
-	if err := common.UnmarshalJsonStr(raw, &parsed); err != nil {
-		return
-	}
-
-	for modelName := range parsed {
-		modelNames[modelName] = struct{}{}
-	}
-}
-
-func buildCompletionRatioMetaValue(optionValues map[string]string) string {
-	modelNames := make(map[string]struct{})
-	for _, key := range completionRatioMetaOptionKeys {
-		collectModelNamesFromOptionValue(optionValues[key], modelNames)
-	}
-
-	meta := make(map[string]ratio_setting.CompletionRatioInfo, len(modelNames))
-	for modelName := range modelNames {
-		meta[modelName] = ratio_setting.GetCompletionRatioInfo(modelName)
-	}
-
-	jsonBytes, err := common.Marshal(meta)
-	if err != nil {
-		return "{}"
-	}
-	return string(jsonBytes)
-}
-
 func GetOptions(c *gin.Context) {
 	var options []*model.Option
-	optionValues := make(map[string]string)
-	common.OptionMapRWMutex.Lock()
-	for k, v := range common.OptionMap {
+	for k, v := range model.GetOptionsSnapshot() {
 		if k == "theme.frontend" {
 			continue
 		}
@@ -98,28 +52,19 @@ func GetOptions(c *gin.Context) {
 			Key:   k,
 			Value: value,
 		})
-		for _, optionKey := range completionRatioMetaOptionKeys {
-			if optionKey == k {
-				optionValues[k] = value
-				break
-			}
-		}
 	}
-	common.OptionMapRWMutex.Unlock()
-	options = append(options, &model.Option{
-		Key:   "CompletionRatioMeta",
-		Value: buildCompletionRatioMetaValue(optionValues),
-	})
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data":    options,
+		"success":      true,
+		"message":      "",
+		"data":         options,
+		"capabilities": gin.H{"model_price_locks": true},
 	})
 }
 
 type OptionUpdateRequest struct {
 	Key   string `json:"key"`
 	Value any    `json:"value"`
+	Model string `json:"model,omitempty"`
 }
 
 type OptionValuesRequest struct {
@@ -153,14 +98,18 @@ func ValidateOptions(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if err := model.ValidateOptionValues(values); err != nil {
+	result, err := model.ValidateOptionValuesWithWarnings(values)
+	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
 			"message": err.Error(),
 		})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": ""})
+	c.JSON(http.StatusOK, gin.H{
+		"success": true, "message": "",
+		"warnings": result.Warnings, "locked_models": result.LockedModels,
+	})
 }
 
 // UpdateOptionsBulk validates and persists a related set of option writes as
@@ -171,7 +120,8 @@ func UpdateOptionsBulk(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if err := model.UpdateOptionsBulk(values); err != nil {
+	result, err := model.UpdateOptionsBulkWithWarnings(values)
+	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -180,8 +130,11 @@ func UpdateOptionsBulk(c *gin.Context) {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
-	recordManageAudit(c, "option.bulk_update", map[string]interface{}{"keys": keys})
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": ""})
+	recordManageAudit(c, "option.bulk_update", map[string]interface{}{"keys": keys, "locked_models": result.LockedModels})
+	c.JSON(http.StatusOK, gin.H{
+		"success": true, "message": "",
+		"warnings": result.Warnings, "locked_models": result.LockedModels,
+	})
 }
 
 func UpdateOption(c *gin.Context) {
@@ -191,6 +144,26 @@ func UpdateOption(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
 			"message": "无效的参数",
+		})
+		return
+	}
+	if option.Key == model.ModelPriceLocksOptionKey && option.Model != "" {
+		locked, ok := option.Value.(bool)
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "value must be a boolean"})
+			return
+		}
+		result, err := model.UpdateModelPriceLock(option.Model, locked)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		recordManageAudit(c, "option.update", map[string]interface{}{"key": option.Key,
+			"locked_models": result.LockedModels, "model": option.Model})
+		c.JSON(http.StatusOK, gin.H{
+			"success": true, "message": "",
+			"warnings": result.Warnings, "locked_models": result.LockedModels,
+			"pricing": result.Pricing,
 		})
 		return
 	}
@@ -335,42 +308,6 @@ func UpdateOption(c *gin.Context) {
 			})
 			return
 		}
-	case "ImageRatio":
-		err = ratio_setting.UpdateImageRatioByJSONString(option.Value.(string))
-		if err != nil {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "图片倍率设置失败: " + err.Error(),
-			})
-			return
-		}
-	case "AudioRatio":
-		err = ratio_setting.UpdateAudioRatioByJSONString(option.Value.(string))
-		if err != nil {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "音频倍率设置失败: " + err.Error(),
-			})
-			return
-		}
-	case "AudioCompletionRatio":
-		err = ratio_setting.UpdateAudioCompletionRatioByJSONString(option.Value.(string))
-		if err != nil {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "音频补全倍率设置失败: " + err.Error(),
-			})
-			return
-		}
-	case "CreateCacheRatio":
-		err = ratio_setting.UpdateCreateCacheRatioByJSONString(option.Value.(string))
-		if err != nil {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "缓存创建倍率设置失败: " + err.Error(),
-			})
-			return
-		}
 	case "ModelRequestRateLimitGroup":
 		err = setting.CheckModelRequestRateLimitGroup(option.Value.(string))
 		if err != nil {
@@ -444,7 +381,7 @@ func UpdateOption(c *gin.Context) {
 			return
 		}
 	}
-	err = model.UpdateOption(option.Key, option.Value.(string))
+	result, err := model.UpdateOptionWithWarnings(option.Key, option.Value.(string))
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -457,10 +394,13 @@ func UpdateOption(c *gin.Context) {
 	}
 	// 出于安全考虑只记录被修改的配置项名称，不记录配置值（可能含密钥等敏感信息）。
 	recordManageAudit(c, "option.update", map[string]interface{}{
-		"key": option.Key,
+		"key":           option.Key,
+		"locked_models": result.LockedModels,
 	})
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
+		"success":       true,
+		"message":       "",
+		"warnings":      result.Warnings,
+		"locked_models": result.LockedModels,
 	})
 }

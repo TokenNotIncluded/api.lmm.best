@@ -44,6 +44,7 @@ export type DeveloperAccessRequestAdmin = {
     | 'assistant_recommendation'
     | 'user_edited'
     | 'assistant_request'
+    | 'assistant_direct_grant'
     | 'legacy'
   ai_recommendation: string
   admin_user_id: number
@@ -62,6 +63,7 @@ export type DeveloperAccessRecommendationArchive = {
     | 'assistant_recommendation'
     | 'user_edited'
     | 'assistant_request'
+    | 'assistant_direct_grant'
     | 'legacy'
   reason: string
   recommendation: string
@@ -366,4 +368,19 @@ export async function adminUnbindCustomOAuth(
     `/api/user/${userId}/oauth/bindings/${providerId}`
   )
   return res.data
+}
+
+export type ReferralModerationPayload = {
+  id: number
+  action: 'ban_abuse' | 'restore_referral'
+  reason: 'abuse' | 'bulk_registration' | 'mistaken_ban'
+  evidence: string
+  penalize_inviter: boolean
+  request_id: string
+}
+
+export async function moderateReferralUser(
+  payload: ReferralModerationPayload
+): Promise<ApiResponse<null>> {
+  return (await api.post('/api/user/manage', payload)).data
 }

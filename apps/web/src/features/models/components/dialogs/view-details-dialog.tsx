@@ -48,6 +48,8 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
 import { Separator } from '@/components/ui/separator'
+import { openExternalUrl } from '@/lib/external-navigation'
+import { validatedExternalUrl } from '@/lib/validated-external-url'
 
 import { getDeployment, listDeploymentContainers } from '../../api'
 
@@ -259,8 +261,16 @@ export function ViewDetailsDialog({
                     }
                     const status =
                       typeof c?.status === 'string' ? c.status : undefined
-                    const url =
+                    const rawUrl =
                       typeof c?.public_url === 'string' ? c.public_url : ''
+                    const url = rawUrl
+                      ? validatedExternalUrl(rawUrl, {
+                          protocols: ['https:'],
+                          origins: 'any',
+                          hosts: 'any',
+                          paths: 'any',
+                        })
+                      : null
                     return (
                       <div
                         key={id}
@@ -276,7 +286,14 @@ export function ViewDetailsDialog({
                           <Button
                             variant='outline'
                             size='sm'
-                            onClick={() => window.open(url, '_blank')}
+                            onClick={async () => {
+                              // Invariant: url is a credential-free HTTPS URL with a valid host and path.
+                              // pi-lens-ignore: ts-open-redirect, no-open-redirect
+                              const opened = await openExternalUrl(url)
+                              if (!opened) {
+                                toast.error(t('Unable to open link'))
+                              }
+                            }}
                           >
                             <ExternalLink className='mr-2 h-4 w-4' />
                             {t('Open')}

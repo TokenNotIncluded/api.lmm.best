@@ -342,12 +342,17 @@ func responsesRequestToolsToChat(raw json.RawMessage) ([]dto.ToolCallRequest, er
 	for _, tool := range tools {
 		toolType := strings.TrimSpace(kitutil.Interface2String(tool["type"]))
 		if toolType == "function" {
+			var strict *bool
+			if value, ok := tool["strict"].(bool); ok {
+				strict = &value
+			}
 			out = append(out, dto.ToolCallRequest{
 				Type: "function",
 				Function: dto.FunctionRequest{
 					Name:        strings.TrimSpace(kitutil.Interface2String(tool["name"])),
 					Description: kitutil.Interface2String(tool["description"]),
 					Parameters:  tool["parameters"],
+					Strict:      strict,
 				},
 			})
 			continue

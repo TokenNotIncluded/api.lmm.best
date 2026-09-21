@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"math"
 	"strconv"
@@ -16,9 +18,12 @@ import (
 // The browser needs to show what happened, but the conversation must never
 // receive raw account data, passwords, OAuth subject IDs, or request content.
 type assistantToolTrace struct {
-	Name   string         `json:"name"`
-	Status string         `json:"status"`
-	Input  map[string]any `json:"input,omitempty"`
+	CallID    string         `json:"call_id,omitempty"`
+	Name      string         `json:"name"`
+	Status    string         `json:"status"`
+	Input     map[string]any `json:"input,omitempty"`
+	Result    *float64       `json:"result,omitempty"`
+	ErrorCode string         `json:"error_code,omitempty"`
 }
 
 func buildAssistantToolTrace(call assistantOpenAIToolCall, result map[string]any) assistantToolTrace {
@@ -27,24 +32,38 @@ func buildAssistantToolTrace(call assistantOpenAIToolCall, result map[string]any
 		Status: "output-available",
 		Input:  assistantSafeToolInput(call.Function.Arguments),
 	}
+	if isAssistantAdministratorTool(trace.Name) {
+		callID := sha256.Sum256([]byte(call.ID))
+		trace.CallID = hex.EncodeToString(callID[:12])
+	}
 	if ok, exists := result["ok"].(bool); exists && !ok {
 		trace.Status = "output-error"
 	}
 	if status, _ := result["status"].(string); status == "confirmation_required" || status == "navigation_ready" {
 		trace.Status = "approval-requested"
 	}
+	if trace.Name == "calculate_math" {
+		if trace.Status == "output-error" {
+			trace.ErrorCode = "invalid_math_expression"
+			if message, _ := result["error"].(string); message == "a math expression is required" {
+				trace.ErrorCode = "missing_math_expression"
+			}
+		} else if value, ok := result["result"].(float64); ok && !math.IsNaN(value) && !math.IsInf(value, 0) {
+			trace.Result = &value
+		}
+	}
 	return trace
 }
 
 func assistantSafeToolInput(arguments string) map[string]any {
-	var input map[string]any
-	if strings.TrimSpace(arguments) == "" || jsonUnmarshalAssistant(arguments, &input) != nil {
+	input := make(map[string]any)
+	if strings.TrimSpace(arguments) == "" || json.Unmarshal([]byte(arguments), &input) != nil {
 		return nil
 	}
 	allowed := map[string]struct{}{
 		"action": {}, "days": {}, "group": {}, "identifier": {}, "model_id": {},
-		"page": {}, "platform": {}, "provider": {}, "query": {}, "section": {},
-		"target_user_id": {}, "title": {}, "topic": {},
+		"expression": {}, "page": {}, "platform": {}, "provider": {}, "query": {}, "section": {},
+		"target_user_id": {}, "title": {}, "topic": {}, "operation_id": {},
 	}
 	result := make(map[string]any)
 	for key, value := range input {
@@ -73,12 +92,6 @@ func assistantSafeToolInput(arguments string) map[string]any {
 	return result
 }
 
-// Kept behind a tiny wrapper so the trace code cannot accidentally start
-// sharing a mutable request decoder with the tool execution path.
-func jsonUnmarshalAssistant(arguments string, target *map[string]any) error {
-	return json.Unmarshal([]byte(arguments), target)
-}
-
 type assistantUserTarget struct {
 	Actor *model.User
 	User  *model.User
@@ -91,7 +104,7 @@ func resolveAssistantUserTarget(c *gin.Context, actorUserID int, input map[strin
 		return nil, map[string]any{"ok": false, "status": "context_unavailable", "error": "signed-in account is unavailable"}
 	}
 	actor, err := model.GetUserById(actorUserID, false)
-	if err != nil {
+	if err != nil || actor == nil || actor.Status != common.UserStatusEnabled {
 		return nil, map[string]any{"ok": false, "status": "context_unavailable", "error": "current account could not be loaded"}
 	}
 	isAdmin := actor.Role >= common.RoleAdminUser
@@ -108,6 +121,15 @@ func resolveAssistantUserTarget(c *gin.Context, actorUserID int, input map[strin
 	}
 	if targetID > 0 && identifier != "" {
 		return nil, map[string]any{"ok": false, "status": "target_invalid", "error": "provide either user_id or identifier, not both"}
+	}
+	// These tools are also available to ordinary users for their own account,
+	// so their names do not carry an admin prefix. Cross-user reads and searches
+	// nevertheless need a live administrator session, including after logout
+	// or role revocation during an agent loop.
+	if isAdmin && (identifier != "" || (targetID > 0 && targetID != actor.Id)) {
+		if _, err := validateAssistantAdminAutomationSession(c, actorUserID); err != nil {
+			return nil, map[string]any{"ok": false, "status": "admin_access_denied", "error": "a current administrator browser session is required"}
+		}
 	}
 
 	target := actor

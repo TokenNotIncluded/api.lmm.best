@@ -64,15 +64,21 @@ export function useModelDeploymentSettings() {
     error: null,
   })
   const initialLoadRef = useRef(true)
+  const fetchGenerationRef = useRef(0)
 
   // Parallel fetch: settings + connection test (when enabled)
   const fetchAll = useCallback(async (useCache = true) => {
+    const generation = ++fetchGenerationRef.current
+    const isCurrent = () => fetchGenerationRef.current === generation
+
     setLoading(true)
     setLoadingPhase('settings')
 
     try {
       // Step 1: Fetch settings first (usually fast)
       const response = await getDeploymentSettings()
+      if (!isCurrent()) return
+
       const isEnabled = response?.success && response?.data?.enabled === true
 
       setSettings({
@@ -82,8 +88,6 @@ export function useModelDeploymentSettings() {
       if (!isEnabled) {
         // Not enabled, done
         setConnectionState({ loading: false, ok: null, error: null })
-        setLoadingPhase('done')
-        setLoading(false)
         return
       }
 
@@ -92,8 +96,6 @@ export function useModelDeploymentSettings() {
         const cached = getCachedConnection()
         if (cached !== null) {
           setConnectionState({ loading: false, ok: cached, error: null })
-          setLoadingPhase('done')
-          setLoading(false)
           return
         }
       }
@@ -104,6 +106,8 @@ export function useModelDeploymentSettings() {
 
       try {
         const connResponse = await testDeploymentConnection()
+        if (!isCurrent()) return
+
         if (connResponse?.success) {
           setCachedConnection(true)
           setConnectionState({ loading: false, ok: true, error: null })
@@ -113,17 +117,23 @@ export function useModelDeploymentSettings() {
           setConnectionState({ loading: false, ok: false, error: message })
         }
       } catch (error: unknown) {
+        if (!isCurrent()) return
+
         const errMsg =
           error instanceof Error ? error.message : 'Connection failed'
         setCachedConnection(false)
         setConnectionState({ loading: false, ok: false, error: errMsg })
       }
     } catch {
+      if (!isCurrent()) return
+
       // Settings fetch failed, use defaults
       setConnectionState({ loading: false, ok: null, error: null })
     } finally {
-      setLoadingPhase('done')
-      setLoading(false)
+      if (isCurrent()) {
+        setLoadingPhase('done')
+        setLoading(false)
+      }
     }
   }, [])
 

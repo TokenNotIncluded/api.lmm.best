@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -118,6 +119,7 @@ type responsesWSSession struct {
 	lockedChannel  *appmodel.Channel
 	nextEventIndex int
 	closeOnce      sync.Once
+	closed         atomic.Bool
 
 	clientWriteMu  sync.Mutex
 	targetWriteMu  sync.Mutex
@@ -134,13 +136,27 @@ var postResponsesWSConsumeQuota = service.PostTextConsumeQuota
 func ResponsesWebSocketHelper(c *gin.Context, client *websocket.Conn) *types.NewAPIError {
 	common.SetWebSocketReadLimit(client)
 	session := &responsesWSSession{c: c, client: client}
+	unregister, accepted := wsmanager.Register(0, wsmanager.KindResponses, func(code int, reason string) {
+		session.closeWithCode(code, reason)
+	})
+	if !accepted {
+		return nil
+	}
+	session.targetWriteMu.Lock()
+	if session.closed.Load() {
+		session.targetWriteMu.Unlock()
+		unregister()
+		return nil
+	}
+	session.unregister = unregister
+	session.targetWriteMu.Unlock()
 	defer session.closeTarget()
 	defer session.failCurrent()
 
 	for {
 		messageType, message, err := client.ReadMessage()
 		if err != nil {
-			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway, websocket.CloseServiceRestart) {
 				return nil
 			}
 			return types.NewError(err, types.ErrorCodeBadRequestBody, types.ErrOptionWithSkipRetry())
@@ -352,8 +368,8 @@ func (s *responsesWSSession) connectAndSendFirst(create responsesWSCreateRequest
 			break
 		}
 		addResponsesWSUsedChannel(s.c, channel.Id)
-		if channel.Type != appconstant.ChannelTypeOpenAI && channel.Type != appconstant.ChannelTypeCodex {
-			lastErr = types.NewErrorWithStatusCode(fmt.Errorf("responses websocket only supports OpenAI and Codex channels, got channel type %d", channel.Type), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		if channel.Type != appconstant.ChannelTypeOpenAI && channel.Type != appconstant.ChannelTypeOpenHuman && channel.Type != appconstant.ChannelTypeCodex {
+			lastErr = types.NewErrorWithStatusCode(fmt.Errorf("responses websocket only supports OpenAI, OpenHuman, and Codex channels, got channel type %d", channel.Type), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 			continue
 		}
 
@@ -406,7 +422,9 @@ func (s *responsesWSSession) connectAndSendFirst(create responsesWSCreateRequest
 
 		s.lockedModel = modelName
 		s.lockedChannel = channel
-		s.registerChannelClose(channel.Id)
+		if !s.registerChannelClose(channel.Id) {
+			return nil
+		}
 		service.RecordChannelAffinity(s.c, channel.Id)
 		s.startTargetReader()
 		return nil
@@ -600,12 +618,14 @@ func dialResponsesWebSocketUpstream(c *gin.Context, adaptor relaychannel.Adaptor
 	}
 	mergeHeaderTokens(targetHeader, "OpenAI-Beta", responsesWSRequiredBetaTokens(info)...)
 	targetConn, resp, err := websocket.DefaultDialer.Dial(fullRequestURL, targetHeader)
-	if err != nil {
-		statusCode := http.StatusInternalServerError
-		if resp != nil {
-			statusCode = resp.StatusCode
-			_ = resp.Body.Close()
+	statusCode := http.StatusInternalServerError
+	if resp != nil {
+		statusCode = resp.StatusCode
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			logger.LogError(c, "close responses websocket handshake body failed: "+closeErr.Error())
 		}
+	}
+	if err != nil {
 		return nil, types.NewErrorWithStatusCode(fmt.Errorf("dial failed to %s: %w", relaycommon.SanitizeURLForLog(fullRequestURL), err), types.ErrorCodeDoRequestFailed, statusCode)
 	}
 	common.SetWebSocketReadLimit(targetConn)
@@ -684,6 +704,7 @@ func toWebSocketURL(raw string) string {
 	case strings.HasPrefix(raw, "https://"):
 		return "wss://" + strings.TrimPrefix(raw, "https://")
 	case strings.HasPrefix(raw, "http://"):
+		// pi-lens-ignore: opengrep:javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket
 		return "ws://" + strings.TrimPrefix(raw, "http://")
 	default:
 		return raw
@@ -976,23 +997,35 @@ func (s *responsesWSSession) closeTarget() {
 	}
 }
 
-func (s *responsesWSSession) registerChannelClose(channelID int) {
-	unregister := wsmanager.Register(channelID, wsmanager.KindResponses, func(reason string) {
-		s.closeForPolicy(reason)
+func (s *responsesWSSession) registerChannelClose(channelID int) bool {
+	unregister, accepted := wsmanager.Register(channelID, wsmanager.KindResponses, func(code int, reason string) {
+		s.closeWithCode(code, reason)
 	})
-	s.targetWriteMu.Lock()
-	if s.unregister != nil {
-		s.unregister()
+	if !accepted {
+		return false
 	}
+
+	s.targetWriteMu.Lock()
+	if s.closed.Load() {
+		s.targetWriteMu.Unlock()
+		unregister()
+		return false
+	}
+	previousUnregister := s.unregister
 	s.unregister = unregister
 	s.targetWriteMu.Unlock()
+	if previousUnregister != nil {
+		previousUnregister()
+	}
+	return true
 }
 
-func (s *responsesWSSession) closeForPolicy(reason string) {
+func (s *responsesWSSession) closeWithCode(code int, reason string) {
 	s.closeOnce.Do(func() {
+		s.closed.Store(true)
 		s.failCurrent()
 		deadline := time.Now().Add(time.Second)
-		closeMessage := websocket.FormatCloseMessage(websocket.ClosePolicyViolation, reason)
+		closeMessage := websocket.FormatCloseMessage(code, reason)
 		_ = s.client.WriteControl(websocket.CloseMessage, closeMessage, deadline)
 		if target := s.getTarget(); target != nil {
 			_ = target.WriteControl(websocket.CloseMessage, closeMessage, deadline)
@@ -1105,7 +1138,7 @@ func validateResponsesWSTurnAuthorization(c *gin.Context, modelName string, lock
 	if channel.Status != common.ChannelStatusEnabled {
 		return nil, types.NewErrorWithStatusCode(fmt.Errorf("locked channel %d is disabled", channel.Id), types.ErrorCodeGetChannelFailed, http.StatusForbidden, types.ErrOptionWithSkipRetry())
 	}
-	if channel.Type != appconstant.ChannelTypeOpenAI && channel.Type != appconstant.ChannelTypeCodex {
+	if channel.Type != appconstant.ChannelTypeOpenAI && channel.Type != appconstant.ChannelTypeOpenHuman && channel.Type != appconstant.ChannelTypeCodex {
 		return nil, types.NewErrorWithStatusCode(fmt.Errorf("locked channel %d no longer supports responses websocket", channel.Id), types.ErrorCodeGetChannelFailed, http.StatusForbidden, types.ErrOptionWithSkipRetry())
 	}
 	if channelIDRaw := common.GetContextKeyString(c, appconstant.ContextKeyTokenSpecificChannelId); channelIDRaw != "" {

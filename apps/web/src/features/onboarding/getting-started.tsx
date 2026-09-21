@@ -29,14 +29,17 @@ import {
   requestAssistantOpen,
 } from '@/features/assistant/assistant-events'
 import { ChallengeList } from '@/features/forge/challenge-list'
+import { PiOAuthGuide } from '@/features/guide/pi-oauth-guide'
 import {
   getAuthenticatedLandingRoute,
   getOnboardingState,
 } from '@/lib/console-activation'
+import { formatDateTimeObject } from '@/lib/time'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { getDeveloperAccessRequest, type DeveloperAccessRequest } from './api'
+import { AccountStatus } from './account-status'
 import { claimOnboardingAssistantPrompt } from './pending-review-assistant'
+import { useAccountNextStep } from './use-account-next-step'
 import { useAuthUserRefresh } from './use-auth-user-refresh'
 
 export function GettingStarted() {
@@ -47,32 +50,23 @@ export function GettingStarted() {
   const onboarding = getOnboardingState(user)
   const trustLevel = user?.trust_level_info?.level ?? 0
   const [prompt, setPrompt] = useState('')
-  const [accessRequest, setAccessRequest] =
-    useState<DeveloperAccessRequest | null>(null)
-  const [requestLoaded, setRequestLoaded] = useState(false)
+  const userId = user?.id ?? 0
+  const { request } = useAccountNextStep()
+  const accessRequest = request.data
+  const requestLoaded = request.isSuccess
+  const { refetch: refetchAccessRequest } = request
 
   useEffect(() => {
-    if (onboarding.stage !== 'activate') {
-      setRequestLoaded(true)
-      return
+    if (onboarding.activationComplete) return
+    const onFocus = () => {
+      void refetchAccessRequest()
     }
-    let cancelled = false
-    void getDeveloperAccessRequest()
-      .then((request) => {
-        if (!cancelled) setAccessRequest(request)
-      })
-      .catch(() => undefined)
-      .finally(() => {
-        if (!cancelled) setRequestLoaded(true)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [onboarding.stage])
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [onboarding.activationComplete, refetchAccessRequest])
 
   const pendingRequestId =
     accessRequest?.status === 'pending' ? accessRequest.id : 0
-  const userId = user?.id ?? 0
   useEffect(() => {
     if (!requestLoaded || onboarding.stage !== 'activate') return
     if (!claimOnboardingAssistantPrompt(userId, pendingRequestId)) return
@@ -81,31 +75,17 @@ export function GettingStarted() {
   }, [onboarding.stage, pendingRequestId, requestLoaded, userId])
 
   useEffect(() => {
-    if (
-      !requestLoaded ||
-      accessRequest?.status !== 'approved' ||
-      onboarding.activationComplete
-    ) {
+    if (!requestLoaded || accessRequest?.status !== 'approved') {
       return
     }
 
-    let cancelled = false
-    void refreshUser().then((refreshedUser) => {
-      if (cancelled || refreshedUser?.developer_access_granted !== true) {
+    void refreshUser().then(async (refreshedUser) => {
+      if (refreshedUser?.developer_access_granted !== true) {
         return
       }
-      void navigate({ to: getAuthenticatedLandingRoute(refreshedUser) })
+      await navigate({ to: getAuthenticatedLandingRoute(refreshedUser) })
     })
-    return () => {
-      cancelled = true
-    }
-  }, [
-    accessRequest?.status,
-    navigate,
-    onboarding.activationComplete,
-    refreshUser,
-    requestLoaded,
-  ])
+  }, [accessRequest?.status, navigate, refreshUser, requestLoaded])
 
   const submitPrompt = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -138,10 +118,11 @@ export function GettingStarted() {
               data-icon='inline-start'
               aria-hidden='true'
             />
-            {t('Model Square')}
+            {t('Models and pricing')}
           </Button>
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
+          <AccountStatus />
           <div className='mx-auto flex w-full max-w-2xl flex-col pb-12 sm:pb-16'>
             <section
               className='px-1 py-8 sm:px-2 sm:py-12'
@@ -151,13 +132,54 @@ export function GettingStarted() {
                 <h2 className='text-2xl font-medium'>{t('How can I help?')}</h2>
                 <p className='text-muted-foreground text-sm leading-6'>
                   {t(
-                    'L0 accounts can browse challenges and ask the AI assistant to request L1 access.'
+                    'You can browse challenges and ask the AI assistant to apply for API access.'
                   )}
                 </p>
               </div>
 
               <Separator className='my-8' />
               <div className='grid gap-3 text-sm leading-6'>
+                {accessRequest ? (
+                  <dl className='space-y-3'>
+                    <div>
+                      <dt className='text-muted-foreground'>
+                        {t('Created At')}
+                      </dt>
+                      <dd>
+                        {formatDateTimeObject(
+                          new Date(accessRequest.created_at * 1000)
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className='text-muted-foreground'>{t('Reason')}</dt>
+                      <dd className='break-words whitespace-pre-wrap'>
+                        {accessRequest.reason}
+                      </dd>
+                    </div>
+                    {accessRequest.ai_recommendation ? (
+                      <div>
+                        <dt className='text-muted-foreground'>
+                          {t('AI recommendation')}
+                        </dt>
+                        <dd className='break-words whitespace-pre-wrap'>
+                          {accessRequest.ai_recommendation}
+                        </dd>
+                      </div>
+                    ) : null}
+                    {accessRequest.admin_note &&
+                    accessRequest.status !== 'rejected' ? (
+                      <div>
+                        <dt className='text-muted-foreground'>
+                          {t('Administrator note')}
+                        </dt>
+                        <dd className='break-words whitespace-pre-wrap'>
+                          {accessRequest.admin_note}
+                        </dd>
+                      </div>
+                    ) : null}
+                  </dl>
+                ) : null}
                 {accessRequest?.status === 'pending' ? (
                   <div className='grid gap-1' data-testid='l0-pending-request'>
                     <p className='font-medium'>
@@ -216,6 +238,7 @@ export function GettingStarted() {
                 )}
               </div>
             </section>
+            <PiOAuthGuide />
           </div>
         </SectionPageLayout.Content>
       </SectionPageLayout>
@@ -228,9 +251,9 @@ export function GettingStarted() {
   const tutorialSteps = [
     {
       complete: onboarding.activationComplete,
-      title: t('Unlock L1 access'),
+      title: t('Request API access'),
       description: t(
-        'Discuss your use case with the AI assistant, confirm its recommendation, and wait for administrator approval.'
+        'Describe your intended API use to the AI assistant. Eligible applications may be approved automatically; others remain under review.'
       ),
       preset: 'onboarding' as const,
     },
@@ -257,6 +280,7 @@ export function GettingStarted() {
     <SectionPageLayout>
       <SectionPageLayout.Title>{t('Getting started')}</SectionPageLayout.Title>
       <SectionPageLayout.Content>
+        <AccountStatus />
         <div className='mx-auto flex w-full max-w-4xl flex-col gap-6 pb-10 sm:gap-8 sm:pb-14'>
           <section className='bg-muted/30 border-y px-5 py-8 sm:px-8 sm:py-12'>
             <div className='flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between'>
@@ -275,6 +299,7 @@ export function GettingStarted() {
               </div>
               <div className='flex shrink-0 flex-wrap gap-2'>
                 <Badge variant='outline'>
+                  {t('API access enabled')} ·{' '}
                   {t('L{{level}}', { level: trustLevel })}
                 </Badge>
                 <Badge variant='secondary'>{stageLabel}</Badge>
@@ -291,7 +316,7 @@ export function GettingStarted() {
                 maxLength={4000}
                 className='h-12 flex-1'
                 placeholder={t(
-                  'For example: help me activate L1 and configure CC Switch'
+                  'For example: help me apply for API access and configure CC Switch'
                 )}
                 aria-label={t('Tell the AI assistant what you need')}
               />
@@ -341,6 +366,8 @@ export function GettingStarted() {
               )}
             </p>
           </section>
+
+          <PiOAuthGuide />
 
           <section
             className='border px-5 py-6 sm:px-8'

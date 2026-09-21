@@ -237,6 +237,23 @@ func executeRequestSpec(c context.Context, info convmeta.Meta, from types.RelayF
 
 func executeRequestSteps(c context.Context, info convmeta.Meta, from types.RelayFormat, target types.RelayFormat, request any, converter string, quality RequestConverterQuality, specs []RequestConverterSpec) (*RequestResult, error) {
 	current := request
+	if from == types.RelayFormatOpenAIResponses && target != from {
+		responsesRequest, err := oairesponses.OpenAIResponsesRequestFromAny(request)
+		if err != nil {
+			return nil, err
+		}
+		prepared, mapping, err := oairesponses.NormalizeResponsesTools(responsesRequest)
+		if err != nil {
+			return nil, err
+		}
+		if len(mapping) > 0 && isNilRequest(info) {
+			return nil, errors.New("Responses tool conversion requires request-scoped metadata to restore tool identities")
+		}
+		if !isNilRequest(info) {
+			info.ConvOptions().ResponsesTools = mapping
+		}
+		current = prepared
+	}
 	steps := make([]RequestStep, 0, len(specs))
 	for _, spec := range specs {
 		var err error

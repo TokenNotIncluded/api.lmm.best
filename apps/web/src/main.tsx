@@ -26,21 +26,24 @@ import { AxiosError } from 'axios'
 import i18next from 'i18next'
 import { StrictMode, Suspense } from 'react'
 import ReactDOM from 'react-dom/client'
+import { I18nextProvider } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { LoadingState } from '@/components/loading-state'
+import { installWebMcp } from '@/features/webmcp'
 import { getStatus } from '@/lib/api'
 import { bindAuthCache } from '@/lib/auth-session'
-import { installBuildMetadata } from '@/lib/build-metadata'
-import { DEFAULT_LOGO } from '@/lib/constants'
-import { applyFaviconToDom } from '@/lib/dom-utils'
 import '@/lib/dayjs'
+import { installBuildMetadata } from '@/lib/build-metadata'
+import { resolveSystemName } from '@/lib/constants'
 import { initializeFrontendCache } from '@/lib/frontend-cache'
 import { handleServerError } from '@/lib/handle-server-error'
 
 import { DirectionProvider } from './context/direction-provider'
 import { FontProvider } from './context/font-provider'
 import { ThemeProvider } from './context/theme-provider'
-import './i18n/config'
+import appI18n from './i18n/config'
+import { RouteLanguageProvider } from './i18n/route-language-provider'
 // Generated Routes
 import { routeTree } from './routeTree.gen'
 
@@ -64,7 +67,7 @@ const queryClient = new QueryClient({
 
         return !(
           error instanceof AxiosError &&
-          [401, 403].includes(error.response?.status ?? 0)
+          [401, 402, 403].includes(error.response?.status ?? 0)
         )
       },
       // Keep focused tabs from silently re-running heavy pages like logs.
@@ -86,9 +89,8 @@ const queryClient = new QueryClient({
   queryCache: new QueryCache({
     onError: (error) => {
       if (error instanceof AxiosError) {
-        if (error.response?.status === 500) {
+        if (error.response?.status === 500 && !error.config?.skipErrorHandler) {
           toast.error(i18next.t('Internal Server Error!'))
-          router.navigate({ to: '/500' })
         }
       }
     },
@@ -99,12 +101,17 @@ bindAuthCache(queryClient)
 // Create a new router instance
 const router = createRouter({
   routeTree,
+  InnerWrap: RouteLanguageProvider,
   context: { queryClient },
   defaultPreload: 'intent',
+  defaultPendingComponent: LoadingState,
+  defaultPendingMinMs: 0,
   // Avoid re-running every hover preload while auth/session state is settling.
   // The router-core update also handles an in-flight preload being evicted.
   defaultPreloadStaleTime: 30_000,
 })
+
+installWebMcp(router)
 
 // Register the router instance for type safety
 declare module '@tanstack/react-router' {
@@ -118,56 +125,26 @@ const rootElement = document.querySelector<HTMLElement>('#root')
 if (!rootElement) {
   throw new Error('Root element not found')
 }
-// Set document.title and favicon from cached status, then refresh from network
+// Set the document title from cached status, then refresh from network.
+// The favicon stays pinned to the static entry mark (/lmm-best-mark.svg).
 ;(function initSystemBranding() {
   try {
     if (typeof window === 'undefined' || typeof document === 'undefined') return
-    const forgePublicPaths = [
-      '/pricing',
-      '/challenges',
-      '/about',
-      '/rankings',
-      '/privacy-policy',
-      '/user-agreement',
-      '/terms',
-      '/terms-of-service',
-      '/sign-in',
-      '/sign-up',
-      '/signup',
-      '/register',
-      '/forgot-password',
-      '/reset',
-      '/otp',
-      '/oauth',
-    ]
-    const isForgePublicRoute = () => {
-      const { pathname } = window.location
-      return (
-        pathname === '/' ||
-        forgePublicPaths.some(
-          (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
-        )
-      )
-    }
-    const forgeTitle = 'LMM Forge'
     const apply = (name: string) => {
-      const title = isForgePublicRoute() ? forgeTitle : name
+      const title = resolveSystemName(name)
       document.title = title
       const metaTitle = document.querySelector(
         'meta[name="title"]'
       ) as HTMLMetaElement | null
       if (metaTitle) metaTitle.setAttribute('content', title)
     }
-    if (isForgePublicRoute()) apply(forgeTitle)
+    apply('')
     // Cache-first
     try {
       const saved = localStorage.getItem('status')
       if (saved) {
         const s = JSON.parse(saved)
         if (s?.system_name) apply(s.system_name)
-        if (!isForgePublicRoute() && s?.logo && s.logo !== DEFAULT_LOGO) {
-          applyFaviconToDom(s.logo)
-        }
       }
     } catch {
       /* empty */
@@ -182,9 +159,6 @@ if (!rootElement) {
           } catch {
             /* empty */
           }
-        }
-        if (!isForgePublicRoute() && s?.logo && s.logo !== DEFAULT_LOGO) {
-          applyFaviconToDom(s.logo as string)
         }
       })
       .catch(() => {
@@ -212,15 +186,17 @@ if (!rootElement.innerHTML) {
           </div>
         }
       >
-        <QueryClientProvider client={queryClient}>
-          <ThemeProvider>
-            <FontProvider>
-              <DirectionProvider>
-                <RouterProvider router={router} />
-              </DirectionProvider>
-            </FontProvider>
-          </ThemeProvider>
-        </QueryClientProvider>
+        <I18nextProvider i18n={appI18n}>
+          <QueryClientProvider client={queryClient}>
+            <ThemeProvider>
+              <FontProvider>
+                <DirectionProvider>
+                  <RouterProvider router={router} />
+                </DirectionProvider>
+              </FontProvider>
+            </ThemeProvider>
+          </QueryClientProvider>
+        </I18nextProvider>
       </Suspense>
     </StrictMode>
   )

@@ -10,7 +10,7 @@
 use std::{hint::black_box, sync::Once, time::Instant};
 
 use lmm_api_rs::{
-    migration_routes::sse::SseFrameParser, protocol_runtime_registry::validated_current_registry,
+    protocol_runtime_registry::validated_current_registry, routes::sse::SseFrameParser,
 };
 use lmm_contracts::relay::{
     CanonicalStreamEvent, ConversionPlan, Fidelity, OpenAiChatRequest, OpenAiChatResponse,

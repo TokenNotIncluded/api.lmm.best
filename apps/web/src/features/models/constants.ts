@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type { TFunction } from 'i18next'
 
-import type { NameRule, ModelStatus, SyncSource } from './types'
+import type { NameRule, ModelStatus } from './types'
 
 // ============================================================================
 // Pagination
@@ -178,22 +178,5 @@ export function getSyncLocaleOptions(t: TFunction) {
     { label: t('Chinese'), value: 'zh' },
     { label: t('English'), value: 'en' },
     { label: t('Japanese'), value: 'ja' },
-  ] as const
-}
-
-export function getSyncSourceOptions(t: TFunction) {
-  return [
-    {
-      label: t('Official Repository'),
-      value: 'official' as SyncSource,
-      description: t('Sync from the public upstream metadata repository.'),
-      disabled: false,
-    },
-    {
-      label: t('Configuration File'),
-      value: 'config' as SyncSource,
-      description: t('Upload or reference a local configuration file.'),
-      disabled: true,
-    },
   ] as const
 }

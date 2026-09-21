@@ -17,13 +17,19 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import { after, afterEach, describe, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 
+import { ASSISTANT_PROMPT_PRESET_COPY_VERSION } from '@/features/assistant/assistant-prompt-presets'
 import type { AuthUser } from '@/stores/auth-store'
 
 const domWindow = new Window({ url: 'https://console.example.test/' })
+Object.defineProperty(domWindow.document, 'compatMode', {
+  configurable: true,
+  value: 'CSS1Compat',
+})
 for (const key of [
   'window',
   'document',
@@ -56,6 +62,37 @@ for (const key of [
   })
 }
 
+// Keep unrelated React integration tests on the OS reduced-motion path;
+// the motion lifecycle has its own manually stepped animation tests.
+const matchMediaStub = (media: string) => ({
+  matches: media === '(prefers-reduced-motion: reduce)',
+  media,
+  addListener() {},
+  removeListener() {},
+  addEventListener() {},
+  removeEventListener() {},
+  dispatchEvent() {
+    return false
+  },
+})
+Object.defineProperty(domWindow, 'matchMedia', {
+  configurable: true,
+  value: matchMediaStub,
+})
+Object.defineProperty(globalThis, 'matchMedia', {
+  configurable: true,
+  value: matchMediaStub,
+})
+Object.defineProperty(globalThis, 'customElements', {
+  configurable: true,
+  value: {
+    get() {
+      return undefined
+    },
+    define() {},
+  },
+})
+
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { QueryClient, QueryClientProvider } =
@@ -75,6 +112,7 @@ const { consumeQueuedAssistantRequest, subscribeToAssistantOpen } =
   await import('@/features/assistant/assistant-events')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { ForgeHome } = await import('./forge-home')
+const { PublicAccessPricing } = await import('../pricing/public-access-pricing')
 
 const originalGet = api.get
 const reactTestGlobals = globalThis as typeof globalThis & {
@@ -92,12 +130,12 @@ async function flushEffects() {
   await new Promise((resolve) => setTimeout(resolve, 20))
 }
 
-function makeRouter() {
+function makeRouter(component = ForgeHome) {
   const rootRoute = createRootRoute({ component: Outlet })
   const homeRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/',
-    component: ForgeHome,
+    component,
   })
   const routes = [
     '/about',
@@ -109,6 +147,8 @@ function makeRouter() {
     '/pricing',
     '/security',
     '/sign-in',
+    '/sign-up',
+    '/wallet',
   ].map((path) =>
     createRoute({
       getParentRoute: () => rootRoute,
@@ -135,7 +175,12 @@ function makeRouter() {
 async function renderHome(
   user: AuthUser | null,
   assistantEnabled = true,
-  statusPending = false
+  statusPending = false,
+  options: {
+    registrationEnabled?: boolean
+    component?: typeof ForgeHome
+    headerNavModules?: string
+  } = {}
 ) {
   useAuthStore.getState().auth.setUser(user)
   const queryClient = new QueryClient({
@@ -147,7 +192,7 @@ async function renderHome(
       },
     },
   })
-  const router = makeRouter()
+  const router = makeRouter(options.component)
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
@@ -164,6 +209,8 @@ async function renderHome(
           data: {
             backend_capabilities: { bounty_public_read: false },
             assistant: { enabled: assistantEnabled },
+            register_enabled: options.registrationEnabled ?? true,
+            HeaderNavModules: options.headerNavModules,
           },
         },
       }
@@ -253,7 +300,134 @@ afterEach(() => {
 
 after(() => domWindow.close())
 
+describe('ForgeHome code preview accessibility', () => {
+  test('switches complete request examples with arrow keys and exposes the active panel', async () => {
+    const rendered = await renderHome(null)
+    await act(async () => {
+      const selector = Array.from(
+        rendered.container.querySelectorAll('button')
+      ).find((button) => button.textContent === 'Other clients / API key')
+      assert.ok(selector)
+      selector.click()
+    })
+    const tabs = Array.from(
+      rendered.container.querySelectorAll<HTMLButtonElement>('[role="tab"]')
+    )
+    assert.equal(tabs.length, 4)
+    assert.equal(tabs.filter((tab) => tab.tabIndex === 0).length, 1)
+    await act(async () => {
+      tabs[0].focus()
+      tabs[0].dispatchEvent(
+        new window.KeyboardEvent('keydown', {
+          key: 'ArrowRight',
+          bubbles: true,
+        })
+      )
+      await flushEffects()
+    })
+    assert.equal(tabs[1].getAttribute('aria-selected'), 'true')
+    assert.equal(document.activeElement, tabs[1])
+    const panel = rendered.container.querySelector('[role="tabpanel"]')
+    assert.equal(panel?.getAttribute('aria-labelledby'), tabs[1].id)
+    assert.ok(panel?.textContent?.includes('process.env.LMM_API_KEY'))
+    await unmountHome(rendered)
+  })
+})
+
+describe('ForgeHome configured destinations', () => {
+  test('hides the security destination when disabled and sends gated visitors to login', async () => {
+    const hidden = await renderHome(null, true, false, {
+      headerNavModules: JSON.stringify({
+        security: { enabled: false, requireAuth: false },
+      }),
+    })
+    assert.equal(
+      hidden.container.querySelector('.lmm-destinations a[href="/security"]'),
+      null
+    )
+    await unmountHome(hidden)
+    const gated = await renderHome(null, true, false, {
+      headerNavModules: JSON.stringify({
+        security: { enabled: true, requireAuth: true },
+      }),
+    })
+    assert.ok(
+      gated.container.querySelector(
+        '.lmm-destinations a[href="/sign-in?redirect=%2Fsecurity"]'
+      )
+    )
+    await unmountHome(gated)
+  })
+})
+
+describe('ForgeHome API examples', () => {
+  test('provides complete Claude and Gemini request bodies with JSON headers', async () => {
+    const rendered = await renderHome(null)
+    await act(async () => {
+      const selector = Array.from(
+        rendered.container.querySelectorAll('button')
+      ).find((button) => button.textContent === 'Other clients / API key')
+      assert.ok(selector)
+      selector.click()
+    })
+    for (const tabName of ['Claude', 'Gemini']) {
+      const tab = Array.from(
+        rendered.container.querySelectorAll<HTMLButtonElement>('[role="tab"]')
+      ).find((button) => button.textContent === tabName)
+      assert.ok(tab)
+      await act(async () => {
+        tab.click()
+        await flushEffects()
+      })
+      const code =
+        rendered.container.querySelector('.forge-home-code-block')
+          ?.textContent ?? ''
+      assert.match(code, /Content-Type: application\/json/)
+      assert.match(code, /\$LMM_API_KEY/)
+      const body = code.match(/-d '([\s\S]+)'$/)?.[1]
+      assert.ok(body)
+      const request = JSON.parse(body)
+      if (tabName === 'Claude') {
+        assert.match(code, /\/v1\/messages/)
+        assert.ok(request.max_tokens > 0)
+        assert.deepEqual(request.messages, [{ role: 'user', content: 'Hello' }])
+      } else {
+        assert.match(code, /\/v1beta\/models\/model-name:generateContent/)
+        assert.deepEqual(request.contents, [
+          { role: 'user', parts: [{ text: 'Hello' }] },
+        ])
+      }
+    }
+    await unmountHome(rendered)
+  })
+})
+
 describe('ForgeHome assistant entry', () => {
+  test('starts app setup from a visible suggestion and preserves guidance across sign-in', async () => {
+    const rendered = await renderHome(null)
+    const suggestion = Array.from(
+      rendered.container.querySelectorAll<HTMLButtonElement>(
+        '.forge-home-assistant-prompts button'
+      )
+    ).find((button) => button.textContent?.includes('Connect my API key'))
+    assert.ok(suggestion)
+
+    await act(async () => {
+      suggestion.click()
+      await flushEffects()
+    })
+
+    assert.equal(rendered.router.state.location.pathname, '/sign-in')
+    const queued = consumeQueuedAssistantRequest()
+    assert.equal(queued?.autoSend, true)
+    assert.match(queued?.message ?? '', /Ask which app and device I use/)
+    assert.match(
+      queued?.message ?? '',
+      /Do not ask me to paste my key into chat/
+    )
+    await unmountHome(rendered)
+  })
+
   test('animates server-generated prompts and stops when the visitor interacts', async () => {
     const rendered = await renderHome(null)
     const input = findMessageInput(rendered.container)
@@ -274,6 +448,99 @@ describe('ForgeHome assistant entry', () => {
     assert.equal(input.placeholder, 'Describe what you need...')
 
     await unmountHome(rendered)
+  })
+
+  test('localizes cached placeholders immediately while each language request is pending', async () => {
+    const key = 'Where should I start?'
+    const localizedPrompts = await Promise.all(
+      Object.entries({
+        en: 'en',
+        zhCN: 'zh',
+        zhTW: 'zh-TW',
+        fr: 'fr',
+        ja: 'ja',
+        ru: 'ru',
+        vi: 'vi',
+      }).map(async ([language, file]) => {
+        const resource = JSON.parse(
+          await readFile(
+            new URL(`../../i18n/locales/${file}.json`, import.meta.url),
+            'utf8'
+          )
+        ) as { translation: Record<string, string> }
+        return { language, prompt: resource.translation[key] }
+      })
+    )
+    for (const { language, prompt } of localizedPrompts) {
+      i18n.addResourceBundle(language, 'translation', { [key]: prompt })
+    }
+    const rendered = await renderHome(null)
+    const requestedLanguages: string[] = []
+    const originalHomeGet = api.get
+    api.get = (async (
+      url: string,
+      config?: { params?: { language?: string } }
+    ) => {
+      if (url === '/api/assistant/pre-conversation-presets') {
+        requestedLanguages.push(config?.params?.language ?? '')
+        return await new Promise(() => undefined)
+      }
+      return originalHomeGet(url)
+    }) as typeof api.get
+    try {
+      await act(async () => {
+        rendered.queryClient.setQueryData(
+          [
+            'assistant-pre-conversation-presets',
+            'en',
+            ASSISTANT_PROMPT_PRESET_COPY_VERSION,
+          ],
+          {
+            generation: 17,
+            version: 'aggregate-topic-v1',
+            presets: [
+              { id: 'getting_started', prompt: '请围绕旧模板说明权限边界。' },
+            ],
+          }
+        )
+        await flushEffects()
+      })
+      for (const { language, prompt } of localizedPrompts) {
+        await act(async () => {
+          await i18n.changeLanguage(language)
+          await flushEffects()
+        })
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 90))
+        })
+        const input = findMessageInput(rendered.container)
+        assert.ok(input.placeholder.length > 0)
+        assert.ok(
+          prompt.startsWith(input.placeholder),
+          `${language}: unexpected placeholder ${input.placeholder}`
+        )
+        assert.equal(
+          input.value,
+          '',
+          'A placeholder must not become a submitted draft'
+        )
+        if (language !== 'en') {
+          assert.ok(requestedLanguages.includes(language))
+          assert.equal(
+            rendered.queryClient.getQueryState([
+              'assistant-pre-conversation-presets',
+              language,
+              ASSISTANT_PROMPT_PRESET_COPY_VERSION,
+            ])?.status,
+            'pending'
+          )
+        }
+      }
+      assert.equal(requestedLanguages.length, 6)
+    } finally {
+      await unmountHome(rendered)
+      await i18n.changeLanguage('en')
+    }
   })
 
   test('queues onboarding with the message and redirects anonymous users to sign-in', async () => {
@@ -425,6 +692,10 @@ describe('ForgeHome assistant entry', () => {
 
   test('does not leave a queued message when the assistant is disabled', async () => {
     const rendered = await renderHome(null, false)
+    assert.equal(
+      rendered.container.querySelector('.forge-home-assistant-prompts'),
+      null
+    )
 
     await submitMessage(rendered.container, 'Help me configure the SDK')
 
@@ -463,6 +734,116 @@ describe('ForgeHome assistant entry', () => {
     assert.equal(storage.includes('sk-secret1234567890'), false)
 
     unsubscribe()
+    await unmountHome(rendered)
+  })
+})
+
+describe('Primary next step follows account access', () => {
+  test('starts guests at sign-in without sending them to payment', async () => {
+    const pending = await renderHome(null, true, true)
+    assert.equal(
+      pending.container
+        .querySelector('.lmm-intro-actions a')
+        ?.getAttribute('href'),
+      '/sign-in?redirect=%2Fgetting-started'
+    )
+    await unmountHome(pending)
+
+    const ready = await renderHome(null)
+    assert.equal(
+      ready.container
+        .querySelector('.lmm-intro-actions a')
+        ?.getAttribute('href'),
+      '/sign-in?redirect=%2Fgetting-started'
+    )
+    assert.ok(
+      ready.container.textContent?.includes('Payment does not unlock access.')
+    )
+    await unmountHome(ready)
+  })
+
+  test('does not advertise disabled registration', async () => {
+    const rendered = await renderHome(null, true, false, {
+      registrationEnabled: false,
+    })
+    assert.equal(
+      rendered.container
+        .querySelector('.lmm-intro-actions a')
+        ?.textContent?.trim(),
+      'Sign in to get started'
+    )
+    await unmountHome(rendered)
+  })
+
+  test('takes an approved customer to client setup', async () => {
+    const rendered = await renderHome({
+      id: 11,
+      username: 'approved',
+      role: 1,
+      developer_access_granted: true,
+    })
+    const purchase = rendered.container.querySelector<HTMLAnchorElement>(
+      '.lmm-intro-actions a'
+    )
+    assert.ok(purchase)
+    await act(async () => {
+      purchase.click()
+      await flushEffects()
+    })
+    assert.equal(rendered.router.state.location.pathname, '/guide')
+    await unmountHome(rendered)
+  })
+
+  test('keeps a pending customer on the access-request path', async () => {
+    const rendered = await renderHome({
+      id: 12,
+      username: 'pending',
+      role: 1,
+      developer_access_granted: false,
+    })
+    const purchase = rendered.container.querySelector<HTMLAnchorElement>(
+      '.lmm-intro-actions a'
+    )
+    assert.ok(purchase)
+    assert.equal(purchase.textContent?.trim(), 'Request API access')
+    await act(async () => {
+      purchase.click()
+      await flushEffects()
+    })
+    assert.equal(rendered.router.state.location.pathname, '/getting-started')
+    await unmountHome(rendered)
+  })
+
+  test('explains purchase conditions and answers pricing questions before access', async () => {
+    const rendered = await renderHome(
+      { id: 13, username: 'pending', role: 1, developer_access_granted: false },
+      true,
+      false,
+      { component: PublicAccessPricing }
+    )
+    const main = rendered.container.querySelector('main')
+    assert.ok(main)
+    assert.equal(
+      main.querySelector('a')?.getAttribute('href'),
+      '/getting-started'
+    )
+    assert.equal(main.querySelectorAll('ol li').length, 3)
+    const question = Array.from(
+      main.querySelectorAll<HTMLButtonElement>('button')
+    ).find((button) =>
+      button.textContent?.includes('Is platform credit the same as money?')
+    )
+    assert.ok(question)
+    await act(async () => {
+      question.click()
+      await flushEffects()
+    })
+    assert.equal(question.getAttribute('aria-expanded'), 'true')
+    assert.ok(
+      main.textContent?.includes(
+        'The checkout shows the actual payment separately, with its settlement currency.'
+      )
+    )
     await unmountHome(rendered)
   })
 })

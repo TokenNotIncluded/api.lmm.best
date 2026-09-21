@@ -16,15 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { isAxiosError } from 'axios'
-
 import { api } from '@/lib/api'
+import { formatPlatformAmount } from '@/lib/currency'
 
 import type {
   HeroSmsActivation,
   HeroSmsActivationDetail,
   HeroSmsActivationsPage,
-  HeroSmsApiErrorShape,
   HeroSmsCreateActivationsInput,
   HeroSmsCreateActivationsResult,
   HeroSmsEnvelope,
@@ -128,14 +126,14 @@ function normalizeCreateResult(raw: unknown): HeroSmsCreateActivationsResult {
   }
 }
 
-export function formatHeroSmsUSD(value: number) {
+export function formatHeroSmsPlatformAmount(value: number) {
   if (!Number.isFinite(value)) return '—'
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 8,
-  }).format(value)
+  return formatPlatformAmount(value, {
+    locale: 'en-US',
+    abbreviate: false,
+    digitsLarge: 2,
+    digitsSmall: 8,
+  })
 }
 
 export function createHeroSmsIdempotencyKey() {
@@ -146,20 +144,41 @@ export function createHeroSmsIdempotencyKey() {
 }
 
 export function parseHeroSmsError(error: unknown): HeroSmsParsedError {
-  if (isAxiosError(error)) {
-    const data = error.response?.data as HeroSmsApiErrorShape | undefined
-    return {
-      status: error.response?.status,
-      code: data?.code,
-      message: data?.message || error.message || 'HeroSMS request failed',
-    }
-  }
+  // Business envelopes are converted to plain Errors by the feature clients,
+  // while transport failures are AxiosErrors. Handle both shapes (including
+  // a proxy that nests the envelope under `error` or `data`) consistently.
+  const value = isRecord(error) ? error : null
+  const response = value && isRecord(value.response) ? value.response : null
+  const responseData =
+    response && isRecord(response.data) ? response.data : null
+  const candidates = [
+    responseData && isRecord(responseData.error) ? responseData.error : null,
+    responseData && isRecord(responseData.data) ? responseData.data : null,
+    responseData,
+    value && isRecord(value.data) ? value.data : null,
+    value && isRecord(value.error) ? value.error : null,
+    value,
+  ]
+  const payload = candidates.find(
+    (candidate) =>
+      candidate &&
+      (typeof candidate.code === 'string' ||
+        typeof candidate.message === 'string')
+  )
+  const statusValue = response?.status ?? value?.status
+  const status = typeof statusValue === 'number' ? statusValue : undefined
+  const message =
+    (payload && typeof payload.message === 'string' && payload.message) ||
+    (error instanceof Error && error.message) ||
+    'HeroSMS request failed'
+  const code =
+    payload && typeof payload.code === 'string' ? payload.code : undefined
 
-  if (error instanceof Error) {
-    return { message: error.message }
-  }
+  return { status, code, message }
+}
 
-  return { message: 'HeroSMS request failed' }
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
 }
 
 export async function listHeroSmsProducts(

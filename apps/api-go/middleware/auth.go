@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"reflect"
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -57,6 +58,21 @@ func authHelper(c *gin.Context, minRole int) {
 		writeDashboardAuthError(c, err)
 		return
 	}
+	if minRole >= common.RoleAdminUser {
+		// An assistant operation can arrive after a demotion or security reset
+		// during the same conversation. Handlers also inspect c.role, so the
+		// context must contain the authoritative role, not the cached snapshot.
+		current, loadErr := model.GetUserById(user.Id, false)
+		if loadErr != nil {
+			writeDashboardAuthError(c, loadErr)
+			return
+		}
+		if current == nil || current.AuthVersion != identity.UserAuthVersion {
+			writeDashboardAuthError(c, service.ErrAuthTokenInvalid)
+			return
+		}
+		user = current.ToBaseUser()
+	}
 	if user.Status != common.UserStatusEnabled {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "code": "AUTH_USER_DISABLED", "message": common.TranslateMessage(c, i18n.MsgAuthUserBanned)})
 		return
@@ -105,14 +121,26 @@ func UserAuth() func(c *gin.Context) {
 }
 
 func AdminAuth() func(c *gin.Context) {
-	return func(c *gin.Context) {
-		authHelper(c, common.RoleAdminUser)
-	}
+	return dashboardAdminAuth
 }
 
 func RootAuth() func(c *gin.Context) {
-	return func(c *gin.Context) {
-		authHelper(c, common.RoleRootUser)
+	return dashboardRootAuth
+}
+
+func dashboardAdminAuth(c *gin.Context) { authHelper(c, common.RoleAdminUser) }
+func dashboardRootAuth(c *gin.Context)  { authHelper(c, common.RoleRootUser) }
+
+// RequiredDashboardRole identifies the named authentication middleware when
+// registering assistant operations. Authentication itself always runs normally.
+func RequiredDashboardRole(handler gin.HandlerFunc) int {
+	switch reflect.ValueOf(handler).Pointer() {
+	case reflect.ValueOf(dashboardAdminAuth).Pointer():
+		return common.RoleAdminUser
+	case reflect.ValueOf(dashboardRootAuth).Pointer():
+		return common.RoleRootUser
+	default:
+		return 0
 	}
 }
 
@@ -337,6 +365,10 @@ func preActivationRouteAllowed(method string, path string) bool {
 		return method == http.MethodGet || method == http.MethodPut || method == http.MethodDelete
 	case "/api/user/self/onboarding/todo":
 		return method == http.MethodGet
+	case "/api/user/self/announcements":
+		return method == http.MethodGet
+	case "/api/user/self/announcements/read":
+		return method == http.MethodPost
 	case "/api/user/passkey":
 		return method == http.MethodGet || method == http.MethodDelete
 	case "/api/user/sessions", "/api/user/oauth/bindings", "/api/user/2fa/status":
@@ -349,7 +381,7 @@ func preActivationRouteAllowed(method string, path string) bool {
 		return method == http.MethodGet
 	case "/api/user/sessions/revoke-others", "/api/user/passkey/register/begin", "/api/user/passkey/register/finish", "/api/user/passkey/verify/begin", "/api/user/passkey/verify/finish", "/api/user/2fa/setup", "/api/user/2fa/enable", "/api/user/2fa/disable", "/api/user/2fa/backup_codes":
 		return method == http.MethodPost
-	case "/api/user/setting":
+	case "/api/user/setting", "/api/user/sessions/settings":
 		return method == http.MethodPut
 	}
 
@@ -433,14 +465,14 @@ func RequirePermission(permission authz.Permission) func(c *gin.Context) {
 	}
 }
 
-func WssAuth(c *gin.Context) {
-
-}
-
 // TokenOrUserAuth allows either session-based user auth or API token auth.
 // Used for endpoints that need to be accessible from both the dashboard and API clients.
 func TokenOrUserAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
+		if isOAuthResourceAttempt(c) {
+			authenticateOAuthResource(c)
+			return
+		}
 		raw, ok := authorizationToken(c.GetHeader("Authorization"))
 		if ok {
 			identity, internal, err := service.ParseDashboardAccessToken(raw)
@@ -472,6 +504,10 @@ func TokenOrUserAuth() func(c *gin.Context) {
 // 仍然检查用户是否被封禁。
 func TokenAuthReadOnly() func(c *gin.Context) {
 	return func(c *gin.Context) {
+		if isOAuthResourceAttempt(c) {
+			oauthResourceFailure(c, http.StatusUnauthorized, "invalid_token")
+			return
+		}
 		key := c.Request.Header.Get("Authorization")
 		if key == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{
@@ -549,6 +585,10 @@ func TokenAuthReadOnly() func(c *gin.Context) {
 
 func TokenAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
+		if isOAuthResourceAttempt(c) {
+			authenticateOAuthResource(c)
+			return
+		}
 		if failure := authenticateRelayToken(c); failure != nil {
 			writeRelayTokenAuthFailure(c, failure)
 			return
@@ -584,6 +624,11 @@ func RevalidateTokenAuth(c *gin.Context) *types.NewAPIError {
 }
 
 func authenticateRelayToken(c *gin.Context) *relayTokenAuthFailure {
+	// Revalidation must not rewrite signalled OAuth credentials into an API
+	// key. This profile does not allow OAuth on long-lived relay transports.
+	if isOAuthResourceAttempt(c) {
+		return newRelayTokenAuthFailure(errors.New("OAuth requires its resource boundary"), http.StatusUnauthorized, "OAuth request is not authorized", types.ErrorCodeAccessDenied)
+	}
 	prepareRelayTokenCredential(c)
 	key, parts := relayTokenCredential(c)
 	token, err := model.ValidateUserToken(key)

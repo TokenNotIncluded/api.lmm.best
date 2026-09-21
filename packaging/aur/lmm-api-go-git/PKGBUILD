@@ -5,7 +5,7 @@ pkgver=0.1.20.r1291.g1db462ebe
 pkgrel=1
 pkgdesc='LMM API Go backend, native CLI, systemd service, and web frontend (git)'
 arch=('x86_64' 'aarch64')
-url='https://github.com/LIghtJUNction/api.lmm.best'
+url='https://github.com/TokenNotIncluded/api.lmm.best'
 license=('AGPL-3.0-only')
 depends=('ca-certificates' 'coreutils' 'libarchive' 'pacman' 'paru' 'sudo' 'systemd' 'tzdata' 'util-linux')
 makedepends=('bun' 'git' 'go>=1.25.1')
@@ -13,17 +13,16 @@ optdepends=(
   'postgresql: production database'
   'valkey: cache, rate limiting, and login sessions'
 )
-source "${startdir:?}/lmm-api-cli-phase.sh"
-_lmm_cli_phase=$LMM_CLI_SOURCE_PHASE
-lmm_cli_phase_apply_metadata "$_lmm_cli_phase" "$pkgver" \
-  'lmm-api' 'lmm-api-bin' 'lmm-api-git' 'lmm-api-go' 'lmm-api-go-bin'
-# pkgver() runs after PKGBUILD evaluation; keep VCS provides unversioned so they
+source "${startdir:?}/lmm-api-go-package.sh"
+lmm_go_package_apply_metadata "$pkgver" "$pkgname" \
+  'lmm-api-go' 'lmm-api-go-bin' 'lmm-api-go-git'
+# pkgver() runs after PKGBUILD evaluation; keep VCS provides unversioned so it
 # cannot retain the checked-in bootstrap version after the fetched commit moves.
-provides=('lmm-api' 'lmm-api-go')
+provides=('lmm-api-go' 'lmm-api-provider')
 backup=('etc/lmm-api-go/lmm-api-go.env')
 options=('!strip')
-source=('lmm-api-go::git+https://github.com/LIghtJUNction/api.lmm.best.git#branch=main' 'lmm-api-cli-phase.sh')
-sha256sums=('SKIP' '2b93864b302a7901a4688fd5b7df9b7e262f193a666a915718f434db20054935')
+source=('lmm-api-go::git+https://github.com/TokenNotIncluded/api.lmm.best.git#branch=main' 'lmm-api-go-package.sh')
+sha256sums=('SKIP' '655e9346a6d87baa1cb81d97dcc412243d7ee305f90371b99d89033ea0e99bb1')
 
 _source_pkgver_epoch=0.1.20
 
@@ -41,7 +40,7 @@ build() {
     cd apps/api-go || return
     CGO_ENABLED=0 go build -trimpath \
       -ldflags="-s -w -X github.com/LIghtJUNction/api.lmm.best/common.Version=${pkgver}" \
-      -o "${srcdir}/lmm-api-cli" .
+      -o "${srcdir}/lmm-api-go" .
   )
 }
 
@@ -50,8 +49,9 @@ package() {
   local shared="${root}/packaging/common/lmm-api"
   local file
 
-  install -Dm0755 "${srcdir}/lmm-api-cli" "${pkgdir}/usr/bin/lmm-api"
-  lmm_cli_phase_install_compatibility_alias "$_lmm_cli_phase" "$pkgdir"
+  install -Dm0755 "${srcdir}/lmm-api-go" "${pkgdir}/usr/bin/lmm-api-go"
+  install -Dm0755 "${root}/packaging/common/lmm-api/lmm-api-deploy" "${pkgdir}/usr/bin/lmm-api-deploy"
+  lmm_go_package_assert_payload "$pkgdir" "$pkgname" "$pkgver"
   install -Dm0644 "${shared}/lmm-api.service" \
     "${pkgdir}/usr/lib/systemd/system/lmm-api.service"
   if [[ -f ${shared}/lmm-api-operator.sysusers ]]; then

@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import i18next from 'i18next'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 
 import { useIsAdmin } from '@/hooks/use-admin'
@@ -28,7 +28,11 @@ import {
   completeOrder,
   isApiSuccess,
 } from '../api'
-import type { TopupRecord } from '../types'
+import type {
+  BillingHistorySortBy,
+  BillingHistorySortOrder,
+  TopupRecord,
+} from '../types'
 
 // ============================================================================
 // Billing History Hook
@@ -39,12 +43,22 @@ interface UseBillingHistoryOptions {
   initialPage?: number
   /** Initial page size */
   initialPageSize?: number
+  /** Initial server-side sort field. */
+  initialSortBy?: BillingHistorySortBy
+  /** Initial server-side sort direction. */
+  initialSortOrder?: BillingHistorySortOrder
   /** Load records only while the owning surface is visible. */
   enabled?: boolean
 }
 
 export function useBillingHistory(options: UseBillingHistoryOptions = {}) {
-  const { initialPage = 1, initialPageSize = 10, enabled = true } = options
+  const {
+    initialPage = 1,
+    initialPageSize = 10,
+    initialSortBy = 'create_time',
+    initialSortOrder = 'desc',
+    enabled = true,
+  } = options
   const isAdmin = useIsAdmin()
 
   const [records, setRecords] = useState<TopupRecord[]>([])
@@ -52,19 +66,31 @@ export function useBillingHistory(options: UseBillingHistoryOptions = {}) {
   const [page, setPage] = useState(initialPage)
   const [pageSize, setPageSize] = useState(initialPageSize)
   const [keyword, setKeyword] = useState('')
+  const [sortBy, setSortBy] = useState<BillingHistorySortBy>(initialSortBy)
+  const [sortOrder, setSortOrder] =
+    useState<BillingHistorySortOrder>(initialSortOrder)
   const [loading, setLoading] = useState(false)
   const [completing, setCompleting] = useState(false)
+  const activeRequestRef = useRef(0)
 
   /**
    * Fetch billing history
    */
   const fetchBillingHistory = useCallback(async () => {
+    const requestId = ++activeRequestRef.current
     setLoading(true)
     try {
       const response = isAdmin
-        ? await getAllBillingHistory(page, pageSize, keyword)
-        : await getUserBillingHistory(page, pageSize, keyword)
+        ? await getAllBillingHistory(page, pageSize, keyword, sortBy, sortOrder)
+        : await getUserBillingHistory(
+            page,
+            pageSize,
+            keyword,
+            sortBy,
+            sortOrder
+          )
 
+      if (requestId !== activeRequestRef.current) return
       if (isApiSuccess(response) && response.data) {
         setRecords(response.data.items || [])
         setTotal(response.data.total || 0)
@@ -76,15 +102,18 @@ export function useBillingHistory(options: UseBillingHistoryOptions = {}) {
         setTotal(0)
       }
     } catch (error) {
+      if (requestId !== activeRequestRef.current) return
       // eslint-disable-next-line no-console
       console.error('Failed to fetch billing history:', error)
       toast.error(i18next.t('Failed to load billing history'))
       setRecords([])
       setTotal(0)
     } finally {
-      setLoading(false)
+      if (requestId === activeRequestRef.current) {
+        setLoading(false)
+      }
     }
-  }, [isAdmin, page, pageSize, keyword])
+  }, [isAdmin, page, pageSize, keyword, sortBy, sortOrder])
 
   /**
    * Complete a pending order (admin only)
@@ -143,10 +172,30 @@ export function useBillingHistory(options: UseBillingHistoryOptions = {}) {
     setPage(1) // Reset to first page when searching
   }, [])
 
-  // Fetch data when dependencies change
+  const handleSortByChange = useCallback((newSortBy: BillingHistorySortBy) => {
+    setSortBy(newSortBy)
+    setPage(1)
+  }, [])
+
+  const handleSortOrderChange = useCallback(
+    (newSortOrder: BillingHistorySortOrder) => {
+      setSortOrder(newSortOrder)
+      setPage(1)
+    },
+    []
+  )
+
+  // Fetch data when dependencies change and invalidate superseded responses.
   useEffect(() => {
-    if (!enabled) return
-    fetchBillingHistory()
+    if (!enabled) {
+      activeRequestRef.current += 1
+      setLoading(false)
+      return
+    }
+    void fetchBillingHistory()
+    return () => {
+      activeRequestRef.current += 1
+    }
   }, [enabled, fetchBillingHistory])
 
   return {
@@ -155,12 +204,16 @@ export function useBillingHistory(options: UseBillingHistoryOptions = {}) {
     page,
     pageSize,
     keyword,
+    sortBy,
+    sortOrder,
     loading,
     completing,
     isAdmin,
     handlePageChange,
     handlePageSizeChange,
     handleSearch,
+    handleSortByChange,
+    handleSortOrderChange,
     handleCompleteOrder,
     refresh: fetchBillingHistory,
   }

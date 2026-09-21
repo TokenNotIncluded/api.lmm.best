@@ -1,10 +1,11 @@
 package model
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -12,7 +13,6 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/config"
-	"github.com/LIghtJUNction/api.lmm.best/setting/dynamic_pricing_setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/performance_setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
@@ -37,16 +37,28 @@ func isRetiredIPAccessOptionKey(key string) bool {
 	return retired
 }
 
+func isRetiredDynamicPricingOption(key string) bool {
+	return key == "dynamic_pricing_setting" || strings.HasPrefix(key, "dynamic_pricing_setting.")
+}
+
 func AllOption() ([]*Option, error) {
 	var options []*Option
 	var err error
 	err = DB.Find(&options).Error
-	return options, err
+	active := options[:0]
+	for _, option := range options {
+		if !isRetiredDynamicPricingOption(option.Key) {
+			active = append(active, option)
+		}
+	}
+	return active, err
 }
 
 func InitOptionMap() {
 	common.OptionMapRWMutex.Lock()
 	common.OptionMap = make(map[string]string)
+	common.OptionMap[AssistantRegistrationAutoSuspendOption] = "true"
+	common.OptionMap[AssistantRegistrationDailyCapOption] = "5"
 
 	// 添加原有的系统配置
 	common.OptionMap["FileUploadPermission"] = strconv.Itoa(common.FileUploadPermission)
@@ -101,6 +113,7 @@ func InitOptionMap() {
 	common.OptionMap["EpayKey"] = ""
 	common.OptionMap["Price"] = strconv.FormatFloat(operation_setting.Price, 'f', -1, 64)
 	common.OptionMap["USDExchangeRate"] = strconv.FormatFloat(operation_setting.USDExchangeRate, 'f', -1, 64)
+	common.OptionMap["TopUpPlatformUnitsPerCNY"] = strconv.FormatFloat(operation_setting.TopUpPlatformUnitsPerCNY, 'f', -1, 64)
 	common.OptionMap["MinTopUp"] = strconv.Itoa(operation_setting.MinTopUp)
 	common.OptionMap["StripeMinTopUp"] = strconv.Itoa(setting.StripeMinTopUp)
 	common.OptionMap["StripeApiSecret"] = setting.StripeApiSecret
@@ -141,7 +154,9 @@ func InitOptionMap() {
 	common.OptionMap[setting.AssistantEnabledOptionKey] = strconv.FormatBool(assistantSettings.Enabled)
 	common.OptionMap[setting.AssistantModelOptionKey] = assistantSettings.Model
 	common.OptionMap[setting.AssistantGroupOptionKey] = assistantSettings.Group
-	common.OptionMap[setting.AssistantL1AutoApprovalUserIDsOptionKey] = assistantSettings.L1AutoApprovalUserIDs
+	for key, value := range setting.GetAssistantL1AutoReviewSettings().OptionValues() {
+		common.OptionMap[key] = value
+	}
 	common.OptionMap[setting.AssistantReasoningEffortOptionKey] = assistantSettings.ReasoningEffort
 	common.OptionMap[setting.AssistantStreamEnabledOptionKey] = strconv.FormatBool(assistantSettings.StreamEnabled)
 	common.OptionMap[setting.AssistantTemperatureOptionKey] = strconv.FormatFloat(assistantSettings.Temperature, 'f', -1, 64)
@@ -154,6 +169,7 @@ func InitOptionMap() {
 	common.OptionMap[setting.AssistantCacheTTLMinutesOptionKey] = strconv.Itoa(assistantSettings.CacheTTLMinutes)
 	common.OptionMap[setting.AssistantPersonaOptionKey] = assistantSettings.Persona
 	common.OptionMap[setting.AssistantSystemPromptOptionKey] = assistantSettings.SystemPrompt
+	common.OptionMap[setting.AssistantPreConversationPresetsOptionKey] = ""
 	common.OptionMap[setting.AssistantSearchProviderOptionKey] = string(assistantSettings.SearchProvider)
 	common.OptionMap[setting.AssistantSearchURLOptionKey] = assistantSettings.SearchURL
 	common.OptionMap[setting.AssistantSearchAPIKeyOptionKey] = assistantSettings.SearchAPIKey
@@ -188,6 +204,9 @@ func InitOptionMap() {
 	common.OptionMap["TurnstileSecretKey"] = ""
 	common.OptionMap["QuotaForNewUser"] = strconv.Itoa(common.QuotaForNewUser)
 	common.OptionMap[OpenSourceBountyFeeRateOptionKey] = "1"
+	for key, value := range referralOptionDefaults() {
+		common.OptionMap[key] = value
+	}
 	common.OptionMap["QuotaForInviter"] = strconv.Itoa(common.QuotaForInviter)
 	common.OptionMap["QuotaForInvitee"] = strconv.Itoa(common.QuotaForInvitee)
 	common.OptionMap["QuotaRemindThreshold"] = strconv.Itoa(common.QuotaRemindThreshold)
@@ -196,6 +215,7 @@ func InitOptionMap() {
 	common.OptionMap["ModelRequestRateLimitDurationMinutes"] = strconv.Itoa(setting.ModelRequestRateLimitDurationMinutes)
 	common.OptionMap["ModelRequestRateLimitSuccessCount"] = strconv.Itoa(setting.ModelRequestRateLimitSuccessCount)
 	common.OptionMap["ModelRequestRateLimitGroup"] = setting.ModelRequestRateLimitGroup2JSONString()
+	common.OptionMap[ModelPriceLocksOptionKey] = "{}"
 	common.OptionMap["ModelRatio"] = ratio_setting.ModelRatio2JSONString()
 	common.OptionMap["ModelPrice"] = ratio_setting.ModelPrice2JSONString()
 	common.OptionMap["CacheRatio"] = ratio_setting.CacheRatio2JSONString()
@@ -222,7 +242,7 @@ func InitOptionMap() {
 	common.OptionMap["MjActionCheckSuccessEnabled"] = strconv.FormatBool(setting.MjActionCheckSuccessEnabled)
 	common.OptionMap["CheckSensitiveEnabled"] = strconv.FormatBool(setting.CheckSensitiveEnabled)
 	common.OptionMap["DemoSiteEnabled"] = strconv.FormatBool(operation_setting.DemoSiteEnabled)
-	common.OptionMap["SelfUseModeEnabled"] = strconv.FormatBool(operation_setting.SelfUseModeEnabled)
+	common.OptionMap["SelfUseModeEnabled"] = strconv.FormatBool(operation_setting.SelfUseModeEnabled.Load())
 	common.OptionMap["ModelRequestRateLimitEnabled"] = strconv.FormatBool(setting.ModelRequestRateLimitEnabled)
 	common.OptionMap["CheckSensitiveOnPromptEnabled"] = strconv.FormatBool(setting.CheckSensitiveOnPromptEnabled)
 	common.OptionMap["StopOnSensitiveEnabled"] = strconv.FormatBool(setting.StopOnSensitiveEnabled)
@@ -256,24 +276,62 @@ func InitOptionMap() {
 }
 
 func loadOptionsFromDatabase() {
-	options, _ := AllOption()
+	optionUpdateMutex.Lock()
+	defer optionUpdateMutex.Unlock()
+	options, err := AllOption()
+	if err != nil {
+		common.SysLog("failed to load option map: " + err.Error())
+		return
+	}
+	l1Values := setting.DefaultAssistantL1AutoReviewSettings().OptionValues()
 	for _, option := range options {
-		err := updateOptionMap(option.Key, option.Value)
-		if err != nil {
+		if setting.IsAssistantL1AutoReviewOption(option.Key) {
+			l1Values[option.Key] = option.Value
+			continue
+		}
+		if err := updateOptionMap(option.Key, option.Value); err != nil {
 			common.SysLog("failed to update option map: " + err.Error())
 		}
+	}
+	if err := applyAssistantL1AutoReviewOptionMap(l1Values); err != nil {
+		common.SysLog("failed to update L1 automatic review settings: " + err.Error())
 	}
 }
 
 func SyncOptions(frequency int) {
+	SyncOptionsContext(context.Background(), frequency)
+}
+
+func SyncOptionsContext(ctx context.Context, frequency int) {
+	if frequency <= 0 {
+		return
+	}
+	ticker := time.NewTicker(time.Duration(frequency) * time.Second)
+	defer ticker.Stop()
 	for {
-		time.Sleep(time.Duration(frequency) * time.Second)
-		common.SysLog("syncing options from database")
-		loadOptionsFromDatabase()
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			common.SysLog("syncing options from database")
+			loadOptionsFromDatabase()
+		}
 	}
 }
 
 func validateOptionValue(key string, value string) error {
+	if err := validateReferralOption(key, value); err != nil {
+		return err
+	}
+	if isRegistrationGuardOption(key) {
+		if key != AssistantRegistrationAutoSuspendOption && key != AssistantRegistrationDailyCapOption {
+			return errors.New("registration guard internal state is not configurable")
+		}
+		return ValidateRegistrationGuardOption(key, value)
+	}
+	if setting.IsAssistantL1AutoReviewOption(key) {
+		return validateAssistantL1AutoReviewValues(map[string]string{key: value})
+	}
 	if isRetiredIPAccessOptionKey(key) {
 		return errors.New("legacy IP access option is retired; use IPAccessRoutingRules")
 	}
@@ -281,8 +339,11 @@ func validateOptionValue(key string, value string) error {
 		_, err := common.ParseRegistrationDisabledMethods(value)
 		return err
 	}
-	if dynamic_pricing_setting.IsOptionKey(key) {
-		return dynamic_pricing_setting.ValidateOptionValues(map[string]string{key: value})
+	if key == "general_setting.custom_currency_code" {
+		return operation_setting.ValidateCustomCurrencyCode(value)
+	}
+	if isRetiredDynamicPricingOption(key) {
+		return errors.New("dynamic pricing has been removed; use fixed group ratios")
 	}
 	if err := setting.ValidateAssistantOption(key, value); err != nil {
 		return err
@@ -374,26 +435,8 @@ func validateAbsoluteHTTPURLOption(key string, value string) error {
 }
 
 func UpdateOption(key string, value string) error {
-	if err := validateOptionValue(key, value); err != nil {
-		return err
-	}
-	// Save to database first
-	option := Option{
-		Key: key,
-	}
-	// https://gorm.io/docs/update.html#Save-All-Fields
-	if err := DB.FirstOrCreate(&option, Option{Key: key}).Error; err != nil {
-		return err
-	}
-	option.Value = value
-	// Save is a combination function.
-	// If save value does not contain primary key, it will execute Create,
-	// otherwise it will execute Update (with all fields).
-	if err := DB.Save(&option).Error; err != nil {
-		return err
-	}
-	// Update OptionMap
-	return updateOptionMap(key, value)
+	_, err := UpdateOptionWithWarnings(key, value)
+	return err
 }
 
 // ValidateOptionValue exposes the same validation used by UpdateOption without
@@ -401,23 +444,31 @@ func UpdateOption(key string, value string) error {
 // use this to reject an invalid change before issuing a one-time confirmation
 // flow.
 func ValidateOptionValue(key, value string) error {
-	return validateOptionValue(key, value)
+	if err := validateOptionValue(key, value); err != nil {
+		return err
+	}
+	return validateModelPriceValues(map[string]string{key: value})
 }
 
 // ValidateOptionValues checks a related set of option writes without
-// persisting them. Dynamic-pricing fields are validated as one candidate
-// configuration so an import cannot pass each field in isolation while the
-// resulting configuration is unsafe.
+// persisting them. Related settings are validated as one candidate.
 func ValidateOptionValues(values map[string]string) error {
+	if err := validateOptionValues(values); err != nil {
+		return err
+	}
+	return validateModelPriceValues(values)
+}
+
+func validateOptionValues(values map[string]string) error {
 	if len(values) == 0 {
 		return errors.New("at least one option is required")
 	}
-	dynamicValues := make(map[string]string)
 	assistantRouteChanged := false
 	assistantReviewRouteChanged := false
+	l1AutoReviewValues := make(map[string]string)
 	for key, value := range values {
-		if dynamic_pricing_setting.IsOptionKey(key) {
-			dynamicValues[key] = value
+		if setting.IsAssistantL1AutoReviewOption(key) {
+			l1AutoReviewValues[key] = value
 			continue
 		}
 		switch key {
@@ -468,8 +519,8 @@ func ValidateOptionValues(values map[string]string) error {
 			return err
 		}
 	}
-	if len(dynamicValues) > 0 {
-		if err := dynamic_pricing_setting.ValidateOptionValues(dynamicValues); err != nil {
+	if len(l1AutoReviewValues) > 0 {
+		if err := validateAssistantL1AutoReviewValues(l1AutoReviewValues); err != nil {
 			return err
 		}
 	}
@@ -531,58 +582,8 @@ func validateAssistantReviewRouteValues(values map[string]string) error {
 // is touched — safe for callers that must commit a set of related options
 // atomically (e.g. payment gateway binding).
 func UpdateOptionsBulk(values map[string]string) error {
-	if len(values) == 0 {
-		return nil
-	}
-	if err := ValidateOptionValues(values); err != nil {
-		return err
-	}
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	// Apply the master switch last when enabling (all safety inputs are live
-	// first), and first when disabling (request-path pricing stops before any
-	// other setting changes).
-	enabledKey := "dynamic_pricing_setting.enabled"
-	if enabledValue, ok := values[enabledKey]; ok {
-		withoutEnabled := make([]string, 0, len(keys)-1)
-		for _, key := range keys {
-			if key != enabledKey {
-				withoutEnabled = append(withoutEnabled, key)
-			}
-		}
-		if enabledValue == "false" {
-			keys = append([]string{enabledKey}, withoutEnabled...)
-		} else {
-			keys = append(withoutEnabled, enabledKey)
-		}
-	}
-	err := DB.Transaction(func(tx *gorm.DB) error {
-		for _, k := range keys {
-			v := values[k]
-			option := Option{Key: k}
-			if err := tx.FirstOrCreate(&option, Option{Key: k}).Error; err != nil {
-				return err
-			}
-			option.Value = v
-			if err := tx.Save(&option).Error; err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-	for _, k := range keys {
-		v := values[k]
-		if err := updateOptionMap(k, v); err != nil {
-			return err
-		}
-	}
-	return nil
+	_, err := UpdateOptionsBulkWithWarnings(values)
+	return err
 }
 
 // UpdateAdvancedSecurityOptions persists and applies the four guardrail
@@ -640,6 +641,12 @@ func UpdateAdvancedSecurityOptions(enabled, onPrompt bool, action, rules string)
 }
 
 func updateOptionMap(key string, value string) (err error) {
+	if isRetiredDynamicPricingOption(key) {
+		common.OptionMapRWMutex.Lock()
+		delete(common.OptionMap, key)
+		common.OptionMapRWMutex.Unlock()
+		return nil
+	}
 	if isRetiredIPAccessOptionKey(key) {
 		common.OptionMapRWMutex.Lock()
 		delete(common.OptionMap, key)
@@ -650,6 +657,12 @@ func updateOptionMap(key string, value string) (err error) {
 	// active request-path policy.
 	if err := setting.ValidateIPAccessRoutingOption(key, value); err != nil {
 		return err
+	}
+	if key == "USDExchangeRate" || key == "TopUpPlatformUnitsPerCNY" {
+		rate, parseErr := strconv.ParseFloat(value, 64)
+		if parseErr != nil || math.IsNaN(rate) || math.IsInf(rate, 0) || rate <= 0 {
+			return fmt.Errorf("%s must be a positive finite number", key)
+		}
 	}
 	// Legacy model-specific Grok violation options are intentionally ignored.
 	// The active policy is now operation_setting's provider-agnostic group
@@ -679,6 +692,13 @@ func updateOptionMap(key string, value string) (err error) {
 	}
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
+	if setting.IsAssistantL1AutoReviewOption(key) {
+		if err := setting.UpdateAssistantL1AutoReviewOption(key, value); err != nil {
+			return err
+		}
+		common.OptionMap[key] = value
+		return nil
+	}
 	common.OptionMap[key] = value
 
 	// 检查是否是模型配置 - 使用更规范的方式处理
@@ -768,7 +788,7 @@ func updateOptionMap(key string, value string) (err error) {
 		case "DemoSiteEnabled":
 			operation_setting.DemoSiteEnabled = boolValue
 		case "SelfUseModeEnabled":
-			operation_setting.SelfUseModeEnabled = boolValue
+			operation_setting.SelfUseModeEnabled.Store(boolValue)
 		case "CheckSensitiveOnPromptEnabled":
 			setting.CheckSensitiveOnPromptEnabled = boolValue
 		case "ModelRequestRateLimitEnabled":
@@ -859,6 +879,8 @@ func updateOptionMap(key string, value string) (err error) {
 		err = setting.UpdateAssistantPersona(value)
 	case setting.AssistantSystemPromptOptionKey:
 		err = setting.UpdateAssistantSystemPrompt(value)
+	case setting.AssistantPreConversationPresetsOptionKey:
+		err = setting.ValidateAssistantOption(setting.AssistantPreConversationPresetsOptionKey, value)
 	case setting.AssistantSearchProviderOptionKey:
 		err = setting.UpdateAssistantSearchProvider(value)
 	case setting.AssistantSearchURLOptionKey:
@@ -907,6 +929,8 @@ func updateOptionMap(key string, value string) (err error) {
 		operation_setting.Price, _ = strconv.ParseFloat(value, 64)
 	case "USDExchangeRate":
 		operation_setting.USDExchangeRate, _ = strconv.ParseFloat(value, 64)
+	case "TopUpPlatformUnitsPerCNY":
+		operation_setting.TopUpPlatformUnitsPerCNY, _ = strconv.ParseFloat(value, 64)
 	case "MinTopUp":
 		operation_setting.MinTopUp, _ = strconv.Atoi(value)
 	case "StripeApiSecret":

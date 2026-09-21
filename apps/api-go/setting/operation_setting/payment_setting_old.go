@@ -13,9 +13,16 @@ var PayAddress = ""
 var CustomCallbackAddress = ""
 var EpayId = ""
 var EpayKey = ""
-var Price = 7.3
+var Price = 7.3 // Deprecated: retained only for option compatibility.
 var MinTopUp = 1
+
+// USDExchangeRate is the real CNY amount represented by one fiat USD.
 var USDExchangeRate = 7.3
+
+// TopUpPlatformUnitsPerCNY is the base recharge ratio. It is deliberately
+// separate from FX and amount-tier discounts: 1 means 1 CNY buys 1 platform
+// unit before any group, channel, or preset multiplier is applied.
+var TopUpPlatformUnitsPerCNY = 1.0
 
 var PayMethods = []map[string]string{
 	{

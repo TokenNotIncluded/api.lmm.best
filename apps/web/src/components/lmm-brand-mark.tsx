@@ -20,13 +20,13 @@ import type { SVGProps } from 'react'
 
 import { cn } from '@/lib/utils'
 
-export const LMM_BRAND_NAME = 'LMM Forge'
+export const LMM_BRAND_NAME = 'LMM Best'
 
 type LmmBrandMarkProps = SVGProps<SVGSVGElement> & {
   title?: string
 }
 
-/** A quiet angular monogram for the editorial Forge shell. */
+/** A quiet angular monogram for the LMM Best identity. */
 export function LmmBrandMark({
   className,
   title,
@@ -46,7 +46,7 @@ export function LmmBrandMark({
       <path
         d='M10 39V16l18 18 18-18v23'
         fill='none'
-        stroke='var(--forge-brand-mark-ink)'
+        stroke='var(--forge-brand-mark-ink, currentColor)'
         strokeWidth='3.5'
         strokeLinecap='square'
         strokeLinejoin='round'
@@ -54,7 +54,7 @@ export function LmmBrandMark({
       <path
         d='M12 45h32'
         fill='none'
-        stroke='var(--forge-brand-mark-accent)'
+        stroke='var(--forge-brand-mark-accent, currentColor)'
         strokeWidth='2.5'
         strokeLinecap='square'
       />

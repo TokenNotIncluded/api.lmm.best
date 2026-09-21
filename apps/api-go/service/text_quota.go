@@ -76,15 +76,40 @@ func (s *textQuotaSummary) hasBillableUsage() bool {
 	return s.TotalTokens > 0 || !s.ToolCallSurchargeQuota.IsZero()
 }
 
+func nonNegativeTokenCount(value int) int {
+	if value < 0 {
+		return 0
+	}
+	return value
+}
+
+func saturatingTokenCountAdd(left, right int) int {
+	left = nonNegativeTokenCount(left)
+	right = nonNegativeTokenCount(right)
+	if right > math.MaxInt-left {
+		return math.MaxInt
+	}
+	return left + right
+}
+
+func subtractTokenCountFloorZero(total, part int) int {
+	total = nonNegativeTokenCount(total)
+	part = nonNegativeTokenCount(part)
+	if part >= total {
+		return 0
+	}
+	return total - part
+}
+
 func cacheWriteTokensTotal(summary textQuotaSummary) int {
 	if summary.CacheCreationTokens5m > 0 || summary.CacheCreationTokens1h > 0 {
-		splitCacheWriteTokens := summary.CacheCreationTokens5m + summary.CacheCreationTokens1h
+		splitCacheWriteTokens := saturatingTokenCountAdd(summary.CacheCreationTokens5m, summary.CacheCreationTokens1h)
 		if summary.CacheCreationTokens > splitCacheWriteTokens {
 			return summary.CacheCreationTokens
 		}
 		return splitCacheWriteTokens
 	}
-	return summary.CacheCreationTokens
+	return nonNegativeTokenCount(summary.CacheCreationTokens)
 }
 
 func isLegacyClaudeDerivedOpenAIUsage(relayInfo *relaycommon.RelayInfo, usage *dto.Usage) bool {
@@ -210,8 +235,6 @@ func composeTieredTextQuota(relayInfo *relaycommon.RelayInfo, summary textQuotaS
 			baseQuota, baseClamp := common.QuotaFromDecimalChecked(decimal.NewFromFloat(tieredResult.ActualQuotaBeforeGroup).
 				Mul(decimal.NewFromFloat(snap.GroupRatio)))
 			noteQuotaClamp(relayInfo, baseClamp)
-			baseQuota, dynamicClamp := applyDynamicPricingToQuota(relayInfo, baseQuota)
-			noteQuotaClamp(relayInfo, dynamicClamp)
 			quota, clamp := common.QuotaFromDecimalChecked(decimal.NewFromInt(int64(baseQuota)).Add(summary.ToolCallSurchargeQuota))
 			noteQuotaClamp(relayInfo, clamp)
 			return quota
@@ -250,29 +273,36 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 	summary.IsClaudeUsageSemantic = summary.UsageSemantic == "anthropic"
 
 	if usage == nil {
-		usage = &dto.Usage{
-			PromptTokens:     relayInfo.GetEstimatePromptTokens(),
-			CompletionTokens: 0,
-			TotalTokens:      relayInfo.GetEstimatePromptTokens(),
+		usage = &dto.Usage{}
+		// The request-side estimate is not evidence of upstream consumption.
+		// Apply the same completion gate as historical/prepayment fallback
+		// before turning an absent usage payload into billable input tokens.
+		if canEstimateMissingTextUsage(ctx, relayInfo) {
+			usage.PromptTokens = relayInfo.GetEstimatePromptTokens()
+			usage.TotalTokens = usage.PromptTokens
 		}
 	}
 
-	summary.PromptTokens = usage.PromptTokens
-	summary.CompletionTokens = usage.CompletionTokens
-	summary.TotalTokens = usage.PromptTokens + usage.CompletionTokens
-	summary.CacheTokens = usage.PromptTokensDetails.CachedTokens
-	summary.CacheCreationTokens = usage.PromptTokensDetails.CacheCreationTokensTotal()
-	summary.CacheCreationTokens5m = usage.ClaudeCacheCreation5mTokens
-	summary.CacheCreationTokens1h = usage.ClaudeCacheCreation1hTokens
-	summary.ImageTokens = usage.PromptTokensDetails.ImageTokens
-	summary.AudioTokens = usage.PromptTokensDetails.AudioTokens
+	summary.PromptTokens = nonNegativeTokenCount(usage.PromptTokens)
+	summary.CompletionTokens = nonNegativeTokenCount(usage.CompletionTokens)
+	summary.TotalTokens = saturatingTokenCountAdd(summary.PromptTokens, summary.CompletionTokens)
+	summary.CacheTokens = nonNegativeTokenCount(usage.PromptTokensDetails.CachedTokens)
+	summary.CacheCreationTokens5m = nonNegativeTokenCount(usage.ClaudeCacheCreation5mTokens)
+	summary.CacheCreationTokens1h = nonNegativeTokenCount(usage.ClaudeCacheCreation1hTokens)
+	summary.CacheCreationTokens = cacheWriteTokensTotal(textQuotaSummary{
+		CacheCreationTokens:   nonNegativeTokenCount(usage.PromptTokensDetails.CacheCreationTokensTotal()),
+		CacheCreationTokens5m: summary.CacheCreationTokens5m,
+		CacheCreationTokens1h: summary.CacheCreationTokens1h,
+	})
+	summary.ImageTokens = nonNegativeTokenCount(usage.PromptTokensDetails.ImageTokens)
+	summary.AudioTokens = nonNegativeTokenCount(usage.PromptTokensDetails.AudioTokens)
 	legacyClaudeDerived := isLegacyClaudeDerivedOpenAIUsage(relayInfo, usage)
 	isOpenRouterClaudeBilling := relayInfo.ChannelMeta != nil &&
 		relayInfo.ChannelType == constant.ChannelTypeOpenRouter &&
 		summary.IsClaudeUsageSemantic
 
 	if isOpenRouterClaudeBilling {
-		summary.PromptTokens -= summary.CacheTokens
+		summary.PromptTokens = subtractTokenCountFloorZero(summary.PromptTokens, summary.CacheTokens)
 		isUsingCustomSettings := relayInfo.PriceData.UsePrice || hasCustomModelRatio(summary.ModelName, relayInfo.PriceData.ModelRatio)
 		if summary.CacheCreationTokens == 0 && relayInfo.PriceData.CacheCreationRatio != 1 && usage.Cost != 0 && !isUsingCustomSettings {
 			maybeCacheCreationTokens := CalcOpenRouterCacheCreateTokens(*usage, relayInfo.PriceData)
@@ -280,7 +310,7 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 				summary.CacheCreationTokens = maybeCacheCreationTokens
 			}
 		}
-		summary.PromptTokens -= summary.CacheCreationTokens
+		summary.PromptTokens = subtractTokenCountFloorZero(summary.PromptTokens, summary.CacheCreationTokens)
 	}
 
 	dPromptTokens := decimal.NewFromInt(int64(summary.PromptTokens))
@@ -322,10 +352,8 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 				baseTokens = baseTokens.Sub(dCachedCreationTokens)
 				cachedCreationTokensWithRatio = dCachedCreationTokens.Mul(dCacheCreationRatio)
 			} else {
-				remaining := summary.CacheCreationTokens - summary.CacheCreationTokens5m - summary.CacheCreationTokens1h
-				if remaining < 0 {
-					remaining = 0
-				}
+				remaining := subtractTokenCountFloorZero(summary.CacheCreationTokens, summary.CacheCreationTokens5m)
+				remaining = subtractTokenCountFloorZero(remaining, summary.CacheCreationTokens1h)
 				cachedCreationTokensWithRatio = decimal.NewFromInt(int64(remaining)).Mul(dCacheCreationRatio)
 				cachedCreationTokensWithRatio = cachedCreationTokensWithRatio.Add(decimal.NewFromInt(int64(summary.CacheCreationTokens5m)).Mul(dCacheCreationRatio5m))
 				cachedCreationTokensWithRatio = cachedCreationTokensWithRatio.Add(decimal.NewFromInt(int64(summary.CacheCreationTokens1h)).Mul(dCacheCreationRatio1h))
@@ -397,6 +425,20 @@ func usageSemanticFromUsage(relayInfo *relaycommon.RelayInfo, usage *dto.Usage) 
 	return "openai"
 }
 
+// canEstimateMissingTextUsage gates estimates, not measured usage. Partial
+// output and provider-reported tokens still settle normally after a stream
+// failure; only an otherwise-empty settlement must not invent consumption.
+func canEstimateMissingTextUsage(ctx *gin.Context, info *relaycommon.RelayInfo) bool {
+	if ctx == nil || info == nil {
+		return false
+	}
+	if ctx.Request != nil && ctx.Request.Context().Err() != nil {
+		return false
+	}
+	status := info.StreamStatus
+	return status == nil || (status.IsNormalEnd() && status.EndError == nil && !status.HasErrors())
+}
+
 func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage, extraContent []string) {
 	originUsage := usage
 	billingUsage := effectiveBillingUsage(usage)
@@ -409,6 +451,9 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 
 	adminRejectReason := common.GetContextKeyString(ctx, constant.ContextKeyAdminRejectReason)
 	summary := calculateTextQuotaSummary(ctx, relayInfo, billingUsage)
+	estimatedMissingUsage := false
+	estimateSamples := 0
+	estimateBasis := ""
 
 	var tieredResult *billingexpr.TieredResult
 	tieredBillingApplied := false
@@ -444,15 +489,44 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	}
 
 	if !summary.hasBillableUsage() {
-		extraContent = append(extraContent, "上游没有返回计费信息，无法扣费（可能是上游超时）")
-		logger.LogError(ctx, fmt.Sprintf("total tokens is 0, cannot consume quota, userId %d, channelId %d, tokenId %d, model %s， pre-consumed quota %d", relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, summary.ModelName, relayInfo.FinalPreConsumedQuota))
-	} else {
+		if !canEstimateMissingTextUsage(ctx, relayInfo) {
+			// Unknown usage on an interrupted/failed request is not evidence
+			// of a successful request. Settle zero through the normal path so
+			// prepayment is refunded without replaying an already-started stream.
+			summary.Quota = 0
+			extraContent = append(extraContent, "请求未正常完成且没有可计费用量；不使用历史或预扣额度估算")
+		} else {
+			estimated, samples, estimateErr := model.EstimateRecentModelQuota(summary.ModelName, relayInfo.FinalPreConsumedQuota)
+			estimateSamples = samples
+			if estimateErr != nil {
+				logger.LogError(ctx, "missing-usage quota estimate failed: "+estimateErr.Error())
+			} else if estimated > 0 {
+				summary.Quota = estimated
+				estimatedMissingUsage = true
+				estimateBasis = "same_model_recent_success_average"
+				extraContent = append(extraContent, fmt.Sprintf("上游未返回用量；按同模型 %d 个历史成功请求的平均额度估算结算", samples))
+			}
+			if !estimatedMissingUsage && relayInfo.FinalPreConsumedQuota > 0 {
+				summary.Quota = relayInfo.FinalPreConsumedQuota
+				estimatedMissingUsage = true
+				estimateBasis = "preconsumed_fallback_no_history"
+				extraContent = append(extraContent, "上游未返回用量且无同模型历史样本；保留本次预扣额度结算")
+			}
+			if !estimatedMissingUsage {
+				extraContent = append(extraContent, "上游没有返回计费信息且本地无法估算，本次没有可结算额度")
+			}
+		}
+		logger.LogError(ctx, fmt.Sprintf("total tokens is 0, fallback billing applied=%t, userId %d, channelId %d, tokenId %d, model %s, pre-consumed quota %d", estimatedMissingUsage, relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, summary.ModelName, relayInfo.FinalPreConsumedQuota))
+	}
+	if summary.hasBillableUsage() || estimatedMissingUsage {
 		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, summary.Quota)
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, summary.Quota)
 	}
 
-	if err := SettleBilling(ctx, relayInfo, summary.Quota); err != nil {
-		logger.LogError(ctx, "error settling billing: "+err.Error())
+	settlementErr := SettleBilling(ctx, relayInfo, summary.Quota)
+	if settlementErr != nil {
+		logger.LogError(ctx, "error settling billing: "+settlementErr.Error())
+		extraContent = append(extraContent, "费用结算未完成；已返回的模型结果不会重发")
 	}
 
 	logModel := summary.ModelName
@@ -481,6 +555,12 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	}
 	if !summary.hasBillableUsage() {
 		other["upstream_empty_usage"] = true
+		if estimatedMissingUsage {
+			other["usage_estimated"] = true
+			other["usage_estimate_basis"] = estimateBasis
+			other["usage_estimate_samples"] = estimateSamples
+			other["usage_estimate_cap"] = relayInfo.FinalPreConsumedQuota
+		}
 	}
 	appendUsageBillingPathForLog(other, common.GetContextKeyBool(ctx, constant.ContextKeyLocalCountTokens), originUsage)
 	if adminRejectReason != "" {
@@ -528,7 +608,9 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	}
 
 	attachQuotaSaturation(ctx, relayInfo, other)
+	appendSubscriptionSettlementLog(other, relayInfo, settlementErr)
 
+	other["acquisition_success_v1"] = acquisitionTextResponseSucceeded(ctx, relayInfo, summary.CompletionTokens, originUsage != nil && !estimatedMissingUsage, adminRejectReason != "")
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
 		ChannelId:        relayInfo.ChannelId,
 		PromptTokens:     summary.PromptTokens,
@@ -546,4 +628,46 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	gopool.Go(func() {
 		perfmetrics.RecordRelaySample(relayInfo, true, int64(summary.CompletionTokens))
 	})
+}
+
+// Usage counters and Log.Quota continue to describe measured usage, not payment.
+// The settlement snapshot records committed debits independently, including the
+// prepayment retained when a final debit or refund fails. Never retry upstream
+// generation here; compensation uses the durable request-ID settlement API.
+func appendSubscriptionSettlementLog(other map[string]interface{}, info *relaycommon.RelayInfo, settlementErr error) {
+	session, ok := info.Billing.(*BillingSession)
+	if !ok {
+		return
+	}
+	result := session.SubscriptionSettlement()
+	if result == nil {
+		return
+	}
+	charged := result.SubscriptionQuota + result.WalletQuota
+	// Override the legacy single-source metadata generated above.
+	other["wallet_quota_deducted"] = result.WalletQuota
+	other["subscription_consumed"] = result.SubscriptionQuota
+	unsettled, refundPending := result.ActualQuota-charged, charged-result.ActualQuota
+	if unsettled < 0 {
+		unsettled = 0
+	}
+	if refundPending < 0 {
+		refundPending = 0
+	}
+	other["billing_settlement"] = map[string]interface{}{
+		"request_id": result.RequestId, "status": result.Status,
+		"actual_quota": result.ActualQuota, "charged_quota": charged,
+		"unsettled_quota": unsettled, "refund_pending_quota": refundPending,
+		"subscription_quota": result.SubscriptionQuota, "wallet_quota": result.WalletQuota,
+		"token_quota": result.TokenQuota, "usage_counters_basis": "actual_quota",
+		"complete": settlementErr == nil && result.Status == "settled",
+	}
+	if settlementErr != nil {
+		admin, ok := other["admin_info"].(map[string]interface{})
+		if !ok {
+			admin = make(map[string]interface{})
+			other["admin_info"] = admin
+		}
+		admin["billing_settlement_error"] = settlementErr.Error()
+	}
 }

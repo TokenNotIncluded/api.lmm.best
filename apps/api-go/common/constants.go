@@ -98,9 +98,12 @@ var MemoryCacheEnabled bool
 var LogConsumeEnabled = true
 
 var TLSInsecureSkipVerify bool
+
+// pi-lens-ignore: opengrep:problem-based-packs.insecure-transport.go-stdlib.bypass-tls-verification.bypass-tls-verification
 var InsecureTLSConfig = &tls.Config{
-	InsecureSkipVerify: true, //nolint:gosec // G402: only assigned when TLSInsecureSkipVerify is enabled.
-	MinVersion:         tls.VersionTLS12,
+	MinVersion: tls.VersionTLS12,
+	// Selected only when the operator explicitly sets TLS_INSECURE_SKIP_VERIFY=true.
+	InsecureSkipVerify: true, // #nosec G402 -- compatibility escape hatch; TLS 1.2 remains mandatory.
 }
 
 var SMTPServer = ""
@@ -159,6 +162,10 @@ var NodeNameSource = NodeNameSourceHostname
 
 var NodeNameManuallyConfigured bool
 
+// APIInstanceSlot optionally distinguishes multiple Go API runtimes that share
+// the same physical NodeName (for example, blue and green slots).
+var APIInstanceSlot string
+
 var requestInterval int
 var RequestInterval time.Duration
 
@@ -170,8 +177,26 @@ var BatchUpdateInterval int
 var RelayTimeout int // unit is second
 
 var RelayIdleConnTimeout int // unit is second
+
+// RelayResponseHeaderTimeout limits how long the relay transport waits for the
+// upstream response headers after the request has been fully written.
+// 0 disables it (previous behaviour: wait forever).
+//
+// Note this is NOT the same as RelayTimeout (http.Client.Timeout), which covers
+// the whole response read and therefore breaks legitimate long streaming calls.
+// ResponseHeaderTimeout only bounds the wait for the response headers; once the
+// headers arrive, streaming is unaffected.
+var RelayResponseHeaderTimeout int // unit is second
+// OpenAIFirstOutputTimeout bounds the wait for the first visible OpenAI stream
+// output after upstream response headers arrive. Zero disables the guard.
+var OpenAIFirstOutputTimeout int // unit is second
 var RelayMaxIdleConns int
 var RelayMaxIdleConnsPerHost int
+
+// MaxKeepaliveDuration is the maximum wall-clock duration for SSE keepalive goroutines
+// in both pre-response and stream phases. Used to prevent unbounded goroutine lifetime
+// while still accommodating long-running streams. Unit is minutes.
+var MaxKeepaliveDuration int // unit is minutes
 
 var GeminiSafetySetting string
 

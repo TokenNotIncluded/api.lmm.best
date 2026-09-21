@@ -26,7 +26,10 @@ describe('payment amount routing', () => {
   test('rejects missing, non-finite, and zero checkout amounts', () => {
     assert.equal(isPositivePaymentAmount(undefined), false)
     assert.equal(isPositivePaymentAmount(Number.NaN), false)
+    assert.equal(isPositivePaymentAmount(Number.POSITIVE_INFINITY), false)
+    assert.equal(isPositivePaymentAmount(Number.NEGATIVE_INFINITY), false)
     assert.equal(isPositivePaymentAmount(0), false)
+    assert.equal(isPositivePaymentAmount(-0.01), false)
     assert.equal(isPositivePaymentAmount(0.01), true)
   })
 

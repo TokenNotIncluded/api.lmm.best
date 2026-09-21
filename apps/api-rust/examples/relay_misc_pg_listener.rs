@@ -23,11 +23,11 @@ use axum::{
 };
 use lmm_api_rs::{
     RequestContext,
-    migration_routes::{
+    models::PgModelsService,
+    routes::{
         relay_misc::RelayMiscHttpState, relay_misc_active::router as active_router,
         relay_misc_frozen::router as frozen_router, relay_misc_postgres::PgRelayMiscService,
     },
-    models::PgModelsService,
 };
 use sqlx::postgres::PgPoolOptions;
 use tokio::net::TcpListener;
@@ -76,9 +76,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .connect(&database_url)
         .await?;
     let models = Arc::new(PgModelsService::new(pool.clone()));
-    let outbound = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .build()?;
+    let outbound = lmm_api_rs::relay_http::RelayHttpClient::new(Default::default())?;
     let mut service = PgRelayMiscService::new(pool, models, outbound, Duration::from_secs(5));
     if let Ok(valkey_url) = env::var("LMM_RELAY_MISC_HARNESS_VALKEY_URL") {
         let parsed_valkey = reqwest::Url::parse(&valkey_url)?;

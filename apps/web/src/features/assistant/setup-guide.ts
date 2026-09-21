@@ -16,24 +16,37 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-export type AssistantSetupPlatform = 'windows' | 'macos' | 'linux'
+export type AssistantDesktopPlatform = 'windows' | 'macos' | 'linux'
+export type AssistantSetupPlatform =
+  | AssistantDesktopPlatform
+  | 'android'
+  | 'ios'
 
 export type CCSwitchInstallGuide = {
   artifact: string
   command: string | null
 }
 
+export function isMobileSetupPlatform(
+  platform: AssistantSetupPlatform
+): platform is 'android' | 'ios' {
+  return platform === 'android' || platform === 'ios'
+}
+
 export function detectAssistantSetupPlatform(
   platformHint?: string,
-  userAgent?: string
+  userAgent?: string,
+  maxTouchPoints = 0
 ): AssistantSetupPlatform {
   const platform = platformHint?.trim().toLowerCase() ?? ''
+  const agent = userAgent?.toLowerCase() ?? ''
+  // Android reports Linux; iPads in desktop mode report macOS.
+  if (/android/.test(`${platform} ${agent}`)) return 'android'
+  if (/iphone|ipad|ipod|ios/.test(`${platform} ${agent}`)) return 'ios'
+  if (/mac/.test(`${platform} ${agent}`) && maxTouchPoints > 1) return 'ios'
   if (platform.includes('win')) return 'windows'
   if (platform.includes('mac')) return 'macos'
   if (platform.includes('linux')) return 'linux'
-
-  const agent = userAgent?.toLowerCase() ?? ''
-  if (/android|iphone|ipad|ipod/.test(agent)) return 'windows'
   if (/windows|win32|win64/.test(agent)) return 'windows'
   if (/macintosh|mac os x/.test(agent)) return 'macos'
   if (/linux|x11/.test(agent)) return 'linux'
@@ -49,7 +62,7 @@ function quotePowerShell(value: string): string {
 }
 
 export function getClaudeInstallCommand(
-  platform: AssistantSetupPlatform
+  platform: AssistantDesktopPlatform
 ): string {
   if (platform === 'windows') return 'winget install Anthropic.ClaudeCode'
   if (platform === 'macos') return 'brew install --cask claude-code'
@@ -57,7 +70,7 @@ export function getClaudeInstallCommand(
 }
 
 export function getClaudeSessionCommand(
-  platform: AssistantSetupPlatform,
+  platform: AssistantDesktopPlatform,
   rootUrl: string,
   model: string
 ): string {
@@ -81,7 +94,7 @@ export function getClaudeSessionCommand(
 }
 
 export function getCCSwitchInstallGuide(
-  platform: AssistantSetupPlatform
+  platform: AssistantDesktopPlatform
 ): CCSwitchInstallGuide {
   if (platform === 'windows') {
     return {
@@ -128,6 +141,45 @@ export function getCCSwitchClaudeProviderJSON(
   )
 }
 
+const NON_TEXT_MODEL_MARKERS = [
+  'audio',
+  'dall-e',
+  'embedding',
+  'flux',
+  'image',
+  'imagen',
+  'rerank',
+  'seedream',
+  'stable-diffusion',
+  'sora',
+  'tts',
+  'video',
+  'whisper',
+]
+
+export function getGuideEligibleModels(
+  availableModels: readonly string[]
+): string[] {
+  const isTextModel = (model: string) => {
+    const normalized = model.trim().toLowerCase()
+    return (
+      normalized.length > 0 &&
+      !NON_TEXT_MODEL_MARKERS.some((marker) => normalized.includes(marker))
+    )
+  }
+  return availableModels.filter(isTextModel).map((model) => model.trim())
+}
+
+export function selectGuideModel(
+  availableModels: readonly string[],
+  selectedModel = ''
+): string {
+  const eligibleModels = getGuideEligibleModels(availableModels)
+  const selected = selectedModel.trim()
+  if (selected && eligibleModels.includes(selected)) return selected
+  return eligibleModels[0] ?? ''
+}
+
 export function getOpenAICompatibleClientJSON(
   baseUrl: string,
   model: string
@@ -144,20 +196,20 @@ export function getOpenAICompatibleClientJSON(
 }
 
 export function getCodexInstallCommand(
-  platform: AssistantSetupPlatform
+  platform: AssistantDesktopPlatform
 ): string {
   if (platform === 'windows') return 'npm install -g @openai/codex'
   return 'curl -fsSL https://chatgpt.com/codex/install.sh | sh'
 }
 
 export function getCodexAPIKeyCommand(
-  platform: AssistantSetupPlatform
+  platform: AssistantDesktopPlatform
 ): string {
   if (platform === 'windows') return "$env:LMM_API_KEY='<YOUR_API_KEY>'"
   return "export LMM_API_KEY='<YOUR_API_KEY>'"
 }
 
-export function getCodexConfigPath(platform: AssistantSetupPlatform): string {
+export function getCodexConfigPath(platform: AssistantDesktopPlatform): string {
   if (platform === 'windows') return '%USERPROFILE%\\.codex\\config.toml'
   return '~/.codex/config.toml'
 }
@@ -175,4 +227,18 @@ export function getCodexConfig(baseUrl: string, model: string): string {
     'env_key = "LMM_API_KEY"',
     'wire_api = "responses"',
   ].join('\n')
+}
+
+/** SDK examples prompt locally for secrets; copied code never contains a real key. */
+export function getPythonSDKExample(
+  sdk: 'openai-sdk' | 'anthropic-sdk',
+  baseUrl: string,
+  model: string
+): string {
+  const modelLiteral = JSON.stringify(model || '<MODEL_ID>')
+  const urlLiteral = JSON.stringify(baseUrl.replace(/\/+$/, ''))
+  if (sdk === 'anthropic-sdk') {
+    return `from getpass import getpass\nfrom anthropic import Anthropic\n\nclient = Anthropic(base_url=${urlLiteral}, api_key=getpass("LMM API Key: "))\nmessage = client.messages.create(\n    model=${modelLiteral},\n    max_tokens=128,\n    messages=[{"role": "user", "content": "Hello"}],\n)\nfor block in message.content:\n    if block.type == "text":\n        print(block.text)\n`
+  }
+  return `from getpass import getpass\nfrom openai import OpenAI\n\nclient = OpenAI(base_url=${urlLiteral}, api_key=getpass("LMM API Key: "))\nresponse = client.chat.completions.create(\n    model=${modelLiteral},\n    messages=[{"role": "user", "content": "Hello"}],\n    max_tokens=128,\n)\nprint(response.choices[0].message.content)\n`
 }

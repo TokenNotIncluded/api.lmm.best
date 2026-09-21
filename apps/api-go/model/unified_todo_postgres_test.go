@@ -13,7 +13,7 @@ func TestPostgresUnifiedTodoUsesOneSnapshot(t *testing.T) {
 	usePostgresDatabaseType(t)
 	db := openIsolatedPostgresCacheTestDB(t,
 		&User{}, &DeveloperAccessRequest{}, &UnifiedTodoRead{}, &AccountActionRequest{},
-		&AssistantSecurityIncident{}, &AssistantSecurityReviewNotice{}, &OpenSourceBountyProject{}, &OpenSourceBountyChallenge{},
+		&AssistantSecurityIncident{}, &AssistantSecurityReviewNotice{}, &AssistantSupportRequest{}, &OpenSourceBountyProject{}, &OpenSourceBountyChallenge{},
 		&OpenSourceBountyLedger{},
 	)
 	previousDB, previousLogDB := DB, LOG_DB

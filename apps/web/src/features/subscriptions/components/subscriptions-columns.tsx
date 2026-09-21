@@ -24,6 +24,7 @@ import { BadgeCell } from '@/components/data-table'
 import { GroupBadge } from '@/components/group-badge'
 import { StatusBadge } from '@/components/status-badge'
 import { TableId } from '@/components/table-id'
+import { formatFiatCurrencyAmount } from '@/lib/currency'
 import { formatQuota } from '@/lib/format'
 
 import {
@@ -74,7 +75,11 @@ export function useSubscriptionsColumns(): ColumnDef<PlanRecord>[] {
         header: t('Price'),
         cell: ({ row }) => (
           <span className='text-success font-semibold'>
-            ${Number(row.original.plan.price_amount || 0).toFixed(2)}
+            {formatFiatCurrencyAmount(
+              Number(row.original.plan.price_amount || 0),
+              row.original.plan.currency || 'USD',
+              { abbreviate: false, digitsLarge: 2, digitsSmall: 2 }
+            )}
           </span>
         ),
         size: 100,
@@ -113,12 +118,22 @@ export function useSubscriptionsColumns(): ColumnDef<PlanRecord>[] {
         size: 100,
       },
       {
-        accessorFn: (row) => row.plan.enabled,
+        accessorFn: (row) => row.plan.archived_at || row.plan.enabled,
         id: 'enabled',
         header: t('Status'),
         meta: { mobileBadge: true },
-        cell: ({ row }) =>
-          row.original.plan.enabled ? (
+        cell: ({ row }) => {
+          if ((row.original.plan.archived_at ?? 0) > 0) {
+            return (
+              <StatusBadge
+                label={t('Archived')}
+                variant='neutral'
+                copyable={false}
+                className='-ml-1.5'
+              />
+            )
+          }
+          return row.original.plan.enabled ? (
             <StatusBadge
               label={t('Enable')}
               variant='success'
@@ -132,7 +147,8 @@ export function useSubscriptionsColumns(): ColumnDef<PlanRecord>[] {
               copyable={false}
               className='-ml-1.5'
             />
-          ),
+          )
+        },
         size: 80,
       },
       {

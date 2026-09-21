@@ -48,9 +48,51 @@ import {
   resolveChatUrl,
   type ChatPreset,
 } from '@/features/chat/lib/chat-links'
+import { openResolvedExternalUrl } from '@/lib/external-navigation'
 
 import { normalizeHref } from '../lib/url-utils'
 import type { NavChatPresets } from '../types'
+
+const ALLOWED_CHAT_APP_PROTOCOLS = new Set([
+  'aionui:',
+  'ama:',
+  'ccswitch:',
+  'cherrystudio:',
+  'deepchat:',
+  'opencat:',
+])
+
+function validateExternalChatUrl(
+  value: string,
+  configuredTemplate: string
+): string | null {
+  try {
+    const target = new URL(value)
+    const configured = new URL(configuredTemplate)
+
+    if (
+      target.username ||
+      target.password ||
+      configured.username ||
+      configured.password ||
+      target.protocol !== configured.protocol ||
+      target.host !== configured.host ||
+      target.pathname !== configured.pathname
+    ) {
+      return null
+    }
+
+    if (target.protocol === 'https:') {
+      return target.origin === configured.origin ? target.toString() : null
+    }
+
+    return ALLOWED_CHAT_APP_PROTOCOLS.has(target.protocol)
+      ? target.toString()
+      : null
+  } catch {
+    return null
+  }
+}
 
 /**
  * Sub-menu item for a single chat preset
@@ -178,48 +220,61 @@ export function ChatPresetsItem({ item }: { item: NavChatPresets }) {
       if (preset.type === 'web') return
 
       const needsKey = chatLinkRequiresApiKey(preset.url)
-      let activeKey: string | undefined
 
       if (needsKey && loadingPresetIdRef.current) {
         toast.info(t('Preparing your chat link, please try again in a moment.'))
         return
       }
 
-      if (needsKey) {
-        loadingPresetIdRef.current = preset.id
-        setLoadingPresetId(preset.id)
-        try {
-          activeKey = await fetchActiveChatKey()
-        } catch (error) {
-          const message =
-            error instanceof Error
-              ? error.message
-              : t(
-                  'Unable to prepare chat link. Please ensure you have an enabled API key.'
-                )
-          toast.error(message)
-          return
-        } finally {
-          loadingPresetIdRef.current = null
-          setLoadingPresetId(null)
+      let navigationPrepared = false
+      try {
+        const opened = await openResolvedExternalUrl(async () => {
+          let activeKey: string | undefined
+          if (needsKey) {
+            loadingPresetIdRef.current = preset.id
+            setLoadingPresetId(preset.id)
+            try {
+              activeKey = await fetchActiveChatKey()
+            } catch (error) {
+              const message =
+                error instanceof Error
+                  ? error.message
+                  : t(
+                      'Unable to prepare chat link. Please ensure you have an enabled API key.'
+                    )
+              toast.error(message)
+              return null
+            } finally {
+              loadingPresetIdRef.current = null
+              setLoadingPresetId(null)
+            }
+          }
+
+          const url = resolveChatUrl({
+            template: preset.url,
+            apiKey: needsKey ? activeKey : undefined,
+            serverAddress,
+          })
+          const safeUrl = url ? validateExternalChatUrl(url, preset.url) : null
+          if (!safeUrl) {
+            toast.error(
+              t('Invalid chat link. Please contact the administrator.')
+            )
+            return null
+          }
+
+          navigationPrepared = true
+          return safeUrl
+        })
+
+        if (opened) {
+          setOpenMobile(false)
+        } else if (navigationPrepared) {
+          toast.error(t('Unable to open chat'))
         }
+      } catch {
+        toast.error(t('Unable to open chat'))
       }
-
-      const url = resolveChatUrl({
-        template: preset.url,
-        apiKey: needsKey ? activeKey : undefined,
-        serverAddress,
-      })
-
-      if (!url) {
-        toast.error(t('Invalid chat link. Please contact the administrator.'))
-        return
-      }
-
-      if (typeof window === 'undefined') return
-
-      window.open(url, '_blank', 'noopener')
-      setOpenMobile(false)
     },
     [serverAddress, setOpenMobile, t]
   )

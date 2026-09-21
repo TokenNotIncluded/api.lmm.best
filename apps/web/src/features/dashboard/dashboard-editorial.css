@@ -81,10 +81,10 @@ For commercial licensing, please contact support@quantumnous.com
   color: var(--foreground);
 }
 
-.dashboard-editorial :where(h1, h2, h3) {
-  font-family: var(--font-serif);
-  font-weight: 400;
-  letter-spacing: -0.025em;
+.console-editorial .dashboard-editorial :where(h1, h2, h3) {
+  font-family: var(--font-body);
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 
 .dashboard-editorial :where(a, button, input, textarea, select):focus-visible {

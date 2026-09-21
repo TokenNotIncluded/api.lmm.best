@@ -16,7 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import axios, { type AxiosError, type AxiosResponse } from 'axios'
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
+import axios, { type AxiosError } from 'axios'
 
 import type { QuotaDataItem } from '@/features/dashboard/types'
 import type { PricingData } from '@/features/pricing/types'
@@ -26,9 +29,15 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import {
   AssistantStreamError,
+  assistantAbortReason,
+  withAssistantDeadline,
+  type AssistantProgress,
   consumeAssistantAISDKStream,
+  isRetryableAssistantStatus,
 } from './assistant-ai-stream'
 import { redactAssistantMessageForRequest } from './assistant-message-safety'
+import { ASSISTANT_PROMPT_PRESET_COPY_VERSION } from './assistant-prompt-presets'
+import type { AssistantSupportRequest } from './assistant-support-api'
 
 type AssistantChatPayload = {
   choices?: Array<{
@@ -42,6 +51,7 @@ type AssistantChatPayload = {
   }
   code?: string
   message?: string
+  support_request?: AssistantSupportRequest
   lmm_assistant_action?: unknown
   lmm_assistant_policy?: unknown
   lmm_assistant_history?: {
@@ -61,40 +71,72 @@ export type AssistantChatMessage = {
 const ASSISTANT_CONVERSATION_MAX_ITEMS = 12
 const ASSISTANT_CONVERSATION_MAX_RUNES = 12_000
 const ASSISTANT_MESSAGE_MAX_RUNES = 4_000
-export const ASSISTANT_MAX_REQUEST_ATTEMPTS = 5
-const ASSISTANT_RETRY_DELAYS_MS = [200, 500, 1_000, 1_500] as const
+export const ASSISTANT_MAX_REQUEST_ATTEMPTS = 2
+const ASSISTANT_RETRY_DELAYS_MS = [200] as const
 
 type AssistantStreamHandlers = {
   onDelta?: (content: string) => void
   onReset?: () => void
+  onProgress?: (progress: AssistantProgress) => void
 }
 
 function isRetryableAssistantError(error: unknown): boolean {
   if (isAssistantRequestAborted(error)) return false
   if (axios.isAxiosError(error)) {
     const status = error.response?.status
-    return (
-      status === undefined ||
-      status === 408 ||
-      status === 425 ||
-      status === 429 ||
-      status >= 500
-    )
+    const retryable = error.response?.data?.retryable
+    if (typeof retryable === 'boolean') return retryable
+    return status !== undefined && isRetryableAssistantStatus(status)
   }
   if (error instanceof AssistantStreamError) {
     return error.retryable
   }
-  // A failed fetch has no HTTP status. It is safe to retry because the
-  // browser has not received a completed assistant response.
-  return error instanceof TypeError
+  // A transport failure does not establish whether server-side work ran.
+  // Only an explicit HTTP/SSE outcome can authorize a whole-request retry.
+  return false
+}
+
+export function isAssistantTurnUnavailable(error: unknown): boolean {
+  if (!axios.isAxiosError(error) && !(error instanceof AssistantStreamError)) {
+    return false
+  }
+  const payload = error.response?.data as AssistantChatPayload | undefined
+  return (
+    (payload?.error?.code ?? payload?.code) === 'ASSISTANT_TURN_UNAVAILABLE'
+  )
 }
 
 export function isAssistantRequestAborted(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError'
+  return (
+    axios.isCancel(error) ||
+    (error instanceof Error && error.name === 'AbortError')
+  )
 }
 
-function waitForAssistantRetry(delayMs: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, delayMs))
+function throwIfAssistantAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw assistantAbortReason(signal)
+  }
+}
+
+function waitForAssistantRetry(
+  delayMs: number,
+  signal?: AbortSignal
+): Promise<void> {
+  throwIfAssistantAborted(signal)
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', abort)
+      resolve()
+    }, delayMs)
+    const abort = () => {
+      clearTimeout(timer)
+      reject(
+        new DOMException('The assistant request was cancelled.', 'AbortError')
+      )
+    }
+    signal?.addEventListener('abort', abort, { once: true })
+  })
 }
 
 export type AssistantFundingStatus = {
@@ -105,6 +147,7 @@ export type AssistantPreConversationPreset = {
   id: string
   prompt: string
   label?: string
+  source?: 'custom' | 'default'
 }
 
 export type AssistantPreConversationPresets = {
@@ -113,7 +156,14 @@ export type AssistantPreConversationPresets = {
   presets: AssistantPreConversationPreset[]
 }
 
+export type DrawingWebAccess = {
+  minimum_balance_usd: number
+  balance_usd: number | null
+  allowed: boolean
+}
+
 export type AssistantStatus = {
+  drawing_web_access?: DrawingWebAccess
   enabled: boolean
   model: string
   group?: string
@@ -290,6 +340,7 @@ export type AssistantAdminConfigChangeAction = {
   channel_id?: number
   channel_name?: string
   changes: AssistantAdminConfigPreview[]
+  warnings?: string[]
 }
 
 export type AssistantAdminPricingChangeAction = {
@@ -381,9 +432,12 @@ export type AssistantUserAction =
   | AssistantUserAccountAction
 
 export type AssistantToolTrace = {
+  callId?: string
   name: string
   status: 'output-available' | 'output-error' | 'approval-requested'
   input?: Record<string, string | number | boolean>
+  result?: number
+  errorCode?: 'missing_math_expression' | 'invalid_math_expression'
 }
 
 export type AssistantAction =
@@ -421,7 +475,8 @@ export type AssistantSecureCardView = {
 
 export type AssistantConversationHistoryMessage = {
   id: number
-  role: 'user' | 'assistant' | 'secure_card'
+  role: 'user' | 'assistant' | 'human' | 'secure_card'
+  actor_name?: string
   content: string
   created_at: number
   cards?: AssistantSecureCardView[]
@@ -520,6 +575,7 @@ export type AssistantFundingSummary = {
 }
 
 export type AssistantReply = {
+  supportRequest?: AssistantSupportRequest
   content: string
   intent?: AssistantIntent
   action?: AssistantAction
@@ -594,13 +650,12 @@ export function getAssistantErrorInfo(error: unknown): AssistantErrorInfo {
     responseData && typeof responseData === 'object'
       ? (responseData as { code?: unknown; message?: unknown })
       : undefined
+  let message: string | undefined
+  if (typeof payload?.message === 'string') message = payload.message
+  else if (typeof candidate.message === 'string') message = candidate.message
   return {
     ...(typeof payload?.code === 'string' ? { code: payload.code } : {}),
-    ...(typeof payload?.message === 'string'
-      ? { message: payload.message }
-      : typeof candidate.message === 'string'
-        ? { message: candidate.message }
-        : {}),
+    ...(message ? { message } : {}),
     ...(typeof candidate.response?.status === 'number'
       ? { status: candidate.response.status }
       : {}),
@@ -655,6 +710,9 @@ function buildAssistantReply(
     responseConversationId > 0
   ) {
     reply.conversationId = responseConversationId
+  }
+  if (payload.support_request?.id && payload.support_request.conversation_id) {
+    reply.supportRequest = payload.support_request
   }
   if (conversationRestricted) reply.restricted = true
   return reply
@@ -863,7 +921,7 @@ function parseAssistantUserAction(
 export function parseAssistantToolTraces(value: unknown): AssistantToolTrace[] {
   if (!Array.isArray(value)) return []
   return value
-    .slice(0, 12)
+    .slice(0, 1024)
     .map((item) => {
       if (!item || typeof item !== 'object') return null
       const trace = item as Record<string, unknown>
@@ -900,10 +958,27 @@ export function parseAssistantToolTraces(value: unknown): AssistantToolTrace[] {
           input[key] = rawValue
         }
       }
+      const result =
+        name === 'calculate_math' &&
+        typeof trace.result === 'number' &&
+        Number.isFinite(trace.result)
+          ? trace.result
+          : undefined
+      const errorCode =
+        name === 'calculate_math' &&
+        (trace.error_code === 'missing_math_expression' ||
+          trace.error_code === 'invalid_math_expression')
+          ? trace.error_code
+          : undefined
       return {
         name,
+        ...(typeof trace.call_id === 'string' && trace.call_id.length <= 200
+          ? { callId: trace.call_id }
+          : {}),
         status: trace.status as AssistantToolTrace['status'],
         ...(input && Object.keys(input).length > 0 ? { input } : {}),
+        ...(result !== undefined ? { result } : {}),
+        ...(errorCode ? { errorCode } : {}),
       }
     })
     .filter((trace): trace is AssistantToolTrace => trace !== null)
@@ -1021,6 +1096,13 @@ export function parseAssistantAction(
         ...(channelID ? { channel_id: channelID } : {}),
         ...(channelName ? { channel_name: channelName } : {}),
         changes,
+        ...(Array.isArray(action.warnings)
+          ? {
+              warnings: action.warnings.filter(
+                (warning): warning is string => typeof warning === 'string'
+              ),
+            }
+          : {}),
       }
     }
   }
@@ -1319,12 +1401,12 @@ async function readAssistantFetchPayload(
 
 async function consumeAssistantStream(
   body: ReadableStream<Uint8Array>,
-  handlers: AssistantStreamHandlers
+  handlers: AssistantStreamHandlers,
+  signal?: AbortSignal
 ): Promise<AssistantChatPayload> {
-  return (await consumeAssistantAISDKStream(
-    body,
-    handlers
-  )) as AssistantChatPayload
+  return (await consumeAssistantAISDKStream(body, handlers, {
+    signal,
+  })) as AssistantChatPayload
 }
 
 async function sendAssistantMessageStream(
@@ -1336,6 +1418,7 @@ async function sendAssistantMessageStream(
   const auth = useAuthStore.getState().auth
   const authHeaders =
     auth.user && auth.session ? await getFreshAuthHeaders() : getCommonHeaders()
+  throwIfAssistantAborted(signal)
   const response = await fetch('/api/assistant/chat', {
     method: 'POST',
     credentials: 'include',
@@ -1360,13 +1443,14 @@ async function sendAssistantMessageStream(
       response.status,
       payload,
       message,
-      payload?.retryable === true || response.status >= 500
+      payload?.retryable
     )
   }
 
   const contentType = response.headers.get('content-type')?.toLowerCase() || ''
   if (!contentType.includes('text/event-stream')) {
     const jsonPayload = payload ?? (await readAssistantFetchPayload(response))
+    throwIfAssistantAborted(signal)
     return buildAssistantReply(
       jsonPayload,
       response.headers.get('x-lmm-assistant-intent')
@@ -1379,7 +1463,12 @@ async function sendAssistantMessageStream(
       'Assistant stream body is unavailable'
     )
   }
-  const streamedPayload = await consumeAssistantStream(response.body, handlers)
+  const streamedPayload = await consumeAssistantStream(
+    response.body,
+    handlers,
+    signal
+  )
+  throwIfAssistantAborted(signal)
   return buildAssistantReply(
     streamedPayload,
     response.headers.get('x-lmm-assistant-intent')
@@ -1392,7 +1481,9 @@ export async function sendAssistantMessage(
   conversationId?: number,
   presetId?: string,
   handlers?: AssistantStreamHandlers,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  replay = false,
+  clientTurnId?: string
 ): Promise<AssistantReply> {
   const normalizedMessage =
     redactAssistantMessageForRequest(message).content.trim()
@@ -1403,55 +1494,67 @@ export async function sendAssistantMessage(
     conversationId,
     presetId
   )
-  let response: AxiosResponse<AssistantChatPayload> | undefined
-  for (
-    let attempt = 1;
-    attempt <= ASSISTANT_MAX_REQUEST_ATTEMPTS;
-    attempt += 1
-  ) {
-    if (attempt > 1) handlers?.onReset?.()
-    try {
-      if (handlers?.onDelta) {
-        return await sendAssistantMessageStream(
+  if (clientTurnId) requestBody.client_turn_id = clientTurnId
+  return withAssistantDeadline(async (signal) => {
+    for (
+      let attempt = 1;
+      attempt <= ASSISTANT_MAX_REQUEST_ATTEMPTS;
+      attempt += 1
+    ) {
+      throwIfAssistantAborted(signal)
+      if (attempt > 1) handlers?.onReset?.()
+      try {
+        if (handlers?.onDelta) {
+          return await sendAssistantMessageStream(
+            requestBody,
+            replay ? attempt + 1 : attempt,
+            handlers,
+            signal
+          )
+        }
+        const response = await api.post<AssistantChatPayload>(
+          '/api/assistant/chat',
           requestBody,
-          attempt,
-          handlers,
+          {
+            skipBusinessError: true,
+            skipErrorHandler: true,
+            signal,
+            headers: {
+              'X-LMM-Assistant-Attempt': String(replay ? attempt + 1 : attempt),
+            },
+          }
+        )
+        throwIfAssistantAborted(signal)
+        return buildAssistantReply(
+          response.data,
+          response.headers['x-lmm-assistant-intent']
+        )
+      } catch (error) {
+        throwIfAssistantAborted(signal)
+        if (
+          !isRetryableAssistantError(error) ||
+          attempt >= ASSISTANT_MAX_REQUEST_ATTEMPTS
+        ) {
+          throw error
+        }
+        await waitForAssistantRetry(
+          ASSISTANT_RETRY_DELAYS_MS[attempt - 1] ?? 1_500,
           signal
         )
       }
-      response = await api.post<AssistantChatPayload>(
-        '/api/assistant/chat',
-        requestBody,
-        {
-          skipBusinessError: true,
-          skipErrorHandler: true,
-          headers: { 'X-LMM-Assistant-Attempt': String(attempt) },
-        }
-      )
-      break
-    } catch (error) {
-      if (
-        !isRetryableAssistantError(error) ||
-        attempt >= ASSISTANT_MAX_REQUEST_ATTEMPTS
-      ) {
-        throw error
-      }
-      await waitForAssistantRetry(
-        ASSISTANT_RETRY_DELAYS_MS[attempt - 1] ?? 1_500
-      )
     }
-  }
-  if (!response) throw new Error('Assistant request did not complete')
-  return buildAssistantReply(
-    response.data,
-    response.headers['x-lmm-assistant-intent']
-  )
+    throw new Error('Assistant request did not complete')
+  }, signal)
 }
 
-export async function getAssistantPreConversationPresets(): Promise<AssistantPreConversationPresets> {
+export async function getAssistantPreConversationPresets(
+  language = 'en'
+): Promise<AssistantPreConversationPresets> {
   const response = await api.get<
     AssistantAPIResponse<AssistantPreConversationPresets>
-  >('/api/assistant/pre-conversation-presets')
+  >('/api/assistant/pre-conversation-presets', {
+    params: { language, copy_version: ASSISTANT_PROMPT_PRESET_COPY_VERSION },
+  })
   return requireAssistantData(
     response.data,
     'Unable to load assistant conversation starters'
@@ -1560,11 +1663,19 @@ export async function submitAssistantAccountDisableRequest(input: {
   )
 }
 
+export type AssistantAdminChangeResult = {
+  applied: boolean
+  kind: string
+  status?: 'applied' | 'applied_with_warnings' | 'ignored_locked'
+  warnings?: string[]
+  locked_models?: string[]
+}
+
 export async function submitAssistantAdminChange(
   confirmationToken: string
-): Promise<{ applied: boolean; kind: string }> {
+): Promise<AssistantAdminChangeResult> {
   const response = await api.post<
-    AssistantAPIResponse<{ applied: boolean; kind: string }>
+    AssistantAPIResponse<AssistantAdminChangeResult>
   >(
     '/api/assistant/admin/apply',
     { confirmation_token: confirmationToken, confirmed: true },

@@ -1,0 +1,225 @@
+/* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
+.signal-game {
+  --signal-color: #936024;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 100%;
+  padding: clamp(1.25rem, 3vw, 3rem);
+  border: 1px solid var(--border);
+  border-radius: 1.5rem;
+}
+.signal-game-heading h2 {
+  font-family: var(--font-heading);
+  font-size: clamp(1.8rem, 3.2vw, 3rem);
+  line-height: 1.12;
+  letter-spacing: -0.035em;
+}
+.signal-game-heading p {
+  max-width: 36ch;
+  margin-top: 0.75rem;
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+.signal-game-score {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 1.5rem 0 1rem;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+.signal-game-score strong {
+  font-weight: 600;
+}
+.signal-game-board-wrap {
+  position: relative;
+  padding-inline: 1.1rem;
+  width: 100%;
+  max-width: 22rem;
+  align-self: center;
+}
+.signal-game-board {
+  display: grid;
+  gap: 5px;
+}
+.signal-game-row {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 5px;
+}
+.signal-game-tile {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition:
+    background-color 140ms,
+    border-color 140ms,
+    color 140ms;
+  touch-action: manipulation;
+}
+.signal-game-tile:hover {
+  background: var(--muted);
+  border-color: var(--muted-foreground);
+}
+.signal-game-tile:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.signal-game-tile svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.signal-game-track {
+  stroke: currentColor;
+  stroke-width: 5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.signal-game-node {
+  fill: var(--background);
+  stroke: currentColor;
+  stroke-width: 2;
+}
+.signal-game-tile.is-powered {
+  color: var(--signal-color);
+  background: color-mix(in oklch, var(--signal-color) 9%, var(--background));
+  border-color: color-mix(in oklch, var(--signal-color) 45%, var(--border));
+}
+.signal-game-tile.is-powered .signal-game-track {
+  stroke-width: 7;
+}
+.signal-game-tile.is-powered .signal-game-node {
+  fill: currentColor;
+}
+.signal-game-tile.is-hinted {
+  outline: 2px dashed var(--signal-color);
+  outline-offset: 2px;
+}
+.signal-game-tile[aria-disabled='true'] {
+  cursor: default;
+}
+.signal-game-port {
+  position: absolute;
+  top: 50%;
+  width: 1rem;
+  height: 1rem;
+  transform: translateY(-50%);
+}
+.signal-game-port svg {
+  width: 100%;
+  height: 100%;
+}
+.signal-game-input {
+  left: 0;
+}
+.signal-game-output {
+  right: 0;
+}
+.signal-game-status {
+  min-height: 1.5rem;
+  margin-top: 1.1rem;
+  text-align: center;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+.signal-game-actions {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+.signal-game-actions button {
+  gap: 0.45rem;
+  min-height: 2.75rem;
+}
+.signal-game-help {
+  margin-top: 1.25rem;
+  font-size: 0.75rem;
+  text-align: center;
+}
+.signal-game-note {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  text-align: center;
+}
+@media (max-width: 1023px) {
+  .signal-game {
+    padding: 1rem;
+    border-radius: 1rem;
+  }
+  .signal-game-heading h2 {
+    font-size: 1.65rem;
+  }
+  .signal-game-board-wrap {
+    padding-inline: 0.8rem;
+  }
+  .signal-game-port {
+    width: 0.75rem;
+  }
+  .signal-game-help {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .signal-game-tile {
+    transition: none;
+  }
+}
+
+@media (min-width: 1024px) {
+  .auth-editorial .signal-game {
+    padding-top: 6rem;
+    padding-bottom: 1.5rem;
+  }
+}
+
+.dark .signal-game {
+  --signal-color: #e6b36e;
+}
+.signal-game .text-primary {
+  color: var(--signal-color);
+}
+
+.signal-game-countdown {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 1rem;
+  background: color-mix(in oklch, var(--background) 92%, transparent);
+  color: var(--foreground);
+}
+.signal-game-viewport {
+  width: 100%;
+  height: min(55vh, 28rem);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  overscroll-behavior: contain;
+}
+.signal-game-canvas {
+  position: sticky;
+  top: 0;
+  left: 0;
+  display: block;
+  touch-action: pan-x pan-y;
+}
+.signal-game-canvas:focus-visible {
+  outline: 2px solid var(--signal-color);
+  outline-offset: -2px;
+}

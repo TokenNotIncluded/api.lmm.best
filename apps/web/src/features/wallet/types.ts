@@ -39,7 +39,11 @@ export interface ApiResponse<T = unknown> {
  */
 export type TopupInfoResponse = ApiResponse<TopupInfo>
 export type RedemptionResponse = ApiResponse<number>
-export type AmountResponse = ApiResponse<string>
+export type AmountResponse = ApiResponse<string> & {
+  settlement_currency?: string
+  original_settlement_amount?: string
+  savings_settlement_amount?: string
+}
 export type DiscountCodeResponse = ApiResponse<{
   code: string
   discount_percent: number
@@ -50,6 +54,7 @@ export type PaymentResponse = ApiResponse<Record<string, unknown>> & {
 }
 export type StripePaymentResponse = ApiResponse<{ pay_link: string }>
 export type AffiliateCodeResponse = ApiResponse<string>
+export type AffiliateInvitationResponse = ApiResponse
 export type AffiliateTransferResponse = ApiResponse
 export type CreemPaymentResponse = ApiResponse<{ checkout_url: string }>
 export type WaffoPaymentResponse = ApiResponse<
@@ -61,6 +66,8 @@ export type WaffoPancakePaymentResponse = ApiResponse<
       session_id?: string
       expires_at?: number | string
       order_id?: string
+      settlement_amount?: string
+      settlement_currency?: 'CNY' | 'USD'
       // Self-service session token + expiry — surfaced by the backend so
       // future flows (refund / cancel from this platform's own UI) can use them
       // without re-issuing checkout. Not consumed by the current handler.
@@ -89,6 +96,11 @@ export interface CreemProduct {
 /**
  * Creem payment request
  */
+export interface AffiliateInvitationRequest {
+  /** Recipient address; the backend constructs the trusted affiliate URL. */
+  email: string
+}
+
 export interface CreemPaymentRequest {
   /** Creem product ID */
   product_id: string
@@ -112,11 +124,24 @@ export interface PaymentMethod {
   min_topup?: number
   /** Maximum credited USD allowed in one payment for this method. */
   max_topup?: string | number
+  /** Server-derived maximum in the same units as the top-up request amount. */
+  max_topup_amount?: string | number
   /** Optional react-icons component name or safe icon URL */
   icon?: string
-  /** Settlement unit shown for this gateway, for example LDC. */
+  /** Explicit ISO/code unit charged by the gateway, for example USD or CNY. */
+  settlement_currency?: string
+  /** Platform credit units represented by 1 real USD in the settlement contract. */
+  platform_units_per_usd?: string | number
+  /** Gateway settlement units represented by 1 real USD. */
+  settlement_units_per_usd?: string | number
+  /** Explicit direct rate for legacy gateways that do not use the USD bridge. */
+  settlement_units_per_platform_unit?: string | number
+  /** @deprecated Legacy gateway settlement unit; use settlement_currency. */
   settlement_unit?: string
-  /** Configured gateway price for one credited USD. The server remains authoritative. */
+  /**
+   * @deprecated Legacy settlement units per platform unit. Kept only as an
+   * explicit compatibility fallback when the two USD-based rates are absent.
+   */
   unit_price?: string | number
   /** Per-method payment multiplier combined with the user's group multiplier. */
   topup_ratio?: string | number
@@ -170,12 +195,18 @@ export interface TopupInfo {
   creem_products?: CreemProduct[]
   /** Whether Waffo topup is enabled */
   enable_waffo_topup?: boolean
+  /** Fiat settlement currency used by Waffo. */
+  waffo_currency?: string
+  /** Fiat amount charged for one platform dollar by Waffo. */
+  waffo_unit_price?: number | string
   /** Available Waffo payment methods */
   waffo_pay_methods?: WaffoPayMethod[]
   /** Minimum topup amount for Waffo */
   waffo_min_topup?: number
   /** Whether Waffo Pancake topup is enabled */
   enable_waffo_pancake_topup?: boolean
+  /** Account-selected currency; payable amounts still require a paired server quote. */
+  waffo_pancake_currency?: 'CNY' | 'USD'
   /** Whether plan-level Stripe checkout is enabled */
   enable_stripe_subscription?: boolean
   /** Whether plan-level Creem checkout is enabled */
@@ -237,6 +268,8 @@ export interface WaffoPaymentRequest {
  * Waffo Pancake payment request parameters
  */
 export interface WaffoPancakePaymentRequest {
+  settlement_currency?: 'CNY' | 'USD'
+  settlement_amount?: string
   /** Topup amount */
   amount: number
   /** Waffo Pancake checkout region selected by the user or derived from locale */
@@ -282,6 +315,7 @@ export interface UserWalletData {
   request_count: number
   /** Affiliate quota (pending rewards) */
   aff_quota: number
+  aff_debt?: number
   /** Total affiliate quota earned (historical) */
   aff_history_quota: number
   /** Number of successful affiliate invites */
@@ -305,10 +339,14 @@ export interface TopupRecord {
   id: number
   /** User ID */
   user_id: number
-  /** Topup amount (quota) */
+  /** Deprecated integer projection of the platform amount. */
   amount: number
-  /** Payment amount (actual money paid) */
+  /** Exact platform amount snapshot in millionths for fractional top-ups. */
+  platform_amount_micros?: number
+  /** Payment amount (actual fiat money paid) */
   money: number
+  /** Fiat currency used by the selected payment gateway. */
+  currency?: string
   /** Trade/order number */
   trade_no: string
   /** Payment method type */
@@ -320,6 +358,19 @@ export interface TopupRecord {
   /** Payment status */
   status: TopupStatus
 }
+
+/** Server-side billing history sort fields. */
+export type BillingHistorySortBy =
+  | 'create_time'
+  | 'amount'
+  | 'money'
+  | 'status'
+  | 'payment_method'
+  | 'user_id'
+  | 'trade_no'
+
+/** Server-side billing history sort direction. */
+export type BillingHistorySortOrder = 'asc' | 'desc'
 
 /**
  * Billing history response

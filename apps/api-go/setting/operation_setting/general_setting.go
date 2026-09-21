@@ -1,6 +1,12 @@
 package operation_setting
 
-import "github.com/LIghtJUNction/api.lmm.best/setting/config"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/LIghtJUNction/api.lmm.best/setting/config"
+	"golang.org/x/text/currency"
+)
 
 // 额度展示类型
 const (
@@ -18,17 +24,20 @@ type GeneralSetting struct {
 	QuotaDisplayType string `json:"quota_display_type"`
 	// 自定义货币符号，用于 CUSTOM 展示类型
 	CustomCurrencySymbol string `json:"custom_currency_symbol"`
+	// 自定义货币 ISO-4217 代码，用于同步实时汇率
+	CustomCurrencyCode string `json:"custom_currency_code"`
 	// 自定义货币与美元汇率（1 USD = X Custom）
 	CustomCurrencyExchangeRate float64 `json:"custom_currency_exchange_rate"`
 }
 
 // 默认配置
 var generalSetting = GeneralSetting{
-	DocsLink:                   "https://github.com/LIghtJUNction/api.lmm.best#readme",
+	DocsLink:                   "https://github.com/TokenNotIncluded/api.lmm.best#readme",
 	PingIntervalEnabled:        false,
 	PingIntervalSeconds:        60,
 	QuotaDisplayType:           QuotaDisplayTypeUSD,
 	CustomCurrencySymbol:       "¤",
+	CustomCurrencyCode:         "USD",
 	CustomCurrencyExchangeRate: 1.0,
 }
 
@@ -39,6 +48,17 @@ func init() {
 
 func GetGeneralSetting() *GeneralSetting {
 	return &generalSetting
+}
+
+func ValidateCustomCurrencyCode(value string) error {
+	code := strings.ToUpper(strings.TrimSpace(value))
+	if len(code) != 3 {
+		return fmt.Errorf("custom currency code must be an ISO-4217 code")
+	}
+	if _, err := currency.ParseISO(code); err != nil {
+		return fmt.Errorf("custom currency code must be an ISO-4217 code: %w", err)
+	}
+	return nil
 }
 
 // IsCurrencyDisplay 是否以货币形式展示（美元或人民币）

@@ -18,8 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useEffect, useCallback } from 'react'
 
-import { DEFAULT_SYSTEM_NAME, DEFAULT_LOGO } from '@/lib/constants'
-import { applyFaviconToDom } from '@/lib/dom-utils'
+import { getStatus } from '@/lib/api'
+import { DEFAULT_LOGO, isDefaultLogo, resolveSystemName } from '@/lib/constants'
 import {
   useSystemConfigStore,
   type CurrencyConfig,
@@ -46,6 +46,7 @@ interface StatusApiResponse {
     quota_per_unit?: number
     usd_exchange_rate?: number
     custom_currency_symbol?: string
+    custom_currency_code?: string
     custom_currency_exchange_rate?: number
   }
 }
@@ -57,6 +58,13 @@ function toNumber(value: unknown, fallback: number): number {
     if (!Number.isNaN(parsed)) return parsed
   }
   return fallback
+}
+
+function normalizeIsoCurrencyCode(value: unknown): string {
+  if (typeof value !== 'string') return ''
+
+  const code = value.trim().toUpperCase()
+  return /^[A-Z]{3}$/.test(code) ? code : ''
 }
 
 /**
@@ -86,6 +94,9 @@ export function mapStatusDataToConfig(
     customCurrencySymbol:
       data.custom_currency_symbol?.trim() ||
       DEFAULT_CURRENCY_CONFIG.customCurrencySymbol,
+    customCurrencyCode:
+      normalizeIsoCurrencyCode(data.custom_currency_code) ||
+      DEFAULT_CURRENCY_CONFIG.customCurrencyCode,
     customCurrencyExchangeRate: toNumber(
       data.custom_currency_exchange_rate,
       DEFAULT_CURRENCY_CONFIG.customCurrencyExchangeRate
@@ -93,8 +104,8 @@ export function mapStatusDataToConfig(
   }
 
   return {
-    systemName: data.system_name || DEFAULT_SYSTEM_NAME,
-    logo: data.logo || DEFAULT_LOGO,
+    systemName: resolveSystemName(data.system_name),
+    logo: isDefaultLogo(data.logo) ? DEFAULT_LOGO : data.logo || DEFAULT_LOGO,
     footerHtml: data.footer_html,
     demoSiteEnabled: data.demo_site_enabled,
     displayTokenStatEnabled: data.display_token_stat_enabled,
@@ -104,13 +115,10 @@ export function mapStatusDataToConfig(
 
 // Fetch system config from API
 async function fetchSystemConfig(): Promise<Partial<SystemConfig>> {
-  const response = await fetch('/api/status')
-  if (!response.ok) throw new Error('Failed to fetch status')
-
-  const data: StatusApiResponse = await response.json()
-  if (!data.success) throw new Error('API returned error')
-
-  return mapStatusDataToConfig(data.data)
+  // Share the session-scoped in-flight request and error policy with status
+  // consumers; a raw fetch bypassed that deduplication during startup.
+  const data = await getStatus()
+  return mapStatusDataToConfig(data as StatusApiResponse['data'])
 }
 
 // Preload image and return cleanup function
@@ -186,7 +194,6 @@ export function useSystemConfig(options: UseSystemConfigOptions = {}) {
       logo,
       () => {
         setLoadedLogoUrl(logo)
-        applyFaviconToDom(logo)
       },
       () => {
         if (logo !== DEFAULT_LOGO) {

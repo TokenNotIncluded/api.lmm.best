@@ -58,6 +58,15 @@ describe('legacy frontend route migration', () => {
     )
   })
 
+  test('removed API access page redirects to profile without a redirect loop', () => {
+    assert.equal(resolveLegacyRoute('/developer-access'), '/profile')
+    assert.equal(
+      resolveLegacyRoute('/developer-access/?from=bookmark#status'),
+      '/profile?from=bookmark#status'
+    )
+    assert.equal(resolveLegacyRoute('/profile'), null)
+  })
+
   test('maps legacy settings tabs and retains unrelated parameters', () => {
     const settingsTabs = {
       operation: '/system-settings/operations/behavior',

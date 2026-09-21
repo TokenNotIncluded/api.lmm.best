@@ -11,7 +11,7 @@ manifest="$repo_root/apps/api-rust/Cargo.toml"
 suite=${1:-all}
 
 usage() {
-  echo "usage: $0 {auth|models|api-token|all}" >&2
+  echo "usage: $0 {auth|models|api-token|subscription-reset|migration|system-config|relay-timeouts|channel-balance|all}" >&2
   exit 2
 }
 
@@ -25,6 +25,32 @@ require_loopback_url() {
     redis://:*@localhost:* | redis://:*@127.0.0.1:* | redis://:*@\[::1\]:*) ;;
     *) echo "$name must use a loopback-only isolated service" >&2; exit 1 ;;
   esac
+}
+
+# libtest returns success when a stale exact filter selects zero tests.
+# Require the compiled ignored test to exist before executing the gate.
+run_exact_migration_test() {
+  local target=$1 test_name=$2 listing
+  listing=$(cargo test --locked --manifest-path "$manifest" -p lmm-db-migrate \
+    --test "$target" "$test_name" -- --ignored --exact --list)
+  if ! grep -Fxq "$test_name: test" <<<"$listing"; then
+    echo "required integration test is missing: $target::$test_name" >&2
+    exit 1
+  fi
+  cargo test --locked --manifest-path "$manifest" -p lmm-db-migrate \
+    --test "$target" "$test_name" -- --ignored --exact --test-threads=1
+}
+
+run_exact_api_lib_test() {
+  local test_name=$1 listing
+  listing=$(cargo test --locked --manifest-path "$manifest" -p lmm-api-rs \
+    --lib "$test_name" -- --ignored --exact --list)
+  if ! grep -Fxq "$test_name: test" <<<"$listing"; then
+    echo "required integration test is missing: lmm-api-rs::$test_name" >&2
+    exit 1
+  fi
+  cargo test --locked --manifest-path "$manifest" -p lmm-api-rs \
+    --lib "$test_name" -- --ignored --exact --test-threads=1
 }
 
 run_auth() {
@@ -48,14 +74,111 @@ run_models() {
 run_api_token() {
   require_loopback_url LMM_API_TOKEN_TEST_DATABASE_URL
   require_loopback_url LMM_API_TOKEN_TEST_VALKEY_URL
+  (
+    cd "$repo_root/apps/api-go"
+    go test ./controller -run '^TestAccountBalance' -count=1
+  )
   cargo test --locked --manifest-path "$manifest" -p lmm-api-rs \
-    --test migration_api_token -- --ignored --test-threads=1
+    --test api_token -- --ignored --test-threads=1
+  local test_name=test_instance::account_balance_pg_tests::durable_balance_defaults_revocation_and_read_only_contract listing
+  listing=$(cargo test --locked --manifest-path "$manifest" -p lmm-api-rs \
+    --bin lmm-api-rs "$test_name" -- --ignored --exact --list)
+  grep -Fxq "$test_name: test" <<<"$listing" || {
+    echo "required durable account balance test is missing" >&2; exit 1;
+  }
+  cargo test --locked --manifest-path "$manifest" -p lmm-api-rs \
+    --bin lmm-api-rs "$test_name" -- --ignored --exact --test-threads=1
+}
+
+run_subscription_reset() {
+  require_loopback_url LMM_BILLING_SUBSCRIPTIONS_TEST_DATABASE_URL
+  require_loopback_url LMM_BILLING_SUBSCRIPTIONS_TEST_VALKEY_URL
+  require_loopback_url LMM_TEST_DATABASE_URL
+  cargo test --locked --manifest-path "$manifest" -p lmm-api-rs \
+    --test billing_subscriptions -- --ignored --test-threads=1
+  cargo test --locked --manifest-path "$manifest" -p lmm-api-rs \
+    --test billing_subscription_reset_postgres -- --ignored --test-threads=1
+  run_exact_migration_test schema_contract contract_six_verifier_rejects_wrong_default_and_index_columns
+}
+
+run_migration() {
+  require_loopback_url LMM_TEST_DATABASE_URL
+  run_exact_migration_test account_balance_access_schema account_balance_access_migration_is_additive_idempotent_and_default_denied
+  run_exact_migration_test full_copy full_copy_should_verify_all_tables_and_rollback_both_fault_phases
+  run_exact_migration_test waffo_subscription_schema contract_eight_preserves_pending_evidence_and_rejects_broken_replay_guards
+}
+
+run_system_config() {
+  require_loopback_url LMM_SYSTEM_CONFIG_TEST_DATABASE_URL
+  require_loopback_url LMM_SYSTEM_CONFIG_TEST_VALKEY_URL
+  cargo test --locked --manifest-path "$manifest" -p lmm-api-rs \
+    --test system_config -- --ignored --test-threads=1
+}
+
+run_relay_timeouts() {
+  require_loopback_url LMM_TEST_DATABASE_URL
+  # Both implementations consume the same native xAI SSE fixture. Retain the
+  # Go provider and retry oracle beside the real PostgreSQL Rust boundary test.
+  (
+    cd "$repo_root/apps/api-go"
+    go test ./relay/channel/xai -run '^TestClaudeMessages' -count=1
+    go test ./controller -run '^TestGetChannelRetrySkipsUnsupportedEndpointCandidates$' -count=1
+  )
+  cargo test --locked --manifest-path "$manifest" -p lmm-api-rs \
+    --test relay_anthropic_gemini_postgres -- --ignored --test-threads=1
+  cargo test --locked --manifest-path "$manifest" -p lmm-api-rs \
+    --test relay_openai_specific_channel_pg -- --ignored --test-threads=1
+  [[ ${LMM_AUTH_TEST_ALLOW_SCHEMA_RESET:-} == 1 ]] || {
+    echo "LMM_AUTH_TEST_ALLOW_SCHEMA_RESET=1 is required for the isolated relay-misc schema reset" >&2
+    exit 1
+  }
+  LMM_RELAY_MISC_TEST_DATABASE_URL="$LMM_TEST_DATABASE_URL" \
+    LMM_RELAY_MISC_TEST_ALLOW_SCHEMA_RESET=1 \
+    cargo test --locked --manifest-path "$manifest" -p lmm-api-rs \
+    --test relay_misc_pg -- --ignored --test-threads=1
+}
+
+run_channel_balance_go_oracle() {
+  local go_root="$repo_root/apps/api-go"
+  [[ -f $go_root/go.mod && ! -L $go_root/go.mod ]] || {
+    echo "Go production oracle module is unavailable: $go_root" >&2
+    exit 1
+  }
+  (
+    cd "$go_root"
+    go test ./controller \
+      -run '^(TestConvertCNYBalanceToUSDUsesSynchronizedRate|TestConvertCNYBalanceToUSDRejectsInvalidRate|TestConvertCNYBalanceToUSDRejectsNonFiniteRate|TestGetDeepSeekBalanceUSD|TestRefreshChannelBalancesCapturesAndSanitizesProviderFailure|TestRefreshChannelBalancesCapturesAndSanitizesDatabaseFailure|TestRefreshChannelBalancesReportsMixedOutcome|TestRefreshChannelBalancesReportsAllSuccess|TestRefreshChannelBalancesBoundsFailureDetailsWithoutDroppingCounts|TestWriteChannelBalanceRefreshResponseUsesCompatiblePartialAndFullFailureEnvelopes)$' \
+      -count=1
+  )
+}
+
+run_channel_balance_rust_contracts() {
+  cargo test --locked --manifest-path "$manifest" -p lmm-api-rs \
+    --lib 'channel_balance::tests::' -- --test-threads=1
+  cargo test --locked --manifest-path "$manifest" -p lmm-api-rs \
+    --lib 'channel_balance_provider::tests::' -- --test-threads=1
+}
+
+run_channel_balance() {
+  require_loopback_url LMM_TEST_DATABASE_URL
+  # Execute the current Go production-oracle vectors and the Rust parser/route
+  # contracts in the same gate before checking the durable PostgreSQL side
+  # effect. This keeps the balance evidence isolated from unrelated Go failures.
+  run_channel_balance_go_oracle
+  run_channel_balance_rust_contracts
+  TEST_DATABASE_URL="$LMM_TEST_DATABASE_URL" \
+    run_exact_api_lib_test channel_balance_store::tests::persisted_balance_updates_value_and_timestamp_together
 }
 
 case "$suite" in
   auth) run_auth ;;
   models) run_models ;;
   api-token) run_api_token ;;
-  all) run_auth; run_models; run_api_token ;;
+  subscription-reset) run_subscription_reset ;;
+  migration) run_migration ;;
+  system-config) run_system_config ;;
+  relay-timeouts) run_relay_timeouts ;;
+  channel-balance) run_channel_balance ;;
+  all) run_auth; run_models; run_api_token; run_subscription_reset; run_system_config; run_migration; run_relay_timeouts; run_channel_balance ;;
   *) usage ;;
 esac

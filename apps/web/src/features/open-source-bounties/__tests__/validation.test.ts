@@ -28,7 +28,7 @@ import {
 } from '../validation'
 
 const VALID_DRAFT: BountyDraftValidationInput = {
-  repositoryUrl: 'https://github.com/LIghtJUNction/api.lmm.best',
+  repositoryUrl: 'https://github.com/TokenNotIncluded/api.lmm.best',
   title: 'Fix missing translations in the bounty workflow',
   description:
     'Find and correct reproducible untranslated or incorrectly translated interface text.',
@@ -122,7 +122,7 @@ describe('bounty draft validation', () => {
       validateBountyDraft({
         ...VALID_DRAFT,
         repositoryUrl:
-          'https://github.com/LIghtJUNction/api.lmm.best/issues/15',
+          'https://github.com/TokenNotIncluded/api.lmm.best/issues/15',
       }).repositoryUrl,
       'Enter a GitHub repository URL in the format https://github.com/owner/repository.'
     )

@@ -18,12 +18,69 @@ import (
 
 // ---- Shared types ----
 
+func waffoPancakeProductMustBeRecreated(existing, next *model.SubscriptionPlan) bool {
+	if existing == nil || next == nil {
+		return false
+	}
+	existingProductID := strings.TrimSpace(existing.WaffoPancakeProductId)
+	nextProductID := strings.TrimSpace(next.WaffoPancakeProductId)
+	if existingProductID == "" || existingProductID != nextProductID {
+		return false
+	}
+	existingProductType := model.NormalizeWaffoPancakeProductType(existing.WaffoPancakeProductType)
+	nextProductType := model.NormalizeWaffoPancakeProductType(next.WaffoPancakeProductType)
+	if existingProductType != nextProductType ||
+		existing.PriceAmount != next.PriceAmount ||
+		!strings.EqualFold(strings.TrimSpace(existing.Currency), strings.TrimSpace(next.Currency)) {
+		return true
+	}
+	return nextProductType == model.WaffoPancakeProductTypeSubscription &&
+		(existing.DurationUnit != next.DurationUnit ||
+			existing.DurationValue != next.DurationValue ||
+			existing.CustomSeconds != next.CustomSeconds)
+}
+
 type SubscriptionPlanDTO struct {
 	Plan model.SubscriptionPlan `json:"plan"`
 	// PaymentMethods is user-authorized in the public catalog and operator-
 	// configured in the admin catalog. Both views require usable gateway
 	// credentials rather than trusting a bare provider product ID.
-	PaymentMethods []string `json:"payment_methods"`
+	PaymentMethods         []string                     `json:"payment_methods"`
+	BalancePriceQuota      int64                        `json:"balance_price_quota"`
+	WaffoPancakeSettlement *WaffoPancakeSettlementQuote `json:"waffo_pancake_settlement,omitempty"`
+}
+
+// WaffoPancakeSettlementQuote is a server-computed fiat quote, not wallet credit.
+type WaffoPancakeSettlementQuote struct {
+	Amount    string `json:"amount"`
+	Currency  string `json:"currency"`
+	Available bool   `json:"available"`
+	Reason    string `json:"reason,omitempty"`
+}
+
+func normalizeSubscriptionFiatCurrency(value string) (string, error) {
+	currency := strings.ToUpper(strings.TrimSpace(value))
+	if currency == "" {
+		currency = "CNY"
+	}
+	if currency != "CNY" && currency != "USD" {
+		return "", fmt.Errorf("subscription plan currency must be CNY or USD")
+	}
+	return currency, nil
+}
+
+func subscriptionPaymentMethodsWithBalanceQuote(plan *model.SubscriptionPlan, methods []string) ([]string, int64) {
+	quota, err := model.SubscriptionBalanceQuota(plan)
+	if err == nil && quota > 0 {
+		return methods, quota
+	}
+	filtered := make([]string, 0, len(methods))
+	for _, method := range methods {
+		if method != model.PaymentMethodBalance {
+			filtered = append(filtered, method)
+		}
+	}
+	return filtered, 0
 }
 
 type BillingPreferenceRequest struct {
@@ -49,17 +106,31 @@ func GetSubscriptionPlans(c *gin.Context) {
 	}
 
 	var plans []model.SubscriptionPlan
-	if err := model.DB.Where("enabled = ?", true).Order("sort_order desc, id desc").Find(&plans).Error; err != nil {
+	if err := model.DB.Where("enabled = ? AND archived_at = 0", true).Order("sort_order desc, id desc").Find(&plans).Error; err != nil {
 		common.ApiError(c, err)
 		return
 	}
 	result := make([]SubscriptionPlanDTO, 0, len(plans))
+	currency := userSettlementCurrency(user, settlementLanguageHint(c))
 	for _, p := range plans {
 		p.NormalizeDefaults()
-		result = append(result, SubscriptionPlanDTO{
-			Plan:           p,
-			PaymentMethods: subscriptionPaymentMethods(user, &p, time.Now()),
-		})
+		methods, balancePriceQuota := subscriptionPaymentMethodsWithBalanceQuote(
+			&p,
+			subscriptionPaymentMethods(user, &p, time.Now()),
+		)
+		dto := SubscriptionPlanDTO{
+			Plan:              p,
+			PaymentMethods:    methods,
+			BalancePriceQuota: balancePriceQuota,
+		}
+		for _, method := range methods {
+			if method == model.PaymentMethodWaffoPancake {
+				// The catalog route never queries or mutates merchant products.
+				dto.WaffoPancakeSettlement = subscriptionWaffoPancakeSettlementQuote(&p, currency)
+				break
+			}
+		}
+		result = append(result, dto)
 	}
 	common.ApiSuccess(c, result)
 }
@@ -104,7 +175,7 @@ func UpdateSubscriptionPreference(c *gin.Context) {
 	}
 	current := user.GetSetting()
 	current.BillingPreference = pref
-	if err := model.UpdateUserSetting(user.Id, current); err != nil {
+	if err := model.UpdateUserSettingPreservingLocale(user.Id, current); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -148,16 +219,26 @@ func subscriptionPlanPaymentMethodRequired(c *gin.Context) {
 
 func AdminListSubscriptionPlans(c *gin.Context) {
 	var plans []model.SubscriptionPlan
-	if err := model.DB.Order("sort_order desc, id desc").Find(&plans).Error; err != nil {
+	query := model.DB
+	includeArchived := c.Query("include_archived")
+	if includeArchived != "1" && !strings.EqualFold(includeArchived, "true") {
+		query = query.Where("archived_at = 0")
+	}
+	if err := query.Order("sort_order desc, id desc").Find(&plans).Error; err != nil {
 		common.ApiError(c, err)
 		return
 	}
 	result := make([]SubscriptionPlanDTO, 0, len(plans))
 	for _, p := range plans {
 		p.NormalizeDefaults()
+		methods, balancePriceQuota := subscriptionPaymentMethodsWithBalanceQuote(
+			&p,
+			subscriptionConfiguredPaymentMethods(&p),
+		)
 		result = append(result, SubscriptionPlanDTO{
-			Plan:           p,
-			PaymentMethods: subscriptionConfiguredPaymentMethods(&p),
+			Plan:              p,
+			PaymentMethods:    methods,
+			BalancePriceQuota: balancePriceQuota,
 		})
 	}
 	common.ApiSuccess(c, result)
@@ -178,6 +259,7 @@ func AdminCreateSubscriptionPlan(c *gin.Context) {
 		return
 	}
 	req.Plan.Id = 0
+	req.Plan.ArchivedAt = 0
 	if strings.TrimSpace(req.Plan.Title) == "" {
 		common.ApiErrorMsg(c, "套餐标题不能为空")
 		return
@@ -190,10 +272,13 @@ func AdminCreateSubscriptionPlan(c *gin.Context) {
 		common.ApiErrorMsg(c, "价格不能超过9999")
 		return
 	}
-	if req.Plan.Currency == "" {
-		req.Plan.Currency = "USD"
+	planCurrency, currencyErr := normalizeSubscriptionFiatCurrency(req.Plan.Currency)
+	if currencyErr != nil {
+		common.ApiErrorMsg(c, "套餐价格币种必须为 CNY 或 USD")
+		return
 	}
-	req.Plan.Currency = "USD"
+	req.Plan.Currency = planCurrency
+	req.Plan.PriceCurrencyVersion = 1
 	if req.Plan.AllowBalancePay == nil {
 		req.Plan.AllowBalancePay = common.GetPointer(true)
 	}
@@ -236,6 +321,7 @@ func AdminCreateSubscriptionPlan(c *gin.Context) {
 	req.Plan.StripePriceId = strings.TrimSpace(req.Plan.StripePriceId)
 	req.Plan.CreemProductId = strings.TrimSpace(req.Plan.CreemProductId)
 	req.Plan.WaffoPancakeProductId = strings.TrimSpace(req.Plan.WaffoPancakeProductId)
+	req.Plan.WaffoPancakeProductType = model.NormalizeWaffoPancakeProductType(req.Plan.WaffoPancakeProductType)
 	if !enabledSubscriptionPlanHasConfiguredPaymentMethod(&req.Plan) {
 		subscriptionPlanPaymentMethodRequired(c)
 		return
@@ -262,6 +348,10 @@ func AdminUpdateSubscriptionPlan(c *gin.Context) {
 	existingPlan, lookupErr := model.GetSubscriptionPlanById(id)
 	if lookupErr != nil {
 		common.ApiError(c, lookupErr)
+		return
+	}
+	if existingPlan.ArchivedAt > 0 {
+		common.ApiErrorMsg(c, "Archived subscription plans must be restored before they can be edited")
 		return
 	}
 	var req AdminUpsertSubscriptionPlanRequest
@@ -294,10 +384,13 @@ func AdminUpdateSubscriptionPlan(c *gin.Context) {
 		return
 	}
 	req.Plan.Id = id
-	if req.Plan.Currency == "" {
-		req.Plan.Currency = "USD"
+	planCurrency, currencyErr := normalizeSubscriptionFiatCurrency(req.Plan.Currency)
+	if currencyErr != nil {
+		common.ApiErrorMsg(c, "套餐价格币种必须为 CNY 或 USD")
+		return
 	}
-	req.Plan.Currency = "USD"
+	req.Plan.Currency = planCurrency
+	req.Plan.PriceCurrencyVersion = 1
 	if req.Plan.DurationUnit == "" {
 		req.Plan.DurationUnit = model.SubscriptionDurationMonth
 	}
@@ -334,6 +427,15 @@ func AdminUpdateSubscriptionPlan(c *gin.Context) {
 	req.Plan.StripePriceId = strings.TrimSpace(req.Plan.StripePriceId)
 	req.Plan.CreemProductId = strings.TrimSpace(req.Plan.CreemProductId)
 	req.Plan.WaffoPancakeProductId = strings.TrimSpace(req.Plan.WaffoPancakeProductId)
+	if strings.TrimSpace(req.Plan.WaffoPancakeProductType) == "" {
+		req.Plan.WaffoPancakeProductType = model.NormalizeWaffoPancakeProductType(existingPlan.WaffoPancakeProductType)
+	} else {
+		req.Plan.WaffoPancakeProductType = model.NormalizeWaffoPancakeProductType(req.Plan.WaffoPancakeProductType)
+	}
+	if waffoPancakeProductMustBeRecreated(existingPlan, &req.Plan) {
+		common.ApiErrorMsg(c, "套餐价格、币种、商品类型或订阅周期已变化，请重新创建并绑定 Waffo Pancake 商品")
+		return
+	}
 	if !enabledSubscriptionPlanHasConfiguredPaymentMethod(&req.Plan) {
 		subscriptionPlanPaymentMethodRequired(c)
 		return
@@ -354,6 +456,7 @@ func AdminUpdateSubscriptionPlan(c *gin.Context) {
 			"stripe_price_id":            req.Plan.StripePriceId,
 			"creem_product_id":           req.Plan.CreemProductId,
 			"waffo_pancake_product_id":   req.Plan.WaffoPancakeProductId,
+			"waffo_pancake_product_type": req.Plan.WaffoPancakeProductType,
 			"max_purchase_per_user":      req.Plan.MaxPurchasePerUser,
 			"total_amount":               req.Plan.TotalAmount,
 			"upgrade_group":              req.Plan.UpgradeGroup,
@@ -368,8 +471,18 @@ func AdminUpdateSubscriptionPlan(c *gin.Context) {
 		if req.Plan.AllowWalletOverflow != nil {
 			updateMap["allow_wallet_overflow"] = *req.Plan.AllowWalletOverflow
 		}
-		if err := tx.Model(&model.SubscriptionPlan{}).Where("id = ?", id).Updates(updateMap).Error; err != nil {
-			return err
+		updated := tx.Model(&model.SubscriptionPlan{}).Where("id = ? AND archived_at = 0", id).Updates(updateMap)
+		if updated.Error != nil {
+			return updated.Error
+		}
+		if updated.RowsAffected == 0 {
+			var plan model.SubscriptionPlan
+			if err := tx.Select("id", "archived_at").Where("id = ?", id).First(&plan).Error; err != nil {
+				return err
+			}
+			if plan.ArchivedAt > 0 {
+				return errors.New("archived subscription plans must be restored before they can be edited")
+			}
 		}
 		return nil
 	})
@@ -406,15 +519,35 @@ func AdminUpdateSubscriptionPlanStatus(c *gin.Context) {
 			common.ApiError(c, err)
 			return
 		}
+		if plan.ArchivedAt > 0 {
+			common.ApiErrorMsg(c, "Archived subscription plans must be restored before they can be enabled")
+			return
+		}
 		plan.Enabled = true
 		if !enabledSubscriptionPlanHasConfiguredPaymentMethod(plan) {
 			subscriptionPlanPaymentMethodRequired(c)
 			return
 		}
 	}
-	if err := model.DB.Model(&model.SubscriptionPlan{}).Where("id = ?", id).Update("enabled", *req.Enabled).Error; err != nil {
-		common.ApiError(c, err)
+	updateQuery := model.DB.Model(&model.SubscriptionPlan{}).Where("id = ?", id)
+	if *req.Enabled {
+		updateQuery = updateQuery.Where("archived_at = 0")
+	}
+	updated := updateQuery.Update("enabled", *req.Enabled)
+	if updated.Error != nil {
+		common.ApiError(c, updated.Error)
 		return
+	}
+	if *req.Enabled && updated.RowsAffected == 0 {
+		var plan model.SubscriptionPlan
+		if err := model.DB.Select("id", "archived_at").Where("id = ?", id).First(&plan).Error; err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		if plan.ArchivedAt > 0 {
+			common.ApiErrorMsg(c, "Archived subscription plans must be restored before they can be enabled")
+			return
+		}
 	}
 	model.InvalidateSubscriptionPlanCache(id)
 	common.ApiSuccess(c, nil)
@@ -430,10 +563,9 @@ func AdminDeleteSubscriptionPlan(c *gin.Context) {
 		common.ApiErrorMsg(c, "无效的ID")
 		return
 	}
-	if err := model.AdminDeleteSubscriptionPlan(id); err != nil {
+	result, err := model.AdminDeleteSubscriptionPlan(id)
+	if err != nil {
 		switch {
-		case errors.Is(err, model.ErrSubscriptionPlanInUse):
-			common.ApiErrorMsg(c, "Subscription plan has subscription or order history and cannot be deleted. Disable it instead.")
 		case errors.Is(err, gorm.ErrRecordNotFound):
 			common.ApiErrorMsg(c, "Subscription plan not found")
 		default:
@@ -441,7 +573,34 @@ func AdminDeleteSubscriptionPlan(c *gin.Context) {
 		}
 		return
 	}
-	common.ApiSuccess(c, nil)
+	recordManageAudit(c, "subscription.plan_remove", map[string]interface{}{
+		"plan_id":          id,
+		"action":           result.Action,
+		"cancelled_orders": result.CancelledOrders,
+	})
+	common.ApiSuccess(c, result)
+}
+
+func AdminRestoreSubscriptionPlan(c *gin.Context) {
+	if !requirePaymentCompliance(c) {
+		return
+	}
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		common.ApiErrorMsg(c, "无效的ID")
+		return
+	}
+	plan, err := model.AdminRestoreSubscriptionPlan(id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			common.ApiErrorMsg(c, "Subscription plan not found")
+			return
+		}
+		common.ApiError(c, err)
+		return
+	}
+	recordManageAudit(c, "subscription.plan_restore", map[string]interface{}{"plan_id": id})
+	common.ApiSuccess(c, plan)
 }
 
 type AdminBindSubscriptionRequest struct {
@@ -491,28 +650,6 @@ type AdminCreateUserSubscriptionRequest struct {
 	PlanId int `json:"plan_id"`
 }
 
-type AdminResetSubscriptionRequest struct {
-	PlanId           int   `json:"plan_id"`
-	AdvanceResetTime *bool `json:"advance_reset_time"`
-}
-
-func resolveAdvanceResetTime(value *bool) bool {
-	if value == nil {
-		return true
-	}
-	return *value
-}
-
-func recordSubscriptionResetUserLogs(result *model.SubscriptionResetResult, adminInfo map[string]interface{}) {
-	if result == nil || result.ResetCount == 0 {
-		return
-	}
-	content := fmt.Sprintf("管理员重置订阅套餐 %s（ID: %d）额度", result.PlanTitle, result.PlanId)
-	for _, userId := range result.AffectedUserIds {
-		model.RecordLogWithAdminInfo(userId, model.LogTypeManage, content, adminInfo)
-	}
-}
-
 // AdminCreateUserSubscription creates a new user subscription from a plan (no payment).
 func AdminCreateUserSubscription(c *gin.Context) {
 	if !requirePaymentCompliance(c) {
@@ -539,69 +676,6 @@ func AdminCreateUserSubscription(c *gin.Context) {
 		return
 	}
 	common.ApiSuccess(c, nil)
-}
-
-func AdminResetUserSubscriptionsByPlan(c *gin.Context) {
-	userId, _ := strconv.Atoi(c.Param("id"))
-	if userId <= 0 {
-		common.ApiErrorMsg(c, "无效的用户ID")
-		return
-	}
-	var req AdminResetSubscriptionRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		common.ApiErrorMsg(c, "参数错误")
-		return
-	}
-	if req.PlanId <= 0 {
-		common.ApiErrorMsg(c, "参数错误")
-		return
-	}
-	advanceResetTime := resolveAdvanceResetTime(req.AdvanceResetTime)
-	result, err := model.AdminResetUserSubscriptionsByPlan(userId, req.PlanId, advanceResetTime)
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	recordSubscriptionResetUserLogs(result, auditOperatorInfo(c))
-	recordManageAuditFor(c, userId, "subscription.user_plan_reset", map[string]interface{}{
-		"target_user_id":     userId,
-		"plan_id":            result.PlanId,
-		"plan_title":         result.PlanTitle,
-		"reset_count":        result.ResetCount,
-		"user_count":         result.UserCount,
-		"advance_reset_time": result.AdvanceResetTime,
-	})
-	common.ApiSuccess(c, result)
-}
-
-func AdminResetPlanSubscriptions(c *gin.Context) {
-	planId, _ := strconv.Atoi(c.Param("id"))
-	if planId <= 0 {
-		common.ApiErrorMsg(c, "无效的ID")
-		return
-	}
-	var req AdminResetSubscriptionRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		common.ApiErrorMsg(c, "参数错误")
-		return
-	}
-	advanceResetTime := resolveAdvanceResetTime(req.AdvanceResetTime)
-	result, err := model.AdminResetPlanSubscriptions(planId, advanceResetTime)
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	recordSubscriptionResetUserLogs(result, auditOperatorInfo(c))
-	common.SysLog(fmt.Sprintf("admin reset subscription plan %d quota: reset_count=%d user_count=%d advance_reset_time=%t",
-		result.PlanId, result.ResetCount, result.UserCount, result.AdvanceResetTime))
-	recordManageAudit(c, "subscription.plan_reset", map[string]interface{}{
-		"plan_id":            result.PlanId,
-		"plan_title":         result.PlanTitle,
-		"reset_count":        result.ResetCount,
-		"user_count":         result.UserCount,
-		"advance_reset_time": result.AdvanceResetTime,
-	})
-	common.ApiSuccess(c, result)
 }
 
 // AdminInvalidateUserSubscription cancels a user subscription immediately.

@@ -744,6 +744,70 @@ if ! cmp -s "$runtime/go-after-errors.snapshot.json" "$runtime/rust-after-errors
   exit 1
 fi
 
+# The total-attempt limiter is deliberately exhausted above. Reset only its
+# isolated oracle keys so the missing-usage billing probe exercises provider
+# success rather than the already-proven rate-limit boundary.
+for valkey_database in 1 2; do
+  valkey-cli --raw -h 127.0.0.1 -p "$valkey_port" -n "$valkey_database" \
+    DEL rateLimit:42 rateLimit:MRRLS:42 >/dev/null
+ done
+
+call_listener go missing-usage "$go_port" sk-relayprobe \
+  '{"model":"gpt-test","input":"missing-usage"}'
+call_listener rust missing-usage "$rust_port" sk-relayprobe \
+  '{"model":"gpt-test","input":"missing-usage"}'
+for engine in go rust; do
+  [[ $(<"$runtime/$engine-missing-usage.status") == 200 ]] || {
+    echo "$engine missing-usage status was $(<"$runtime/$engine-missing-usage.status")" >&2
+    sed -n '1,80p' "$runtime/$engine-missing-usage.body" >&2
+    exit 1
+  }
+  jq -e 'has("usage") | not' "$runtime/$engine-missing-usage.body" >/dev/null || {
+    echo "$engine missing-usage fixture unexpectedly contained usage" >&2
+    exit 1
+  }
+done
+cmp -s "$runtime/go-missing-usage.body" "$runtime/rust-missing-usage.body" || {
+  echo 'Go/Rust missing-usage response bodies differ' >&2
+  diff -u "$runtime/go-missing-usage.body" "$runtime/rust-missing-usage.body" >&2 || true
+  exit 1
+}
+jq -s -e '
+  length == 18 and .[16] == .[17]
+  and .[16].path == "/v1/embeddings"
+  and .[16].authorization_valid == true
+  and .[16].caller_secret_present == false
+  and .[16].body == {model:"gpt-test",input:"missing-usage"}
+' "$runtime/provider-hits.jsonl" >/dev/null
+
+wait_for_minimum_log_count "$go_database" 5
+wait_for_minimum_log_count "$rust_database" 5
+snapshot_database "$go_database" "$runtime/go-after-missing-usage.snapshot.json"
+snapshot_database "$rust_database" "$runtime/rust-after-missing-usage.snapshot.json"
+if ! cmp -s "$runtime/go-after-missing-usage.snapshot.json" \
+  "$runtime/rust-after-missing-usage.snapshot.json"; then
+  echo 'Go/Rust PostgreSQL side effects for missing-usage fixed-price success differ:' >&2
+  diff -u "$runtime/go-after-missing-usage.snapshot.json" \
+    "$runtime/rust-after-missing-usage.snapshot.json" >&2 || true
+  exit 1
+fi
+for engine in go rust; do
+  jq -e '
+    .user.quota == 995
+    and .user.used_quota == 5
+    and .user.request_count == 5
+    and .token.remain_quota == 995
+    and .token.used_quota == 5
+    and .channel.used_quota == 5
+    and .log_count == 5
+    and ([.logs[] | select(.quota == 1 and .prompt_tokens == 0 and .completion_tokens == 0)] | length) == 1
+  ' "$runtime/$engine-after-missing-usage.snapshot.json" >/dev/null || {
+    echo "$engine missing-usage success did not retain the fixed-price charge" >&2
+    jq . "$runtime/$engine-after-missing-usage.snapshot.json" >&2
+    exit 1
+  }
+done
+
 for database in "$go_database" "$rust_database"; do
   psql -h 127.0.0.1 -p "$pg_port" -U postgres -d "$database" -v ON_ERROR_STOP=1 <<'SQL' >/dev/null
 INSERT INTO options (key,value) VALUES
@@ -799,14 +863,14 @@ if ! diff -u \
     <(normalize_performance_usage "$runtime/rust-performance-overload.body") >&2 || true
   exit 1
 fi
-[[ $(wc -l <"$runtime/provider-hits.jsonl") == 16 ]] || {
+[[ $(wc -l <"$runtime/provider-hits.jsonl") == 18 ]] || {
   echo 'performance load shedding unexpectedly reached the provider' >&2
   exit 1
 }
 snapshot_database "$go_database" "$runtime/go-after-performance.snapshot.json"
 snapshot_database "$rust_database" "$runtime/rust-after-performance.snapshot.json"
 for engine in go rust; do
-  cmp -s "$runtime/$engine-after-errors.snapshot.json" \
+  cmp -s "$runtime/$engine-after-missing-usage.snapshot.json" \
     "$runtime/$engine-after-performance.snapshot.json" || {
     echo "$engine performance load shedding changed PostgreSQL accounting" >&2
     exit 1
@@ -815,7 +879,7 @@ done
 
 if [[ -n $result_dir ]]; then
   jq -cn \
-    '{method:"POST",path:"/v1/embeddings",differential_verified:true,differential_scope:"relay-misc-pg",cases:16,provider_hits:16,postgres_valkey_isolated:true,approval_credit:false,differences:null,mismatch_names:[]}' \
+    '{method:"POST",path:"/v1/embeddings",differential_verified:true,differential_scope:"relay-misc-pg",cases:18,provider_hits:18,postgres_valkey_isolated:true,approval_credit:false,differences:null,mismatch_names:[]}' \
     >"$result_dir/relay-misc-pg-embeddings.json"
 fi
 
@@ -823,5 +887,5 @@ jq -cn \
   --arg result passed \
   --arg go_source "$go_root" \
   --argjson current_go_connection_named_header_leak "$go_connection_named_header_leak" \
-  --argjson provider_hits 16 \
-  '{test:"relay-misc-pg-listener-differential",result:$result,current_go_source:$go_source,provider_loopback_only:true,provider_hits:$provider_hits,http_status_body_and_safe_headers_equal:true,compressed_request_encodings_equal:["gzip","br","zstd"],malformed_compressed_request_equal:["gzip","br","zstd"],ordinary_paid_trust_level_2_discount_equal:true,status_code_mapping_429_to_503_equal:true,upstream_error_variants_equal:["string","message","openai","invalid-json"],upstream_error_header_boundary_equal:true,invalid_token_concealment_equal:true,model_request_rate_limit_equal:true,valkey_backed_model_request_rate_limit_equal:true,system_performance_memory_overload_equal:true,current_go_connection_named_header_leak:$current_go_connection_named_header_leak,rust_connection_named_header_filtered:true,provider_requests_equal:true,postgres_side_effects_equal:true}'
+  --argjson provider_hits 18 \
+  '{test:"relay-misc-pg-listener-differential",result:$result,current_go_source:$go_source,provider_loopback_only:true,provider_hits:$provider_hits,http_status_body_and_safe_headers_equal:true,compressed_request_encodings_equal:["gzip","br","zstd"],malformed_compressed_request_equal:["gzip","br","zstd"],ordinary_paid_trust_level_2_discount_equal:true,status_code_mapping_429_to_503_equal:true,upstream_error_variants_equal:["string","message","openai","invalid-json"],upstream_error_header_boundary_equal:true,invalid_token_concealment_equal:true,model_request_rate_limit_equal:true,valkey_backed_model_request_rate_limit_equal:true,missing_usage_fixed_price_settlement_equal:true,system_performance_memory_overload_equal:true,current_go_connection_named_header_leak:$current_go_connection_named_header_leak,rust_connection_named_header_filtered:true,provider_requests_equal:true,postgres_side_effects_equal:true}'

@@ -16,236 +16,165 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import {
-  ArrowRight01Icon,
-  ChartIncreaseIcon,
-  WalletCardsIcon,
-} from '@hugeicons/core-free-icons'
-import { HugeiconsIcon } from '@hugeicons/react'
 import { Link } from '@tanstack/react-router'
+import { ArrowRight, Coins, ReceiptText } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
-import { useStatus } from '@/hooks/use-status'
-import { isLocalPreview } from '@/lib/local-preview'
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion'
+import { Button } from '@/components/ui/button'
+import { ForgePublicShell } from '@/features/forge/forge-public-shell'
+import { PurchaseJourney } from '@/features/forge/purchase-journey'
+import { usePurchaseEntry } from '@/features/forge/use-purchase-entry'
 
-import { canOfferRegistration } from '../auth/lib/registration'
-import { ForgePublicShell } from '../forge/forge-public-shell'
+const QUESTIONS = [
+  [
+    'Can I pay before approval?',
+    'Developer access requires approval. Payment does not unlock access.',
+  ],
+  [
+    'How much will I pay?',
+    'Model rates and purchase options are available after approval. Your final payment depends on the amount, payment method and applicable discounts shown at checkout.',
+  ],
+  [
+    'Is platform credit the same as money?',
+    'Platform credit is your usage balance. The checkout shows the actual payment separately, with its settlement currency.',
+  ],
+  [
+    'Should I choose credit or a subscription?',
+    'Start with pay-as-you-go credit for flexible usage. If subscriptions are available, compare their included quota, expiry and reset rules before choosing.',
+  ],
+] as const
 
 export function PublicAccessPricing() {
   const { t } = useTranslation()
-  const { status, capabilitiesReady } = useStatus()
-  const canRegister = canOfferRegistration(
-    status,
-    capabilitiesReady,
-    isLocalPreview()
-  )
-  const accountPath = canRegister ? '/sign-up' : '/sign-in'
-  const accountLabel = canRegister ? t('Create account') : t('Sign in')
+  const entry = usePurchaseEntry()
 
   return (
     <ForgePublicShell>
-      <main>
-        <section className='border-border bg-background border-b pt-28 pb-16 md:pt-36 md:pb-24'>
-          <div className='mx-auto max-w-7xl px-5 md:px-10'>
-            <div className='max-w-3xl'>
-              <Badge
-                variant='outline'
-                className='border-border mb-5 rounded-sm'
-              >
+      <main className='bg-background text-foreground'>
+        <section className='border-border border-b'>
+          <div className='mx-auto grid max-w-7xl gap-10 px-5 py-12 md:px-10 md:py-20 lg:grid-cols-[1.15fr_1fr] lg:items-center lg:gap-16'>
+            <div>
+              <p className='text-muted-foreground mb-5 text-sm font-medium'>
                 {t('Pay as you go')}
-              </Badge>
-              <h1 className='max-w-3xl font-serif text-5xl leading-[1.02] font-normal md:text-7xl'>
-                {t('Developer access that grows with your work')}
+              </p>
+              <h1 className='max-w-2xl text-4xl leading-tight font-semibold tracking-tight md:text-5xl'>
+                {t('Know what you are buying')}
               </h1>
-              <p className='mt-7 max-w-2xl text-base leading-7 md:text-lg'>
+              <p className='text-muted-foreground mt-6 max-w-xl text-base leading-7'>
                 {t(
-                  'Create an account, add usage credit when you are ready, and pay only for what you use.'
+                  'Choose a model, understand the cost, then decide how much to spend.'
                 )}
               </p>
               <div className='mt-8 flex flex-col gap-3 sm:flex-row'>
                 <Button
                   size='lg'
-                  className='rounded-sm'
-                  render={<Link to={accountPath} />}
-                >
-                  {accountLabel}
-                  {canRegister ? (
-                    <HugeiconsIcon
-                      icon={ArrowRight01Icon}
-                      data-icon='inline-end'
-                      strokeWidth={2}
-                      aria-hidden='true'
+                  className='h-auto min-h-12 px-6 py-3 text-base whitespace-normal'
+                  render={
+                    <Link
+                      to={entry.to}
+                      search={
+                        entry.to === '/sign-in'
+                          ? { redirect: '/wallet' }
+                          : undefined
+                      }
                     />
-                  ) : null}
+                  }
+                >
+                  {t(entry.label)}
+                  <ArrowRight className='size-4' aria-hidden='true' />
                 </Button>
                 <Button
                   size='lg'
                   variant='outline'
-                  className='rounded-sm'
-                  render={<Link to='/sign-in' />}
+                  className='h-auto min-h-12 px-6 py-3 text-base whitespace-normal'
+                  render={<Link to='/guide' />}
                 >
-                  {t('Sign in')}
+                  {t('Read the guide')}
                 </Button>
               </div>
-            </div>
-          </div>
-        </section>
-
-        <section className='border-border bg-muted/60 border-b py-12 md:py-16'>
-          <div className='mx-auto grid max-w-7xl gap-4 px-5 sm:grid-cols-3 md:px-10'>
-            <div className='flex items-start gap-3'>
-              <HugeiconsIcon
-                icon={WalletCardsIcon}
-                className='mt-0.5 size-6 shrink-0'
-                strokeWidth={2}
-                aria-hidden='true'
-              />
-              <div>
-                <p className='font-medium'>{t('No monthly commitment')}</p>
-                <p className='text-muted-foreground mt-1 text-sm leading-6'>
-                  {t('Add credit when a project needs it.')}
-                </p>
-              </div>
-            </div>
-            <div className='flex items-start gap-3'>
-              <HugeiconsIcon
-                icon={ChartIncreaseIcon}
-                className='mt-0.5 size-6 shrink-0'
-                strokeWidth={2}
-                aria-hidden='true'
-              />
-              <div>
-                <p className='font-medium'>{t('Trust and volume benefits')}</p>
-                <p className='text-muted-foreground mt-1 text-sm leading-6'>
-                  {t(
-                    'Consistent, verified activity can improve value over time.'
-                  )}
-                </p>
-              </div>
-            </div>
-            <div className='flex items-start gap-3'>
-              <HugeiconsIcon
-                icon={WalletCardsIcon}
-                className='mt-0.5 size-6 shrink-0'
-                strokeWidth={2}
-                aria-hidden='true'
-              />
-              <div>
-                <p className='font-medium'>{t('Top up after sign-up')}</p>
-                <p className='text-muted-foreground mt-1 text-sm leading-6'>
-                  {t('Review the available options inside your workspace.')}
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className='border-border border-b py-16 md:py-24'>
-          <div className='mx-auto max-w-7xl px-5 md:px-10'>
-            <div className='mb-10 max-w-2xl'>
-              <p className='mb-3 text-xs font-bold uppercase'>
-                {t('Choose your starting point')}
-              </p>
-              <h2 className='font-serif text-4xl leading-tight font-normal md:text-5xl'>
-                {t('Three ways to begin')}
-              </h2>
-              <p className='text-muted-foreground mt-4 text-sm leading-6 md:text-base'>
+              <p className='text-muted-foreground mt-4 max-w-xl text-sm leading-6'>
                 {t(
-                  'Each option uses the same pay-as-you-go balance. Start with the level of commitment that matches your work.'
+                  'Developer access requires approval. Payment does not unlock access.'
                 )}
               </p>
             </div>
 
-            <div className='grid gap-4 lg:grid-cols-3'>
-              <Card className='border-border border'>
-                <CardHeader>
-                  <CardTitle className='font-serif text-2xl font-normal'>
-                    {t('Start small')}
-                  </CardTitle>
-                  <CardDescription>
-                    {t('For trying the service')}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className='flex-1 text-sm leading-6'>
+            <div className='border-border bg-card divide-border divide-y rounded-xl border px-6'>
+              <div className='py-6'>
+                <div className='mb-3 flex items-center gap-3'>
+                  <Coins className='size-5' aria-hidden='true' />
+                  <h2 className='text-lg font-semibold'>
+                    {t('Pay as you go')}
+                  </h2>
+                </div>
+                <p className='text-muted-foreground text-base leading-7'>
                   {t(
-                    'Create your account, add a small balance, and begin when you are ready.'
+                    'Add a balance for flexible usage. Choose from the available amounts and review your quote before paying.'
                   )}
-                </CardContent>
-                <CardFooter>
-                  <Button
-                    variant='outline'
-                    className='w-full rounded-sm'
-                    render={<Link to={accountPath} />}
-                  >
-                    {accountLabel}
-                  </Button>
-                </CardFooter>
-              </Card>
-
-              <Card className='border-primary bg-accent text-accent-foreground border'>
-                <CardHeader>
-                  <CardTitle className='font-serif text-2xl font-normal'>
-                    {t('Ongoing work')}
-                  </CardTitle>
-                  <CardDescription className='text-accent-foreground/75'>
-                    {t('For regular development')}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className='flex-1 text-sm leading-6'>
+                </p>
+              </div>
+              <div className='py-6'>
+                <div className='mb-3 flex items-center gap-3'>
+                  <ReceiptText className='size-5' aria-hidden='true' />
+                  <h2 className='text-lg font-semibold'>
+                    {t('Subscriptions')}
+                  </h2>
+                </div>
+                <p className='text-muted-foreground text-base leading-7'>
                   {t(
-                    'Keep a reusable balance and add more credit as your work grows.'
+                    'When available, compare each plan by price, included quota, duration and reset rules.'
                   )}
-                </CardContent>
-                <CardFooter className='bg-muted/60'>
-                  <Button
-                    className='w-full rounded-sm'
-                    render={<Link to={accountPath} />}
-                  >
-                    {accountLabel}
-                  </Button>
-                </CardFooter>
-              </Card>
-
-              <Card className='border-border border'>
-                <CardHeader>
-                  <CardTitle className='font-serif text-2xl font-normal'>
-                    {t('Higher volume')}
-                  </CardTitle>
-                  <CardDescription>{t('For sustained usage')}</CardDescription>
-                </CardHeader>
-                <CardContent className='flex-1 text-sm leading-6'>
-                  {t(
-                    'Verified top-ups can raise your trust level and improve value over time.'
-                  )}
-                </CardContent>
-                <CardFooter>
-                  <Button
-                    variant='outline'
-                    className='w-full rounded-sm'
-                    render={<Link to={accountPath} />}
-                  >
-                    {accountLabel}
-                  </Button>
-                </CardFooter>
-              </Card>
+                </p>
+              </div>
+              <p className='text-muted-foreground py-5 text-sm leading-6'>
+                {t(
+                  'Available models, plans and payment methods depend on your account. Check them after access approval.'
+                )}
+              </p>
             </div>
-
-            <p className='text-muted-foreground mt-8 text-sm leading-6'>
-              {t(
-                'Current usage rates and available amounts are shown after access is activated.'
-              )}
-            </p>
           </div>
+        </section>
+
+        <section
+          className='border-border border-b'
+          aria-labelledby='purchase-steps-title'
+        >
+          <div className='mx-auto max-w-7xl px-5 py-10 md:px-10 md:py-14'>
+            <h2
+              id='purchase-steps-title'
+              className='mb-8 text-2xl font-semibold'
+            >
+              {t('A clear path to your first request')}
+            </h2>
+            <PurchaseJourney />
+          </div>
+        </section>
+
+        <section
+          className='mx-auto grid max-w-7xl gap-6 px-5 py-12 md:grid-cols-[1fr_2fr] md:gap-16 md:px-10 md:py-16'
+          aria-labelledby='purchase-questions-title'
+        >
+          <h2 id='purchase-questions-title' className='text-2xl font-semibold'>
+            {t('Before you pay')}
+          </h2>
+          <Accordion>
+            {QUESTIONS.map(([question, answer]) => (
+              <AccordionItem key={question} value={question}>
+                <AccordionTrigger className='gap-4 py-5 text-base'>
+                  {t(question)}
+                </AccordionTrigger>
+                <AccordionContent className='text-muted-foreground pb-5 text-base leading-7'>
+                  {t(answer)}
+                </AccordionContent>
+              </AccordionItem>
+            ))}
+          </Accordion>
         </section>
       </main>
     </ForgePublicShell>

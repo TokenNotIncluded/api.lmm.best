@@ -20,7 +20,8 @@ func heroSMSJSON(c *gin.Context, status int, payload any) {
 }
 
 func heroSMSError(c *gin.Context, err error) {
-	if apiErr, ok := err.(*model.HeroSMSError); ok {
+	var apiErr *model.HeroSMSError
+	if errors.As(err, &apiErr) && apiErr != nil {
 		c.AbortWithStatusJSON(apiErr.Status, gin.H{"success": false, "code": apiErr.Code, "message": apiErr.Message})
 		return
 	}

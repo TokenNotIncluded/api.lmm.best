@@ -10,12 +10,12 @@
     "dev:go": "cd apps/api-go && go run .",
     "dev:web": "bun run --filter @lmm/web dev",
     "dev:rust": "cargo run --manifest-path apps/api-rust/Cargo.toml --locked --package lmm-api-rs",
-    "build:go": "mkdir -p apps/api-go/out && cd apps/api-go && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o out/lmm-api .",
+    "build:go": "mkdir -p apps/api-go/out && cd apps/api-go && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o out/lmm-api-go . && rm -f out/.lmm-api.next && ln -s lmm-api-go out/.lmm-api.next && mv -Tf out/.lmm-api.next out/lmm-api",
     "build:web": "bun run --filter @lmm/web build",
     "build:rust": "cargo build --manifest-path apps/api-rust/Cargo.toml --locked --release --package lmm-api-rs",
     "test:go": "cd apps/api-go && go test ./...",
     "test:web": "bun run --filter @lmm/web test",
-    "test:rust": "cargo test --manifest-path apps/api-rust/Cargo.toml --locked --workspace --all-targets",
+    "test:rust": "cargo test --manifest-path apps/api-rust/Cargo.toml --locked --workspace --all-targets --all-features",
     "format:go": "cd apps/api-go && go fmt ./...",
     "format:web": "bun run --filter @lmm/web format",
     "format:rust": "cargo fmt --manifest-path apps/api-rust/Cargo.toml --all",
@@ -27,7 +27,7 @@
     "lint:rust": "cargo clippy --manifest-path apps/api-rust/Cargo.toml --locked --workspace --all-targets --all-features -- -D warnings",
     "typecheck:go": "cd apps/api-go && go test -run '^$' ./...",
     "typecheck:web": "bun run --filter @lmm/web typecheck",
-    "typecheck:rust": "cargo check --manifest-path apps/api-rust/Cargo.toml --locked --workspace --all-targets",
+    "typecheck:rust": "cargo check --manifest-path apps/api-rust/Cargo.toml --locked --workspace --all-targets --all-features",
     "waffo:pancake:smoke": "node scripts/waffo-pancake-smoke.mjs"
   },
   "overrides": {
@@ -44,6 +44,6 @@
     "uuid": "14.0.0"
   },
   "devDependencies": {
-    "@waffo/pancake-ts": "0.9.0"
+    "@waffo/pancake-ts": "0.20.0"
   }
 }

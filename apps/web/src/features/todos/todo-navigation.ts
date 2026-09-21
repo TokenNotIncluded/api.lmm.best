@@ -21,32 +21,46 @@ Copyright (C) 2026 LIghtJUNction
 */
 import type { TodoItem } from './api'
 
-function detailString(item: TodoItem, key: string) {
+export function todoDetailString(item: TodoItem, key: string) {
   const value = item.details?.[key]
   return typeof value === 'string' ? value : ''
 }
 
-function detailNumber(item: TodoItem, key: string) {
+export function todoDetailNumber(item: TodoItem, key: string) {
   const value = item.details?.[key]
-  return typeof value === 'number' ? value : undefined
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function positiveId(value: number | undefined) {
+  return value !== undefined && Number.isSafeInteger(value) && value > 0
 }
 
 export function todoItemHasDestination(item: TodoItem) {
-  return (
-    detailNumber(item, 'project_id') !== undefined ||
-    item.category === 'security_review' ||
-    (item.category === 'developer_access' && item.source_id > 0) ||
-    (item.category === 'account_action' && item.source_id > 0) ||
-    (item.category === 'security_incident' &&
-      Boolean(detailString(item, 'username')))
-  )
+  switch (item.category) {
+    case 'open_source_bounty':
+    case 'open_source_bounty_review':
+      return positiveId(todoDetailNumber(item, 'project_id'))
+    case 'security_review':
+      return true
+    case 'human_support':
+    case 'developer_access':
+    case 'account_action':
+      return positiveId(item.source_id)
+    case 'security_incident':
+      return Boolean(todoDetailString(item, 'username').trim())
+    default:
+      return false
+  }
 }
 
-/**
- * Security-review notifications must lead to the audit timeline, not the
- * configuration form. The timeline is where the reviewed requests and their
- * explanations are available to an administrator.
- */
+export function todoItemCanOpen(item: TodoItem, isAdmin: boolean) {
+  const publicDestination =
+    item.category === 'open_source_bounty' ||
+    item.category === 'open_source_bounty_review'
+  return (isAdmin || publicDestination) && todoItemHasDestination(item)
+}
+
+/** Security reviews belong to the audit timeline, not the settings form. */
 export function todoSecurityReviewDestination(item: TodoItem) {
   return item.category === 'security_review'
     ? ('/security' as const)

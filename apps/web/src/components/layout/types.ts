@@ -26,6 +26,11 @@ type BaseNavItem = {
   title: string
   badge?: string
   icon?: React.ElementType
+  /**
+   * Keeps the item visible while preventing navigation when the destination
+   * is intentionally unavailable in the current workspace.
+   */
+  disabled?: boolean
   activeUrls?: (LinkProps['to'] | (string & {}))[]
   configUrls?: (LinkProps['to'] | (string & {}))[]
   /**
@@ -34,6 +39,8 @@ type BaseNavItem = {
    * `useSidebarView`). Route-level guards still enforce access independently.
    */
   requiredRole?: number
+  /** Opens an in-context surface instead of changing the current route. */
+  interaction?: 'model-panel'
 }
 
 /**

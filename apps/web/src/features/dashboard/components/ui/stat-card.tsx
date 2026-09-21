@@ -51,6 +51,7 @@ interface StatCardProps {
   error?: boolean
   action?: ReactNode
   iconTone?: IconBadgeTone
+  plain?: boolean
   compactMobile?: boolean
 }
 
@@ -245,7 +246,7 @@ export function StatCard(props: StatCardProps) {
         <Skeleton
           className={cn(
             'h-3 w-24 sm:h-3.5 sm:w-32',
-            props.compactMobile && 'hidden sm:block'
+            props.plain ? 'sr-only' : props.compactMobile && 'hidden sm:block'
           )}
         />
       </div>
@@ -258,8 +259,8 @@ export function StatCard(props: StatCardProps) {
         </div>
         <p
           className={cn(
-            'text-muted-foreground/60 line-clamp-1 text-[11px] sm:text-xs',
-            props.compactMobile && 'hidden sm:block'
+            'text-muted-foreground line-clamp-1 text-[11px] sm:text-xs',
+            props.plain ? 'sr-only' : props.compactMobile && 'hidden sm:block'
           )}
         >
           {props.description}
@@ -269,13 +270,18 @@ export function StatCard(props: StatCardProps) {
   } else {
     valueContent = (
       <div className='flex flex-col gap-1'>
-        <div className='text-foreground font-mono text-base font-semibold tracking-tight break-all tabular-nums sm:text-2xl'>
+        <div
+          className={cn(
+            'text-foreground text-base font-semibold tracking-tight break-words tabular-nums [overflow-wrap:anywhere]',
+            props.plain ? 'sm:text-xl' : 'font-mono sm:text-2xl'
+          )}
+        >
           {props.value}
         </div>
         <p
           className={cn(
-            'text-muted-foreground/60 line-clamp-1 text-[11px] leading-relaxed sm:text-xs',
-            props.compactMobile && 'hidden sm:block'
+            'text-muted-foreground line-clamp-1 text-[11px] leading-relaxed sm:text-xs',
+            props.plain ? 'sr-only' : props.compactMobile && 'hidden sm:block'
           )}
         >
           {props.description}
@@ -296,32 +302,37 @@ export function StatCard(props: StatCardProps) {
   return (
     <div
       className={cn(
-        'group flex flex-col justify-between sm:min-h-32 sm:gap-3',
+        'group min-w-0',
+        props.plain
+          ? 'grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 sm:flex sm:flex-col sm:items-stretch sm:justify-start'
+          : 'flex flex-col justify-between gap-3 sm:min-h-32',
         props.compactMobile ? 'gap-1' : 'gap-1.5'
       )}
     >
       <div className='flex items-start justify-between gap-1'>
         <div className='text-muted-foreground flex items-center gap-1 text-[11px] font-medium sm:gap-2 sm:text-xs'>
-          <IconBadge
-            tone={iconTone}
-            size='stat'
-            className={cn(
-              props.compactMobile &&
-                'size-4 rounded-sm [&>svg]:size-2.5 sm:size-7 sm:rounded-md sm:[&>svg]:size-3.5'
-            )}
-          >
-            <Icon />
-          </IconBadge>
-          <span className='line-clamp-1 leading-snug sm:line-clamp-2'>
-            {props.title}
-          </span>
+          {!props.plain && (
+            <IconBadge
+              tone={iconTone}
+              size='stat'
+              className={cn(
+                props.compactMobile &&
+                  'size-4 rounded-sm [&>svg]:size-2.5 sm:size-7 sm:rounded-md sm:[&>svg]:size-3.5'
+              )}
+            >
+              <Icon />
+            </IconBadge>
+          )}
+          <span className='leading-snug'>{props.title}</span>
         </div>
         {props.action && <div className='shrink-0'>{props.action}</div>}
       </div>
 
       {valueContent}
 
-      <div className='hidden sm:block'>{visualization}</div>
+      {!props.plain || props.sparkline?.length ? (
+        <div className='hidden sm:block'>{visualization}</div>
+      ) : null}
     </div>
   )
 }

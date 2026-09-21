@@ -75,7 +75,7 @@ export function BasicAuthSection({ defaultValues }: BasicAuthSectionProps) {
         defaultValues.RegistrationDisabledMethods.split(/[\n,\r]/)
           .map((method) => method.trim().toLowerCase())
           .filter(Boolean)
-          .sort()
+          .sort((left, right) => left.localeCompare(right))
           .join(','),
       EmailDomainWhitelist: defaultValues.EmailDomainWhitelist.split(',')
         .map((domain) => domain.trim())
@@ -112,7 +112,7 @@ export function BasicAuthSection({ defaultValues }: BasicAuthSectionProps) {
           .split(/[\n,\r]/)
           .map((method) => method.trim().toLowerCase())
           .filter(Boolean)
-          .sort()
+          .sort((left, right) => left.localeCompare(right))
           .join(',')
         if (methods !== defaultValues.RegistrationDisabledMethods) {
           updates.push({ key, value: methods })
@@ -273,7 +273,13 @@ export function BasicAuthSection({ defaultValues }: BasicAuthSectionProps) {
                               const next = new Set(disabledMethods)
                               if (allowed) next.delete(method.id)
                               else next.add(method.id)
-                              field.onChange([...next].sort().join(','))
+                              field.onChange(
+                                [...next]
+                                  .sort((left, right) =>
+                                    left.localeCompare(right)
+                                  )
+                                  .join(',')
+                              )
                             }}
                           />
                         </FormControl>

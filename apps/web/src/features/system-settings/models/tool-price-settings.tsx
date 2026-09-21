@@ -158,18 +158,16 @@ export const ToolPriceSettings = memo(function ToolPriceSettings({
           setJsonError(t('JSON must be an object'))
           return
         }
-        const prices: Record<string, number> = {}
-        for (const [key, value] of Object.entries(parsed)) {
-          if (
-            typeof value !== 'number' ||
-            !Number.isFinite(value) ||
-            value < 0
-          ) {
-            setJsonError(t('Please enter a valid number'))
-            return
-          }
-          prices[key] = value
+        const entries = Object.entries(parsed)
+        const invalidPrice = entries.some(
+          ([, value]) =>
+            typeof value !== 'number' || !Number.isFinite(value) || value < 0
+        )
+        if (invalidPrice) {
+          setJsonError(t('Please enter a valid number'))
+          return
         }
+        const prices = Object.fromEntries(entries) as Record<string, number>
         const nextRows = objectToRows(prices)
         setRows(nextRows)
         setNextRowId(nextRows.length + 1)

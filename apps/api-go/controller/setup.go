@@ -223,7 +223,7 @@ func saveSetupOptions(tx *gorm.DB, req SetupRequest) error {
 }
 
 func applySetupOperationModes(req SetupRequest) {
-	operation_setting.SelfUseModeEnabled = req.SelfUseModeEnabled
+	operation_setting.SelfUseModeEnabled.Store(req.SelfUseModeEnabled)
 	operation_setting.DemoSiteEnabled = req.DemoSiteEnabled
 
 	common.OptionMapRWMutex.Lock()

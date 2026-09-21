@@ -202,6 +202,12 @@ func TestAssistantCreateKeyRequestRequiresAStandaloneKeyTerm(t *testing.T) {
 		{name: "explicit API key", message: "请直接在助手里帮我创建一个 API key", want: true},
 		{name: "explicit Chinese key", message: "帮我生成一个密钥", want: true},
 		{name: "explicit standalone English key", message: "Generate a new key for me", want: true},
+		{name: "read-only request", message: "只读验收：请查询公开 API 接入地址和支持的接口协议。不要创建密钥、修改配置或提交工单。", want: false},
+		{name: "negative English request", message: "Do not create an API key; just explain the endpoint", want: false},
+		{name: "creation question", message: "如何创建 API key？", want: false},
+		{name: "direct creation after explanation refusal", message: "不需要解释，直接创建密钥", want: true},
+		{name: "direct creation after negative explanation", message: "别解释，帮我创建密钥", want: true},
+		{name: "read-only key name is still creation", message: "帮我创建一个名为 read-only-test 的 API key", want: true},
 		{name: "keyboard accessibility", message: "How can I make keyboard navigation accessible?", want: false},
 		{name: "keyframe animation", message: "Please make these keyframes smoother", want: false},
 	}
@@ -278,6 +284,7 @@ func TestAssistantRecommendationEditWorkflowToolChoices(t *testing.T) {
 	assert.Equal(t, assistantRecommendationActionNone, classifyAssistantRecommendationAction("请显示我的推荐信"))
 	assert.Equal(t, assistantRecommendationActionNone, classifyAssistantRecommendationAction("管理员修改了我的推荐信"))
 	assert.Equal(t, assistantRecommendationActionNone, classifyAssistantRecommendationAction("不要删除我的推荐信"))
+	assert.Equal(t, assistantRecommendationActionNone, classifyAssistantRecommendationAction("我不想删除我的推荐信"))
 	assert.Equal(t, assistantRecommendationActionNone, classifyAssistantRecommendationAction("Please edit my profile"))
 
 	revise := assistantUserContext{
@@ -286,17 +293,27 @@ func TestAssistantRecommendationEditWorkflowToolChoices(t *testing.T) {
 		RecommendationAction: assistantRecommendationActionRevise,
 	}
 	assert.Equal(t, "get_l1_recommendation", assistantNamedToolChoiceName(assistantToolChoiceForAgentStep(revise, nil, nil)))
-	assert.Equal(t, "prepare_l1_recommendation", assistantNamedToolChoiceName(assistantToolChoiceForAgentStep(
+	assert.Equal(t, "none", assistantToolChoiceForAgentStep(
 		revise,
 		map[string]bool{"get_l1_recommendation": true},
 		map[string]bool{"get_l1_recommendation": true},
+	))
+	assert.False(t, assistantToolAllowedForContext("prepare_l1_recommendation", revise))
+	eligible := revise
+	eligible.CompletedAssistantTurns = model.AssistantDirectGrantMinCompletedTurns
+	assert.Equal(t, "get_registration_risk", assistantNamedToolChoiceName(assistantToolChoiceForAgentStep(
+		eligible, map[string]bool{"get_l1_recommendation": true}, map[string]bool{"get_l1_recommendation": true},
 	)))
+	assert.Equal(t, "grant_l1_access", assistantNamedToolChoiceName(assistantToolChoiceForAgentStep(
+		eligible, map[string]bool{"get_l1_recommendation": true, "get_registration_risk": true}, map[string]bool{"get_l1_recommendation": true, "get_registration_risk": true},
+	)))
+	assert.Equal(t, 4, assistantRecommendationWorkflowMinSteps(eligible))
 	assert.Equal(t, "none", assistantToolChoiceForAgentStep(
 		revise,
 		map[string]bool{"get_l1_recommendation": true, "prepare_l1_recommendation": true},
 		map[string]bool{"get_l1_recommendation": true, "prepare_l1_recommendation": true},
 	))
-	assert.Equal(t, 3, assistantRecommendationWorkflowMinSteps(revise))
+	assert.Equal(t, 2, assistantRecommendationWorkflowMinSteps(revise))
 
 	remove := revise
 	remove.RecommendationAction = assistantRecommendationActionRemove
@@ -309,7 +326,7 @@ func TestAssistantRecommendationEditWorkflowToolChoices(t *testing.T) {
 
 	revise.ConversationTitleNeeded = true
 	assert.Equal(t, "set_conversation_title", assistantNamedToolChoiceName(assistantToolChoiceForAgentStep(revise, nil, nil)))
-	assert.Equal(t, 4, assistantRecommendationWorkflowMinSteps(revise))
+	assert.Equal(t, 3, assistantRecommendationWorkflowMinSteps(revise))
 
 	encoded, err := json.Marshal(revise)
 	require.NoError(t, err)

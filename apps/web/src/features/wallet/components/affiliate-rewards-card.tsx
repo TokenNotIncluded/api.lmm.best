@@ -19,15 +19,15 @@ For commercial licensing, please contact support@quantumnous.com
 import { Share2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
-import { CopyButton } from '@/components/copy-button'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { IconBadge } from '@/components/ui/icon-badge'
-import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatQuota } from '@/lib/format'
 
 import type { UserWalletData } from '../types'
+import { AffiliateInviteDialog } from './affiliate-invite-dialog'
+import { ReferralHistoryDialog } from './referral-history-dialog'
 
 interface AffiliateRewardsCardProps {
   user: UserWalletData | null
@@ -73,9 +73,9 @@ export function AffiliateRewardsCard({
             <h3 className='truncate text-sm font-semibold'>
               {t('Referral Program')}
             </h3>
-            <p className='text-muted-foreground line-clamp-1 text-xs'>
+            <p className='text-muted-foreground text-xs'>
               {t(
-                'Earn rewards when users join through your referral link. Transfer accumulated rewards to your balance anytime.'
+                'Earn a reward after an invited user completes their first real paid top-up. Rewards may be revoked for confirmed abuse or a full refund.'
               )}
             </p>
           </div>
@@ -83,7 +83,14 @@ export function AffiliateRewardsCard({
 
         <div className='grid grid-cols-3 gap-1.5 text-center'>
           {[
-            [t('Pending'), formatQuota(user?.aff_quota ?? 0)],
+            [
+              (user?.aff_debt ?? 0) > 0 ? t('Reward debt') : t('Pending'),
+              formatQuota(
+                (user?.aff_debt ?? 0) > 0
+                  ? (user?.aff_debt ?? 0)
+                  : (user?.aff_quota ?? 0)
+              ),
+            ],
             [t('Total Earned'), formatQuota(user?.aff_history_quota ?? 0)],
             [t('Invites'), String(user?.aff_count ?? 0)],
           ].map(([label, value]) => (
@@ -98,26 +105,16 @@ export function AffiliateRewardsCard({
           ))}
         </div>
 
-        <div className='flex items-center gap-2'>
-          <Input
-            value={affiliateLink}
-            readOnly
-            className='border-muted bg-background/70 h-9 min-w-0 flex-1 font-mono text-xs'
-          />
-          <CopyButton
-            value={affiliateLink}
-            variant='outline'
-            className='bg-background size-9 shrink-0'
-            iconClassName='size-4'
-            tooltip={t('Copy referral link')}
-            aria-label={t('Copy referral link')}
-          />
+        <div className='flex flex-wrap items-center justify-end gap-2'>
+          <AffiliateInviteDialog affiliateLink={affiliateLink} />
+          <ReferralHistoryDialog />
           {hasRewards && (
             <Button
               onClick={onTransfer}
               disabled={!complianceConfirmed}
               className='h-9 shrink-0 px-3'
               size='sm'
+              variant='outline'
             >
               {t('Transfer to Balance')}
             </Button>

@@ -145,6 +145,7 @@ import {
   FIELD_DESCRIPTIONS,
   FIELD_PLACEHOLDERS,
   MODEL_FETCHABLE_TYPES,
+  isOpenAIChannelType,
 } from '../../constants'
 import { useChannelMutateForm } from '../../hooks/use-channel-mutate-form'
 import {
@@ -916,7 +917,7 @@ export function ChannelMutateDrawer({
   const basicModels = useMemo(() => {
     if (!allModelsList.length) return []
     // Filter models based on common patterns for specific types
-    if (currentType === 1) {
+    if (isOpenAIChannelType(currentType)) {
       return allModelsList.filter(
         (model) => model.startsWith('gpt-') || model.startsWith('text-')
       )
@@ -1052,7 +1053,7 @@ export function ChannelMutateDrawer({
     (currentHttp2ConnectionShards != null && currentHttp2ConnectionShards > 1)
   )
   let fieldPassthroughConfigured = false
-  if (currentType === 1 || currentType === 57) {
+  if (isOpenAIChannelType(currentType) || currentType === 57) {
     fieldPassthroughConfigured = Boolean(
       currentAllowServiceTier ||
       currentDisableStore ||
@@ -1103,7 +1104,11 @@ export function ChannelMutateDrawer({
       configured: extraSettingsConfigured,
     },
   ]
-  if (currentType === 1 || currentType === 14 || currentType === 57) {
+  if (
+    isOpenAIChannelType(currentType) ||
+    currentType === 14 ||
+    currentType === 57
+  ) {
     advancedNavChildren.push({
       id: ADVANCED_SETTINGS_SECTION_IDS.fieldPassthrough,
       title: t('Field passthrough controls'),
@@ -2102,7 +2107,7 @@ export function ChannelMutateDrawer({
                           />
                         )}
 
-                        {currentType === 1 && (
+                        {isOpenAIChannelType(currentType) && (
                           <fieldset
                             disabled={sensitiveLocked}
                             className='disabled:opacity-60'
@@ -4119,7 +4124,7 @@ export function ChannelMutateDrawer({
                             className='space-y-4 disabled:opacity-60'
                           >
                             <div className='divide-border space-y-0 divide-y border-y'>
-                              {currentType === 1 && (
+                              {isOpenAIChannelType(currentType) && (
                                 <FormField
                                   control={form.control}
                                   name='force_format'
@@ -4419,7 +4424,7 @@ export function ChannelMutateDrawer({
                           </fieldset>
                         </div>
 
-                        {(currentType === 1 ||
+                        {(isOpenAIChannelType(currentType) ||
                           currentType === 14 ||
                           currentType === 57) && (
                           <div
@@ -4466,7 +4471,8 @@ export function ChannelMutateDrawer({
                                   )}
                                 />
 
-                                {(currentType === 1 || currentType === 57) && (
+                                {(isOpenAIChannelType(currentType) ||
+                                  currentType === 57) && (
                                   <>
                                     <FormField
                                       control={form.control}

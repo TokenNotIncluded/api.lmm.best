@@ -16,10 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import {
-  CardStaggerContainer,
-  CardStaggerItem,
-} from '@/components/page-transition'
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
+import { AccountStatus } from '@/features/onboarding/account-status'
+import { LatestRequestCard } from '@/features/onboarding/latest-request-card'
 import { ROLE } from '@/lib/roles'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
@@ -46,13 +47,19 @@ export function OverviewDashboard() {
   const showContentPanels = showLeftContentPanels || showUptimePanel
 
   return (
-    <div className='dashboard-editorial flex flex-col gap-4'>
+    <div className='dashboard-editorial flex flex-col gap-10'>
+      {!isAdmin && (
+        <>
+          <AccountStatus />
+          <LatestRequestCard />
+        </>
+      )}
       <SummaryCards />
 
       {showContentPanels && (
-        <CardStaggerContainer
+        <div
           className={cn(
-            'grid grid-cols-1 gap-4',
+            'grid grid-cols-1 items-start gap-8',
             showLeftContentPanels &&
               showUptimePanel &&
               'xl:grid-cols-[minmax(0,1fr)_22rem]'
@@ -61,39 +68,39 @@ export function OverviewDashboard() {
           {showLeftContentPanels && (
             <div
               className={cn(
-                'grid min-w-0 grid-cols-1 gap-4',
+                'grid min-w-0 grid-cols-1 items-start gap-8',
                 (showApiInfoPanel || showAnnouncementsPanel || showFAQPanel) &&
                   'lg:grid-cols-2'
               )}
             >
               {isAdmin && (
-                <CardStaggerItem className='lg:col-span-2'>
+                <div className='lg:col-span-2'>
                   <PerformanceHealthPanel />
-                </CardStaggerItem>
+                </div>
               )}
               {showApiInfoPanel && (
-                <CardStaggerItem>
+                <div>
                   <ApiInfoPanel />
-                </CardStaggerItem>
+                </div>
               )}
               {showAnnouncementsPanel && (
-                <CardStaggerItem>
+                <div>
                   <AnnouncementsPanel />
-                </CardStaggerItem>
+                </div>
               )}
               {showFAQPanel && (
-                <CardStaggerItem>
+                <div>
                   <FAQPanel />
-                </CardStaggerItem>
+                </div>
               )}
             </div>
           )}
           {showUptimePanel && (
-            <CardStaggerItem>
+            <div>
               <UptimePanel />
-            </CardStaggerItem>
+            </div>
           )}
-        </CardStaggerContainer>
+        </div>
       )}
     </div>
   )

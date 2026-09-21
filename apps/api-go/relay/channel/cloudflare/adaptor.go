@@ -26,8 +26,11 @@ func (a *Adaptor) ConvertGeminiRequest(*gin.Context, *relaycommon.RelayInfo, *dt
 }
 
 func (a *Adaptor) ConvertClaudeRequest(*gin.Context, *relaycommon.RelayInfo, *dto.ClaudeRequest) (any, error) {
-	//TODO implement me
-	panic("implement me")
+	return nil, channel.NewUnsupportedEndpointError(a.GetChannelName(), channel.EndpointClaudeMessages)
+}
+
+func (a *Adaptor) SupportsEndpoint(endpoint channel.Endpoint) bool {
+	return endpoint != channel.EndpointClaudeMessages
 }
 
 func (a *Adaptor) Init(info *relaycommon.RelayInfo) {

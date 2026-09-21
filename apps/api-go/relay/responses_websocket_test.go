@@ -4,12 +4,15 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	appconstant "github.com/LIghtJUNction/api.lmm.best/constant"
 	"github.com/LIghtJUNction/api.lmm.best/middleware"
 	appmodel "github.com/LIghtJUNction/api.lmm.best/model"
+	"github.com/LIghtJUNction/api.lmm.best/pkg/wsmanager"
 	relaychannel "github.com/LIghtJUNction/api.lmm.best/relay/channel"
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
@@ -21,6 +24,64 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestResponsesWSSessionCloseWithCodeUsesRequestedStatus(t *testing.T) {
+	tests := []struct {
+		name   string
+		code   int
+		reason string
+	}{
+		{name: "channel policy", code: websocket.ClosePolicyViolation, reason: "channel disabled"},
+		{name: "service restart", code: websocket.CloseServiceRestart, reason: wsmanager.ServiceRestartReason},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client, clientPeer := responsesWSTestPair(t)
+			target, targetPeer := responsesWSTestPair(t)
+			session := &responsesWSSession{client: client, target: target}
+
+			session.closeWithCode(tt.code, tt.reason)
+
+			for _, peer := range []*websocket.Conn{clientPeer, targetPeer} {
+				require.NoError(t, peer.SetReadDeadline(time.Now().Add(time.Second)))
+				_, _, err := peer.ReadMessage()
+				var closeErr *websocket.CloseError
+				require.ErrorAs(t, err, &closeErr)
+				assert.Equal(t, tt.code, closeErr.Code)
+				assert.Equal(t, tt.reason, closeErr.Text)
+			}
+		})
+	}
+}
+
+func responsesWSTestPair(t *testing.T) (*websocket.Conn, *websocket.Conn) {
+	t.Helper()
+	serverConnection := make(chan *websocket.Conn, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		connection, err := (&websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}).Upgrade(writer, request, nil)
+		if err != nil {
+			return
+		}
+		serverConnection <- connection
+	}))
+	t.Cleanup(server.Close)
+
+	peer, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http"), nil)
+	require.NoError(t, err)
+	var connection *websocket.Conn
+	select {
+	case connection = <-serverConnection:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for test websocket upgrade")
+	}
+	t.Cleanup(func() {
+		if connection != nil {
+			_ = connection.Close()
+		}
+		_ = peer.Close()
+	})
+	return connection, peer
+}
 
 func TestNormalizeResponsesWSCreateEvent(t *testing.T) {
 	tests := []struct {

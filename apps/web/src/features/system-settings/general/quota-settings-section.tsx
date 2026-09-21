@@ -53,8 +53,23 @@ import { useUpdateOption } from '../hooks/use-update-option'
 const quotaSchema = z.object({
   QuotaForNewUser: z.coerce.number().min(0),
   PreConsumedQuota: z.coerce.number().min(0),
-  QuotaForInviter: z.coerce.number().min(0),
-  QuotaForInvitee: z.coerce.number().min(0),
+  QuotaForInviter: z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+  ReferralMinTopUpQuota: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(Number.MAX_SAFE_INTEGER),
+  ReferralMaxRewardQuota: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(Number.MAX_SAFE_INTEGER),
+  ReferralPenaltyPercent: z.coerce.number().int().min(0).max(100),
+  ReferralMaxPenaltyQuota: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(Number.MAX_SAFE_INTEGER),
   OpenSourceBountyFeeRate: z.coerce.number().min(0).max(100),
   TopUpLink: z.string(),
   general_setting: z.object({
@@ -201,7 +216,7 @@ export function QuotaSettingsSection({
                   </FormControl>
                   <FormDescription>
                     {t(
-                      'Quota given to users who invite others ({{formattedQuota}})',
+                      'Reward after the invited user’s first real paid top-up ({{formattedQuota}})',
                       {
                         formattedQuota: formatQuotaInputValue(field.value),
                       }
@@ -212,31 +227,56 @@ export function QuotaSettingsSection({
               )}
             />
 
-            <FormField
-              control={form.control}
-              name='QuotaForInvitee'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Invitee Reward')}</FormLabel>
-                  <FormControl>
-                    <Input
-                      type='number'
-                      value={field.value ?? ''}
-                      onChange={handleNumberChange(field.onChange)}
-                      name={field.name}
-                      onBlur={field.onBlur}
-                      ref={field.ref}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t('Quota given to invited users ({{formattedQuota}})', {
-                      formattedQuota: formatQuotaInputValue(field.value),
-                    })}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {(
+              [
+                ['ReferralMinTopUpQuota', 'Minimum first top-up quota'],
+                [
+                  'ReferralMaxRewardQuota',
+                  'Maximum referral reward quota (0 = no additional cap)',
+                ],
+                ['ReferralPenaltyPercent', 'Extra referral penalty (%)'],
+                [
+                  'ReferralMaxPenaltyQuota',
+                  'Maximum extra penalty quota (0 = no additional cap)',
+                ],
+              ] as const
+            ).map(([name, label]) => (
+              <FormField
+                key={name}
+                control={form.control}
+                name={name}
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t(label)}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min={0}
+                        max={
+                          name === 'ReferralPenaltyPercent'
+                            ? 100
+                            : Number.MAX_SAFE_INTEGER
+                        }
+                        step={1}
+                        value={field.value ?? ''}
+                        onChange={handleNumberChange(field.onChange)}
+                        name={field.name}
+                        onBlur={field.onBlur}
+                        ref={field.ref}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {name === 'ReferralPenaltyPercent'
+                        ? t(
+                            'Applied only when an administrator confirms inviter involvement. The policy is fixed when the reward is granted.'
+                          )
+                        : formatQuotaInputValue(field.value)}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            ))}
 
             <FormField
               control={form.control}

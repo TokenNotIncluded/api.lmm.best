@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/require"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -102,9 +104,12 @@ func migrateTokenControllerTestDB(t *testing.T, db *gorm.DB) {
 	if err := db.AutoMigrate(
 		&model.User{},
 		&model.Token{},
+		&model.SubscriptionOrder{},
+		&model.SubscriptionPaymentEvent{},
 		&model.AssistantConversation{},
 		&model.AssistantHistoryMessage{},
 		&model.AssistantSecureCard{},
+		&model.AssistantSupportRequest{},
 	); err != nil {
 		t.Fatalf("failed to migrate token table: %v", err)
 	}
@@ -397,6 +402,60 @@ func runTokenMigrationCompatibilityTest(t *testing.T, db *gorm.DB, dialect strin
 	if fetched.Key != longKey {
 		t.Fatalf("expected long token key %q, got %q", longKey, fetched.Key)
 	}
+}
+
+func TestAddLimitedTokenEnforcesJavaScriptSafeQuota(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	oldQuotaPerUnit := common.QuotaPerUnit
+	common.QuotaPerUnit = math.MaxFloat64
+	t.Cleanup(func() { common.QuotaPerUnit = oldQuotaPerUnit })
+
+	user := model.User{Username: "limited-token-wallet", Status: common.UserStatusEnabled}
+	if err := db.Create(&user).Error; err != nil {
+		t.Fatalf("failed to create user: %v", err)
+	}
+	if limit := maxLimitedTokenQuota(); limit != common.MaxWalletQuota {
+		t.Fatalf("limited token quota cap = %d, want %d", limit, common.MaxWalletQuota)
+	}
+
+	perform := func(quota int) tokenAPIResponse {
+		body := fmt.Sprintf(`{"name":"wallet-limit","expired_time":-1,"remain_quota":%d,"unlimited_quota":false}`, quota)
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		ctx.Set("id", user.Id)
+		ctx.Request = httptest.NewRequest(http.MethodPost, "/api/token/", strings.NewReader(body))
+		ctx.Request.Header.Set("Content-Type", "application/json")
+		AddToken(ctx)
+		var response tokenAPIResponse
+		if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+			t.Fatalf("decode response %q: %v", recorder.Body.String(), err)
+		}
+		return response
+	}
+
+	if response := perform(common.MaxWalletQuota); !response.Success {
+		t.Fatalf("exact JS-safe maximum should be accepted: %s", response.Message)
+	}
+	if response := perform(common.MaxWalletQuota + 1); response.Success {
+		t.Fatal("quota above JS-safe maximum should be rejected")
+	}
+}
+
+func TestAddTokenCannotForgeAutomaticCreationSource(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	user := model.User{Username: "manual-source-owner", Status: common.UserStatusEnabled, Group: "default"}
+	require.NoError(t, db.Create(&user).Error)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Set("id", user.Id)
+	ctx.Set("group", "default")
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/token/", strings.NewReader(`{"name":"forged","expired_time":-1,"unlimited_quota":true,"creation_source":"drawing_mcp"}`))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+	AddToken(ctx)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var stored model.Token
+	require.NoError(t, db.Where("user_id = ?", user.Id).First(&stored).Error)
+	require.Equal(t, model.TokenCreationSourceManual, stored.CreationSource)
 }
 
 func TestTokenAutoMigrateUsesVarchar128KeyColumn(t *testing.T) {

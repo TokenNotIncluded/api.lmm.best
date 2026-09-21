@@ -72,6 +72,7 @@ import {
 } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { readSetupPreferences } from '@/features/onboarding/setup-preferences'
 import { useStatus } from '@/hooks/use-status'
 import { getUserModels, getUserGroups } from '@/lib/api'
 import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
@@ -92,12 +93,14 @@ import {
   transformApiKeyToFormDefaults,
 } from '../lib'
 import type { ApiKey } from '../types'
+import { ApiBaseUrl } from './api-base-url'
 import {
   ApiKeyGroupCombobox,
   type ApiKeyGroupOption,
 } from './api-key-group-combobox'
 import { useApiKeys } from './api-keys-provider'
 import { AutoGroupOrderEditor } from './auto-group-order-editor'
+import { CreatedApiKey, type CreatedApiKeySecret } from './created-api-key'
 
 type ApiKeyMutateDrawerProps = {
   open: boolean
@@ -119,6 +122,9 @@ export function ApiKeysMutateDrawer({
   const cachedStatus = queryClient.getQueryData<{
     default_use_auto_group?: boolean
   }>(['status'])
+  const [createdSecret, setCreatedSecret] =
+    useState<CreatedApiKeySecret | null>(null)
+  const [creationUncertain, setCreationUncertain] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [initializedTarget, setInitializedTarget] = useState<string | null>(
@@ -247,9 +253,13 @@ export function ApiKeysMutateDrawer({
         setInitializedTarget(target)
       }
     } else {
-      form.reset(
-        getApiKeyFormDefaultValues(defaultUseAutoGroup && backendHasAuto)
-      )
+      const preferences = readSetupPreferences()
+      form.reset({
+        ...getApiKeyFormDefaultValues(defaultUseAutoGroup && backendHasAuto),
+        name: preferences
+          ? `${preferences.platform} - ${preferences.client}`
+          : `${t('API Key')} ${new Date().toLocaleDateString()}`,
+      })
       setInitializedTarget(target)
     }
   }, [
@@ -271,6 +281,7 @@ export function ApiKeysMutateDrawer({
     availableAutoGroupNames,
     maxAutoGroups,
     initializedTarget,
+    t,
   ])
 
   const formTarget =
@@ -315,6 +326,7 @@ export function ApiKeysMutateDrawer({
     data: ApiKeyFormValues,
     confirmedWarningCount = warningConfirmations
   ) => {
+    if (creationUncertain || isSubmitting) return
     if (
       selectedGroupWarning?.enabled &&
       confirmedWarningCount !== warningConfirmationsRequired
@@ -346,6 +358,7 @@ export function ApiKeysMutateDrawer({
         for (let i = 0; i < count; i++) {
           const result = await createApiKey({
             ...basePayload,
+            one_time_reveal: count === 1,
             group_warning_confirmations: confirmedWarningCount,
             name:
               i === 0 && data.name
@@ -353,6 +366,15 @@ export function ApiKeysMutateDrawer({
                 : `${data.name || 'default'}-${Math.random().toString(36).slice(2, 8)}`,
           })
           if (result.success) {
+            if (count === 1 && result.data?.key) {
+              setCreatedSecret({
+                id: result.data.id,
+                name: result.data.name,
+                key: result.data.key,
+              })
+              triggerRefresh()
+              return
+            }
             successCount++
           } else {
             toast.error(result.message || t(ERROR_MESSAGES.CREATE_FAILED))
@@ -371,7 +393,15 @@ export function ApiKeysMutateDrawer({
         }
       }
     } catch {
-      toast.error(t(ERROR_MESSAGES.UNEXPECTED))
+      if (!isUpdate) {
+        setCreationUncertain(true)
+        triggerRefresh()
+        toast.error(
+          t(
+            'Creation could not be confirmed. Check the key list before creating another key; an existing key may need to be revoked.'
+          )
+        )
+      } else toast.error(t(ERROR_MESSAGES.UNEXPECTED))
     } finally {
       setIsSubmitting(false)
     }
@@ -385,6 +415,7 @@ export function ApiKeysMutateDrawer({
       setWarningOpen(true)
       return
     }
+    if (creationUncertain) return
     await saveApiKey(data, warningConfirmations)
   }
 
@@ -425,13 +456,28 @@ export function ApiKeysMutateDrawer({
   const autoGroupsMode = form.watch('auto_groups_mode')
   const unlimitedQuota = form.watch('unlimited_quota')
 
+  if (createdSecret && open) {
+    return (
+      <CreatedApiKey
+        secret={createdSecret}
+        onRevoked={triggerRefresh}
+        onClose={() => {
+          setCreatedSecret(null)
+          onOpenChange(false)
+        }}
+      />
+    )
+  }
   return (
     <Sheet
       open={open}
       onOpenChange={(v) => {
+        if (!v && isSubmitting) return
         onOpenChange(v)
         if (!v) {
           form.reset()
+          setCreatedSecret(null)
+          setCreationUncertain(false)
         }
       }}
     >
@@ -448,6 +494,20 @@ export function ApiKeysMutateDrawer({
               : t('Add a new API key by providing necessary info.')}
           </SheetDescription>
         </SheetHeader>
+        {creationUncertain && (
+          <p role='alert' className='p-4 text-sm'>
+            {t(
+              'Creation could not be confirmed. Check the key list before creating another key; an existing key may need to be revoked.'
+            )}
+          </p>
+        )}
+        {!isUpdate && (
+          <p className='text-muted-foreground px-4 text-xs'>
+            {t(
+              'A single new key is shown only once. Advanced batch creation keeps the existing retrievable-key behavior.'
+            )}
+          </p>
+        )}
         <Form {...form}>
           <form
             id='api-key-form'
@@ -456,6 +516,7 @@ export function ApiKeysMutateDrawer({
             inert={!isFormInitialized || isSubmitting ? true : undefined}
             className={sideDrawerFormClassName('gap-5')}
           >
+            <ApiBaseUrl />
             <SideDrawerSection>
               <SideDrawerSectionHeader
                 title={t('Basic Information')}
@@ -477,135 +538,147 @@ export function ApiKeysMutateDrawer({
                 )}
               />
 
-              <FormField
-                control={form.control}
-                name='group'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Group')}</FormLabel>
-                    <FormControl>
-                      <ApiKeyGroupCombobox
-                        options={groups}
-                        value={field.value}
-                        onValueChange={(group) => {
-                          field.onChange(group)
-                          form.setValue('cross_group_retry', group === 'auto', {
-                            shouldDirty: true,
-                          })
-                        }}
-                        placeholder={t('Select a group')}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              <details className='space-y-3' open={isUpdate}>
+                <summary className='cursor-pointer text-sm font-medium'>
+                  {t('Group')}: {selectedGroup || t('Select a group')}
+                </summary>
+                <div className='space-y-4 pt-2'>
+                  <FormField
+                    control={form.control}
+                    name='group'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Group')}</FormLabel>
+                        <FormControl>
+                          <ApiKeyGroupCombobox
+                            options={groups}
+                            value={field.value}
+                            onValueChange={(group) => {
+                              field.onChange(group)
+                              form.setValue(
+                                'cross_group_retry',
+                                group === 'auto',
+                                {
+                                  shouldDirty: true,
+                                }
+                              )
+                            }}
+                            placeholder={t('Select a group')}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
-              {selectedGroupWarning?.enabled &&
-              selectedGroupWarning.mode !== 'modal' &&
-              warningOpen ? (
-                <div
-                  role='alert'
-                  className={cn(
-                    'border-destructive/60 bg-destructive/10 text-destructive grid gap-3 rounded-lg border p-3 text-sm',
-                    selectedGroupWarning.mode === 'banner' &&
-                      'border-amber-500/70 bg-amber-500/10 text-amber-200'
-                  )}
-                >
-                  <p className='whitespace-pre-wrap'>
-                    {selectedGroupWarning.message}
-                  </p>
-                  <div className='flex flex-wrap items-center justify-between gap-2'>
-                    <span>
-                      {t('Confirmation {{current}} of {{total}}', {
-                        current: Math.min(
-                          warningConfirmations + 1,
-                          warningConfirmationsRequired
-                        ),
-                        total: warningConfirmationsRequired,
-                      })}
-                    </span>
-                    <Button
-                      type='button'
-                      size='sm'
-                      variant='outline'
-                      onClick={confirmWarning}
+                  {selectedGroupWarning?.enabled &&
+                  selectedGroupWarning.mode !== 'modal' &&
+                  warningOpen ? (
+                    <div
+                      role='alert'
+                      className={cn(
+                        'border-destructive/60 bg-destructive/10 text-destructive grid gap-3 rounded-lg border p-3 text-sm',
+                        selectedGroupWarning.mode === 'banner' &&
+                          'border-amber-500/70 bg-amber-500/10 text-amber-200'
+                      )}
                     >
-                      {warningConfirmations + 1 >= warningConfirmationsRequired
-                        ? t('I understand, continue')
-                        : t('Continue')}
-                    </Button>
-                  </div>
-                </div>
-              ) : null}
-
-              {selectedGroup === 'auto' && (
-                <FormField
-                  control={form.control}
-                  name='auto_groups'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('Auto group order')}</FormLabel>
-                      <FormDescription>
-                        {t(
-                          'Choose and order the groups this API key will try.'
-                        )}
-                      </FormDescription>
-                      <FormControl>
-                        <AutoGroupOrderEditor
-                          value={field.value}
-                          mode={autoGroupsMode}
-                          options={groups}
-                          globalOptions={globalAutoGroupOptions}
-                          maxCount={maxAutoGroups}
-                          onChange={(value) => {
-                            form.setValue('auto_groups_mode', value.mode, {
-                              shouldDirty: true,
-                              shouldValidate: false,
-                            })
-                            form.setValue(
-                              'auto_groups',
-                              value.groups.slice(0, maxAutoGroups),
-                              {
-                                shouldDirty: true,
-                                shouldValidate: true,
-                              }
-                            )
-                          }}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              )}
-
-              {selectedGroup === 'auto' && (
-                <FormField
-                  control={form.control}
-                  name='cross_group_retry'
-                  render={({ field }) => (
-                    <FormItem className={sideDrawerSwitchItemClassName()}>
-                      <div className='flex flex-col gap-0.5'>
-                        <FormLabel className='text-sm'>
-                          {t('Cross-group retry')}
-                        </FormLabel>
-                        <FormDescription className='line-clamp-2 text-xs sm:line-clamp-none'>
-                          {t(
-                            'When enabled, if channels in the current group fail, it will try channels in the next group in order.'
-                          )}
-                        </FormDescription>
+                      <p className='whitespace-pre-wrap'>
+                        {selectedGroupWarning.message}
+                      </p>
+                      <div className='flex flex-wrap items-center justify-between gap-2'>
+                        <span>
+                          {t('Confirmation {{current}} of {{total}}', {
+                            current: Math.min(
+                              warningConfirmations + 1,
+                              warningConfirmationsRequired
+                            ),
+                            total: warningConfirmationsRequired,
+                          })}
+                        </span>
+                        <Button
+                          type='button'
+                          size='sm'
+                          variant='outline'
+                          onClick={confirmWarning}
+                        >
+                          {warningConfirmations + 1 >=
+                          warningConfirmationsRequired
+                            ? t('I understand, continue')
+                            : t('Continue')}
+                        </Button>
                       </div>
-                      <FormControl>
-                        <Switch
-                          checked={!!field.value}
-                          onCheckedChange={field.onChange}
-                        />
-                      </FormControl>
-                    </FormItem>
+                    </div>
+                  ) : null}
+
+                  {selectedGroup === 'auto' && (
+                    <FormField
+                      control={form.control}
+                      name='auto_groups'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Auto group order')}</FormLabel>
+                          <FormDescription>
+                            {t(
+                              'Choose and order the groups this API key will try.'
+                            )}
+                          </FormDescription>
+                          <FormControl>
+                            <AutoGroupOrderEditor
+                              value={field.value}
+                              mode={autoGroupsMode}
+                              options={groups}
+                              globalOptions={globalAutoGroupOptions}
+                              maxCount={maxAutoGroups}
+                              onChange={(value) => {
+                                form.setValue('auto_groups_mode', value.mode, {
+                                  shouldDirty: true,
+                                  shouldValidate: false,
+                                })
+                                form.setValue(
+                                  'auto_groups',
+                                  value.groups.slice(0, maxAutoGroups),
+                                  {
+                                    shouldDirty: true,
+                                    shouldValidate: true,
+                                  }
+                                )
+                              }}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
                   )}
-                />
-              )}
+
+                  {selectedGroup === 'auto' && (
+                    <FormField
+                      control={form.control}
+                      name='cross_group_retry'
+                      render={({ field }) => (
+                        <FormItem className={sideDrawerSwitchItemClassName()}>
+                          <div className='flex flex-col gap-0.5'>
+                            <FormLabel className='text-sm'>
+                              {t('Cross-group retry')}
+                            </FormLabel>
+                            <FormDescription className='line-clamp-2 text-xs sm:line-clamp-none'>
+                              {t(
+                                'When enabled, if channels in the current group fail, it will try channels in the next group in order.'
+                              )}
+                            </FormDescription>
+                          </div>
+                          <FormControl>
+                            <Switch
+                              checked={!!field.value}
+                              onCheckedChange={field.onChange}
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                  )}
+                </div>
+              </details>
 
               <FormField
                 control={form.control}
@@ -856,7 +929,7 @@ export function ApiKeysMutateDrawer({
           <Button
             type='button'
             onClick={form.handleSubmit(onSubmit, onInvalid)}
-            disabled={!isFormInitialized || isSubmitting}
+            disabled={!isFormInitialized || isSubmitting || creationUncertain}
             className='w-full sm:w-auto'
           >
             {isSubmitting ? t('Saving...') : t('Save changes')}

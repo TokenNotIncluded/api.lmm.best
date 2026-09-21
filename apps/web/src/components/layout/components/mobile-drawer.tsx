@@ -23,9 +23,9 @@ import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { SignOutDialog } from '@/components/sign-out-dialog'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { UserAvatar } from '@/components/user-avatar'
 import useDialogState from '@/hooks/use-dialog'
 import { useUserDisplay } from '@/hooks/use-user-display'
 import { isConsoleActivated } from '@/lib/console-activation'
@@ -86,7 +86,7 @@ function MobileUserProfile({ user, onNavigate }: MobileUserProfileProps) {
   const { t } = useTranslation()
   const pathname = useRouterState().location.pathname
   const [signOutOpen, setSignOutOpen] = useDialogState()
-  const { displayName, initials, roleLabel } = useUserDisplay(user)
+  const { displayName, roleLabel } = useUserDisplay(user)
   const consoleActivated = isConsoleActivated(user)
 
   if (!user) return null
@@ -96,10 +96,14 @@ function MobileUserProfile({ user, onNavigate }: MobileUserProfileProps) {
       {/* User info section - compact style matching navigation */}
       {/* User header - simplified */}
       <div className='border-border flex items-center gap-2.5 border-b p-2.5'>
-        <Avatar className='size-9'>
-          <AvatarImage src='/avatars/01.png' alt={`@${displayName}`} />
-          <AvatarFallback className='text-xs'>{initials}</AvatarFallback>
-        </Avatar>
+        <UserAvatar
+          name={user.username || displayName}
+          email={user.email}
+          alt={displayName}
+          className='size-9'
+          fallbackClassName='text-xs'
+          gravatarSize={72}
+        />
         <div className='flex flex-1 flex-col gap-0.5 overflow-hidden'>
           <p className='text-foreground truncate font-medium'>{displayName}</p>
           <div className='flex items-center gap-1.5'>

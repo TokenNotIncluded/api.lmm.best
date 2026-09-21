@@ -1508,11 +1508,17 @@ mod tests {
     const PUBLIC_ED25519_KEY_HEX: &str =
         "dbe263d94bcd0af42250f3584604a2d1c2523e2248e91b3a0f4513784a50563f";
 
+    type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
+
+    fn test_error(message: &'static str) -> Box<dyn std::error::Error> {
+        std::io::Error::other(message).into()
+    }
+
     fn digest(seed: u8) -> String {
         format!("{seed:02x}").repeat(32)
     }
 
-    fn valid_document() -> DifferentialEvidenceDocument {
+    fn valid_document() -> TestResult<DifferentialEvidenceDocument> {
         let scope = RouteOwnershipScope {
             source: Protocol::OpenAi,
             target: Protocol::OpenAi,
@@ -1533,12 +1539,12 @@ mod tests {
             .iter()
             .find(|value| value.class == DifferentialClass::UsageBilling)
             .map(|value| value.result_digest.clone())
-            .expect("required usage/billing class");
-        let registry = validated_current_registry().expect("built-in registry validates");
-        let fingerprint = registry_fingerprint(&registry).expect("registry fingerprints");
+            .ok_or_else(|| test_error("required usage/billing class"))?;
+        let registry = validated_current_registry()?;
+        let fingerprint = registry_fingerprint(&registry)?;
         let feature_classes = registry
             .route(scope.source, scope.target)
-            .expect("built-in route exists")
+            .ok_or_else(|| test_error("built-in route does not exist"))?
             .feature_requirements
             .iter()
             .copied()
@@ -1579,8 +1585,8 @@ mod tests {
             signer_id: "reviewer-1".to_owned(),
             signature: String::new(),
         };
-        sign_document(&mut document);
-        document
+        sign_document(&mut document)?;
+        Ok(document)
     }
 
     fn trusted_policy() -> EvidenceTrustPolicy {
@@ -1637,24 +1643,22 @@ mod tests {
         }
     }
 
-    fn sign_document(document: &mut DifferentialEvidenceDocument) {
-        let payload = document.signing_payload().expect("canonical payload");
+    fn sign_document(document: &mut DifferentialEvidenceDocument) -> TestResult {
+        let payload = document.signing_payload()?;
         let signature = jsonwebtoken::crypto::sign(
             &payload,
             &jsonwebtoken::EncodingKey::from_ed_der(PRIVATE_ED25519_KEY_PK8),
             Algorithm::EdDSA,
-        )
-        .expect("test signature");
-        let signature_bytes = URL_SAFE_NO_PAD
-            .decode(signature)
-            .expect("test signature encoding");
+        )?;
+        let signature_bytes = URL_SAFE_NO_PAD.decode(signature)?;
         document.signature = hex::encode(signature_bytes);
+        Ok(())
     }
 
     #[test]
-    fn missing_differential_class_stays_closed_at_the_count_boundary() {
-        let registry = validated_current_registry().expect("built-in registry validates");
-        let mut document = valid_document();
+    fn missing_differential_class_stays_closed_at_the_count_boundary() -> TestResult {
+        let registry = validated_current_registry()?;
+        let mut document = valid_document()?;
         document
             .differentials
             .retain(|value| value.class != DifferentialClass::Stream);
@@ -1665,83 +1669,89 @@ mod tests {
                 actual: DifferentialClass::all().len() - 1,
             })
         );
+        Ok(())
     }
 
     #[test]
-    fn malformed_digest_is_rejected_without_body_details() {
-        let registry = validated_current_registry().expect("built-in registry validates");
-        let mut document = valid_document();
-        document.differentials[0].fixture_digest = "not-a-digest".to_owned();
+    fn malformed_digest_is_rejected_without_body_details() -> TestResult {
+        let registry = validated_current_registry()?;
+        let mut document = valid_document()?;
+        let malformed = document
+            .differentials
+            .first_mut()
+            .ok_or_else(|| test_error("fixture has no differential classes"))?;
+        malformed.fixture_digest = "not-a-digest".to_owned();
         assert_eq!(
             document.verify(&registry, &trusted_policy()),
             Err(DifferentialEvidenceError::InvalidDigest {
                 field: EvidenceField::DifferentialFixtureDigest
             })
         );
+        Ok(())
     }
 
     #[test]
-    fn shadow_scope_mismatch_is_rejected() {
-        let registry = validated_current_registry().expect("built-in registry validates");
-        let mut document = valid_document();
+    fn shadow_scope_mismatch_is_rejected() -> TestResult {
+        let registry = validated_current_registry()?;
+        let mut document = valid_document()?;
         document.shadow.scope.stream = false;
         assert_eq!(
             document.verify(&registry, &trusted_policy()),
             Err(DifferentialEvidenceError::ShadowScopeMismatch)
         );
+        Ok(())
     }
 
     #[test]
-    fn usage_billing_difference_is_rejected() {
-        let registry = validated_current_registry().expect("built-in registry validates");
-        let mut document = valid_document();
+    fn usage_billing_difference_is_rejected() -> TestResult {
+        let registry = validated_current_registry()?;
+        let mut document = valid_document()?;
         let usage = document
             .differentials
             .iter_mut()
             .find(|value| value.class == DifferentialClass::UsageBilling)
-            .expect("required usage/billing class");
+            .ok_or_else(|| test_error("required usage/billing class"))?;
         usage.result = DifferentialResult::Difference;
         assert_eq!(
             document.verify(&registry, &trusted_policy()),
             Err(DifferentialEvidenceError::UsageBillingDifference)
         );
+        Ok(())
     }
 
     #[test]
-    fn shadow_difference_is_rejected() {
-        let registry = validated_current_registry().expect("built-in registry validates");
-        let mut document = valid_document();
+    fn shadow_difference_is_rejected() -> TestResult {
+        let registry = validated_current_registry()?;
+        let mut document = valid_document()?;
         document.shadow.result = ShadowResult::Difference;
         assert_eq!(
             document.verify(&registry, &trusted_policy()),
             Err(DifferentialEvidenceError::ShadowDifference)
         );
+        Ok(())
     }
 
     #[test]
-    fn supported_cross_protocol_registry_route_validates_with_signed_document() {
-        let registry = validated_current_registry().expect("built-in registry validates");
+    fn supported_cross_protocol_registry_route_validates_with_signed_document() -> TestResult {
+        let registry = validated_current_registry()?;
         let scope = RouteOwnershipScope {
             source: Protocol::OpenAi,
             target: Protocol::Claude,
             stream: true,
         };
-        let mut document = valid_document();
+        let mut document = valid_document()?;
         document.scope = scope;
         document.shadow.scope = scope;
         document.model_family = "claude".to_owned();
-        sign_document(&mut document);
-        document
-            .verify(&registry, &trusted_policy())
-            .expect("supported cross route validates");
+        sign_document(&mut document)?;
+        document.verify(&registry, &trusted_policy())?;
+        Ok(())
     }
 
     #[test]
-    fn complete_fixture_only_yields_review_eligibility() {
-        let registry = validated_current_registry().expect("built-in registry validates");
-        let verified = valid_document()
-            .verify(&registry, &trusted_policy())
-            .expect("complete evidence validates");
+    fn complete_fixture_only_yields_review_eligibility() -> TestResult {
+        let registry = validated_current_registry()?;
+        let verified = valid_document()?.verify(&registry, &trusted_policy())?;
         assert!(verified.eligible_for_review());
         assert_eq!(
             verified.review_decision(),
@@ -1749,26 +1759,23 @@ mod tests {
                 scope: verified.document().scope
             }
         );
+        Ok(())
     }
 
     #[test]
-    fn atomic_consumption_returns_only_bound_admission_view() {
-        let registry = validated_current_registry().expect("built-in registry validates");
-        let verified = valid_document()
-            .verify(&registry, &trusted_policy())
-            .expect("complete evidence validates");
+    fn atomic_consumption_returns_only_bound_admission_view() -> TestResult {
+        let registry = validated_current_registry()?;
+        let verified = valid_document()?.verify(&registry, &trusted_policy())?;
         let feature_classes = verified.document().feature_classes.clone();
         let guard = TestOnlyReplayGuard::new();
-        let admission = verified
-            .consume_for_route_admission(
-                &guard,
-                &registry,
-                &trusted_policy(),
-                "gpt-4o",
-                &feature_classes,
-                1_500,
-            )
-            .expect("atomic consume admits complete evidence");
+        let admission = verified.consume_for_route_admission(
+            &guard,
+            &registry,
+            &trusted_policy(),
+            "gpt-4o",
+            &feature_classes,
+            1_500,
+        )?;
 
         assert_eq!(admission.evidence_id(), "evidence-1");
         assert_eq!(admission.scope(), verified.document().scope);
@@ -1792,26 +1799,23 @@ mod tests {
             Err(DifferentialEvidenceError::EvidenceExpired)
         );
         assert!(admission.ownership.rollout_approved());
+        Ok(())
     }
 
     #[test]
-    fn replay_guard_allows_one_admission_only() {
-        let registry = validated_current_registry().expect("built-in registry validates");
-        let verified = valid_document()
-            .verify(&registry, &trusted_policy())
-            .expect("complete evidence validates");
+    fn replay_guard_allows_one_admission_only() -> TestResult {
+        let registry = validated_current_registry()?;
+        let verified = valid_document()?.verify(&registry, &trusted_policy())?;
         let feature_classes = verified.document().feature_classes.clone();
         let guard = TestOnlyReplayGuard::new();
-        verified
-            .consume_for_route_admission(
-                &guard,
-                &registry,
-                &trusted_policy(),
-                "gpt-4o",
-                &feature_classes,
-                1_500,
-            )
-            .expect("first consume succeeds");
+        verified.consume_for_route_admission(
+            &guard,
+            &registry,
+            &trusted_policy(),
+            "gpt-4o",
+            &feature_classes,
+            1_500,
+        )?;
         assert_eq!(
             verified.consume_for_route_admission(
                 &guard,
@@ -1823,14 +1827,13 @@ mod tests {
             ),
             Err(DifferentialEvidenceError::EvidenceIdReplay)
         );
+        Ok(())
     }
 
     #[test]
-    fn admission_rechecks_not_before_and_expiry_before_consuming() {
-        let registry = validated_current_registry().expect("built-in registry validates");
-        let verified = valid_document()
-            .verify(&registry, &trusted_policy())
-            .expect("complete evidence validates");
+    fn admission_rechecks_not_before_and_expiry_before_consuming() -> TestResult {
+        let registry = validated_current_registry()?;
+        let verified = valid_document()?.verify(&registry, &trusted_policy())?;
         let feature_classes = verified.document().feature_classes.clone();
         let guard = TestOnlyReplayGuard::new();
 
@@ -1857,24 +1860,21 @@ mod tests {
             Err(DifferentialEvidenceError::EvidenceExpired)
         );
 
-        verified
-            .consume_for_route_admission(
-                &guard,
-                &registry,
-                &trusted_policy(),
-                "gpt-4o",
-                &feature_classes,
-                1_500,
-            )
-            .expect("valid time consumes after failed checks");
+        verified.consume_for_route_admission(
+            &guard,
+            &registry,
+            &trusted_policy(),
+            "gpt-4o",
+            &feature_classes,
+            1_500,
+        )?;
+        Ok(())
     }
 
     #[test]
-    fn admission_rechecks_model_and_complete_feature_binding() {
-        let registry = validated_current_registry().expect("built-in registry validates");
-        let verified = valid_document()
-            .verify(&registry, &trusted_policy())
-            .expect("complete evidence validates");
+    fn admission_rechecks_model_and_complete_feature_binding() -> TestResult {
+        let registry = validated_current_registry()?;
+        let verified = valid_document()?.verify(&registry, &trusted_policy())?;
         let feature_classes = verified.document().feature_classes.clone();
         let guard = TestOnlyReplayGuard::new();
 
@@ -1901,31 +1901,27 @@ mod tests {
             Err(DifferentialEvidenceError::FeatureClassSetMismatch)
         );
 
-        verified
-            .consume_for_route_admission(
-                &guard,
-                &registry,
-                &trusted_policy(),
-                "gpt-4o",
-                &feature_classes,
-                1_500,
-            )
-            .expect("exact model and feature bindings consume");
+        verified.consume_for_route_admission(
+            &guard,
+            &registry,
+            &trusted_policy(),
+            "gpt-4o",
+            &feature_classes,
+            1_500,
+        )?;
+        Ok(())
     }
 
     #[test]
-    fn admission_rejects_changed_registry_snapshot() {
-        let original_registry = validated_current_registry().expect("built-in registry validates");
-        let verified = valid_document()
-            .verify(&original_registry, &trusted_policy())
-            .expect("complete evidence validates");
+    fn admission_rejects_changed_registry_snapshot() -> TestResult {
+        let original_registry = validated_current_registry()?;
+        let verified = valid_document()?.verify(&original_registry, &trusted_policy())?;
         let mut registry_definition = Registry::current();
         registry_definition.version = "relay-capabilities-test-v2".to_owned();
         let changed_registry = validate_explicit_registry_against_catalog(
             &registry_definition,
             &current_runtime_catalog(),
-        )
-        .expect("changed registry version remains structurally valid");
+        )?;
         let guard = TestOnlyReplayGuard::new();
         let feature_classes = verified.document().feature_classes.clone();
 
@@ -1940,14 +1936,13 @@ mod tests {
             ),
             Err(DifferentialEvidenceError::RegistryFingerprintMismatch)
         );
+        Ok(())
     }
 
     #[test]
-    fn unavailable_replay_store_stays_closed() {
-        let registry = validated_current_registry().expect("built-in registry validates");
-        let verified = valid_document()
-            .verify(&registry, &trusted_policy())
-            .expect("complete evidence validates");
+    fn unavailable_replay_store_stays_closed() -> TestResult {
+        let registry = validated_current_registry()?;
+        let verified = valid_document()?.verify(&registry, &trusted_policy())?;
         let feature_classes = verified.document().feature_classes.clone();
 
         assert_eq!(
@@ -1961,30 +1956,32 @@ mod tests {
             ),
             Err(DifferentialEvidenceError::ReplayGuardUnavailable)
         );
+        Ok(())
     }
 
     #[test]
-    fn text_only_feature_evidence_cannot_green_raw_route() {
-        let registry = validated_current_registry().expect("built-in registry validates");
-        let mut document = valid_document();
+    fn text_only_feature_evidence_cannot_green_raw_route() -> TestResult {
+        let registry = validated_current_registry()?;
+        let mut document = valid_document()?;
         document.feature_classes = vec![Feature::Text];
         assert_eq!(
             document.verify(&registry, &trusted_policy()),
             Err(DifferentialEvidenceError::FeatureClassSetMismatch)
         );
+        Ok(())
     }
 
     #[test]
-    fn feature_class_sets_are_bounded_and_unique() {
-        let registry = validated_current_registry().expect("built-in registry validates");
-        let mut empty = valid_document();
+    fn feature_class_sets_are_bounded_and_unique() -> TestResult {
+        let registry = validated_current_registry()?;
+        let mut empty = valid_document()?;
         empty.feature_classes.clear();
         assert_eq!(
             empty.verify(&registry, &trusted_policy()),
             Err(DifferentialEvidenceError::EmptyFeatureClasses)
         );
 
-        let mut duplicate = valid_document();
+        let mut duplicate = valid_document()?;
         duplicate.feature_classes = vec![Feature::Text, Feature::Text];
         assert_eq!(
             duplicate.verify(&registry, &trusted_policy()),
@@ -1993,83 +1990,90 @@ mod tests {
             })
         );
 
-        let mut oversized = valid_document();
+        let mut oversized = valid_document()?;
         oversized.feature_classes = vec![Feature::Text; MAX_FEATURE_CLASSES + 1];
         assert_eq!(
             oversized.verify(&registry, &trusted_policy()),
             Err(DifferentialEvidenceError::TooManyFeatureClasses)
         );
+        Ok(())
     }
 
     #[test]
-    fn self_filled_green_without_signature_stays_closed() {
-        let registry = validated_current_registry().expect("built-in registry validates");
-        let mut document = valid_document();
+    fn self_filled_green_without_signature_stays_closed() -> TestResult {
+        let registry = validated_current_registry()?;
+        let mut document = valid_document()?;
         document.signature.clear();
         assert_eq!(
             document.verify(&registry, &trusted_policy()),
             Err(DifferentialEvidenceError::InvalidSignatureEncoding)
         );
+        Ok(())
     }
 
     #[test]
-    fn trusted_policy_without_keys_stays_closed() {
-        let registry = validated_current_registry().expect("built-in registry validates");
+    fn trusted_policy_without_keys_stays_closed() -> TestResult {
+        let registry = validated_current_registry()?;
         let mut policy = trusted_policy();
         policy.trusted_signers.clear();
         assert_eq!(
-            valid_document().verify(&registry, &policy),
+            valid_document()?.verify(&registry, &policy),
             Err(DifferentialEvidenceError::PolicyEmptyTrustedSigners)
         );
+        Ok(())
     }
 
     #[test]
-    fn unknown_signer_is_rejected() {
-        let registry = validated_current_registry().expect("built-in registry validates");
-        let mut document = valid_document();
+    fn unknown_signer_is_rejected() -> TestResult {
+        let registry = validated_current_registry()?;
+        let mut document = valid_document()?;
         document.signer_id = "unknown-signer".to_owned();
         document.reviewer_approval.reviewer_id = "unknown-signer".to_owned();
         assert_eq!(
             document.verify(&registry, &trusted_policy()),
             Err(DifferentialEvidenceError::UnknownSigner)
         );
+        Ok(())
     }
 
     #[test]
-    fn signed_field_tampering_is_rejected() {
-        let registry = validated_current_registry().expect("built-in registry validates");
-        let mut document = valid_document();
+    fn signed_field_tampering_is_rejected() -> TestResult {
+        let registry = validated_current_registry()?;
+        let mut document = valid_document()?;
         document.reviewer_approval.approval_reference = "review-2".to_owned();
         assert_eq!(
             document.verify(&registry, &trusted_policy()),
             Err(DifferentialEvidenceError::BadSignature)
         );
+        Ok(())
     }
 
     #[test]
-    fn policy_sha_mismatch_is_rejected_before_signature() {
-        let registry = validated_current_registry().expect("built-in registry validates");
-        let mut document = valid_document();
+    fn policy_sha_mismatch_is_rejected_before_signature() -> TestResult {
+        let registry = validated_current_registry()?;
+        let mut document = valid_document()?;
         document.baseline_go_sha = "c".repeat(40);
         assert_eq!(
             document.verify(&registry, &trusted_policy()),
             Err(DifferentialEvidenceError::BaselineShaNotAllowed)
         );
+        Ok(())
     }
 
     #[test]
-    fn expired_signed_evidence_is_rejected() {
-        let registry = validated_current_registry().expect("built-in registry validates");
+    fn expired_signed_evidence_is_rejected() -> TestResult {
+        let registry = validated_current_registry()?;
         let mut policy = trusted_policy();
         policy.now_unix_seconds = 2_001;
         assert_eq!(
-            valid_document().verify(&registry, &policy),
+            valid_document()?.verify(&registry, &policy),
             Err(DifferentialEvidenceError::EvidenceExpired)
         );
+        Ok(())
     }
 
     #[test]
-    fn policy_rejects_zero_or_overlong_evidence_lifetime() {
+    fn policy_rejects_zero_or_overlong_evidence_lifetime() -> TestResult {
         let mut zero = trusted_policy();
         zero.maximum_evidence_lifetime_seconds = 0;
         assert_eq!(
@@ -2083,40 +2087,46 @@ mod tests {
             too_long.validate(),
             Err(DifferentialEvidenceError::PolicyInvalidEvidenceLifetime)
         );
+        Ok(())
     }
 
     #[test]
-    fn evidence_lifetime_over_policy_is_rejected() {
-        let registry = validated_current_registry().expect("built-in registry validates");
+    fn evidence_lifetime_over_policy_is_rejected() -> TestResult {
+        let registry = validated_current_registry()?;
         let mut policy = trusted_policy();
         policy.maximum_evidence_lifetime_seconds = 60;
         assert_eq!(
-            valid_document().verify(&registry, &policy),
+            valid_document()?.verify(&registry, &policy),
             Err(DifferentialEvidenceError::EvidenceLifetimeExceedsPolicy)
         );
+        Ok(())
     }
 
     #[test]
-    fn consumed_evidence_id_is_rejected_for_replay() {
-        let registry = validated_current_registry().expect("built-in registry validates");
+    fn consumed_evidence_id_is_rejected_for_replay() -> TestResult {
+        let registry = validated_current_registry()?;
         let mut policy = trusted_policy();
         policy.consumed_evidence_ids.insert("evidence-1".to_owned());
         assert_eq!(
-            valid_document().verify(&registry, &policy),
+            valid_document()?.verify(&registry, &policy),
             Err(DifferentialEvidenceError::EvidenceIdReplay)
         );
+        Ok(())
     }
 
     #[test]
-    fn duplicate_class_and_route_are_rejected() {
-        let registry = validated_current_registry().expect("built-in registry validates");
-        let mut duplicate = valid_document();
+    fn duplicate_class_and_route_are_rejected() -> TestResult {
+        let registry = validated_current_registry()?;
+        let mut duplicate = valid_document()?;
         duplicate
             .differentials
             .retain(|value| value.class != DifferentialClass::Stream);
-        duplicate
+        let duplicate_entry = duplicate
             .differentials
-            .push(duplicate.differentials[0].clone());
+            .first()
+            .ok_or_else(|| test_error("fixture has no differential classes"))?
+            .clone();
+        duplicate.differentials.push(duplicate_entry);
         assert_eq!(
             duplicate.verify(&registry, &trusted_policy()),
             Err(DifferentialEvidenceError::DuplicateDifferential {
@@ -2126,7 +2136,7 @@ mod tests {
 
         let bundle = DifferentialEvidenceBundle {
             schema_version: EVIDENCE_SCHEMA_VERSION.to_owned(),
-            documents: vec![valid_document(), valid_document()],
+            documents: vec![valid_document()?, valid_document()?],
         };
         assert_eq!(
             bundle.verify(&registry, &trusted_policy()),
@@ -2136,24 +2146,29 @@ mod tests {
                 stream: true,
             })
         );
+        Ok(())
     }
 
     #[test]
-    fn oversized_json_is_rejected_before_deserialization() {
+    fn oversized_json_is_rejected_before_deserialization() -> TestResult {
         let input = "{".repeat(MAX_EVIDENCE_JSON_BYTES + 1);
         assert_eq!(
             DifferentialEvidenceDocument::from_json(&input),
             Err(DifferentialEvidenceError::InputTooLarge)
         );
+        Ok(())
     }
 
     #[test]
-    fn too_many_differentials_are_rejected_before_deep_validation() {
-        let registry = validated_current_registry().expect("built-in registry validates");
-        let mut document = valid_document();
-        document
+    fn too_many_differentials_are_rejected_before_deep_validation() -> TestResult {
+        let registry = validated_current_registry()?;
+        let mut document = valid_document()?;
+        let extra_differential = document
             .differentials
-            .push(document.differentials[0].clone());
+            .first()
+            .ok_or_else(|| test_error("fixture has no differential classes"))?
+            .clone();
+        document.differentials.push(extra_differential);
         assert_eq!(
             document.verify(&registry, &trusted_policy()),
             Err(DifferentialEvidenceError::InvalidDifferentialCount {
@@ -2161,64 +2176,72 @@ mod tests {
                 actual: DifferentialClass::all().len() + 1,
             })
         );
+        Ok(())
     }
 
     #[test]
-    fn too_many_bundle_documents_are_rejected_before_deep_validation() {
-        let registry = validated_current_registry().expect("built-in registry validates");
+    fn too_many_bundle_documents_are_rejected_before_deep_validation() -> TestResult {
+        let registry = validated_current_registry()?;
         let bundle = DifferentialEvidenceBundle {
             schema_version: EVIDENCE_SCHEMA_VERSION.to_owned(),
             documents: (0..=MAX_BUNDLE_DOCUMENTS)
                 .map(|_| valid_document())
-                .collect(),
+                .collect::<TestResult<Vec<_>>>()?,
         };
         assert_eq!(
             bundle.verify(&registry, &trusted_policy()),
             Err(DifferentialEvidenceError::TooManyBundleDocuments)
         );
+        Ok(())
     }
 
     #[test]
-    fn too_many_bundle_documents_are_rejected_on_import() {
+    fn too_many_bundle_documents_are_rejected_on_import() -> TestResult {
         let bundle = DifferentialEvidenceBundle {
             schema_version: EVIDENCE_SCHEMA_VERSION.to_owned(),
             documents: (0..=MAX_BUNDLE_DOCUMENTS)
                 .map(|_| valid_document())
-                .collect(),
+                .collect::<TestResult<Vec<_>>>()?,
         };
-        let input = serde_json::to_string(&bundle).expect("bundle serializes");
+        let input = serde_json::to_string(&bundle)?;
         assert_eq!(
             DifferentialEvidenceBundle::from_json(&input),
             Err(DifferentialEvidenceError::TooManyBundleDocuments)
         );
+        Ok(())
     }
 
     #[test]
-    fn unknown_json_fields_are_rejected() {
-        let document = valid_document();
-        let mut value = serde_json::to_value(document).expect("document serializes");
-        value.as_object_mut().expect("document object").insert(
-            "verifying_key_hex".to_owned(),
-            serde_json::Value::String(PUBLIC_ED25519_KEY_HEX.to_owned()),
-        );
+    fn unknown_json_fields_are_rejected() -> TestResult {
+        let document = valid_document()?;
+        let mut value = serde_json::to_value(document)?;
+        value
+            .as_object_mut()
+            .ok_or_else(|| test_error("serialized document is not an object"))?
+            .insert(
+                "verifying_key_hex".to_owned(),
+                serde_json::Value::String(PUBLIC_ED25519_KEY_HEX.to_owned()),
+            );
         assert_eq!(
             DifferentialEvidenceDocument::from_json(&value.to_string()),
             Err(DifferentialEvidenceError::InvalidJson)
         );
+        Ok(())
     }
 
     #[test]
-    fn unknown_nested_scope_fields_are_rejected() {
-        let document = valid_document();
-        let mut value = serde_json::to_value(document).expect("document serializes");
+    fn unknown_nested_scope_fields_are_rejected() -> TestResult {
+        let document = valid_document()?;
+        let mut value = serde_json::to_value(document)?;
         value
             .get_mut("scope")
             .and_then(serde_json::Value::as_object_mut)
-            .expect("scope object")
+            .ok_or_else(|| test_error("serialized scope is not an object"))?
             .insert("unexpected".to_owned(), serde_json::Value::Null);
         assert_eq!(
             DifferentialEvidenceDocument::from_json(&value.to_string()),
             Err(DifferentialEvidenceError::InvalidJson)
         );
+        Ok(())
     }
 }

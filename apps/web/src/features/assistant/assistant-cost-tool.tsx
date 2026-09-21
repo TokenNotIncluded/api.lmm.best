@@ -52,7 +52,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
-import { toIntlLocale } from '@/i18n/languages'
+import { formatPlatformAmount } from '@/lib/currency'
 
 import { getAssistantPricing } from './api'
 import { calculateAssistantTextCost } from './cost-calculator'
@@ -63,7 +63,7 @@ function parseTokenCount(value: string): number {
 }
 
 export function AssistantCostTool(props: { developerAccessGranted: boolean }) {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const [modelName, setModelName] = useState('')
   const [group, setGroup] = useState('')
   const [inputTokens, setInputTokens] = useState('100000')
@@ -110,16 +110,16 @@ export function AssistantCostTool(props: { developerAccessGranted: boolean }) {
         parseTokenCount(outputTokens)
       )
     : null
-  const currency = useMemo(
-    () =>
-      new Intl.NumberFormat(toIntlLocale(i18n.language), {
-        style: 'currency',
-        currency: 'USD',
-        minimumFractionDigits: 4,
-        maximumFractionDigits: 6,
-      }),
-    [i18n.language]
-  )
+  const formatCost = (amount: number) =>
+    formatPlatformAmount(
+      amount,
+      {
+        abbreviate: false,
+        digitsLarge: 4,
+        digitsSmall: 6,
+      },
+      t('Platform')
+    )
 
   let calculatorContent: ReactNode
   if (!props.developerAccessGranted) {
@@ -267,18 +267,18 @@ export function AssistantCostTool(props: { developerAccessGranted: boolean }) {
                 {t('Estimated text cost')}
               </span>
               <strong className='text-base'>
-                {currency.format(estimate.totalUSD)}
+                {formatCost(estimate.totalUSD)}
               </strong>
             </div>
             <div className='flex flex-wrap gap-2'>
               <Badge variant='outline'>
                 {t('Input {{amount}} / 1M', {
-                  amount: currency.format(estimate.inputRatePerMillionUSD),
+                  amount: formatCost(estimate.inputRatePerMillionUSD),
                 })}
               </Badge>
               <Badge variant='outline'>
                 {t('Output {{amount}} / 1M', {
-                  amount: currency.format(estimate.outputRatePerMillionUSD),
+                  amount: formatCost(estimate.outputRatePerMillionUSD),
                 })}
               </Badge>
             </div>

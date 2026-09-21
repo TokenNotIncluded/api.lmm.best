@@ -52,6 +52,8 @@ import { resolveChatUrl, type ChatPreset } from '@/features/chat/lib/chat-links'
 import { sendToFluent } from '@/features/chat/lib/send-to-fluent'
 import { encodeChannelConnectionInfo } from '@/lib/channel-connection-info'
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
+import { openResolvedExternalUrl } from '@/lib/external-navigation'
+import { getTrustedTemplatedUrl } from '@/lib/validated-external-url'
 
 import { updateApiKeyStatus } from '../api'
 import { API_KEY_STATUS, ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
@@ -70,6 +72,16 @@ function getServerAddress(): string {
   }
   return window.location.origin
 }
+
+const ALLOWED_CHAT_PROTOCOLS = [
+  'https:',
+  'aionui:',
+  'ama:',
+  'ccswitch:',
+  'cherrystudio:',
+  'deepchat:',
+  'opencat:',
+] as const
 
 type DataTableRowActionsProps<TData> = {
   row: Row<TData>
@@ -100,11 +112,22 @@ export function DataTableRowActions<TData>({
 
   const handleMenuOpenChange = useCallback(
     (open: boolean) => {
-      if (open && !resolvedRealKey && !isRealKeyLoading) {
+      if (
+        open &&
+        !apiKey.one_time_reveal &&
+        !resolvedRealKey &&
+        !isRealKeyLoading
+      ) {
         void resolveRealKey(apiKey.id)
       }
     },
-    [apiKey.id, isRealKeyLoading, resolvedRealKey, resolveRealKey]
+    [
+      apiKey.id,
+      apiKey.one_time_reveal,
+      isRealKeyLoading,
+      resolvedRealKey,
+      resolveRealKey,
+    ]
   )
 
   const getCachedRealKey = useCallback(() => {
@@ -116,10 +139,9 @@ export function DataTableRowActions<TData>({
 
   const handleOpenChatPreset = useCallback(
     async (preset: ChatPreset) => {
-      const realKey = await resolveRealKey(apiKey.id)
-      if (!realKey) return
-
       if (preset.type === 'fluent') {
+        const realKey = await resolveRealKey(apiKey.id)
+        if (!realKey) return
         const success = sendToFluent(realKey, serverAddress)
         if (success) {
           toast.success(t('Sent the API key to FluentRead.'))
@@ -133,23 +155,38 @@ export function DataTableRowActions<TData>({
         return
       }
 
-      const resolvedUrl = resolveChatUrl({
-        template: preset.url,
-        apiKey: realKey,
-        serverAddress,
-      })
-
-      if (!resolvedUrl) {
-        toast.error(t('Invalid chat link. Please contact your administrator.'))
-        return
-      }
-
-      if (typeof window === 'undefined') return
-
+      let navigationPrepared = false
       try {
-        window.open(resolvedUrl, '_blank', 'noopener')
+        const opened = await openResolvedExternalUrl(async () => {
+          const realKey = await resolveRealKey(apiKey.id)
+          if (!realKey) return null
+
+          const resolvedUrl = resolveChatUrl({
+            template: preset.url,
+            apiKey: realKey,
+            serverAddress,
+          })
+          const trustedUrl = getTrustedTemplatedUrl(
+            resolvedUrl,
+            preset.url,
+            ALLOWED_CHAT_PROTOCOLS
+          )
+          if (!trustedUrl) {
+            toast.error(
+              t('Invalid chat link. Please contact your administrator.')
+            )
+            return null
+          }
+
+          navigationPrepared = true
+          return trustedUrl
+        })
+
+        if (!opened && navigationPrepared) {
+          toast.error(t('Unable to open chat'))
+        }
       } catch {
-        window.location.href = resolvedUrl
+        toast.error(t('Unable to open chat'))
       }
     },
     [resolveRealKey, apiKey.id, serverAddress, t]
@@ -239,11 +276,13 @@ export function DataTableRowActions<TData>({
         onOpenChange={handleMenuOpenChange}
       >
         <DropdownMenuItem
+          disabled={apiKey.one_time_reveal}
           onClick={async () => {
             const realKey = getCachedRealKey()
             if (!realKey) return
             const ok = await copyToClipboard(realKey)
             if (ok) toast.success(t('Copied'))
+            else toast.error(t('Failed to copy to clipboard'))
           }}
         >
           {t('Copy Key')}
@@ -252,6 +291,7 @@ export function DataTableRowActions<TData>({
           </DropdownMenuShortcut>
         </DropdownMenuItem>
         <DropdownMenuItem
+          disabled={apiKey.one_time_reveal}
           onClick={async () => {
             const realKey = getCachedRealKey()
             if (!realKey) return
@@ -261,6 +301,7 @@ export function DataTableRowActions<TData>({
             )
             const ok = await copyToClipboard(connStr)
             if (ok) toast.success(t('Copied'))
+            else toast.error(t('Failed to copy to clipboard'))
           }}
         >
           {t('Copy Connection Info')}
@@ -270,6 +311,7 @@ export function DataTableRowActions<TData>({
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
+          disabled={apiKey.one_time_reveal}
           onClick={async () => {
             const realKey = await resolveRealKey(apiKey.id)
             if (!realKey) return
@@ -285,7 +327,9 @@ export function DataTableRowActions<TData>({
         </DropdownMenuItem>
         {hasChatPresets && (
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger>{t('Chat')}</DropdownMenuSubTrigger>
+            <DropdownMenuSubTrigger disabled={apiKey.one_time_reveal}>
+              {t('Chat')}
+            </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
               {chatPresets.map((preset) => (
                 <DropdownMenuItem

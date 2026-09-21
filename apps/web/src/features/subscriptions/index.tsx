@@ -5,81 +5,97 @@ This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as
 published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-GNU Affero General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License
-along with this program. If not, see <https://www.gnu.org/licenses/>.
-
-For commercial licensing, please contact support@quantumnous.com
 */
-import { Info } from 'lucide-react'
+import { Link } from '@tanstack/react-router'
+import { Info, RotateCcw } from 'lucide-react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { SectionPageLayout } from '@/components/layout'
+import { Header, Main } from '@/components/layout'
+import { ProfileDropdown } from '@/components/profile-dropdown'
+import { Search } from '@/components/search'
+import { ThemeSwitch } from '@/components/theme-switch'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
+import { SubscriptionRecords } from './components/subscription-records'
 import { SubscriptionsDialogs } from './components/subscriptions-dialogs'
 import { SubscriptionsPrimaryButtons } from './components/subscriptions-primary-buttons'
-import {
-  SubscriptionsProvider,
-  useSubscriptions,
-} from './components/subscriptions-provider'
+import { SubscriptionsProvider } from './components/subscriptions-provider'
 import { SubscriptionsTable } from './components/subscriptions-table'
 
-function SubscriptionsContent() {
-  const { t } = useTranslation()
-  const { complianceConfirmed } = useSubscriptions()
-
-  return (
-    <>
-      <SectionPageLayout fixedContent>
-        <SectionPageLayout.Title>
-          {t('Subscription Management')}
-        </SectionPageLayout.Title>
-        <SectionPageLayout.Actions>
-          <div className='flex items-center gap-2'>
-            <Alert variant='default' className='hidden px-3 py-2 sm:flex'>
-              <Info className='h-4 w-4' />
-              <AlertDescription className='text-xs'>
-                {t(
-                  'Stripe/Creem requires creating products on the third-party platform and entering the ID'
-                )}
-              </AlertDescription>
-            </Alert>
-            <SubscriptionsPrimaryButtons />
-          </div>
-        </SectionPageLayout.Actions>
-        <SectionPageLayout.Content>
-          <div className='flex h-full min-h-0 flex-col gap-4'>
-            {!complianceConfirmed ? (
-              <Alert variant='destructive' className='shrink-0'>
-                <AlertDescription>
-                  {t(
-                    'Subscription plan creation and changes are locked until the administrator confirms compliance terms in Payment Gateway settings.'
-                  )}
-                </AlertDescription>
-              </Alert>
-            ) : null}
-            <div className='min-h-0 flex-1'>
-              <SubscriptionsTable />
-            </div>
-          </div>
-        </SectionPageLayout.Content>
-      </SectionPageLayout>
-
-      <SubscriptionsDialogs />
-    </>
-  )
-}
-
 export function Subscriptions() {
+  const { t } = useTranslation()
+  const role = useAuthStore((state) => state.auth.user?.role ?? 0)
+  const [tab, setTab] = useState<'plans' | 'records'>('plans')
+  const isRoot = role >= ROLE.SUPER_ADMIN
+
   return (
     <SubscriptionsProvider>
-      <SubscriptionsContent />
+      <Header>
+        <Search />
+        <div className='ms-auto flex items-center gap-4'>
+          <ThemeSwitch />
+          <ProfileDropdown />
+        </div>
+      </Header>
+      <Main>
+        <div className='mb-4 flex flex-wrap items-start justify-between gap-3'>
+          <div>
+            <h2 className='text-2xl font-bold tracking-tight'>
+              {t('Subscriptions')}
+            </h2>
+            <p className='text-muted-foreground'>
+              {t('Manage subscription plans and customer entitlements')}
+            </p>
+          </div>
+          <div className='flex flex-wrap items-center gap-2'>
+            {isRoot && (
+              <Button
+                variant='outline'
+                size='sm'
+                render={<Link to='/subscriptions/reset' />}
+              >
+                <RotateCcw aria-hidden='true' />
+                {t('Subscription reset workspace')}
+              </Button>
+            )}
+            {tab === 'plans' && <SubscriptionsPrimaryButtons />}
+          </div>
+        </div>
+
+        <Alert variant='default' className='mb-4 hidden px-3 py-2 sm:flex'>
+          <Info className='h-4 w-4' />
+          <AlertDescription className='text-xs'>
+            {t(
+              'Subscription plan operations are permission-sensitive and financially impactful. Review records before making changes.'
+            )}
+          </AlertDescription>
+        </Alert>
+
+        <Tabs
+          value={tab}
+          onValueChange={(value) => setTab(value as typeof tab)}
+        >
+          <TabsList>
+            <TabsTrigger value='plans'>{t('Plans')}</TabsTrigger>
+            <TabsTrigger value='records'>
+              {t('Subscription records')}
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value='plans' className='mt-4'>
+            <SubscriptionsTable />
+          </TabsContent>
+          <TabsContent value='records' className='mt-4'>
+            <SubscriptionRecords />
+          </TabsContent>
+        </Tabs>
+      </Main>
+
+      <SubscriptionsDialogs />
     </SubscriptionsProvider>
   )
 }

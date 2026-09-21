@@ -358,7 +358,7 @@ export function AssistantCreatedKeyView(props: {
   baseUrl: string
   model: string
   onContinueSetup: () => void
-  onImportToCCSwitch: (secret: string) => void | Promise<void>
+  onImportToCCSwitch: (secret: string) => string | null | Promise<string | null>
   t: TFunction
 }) {
   return (

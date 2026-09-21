@@ -26,8 +26,11 @@ func TestPreActivationRouteMatrixKeepsChallengesReadOnly(t *testing.T) {
 		{http.MethodGet, "/api/security/stats"},
 		{http.MethodGet, "/api/release-notes/latest"},
 		{http.MethodGet, "/api/user/self/onboarding/todo"},
+		{http.MethodGet, "/api/user/self/announcements"},
+		{http.MethodPost, "/api/user/self/announcements/read"},
 		{http.MethodPost, "/api/release-notes/7/read"},
 		{http.MethodPut, "/api/user/self"},
+		{http.MethodPut, "/api/user/sessions/settings"},
 		{http.MethodPost, "/api/user/passkey/register/begin"},
 		{http.MethodGet, "/api/subscription/epay/notify"},
 		{http.MethodPost, "/api/subscription/epay/notify"},
@@ -42,6 +45,9 @@ func TestPreActivationRouteMatrixKeepsChallengesReadOnly(t *testing.T) {
 		method string
 		path   string
 	}{
+		{http.MethodPost, "/api/user/self/announcements"},
+		{http.MethodGet, "/api/user/self/announcements/read"},
+		{http.MethodGet, "/api/user/42/announcements"},
 		{http.MethodGet, "/api/token"},
 		{http.MethodGet, "/api/open-source-bounties/accepted"},
 		{http.MethodGet, "/api/open-source-bounties/disputes/mine"},
@@ -58,6 +64,8 @@ func TestPreActivationRouteMatrixKeepsChallengesReadOnly(t *testing.T) {
 		{http.MethodPost, "/api/user/checkin"},
 		{http.MethodGet, "/api/user/developer-access/unknown"},
 		{http.MethodPatch, "/api/user/self/onboarding/todo"},
+		{http.MethodPost, "/api/user/sessions/settings"},
+		{http.MethodPut, "/api/user/sessions/other"},
 		{http.MethodGet, "/api/models"},
 		{http.MethodGet, "/api/channel"},
 		{http.MethodGet, "/api/pricing"},

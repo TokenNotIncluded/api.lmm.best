@@ -16,16 +16,38 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { ChannelAffinitySection } from '../general/channel-affinity'
-import { IoNetDeploymentSettingsSection } from '../integrations/ionet-deployment-settings-section'
 import type { ModelSettings } from '../types'
+import { lazyNamedSection } from '../utils/lazy-section'
 import { createSectionRegistry } from '../utils/section-registry'
-import { ClaudeSettingsCard } from './claude-settings-card'
-import { DynamicPricingSection } from './dynamic-pricing-section'
-import { GeminiSettingsCard } from './gemini-settings-card'
-import { GlobalSettingsCard } from './global-settings-card'
-import { GrokSettingsCard } from './grok-settings-card'
-import { RoutingReliabilitySection } from './routing-reliability-section'
+
+const ChannelAffinitySection = lazyNamedSection(
+  () => import('../general/channel-affinity'),
+  'ChannelAffinitySection'
+)
+const IoNetDeploymentSettingsSection = lazyNamedSection(
+  () => import('../integrations/ionet-deployment-settings-section'),
+  'IoNetDeploymentSettingsSection'
+)
+const ClaudeSettingsCard = lazyNamedSection(
+  () => import('./claude-settings-card'),
+  'ClaudeSettingsCard'
+)
+const GeminiSettingsCard = lazyNamedSection(
+  () => import('./gemini-settings-card'),
+  'GeminiSettingsCard'
+)
+const GlobalSettingsCard = lazyNamedSection(
+  () => import('./global-settings-card'),
+  'GlobalSettingsCard'
+)
+const GrokSettingsCard = lazyNamedSection(
+  () => import('./grok-settings-card'),
+  'GrokSettingsCard'
+)
+const RoutingReliabilitySection = lazyNamedSection(
+  () => import('./routing-reliability-section'),
+  'RoutingReliabilitySection'
+)
 
 function formatJsonForEditor(value: string, fallback: string) {
   const raw = (value ?? '').toString().trim()
@@ -86,29 +108,6 @@ const MODELS_SECTIONS = [
             settings['monitor_setting.auto_test_channel_minutes'],
           'monitor_setting.channel_test_mode':
             settings['monitor_setting.channel_test_mode'],
-        }}
-      />
-    ),
-  },
-  {
-    id: 'dynamic-group-multiplier',
-    titleKey: 'Dynamic Profit Pricing',
-    build: (settings: ModelSettings) => (
-      <DynamicPricingSection
-        defaultValues={{
-          GroupRatio: settings.GroupRatio,
-          'dynamic_pricing_setting.enabled':
-            settings['dynamic_pricing_setting.enabled'],
-          'dynamic_pricing_setting.min_factor':
-            settings['dynamic_pricing_setting.min_factor'],
-          'dynamic_pricing_setting.base_price_usd_per_million':
-            settings['dynamic_pricing_setting.base_price_usd_per_million'],
-          'dynamic_pricing_setting.cost_floor_factor':
-            settings['dynamic_pricing_setting.cost_floor_factor'],
-          'dynamic_pricing_setting.max_factor':
-            settings['dynamic_pricing_setting.max_factor'],
-          'dynamic_pricing_setting.channel_costs':
-            settings['dynamic_pricing_setting.channel_costs'],
         }}
       />
     ),

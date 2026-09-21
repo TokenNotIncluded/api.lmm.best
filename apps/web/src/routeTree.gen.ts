@@ -34,19 +34,24 @@ import { Route as AuthenticatedSystemSettingsRouteRouteImport } from './routes/_
 import { Route as AboutIndexRouteImport } from './routes/about/index'
 import { Route as ChallengesIndexRouteImport } from './routes/challenges/index'
 import { Route as ChallengesChallengeIdRouteImport } from './routes/challenges/$challengeId'
+import { Route as DevelopersIndexRouteImport } from './routes/developers/index'
 import { Route as GuideIndexRouteImport } from './routes/guide/index'
 import { Route as OauthProviderRouteImport } from './routes/oauth/$provider'
 import { Route as PricingIndexRouteImport } from './routes/pricing/index'
 import { Route as RankingsIndexRouteImport } from './routes/rankings/index'
+import { Route as RedPacketSlugRouteImport } from './routes/red-packet/$slug'
+import { Route as ScriptsIndexRouteImport } from './routes/scripts/index'
 import { Route as SecurityIndexRouteImport } from './routes/security/index'
 import { Route as SetupIndexRouteImport } from './routes/setup/index'
+import { Route as StatusIndexRouteImport } from './routes/status/index'
+import { Route as WebmcpIndexRouteImport } from './routes/webmcp/index'
 import { Route as authUserResetRouteImport } from './routes/(auth)/user/reset'
 import { Route as AuthenticatedChannelsIndexRouteImport } from './routes/_authenticated/channels/index'
 import { Route as AuthenticatedChatManagementIndexRouteImport } from './routes/_authenticated/chat-management/index'
 import { Route as AuthenticatedChatChatIdRouteImport } from './routes/_authenticated/chat/$chatId'
+import { Route as AuthenticatedCompanyIndexRouteImport } from './routes/_authenticated/company/index'
 import { Route as AuthenticatedDashboardIndexRouteImport } from './routes/_authenticated/dashboard/index'
 import { Route as AuthenticatedDashboardSectionRouteImport } from './routes/_authenticated/dashboard/$section'
-import { Route as AuthenticatedDeveloperAccessIndexRouteImport } from './routes/_authenticated/developer-access/index'
 import { Route as AuthenticatedDiscountCodesIndexRouteImport } from './routes/_authenticated/discount-codes/index'
 import { Route as AuthenticatedDrawingIndexRouteImport } from './routes/_authenticated/drawing/index'
 import { Route as AuthenticatedEmailActivationsIndexRouteImport } from './routes/_authenticated/email-activations/index'
@@ -56,21 +61,27 @@ import { Route as AuthenticatedKeysIndexRouteImport } from './routes/_authentica
 import { Route as AuthenticatedModelsIndexRouteImport } from './routes/_authenticated/models/index'
 import { Route as AuthenticatedModelsSectionRouteImport } from './routes/_authenticated/models/$section'
 import { Route as AuthenticatedOpenSourceBountiesIndexRouteImport } from './routes/_authenticated/open-source-bounties/index'
+import { Route as AuthenticatedOperationsSourcesRouteImport } from './routes/_authenticated/operations/sources'
 import { Route as AuthenticatedPlaygroundIndexRouteImport } from './routes/_authenticated/playground/index'
 import { Route as AuthenticatedProfileIndexRouteImport } from './routes/_authenticated/profile/index'
 import { Route as AuthenticatedPublicRelayIndexRouteImport } from './routes/_authenticated/public-relay/index'
+import { Route as AuthenticatedRedPacketsIndexRouteImport } from './routes/_authenticated/red-packets/index'
 import { Route as AuthenticatedRedemptionCodesIndexRouteImport } from './routes/_authenticated/redemption-codes/index'
+import { Route as AuthenticatedRemoteControlIndexRouteImport } from './routes/_authenticated/remote-control/index'
 import { Route as AuthenticatedSubscriptionsIndexRouteImport } from './routes/_authenticated/subscriptions/index'
+import { Route as AuthenticatedSubscriptionsResetRouteImport } from './routes/_authenticated/subscriptions/reset'
 import { Route as AuthenticatedSupportIndexRouteImport } from './routes/_authenticated/support/index'
 import { Route as AuthenticatedSystemInfoIndexRouteImport } from './routes/_authenticated/system-info/index'
 import { Route as AuthenticatedSystemSettingsIndexRouteImport } from './routes/_authenticated/system-settings/index'
 import { Route as AuthenticatedTemporaryActivationsIndexRouteImport } from './routes/_authenticated/temporary-activations/index'
 import { Route as AuthenticatedTodosIndexRouteImport } from './routes/_authenticated/todos/index'
+import { Route as AuthenticatedToolMarketIndexRouteImport } from './routes/_authenticated/tool-market/index'
 import { Route as AuthenticatedUsageLogsIndexRouteImport } from './routes/_authenticated/usage-logs/index'
 import { Route as AuthenticatedUsageLogsSectionRouteImport } from './routes/_authenticated/usage-logs/$section'
 import { Route as AuthenticatedUsersIndexRouteImport } from './routes/_authenticated/users/index'
 import { Route as AuthenticatedWalletIndexRouteImport } from './routes/_authenticated/wallet/index'
 import { Route as AuthenticatedWorkspaceIndexRouteImport } from './routes/_authenticated/workspace/index'
+import { Route as GamesSignalIndexRouteImport } from './routes/games/signal/index'
 import { Route as PricingModelIdIndexRouteImport } from './routes/pricing/$modelId/index'
 import { Route as AuthenticatedSystemSettingsAuthIndexRouteImport } from './routes/_authenticated/system-settings/auth/index'
 import { Route as AuthenticatedSystemSettingsAuthSectionRouteImport } from './routes/_authenticated/system-settings/auth/$section'
@@ -211,6 +222,11 @@ const ChallengesChallengeIdRoute = ChallengesChallengeIdRouteImport.update({
   path: '/challenges/$challengeId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DevelopersIndexRoute = DevelopersIndexRouteImport.update({
+  id: '/developers/',
+  path: '/developers/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const GuideIndexRoute = GuideIndexRouteImport.update({
   id: '/guide/',
   path: '/guide/',
@@ -231,6 +247,16 @@ const RankingsIndexRoute = RankingsIndexRouteImport.update({
   path: '/rankings/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RedPacketSlugRoute = RedPacketSlugRouteImport.update({
+  id: '/red-packet/$slug',
+  path: '/red-packet/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ScriptsIndexRoute = ScriptsIndexRouteImport.update({
+  id: '/scripts/',
+  path: '/scripts/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SecurityIndexRoute = SecurityIndexRouteImport.update({
   id: '/security/',
   path: '/security/',
@@ -239,6 +265,16 @@ const SecurityIndexRoute = SecurityIndexRouteImport.update({
 const SetupIndexRoute = SetupIndexRouteImport.update({
   id: '/setup/',
   path: '/setup/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StatusIndexRoute = StatusIndexRouteImport.update({
+  id: '/status/',
+  path: '/status/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WebmcpIndexRoute = WebmcpIndexRouteImport.update({
+  id: '/webmcp/',
+  path: '/webmcp/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const authUserResetRoute = authUserResetRouteImport.update({
@@ -263,6 +299,12 @@ const AuthenticatedChatChatIdRoute = AuthenticatedChatChatIdRouteImport.update({
   path: '/chat/$chatId',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedCompanyIndexRoute =
+  AuthenticatedCompanyIndexRouteImport.update({
+    id: '/company/',
+    path: '/company/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedDashboardIndexRoute =
   AuthenticatedDashboardIndexRouteImport.update({
     id: '/dashboard/',
@@ -273,12 +315,6 @@ const AuthenticatedDashboardSectionRoute =
   AuthenticatedDashboardSectionRouteImport.update({
     id: '/dashboard/$section',
     path: '/dashboard/$section',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedDeveloperAccessIndexRoute =
-  AuthenticatedDeveloperAccessIndexRouteImport.update({
-    id: '/developer-access/',
-    path: '/developer-access/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedDiscountCodesIndexRoute =
@@ -334,6 +370,12 @@ const AuthenticatedOpenSourceBountiesIndexRoute =
     path: '/open-source-bounties/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedOperationsSourcesRoute =
+  AuthenticatedOperationsSourcesRouteImport.update({
+    id: '/operations/sources',
+    path: '/operations/sources',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedPlaygroundIndexRoute =
   AuthenticatedPlaygroundIndexRouteImport.update({
     id: '/playground/',
@@ -352,16 +394,34 @@ const AuthenticatedPublicRelayIndexRoute =
     path: '/public-relay/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedRedPacketsIndexRoute =
+  AuthenticatedRedPacketsIndexRouteImport.update({
+    id: '/red-packets/',
+    path: '/red-packets/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedRedemptionCodesIndexRoute =
   AuthenticatedRedemptionCodesIndexRouteImport.update({
     id: '/redemption-codes/',
     path: '/redemption-codes/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedRemoteControlIndexRoute =
+  AuthenticatedRemoteControlIndexRouteImport.update({
+    id: '/remote-control/',
+    path: '/remote-control/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedSubscriptionsIndexRoute =
   AuthenticatedSubscriptionsIndexRouteImport.update({
     id: '/subscriptions/',
     path: '/subscriptions/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedSubscriptionsResetRoute =
+  AuthenticatedSubscriptionsResetRouteImport.update({
+    id: '/subscriptions/reset',
+    path: '/subscriptions/reset',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedSupportIndexRoute =
@@ -393,6 +453,12 @@ const AuthenticatedTodosIndexRoute = AuthenticatedTodosIndexRouteImport.update({
   path: '/todos/',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedToolMarketIndexRoute =
+  AuthenticatedToolMarketIndexRouteImport.update({
+    id: '/tool-market/',
+    path: '/tool-market/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedUsageLogsIndexRoute =
   AuthenticatedUsageLogsIndexRouteImport.update({
     id: '/usage-logs/',
@@ -422,6 +488,11 @@ const AuthenticatedWorkspaceIndexRoute =
     path: '/workspace/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const GamesSignalIndexRoute = GamesSignalIndexRouteImport.update({
+  id: '/games/signal/',
+  path: '/games/signal/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PricingModelIdIndexRoute = PricingModelIdIndexRouteImport.update({
   id: '/pricing/$modelId/',
   path: '/pricing/$modelId/',
@@ -535,23 +606,30 @@ export interface FileRoutesByFullPath {
   '/chat2link': typeof AuthenticatedChat2linkRoute
   '/challenges/$challengeId': typeof ChallengesChallengeIdRoute
   '/oauth/$provider': typeof OauthProviderRoute
+  '/red-packet/$slug': typeof RedPacketSlugRoute
   '/about/': typeof AboutIndexRoute
   '/challenges/': typeof ChallengesIndexRoute
+  '/developers/': typeof DevelopersIndexRoute
   '/guide/': typeof GuideIndexRoute
   '/pricing/': typeof PricingIndexRoute
   '/rankings/': typeof RankingsIndexRoute
+  '/scripts/': typeof ScriptsIndexRoute
   '/security/': typeof SecurityIndexRoute
   '/setup/': typeof SetupIndexRoute
+  '/status/': typeof StatusIndexRoute
+  '/webmcp/': typeof WebmcpIndexRoute
   '/user/reset': typeof authUserResetRoute
   '/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
+  '/operations/sources': typeof AuthenticatedOperationsSourcesRoute
+  '/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/channels/': typeof AuthenticatedChannelsIndexRoute
   '/chat-management/': typeof AuthenticatedChatManagementIndexRoute
+  '/company/': typeof AuthenticatedCompanyIndexRoute
   '/dashboard/': typeof AuthenticatedDashboardIndexRoute
-  '/developer-access/': typeof AuthenticatedDeveloperAccessIndexRoute
   '/discount-codes/': typeof AuthenticatedDiscountCodesIndexRoute
   '/drawing/': typeof AuthenticatedDrawingIndexRoute
   '/email-activations/': typeof AuthenticatedEmailActivationsIndexRoute
@@ -562,17 +640,21 @@ export interface FileRoutesByFullPath {
   '/playground/': typeof AuthenticatedPlaygroundIndexRoute
   '/profile/': typeof AuthenticatedProfileIndexRoute
   '/public-relay/': typeof AuthenticatedPublicRelayIndexRoute
+  '/red-packets/': typeof AuthenticatedRedPacketsIndexRoute
   '/redemption-codes/': typeof AuthenticatedRedemptionCodesIndexRoute
+  '/remote-control/': typeof AuthenticatedRemoteControlIndexRoute
   '/subscriptions/': typeof AuthenticatedSubscriptionsIndexRoute
   '/support/': typeof AuthenticatedSupportIndexRoute
   '/system-info/': typeof AuthenticatedSystemInfoIndexRoute
   '/system-settings/': typeof AuthenticatedSystemSettingsIndexRoute
   '/temporary-activations/': typeof AuthenticatedTemporaryActivationsIndexRoute
   '/todos/': typeof AuthenticatedTodosIndexRoute
+  '/tool-market/': typeof AuthenticatedToolMarketIndexRoute
   '/usage-logs/': typeof AuthenticatedUsageLogsIndexRoute
   '/users/': typeof AuthenticatedUsersIndexRoute
   '/wallet/': typeof AuthenticatedWalletIndexRoute
   '/workspace/': typeof AuthenticatedWorkspaceIndexRoute
+  '/games/signal/': typeof GamesSignalIndexRoute
   '/pricing/$modelId/': typeof PricingModelIdIndexRoute
   '/system-settings/auth/$section': typeof AuthenticatedSystemSettingsAuthSectionRoute
   '/system-settings/billing/$section': typeof AuthenticatedSystemSettingsBillingSectionRoute
@@ -611,23 +693,30 @@ export interface FileRoutesByTo {
   '/chat2link': typeof AuthenticatedChat2linkRoute
   '/challenges/$challengeId': typeof ChallengesChallengeIdRoute
   '/oauth/$provider': typeof OauthProviderRoute
+  '/red-packet/$slug': typeof RedPacketSlugRoute
   '/about': typeof AboutIndexRoute
   '/challenges': typeof ChallengesIndexRoute
+  '/developers': typeof DevelopersIndexRoute
   '/guide': typeof GuideIndexRoute
   '/pricing': typeof PricingIndexRoute
   '/rankings': typeof RankingsIndexRoute
+  '/scripts': typeof ScriptsIndexRoute
   '/security': typeof SecurityIndexRoute
   '/setup': typeof SetupIndexRoute
+  '/status': typeof StatusIndexRoute
+  '/webmcp': typeof WebmcpIndexRoute
   '/user/reset': typeof authUserResetRoute
   '/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
+  '/operations/sources': typeof AuthenticatedOperationsSourcesRoute
+  '/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/channels': typeof AuthenticatedChannelsIndexRoute
   '/chat-management': typeof AuthenticatedChatManagementIndexRoute
+  '/company': typeof AuthenticatedCompanyIndexRoute
   '/dashboard': typeof AuthenticatedDashboardIndexRoute
-  '/developer-access': typeof AuthenticatedDeveloperAccessIndexRoute
   '/discount-codes': typeof AuthenticatedDiscountCodesIndexRoute
   '/drawing': typeof AuthenticatedDrawingIndexRoute
   '/email-activations': typeof AuthenticatedEmailActivationsIndexRoute
@@ -638,17 +727,21 @@ export interface FileRoutesByTo {
   '/playground': typeof AuthenticatedPlaygroundIndexRoute
   '/profile': typeof AuthenticatedProfileIndexRoute
   '/public-relay': typeof AuthenticatedPublicRelayIndexRoute
+  '/red-packets': typeof AuthenticatedRedPacketsIndexRoute
   '/redemption-codes': typeof AuthenticatedRedemptionCodesIndexRoute
+  '/remote-control': typeof AuthenticatedRemoteControlIndexRoute
   '/subscriptions': typeof AuthenticatedSubscriptionsIndexRoute
   '/support': typeof AuthenticatedSupportIndexRoute
   '/system-info': typeof AuthenticatedSystemInfoIndexRoute
   '/system-settings': typeof AuthenticatedSystemSettingsIndexRoute
   '/temporary-activations': typeof AuthenticatedTemporaryActivationsIndexRoute
   '/todos': typeof AuthenticatedTodosIndexRoute
+  '/tool-market': typeof AuthenticatedToolMarketIndexRoute
   '/usage-logs': typeof AuthenticatedUsageLogsIndexRoute
   '/users': typeof AuthenticatedUsersIndexRoute
   '/wallet': typeof AuthenticatedWalletIndexRoute
   '/workspace': typeof AuthenticatedWorkspaceIndexRoute
+  '/games/signal': typeof GamesSignalIndexRoute
   '/pricing/$modelId': typeof PricingModelIdIndexRoute
   '/system-settings/auth/$section': typeof AuthenticatedSystemSettingsAuthSectionRoute
   '/system-settings/billing/$section': typeof AuthenticatedSystemSettingsBillingSectionRoute
@@ -691,23 +784,30 @@ export interface FileRoutesById {
   '/_authenticated/chat2link': typeof AuthenticatedChat2linkRoute
   '/challenges/$challengeId': typeof ChallengesChallengeIdRoute
   '/oauth/$provider': typeof OauthProviderRoute
+  '/red-packet/$slug': typeof RedPacketSlugRoute
   '/about/': typeof AboutIndexRoute
   '/challenges/': typeof ChallengesIndexRoute
+  '/developers/': typeof DevelopersIndexRoute
   '/guide/': typeof GuideIndexRoute
   '/pricing/': typeof PricingIndexRoute
   '/rankings/': typeof RankingsIndexRoute
+  '/scripts/': typeof ScriptsIndexRoute
   '/security/': typeof SecurityIndexRoute
   '/setup/': typeof SetupIndexRoute
+  '/status/': typeof StatusIndexRoute
+  '/webmcp/': typeof WebmcpIndexRoute
   '/(auth)/user/reset': typeof authUserResetRoute
   '/_authenticated/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/_authenticated/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/_authenticated/models/$section': typeof AuthenticatedModelsSectionRoute
+  '/_authenticated/operations/sources': typeof AuthenticatedOperationsSourcesRoute
+  '/_authenticated/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
   '/_authenticated/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/_authenticated/channels/': typeof AuthenticatedChannelsIndexRoute
   '/_authenticated/chat-management/': typeof AuthenticatedChatManagementIndexRoute
+  '/_authenticated/company/': typeof AuthenticatedCompanyIndexRoute
   '/_authenticated/dashboard/': typeof AuthenticatedDashboardIndexRoute
-  '/_authenticated/developer-access/': typeof AuthenticatedDeveloperAccessIndexRoute
   '/_authenticated/discount-codes/': typeof AuthenticatedDiscountCodesIndexRoute
   '/_authenticated/drawing/': typeof AuthenticatedDrawingIndexRoute
   '/_authenticated/email-activations/': typeof AuthenticatedEmailActivationsIndexRoute
@@ -718,17 +818,21 @@ export interface FileRoutesById {
   '/_authenticated/playground/': typeof AuthenticatedPlaygroundIndexRoute
   '/_authenticated/profile/': typeof AuthenticatedProfileIndexRoute
   '/_authenticated/public-relay/': typeof AuthenticatedPublicRelayIndexRoute
+  '/_authenticated/red-packets/': typeof AuthenticatedRedPacketsIndexRoute
   '/_authenticated/redemption-codes/': typeof AuthenticatedRedemptionCodesIndexRoute
+  '/_authenticated/remote-control/': typeof AuthenticatedRemoteControlIndexRoute
   '/_authenticated/subscriptions/': typeof AuthenticatedSubscriptionsIndexRoute
   '/_authenticated/support/': typeof AuthenticatedSupportIndexRoute
   '/_authenticated/system-info/': typeof AuthenticatedSystemInfoIndexRoute
   '/_authenticated/system-settings/': typeof AuthenticatedSystemSettingsIndexRoute
   '/_authenticated/temporary-activations/': typeof AuthenticatedTemporaryActivationsIndexRoute
   '/_authenticated/todos/': typeof AuthenticatedTodosIndexRoute
+  '/_authenticated/tool-market/': typeof AuthenticatedToolMarketIndexRoute
   '/_authenticated/usage-logs/': typeof AuthenticatedUsageLogsIndexRoute
   '/_authenticated/users/': typeof AuthenticatedUsersIndexRoute
   '/_authenticated/wallet/': typeof AuthenticatedWalletIndexRoute
   '/_authenticated/workspace/': typeof AuthenticatedWorkspaceIndexRoute
+  '/games/signal/': typeof GamesSignalIndexRoute
   '/pricing/$modelId/': typeof PricingModelIdIndexRoute
   '/_authenticated/system-settings/auth/$section': typeof AuthenticatedSystemSettingsAuthSectionRoute
   '/_authenticated/system-settings/billing/$section': typeof AuthenticatedSystemSettingsBillingSectionRoute
@@ -770,23 +874,30 @@ export interface FileRouteTypes {
     | '/chat2link'
     | '/challenges/$challengeId'
     | '/oauth/$provider'
+    | '/red-packet/$slug'
     | '/about/'
     | '/challenges/'
+    | '/developers/'
     | '/guide/'
     | '/pricing/'
     | '/rankings/'
+    | '/scripts/'
     | '/security/'
     | '/setup/'
+    | '/status/'
+    | '/webmcp/'
     | '/user/reset'
     | '/chat/$chatId'
     | '/dashboard/$section'
     | '/errors/$error'
     | '/models/$section'
+    | '/operations/sources'
+    | '/subscriptions/reset'
     | '/usage-logs/$section'
     | '/channels/'
     | '/chat-management/'
+    | '/company/'
     | '/dashboard/'
-    | '/developer-access/'
     | '/discount-codes/'
     | '/drawing/'
     | '/email-activations/'
@@ -797,17 +908,21 @@ export interface FileRouteTypes {
     | '/playground/'
     | '/profile/'
     | '/public-relay/'
+    | '/red-packets/'
     | '/redemption-codes/'
+    | '/remote-control/'
     | '/subscriptions/'
     | '/support/'
     | '/system-info/'
     | '/system-settings/'
     | '/temporary-activations/'
     | '/todos/'
+    | '/tool-market/'
     | '/usage-logs/'
     | '/users/'
     | '/wallet/'
     | '/workspace/'
+    | '/games/signal/'
     | '/pricing/$modelId/'
     | '/system-settings/auth/$section'
     | '/system-settings/billing/$section'
@@ -846,23 +961,30 @@ export interface FileRouteTypes {
     | '/chat2link'
     | '/challenges/$challengeId'
     | '/oauth/$provider'
+    | '/red-packet/$slug'
     | '/about'
     | '/challenges'
+    | '/developers'
     | '/guide'
     | '/pricing'
     | '/rankings'
+    | '/scripts'
     | '/security'
     | '/setup'
+    | '/status'
+    | '/webmcp'
     | '/user/reset'
     | '/chat/$chatId'
     | '/dashboard/$section'
     | '/errors/$error'
     | '/models/$section'
+    | '/operations/sources'
+    | '/subscriptions/reset'
     | '/usage-logs/$section'
     | '/channels'
     | '/chat-management'
+    | '/company'
     | '/dashboard'
-    | '/developer-access'
     | '/discount-codes'
     | '/drawing'
     | '/email-activations'
@@ -873,17 +995,21 @@ export interface FileRouteTypes {
     | '/playground'
     | '/profile'
     | '/public-relay'
+    | '/red-packets'
     | '/redemption-codes'
+    | '/remote-control'
     | '/subscriptions'
     | '/support'
     | '/system-info'
     | '/system-settings'
     | '/temporary-activations'
     | '/todos'
+    | '/tool-market'
     | '/usage-logs'
     | '/users'
     | '/wallet'
     | '/workspace'
+    | '/games/signal'
     | '/pricing/$modelId'
     | '/system-settings/auth/$section'
     | '/system-settings/billing/$section'
@@ -925,23 +1051,30 @@ export interface FileRouteTypes {
     | '/_authenticated/chat2link'
     | '/challenges/$challengeId'
     | '/oauth/$provider'
+    | '/red-packet/$slug'
     | '/about/'
     | '/challenges/'
+    | '/developers/'
     | '/guide/'
     | '/pricing/'
     | '/rankings/'
+    | '/scripts/'
     | '/security/'
     | '/setup/'
+    | '/status/'
+    | '/webmcp/'
     | '/(auth)/user/reset'
     | '/_authenticated/chat/$chatId'
     | '/_authenticated/dashboard/$section'
     | '/_authenticated/errors/$error'
     | '/_authenticated/models/$section'
+    | '/_authenticated/operations/sources'
+    | '/_authenticated/subscriptions/reset'
     | '/_authenticated/usage-logs/$section'
     | '/_authenticated/channels/'
     | '/_authenticated/chat-management/'
+    | '/_authenticated/company/'
     | '/_authenticated/dashboard/'
-    | '/_authenticated/developer-access/'
     | '/_authenticated/discount-codes/'
     | '/_authenticated/drawing/'
     | '/_authenticated/email-activations/'
@@ -952,17 +1085,21 @@ export interface FileRouteTypes {
     | '/_authenticated/playground/'
     | '/_authenticated/profile/'
     | '/_authenticated/public-relay/'
+    | '/_authenticated/red-packets/'
     | '/_authenticated/redemption-codes/'
+    | '/_authenticated/remote-control/'
     | '/_authenticated/subscriptions/'
     | '/_authenticated/support/'
     | '/_authenticated/system-info/'
     | '/_authenticated/system-settings/'
     | '/_authenticated/temporary-activations/'
     | '/_authenticated/todos/'
+    | '/_authenticated/tool-market/'
     | '/_authenticated/usage-logs/'
     | '/_authenticated/users/'
     | '/_authenticated/wallet/'
     | '/_authenticated/workspace/'
+    | '/games/signal/'
     | '/pricing/$modelId/'
     | '/_authenticated/system-settings/auth/$section'
     | '/_authenticated/system-settings/billing/$section'
@@ -995,13 +1132,19 @@ export interface RootRouteChildren {
   errors503Route: typeof errors503Route
   ChallengesChallengeIdRoute: typeof ChallengesChallengeIdRoute
   OauthProviderRoute: typeof OauthProviderRoute
+  RedPacketSlugRoute: typeof RedPacketSlugRoute
   AboutIndexRoute: typeof AboutIndexRoute
   ChallengesIndexRoute: typeof ChallengesIndexRoute
+  DevelopersIndexRoute: typeof DevelopersIndexRoute
   GuideIndexRoute: typeof GuideIndexRoute
   PricingIndexRoute: typeof PricingIndexRoute
   RankingsIndexRoute: typeof RankingsIndexRoute
+  ScriptsIndexRoute: typeof ScriptsIndexRoute
   SecurityIndexRoute: typeof SecurityIndexRoute
   SetupIndexRoute: typeof SetupIndexRoute
+  StatusIndexRoute: typeof StatusIndexRoute
+  WebmcpIndexRoute: typeof WebmcpIndexRoute
+  GamesSignalIndexRoute: typeof GamesSignalIndexRoute
   PricingModelIdIndexRoute: typeof PricingModelIdIndexRoute
 }
 
@@ -1182,6 +1325,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChallengesChallengeIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/developers/': {
+      id: '/developers/'
+      path: '/developers'
+      fullPath: '/developers/'
+      preLoaderRoute: typeof DevelopersIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/guide/': {
       id: '/guide/'
       path: '/guide'
@@ -1210,6 +1360,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RankingsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/red-packet/$slug': {
+      id: '/red-packet/$slug'
+      path: '/red-packet/$slug'
+      fullPath: '/red-packet/$slug'
+      preLoaderRoute: typeof RedPacketSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/scripts/': {
+      id: '/scripts/'
+      path: '/scripts'
+      fullPath: '/scripts/'
+      preLoaderRoute: typeof ScriptsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/security/': {
       id: '/security/'
       path: '/security'
@@ -1222,6 +1386,20 @@ declare module '@tanstack/react-router' {
       path: '/setup'
       fullPath: '/setup/'
       preLoaderRoute: typeof SetupIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/status/': {
+      id: '/status/'
+      path: '/status'
+      fullPath: '/status/'
+      preLoaderRoute: typeof StatusIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/webmcp/': {
+      id: '/webmcp/'
+      path: '/webmcp'
+      fullPath: '/webmcp/'
+      preLoaderRoute: typeof WebmcpIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/(auth)/user/reset': {
@@ -1252,6 +1430,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedChatChatIdRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/company/': {
+      id: '/_authenticated/company/'
+      path: '/company'
+      fullPath: '/company/'
+      preLoaderRoute: typeof AuthenticatedCompanyIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/dashboard/': {
       id: '/_authenticated/dashboard/'
       path: '/dashboard'
@@ -1264,13 +1449,6 @@ declare module '@tanstack/react-router' {
       path: '/dashboard/$section'
       fullPath: '/dashboard/$section'
       preLoaderRoute: typeof AuthenticatedDashboardSectionRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/developer-access/': {
-      id: '/_authenticated/developer-access/'
-      path: '/developer-access'
-      fullPath: '/developer-access/'
-      preLoaderRoute: typeof AuthenticatedDeveloperAccessIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/discount-codes/': {
@@ -1336,6 +1514,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedOpenSourceBountiesIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/operations/sources': {
+      id: '/_authenticated/operations/sources'
+      path: '/operations/sources'
+      fullPath: '/operations/sources'
+      preLoaderRoute: typeof AuthenticatedOperationsSourcesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/playground/': {
       id: '/_authenticated/playground/'
       path: '/playground'
@@ -1357,6 +1542,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedPublicRelayIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/red-packets/': {
+      id: '/_authenticated/red-packets/'
+      path: '/red-packets'
+      fullPath: '/red-packets/'
+      preLoaderRoute: typeof AuthenticatedRedPacketsIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/redemption-codes/': {
       id: '/_authenticated/redemption-codes/'
       path: '/redemption-codes'
@@ -1364,11 +1556,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedRedemptionCodesIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/remote-control/': {
+      id: '/_authenticated/remote-control/'
+      path: '/remote-control'
+      fullPath: '/remote-control/'
+      preLoaderRoute: typeof AuthenticatedRemoteControlIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/subscriptions/': {
       id: '/_authenticated/subscriptions/'
       path: '/subscriptions'
       fullPath: '/subscriptions/'
       preLoaderRoute: typeof AuthenticatedSubscriptionsIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/subscriptions/reset': {
+      id: '/_authenticated/subscriptions/reset'
+      path: '/subscriptions/reset'
+      fullPath: '/subscriptions/reset'
+      preLoaderRoute: typeof AuthenticatedSubscriptionsResetRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/support/': {
@@ -1406,6 +1612,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedTodosIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/tool-market/': {
+      id: '/_authenticated/tool-market/'
+      path: '/tool-market'
+      fullPath: '/tool-market/'
+      preLoaderRoute: typeof AuthenticatedToolMarketIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/usage-logs/': {
       id: '/_authenticated/usage-logs/'
       path: '/usage-logs'
@@ -1440,6 +1653,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/workspace/'
       preLoaderRoute: typeof AuthenticatedWorkspaceIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/games/signal/': {
+      id: '/games/signal/'
+      path: '/games/signal'
+      fullPath: '/games/signal/'
+      preLoaderRoute: typeof GamesSignalIndexRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/pricing/$modelId/': {
       id: '/pricing/$modelId/'
@@ -1641,11 +1861,13 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedDashboardSectionRoute: typeof AuthenticatedDashboardSectionRoute
   AuthenticatedErrorsErrorRoute: typeof AuthenticatedErrorsErrorRoute
   AuthenticatedModelsSectionRoute: typeof AuthenticatedModelsSectionRoute
+  AuthenticatedOperationsSourcesRoute: typeof AuthenticatedOperationsSourcesRoute
+  AuthenticatedSubscriptionsResetRoute: typeof AuthenticatedSubscriptionsResetRoute
   AuthenticatedUsageLogsSectionRoute: typeof AuthenticatedUsageLogsSectionRoute
   AuthenticatedChannelsIndexRoute: typeof AuthenticatedChannelsIndexRoute
   AuthenticatedChatManagementIndexRoute: typeof AuthenticatedChatManagementIndexRoute
+  AuthenticatedCompanyIndexRoute: typeof AuthenticatedCompanyIndexRoute
   AuthenticatedDashboardIndexRoute: typeof AuthenticatedDashboardIndexRoute
-  AuthenticatedDeveloperAccessIndexRoute: typeof AuthenticatedDeveloperAccessIndexRoute
   AuthenticatedDiscountCodesIndexRoute: typeof AuthenticatedDiscountCodesIndexRoute
   AuthenticatedDrawingIndexRoute: typeof AuthenticatedDrawingIndexRoute
   AuthenticatedEmailActivationsIndexRoute: typeof AuthenticatedEmailActivationsIndexRoute
@@ -1656,12 +1878,15 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedPlaygroundIndexRoute: typeof AuthenticatedPlaygroundIndexRoute
   AuthenticatedProfileIndexRoute: typeof AuthenticatedProfileIndexRoute
   AuthenticatedPublicRelayIndexRoute: typeof AuthenticatedPublicRelayIndexRoute
+  AuthenticatedRedPacketsIndexRoute: typeof AuthenticatedRedPacketsIndexRoute
   AuthenticatedRedemptionCodesIndexRoute: typeof AuthenticatedRedemptionCodesIndexRoute
+  AuthenticatedRemoteControlIndexRoute: typeof AuthenticatedRemoteControlIndexRoute
   AuthenticatedSubscriptionsIndexRoute: typeof AuthenticatedSubscriptionsIndexRoute
   AuthenticatedSupportIndexRoute: typeof AuthenticatedSupportIndexRoute
   AuthenticatedSystemInfoIndexRoute: typeof AuthenticatedSystemInfoIndexRoute
   AuthenticatedTemporaryActivationsIndexRoute: typeof AuthenticatedTemporaryActivationsIndexRoute
   AuthenticatedTodosIndexRoute: typeof AuthenticatedTodosIndexRoute
+  AuthenticatedToolMarketIndexRoute: typeof AuthenticatedToolMarketIndexRoute
   AuthenticatedUsageLogsIndexRoute: typeof AuthenticatedUsageLogsIndexRoute
   AuthenticatedUsersIndexRoute: typeof AuthenticatedUsersIndexRoute
   AuthenticatedWalletIndexRoute: typeof AuthenticatedWalletIndexRoute
@@ -1676,12 +1901,13 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedDashboardSectionRoute: AuthenticatedDashboardSectionRoute,
   AuthenticatedErrorsErrorRoute: AuthenticatedErrorsErrorRoute,
   AuthenticatedModelsSectionRoute: AuthenticatedModelsSectionRoute,
+  AuthenticatedOperationsSourcesRoute: AuthenticatedOperationsSourcesRoute,
+  AuthenticatedSubscriptionsResetRoute: AuthenticatedSubscriptionsResetRoute,
   AuthenticatedUsageLogsSectionRoute: AuthenticatedUsageLogsSectionRoute,
   AuthenticatedChannelsIndexRoute: AuthenticatedChannelsIndexRoute,
   AuthenticatedChatManagementIndexRoute: AuthenticatedChatManagementIndexRoute,
+  AuthenticatedCompanyIndexRoute: AuthenticatedCompanyIndexRoute,
   AuthenticatedDashboardIndexRoute: AuthenticatedDashboardIndexRoute,
-  AuthenticatedDeveloperAccessIndexRoute:
-    AuthenticatedDeveloperAccessIndexRoute,
   AuthenticatedDiscountCodesIndexRoute: AuthenticatedDiscountCodesIndexRoute,
   AuthenticatedDrawingIndexRoute: AuthenticatedDrawingIndexRoute,
   AuthenticatedEmailActivationsIndexRoute:
@@ -1694,14 +1920,17 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedPlaygroundIndexRoute: AuthenticatedPlaygroundIndexRoute,
   AuthenticatedProfileIndexRoute: AuthenticatedProfileIndexRoute,
   AuthenticatedPublicRelayIndexRoute: AuthenticatedPublicRelayIndexRoute,
+  AuthenticatedRedPacketsIndexRoute: AuthenticatedRedPacketsIndexRoute,
   AuthenticatedRedemptionCodesIndexRoute:
     AuthenticatedRedemptionCodesIndexRoute,
+  AuthenticatedRemoteControlIndexRoute: AuthenticatedRemoteControlIndexRoute,
   AuthenticatedSubscriptionsIndexRoute: AuthenticatedSubscriptionsIndexRoute,
   AuthenticatedSupportIndexRoute: AuthenticatedSupportIndexRoute,
   AuthenticatedSystemInfoIndexRoute: AuthenticatedSystemInfoIndexRoute,
   AuthenticatedTemporaryActivationsIndexRoute:
     AuthenticatedTemporaryActivationsIndexRoute,
   AuthenticatedTodosIndexRoute: AuthenticatedTodosIndexRoute,
+  AuthenticatedToolMarketIndexRoute: AuthenticatedToolMarketIndexRoute,
   AuthenticatedUsageLogsIndexRoute: AuthenticatedUsageLogsIndexRoute,
   AuthenticatedUsersIndexRoute: AuthenticatedUsersIndexRoute,
   AuthenticatedWalletIndexRoute: AuthenticatedWalletIndexRoute,
@@ -1726,13 +1955,19 @@ const rootRouteChildren: RootRouteChildren = {
   errors503Route: errors503Route,
   ChallengesChallengeIdRoute: ChallengesChallengeIdRoute,
   OauthProviderRoute: OauthProviderRoute,
+  RedPacketSlugRoute: RedPacketSlugRoute,
   AboutIndexRoute: AboutIndexRoute,
   ChallengesIndexRoute: ChallengesIndexRoute,
+  DevelopersIndexRoute: DevelopersIndexRoute,
   GuideIndexRoute: GuideIndexRoute,
   PricingIndexRoute: PricingIndexRoute,
   RankingsIndexRoute: RankingsIndexRoute,
+  ScriptsIndexRoute: ScriptsIndexRoute,
   SecurityIndexRoute: SecurityIndexRoute,
   SetupIndexRoute: SetupIndexRoute,
+  StatusIndexRoute: StatusIndexRoute,
+  WebmcpIndexRoute: WebmcpIndexRoute,
+  GamesSignalIndexRoute: GamesSignalIndexRoute,
   PricingModelIdIndexRoute: PricingModelIdIndexRoute,
 }
 export const routeTree = rootRouteImport

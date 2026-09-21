@@ -97,6 +97,18 @@ func TestSystemTaskSchedulerCreatesWhenDueAndDedups(t *testing.T) {
 	require.Equal(t, int64(2), countSystemTasks(t, handler.taskType))
 }
 
+func TestSystemTaskSchedulerCancellationStopsAdmission(t *testing.T) {
+	truncate(t)
+
+	handler := &stubScheduledHandler{taskType: "test_cancelled_schedule", enabled: true, interval: time.Minute}
+	withSystemTaskRegistry(t, handler)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	runSystemTaskSchedulerContext(ctx)
+	assert.Equal(t, int64(0), countSystemTasks(t, handler.taskType))
+}
+
 func TestSystemTaskSchedulerSkipsDisabled(t *testing.T) {
 	truncate(t)
 

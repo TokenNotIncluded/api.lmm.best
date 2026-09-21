@@ -26,8 +26,8 @@ The 2026-08-14 read-only audit found `api.lmm.best` running the Go backend with
 PostgreSQL and dedicated Valkey. The canonical lowercase
 `pg-write-boundary` and `cutover-journal` agree on the transaction, schema and
 revision; the journal phase is `COMPLETE`; and `post-cutover-verify.json`
-attests the PostgreSQL historical migration as verified. Re-run the sanitized
-`inspect-state.sh` gate before every mutation instead of treating this dated
+attests the PostgreSQL historical migration as verified. Verify the native production transaction status and current host resource
+and health measurements before every mutation instead of treating this dated
 observation as permanent evidence. Rust remains internal-probe-only and does
 not own production business traffic.
 
@@ -43,12 +43,12 @@ contract revisions before writing canonical immutable JSON.
 Production uses resumable controller phases:
 
 ```bash
-/usr/bin/lmm-api deploy production plan ...
-/usr/bin/lmm-api deploy production stage \
+/usr/bin/lmm-api-deploy production plan ...
+/usr/bin/lmm-api-deploy production stage \
   --plan <release-plan.json> --plan-sha256 <sha256> --confirm api.lmm.best
-/usr/bin/lmm-api deploy production promote \
+/usr/bin/lmm-api-deploy production promote \
   --plan <release-plan.json> --plan-sha256 <sha256> --confirm api.lmm.best
-/usr/bin/lmm-api deploy production status|confirm|rollback \
+/usr/bin/lmm-api-deploy production status|confirm|rollback \
   --plan <release-plan.json> --plan-sha256 <sha256> --confirm api.lmm.best
 ```
 
@@ -116,7 +116,7 @@ running PID, sanitized process-environment scheme checks, and explicit HTTP
 probes for legacy classification, then move through the guarded T0 transaction
 before relying on the unified controller.
 
-Always read `apps/api-rust/tests/fixtures/routes/migration-gate.tsv` for the
+Always read `apps/api-rust/tests/fixtures/routes/route-gate.tsv` for the
 current route ownership and approval state; prose is not an authority for
 route counts.
 

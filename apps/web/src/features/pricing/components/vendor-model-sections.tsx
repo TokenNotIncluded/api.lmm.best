@@ -21,9 +21,9 @@ import { useTranslation } from 'react-i18next'
 
 import { getLobeIcon } from '@/lib/lobe-icon'
 
+import type { ModelPerfBadgeData } from '../lib/model-perf'
 import type { PricingModel, TokenUnit } from '../types'
 import { ModelCard } from './model-card'
-import type { ModelPerfBadgeData } from './model-perf-badge'
 
 export interface VendorModelSectionProps {
   models: PricingModel[]
@@ -33,7 +33,7 @@ export interface VendorModelSectionProps {
   tokenUnit?: TokenUnit
   showRechargePrice?: boolean
   selectedGroup?: string
-  perfMap?: Map<string, ModelPerfBadgeData>
+  perfMap?: ReadonlyMap<string, ModelPerfBadgeData>
 }
 
 type VendorGroup = {

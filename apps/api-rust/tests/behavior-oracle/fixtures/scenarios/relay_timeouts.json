@@ -1,0 +1,45 @@
+{
+  "profiles": {
+    "heartbeat-stream": {
+      "headers": 3, "idle": 1, "total": 0, "stream": true, "heartbeats": true,
+      "status": {"go": 200, "rust": 200},
+      "expected_differences": ["Go consumes comment heartbeats and synthesizes usage; Rust forwards the original heartbeat bytes."]
+    },
+    "fragment-stream": {
+      "headers": 3, "idle": 1, "total": 0, "stream": true, "fragments": true,
+      "status": {"go": 200, "rust": 200},
+      "expected_differences": ["Go waits for complete SSE lines; Rust byte progress keeps a fragmented line alive beyond the idle interval."]
+    },
+    "cancel-stream": {"headers": 3, "idle": 1, "total": 0, "stream": true, "cancel": true, "status": {"go": 200, "rust": 200}},
+    "slow-headers": {"headers": 1800, "idle": 1, "total": 0, "status": {"go": 200, "rust": 200}},
+    "short-headers": {
+      "headers": 1, "idle": 1, "total": 0,
+      "status": {"go": 504, "rust": 500},
+      "error_code": {"go": "upstream_timeout", "rust": "do_request_failed"},
+      "expected_differences": ["Preserve existing pre-header timeout envelopes: Go 504/upstream_timeout, Rust 500/do_request_failed; request IDs and messages differ."]
+    },
+    "disabled-headers": {"headers": 0, "idle": 1, "total": 0, "status": {"go": 200, "rust": 200}},
+    "active-stream": {
+      "headers": 3, "idle": 1, "total": 0, "stream": true,
+      "status": {"go": 200, "rust": 200},
+      "expected_differences": ["Go synthesizes a usage event; Rust preserves the upstream SSE bytes without adding usage."]
+    },
+    "total-stream": {
+      "headers": 3, "idle": 1, "total": 2, "stream": true, "truncated": true,
+      "status": {"go": 200, "rust": 200},
+      "expected_differences": ["Go emits a terminal DONE after truncation; Rust reports a body error and must not synthesize DONE."]
+    }
+  },
+  "upstream": {
+    "header_delay_seconds": 3, "stream_interval_seconds": 0.25, "stream_chunks": 12,
+    "stream_event": {
+      "id": "chatcmpl-timeout-fixture", "object": "chat.completion.chunk",
+      "created": 1, "model": "gpt-test",
+      "choices": [{"index": 0, "delta": {"content": "x"}, "finish_reason": null}]
+    }
+  },
+  "request": {
+    "model": "gpt-test",
+    "messages": [{"role": "user", "content": "relay-timeout:headers"}]
+  }
+}

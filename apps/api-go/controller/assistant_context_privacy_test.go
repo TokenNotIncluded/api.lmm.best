@@ -188,3 +188,14 @@ func TestAssistantManualProfileIsInternalOnly(t *testing.T) {
 	assert.Contains(t, prompt, "Internal manual profile strategy skill")
 	assert.NotContains(t, prompt, "sk-hidden-value")
 }
+
+func TestAssistantDisabledAdministratorContextDoesNotGrantCapabilities(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.User{}))
+	user := model.User{Username: "disabled-admin-context", Role: common.RoleRootUser, Status: common.UserStatusDisabled}
+	require.NoError(t, db.Create(&user).Error)
+	context := assistantUserContextForRequest(user.Id, "Check model pricing")
+	assert.False(t, context.AdministratorMode)
+	assert.False(t, context.DeveloperAccessGranted)
+	assert.Equal(t, "L0", context.AccessLevel)
+}

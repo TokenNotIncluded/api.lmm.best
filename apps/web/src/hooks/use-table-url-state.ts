@@ -183,11 +183,22 @@ export function useTableUrlState(
     })
   }
 
-  const [globalFilter, setGlobalFilter] = useState<string | undefined>(() => {
-    if (!globalFilterEnabled) return undefined
-    const raw = (search as SearchRecord)[globalFilterKey]
-    return typeof raw === 'string' ? raw : ''
-  })
+  const urlGlobalFilter = globalFilterEnabled
+    ? typeof (search as SearchRecord)[globalFilterKey] === 'string'
+      ? ((search as SearchRecord)[globalFilterKey] as string)
+      : ''
+    : undefined
+  const [globalFilter, setGlobalFilter] = useState<string | undefined>(
+    urlGlobalFilter
+  )
+
+  // Keep browser back/forward navigation authoritative without clobbering a
+  // local edit when the parent merely recreates an equivalent search object.
+  useEffect(() => {
+    setGlobalFilter((current) =>
+      current === urlGlobalFilter ? current : urlGlobalFilter
+    )
+  }, [urlGlobalFilter])
 
   const onGlobalFilterChange: OnChangeFn<string> | undefined =
     globalFilterEnabled
@@ -224,9 +235,7 @@ export function useTableUrlState(
         patch[cfg.searchKey] =
           value.trim() !== '' ? serialize(value) : undefined
       } else {
-        const value = Array.isArray(found?.value)
-          ? (found!.value as unknown[])
-          : []
+        const value = Array.isArray(found?.value) ? found.value : []
         patch[cfg.searchKey] = value.length > 0 ? serialize(value) : undefined
       }
     }

@@ -30,7 +30,7 @@ import (
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
-	"github.com/LIghtJUNction/api.lmm.best/middleware"
+	"github.com/LIghtJUNction/api.lmm.best/constant"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/types"
 	"github.com/LIghtJUNction/api.lmm.best/service"
@@ -239,7 +239,7 @@ func playgroundImageUserAndGroup(c *gin.Context) (*model.UserBase, string, bool)
 	}
 	group := strings.TrimSpace(c.Query("group"))
 	if group == "" {
-		group = user.Group
+		group = model.DrawingTokenGroup
 	}
 	if _, ok := service.GetUserUsableGroups(user.Group)[group]; !ok {
 		c.JSON(http.StatusForbidden, gin.H{"error": gin.H{"message": "the selected image group is not available to this account"}})
@@ -255,18 +255,17 @@ func preparePlaygroundImageRelay(c *gin.Context, user *model.UserBase, group, mo
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": "an exact image model is required"}})
 		return false
 	}
-	if !assistantDrawingModelAllowed(user.Group, group, modelID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": gin.H{"message": "the selected image model is not available in this group"}})
+	// Distribute already enforces group/model availability and the real key's
+	// model restrictions. Catalog metadata is a UI hint, not an extra relay gate.
+	if !common.GetContextKeyBool(c, constant.ContextKeyDrawingRealToken) ||
+		common.GetContextKeyInt(c, constant.ContextKeyTokenId) <= 0 ||
+		common.GetContextKeyInt(c, constant.ContextKeyUserId) != user.Id ||
+		common.GetContextKeyString(c, constant.ContextKeyTokenGroup) != group {
+		c.JSON(http.StatusForbidden, gin.H{"error": gin.H{"message": "a validated drawing API key is required"}})
 		return false
 	}
 	if prompt == "" || len([]rune(prompt)) > assistantDrawingPromptMaxRunes {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": "image prompt must contain 1 to 2000 characters"}})
-		return false
-	}
-	user.WriteContext(c)
-	tempToken := &model.Token{UserId: user.Id, Name: "drawing-workbench", Group: group}
-	if err := middleware.SetupContextForToken(c, tempToken); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"message": "image routing context could not be prepared"}})
 		return false
 	}
 	return true
@@ -375,7 +374,13 @@ func PlaygroundImageEdit(c *gin.Context) {
 // GenerateAssistantDrawing consumes the session-bound confirmation and then
 // enters the same image relay used by the drawing workbench. The server never
 // trusts model, group or prompt values re-sent by the browser.
-func GenerateAssistantDrawing(c *gin.Context) {
+func PrepareAssistantDrawing(c *gin.Context) {
+	prepared := false
+	defer func() {
+		if !prepared {
+			c.Abort()
+		}
+	}()
 	if !common.DrawingEnabled {
 		c.JSON(http.StatusForbidden, gin.H{"error": gin.H{"message": "image generation is disabled"}})
 		return
@@ -387,6 +392,11 @@ func GenerateAssistantDrawing(c *gin.Context) {
 	var input assistantDrawingGenerateInput
 	if err := common.DecodeJson(c.Request.Body, &input); err != nil || strings.TrimSpace(input.ConfirmationToken) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": "a drawing confirmation token is required"}})
+		return
+	}
+	// Check the authoritative starting balance before the one-shot confirmation
+	// is consumed. A rejected request can be retried after funding the wallet.
+	if !requireDrawingWebBalance(c, c.GetInt("id")) {
 		return
 	}
 	flow, err := model.ConsumeAuthFlow(strings.TrimSpace(input.ConfirmationToken), model.AuthFlowMatch{
@@ -412,6 +422,9 @@ func GenerateAssistantDrawing(c *gin.Context) {
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": gin.H{"message": "the confirmed image model or group is no longer available"}})
 		return
 	}
+	if _, _, ok := prepareDrawingTokenContext(c, c.GetInt("id"), draft.Group); !ok {
+		return
+	}
 	body, err := json.Marshal(draft)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"message": "image request could not be encoded"}})
@@ -422,6 +435,15 @@ func GenerateAssistantDrawing(c *gin.Context) {
 	query.Set("group", draft.Group)
 	c.Request.URL = &url.URL{Path: "/pg/images/generations", RawQuery: query.Encode()}
 	c.Request.Body = io.NopCloser(bytes.NewReader(body))
+	c.Request.ContentLength = int64(len(body))
+	c.Request.Header.Set("Content-Type", "application/json")
 	defer func() { c.Request.URL = &originalURL }()
+	// This is the existing confirmation-to-relay adapter, not a billing bypass:
+	// the trusted real-key flag controls accounting even on the /pg image path.
+	prepared = true
+	c.Next()
+}
+
+func GenerateAssistantDrawing(c *gin.Context) {
 	PlaygroundImage(c)
 }

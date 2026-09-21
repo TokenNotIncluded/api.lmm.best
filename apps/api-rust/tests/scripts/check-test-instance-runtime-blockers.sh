@@ -26,8 +26,8 @@ command -v sha256sum >/dev/null || fail "sha256sum is required"
 # ledger must cover the inventory exactly: a valid-but-omitted row is a failure.
 source_inventory_rows=159
 source_inventory_paths=145
-source_inventory_adapters=31
-source_inventory_key_digest=1e03fe85310a62fcdd7f5259b70da1424d2b635ed4a074cbddf983528ad040df # gitleaks:allow -- source inventory digest
+source_inventory_adapters=32
+source_inventory_key_digest=2be730980c4f59f4a81134905a8db99a6baec526cc7a08b35918b102253869f4 # gitleaks:allow -- source inventory digest
 
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/test-instance-runtime-blockers.XXXXXX")"
 trap 'rm -rf "$tmp_dir"' EXIT

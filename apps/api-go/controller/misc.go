@@ -145,6 +145,7 @@ func GetStatus(c *gin.Context) {
 		"display_in_currency":                 operation_setting.IsCurrencyDisplay(),
 		"quota_display_type":                  operation_setting.GetQuotaDisplayType(),
 		"custom_currency_symbol":              operation_setting.GetGeneralSetting().CustomCurrencySymbol,
+		"custom_currency_code":                operation_setting.GetGeneralSetting().CustomCurrencyCode,
 		"custom_currency_exchange_rate":       operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate,
 		"enable_batch_update":                 common.BatchUpdateEnabled,
 		"enable_drawing":                      common.DrawingEnabled,
@@ -155,7 +156,7 @@ func GetStatus(c *gin.Context) {
 		"mj_notify_enabled":                   setting.MjNotifyEnabled,
 		"chats":                               setting.Chats,
 		"demo_site_enabled":                   operation_setting.DemoSiteEnabled,
-		"self_use_mode_enabled":               operation_setting.SelfUseModeEnabled,
+		"self_use_mode_enabled":               operation_setting.SelfUseModeEnabled.Load(),
 		"register_enabled":                    common.RegisterEnabled,
 		"password_login_enabled":              common.PasswordLoginEnabled,
 		"password_register_enabled":           common.PasswordRegisterEnabled,
@@ -178,8 +179,10 @@ func GetStatus(c *gin.Context) {
 		},
 
 		"usd_exchange_rate": operation_setting.USDExchangeRate,
-		"price":             operation_setting.Price,
-		"stripe_unit_price": setting.StripeUnitPrice,
+		// Legacy clients read price as platform units per real USD and
+		// stripe_unit_price as real USD per platform unit.
+		"price":             operation_setting.USDExchangeRate * operation_setting.TopUpPlatformUnitsPerCNY,
+		"stripe_unit_price": standardUSDPerPlatformUnit(),
 
 		// 面板启用开关
 		"api_info_enabled":      cs.ApiInfoEnabled,
@@ -302,7 +305,7 @@ func GetUserAgreement(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    system_setting.GetLegalSettings().UserAgreement,
+		"data":    system_setting.UserAgreementForLanguage(strings.EqualFold(c.Query("lang"), "en")),
 	})
 	return
 }
@@ -311,7 +314,7 @@ func GetPrivacyPolicy(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    system_setting.GetLegalSettings().PrivacyPolicy,
+		"data":    system_setting.PrivacyPolicyForLanguage(strings.EqualFold(c.Query("lang"), "en")),
 	})
 	return
 }

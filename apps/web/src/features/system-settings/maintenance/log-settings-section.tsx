@@ -367,7 +367,7 @@ export function LogSettingsSection({
             )}
           />
 
-          <SettingsControlGroup className='space-y-3'>
+          <SettingsControlGroup className='gap-3'>
             <div>
               <h4 className='text-sm font-medium'>{t('Clean history logs')}</h4>
               <p className='text-muted-foreground text-sm'>

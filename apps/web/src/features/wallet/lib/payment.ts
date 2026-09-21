@@ -28,13 +28,19 @@ import type {
   PaymentMethod,
   PresetAmount,
   TopupInfo,
+  TopupRecord,
   WaffoPayMethod,
 } from '../types'
-import { getPaymentCurrencyLabel } from './format'
+import { parseSettlementQuote } from './settlement-quote'
 
 // ============================================================================
 // Payment Processing Functions
 // ============================================================================
+
+/** A checkout cannot be displayed or confirmed without a usable quote. */
+export function isPositivePaymentAmount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+}
 
 /**
  * Check if browser is Safari
@@ -154,6 +160,12 @@ function navigateCurrentWindow(url: string) {
   document.body.removeChild(anchor)
 }
 
+export function redirectCurrentWindowToPaymentCheckout(url: unknown): boolean {
+  if (!isSafeHttpCheckoutUrl(url)) return false
+  navigateCurrentWindow(url)
+  return true
+}
+
 export function redirectToPaymentCheckout(
   checkout: PaymentCheckout,
   url: unknown
@@ -225,15 +237,16 @@ export function isWaffoPancakePayment(paymentType: string): boolean {
   return paymentType === PAYMENT_TYPES.WAFFO_PANCAKE
 }
 
-/**
- * The frozen Go Waffo Pancake checkout always creates USD orders. Do not let
- * a CNY-configured page label that USD order as CNY or send it to checkout.
- */
+/** Currency availability is determined by each server-owned Pancake quote. */
 export function isWaffoPancakeCurrencySupported(): boolean {
-  return getPaymentCurrencyLabel() === 'USD'
+  return true
 }
 
-/** Provider-specific currency policy; other gateway providers retain CNY. */
+/**
+ * Payment methods carry their own settlement currency. The legacy helper is
+ * kept for callers that gate the Pancake option, but no longer consults the
+ * unrelated platform display configuration.
+ */
 export function isPaymentMethodCurrencySupported(paymentType: string): boolean {
   return (
     !isWaffoPancakePayment(paymentType) || isWaffoPancakeCurrencySupported()
@@ -253,7 +266,11 @@ export interface PaymentProcessors {
   ) => Promise<boolean>
   waffoPancake: (
     topupAmount: number,
-    checkoutOptions?: WaffoPancakeCheckoutOptions & { discount_code?: string }
+    checkoutOptions?: WaffoPancakeCheckoutOptions & {
+      discount_code?: string
+      settlement_amount?: string
+      settlement_currency?: 'CNY' | 'USD'
+    }
   ) => Promise<boolean>
 }
 
@@ -264,6 +281,8 @@ export async function dispatchSelectedPayment(
   processors: PaymentProcessors,
   waffoPancakeCheckoutOptions?: WaffoPancakeCheckoutOptions & {
     discount_code?: string
+    settlement_amount?: string
+    settlement_currency?: 'CNY' | 'USD'
   },
   discountCode = ''
 ): Promise<boolean> {
@@ -275,8 +294,14 @@ export async function dispatchSelectedPayment(
   }
 
   if (isWaffoPancakePayment(paymentMethod.type)) {
-    if (!waffoPancakeCheckoutOptions) {
-      return processors.waffoPancake(topupAmount)
+    if (
+      !waffoPancakeCheckoutOptions ||
+      !parseSettlementQuote({
+        amount: waffoPancakeCheckoutOptions?.settlement_amount,
+        currency: waffoPancakeCheckoutOptions?.settlement_currency,
+      })
+    ) {
+      return false
     }
     return processors.waffoPancake(topupAmount, {
       ...waffoPancakeCheckoutOptions,
@@ -387,6 +412,15 @@ export function getMinTopupAmount(topupInfo: TopupInfo | null): number {
   if (paymentType) return topupInfo.min_topup
 
   return DEFAULT_MIN_TOPUP
+}
+
+export function getTopupRecordPlatformAmount(
+  record: Pick<TopupRecord, 'amount' | 'platform_amount_micros'>
+): number {
+  const micros = record.platform_amount_micros
+  return Number.isSafeInteger(micros) && Number(micros) > 0
+    ? Number(micros) / 1_000_000
+    : record.amount
 }
 
 /**

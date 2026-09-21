@@ -1,10 +1,11 @@
 package model
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hmac"
-	"crypto/rand"
+	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -24,6 +25,7 @@ const (
 
 	AssistantHistoryRoleUser      = "user"
 	AssistantHistoryRoleAssistant = "assistant"
+	AssistantHistoryRoleHuman     = "human"
 	AssistantHistoryRoleCard      = "secure_card"
 
 	AssistantSecureCardTypeAPIKey = "api_key"
@@ -117,6 +119,8 @@ type AssistantHistoryMessage struct {
 	Sequence       int    `json:"sequence" gorm:"not null;index:idx_assistant_history_conversation_id,priority:2"`
 	Role           string `json:"role" gorm:"type:varchar(20);not null"`
 	Content        string `json:"content" gorm:"type:text;not null"`
+	ActorUserId    int    `json:"-" gorm:"not null;default:0"`
+	ActorName      string `json:"actor_name,omitempty" gorm:"type:varchar(512);not null;default:''"`
 	CreatedAt      int64  `json:"created_at" gorm:"not null;index"`
 }
 
@@ -232,6 +236,7 @@ type AssistantHistoryMessageView struct {
 	Id            int64                     `json:"id"`
 	Role          string                    `json:"role"`
 	Content       string                    `json:"content,omitempty"`
+	ActorName     string                    `json:"actor_name,omitempty"`
 	Cards         []AssistantSecureCardView `json:"cards,omitempty"`
 	CreatedAt     int64                     `json:"created_at"`
 	PrivacyNotice string                    `json:"privacy_notice"`
@@ -449,7 +454,7 @@ func PrepareAssistantConversation(userID int, conversationID int64, firstMessage
 // RecordAssistantSecurityRefusal persists one redacted refusal turn and
 // atomically restricts the conversation. Repeated reports for the same
 // conversation are idempotent and never duplicate the security incident.
-func RecordAssistantSecurityRefusal(userID int, conversationID int64, userContent, assistantContent, reason string) (int64, bool, error) {
+func RecordAssistantSecurityRefusal(userID int, conversationID int64, userContent, assistantContent, reason string, clientTurnID ...string) (int64, bool, error) {
 	if userID <= 0 || conversationID < 0 || strings.TrimSpace(userContent) == "" || strings.TrimSpace(assistantContent) == "" {
 		return 0, false, gorm.ErrInvalidData
 	}
@@ -461,11 +466,35 @@ func RecordAssistantSecurityRefusal(userID int, conversationID int64, userConten
 		reason = reason[:64]
 	}
 
+	turnID := ""
+	if len(clientTurnID) > 0 {
+		turnID = clientTurnID[0]
+	}
 	var recordedConversationID int64
 	created := false
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		if err := lockAssistantOwner(tx, userID); err != nil {
 			return err
+		}
+		if turnID != "" {
+			prior, err := lookupAssistantTurnTx(tx, userID, turnID, conversationID, userContent)
+			if err != nil {
+				return err
+			}
+			if prior != nil {
+				if prior.Role != AssistantHistoryRoleAssistant {
+					return ErrAssistantTurnConflict
+				}
+				recordedConversationID = prior.ConversationId
+				return nil
+			}
+		}
+		blocked, err := blockAssistantAIForSupportTx(tx, userID, conversationID)
+		if err != nil {
+			return err
+		}
+		if blocked {
+			return ErrAssistantSupportAIBlocked
 		}
 		var conversation AssistantConversation
 		if conversationID > 0 {
@@ -497,8 +526,14 @@ func RecordAssistantSecurityRefusal(userID int, conversationID int64, userConten
 		if _, err := appendAssistantHistoryMessageTx(tx, conversation.Id, AssistantHistoryRoleUser, userContent); err != nil {
 			return err
 		}
-		if _, err := appendAssistantHistoryMessageTx(tx, conversation.Id, AssistantHistoryRoleAssistant, assistantContent); err != nil {
+		answer, err := appendAssistantHistoryMessageTx(tx, conversation.Id, AssistantHistoryRoleAssistant, assistantContent)
+		if err != nil {
 			return err
+		}
+		if turnID != "" {
+			if err := tx.Create(&AssistantTurnReceipt{TurnKey: assistantTurnKey(userID, turnID), ConversationID: conversation.Id, MessageID: answer.Id, InputDigest: assistantTurnDigest(userContent)}).Error; err != nil {
+				return err
+			}
 		}
 		now := common.GetTimestamp()
 		if err := tx.Model(&conversation).Updates(map[string]any{
@@ -553,9 +588,10 @@ func FindRecentAssistantConversationForRetry(userID int, firstMessage string, si
 		Where("assistant_conversations.user_id = ?", userID).
 		Where("assistant_conversations.archived_at = 0").
 		Where("assistant_conversations.updated_at >= ?", since.Unix()).
-		Where("history.role = ? AND history.content = ?", AssistantHistoryRoleUser, firstMessage).
+		Where("history.role = ? AND history.content = ? AND history.sequence = 1", AssistantHistoryRoleUser, firstMessage).
 		Joins("JOIN assistant_history_messages AS assistant_history ON assistant_history.conversation_id = assistant_conversations.id").
-		Where("assistant_history.role = ?", AssistantHistoryRoleAssistant).
+		Where("assistant_history.role = ? AND assistant_history.sequence = 2", AssistantHistoryRoleAssistant).
+		Where("NOT EXISTS (SELECT 1 FROM assistant_history_messages AS later_history WHERE later_history.conversation_id = assistant_conversations.id AND later_history.sequence > 2)").
 		Order("assistant_conversations.updated_at DESC, assistant_conversations.id DESC").
 		First(&conversation).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -579,48 +615,156 @@ func LoadAssistantConversationMessages(userID int, conversationID int64, limit i
 	if pairLimit == 0 {
 		return []AssistantHistoryMessage{}, nil
 	}
-	// Fetch newest-first so a bounded query keeps the latest context.  Read a
-	// wider window to tolerate legacy/incomplete rows without ever returning a
-	// split user/assistant turn to the model.
-	scanLimit := limit * 4
-	if scanLimit < 20 {
-		scanLimit = 20
-	}
-	if scanLimit > assistantHistoryPageMax {
-		scanLimit = assistantHistoryPageMax
-	}
+	// A human turn may contain many consecutive messages. Scan the existing
+	// conversation storage bound so a short model window does not split that
+	// turn before its user question. Ordinary AI turns still require an
+	// immediately adjacent user/assistant pair with consecutive sequence IDs.
 	var candidates []AssistantHistoryMessage
 	if err := DB.Where("conversation_id = ?", conversation.Id).
-		Where("role IN ?", []string{AssistantHistoryRoleUser, AssistantHistoryRoleAssistant}).
-		Order("sequence DESC").Limit(scanLimit).Find(&candidates).Error; err != nil {
+		Where("role IN ?", []string{AssistantHistoryRoleUser, AssistantHistoryRoleAssistant, AssistantHistoryRoleHuman}).
+		Order("sequence DESC").Limit(assistantHistoryConversationMaxMessages).Find(&candidates).Error; err != nil {
 		return nil, err
 	}
 	for left, right := 0, len(candidates)-1; left < right; left, right = left+1, right-1 {
 		candidates[left], candidates[right] = candidates[right], candidates[left]
 	}
-	pairStarts := make([]int, 0, pairLimit)
-	for index := len(candidates) - 1; index > 0 && len(pairStarts) < pairLimit; {
-		userMessage := candidates[index-1]
-		assistantMessage := candidates[index]
-		if userMessage.Role == AssistantHistoryRoleUser &&
-			assistantMessage.Role == AssistantHistoryRoleAssistant &&
-			assistantMessage.Sequence == userMessage.Sequence+1 {
-			pairStarts = append(pairStarts, index-1)
+	pairs := make([][2]AssistantHistoryMessage, 0, pairLimit)
+	remainingBytes := assistantHistoryConversationMaxBytes
+	for index := len(candidates) - 1; index > 0 && len(pairs) < pairLimit; {
+		if candidates[index].Role == AssistantHistoryRoleHuman {
+			humanStart := index
+			for humanStart > 0 && candidates[humanStart-1].Role == AssistantHistoryRoleHuman && candidates[humanStart-1].Sequence+1 == candidates[humanStart].Sequence {
+				humanStart--
+			}
+			userEnd := humanStart - 1
+			if userEnd < 0 || candidates[userEnd].Role != AssistantHistoryRoleUser || candidates[userEnd].Sequence+1 != candidates[humanStart].Sequence {
+				index = humanStart - 1
+				continue
+			}
+			userStart := userEnd
+			for userStart > 0 && candidates[userStart-1].Role == AssistantHistoryRoleUser && candidates[userStart-1].Sequence+1 == candidates[userStart].Sequence {
+				userStart--
+			}
+			pair, ok := assistantHumanHistoryPair(candidates[userStart:userEnd+1], candidates[humanStart:index+1], remainingBytes)
+			if !ok {
+				break
+			}
+			pairs = append(pairs, pair)
+			remainingBytes -= len(pair[0].Content) + len(pair[1].Content)
+			index = userStart - 1
+			continue
+		}
+		userMessage, response := candidates[index-1], candidates[index]
+		if userMessage.Role == AssistantHistoryRoleUser && response.Role == AssistantHistoryRoleAssistant && response.Sequence == userMessage.Sequence+1 {
+			size := len(userMessage.Content) + len(response.Content)
+			if size > remainingBytes {
+				break
+			}
+			pairs = append(pairs, [2]AssistantHistoryMessage{userMessage, response})
+			remainingBytes -= size
 			index -= 2
 			continue
 		}
 		index--
 	}
-	messages := make([]AssistantHistoryMessage, 0, len(pairStarts)*2)
-	for index := len(pairStarts) - 1; index >= 0; index-- {
-		start := pairStarts[index]
-		messages = append(messages, candidates[start], candidates[start+1])
+	messages := make([]AssistantHistoryMessage, 0, len(pairs)*2)
+	for index := len(pairs) - 1; index >= 0; index-- {
+		messages = append(messages, pairs[index][0], pairs[index][1])
 	}
 	return messages, nil
 }
 
+// CountCompletedAssistantConversationTurns counts only durable, adjacent
+// user/assistant pairs in an owned conversation. Browser-supplied history,
+// human-support messages, secure cards, and an unfinished user message do not
+// count toward permissions derived from completed assistant conversations.
+func CountCompletedAssistantConversationTurns(userID int, conversationID int64) (int, error) {
+	if userID <= 0 || conversationID <= 0 {
+		return 0, gorm.ErrInvalidData
+	}
+	return countCompletedAssistantConversationTurnsWithTx(DB, userID, conversationID, false)
+}
+
+func countCompletedAssistantConversationTurnsWithTx(tx *gorm.DB, userID int, conversationID int64, lock bool) (int, error) {
+	if tx == nil || userID <= 0 || conversationID <= 0 {
+		return 0, gorm.ErrInvalidData
+	}
+	var conversation AssistantConversation
+	query := tx.Where("id = ? AND user_id = ?", conversationID, userID)
+	if lock {
+		query = lockForUpdate(query)
+	}
+	if err := query.First(&conversation).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, ErrAssistantConversationNotFound
+		}
+		return 0, err
+	}
+	if conversation.RestrictedAt > 0 {
+		return 0, ErrAssistantConversationRestricted
+	}
+
+	var messages []AssistantHistoryMessage
+	if err := tx.Where("conversation_id = ?", conversationID).
+		Where("role IN ?", []string{AssistantHistoryRoleUser, AssistantHistoryRoleAssistant}).
+		Order("sequence ASC").Limit(assistantHistoryConversationMaxMessages).Find(&messages).Error; err != nil {
+		return 0, err
+	}
+	completed := 0
+	for index := 1; index < len(messages); index++ {
+		userMessage, assistantMessage := messages[index-1], messages[index]
+		if userMessage.Role == AssistantHistoryRoleUser &&
+			assistantMessage.Role == AssistantHistoryRoleAssistant &&
+			assistantMessage.Sequence == userMessage.Sequence+1 {
+			completed++
+			index++
+		}
+	}
+	return completed, nil
+}
+
+// assistantHumanHistoryPair keeps each human reply marked as human context.
+// Whole oldest messages are removed only when the shared transcript byte
+// budget is exhausted; the latest question and reply are kept together.
+func assistantHumanHistoryPair(users, humans []AssistantHistoryMessage, budget int) ([2]AssistantHistoryMessage, bool) {
+	const humanPrefix = "[Human technical support] "
+	const separator = "\n\n"
+	size := 0
+	for _, message := range users {
+		size += len(message.Content)
+	}
+	for _, message := range humans {
+		size += len(humanPrefix) + len(message.Content)
+	}
+	size += (len(users) + len(humans) - 2) * len(separator)
+	for size > budget && len(users) > 1 {
+		size -= len(users[0].Content) + len(separator)
+		users = users[1:]
+	}
+	for size > budget && len(humans) > 1 {
+		size -= len(humanPrefix) + len(humans[0].Content) + len(separator)
+		humans = humans[1:]
+	}
+	if size > budget {
+		return [2]AssistantHistoryMessage{}, false
+	}
+	userParts := make([]string, 0, len(users))
+	for _, message := range users {
+		userParts = append(userParts, message.Content)
+	}
+	humanParts := make([]string, 0, len(humans))
+	for _, message := range humans {
+		humanParts = append(humanParts, humanPrefix+message.Content)
+	}
+	user, response := users[len(users)-1], humans[0]
+	user.Content = strings.Join(userParts, separator)
+	response.Role = AssistantHistoryRoleAssistant
+	response.Content = strings.Join(humanParts, separator)
+	return [2]AssistantHistoryMessage{user, response}, true
+}
+
 func appendAssistantHistoryMessageTx(tx *gorm.DB, conversationID int64, role, content string) (*AssistantHistoryMessage, error) {
-	if role != AssistantHistoryRoleUser && role != AssistantHistoryRoleAssistant && role != AssistantHistoryRoleCard {
+	if role != AssistantHistoryRoleUser && role != AssistantHistoryRoleAssistant && role != AssistantHistoryRoleCard && role != AssistantHistoryRoleHuman {
 		return nil, gorm.ErrInvalidData
 	}
 	content = redactAssistantHistoryBounded(content)
@@ -728,14 +872,38 @@ func trimAssistantHistoryTx(tx *gorm.DB, conversationID int64) error {
 // RecordAssistantConversationTurnForRequest records a complete successful turn.
 // A zero conversation ID creates the conversation in the same transaction, so
 // failed or empty upstream responses cannot leave empty conversation shells.
-func RecordAssistantConversationTurnForRequest(userID int, conversationID int64, userContent, assistantContent string) (int64, error) {
+func RecordAssistantConversationTurnForRequest(userID int, conversationID int64, userContent, assistantContent string, clientTurnID ...string) (int64, error) {
 	if userID <= 0 || conversationID < 0 {
 		return 0, gorm.ErrInvalidData
+	}
+	turnID := ""
+	if len(clientTurnID) > 0 {
+		turnID = clientTurnID[0]
 	}
 	var recordedConversationID int64
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		if err := lockAssistantOwner(tx, userID); err != nil {
 			return err
+		}
+		if turnID != "" {
+			prior, err := lookupAssistantTurnTx(tx, userID, turnID, conversationID, userContent)
+			if err != nil {
+				return err
+			}
+			if prior != nil {
+				if prior.Role != AssistantHistoryRoleAssistant {
+					return ErrAssistantTurnConflict
+				}
+				recordedConversationID = prior.ConversationId
+				return nil
+			}
+		}
+		blocked, err := blockAssistantAIForSupportTx(tx, userID, conversationID)
+		if err != nil {
+			return err
+		}
+		if blocked {
+			return ErrAssistantSupportAIBlocked
 		}
 		var conversation AssistantConversation
 		if conversationID > 0 {
@@ -765,8 +933,15 @@ func RecordAssistantConversationTurnForRequest(userID int, conversationID int64,
 		if _, err := appendAssistantHistoryMessageTx(tx, conversation.Id, AssistantHistoryRoleUser, userContent); err != nil {
 			return err
 		}
-		if _, err := appendAssistantHistoryMessageTx(tx, conversation.Id, AssistantHistoryRoleAssistant, assistantContent); err != nil {
+		answer, err := appendAssistantHistoryMessageTx(tx, conversation.Id, AssistantHistoryRoleAssistant, assistantContent)
+		if err != nil {
 			return err
+		}
+		if turnID != "" {
+			receipt := AssistantTurnReceipt{TurnKey: assistantTurnKey(userID, turnID), ConversationID: conversation.Id, MessageID: answer.Id, InputDigest: assistantTurnDigest(userContent)}
+			if err := tx.Create(&receipt).Error; err != nil {
+				return err
+			}
 		}
 		now := common.GetTimestamp()
 		return tx.Model(&conversation).Updates(map[string]any{
@@ -800,6 +975,13 @@ func RecordAssistantConversationTurnForRetry(userID int, conversationID int64, u
 	return DB.Transaction(func(tx *gorm.DB) error {
 		if err := lockAssistantOwner(tx, userID); err != nil {
 			return err
+		}
+		blocked, err := blockAssistantAIForSupportTx(tx, userID, conversationID)
+		if err != nil {
+			return err
+		}
+		if blocked {
+			return ErrAssistantSupportAIBlocked
 		}
 		var conversation AssistantConversation
 		if err := lockForUpdate(tx).Where("id = ? AND user_id = ?", conversationID, userID).First(&conversation).Error; err != nil {
@@ -967,6 +1149,10 @@ func ListAssistantConversations(viewerUserID, ownerUserID int, limit int, archiv
 // administrator receives counts only for accounts with a strictly lower role.
 // Empty conversation shells are excluded to match the history list.
 func PopulateAssistantConversationCounts(users []*User, viewerUserID, viewerRole int) error {
+	return PopulateAssistantConversationCountsContext(context.Background(), users, viewerUserID, viewerRole)
+}
+
+func PopulateAssistantConversationCountsContext(ctx context.Context, users []*User, viewerUserID, viewerRole int) error {
 	authorizedUserIDs := make([]int, 0, len(users))
 	usersByID := make(map[int]*User, len(users))
 	for _, user := range users {
@@ -993,7 +1179,7 @@ func PopulateAssistantConversationCounts(users []*User, viewerUserID, viewerRole
 		Count  int64 `gorm:"column:count"`
 	}
 	var counts []conversationCount
-	if err := DB.Table("assistant_conversations").
+	if err := DB.WithContext(ctx).Table("assistant_conversations").
 		Select("assistant_conversations.user_id, COUNT(DISTINCT assistant_conversations.id) AS count").
 		Joins("JOIN assistant_history_messages ON assistant_history_messages.conversation_id = assistant_conversations.id").
 		Where("assistant_conversations.user_id IN ?", authorizedUserIDs).
@@ -1080,6 +1266,7 @@ func GetAssistantConversationHistory(viewerUserID int, conversationID int64, lim
 			Id:            message.Id,
 			Role:          message.Role,
 			Content:       message.Content,
+			ActorName:     message.ActorName,
 			Cards:         cardsByMessageID[message.Id],
 			CreatedAt:     message.CreatedAt,
 			PrivacyNotice: AssistantHistoryPrivacyNotice,
@@ -1113,7 +1300,7 @@ func encryptAssistantSecureCardPayload(payload string) (string, error) {
 		return "", err
 	}
 	nonce := make([]byte, gcm.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
+	if _, err := cryptorand.Read(nonce); err != nil {
 		return "", err
 	}
 	ciphertext := gcm.Seal(nil, nonce, []byte(payload), nil)
@@ -1146,7 +1333,7 @@ func decryptAssistantSecureCardPayload(ciphertext string) (string, error) {
 
 func newAssistantSecureCardID() (string, error) {
 	random := make([]byte, 24)
-	if _, err := rand.Read(random); err != nil {
+	if _, err := cryptorand.Read(random); err != nil {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(random), nil
@@ -1180,6 +1367,13 @@ func CreateAssistantSecureCard(ownerUserID int, conversationID int64, cardType, 
 			return err
 		}
 		if conversationID > 0 {
+			blocked, err := blockAssistantAIForSupportTx(tx, ownerUserID, conversationID)
+			if err != nil {
+				return err
+			}
+			if blocked {
+				return ErrAssistantSupportAIBlocked
+			}
 			var conversation AssistantConversation
 			if err := lockForUpdate(tx).Where("id = ? AND user_id = ?", conversationID, ownerUserID).First(&conversation).Error; err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -1238,6 +1432,13 @@ func insertAssistantTokenAndCreateSecureCardTx(tx *gorm.DB, token *Token, ownerU
 		}
 	}
 	if conversationID > 0 {
+		blocked, err := blockAssistantAIForSupportTx(tx, ownerUserID, conversationID)
+		if err != nil {
+			return nil, err
+		}
+		if blocked {
+			return nil, ErrAssistantSupportAIBlocked
+		}
 		var conversation AssistantConversation
 		if err := lockForUpdate(tx).Where("id = ? AND user_id = ?", conversationID, ownerUserID).First(&conversation).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {

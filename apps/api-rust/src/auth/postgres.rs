@@ -29,6 +29,14 @@ const ACTIVE: &str = "active";
 const REVOKING: &str = "revoking";
 const REVOKED: &str = "revoked";
 const ENABLED: i64 = 1;
+const WEEKLY_SESSION_AGE_SECONDS: i64 = 7 * 24 * 60 * 60;
+
+fn session_auto_logout_enabled(setting: &str) -> bool {
+    serde_json::from_str::<Value>(setting)
+        .ok()
+        .and_then(|value| value.get("session_auto_logout").and_then(Value::as_bool))
+        .unwrap_or(true)
+}
 
 #[derive(Clone, Debug)]
 pub struct AuthConfig {
@@ -400,11 +408,76 @@ impl PgValkeyDashboardAuth {
         Ok((session, user))
     }
 
+    async fn enforce_weekly_session_age(
+        &self,
+        observed: &SessionRecord,
+        now: i64,
+    ) -> Result<(), AuthError> {
+        let cutoff = now.saturating_sub(WEEKLY_SESSION_AGE_SECONDS);
+        if observed.created_at >= cutoff {
+            return Ok(());
+        }
+        // Same user -> session lock order as Go's preference setter/revoker.
+        // Always re-read the preference from PostgreSQL: cached opt-out or
+        // opt-in state must not determine revocation across backend instances.
+        let mut tx = self.pool.begin().await.map_err(internal)?;
+        let setting = sqlx::query_scalar::<_, String>(
+            "SELECT COALESCE(setting, '') FROM users WHERE id=$1 AND deleted_at IS NULL FOR UPDATE",
+        )
+        .bind(observed.user_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(internal)?
+        .ok_or_else(|| AuthError::new(AuthErrorKind::SessionRevoked))?;
+        let row = sqlx::query(SESSION_SELECT_FOR_UPDATE)
+            .bind(&observed.sid)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(internal)?
+            .ok_or_else(|| AuthError::new(AuthErrorKind::SessionRevoked))?;
+        let mut session = session_from_row(&row)?;
+        if session.user_id != observed.user_id
+            || session.status != ACTIVE
+            || session.revoked_at != 0
+            || session.expires_at <= now
+        {
+            return Err(AuthError::new(AuthErrorKind::SessionRevoked));
+        }
+        if !session_auto_logout_enabled(&setting) || session.created_at >= cutoff {
+            return Ok(());
+        }
+        session.revoked_at = now;
+        session.revoked_reason = "weekly_auto_logout".into();
+        // Publish the deny fence before commit so Go readers of the shared
+        // cache cannot accept the previous active entry during revocation.
+        self.write_session_cache(&session, REVOKING, None).await?;
+        let updated = sqlx::query(
+            "UPDATE user_sessions SET status='revoked', revoked_at=$3, revoked_reason='weekly_auto_logout' WHERE sid=$1 AND user_id=$2 AND status='active' AND revoked_at=0",
+        ).bind(&session.sid).bind(session.user_id).bind(now)
+            .execute(&mut *tx).await.map_err(internal)?;
+        if updated.rows_affected() != 1 {
+            return Err(AuthError::new(AuthErrorKind::SessionRevoked));
+        }
+        tx.commit().await.map_err(internal)?;
+        session.status = REVOKED.into();
+        if self
+            .write_session_cache(&session, REVOKED, None)
+            .await
+            .is_err()
+        {
+            tracing::warn!(
+                "weekly session revocation committed; final cache tombstone refresh failed"
+            );
+        }
+        Err(AuthError::new(AuthErrorKind::SessionRevoked))
+    }
+
     async fn validate_valkey_floor(
         &self,
         session: &SessionRecord,
         identity: &AuthIdentity,
     ) -> Result<(), AuthError> {
+        self.enforce_weekly_session_age(session, unix_now()).await?;
         let mut connection = self.connection().await?;
         let values: Vec<Option<String>> = redis::cmd("MGET")
             .arg(format!("auth:user:fence:{}", identity.user_id))
@@ -1599,7 +1672,8 @@ FROM user_sessions WHERE sid = $1 LIMIT 1
 const SESSION_SELECT_FOR_UPDATE: &str = r#"
 SELECT sid, user_id, version, user_auth_version, status,
        refresh_hash, COALESCE(previous_refresh_hash, '') AS previous_refresh_hash,
-       previous_valid_until, login_method, ip, user_agent, created_at,
+       previous_valid_until, login_method, COALESCE(ip, '') AS ip,
+       COALESCE(user_agent, '') AS user_agent, created_at,
        last_active_at, expires_at, revoked_at, COALESCE(revoked_reason, '') AS revoked_reason
 FROM user_sessions WHERE sid = $1 FOR UPDATE
 "#;
@@ -1949,6 +2023,24 @@ mod legacy_personal_access_token_error_tests {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn weekly_session_preference_defaults_enabled_and_requires_boolean_opt_out() {
+        for setting in [
+            "",
+            "{}",
+            "null",
+            "invalid",
+            r#"{"session_auto_logout":null}"#,
+            r#"{"session_auto_logout":"false"}"#,
+            r#"{"session_auto_logout":true}"#,
+        ] {
+            assert!(super::session_auto_logout_enabled(setting), "{setting}");
+        }
+        assert!(!super::session_auto_logout_enabled(
+            r#"{"session_auto_logout":false,"other":1}"#
+        ));
+    }
+
     use super::*;
 
     #[test]

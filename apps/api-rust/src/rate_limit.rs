@@ -92,6 +92,8 @@ mod tests {
     use lmm_application::{GlobalApiRateLimiter, RateLimitOutcome, ValkeyReadinessPolicy};
     use std::{future, time::Duration};
 
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
     #[tokio::test]
     async fn dependency_timeout_should_fail_closed_for_pending_work() {
         let result = bounded_dependency(
@@ -103,9 +105,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn disabled_limiter_should_bypass_an_unreachable_valkey() {
-        let client = redis::Client::open("redis://127.0.0.1:1")
-            .expect("the intentionally unreachable test URL is valid");
+    async fn disabled_limiter_should_bypass_an_unreachable_valkey() -> TestResult {
+        let client = redis::Client::open("redis://127.0.0.1:1")?;
         let limiter = ValkeyGlobalApiRateLimiter::new(
             client,
             ValkeyReadinessPolicy::OptionalCacheOnly,
@@ -113,10 +114,9 @@ mod tests {
             Duration::from_secs(1),
             Duration::from_millis(1),
         );
-        let result = tokio::time::timeout(Duration::from_millis(20), limiter.check("192.0.2.1"))
-            .await
-            .expect("disabled limiter returns immediately")
-            .expect("disabled limiter allows requests");
+        let result =
+            tokio::time::timeout(Duration::from_millis(20), limiter.check("192.0.2.1")).await??;
         assert_eq!(result, RateLimitOutcome::Allowed);
+        Ok(())
     }
 }

@@ -14,14 +14,26 @@ import (
 type productionDispatchStatusRunner struct {
 	statuses []productionStatus
 	calls    int
+	payload  string
+	programs []string
 }
 
 func (runner *productionDispatchStatusRunner) Run(_ context.Context, command productionCommand) ([]byte, error) {
-	if command.Name != commandSSH || len(command.Args) < 7 {
+	if command.Name != commandSSH || len(command.Args) < 4 {
 		return nil, errors.New("unexpected status test command")
 	}
 	remote := command.Args[3:]
-	if len(remote) >= 4 && remote[1] == "deploy" && remote[2] == "production" && remote[3] == "status" {
+	if len(remote) == 3 && remote[0] == "readlink" && remote[1] == "--" {
+		return []byte(backendGoName + "\n"), nil
+	}
+	if len(remote) == 5 && remote[0] == "stat" && remote[1] == "-c" && remote[2] == "%u:%f:%h" {
+		return []byte("0:81c0:1\n"), nil
+	}
+	if len(remote) == 3 && remote[0] == "sha256sum" && remote[1] == "--" {
+		return []byte(runner.payload + "  " + remote[2] + "\n"), nil
+	}
+	if len(remote) >= 4 && remote[1] == "operator" && remote[2] == "production" && remote[3] == "status" {
+		runner.programs = append(runner.programs, remote[0])
 		index := runner.calls
 		if index >= len(runner.statuses) {
 			index = len(runner.statuses) - 1
@@ -33,14 +45,16 @@ func (runner *productionDispatchStatusRunner) Run(_ context.Context, command pro
 }
 
 type productionDispatchFaultRunner struct {
-	evidence       productionDispatchEvidence
-	statusPhase    string
-	dispatchCalls  int
-	evidenceCalls  int
-	statusCalls    int
-	secondAccepted bool
-	remoteDigests  map[string]string
-	digestCalls    map[string]int
+	evidence         productionDispatchEvidence
+	statusPhase      string
+	dispatchCalls    int
+	evidenceCalls    int
+	statusCalls      int
+	secondAccepted   bool
+	remoteDigests    map[string]string
+	digestCalls      map[string]int
+	dispatchPrograms []string
+	statusPrograms   []string
 }
 
 func (runner *productionDispatchFaultRunner) Run(_ context.Context, command productionCommand) ([]byte, error) {
@@ -48,6 +62,12 @@ func (runner *productionDispatchFaultRunner) Run(_ context.Context, command prod
 		return nil, errors.New("unexpected dispatch test command")
 	}
 	remote := command.Args[3:]
+	if len(remote) == 3 && remote[0] == "readlink" && remote[1] == "--" {
+		return []byte(backendGoName + "\n"), nil
+	}
+	if len(remote) == 5 && remote[0] == "stat" && remote[1] == "-c" && remote[2] == "%u:%f:%h" {
+		return []byte("0:81c0:1\n"), nil
+	}
 	if len(remote) == 3 && remote[0] == "sha256sum" && remote[1] == "--" {
 		path := remote[2]
 		digest, found := runner.remoteDigests[path]
@@ -62,18 +82,22 @@ func (runner *productionDispatchFaultRunner) Run(_ context.Context, command prod
 	}
 	if remote[0] == "systemd-run" {
 		runner.dispatchCalls++
+		if len(remote) > 8 {
+			runner.dispatchPrograms = append(runner.dispatchPrograms, remote[8])
+		}
 		if runner.dispatchCalls == 1 || !runner.secondAccepted {
 			return nil, errors.New("injected SSH transport failure")
 		}
 		return []byte("accepted\n"), nil
 	}
-	if len(remote) >= 4 && remote[1] == "deploy" && remote[2] == "production" && remote[3] == "dispatch-evidence" {
+	if len(remote) >= 4 && remote[1] == "operator" && remote[2] == "production" && remote[3] == "dispatch-evidence" {
 		runner.evidenceCalls++
 		encoded, err := json.Marshal(runner.evidence)
 		return append(encoded, '\n'), err
 	}
-	if len(remote) >= 4 && remote[1] == "deploy" && remote[2] == "production" && remote[3] == "status" && runner.statusPhase != "" {
+	if len(remote) >= 4 && remote[1] == "operator" && remote[2] == "production" && remote[3] == "status" && runner.statusPhase != "" {
 		runner.statusCalls++
+		runner.statusPrograms = append(runner.statusPrograms, remote[0])
 		return json.Marshal(productionStatus{Phase: runner.statusPhase})
 	}
 	return nil, errors.New("unexpected remote dispatch test command")
@@ -86,12 +110,12 @@ func testProductionDispatchPlan(controllerWorkspace, deploymentID string) produc
 	return productionReleasePlan{
 		Format: productionReleasePlanFormat, DeploymentID: deploymentID,
 		ControllerWorkspace: controllerWorkspace, TargetAlias: productionTargetAlias,
-		GoCandidate:    productionReleasePackagePlan{PackagePath: filepath.Join(controllerWorkspace, "go-candidate.pkg.tar.zst"), PackageSHA256: strings.Repeat("1", 64)},
+		GoCandidate:    productionReleasePackagePlan{PackagePath: filepath.Join(controllerWorkspace, "go-candidate.pkg.tar.zst"), PackageSHA256: strings.Repeat("1", 64), PayloadSHA256: strings.Repeat("5", 64)},
 		GoRollback:     productionReleasePackagePlan{PackagePath: filepath.Join(controllerWorkspace, "go-rollback.pkg.tar.zst"), PackageSHA256: strings.Repeat("2", 64)},
 		WebCandidate:   productionReleasePackagePlan{PackagePath: filepath.Join(controllerWorkspace, "web-candidate.pkg.tar.zst"), PackageSHA256: strings.Repeat("3", 64)},
 		WebRollback:    productionReleasePackagePlan{PackagePath: filepath.Join(controllerWorkspace, "web-rollback.pkg.tar.zst"), PackageSHA256: strings.Repeat("4", 64)},
-		ProbeBinary:    file("probe", strings.Repeat("5", 64)),
-		OperatorBinary: file("operator", strings.Repeat("5", 64)),
+		ProbeBinary:    file(backendGoName, strings.Repeat("5", 64)),
+		OperatorBinary: file(backendGoName, strings.Repeat("5", 64)),
 	}
 }
 
@@ -108,6 +132,7 @@ func productionDispatchRemoteDigests(plan productionReleasePlan, state productio
 	for _, file := range files {
 		digests[filepath.Join(state.RemoteWorkspace, "staging", filepath.Base(file.Path))] = file.SHA256
 	}
+	digests[productionRemoteOperatorPath(state)] = plan.GoCandidate.PayloadSHA256
 	return digests
 }
 
@@ -117,8 +142,9 @@ func TestAwaitRemoteReleaseStatusWaitsForTerminalPhase(t *testing.T) {
 	plan := productionReleasePlan{
 		Format: productionReleasePlanFormat, DeploymentID: deploymentID,
 		ControllerWorkspace: controllerWorkspace, TargetAlias: productionTargetAlias,
-		ProbeBinary:   productionReleaseFilePlan{Path: filepath.Join(controllerWorkspace, "lmm-api")},
-		ManualConfirm: true,
+		ProbeBinary:    productionReleaseFilePlan{Path: filepath.Join(controllerWorkspace, backendGoName), SHA256: strings.Repeat("5", 64)},
+		OperatorBinary: productionReleaseFilePlan{Path: filepath.Join(controllerWorkspace, backendGoName), SHA256: strings.Repeat("5", 64)},
+		GoCandidate:    productionReleasePackagePlan{PayloadSHA256: strings.Repeat("5", 64)},
 	}
 	state := productionReleaseControllerState{
 		Format: productionReleaseStateFormat, DeploymentID: deploymentID,
@@ -127,7 +153,7 @@ func TestAwaitRemoteReleaseStatusWaitsForTerminalPhase(t *testing.T) {
 		ActivationUnit:  productionActivationUnit(deploymentID), DispatchAttempts: 1,
 		UpdatedUTC: time.Date(2026, 8, 24, 11, 58, 0, 0, time.UTC),
 	}
-	runner := &productionDispatchStatusRunner{statuses: []productionStatus{
+	runner := &productionDispatchStatusRunner{payload: strings.Repeat("5", 64), statuses: []productionStatus{
 		{Phase: "PREPARING"},
 		{Phase: "DEPLOYING_GO"},
 		{Phase: "AWAITING_CONFIRMATION"},
@@ -145,41 +171,10 @@ func TestAwaitRemoteReleaseStatusWaitsForTerminalPhase(t *testing.T) {
 	if status.Phase != "AWAITING_CONFIRMATION" || runner.calls != 3 || waits != 2 {
 		t.Fatalf("status=%#v calls=%d waits=%d", status, runner.calls, waits)
 	}
-}
-
-func TestAwaitRemoteReleaseStatusContinuesAutoConfirmObservation(t *testing.T) {
-	const deploymentID = "prod-20260824T115815Z-auto-confirm-fixture"
-	controllerWorkspace := t.TempDir()
-	plan := productionReleasePlan{
-		Format: productionReleasePlanFormat, DeploymentID: deploymentID,
-		ControllerWorkspace: controllerWorkspace, TargetAlias: productionTargetAlias,
-		ProbeBinary:   productionReleaseFilePlan{Path: filepath.Join(controllerWorkspace, "lmm-api")},
-		ManualConfirm: false,
-	}
-	state := productionReleaseControllerState{
-		Format: productionReleaseStateFormat, DeploymentID: deploymentID,
-		PlanSHA256: strings.Repeat("f", 64), Phase: productionReleasePhaseActivationDispatched,
-		RemoteWorkspace: filepath.Join(defaultProductionPaths().WorkRoot, deploymentID),
-		ActivationUnit:  productionActivationUnit(deploymentID), DispatchAttempts: 1,
-		UpdatedUTC: time.Date(2026, 8, 24, 11, 58, 15, 0, time.UTC),
-	}
-	runner := &productionDispatchStatusRunner{statuses: []productionStatus{
-		{Phase: "AWAITING_CONFIRMATION", AutoConfirm: true},
-		{Phase: "AWAITING_CONFIRMATION", AutoConfirm: true},
-		{Phase: "CONFIRMED", AutoConfirm: true},
-	}}
-	waits := 0
-	runtime := &productionReleaseRuntime{
-		runner: runner,
-		now:    func() time.Time { return time.Date(2026, 8, 24, 11, 59, 15, 0, time.UTC) },
-		wait:   func(context.Context, time.Duration) error { waits++; return nil },
-	}
-	status, err := runtime.awaitRemoteReleaseStatus(context.Background(), plan, &state)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if status.Phase != "CONFIRMED" || runner.calls != 3 || waits != 2 {
-		t.Fatalf("status=%#v calls=%d waits=%d", status, runner.calls, waits)
+	for _, program := range runner.programs {
+		if program != productionOperatorBinary {
+			t.Fatalf("status used non-public CLI: %s", program)
+		}
 	}
 }
 
@@ -190,7 +185,7 @@ func TestTerminalRemotePhasesAreValidControllerStatePhases(t *testing.T) {
 		Format: productionReleasePlanFormat, DeploymentID: deploymentID,
 		ControllerWorkspace: t.TempDir(),
 	}
-	for _, phase := range []string{"AWAITING_CONFIRMATION", "CONFIRMED", "ROLLED_BACK", "FAILED_PREARM", "ROLLBACK_FAILED", "ABORTED"} {
+	for _, phase := range []string{"AWAITING_CONFIRMATION", "ROLLBACK_REQUIRED", "CONFIRMED", "ROLLED_BACK", "FAILED_PREARM", "ABORTED"} {
 		t.Run(phase, func(t *testing.T) {
 			if !productionActivationStatusTerminal(phase) {
 				t.Fatalf("terminal phase %s is not recognized", phase)
@@ -239,6 +234,9 @@ func TestAmbiguousDispatchRemoteAbortedPersistsAcrossStatusAndReload(t *testing.
 	}
 	if status.Phase != "ABORTED" || runner.dispatchCalls != 1 || runner.statusCalls != 1 {
 		t.Fatalf("status=%#v dispatches=%d status_calls=%d", status, runner.dispatchCalls, runner.statusCalls)
+	}
+	if len(runner.statusPrograms) != 1 || runner.statusPrograms[0] != productionOperatorBinary {
+		t.Fatalf("status programs=%v", runner.statusPrograms)
 	}
 	if err := persistRemoteReleaseControllerStatus(plan, &state, status, now); err != nil {
 		t.Fatal(err)
@@ -343,9 +341,14 @@ func TestProductionActivationDispatchFaultReconciliation(t *testing.T) {
 			if runner.dispatchCalls != test.wantDispatches || state.DispatchAttempts != test.wantAttempts || state.DispatchObserved != test.wantObserved {
 				t.Fatalf("dispatches=%d attempts=%d observed=%t state=%#v", runner.dispatchCalls, state.DispatchAttempts, state.DispatchObserved, state)
 			}
-			operatorRemote := filepath.Join(state.RemoteWorkspace, "staging", filepath.Base(plan.OperatorBinary.Path))
-			if runner.digestCalls[operatorRemote] != test.wantDispatches {
-				t.Fatalf("operator digest checks=%d want=%d", runner.digestCalls[operatorRemote], test.wantDispatches)
+			operatorRemote := productionRemoteOperatorPath(state)
+			if runner.digestCalls[operatorRemote] < test.wantDispatches {
+				t.Fatalf("operator digest checks=%d want-at-least=%d", runner.digestCalls[operatorRemote], test.wantDispatches)
+			}
+			for _, program := range runner.dispatchPrograms {
+				if program != operatorRemote {
+					t.Fatalf("dispatch executed provider directly: %s", program)
+				}
 			}
 			persisted, exists, err := loadProductionReleaseControllerState(plan, planSHA256)
 			if err != nil || !exists {
@@ -353,6 +356,49 @@ func TestProductionActivationDispatchFaultReconciliation(t *testing.T) {
 			}
 			if persisted.ActivationUnit != unit || persisted.DispatchAttempts != test.wantAttempts || persisted.DispatchObserved != test.wantObserved {
 				t.Fatalf("persisted state=%#v", persisted)
+			}
+		})
+	}
+}
+
+func TestControllerRecoveryUsesInstalledPackageBoundCLIWithoutStaging(t *testing.T) {
+	plan := testProductionDispatchPlan(t.TempDir(), "controller-recovery-installed")
+	plan.WithBackups, plan.BackupMode = true, "controller-only"
+	state := productionReleaseControllerState{RemoteWorkspace: filepath.Join(defaultProductionPaths().WorkRoot, plan.DeploymentID)}
+	provider := filepath.Join(filepath.Dir(productionOperatorBinary), backendGoName)
+	for _, test := range []struct {
+		name              string
+		installed, staged bool
+		want              string
+	}{
+		{"installed verified without candidate staging", true, false, productionOperatorBinary},
+		{"old installed provider uses verified recovery staging", false, true, productionRemoteOperatorPath(state)},
+		{"neither operator trusted", false, false, ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			digests := make(map[string]string)
+			if test.staged {
+				digests = productionDispatchRemoteDigests(plan, state)
+			}
+			digests[provider], digests[productionOperatorBinary] = strings.Repeat("0", 64), strings.Repeat("0", 64)
+			if test.installed {
+				digests[provider], digests[productionOperatorBinary] = plan.GoCandidate.PayloadSHA256, plan.GoCandidate.PayloadSHA256
+			}
+			runner := &productionDispatchFaultRunner{remoteDigests: digests}
+			runtime := &productionReleaseRuntime{runner: runner}
+			operator, err := runtime.controllerRecoveryOperator(context.Background(), plan, state)
+			if test.want == "" {
+				if err == nil {
+					t.Fatal("untrusted installed/candidate operator accepted")
+				}
+			} else if err != nil || operator != test.want {
+				t.Fatalf("operator=%q error=%v", operator, err)
+			}
+			if test.installed && runner.digestCalls[productionRemoteOperatorPath(state)] != 0 {
+				t.Fatal("verified installed CLI still required staging")
+			}
+			if runner.dispatchCalls != 0 {
+				t.Fatal("operator selection dispatched a release")
 			}
 		})
 	}
@@ -370,8 +416,8 @@ func TestProductionActivationRejectsTamperedRemoteOperatorBeforeDispatch(t *test
 	}
 	runner := &productionDispatchFaultRunner{}
 	runner.remoteDigests = productionDispatchRemoteDigests(plan, state)
-	operatorRemote := filepath.Join(state.RemoteWorkspace, "staging", filepath.Base(plan.OperatorBinary.Path))
-	runner.remoteDigests[operatorRemote] = strings.Repeat("f", 64)
+	providerRemote := filepath.Join(state.RemoteWorkspace, "staging", backendGoName)
+	runner.remoteDigests[providerRemote] = strings.Repeat("f", 64)
 	runtime := &productionReleaseRuntime{runner: runner, now: func() time.Time { return time.Date(2026, 8, 24, 12, 5, 1, 0, time.UTC) }}
 	err := runtime.dispatchProductionActivation(context.Background(), plan, &state)
 	if err == nil || !strings.Contains(err.Error(), "verify staged artifacts immediately before activation dispatch") {

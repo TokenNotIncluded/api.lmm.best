@@ -34,6 +34,9 @@ export interface BoundChannel {
  * Model entity from API
  */
 export interface Model {
+  operational_status?: 'auto' | 'congested' | 'maintenance' | 'unavailable'
+  operational_notice?: string
+  operational_until?: number
   id: number
   model_name: string
   description?: string
@@ -291,11 +294,6 @@ export type QuotaType = 0 | 1 // usage-based, per-call
  * Sync locale
  */
 export type SyncLocale = 'zh' | 'en' | 'ja'
-
-/**
- * Sync upstream source
- */
-export type SyncSource = 'official' | 'config'
 
 // ============================================================================
 // Model Deployments Types

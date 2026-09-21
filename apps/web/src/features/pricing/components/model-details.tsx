@@ -16,8 +16,30 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import { isAxiosError } from 'axios'
 import {
   ArrowLeft,
   CalendarClock,
@@ -38,7 +60,7 @@ import { CopyButton } from '@/components/copy-button'
 import { StaticDataTable } from '@/components/data-table'
 import { sideDrawerContentClassName } from '@/components/drawer-layout'
 import { GroupBadge } from '@/components/group-badge'
-import { PublicLayout } from '@/components/layout'
+import { PublicLayout } from '@/components/layout/components/public-layout'
 import { Button } from '@/components/ui/button'
 import {
   Sheet,
@@ -58,8 +80,10 @@ import {
 } from '@/features/performance-metrics/lib/format'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { DEFAULT_TOKEN_UNIT } from '../constants'
+import { useModelRuntime } from '../hooks/use-model-runtime'
 import { usePricingData } from '../hooks/use-pricing-data'
 import {
   getDynamicPriceEntries,
@@ -68,6 +92,7 @@ import {
   isDynamicPricingModel,
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
+import { getModelCatalogFailure } from '../lib/model-availability'
 import {
   getAvailableGroups,
   getConfiguredGroupRatio,
@@ -81,9 +106,12 @@ import type {
   TokenUnit,
 } from '../types'
 import { DynamicPricingBreakdown } from './dynamic-pricing-breakdown'
+import { ModelAvailability } from './model-availability'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelDetailsApi } from './model-details-api'
 import { ModelDetailsPerformance } from './model-details-performance'
+import { ModelRuntimeBadge } from './model-runtime-badge'
+import { RequestEstimator } from './request-estimator'
 
 // ----------------------------------------------------------------------------
 // Local UI helpers
@@ -1163,6 +1191,7 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
   return (
     <div className='@container/details space-y-4'>
       <ModelHeader model={props.model} />
+      <ModelAvailability model={props.model} usableGroup={props.usableGroup} />
 
       <Tabs defaultValue='overview' className='gap-4'>
         <TabsList className='bg-muted/60 grid w-full grid-cols-3 gap-1 rounded-lg p-1 group-data-horizontal/tabs:h-auto'>
@@ -1206,6 +1235,7 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
               tokenUnit={props.tokenUnit}
               showRechargePrice={showRechargePrice}
             />
+            <RequestEstimator {...props} />
           </section>
 
           <ModelBackendDetailsSection model={props.model} />
@@ -1264,6 +1294,7 @@ export function ModelDetails() {
   const { modelId } = useParams({ from: '/pricing/$modelId/' })
   const search = useSearch({ from: '/pricing/$modelId/' })
   const navigate = useNavigate()
+  const user = useAuthStore((state) => state.auth.user)
 
   const {
     models,
@@ -1272,6 +1303,8 @@ export function ModelDetails() {
     endpointMap,
     autoGroups,
     isLoading,
+    error,
+    refetch,
     priceRate,
     usdExchangeRate,
   } = usePricingData()
@@ -1283,6 +1316,11 @@ export function ModelDetails() {
     if (!models || !modelId) return null
     return models.find((m) => m.model_name === modelId) || null
   }, [models, modelId])
+
+  const missingRuntime = useModelRuntime(
+    modelId ? [modelId] : [],
+    !model && !isLoading && !error
+  )
 
   const handleBack = () => {
     navigate({ to: '/pricing', search })
@@ -1313,16 +1351,56 @@ export function ModelDetails() {
     )
   }
 
+  if (error) {
+    const accessDenied =
+      getModelCatalogFailure(
+        isAxiosError(error) ? error.response?.status : undefined
+      ) === 'access'
+    return (
+      <PublicLayout>
+        <div className='mx-auto max-w-2xl space-y-3 px-4'>
+          <h2 className='text-base font-semibold'>
+            {accessDenied
+              ? t('Model catalog access is required')
+              : t('Model catalog could not be loaded')}
+          </h2>
+          {accessDenied ? (
+            <a className='text-primary underline' href='/getting-started'>
+              {t('Getting started')}
+            </a>
+          ) : (
+            <Button onClick={() => void refetch()}>{t('Retry')}</Button>
+          )}
+        </div>
+      </PublicLayout>
+    )
+  }
+
   if (!model) {
     return (
       <PublicLayout>
         <div className='mx-auto max-w-2xl px-4 text-center sm:px-6'>
           <h2 className='mb-1 text-base font-semibold'>
-            {t('Model not found')}
+            {t('Model is not in this catalog')}
+            <ModelRuntimeBadge state={missingRuntime[modelId]} />
           </h2>
           <p className='text-muted-foreground mb-4 text-sm'>
-            {t("The model you're looking for doesn't exist.")}
+            {user
+              ? t(
+                  'This model may be unavailable to your account or absent from the catalog. Check your model ID and account access.'
+                )
+              : t(
+                  'Check the model ID or sign in to see your account model catalog.'
+                )}
           </p>
+          {missingRuntime[modelId]?.status === 'no_access' && (
+            <a
+              href='/getting-started'
+              className='text-primary mr-3 text-sm underline'
+            >
+              {t('Check API access status')}
+            </a>
+          )}
           <Button onClick={handleBack} variant='outline' size='sm'>
             {t('Back to Models')}
           </Button>

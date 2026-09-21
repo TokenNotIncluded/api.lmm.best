@@ -28,6 +28,7 @@ import {
   dispatchSelectedPayment,
   getEpayMethods,
   getTopupAvailability,
+  getTopupRecordPlatformAmount,
   isSafeHttpCheckoutUrl,
   isPaymentMethodCurrencySupported,
   isStripePayment,
@@ -50,6 +51,26 @@ function topupInfo(overrides: Partial<TopupInfo> = {}): TopupInfo {
     ...overrides,
   }
 }
+
+describe('billing history platform amounts', () => {
+  test('prefers the exact fractional platform snapshot over the legacy integer projection', () => {
+    assert.equal(
+      getTopupRecordPlatformAmount({
+        amount: 6,
+        platform_amount_micros: 6_800_000,
+      }),
+      6.8
+    )
+    assert.equal(getTopupRecordPlatformAmount({ amount: 68 }), 68)
+    assert.equal(
+      getTopupRecordPlatformAmount({
+        amount: 68,
+        platform_amount_micros: Number.MAX_SAFE_INTEGER + 1,
+      }),
+      68
+    )
+  })
+})
 
 describe('payment type classification', () => {
   test('normalizes provider flags and concrete methods into usable payment availability', () => {
@@ -153,7 +174,7 @@ describe('payment type classification', () => {
     }
   })
 
-  test('rejects a configured Waffo Pancake method under an unsupported currency', () => {
+  test('keeps a configured Waffo Pancake method under a different display currency', () => {
     const originalConfig = useSystemConfigStore.getState().config
     try {
       useSystemConfigStore.setState((state) => ({
@@ -170,8 +191,8 @@ describe('payment type classification', () => {
           ],
         })
       )
-      assert.equal(availability.hasPaymentMethod, false)
-      assert.equal(availability.defaultQuotedType, null)
+      assert.equal(availability.hasPaymentMethod, true)
+      assert.equal(availability.defaultQuotedType, PAYMENT_TYPES.WAFFO_PANCAKE)
     } finally {
       useSystemConfigStore.setState((state) => ({
         ...state,
@@ -209,7 +230,7 @@ describe('payment type classification', () => {
     assert.deepEqual(getEpayMethods([]), [])
   })
 
-  test('fails closed only for Waffo Pancake when the configured gateway currency is CNY', () => {
+  test('uses the provider-owned Waffo Pancake currency under every display currency', () => {
     const originalConfig = useSystemConfigStore.getState().config
     try {
       useSystemConfigStore.setState((state) => ({
@@ -220,7 +241,7 @@ describe('payment type classification', () => {
       }))
       assert.equal(
         isPaymentMethodCurrencySupported(PAYMENT_TYPES.WAFFO_PANCAKE),
-        false
+        true
       )
       assert.equal(isPaymentMethodCurrencySupported('alipay'), true)
 
@@ -290,31 +311,101 @@ describe('payment dispatch', () => {
     assert.equal(called, false)
   })
 
-  test('passes Waffo Pancake checkout preferences only to the Pancake processor', async () => {
-    let received: unknown = null
-    const success = await dispatchSelectedPayment(
-      { name: 'Waffo Pancake', type: PAYMENT_TYPES.WAFFO_PANCAKE },
-      120,
-      null,
-      {
-        regular: async () => false,
-        waffo: async () => false,
-        waffoPancake: async (_amount, options) => {
-          received = options
-          return true
+  for (const currency of ['CNY', 'USD'] as const) {
+    test(`passes the exact ${currency} quote and coupon only to the Pancake processor`, async () => {
+      let received: unknown = null
+      const success = await dispatchSelectedPayment(
+        { name: 'Waffo Pancake', type: PAYMENT_TYPES.WAFFO_PANCAKE },
+        120,
+        null,
+        {
+          regular: async () => assert.fail('not a regular payment'),
+          waffo: async () => assert.fail('not a legacy Waffo payment'),
+          waffoPancake: async (amount, options) => {
+            received = { amount, ...options }
+            return true
+          },
         },
-      },
-      {
+        {
+          checkout_region: 'china',
+          checkout_language: 'zh-Hans',
+          settlement_amount: '17.5000',
+          settlement_currency: currency,
+        },
+        'SAVE'
+      )
+      assert.equal(success, true)
+      assert.deepEqual(received, {
+        amount: 120,
         checkout_region: 'china',
         checkout_language: 'zh-Hans',
-      }
-    )
-
-    assert.equal(success, true)
-    assert.deepEqual(received, {
-      checkout_region: 'china',
-      checkout_language: 'zh-Hans',
+        settlement_amount: '17.5000',
+        settlement_currency: currency,
+        discount_code: 'SAVE',
+      })
     })
+  }
+
+  test('never calls Pancake without a complete valid server quote', async () => {
+    const options = {
+      checkout_region: 'global',
+      checkout_language: 'en',
+    } as const
+    for (const quote of [
+      undefined,
+      options,
+      { ...options, settlement_amount: '1' },
+      { ...options, settlement_currency: 'CNY' as const },
+      {
+        ...options,
+        settlement_amount: 'NaN',
+        settlement_currency: 'USD' as const,
+      },
+    ]) {
+      assert.equal(
+        await dispatchSelectedPayment(
+          { name: 'Waffo Pancake', type: PAYMENT_TYPES.WAFFO_PANCAKE },
+          10,
+          null,
+          {
+            regular: async () => assert.fail('unexpected payment'),
+            waffo: async () => assert.fail('unexpected payment'),
+            waffoPancake: async () =>
+              assert.fail('missing quote must not dispatch'),
+          },
+          quote
+        ),
+        false
+      )
+    }
+  })
+
+  test('does not send a Pancake quote to fixed-currency gateways', async () => {
+    let received: unknown
+    assert.equal(
+      await dispatchSelectedPayment(
+        { name: 'Alipay', type: 'alipay', settlement_currency: 'CNY' },
+        10,
+        null,
+        {
+          regular: async (...args) => {
+            received = args
+            return true
+          },
+          waffo: async () => assert.fail('unexpected payment'),
+          waffoPancake: async () => assert.fail('unexpected payment'),
+        },
+        {
+          checkout_region: 'global',
+          checkout_language: 'en',
+          settlement_amount: '1.000',
+          settlement_currency: 'USD',
+        },
+        'SAVE'
+      ),
+      true
+    )
+    assert.deepEqual(received, [10, 'alipay', 'SAVE'])
   })
 })
 

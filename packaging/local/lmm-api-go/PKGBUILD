@@ -5,22 +5,22 @@ pkgver="${LMM_API_PKGVER:-0.1.6}"
 pkgrel="${LMM_API_PKGREL:-1}"
 pkgdesc='LMM API Go backend, native CLI, systemd service, and web frontend (local build)'
 arch=('x86_64')
-url='https://github.com/LIghtJUNction/api.lmm.best'
+url='https://github.com/TokenNotIncluded/api.lmm.best'
 license=('AGPL-3.0-only')
 depends=('ca-certificates' 'coreutils' 'libarchive' 'pacman' 'paru' 'sudo' 'systemd' 'tzdata' 'util-linux')
 optdepends=(
   'postgresql: production database'
   'valkey: cache, rate limiting, and login sessions'
 )
-source "${startdir:?}/lmm-api-cli-phase.sh"
-_lmm_cli_phase=${LMM_API_CLI_PHASE:-$LMM_CLI_SOURCE_PHASE}
-lmm_cli_phase_apply_metadata "$_lmm_cli_phase" "$pkgver" \
-  'lmm-api' 'lmm-api-bin' 'lmm-api-git' 'lmm-api-go' 'lmm-api-go-git'
+source "${startdir:?}/lmm-api-go-package.sh"
+lmm_go_package_apply_metadata "$pkgver" "$pkgname" \
+  'lmm-api-go' 'lmm-api-go-bin' 'lmm-api-go-git'
 backup=('etc/lmm-api-go/lmm-api-go.env')
 options=('!strip')
 source=(
-  lmm-api
-  lmm-api-cli-phase.sh
+  lmm-api-go
+  lmm-api-deploy
+  lmm-api-go-package.sh
   frontend-dist.tar
   lmm-api.service
   lmm-api-go.env
@@ -39,7 +39,7 @@ source=(
   geoip2-country-update.service
   geoip2-country-update.timer
 )
-sha256sums=('SKIP' '2b93864b302a7901a4688fd5b7df9b7e262f193a666a915718f434db20054935' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+sha256sums=('SKIP' 'SKIP' '655e9346a6d87baa1cb81d97dcc412243d7ee305f90371b99d89033ea0e99bb1' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 prepare() {
   install -d -m0755 "${srcdir}/frontend-dist"
@@ -49,8 +49,9 @@ prepare() {
 package() {
   local file
 
-  install -Dm0755 "${srcdir}/lmm-api" "${pkgdir}/usr/bin/lmm-api"
-  lmm_cli_phase_install_compatibility_alias "$_lmm_cli_phase" "$pkgdir"
+  install -Dm0755 "${srcdir}/lmm-api-go" "${pkgdir}/usr/bin/lmm-api-go"
+  install -Dm0755 "${srcdir}/lmm-api-deploy" "${pkgdir}/usr/bin/lmm-api-deploy"
+  lmm_go_package_assert_payload "$pkgdir" "$pkgname" "$pkgver"
   install -Dm0644 "${srcdir}/lmm-api.service" \
     "${pkgdir}/usr/lib/systemd/system/lmm-api.service"
   install -Dm0644 "${srcdir}/lmm-api-operator.sysusers" \

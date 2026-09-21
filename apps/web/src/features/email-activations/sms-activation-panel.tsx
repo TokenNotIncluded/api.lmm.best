@@ -19,89 +19,315 @@ For commercial licensing, please contact support@quantumnous.com
 /*
 Copyright (C) 2026 LIghtJUNction
 */
-/* oxlint-disable eslint/no-nested-ternary -- Query-state rendering intentionally branches through loading, error, data, and empty states. */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Phone, RefreshCw, ShieldCheck, XCircle } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { isAxiosError } from 'axios'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
-import { CopyButton } from '@/components/copy-button'
-import { ErrorState } from '@/components/error-state'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { Skeleton } from '@/components/ui/skeleton'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { useDebounce } from '@/hooks/use-debounce'
 
-import { formatHeroSmsUSD, parseHeroSmsError } from './api.js'
+import {
+  createHeroSmsIdempotencyKey,
+  formatHeroSmsPlatformAmount,
+  parseHeroSmsError,
+} from './api.js'
+import { usePageVisibility } from './hooks.js'
 import {
   cancelHeroSmsSmsOrder,
+  clearHeroSmsSmsOrderHistory,
   createHeroSmsSmsOrder,
-  getCurrentHeroSmsSmsOrder,
   getHeroSmsSmsOffer,
+  hideHeroSmsSmsOrderFromHistory,
+  listCurrentHeroSmsSmsOrders,
   listHeroSmsSmsCountries,
+  listHeroSmsSmsOperators,
   listHeroSmsSmsOrders,
   listHeroSmsSmsServices,
   refreshHeroSmsSmsOrder,
+  submitHeroSmsSmsComplaint,
+  type HeroSmsSmsComplaintReason,
+  type HeroSmsSmsCountry,
+  type HeroSmsSmsOffer,
   type HeroSmsSmsOrder,
+  type HeroSmsSmsService,
 } from './sms-api.js'
+import { SmsBalanceNotice } from './sms-balance-notice.js'
+import { isSmsMinimumBalanceError } from './sms-balance.js'
+import { describeSmsAccessError } from './sms-error.js'
+import {
+  SmsActiveOrdersCard,
+  SmsOrderDetailDialog,
+  SmsOrderHistoryCard,
+} from './sms-order-sections.js'
+import { SmsPurchaseCard } from './sms-purchase-card.js'
+import {
+  purchaseHeroSmsBatch,
+  selectHeroSmsPriceTier,
+  type HeroSmsBatchPurchaseResult,
+} from './sms-purchase.js'
+import {
+  clampHeroSmsQuantity,
+  getHeroSmsCountryName,
+  getHeroSmsCurrentOrderPollingInterval,
+  hasHeroSmsFavorite,
+  HERO_SMS_MAX_FAVORITES,
+  HERO_SMS_MAX_QUANTITY,
+  isHeroSmsWhatsAppService,
+  loadHeroSmsFavorites,
+  resolveHeroSmsReceivingChannel,
+  selectHeroSmsHistoryOrders,
+  toggleHeroSmsFavorite,
+  type HeroSmsFavoritePair,
+} from './sms-selection.js'
+import { useSmsPurchaseBalance } from './sms-use-purchase-balance.js'
 
 const smsKeys = {
-  all: ['hero-sms', 'sms'] as const,
-  countries: ['hero-sms', 'sms', 'countries'] as const,
+  countries: (service = 'all') =>
+    ['hero-sms', 'sms', 'countries', service] as const,
   services: ['hero-sms', 'sms', 'services'] as const,
+  operators: (country: string) =>
+    ['hero-sms', 'sms', 'operators', country] as const,
   offer: (country: string, service: string, operator: string) =>
     ['hero-sms', 'sms', 'offer', country, service, operator] as const,
+  bidOffer: (
+    country: string,
+    service: string,
+    operator: string,
+    maxPriceUSD: string
+  ) =>
+    [
+      'hero-sms',
+      'sms',
+      'bid-offer',
+      country,
+      service,
+      operator,
+      maxPriceUSD,
+    ] as const,
   current: ['hero-sms', 'sms', 'current'] as const,
+  currentList: ['hero-sms', 'sms', 'current-list'] as const,
   history: ['hero-sms', 'sms', 'history'] as const,
+  order: (orderId: string) => ['hero-sms', 'sms', 'order', orderId] as const,
 }
 
-function isPending(order: HeroSmsSmsOrder | null | undefined) {
-  return Boolean(
-    order &&
-    ['pending_provider', 'purchase_unknown', 'active'].includes(order.status)
-  )
+type Translate = ReturnType<typeof useTranslation>['t']
+
+interface SmsPurchaseMutationOptions {
+  balance: ReturnType<typeof useSmsPurchaseBalance>
+  offer?: HeroSmsSmsOffer
+  quantity: number
+  getFreshOffer: () => Promise<HeroSmsSmsOffer>
+  t: Translate
+  invalidate: () => Promise<void>
+  refetchOffer: () => Promise<unknown>
+  setConfirmOpen: (open: boolean) => void
+  setBatchProgress: (
+    progress: { completed: number; total: number } | null
+  ) => void
+  setBatchResult: (result: HeroSmsBatchPurchaseResult | null) => void
 }
 
-function statusVariant(status: string) {
-  if (status === 'completed') {
-    return 'default' as const
+function batchFailureMessage(result: HeroSmsBatchPurchaseResult, t: Translate) {
+  if (!result.failure) return ''
+  if (result.failure.ambiguous) {
+    return t(
+      'The last purchase result is uncertain. Resolve it before buying again.'
+    )
   }
-  if (status === 'cancelled' || status === 'failed') {
-    return 'destructive' as const
+  if (result.failure.code === 'PRICE_CHANGED') {
+    return t('The price changed before item {{item}}. Review the new quote.', {
+      item: result.failure.item,
+    })
   }
-  return 'secondary' as const
+  if (result.failure.code === 'OUT_OF_STOCK') {
+    return t('Inventory ran out before item {{item}}.', {
+      item: result.failure.item,
+    })
+  }
+  if (isSmsMinimumBalanceError(result.failure.error)) {
+    return t('Temporary SMS purchases require a balance of at least USD 10')
+  }
+  return t(parseHeroSmsError(result.failure.error).message)
 }
 
-export function HeroSmsSmsActivationPanel() {
-  const { t } = useTranslation()
-  const queryClient = useQueryClient()
-  const [country, setCountry] = useState('')
-  const [service, setService] = useState('')
-  const [operator, setOperator] = useState('')
-  const [confirmOpen, setConfirmOpen] = useState(false)
+function showBatchResult(result: HeroSmsBatchPurchaseResult, t: Translate) {
+  const failureMessage = batchFailureMessage(result, t)
+  if (!result.failure) {
+    toast.success(
+      t('{{count}} phone activations purchased', {
+        count: result.orders.length,
+      })
+    )
+    return
+  }
+  if (result.orders.length > 0) {
+    toast.warning(
+      t(
+        'Purchased {{succeeded}} of {{requested}} phone activations. {{reason}}',
+        {
+          succeeded: result.orders.length,
+          requested: result.requested,
+          reason: failureMessage,
+        }
+      )
+    )
+    return
+  }
+  toast.error(failureMessage)
+}
 
-  const countriesQuery = useQuery({
-    queryKey: smsKeys.countries,
-    queryFn: listHeroSmsSmsCountries,
+function useSmsPurchaseMutation(options: SmsPurchaseMutationOptions) {
+  return useMutation({
+    mutationFn: () => {
+      if (!options.offer) throw new Error('HeroSMS request failed')
+      return purchaseHeroSmsBatch({
+        initialOffer: options.offer,
+        quantity: options.quantity,
+        idempotencyKey: createHeroSmsIdempotencyKey(),
+        getFreshOffer: options.getFreshOffer,
+        createOrder: async (offerId, idempotencyKey) => {
+          if (!options.balance.isCurrentSession()) {
+            throw new Error('HeroSMS request failed')
+          }
+          const result = await createHeroSmsSmsOrder(offerId, idempotencyKey)
+          options.balance.recordQuota(result.quota)
+          return result
+        },
+        isAmbiguousNetworkError: (error) =>
+          isAxiosError(error) && !error.response,
+        onProgress: (completed, total) =>
+          options.setBatchProgress({ completed, total }),
+      })
+    },
+    onMutate: () => {
+      options.setBatchResult(null)
+      options.setBatchProgress({ completed: 0, total: options.quantity })
+      return options.balance
+    },
+    onSuccess: async (result, _variables, balance) => {
+      options.setConfirmOpen(false)
+      options.setBatchResult(result)
+      if (isSmsMinimumBalanceError(result.failure?.error)) balance?.markDenied()
+      showBatchResult(result, options.t)
+      options.setBatchProgress(null)
+      await options.invalidate()
+      await options.refetchOffer()
+    },
+    onError: (error, _variables, balance) => {
+      options.setBatchProgress(null)
+      if (isSmsMinimumBalanceError(error)) {
+        balance?.markDenied()
+        toast.error(
+          options.t(
+            'Temporary SMS purchases require a balance of at least USD 10'
+          )
+        )
+      } else {
+        toast.error(options.t(parseHeroSmsError(error).message))
+      }
+    },
+  })
+}
+
+function useSmsPurchaseReconciliation({
+  result,
+  setResult,
+  invalidate,
+  refetchOffer,
+  t,
+}: {
+  result: HeroSmsBatchPurchaseResult | null
+  setResult: (result: HeroSmsBatchPurchaseResult | null) => void
+  invalidate: () => Promise<void>
+  refetchOffer: () => Promise<unknown>
+  t: Translate
+}) {
+  const [pending, setPending] = useState(false)
+  const run = async () => {
+    const failure = result?.failure
+    if (!failure?.ambiguous || !failure.offerId || !failure.idempotencyKey) {
+      return
+    }
+    setPending(true)
+    try {
+      await createHeroSmsSmsOrder(failure.offerId, failure.idempotencyKey)
+      toast.success(t('Purchase result reconciled'))
+      setResult(null)
+      await invalidate()
+      await refetchOffer()
+    } catch (error) {
+      const parsed = parseHeroSmsError(error)
+      const stillAmbiguous =
+        (isAxiosError(error) && !error.response) ||
+        parsed.code === 'UPSTREAM_BUSY' ||
+        (parsed.status !== undefined && parsed.status >= 500)
+      if (stillAmbiguous) {
+        toast.error(
+          t(
+            'The last purchase result is uncertain. Resolve it before buying again.'
+          )
+        )
+      } else {
+        toast.error(t(parsed.message))
+        setResult(null)
+        await invalidate()
+        await refetchOffer()
+      }
+    } finally {
+      setPending(false)
+    }
+  }
+  return { pending, run }
+}
+
+interface SmsCatalogQueryOptions {
+  country: string
+  service: string
+  operator: string
+  bidMaxPriceUSD: string
+  pageVisible: boolean
+  catalogEnabled: boolean
+}
+
+function useSmsCatalogQueries({
+  country,
+  service,
+  operator,
+  bidMaxPriceUSD,
+  pageVisible,
+  catalogEnabled,
+}: SmsCatalogQueryOptions) {
+  const allCountries = useQuery({
+    queryKey: smsKeys.countries(),
+    queryFn: () => listHeroSmsSmsCountries(),
+    enabled: catalogEnabled,
+    retry: false,
     staleTime: 5 * 60 * 1000,
   })
-  const servicesQuery = useQuery({
+  const countries = useQuery({
+    queryKey: smsKeys.countries(service),
+    queryFn: () => listHeroSmsSmsCountries(service),
+    enabled: catalogEnabled && service !== '',
+    staleTime: 5 * 60 * 1000,
+  })
+  const services = useQuery({
     queryKey: smsKeys.services,
     queryFn: listHeroSmsSmsServices,
+    enabled: catalogEnabled,
+    retry: false,
     staleTime: 5 * 60 * 1000,
   })
-  const offerQuery = useQuery({
+  const operators = useQuery({
+    queryKey: smsKeys.operators(country),
+    queryFn: () => listHeroSmsSmsOperators(Number(country)),
+    enabled: catalogEnabled && country !== '',
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  })
+  const offer = useQuery({
     queryKey: smsKeys.offer(country, service, operator),
     queryFn: () =>
       getHeroSmsSmsOffer({
@@ -109,348 +335,800 @@ export function HeroSmsSmsActivationPanel() {
         service,
         operator: operator.trim() || undefined,
       }),
-    enabled: country !== '' && service !== '',
+    enabled: catalogEnabled && country !== '' && service !== '',
     retry: false,
   })
-  const currentQuery = useQuery({
-    queryKey: smsKeys.current,
-    queryFn: getCurrentHeroSmsSmsOrder,
+  const bidOffer = useQuery({
+    queryKey: smsKeys.bidOffer(country, service, operator, bidMaxPriceUSD),
+    queryFn: () =>
+      getHeroSmsSmsOffer({
+        country: Number(country),
+        service,
+        operator: operator.trim() || undefined,
+        maxPriceUSD: bidMaxPriceUSD,
+      }),
+    enabled:
+      catalogEnabled &&
+      country !== '' &&
+      service !== '' &&
+      Number.isFinite(Number(bidMaxPriceUSD)) &&
+      Number(bidMaxPriceUSD) > 0,
+    retry: false,
+  })
+  const current = useQuery({
+    queryKey: smsKeys.currentList,
+    queryFn: listCurrentHeroSmsSmsOrders,
     refetchInterval: (query) =>
-      isPending(query.state.data?.order) ? 5_000 : false,
+      getHeroSmsCurrentOrderPollingInterval(query.state.data, pageVisible),
   })
-  const historyQuery = useQuery({
+  const history = useQuery({
     queryKey: smsKeys.history,
-    queryFn: () => listHeroSmsSmsOrders(1, 20),
+    queryFn: () => listHeroSmsSmsOrders(1, 50),
+  })
+  return {
+    allCountries,
+    countries,
+    services,
+    operators,
+    offer,
+    bidOffer,
+    current,
+    history,
+  }
+}
+
+interface SmsMarketplaceQueryOptions {
+  country: string
+  service: string
+  operator: string
+  selectedTierPrice: string
+  bidEnabled: boolean
+  bidPrice: string
+  pageVisible: boolean
+  catalogEnabled: boolean
+}
+
+function useSmsMarketplaceQueries({
+  country,
+  service,
+  operator,
+  selectedTierPrice,
+  bidEnabled,
+  bidPrice,
+  pageVisible,
+  catalogEnabled,
+}: SmsMarketplaceQueryOptions) {
+  const normalizedBidPrice = bidEnabled ? bidPrice.trim() : ''
+  const debouncedBidPrice = useDebounce(normalizedBidPrice, 400)
+  const queries = useSmsCatalogQueries({
+    country,
+    service,
+    operator,
+    bidMaxPriceUSD: debouncedBidPrice,
+    pageVisible,
+    catalogEnabled,
+  })
+  const tierOffer = queries.offer.data
+    ? selectHeroSmsPriceTier(queries.offer.data, selectedTierPrice)
+    : undefined
+  const bidInputReady =
+    normalizedBidPrice !== '' &&
+    normalizedBidPrice === debouncedBidPrice &&
+    Number.isFinite(Number(normalizedBidPrice)) &&
+    Number(normalizedBidPrice) > 0
+  let effectiveOffer = tierOffer
+  if (bidEnabled) {
+    const bidOffer = queries.bidOffer.data
+    effectiveOffer =
+      bidInputReady && bidOffer?.bid === true ? bidOffer : undefined
+  }
+  const effectiveOfferQuery = bidEnabled ? queries.bidOffer : queries.offer
+  const getFreshOffer = useCallback(async () => {
+    const fresh = await getHeroSmsSmsOffer({
+      country: Number(country),
+      service,
+      operator: operator.trim() || undefined,
+      maxPriceUSD: bidEnabled ? normalizedBidPrice : undefined,
+    })
+    if (bidEnabled) {
+      if (fresh.bid !== true) throw new Error('HeroSMS request failed')
+      return fresh
+    }
+    const selected = selectHeroSmsPriceTier(fresh, selectedTierPrice)
+    if (!selected) throw new Error('HeroSMS request failed')
+    return selected
+  }, [
+    bidEnabled,
+    country,
+    normalizedBidPrice,
+    operator,
+    selectedTierPrice,
+    service,
+  ])
+  const refetchBaseOffer = queries.offer.refetch
+  const refetchBidOffer = queries.bidOffer.refetch
+  const refetchEffectiveOffer = useCallback(
+    () => (bidEnabled ? refetchBidOffer() : refetchBaseOffer()),
+    [bidEnabled, refetchBaseOffer, refetchBidOffer]
+  )
+  return {
+    queries,
+    effectiveOffer,
+    effectiveOfferQuery,
+    getFreshOffer,
+    refetchEffectiveOffer,
+  }
+}
+
+function useSmsSelectionState() {
+  const [country, setCountry] = useState('')
+  const [service, setService] = useState('')
+  const [operator, setOperator] = useState('')
+  const [selectedTierPrice, setSelectedTierPrice] = useState('')
+  const [bidEnabled, setBidEnabled] = useState(false)
+  const [bidPrice, setBidPrice] = useState('')
+  const [quantity, setQuantity] = useState(1)
+  const [favorites, setFavorites] = useState<HeroSmsFavoritePair[]>(() =>
+    loadHeroSmsFavorites()
+  )
+  const [batchResult, setBatchResult] =
+    useState<HeroSmsBatchPurchaseResult | null>(null)
+  const [lastSmsService, setLastSmsService] = useState('')
+
+  const resetSelectionTail = () => {
+    setOperator('')
+    setSelectedTierPrice('')
+    setBidEnabled(false)
+    setBidPrice('')
+    setQuantity(1)
+    setBatchResult(null)
+  }
+  const selectService = (value: string) => {
+    if (value && !isHeroSmsWhatsAppService(value)) {
+      setLastSmsService(value)
+    }
+    setService(value)
+    setCountry('')
+    resetSelectionTail()
+  }
+  const selectCountry = (value: string) => {
+    setCountry(value)
+    resetSelectionTail()
+  }
+  const selectFavorite = (favorite: HeroSmsFavoritePair) => {
+    if (!isHeroSmsWhatsAppService(favorite.serviceCode)) {
+      setLastSmsService(favorite.serviceCode)
+    }
+    setService(favorite.serviceCode)
+    setCountry(String(favorite.countryId))
+    resetSelectionTail()
+  }
+  const selectOperator = (value: string) => {
+    setOperator(value)
+    setSelectedTierPrice('')
+    setBidEnabled(false)
+    setBidPrice('')
+    setQuantity(1)
+    setBatchResult(null)
+  }
+  return {
+    country,
+    setCountry,
+    service,
+    setService,
+    operator,
+    setOperator,
+    selectedTierPrice,
+    setSelectedTierPrice,
+    bidEnabled,
+    setBidEnabled,
+    bidPrice,
+    setBidPrice,
+    selectOperator,
+    quantity,
+    setQuantity,
+    favorites,
+    setFavorites,
+    batchResult,
+    setBatchResult,
+    lastSmsService,
+    selectService,
+    selectCountry,
+    selectFavorite,
+  }
+}
+
+function useSmsCatalogMaps(
+  services: HeroSmsSmsService[] | undefined,
+  countries: HeroSmsSmsCountry[] | undefined
+) {
+  const serviceMap = useMemo(
+    () => new Map((services ?? []).map((item) => [item.code, item] as const)),
+    [services]
+  )
+  const countryMap = useMemo(
+    () => new Map((countries ?? []).map((item) => [item.id, item] as const)),
+    [countries]
+  )
+  return { serviceMap, countryMap }
+}
+
+function useSmsHistoryOrders(
+  items: HeroSmsSmsOrder[] | undefined,
+  current: HeroSmsSmsOrder[]
+) {
+  return useMemo(
+    () => selectHeroSmsHistoryOrders(items, current),
+    [current, items]
+  )
+}
+
+function createFavoriteController({
+  favorites,
+  setFavorites,
+  service,
+  country,
+  t,
+}: {
+  favorites: HeroSmsFavoritePair[]
+  setFavorites: (favorites: HeroSmsFavoritePair[]) => void
+  service?: { code: string }
+  country?: { id: number }
+  t: Translate
+}) {
+  const selected = Boolean(
+    service &&
+    country &&
+    hasHeroSmsFavorite(favorites, service.code, country.id)
+  )
+  const updateFavorite = (favorite: HeroSmsFavoritePair) => {
+    const update = toggleHeroSmsFavorite(favorites, favorite)
+    if (update.limitReached) {
+      toast.error(
+        t('You can save up to {{count}} favorite combinations', {
+          count: HERO_SMS_MAX_FAVORITES,
+        })
+      )
+      return
+    }
+    setFavorites(update.items)
+    if (!update.persisted) {
+      toast.warning(
+        t(
+          'Favorite changed for this session, but browser storage is unavailable'
+        )
+      )
+    }
+  }
+  const toggle = () => {
+    if (!service || !country) return
+    updateFavorite({
+      serviceCode: service.code,
+      countryId: country.id,
+    })
+  }
+  const remove = (favorite: HeroSmsFavoritePair) => {
+    if (
+      hasHeroSmsFavorite(favorites, favorite.serviceCode, favorite.countryId)
+    ) {
+      updateFavorite(favorite)
+    }
+  }
+  return { selected, toggle, remove }
+}
+
+function resolveSmsLanguage(resolved?: string, configured?: string) {
+  return resolved || configured || 'en'
+}
+
+function resolveSmsQuantity(quantity: number, offer?: HeroSmsSmsOffer) {
+  return clampHeroSmsQuantity(
+    quantity,
+    offer?.inventory ?? HERO_SMS_MAX_QUANTITY
+  )
+}
+
+function createSmsPanelView({
+  effectiveQuantity,
+  offer,
+  purchasePending,
+  batchResult,
+  selectedCountry,
+  country,
+  language,
+  historyError,
+  t,
+}: {
+  effectiveQuantity: number
+  offer?: HeroSmsSmsOffer
+  purchasePending: boolean
+  batchResult: HeroSmsBatchPurchaseResult | null
+  selectedCountry?: HeroSmsSmsCountry
+  country: string
+  language: string
+  historyError: unknown
+  t: Translate
+}) {
+  return {
+    effectiveQuantity,
+    totalPrice: Number(offer?.customer_price_usd ?? 0) * effectiveQuantity,
+    canPurchase: Boolean(
+      offer &&
+      offer.inventory >= effectiveQuantity &&
+      !purchasePending &&
+      !batchResult?.failure?.ambiguous
+    ),
+    batchFeedback: batchResult ? batchFailureMessage(batchResult, t) : '',
+    selectedCountryName: selectedCountry
+      ? getHeroSmsCountryName(selectedCountry, language)
+      : country,
+    historyError: t(parseHeroSmsError(historyError).message),
+  }
+}
+
+// pi-lens-ignore: high-fan-out -- composition root delegates domain and rendering responsibilities.
+export function HeroSmsSmsActivationPanel() {
+  const { t, i18n } = useTranslation()
+  const queryClient = useQueryClient()
+  const purchaseBalance = useSmsPurchaseBalance()
+  const language = resolveSmsLanguage(i18n.resolvedLanguage, i18n.language)
+  const pageVisible = usePageVisibility()
+  const {
+    country,
+    service,
+    operator,
+    selectedTierPrice,
+    setSelectedTierPrice,
+    bidEnabled,
+    setBidEnabled,
+    bidPrice,
+    setBidPrice,
+    selectOperator,
+    quantity,
+    setQuantity,
+    favorites,
+    setFavorites,
+    batchResult,
+    setBatchResult,
+    lastSmsService,
+    selectService,
+    selectCountry,
+    selectFavorite,
+  } = useSmsSelectionState()
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [historyDetailOrderId, setHistoryDetailOrderId] = useState<
+    string | null
+  >(null)
+  const [historyCleanupTarget, setHistoryCleanupTarget] = useState<
+    { kind: 'one'; orderId: string } | { kind: 'all' } | null
+  >(null)
+  const [cancelConfirmOrderId, setCancelConfirmOrderId] = useState<
+    string | null
+  >(null)
+  const [batchProgress, setBatchProgress] = useState<{
+    completed: number
+    total: number
+  } | null>(null)
+  const {
+    queries,
+    effectiveOffer,
+    effectiveOfferQuery,
+    getFreshOffer,
+    refetchEffectiveOffer,
+  } = useSmsMarketplaceQueries({
+    country,
+    service,
+    operator,
+    selectedTierPrice,
+    bidEnabled,
+    bidPrice,
+    pageVisible,
+    catalogEnabled: purchaseBalance.canPurchase,
   })
 
-  const current = currentQuery.data?.order ?? null
-  const serviceName = useMemo(
-    () =>
-      servicesQuery.data?.find((item) => item.code === service)?.name ??
-      service,
-    [service, servicesQuery.data]
-  )
+  const historyDetailQuery = useQuery({
+    queryKey: smsKeys.order(historyDetailOrderId ?? 'none'),
+    queryFn: () => refreshHeroSmsSmsOrder(historyDetailOrderId || ''),
+    enabled: historyDetailOrderId !== null,
+    staleTime: 30_000,
+  })
 
-  const invalidate = async () => {
+  const { serviceMap, countryMap } = useSmsCatalogMaps(
+    queries.services.data,
+    queries.allCountries.data
+  )
+  const selectedService = serviceMap.get(service)
+  const selectedCountry = countryMap.get(Number(country))
+  const receivingChannel = resolveHeroSmsReceivingChannel(
+    selectedService ?? service
+  )
+  const whatsappService = (queries.services.data ?? []).find(
+    isHeroSmsWhatsAppService
+  )
+  const firstSmsService = (queries.services.data ?? []).find(
+    (item) => !isHeroSmsWhatsAppService(item)
+  )
+  const selectReceivingChannel = (channel: 'sms' | 'whatsapp') => {
+    selectService(
+      channel === 'whatsapp'
+        ? whatsappService?.code || 'wa'
+        : lastSmsService || firstSmsService?.code || ''
+    )
+  }
+  const currentOrders = useMemo(
+    () => queries.current.data ?? [],
+    [queries.current.data]
+  )
+  const observedCodes = useRef<Map<string, string> | null>(null)
+  useEffect(() => {
+    const nextCodes = new Map(
+      currentOrders.map((order) => [order.id, order.code || ''])
+    )
+    if (observedCodes.current) {
+      for (const order of currentOrders) {
+        const previousCode = observedCodes.current.get(order.id)
+        if (previousCode !== undefined && !previousCode && order.code) {
+          toast.success(t('Verification code received'))
+        }
+      }
+    }
+    observedCodes.current = nextCodes
+  }, [currentOrders, t])
+  const historyOrders = useSmsHistoryOrders(
+    queries.history.data?.items,
+    currentOrders
+  )
+  const effectiveQuantity = resolveSmsQuantity(quantity, effectiveOffer)
+  const invalidate = useCallback(async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: smsKeys.current }),
+      queryClient.invalidateQueries({ queryKey: smsKeys.currentList }),
       queryClient.invalidateQueries({ queryKey: smsKeys.history }),
       queryClient.invalidateQueries({ queryKey: ['user'] }),
     ])
-  }
-
-  const purchaseMutation = useMutation({
-    mutationFn: () => createHeroSmsSmsOrder(offerQuery.data?.id ?? ''),
-    onSuccess: async () => {
-      setConfirmOpen(false)
-      toast.success(t('Phone number purchased'))
-      await invalidate()
-    },
-    onError: (error) => toast.error(t(parseHeroSmsError(error).message)),
+  }, [queryClient])
+  const purchaseMutation = useSmsPurchaseMutation({
+    balance: purchaseBalance,
+    offer: effectiveOffer,
+    quantity: effectiveQuantity,
+    getFreshOffer,
+    t,
+    invalidate,
+    refetchOffer: refetchEffectiveOffer,
+    setConfirmOpen,
+    setBatchProgress,
+    setBatchResult,
   })
   const refreshMutation = useMutation({
     mutationFn: (orderId: string) => refreshHeroSmsSmsOrder(orderId),
     onSuccess: invalidate,
     onError: (error) => toast.error(t(parseHeroSmsError(error).message)),
   })
-  const cancelMutation = useMutation({
-    mutationFn: (orderId: string) => cancelHeroSmsSmsOrder(orderId),
+  const complaintMutation = useMutation({
+    mutationFn: (input: {
+      orderId: string
+      reason: HeroSmsSmsComplaintReason
+    }) => submitHeroSmsSmsComplaint(input.orderId, input.reason),
     onSuccess: async () => {
-      toast.success(t('Phone activation cancelled and refunded'))
+      toast.success(t('Complaint submitted to HeroSMS'))
       await invalidate()
     },
     onError: (error) => toast.error(t(parseHeroSmsError(error).message)),
   })
+  const cancelMutation = useMutation({
+    mutationFn: async (orderId: string) => {
+      const result = await cancelHeroSmsSmsOrder(orderId)
+      purchaseBalance.recordQuota(result.quota)
+      return result
+    },
+    onSuccess: async (result) => {
+      if (
+        result.order.status === 'cancelled' &&
+        result.order.refunded_quota > 0
+      ) {
+        toast.success(t('Upstream cancellation confirmed and balance refunded'))
+      } else {
+        toast.info(
+          t(
+            'Cancellation submitted. Your balance is refunded only after HeroSMS confirms the upstream cancellation.'
+          )
+        )
+      }
+      setCancelConfirmOrderId(null)
+      await invalidate()
+    },
+    onError: (error) => toast.error(t(parseHeroSmsError(error).message)),
+  })
+  const historyCleanupMutation = useMutation({
+    mutationFn: async (
+      target: { kind: 'one'; orderId: string } | { kind: 'all' }
+    ) => {
+      if (target.kind === 'one') {
+        await hideHeroSmsSmsOrderFromHistory(target.orderId)
+        return target
+      }
+      await clearHeroSmsSmsOrderHistory()
+      return target
+    },
+    onSuccess: async (target) => {
+      toast.success(
+        t(
+          target.kind === 'one'
+            ? 'Phone activation record removed'
+            : 'Phone activation history cleared'
+        )
+      )
+      if (target.kind === 'all') {
+        queryClient.removeQueries({ queryKey: ['hero-sms', 'sms', 'order'] })
+        setHistoryDetailOrderId(null)
+      } else {
+        queryClient.removeQueries({ queryKey: smsKeys.order(target.orderId) })
+        if (target.orderId === historyDetailOrderId) {
+          setHistoryDetailOrderId(null)
+        }
+      }
+      setHistoryCleanupTarget(null)
+      await queryClient.invalidateQueries({ queryKey: smsKeys.history })
+    },
+    onError: (error) => toast.error(t(parseHeroSmsError(error).message)),
+  })
 
-  if (countriesQuery.isError || servicesQuery.isError) {
-    return (
-      <ErrorState
-        title={t('Unable to load phone activation catalog')}
-        description={t(
-          parseHeroSmsError(countriesQuery.error || servicesQuery.error).message
-        )}
-        onRetry={() => {
-          void countriesQuery.refetch()
-          void servicesQuery.refetch()
-        }}
-      />
-    )
-  }
+  const favoriteController = createFavoriteController({
+    favorites,
+    setFavorites,
+    service: selectedService,
+    country: selectedCountry,
+    t,
+  })
+  const reconciliation = useSmsPurchaseReconciliation({
+    result: batchResult,
+    setResult: setBatchResult,
+    invalidate,
+    refetchOffer: refetchEffectiveOffer,
+    t,
+  })
+
+  const view = createSmsPanelView({
+    effectiveQuantity,
+    offer: effectiveOffer,
+    purchasePending: purchaseMutation.isPending,
+    batchResult,
+    selectedCountry,
+    country,
+    language,
+    historyError: queries.history.error,
+    t,
+  })
+  const catalogError = queries.services.error ?? queries.allCountries.error
+  const catalogFeedback =
+    purchaseBalance.canPurchase && catalogError
+      ? describeSmsAccessError(catalogError, t)
+      : null
 
   return (
     <div className='space-y-6'>
-      <div className='grid gap-4 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)]'>
-        <Card>
-          <CardHeader>
-            <CardTitle className='flex items-center gap-2 text-base'>
-              <Phone className='size-4' />
-              {t('Purchase temporary phone number')}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className='space-y-4'>
-            {countriesQuery.isPending || servicesQuery.isPending ? (
-              <div className='space-y-3'>
-                <Skeleton className='h-9 w-full' />
-                <Skeleton className='h-9 w-full' />
-              </div>
-            ) : (
-              <>
-                <div className='space-y-2'>
-                  <Label htmlFor='hero-sms-country'>{t('Country')}</Label>
-                  <Select
-                    value={country}
-                    onValueChange={(value) => setCountry(value ?? '')}
-                  >
-                    <SelectTrigger id='hero-sms-country'>
-                      <SelectValue placeholder={t('Select a country')} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(countriesQuery.data ?? []).map((item) => (
-                        <SelectItem key={item.id} value={String(item.id)}>
-                          {item.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className='space-y-2'>
-                  <Label htmlFor='hero-sms-service'>{t('Service')}</Label>
-                  <Select
-                    value={service}
-                    onValueChange={(value) => setService(value ?? '')}
-                  >
-                    <SelectTrigger id='hero-sms-service'>
-                      <SelectValue placeholder={t('Select a service')} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(servicesQuery.data ?? []).map((item) => (
-                        <SelectItem key={item.code} value={item.code}>
-                          {item.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className='space-y-2'>
-                  <Label htmlFor='hero-sms-operator'>{t('Operator')}</Label>
-                  <Input
-                    id='hero-sms-operator'
-                    value={operator}
-                    onChange={(event) => setOperator(event.target.value)}
-                    placeholder={t('Optional; leave blank for any operator')}
-                    maxLength={64}
-                  />
-                </div>
-              </>
-            )}
-
-            {offerQuery.isFetching ? (
-              <Skeleton className='h-24 w-full' />
-            ) : offerQuery.data ? (
-              <div className='bg-muted/40 grid grid-cols-2 gap-3 rounded-lg border p-3 text-sm'>
-                <div>
-                  <p className='text-muted-foreground'>{t('Inventory')}</p>
-                  <p className='font-medium'>{offerQuery.data.inventory}</p>
-                </div>
-                <div>
-                  <p className='text-muted-foreground'>
-                    {t('Platform balance charge')}
-                  </p>
-                  <p className='font-medium'>
-                    {formatHeroSmsUSD(
-                      Number(offerQuery.data.customer_price_usd)
-                    )}
-                  </p>
-                </div>
-              </div>
-            ) : offerQuery.isError ? (
-              <p className='text-destructive text-sm' role='alert'>
-                {t(parseHeroSmsError(offerQuery.error).message)}
-              </p>
-            ) : null}
-
-            <Button
-              className='w-full'
-              disabled={
-                !offerQuery.data ||
-                offerQuery.data.inventory < 1 ||
-                purchaseMutation.isPending ||
-                isPending(current)
-              }
-              onClick={() => setConfirmOpen(true)}
-            >
-              {t('Buy phone activation')}
-            </Button>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className='flex items-center gap-2 text-base'>
-              <ShieldCheck className='size-4' />
-              {t('Current phone activation')}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {currentQuery.isPending ? (
-              <Skeleton className='h-40 w-full' />
-            ) : currentQuery.isError ? (
-              <ErrorState
-                title={t('Unable to load current phone activation')}
-                description={t(parseHeroSmsError(currentQuery.error).message)}
-                onRetry={() => void currentQuery.refetch()}
-              />
-            ) : current ? (
-              <div className='space-y-4'>
-                <div className='flex flex-wrap items-center justify-between gap-3'>
-                  <Badge variant={statusVariant(current.status)}>
-                    {t(current.status)}
-                  </Badge>
-                  <div className='flex gap-2'>
-                    <Button
-                      variant='outline'
-                      size='sm'
-                      disabled={refreshMutation.isPending}
-                      onClick={() => refreshMutation.mutate(current.id)}
-                    >
-                      <RefreshCw className='size-4' />
-                      {t('Refresh')}
-                    </Button>
-                    {isPending(current) ? (
-                      <Button
-                        variant='destructive'
-                        size='sm'
-                        disabled={
-                          !current.provider_id || cancelMutation.isPending
-                        }
-                        onClick={() => cancelMutation.mutate(current.id)}
-                      >
-                        <XCircle className='size-4' />
-                        {t('Cancel and refund')}
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-                <div className='grid gap-3 sm:grid-cols-2'>
-                  <div className='rounded-lg border p-3'>
-                    <p className='text-muted-foreground text-xs'>
-                      {t('Phone number')}
-                    </p>
-                    <div className='mt-1 flex items-center gap-2'>
-                      <code className='text-sm break-all'>
-                        {current.phone_number || '—'}
-                      </code>
-                      {current.phone_number ? (
-                        <CopyButton value={current.phone_number} />
-                      ) : null}
-                    </div>
-                  </div>
-                  <div className='rounded-lg border p-3'>
-                    <p className='text-muted-foreground text-xs'>
-                      {t('Verification code')}
-                    </p>
-                    <div className='mt-1 flex items-center gap-2'>
-                      <code className='text-lg font-semibold break-all'>
-                        {current.code || '—'}
-                      </code>
-                      {current.code ? (
-                        <CopyButton value={current.code} />
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-                {current.message ? (
-                  <div className='rounded-lg border p-3'>
-                    <p className='text-muted-foreground text-xs'>
-                      {t('SMS message')}
-                    </p>
-                    <p className='mt-1 text-sm break-words'>
-                      {current.message}
-                    </p>
-                  </div>
-                ) : null}
-                {current.last_error_message ? (
-                  <p className='text-destructive text-sm' role='alert'>
-                    {current.last_error_message}
-                  </p>
-                ) : null}
-              </div>
-            ) : (
-              <div className='text-muted-foreground py-12 text-center text-sm'>
-                {t('No active phone activation')}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+      {catalogFeedback ? (
+        <Alert variant='destructive' role='alert'>
+          <AlertTitle>{catalogFeedback.title}</AlertTitle>
+          <AlertDescription>{catalogFeedback.description}</AlertDescription>
+        </Alert>
+      ) : null}
+      <SmsBalanceNotice
+        {...purchaseBalance}
+        onRefresh={() => void purchaseBalance.refresh()}
+      />
+      <div className='grid gap-4 xl:grid-cols-[minmax(0,430px)_minmax(0,1fr)]'>
+        <SmsPurchaseCard
+          language={language}
+          services={queries.services.data ?? []}
+          countries={queries.countries.data ?? []}
+          favoriteCountries={queries.allCountries.data ?? []}
+          servicesState={{
+            isPending:
+              purchaseBalance.canPurchase && queries.services.isPending,
+            isError: queries.services.isError,
+            onRetry: () => void queries.services.refetch(),
+          }}
+          countriesState={{
+            isPending:
+              purchaseBalance.canPurchase && queries.countries.isPending,
+            isError: queries.countries.isError,
+            onRetry: () => void queries.countries.refetch(),
+          }}
+          favorites={favorites}
+          channel={receivingChannel}
+          service={service}
+          country={country}
+          operator={operator}
+          operators={queries.operators.data ?? []}
+          operatorsState={{
+            isPending:
+              purchaseBalance.canPurchase && queries.operators.isPending,
+            isError: queries.operators.isError,
+            onRetry: () => void queries.operators.refetch(),
+          }}
+          selectedTierPrice={selectedTierPrice}
+          bidEnabled={bidEnabled}
+          bidPrice={bidPrice}
+          quantity={view.effectiveQuantity}
+          selectedService={selectedService}
+          selectedCountry={selectedCountry}
+          selectedIsFavorite={favoriteController.selected}
+          offer={effectiveOffer}
+          catalogOffer={queries.offer.data}
+          offerIsFetching={effectiveOfferQuery.isFetching}
+          offerIsError={effectiveOfferQuery.isError}
+          offerError={effectiveOfferQuery.error}
+          batchProgress={batchProgress}
+          batchResult={batchResult}
+          batchFeedback={view.batchFeedback}
+          canPurchase={view.canPurchase && purchaseBalance.canPurchase}
+          reconciliationPending={
+            reconciliation.pending || queries.current.isFetching
+          }
+          onChannelChange={selectReceivingChannel}
+          onServiceChange={selectService}
+          onCountryChange={selectCountry}
+          onOperatorChange={selectOperator}
+          onTierChange={(price) => {
+            setSelectedTierPrice(price)
+            setBidEnabled(false)
+          }}
+          onBidEnabledChange={setBidEnabled}
+          onBidPriceChange={(value) => {
+            setBidPrice(value)
+            setBidEnabled(true)
+          }}
+          onQuantityChange={setQuantity}
+          onSelectFavorite={selectFavorite}
+          onRemoveFavorite={favoriteController.remove}
+          onToggleFavorite={favoriteController.toggle}
+          onRefreshOffer={() => void refetchEffectiveOffer()}
+          onReconcile={() => void reconciliation.run()}
+          onPurchase={() => {
+            if (purchaseBalance.canPurchase) setConfirmOpen(true)
+          }}
+        />
+        <SmsActiveOrdersCard
+          orders={currentOrders}
+          countries={countryMap}
+          services={serviceMap}
+          language={language}
+          isPending={queries.current.isPending}
+          isError={queries.current.isError}
+          errorTitle={t('Unable to load current phone activation')}
+          errorDescription={t(parseHeroSmsError(queries.current.error).message)}
+          onRetry={() => void queries.current.refetch()}
+          refresh={{
+            pendingOrderId: refreshMutation.isPending
+              ? refreshMutation.variables
+              : undefined,
+            onOrder: (orderId) => refreshMutation.mutate(orderId),
+          }}
+          complaint={{
+            pendingOrderId: complaintMutation.isPending
+              ? complaintMutation.variables?.orderId
+              : undefined,
+            onOrder: (orderId, reason) =>
+              complaintMutation.mutate({ orderId, reason }),
+          }}
+          cancel={{
+            pendingOrderId: cancelMutation.isPending
+              ? cancelMutation.variables
+              : undefined,
+            onOrder: setCancelConfirmOrderId,
+          }}
+        />
       </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className='text-base'>
-            {t('Phone activation history')}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {historyQuery.isPending ? (
-            <Skeleton className='h-32 w-full' />
-          ) : historyQuery.isError ? (
-            <ErrorState
-              title={t('Unable to load phone activation history')}
-              description={t(parseHeroSmsError(historyQuery.error).message)}
-              onRetry={() => void historyQuery.refetch()}
-            />
-          ) : historyQuery.data?.items.length ? (
-            <div className='divide-y rounded-lg border'>
-              {historyQuery.data.items.map((order) => (
-                <div
-                  key={order.id}
-                  className='grid gap-2 p-3 text-sm sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center'
-                >
-                  <div className='min-w-0'>
-                    <p className='truncate font-medium'>
-                      {order.phone_number || order.service}
-                    </p>
-                    <p className='text-muted-foreground truncate text-xs'>
-                      {order.id}
-                    </p>
-                  </div>
-                  <Badge variant={statusVariant(order.status)}>
-                    {t(order.status)}
-                  </Badge>
-                  <span className='font-medium'>
-                    {formatHeroSmsUSD(Number(order.customer_price_usd))}
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className='text-muted-foreground py-10 text-center text-sm'>
-              {t('No phone activation history')}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
+      <SmsOrderHistoryCard
+        orders={historyOrders}
+        countries={countryMap}
+        services={serviceMap}
+        language={language}
+        isPending={queries.history.isPending}
+        isError={queries.history.isError}
+        errorTitle={t('Unable to load phone activation history')}
+        errorDescription={view.historyError}
+        onRetry={() => void queries.history.refetch()}
+        onOpenOrder={setHistoryDetailOrderId}
+        onRemoveOrder={(orderId) =>
+          setHistoryCleanupTarget({ kind: 'one', orderId })
+        }
+        onClearHistory={() => setHistoryCleanupTarget({ kind: 'all' })}
+        cleanupPending={historyCleanupMutation.isPending}
+      />
+      <SmsOrderDetailDialog
+        open={historyDetailOrderId !== null}
+        onOpenChange={(open) => {
+          if (!open) setHistoryDetailOrderId(null)
+        }}
+        order={historyDetailQuery.data?.order}
+        countries={countryMap}
+        services={serviceMap}
+        language={language}
+        isPending={historyDetailQuery.isPending}
+        isError={historyDetailQuery.isError}
+        errorDescription={t(
+          parseHeroSmsError(historyDetailQuery.error).message
+        )}
+        onRetry={() => void historyDetailQuery.refetch()}
+      />
+      <ConfirmDialog
+        open={cancelConfirmOrderId !== null}
+        onOpenChange={(open) => {
+          if (!open && !cancelMutation.isPending) {
+            setCancelConfirmOrderId(null)
+          }
+        }}
+        title={t('Cancel this phone activation?')}
+        desc={t(
+          'HeroSMS will be asked to cancel this activation. Your balance is refunded only after HeroSMS confirms cancellation; a verification code received first will complete the order instead.'
+        )}
+        confirmText={t('Cancel and request refund')}
+        destructive
+        handleConfirm={() => {
+          if (cancelConfirmOrderId) {
+            cancelMutation.mutate(cancelConfirmOrderId)
+          }
+        }}
+        isLoading={cancelMutation.isPending}
+      />
+      <ConfirmDialog
+        open={historyCleanupTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !historyCleanupMutation.isPending) {
+            setHistoryCleanupTarget(null)
+          }
+        }}
+        title={t(
+          historyCleanupTarget?.kind === 'all'
+            ? 'Clear phone activation history?'
+            : 'Remove this phone activation record?'
+        )}
+        desc={t(
+          historyCleanupTarget?.kind === 'all'
+            ? 'All completed, cancelled, and failed records disappear from your history view. Active orders and billing audit data are retained.'
+            : 'The record disappears from your history view. Billing and refund audit data are retained.'
+        )}
+        confirmText={t(
+          historyCleanupTarget?.kind === 'all' ? 'Clear' : 'Remove'
+        )}
+        destructive
+        handleConfirm={() => {
+          if (historyCleanupTarget) {
+            historyCleanupMutation.mutate(historyCleanupTarget)
+          }
+        }}
+        isLoading={historyCleanupMutation.isPending}
+      />
       <ConfirmDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
         title={t('Confirm phone activation purchase')}
         desc={t(
-          'Purchase {{service}} in {{country}} for {{price}} of platform balance?',
+          'Quantity: {{quantity}} · Service: {{service}} · Country: {{country}} · Maximum reserved total: {{price}}. Any lower settlement is refunded.',
           {
-            service: serviceName,
-            country:
-              countriesQuery.data?.find((item) => String(item.id) === country)
-                ?.name ?? country,
-            price: formatHeroSmsUSD(
-              Number(offerQuery.data?.customer_price_usd ?? 0)
-            ),
+            quantity: view.effectiveQuantity,
+            service: selectedService?.name ?? service,
+            country: view.selectedCountryName,
+            price: formatHeroSmsPlatformAmount(view.totalPrice),
           }
         )}
         confirmText={t('Confirm purchase')}
-        handleConfirm={() => purchaseMutation.mutate()}
+        disabled={!purchaseBalance.canPurchase || purchaseBalance.isRefreshing}
+        handleConfirm={() => {
+          void purchaseBalance.refresh().then((allowed) => {
+            if (allowed) purchaseMutation.mutate()
+          })
+        }}
         isLoading={purchaseMutation.isPending}
-      />
+      >
+        <SmsBalanceNotice
+          {...purchaseBalance}
+          id='sms-confirm-balance-notice'
+          onRefresh={() => void purchaseBalance.refresh()}
+        />
+      </ConfirmDialog>
     </div>
   )
 }

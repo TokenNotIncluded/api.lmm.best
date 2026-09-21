@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { Link, useLocation } from '@tanstack/react-router'
 import { ChevronRight } from 'lucide-react'
-import { type ReactNode, useState, useEffect } from 'react'
+import { type MouseEvent, type ReactNode, useState, useEffect } from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import {
@@ -46,6 +46,7 @@ import {
   SidebarMenuSubItem,
   useSidebar,
 } from '@/components/ui/sidebar'
+import { useModelPlaza } from '@/context/model-plaza-provider'
 
 import { checkIsActive } from '../lib/url-utils'
 import type {
@@ -63,6 +64,7 @@ import { ChatPresetsItem } from './chat-presets-item'
 export function NavGroup({ title, items }: NavGroupProps) {
   const { state, isMobile } = useSidebar()
   const href = useLocation({ select: (location) => location.href })
+  const { openPanel } = useModelPlaza()
 
   return (
     <SidebarGroup className='px-2 py-1'>
@@ -80,8 +82,16 @@ export function NavGroup({ title, items }: NavGroupProps) {
 
           // If no sub-items, render regular link
           if (!item.items) {
+            const navItem = item as NavLink
             return (
-              <SidebarMenuLink key={key} item={item as NavLink} href={href} />
+              <SidebarMenuLink
+                key={key}
+                item={navItem}
+                href={href}
+                onModelPanelClick={
+                  navItem.interaction === 'model-panel' ? openPanel : undefined
+                }
+              />
             )
           }
 
@@ -120,14 +130,32 @@ function NavBadge({ children }: { children: ReactNode }) {
 /**
  * Sidebar menu link item
  */
-function SidebarMenuLink({ item, href }: { item: NavLink; href: string }) {
+function SidebarMenuLink({
+  item,
+  href,
+  onModelPanelClick,
+}: {
+  item: NavLink
+  href: string
+  onModelPanelClick?: (trigger: HTMLElement) => void
+}) {
   const { setOpenMobile } = useSidebar()
+  const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (onModelPanelClick) {
+      event.preventDefault()
+      onModelPanelClick(event.currentTarget)
+      setOpenMobile(false)
+      return
+    }
+    setOpenMobile(false)
+  }
+
   return (
     <SidebarMenuItem>
       <SidebarMenuButton
         isActive={checkIsActive(href, item)}
         tooltip={item.title}
-        render={<Link to={item.url} onClick={() => setOpenMobile(false)} />}
+        render={<Link to={item.url} onClick={handleClick} />}
       >
         {item.icon && <item.icon className='shrink-0' />}
         <span className='min-w-0 flex-1 truncate'>{item.title}</span>

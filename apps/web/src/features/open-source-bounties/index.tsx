@@ -16,6 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
 import {
   Award01Icon,
   Bug01Icon,
@@ -28,7 +31,6 @@ import {
   FileEditIcon,
   GiftIcon,
   GithubIcon,
-  Loading03Icon,
   Megaphone01Icon,
   MoneyLockIcon,
   PauseIcon,
@@ -41,13 +43,32 @@ import {
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { Heart } from 'lucide-react'
+import { ChevronDown, Heart } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { Dialog } from '@/components/dialog'
 import { Main } from '@/components/layout'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import { LoadingState as PageLoadingState } from '@/components/loading-state'
 import {
   CardStaggerContainer,
   CardStaggerItem,
@@ -69,6 +90,29 @@ import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { TitledCard } from '@/components/ui/titled-card'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
+import { BountyDecision } from '@/features/open-source-bounties/bounty-decision'
+import { BountyProgress } from '@/features/open-source-bounties/bounty-progress'
 import { useStatus } from '@/hooks/use-status'
 import { getSelf } from '@/lib/api'
 import { getBackendCapabilities } from '@/lib/backend-capabilities'
@@ -113,6 +157,10 @@ import {
   withdrawChallenge,
 } from './api'
 import {
+  getBountyLifecycleSummary,
+  type BountyLifecycleSummary,
+} from './lifecycle'
+import {
   selectBountyNotificationChallenge,
   type BountyNotificationDetailTarget,
 } from './notification-target'
@@ -142,6 +190,12 @@ const BOUNTY_QUERY_KEYS = [
   ['open-source-bounties', 'disputes'],
 ] as const
 
+const BOUNTY_VIEW_TAB_CLASS =
+  'h-auto min-h-11 w-full min-w-0 flex-none px-2 py-2 text-center leading-tight whitespace-normal lg:min-h-9 lg:flex-1 lg:px-3'
+
+const BOUNTY_DESCRIPTION_PREVIEW_LINES = 4
+const BOUNTY_DESCRIPTION_COLLAPSE_THRESHOLD = 240
+
 const STATUS_KEYS = {
   draft: 'Draft',
   published: 'Published',
@@ -155,6 +209,12 @@ const STATUS_KEYS = {
   withdrawn: 'Withdrawn',
   cancelled: 'Cancelled by publisher',
 } as const
+
+const CLOSE_BLOCKER_ERROR_CODES = new Set([
+  'OPEN_SOURCE_BOUNTY_ACTIVE_CHALLENGES',
+  'OPEN_SOURCE_BOUNTY_APPEAL_WINDOW',
+  'OPEN_SOURCE_BOUNTY_OPEN_DISPUTES',
+])
 
 const ERROR_KEYS: Record<string, string> = {
   OPEN_SOURCE_BOUNTY_INVALID_REPOSITORY:
@@ -176,6 +236,10 @@ const ERROR_KEYS: Record<string, string> = {
     'Your balance is not enough to publish this bounty.',
   OPEN_SOURCE_BOUNTY_ACTIVE_CHALLENGES:
     'Cancel unsubmitted challenges or review submitted work before closing this bounty.',
+  OPEN_SOURCE_BOUNTY_APPEAL_WINDOW:
+    'Rejected challenges can still be appealed. Wait until the seven-day appeal window ends unless a dispute is opened.',
+  OPEN_SOURCE_BOUNTY_OPEN_DISPUTES:
+    'Resolve all open disputes before closing this bounty or refunding escrow.',
   OPEN_SOURCE_BOUNTY_FULL: 'All reward slots are currently occupied.',
   OPEN_SOURCE_BOUNTY_ALREADY_ACCEPTED:
     'You have already accepted this challenge.',
@@ -226,12 +290,50 @@ function statusLabel(t: (key: string) => string, status: string) {
   return t(STATUS_KEYS[status as keyof typeof STATUS_KEYS] ?? status)
 }
 
-function availableSlots(project: BountyProject) {
+function useBountyLifecycle(project: BountyProject, hasOpenDispute = false) {
+  const deadline = project.appeal_window_ends_at ?? 0
+  const [nowSeconds, setNowSeconds] = useState(() =>
+    Math.floor(Date.now() / 1000)
+  )
+
+  useEffect(() => {
+    const delay = deadline * 1000 - Date.now()
+    if (delay <= 0) return
+    const timeout = window.setTimeout(
+      () => setNowSeconds(Math.floor(Date.now() / 1000)),
+      delay + 50
+    )
+    return () => window.clearTimeout(timeout)
+  }, [deadline])
+
+  return useMemo(
+    () => getBountyLifecycleSummary(project, hasOpenDispute, nowSeconds),
+    [hasOpenDispute, nowSeconds, project]
+  )
+}
+
+function availableSlots(
+  project: BountyProject,
+  lifecycle?: BountyLifecycleSummary
+) {
+  const expiredAppealCount = lifecycle
+    ? Math.max(
+        0,
+        (project.appealable_challenge_count ?? 0) - lifecycle.appealableCount
+      )
+    : 0
   return Math.max(
     0,
     project.reward_slots -
-      project.active_challenge_count -
+      Math.max(0, project.active_challenge_count - expiredAppealCount) -
       project.approved_challenge_count
+  )
+}
+
+function isBountyDescriptionExpandable(description: string) {
+  return (
+    description.length > BOUNTY_DESCRIPTION_COLLAPSE_THRESHOLD ||
+    description.split(/\r?\n/).length > BOUNTY_DESCRIPTION_PREVIEW_LINES
   )
 }
 
@@ -393,6 +495,15 @@ export function OpenSourceBounties({
       return true
     } catch (error) {
       toast.error(errorMessage(error))
+      const code = (error as Error & { code?: string })?.code
+      if (code && CLOSE_BLOCKER_ERROR_CODES.has(code)) {
+        try {
+          await refresh()
+        } catch {
+          // Keep the original action error visible; the next manual refresh can
+          // still recover the lifecycle summary.
+        }
+      }
       return false
     } finally {
       setPending('')
@@ -426,10 +537,16 @@ export function OpenSourceBounties({
       title: draft.title.trim(),
       description: draft.description.trim(),
       rules: draft.rules.trim(),
-      reward_quota: parseQuotaFromDollars(
-        parseBountyNumericInput(draft.rewardAmount)
-      ),
-      reward_slots: parseBountyNumericInput(draft.rewardSlots),
+      reward_quota:
+        editingProject?.status === 'published' ||
+        editingProject?.status === 'paused'
+          ? 0
+          : parseQuotaFromDollars(parseBountyNumericInput(draft.rewardAmount)),
+      reward_slots:
+        editingProject?.status === 'published' ||
+        editingProject?.status === 'paused'
+          ? 0
+          : parseBountyNumericInput(draft.rewardSlots),
     }
     const success = await runAction(
       'save-draft',
@@ -437,7 +554,12 @@ export function OpenSourceBounties({
         editingProject
           ? updateBounty(editingProject.id, input)
           : createBounty(input),
-      editingProject ? 'Bounty draft updated.' : 'Bounty draft created.'
+      editingProject?.status === 'published' ||
+        editingProject?.status === 'paused'
+        ? 'Your changes were saved.'
+        : editingProject
+          ? 'Bounty draft updated.'
+          : 'Bounty draft created.'
     )
     if (success) setDraftOpen(false)
   }
@@ -457,6 +579,7 @@ export function OpenSourceBounties({
   useEffect(() => {
     if (!detailTarget) return
     let cancelled = false
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- an external notification target starts this async load.
     setPending(`detail-${detailTarget.projectId}`)
     void getBountyDetail(detailTarget.projectId)
       .then((nextDetail) => {
@@ -721,8 +844,8 @@ export function OpenSourceBounties({
 
   return (
     <Main>
-      <div className='min-h-0 flex-1 overflow-auto px-3 py-3 sm:px-4 sm:py-6'>
-        <CardStaggerContainer className='mx-auto flex w-full max-w-7xl flex-col gap-4 sm:gap-6'>
+      <div className='min-h-0 flex-1 [scrollbar-gutter:stable] overflow-x-hidden overflow-y-auto px-3 py-3 sm:px-4 sm:py-6'>
+        <CardStaggerContainer className='mx-auto flex w-full max-w-7xl flex-col gap-4 [overflow-wrap:anywhere] sm:gap-6'>
           <CardStaggerItem>
             <div className='flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between'>
               <div className='flex items-start gap-3 sm:gap-4'>
@@ -797,25 +920,41 @@ export function OpenSourceBounties({
           </CardStaggerItem>
 
           <CardStaggerItem>
-            <Tabs defaultValue='browse'>
-              <TabsList className='w-full justify-start overflow-x-auto sm:w-auto'>
-                <TabsTrigger value='browse'>{t('Bounty board')}</TabsTrigger>
-                <TabsTrigger value='owned'>
+            <Tabs defaultValue='browse' className='min-w-0'>
+              <TabsList
+                aria-label={t('Open-source bounties')}
+                className='grid w-full grid-cols-2 gap-1 p-1 group-data-horizontal/tabs:!h-auto sm:grid-cols-3 lg:flex lg:w-full lg:max-w-full lg:flex-nowrap lg:justify-center'
+              >
+                <TabsTrigger value='browse' className={BOUNTY_VIEW_TAB_CLASS}>
+                  {t('Bounty board')}
+                </TabsTrigger>
+                <TabsTrigger value='owned' className={BOUNTY_VIEW_TAB_CLASS}>
                   {t('My bounty projects')}
                   <PendingReviewSuperscript
                     count={pendingReviewCountQuery.data ?? 0}
                     label={t('Pending review')}
                   />
                 </TabsTrigger>
-                <TabsTrigger value='accepted'>{t('My challenges')}</TabsTrigger>
-                <TabsTrigger value='disputes'>{t('My disputes')}</TabsTrigger>
+                <TabsTrigger value='accepted' className={BOUNTY_VIEW_TAB_CLASS}>
+                  {t('My challenges')}
+                </TabsTrigger>
+                <TabsTrigger value='disputes' className={BOUNTY_VIEW_TAB_CLASS}>
+                  {t('My disputes')}
+                </TabsTrigger>
                 {isAdmin ? (
-                  <TabsTrigger value='admin-disputes'>
+                  <TabsTrigger
+                    value='admin-disputes'
+                    className={BOUNTY_VIEW_TAB_CLASS}
+                  >
                     {t('Dispute cases')}
                   </TabsTrigger>
                 ) : null}
-                <TabsTrigger value='mcp'>{t('MCP automation')}</TabsTrigger>
-                <TabsTrigger value='rules'>{t('Rules')}</TabsTrigger>
+                <TabsTrigger value='mcp' className={BOUNTY_VIEW_TAB_CLASS}>
+                  {t('MCP automation')}
+                </TabsTrigger>
+                <TabsTrigger value='rules' className={BOUNTY_VIEW_TAB_CLASS}>
+                  {t('Rules')}
+                </TabsTrigger>
               </TabsList>
 
               <TabsContent value='browse' className='mt-3 sm:mt-4'>
@@ -1024,6 +1163,10 @@ export function OpenSourceBounties({
         open={draftOpen}
         onOpenChange={setDraftOpen}
         editing={Boolean(editingProject)}
+        publishedEditing={
+          editingProject?.status === 'published' ||
+          editingProject?.status === 'paused'
+        }
         draft={draft}
         setDraft={setDraft}
         errors={draftErrors}
@@ -1055,6 +1198,14 @@ export function OpenSourceBounties({
           </>
         }
       >
+        {acceptProject && (
+          <div className='space-y-3'>
+            <BountyDecision project={acceptProject} />
+            <p className='max-h-40 overflow-auto text-sm whitespace-pre-wrap'>
+              {acceptProject.rules}
+            </p>
+          </div>
+        )}
         <div className='flex flex-col gap-2 py-2'>
           <Label htmlFor='bounty-github-handle'>{t('GitHub handle')}</Label>
           <Input
@@ -1294,19 +1445,10 @@ export function OpenSourceBounties({
 }
 
 function LoadingState({ label }: { label: string }) {
-  return (
-    <div className='text-muted-foreground flex min-h-64 items-center justify-center gap-2 text-sm'>
-      <HugeiconsIcon
-        icon={Loading03Icon}
-        strokeWidth={2}
-        className='size-5 animate-spin'
-      />
-      {label}
-    </div>
-  )
+  return <PageLoadingState message={label} />
 }
 
-function BountyCard({
+export function BountyCard({
   project,
   rank,
   viewerUserId,
@@ -1323,8 +1465,14 @@ function BountyCard({
 }) {
   const { t } = useTranslation()
   const challenge = project.viewer_challenge
+  const lifecycle = useBountyLifecycle(project)
   const acceptanceState = getChallengeAcceptanceState(challenge)
-  const slots = availableSlots(project)
+  const slots = availableSlots(project, lifecycle)
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false)
+  const descriptionExpandable = isBountyDescriptionExpandable(
+    project.description
+  )
+  const descriptionId = `bounty-description-${project.id}`
   let viewerAction: React.ReactNode
   if (project.owner_user_id === viewerUserId) {
     viewerAction = <Badge variant='secondary'>{t('Managed by you')}</Badge>
@@ -1369,16 +1517,50 @@ function BountyCard({
   return (
     <TitledCard
       title={project.title}
-      description={`${project.owner_username} · ${statusLabel(t, project.status)}`}
+      description={project.owner_username}
+      titleClassName='[overflow-wrap:anywhere]'
+      descriptionClassName='[overflow-wrap:anywhere]'
       icon={<HugeiconsIcon icon={Bug01Icon} strokeWidth={1.8} />}
       iconTone='primary'
-      action={<BountyRankBadge rank={rank} />}
+      action={
+        <BountyStatusBar project={project} lifecycle={lifecycle} rank={rank} />
+      }
       disableHoverEffect
       contentClassName='flex h-full flex-col gap-4'
     >
-      <p className='text-muted-foreground line-clamp-3 text-sm leading-relaxed'>
-        {project.description}
-      </p>
+      <div className='space-y-2'>
+        <p
+          id={descriptionId}
+          className={cn(
+            'text-muted-foreground text-sm leading-relaxed [overflow-wrap:anywhere] whitespace-pre-wrap',
+            descriptionExpandable && !descriptionExpanded && 'line-clamp-4'
+          )}
+        >
+          {project.description}
+        </p>
+        {descriptionExpandable ? (
+          <Button
+            type='button'
+            variant='ghost'
+            size='sm'
+            className='text-primary hover:text-primary h-8 px-0 hover:bg-transparent hover:underline'
+            aria-expanded={descriptionExpanded}
+            aria-controls={descriptionId}
+            onClick={() => setDescriptionExpanded((expanded) => !expanded)}
+          >
+            {descriptionExpanded
+              ? t('Collapse description')
+              : t('Expand description')}
+            <ChevronDown
+              aria-hidden='true'
+              className={cn(
+                'size-4 transition-transform motion-reduce:transition-none',
+                descriptionExpanded && 'rotate-180'
+              )}
+            />
+          </Button>
+        ) : null}
+      </div>
       <div className='grid grid-cols-2 gap-2 sm:grid-cols-5'>
         <Metric
           label={t('Reward per fix')}
@@ -1410,6 +1592,11 @@ function BountyCard({
           }
         />
       </div>
+      <BountyDecision project={project} />
+      <details className='text-sm'>
+        <summary className='cursor-pointer'>{t('Acceptance rules')}</summary>
+        <p className='mt-2 whitespace-pre-wrap'>{project.rules}</p>
+      </details>
       <div className='mt-auto flex flex-wrap gap-2'>
         <Button
           variant='outline'
@@ -1455,7 +1642,100 @@ function BountyRankBadge({ rank }: { rank: number }) {
   )
 }
 
-function OwnerProjectCard(props: {
+function BountyStatusBar({
+  project,
+  lifecycle,
+  rank,
+}: {
+  project: BountyProject
+  lifecycle: BountyLifecycleSummary
+  rank?: number
+}) {
+  const { t } = useTranslation()
+  const items = [
+    {
+      key: 'participants',
+      label: 'Participants',
+      count: lifecycle.participantCount,
+      className: 'console-status-info-badge',
+      always: true,
+    },
+    {
+      key: 'accepted',
+      label: 'In progress',
+      count: lifecycle.acceptedCount,
+    },
+    {
+      key: 'submitted',
+      label: 'Awaiting review',
+      count: lifecycle.submittedCount,
+      className: 'console-status-warning-badge',
+    },
+    {
+      key: 'approved',
+      label: 'Approved',
+      count: lifecycle.approvedCount,
+      className: 'console-status-success-badge',
+    },
+    {
+      key: 'rejected',
+      label: 'Rejected',
+      count: lifecycle.rejectedCount,
+      className: 'console-status-danger-badge',
+    },
+    {
+      key: 'withdrawn',
+      label: 'Withdrawn',
+      count: lifecycle.withdrawnCount,
+    },
+    {
+      key: 'cancelled',
+      label: 'Cancelled',
+      count: lifecycle.cancelledCount,
+    },
+    {
+      key: 'appealable',
+      label: 'In appeal window',
+      count: lifecycle.appealableCount,
+      className: 'console-status-warning-badge',
+    },
+    {
+      key: 'disputes',
+      label: 'Open disputes',
+      count: lifecycle.openDisputeCount,
+      className: 'console-status-danger-badge',
+    },
+  ]
+
+  return (
+    <div
+      data-bounty-status-bar
+      aria-label={t('Bounty status summary')}
+      className='flex max-w-full flex-wrap items-center gap-1.5 sm:max-w-xl sm:justify-end'
+    >
+      <Badge variant='outline'>{statusLabel(t, project.status)}</Badge>
+      {items
+        .filter((item) => item.always || item.count > 0)
+        .map((item) => (
+          <Badge
+            key={item.key}
+            variant='outline'
+            className={cn(
+              'gap-1.5 whitespace-nowrap tabular-nums',
+              item.className
+            )}
+            aria-label={`${t(item.label)}: ${item.count}`}
+          >
+            <span className='font-mono font-semibold'>{item.count}</span>
+            <span>{t(item.label)}</span>
+          </Badge>
+        ))}
+      {rank === undefined ? null : <BountyRankBadge rank={rank} />}
+    </div>
+  )
+}
+
+export function OwnerProjectCard(props: {
   project: BountyProject
   pending: string
   hasOpenDispute: boolean
@@ -1471,15 +1751,22 @@ function OwnerProjectCard(props: {
 }) {
   const { t } = useTranslation()
   const { project } = props
+  const lifecycle = useBountyLifecycle(project, props.hasOpenDispute)
   const busy = props.pending !== ''
+  const closeBlockerId = `bounty-close-blockers-${project.id}`
+  const appealDeadline = lifecycle.appealWindowEndsAt
+    ? new Date(lifecycle.appealWindowEndsAt * 1000).toLocaleString()
+    : ''
   return (
     <TitledCard
       title={project.title}
       description={project.repository_url}
+      titleClassName='[overflow-wrap:anywhere]'
+      descriptionClassName='break-all'
       icon={<HugeiconsIcon icon={SourceCodeIcon} strokeWidth={1.8} />}
       iconTone='info'
       disableHoverEffect
-      action={<Badge variant='outline'>{statusLabel(t, project.status)}</Badge>}
+      action={<BountyStatusBar project={project} lifecycle={lifecycle} />}
     >
       <div className='flex flex-col gap-4'>
         <div className='grid gap-2 sm:grid-cols-5'>
@@ -1514,14 +1801,58 @@ function OwnerProjectCard(props: {
             value={`${project.active_challenge_count} / ${project.approved_challenge_count}`}
           />
         </div>
-        {props.hasOpenDispute ? (
-          <Alert>
+        {lifecycle.closeBlocked ? (
+          <Alert id={closeBlockerId}>
             <HugeiconsIcon icon={MoneyLockIcon} strokeWidth={2} />
-            <AlertTitle>{t('Funds and reward slots are frozen')}</AlertTitle>
+            <AlertTitle>{t('Why closing is unavailable')}</AlertTitle>
             <AlertDescription>
-              {t(
-                'An open dispute prevents closing, refunding, releasing, or reusing the affected escrow until a third-party administrator resolves the case.'
-              )}
+              <div className='space-y-2'>
+                <p>
+                  {t(
+                    'This bounty cannot be closed yet. Resolve the blockers below:'
+                  )}
+                </p>
+                <ul className='list-disc space-y-1 pl-5'>
+                  {lifecycle.acceptedCount > 0 ||
+                  lifecycle.submittedCount > 0 ? (
+                    <li>
+                      {t(
+                        'In progress: {{accepted}} · Awaiting review: {{submitted}}',
+                        {
+                          accepted: lifecycle.acceptedCount,
+                          submitted: lifecycle.submittedCount,
+                        }
+                      )}
+                    </li>
+                  ) : null}
+                  {lifecycle.appealableCount > 0 ? (
+                    <li>
+                      {t(
+                        'Challenges still in the appeal window: {{count}}. Latest deadline: {{date}}.',
+                        {
+                          count: lifecycle.appealableCount,
+                          date: appealDeadline,
+                        }
+                      )}
+                    </li>
+                  ) : null}
+                  {lifecycle.openDisputeCount > 0 ? (
+                    <li>
+                      {t(
+                        'Open disputes: {{count}}. A third-party administrator must resolve them before escrow can be refunded.',
+                        { count: lifecycle.openDisputeCount }
+                      )}
+                    </li>
+                  ) : null}
+                  {lifecycle.hasUnknownActiveBlocker ? (
+                    <li>
+                      {t(
+                        'Cancel unsubmitted challenges or review submitted work before closing this bounty.'
+                      )}
+                    </li>
+                  ) : null}
+                </ul>
+              </div>
             </AlertDescription>
           </Alert>
         ) : null}
@@ -1602,7 +1933,10 @@ function OwnerProjectCard(props: {
               <Button
                 variant='destructive'
                 onClick={props.onClose}
-                disabled={busy || props.hasOpenDispute}
+                disabled={busy || lifecycle.closeBlocked}
+                aria-describedby={
+                  lifecycle.closeBlocked ? closeBlockerId : undefined
+                }
               >
                 <HugeiconsIcon
                   icon={CancelCircleIcon}
@@ -1670,6 +2004,8 @@ function ChallengeCard({
     <TitledCard
       title={challenge.project_title || t('Bounty challenge')}
       description={`${challenge.owner_username ?? ''} · ${statusLabel(t, challenge.status)}`}
+      titleClassName='[overflow-wrap:anywhere]'
+      descriptionClassName='[overflow-wrap:anywhere]'
       icon={<HugeiconsIcon icon={Bug01Icon} strokeWidth={1.8} />}
       iconTone='neutral'
       action={rank != null ? <BountyRankBadge rank={rank} /> : undefined}
@@ -1686,6 +2022,7 @@ function ChallengeCard({
             value={formatQuota(challenge.tip_quota)}
           />
         </div>
+        <BountyProgress challenge={challenge} />
         <RatingView
           title={t('Verifier rating of your work')}
           score={challenge.owner_rating_score}
@@ -1781,9 +2118,13 @@ function ChallengeCard({
 
 function Metric({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className='bg-muted/50 rounded-lg border p-3'>
-      <p className='text-muted-foreground text-xs'>{label}</p>
-      <p className='mt-1 text-sm font-semibold'>{value}</p>
+    <div className='bg-muted/50 min-w-0 rounded-lg border p-3'>
+      <p className='text-muted-foreground text-xs [overflow-wrap:anywhere]'>
+        {label}
+      </p>
+      <p className='mt-1 text-sm font-semibold [overflow-wrap:anywhere]'>
+        {value}
+      </p>
     </div>
   )
 }
@@ -1831,6 +2172,7 @@ function DraftDialog(props: {
   open: boolean
   onOpenChange: (open: boolean) => void
   editing: boolean
+  publishedEditing: boolean
   draft: DraftForm
   setDraft: (draft: DraftForm) => void
   errors: BountyDraftErrors
@@ -1850,7 +2192,13 @@ function DraftDialog(props: {
     <Dialog
       open={props.open}
       onOpenChange={props.onOpenChange}
-      title={props.editing ? t('Edit bounty draft') : t('Create bounty')}
+      title={
+        props.publishedEditing
+          ? t('Edit')
+          : props.editing
+            ? t('Edit bounty draft')
+            : t('Create bounty')
+      }
       description={t(
         'Drafts are free. Your balance is charged only when you publish.'
       )}
@@ -1881,6 +2229,7 @@ function DraftDialog(props: {
           id='bounty-repository'
           value={props.draft.repositoryUrl}
           onChange={(e) => update('repositoryUrl', e.target.value)}
+          disabled={props.publishedEditing}
           placeholder='https://github.com/owner/repository'
           aria-invalid={Boolean(props.errors.repositoryUrl)}
           aria-describedby={
@@ -1957,6 +2306,7 @@ function DraftDialog(props: {
             step='any'
             value={props.draft.rewardAmount}
             onChange={(e) => update('rewardAmount', e.target.value)}
+            disabled={props.publishedEditing}
             aria-invalid={Boolean(props.errors.rewardAmount)}
             aria-describedby={
               props.errors.rewardAmount ? 'bounty-reward-error' : undefined
@@ -1976,6 +2326,7 @@ function DraftDialog(props: {
             step={1}
             value={props.draft.rewardSlots}
             onChange={(e) => update('rewardSlots', e.target.value)}
+            disabled={props.publishedEditing}
             aria-invalid={Boolean(props.errors.rewardSlots)}
             aria-describedby={
               props.errors.rewardSlots ? 'bounty-slots-error' : undefined

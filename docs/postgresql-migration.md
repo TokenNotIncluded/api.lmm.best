@@ -10,9 +10,7 @@ The fresh contract-1 PostgreSQL baseline requires `users.console_activated_at BI
 
 ## Evidence and scope
 
-The versioned manifest contains exactly 34 application tables and explicitly lists source and target columns, primary keys, indexes, converters, sequence ownership, and the verifier algorithm. The PostgreSQL 18 baseline was generated from the current Go/GORM models on an empty native cluster. `schema/provenance.json` binds the offline SQLite evidence, model inputs, manifest, baseline, and catalog query with SHA-256 hashes.
-
-CI verifies provenance and hard-runs a native PostgreSQL 18 cluster. It validates all 34 tables, 422 columns, 172 indexes, and 29 owned sequences. Docker is not used.
+The versioned manifest defines 34 application tables, their columns, keys, indexes, converters, sequence ownership, and verification rules. CI rehearses the contract on PostgreSQL 18 and validates 34 tables, 424 columns, 172 indexes, and 29 owned sequences.
 
 ## Commands
 
@@ -85,38 +83,35 @@ The baseline is applied to a new isolated schema. All 34 tables are streamed thr
 
 After COPY, all 29 owned sequences are advanced with `setval`; an empty table correctly produces `nextval = 1`. The live PostgreSQL catalog is validated against the manifest. SQLite and PostgreSQL are then read independently and compared using per-table counts and canonical BLAKE3 table hashes. Financial aggregate checks cover users, tokens, logs, quota data, top-ups, subscription orders, and channels without publishing aggregate values.
 
+Account-balance parity is an additive forward step and does not rewrite the
+published table manifest. On an existing PostgreSQL schema, apply
+`migrations/0010_account_balance_access.sql` through the normal forward-migration
+review process as schema contract 10. The forward verifier checks the exact
+`tokens.account_balance_read BOOLEAN NOT NULL DEFAULT FALSE` shape; rerunning
+the migration is idempotent and existing keys remain denied.
+
 COPY, catalog, sequence, or verification failure rolls back the complete target schema transaction. `verify` uses a read-only, repeatable-read PostgreSQL snapshot.
 
 ## Audit output
 
 Success and failure reports are created with mode `0600`, written through a same-directory temporary file, fsynced, atomically renamed, and followed by a parent-directory fsync. Reports contain no DSN, row value, primary-key value, financial value, or underlying error text. Failure reports contain only a stable stage and error category. Standard error uses the same classifications and does not print conversion values or PostgreSQL/SQLite error details.
 
-## Production cutover transaction
+## Production transaction
 
-The autonomous transaction is now implemented under `deploy/backend-cutover/`
-and documented in `docs/postgresql-cutover.md`. It provides write freeze,
-offline backup and verification, a root-owned hash-verified candidate artifact,
-a forward-only PostgreSQL-write boundary written before PostgreSQL environment
-publication, authenticated canaries, an idempotent manual reconciler, and a
-systemd boot gate. A killed coordinator restores the exact saved SQLite
-environment only before the boundary; marker-, journal-, or candidate-hash
-evidence of possible PostgreSQL activation permits only forward reconciliation.
+The retired shell coordinator is not a production entry point. Provider-native
+migration and deployment operations are invoked only through `/usr/bin/lmm-api`
+and follow [`postgresql-cutover.md`](postgresql-cutover.md) plus the normative
+[`backend-cli-deployment-contract.md`](backend-cli-deployment-contract.md).
 
-The migration CLI still only creates a fresh isolated/versioned schema or
-verifies one, or applies an explicitly bound forward contract step; it does not
-stop a service, publish configuration, or switch traffic without the separate
-cutover coordinator. If a live target is already
-PostgreSQL-backed, first verify the active schema, durable `PG_WRITE_BOUNDARY`,
-candidate/environment hashes, and authenticated canaries. A missing boundary or
-failed post-cutover verification is an unverified state that must be reconciled
-before another migration attempt or backend switch. PostgreSQL 18 is the
-persistent authority only after that evidence is accepted; Valkey remains
-reconstructable cache, session/revocation, and rate-limit state rather than a
-database of record.
+A migration command may create or verify an isolated schema or apply an
+explicitly bound forward contract, but it cannot silently authorize traffic or
+provider ownership. If a live target is PostgreSQL-backed, first verify the
+active schema, durable write boundary, candidate/package hashes, and
+authenticated canaries. Missing or failed evidence blocks migration and backend
+selection.
 
-This one-time offline source freeze is bounded maintenance downtime, not a
-zero-downtime migration. Detaching it into systemd survives loss of the
-initiating SSH/API channel, but stopping the sole Go process disconnects active
-HTTP, SSE, and WebSocket clients. Production execution remains prohibited until
-the full isolated rehearsal and explicit operator approval described in the
-cutover runbook are complete.
+After the PostgreSQL write boundary may have been crossed, application rollback
+is manual and restores only N-1 code, provider link, frontend, and configuration
+that remain compatible with the current schema. It never restores SQLite or a
+database snapshot. PostgreSQL remains the persistent authority; Valkey carries
+reconstructable cache, session/revocation, and rate-limit state.

@@ -11,6 +11,11 @@ const (
 	ContextKeyRequestStartTime  ContextKey = "request_start_time"
 	ContextKeyResponseByteLimit ContextKey = "response_byte_limit"
 
+	// Set only after server-side drawing API-key authentication, never from input.
+	ContextKeyDrawingRealToken ContextKey = "drawing_real_token"
+	// Browser-only starting balance, set by the server, never request headers.
+	ContextKeyWebDrawingMinimumQuota ContextKey = "web_drawing_minimum_quota"
+
 	/* token related keys */
 	ContextKeyTokenUnlimited         ContextKey = "token_unlimited_quota"
 	ContextKeyTokenKey               ContextKey = "token_key"

@@ -11,7 +11,7 @@ body:
 
         请说明该需求如何服务于 LMM Forge 的悬赏协作、交付跟踪或运营流程。
 
-        提交前请搜索本仓库的 Issues，并查看[项目 README](https://github.com/LIghtJUNction/api.lmm.best#readme)与[悬赏流程说明](https://github.com/LIghtJUNction/api.lmm.best/blob/main/docs/open-source-bounties.zh-CN.md)。
+        提交前请搜索本仓库的 Issues，并查看[项目 README](https://github.com/TokenNotIncluded/api.lmm.best#readme)与[悬赏流程说明](https://github.com/TokenNotIncluded/api.lmm.best/blob/main/docs/open-source-bounties.zh-CN.md)。
 
         ## 有效反馈奖励
 
@@ -22,7 +22,7 @@ body:
     attributes:
       label: 提交确认
       options:
-        - label: 我已搜索本仓库的 [Issues](https://github.com/LIghtJUNction/api.lmm.best/issues)，确认没有重复建议。
+        - label: 我已搜索本仓库的 [Issues](https://github.com/TokenNotIncluded/api.lmm.best/issues)，确认没有重复建议。
           required: true
         - label: 我已说明此功能如何服务于 LMM Forge 当前产品流程。
           required: true

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/rand"
+	nonSecureRand "math/rand/v2"
 	"net"
 	"net/http"
 	"strings"
@@ -166,9 +166,9 @@ func fetchJSON[T any](ctx context.Context, url string, out *upstreamEnvelope[T])
 		resp, err := getHTTPClient().Do(req)
 		if err != nil {
 			lastErr = err
-			// backoff with jitter
+			// Non-security retry jitter prevents synchronized upstream retries.
 			sleep := baseDelay * time.Duration(1<<attempt)
-			jitter := time.Duration(rand.Intn(150)) * time.Millisecond
+			jitter := time.Duration(nonSecureRand.IntN(150)) * time.Millisecond
 			time.Sleep(sleep + jitter)
 			continue
 		}
@@ -232,7 +232,8 @@ func fetchJSON[T any](ctx context.Context, url string, out *upstreamEnvelope[T])
 			return nil
 		}
 		sleep := baseDelay * time.Duration(1<<attempt)
-		jitter := time.Duration(rand.Intn(150)) * time.Millisecond
+		// Non-security retry jitter prevents synchronized upstream retries.
+		jitter := time.Duration(nonSecureRand.IntN(150)) * time.Millisecond
 		time.Sleep(sleep + jitter)
 	}
 	return lastErr

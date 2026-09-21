@@ -61,8 +61,8 @@ await i18n.use(initReactI18next).init({
       translation: {
         'Report & earn': 'Report & earn',
         'Feedback rewards': 'Feedback rewards',
-        'Valid reports earn at least $5 after review. Submission does not guarantee a reward.':
-          'Valid reports earn at least $5 after review. Submission does not guarantee a reward.',
+        'Valid reports earn at least 5 USD after review. Submission does not guarantee a reward.':
+          'Valid reports earn at least 5 USD after review. Submission does not guarantee a reward.',
         'Frontend improvement': 'Frontend improvement',
         'Improve interface, accessibility, or mobile usability.':
           'Improve interface, accessibility, or mobile usability.',
@@ -119,7 +119,7 @@ describe('FeedbackRewardButton', () => {
     assert.ok(trigger)
     assert.equal(trigger.classList.contains('h-11'), true)
     assert.equal(trigger.classList.contains('min-w-11'), true)
-    assert.match(trigger.textContent ?? '', /\$5\+/)
+    assert.match(trigger.textContent ?? '', /5\+ USD/)
 
     await act(async () => trigger.click())
     const popup = document.querySelector<HTMLElement>(

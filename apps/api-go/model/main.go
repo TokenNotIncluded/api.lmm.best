@@ -55,14 +55,13 @@ var DB *gorm.DB
 
 var LOG_DB *gorm.DB
 
-func CheckSetup() {
-	checkSetup()
+func CheckSetup() error {
+	return checkSetup()
 }
 
 func CheckSetupForStartup(allowMigrationWrite bool) error {
 	if allowMigrationWrite {
-		checkSetup()
-		return nil
+		return checkSetup()
 	}
 	if err := verifySetupState(); err != nil {
 		return err
@@ -89,7 +88,7 @@ func verifySetupState() error {
 	return nil
 }
 
-func checkSetup() {
+func checkSetup() error {
 	setup := GetSetup()
 	if setup == nil {
 		// No setup record exists, check if we have a root user
@@ -103,7 +102,7 @@ func checkSetup() {
 			}
 			err := DB.Create(&newSetup).Error
 			if err != nil {
-				common.SysLog("failed to create setup record: " + err.Error())
+				return fmt.Errorf("create setup record: %w", err)
 			}
 			constant.SetSetup(true)
 		} else {
@@ -115,6 +114,7 @@ func checkSetup() {
 		common.SysLog("system is already initialized at: " + time.Unix(setup.InitializedAt, 0).String())
 		constant.SetSetup(true)
 	}
+	return nil
 }
 
 func isClickHouseDSN(dsn string) bool {
@@ -125,6 +125,8 @@ func isClickHouseDSN(dsn string) bool {
 }
 
 func normalizeClickHouseDSN(dsn string) string {
+	// This parses a connection URL; it never executes dsn as SQL.
+	// pi-lens-ignore: go-sql-injection
 	parsed, err := url.Parse(dsn)
 	if err != nil || parsed.Scheme != "https" {
 		return dsn
@@ -206,6 +208,8 @@ func initDBWithMigrationSession(chooser databaseChooser) (*StartupMigrationSessi
 		return nil, err
 	}
 	session := newStartupMigrationSession(mode)
+	// chooser receives an environment-variable name, not a SQL statement.
+	// pi-lens-ignore: go-sql-injection
 	db, dbType, err := chooser("SQL_DSN", false)
 	if err == nil {
 		common.SetMainDatabaseType(dbType)
@@ -231,6 +235,12 @@ func initDBWithMigrationSession(chooser databaseChooser) (*StartupMigrationSessi
 		sqlDB.SetMaxIdleConns(common.GetEnvOrDefault("SQL_MAX_IDLE_CONNS", 100))
 		sqlDB.SetMaxOpenConns(common.GetEnvOrDefault("SQL_MAX_OPEN_CONNS", 1000))
 		sqlDB.SetConnMaxLifetime(time.Second * time.Duration(common.GetEnvOrDefault("SQL_MAX_LIFETIME", 60)))
+
+		// Verify an existing production schema before AutoMigrate can inspect
+		// the new bigint tags. This check never performs ALTER TABLE.
+		if err := check64BitQuotaSchema(DB, dbType); err != nil {
+			return nil, errors.Join(session.closeOnFailure(err), closeDB(DB))
+		}
 
 		if mode == DBMigrationModeApply && !common.IsMasterNode {
 			// Register before the master migration finishes so relevant writes
@@ -323,27 +333,32 @@ func InitLogDB(session *StartupMigrationSession) (err error) {
 }
 
 func mainMigrationModels() []interface{} {
-	return []interface{}{
+	return append([]interface{}{
+		&RatioNotification{}, &RatioDelivery{},
 		&Channel{}, &Token{}, &UserRankingRevision{}, &User{}, &UserSession{}, &AuthFlow{}, &ExternalIdentityClaim{},
 		&PasskeyCredential{}, &Option{}, &Redemption{}, &Ability{}, &Log{}, &Midjourney{},
-		&DiscountCode{},
+		&DiscountCode{}, &DiscountCodeReservation{},
+		&RedPacket{}, &RedPacketItem{}, &RedPacketClaim{}, &SignalGameRecord{}, &SignalGameAttempt{},
 		&TopUp{}, &QuotaData{}, &Task{}, &Model{}, &Vendor{}, &PrefillGroup{}, &Setup{}, &TwoFA{},
 		&TwoFABackupCode{}, &Checkin{}, &Gift{}, &GiftClaim{}, &OpenSourceBountyProject{}, &OpenSourceBountyChallenge{},
 		&DeveloperAccessRequest{}, &DeveloperAccessRecommendationArchive{},
 		&AccountActionRequest{},
 		&OpenSourceBountyLedger{}, &OpenSourceBountyDispute{}, &OpenSourceBountyMCPToken{},
+		&DrawingMCPToken{},
 		&OpenSourceBountyMCPConfirmation{}, &OpenSourceBountyMCPOperation{}, &OpenSourceBountyRESTOperation{},
-		&SubscriptionOrder{}, &UserSubscription{}, &SubscriptionPreConsumeRecord{}, &CustomOAuthProvider{},
+		&SubscriptionOrder{}, &SubscriptionPaymentEvent{}, &SubscriptionPaymentRefund{}, &WaffoPancakeSubscriptionPayment{}, &WaffoPancakeSubscriptionPeriod{}, &UserSubscription{}, &SubscriptionPreConsumeRecord{},
+		&SubscriptionResetVoucher{}, &SubscriptionResetEvent{}, &SubscriptionResetPreview{}, &SubscriptionResetOperation{}, &CustomOAuthProvider{},
 		&UserOAuthBinding{}, &PerfMetric{}, &SystemInstance{}, &SystemTask{}, &SystemTaskLock{},
 		&CasbinRule{}, &AuthzRole{},
-		&WaffoPancakeWebhookReceipt{},
-		&AssistantLead{}, &AssistantProfileBucket{}, &AssistantUserProfile{}, &AssistantUserProfileAudit{}, &AssistantMemory{}, &AssistantFirstQuestionStat{}, &PromptPresetRow{}, &PromptPresetStat{}, &PromptConversionRef{}, &PromptConversationRef{}, &AssistantConversation{}, &AssistantHistoryMessage{}, &AssistantSecureCard{}, &AssistantSecurityIncident{}, &AssistantSecurityReviewNotice{}, &AssistantRequestReview{}, &AssistantReviewReset{}, &AssistantNewUserGift{}, &AssistantWeeklyDiscount{}, &AssistantGiftRiskKey{}, &AssistantGiftRiskMemory{}, &AdvancedSecurityEvent{},
+		&WaffoPancakeWebhookReceipt{}, &CompanyBillingProfile{},
+		&AssistantLead{}, &AssistantProfileBucket{}, &AssistantUserProfile{}, &AssistantUserProfileAudit{}, &AssistantMemory{}, &AssistantFirstQuestionStat{}, &PromptPresetRow{}, &PromptPresetStat{}, &PromptConversionRef{}, &PromptConversationRef{}, &AssistantConversation{}, &AssistantTurnReceipt{}, &AssistantSupportRequest{}, &AssistantHistoryMessage{}, &AssistantSecureCard{}, &AssistantSecurityIncident{}, &AssistantSecurityReviewNotice{}, &AssistantRequestReview{}, &AssistantReviewReset{}, &AssistantNewUserGift{}, &AssistantWeeklyDiscount{}, &AssistantGiftRiskKey{}, &AssistantGiftRiskMemory{}, &AssistantRegistrationProfile{}, &AssistantRegistrationFingerprint{}, &AssistantRegistrationCase{}, &AssistantRegistrationEvent{}, &AdvancedSecurityEvent{},
 		&ViolationFeeState{}, &ViolationFeeRecord{}, &ViolationFeeAppeal{},
+		&ReferralReward{}, &ReferralLedgerEntry{}, &ReferralModerationEvent{},
 		&FinanceLedgerEntry{}, &FinancePaymentMethod{},
 		&HeroSMSEmailOrder{}, &HeroSMSEmailActivation{}, &HeroSMSEmailQuotaLedger{}, &HeroSMSSMSOrder{}, &HeroSMSSMSQuotaLedger{}, &HeroSMSProviderPurchaseLease{},
-		&ReleaseNote{}, &ReleaseNoteRead{}, &UnifiedTodoRead{}, &L1OnboardingTodo{},
+		&ReleaseNote{}, &ReleaseNoteRead{}, &AnnouncementRead{}, &AcquisitionLink{}, &AcquisitionVisitor{}, &AcquisitionVisit{}, &AcquisitionAccount{}, &AcquisitionConfig{}, &AcquisitionAttributionPolicy{}, &AcquisitionFirstPayment{}, &AcquisitionActivity{}, &AcquisitionActivityState{}, &AcquisitionConsent{}, &AcquisitionSelfReport{}, &AcquisitionCost{}, &AcquisitionCorrection{}, &AcquisitionCorrectionHead{}, &AcquisitionActivityGap{}, &UnifiedTodoRead{}, &L1OnboardingTodo{},
 		&PublicRelayContribution{}, &PublicRelayReport{}, &PublicRelayTip{}, &PublicRelayReview{}, &PublicRelayPreference{},
-	}
+	}, toolMarketModels()...)
 }
 
 func migrateDB() error {
@@ -358,6 +373,14 @@ func migrateDB() error {
 	err := DB.AutoMigrate(mainMigrationModels()...)
 	if err != nil {
 		return err
+	}
+	if err := backfillTokenCreationSources(DB); err != nil {
+		return err
+	}
+	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
+		if err := ensureCompanyBillingProfilePostgresContract(DB); err != nil {
+			return err
+		}
 	}
 	if err := EnsureUserRankingRevisionState(DB); err != nil {
 		return err
@@ -392,7 +415,44 @@ func migrateDB() error {
 			return err
 		}
 	}
+	if err := migrateLegacySubscriptionPlanCurrencies(); err != nil {
+		return err
+	}
 	return nil
+}
+
+func backfillTokenCreationSources(db *gorm.DB) error {
+	if err := db.Model(&Token{}).Where("creation_source IS NULL OR creation_source = ?", "").UpdateColumn("creation_source", TokenCreationSourceManual).Error; err != nil {
+		return fmt.Errorf("backfill token creation source: %w", err)
+	}
+	if err := db.Model(&Token{}).
+		Where("oauth_managed = ? AND creation_source = ? AND name LIKE ?", false, TokenCreationSourceManual, "%的初始令牌").
+		UpdateColumn("creation_source", TokenCreationSourceSystem).Error; err != nil {
+		return fmt.Errorf("backfill system-created initial token source: %w", err)
+	}
+	// Drawing keys created before creation_source was introduced have a stable
+	// server-generated signature. Repair only that exact signature so a user's
+	// similarly named manual key is not reclassified.
+	if err := db.Model(&Token{}).
+		Where("oauth_managed = ? AND creation_source = ? AND unlimited_quota = ? AND expired_time = ?", false, TokenCreationSourceManual, true, -1).
+		Where(map[string]any{"name": "drawing-image-2", "group": DrawingTokenGroup}).
+		UpdateColumn("creation_source", TokenCreationSourceDrawingMCP).Error; err != nil {
+		return fmt.Errorf("backfill drawing MCP token source: %w", err)
+	}
+	return nil
+}
+
+// migrateLegacySubscriptionPlanCurrencies corrects the old contract where the
+// API forced Currency=USD even though PriceAmount was consumed as platform
+// units whose monetary base is CNY. The version column makes this idempotent
+// and preserves explicitly chosen USD prices created by the new contract.
+func migrateLegacySubscriptionPlanCurrencies() error {
+	return DB.Model(&SubscriptionPlan{}).
+		Where("price_currency_version = ?", 0).
+		Updates(map[string]any{
+			"currency":               "CNY",
+			"price_currency_version": 1,
+		}).Error
 }
 
 func migrateDBFast() error {
@@ -415,6 +475,12 @@ func migrateDBFast() error {
 		{&Option{}, "Option"},
 		{&Redemption{}, "Redemption"},
 		{&DiscountCode{}, "DiscountCode"},
+		{&DiscountCodeReservation{}, "DiscountCodeReservation"},
+		{&RedPacket{}, "RedPacket"},
+		{&RedPacketItem{}, "RedPacketItem"},
+		{&RedPacketClaim{}, "RedPacketClaim"},
+		{&SignalGameRecord{}, "SignalGameRecord"},
+		{&SignalGameAttempt{}, "SignalGameAttempt"},
 		{&Ability{}, "Ability"},
 		{&Log{}, "Log"},
 		{&Midjourney{}, "Midjourney"},
@@ -442,8 +508,20 @@ func migrateDBFast() error {
 		{&OpenSourceBountyMCPOperation{}, "OpenSourceBountyMCPOperation"},
 		{&OpenSourceBountyRESTOperation{}, "OpenSourceBountyRESTOperation"},
 		{&SubscriptionOrder{}, "SubscriptionOrder"},
+		{&SubscriptionPaymentEvent{}, "SubscriptionPaymentEvent"},
+		{&SubscriptionPaymentRefund{}, "SubscriptionPaymentRefund"},
+		{&WaffoPancakeSubscriptionPayment{}, "WaffoPancakeSubscriptionPayment"},
+		{&WaffoPancakeSubscriptionPeriod{}, "WaffoPancakeSubscriptionPeriod"},
 		{&UserSubscription{}, "UserSubscription"},
+		{&SubscriptionResetVoucher{}, "SubscriptionResetVoucher"},
+		{&SubscriptionResetEvent{}, "SubscriptionResetEvent"},
+		{&SubscriptionResetPreview{}, "SubscriptionResetPreview"},
+		{&SubscriptionResetOperation{}, "SubscriptionResetOperation"},
 		{&WaffoPancakeWebhookReceipt{}, "WaffoPancakeWebhookReceipt"},
+		{&CompanyBillingProfile{}, "CompanyBillingProfile"},
+		{&ReferralReward{}, "ReferralReward"},
+		{&ReferralLedgerEntry{}, "ReferralLedgerEntry"},
+		{&ReferralModerationEvent{}, "ReferralModerationEvent"},
 		{&FinanceLedgerEntry{}, "FinanceLedgerEntry"},
 		{&FinancePaymentMethod{}, "FinancePaymentMethod"},
 		{&HeroSMSEmailOrder{}, "HeroSMSEmailOrder"},
@@ -470,15 +548,39 @@ func migrateDBFast() error {
 		{&PromptConversionRef{}, "PromptConversionRef"},
 		{&PromptConversationRef{}, "PromptConversationRef"},
 		{&AssistantConversation{}, "AssistantConversation"},
+		{&AssistantTurnReceipt{}, "AssistantTurnReceipt"},
+		{&AssistantSupportRequest{}, "AssistantSupportRequest"},
 		{&AssistantHistoryMessage{}, "AssistantHistoryMessage"},
 		{&AssistantSecureCard{}, "AssistantSecureCard"},
 		{&AssistantSecurityIncident{}, "AssistantSecurityIncident"},
 		{&AssistantRequestReview{}, "AssistantRequestReview"},
 		{&AssistantReviewReset{}, "AssistantReviewReset"},
 		{&AssistantWeeklyDiscount{}, "AssistantWeeklyDiscount"},
+		{&AssistantRegistrationProfile{}, "AssistantRegistrationProfile"},
+		{&AssistantRegistrationFingerprint{}, "AssistantRegistrationFingerprint"},
+		{&AssistantRegistrationCase{}, "AssistantRegistrationCase"},
+		{&AssistantRegistrationEvent{}, "AssistantRegistrationEvent"},
 		{&AdvancedSecurityEvent{}, "AdvancedSecurityEvent"},
 		{&ReleaseNote{}, "ReleaseNote"},
+		{&RatioNotification{}, "RatioNotification"},
+		{&RatioDelivery{}, "RatioDelivery"},
 		{&ReleaseNoteRead{}, "ReleaseNoteRead"},
+		{&AnnouncementRead{}, "AnnouncementRead"},
+		{&AcquisitionLink{}, "AcquisitionLink"},
+		{&AcquisitionVisitor{}, "AcquisitionVisitor"},
+		{&AcquisitionVisit{}, "AcquisitionVisit"},
+		{&AcquisitionAccount{}, "AcquisitionAccount"},
+		{&AcquisitionConfig{}, "AcquisitionConfig"},
+		{&AcquisitionAttributionPolicy{}, "AcquisitionAttributionPolicy"},
+		{&AcquisitionFirstPayment{}, "AcquisitionFirstPayment"},
+		{&AcquisitionActivity{}, "AcquisitionActivity"},
+		{&AcquisitionActivityState{}, "AcquisitionActivityState"},
+		{&AcquisitionConsent{}, "AcquisitionConsent"},
+		{&AcquisitionSelfReport{}, "AcquisitionSelfReport"},
+		{&AcquisitionCost{}, "AcquisitionCost"},
+		{&AcquisitionCorrection{}, "AcquisitionCorrection"},
+		{&AcquisitionCorrectionHead{}, "AcquisitionCorrectionHead"},
+		{&AcquisitionActivityGap{}, "AcquisitionActivityGap"},
 		{&UnifiedTodoRead{}, "UnifiedTodoRead"},
 		{&L1OnboardingTodo{}, "L1OnboardingTodo"},
 		{&PublicRelayContribution{}, "PublicRelayContribution"},
@@ -488,6 +590,12 @@ func migrateDBFast() error {
 		{&PublicRelayPreference{}, "PublicRelayPreference"},
 	}
 	// 动态计算migration数量，确保errChan缓冲区足够大
+	for _, marketModel := range toolMarketModels() {
+		migrations = append(migrations, struct {
+			model interface{}
+			name  string
+		}{marketModel, fmt.Sprintf("%T", marketModel)})
+	}
 	errChan := make(chan error, len(migrations))
 
 	for _, m := range migrations {
@@ -508,6 +616,11 @@ func migrateDBFast() error {
 	// Check for any errors
 	for err := range errChan {
 		if err != nil {
+			return err
+		}
+	}
+	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
+		if err := ensureCompanyBillingProfilePostgresContract(DB); err != nil {
 			return err
 		}
 	}
@@ -589,6 +702,8 @@ func clickHouseLogTTLClause(ttlDays int) string {
 }
 
 func clickHouseLogCreateTableSQL(ttlDays int) string {
+	// ttlDays is an integer bounded by configuration parsing; no SQL text is accepted.
+	// pi-lens-ignore: go-sql-injection, opengrep:go.lang.security.audit.database.string-formatted-query.string-formatted-query
 	return fmt.Sprintf(`
 CREATE TABLE IF NOT EXISTS logs (
 	id Int64 DEFAULT 0,
@@ -663,17 +778,20 @@ func ensureSubscriptionPlanTableSQLite() error {
 ` + "`title`" + ` varchar(128) NOT NULL,
 ` + "`subtitle`" + ` varchar(255) DEFAULT '',
 ` + "`price_amount`" + ` decimal(10,6) NOT NULL,
-` + "`currency`" + ` varchar(8) NOT NULL DEFAULT 'USD',
+` + "`currency`" + ` varchar(8) NOT NULL DEFAULT 'CNY',
+` + "`price_currency_version`" + ` integer NOT NULL DEFAULT 0,
 ` + "`duration_unit`" + ` varchar(16) NOT NULL DEFAULT 'month',
 ` + "`duration_value`" + ` integer NOT NULL DEFAULT 1,
 ` + "`custom_seconds`" + ` bigint NOT NULL DEFAULT 0,
 ` + "`enabled`" + ` numeric DEFAULT 1,
+` + "`archived_at`" + ` bigint NOT NULL DEFAULT 0,
 ` + "`sort_order`" + ` integer DEFAULT 0,
 ` + "`allow_balance_pay`" + ` numeric DEFAULT 1,
 ` + "`allow_wallet_overflow`" + ` numeric DEFAULT 1,
 ` + "`stripe_price_id`" + ` varchar(128) DEFAULT '',
 ` + "`creem_product_id`" + ` varchar(128) DEFAULT '',
 ` + "`waffo_pancake_product_id`" + ` varchar(128) DEFAULT '',
+` + "`waffo_pancake_product_type`" + ` varchar(16) NOT NULL DEFAULT 'subscription',
 ` + "`max_purchase_per_user`" + ` integer DEFAULT 0,
 ` + "`upgrade_group`" + ` varchar(64) DEFAULT '',
 ` + "`downgrade_group`" + ` varchar(64) DEFAULT '',
@@ -700,17 +818,20 @@ PRIMARY KEY (` + "`id`" + `)
 		{Name: "title", DDL: "`title` varchar(128) NOT NULL"},
 		{Name: "subtitle", DDL: "`subtitle` varchar(255) DEFAULT ''"},
 		{Name: "price_amount", DDL: "`price_amount` decimal(10,6) NOT NULL"},
-		{Name: "currency", DDL: "`currency` varchar(8) NOT NULL DEFAULT 'USD'"},
+		{Name: "currency", DDL: "`currency` varchar(8) NOT NULL DEFAULT 'CNY'"},
+		{Name: "price_currency_version", DDL: "`price_currency_version` integer NOT NULL DEFAULT 0"},
 		{Name: "duration_unit", DDL: "`duration_unit` varchar(16) NOT NULL DEFAULT 'month'"},
 		{Name: "duration_value", DDL: "`duration_value` integer NOT NULL DEFAULT 1"},
 		{Name: "custom_seconds", DDL: "`custom_seconds` bigint NOT NULL DEFAULT 0"},
 		{Name: "enabled", DDL: "`enabled` numeric DEFAULT 1"},
+		{Name: "archived_at", DDL: "`archived_at` bigint NOT NULL DEFAULT 0"},
 		{Name: "sort_order", DDL: "`sort_order` integer DEFAULT 0"},
 		{Name: "allow_balance_pay", DDL: "`allow_balance_pay` numeric DEFAULT 1"},
 		{Name: "allow_wallet_overflow", DDL: "`allow_wallet_overflow` numeric DEFAULT 1"},
 		{Name: "stripe_price_id", DDL: "`stripe_price_id` varchar(128) DEFAULT ''"},
 		{Name: "creem_product_id", DDL: "`creem_product_id` varchar(128) DEFAULT ''"},
 		{Name: "waffo_pancake_product_id", DDL: "`waffo_pancake_product_id` varchar(128) DEFAULT ''"},
+		{Name: "waffo_pancake_product_type", DDL: "`waffo_pancake_product_type` varchar(16) NOT NULL DEFAULT 'subscription'"},
 		{Name: "max_purchase_per_user", DDL: "`max_purchase_per_user` integer DEFAULT 0"},
 		{Name: "upgrade_group", DDL: "`upgrade_group` varchar(64) DEFAULT ''"},
 		{Name: "downgrade_group", DDL: "`downgrade_group` varchar(64) DEFAULT ''"},
@@ -724,7 +845,7 @@ PRIMARY KEY (` + "`id`" + `)
 		if _, ok := existing[col.Name]; ok {
 			continue
 		}
-		// pi-lens-ignore: ast-grep:gorm-n-plus-one
+		// pi-lens-ignore: ast-grep:gorm-n-plus-one, opengrep:go.lang.security.audit.database.string-formatted-query.string-formatted-query
 		if err := DB.Exec("ALTER TABLE `" + tableName + "` ADD COLUMN " + col.DDL).Error; err != nil {
 			return err
 		}
@@ -763,6 +884,8 @@ func migrateTokenModelLimitsToText() error {
 		} else if dataType == "text" {
 			return nil
 		}
+		// Both identifiers above are compile-time constants for this migration.
+		// pi-lens-ignore: go-sql-injection, opengrep:go.lang.security.audit.database.string-formatted-query.string-formatted-query
 		alterSQL = fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN %s TYPE text`, tableName, columnName)
 	} else if common.UsingMainDatabase(common.DatabaseTypeMySQL) {
 		var columnType string
@@ -773,6 +896,8 @@ func migrateTokenModelLimitsToText() error {
 		} else if strings.ToLower(columnType) == "text" {
 			return nil
 		}
+		// Both identifiers above are compile-time constants for this migration.
+		// pi-lens-ignore: go-sql-injection, opengrep:go.lang.security.audit.database.string-formatted-query.string-formatted-query
 		alterSQL = fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN %s text", tableName, columnName)
 	} else {
 		return nil
@@ -822,6 +947,8 @@ func migrateSubscriptionPlanPriceAmount() {
 		} else if dataType == "numeric" {
 			return // Already decimal/numeric
 		}
+		// All identifiers above are compile-time constants for this migration.
+		// pi-lens-ignore: go-sql-injection, opengrep:go.lang.security.audit.database.string-formatted-query.string-formatted-query
 		alterSQL = fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN %s TYPE decimal(10,6) USING %s::decimal(10,6)`,
 			tableName, columnName, columnName)
 	} else if common.UsingMainDatabase(common.DatabaseTypeMySQL) {
@@ -834,6 +961,8 @@ func migrateSubscriptionPlanPriceAmount() {
 		} else if strings.HasPrefix(strings.ToLower(columnType), "decimal") {
 			return // Already decimal
 		}
+		// Both identifiers above are compile-time constants for this migration.
+		// pi-lens-ignore: go-sql-injection, opengrep:go.lang.security.audit.database.string-formatted-query.string-formatted-query
 		alterSQL = fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN %s decimal(10,6) NOT NULL DEFAULT 0",
 			tableName, columnName)
 	} else {
@@ -850,23 +979,28 @@ func migrateSubscriptionPlanPriceAmount() {
 }
 
 func closeDB(db *gorm.DB) error {
+	if db == nil {
+		return nil
+	}
 	sqlDB, err := db.DB()
 	if err != nil {
 		return err
 	}
-	err = sqlDB.Close()
-	return err
+	return sqlDB.Close()
 }
 
 // pi-lens-ignore: go-bare-error
 func CloseDB() error {
-	if LOG_DB != DB {
-		err := closeDB(LOG_DB)
-		if err != nil {
-			return err
-		}
+	var err error
+	if LOG_DB != nil && LOG_DB != DB {
+		err = errors.Join(err, closeDB(LOG_DB))
+		LOG_DB = nil
 	}
-	return closeDB(DB)
+	if DB != nil {
+		err = errors.Join(err, closeDB(DB))
+		DB = nil
+	}
+	return err
 }
 
 // checkMySQLChineseSupport ensures the MySQL connection and current schema

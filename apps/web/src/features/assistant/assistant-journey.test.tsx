@@ -119,7 +119,10 @@ describe('assistant game-style progress', () => {
       const text = rendered.container.textContent ?? ''
       assert.match(text, /Main quest 1\/1/)
       assert.match(text, /Side quest 0\/2/)
-      assert.match(text, /Chat with AI to earn a \$0–\$10 new-user gift/)
+      assert.match(
+        text,
+        /Chat with AI to earn a \$0–\$10 \(Platform\) new-user gift/
+      )
       assert.match(text, /Accept an open-source bounty/)
     } finally {
       await unmount(rendered)

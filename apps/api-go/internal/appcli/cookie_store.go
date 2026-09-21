@@ -1,8 +1,14 @@
 package appcli
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	cryptorand "crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -15,7 +21,14 @@ import (
 	"golang.org/x/net/publicsuffix"
 )
 
-const cookieFileFormat = 1
+const (
+	cookieFileFormat          = 1
+	encryptedCookieFileFormat = 2
+	cookieStoreKeyEnvironment = "LMM_COOKIE_STORE_KEY"
+	cookieStoreKeyBytes       = 32
+	cookieStoreFileLimit      = 1 << 20
+	cookieStoreAAD            = "lmm-api-cookie-store-v2"
+)
 
 type storedCookie struct {
 	Origin   string        `json:"origin"`
@@ -35,9 +48,16 @@ type cookieFile struct {
 	Cookies []storedCookie `json:"cookies"`
 }
 
+type encryptedCookieFile struct {
+	Format     int    `json:"format"`
+	Nonce      string `json:"nonce"`
+	Ciphertext string `json:"ciphertext"`
+}
+
 type persistentJar struct {
 	jar     http.CookieJar
 	path    string
+	key     []byte
 	mu      sync.Mutex
 	records map[string]storedCookie
 }
@@ -53,6 +73,10 @@ func newPersistentJar(path string) (*persistentJar, error) {
 		records: make(map[string]storedCookie),
 	}
 	if path != "" {
+		persistent.key, err = loadCookieStoreKey(path)
+		if err != nil {
+			return nil, fmt.Errorf("load cookie encryption key: %w", err)
+		}
 		if err := persistent.load(); err != nil {
 			return nil, err
 		}
@@ -82,19 +106,16 @@ func (jar *persistentJar) SetCookies(target *url.URL, cookies []*http.Cookie) {
 }
 
 func (jar *persistentJar) load() error {
-	data, err := readPrivateOptionalFile(jar.path, 1<<20)
+	data, err := readPrivateOptionalFile(jar.path, cookieStoreFileLimit)
 	if err != nil {
 		return fmt.Errorf("load cookie file: %w", err)
 	}
 	if len(data) == 0 {
 		return nil
 	}
-	var state cookieFile
-	if err := json.Unmarshal(data, &state); err != nil {
+	state, err := decryptCookieFile(data, jar.key)
+	if err != nil {
 		return fmt.Errorf("parse cookie file: %w", err)
-	}
-	if state.Format != cookieFileFormat {
-		return fmt.Errorf("unsupported cookie file format: %d", state.Format)
 	}
 
 	now := time.Now()
@@ -106,14 +127,15 @@ func (jar *persistentJar) load() error {
 		if err != nil || origin.Scheme == "" || origin.Host == "" {
 			return fmt.Errorf("cookie file contains an invalid origin")
 		}
+		// pi-lens-ignore: opengrep:go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
 		cookie := &http.Cookie{
 			Name:     record.Name,
 			Value:    record.Value,
 			Path:     record.Path,
 			Domain:   record.Domain,
 			Expires:  record.Expires,
-			Secure:   record.Secure,
-			HttpOnly: record.HTTPOnly,
+			Secure:   record.Secure || origin.Scheme == "https",
+			HttpOnly: true,
 			SameSite: record.SameSite,
 		}
 		jar.jar.SetCookies(origin, []*http.Cookie{cookie})
@@ -141,15 +163,157 @@ func (jar *persistentJar) save() error {
 	sort.Slice(cookies, func(left, right int) bool {
 		return cookieKey(cookies[left]) < cookieKey(cookies[right])
 	})
-	data, err := json.Marshal(cookieFile{Format: cookieFileFormat, Cookies: cookies})
+	data, err := encryptCookieFile(cookieFile{Format: cookieFileFormat, Cookies: cookies}, jar.key)
 	if err != nil {
 		return fmt.Errorf("encode cookie file: %w", err)
 	}
-	data = append(data, '\n')
 	if err := writePrivateFile(jar.path, data); err != nil {
 		return fmt.Errorf("save cookie file: %w", err)
 	}
 	return nil
+}
+
+func encryptCookieFile(state cookieFile, key []byte) ([]byte, error) {
+	plaintext, err := json.Marshal(state)
+	if err != nil {
+		return nil, err
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, fmt.Errorf("create cookie cipher: %w", err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("create cookie GCM: %w", err)
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(cryptorand.Reader, nonce); err != nil {
+		return nil, fmt.Errorf("generate cookie nonce: %w", err)
+	}
+	ciphertext := gcm.Seal(nil, nonce, plaintext, []byte(cookieStoreAAD))
+	envelope := encryptedCookieFile{
+		Format:     encryptedCookieFileFormat,
+		Nonce:      base64.RawURLEncoding.EncodeToString(nonce),
+		Ciphertext: base64.RawURLEncoding.EncodeToString(ciphertext),
+	}
+	data, err := json.Marshal(envelope)
+	if err != nil {
+		return nil, err
+	}
+	return append(data, '\n'), nil
+}
+
+func decryptCookieFile(data, key []byte) (cookieFile, error) {
+	var marker struct {
+		Format int `json:"format"`
+	}
+	if err := json.Unmarshal(data, &marker); err != nil {
+		return cookieFile{}, err
+	}
+	if marker.Format == cookieFileFormat {
+		// Format 1 was private-permission JSON. Read it once for compatibility;
+		// the next save always migrates it to authenticated encryption.
+		var legacy cookieFile
+		if err := json.Unmarshal(data, &legacy); err != nil {
+			return cookieFile{}, err
+		}
+		return legacy, nil
+	}
+	if marker.Format != encryptedCookieFileFormat {
+		return cookieFile{}, fmt.Errorf("unsupported cookie file format: %d", marker.Format)
+	}
+	var envelope encryptedCookieFile
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		return cookieFile{}, err
+	}
+	nonce, err := base64.RawURLEncoding.DecodeString(envelope.Nonce)
+	if err != nil {
+		return cookieFile{}, fmt.Errorf("decode cookie nonce: %w", err)
+	}
+	ciphertext, err := base64.RawURLEncoding.DecodeString(envelope.Ciphertext)
+	if err != nil {
+		return cookieFile{}, fmt.Errorf("decode cookie ciphertext: %w", err)
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return cookieFile{}, fmt.Errorf("create cookie cipher: %w", err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return cookieFile{}, fmt.Errorf("create cookie GCM: %w", err)
+	}
+	if len(nonce) != gcm.NonceSize() {
+		return cookieFile{}, fmt.Errorf("cookie nonce has invalid length")
+	}
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, []byte(cookieStoreAAD))
+	if err != nil {
+		return cookieFile{}, fmt.Errorf("decrypt cookie file: %w", err)
+	}
+	var state cookieFile
+	if err := json.Unmarshal(plaintext, &state); err != nil {
+		return cookieFile{}, err
+	}
+	if state.Format != cookieFileFormat {
+		return cookieFile{}, fmt.Errorf("unsupported encrypted cookie payload format: %d", state.Format)
+	}
+	return state, nil
+}
+
+func loadCookieStoreKey(cookiePath string) ([]byte, error) {
+	if secret := strings.TrimSpace(os.Getenv(cookieStoreKeyEnvironment)); secret != "" {
+		if len(secret) < cookieStoreKeyBytes {
+			return nil, fmt.Errorf("%s must contain at least %d bytes", cookieStoreKeyEnvironment, cookieStoreKeyBytes)
+		}
+		sum := sha256.Sum256([]byte(cookieStoreAAD + "\x00" + secret))
+		return sum[:], nil
+	}
+
+	keyPath := cookiePath + ".key"
+	encoded, err := readPrivateOptionalFile(keyPath, 256)
+	if err != nil {
+		return nil, err
+	}
+	if len(encoded) != 0 {
+		key, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(string(encoded)))
+		if err != nil || len(key) != cookieStoreKeyBytes {
+			return nil, fmt.Errorf("cookie key file is invalid")
+		}
+		return key, nil
+	}
+
+	key := make([]byte, cookieStoreKeyBytes)
+	if _, err := io.ReadFull(cryptorand.Reader, key); err != nil {
+		return nil, fmt.Errorf("generate cookie key: %w", err)
+	}
+	file, err := os.OpenFile(keyPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if os.IsExist(err) {
+		return loadCookieStoreKey(cookiePath)
+	}
+	if err != nil {
+		return nil, err
+	}
+	committed := false
+	defer func() {
+		_ = file.Close()
+		if !committed {
+			_ = os.Remove(keyPath)
+		}
+	}()
+	if err := file.Chmod(0o600); err != nil {
+		return nil, err
+	}
+	keyData := append([]byte(base64.RawURLEncoding.EncodeToString(key)), '\n')
+	if _, err := file.Write(keyData); err != nil {
+		return nil, err
+	}
+	if err := file.Sync(); err != nil {
+		return nil, err
+	}
+	if err := file.Close(); err != nil {
+		return nil, err
+	}
+	committed = true
+	return key, nil
 }
 
 func cookieRecord(target *url.URL, cookie *http.Cookie, now time.Time) storedCookie {

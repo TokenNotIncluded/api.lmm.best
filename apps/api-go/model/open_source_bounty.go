@@ -145,13 +145,22 @@ type OpenSourceBountyDraftInput struct {
 
 type OpenSourceBountyProjectView struct {
 	OpenSourceBountyProject
-	OwnerUsername          string                     `json:"owner_username"`
-	ActiveChallengeCount   int64                      `json:"active_challenge_count"`
-	ApprovedChallengeCount int64                      `json:"approved_challenge_count"`
-	OwnerRatingAverage     float64                    `json:"owner_rating_average"`
-	OwnerRatingCount       int64                      `json:"owner_rating_count"`
-	OwnerThankHeartCount   int64                      `json:"owner_thank_heart_count"`
-	ViewerChallenge        *OpenSourceBountyChallenge `json:"viewer_challenge,omitempty" gorm:"-"`
+	OwnerUsername            string                     `json:"owner_username"`
+	ParticipantCount         int64                      `json:"participant_count"`
+	ActiveChallengeCount     int64                      `json:"active_challenge_count"`
+	AcceptedChallengeCount   int64                      `json:"accepted_challenge_count"`
+	SubmittedChallengeCount  int64                      `json:"submitted_challenge_count"`
+	ApprovedChallengeCount   int64                      `json:"approved_challenge_count"`
+	RejectedChallengeCount   int64                      `json:"rejected_challenge_count"`
+	WithdrawnChallengeCount  int64                      `json:"withdrawn_challenge_count"`
+	CancelledChallengeCount  int64                      `json:"cancelled_challenge_count"`
+	AppealableChallengeCount int64                      `json:"appealable_challenge_count"`
+	AppealWindowEndsAt       int64                      `json:"appeal_window_ends_at"`
+	OpenDisputeCount         int64                      `json:"open_dispute_count"`
+	OwnerRatingAverage       float64                    `json:"owner_rating_average"`
+	OwnerRatingCount         int64                      `json:"owner_rating_count"`
+	OwnerThankHeartCount     int64                      `json:"owner_thank_heart_count"`
+	ViewerChallenge          *OpenSourceBountyChallenge `json:"viewer_challenge,omitempty" gorm:"-"`
 }
 
 type OpenSourceBountyTipNotification struct {
@@ -424,6 +433,57 @@ func UpdateOpenSourceBountyDraft(ownerUserId int, projectId int, input OpenSourc
 	return GetOpenSourceBountyProject(projectId)
 }
 
+// UpdateOpenSourceBountyContent edits only the human-authored fields of an
+// active listing. Rewards, escrow, challenges, and lifecycle state are never
+// accepted from this path.
+func UpdateOpenSourceBountyContent(actorUserId int, projectId int, input OpenSourceBountyDraftInput) (*OpenSourceBountyProject, error) {
+	if actorUserId <= 0 {
+		return nil, bountyError("OPEN_SOURCE_BOUNTY_UNAUTHORIZED", "invalid bounty editor")
+	}
+	if _, err := normalizeBountyText(input.Title, input.Description, input.Rules); err != nil {
+		return nil, err
+	}
+	var project OpenSourceBountyProject
+	if err := DB.Where("id = ?", projectId).First(&project).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, bountyError("OPEN_SOURCE_BOUNTY_NOT_FOUND", "bounty project was not found")
+		}
+		return nil, err
+	}
+	if project.Status != OpenSourceBountyStatusPublished && project.Status != OpenSourceBountyStatusPaused {
+		return nil, bountyError("OPEN_SOURCE_BOUNTY_INVALID_STATE", "only an active published bounty can be edited")
+	}
+	if project.OwnerUserId != actorUserId && !IsAdmin(actorUserId) {
+		return nil, bountyError("OPEN_SOURCE_BOUNTY_FORBIDDEN", "only the bounty owner or an administrator can edit this bounty")
+	}
+	text, _ := normalizeBountyText(input.Title, input.Description, input.Rules)
+	result := DB.Model(&OpenSourceBountyProject{}).Where("id = ? AND status IN ?", projectId, []string{OpenSourceBountyStatusPublished, OpenSourceBountyStatusPaused}).Updates(map[string]interface{}{
+		"title": text.Title, "description": text.Description, "rules": text.Rules, "updated_at": common.GetTimestamp(),
+	})
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected != 1 {
+		return nil, bountyError("OPEN_SOURCE_BOUNTY_INVALID_STATE", "bounty state changed before the edit was saved")
+	}
+	RecordLog(actorUserId, LogTypeSystem, fmt.Sprintf("Edited open-source bounty %d content", projectId))
+	return GetOpenSourceBountyProject(projectId)
+}
+
+func normalizeBountyText(title, description, rules string) (OpenSourceBountyDraftInput, error) {
+	input := OpenSourceBountyDraftInput{Title: strings.TrimSpace(title), Description: strings.TrimSpace(description), Rules: strings.TrimSpace(rules)}
+	if len(input.Title) < 4 || len(input.Title) > 120 {
+		return input, bountyError("OPEN_SOURCE_BOUNTY_INVALID_TITLE", "title must contain 4 to 120 characters")
+	}
+	if len(input.Description) < 20 || len(input.Description) > 2000 {
+		return input, bountyError("OPEN_SOURCE_BOUNTY_INVALID_DESCRIPTION", "description must contain 20 to 2000 characters")
+	}
+	if len(input.Rules) < 20 || len(input.Rules) > 5000 {
+		return input, bountyError("OPEN_SOURCE_BOUNTY_INVALID_RULES", "rules must contain 20 to 5000 characters")
+	}
+	return input, nil
+}
+
 func DeleteOpenSourceBountyDraft(ownerUserId int, projectId int) error {
 	return deleteOpenSourceBountyDraft(ownerUserId, projectId, nil)
 }
@@ -488,8 +548,10 @@ func publishOpenSourceBounty(ownerUserId int, projectId int, operation *OpenSour
 			return err
 		}
 		chargedQuota = charge.TotalQuota
-		result := tx.Model(&User{}).Where("id = ? AND deleted_at IS NULL AND quota >= ?", ownerUserId, chargedQuota).
-			Update("quota", gorm.Expr("quota - ?", chargedQuota))
+		result := UpdateWalletQuotaByDelta(
+			tx.Model(&User{}).Where("id = ? AND deleted_at IS NULL AND quota >= ?", ownerUserId, chargedQuota),
+			-chargedQuota,
+		)
 		if result.Error != nil {
 			return result.Error
 		}
@@ -504,9 +566,10 @@ func publishOpenSourceBounty(ownerUserId int, projectId int, operation *OpenSour
 			if operation != nil && operation.PlatformFeeRecipientUserId != recipient.Id {
 				return bountyError("OPEN_SOURCE_BOUNTY_MCP_CONFIRMATION_INVALID", "the platform fee recipient changed; request a new confirmation")
 			}
-			result := tx.Model(&User{}).
-				Where("id = ? AND role = ? AND status = ? AND deleted_at IS NULL", recipient.Id, common.RoleRootUser, common.UserStatusEnabled).
-				Update("quota", gorm.Expr("quota + ?", charge.PlatformFeeQuota))
+			result := UpdateWalletQuotaByDelta(
+				tx.Model(&User{}).Where("id = ? AND role = ? AND status = ? AND deleted_at IS NULL", recipient.Id, common.RoleRootUser, common.UserStatusEnabled),
+				charge.PlatformFeeQuota,
+			)
 			if result.Error != nil {
 				return result.Error
 			}
@@ -645,8 +708,10 @@ func closeOpenSourceBounty(ownerUserId int, projectId int, operation *OpenSource
 		}
 		refundedQuota = project.EscrowQuota
 		if refundedQuota > 0 {
-			result := tx.Model(&User{}).Where("id = ? AND deleted_at IS NULL", ownerUserId).
-				Update("quota", gorm.Expr("quota + ?", refundedQuota))
+			result := UpdateWalletQuotaByDelta(
+				tx.Model(&User{}).Where("id = ? AND deleted_at IS NULL", ownerUserId),
+				refundedQuota,
+			)
 			if result.Error != nil {
 				return result.Error
 			}
@@ -755,6 +820,7 @@ func openSourceBountyProjectQuery() *gorm.DB {
 	appealCutoff := common.GetTimestamp() - OpenSourceBountyAppealWindowSeconds
 	return DB.Table("open_source_bounty_projects AS p").
 		Select(`p.*, u.username AS owner_username,
+			(SELECT COUNT(*) FROM open_source_bounty_challenges c WHERE c.project_id = p.id) AS participant_count,
 			(SELECT COUNT(*) FROM open_source_bounty_challenges c WHERE c.project_id = p.id AND (
 				c.status IN ('accepted','submitted') OR
 				(c.status = 'rejected' AND c.rejected_at > ? AND NOT EXISTS (
@@ -763,10 +829,22 @@ func openSourceBountyProjectQuery() *gorm.DB {
 					SELECT 1 FROM open_source_bounty_disputes dispute WHERE dispute.challenge_id = c.id AND dispute.status = 'open'
 				)
 			)) AS active_challenge_count,
+			(SELECT COUNT(*) FROM open_source_bounty_challenges c WHERE c.project_id = p.id AND c.status = 'accepted') AS accepted_challenge_count,
+			(SELECT COUNT(*) FROM open_source_bounty_challenges c WHERE c.project_id = p.id AND c.status = 'submitted') AS submitted_challenge_count,
 			(SELECT COUNT(*) FROM open_source_bounty_challenges c WHERE c.project_id = p.id AND c.status = 'approved') AS approved_challenge_count,
+			(SELECT COUNT(*) FROM open_source_bounty_challenges c WHERE c.project_id = p.id AND c.status = 'rejected') AS rejected_challenge_count,
+			(SELECT COUNT(*) FROM open_source_bounty_challenges c WHERE c.project_id = p.id AND c.status = 'withdrawn') AS withdrawn_challenge_count,
+			(SELECT COUNT(*) FROM open_source_bounty_challenges c WHERE c.project_id = p.id AND c.status = 'cancelled') AS cancelled_challenge_count,
+			(SELECT COUNT(*) FROM open_source_bounty_challenges c WHERE c.project_id = p.id AND c.status = 'rejected' AND c.rejected_at > ? AND NOT EXISTS (
+				SELECT 1 FROM open_source_bounty_disputes dispute WHERE dispute.challenge_id = c.id AND dispute.status IN ('open','resolved_paid','resolved_denied')
+			)) AS appealable_challenge_count,
+			COALESCE((SELECT MAX(c.rejected_at + ?) FROM open_source_bounty_challenges c WHERE c.project_id = p.id AND c.status = 'rejected' AND c.rejected_at > ? AND NOT EXISTS (
+				SELECT 1 FROM open_source_bounty_disputes dispute WHERE dispute.challenge_id = c.id AND dispute.status IN ('open','resolved_paid','resolved_denied')
+			)), 0) AS appeal_window_ends_at,
+			(SELECT COUNT(DISTINCT dispute.challenge_id) FROM open_source_bounty_disputes dispute WHERE dispute.project_id = p.id AND dispute.status = 'open') AS open_dispute_count,
 			COALESCE((SELECT AVG(c.contributor_rating_score) FROM open_source_bounty_challenges c JOIN open_source_bounty_projects rated_project ON rated_project.id = c.project_id WHERE rated_project.owner_user_id = p.owner_user_id AND c.contributor_rating_score > 0), 0) AS owner_rating_average,
 			(SELECT COUNT(*) FROM open_source_bounty_challenges c JOIN open_source_bounty_projects rated_project ON rated_project.id = c.project_id WHERE rated_project.owner_user_id = p.owner_user_id AND c.contributor_rating_score > 0) AS owner_rating_count,
-			(SELECT COUNT(*) FROM open_source_bounty_ledgers heart WHERE heart.user_id = p.owner_user_id AND heart.kind = 'tip_transfer' AND heart.thanked_at > 0) AS owner_thank_heart_count`, appealCutoff).
+			(SELECT COUNT(*) FROM open_source_bounty_ledgers heart WHERE heart.user_id = p.owner_user_id AND heart.kind = 'tip_transfer' AND heart.thanked_at > 0) AS owner_thank_heart_count`, appealCutoff, appealCutoff, OpenSourceBountyAppealWindowSeconds, appealCutoff).
 		Joins("JOIN users u ON u.id = p.owner_user_id AND u.deleted_at IS NULL")
 }
 
@@ -1412,8 +1490,10 @@ func reviewOpenSourceBountyChallenge(ownerUserId int, challengeId int, approve b
 			return bountyError("OPEN_SOURCE_BOUNTY_ESCROW_INSUFFICIENT", "bounty escrow is insufficient")
 		}
 		participantUserId = challenge.ParticipantUserId
-		result := tx.Model(&User{}).Where("id = ? AND deleted_at IS NULL", participantUserId).
-			Update("quota", gorm.Expr("quota + ?", challenge.RewardQuota))
+		result := UpdateWalletQuotaByDelta(
+			tx.Model(&User{}).Where("id = ? AND deleted_at IS NULL", participantUserId),
+			challenge.RewardQuota,
+		)
 		if result.Error != nil {
 			return result.Error
 		}
@@ -1602,17 +1682,20 @@ func tipOpenSourceBountyChallenge(ownerUserId int, challengeId int, quota int, n
 		if participantUserId == ownerUserId {
 			return bountyError("OPEN_SOURCE_BOUNTY_SELF_TIP", "bounty owners cannot tip themselves")
 		}
-		debit := tx.Model(&User{}).
-			Where("id = ? AND deleted_at IS NULL AND quota >= ?", ownerUserId, quota).
-			Update("quota", gorm.Expr("quota - ?", quota))
+		debit := UpdateWalletQuotaByDelta(
+			tx.Model(&User{}).Where("id = ? AND deleted_at IS NULL AND quota >= ?", ownerUserId, quota),
+			-quota,
+		)
 		if debit.Error != nil {
 			return debit.Error
 		}
 		if debit.RowsAffected != 1 {
 			return bountyError("OPEN_SOURCE_BOUNTY_INSUFFICIENT_BALANCE", "insufficient balance to send this tip")
 		}
-		credit := tx.Model(&User{}).Where("id = ? AND deleted_at IS NULL", participantUserId).
-			Update("quota", gorm.Expr("quota + ?", quota))
+		credit := UpdateWalletQuotaByDelta(
+			tx.Model(&User{}).Where("id = ? AND deleted_at IS NULL", participantUserId),
+			quota,
+		)
 		if credit.Error != nil {
 			return credit.Error
 		}

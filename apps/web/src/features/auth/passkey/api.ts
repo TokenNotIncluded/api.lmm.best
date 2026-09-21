@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { api } from '@/lib/api'
+import { api, type ApiRequestConfig } from '@/lib/api'
 
 import type {
   SecurityProof,
@@ -28,8 +28,13 @@ function proofHeaders(proofToken?: string): Record<string, string> | undefined {
   return proofToken ? { 'X-Security-Proof': proofToken } : undefined
 }
 
-export async function getPasskeyStatus(): Promise<ApiResponse<PasskeyStatus>> {
-  const res = await api.get<ApiResponse<PasskeyStatus>>('/api/user/passkey')
+export async function getPasskeyStatus(
+  config: Pick<ApiRequestConfig, 'skipErrorHandler'> = {}
+): Promise<ApiResponse<PasskeyStatus>> {
+  const res = await api.get<ApiResponse<PasskeyStatus>>(
+    '/api/user/passkey',
+    config
+  )
   return res.data
 }
 

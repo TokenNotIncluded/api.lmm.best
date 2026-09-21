@@ -83,6 +83,34 @@ func openSourceBountyInput(repository string, reward int, slots int) OpenSourceB
 	}
 }
 
+func TestUpdateOpenSourceBountyContentAllowsOwnerAndAdminWithoutChangingFunding(t *testing.T) {
+	db := setupOpenSourceBountyTestDB(t)
+	owner := createOpenSourceBountyUser(t, db, "content-owner", 100_000, common.RoleCommonUser)
+	admin := createOpenSourceBountyUser(t, db, "content-admin", 0, common.RoleAdminUser)
+	other := createOpenSourceBountyUser(t, db, "content-other", 0, common.RoleCommonUser)
+	project, err := CreateOpenSourceBountyDraft(owner.Id, openSourceBountyInput("https://github.com/example/content", 1_000, 2))
+	require.NoError(t, err)
+	project, _, err = PublishOpenSourceBounty(owner.Id, project.Id)
+	require.NoError(t, err)
+	funded := *project
+	content := OpenSourceBountyDraftInput{Title: "Updated published bounty title", Description: "Updated scope with enough detail to remain an actionable published task.", Rules: "Updated acceptance rules require linked evidence and focused verification."}
+	updated, err := UpdateOpenSourceBountyContent(owner.Id, project.Id, content)
+	require.NoError(t, err)
+	assert.Equal(t, content.Title, updated.Title)
+	assert.Equal(t, content.Description, updated.Description)
+	assert.Equal(t, content.Rules, updated.Rules)
+	assert.Equal(t, funded.RewardQuota, updated.RewardQuota)
+	assert.Equal(t, funded.EscrowQuota, updated.EscrowQuota)
+	assert.Equal(t, funded.Status, updated.Status)
+
+	content.Title = "Admin corrected published title"
+	updated, err = UpdateOpenSourceBountyContent(admin.Id, project.Id, content)
+	require.NoError(t, err)
+	assert.Equal(t, content.Title, updated.Title)
+	_, err = UpdateOpenSourceBountyContent(other.Id, project.Id, content)
+	assert.Error(t, err)
+}
+
 func TestOpenSourceBountyEmptyListQueriesReturnNonNilSlices(t *testing.T) {
 	db := setupOpenSourceBountyTestDB(t)
 	user := createOpenSourceBountyUser(t, db, "empty-list-user", 0, common.RoleCommonUser)
@@ -107,6 +135,79 @@ func TestOpenSourceBountyEmptyListQueriesReturnNonNilSlices(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, disputes)
 	assert.Empty(t, disputes)
+}
+
+func TestOpenSourceBountyProjectViewReportsLifecycleCountsAndAppealDeadline(t *testing.T) {
+	db := setupOpenSourceBountyTestDB(t)
+	owner := createOpenSourceBountyUser(t, db, "lifecycle-owner", 100_000, common.RoleCommonUser)
+	project, err := CreateOpenSourceBountyDraft(owner.Id, openSourceBountyInput("https://github.com/example/lifecycle", 1_000, 12))
+	require.NoError(t, err)
+	project, _, err = PublishOpenSourceBounty(owner.Id, project.Id)
+	require.NoError(t, err)
+
+	now := common.GetTimestamp()
+	statuses := []struct {
+		status     string
+		rejectedAt int64
+	}{
+		{status: OpenSourceBountyChallengeAccepted},
+		{status: OpenSourceBountyChallengeSubmitted},
+		{status: OpenSourceBountyChallengeApproved},
+		{status: OpenSourceBountyChallengeRejected, rejectedAt: now - 100},
+		{status: OpenSourceBountyChallengeRejected, rejectedAt: now - OpenSourceBountyAppealWindowSeconds - 100},
+		{status: OpenSourceBountyChallengeRejected, rejectedAt: now - 50},
+		{status: OpenSourceBountyChallengeWithdrawn},
+		{status: OpenSourceBountyChallengeCancelled},
+	}
+	challenges := make([]OpenSourceBountyChallenge, 0, len(statuses))
+	for index, status := range statuses {
+		challenges = append(challenges, OpenSourceBountyChallenge{
+			ProjectId:         project.Id,
+			ParticipantUserId: 10_000 + index,
+			GithubHandle:      fmt.Sprintf("participant-%d", index),
+			Status:            status.status,
+			RewardQuota:       project.NetRewardQuota,
+			AcceptedAt:        now - 200,
+			RejectedAt:        status.rejectedAt,
+			CreatedAt:         now - 200,
+			UpdatedAt:         now,
+		})
+	}
+	require.NoError(t, db.Create(&challenges).Error)
+	openKey := "lifecycle-open-dispute"
+	require.NoError(t, db.Create(&OpenSourceBountyDispute{
+		ChallengeId:             challenges[5].Id,
+		ProjectId:               project.Id,
+		OpenedByUserId:          challenges[5].ParticipantUserId,
+		AgainstUserId:           owner.Id,
+		CaseKey:                 "lifecycle-dispute-case",
+		OpenKey:                 &openKey,
+		Reason:                  "requirements_met_but_rejected",
+		Statement:               "The submitted fix meets the documented acceptance requirements.",
+		ProjectTitleSnapshot:    project.Title,
+		RepositoryUrlSnapshot:   project.RepositoryUrl,
+		ProjectRulesSnapshot:    project.Rules,
+		ChallengeStatusSnapshot: OpenSourceBountyChallengeRejected,
+		Status:                  OpenSourceBountyDisputeOpen,
+		CreatedAt:               now,
+		UpdatedAt:               now,
+	}).Error)
+
+	projects, err := ListOwnedOpenSourceBounties(owner.Id)
+	require.NoError(t, err)
+	require.Len(t, projects, 1)
+	view := projects[0]
+	assert.EqualValues(t, 8, view.ParticipantCount)
+	assert.EqualValues(t, 4, view.ActiveChallengeCount)
+	assert.EqualValues(t, 1, view.AcceptedChallengeCount)
+	assert.EqualValues(t, 1, view.SubmittedChallengeCount)
+	assert.EqualValues(t, 1, view.ApprovedChallengeCount)
+	assert.EqualValues(t, 3, view.RejectedChallengeCount)
+	assert.EqualValues(t, 1, view.WithdrawnChallengeCount)
+	assert.EqualValues(t, 1, view.CancelledChallengeCount)
+	assert.EqualValues(t, 1, view.AppealableChallengeCount)
+	assert.EqualValues(t, now-100+OpenSourceBountyAppealWindowSeconds, view.AppealWindowEndsAt)
+	assert.EqualValues(t, 1, view.OpenDisputeCount)
 }
 
 func TestOpenSourceBountyL0ViewerGetsOnlyPublicBoardAndDetail(t *testing.T) {
@@ -610,6 +711,31 @@ func TestOpenSourceBountyRootPublisherReceivesItsPlatformFee(t *testing.T) {
 	require.NoError(t, db.Where("project_id = ? AND kind = ?", project.Id, OpenSourceBountyLedgerPlatformFee).First(&feeLedger).Error)
 	assert.Equal(t, root.Id, feeLedger.UserId)
 	assert.Equal(t, root.Id, feeLedger.CounterpartyUserId)
+}
+
+func TestOpenSourceBountyPublicationRollsBackWhenFeeRecipientWalletWouldOverflow(t *testing.T) {
+	db := setupOpenSourceBountyTestDB(t)
+	setOpenSourceBountyFeeRateForTest("1")
+	root := createOpenSourceBountyUser(t, db, "overflow-fee-recipient-root", common.MaxWalletQuota, common.RoleRootUser)
+	owner := createOpenSourceBountyUser(t, db, "overflow-fee-owner", 2_000, common.RoleCommonUser)
+	project, err := CreateOpenSourceBountyDraft(owner.Id, openSourceBountyInput("https://github.com/example/overflow-fee", 1_000, 1))
+	require.NoError(t, err)
+
+	_, _, err = PublishOpenSourceBounty(owner.Id, project.Id)
+	require.Error(t, err)
+
+	var storedOwner, storedRoot User
+	require.NoError(t, db.First(&storedOwner, owner.Id).Error)
+	require.NoError(t, db.First(&storedRoot, root.Id).Error)
+	assert.Equal(t, 2_000, storedOwner.Quota)
+	assert.Equal(t, common.MaxWalletQuota, storedRoot.Quota)
+	var storedProject OpenSourceBountyProject
+	require.NoError(t, db.First(&storedProject, project.Id).Error)
+	assert.Equal(t, OpenSourceBountyStatusDraft, storedProject.Status)
+	assert.Zero(t, storedProject.EscrowQuota)
+	var ledgerCount int64
+	require.NoError(t, db.Model(&OpenSourceBountyLedger{}).Where("project_id = ?", project.Id).Count(&ledgerCount).Error)
+	assert.Zero(t, ledgerCount)
 }
 
 func TestOpenSourceBountyPublicationRollsBackWithoutFeeRecipient(t *testing.T) {

@@ -32,16 +32,24 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
+import { WaitCompanion } from '@/components/wait-companion'
 
 import { DEFAULT_DISCOUNT_RATE } from '../../constants'
 import {
-  formatCreditBalance,
+  formatCreditBalance as formatPlatformCreditBalanceBase,
   formatPaymentAmount,
   formatSettlementAmount,
   getPaymentIcon,
   getPaymentSettlementUnit,
+  isPositivePaymentAmount,
+  isWaffoPancakePayment,
 } from '../../lib'
 import { discountCodeSavings } from '../../lib/discount-state'
+import {
+  formatSettlementQuote,
+  parseSettlementQuote,
+  type SettlementQuote,
+} from '../../lib/settlement-quote'
 import type { PaymentMethod } from '../../types'
 
 interface PaymentConfirmDialogProps {
@@ -50,6 +58,7 @@ interface PaymentConfirmDialogProps {
   onConfirm: () => void
   topupAmount: number
   paymentAmount: number
+  settlementQuote?: SettlementQuote | null
   paymentMethod: PaymentMethod | undefined
   calculating: boolean
   processing: boolean
@@ -65,6 +74,7 @@ export function PaymentConfirmDialog({
   onConfirm,
   topupAmount,
   paymentAmount,
+  settlementQuote,
   paymentMethod,
   calculating,
   processing,
@@ -74,15 +84,40 @@ export function PaymentConfirmDialog({
   neutralMode = false,
 }: PaymentConfirmDialogProps) {
   const { t } = useTranslation()
-  const hasDiscount = discountRate > 0 && discountRate < 1 && paymentAmount > 0
-  const originalAmount = hasDiscount ? paymentAmount / discountRate : 0
-  const discountAmount = hasDiscount ? originalAmount - paymentAmount : 0
-  const codeSavings = discountCodeSavings(paymentAmount, discountPercent)
-  const settlementUnit = getPaymentSettlementUnit(paymentMethod)
+  const formatPlatformCreditBalance = (amount: number) =>
+    formatPlatformCreditBalanceBase(amount, t('Platform'))
+  const usesSettlementQuote = isWaffoPancakePayment(paymentMethod?.type ?? '')
+  const quote = parseSettlementQuote(settlementQuote)
+  const hasPaymentAmount = usesSettlementQuote
+    ? quote !== null
+    : isPositivePaymentAmount(paymentAmount)
+  const effectivePaymentAmount =
+    usesSettlementQuote && quote ? Number(quote.amount) : paymentAmount
+  const codeSavings = hasPaymentAmount
+    ? discountCodeSavings(effectivePaymentAmount, discountPercent)
+    : 0
+  const hasDiscount =
+    !usesSettlementQuote &&
+    hasPaymentAmount &&
+    discountRate > 0 &&
+    discountRate < 1
+  const originalAmount = hasDiscount ? effectivePaymentAmount / discountRate : 0
+  const discountAmount = hasDiscount
+    ? originalAmount - effectivePaymentAmount
+    : 0
+  const settlementUnit = usesSettlementQuote
+    ? null
+    : getPaymentSettlementUnit(paymentMethod, true)
   const formatSelectedPaymentAmount = (amount: number) =>
-    settlementUnit
-      ? formatSettlementAmount(amount, settlementUnit.label)
-      : formatPaymentAmount(amount)
+    usesSettlementQuote
+      ? quote
+        ? amount === Number(quote.amount)
+          ? formatSettlementQuote(quote)
+          : formatPaymentAmount(amount, quote.currency)
+        : t('Payment unavailable')
+      : settlementUnit
+        ? formatSettlementAmount(amount, settlementUnit.label)
+        : formatPaymentAmount(amount, 'USD')
   const paymentMethodLabel = neutralMode
     ? t('Payment Method')
     : paymentMethod?.name
@@ -116,7 +151,7 @@ export function PaymentConfirmDialog({
               {t('Balance credited')}
             </span>
             <span className='text-lg font-semibold'>
-              {formatCreditBalance(topupAmount)}
+              {formatPlatformCreditBalance(topupAmount)}
             </span>
           </div>
 
@@ -126,17 +161,25 @@ export function PaymentConfirmDialog({
             </span>
             {calculating ? (
               <Skeleton className='h-6 w-24' />
-            ) : (
+            ) : hasPaymentAmount ? (
               <div className='flex items-baseline gap-2'>
                 <span className='text-2xl font-semibold'>
-                  {formatSelectedPaymentAmount(paymentAmount)}
+                  {formatSelectedPaymentAmount(effectivePaymentAmount)}
                 </span>
-                {hasDiscount && (
+                {(hasDiscount || codeSavings > 0) && (
                   <span className='text-muted-foreground text-sm line-through'>
-                    {formatSelectedPaymentAmount(originalAmount)}
+                    {formatSelectedPaymentAmount(
+                      hasDiscount
+                        ? originalAmount
+                        : effectivePaymentAmount + codeSavings
+                    )}
                   </span>
                 )}
               </div>
+            ) : (
+              <span className='text-muted-foreground font-medium'>
+                {t('Payment unavailable')}
+              </span>
             )}
           </div>
 
@@ -154,11 +197,20 @@ export function PaymentConfirmDialog({
           {discountCode && codeSavings > 0 && !calculating && (
             <div className='bg-primary/5 rounded-lg border p-3'>
               <div className='flex items-center justify-between gap-3 text-sm'>
-                <span className='text-muted-foreground min-w-0'>
-                  {t('Discount code saves {{amount}}', {
-                    amount: formatSelectedPaymentAmount(codeSavings),
-                  })}
-                </span>
+                <div className='flex min-w-0 flex-col'>
+                  <span className='text-foreground font-medium'>
+                    {discountPercent !== null && discountPercent !== undefined
+                      ? t('Discount applied: {{percent}}% off', {
+                          percent: discountPercent,
+                        })
+                      : t('Discount code')}
+                  </span>
+                  <span className='text-muted-foreground text-xs'>
+                    {t('Discount code saves {{amount}}', {
+                      amount: formatSelectedPaymentAmount(codeSavings),
+                    })}
+                  </span>
+                </div>
                 <Badge variant='secondary' className='shrink-0 font-mono'>
                   {discountCode}
                 </Badge>
@@ -166,14 +218,11 @@ export function PaymentConfirmDialog({
             </div>
           )}
 
-          {settlementUnit && !calculating && (
+          {(settlementUnit || quote) && !calculating && hasPaymentAmount && (
             <div className='bg-muted/50 rounded-lg border p-3 text-sm'>
-              {t('Top up {{amount}} USD; pay {{payment}} {{unit}}', {
-                amount: topupAmount,
-                payment: new Intl.NumberFormat(undefined, {
-                  maximumFractionDigits: paymentAmount >= 1 ? 2 : 4,
-                }).format(paymentAmount),
-                unit: settlementUnit.label,
+              {t('Credit {{amount}}; pay {{payment}}', {
+                amount: formatPlatformCreditBalance(topupAmount),
+                payment: formatSelectedPaymentAmount(effectivePaymentAmount),
               })}
             </div>
           )}
@@ -217,11 +266,18 @@ export function PaymentConfirmDialog({
           </Alert>
         </div>
 
+        <WaitCompanion pending={calculating || processing} />
         <AlertDialogFooter className='grid grid-cols-2 gap-2 sm:flex'>
           <AlertDialogCancel disabled={processing}>
             {t('Cancel')}
           </AlertDialogCancel>
-          <AlertDialogAction onClick={onConfirm} disabled={processing}>
+          <AlertDialogAction
+            onClick={(event) => {
+              event.preventDefault()
+              onConfirm()
+            }}
+            disabled={calculating || processing || !hasPaymentAmount}
+          >
             {processing && (
               <HugeiconsIcon
                 icon={Loading03Icon}

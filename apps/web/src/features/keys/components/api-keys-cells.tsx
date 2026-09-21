@@ -20,6 +20,7 @@ import type { PopoverRootProps } from '@base-ui/react/popover'
 import { Check, Copy, Loader2 } from 'lucide-react'
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import { BadgeCell } from '@/components/data-table'
 import { StatusBadge } from '@/components/status-badge'
@@ -156,7 +157,8 @@ export function ApiKeyCell({ apiKey }: { apiKey: ApiKey }) {
 
     const ok = await copyToClipboard(realKey)
     if (ok) markKeyCopied(apiKey.id)
-  }, [resolvedFullKey, resolveRealKey, apiKey.id, markKeyCopied])
+    else toast.error(t('Failed to copy to clipboard'))
+  }, [resolvedFullKey, resolveRealKey, apiKey.id, markKeyCopied, t])
 
   let copyIcon = <Copy className='size-3.5' />
   let copyTooltip = t('Copy API key')
@@ -166,6 +168,19 @@ export function ApiKeyCell({ apiKey }: { apiKey: ApiKey }) {
   } else if (isCopied) {
     copyIcon = <Check className='console-status-success-icon size-3.5' />
     copyTooltip = t('Copied!')
+  }
+
+  if (apiKey.one_time_reveal) {
+    return (
+      <div className='space-y-1'>
+        <code className='text-xs'>{apiKey.key}</code>
+        <p className='text-muted-foreground text-xs'>
+          {t(
+            'Shown only at creation. Use your saved key or revoke and replace it.'
+          )}
+        </p>
+      </div>
+    )
   }
 
   return (
@@ -281,6 +296,14 @@ export function UnlimitedQuotaBadge(props: UnlimitedQuotaBadgeProps) {
         </span>
       </PopoverContent>
     </Popover>
+  )
+}
+
+export function ApiKeyUsedQuota({ used }: { used: number }) {
+  return (
+    <span data-api-key-used-quota className='font-medium tabular-nums'>
+      {formatQuota(used)}
+    </span>
   )
 }
 

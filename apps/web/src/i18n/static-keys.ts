@@ -19,6 +19,12 @@ For commercial licensing, please contact support@quantumnous.com
 // Static translation keys that don't get picked up by the t('...') regex.
 // These cover dynamic labels (e.g. constants, configs) that are passed into t at runtime.
 export const STATIC_I18N_KEYS = [
+  // Assistant starters use stable server IDs to select these keys.
+  'Help me write an L1 recommendation.',
+  'Where should I start?',
+  'How do I get the new-user gift?',
+  'Any top-up discounts this week?',
+
   // Header navigation
   'Home',
   'Console',
@@ -371,10 +377,6 @@ export const STATIC_I18N_KEYS = [
   'Chinese',
   'English',
   'Japanese',
-  'Official Repository',
-  'Configuration File',
-  'Sync from the public upstream metadata repository.',
-  'Upload or reference a local configuration file.',
 
   // Subscription constants (dynamic labelKey)
   'years',

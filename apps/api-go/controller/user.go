@@ -310,6 +310,8 @@ func Register(c *gin.Context) {
 		return
 	}
 
+	recordAcquisitionRegistration(c, cleanUser.Id)
+
 	// 获取插入后的用户ID
 	var insertedUser model.User
 	if err := model.DB.Where("username = ?", cleanUser.Username).First(&insertedUser).Error; err != nil {
@@ -335,6 +337,7 @@ func Register(c *gin.Context) {
 			RemainQuota:        500000, // 示例额度
 			UnlimitedQuota:     true,
 			ModelLimitsEnabled: false,
+			CreationSource:     model.TokenCreationSourceSystem,
 		}
 		if setting.DefaultUseAutoGroup {
 			token.Group = "auto"
@@ -356,25 +359,25 @@ func GetAllUsers(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
 	sortOptions := model.NewUserSortOptions(c.Query("sort_by"), c.Query("sort_order"))
 	onlyL0 := c.Query("trust_level") == strconv.Itoa(model.TrustLevelMinUser)
-	users, total, err := model.GetAllUsers(pageInfo, onlyL0, sortOptions)
+	users, total, err := model.GetAllUsersContext(c.Request.Context(), pageInfo, onlyL0, sortOptions)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
 	model.PopulateAdminPaymentRestrictions(users)
-	if err := model.PopulateAssistantConversationCounts(users, c.GetInt("id"), c.GetInt("role")); err != nil {
+	if err := model.PopulateAssistantConversationCountsContext(c.Request.Context(), users, c.GetInt("id"), c.GetInt("role")); err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	if err := model.PopulateAssistantUserProfiles(users, c.GetInt("id"), c.GetInt("role")); err != nil {
+	if err := model.PopulateAssistantUserProfilesContext(c.Request.Context(), users, c.GetInt("id"), c.GetInt("role")); err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	if err := model.PopulateUserTopups(users); err != nil {
+	if err := model.PopulateUserTopupsContext(c.Request.Context(), users); err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	if err := model.PopulateAssistantReviewViolationCountsForViewer(users, c.GetInt("id"), c.GetInt("role")); err != nil {
+	if err := model.PopulateAssistantReviewViolationCountsForViewerContext(c.Request.Context(), users, c.GetInt("id"), c.GetInt("role")); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -404,25 +407,25 @@ func SearchUsers(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
 	sortOptions := model.NewUserSortOptions(c.Query("sort_by"), c.Query("sort_order"))
 	onlyL0 := c.Query("trust_level") == strconv.Itoa(model.TrustLevelMinUser)
-	users, total, err := model.SearchUsers(keyword, group, role, status, onlyL0, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), sortOptions)
+	users, total, err := model.SearchUsersContext(c.Request.Context(), keyword, group, role, status, onlyL0, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), sortOptions)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
 	model.PopulateAdminPaymentRestrictions(users)
-	if err := model.PopulateAssistantConversationCounts(users, c.GetInt("id"), c.GetInt("role")); err != nil {
+	if err := model.PopulateAssistantConversationCountsContext(c.Request.Context(), users, c.GetInt("id"), c.GetInt("role")); err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	if err := model.PopulateAssistantUserProfiles(users, c.GetInt("id"), c.GetInt("role")); err != nil {
+	if err := model.PopulateAssistantUserProfilesContext(c.Request.Context(), users, c.GetInt("id"), c.GetInt("role")); err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	if err := model.PopulateUserTopups(users); err != nil {
+	if err := model.PopulateUserTopupsContext(c.Request.Context(), users); err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	if err := model.PopulateAssistantReviewViolationCountsForViewer(users, c.GetInt("id"), c.GetInt("role")); err != nil {
+	if err := model.PopulateAssistantReviewViolationCountsForViewerContext(c.Request.Context(), users, c.GetInt("id"), c.GetInt("role")); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -461,11 +464,11 @@ func GetUser(c *gin.Context) {
 	user.TrustLevelInfo = &trustLevel
 	user.AdminPermissions = authz.Capabilities(user.Id, user.Role)
 	model.PopulateAdminPaymentRestriction(user)
-	if err := model.PopulateAssistantUserProfiles([]*model.User{user}, c.GetInt("id"), myRole); err != nil {
+	if err := model.PopulateAssistantUserProfilesContext(c.Request.Context(), []*model.User{user}, c.GetInt("id"), myRole); err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	if err := model.PopulateAssistantReviewViolationCountsForViewer([]*model.User{user}, c.GetInt("id"), myRole); err != nil {
+	if err := model.PopulateAssistantReviewViolationCountsForViewerContext(c.Request.Context(), []*model.User{user}, c.GetInt("id"), myRole); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -540,15 +543,9 @@ func GetAffCode(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	if user.AffCode == "" {
-		user.AffCode = common.GetRandomString(4)
-		if err := user.Update(false); err != nil {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": err.Error(),
-			})
-			return
-		}
+	if err := ensureAffiliateCode(user); err != nil {
+		common.ApiError(c, err)
+		return
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -618,7 +615,8 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 		"request_count":            user.RequestCount,
 		"aff_code":                 user.AffCode,
 		"aff_count":                user.AffCount,
-		"aff_quota":                user.AffQuota,
+		"aff_quota":                max(0, user.AffQuota),
+		"aff_debt":                 max(0, -user.AffQuota),
 		"aff_history_quota":        user.AffHistoryQuota,
 		"inviter_id":               user.InviterId,
 		"linux_do_id":              user.LinuxDOId,
@@ -627,9 +625,11 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 		"trust_level_info":         accessSnapshot.TrustLevel,
 		"trust_level_tiers":        model.GetTrustLevelTierViews(accessSnapshot.TrustLevel.Level),
 		"onboarding": gin.H{
+			"details_available":        err == nil,
 			"activation_complete":      onboarding.ActivationComplete,
 			"paid_activation_complete": onboarding.PaidActivationComplete,
 			"credential_complete":      onboarding.CredentialComplete,
+			"api_key_created":          onboarding.APIKeyCreated,
 			"first_request_complete":   onboarding.FirstRequestComplete,
 			"stage":                    onboarding.Stage,
 		},
@@ -976,7 +976,7 @@ func UpdateSelf(c *gin.Context) {
 		}
 		currentSetting.SidebarModules = sidebarModulesStr
 
-		if err := model.UpdateUserSetting(user.Id, currentSetting); err != nil {
+		if err := model.UpdateUserSettingPreservingLocale(user.Id, currentSetting); err != nil {
 			common.ApiErrorI18n(c, i18n.MsgUpdateFailed)
 			return
 		}
@@ -985,29 +985,9 @@ func UpdateSelf(c *gin.Context) {
 		return
 	}
 
-	// 检查是否是语言偏好更新请求
-	if language, langExists := requestData["language"]; langExists {
-		userId := c.GetInt("id")
-		user, err := model.GetUserById(userId, false)
-		if err != nil {
-			common.ApiError(c, err)
-			return
-		}
-
-		// 获取当前用户设置
-		currentSetting := user.GetSetting()
-
-		// 更新language字段
-		if langStr, ok := language.(string); ok {
-			currentSetting.Language = langStr
-		}
-
-		if err := model.UpdateUserSetting(user.Id, currentSetting); err != nil {
-			common.ApiErrorI18n(c, i18n.MsgUpdateFailed)
-			return
-		}
-
-		common.ApiSuccessI18n(c, i18n.MsgUpdateSuccess, nil)
+	// Merge locale preferences atomically, preserving a manually selected
+	// settlement currency when the interface language changes.
+	if updateSelfLocalePreferences(c, requestData) {
 		return
 	}
 
@@ -1146,14 +1126,25 @@ func DeleteUser(c *gin.Context) {
 
 func DeleteSelf(c *gin.Context) {
 	id := c.GetInt("id")
-	user, _ := model.GetUserById(id, false)
+	user, err := model.GetUserById(id, false)
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		common.ApiError(c, err)
+		return
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) || user == nil {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+			"success": false,
+			"message": common.TranslateMessage(c, i18n.MsgAuthNotLoggedIn),
+		})
+		return
+	}
 
 	if user.Role == common.RoleRootUser {
 		common.ApiErrorI18n(c, i18n.MsgUserCannotDeleteRootUser)
 		return
 	}
 
-	err := model.DeleteUserById(id)
+	err = model.DeleteUserById(id)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -1266,10 +1257,14 @@ func updateAdminPermissionsForUserInTx(c *gin.Context, tx *gorm.DB, userID int, 
 }
 
 type ManageRequest struct {
-	Id     int    `json:"id"`
-	Action string `json:"action"`
-	Value  int    `json:"value"`
-	Mode   string `json:"mode"`
+	Id              int    `json:"id"`
+	Action          string `json:"action"`
+	Value           int    `json:"value"`
+	Mode            string `json:"mode"`
+	RequestId       string `json:"request_id"`
+	Reason          string `json:"reason"`
+	Evidence        string `json:"evidence"`
+	PenalizeInviter bool   `json:"penalize_inviter"`
 }
 
 // ManageUser Only admin user can do this
@@ -1293,6 +1288,10 @@ func ManageUser(c *gin.Context) {
 	myRole := c.GetInt("role")
 	if !canManageTargetRole(myRole, user.Role) {
 		common.ApiErrorI18n(c, i18n.MsgUserNoPermissionHigherLevel)
+		return
+	}
+	if req.Action == "ban_abuse" || req.Action == "restore_referral" {
+		manageReferralModeration(c, req)
 		return
 	}
 	switch req.Action {
@@ -1392,6 +1391,10 @@ func ManageUser(c *gin.Context) {
 				common.ApiErrorI18n(c, i18n.MsgUserQuotaChangeZero)
 				return
 			}
+			if err := common.ValidateWalletQuota(req.Value); err != nil {
+				common.ApiError(c, err)
+				return
+			}
 			if err := model.IncreaseUserQuota(user.Id, req.Value, true); err != nil {
 				common.ApiError(c, err)
 				return
@@ -1404,6 +1407,10 @@ func ManageUser(c *gin.Context) {
 				common.ApiErrorI18n(c, i18n.MsgUserQuotaChangeZero)
 				return
 			}
+			if err := common.ValidateWalletQuota(req.Value); err != nil {
+				common.ApiError(c, err)
+				return
+			}
 			if err := model.DecreaseUserQuota(user.Id, req.Value, true); err != nil {
 				common.ApiError(c, err)
 				return
@@ -1412,10 +1419,17 @@ func ManageUser(c *gin.Context) {
 				"quota": logger.LogQuota(req.Value),
 			})
 		case "override":
+			if err := common.ValidateWalletQuota(req.Value); err != nil {
+				common.ApiError(c, err)
+				return
+			}
 			oldQuota := user.Quota
 			if err := model.DB.Model(&model.User{}).Where("id = ?", user.Id).Update("quota", req.Value).Error; err != nil {
 				common.ApiError(c, err)
 				return
+			}
+			if err := model.InvalidateUserCache(user.Id); err != nil {
+				common.SysLog(fmt.Sprintf("failed to invalidate quota cache for user %d: %s", user.Id, err.Error()))
 			}
 			recordManageAuditFor(c, user.Id, "user.quota_override", map[string]interface{}{
 				"from": logger.LogQuota(oldQuota),
@@ -1594,6 +1608,7 @@ type UpdateUserSettingRequest struct {
 	AcceptUnsetModelRatioModel       bool    `json:"accept_unset_model_ratio_model"`
 	RecordIpLog                      bool    `json:"record_ip_log"`
 	UsageLeaderboardVisibility       string  `json:"usage_leaderboard_visibility,omitempty"`
+	AllowKeyBypassIPPolicy           bool    `json:"allow_key_bypass_ip_policy"`
 }
 
 func UpdateUserSetting(c *gin.Context) {
@@ -1697,14 +1712,23 @@ func UpdateUserSetting(c *gin.Context) {
 		usageLeaderboardVisibility = dto.NormalizeUsageLeaderboardVisibility(req.UsageLeaderboardVisibility)
 	}
 
+	// 仅 L1+（信任等级 >= 1）用户可以开启"API key 绕过 IP 访问策略"；
+	// 未达到等级的账号提交该字段时静默保留旧值，不报错、不采纳。
+	allowKeyBypassIPPolicy := existingSettings.AllowKeyBypassIPPolicy
+	if trustInfo, trustErr := model.GetTrustLevelInfoForUserBase(user.ToBaseUser()); trustErr == nil && trustInfo.Level >= 1 {
+		allowKeyBypassIPPolicy = req.AllowKeyBypassIPPolicy
+	}
+
 	// 构建设置
 	settings := dto.UserSetting{
+		SessionAutoLogout:                existingSettings.SessionAutoLogout,
 		NotifyType:                       req.QuotaWarningType,
 		QuotaWarningThreshold:            req.QuotaWarningThreshold,
 		UpstreamModelUpdateNotifyEnabled: upstreamModelUpdateNotifyEnabled,
 		AcceptUnsetRatioModel:            req.AcceptUnsetModelRatioModel,
 		RecordIpLog:                      req.RecordIpLog,
 		UsageLeaderboardVisibility:       usageLeaderboardVisibility,
+		AllowKeyBypassIPPolicy:           allowKeyBypassIPPolicy,
 	}
 
 	// 如果是webhook类型,添加webhook相关设置
@@ -1738,7 +1762,7 @@ func UpdateUserSetting(c *gin.Context) {
 	}
 
 	// 更新用户设置
-	if err := model.UpdateUserSetting(user.Id, settings); err != nil {
+	if err := model.UpdateUserSettingPreservingLocale(user.Id, settings); err != nil {
 		common.ApiErrorI18n(c, i18n.MsgUpdateFailed)
 		return
 	}

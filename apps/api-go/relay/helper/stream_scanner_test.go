@@ -3,6 +3,7 @@ package helper
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -331,6 +332,9 @@ func TestStreamScannerHandler_PingSentDuringSlowUpstream(t *testing.T) {
 	go func() {
 		StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {
 			count.Add(1)
+			if err := StringData(c, data); err != nil {
+				sr.Stop(err)
+			}
 		})
 		close(done)
 	}()
@@ -499,6 +503,66 @@ func TestStreamScannerHandler_StreamStatus_Timeout(t *testing.T) {
 	require.NotNil(t, info.StreamStatus)
 	assert.Equal(t, relaycommon.StreamEndReasonTimeout, info.StreamStatus.EndReason)
 	assert.False(t, info.StreamStatus.IsNormalEnd())
+}
+
+func TestStreamScannerHandler_FirstResponseTimeoutIgnoresHeartbeat(t *testing.T) {
+	pr, pw := io.Pipe()
+	info := &relaycommon.RelayInfo{
+		ChannelMeta:          &relaycommon.ChannelMeta{},
+		FirstResponseTimeout: 50 * time.Millisecond,
+	}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+	done := make(chan struct{})
+	go func() {
+		StreamScannerHandler(c, &http.Response{Body: pr}, info, func(data string, sr *StreamResult) {})
+		close(done)
+	}()
+	_, _ = io.WriteString(pw, ": heartbeat\n\n")
+
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("first response timeout did not stop heartbeat-only stream")
+	}
+	_ = pw.Close()
+	require.Equal(t, relaycommon.StreamEndReasonTimeout, info.StreamStatus.EndReason)
+	require.ErrorIs(t, info.StreamStatus.EndError, ErrFirstResponseTimeout)
+}
+
+func TestStreamScannerHandler_FirstResponseStopsDeadline(t *testing.T) {
+	pr, pw := io.Pipe()
+	info := &relaycommon.RelayInfo{
+		ChannelMeta:          &relaycommon.ChannelMeta{},
+		FirstResponseTimeout: 50 * time.Millisecond,
+	}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	done := make(chan struct{})
+	go func() {
+		StreamScannerHandler(c, &http.Response{Body: pr}, info, func(data string, sr *StreamResult) {
+			sr.MarkFirstResponse()
+		})
+		close(done)
+	}()
+	_, _ = io.WriteString(pw, "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n")
+	time.Sleep(150 * time.Millisecond)
+	select {
+	case <-done:
+		t.Fatal("first response deadline ended an already observed stream")
+	default:
+	}
+	_ = pw.Close()
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("stream did not finish after upstream close")
+	}
+	require.NotEqual(t, relaycommon.StreamEndReasonTimeout, info.StreamStatus.EndReason)
+	require.NotEqual(t, true, errors.Is(info.StreamStatus.EndError, ErrFirstResponseTimeout))
 }
 
 func TestStreamScannerHandler_StreamStatus_SoftErrors(t *testing.T) {

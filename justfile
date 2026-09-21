@@ -2,6 +2,20 @@ set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 
 default: dev
 
+# Run the independent LMM CLI development preview.
+lmm *args:
+    cargo run --manifest-path apps/lmm/Cargo.toml --locked -- {{args}}
+
+# Build the LMM CLI without rebuilding either backend.
+build-lmm:
+    cargo build --manifest-path apps/lmm/Cargo.toml --locked --release
+
+# Validate LMM CLI policy, discovery and subprocess behavior.
+test-lmm:
+    cargo fmt --manifest-path apps/lmm/Cargo.toml --all --check
+    cargo clippy --manifest-path apps/lmm/Cargo.toml --locked --all-targets --all-features -- -D warnings
+    cargo test --manifest-path apps/lmm/Cargo.toml --locked --all-targets
+
 # Install workspace dependencies from the committed lockfile.
 setup:
     bun install --frozen-lockfile
@@ -53,14 +67,15 @@ dev-rust:
     docker compose -f docker-compose.dev.yml --profile rust-preview up -d postgres valkey lmm-api-rs-preview
     exec bun run dev:web
 
-# Build and run the default static Go production binary.
+# Build and run the default Go provider through the public symlink.
 run: build
-    exec apps/api-go/out/lmm-api
+    exec apps/api-go/out/lmm-api serve
 
-# Run an already-built Go production binary.
+# Run an already-built Go provider through the public symlink.
 run-go:
-    @test -x apps/api-go/out/lmm-api || { echo "error: apps/api-go/out/lmm-api is missing; run 'just build'" >&2; exit 1; }
-    exec apps/api-go/out/lmm-api
+    @test -x apps/api-go/out/lmm-api-go || { echo "error: apps/api-go/out/lmm-api-go is missing; run 'just build'" >&2; exit 1; }
+    @test -L apps/api-go/out/lmm-api && test "$(readlink apps/api-go/out/lmm-api)" = lmm-api-go || { echo "error: apps/api-go/out/lmm-api is not the provider symlink" >&2; exit 1; }
+    exec apps/api-go/out/lmm-api serve
 
 # Run the explicit Rust backend with standardized infrastructure.
 run-rust: infra-up
@@ -71,14 +86,15 @@ build: build-web build-go
 
 # Build the shared web frontend.
 build-web:
-    VITE_REACT_APP_VERSION="$(cat VERSION)" bun run build:web
+    VITE_REACT_APP_VERSION="$(git rev-parse --short=12 HEAD)" bun run build:web
     @test -f apps/web/dist/index.html || { echo "error: apps/web/dist/index.html was not produced" >&2; exit 1; }
     bun run --filter @lmm/web bundle:check
 
-# Build the static Go production binary independently.
+# Build the real Go provider and public local symlink independently.
 build-go:
     bun run build:go
-    @test -x apps/api-go/out/lmm-api || { echo "error: static Go binary was not produced" >&2; exit 1; }
+    @test -x apps/api-go/out/lmm-api-go || { echo "error: real Go provider binary was not produced" >&2; exit 1; }
+    @test -L apps/api-go/out/lmm-api && test "$(readlink apps/api-go/out/lmm-api)" = lmm-api-go || { echo "error: public Go provider symlink was not produced" >&2; exit 1; }
 
 # Build the explicit Rust backend.
 build-rust:
@@ -180,7 +196,7 @@ docker-rust:
 package: package-go
 
 package-go: build
-    apps/api-go/out/lmm-api deploy build \
+    scripts/lmm-api-deploy.sh build \
       --repo "$(pwd)" \
       --workspace "$LMM_API_BUILD_WORKSPACE"
 
@@ -191,14 +207,14 @@ test-package-bin:
 
 # Stage an already-created immutable production release plan.
 stage-production:
-    apps/api-go/out/lmm-api deploy production stage \
+    scripts/lmm-api-deploy.sh production stage \
       --plan "$LMM_API_RELEASE_PLAN" \
       --plan-sha256 "$LMM_API_RELEASE_PLAN_SHA256" \
       --confirm "$CONFIRM_PRODUCTION"
 
 # Promote an already-staged immutable production release plan.
 deploy-production:
-    apps/api-go/out/lmm-api deploy production promote \
+    scripts/lmm-api-deploy.sh production promote \
       --plan "$LMM_API_RELEASE_PLAN" \
       --plan-sha256 "$LMM_API_RELEASE_PLAN_SHA256" \
       --age-identity-file "$LMM_BACKUP_AGE_IDENTITY_FILE" \

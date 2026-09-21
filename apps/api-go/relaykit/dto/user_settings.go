@@ -7,6 +7,7 @@ import (
 )
 
 type UserSetting struct {
+	SessionAutoLogout                *bool   `json:"session_auto_logout,omitempty"`                  // nil enables weekly sign-out for existing users.
 	NotifyType                       string  `json:"notify_type,omitempty"`                          // QuotaWarningType 额度预警类型
 	QuotaWarningThreshold            float64 `json:"quota_warning_threshold,omitempty"`              // QuotaWarningThreshold 额度预警阈值
 	WebhookUrl                       string  `json:"webhook_url,omitempty"`                          // WebhookUrl webhook地址
@@ -22,7 +23,47 @@ type UserSetting struct {
 	SidebarModules                   string  `json:"sidebar_modules,omitempty"`                      // SidebarModules 左侧边栏模块配置
 	BillingPreference                string  `json:"billing_preference,omitempty"`                   // BillingPreference 扣费策略（订阅/钱包）
 	Language                         string  `json:"language,omitempty"`                             // Language 用户语言偏好 (zh, en)
+	SettlementCurrency               string  `json:"settlement_currency,omitempty"`                  // Customer fiat preference; empty follows language, not quota display.
 	UsageLeaderboardVisibility       string  `json:"usage_leaderboard_visibility,omitempty"`         // 用户使用排行榜展示方式
+	AllowKeyBypassIPPolicy           bool    `json:"allow_key_bypass_ip_policy,omitempty"`           // L1+ 用户凭有效 API key 绕过 IP/地区访问策略
+}
+
+// NormalizeSettlementCurrencyPreference accepts only currencies supported by
+// the platform's real-fiat conversion. Empty means follow the interface language.
+func NormalizeSettlementCurrencyPreference(value string) (string, error) {
+	value = strings.ToUpper(strings.TrimSpace(value))
+	switch value {
+	case "", "CNY", "USD":
+		return value, nil
+	default:
+		return "", fmt.Errorf("settlement currency must be CNY or USD")
+	}
+}
+
+func (setting UserSetting) EffectiveSettlementCurrency(languageHint string) string {
+	if currency, err := NormalizeSettlementCurrencyPreference(setting.SettlementCurrency); err == nil && currency != "" {
+		return currency
+	}
+	language := strings.TrimSpace(setting.Language)
+	if language == "" {
+		language = languageHint
+	}
+	language = strings.ToLower(strings.TrimSpace(strings.Split(language, ",")[0]))
+	language = strings.Split(language, ";")[0]
+	language = strings.ReplaceAll(language, "_", "-")
+	if language == "zhcn" {
+		language = "zh-cn"
+	} else if language == "zhtw" {
+		language = "zh-tw"
+	}
+	if language == "zh" || strings.HasPrefix(language, "zh-") {
+		return "CNY"
+	}
+	return "USD"
+}
+
+func (setting UserSetting) IsSessionAutoLogoutEnabled() bool {
+	return setting.SessionAutoLogout == nil || *setting.SessionAutoLogout
 }
 
 const SidebarModulesMaxBytes = 16 * 1024

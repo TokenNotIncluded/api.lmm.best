@@ -26,30 +26,59 @@ import { api } from '@/lib/api'
 
 import {
   cancelHeroSmsSmsOrder,
+  clearHeroSmsSmsOrderHistory,
   createHeroSmsSmsOrder,
   getHeroSmsSmsOffer,
+  hideHeroSmsSmsOrderFromHistory,
+  listCurrentHeroSmsSmsOrders,
   listHeroSmsSmsCountries,
+  listHeroSmsSmsOperators,
+  listHeroSmsSmsOrders,
+  submitHeroSmsSmsComplaint,
 } from './sms-api'
 
 const originalGet = api.get
 const originalPost = api.post
+const originalDelete = api.delete
 
 afterEach(() => {
   api.get = originalGet
   api.post = originalPost
+  api.delete = originalDelete
 })
 
 describe('phone activation api', () => {
   test('loads countries and a priced offer', async () => {
     api.get = (async (url: string, config?: { params?: unknown }) => {
       if (url.endsWith('/countries')) {
-        return { data: { success: true, data: [{ id: 6, name: '俄罗斯' }] } }
+        assert.deepEqual(config?.params, { service: 'tg' })
+        return {
+          data: {
+            success: true,
+            data: [
+              {
+                id: 6,
+                name: '俄罗斯',
+                english_name: 'Russia',
+                chinese_name: '俄罗斯',
+                popularity: 12,
+              },
+            ],
+          },
+        }
+      }
+      if (url.endsWith('/operators')) {
+        assert.deepEqual(config?.params, { country: 6 })
+        return {
+          data: { success: true, data: ['mts', 'tele2'] },
+        }
       }
       assert.equal(url, '/api/hero-sms/sms/offer')
       assert.deepEqual(config?.params, {
         country: 6,
         service: 'tg',
         operator: 'any',
+        max_price_usd: '2.5',
       })
       return {
         data: {
@@ -62,22 +91,96 @@ describe('phone activation api', () => {
             inventory: 3,
             customer_price_usd: '2',
             charge_quota: 1_000_000,
+            bid: true,
+            tiers: [
+              {
+                id: 'hssq_tier',
+                inventory: 3,
+                customer_price_usd: '2',
+                charge_quota: 1_000_000,
+              },
+            ],
           },
         },
       }
     }) as typeof api.get
 
-    const countries = await listHeroSmsSmsCountries()
-    assert.equal(countries[0]?.name, '俄罗斯')
+    const countries = await listHeroSmsSmsCountries('tg')
+    assert.equal(countries[0]?.english_name, 'Russia')
+    assert.equal(countries[0]?.popularity, 12)
+    const operators = await listHeroSmsSmsOperators(6)
+    assert.deepEqual(operators, ['mts', 'tele2'])
     const offer = await getHeroSmsSmsOffer({
       country: 6,
       service: 'tg',
       operator: 'any',
+      maxPriceUSD: '2.5',
     })
+    assert.equal(offer.bid, true)
     assert.equal(offer.customer_price_usd, '2')
   })
 
-  test('purchases with idempotency and cancels by order id', async () => {
+  test('loads current orders separately from terminal history', async () => {
+    const requests: Array<{ url: string; params: unknown }> = []
+    api.get = (async (url: string, config?: { params?: unknown }) => {
+      requests.push({ url, params: config?.params })
+      if (url.endsWith('/current-list')) {
+        return {
+          data: {
+            success: true,
+            data: { items: [{ id: 'current-1', status: 'active' }] },
+          },
+        }
+      }
+      return {
+        data: {
+          success: true,
+          data: { items: [], total: 0, page: 1, size: 50 },
+        },
+      }
+    }) as typeof api.get
+
+    const current = await listCurrentHeroSmsSmsOrders()
+    const history = await listHeroSmsSmsOrders(1, 50)
+    assert.equal(current[0]?.id, 'current-1')
+    assert.equal(history.total, 0)
+    assert.deepEqual(requests, [
+      {
+        url: '/api/hero-sms/sms/orders/current-list',
+        params: undefined,
+      },
+      {
+        url: '/api/hero-sms/sms/orders',
+        params: { page: 1, size: 50, summary: true },
+      },
+    ])
+  })
+
+  test('hides one history row or clears terminal history through dedicated routes', async () => {
+    const calls: string[] = []
+    api.delete = (async (url: string) => {
+      calls.push(url)
+      return {
+        data: {
+          success: true,
+          data: url.endsWith('/history')
+            ? { hidden_count: 3 }
+            : { hidden: true },
+        },
+      }
+    }) as typeof api.delete
+
+    const hidden = await hideHeroSmsSmsOrderFromHistory('hssms/a')
+    const cleared = await clearHeroSmsSmsOrderHistory()
+    assert.equal(hidden.hidden, true)
+    assert.equal(cleared.hidden_count, 3)
+    assert.deepEqual(calls, [
+      '/api/hero-sms/sms/history/hssms%2Fa',
+      '/api/hero-sms/sms/history',
+    ])
+  })
+
+  test('purchases with idempotency, submits complaints, and cancels by order id', async () => {
     const calls: Array<{ url: string; body: unknown; config: unknown }> = []
     api.post = (async (url: string, body: unknown, config?: unknown) => {
       calls.push({ url, body, config })
@@ -92,7 +195,8 @@ describe('phone activation api', () => {
       }
     }) as typeof api.post
 
-    await createHeroSmsSmsOrder('hssq_quote')
+    await createHeroSmsSmsOrder('hssq_quote', 'sms-batch-1-item-1')
+    await submitHeroSmsSmsComplaint('hssms_1', 'SMS_NOT_RECEIVED')
     await cancelHeroSmsSmsOrder('hssms_1')
 
     const purchaseCall = calls[0]
@@ -104,7 +208,9 @@ describe('phone activation api', () => {
         headers?: Record<string, string>
       }
     ).headers
-    assert.ok(headers?.['Idempotency-Key'])
-    assert.equal(calls[1]?.url, '/api/hero-sms/sms/orders/hssms_1/cancel')
+    assert.equal(headers?.['Idempotency-Key'], 'sms-batch-1-item-1')
+    assert.equal(calls[1]?.url, '/api/hero-sms/sms/orders/hssms_1/complaints')
+    assert.deepEqual(calls[1]?.body, { reason: 'SMS_NOT_RECEIVED' })
+    assert.equal(calls[2]?.url, '/api/hero-sms/sms/orders/hssms_1/cancel')
   })
 })

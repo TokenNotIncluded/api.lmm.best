@@ -25,9 +25,9 @@ type AccessRestrictionNoticeProps = {
 }
 
 const PROJECT_LINKS = {
-  project: 'https://github.com/LIghtJUNction/api.lmm.best',
-  issues: 'https://github.com/LIghtJUNction/api.lmm.best/issues',
-  releases: 'https://github.com/LIghtJUNction/api.lmm.best/releases',
+  project: 'https://github.com/TokenNotIncluded/api.lmm.best',
+  issues: 'https://github.com/TokenNotIncluded/api.lmm.best/issues',
+  releases: 'https://github.com/TokenNotIncluded/api.lmm.best/releases',
 } as const
 
 export function AccessRestrictionNotice(props: AccessRestrictionNoticeProps) {

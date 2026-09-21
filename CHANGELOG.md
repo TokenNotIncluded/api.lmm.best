@@ -1,5 +1,10 @@
 # Changelog
 
+> This is the historical combined changelog. Production artifacts are now
+> versioned independently as `go-v*` and `web-v*`; their immutable GitHub
+> release notes are authoritative. Do not use this file to create a generic
+> `v*` tag or infer compatibility between component versions.
+
 All notable user-facing and operational changes are recorded here. The
 administrator can publish the matching release note from system settings;
 authenticated users then see it once after their next login.
@@ -7,6 +12,67 @@ authenticated users then see it once after their next login.
 ## Unreleased
 
 <!-- Add user-facing or operational changes here before the next release. -->
+
+- Rust model relays now use independent response-header (1800 seconds), byte-idle
+  (300 seconds), and optional per-attempt total deadlines (disabled by default),
+  with Rust environment settings taking precedence over Go-compatible aliases.
+  Internal dependency deadlines remain unchanged. Header timing includes upload;
+  byte heartbeats reset idle timing, which does not protect slow downstream writes.
+  See [relay timeout configuration](apps/api-rust/docs/relay-timeouts.md).
+- Added read-only API-key quota monitoring at `GET /v1/usage` and scoped model
+  price queries at `GET /v1/pricing`. Quota responses use USD, distinguish key
+  allowance from account funds, and represent unlimited allowance explicitly.
+  See [the query API documentation](docs/read-only-query-api.md).
+- Key creation and management now show the copyable Base URL and quota-query
+  instructions. Drawing results keep saving across in-tab navigation after
+  stopping the waiting screen; reloading or closing an unfinished tab is not
+  background execution.
+- Price changes appear as scoped in-site announcements and signed webhook
+  deliveries with bounded retries, without per-user email fanout.
+- Synchronous subscription-first billing can settle permitted wallet overage
+  atomically with token quota. Settlement records distinguish measured cost,
+  committed payment and outstanding adjustments, including reset/deleted-key
+  cases. Upgrades require draining old writers and migrating the schema; see
+  [billing upgrade and rollback constraints](apps/api-go/service/subscription_billing.md).
+- Go Responses streams retain terminal usage and report interrupted streams
+  without replaying consumed output or refunding its completed consumption.
+  Upstream SSE heartbeats and Ollama final-frame content are preserved.
+- Fixed routing-cache refreshes with missing ability groups, BGE reranker test
+  requests, recovery of automatically disabled channel keys, inline-media token
+  counting, and AWS credential dispatch. Unsupported Gemini actions are rejected
+  before generation billing.
+
+- Rust relay clients now bound stalled reads with a resettable read timeout
+  instead of a total request deadline, allowing progressing streams to continue.
+  Adapter request/header deadlines and control-plane total timeouts remain intact.
+
+- Rust OpenAI-compatible native relay paths now retain the aggregated request
+  body in a reference-counted buffer, avoiding an extra full-payload copy before
+  the upstream request and preserving streaming first-content latency for large
+  prompts.
+
+- Added automatic administrator assistant tasks through the existing protected
+  management routes, source-derived request contracts, and live pricing audits.
+- Recheck administrator roles and browser sessions for every tool action; keep
+  ordinary users and assistant billing identities outside administrator authority.
+- Added bounded tool retries, duplicate-write protection, context compression,
+  and full administrator action traces; reject forged browser conversation history.
+
+- Fixed payment methods being disabled by comparing a credited-USD limit with
+  platform credit. Wallet limits now use a server-derived request-amount ceiling.
+- Revalidate linked discount codes after changing payment methods and allow
+  retrying a failed validation before confirming the payment.
+
+- Clarified the account-to-purchase journey on the homepage and pricing overview,
+  with access-aware actions, billing explanations and seven-language copy.
+- Preserved payment currency, exchange-rate and top-up-limit metadata in the wallet,
+  and displayed subscription list prices in their configured currency.
+- Prevented outdated amount and discount-code responses from opening or changing
+  a payment confirmation for newer inputs.
+
+- Added a Referral Program shortcut to the desktop and mobile avatar menus
+  that opens the wallet at the invitation section, respecting console access
+  and wallet visibility settings.
 
 ## [0.1.6] - 2026-08-17
 
@@ -103,6 +169,6 @@ authenticated users then see it once after their next login.
   buyer, promotion, security, normal, mobile, privacy and screen-reader
   profiles.
 
-[Unreleased]: https://github.com/LIghtJUNction/api.lmm.best/compare/v0.1.6...HEAD
-[0.1.6]: https://github.com/LIghtJUNction/api.lmm.best/compare/v0.1.5...v0.1.6
-[0.1.4]: https://github.com/LIghtJUNction/api.lmm.best/compare/v0.1.3...v0.1.4
+[Unreleased]: https://github.com/TokenNotIncluded/api.lmm.best/compare/v0.1.6...HEAD
+[0.1.6]: https://github.com/TokenNotIncluded/api.lmm.best/compare/v0.1.5...v0.1.6
+[0.1.4]: https://github.com/TokenNotIncluded/api.lmm.best/compare/v0.1.3...v0.1.4

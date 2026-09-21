@@ -266,6 +266,59 @@ async function selectComboboxOption(
   await act(async () => option.click())
 }
 
+test('copies the public Base URL and a read-only quota curl with only a placeholder key', async () => {
+  const payloads: Array<Record<string, unknown>> = []
+  installApiFixtures(payloads)
+  const fixtureGet = apiClient.get
+  apiClient.get = async (url) =>
+    url === '/api/status'
+      ? {
+          data: {
+            data: {
+              server_address: 'https://public.example.test/gateway/v1/',
+              default_use_auto_group: true,
+            },
+          },
+        }
+      : fixtureGet(url)
+  const copied: string[] = []
+  const originalWrite = navigator.clipboard.writeText
+  navigator.clipboard.writeText = async (text) => {
+    copied.push(text)
+  }
+  try {
+    await renderCreateDrawer()
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30))
+    })
+    assert.equal(
+      findButton('Copy Base URL', true).disabled,
+      false,
+      document.body.textContent ?? ''
+    )
+    await act(async () => {
+      findButton('Copy Base URL', true).click()
+    })
+    assert.equal(copied[0], 'https://public.example.test/gateway/v1')
+    const details = document.querySelector('details')
+    assert.ok(details)
+    details.open = true
+    await act(async () => {
+      findButton('Copy quota query', true).click()
+    })
+    assert.equal(
+      copied[1],
+      "curl 'https://public.example.test/gateway/v1/usage' \\\n  -H 'Authorization: Bearer API_KEY'"
+    )
+    assert.match(details.textContent ?? '', /scope=token, currency=USD/)
+    assert.match(details.textContent ?? '', /GET \/v1\/pricing/)
+    assert.match(details.textContent ?? '', /used_today uses retained UTC logs/)
+    assert.equal(payloads.length, 0)
+  } finally {
+    navigator.clipboard.writeText = originalWrite
+  }
+})
+
 afterEach(async () => {
   apiClient.get = originalGet
   apiClient.post = originalPost
@@ -368,4 +421,70 @@ describe('API keys mutate drawer Auto group integration', () => {
     )
     assert.deepEqual(createdPayloads[0]?.auto_groups, ['vip'])
   })
+})
+
+test('single creation keeps the one-time secret outside query cache and clears it on close', async () => {
+  const payloads: Array<Record<string, unknown>> = []
+  installApiFixtures(payloads)
+  apiClient.post = async (_url, data) => {
+    payloads.push(data as Record<string, unknown>)
+    return {
+      data: {
+        success: true,
+        data: {
+          id: 51,
+          name: 'First device',
+          key: 'one-time-test-secret',
+          one_time_reveal: true,
+        },
+      },
+    }
+  }
+  await renderCreateDrawer()
+  await changeInput(getControlByLabel<HTMLInputElement>('Name'), 'First device')
+  await act(async () => findButton('Save changes', true).click())
+  await act(async () =>
+    waitForCondition(
+      () => !!document.querySelector('input[aria-label="API Key"]'),
+      'one-time result not shown'
+    )
+  )
+  assert.equal(payloads.length, 1)
+  assert.equal(payloads[0]?.one_time_reveal, true)
+  assert.equal(
+    document.querySelector<HTMLInputElement>('input[aria-label="API Key"]')
+      ?.value,
+    'sk-one-time-test-secret'
+  )
+  assert.doesNotMatch(
+    JSON.stringify(
+      renderedDrawer?.queryClient
+        .getQueryCache()
+        .getAll()
+        .map((query) => query.state.data)
+    ),
+    /one-time-test-secret/
+  )
+  await act(async () => findButton('I saved the key, close', true).click())
+  assert.equal(document.querySelector('input[aria-label="API Key"]'), null)
+})
+
+test('an ambiguous creation failure cannot silently create a second key', async () => {
+  const payloads: Array<Record<string, unknown>> = []
+  installApiFixtures(payloads)
+  apiClient.post = async (_url, data) => {
+    payloads.push(data as Record<string, unknown>)
+    throw new Error('connection lost')
+  }
+  await renderCreateDrawer()
+  await changeInput(getControlByLabel<HTMLInputElement>('Name'), 'First device')
+  await act(async () => findButton('Save changes', true).click())
+  await act(async () =>
+    waitForCondition(
+      () => !!document.querySelector('[role="alert"]'),
+      'uncertain creation message missing'
+    )
+  )
+  assert.equal(findButton('Save changes', true).disabled, true)
+  assert.equal(payloads.length, 1)
 })

@@ -20,10 +20,22 @@ import { after, afterEach, describe, test } from 'node:test'
 import { Window } from 'happy-dom'
 import type React from 'react'
 
+import enLocale from '@/i18n/locales/en.json'
+import frLocale from '@/i18n/locales/fr.json'
+import jaLocale from '@/i18n/locales/ja.json'
+import ruLocale from '@/i18n/locales/ru.json'
+import viLocale from '@/i18n/locales/vi.json'
+import zhTWLocale from '@/i18n/locales/zh-TW.json'
 import zhLocale from '@/i18n/locales/zh.json'
-import { useSystemConfigStore } from '@/stores/system-config-store'
 
-const domWindow = new Window()
+const domWindow = new Window({ url: 'https://console.example.test/wallet' })
+domWindow.document.write(
+  '<!doctype html><html><head></head><body></body></html>'
+)
+Object.defineProperty(domWindow.document, 'compatMode', {
+  configurable: true,
+  value: 'CSS1Compat',
+})
 const domGlobals = [
   'window',
   'document',
@@ -38,6 +50,10 @@ const domGlobals = [
   'requestAnimationFrame',
   'cancelAnimationFrame',
   'getComputedStyle',
+  'matchMedia',
+  'customElements',
+  'CSSStyleSheet',
+  'localStorage',
 ] as const
 
 for (const key of domGlobals) {
@@ -63,11 +79,13 @@ await i18n.use(initReactI18next).init({
   },
 })
 
+const { useEffect, useState } = await import('react')
 const { RechargeFormCard } = await import('./recharge-form-card')
 const { Wallet } = await import('../index')
 const { useTopupInfo } = await import('../hooks/use-topup-info')
 const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
+const { useSystemConfigStore } = await import('@/stores/system-config-store')
 const { PaymentConfirmDialog } =
   await import('./dialogs/payment-confirm-dialog')
 const { formatCreditBalance, formatPaymentAmount } = await import('../lib')
@@ -80,6 +98,8 @@ reactTestGlobals.IS_REACT_ACT_ENVIRONMENT = true
 const originalConfig = useSystemConfigStore.getState().config
 const originalGet = api.get
 const originalPost = api.post
+// oxlint-disable-next-line no-console -- The test captures and restores the expected production error log.
+const originalConsoleError = console.error
 
 async function flushEffects() {
   await new Promise((resolve) => setTimeout(resolve, 20))
@@ -88,8 +108,10 @@ async function flushEffects() {
 let latestTopupState: ReturnType<typeof useTopupInfo> | null = null
 
 function TopupInfoProbe() {
-  latestTopupState = useTopupInfo()
-  const state = latestTopupState
+  const state = useTopupInfo()
+  useEffect(() => {
+    latestTopupState = state
+  }, [state])
   return (
     <div>
       {state.loading
@@ -151,6 +173,8 @@ async function unmount(rendered: Rendered) {
 afterEach(() => {
   api.get = originalGet
   api.post = originalPost
+  // oxlint-disable-next-line no-console -- Restore the original logger after every test.
+  console.error = originalConsoleError
   useAuthStore.getState().auth.reset('complete')
   latestTopupState = null
 })
@@ -166,7 +190,14 @@ after(() => {
 const topupInfo = {
   enable_online_topup: true,
   enable_stripe_topup: false,
-  pay_methods: [{ name: 'Alipay', type: 'alipay' }],
+  pay_methods: [
+    {
+      name: 'Alipay',
+      type: 'alipay',
+      settlement_unit: 'CNY',
+      unit_price: '5.4',
+    },
+  ],
   min_topup: 10,
   stripe_min_topup: 10,
   amount_options: [100],
@@ -175,6 +206,9 @@ const topupInfo = {
 
 describe('wallet payment clarity', () => {
   test('clears stale top-up configuration and presets when a refresh fails', async () => {
+    const consoleErrors: unknown[][] = []
+    // oxlint-disable-next-line no-console -- Capture and assert the expected failure log.
+    console.error = (...args: unknown[]) => consoleErrors.push(args)
     let calls = 0
     api.get = (async (url) => {
       if (url !== '/api/user/topup/info') {
@@ -204,6 +238,9 @@ describe('wallet payment clarity', () => {
     })
     assert.equal(rendered.container.textContent, 'error:0:0')
     assert.equal(calls, 2)
+    assert.deepEqual(consoleErrors, [
+      ['Failed to fetch topup info:', 'offline'],
+    ])
     await unmount(rendered)
   })
 
@@ -283,11 +320,476 @@ describe('wallet payment clarity', () => {
     queryClient.clear()
   })
 
-  test('distinguishes USD API credits from CNY payment amounts', () => {
+  test('keeps both platform credit labels non-fiat in every locale', () => {
+    const locales = [
+      ['en', enLocale],
+      ['zh', zhLocale],
+      ['zh-TW', zhTWLocale],
+      ['fr', frLocale],
+      ['ja', jaLocale],
+      ['ru', ruLocale],
+      ['vi', viLocale],
+    ] as const
+
+    for (const [locale, messages] of locales) {
+      for (const key of [
+        'Platform credit',
+        'Custom platform credit',
+      ] as const) {
+        const value = messages.translation[key]
+        assert.equal(value.includes('$'), false, `${locale}: ${key}`)
+      }
+    }
+  })
+
+  test('renders Chinese platform title, preset card, and input addon without a dollar symbol', async () => {
+    await i18n.changeLanguage('zh')
     setCnyBillingCurrency()
 
-    assert.equal(formatCreditBalance(100), '$100 USD')
-    assert.equal(formatPaymentAmount(540), '¥540 CNY')
+    assert.equal(formatCreditBalance(6.8), '6.8 (Platform)')
+    assert.equal(formatCreditBalance(Number.NaN), '-')
+    assert.equal(formatCreditBalance(6.8).includes('$'), false)
+    assert.equal(formatPaymentAmount(1, 'USD'), '1 USD')
+    assert.equal(formatPaymentAmount(6.8, 'CNY'), '6.8 CNY')
+
+    const rendered = await render(
+      <RechargeFormCard
+        topupInfo={topupInfo}
+        presetAmounts={[{ value: 10 }]}
+        selectedPreset={null}
+        onSelectPreset={() => undefined}
+        topupAmount={10}
+        onTopupAmountChange={() => undefined}
+        paymentAmount={54}
+        calculating={false}
+        onPaymentMethodSelect={() => undefined}
+        paymentLoading={null}
+        redemptionCode=''
+        onRedemptionCodeChange={() => undefined}
+        onRedeem={() => undefined}
+        redeeming={false}
+      />
+    )
+
+    const text = rendered.container.textContent ?? ''
+    const presetCard = rendered.container.querySelector('button[aria-pressed]')
+    const addons = [
+      ...rendered.container.querySelectorAll('[data-slot="input-group-addon"]'),
+    ]
+    assert.equal(
+      [...rendered.container.querySelectorAll('label')].some(
+        (label) => label.textContent === '平台额度'
+      ),
+      true
+    )
+    assert.equal(
+      rendered.container.querySelector('label[for="topup-amount"]')
+        ?.textContent,
+      '自定义平台额度'
+    )
+    assert.equal(presetCard?.textContent?.includes('10 (平台)'), true)
+    assert.equal(presetCard?.textContent?.includes('$'), false)
+    assert.deepEqual(
+      addons.map((addon) => addon.textContent),
+      ['(平台)']
+    )
+    assert.equal(
+      addons.some((addon) => addon.textContent?.includes('$')),
+      false
+    )
+    assert.equal(text.includes('$'), false)
+    await unmount(rendered)
+  })
+
+  test('long press spinner accelerates and stops on pointer release', async () => {
+    await i18n.changeLanguage('en')
+    setUsdBillingCurrency()
+    const changes: number[] = []
+
+    function Harness() {
+      const [amount, setAmount] = useState(10)
+      return (
+        <RechargeFormCard
+          topupInfo={topupInfo}
+          presetAmounts={[{ value: 10 }]}
+          selectedPreset={null}
+          onSelectPreset={() => undefined}
+          topupAmount={amount}
+          onTopupAmountChange={(value) => {
+            changes.push(value)
+            setAmount(value)
+          }}
+          paymentAmount={10}
+          calculating={false}
+          onPaymentMethodSelect={() => undefined}
+          paymentLoading={null}
+          redemptionCode=''
+          onRedemptionCodeChange={() => undefined}
+          onRedeem={() => undefined}
+          redeeming={false}
+        />
+      )
+    }
+
+    const rendered = await render(<Harness />)
+    const increase = rendered.container.querySelector(
+      'button[aria-label="Increase platform credit"]'
+    )
+    assert.ok(increase)
+    const down = new Event('pointerdown', { bubbles: true })
+    Object.defineProperties(down, {
+      button: { value: 0 },
+      pointerId: { value: 1 },
+      pointerType: { value: 'mouse' },
+    })
+    await act(async () => increase.dispatchEvent(down))
+    assert.deepEqual(changes, [11])
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 520))
+    })
+    const heldChanges = changes.length
+    assert.ok(heldChanges >= 2, 'hold should produce repeated increments')
+
+    await act(async () => {
+      increase.dispatchEvent(new Event('pointerup', { bubbles: true }))
+    })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 240))
+    })
+    assert.equal(changes.length, heldChanges, 'release must stop the hold')
+    await unmount(rendered)
+  })
+
+  test('Pancake presets distinguish unrequested quotes from the selected server quote', async () => {
+    await i18n.changeLanguage('en')
+    setUsdBillingCurrency()
+    for (const calculating of [false, true]) {
+      const rendered = await render(
+        <RechargeFormCard
+          topupInfo={topupInfo}
+          presetAmounts={[{ value: 10 }, { value: 20 }]}
+          selectedPreset={10}
+          onSelectPreset={() => undefined}
+          topupAmount={10}
+          onTopupAmountChange={() => undefined}
+          paymentAmount={999}
+          settlementQuote={{ amount: '1.4900', currency: 'USD' }}
+          selectedPaymentMethod={{
+            name: 'Waffo Pancake',
+            type: 'waffo_pancake',
+          }}
+          calculating={calculating}
+          onPaymentMethodSelect={() => undefined}
+          paymentLoading={null}
+          redemptionCode=''
+          onRedemptionCodeChange={() => undefined}
+          onRedeem={() => undefined}
+          redeeming={false}
+        />
+      )
+      const presets = Array.from(
+        rendered.container.querySelectorAll('button[aria-pressed]')
+      )
+      assert.equal(presets.length, 2)
+      const selectedLabel = presets[0].getAttribute('aria-label') || ''
+      const unselectedLabel = presets[1].getAttribute('aria-label') || ''
+      assert.equal(selectedLabel.includes('1.4900 USD'), !calculating)
+      assert.equal(
+        unselectedLabel.includes('Select to get the current payment quote'),
+        true
+      )
+      assert.equal(unselectedLabel.includes('Payment unavailable'), false)
+      assert.equal(unselectedLabel.includes('1.4900'), false)
+      assert.equal(selectedLabel.includes('999'), false)
+      await unmount(rendered)
+    }
+  })
+
+  test('failed quotes explain the server reason and allow a quote-only retry', async () => {
+    await i18n.changeLanguage('en')
+    let retries = 0
+    const rendered = await render(
+      <RechargeFormCard
+        topupInfo={topupInfo}
+        presetAmounts={[{ value: 10 }]}
+        selectedPreset={10}
+        onSelectPreset={() => undefined}
+        topupAmount={10}
+        onTopupAmountChange={() => undefined}
+        paymentAmount={0}
+        settlementQuote={null}
+        selectedPaymentMethod={{ name: 'Waffo Pancake', type: 'waffo_pancake' }}
+        calculating={false}
+        quoteError='Minimum payment is 1 USD'
+        onRetryQuote={() => {
+          retries++
+        }}
+        onPaymentMethodSelect={() => {
+          throw new Error('retry must not start checkout')
+        }}
+        paymentLoading={null}
+        redemptionCode=''
+        onRedemptionCodeChange={() => undefined}
+        onRedeem={() => undefined}
+        redeeming={false}
+      />
+    )
+    const alert = rendered.container.querySelector('[role="alert"]')
+    assert.ok(alert)
+    assert.ok(alert.textContent?.includes('Minimum payment is 1 USD'))
+    const retry = alert.querySelector('button')
+    assert.ok(retry)
+    await act(async () => retry.click())
+    assert.equal(retries, 1)
+    const payButton = Array.from(
+      rendered.container.querySelectorAll('button')
+    ).find((b) => b.textContent?.includes('Pay Payment unavailable'))
+    assert.equal(payButton?.disabled, true)
+    await unmount(rendered)
+  })
+
+  test('hides a stale payment quote while a fresh quote is calculating', async () => {
+    await i18n.changeLanguage('en')
+    setUsdBillingCurrency()
+    const rendered = await render(
+      <RechargeFormCard
+        topupInfo={topupInfo}
+        presetAmounts={[{ value: 10 }]}
+        selectedPreset={10}
+        onSelectPreset={() => undefined}
+        topupAmount={10}
+        onTopupAmountChange={() => undefined}
+        paymentAmount={236.11}
+        selectedPaymentMethod={{
+          name: 'Waffo Pancake',
+          type: 'waffo_pancake',
+          settlement_currency: 'USD',
+          platform_units_per_usd: '6.8',
+          settlement_units_per_usd: '1',
+        }}
+        calculating
+        onPaymentMethodSelect={() => undefined}
+        paymentLoading={null}
+        redemptionCode=''
+        onRedemptionCodeChange={() => undefined}
+        onRedeem={() => undefined}
+        redeeming={false}
+      />
+    )
+
+    const text = rendered.container.textContent ?? ''
+    assert.equal(text.includes('Calculating...'), true)
+    assert.equal(text.includes('236.11 USD'), false)
+    assert.equal(text.includes('Estimated payment:'), false)
+    await unmount(rendered)
+  })
+
+  test('rejects zero and non-finite payment quotes in recharge and confirmation', async () => {
+    await i18n.changeLanguage('en')
+    setUsdBillingCurrency()
+
+    for (const invalidAmount of [0, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const recharge = await render(
+        <RechargeFormCard
+          topupInfo={topupInfo}
+          presetAmounts={[]}
+          selectedPreset={null}
+          onSelectPreset={() => undefined}
+          topupAmount={10}
+          onTopupAmountChange={() => undefined}
+          paymentAmount={invalidAmount}
+          calculating={false}
+          onPaymentMethodSelect={() => undefined}
+          paymentLoading={null}
+          redemptionCode=''
+          onRedemptionCodeChange={() => undefined}
+          onRedeem={() => undefined}
+          redeeming={false}
+        />
+      )
+
+      const rechargeText = recharge.container.textContent ?? ''
+      assert.equal(rechargeText.includes('Payment unavailable'), true)
+      assert.equal(rechargeText.includes('0 USD'), false)
+      assert.equal(rechargeText.includes('NaN'), false)
+      assert.equal(rechargeText.includes('Infinity'), false)
+      await unmount(recharge)
+
+      const confirmation = await render(
+        <PaymentConfirmDialog
+          open
+          onOpenChange={() => undefined}
+          onConfirm={() => undefined}
+          topupAmount={10}
+          paymentAmount={invalidAmount}
+          paymentMethod={{ name: 'Waffo Pancake', type: 'waffo_pancake' }}
+          calculating={false}
+          processing={false}
+        />
+      )
+      const confirmButton = [...document.body.querySelectorAll('button')].find(
+        (button) => button.textContent?.includes('Confirm Payment')
+      )
+      const confirmationText = document.body.textContent ?? ''
+      assert.equal(confirmButton?.disabled, true)
+      assert.equal(confirmationText.includes('Payment unavailable'), true)
+      assert.equal(confirmationText.includes('0 USD'), false)
+      assert.equal(confirmationText.includes('NaN'), false)
+      assert.equal(confirmationText.includes('Infinity'), false)
+      await unmount(confirmation)
+    }
+  })
+
+  test('disables confirmation while calculating or processing and enables a positive quote', async () => {
+    await i18n.changeLanguage('en')
+    setUsdBillingCurrency()
+
+    for (const state of [
+      { calculating: true, processing: false, disabled: true },
+      { calculating: false, processing: true, disabled: true },
+      { calculating: false, processing: false, disabled: false },
+    ]) {
+      const confirmation = await render(
+        <PaymentConfirmDialog
+          open
+          onOpenChange={() => undefined}
+          onConfirm={() => undefined}
+          topupAmount={1}
+          paymentAmount={0.15}
+          paymentMethod={{ name: 'Alipay', type: 'alipay' }}
+          calculating={state.calculating}
+          processing={state.processing}
+        />
+      )
+      const confirmButton = [...document.body.querySelectorAll('button')].find(
+        (button) => button.textContent?.includes('Confirm Payment')
+      )
+      assert.equal(confirmButton?.disabled, state.disabled)
+      assert.equal(
+        document.body.textContent?.includes('0.15 USD'),
+        !state.calculating
+      )
+      await unmount(confirmation)
+    }
+  })
+
+  test('applies explicit USD bridge rates to preset, custom preview, and confirmation', async () => {
+    await i18n.changeLanguage('en')
+    setCnyBillingCurrency()
+    const paymentMethod = {
+      name: 'USD card',
+      type: 'card',
+      settlement_currency: 'USD',
+      platform_units_per_usd: '6.8',
+      settlement_units_per_usd: '1',
+      min_topup: 6.8,
+      max_topup: '68',
+    }
+    const recharge = await render(
+      <RechargeFormCard
+        topupInfo={{
+          ...topupInfo,
+          min_topup: 6.8,
+          pay_methods: [paymentMethod],
+        }}
+        presetAmounts={[{ value: 6.8 }]}
+        selectedPreset={6.8}
+        onSelectPreset={() => undefined}
+        topupAmount={6.8}
+        onTopupAmountChange={() => undefined}
+        paymentAmount={1}
+        selectedPaymentMethod={paymentMethod}
+        calculating={false}
+        onPaymentMethodSelect={() => undefined}
+        paymentLoading={null}
+        redemptionCode=''
+        onRedemptionCodeChange={() => undefined}
+        onRedeem={() => undefined}
+        redeeming={false}
+        priceRatio={99}
+      />
+    )
+
+    const text = recharge.container.textContent ?? ''
+    assert.ok(
+      recharge.container.querySelector(
+        '[aria-label="Preset amount: 6.8 (Platform). Actual payment: 1 USD. Original payment: 1 USD. Platform discount 0%"]'
+      )
+    )
+    assert.equal(text.includes('6.8 (Platform)'), true)
+    assert.equal(text.includes('Estimated payment: 1 USD'), true)
+    assert.equal(text.includes('Amount due: 1 USD (actual payment)'), true)
+    assert.equal(text.includes('$1'), false)
+    assert.equal(
+      recharge.container.querySelector('#topup-amount')?.getAttribute('min'),
+      '6.8'
+    )
+    assert.equal(text.includes('1 USD / 6.8 (Platform)'), true)
+    await unmount(recharge)
+
+    const confirmation = await render(
+      <PaymentConfirmDialog
+        open
+        onOpenChange={() => undefined}
+        onConfirm={() => undefined}
+        topupAmount={6.8}
+        paymentAmount={1}
+        paymentMethod={paymentMethod}
+        calculating={false}
+        processing={false}
+        discountRate={1}
+      />
+    )
+    assert.equal(
+      document.body.textContent?.includes('Credit 6.8 (Platform); pay 1 USD'),
+      true
+    )
+    assert.equal(document.body.textContent?.includes('$1'), false)
+    await unmount(confirmation)
+  })
+
+  test('applies explicit CNY bridge rates instead of the global display currency', async () => {
+    await i18n.changeLanguage('en')
+    setUsdBillingCurrency()
+    const paymentMethod = {
+      name: 'CNY gateway',
+      type: 'card',
+      settlement_currency: 'CNY',
+      platform_units_per_usd: '6.8',
+      settlement_units_per_usd: '6.8',
+    }
+    const rendered = await render(
+      <RechargeFormCard
+        topupInfo={{ ...topupInfo, pay_methods: [paymentMethod] }}
+        presetAmounts={[{ value: 6.8 }]}
+        selectedPreset={6.8}
+        onSelectPreset={() => undefined}
+        topupAmount={6.8}
+        onTopupAmountChange={() => undefined}
+        paymentAmount={6.8}
+        selectedPaymentMethod={paymentMethod}
+        calculating={false}
+        onPaymentMethodSelect={() => undefined}
+        paymentLoading={null}
+        redemptionCode=''
+        onRedemptionCodeChange={() => undefined}
+        onRedeem={() => undefined}
+        redeeming={false}
+        priceRatio={99}
+      />
+    )
+
+    const text = rendered.container.textContent ?? ''
+    assert.ok(
+      rendered.container.querySelector(
+        '[aria-label="Preset amount: 6.8 (Platform). Actual payment: 6.8 CNY. Original payment: 6.8 CNY. Platform discount 0%"]'
+      )
+    )
+    assert.equal(text.includes('6.8 (Platform)'), true)
+    assert.equal(text.includes('Estimated payment: 6.8 CNY'), true)
+    assert.equal(text.includes('Amount due: 6.8 CNY (actual payment)'), true)
+    assert.equal(text.includes('6.8 CNY / 6.8 (Platform)'), true)
+    await unmount(rendered)
   })
 
   test('labels preset credits, payment, discount, and the custom-account destination', async () => {
@@ -314,13 +816,11 @@ describe('wallet payment clarity', () => {
     )
 
     const noDiscountPreset = rendered.container.querySelector(
-      '[aria-label="Preset amount: $100 USD. Actual payment: ¥540 CNY. Original payment: ¥540 CNY. Platform discount 0%"]'
+      '[aria-label="Preset amount: 100 (Platform). Actual payment: 540 CNY. Original payment: 540 CNY. Platform discount 0%"]'
     )
     assert.ok(noDiscountPreset)
     assert.equal(
-      noDiscountPreset?.textContent?.includes(
-        '100(Platform amount, unit: USD)'
-      ),
+      noDiscountPreset?.textContent?.includes('100 (Platform)'),
       true
     )
     assert.equal(
@@ -329,7 +829,7 @@ describe('wallet payment clarity', () => {
     )
 
     const discountPreset = rendered.container.querySelector(
-      '[aria-label="Preset amount: $200 USD. Actual payment: ¥864 CNY. Original payment: ¥1,080 CNY. Platform discount 20%. Discount applied ¥216 CNY"]'
+      '[aria-label="Preset amount: 200 (Platform). Actual payment: 864 CNY. Original payment: 1,080 CNY. Platform discount 20%. Discount applied 216 CNY"]'
     )
     assert.ok(discountPreset)
     assert.equal(
@@ -346,7 +846,7 @@ describe('wallet payment clarity', () => {
     assert.equal(
       rendered.container.querySelector('label[for="topup-amount"]')
         ?.textContent,
-      'Custom credited amount'
+      'Custom platform credit'
     )
     assert.equal(
       rendered.container.querySelector('#topup-amount-description')
@@ -359,7 +859,7 @@ describe('wallet payment clarity', () => {
     )
     assert.equal(
       rendered.container.textContent?.includes(
-        'Selected method: Alipay · Amount due: ¥540 CNY (actual payment)'
+        'Selected method: Alipay · Amount due: 540 CNY (actual payment)'
       ),
       true
     )
@@ -395,20 +895,67 @@ describe('wallet payment clarity', () => {
     )
 
     const text = rendered.container.textContent ?? ''
-    assert.equal(text.includes('100(Platform amount, unit: USD)'), true)
+    assert.equal(text.includes('100 (Platform)'), true)
     assert.equal(
       text.includes(
-        'Selected method: Alipay · Estimated payment: ¥80 CNY (original ¥100 CNY)'
+        'Selected method: Alipay · Estimated payment: 80 CNY (original 100 CNY)'
       ),
       true
     )
     assert.equal(text.includes('Platform discount 20%'), true)
-    assert.equal(text.includes('Discount applied ¥20 CNY'), true)
+    assert.equal(text.includes('Discount applied 20 CNY'), true)
+
+    const paymentBreakdown = text.match(
+      /Estimated payment: ([\d,.]+) CNY \(original ([\d,.]+) CNY\)/
+    )
+    const savingsBreakdown = text.match(/Discount applied ([\d,.]+) CNY/)
+    assert.ok(paymentBreakdown)
+    assert.ok(savingsBreakdown)
+    const actual = Number(paymentBreakdown[1]?.replaceAll(',', ''))
+    const original = Number(paymentBreakdown[2]?.replaceAll(',', ''))
+    const saved = Number(savingsBreakdown[1]?.replaceAll(',', ''))
+    assert.equal(original - actual, saved)
 
     await unmount(rendered)
   })
 
-  test('shows USD prefix and suffix for the custom credited amount', async () => {
+  test('hides an unprovable preset discount breakdown', async () => {
+    await i18n.changeLanguage('en')
+    setCnyBillingCurrency()
+    const rendered = await render(
+      <RechargeFormCard
+        topupInfo={topupInfo}
+        presetAmounts={[{ value: 100, discount: Number.NaN }]}
+        selectedPreset={100}
+        onSelectPreset={() => undefined}
+        topupAmount={100}
+        onTopupAmountChange={() => undefined}
+        paymentAmount={80}
+        calculating={false}
+        onPaymentMethodSelect={() => undefined}
+        paymentLoading={null}
+        redemptionCode=''
+        onRedemptionCodeChange={() => undefined}
+        onRedeem={() => undefined}
+        redeeming={false}
+        priceRatio={1}
+      />
+    )
+
+    const text = rendered.container.textContent ?? ''
+    assert.equal(
+      text.includes(
+        'Selected method: Alipay · Amount due: 80 CNY (actual payment)'
+      ),
+      true
+    )
+    assert.equal(text.includes('(original'), false)
+    assert.equal(text.includes('Discount applied'), false)
+
+    await unmount(rendered)
+  })
+
+  test('shows only the localized platform marker for custom credit', async () => {
     await i18n.changeLanguage('en')
     setUsdBillingCurrency()
     const rendered = await render(
@@ -434,7 +981,7 @@ describe('wallet payment clarity', () => {
     assert.equal(
       rendered.container.querySelector('label[for="topup-amount"]')
         ?.textContent,
-      'Custom credited amount'
+      'Custom platform credit'
     )
     assert.equal(
       rendered.container.querySelector('#topup-amount')?.getAttribute('value'),
@@ -448,11 +995,11 @@ describe('wallet payment clarity', () => {
       ]
         .map((addon) => addon.textContent)
         .slice(0, 2),
-      ['$', 'USD']
+      ['(Platform)']
     )
     assert.equal(
       rendered.container.textContent?.includes(
-        'Selected method: Alipay · Amount due: $0.14 USD (actual payment)'
+        'Selected method: Alipay · Amount due: 0.14 CNY (actual payment)'
       ),
       true
     )
@@ -506,7 +1053,10 @@ describe('wallet payment clarity', () => {
       ),
       true
     )
-    assert.equal(recharge.container.textContent?.includes('10 LDC / USD'), true)
+    assert.equal(
+      recharge.container.textContent?.includes('10 LDC / (Platform)'),
+      true
+    )
     assert.equal(
       recharge.container.textContent?.includes('Channel multiplier ×0.5'),
       true
@@ -528,7 +1078,7 @@ describe('wallet payment clarity', () => {
     )
 
     assert.equal(
-      document.body.textContent?.includes('Top up 1 USD; pay 0.56 LDC'),
+      document.body.textContent?.includes('Credit 1 (Platform); pay 0.56 LDC'),
       true
     )
     await unmount(confirmation)
@@ -546,6 +1096,7 @@ describe('wallet payment clarity', () => {
               name: 'LINUX DO Credit',
               type: 'epay',
               max_topup: '20',
+              max_topup_amount: '20',
             },
           ],
         }}
@@ -570,14 +1121,100 @@ describe('wallet payment clarity', () => {
     ].find((button) => button.textContent?.includes('LINUX DO Credit'))
     assert.equal(methodButton?.disabled, true)
     assert.equal(
-      methodButton?.textContent?.includes('Maximum: 20 USD credited'),
+      methodButton?.textContent?.includes('Maximum: 20 (Platform)'),
       true
     )
     assert.equal(
       methodButton?.getAttribute('title'),
-      'Maximum top-up amount: 20 USD credited'
+      'Maximum platform credit per payment: 20 (Platform)'
     )
 
+    await unmount(rendered)
+  })
+
+  test('uses the server request-amount cap instead of USD or gateway pricing', async () => {
+    await i18n.changeLanguage('en')
+    setCnyBillingCurrency()
+    // The server uses 6.8 platform units/USD for limits. A custom gateway
+    // can price those units differently without changing the credited cap.
+    for (const amount of [17, 18]) {
+      let selected = false
+      const method = {
+        name: 'Limited custom gateway',
+        type: 'epay',
+        settlement_currency: 'LDC',
+        platform_units_per_usd: '99',
+        settlement_units_per_usd: '10',
+        max_topup: '2.5',
+        max_topup_amount: '17',
+      }
+      const rendered = await render(
+        <RechargeFormCard
+          topupInfo={{ ...topupInfo, pay_methods: [method] }}
+          presetAmounts={[]}
+          selectedPreset={null}
+          onSelectPreset={() => undefined}
+          topupAmount={amount}
+          onTopupAmountChange={() => undefined}
+          paymentAmount={1}
+          calculating={false}
+          onPaymentMethodSelect={() => {
+            selected = true
+          }}
+          paymentLoading={null}
+          redemptionCode=''
+          onRedemptionCodeChange={() => undefined}
+          onRedeem={() => undefined}
+          redeeming={false}
+        />
+      )
+      const button = [...rendered.container.querySelectorAll('button')].find(
+        (item) => item.textContent?.includes('Limited custom gateway')
+      )
+      assert.ok(button)
+      assert.equal(button.disabled, amount > 17)
+      if (amount === 17) {
+        await act(async () => button.click())
+        assert.equal(selected, true)
+      } else {
+        assert.equal(
+          button.title,
+          'Maximum platform credit per payment: 17 (Platform)'
+        )
+      }
+      await unmount(rendered)
+    }
+  })
+
+  test('leaves legacy caps to the server when the request-amount limit is absent', async () => {
+    await i18n.changeLanguage('en')
+    const rendered = await render(
+      <RechargeFormCard
+        topupInfo={{
+          ...topupInfo,
+          pay_methods: [
+            { name: 'Legacy gateway', type: 'epay', max_topup: '2.5' },
+          ],
+        }}
+        presetAmounts={[]}
+        selectedPreset={null}
+        onSelectPreset={() => undefined}
+        topupAmount={17}
+        onTopupAmountChange={() => undefined}
+        paymentAmount={1}
+        calculating={false}
+        onPaymentMethodSelect={() => undefined}
+        paymentLoading={null}
+        redemptionCode=''
+        onRedemptionCodeChange={() => undefined}
+        onRedeem={() => undefined}
+        redeeming={false}
+      />
+    )
+    const button = [...rendered.container.querySelectorAll('button')].find(
+      (item) => item.textContent?.includes('Legacy gateway')
+    )
+    assert.equal(button?.disabled, false)
     await unmount(rendered)
   })
 
@@ -606,12 +1243,12 @@ describe('wallet payment clarity', () => {
 
     assert.equal(
       rendered.container.textContent?.includes(
-        'Selected method: Alipay · Estimated payment: $0.14 USD (original $0.14 USD)'
+        'Selected method: Alipay · Estimated payment: 0.14 CNY (original 0.14 CNY)'
       ),
       true
     )
     assert.equal(
-      rendered.container.textContent?.includes('Global settlement'),
+      rendered.container.textContent?.includes('5.4 CNY / (Platform)'),
       true
     )
     await unmount(rendered)
@@ -642,8 +1279,9 @@ describe('wallet payment clarity', () => {
     assert.equal(pageText.includes('Destination'), true)
     assert.equal(pageText.includes('Balance credited'), true)
     assert.equal(pageText.includes('You top up'), true)
-    assert.equal(pageText.includes('$1 USD'), true)
-    assert.equal(pageText.includes('$0.15 USD'), true)
+    assert.equal(pageText.includes('1 (Platform)'), true)
+    assert.equal(pageText.includes('$'), false)
+    assert.equal(pageText.includes('0.15 USD'), true)
     assert.equal(pageText.includes('Alipay'), true)
     const confirmationContent = document.querySelector(
       '[data-slot="alert-dialog-content"]'
@@ -660,7 +1298,7 @@ describe('wallet payment clarity', () => {
     await unmount(rendered)
   })
 
-  test('keeps all eight Chinese presets and payment details inside a 390px viewport', async () => {
+  test('keeps all eight Chinese presets in a 390px viewport without showing stale preset details', async () => {
     await i18n.changeLanguage('zh')
     setCnyBillingCurrency()
     const rendered = await render(
@@ -704,10 +1342,8 @@ describe('wallet payment clarity', () => {
       cards.every((card) => card.scrollWidth <= card.clientWidth),
       true
     )
-    assert.equal(
-      rendered.container.textContent?.includes('100（平台金额，单位：美元）'),
-      true
-    )
+    assert.equal(rendered.container.textContent?.includes('100 (平台)'), true)
+    assert.equal(rendered.container.textContent?.includes('$'), false)
     assert.equal(
       rendered.container.textContent?.includes(
         '卡片中的金额是平台到账金额，实际支付金额和优惠会根据所选支付方式计算。'
@@ -716,18 +1352,24 @@ describe('wallet payment clarity', () => {
     )
     assert.equal(
       rendered.container.textContent?.includes(
-        '所选方式：Alipay · 预计支付：¥80 CNY（原价 ¥100 CNY）'
+        '所选方式：Alipay · 预计支付：432 CNY（原价 540 CNY）'
       ),
-      true
+      false
+    )
+    assert.equal(
+      cards
+        .find((card) => card.textContent?.includes('100 (平台)'))
+        ?.getAttribute('aria-pressed'),
+      'false'
     )
     assert.equal(rendered.container.textContent?.includes('平台优惠 20%'), true)
     assert.equal(
-      rendered.container.textContent?.includes('已优惠 ¥20 CNY'),
-      true
+      rendered.container.textContent?.includes('已优惠 108 CNY'),
+      false
     )
     assert.equal(
       rendered.container.textContent?.includes(
-        '所选方式：Alipay · 待支付金额：¥0.14 CNY（实际付款）'
+        '所选方式：Alipay · 待支付金额：0.14 CNY（实际付款）'
       ),
       true
     )
@@ -740,20 +1382,20 @@ describe('wallet payment clarity', () => {
       rendered.container
         .querySelector('#topup-amount')
         ?.getAttribute('aria-label'),
-      '自定义到账金额（美元）'
+      '自定义平台额度'
     )
     assert.equal(
       rendered.container.textContent?.includes(
         'Waffo Pancake 当前仅支持 USD，请将该网关货币设为 USD。'
       ),
-      true
+      false
     )
 
     await unmount(rendered)
     await i18n.changeLanguage('en')
   })
 
-  test('keeps Chinese preset payment and original-price units dynamic for USD', async () => {
+  test('keeps Chinese payment units bound to the selected gateway', async () => {
     await i18n.changeLanguage('zh')
     setUsdBillingCurrency()
     const rendered = await render(
@@ -782,12 +1424,60 @@ describe('wallet payment clarity', () => {
       false
     )
     assert.equal(
-      text.includes('所选方式：Alipay · 预计支付：$80 USD（原价 $100 USD）'),
+      text.includes('所选方式：Alipay · 预计支付：80 CNY（原价 100 CNY）'),
       true
     )
+    assert.equal(text.includes('已优惠 20 CNY'), true)
     assert.equal(text.includes('人民币'), false)
 
     await unmount(rendered)
     await i18n.changeLanguage('en')
+  })
+
+  test('PaymentConfirmDialog renders discount code savings and strikethrough for settlement quotes', async () => {
+    const rendered = await render(
+      <PaymentConfirmDialog
+        open
+        onOpenChange={() => undefined}
+        onConfirm={() => undefined}
+        topupAmount={100}
+        paymentAmount={8.47}
+        settlementQuote={{ amount: '8.4700', currency: 'USD' }}
+        paymentMethod={{
+          name: 'Waffo Pancake',
+          type: 'waffo_pancake',
+        }}
+        calculating={false}
+        processing={false}
+        discountCode='SAVE40'
+        discountPercent={40}
+      />
+    )
+
+    const text =
+      document.querySelector('[role="alertdialog"]')?.textContent ?? ''
+    assert.ok(
+      text.includes('8.4700 USD'),
+      'actual payment quote should be rendered'
+    )
+    assert.ok(text.includes('SAVE40'), 'discount code should be displayed')
+    assert.ok(
+      text.includes('Discount applied: 40% off'),
+      'discount percent should be displayed'
+    )
+    assert.ok(
+      text.includes('Discount code saves'),
+      'savings line should be displayed'
+    )
+    assert.ok(
+      text.includes('14.12 USD'),
+      'pre-discount strikethrough amount should be rendered'
+    )
+    assert.ok(
+      text.includes('5.65 USD'),
+      'discount code savings amount should be rendered'
+    )
+
+    await unmount(rendered)
   })
 })

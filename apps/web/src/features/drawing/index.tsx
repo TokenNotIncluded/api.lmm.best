@@ -1,17 +1,26 @@
 /*
 Copyright (C) 2026 LIghtJUNction
 */
-import { useQuery } from '@tanstack/react-query'
 import {
-  Copy,
-  ImageIcon,
-  ImagePlus,
-  RefreshCw,
-  ServerCog,
-  Sparkles,
-  X,
-} from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+  Cancel01Icon,
+  Copy01Icon,
+  Image01Icon,
+  ImageAdd01Icon,
+  Loading03Icon,
+  McpServerIcon,
+  SparklesIcon,
+} from '@hugeicons/core-free-icons'
+import { HugeiconsIcon } from '@hugeicons/react'
+import { useQuery } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -22,7 +31,21 @@ import {
   AlertDescription,
   AlertTitle,
 } from '@/components/ui/alert'
-import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Button, buttonVariants } from '@/components/ui/button'
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+} from '@/components/ui/drawer'
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@/components/ui/empty'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
@@ -30,26 +53,43 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { api } from '@/lib/api'
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
+import { formatQuota } from '@/lib/format'
+import { useAuthStore } from '@/stores/auth-store'
+import { useSystemConfigStore } from '@/stores/system-config-store'
 
-import { getAssistantStatus } from '../assistant/api'
-import { rotateMcpToken } from '../open-source-bounties/api'
+import { getAssistantStatus, type DrawingWebAccess } from '../assistant/api'
 import { getPricing } from '../pricing/api'
 import type { PricingModel } from '../pricing/types'
+import { DrawingErrorBoundary } from './drawing-error-boundary'
+import { DrawingGallery } from './drawing-gallery'
+import { DrawingSnakeGame } from './drawing-snake-game'
+import {
+  clearActiveDrawingTask,
+  getActiveDrawingTask,
+  getDrawingDraft,
+  getDrawingMinigamePref,
+  registerActiveDrawingTask,
+  saveDrawingDraft,
+  setDrawingMinigamePref,
+  subscribeActiveDrawingTask,
+  updateActiveDrawingTask,
+  type ActiveDrawingTask,
+} from './drawing-task-state'
 import {
   getDrawingRequestErrorKind,
+  getDrawingRequestErrorMessage,
   getDrawingRequestStatus,
 } from './error-state'
+import { DRAWING_HISTORY_BYTES, DRAWING_HISTORY_LIMIT } from './history-storage'
+import { drawingSource, type GeneratedDrawing } from './image-bytes'
 import { buildDrawingMcpConfig } from './mcp-config'
-
-type ImageResult = {
-  url?: string
-  b64_json?: string
-  revised_prompt?: string
-}
+import { useDrawingHistory } from './use-drawing-history'
+import { getDrawingWebDenial, resolveDrawingWebAccess } from './web-access'
 
 type ImageResponse = {
-  data?: ImageResult[]
-  error?: { message?: string }
+  data?: GeneratedDrawing[]
+  error?: { message?: string; code?: string }
+  drawing_web_access?: DrawingWebAccess
   message?: string
 }
 
@@ -64,14 +104,19 @@ const maxReferenceImageBytes = 10 * 1024 * 1024
 const supportedReferenceImageTypes = ['image/jpeg', 'image/png', 'image/webp']
 const chineseImageOrdinals = ['一', '二', '三', '四', '五', '六', '七', '八']
 
-function isImageModel(model: PricingModel): boolean {
-  return model.supported_endpoint_types?.includes('image-generation') === true
+type DrawingMcpKey = {
+  id: number
+  name: string
+  group: string
+  status: number
+  expired_time: number
+  remain_quota: number
+  used_quota: number
+  unlimited_quota: boolean
 }
 
-function imageSource(image: ImageResult): string | undefined {
-  if (image.url?.trim()) return image.url.trim()
-  if (image.b64_json?.trim()) return `data:image/png;base64,${image.b64_json}`
-  return undefined
+function isImageModel(model: PricingModel): boolean {
+  return model.supported_endpoint_types?.includes('image-generation') === true
 }
 
 function modelSupportsGroup(model: PricingModel, group: string): boolean {
@@ -128,40 +173,226 @@ function DrawingQueryErrorAlert(props: {
 }
 
 export function Drawing() {
+  const userId = useAuthStore((state) => state.auth.user?.id)
+  // Remount every account-owned state, including prompt/reference files and the
+  // session-only MCP secret. Never render one account's previews for another.
+  return userId ? (
+    <DrawingErrorBoundary>
+      <DrawingWorkbench key={userId} userId={userId} />
+    </DrawingErrorBoundary>
+  ) : null
+}
+
+function DrawingWorkbench({ userId }: { userId: number }) {
   const { t, i18n } = useTranslation()
-  const [prompt, setPrompt] = useState('')
-  const [group, setGroup] = useState('')
-  const [model, setModel] = useState('')
-  const [size, setSize] = useState('')
-  const [quality, setQuality] = useState('')
-  const [count, setCount] = useState('1')
-  const [results, setResults] = useState<ImageResult[]>([])
+  const history = useDrawingHistory(userId)
+  const results = history.images
+  const quotaPerUSD = useSystemConfigStore(
+    (state) => state.config.currency.quotaPerUnit
+  )
+  const [webDenial, setWebDenial] = useState<DrawingWebAccess | null>(null)
+  const [keyPending, setKeyPending] = useState(false)
+  const [keyReady, setKeyReady] = useState(false)
+  const [keyError, setKeyError] = useState<string | null>(null)
+  const activeRef = useRef(true)
+  const requestPendingRef = useRef(false)
+  const currentAbortRef = useRef<AbortController | null>(null)
+  const isCurrentUser = useCallback(
+    () => activeRef.current && useAuthStore.getState().auth.user?.id === userId,
+    [userId]
+  )
+  useEffect(() => {
+    activeRef.current = true
+    return () => {
+      activeRef.current = false
+    }
+  }, [])
+
+  const initialDraft = useMemo(() => getDrawingDraft(userId), [userId])
+  const [prompt, setPrompt] = useState(initialDraft.prompt || '')
+  const [group, setGroup] = useState(initialDraft.group || '')
+  const [model, setModel] = useState(initialDraft.model || '')
+  const [size, setSize] = useState(initialDraft.size || '')
+  const [quality, setQuality] = useState(initialDraft.quality || '')
+  const [count, setCount] = useState(initialDraft.count || '1')
   const [referenceImages, setReferenceImages] = useState<ReferenceImage[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [errorStatus, setErrorStatus] = useState<number | null>(null)
+  const [stoppedMessage, setStoppedMessage] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
+  const [minigameEnabled, setMinigameEnabled] = useState(getDrawingMinigamePref)
+  const [minigameExpanded, setMinigameExpanded] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [activeTask, setActiveTask] = useState<ActiveDrawingTask | null>(() =>
+    getActiveDrawingTask(userId)
+  )
+
   const [drawingMcpToken, setDrawingMcpToken] = useState('')
+  const [drawingMcpApiKeyId, setDrawingMcpApiKeyId] = useState<number | null>(
+    null
+  )
   const [drawingMcpPending, setDrawingMcpPending] = useState(false)
+  const [drawingMcpOpen, setDrawingMcpOpen] = useState(false)
+  const [drawingMcpDefaultModel, setDrawingMcpDefaultModel] = useState('')
+  const drawingMcpSettingsInitializedRef = useRef(false)
   const referenceInputRef = useRef<HTMLInputElement>(null)
   const previewUrlsRef = useRef(new Set<string>())
 
+  // Save prompt draft automatically
+  useEffect(() => {
+    saveDrawingDraft(userId, { prompt })
+  }, [userId, prompt])
+
+  // Subscribe to background active task across SPA navigations
+  useEffect(() => {
+    const existing = getActiveDrawingTask(userId)
+    const syncTask = (task: ActiveDrawingTask | null) => {
+      if (!isCurrentUser()) return
+      setActiveTask(task)
+      if (task && task.status === 'generating') {
+        setGenerating(!task.waitingStopped)
+        setStoppedMessage(
+          task.waitingStopped
+            ? t(
+                'Generation continues in this tab. You can switch pages; do not reload or close this tab until the result is saved.'
+              )
+            : null
+        )
+        if (task.abortController) {
+          currentAbortRef.current = task.abortController
+        }
+      } else if (task && task.status === 'failed') {
+        setGenerating(false)
+        setStoppedMessage(null)
+        if (task.error) setError(task.error)
+        if (task.errorStatus) setErrorStatus(task.errorStatus)
+      } else if (
+        !task ||
+        task.status === 'completed' ||
+        task.status === 'stopped'
+      ) {
+        setGenerating(false)
+        setStoppedMessage(null)
+      }
+    }
+    syncTask(existing)
+    return subscribeActiveDrawingTask(userId, syncTask)
+  }, [userId, isCurrentUser, t])
+
+  // Live elapsed timer
+  useEffect(() => {
+    if (!generating) {
+      setElapsedSeconds(0)
+      return
+    }
+    const started = activeTask?.startedAt || Date.now()
+    const updateTime = () => {
+      const sec = Math.max(1, Math.floor((Date.now() - started) / 1000))
+      setElapsedSeconds(sec)
+    }
+    updateTime()
+    const timer = setInterval(updateTime, 1000)
+    return () => clearInterval(timer)
+  }, [generating, activeTask?.startedAt])
+
+  // Offer once per generation; closing a game must not immediately reopen it.
+  const gameOfferedRef = useRef(false)
+  useEffect(() => {
+    if (!generating) {
+      gameOfferedRef.current = false
+      setMinigameExpanded(false)
+      return
+    }
+    if (elapsedSeconds >= 3 && minigameEnabled && !gameOfferedRef.current) {
+      gameOfferedRef.current = true
+      setMinigameExpanded(true)
+    }
+  }, [generating, elapsedSeconds, minigameEnabled])
+
   const accessQuery = useQuery({
-    queryKey: ['assistant-status'],
+    queryKey: ['assistant-status', 'drawing', userId],
     queryFn: getAssistantStatus,
     staleTime: 30_000,
     retry: false,
   })
+  const walletQuery = useQuery({
+    queryKey: ['drawing-wallet', userId],
+    enabled: accessQuery.isSuccess && !accessQuery.data.drawing_web_access,
+    queryFn: async () => {
+      const response = await api.get<{
+        success: boolean
+        data?: { quota?: number }
+      }>('/api/user/self', {
+        skipBusinessError: true,
+        skipErrorHandler: true,
+      })
+      if (!response.data.success) {
+        throw new Error('Unable to load wallet balance')
+      }
+      return response.data.data ?? {}
+    },
+    staleTime: 30_000,
+    retry: false,
+  })
+  const webAccess =
+    webDenial ??
+    resolveDrawingWebAccess(
+      accessQuery.data?.drawing_web_access,
+      walletQuery.isError ? undefined : walletQuery.data?.quota,
+      quotaPerUSD
+    )
+  const refreshBalance = async () => {
+    const [status, wallet] = await Promise.all([
+      accessQuery.refetch(),
+      accessQuery.data?.drawing_web_access
+        ? Promise.resolve(null)
+        : walletQuery.refetch(),
+    ])
+    if (!isCurrentUser()) return
+    if (
+      status.isError ||
+      (!status.data?.drawing_web_access && wallet?.isError)
+    ) {
+      setWebDenial({
+        minimum_balance_usd: 10,
+        balance_usd: null,
+        allowed: false,
+      })
+    } else {
+      setWebDenial(
+        resolveDrawingWebAccess(
+          status.data?.drawing_web_access,
+          wallet?.data?.quota,
+          quotaPerUSD
+        )
+      )
+    }
+  }
   const pricingQuery = useQuery({
     queryKey: ['drawing-pricing'],
-    queryFn: getPricing,
+    queryFn: ({ signal }) => getPricing(signal),
     staleTime: 5 * 60_000,
     retry: false,
   })
   const groupsQuery = useQuery({
-    queryKey: ['drawing-user-groups'],
+    queryKey: ['drawing-user-groups', userId],
     queryFn: async () => {
       const response = await api.get<{
         success: boolean
-        data?: Record<string, { desc: string; ratio: number | string }>
+        data?: Record<
+          string,
+          {
+            desc: string
+            ratio: number | string
+            warning?: {
+              enabled: boolean
+              message: string
+              mode: 'modal' | 'banner' | 'inline'
+              confirmations: number
+            }
+          }
+        >
         message?: string
       }>('/api/user/self/groups')
       return response.data
@@ -169,6 +400,70 @@ export function Drawing() {
     staleTime: 60_000,
     retry: false,
   })
+  const drawingMcpKeysQuery = useQuery({
+    queryKey: ['drawing-mcp-keys', userId],
+    queryFn: async () => {
+      const response = await api.get<{
+        success: boolean
+        data?: { keys?: DrawingMcpKey[] }
+      }>('/api/drawing/mcp-keys', {
+        skipBusinessError: true,
+        skipErrorHandler: true,
+      })
+      if (!response.data.success) throw new Error('Unable to load API keys')
+      return response.data.data?.keys ?? []
+    },
+    enabled: drawingMcpOpen && accessQuery.isSuccess,
+    staleTime: 30_000,
+    retry: false,
+  })
+  const drawingMcpTokenQuery = useQuery({
+    queryKey: ['drawing-mcp-token', userId],
+    queryFn: async () => {
+      const response = await api.get<{
+        success: boolean
+        data?: {
+          status?: {
+            configured: boolean
+            api_key_id?: number
+            default_model?: string
+          }
+        }
+      }>('/api/drawing/mcp-token', {
+        skipBusinessError: true,
+        skipErrorHandler: true,
+      })
+      if (!response.data.success) throw new Error('Unable to load MCP token')
+      return response.data.data?.status ?? { configured: false }
+    },
+    enabled: drawingMcpOpen && accessQuery.isSuccess,
+    staleTime: 30_000,
+    retry: false,
+  })
+  useEffect(() => {
+    const configured = drawingMcpTokenQuery.data?.api_key_id
+    if (
+      drawingMcpApiKeyId === null &&
+      configured &&
+      drawingMcpKeysQuery.data?.some((key) => key.id === configured)
+    ) {
+      setDrawingMcpApiKeyId(configured)
+    }
+  }, [
+    drawingMcpApiKeyId,
+    drawingMcpKeysQuery.data,
+    drawingMcpTokenQuery.data?.api_key_id,
+  ])
+  useEffect(() => {
+    if (
+      drawingMcpSettingsInitializedRef.current ||
+      drawingMcpTokenQuery.data === undefined
+    ) {
+      return
+    }
+    drawingMcpSettingsInitializedRef.current = true
+    setDrawingMcpDefaultModel(drawingMcpTokenQuery.data.default_model ?? '')
+  }, [drawingMcpTokenQuery.data])
 
   const imageModels = useMemo(
     () =>
@@ -186,19 +481,38 @@ export function Drawing() {
       )
       .sort((left, right) => left.localeCompare(right))
   }, [groupsQuery.data?.data, imageModels, pricingQuery.data?.usable_group])
-  let selectedGroup = groups[0] ?? ''
-  if (groups.includes('image-2')) selectedGroup = 'image-2'
-  if (groups.includes(group)) selectedGroup = group
+  const drawingMcpSelectedKey = drawingMcpKeysQuery.data?.find(
+    (key) => key.id === drawingMcpApiKeyId
+  )
+  const drawingMcpModels = imageModels.filter(
+    (item) =>
+      drawingMcpSelectedKey !== undefined &&
+      modelSupportsGroup(item, drawingMcpSelectedKey.group)
+  )
+  useEffect(() => {
+    if (
+      drawingMcpDefaultModel &&
+      drawingMcpModels.length > 0 &&
+      !drawingMcpModels.some(
+        (item) => item.model_name === drawingMcpDefaultModel
+      )
+    ) {
+      setDrawingMcpDefaultModel('')
+    }
+  }, [drawingMcpDefaultModel, drawingMcpModels])
+  const selectedGroup = groups.includes(group)
+    ? group
+    : groups.includes('image-2')
+      ? 'image-2'
+      : (groups[0] ?? '')
   const modelsForGroup = imageModels.filter((item) =>
     modelSupportsGroup(item, selectedGroup)
   )
-  let selectedModel = modelsForGroup[0]?.model_name ?? ''
-  if (modelsForGroup.some((item) => item.model_name === 'image-2')) {
-    selectedModel = 'image-2'
-  }
-  if (modelsForGroup.some((item) => item.model_name === model)) {
-    selectedModel = model
-  }
+  const selectedModel = modelsForGroup.some((item) => item.model_name === model)
+    ? model
+    : modelsForGroup.some((item) => item.model_name === 'image-2')
+      ? 'image-2'
+      : (modelsForGroup[0]?.model_name ?? '')
   const groupDescription =
     groupsQuery.data?.data?.[selectedGroup]?.desc ??
     pricingQuery.data?.usable_group?.[selectedGroup]?.desc
@@ -213,66 +527,32 @@ export function Drawing() {
     ? buildDrawingMcpConfig(drawingMcpEndpoint, drawingMcpToken)
     : ''
 
-  const sizePresets = useMemo(() => {
-    const defaults = [{ value: '', label: t('Default') }]
-    if (selectedModel === 'dall-e-2' || selectedModel === 'dall-e') {
-      return [
-        ...defaults,
-        ...['256x256', '512x512', '1024x1024'].map((value) => ({
-          value,
-          label: value,
-        })),
-      ]
-    }
-    if (selectedModel === 'dall-e-3') {
-      return [
-        ...defaults,
-        ...['1024x1024', '1024x1792', '1792x1024'].map((value) => ({
-          value,
-          label: value,
-        })),
-      ]
-    }
-    return [
-      ...defaults,
-      ...['1024x1024', '1024x1536', '1536x1024'].map((value) => ({
-        value,
-        label: value,
-      })),
-    ]
-  }, [selectedModel, t])
+  const sizes =
+    selectedModel === 'dall-e-2' || selectedModel === 'dall-e'
+      ? ['256x256', '512x512', '1024x1024']
+      : selectedModel === 'dall-e-3'
+        ? ['1024x1024', '1024x1792', '1792x1024']
+        : ['1024x1024', '1024x1536', '1536x1024']
+  const qualities = selectedModel.startsWith('gpt-image-')
+    ? ['auto', 'low', 'medium', 'high']
+    : ['standard', 'hd']
+  const sizePresets = ['', ...sizes].map((value) => ({
+    value,
+    label: value || t('Default'),
+  }))
+  const qualityPresets = ['', ...qualities].map((value) => ({
+    value,
+    label: value || t('Default'),
+  }))
 
-  const qualityPresets = useMemo(() => {
-    const defaults = [{ value: '', label: t('Default') }]
-    if (selectedModel === 'dall-e-3') {
-      return [
-        ...defaults,
-        ...['standard', 'hd'].map((value) => ({ value, label: value })),
-      ]
-    }
-    if (selectedModel === 'gpt-image-1') {
-      return [
-        ...defaults,
-        ...['auto', 'low', 'medium', 'high'].map((value) => ({
-          value,
-          label: value,
-        })),
-      ]
-    }
-    return [
-      ...defaults,
-      ...['standard', 'hd'].map((value) => ({ value, label: value })),
-    ]
-  }, [selectedModel, t])
-
-  useEffect(() => {
-    setSize((current) =>
-      sizePresets.some((option) => option.value === current) ? current : ''
-    )
-    setQuality((current) =>
-      qualityPresets.some((option) => option.value === current) ? current : ''
-    )
-  }, [qualityPresets, sizePresets])
+  const selectedSize = sizePresets.some((option) => option.value === size)
+    ? size
+    : ''
+  const selectedQuality = qualityPresets.some(
+    (option) => option.value === quality
+  )
+    ? quality
+    : ''
 
   useEffect(
     () => () => {
@@ -344,12 +624,99 @@ export function Drawing() {
     setReferenceImages((current) => current.filter((image) => image.id !== id))
   }
 
+  useEffect(() => {
+    if (selectedGroup) {
+      saveDrawingDraft(userId, {
+        group: selectedGroup,
+        model: selectedModel,
+        size: selectedSize,
+        quality: selectedQuality,
+        count,
+      })
+    }
+  }, [
+    userId,
+    selectedGroup,
+    selectedModel,
+    selectedSize,
+    selectedQuality,
+    count,
+  ])
+
+  const stopGeneration = () => {
+    updateActiveDrawingTask(userId, { waitingStopped: true })
+    setGenerating(false)
+    setError(null)
+    setErrorStatus(null)
+    setStoppedMessage(
+      t(
+        'Generation continues in this tab. You can switch pages; do not reload or close this tab until the result is saved.'
+      )
+    )
+  }
+
+  const copyErrorDetails = async () => {
+    const details = {
+      timestamp: new Date().toISOString(),
+      model: selectedModel,
+      group: selectedGroup,
+      prompt: prompt.trim(),
+      status: errorStatus,
+      error,
+    }
+    const success = await copyToClipboard(JSON.stringify(details, null, 2))
+    if (success) {
+      toast.success(t('Error details copied'))
+    }
+  }
+
   const generate = async () => {
     const cleanPrompt = prompt.trim()
-    if (generating || !cleanPrompt || !selectedGroup || !selectedModel) return
+    if (
+      requestPendingRef.current ||
+      getActiveDrawingTask(userId)?.status === 'generating' ||
+      !isCurrentUser() ||
+      !accessGranted ||
+      !webAccess.allowed ||
+      history.clearing ||
+      !cleanPrompt ||
+      !selectedGroup ||
+      !selectedModel
+    ) {
+      return
+    }
+    requestPendingRef.current = true
+    const abortController = new AbortController()
+    currentAbortRef.current = abortController
+    const releaseHistory = history.retain()
+    const ticket = history.capture()
+    const metadata = {
+      prompt: cleanPrompt,
+      model: selectedModel,
+      group: selectedGroup,
+      createdAt: Date.now(),
+    }
+    const taskId = crypto.randomUUID()
+    registerActiveDrawingTask({
+      id: taskId,
+      userId,
+      prompt: cleanPrompt,
+      group: selectedGroup,
+      model: selectedModel,
+      size: selectedSize,
+      quality: selectedQuality,
+      count,
+      referenceCount: referenceImages.length,
+      startedAt: Date.now(),
+      abortController,
+      status: 'generating',
+    })
+
     setGenerating(true)
     setError(null)
-    setResults([])
+    setErrorStatus(null)
+    setStoppedMessage(null)
+
     try {
       let response
       if (referenceImages.length > 0) {
@@ -357,15 +724,19 @@ export function Drawing() {
         form.append('prompt', cleanPrompt)
         form.append('model', selectedModel)
         form.append('n', count)
-        if (size.trim()) form.append('size', size.trim())
-        if (quality.trim()) form.append('quality', quality.trim())
+        if (selectedSize) form.append('size', selectedSize)
+        if (selectedQuality) form.append('quality', selectedQuality)
         for (const image of referenceImages) {
           form.append('image', image.file, image.file.name)
         }
         response = await api.post<ImageResponse>(
           `/pg/images/edits?group=${encodeURIComponent(selectedGroup)}`,
           form,
-          { skipBusinessError: true, skipErrorHandler: true }
+          {
+            signal: abortController.signal,
+            skipBusinessError: true,
+            skipErrorHandler: true,
+          }
         )
       } else {
         response = await api.post<ImageResponse>(
@@ -374,39 +745,167 @@ export function Drawing() {
             prompt: cleanPrompt,
             model: selectedModel,
             n: Number(count),
-            ...(size.trim() ? { size: size.trim() } : {}),
-            ...(quality.trim() ? { quality: quality.trim() } : {}),
+            ...(selectedSize ? { size: selectedSize } : {}),
+            ...(selectedQuality ? { quality: selectedQuality } : {}),
           },
-          { skipBusinessError: true, skipErrorHandler: true }
+          {
+            signal: abortController.signal,
+            skipBusinessError: true,
+            skipErrorHandler: true,
+          }
         )
       }
-      if (response.data.error || !Array.isArray(response.data.data)) {
-        throw new Error(
-          response.data.error?.message ||
-            response.data.message ||
-            t('Unable to generate the image')
+
+      if (abortController.signal.aborted) return
+      if (
+        useAuthStore.getState().auth.user?.id !== userId ||
+        ticket !== history.capture()
+      ) {
+        return
+      }
+
+      const denial = getDrawingWebDenial({ response })
+      if (denial) {
+        clearActiveDrawingTask(userId, taskId)
+        setWebDenial(denial)
+        return
+      }
+      if (
+        !response.data ||
+        response.data.error ||
+        !Array.isArray(response.data.data)
+      ) {
+        const status = getDrawingRequestStatus({ response })
+        const errorMsg = getDrawingRequestErrorMessage(
+          { response },
+          t('Unable to generate the image')
         )
+        setError(errorMsg)
+        setErrorStatus(status)
+        updateActiveDrawingTask(userId, {
+          status: 'failed',
+          error: errorMsg,
+          errorStatus: status,
+        })
+        return
       }
       const usableResults = response.data.data.filter(
-        (image) => imageSource(image) !== undefined
+        (image) => drawingSource(image) !== undefined
       )
-      setResults(usableResults)
       if (usableResults.length === 0) {
-        setError(t('No images were returned'))
+        const msg = t('No images were returned')
+        setError(msg)
+        updateActiveDrawingTask(userId, { status: 'failed', error: msg })
+      } else {
+        // Cache failures are handled separately: successful generation is never
+        // an API error or an invitation to regenerate (and pay again).
+        await history.remember(usableResults, metadata, ticket)
+        clearActiveDrawingTask(userId, taskId)
+        if (useAuthStore.getState().auth.user?.id === userId) {
+          toast.success(t('Image generation completed'))
+        }
       }
-    } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : t('Unable to generate the image')
+    } catch (cause: unknown) {
+      if (
+        abortController.signal.aborted ||
+        (cause instanceof Error && cause.name === 'AbortError')
+      ) {
+        return
+      }
+      if (
+        useAuthStore.getState().auth.user?.id !== userId ||
+        ticket !== history.capture()
+      ) {
+        return
+      }
+      const denial = getDrawingWebDenial(cause)
+      if (denial) {
+        clearActiveDrawingTask(userId, taskId)
+        setWebDenial(denial)
+        return
+      }
+      const fallbackMessages = {
+        unauthenticated: t('Session expired!'),
+        forbidden: t('No permission to perform this action'),
+        unavailable: t('Please try again later.'),
+        network: t('Network connection failed or server not responding'),
+        http: t('Unable to generate the image'),
+      }
+      const status = getDrawingRequestStatus(cause)
+      const errorMsg = getDrawingRequestErrorMessage(
+        cause,
+        fallbackMessages[getDrawingRequestErrorKind(cause)]
       )
+      setError(errorMsg)
+      setErrorStatus(status)
+      updateActiveDrawingTask(userId, {
+        status: 'failed',
+        error: errorMsg,
+        errorStatus: status,
+      })
     } finally {
-      setGenerating(false)
+      if (
+        getActiveDrawingTask(userId)?.id === taskId &&
+        getActiveDrawingTask(userId)?.status === 'generating'
+      ) {
+        clearActiveDrawingTask(userId, taskId)
+      }
+      releaseHistory()
+      requestPendingRef.current = false
+      if (currentAbortRef.current === abortController) {
+        currentAbortRef.current = null
+      }
+      if (isCurrentUser()) {
+        setGenerating(false)
+        try {
+          void refreshBalance()
+        } catch {
+          // Balance refresh failures should never break drawing studio
+        }
+      }
+    }
+  }
+
+  const ensureDrawingKey = async () => {
+    if (keyPending || !accessGranted || !isCurrentUser()) return
+    setKeyPending(true)
+    setKeyError(null)
+    try {
+      const response = await api.post<{
+        success: boolean
+        data?: { id: number; name: string; group: 'image-2'; created: boolean }
+      }>(
+        '/api/drawing/key',
+        {},
+        { skipBusinessError: true, skipErrorHandler: true }
+      )
+      if (!isCurrentUser()) return
+      if (
+        !response.data.success ||
+        !response.data.data?.id ||
+        response.data.data.group !== 'image-2'
+      ) {
+        throw new Error('Unable to prepare drawing key')
+      }
+      setDrawingMcpApiKeyId(response.data.data.id)
+      void drawingMcpKeysQuery.refetch()
+      setKeyReady(true)
+    } catch (cause) {
+      if (isCurrentUser()) {
+        setKeyError(
+          getDrawingRequestErrorMessage(
+            cause,
+            t('Unable to prepare the image-2 API Key.')
+          )
+        )
+      }
+    } finally {
+      if (isCurrentUser()) setKeyPending(false)
     }
   }
 
   const copyDrawingMcpConfig = async () => {
-    if (drawingMcpPending) return
+    if (drawingMcpPending || !isCurrentUser()) return
     setDrawingMcpPending(true)
     try {
       let token = drawingMcpToken
@@ -417,26 +916,128 @@ export function Drawing() {
           )
         )
         if (!confirmed) return
-        const connection = await rotateMcpToken()
-        token = connection.token
+        if (!drawingMcpApiKeyId) {
+          throw new Error('Select an API key before generating the MCP config')
+        }
+        const response = await api.post<{
+          success: boolean
+          data?: { token?: string }
+        }>(
+          '/api/drawing/mcp-token',
+          {
+            api_key_id: drawingMcpApiKeyId,
+            default_model: drawingMcpDefaultModel,
+          },
+          {
+            skipBusinessError: true,
+            skipErrorHandler: true,
+          }
+        )
+        if (!response.data.success || !response.data.data?.token) {
+          throw new Error('Unable to create the drawing MCP token')
+        }
+        const connection = response.data.data
+        if (!isCurrentUser()) return
+        const nextToken = connection.token
+        if (!nextToken) {
+          throw new Error('Unable to create the drawing MCP token')
+        }
+        token = nextToken
         setDrawingMcpToken(token)
       }
       const copied = await copyToClipboard(
         buildDrawingMcpConfig(drawingMcpEndpoint, token)
       )
+      if (!isCurrentUser()) return
       if (copied) {
         toast.success(t('Drawing MCP configuration copied.'))
       } else {
         toast.error(t('Unable to copy the drawing MCP configuration.'))
       }
     } catch {
-      toast.error(t('Unable to create the drawing MCP configuration.'))
+      if (isCurrentUser()) {
+        toast.error(t('Unable to create the drawing MCP configuration.'))
+      }
     } finally {
-      setDrawingMcpPending(false)
+      if (isCurrentUser()) setDrawingMcpPending(false)
+    }
+  }
+
+  const revokeDrawingMcpToken = async () => {
+    if (drawingMcpPending || !isCurrentUser()) return
+    if (
+      !window.confirm(
+        t(
+          'Revoke this drawing MCP token? Existing MCP configurations will stop working.'
+        )
+      )
+    ) {
+      return
+    }
+    setDrawingMcpPending(true)
+    try {
+      const response = await api.delete<{ success: boolean }>(
+        '/api/drawing/mcp-token',
+        {
+          skipBusinessError: true,
+          skipErrorHandler: true,
+        }
+      )
+      if (!response.data.success) {
+        throw new Error('Unable to revoke drawing MCP token')
+      }
+      setDrawingMcpToken('')
+      await drawingMcpTokenQuery.refetch()
+      toast.success(t('Drawing MCP token revoked.'))
+    } catch {
+      toast.error(t('Unable to revoke the drawing MCP token.'))
+    } finally {
+      if (isCurrentUser()) setDrawingMcpPending(false)
+    }
+  }
+
+  const rotateDrawingMcpToken = async () => {
+    if (!drawingMcpApiKeyId || drawingMcpPending) return
+    if (
+      !window.confirm(
+        t(
+          'Rotate the drawing MCP token? Existing MCP configurations will stop working.'
+        )
+      )
+    ) {
+      return
+    }
+    setDrawingMcpPending(true)
+    try {
+      const response = await api.post<{
+        success: boolean
+        data?: { token?: string }
+      }>(
+        '/api/drawing/mcp-token',
+        {
+          api_key_id: drawingMcpApiKeyId,
+          default_model: drawingMcpDefaultModel,
+        },
+        { skipBusinessError: true, skipErrorHandler: true }
+      )
+      const token = response.data.data?.token
+      if (!response.data.success || !token) throw new Error('rotate failed')
+      setDrawingMcpToken(token)
+      const copied = await copyToClipboard(
+        buildDrawingMcpConfig(drawingMcpEndpoint, token)
+      )
+      if (copied) toast.success(t('Drawing MCP configuration copied.'))
+      else toast.error(t('Unable to copy the drawing MCP configuration.'))
+      await drawingMcpTokenQuery.refetch()
+    } catch {
+      toast.error(t('Unable to rotate the drawing MCP token.'))
+    } finally {
+      if (isCurrentUser()) setDrawingMcpPending(false)
     }
   }
 
   let content: ReactNode
+  const standaloneHistory = true
   if (
     accessQuery.isLoading ||
     pricingQuery.isLoading ||
@@ -511,33 +1112,151 @@ export function Drawing() {
       </Alert>
     )
   } else {
+    const settingsForm = (
+      <div className='grid gap-5'>
+        <div className='grid gap-2'>
+          <Label htmlFor='drawing-group'>{t('Routing group')}</Label>
+          <NativeSelect
+            id='drawing-group'
+            value={selectedGroup}
+            className='w-full'
+            onChange={(event) => setGroup(event.target.value)}
+          >
+            {groups.map((item) => (
+              <NativeSelectOption key={item} value={item}>
+                {item}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+          {groupDescription ? (
+            <p className='text-muted-foreground text-xs leading-relaxed break-words'>
+              {groupDescription}
+            </p>
+          ) : null}
+        </div>
+        <div className='grid gap-2'>
+          <Label htmlFor='drawing-model'>{t('Image model')}</Label>
+          <NativeSelect
+            id='drawing-model'
+            value={selectedModel}
+            className='w-full'
+            onChange={(event) => setModel(event.target.value)}
+          >
+            {modelsForGroup.map((item) => (
+              <NativeSelectOption key={item.model_name} value={item.model_name}>
+                {item.model_name}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        </div>
+        <div className='grid gap-4 sm:grid-cols-2 xl:grid-cols-1'>
+          <div className='grid gap-2'>
+            <Label htmlFor='drawing-size'>{t('Size (optional)')}</Label>
+            <NativeSelect
+              id='drawing-size'
+              value={selectedSize}
+              className='w-full'
+              onChange={(event) => setSize(event.target.value)}
+            >
+              {sizePresets.map((option) => (
+                <NativeSelectOption
+                  key={option.value || 'default'}
+                  value={option.value}
+                >
+                  {option.label}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+          </div>
+          <div className='grid gap-2'>
+            <Label htmlFor='drawing-quality'>{t('Quality (optional)')}</Label>
+            <NativeSelect
+              id='drawing-quality'
+              value={selectedQuality}
+              className='w-full'
+              onChange={(event) => setQuality(event.target.value)}
+            >
+              {qualityPresets.map((option) => (
+                <NativeSelectOption
+                  key={option.value || 'default'}
+                  value={option.value}
+                >
+                  {option.label}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+          </div>
+        </div>
+        <div className='grid max-w-40 gap-2'>
+          <Label htmlFor='drawing-count'>{t('Images')}</Label>
+          <NativeSelect
+            id='drawing-count'
+            value={count}
+            className='w-full'
+            onChange={(event) => setCount(event.target.value)}
+          >
+            {[1, 2, 3, 4].map((value) => (
+              <NativeSelectOption key={value} value={String(value)}>
+                {value}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        </div>
+      </div>
+    )
+
     content = (
-      <div className='grid gap-5 xl:grid-cols-[minmax(0,1fr)_20rem] xl:items-stretch'>
+      <div className='grid gap-4 xl:grid-cols-[minmax(0,1fr)_19rem] xl:items-stretch'>
         <section
-          className='relative flex min-h-[620px] min-w-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#111210] shadow-2xl shadow-black/10'
+          data-slot='drawing-canvas'
+          className='relative flex min-h-[20rem] min-w-0 flex-col overflow-hidden rounded-lg border border-white/10 bg-[#111210] sm:min-h-[26rem] xl:min-h-[36rem]'
           aria-live='polite'
           aria-labelledby='drawing-canvas-title'
         >
-          <div className='pointer-events-none absolute inset-0 bg-[radial-gradient(circle,rgba(255,255,255,0.07)_1px,transparent_1px)] [background-size:24px_24px] opacity-60' />
-          <header className='relative flex items-center justify-between gap-4 border-b border-white/10 bg-black/10 px-4 py-3 sm:px-5'>
+          <header className='flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3 sm:px-5'>
             <div className='flex min-w-0 items-center gap-3'>
-              <div className='bg-primary/15 text-primary flex size-9 shrink-0 items-center justify-center rounded-lg'>
-                <Sparkles className='size-4' aria-hidden='true' />
+              <div className='bg-primary/15 text-primary flex size-8 shrink-0 items-center justify-center rounded-md'>
+                <HugeiconsIcon
+                  icon={SparklesIcon}
+                  className='size-4'
+                  strokeWidth={2}
+                  aria-hidden='true'
+                />
               </div>
-              <div className='min-w-0'>
-                <p className='text-[10px] font-medium tracking-[0.16em] text-white/45 uppercase'>
-                  {t('Canvas')}
-                </p>
-                <h2
-                  id='drawing-canvas-title'
-                  className='truncate text-sm font-medium text-white/90'
-                >
-                  {selectedModel || t('Preview')}
-                </h2>
-              </div>
+              <h2
+                id='drawing-canvas-title'
+                className='truncate text-sm font-medium text-white/90'
+              >
+                {selectedModel || t('Preview')}
+              </h2>
             </div>
-            <div className='flex shrink-0 items-center gap-2 text-xs'>
-              <span className='rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-white/65'>
+            <div className='flex shrink-0 items-center gap-2'>
+              {/* Mobile generation settings trigger */}
+              <Button
+                type='button'
+                variant='outline'
+                size='xs'
+                className='border-white/15 bg-white/5 text-xs text-white/80 xl:hidden'
+                onClick={() => setSettingsOpen(true)}
+              >
+                <span className='max-w-[7rem] truncate font-mono'>
+                  {selectedModel || t('Preview')}
+                </span>
+                {selectedGroup ? (
+                  <>
+                    <span className='text-white/40'>·</span>
+                    <span className='max-w-[5rem] truncate text-white/70'>
+                      {selectedGroup}
+                    </span>
+                  </>
+                ) : null}
+                <span className='ml-1 text-xs'>⚙️</span>
+              </Button>
+
+              <Badge
+                variant='outline'
+                className='border-white/15 bg-white/5 text-white/80'
+              >
                 {generating
                   ? referenceImages.length > 0
                     ? t('Editing...')
@@ -547,85 +1266,156 @@ export function Drawing() {
                     : referenceImages.length > 0
                       ? t('Edit image')
                       : t('Draft')}
-              </span>
+              </Badge>
               {selectedGroup ? (
-                <span className='hidden rounded-full border border-white/10 px-2.5 py-1 text-white/45 sm:inline'>
+                <Badge
+                  variant='outline'
+                  className='hidden border-white/15 text-white/70 sm:inline-flex'
+                >
                   {selectedGroup}
-                </span>
+                </Badge>
               ) : null}
             </div>
           </header>
 
-          <div className='relative flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-4 sm:p-8'>
+          <div className='flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-4 sm:p-8'>
             {generating ? (
-              <div className='flex flex-col items-center justify-center text-center text-white/65'>
-                <div className='bg-primary/15 text-primary mb-5 flex size-16 items-center justify-center rounded-2xl'>
-                  <RefreshCw
+              <div className='mx-auto flex max-w-md flex-col items-center justify-center p-4 text-center text-white/90'>
+                <div className='bg-primary/15 text-primary mb-3 flex size-12 items-center justify-center rounded-lg'>
+                  <HugeiconsIcon
+                    icon={Loading03Icon}
                     className='size-7 animate-spin'
+                    strokeWidth={2}
                     aria-hidden='true'
                   />
                 </div>
-                <p className='text-sm'>{t('Generation in progress...')}</p>
-                <p className='mt-2 max-w-xs text-xs leading-5 text-white/40'>
-                  {t('Your request is ready to run.')}
+                <p className='text-sm font-medium'>
+                  {t('Request submitted · Waiting {{seconds}}s', {
+                    seconds: elapsedSeconds,
+                  })}
                 </p>
+                <p className='mt-1 text-xs text-white/60'>
+                  {t('Waiting for image generation result...')}
+                </p>
+                <p className='mt-1 max-w-xs text-[11px] text-white/40'>
+                  {t(
+                    'Generation continues in this tab. You can switch pages; do not reload or close this tab until the result is saved.'
+                  )}
+                </p>
+
+                {/* Minigame section */}
+                {elapsedSeconds >= 3 ? (
+                  <div className='mt-4 flex w-full flex-col items-center'>
+                    {minigameExpanded ? (
+                      <div className='flex flex-col items-center gap-2'>
+                        <DrawingSnakeGame />
+                        <Button
+                          type='button'
+                          variant='ghost'
+                          size='xs'
+                          className='mt-1 text-white/60 hover:text-white'
+                          onClick={() => setMinigameExpanded(false)}
+                        >
+                          {t('Collapse minigame')}
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button
+                        type='button'
+                        variant='outline'
+                        size='xs'
+                        className='border-white/15 bg-white/5 text-white hover:bg-white/10'
+                        onClick={() => {
+                          setMinigameExpanded(true)
+                          setMinigameEnabled(true)
+                          setDrawingMinigamePref(true)
+                        }}
+                      >
+                        {t('Play dot-matrix snake while waiting')}
+                      </Button>
+                    )}
+                  </div>
+                ) : null}
+
+                <div className='mt-5 flex items-center gap-3'>
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    className='border-white/20 bg-white/5 text-white hover:bg-white/15'
+                    onClick={stopGeneration}
+                  >
+                    {t('Stop waiting')}
+                  </Button>
+                </div>
+              </div>
+            ) : stoppedMessage ? (
+              <div className='w-full max-w-md p-4 text-center'>
+                <Empty className='max-w-md text-white'>
+                  <EmptyHeader>
+                    <EmptyMedia
+                      variant='icon'
+                      className='size-10 bg-white/10 text-white/75'
+                    >
+                      <HugeiconsIcon
+                        icon={Cancel01Icon}
+                        className='size-5'
+                        strokeWidth={2}
+                        aria-hidden='true'
+                      />
+                    </EmptyMedia>
+                    <EmptyTitle className='text-white/85'>
+                      {t('Stop waiting')}
+                    </EmptyTitle>
+                    <EmptyDescription className='mt-2 text-xs text-white/65'>
+                      {stoppedMessage}
+                    </EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
               </div>
             ) : results.length > 0 ? (
-              <div className='grid max-h-[min(58vh,42rem)] w-full max-w-4xl gap-4 overflow-y-auto sm:grid-cols-2'>
-                {results.map((image) => {
-                  const src = imageSource(image)
-                  if (!src) return null
-                  return (
-                    <figure
-                      className='group relative min-w-0 overflow-hidden rounded-xl border border-white/10 bg-black/30 p-2'
-                      key={image.url ?? image.b64_json ?? image.revised_prompt}
-                    >
-                      <img
-                        src={src}
-                        alt={image.revised_prompt || prompt}
-                        className='h-auto max-h-[38rem] w-full rounded-lg object-contain'
-                        loading='lazy'
-                      />
-                      {image.revised_prompt ? (
-                        <figcaption className='absolute inset-x-2 bottom-2 rounded-md bg-black/70 px-2 py-1.5 text-xs leading-5 text-white/70 opacity-0 transition-opacity group-hover:opacity-100'>
-                          {image.revised_prompt}
-                        </figcaption>
-                      ) : null}
-                    </figure>
-                  )
-                })}
-              </div>
+              <DrawingGallery images={results} />
             ) : (
-              <div className='max-w-md text-center text-white/55'>
-                <div className='mx-auto mb-5 flex size-16 items-center justify-center rounded-2xl border border-white/10 bg-white/5'>
-                  <ImageIcon
-                    className='size-7 text-white/35'
-                    aria-hidden='true'
-                  />
-                </div>
-                <p className='text-sm text-white/75'>
-                  {t('Your generated images will appear here.')}
-                </p>
-                <p className='mt-2 text-xs leading-5 text-white/40'>
-                  {hasPrompt
-                    ? t(
-                        'Review the generated images here when the request finishes.'
-                      )
-                    : t(
-                        'Describe an image, choose a group, and generate a preview.'
-                      )}
-                </p>
-              </div>
+              <Empty className='max-w-md text-white'>
+                <EmptyHeader>
+                  <EmptyMedia
+                    variant='icon'
+                    className='size-10 bg-white/10 text-white/75'
+                  >
+                    <HugeiconsIcon
+                      icon={Image01Icon}
+                      className='size-5'
+                      strokeWidth={2}
+                      aria-hidden='true'
+                    />
+                  </EmptyMedia>
+                  <EmptyTitle className='text-white/85'>
+                    {t('Your generated images will appear here.')}
+                  </EmptyTitle>
+                  <EmptyDescription className='text-xs text-white/65'>
+                    {hasPrompt
+                      ? t(
+                          'Review the generated images here when the request finishes.'
+                        )
+                      : t(
+                          'Describe an image, choose a group, and generate a preview.'
+                        )}
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
             )}
           </div>
 
-          <div className='relative border-t border-white/10 p-3 sm:p-4'>
-            <div className='rounded-xl border border-white/10 bg-black/55 p-3 shadow-xl shadow-black/20 backdrop-blur sm:p-4'>
+          <div
+            data-slot='drawing-composer'
+            className='border-t border-white/10 bg-black/20 p-3 sm:p-4'
+          >
+            <div className='rounded-lg border border-white/10 bg-black/35 p-3 sm:p-4'>
               <div className='mb-2 flex items-center justify-between gap-3'>
-                <Label htmlFor='drawing-prompt-input' className='text-white/80'>
+                <Label htmlFor='drawing-prompt-input' className='text-white/85'>
                   {t('Prompt')}
                 </Label>
-                <span className='text-xs text-white/35 tabular-nums'>
+                <span className='text-xs text-white/60 tabular-nums'>
                   {prompt.length}/2000
                 </span>
               </div>
@@ -636,50 +1426,10 @@ export function Drawing() {
                 placeholder={t('Describe what you want to see...')}
                 maxLength={2000}
                 rows={3}
-                className='min-h-20 resize-none border-0 bg-transparent px-0 py-1 text-base text-white shadow-none placeholder:text-white/30 focus-visible:ring-0'
+                style={{ backgroundColor: 'transparent' }}
+                className='min-h-20 resize-none border-0 bg-transparent px-0 py-1 text-base text-white shadow-none placeholder:text-white/50 focus-visible:ring-0'
               />
-              <div className='mt-2 flex items-center justify-between gap-3 text-xs'>
-                <span className='truncate text-white/40'>
-                  {t('Be specific about the subject, mood, and style.')}
-                </span>
-                <span className='shrink-0 text-white/55'>
-                  {hasPrompt ? t('Ready') : t('Draft')}
-                </span>
-              </div>
-            </div>
-          </div>
-        </section>
 
-        <aside className='border-border/70 bg-card/30 flex min-w-0 flex-col rounded-2xl border'>
-          <div className='border-border/70 border-b p-5'>
-            <div className='flex items-start justify-between gap-3'>
-              <div>
-                <p className='text-muted-foreground mb-2 text-xs font-medium tracking-[0.14em] uppercase'>
-                  {t('Inspector')}
-                </p>
-                <h2 className='text-lg font-medium'>{t('Generation setup')}</h2>
-              </div>
-              {configurationReady ? (
-                <span className='text-primary pt-1 text-xs font-medium'>
-                  {t('Ready')}
-                </span>
-              ) : null}
-            </div>
-            <p className='text-muted-foreground mt-2 text-xs leading-5'>
-              {t('Choose a route and output settings.')}
-            </p>
-          </div>
-
-          <div className='grid gap-5 p-5'>
-            <div className='grid gap-3'>
-              <div className='flex items-center justify-between gap-3'>
-                <Label htmlFor='drawing-reference-images'>
-                  {t('Reference images')}
-                </Label>
-                <span className='text-muted-foreground text-xs tabular-nums'>
-                  {referenceImages.length}/{maxReferenceImages}
-                </span>
-              </div>
               <input
                 ref={referenceInputRef}
                 id='drawing-reference-images'
@@ -693,26 +1443,27 @@ export function Drawing() {
                   event.target.value = ''
                 }}
               />
-              {referenceImages.length === 0 ? (
-                <Button
-                  type='button'
-                  variant='outline'
-                  className='text-muted-foreground hover:text-foreground h-24 border-dashed'
-                  disabled={generating}
-                  onClick={() => referenceInputRef.current?.click()}
-                >
-                  <ImagePlus className='mr-2 size-4' aria-hidden='true' />
-                  {t('Add reference images')}
-                </Button>
-              ) : (
-                <>
-                  <div className='grid grid-cols-2 gap-2'>
+
+              {referenceImages.length > 0 ? (
+                <div className='mt-3 border-t border-white/10 pt-3'>
+                  <div className='mb-2 flex items-center justify-between gap-3'>
+                    <Label
+                      htmlFor='drawing-reference-images'
+                      className='text-xs text-white/75'
+                    >
+                      {t('Reference images')}
+                    </Label>
+                    <span className='text-xs text-white/60 tabular-nums'>
+                      {referenceImages.length}/{maxReferenceImages}
+                    </span>
+                  </div>
+                  <div className='flex gap-2 overflow-x-auto pb-1'>
                     {referenceImages.map((image, index) => {
                       const label = referenceImageLabel(index)
                       return (
                         <figure
                           key={image.id}
-                          className='group relative aspect-square min-w-0 overflow-hidden rounded-xl border bg-black/10'
+                          className='group relative size-16 shrink-0 overflow-hidden rounded-md border border-white/15 bg-black/30 sm:size-20'
                           title={image.file.name}
                         >
                           <img
@@ -720,204 +1471,186 @@ export function Drawing() {
                             alt={label}
                             className='size-full object-cover'
                           />
-                          <figcaption className='absolute bottom-1.5 left-1.5 rounded-md bg-black/75 px-2 py-1 text-[11px] font-medium text-white'>
+                          <figcaption className='absolute inset-x-1 bottom-1 truncate rounded-sm bg-black/80 px-1.5 py-0.5 text-[10px] font-medium text-white'>
                             {label}
                           </figcaption>
                           <Button
                             type='button'
                             variant='secondary'
-                            size='icon'
-                            className='absolute top-1.5 right-1.5 size-7 rounded-full bg-black/75 text-white opacity-90 hover:bg-black'
+                            size='icon-xs'
+                            className='absolute top-1 right-1 bg-black/80 text-white hover:bg-black'
                             disabled={generating}
                             aria-label={t('Remove {{name}}', { name: label })}
                             onClick={() => removeReferenceImage(image.id)}
                           >
-                            <X className='size-3.5' aria-hidden='true' />
+                            <HugeiconsIcon
+                              icon={Cancel01Icon}
+                              strokeWidth={2}
+                              aria-hidden='true'
+                            />
                           </Button>
                         </figure>
                       )
                     })}
                   </div>
+                  <p className='mt-2 text-xs leading-5 text-white/65'>
+                    {t(
+                      'Use the image labels in your prompt to describe how each reference should be used.'
+                    )}
+                  </p>
+                </div>
+              ) : null}
+
+              {error ? (
+                <Alert variant='destructive' className='mt-3'>
+                  <AlertTitle className='flex items-center justify-between'>
+                    <span>{t('Request failed')}</span>
+                    {errorStatus ? (
+                      <Badge
+                        variant='outline'
+                        className='text-destructive-foreground font-mono text-xs'
+                      >
+                        HTTP {errorStatus}
+                      </Badge>
+                    ) : null}
+                  </AlertTitle>
+                  <AlertDescription>{error}</AlertDescription>
+                  <AlertAction className='gap-2'>
+                    <Button
+                      type='button'
+                      size='sm'
+                      variant='outline'
+                      onClick={() => void generate()}
+                      disabled={
+                        generating || !webAccess.allowed || history.clearing
+                      }
+                    >
+                      {t('Retry')}
+                    </Button>
+                    <Button
+                      type='button'
+                      size='sm'
+                      variant='secondary'
+                      onClick={() => void copyErrorDetails()}
+                    >
+                      {t('Copy error details')}
+                    </Button>
+                  </AlertAction>
+                </Alert>
+              ) : null}
+
+              <div className='mt-3 flex flex-col gap-3 border-t border-white/10 pt-3 sm:flex-row sm:items-center sm:justify-between'>
+                <div className='flex min-w-0 items-center gap-3'>
                   <Button
                     type='button'
                     variant='outline'
                     size='sm'
+                    className='border-white/15 bg-white/5 text-white hover:bg-white/10 hover:text-white'
                     disabled={
                       generating || referenceImages.length >= maxReferenceImages
                     }
                     onClick={() => referenceInputRef.current?.click()}
                   >
-                    <ImagePlus className='mr-2 size-4' aria-hidden='true' />
+                    <HugeiconsIcon
+                      icon={ImageAdd01Icon}
+                      data-icon='inline-start'
+                      strokeWidth={2}
+                      aria-hidden='true'
+                    />
                     {t('Add reference images')}
                   </Button>
-                </>
-              )}
-              <p className='text-muted-foreground text-xs leading-5'>
-                {t(
-                  'PNG, JPEG or WebP, up to {{count}} images and {{size}} MB each.',
-                  {
-                    count: maxReferenceImages,
-                    size: maxReferenceImageBytes / 1024 / 1024,
-                  }
-                )}
-              </p>
-              {referenceImages.length > 0 ? (
-                <div className='bg-muted/40 grid gap-1 rounded-lg border px-3 py-2 text-xs leading-5'>
-                  <span className='font-medium'>
-                    {t(
-                      'Reference images switch this request to image editing.'
-                    )}
-                  </span>
-                  <span className='text-muted-foreground'>
-                    {t(
-                      'Use the image labels in your prompt to describe how each reference should be used.'
-                    )}
+                  <span className='hidden truncate text-xs text-white/65 md:block'>
+                    {referenceImages.length > 0
+                      ? t(
+                          'Reference images switch this request to image editing.'
+                        )
+                      : t('Be specific about the subject, mood, and style.')}
                   </span>
                 </div>
-              ) : null}
-            </div>
-            <div className='grid gap-2'>
-              <Label htmlFor='drawing-group'>{t('Routing group')}</Label>
-              <NativeSelect
-                id='drawing-group'
-                value={selectedGroup}
-                className='w-full'
-                onChange={(event) => setGroup(event.target.value)}
-              >
-                {groups.map((item) => (
-                  <NativeSelectOption key={item} value={item}>
-                    {item}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-              {groupDescription ? (
-                <p className='text-muted-foreground text-xs leading-relaxed break-words'>
-                  {groupDescription}
-                </p>
-              ) : null}
-            </div>
-            <div className='grid gap-2'>
-              <Label htmlFor='drawing-model'>{t('Image model')}</Label>
-              <NativeSelect
-                id='drawing-model'
-                value={selectedModel}
-                className='w-full'
-                onChange={(event) => setModel(event.target.value)}
-              >
-                {modelsForGroup.map((item) => (
-                  <NativeSelectOption
-                    key={item.model_name}
-                    value={item.model_name}
-                  >
-                    {item.model_name}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-            </div>
-            <div className='grid gap-4 sm:grid-cols-2 xl:grid-cols-1'>
-              <div className='grid gap-2'>
-                <Label htmlFor='drawing-size'>{t('Size (optional)')}</Label>
-                <NativeSelect
-                  id='drawing-size'
-                  value={size}
-                  className='w-full'
-                  onChange={(event) => setSize(event.target.value)}
-                >
-                  {sizePresets.map((option) => (
-                    <NativeSelectOption
-                      key={option.value || 'default'}
-                      value={option.value}
-                    >
-                      {option.label}
-                    </NativeSelectOption>
-                  ))}
-                </NativeSelect>
-              </div>
-              <div className='grid gap-2'>
-                <Label htmlFor='drawing-quality'>
-                  {t('Quality (optional)')}
-                </Label>
-                <NativeSelect
-                  id='drawing-quality'
-                  value={quality}
-                  className='w-full'
-                  onChange={(event) => setQuality(event.target.value)}
-                >
-                  {qualityPresets.map((option) => (
-                    <NativeSelectOption
-                      key={option.value || 'default'}
-                      value={option.value}
-                    >
-                      {option.label}
-                    </NativeSelectOption>
-                  ))}
-                </NativeSelect>
-              </div>
-            </div>
-            <div className='grid max-w-40 gap-2'>
-              <Label htmlFor='drawing-count'>{t('Images')}</Label>
-              <NativeSelect
-                id='drawing-count'
-                value={count}
-                className='w-full'
-                onChange={(event) => setCount(event.target.value)}
-              >
-                {[1, 2, 3, 4].map((value) => (
-                  <NativeSelectOption key={value} value={String(value)}>
-                    {value}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-            </div>
-          </div>
-
-          <div className='mt-auto grid gap-3 border-t p-5'>
-            {error ? (
-              <Alert variant='destructive'>
-                <AlertTitle>{t('Request failed')}</AlertTitle>
-                <AlertDescription>{error}</AlertDescription>
-                <AlertAction>
+                {generating ? (
                   <Button
                     type='button'
-                    size='sm'
+                    size='lg'
                     variant='outline'
-                    onClick={() => void generate()}
-                    disabled={generating}
+                    className='w-full border-white/20 text-white hover:bg-white/10 sm:w-auto sm:min-w-36'
+                    onClick={stopGeneration}
                   >
-                    {t('Retry')}
+                    <HugeiconsIcon
+                      icon={Cancel01Icon}
+                      data-icon='inline-start'
+                      strokeWidth={2}
+                      aria-hidden='true'
+                    />
+                    {t('Stop waiting')}
                   </Button>
-                </AlertAction>
-              </Alert>
-            ) : null}
-            <Button
-              type='button'
-              className='h-11 w-full'
-              onClick={() => void generate()}
-              disabled={
-                generating || !prompt.trim() || !selectedGroup || !selectedModel
-              }
-            >
-              {generating ? (
-                <RefreshCw
-                  className='mr-2 size-4 animate-spin'
-                  aria-hidden='true'
-                />
-              ) : (
-                <ImageIcon className='mr-2 size-4' aria-hidden='true' />
-              )}
-              {generating
-                ? referenceImages.length > 0
-                  ? t('Editing...')
-                  : t('Generating...')
-                : referenceImages.length > 0
-                  ? t('Edit image')
-                  : t('Generate image')}
-            </Button>
-            <p className='text-muted-foreground text-center text-xs leading-5'>
+                ) : (
+                  <Button
+                    type='button'
+                    size='lg'
+                    className='w-full sm:w-auto sm:min-w-36'
+                    onClick={() => void generate()}
+                    disabled={
+                      generating ||
+                      activeTask?.status === 'generating' ||
+                      !webAccess.allowed ||
+                      history.clearing ||
+                      !prompt.trim() ||
+                      !selectedGroup ||
+                      !selectedModel
+                    }
+                  >
+                    <HugeiconsIcon
+                      icon={Image01Icon}
+                      data-icon='inline-start'
+                      strokeWidth={2}
+                      aria-hidden='true'
+                    />
+                    {referenceImages.length > 0
+                      ? t('Edit image')
+                      : t('Generate image')}
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <aside
+          data-slot='drawing-inspector'
+          className='bg-card flex min-w-0 flex-col rounded-lg border'
+        >
+          <div className='border-b p-4'>
+            <div className='flex items-start justify-between gap-3'>
+              <h2 className='text-base font-semibold'>
+                {t('Generation setup')}
+              </h2>
+              {configurationReady ? (
+                <Badge variant='secondary'>{t('Ready')}</Badge>
+              ) : null}
+            </div>
+            <p className='text-muted-foreground mt-2 text-xs leading-5'>
+              {t('Choose a route and output settings.')}
+            </p>
+          </div>
+
+          <div className='p-4'>{settingsForm}</div>
+
+          <div className='mt-auto border-t p-4'>
+            <p className='text-muted-foreground text-xs leading-5'>
               {t('Billing follows the selected group configuration.')}
             </p>
           </div>
         </aside>
+
+        {/* Mobile settings drawer */}
+        <Drawer open={settingsOpen} onOpenChange={setSettingsOpen}>
+          <DrawerContent className='max-h-[85vh] overflow-y-auto p-4 pb-8'>
+            <DrawerHeader className='px-0 pt-0'>
+              <DrawerTitle>{t('Generation settings')}</DrawerTitle>
+            </DrawerHeader>
+            <div className='mt-2'>{settingsForm}</div>
+          </DrawerContent>
+        </Drawer>
       </div>
     )
   }
@@ -925,21 +1658,192 @@ export function Drawing() {
   return (
     <SectionPageLayout>
       <SectionPageLayout.Title>{t('Drawing studio')}</SectionPageLayout.Title>
+      {accessGranted ? (
+        <SectionPageLayout.Actions>
+          <Button
+            type='button'
+            size='sm'
+            variant='outline'
+            disabled={keyPending}
+            onClick={() => void ensureDrawingKey()}
+          >
+            {keyPending ? t('Loading') : t('Prepare image-2 API Key')}
+          </Button>
+          <Link
+            to='/keys'
+            className={buttonVariants({ variant: 'outline', size: 'sm' })}
+          >
+            {t('Manage API Keys')}
+          </Link>
+          <Button
+            type='button'
+            size='sm'
+            variant='outline'
+            aria-expanded={drawingMcpOpen}
+            aria-controls='drawing-mcp-panel'
+            onClick={() => setDrawingMcpOpen((open) => !open)}
+          >
+            <HugeiconsIcon
+              icon={McpServerIcon}
+              data-icon='inline-start'
+              strokeWidth={2}
+              aria-hidden='true'
+            />
+            {t('Drawing MCP')}
+          </Button>
+        </SectionPageLayout.Actions>
+      ) : null}
       <SectionPageLayout.Content>
         <div className='mx-auto w-full max-w-7xl pb-16'>
-          <header className='mb-8 grid gap-2'>
+          <header className='mb-4 grid gap-2'>
             <p className='text-muted-foreground text-sm'>
               {t(
                 'Create images through the same safe, group-aware relay used by the API.'
               )}
             </p>
           </header>
-          {accessGranted ? (
-            <section className='bg-card mb-5 grid gap-4 border p-4 sm:p-5'>
+          {accessGranted && !webAccess.allowed ? (
+            <Alert
+              variant='destructive'
+              className='mb-4'
+              data-slot='drawing-web-access'
+            >
+              <AlertTitle>
+                {webAccess.balance_usd === null
+                  ? t('Web image generation balance unavailable')
+                  : t('Insufficient balance for web image generation')}
+              </AlertTitle>
+              <AlertDescription>
+                <p>
+                  {webAccess.balance_usd === null
+                    ? t(
+                        'Web image generation requires a minimum balance of USD {{minimum}}. Your current USD balance is unavailable. Refresh the balance to continue.',
+                        { minimum: '10.00' }
+                      )
+                    : t(
+                        'Web image generation requires a minimum balance of USD {{minimum}}. Current balance: USD {{balance}}.',
+                        {
+                          minimum: '10.00',
+                          balance: webAccess.balance_usd.toFixed(2),
+                        }
+                      )}
+                </p>
+                <p>
+                  {t(
+                    'You can still create an image-2 API Key and use image-2 through the API or MCP, subject to existing permissions and available quota. API and MCP usage is billed normally, not free.'
+                  )}
+                </p>
+                <Button
+                  type='button'
+                  size='sm'
+                  variant='outline'
+                  disabled={accessQuery.isFetching || walletQuery.isFetching}
+                  onClick={() => void refreshBalance()}
+                >
+                  {t('Refresh balance')}
+                </Button>
+              </AlertDescription>
+            </Alert>
+          ) : null}
+          {keyReady || keyError ? (
+            <Alert
+              className='mb-4'
+              variant={keyError ? 'destructive' : 'default'}
+            >
+              <AlertTitle>
+                {keyError ? t('Request failed') : t('image-2 API Key ready')}
+              </AlertTitle>
+              <AlertDescription>
+                {keyError ||
+                  t(
+                    'Open API Key management to reveal or copy your key. No key secret is displayed here.'
+                  )}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+          <div
+            className='mb-4 flex flex-wrap items-center justify-between gap-2'
+            data-slot='drawing-history-controls'
+          >
+            <p className='text-muted-foreground max-w-3xl text-xs'>
+              {t(
+                'This browser keeps up to {{count}} images or {{size}} MB per account, newest first. Older images are removed automatically. Clearing browser data also removes this history.',
+                {
+                  count: DRAWING_HISTORY_LIMIT,
+                  size: DRAWING_HISTORY_BYTES / 1024 / 1024,
+                }
+              )}
+            </p>
+            <Button
+              type='button'
+              size='sm'
+              variant='outline'
+              disabled={history.clearing}
+              onClick={() => {
+                if (
+                  window.confirm(
+                    t(
+                      'Clear image history for this account in this browser? Pending results will not be saved.'
+                    )
+                  )
+                ) {
+                  void history.clear()
+                }
+              }}
+            >
+              {history.clearing
+                ? t('Clearing history...')
+                : t('Clear image history')}
+            </Button>
+          </div>
+          {history.loading || history.saving ? (
+            <p role='status' className='text-muted-foreground mb-3 text-xs'>
+              {history.loading
+                ? t('Loading image history...')
+                : t('Saving image bytes in this browser...')}
+            </p>
+          ) : null}
+          {history.warning ? (
+            <Alert className='mb-4' data-slot='drawing-history-warning'>
+              <AlertTitle>{t('Browser image history unavailable')}</AlertTitle>
+              <AlertDescription>
+                {history.warning === 'clear'
+                  ? t(
+                      'Browser history could not be cleared. Saved images may return after refresh. Try clearing history again; this will not generate or bill any images.'
+                    )
+                  : history.warning === 'load'
+                    ? t(
+                        'Saved image history could not be loaded. You can still generate images, but browser storage may be unavailable.'
+                      )
+                    : t(
+                        'Generation succeeded, but some image bytes could not be saved in this browser (storage quota or image-host CORS restrictions). Download them now. Unsaved or URL-only previews may disappear after refresh. Do not regenerate to repair the cache; another generation is billed again.'
+                      )}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+          {content}
+          {standaloneHistory && results.length > 0 ? (
+            <section
+              className='mt-4 rounded-lg bg-[#111210] p-4'
+              aria-label={t('Image history')}
+            >
+              <DrawingGallery images={results} />
+            </section>
+          ) : null}
+          {accessGranted && drawingMcpOpen ? (
+            <section
+              id='drawing-mcp-panel'
+              className='bg-card mt-4 grid gap-4 rounded-lg border p-4 sm:p-5'
+            >
               <div className='flex flex-wrap items-start justify-between gap-3'>
                 <div className='flex min-w-0 items-start gap-3'>
-                  <span className='bg-primary/10 text-primary flex size-9 shrink-0 items-center justify-center rounded-lg'>
-                    <ServerCog className='size-4' aria-hidden='true' />
+                  <span className='bg-primary/10 text-primary flex size-9 shrink-0 items-center justify-center rounded-md'>
+                    <HugeiconsIcon
+                      icon={McpServerIcon}
+                      className='size-4'
+                      strokeWidth={2}
+                      aria-hidden='true'
+                    />
                   </span>
                   <div className='min-w-0'>
                     <h2 className='text-sm font-semibold'>
@@ -947,25 +1851,142 @@ export function Drawing() {
                     </h2>
                     <p className='text-muted-foreground mt-1 max-w-2xl text-xs leading-5'>
                       {t(
-                        'Connect an Agent to this drawing workbench with the dedicated MCP endpoint. Generation keeps the same group permissions and billing as this page.'
+                        'Connect an Agent with the dedicated drawing MCP endpoint. MCP uses the same group permissions and normal API billing, without the web-only USD 10 minimum balance.'
                       )}
                     </p>
                   </div>
+                </div>
+                <div className='grid min-w-full gap-2 sm:min-w-80'>
+                  <Label htmlFor='drawing-mcp-api-key'>
+                    {t('API key for MCP billing')}
+                  </Label>
+                  <NativeSelect
+                    id='drawing-mcp-api-key'
+                    value={drawingMcpApiKeyId ?? ''}
+                    onChange={(event) => {
+                      const value = Number(event.target.value)
+                      setDrawingMcpApiKeyId(
+                        Number.isSafeInteger(value) && value > 0 ? value : null
+                      )
+                      setDrawingMcpToken('')
+                    }}
+                  >
+                    <NativeSelectOption value=''>
+                      {t('Select an API key before generating MCP config')}
+                    </NativeSelectOption>
+                    {(drawingMcpKeysQuery.data ?? []).map((key) => (
+                      <NativeSelectOption key={key.id} value={key.id}>
+                        {key.name} · {key.group} ·{' '}
+                        {key.unlimited_quota
+                          ? t('Unlimited')
+                          : `${formatQuota(key.remain_quota)} ${t('remaining')}`}
+                      </NativeSelectOption>
+                    ))}
+                  </NativeSelect>
+                  {drawingMcpApiKeyId
+                    ? (() => {
+                        const key = drawingMcpKeysQuery.data?.find(
+                          (item) => item.id === drawingMcpApiKeyId
+                        )
+                        return key ? (
+                          <p className='text-muted-foreground text-xs'>
+                            {t(
+                              'MCP uses this key; its total usage includes other clients.'
+                            )}{' '}
+                            {key.group} ·{' '}
+                            {key.status === 1 ? t('Enabled') : t('Unavailable')}{' '}
+                            ·{' '}
+                            {key.unlimited_quota
+                              ? t('Unlimited')
+                              : `${formatQuota(key.remain_quota)} ${t('remaining')}`}{' '}
+                            · {formatQuota(key.used_quota)} {t('used')}
+                          </p>
+                        ) : null
+                      })()
+                    : null}
+                  <Button
+                    type='button'
+                    size='sm'
+                    variant='ghost'
+                    className='w-fit px-0'
+                    disabled={keyPending}
+                    onClick={() => void ensureDrawingKey()}
+                  >
+                    {keyPending
+                      ? t('Preparing...')
+                      : t('Prepare an API key for MCP')}
+                  </Button>
+                  <Label htmlFor='drawing-mcp-default-model'>
+                    {t('Default drawing model')}
+                  </Label>
+                  <NativeSelect
+                    id='drawing-mcp-default-model'
+                    value={drawingMcpDefaultModel}
+                    disabled={!drawingMcpApiKeyId || drawingMcpPending}
+                    onChange={(event) => {
+                      setDrawingMcpDefaultModel(event.target.value)
+                      setDrawingMcpToken('')
+                    }}
+                  >
+                    <NativeSelectOption value=''>
+                      {t('Automatic (first available model)')}
+                    </NativeSelectOption>
+                    {drawingMcpModels.map((item) => (
+                      <NativeSelectOption
+                        key={item.model_name}
+                        value={item.model_name}
+                      >
+                        {item.model_name}
+                      </NativeSelectOption>
+                    ))}
+                  </NativeSelect>
+                  <p className='text-muted-foreground text-xs leading-5'>
+                    {t(
+                      'Calls may switch to another available model allowed by this API key. Generate or rotate the MCP token to apply changes.'
+                    )}
+                  </p>
                 </div>
                 <Button
                   type='button'
                   size='sm'
                   variant='outline'
                   onClick={() => void copyDrawingMcpConfig()}
-                  disabled={drawingMcpPending}
+                  disabled={drawingMcpPending || !drawingMcpApiKeyId}
                 >
-                  <Copy data-icon='inline-start' />
+                  <HugeiconsIcon
+                    icon={drawingMcpPending ? Loading03Icon : Copy01Icon}
+                    data-icon='inline-start'
+                    className={drawingMcpPending ? 'animate-spin' : undefined}
+                    strokeWidth={2}
+                    aria-hidden='true'
+                  />
                   {drawingMcpPending
                     ? t('Loading')
                     : drawingMcpToken
                       ? t('Copy drawing MCP config')
                       : t('Generate token and copy config')}
                 </Button>
+                {drawingMcpTokenQuery.data?.configured ? (
+                  <div className='flex gap-2'>
+                    <Button
+                      type='button'
+                      size='sm'
+                      variant='ghost'
+                      disabled={drawingMcpPending}
+                      onClick={() => void rotateDrawingMcpToken()}
+                    >
+                      {t('Rotate MCP token')}
+                    </Button>
+                    <Button
+                      type='button'
+                      size='sm'
+                      variant='ghost'
+                      onClick={() => void revokeDrawingMcpToken()}
+                    >
+                      {t('Revoke MCP token')}
+                    </Button>
+                  </div>
+                ) : null}
               </div>
               <div className='grid gap-2'>
                 <Label htmlFor='drawing-mcp-endpoint'>
@@ -999,7 +2020,6 @@ export function Drawing() {
               ) : null}
             </section>
           ) : null}
-          {content}
         </div>
       </SectionPageLayout.Content>
     </SectionPageLayout>

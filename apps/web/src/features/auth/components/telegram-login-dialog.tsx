@@ -22,12 +22,27 @@ import { useTranslation } from 'react-i18next'
 import { Dialog } from '@/components/dialog'
 import { Spinner } from '@/components/ui/spinner'
 
+import {
+  pickTelegramAuthorization,
+  type TelegramAuthorization,
+} from '../lib/telegram-login'
+
+type TelegramCallbackName = `newApiTelegramLogin${number}`
+
+declare global {
+  interface Window {
+    [callbackName: TelegramCallbackName]:
+      | ((authorization: unknown) => void)
+      | undefined
+  }
+}
+
 type TelegramLoginDialogProps = {
   open: boolean
   botName: string
   pending: boolean
   onOpenChange: (open: boolean) => void
-  onAuthorization: (authorization: unknown) => void
+  onAuthorization: (authorization: TelegramAuthorization) => void
 }
 
 let telegramCallbackSequence = 0
@@ -36,7 +51,7 @@ export function TelegramLoginDialog(props: TelegramLoginDialogProps) {
   const { t } = useTranslation()
   const widgetContainer = useRef<HTMLDivElement | null>(null)
   const authorizationHandler = useRef(props.onAuthorization)
-  const [callbackName] = useState(
+  const [callbackName] = useState<TelegramCallbackName>(
     () => `newApiTelegramLogin${++telegramCallbackSequence}`
   )
   const [widgetState, setWidgetState] = useState<
@@ -53,11 +68,15 @@ export function TelegramLoginDialog(props: TelegramLoginDialogProps) {
     if (!props.open || !container || !botName) return
 
     setWidgetState('loading')
-    const callback = (authorization: unknown) => {
+    const callback = (payload: unknown) => {
+      const authorization = pickTelegramAuthorization(payload)
+      if (!authorization) {
+        setWidgetState('failed')
+        return
+      }
       authorizationHandler.current(authorization)
     }
-    const browserWindow = window as unknown as Record<string, unknown>
-    browserWindow[callbackName] = callback
+    window[callbackName] = callback
 
     const script = document.createElement('script')
     script.async = true
@@ -76,7 +95,7 @@ export function TelegramLoginDialog(props: TelegramLoginDialogProps) {
       script.removeEventListener('load', handleLoad)
       script.removeEventListener('error', handleError)
       container.replaceChildren()
-      delete browserWindow[callbackName]
+      delete window[callbackName]
     }
   }, [callbackName, props.botName, props.open])
 

@@ -16,7 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import React, { useState } from 'react'
+import {
+  createContext,
+  useContext,
+  useState,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+} from 'react'
 
 import {
   getOptionValue,
@@ -32,20 +39,17 @@ type SubscriptionsContextType = {
   open: SubscriptionsDialogType | null
   setOpen: (str: SubscriptionsDialogType | null) => void
   currentRow: PlanRecord | null
-  setCurrentRow: React.Dispatch<React.SetStateAction<PlanRecord | null>>
+  setCurrentRow: Dispatch<SetStateAction<PlanRecord | null>>
   refreshTrigger: number
   triggerRefresh: () => void
   complianceConfirmed: boolean
 }
 
-const SubscriptionsContext =
-  React.createContext<SubscriptionsContextType | null>(null)
+const SubscriptionsContext = createContext<SubscriptionsContextType | null>(
+  null
+)
 
-export function SubscriptionsProvider({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+export function SubscriptionsProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useDialogState<SubscriptionsDialogType>(null)
   const [currentRow, setCurrentRow] = useState<PlanRecord | null>(null)
   const [refreshTrigger, setRefreshTrigger] = useState(0)
@@ -80,7 +84,7 @@ export function SubscriptionsProvider({
 
 // eslint-disable-next-line react-refresh/only-export-components
 export const useSubscriptions = () => {
-  const ctx = React.useContext(SubscriptionsContext)
+  const ctx = useContext(SubscriptionsContext)
   if (!ctx) {
     throw new Error(
       'useSubscriptions has to be used within <SubscriptionsProvider>'

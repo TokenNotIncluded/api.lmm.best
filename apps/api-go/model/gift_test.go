@@ -81,6 +81,26 @@ func TestClaimGiftSuccess(t *testing.T) {
 	require.Equal(t, 1000, updated.Quota)
 }
 
+func TestClaimGiftOverflowRollsBackClaimRecord(t *testing.T) {
+	db := setupGiftTestDB(t)
+	now := time.Now().Unix()
+	user := createGiftTestUser(t, "gift_user_overflow", 0, 0)
+	require.NoError(t, db.Model(&User{}).Where("id = ?", user.Id).Update("quota", common.MaxWalletQuota).Error)
+	gift := createTestGift(t, 1, now-3600, now+86400, 0, 0)
+
+	claim, alreadyClaimed, err := ClaimGift(user.Id, gift.Id)
+	require.Error(t, err)
+	require.Nil(t, claim)
+	require.False(t, alreadyClaimed)
+
+	var stored User
+	require.NoError(t, db.First(&stored, user.Id).Error)
+	require.Equal(t, common.MaxWalletQuota, stored.Quota)
+	var claimCount int64
+	require.NoError(t, db.Model(&GiftClaim{}).Where("gift_id = ? AND user_id = ?", gift.Id, user.Id).Count(&claimCount).Error)
+	require.Zero(t, claimCount)
+}
+
 func TestClaimGiftDuplicateRejected(t *testing.T) {
 	setupGiftTestDB(t)
 	now := time.Now().Unix()

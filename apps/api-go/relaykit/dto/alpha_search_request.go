@@ -19,7 +19,7 @@ type AlphaSearchRequest struct {
 func (r *AlphaSearchRequest) GetTokenCountMeta() *types.TokenCountMeta {
 	combineText := ""
 	if len(r.RawBody) > 0 {
-		combineText = string(r.RawBody)
+		combineText = normalizeRawJSONForTokenCount(r.RawBody)
 	}
 	return &types.TokenCountMeta{
 		CombineText: combineText,

@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { CHANNEL_TYPES } from '../constants'
+import { CHANNEL_TYPE_OPENHUMAN, CHANNEL_TYPES } from '../constants'
 
 // ============================================================================
 // Channel Type Configuration
@@ -49,6 +49,22 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
   1: {
     id: 1,
     name: CHANNEL_TYPES[1],
+    icon: 'openai',
+    defaultBaseUrl: 'https://api.openai.com',
+    requiresOrganization: true,
+    hints: {
+      baseUrl: 'Default: https://api.openai.com',
+      key: 'Format: sk-...',
+      models: 'gpt-4,gpt-4-turbo,gpt-3.5-turbo',
+    },
+    validation: {
+      keyFormat: /^sk-/,
+      keyMinLength: 20,
+    },
+  },
+  [CHANNEL_TYPE_OPENHUMAN]: {
+    id: CHANNEL_TYPE_OPENHUMAN,
+    name: CHANNEL_TYPES[CHANNEL_TYPE_OPENHUMAN],
     icon: 'openai',
     defaultBaseUrl: 'https://api.openai.com',
     requiresOrganization: true,

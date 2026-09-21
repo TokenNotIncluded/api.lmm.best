@@ -38,6 +38,56 @@ import { pickTelegramAuthorization } from '../lib/telegram-login'
 import type { SystemStatus, CustomOAuthProviderInfo } from '../types'
 import { useAuthRedirect } from './use-auth-redirect'
 
+const GITHUB_AUTHORIZATION_ENDPOINT = 'https://github.com/login/oauth/authorize'
+const DISCORD_AUTHORIZATION_ENDPOINT = 'https://discord.com/oauth2/authorize'
+const LINUX_DO_AUTHORIZATION_ENDPOINT =
+  'https://connect.linux.do/oauth2/authorize'
+const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])
+
+function trustedOAuthEndpoint(value: string): URL | null {
+  try {
+    const url = new URL(value)
+    const isSecure = url.protocol === 'https:'
+    const isLocalDevelopment =
+      import.meta.env.DEV &&
+      typeof window !== 'undefined' &&
+      url.protocol === 'http:' &&
+      LOOPBACK_HOSTNAMES.has(window.location.hostname) &&
+      LOOPBACK_HOSTNAMES.has(url.hostname)
+
+    if (
+      (!isSecure && !isLocalDevelopment) ||
+      !url.hostname ||
+      url.username ||
+      url.password ||
+      url.hash
+    ) {
+      return null
+    }
+    return url
+  } catch {
+    return null
+  }
+}
+
+function navigateToTrustedOAuthEndpoint(
+  value: string,
+  configuredEndpoint: string
+): void {
+  const target = trustedOAuthEndpoint(value)
+  const endpoint = trustedOAuthEndpoint(configuredEndpoint)
+  if (
+    !target ||
+    !endpoint ||
+    target.origin !== endpoint.origin ||
+    target.pathname !== endpoint.pathname
+  ) {
+    throw new Error('Untrusted OAuth authorization endpoint')
+  }
+
+  window.location.assign(target.toString())
+}
+
 /**
  * Hook for managing OAuth login
  */
@@ -99,7 +149,7 @@ export function useOAuthLogin(
       const state = await createOAuthFlow('github', 'login', acceptedLegal)
 
       const url = buildGitHubOAuthUrl(status.github_client_id, state)
-      window.open(url, '_self')
+      navigateToTrustedOAuthEndpoint(url, GITHUB_AUTHORIZATION_ENDPOINT)
     } catch {
       toast.error(t('Failed to start GitHub login'))
       if (githubTimeoutRef.current) {
@@ -120,7 +170,7 @@ export function useOAuthLogin(
       const state = await createOAuthFlow('discord', 'login', acceptedLegal)
 
       const url = buildDiscordOAuthUrl(status.discord_client_id, state)
-      window.open(url, '_self')
+      navigateToTrustedOAuthEndpoint(url, DISCORD_AUTHORIZATION_ENDPOINT)
     } catch {
       toast.error(t('Failed to start Discord login'))
     } finally {
@@ -141,7 +191,7 @@ export function useOAuthLogin(
         status.oidc_client_id,
         state
       )
-      window.open(url, '_self')
+      navigateToTrustedOAuthEndpoint(url, status.oidc_authorization_endpoint)
     } catch {
       toast.error(t('Failed to start OIDC login'))
     } finally {
@@ -158,7 +208,7 @@ export function useOAuthLogin(
       const state = await createOAuthFlow('linuxdo', 'login', acceptedLegal)
 
       const url = buildLinuxDOOAuthUrl(status.linuxdo_client_id, state)
-      window.open(url, '_self')
+      navigateToTrustedOAuthEndpoint(url, LINUX_DO_AUTHORIZATION_ENDPOINT)
     } catch {
       toast.error(t('Failed to start LinuxDO login'))
     } finally {
@@ -244,7 +294,10 @@ export function useOAuthLogin(
         url.searchParams.set('scope', provider.scopes)
       }
 
-      window.open(url.toString(), '_self')
+      navigateToTrustedOAuthEndpoint(
+        url.toString(),
+        provider.authorization_endpoint
+      )
     } catch {
       toast.error(
         t('Failed to start {{provider}} login', { provider: provider.name })

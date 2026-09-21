@@ -81,20 +81,65 @@ describe('authenticated HTTP requests', () => {
     const refreshed = bundle('fresh-token', now + 600)
     useAuthStore.getState().auth.setBundle(bundle('expiring-token', now + 10))
     let refreshCalls = 0
+    let refreshTimeout = 0
     setDevelopmentAuthRefreshAdapter(async (config) => {
       refreshCalls += 1
+      refreshTimeout = Number(config.timeout)
       return response(config, 200, { success: true, data: refreshed })
     })
-    let authorization = ''
+    const authorizations: string[] = []
     api.defaults.adapter = async (config) => {
-      authorization = String(config.headers.Authorization ?? '')
+      authorizations.push(String(config.headers.Authorization ?? ''))
       return response(config, 200, { success: true, data: [] })
     }
 
-    await api.get('/api/user/models')
+    await Promise.all([
+      api.get('/api/user/models'),
+      api.get('/api/user/groups'),
+      api.get('/api/user/2fa/status'),
+    ])
 
     assert.equal(refreshCalls, 1)
-    assert.equal(authorization, 'Bearer fresh-token')
+    assert.equal(refreshTimeout, 10_000)
+    assert.deepEqual(authorizations, [
+      'Bearer fresh-token',
+      'Bearer fresh-token',
+      'Bearer fresh-token',
+    ])
+  })
+
+  test('does not send a newly expired token after a transient refresh failure', async () => {
+    const originalDateNow = Date.now
+    let nowMs = 1_000_000
+    Date.now = () => nowMs
+    useAuthStore
+      .getState()
+      .auth.setBundle(bundle('nearly-expired-token', nowMs / 1000 + 1))
+    setDevelopmentAuthRefreshAdapter(async (config) => {
+      nowMs += 2_000
+      return response(config, 503, { success: false })
+    })
+    let protectedCalls = 0
+    api.defaults.adapter = async (config) => {
+      protectedCalls += 1
+      return response(config, 200, { success: true, data: [] })
+    }
+
+    try {
+      await assert.rejects(
+        api.get('/api/user/2fa/status', { skipErrorHandler: true }),
+        (error: unknown) => {
+          const requestError = error as {
+            config?: { skipErrorHandler?: boolean }
+          }
+          assert.equal(requestError.config?.skipErrorHandler, true)
+          return true
+        }
+      )
+      assert.equal(protectedCalls, 0)
+    } finally {
+      Date.now = originalDateNow
+    }
   })
 
   test('does not send protected requests after refresh rejects the session', async () => {

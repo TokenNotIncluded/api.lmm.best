@@ -15,6 +15,13 @@ import type { ApiRequestConfig } from '@/lib/api'
 import type { AuthUser } from '@/stores/auth-store'
 
 const domWindow = new Window({ url: 'https://console.example.test/' })
+domWindow.document.write(
+  '<!doctype html><html><head></head><body></body></html>'
+)
+Object.defineProperty(domWindow.document, 'compatMode', {
+  configurable: true,
+  value: 'CSS1Compat',
+})
 for (const key of [
   'window',
   'document',
@@ -37,6 +44,35 @@ for (const key of [
     value: domWindow[key],
   })
 }
+
+const matchMediaStub = () => ({
+  matches: false,
+  media: '',
+  addListener() {},
+  removeListener() {},
+  addEventListener() {},
+  removeEventListener() {},
+  dispatchEvent() {
+    return false
+  },
+})
+Object.defineProperty(domWindow, 'matchMedia', {
+  configurable: true,
+  value: matchMediaStub,
+})
+Object.defineProperty(globalThis, 'matchMedia', {
+  configurable: true,
+  value: matchMediaStub,
+})
+Object.defineProperty(globalThis, 'customElements', {
+  configurable: true,
+  value: {
+    get() {
+      return undefined
+    },
+    define() {},
+  },
+})
 
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
@@ -70,7 +106,6 @@ await i18n.use(initReactI18next).init({
   lng: 'en',
   resources: { en: { translation: {} } },
 })
-
 const user: AuthUser = {
   id: 7,
   username: 'new-user',
@@ -174,7 +209,16 @@ async function renderPage(
     )
     await flushEffects()
   })
-  return { container, root, queryClient, gets, getConfigs }
+  await act(flushEffects)
+  return {
+    container,
+    root,
+    queryClient,
+    router,
+    currentUser,
+    gets,
+    getConfigs,
+  }
 }
 
 async function unmountPage(page: Awaited<ReturnType<typeof renderPage>>) {
@@ -201,7 +245,7 @@ describe('getting started access boundaries', () => {
     const modelSquare = page.container.querySelector('a[href="/pricing"]')
 
     assert.ok(modelSquare)
-    assert.equal(modelSquare.textContent?.includes('Model Square'), true)
+    assert.equal(modelSquare.textContent?.includes('Models and pricing'), true)
     await unmountPage(page)
   })
 
@@ -320,7 +364,7 @@ describe('getting started access boundaries', () => {
     unsubscribe()
   })
 
-  test('keeps a pending recommendation to one compact status line', async () => {
+  test('shows pending application details and recommendation', async () => {
     const page = await renderPage(
       false,
       { data: { success: true, data: [] } },
@@ -347,15 +391,53 @@ describe('getting started access boundaries', () => {
       page.container.textContent?.includes(
         'I am building a small Claude Code integration.'
       ),
-      false
+      true
     )
     assert.equal(
       page.container.textContent?.includes(
         'Recommend L1 for a documented development use case.'
       ),
-      false
+      true
     )
     assert.equal(page.container.querySelector('[role="progressbar"]'), null)
+    await unmountPage(page)
+  })
+
+  test('polls a pending request, refreshes auth after approval, and leaves L0 onboarding', async () => {
+    const request = {
+      id: 9905,
+      status: 'pending',
+      reason: 'I am building a private coding client.',
+      source: 'assistant_recommendation',
+      ai_recommendation: 'Recommend L1 for a concrete coding workflow.',
+      admin_note: '',
+      created_at: 1,
+      reviewed_at: 0,
+    }
+    const page = await renderPage(false, undefined, request, { id: 7005 })
+    request.status = 'approved'
+    request.admin_note = 'Approved automatically.'
+    request.reviewed_at = 2
+    page.currentUser.developer_access_granted = true
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'))
+      await flushEffects()
+    })
+    const deadline = Date.now() + 2_000
+    while (
+      Date.now() < deadline &&
+      (useAuthStore.getState().auth.user?.developer_access_granted !== true ||
+        page.router.state.location.pathname !== '/dashboard')
+    ) {
+      await act(flushEffects)
+    }
+
+    assert.equal(
+      useAuthStore.getState().auth.user?.developer_access_granted,
+      true
+    )
+    assert.equal(page.router.state.location.pathname, '/dashboard')
+    assert.ok(page.gets.includes('/api/user/self'))
     await unmountPage(page)
   })
 
@@ -456,18 +538,22 @@ describe('getting started access boundaries', () => {
         stage: 'credential',
       },
     })
-    await act(flushEffects)
+    const unavailableMessage = 'Challenges are temporarily unavailable.'
+    // Capability discovery enables a second query; wait for its rendered
+    // error state across React Query's scheduled notifications.
+    const deadline = Date.now() + 1_000
+    while (
+      Date.now() < deadline &&
+      !page.container.textContent?.includes(unavailableMessage)
+    ) {
+      await act(flushEffects)
+    }
 
     const bountyCalls = page.gets.filter((url) =>
       url.startsWith('/api/open-source-bounties?')
     )
     assert.equal(bountyCalls.length, 1)
-    assert.equal(
-      page.container.textContent?.includes(
-        'Challenges are temporarily unavailable.'
-      ),
-      true
-    )
+    assert.equal(page.container.textContent?.includes(unavailableMessage), true)
 
     const bountyConfig = page.getConfigs.find((_, index) =>
       page.gets[index].startsWith('/api/open-source-bounties?')

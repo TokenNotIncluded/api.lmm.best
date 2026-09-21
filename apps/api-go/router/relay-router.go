@@ -15,12 +15,30 @@ const (
 	assistantMutationRequestMaxBytes = 16 << 10
 )
 
-func SetRelayRouter(router *gin.Engine) {
+func SetRelayRouter(router *gin.Engine, sharedAdmission ...gin.HandlerFunc) {
 	router.Use(middleware.CORS())
 	router.Use(middleware.DecompressRequestMiddleware())
 	router.Use(middleware.BodyStorageCleanup()) // 清理请求体存储
 	router.Use(middleware.StatsMiddleware())
+	// One process-wide pool across protocols. Register it after authentication
+	// and before any middleware that reads/decodes the request body.
+	var largeRequestAdmission gin.HandlerFunc
+	if len(sharedAdmission) > 0 {
+		largeRequestAdmission = sharedAdmission[0]
+	} else {
+		largeRequestAdmission = middleware.RelayRequestAdmission()
+	}
 	// https://platform.openai.com/docs/api-reference/introduction
+	quotaRouter := router.Group("/v1/usage")
+	quotaRouter.Use(middleware.RouteTag("relay"), middleware.DisableCache(), middleware.QuotaQueryAuth(), middleware.QuotaQueryRateLimit())
+	quotaRouter.GET("", controller.GetQuotaQuery)
+	balanceRouter := router.Group("/v1/balance")
+	balanceRouter.Use(middleware.RouteTag("relay"), middleware.DisableCache(), middleware.QuotaQueryAuth(), middleware.QuotaQueryRateLimit())
+	balanceRouter.GET("", controller.GetAccountBalance)
+	pricingRouter := router.Group("/v1/pricing")
+	pricingRouter.Use(middleware.RouteTag("relay"), middleware.DisableCache(), middleware.QuotaQueryAuth(), middleware.PricingQueryAccess(), middleware.QuotaQueryRateLimit())
+	pricingRouter.GET("", controller.GetTokenPricing)
+
 	modelsRouter := router.Group("/v1/models")
 	modelsRouter.Use(middleware.RouteTag("relay"))
 	modelsRouter.Use(middleware.TokenAuth())
@@ -70,7 +88,7 @@ func SetRelayRouter(router *gin.Engine) {
 	playgroundRouter := router.Group("/pg")
 	playgroundRouter.Use(middleware.RouteTag("relay"))
 	playgroundRouter.Use(middleware.SystemPerformanceCheck())
-	playgroundRouter.Use(middleware.UserAuth(), middleware.Distribute())
+	playgroundRouter.Use(middleware.UserAuth(), largeRequestAdmission, middleware.Distribute())
 	{
 		playgroundRouter.POST("/chat/completions", controller.Playground)
 	}
@@ -80,9 +98,9 @@ func SetRelayRouter(router *gin.Engine) {
 	playgroundImageRouter := router.Group("/pg/images")
 	playgroundImageRouter.Use(middleware.RouteTag("relay"))
 	playgroundImageRouter.Use(middleware.SystemPerformanceCheck())
-	playgroundImageRouter.Use(middleware.UserAuth())
-	playgroundImageRouter.POST("/generations", middleware.RequestBodyLimit(32<<10), middleware.Distribute(), controller.PlaygroundImage)
-	playgroundImageRouter.POST("/edits", middleware.RequestBodyLimit(82<<20), middleware.Distribute(), controller.PlaygroundImageEdit)
+	playgroundImageRouter.Use(middleware.UserAuth(), largeRequestAdmission)
+	playgroundImageRouter.POST("/generations", middleware.RequestBodyLimit(32<<10), controller.PreparePlaygroundImageAuth, middleware.ModelRequestRateLimit(), middleware.Distribute(), controller.PlaygroundImage)
+	playgroundImageRouter.POST("/edits", middleware.RequestBodyLimit(82<<20), controller.PreparePlaygroundImageAuth, middleware.ModelRequestRateLimit(), middleware.Distribute(), controller.PlaygroundImageEdit)
 	assistantPresetRouter := router.Group("/api/assistant/pre-conversation-presets")
 	assistantPresetRouter.Use(middleware.RouteTag("api"))
 	assistantPresetRouter.Use(middleware.SystemPerformanceCheck())
@@ -91,12 +109,26 @@ func SetRelayRouter(router *gin.Engine) {
 		assistantPresetRouter.GET("", controller.GetPromptPresets)
 		assistantPresetRouter.POST("/:id/click", middleware.CriticalRateLimit(), controller.CountPromptPresetClick)
 	}
+	// Human support remains available even when model routing or AI funding is
+	// unavailable. Each operation rechecks the signed-in actor in the database.
+	assistantSupportRouter := router.Group("/api/assistant/support")
+	assistantSupportRouter.Use(middleware.RouteTag("api"), middleware.UserAuth(), middleware.DisableCache())
+	{
+		assistantSupportRouter.GET("/eligibility", controller.GetAssistantSupportEligibility)
+		assistantSupportRouter.GET("/self", controller.GetAssistantSupportSelf)
+		assistantSupportRouter.POST("", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.UserCriticalRateLimit("assistant-support"), controller.CreateAssistantSupport)
+		assistantSupportRouter.GET("/:id", controller.GetAssistantSupport)
+		assistantSupportRouter.POST("/:id/messages", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.UserCriticalRateLimit("assistant-support-message"), controller.SendAssistantSupportMessage)
+		assistantSupportRouter.POST("/:id/accept", middleware.UserCriticalRateLimit("assistant-support-accept"), controller.AcceptAssistantSupport)
+		assistantSupportRouter.POST("/:id/close", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.UserCriticalRateLimit("assistant-support-close"), controller.CloseAssistantSupport)
+	}
 	assistantRouter := router.Group("/api/assistant")
 	assistantRouter.Use(middleware.RouteTag("relay"))
 	assistantRouter.Use(middleware.SystemPerformanceCheck())
-	assistantRouter.Use(middleware.UserAuth())
+	assistantRouter.Use(middleware.UserAuth(), largeRequestAdmission)
 	{
 		assistantRouter.GET("/status", controller.GetAssistantStatus)
+		assistantRouter.GET("/registration-check", middleware.DisableCache(), controller.GetAssistantRegistrationState)
 		assistantRouter.GET("/models", middleware.AdminAuth(), controller.GetAssistantModels)
 		assistantRouter.GET("/offers", controller.GetAssistantPlanOffers)
 		assistantRouter.GET("/journey", middleware.DisableCache(), controller.GetAssistantJourney)
@@ -104,7 +136,7 @@ func SetRelayRouter(router *gin.Engine) {
 		assistantRouter.POST("/new-user-gift/claim", middleware.UserCriticalRateLimit("assistant-new-user-gift"), middleware.DisableCache(), controller.ClaimAssistantNewUserGift)
 		assistantRouter.GET("/weekly-discount", middleware.DisableCache(), controller.GetAssistantWeeklyDiscount)
 		assistantRouter.POST("/weekly-discount/claim", middleware.UserCriticalRateLimit("assistant-weekly-discount"), middleware.DisableCache(), controller.ClaimAssistantWeeklyDiscount)
-		assistantRouter.POST("/chat", middleware.UserCriticalRateLimit("assistant"), middleware.RequestBodyLimit(assistantRequestMaxBytes), controller.PrepareAssistantRequest, middleware.Distribute(), controller.AssistantChat)
+		assistantRouter.POST("/chat", middleware.UserCriticalRateLimit("assistant"), middleware.RequestBodyLimit(assistantRequestMaxBytes), controller.RouteAssistantHumanSupport, controller.PrepareAssistantRequest, middleware.Distribute(), controller.AssistantChat)
 		assistantRouter.GET("/conversations", middleware.DisableCache(), controller.ListAssistantConversations)
 		assistantRouter.GET("/conversations/:id", middleware.DisableCache(), controller.GetAssistantConversationHistory)
 		assistantRouter.POST("/conversations/:id/archive", middleware.DisableCache(), controller.ArchiveAssistantConversation)
@@ -114,7 +146,8 @@ func SetRelayRouter(router *gin.Engine) {
 		assistantRouter.POST("/handoffs", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.UserCriticalRateLimit("assistant-handoff"), middleware.DisableCache(), controller.SubmitAssistantHandoff)
 		assistantRouter.POST("/tools/prepare-key", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.ConsoleAccessGate(), middleware.UserCriticalRateLimit("assistant-prepare-key"), middleware.DisableCache(), controller.PrepareAssistantDefaultKey)
 		assistantRouter.POST("/tools/create-key", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.ConsoleAccessGate(), middleware.UserCriticalRateLimit("assistant-create-key"), middleware.DisableCache(), controller.CreateAssistantDefaultKey)
-		assistantRouter.POST("/drawing/generate", middleware.UserCriticalRateLimit("assistant-drawing"), middleware.RequestBodyLimit(8<<10), middleware.DisableCache(), controller.GenerateAssistantDrawing)
+		assistantRouter.POST("/drawing/key", middleware.RequestBodyLimit(1<<10), middleware.ConsoleAccessGate(), middleware.UserCriticalRateLimit("assistant-drawing-key"), middleware.DisableCache(), controller.EnsureAssistantDrawingKey)
+		assistantRouter.POST("/drawing/generate", middleware.UserCriticalRateLimit("assistant-drawing"), middleware.RequestBodyLimit(8<<10), middleware.DisableCache(), controller.PrepareAssistantDrawing, middleware.ModelRequestRateLimit(), middleware.Distribute(), controller.GenerateAssistantDrawing)
 	}
 	// Model prices include group ratios and therefore can disclose the same
 	// discounted console inventory as /api/pricing.  Keep this read behind the
@@ -131,6 +164,8 @@ func SetRelayRouter(router *gin.Engine) {
 	assistantAdminRouter.Use(middleware.AdminAuth())
 	{
 		assistantAdminRouter.POST("/apply", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.ApplyAssistantAdminChange)
+		assistantAdminRouter.GET("/registration-events", middleware.DisableCache(), controller.AdminListAssistantRegistrationEvents)
+		assistantAdminRouter.POST("/registration-events/:user_id/release", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.AdminReleaseAssistantRegistration)
 		assistantAdminRouter.GET("/handoffs", controller.AdminListAssistantHandoffs)
 		assistantAdminRouter.POST("/handoffs/:id/resolve", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.CriticalRateLimit(), controller.AdminResolveAssistantHandoff)
 		assistantAdminRouter.GET("/intents", controller.AdminGetAssistantIntentSummary)
@@ -146,6 +181,7 @@ func SetRelayRouter(router *gin.Engine) {
 	relayV1Router.Use(middleware.RouteTag("relay"))
 	relayV1Router.Use(middleware.SystemPerformanceCheck())
 	relayV1Router.Use(middleware.TokenAuth())
+	relayV1Router.Use(largeRequestAdmission)
 	relayV1Router.Use(middleware.ModelRequestRateLimit())
 	{
 		// Channel selection is delayed until response.create supplies the model.
@@ -253,18 +289,18 @@ func SetRelayRouter(router *gin.Engine) {
 	relayMjRouter := router.Group("/mj")
 	relayMjRouter.Use(middleware.RouteTag("relay"))
 	relayMjRouter.Use(middleware.SystemPerformanceCheck())
-	registerMjRouterGroup(relayMjRouter)
+	registerMjRouterGroup(relayMjRouter, largeRequestAdmission)
 
 	relayMjModeRouter := router.Group("/:mode/mj")
 	relayMjModeRouter.Use(middleware.RouteTag("relay"))
 	relayMjModeRouter.Use(middleware.SystemPerformanceCheck())
-	registerMjRouterGroup(relayMjModeRouter)
+	registerMjRouterGroup(relayMjModeRouter, largeRequestAdmission)
 	//relayMjRouter.Use()
 
 	relaySunoRouter := router.Group("/suno")
 	relaySunoRouter.Use(middleware.RouteTag("relay"))
 	relaySunoRouter.Use(middleware.SystemPerformanceCheck())
-	relaySunoRouter.Use(middleware.TokenAuth(), middleware.Distribute())
+	relaySunoRouter.Use(middleware.TokenAuth(), largeRequestAdmission, middleware.Distribute())
 	{
 		relaySunoRouter.POST("/submit/:action", controller.RelayTask)
 		relaySunoRouter.POST("/fetch", controller.RelayTaskFetch)
@@ -275,6 +311,7 @@ func SetRelayRouter(router *gin.Engine) {
 	relayGeminiRouter.Use(middleware.RouteTag("relay"))
 	relayGeminiRouter.Use(middleware.SystemPerformanceCheck())
 	relayGeminiRouter.Use(middleware.TokenAuth())
+	relayGeminiRouter.Use(largeRequestAdmission)
 	relayGeminiRouter.Use(middleware.ModelRequestRateLimit())
 	relayGeminiRouter.Use(middleware.Distribute())
 	{
@@ -285,9 +322,9 @@ func SetRelayRouter(router *gin.Engine) {
 	}
 }
 
-func registerMjRouterGroup(relayMjRouter *gin.RouterGroup) {
+func registerMjRouterGroup(relayMjRouter *gin.RouterGroup, largeRequestAdmission gin.HandlerFunc) {
 	relayMjRouter.GET("/image/:id", relay.RelayMidjourneyImage)
-	relayMjRouter.Use(middleware.TokenAuth(), middleware.Distribute())
+	relayMjRouter.Use(middleware.TokenAuth(), largeRequestAdmission, middleware.Distribute())
 	{
 		relayMjRouter.POST("/submit/action", controller.RelayMidjourney)
 		relayMjRouter.POST("/submit/shorten", controller.RelayMidjourney)

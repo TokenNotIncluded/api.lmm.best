@@ -74,6 +74,15 @@ func ApplyPaymentRefund(
 	result := PaymentRefundResult{}
 	idempotencyKey := paymentProvider + ":refund:" + providerEventID
 	err := DB.Transaction(func(tx *gorm.DB) error {
+		if !isSubscription && paymentProvider == PaymentProviderWaffoPancake {
+			var subscriptionOrders int64
+			if err := tx.Model(&SubscriptionOrder{}).Where("trade_no = ?", tradeNo).Count(&subscriptionOrders).Error; err != nil {
+				return err
+			}
+			if subscriptionOrders > 0 {
+				return ErrPaymentRefundOrderConflict
+			}
+		}
 		var ledger FinanceLedgerEntry
 		ledgerErr := tx.Where("idempotency_key = ?", idempotencyKey).First(&ledger).Error
 		ledgerExists := ledgerErr == nil
@@ -125,9 +134,13 @@ func ApplyPaymentRefund(
 					// successful provider refund into an untracked debt. Returning
 					// an error rolls back the cumulative refund and ledger rows,
 					// allowing the webhook provider to retry after reconciliation.
-					debit := tx.Model(&User{}).
-						Where("id = ? AND quota >= ?", topUp.UserId, refundQuota).
-						Update("quota", gorm.Expr("quota - ?", refundQuota))
+					if refundQuota > int64(common.MaxWalletQuota) {
+						return fmt.Errorf("%w: refund quota exceeds the wallet safe range", ErrRefundAmountInvalid)
+					}
+					debit := UpdateWalletQuotaByDelta(
+						tx.Model(&User{}).Where("id = ? AND quota >= ?", topUp.UserId, refundQuota),
+						-int(refundQuota),
+					)
 					if debit.Error != nil {
 						return debit.Error
 					}
@@ -140,6 +153,9 @@ func ApplyPaymentRefund(
 					updates := map[string]interface{}{
 						"refunded_amount_micros": topUp.RefundedAmountMicros + appliedAmount,
 						"refunded_quota":         topUp.RefundedQuota + refundQuota,
+					}
+					if err := refundReferralTx(tx, &topUp, topUp.RefundedAmountMicros+appliedAmount); err != nil {
+						return err
 					}
 					if err := tx.Model(&TopUp{}).Where("id = ?", topUp.Id).Updates(updates).Error; err != nil {
 						return err
@@ -159,12 +175,30 @@ func ApplyPaymentRefund(
 			if order.Status != common.TopUpStatusSuccess || order.PaymentProvider != paymentProvider {
 				return fmt.Errorf("refund order is not a settled %s subscription", paymentProvider)
 			}
+			if paymentProvider == PaymentProviderWaffoPancake && SubscriptionRefundNeedsPaymentIdentity(&order) {
+				return ErrSubscriptionRefundPaymentRequired
+			}
 			result.UserID = order.UserId
 			if ledgerExists && !refundLedgerBindsRequest(&ledger, tradeNo, providerEventID, paymentMethod, paymentProvider, currency, result.UserID) {
 				return ErrPaymentRefundOrderConflict
 			}
 			alreadyApplied := ledgerExists && order.RefundedAmountMicros > 0
-			paidMicros := moneyToMicros(order.Money)
+			if ledgerExists && !alreadyApplied {
+				var err error
+				alreadyApplied, err = subscriptionRefundAlreadyAppliedTx(tx, &order, &ledger)
+				if err != nil {
+					return err
+				}
+			}
+			paidMicros := order.ExpectedAmountMicros
+			if paidMicros <= 0 {
+				// Legacy fallback only. New subscription orders snapshot the real
+				// provider amount independently from their plan list currency.
+				paidMicros = moneyToMicros(order.Money)
+			}
+			if expectedCurrency := strings.ToUpper(strings.TrimSpace(order.SettlementCurrency)); expectedCurrency != "" && expectedCurrency != currency {
+				return fmt.Errorf("%w: subscription refund currency mismatch", ErrPaymentEvidenceConflict)
+			}
 			if paidMicros > 0 && !alreadyApplied {
 				remaining := paidMicros - order.RefundedAmountMicros
 				if remaining < 0 || appliedAmount > remaining {
@@ -282,6 +316,21 @@ func refundNoteContainsTradeNo(note, tradeNo string) bool {
 		}
 	}
 	return false
+}
+
+// subscriptionRefundAlreadyAppliedTx distinguishes an old-cycle retry from
+// a legacy ledger-only refund after renewal clears the cumulative counters.
+func subscriptionRefundAlreadyAppliedTx(tx *gorm.DB, order *SubscriptionOrder, ledger *FinanceLedgerEntry) (bool, error) {
+	// A refund can be processed after the scheduled billing boundary while
+	// the renewal callback is delayed. Use the local receipt time under the
+	// same order lock, including same-second refunds. Two receipts ensure
+	// that a paid renewal actually reset quota, rather than the initial cycle.
+	var receipts []SubscriptionPaymentEvent
+	if err := tx.Select("created_time").Where("subscription_order_id = ?", order.Id).
+		Order("period_end DESC, id DESC").Limit(2).Find(&receipts).Error; err != nil {
+		return false, err
+	}
+	return len(receipts) == 2 && ledger.OccurredAt > 0 && ledger.OccurredAt <= receipts[0].CreatedTime, nil
 }
 
 func refundLedgerBindsRequest(

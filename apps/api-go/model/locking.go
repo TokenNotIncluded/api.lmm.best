@@ -23,3 +23,13 @@ func lockForUpdate(tx *gorm.DB) *gorm.DB {
 	}
 	return tx.Clauses(clause.Locking{Strength: "UPDATE"})
 }
+
+// lockForShare keeps a referenced row present while the surrounding
+// transaction persists a dependent record. It conflicts with FOR UPDATE (and
+// therefore plan deletion) without serializing concurrent purchases together.
+func lockForShare(tx *gorm.DB) *gorm.DB {
+	if common.UsingMainDatabase(common.DatabaseTypeSQLite) {
+		return tx
+	}
+	return tx.Clauses(clause.Locking{Strength: "SHARE"})
+}

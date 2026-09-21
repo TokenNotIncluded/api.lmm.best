@@ -253,6 +253,7 @@ oauth.connect_failed: "Unable to connect to {{.Provider}} server, please try aga
 oauth.token_failed: "Failed to get token from {{.Provider}}, please check settings"
 oauth.user_info_empty: "{{.Provider}} returned empty user info, please check settings"
 oauth.trust_level_low: "Linux DO trust level does not meet the minimum required by administrator"
+oauth.trust_level_low_require_assistant: "Your Linux DO trust level is low. You need to have a conversation with our AI assistant to apply for developer access. Please visit the console to chat with the assistant."
 oauth.email_verification_required: "Email verification is enabled, but this OAuth provider did not attest a verified email address. Use a provider with a verified email or password registration."
 
 # Model layer error messages

@@ -1,13 +1,16 @@
 package model
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
+
+	"github.com/LIghtJUNction/api.lmm.best/common"
 )
 
 const (
-	PromptPresetVersion   = "aggregate-topic-v1"
-	fallbackPresetVersion = "backend-seed-v1"
+	PromptPresetVersion   = "aggregate-topic-v2"
+	fallbackPresetVersion = "backend-seed-v2"
 	maxPromptPresets      = 4
 	presetGenerations     = 12
 	presetRetentionDays   = 90
@@ -87,6 +90,7 @@ type PromptPreset struct {
 	Id     string `json:"id"`
 	Prompt string `json:"prompt"`
 	Label  string `json:"label,omitempty"`
+	Source string `json:"source,omitempty"`
 }
 
 type PromptPresetSet struct {
@@ -135,13 +139,13 @@ var topicRules = []topicRule{
 }
 
 var promptCandidates = []promptCandidate{
-	{PromptPreset: PromptPreset{Id: "ai_recommendation", Label: "获取推荐信", Prompt: "请根据我的真实用途帮我准备并完善 L1 推荐信；先读取当前推荐信，信息足够后让我确认。"}, Intent: AssistantIntentRecommendation, Order: 0, Required: true},
+	{PromptPreset: requiredPromptPreset("ai_recommendation"), Intent: AssistantIntentRecommendation, Order: 0, Required: true},
 	// Keep one orientation entry in every generated starter set. Aggregate
 	// ranking may reorder the remaining slots, but removing the only
 	// “what can I do here?” entry leaves new users without a safe first step.
-	{PromptPreset: PromptPreset{Id: "getting_started", Label: "快速开始", Prompt: "请根据我的实际目标直接说明你能替我完成什么，以及最短的开始方式。"}, Intent: AssistantIntentOnboarding, Order: 1, Required: true},
-	{PromptPreset: PromptPreset{Id: "new_user_gift", Label: "领取新用户礼包", Prompt: "我想了解如何通过和 AI 助手交流，争取一次性新用户礼包；请说明规则和下一步。"}, Intent: AssistantIntentInvitation, Order: 2, Required: true},
-	{PromptPreset: PromptPreset{Id: "weekly_discount", Label: "本周充值优惠", Prompt: "我想了解如何通过本周与 AI 助手的有效交流，争取一次充值优惠码；请说明规则和下一步。"}, Intent: AssistantIntentPlanPurchase, Order: 3, Required: true},
+	{PromptPreset: requiredPromptPreset("getting_started"), Intent: AssistantIntentOnboarding, Order: 1, Required: true},
+	{PromptPreset: requiredPromptPreset("new_user_gift"), Intent: AssistantIntentInvitation, Order: 2, Required: true},
+	{PromptPreset: requiredPromptPreset("weekly_discount"), Intent: AssistantIntentPlanPurchase, Order: 3, Required: true},
 	{PromptPreset: PromptPreset{Id: "developer_access", Label: "开发者访问", Prompt: "我想使用 API，请说明当前账户可以做什么，以及如何申请开发者访问。"}, Intent: AssistantIntentOnboarding, Order: 3},
 	{PromptPreset: PromptPreset{Id: "client_setup", Label: "客户端配置", Prompt: "请帮我选择并配置兼容的客户端，我会补充操作系统和使用场景。"}, Intent: AssistantIntentClientSetup, Order: 4},
 	{PromptPreset: PromptPreset{Id: "pricing_cost", Label: "费用估算", Prompt: "请先解释计费方式，再根据我的模型和用量估算成本。"}, Intent: AssistantIntentCost, Order: 4},
@@ -164,6 +168,9 @@ func fallbackPromptPresets() PromptPresetSet {
 }
 
 func GetPromptPresets() (PromptPresetSet, error) {
+	if custom, configured := configuredPromptPresets(); configured {
+		return PromptPresetSet{Generation: 0, Version: "custom-v1", Presets: custom}, nil
+	}
 	var generation int64
 	if err := DB.Model(&PromptPresetRow{}).Select("COALESCE(MAX(generation), 0)").Scan(&generation).Error; err != nil {
 		return PromptPresetSet{}, err
@@ -187,7 +194,12 @@ func GetPromptPresets() (PromptPresetSet, error) {
 		}
 	}
 	for _, row := range rows {
-		presets = append(presets, PromptPreset{Id: row.PresetId, Prompt: row.Prompt, Label: row.Label})
+		if row.Version != PromptPresetVersion {
+			// Old aggregate templates remain stale even when all required IDs
+			// exist. Serve the new seed until the scheduled refresh replaces them.
+			return fallbackPromptPresets(), nil
+		}
+		presets = append(presets, PromptPreset{Id: row.PresetId, Prompt: row.Prompt, Label: row.Label, Source: "default"})
 		delete(required, row.PresetId)
 	}
 	if len(required) > 0 {
@@ -197,6 +209,26 @@ func GetPromptPresets() (PromptPresetSet, error) {
 		return fallbackPromptPresets(), nil
 	}
 	return PromptPresetSet{Generation: generation, Version: rows[0].Version, Presets: presets}, nil
+}
+
+func configuredPromptPresets() ([]PromptPreset, bool) {
+	common.OptionMapRWMutex.RLock()
+	raw := common.OptionMap["AssistantPreConversationPresets"]
+	common.OptionMapRWMutex.RUnlock()
+	if strings.TrimSpace(raw) == "" {
+		return nil, false
+	}
+	var entries []PromptPreset
+	if err := json.Unmarshal([]byte(raw), &entries); err != nil || len(entries) > 20 {
+		return nil, false
+	}
+	for i := range entries {
+		entries[i].Id = strings.TrimSpace(entries[i].Id)
+		entries[i].Label = strings.TrimSpace(entries[i].Label)
+		entries[i].Prompt = strings.TrimSpace(entries[i].Prompt)
+		entries[i].Source = "custom"
+	}
+	return entries, true
 }
 
 func findPromptPreset(presetId string) (*PromptPresetRef, string, error) {
@@ -227,8 +259,16 @@ func ResolvePromptPreset(presetId string, prompt string) (*PromptPresetRef, erro
 		return nil, err
 	}
 	normalize := func(value string) string { return strings.Join(strings.Fields(strings.TrimSpace(value)), " ") }
-	if normalize(prompt) != normalize(expectedPrompt) {
-		return nil, ErrPromptPresetNotFound
+	normalized := normalize(prompt)
+	if normalized == normalize(expectedPrompt) {
+		return attribution, nil
 	}
-	return attribution, nil
+	// Only exact, reviewed translations for this current preset qualify.
+	// Arbitrary edits, another preset's copy and unknown IDs remain unattributed.
+	for _, variant := range requiredPromptPresetCopy[attribution.PresetId] {
+		if normalized == normalize(variant) {
+			return attribution, nil
+		}
+	}
+	return nil, ErrPromptPresetNotFound
 }

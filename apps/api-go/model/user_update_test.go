@@ -2,6 +2,7 @@ package model
 
 import (
 	"errors"
+	"math"
 	"testing"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -29,11 +30,14 @@ func setupUserUpdateTestState(t *testing.T) {
 
 func resetBatchUpdateTestState(t *testing.T) {
 	t.Helper()
+	resetStore := func(index int) {
+		batchUpdateLocks[index].Lock()
+		defer batchUpdateLocks[index].Unlock()
+		batchUpdateStores[index] = make(map[int]int)
+	}
 	reset := func() {
 		for i := 0; i < BatchUpdateTypeCount; i++ {
-			batchUpdateLocks[i].Lock()
-			batchUpdateStores[i] = make(map[int]int)
-			batchUpdateLocks[i].Unlock()
+			resetStore(i)
 		}
 	}
 	reset()
@@ -53,6 +57,36 @@ func createUserBindTestUser(t *testing.T) User {
 	}
 	require.NoError(t, DB.Create(&user).Error)
 	return user
+}
+
+func TestFlushBatchUpdatesPersistsAllQueuedUserCounters(t *testing.T) {
+	setupUserUpdateTestState(t)
+	resetBatchUpdateTestState(t)
+
+	user := User{
+		Username:     "shutdown-batch-flush-user",
+		Password:     "unused-password-hash",
+		Role:         common.RoleCommonUser,
+		Status:       common.UserStatusEnabled,
+		Quota:        1000,
+		UsedQuota:    20,
+		RequestCount: 3,
+	}
+	require.NoError(t, DB.Create(&user).Error)
+
+	addNewRecord(BatchUpdateTypeUserQuota, user.Id, -100)
+	addNewRecord(BatchUpdateTypeUsedQuota, user.Id, 100)
+	addNewRecord(BatchUpdateTypeRequestCount, user.Id, 1)
+	FlushBatchUpdates()
+
+	var got User
+	require.NoError(t, DB.First(&got, user.Id).Error)
+	assert.Equal(t, 900, got.Quota)
+	assert.Equal(t, 120, got.UsedQuota)
+	assert.Equal(t, 4, got.RequestCount)
+	for i := 0; i < BatchUpdateTypeCount; i++ {
+		assert.Empty(t, batchUpdateStores[i])
+	}
 }
 
 func TestUserUpdateDoesNotOverwriteConcurrentAccountingOrTokenChanges(t *testing.T) {
@@ -100,6 +134,69 @@ func TestUserUpdateDoesNotOverwriteConcurrentAccountingOrTokenChanges(t *testing
 	assert.Equal(t, 300, got.AffQuota)
 	assert.Equal(t, 1700, got.AffHistoryQuota)
 	assert.Equal(t, "rotated-token", got.GetAccessToken())
+}
+
+func TestTransferAffQuotaToQuotaRejectsFinalWalletOverflowAtomically(t *testing.T) {
+	setupUserUpdateTestState(t)
+	transferQuota := common.QuotaFromFloat(common.QuotaPerUnit)
+	user := User{
+		Id: 11, Username: "affiliate-wallet-boundary", Password: "password",
+		Status: common.UserStatusEnabled, AffCode: "affiliate-wallet-boundary-code",
+		Quota: common.MaxWalletQuota, AffQuota: transferQuota,
+	}
+	require.NoError(t, DB.Create(&user).Error)
+
+	err := user.TransferAffQuotaToQuota(transferQuota)
+	require.ErrorIs(t, err, ErrWalletQuotaOutOfRange)
+
+	var stored User
+	require.NoError(t, DB.First(&stored, user.Id).Error)
+	require.Equal(t, common.MaxWalletQuota, stored.Quota)
+	require.Equal(t, transferQuota, stored.AffQuota)
+}
+
+func TestInviteCountSaturatesWithoutAwardingAtSignup(t *testing.T) {
+	setupUserUpdateTestState(t)
+	oldInviterQuota := common.QuotaForInviter
+	common.QuotaForInviter = 10
+	t.Cleanup(func() { common.QuotaForInviter = oldInviterQuota })
+
+	inviter := User{
+		Username:        "affiliate-js-safe-bound",
+		Status:          common.UserStatusEnabled,
+		AffCount:        math.MaxInt32,
+		AffQuota:        common.MaxWalletQuota - 5,
+		AffHistoryQuota: common.MaxWalletQuota - 5,
+	}
+	require.NoError(t, DB.Create(&inviter).Error)
+
+	invitee := User{Username: "count-only-signup", AffCode: "count-only-aff", Status: common.UserStatusEnabled}
+	require.NoError(t, DB.Transaction(func(tx *gorm.DB) error { return createUserWithInviterTx(tx, &invitee, inviter.Id) }))
+
+	var stored User
+	require.NoError(t, DB.First(&stored, inviter.Id).Error)
+	require.Equal(t, math.MaxInt32, stored.AffCount)
+	require.Equal(t, common.MaxWalletQuota-5, stored.AffQuota)
+	require.Equal(t, common.MaxWalletQuota-5, stored.AffHistoryQuota)
+}
+
+func TestBatchWalletAccountingRejectsOverflowWithoutApplyingCounters(t *testing.T) {
+	setupUserUpdateTestState(t)
+	user := User{
+		Id: 12, Username: "batch-wallet-boundary", Password: "password",
+		Status: common.UserStatusEnabled, AffCode: "batch-wallet-boundary-code",
+		Quota: common.MaxWalletQuota, UsedQuota: 7, RequestCount: 3,
+	}
+	require.NoError(t, DB.Create(&user).Error)
+
+	err := updateUserQuotaUsedQuotaAndRequestCount(user.Id, 1, 5, 1)
+	require.ErrorIs(t, err, ErrWalletQuotaOutOfRange)
+
+	var stored User
+	require.NoError(t, DB.First(&stored, user.Id).Error)
+	require.Equal(t, common.MaxWalletQuota, stored.Quota)
+	require.Equal(t, 7, stored.UsedQuota)
+	require.Equal(t, 3, stored.RequestCount)
 }
 
 func TestUsageAccountingSupportsSignedDirectAndBatchDeltas(t *testing.T) {

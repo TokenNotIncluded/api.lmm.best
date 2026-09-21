@@ -45,7 +45,7 @@ result:
 
 ## 提交检查 / Checklist
 
-- [ ] 我已搜索本仓库的 [Issues](https://github.com/LIghtJUNction/api.lmm.best/issues) 和 [PRs](https://github.com/LIghtJUNction/api.lmm.best/pulls)，确认没有重复工作。
+- [ ] 我已搜索本仓库的 [Issues](https://github.com/TokenNotIncluded/api.lmm.best/issues) 和 [PRs](https://github.com/TokenNotIncluded/api.lmm.best/pulls)，确认没有重复工作。
 - [ ] 此 PR 只包含与当前目标相关的改动，未混入格式化或其他无关变更。
 - [ ] 我已说明该变更对当前产品流程或兼容行为的影响，并保留必要的来源、版权和许可证信息。
 - [ ] 我已检查兼容性；如有破坏性变化，已在说明中明确列出迁移方式。

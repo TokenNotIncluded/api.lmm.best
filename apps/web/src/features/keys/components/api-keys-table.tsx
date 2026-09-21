@@ -52,8 +52,13 @@ import {
   API_KEY_STATUSES,
   ERROR_MESSAGES,
 } from '../constants'
-import type { ApiKey } from '../types'
-import { ApiKeyCell, UnlimitedQuotaBadge } from './api-keys-cells'
+import type { ApiKey, ApiKeyCreationMode } from '../types'
+import { ApiKeyCreationSourceBadge } from './api-key-creation-source'
+import {
+  ApiKeyCell,
+  ApiKeyUsedQuota,
+  UnlimitedQuotaBadge,
+} from './api-keys-cells'
 import { useApiKeysColumns } from './api-keys-columns'
 import { useApiKeys } from './api-keys-provider'
 import { DataTableBulkActions } from './data-table-bulk-actions'
@@ -96,9 +101,11 @@ function ApiKeysMobileSkeleton() {
 function ApiKeysMobileList({
   table,
   isLoading,
+  creationMode,
 }: {
   table: TanstackTable<ApiKey>
   isLoading: boolean
+  creationMode: ApiKeyCreationMode
 }) {
   const { t } = useTranslation()
   const rows = table.getRowModel().rows
@@ -113,11 +120,19 @@ function ApiKeysMobileList({
             <EmptyMedia variant='icon'>
               <Database className='size-6' />
             </EmptyMedia>
-            <EmptyTitle>{t('No API Keys Found')}</EmptyTitle>
+            <EmptyTitle>
+              {creationMode === 'automatic'
+                ? t('No automatically created API keys')
+                : t('No API Keys Found')}
+            </EmptyTitle>
             <EmptyDescription>
-              {t(
-                'No API keys available. Create your first API key to get started.'
-              )}
+              {creationMode === 'automatic'
+                ? t(
+                    'Keys created by Drawing MCP, Assistant, and other connected tools appear here.'
+                  )
+                : t(
+                    'No API keys available. Create your first API key to get started.'
+                  )}
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
@@ -162,7 +177,9 @@ function ApiKeysMobileList({
               <div className='min-w-0 flex-1 [&_button:first-child]:max-w-full [&_button:first-child]:truncate [&_button:first-child]:px-0'>
                 <ApiKeyCell apiKey={apiKey} />
               </div>
-              <DataTableRowActions row={row} />
+              <div className='[&_button]:min-h-11 [&_button]:min-w-11'>
+                <DataTableRowActions row={row} />
+              </div>
             </div>
 
             <div className='flex items-center justify-between gap-2 text-xs'>
@@ -179,6 +196,18 @@ function ApiKeysMobileList({
                 </span>
               )}
             </div>
+            <div className='flex items-center justify-between gap-2 text-xs'>
+              <span className='text-muted-foreground'>{t('Used quota')}</span>
+              <ApiKeyUsedQuota used={apiKey.used_quota} />
+            </div>
+            {creationMode === 'automatic' ? (
+              <div className='flex items-center justify-between gap-2 text-xs'>
+                <span className='text-muted-foreground'>
+                  {t('Creation source')}
+                </span>
+                <ApiKeyCreationSourceBadge apiKey={apiKey} />
+              </div>
+            ) : null}
           </div>
         )
       })}
@@ -186,11 +215,15 @@ function ApiKeysMobileList({
   )
 }
 
-export function ApiKeysTable() {
+export function ApiKeysTable({
+  creationMode,
+}: {
+  creationMode: ApiKeyCreationMode
+}) {
   const { t } = useTranslation()
   const { refreshTrigger } = useApiKeys()
   const [now, setNow] = useState(() => Date.now())
-  const columns = useApiKeysColumns(now)
+  const columns = useApiKeysColumns(now, creationMode)
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -240,6 +273,7 @@ export function ApiKeysTable() {
       globalFilter,
       tokenFilter,
       refreshTrigger,
+      creationMode,
     ],
     queryFn: async () => {
       const result = shouldSearch
@@ -248,10 +282,12 @@ export function ApiKeysTable() {
             token: tokenFilter,
             p: pagination.pageIndex + 1,
             size: pagination.pageSize,
+            creation_mode: creationMode,
           })
         : await getApiKeys({
             p: pagination.pageIndex + 1,
             size: pagination.pageSize,
+            creation_mode: creationMode,
           })
 
       if (!result.success) {
@@ -263,15 +299,17 @@ export function ApiKeysTable() {
                 : ERROR_MESSAGES.LOAD_FAILED
             )
         )
-        return { items: [], total: 0 }
+        return { items: [], total: 0, creationMode }
       }
 
       return {
         items: result.data?.items || [],
         total: result.data?.total || 0,
+        creationMode,
       }
     },
-    placeholderData: (previousData) => previousData,
+    placeholderData: (previousData) =>
+      previousData?.creationMode === creationMode ? previousData : undefined,
   })
 
   const apiKeys = data?.items || []
@@ -299,10 +337,20 @@ export function ApiKeysTable() {
       columns={columns}
       isLoading={isLoading}
       isFetching={isFetching}
-      emptyTitle={t('No API Keys Found')}
-      emptyDescription={t(
-        'No API keys available. Create your first API key to get started.'
-      )}
+      emptyTitle={
+        creationMode === 'automatic'
+          ? t('No automatically created API keys')
+          : t('No API Keys Found')
+      }
+      emptyDescription={
+        creationMode === 'automatic'
+          ? t(
+              'Keys created by Drawing MCP, Assistant, and other connected tools appear here.'
+            )
+          : t(
+              'No API keys available. Create your first API key to get started.'
+            )
+      }
       skeletonKeyPrefix='api-keys-skeleton'
       applyHeaderSize
       toolbarProps={{
@@ -325,7 +373,13 @@ export function ApiKeysTable() {
           },
         ],
       }}
-      mobile={<ApiKeysMobileList table={table} isLoading={isLoading} />}
+      mobile={
+        <ApiKeysMobileList
+          table={table}
+          isLoading={isLoading}
+          creationMode={creationMode}
+        />
+      }
       getRowClassName={(row) =>
         isDisabledApiKeyRow(row.original) ? DISABLED_ROW_DESKTOP : undefined
       }

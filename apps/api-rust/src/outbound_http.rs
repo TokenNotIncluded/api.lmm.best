@@ -36,26 +36,6 @@ pub fn client(timeout: Duration) -> Result<reqwest::Client, OutboundHttpError> {
         .map_err(OutboundHttpError::Build)
 }
 
-/// Builds the bounded client used by provider relay adapters.
-///
-/// Provider channel URLs follow the legacy Go contract and may be either
-/// HTTP or HTTPS (including an explicitly configured loopback test provider),
-/// so this client intentionally does not enable `https_only`.  Callers still
-/// validate the selected channel URL before sending and keep redirects
-/// disabled so the provider cannot silently change destinations.
-pub fn relay_client(timeout: Duration) -> Result<reqwest::Client, OutboundHttpError> {
-    if timeout.is_zero() {
-        return Err(OutboundHttpError::ZeroTimeout);
-    }
-    reqwest::Client::builder()
-        .use_rustls_tls()
-        .connect_timeout(timeout.min(MAX_CONNECT_TIMEOUT))
-        .timeout(timeout)
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(OutboundHttpError::Build)
-}
-
 #[cfg(test)]
 mod tests {
     use super::client;

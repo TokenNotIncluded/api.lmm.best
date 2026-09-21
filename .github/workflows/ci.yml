@@ -2,26 +2,65 @@ name: CI
 
 on:
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
   push:
+    # Feature branches run through pull_request; keep main and tag evidence for releases.
+    branches: [main]
+    tags: ["*"]
   workflow_dispatch:
+    inputs:
+      base-ref:
+        description: Git ref for the translation regression comparison
+        default: HEAD^
+        type: string
+  schedule:
+    - cron: "23 3 * * *"
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
 
+defaults:
+  run:
+    # Explicit bash enables pipefail so pipelines cannot hide failed commands.
+    shell: bash
+
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.sha }}
-  cancel-in-progress: false
+  # Replace obsolete test runs, never a release, manual run, or production operation.
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}-${{ (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && 'latest' || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
 
 env:
-  CI: 'true'
-  CARGO_BUILD_JOBS: '2'
-  CARGO_INCREMENTAL: '0'
-  CARGO_PROFILE_DEV_DEBUG: '0'
-  CARGO_PROFILE_TEST_DEBUG: '0'
-  RUST_TOOLCHAIN: '1.91.0'
+  CI: "true"
+  CARGO_BUILD_JOBS: "2"
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+  RUST_TOOLCHAIN: "1.91.0"
 
 jobs:
+  changes:
+    name: Select CI checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      required: ${{ steps.plan.outputs.required }}
+    steps:
+      - name: Checkout complete comparison history
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Select PR checks or full release evidence
+        id: plan
+        env:
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python3 -B scripts/ci_plan.py
+
   repository-contracts:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'repository-contracts') }}
     name: Workflow and resource-safety contracts
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -39,20 +78,43 @@ jobs:
 
       - name: Lint workflow definitions
         env:
-          GOWORK: 'off'
+          GOWORK: "off"
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
 
-      - name: Validate read-only production inspectors
+      - name: Test CI quality gate and shell guards
         run: |
-          shellcheck \
-            .agents/skills/lmm-deploy-safely/scripts/inspect-state.sh \
-            .agents/skills/lmm-deploy-safely/scripts/tests/test-inspect-state.sh \
-            .agents/skills/lmm-deploy-safely/scripts/resource-pressure-report.sh \
-            .agents/skills/lmm-deploy-safely/scripts/tests/test-resource-pressure-report.sh
-          bash .agents/skills/lmm-deploy-safely/scripts/tests/test-inspect-state.sh
-          bash .agents/skills/lmm-deploy-safely/scripts/tests/test-resource-pressure-report.sh
+          shellcheck scripts/check-go-format.sh scripts/check-static-go-binary.sh
+          python3 -B -m unittest discover -s scripts -p test_ci_quality_gate.py
+          python3 -B -m unittest discover -s scripts -p test_ci_plan.py
 
-      - name: Test release version, governance, and changelog tooling
+      - name: Test public production acceptance
+        run: python3 -B -m unittest discover -s scripts -p test_public_production.py
+
+      - name: Test workflow topology and manual deployment boundary
+        run: |
+          node --test scripts/workflow-topology.test.mjs
+
+      - name: Test relay timeout differential comparator
+        run: python3 -B -m unittest discover -s apps/api-rust/tests/behavior-oracle/fixtures -p test_relay_timeout_compare.py
+
+      - name: Test CI apt source preparation
+        run: python3 scripts/test-prepare-ci-apt.py
+
+      - name: Install repository contract tools
+        run: |
+          sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes nginx ripgrep
+          test "$(command -v rg)" = /usr/bin/rg
+
+      - name: Verify backend-independent outage responses
+        run: node --test scripts/nginx-service-errors.test.mjs
+
+      # Native inspection, workspace lifecycle and recovery are covered by the
+      # release-artifact-contract job. The retired operator skill scripts are
+      # no longer repository runtime assets.
+
+      - name: Test component release governance tooling
         run: |
           shellcheck \
             scripts/verify-release-commit-checks.sh \
@@ -61,18 +123,24 @@ jobs:
             packaging/aur/export-go-package-base.sh \
             packaging/aur/test-export-go-package-base.sh
           bash scripts/test-verify-release-commit-checks.sh
-          node --test scripts/release.test.mjs
 
-      - name: Test Nginx API preflight policy
+      - name: Test pinned AUR release verification
+        env:
+          TMPDIR: ${{ runner.temp }}
         run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends --yes nginx
+          shellcheck packaging/aur/verify-go-release-pins.sh packaging/aur/test-verify-go-release-pins.sh
+          bash packaging/aur/test-verify-go-release-pins.sh
+
+      - name: Validate real integration gate contracts
+        run: |
           shellcheck \
-            deploy/test-nginx-access-policy-preflight.sh \
-            deploy/test-nginx-mime.sh
-          bash deploy/check-frontend-split.sh
+            apps/api-rust/tests/scripts/check-real-integration-gates.sh \
+            apps/api-rust/tests/scripts/run-real-integration-gates.sh
+          bash apps/api-rust/tests/scripts/check-real-integration-gates.sh
 
   release-artifact-contract:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'release-artifact-contract') }}
     name: Release artifact contract
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -83,14 +151,64 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Verify immutable release and package contracts
+      - name: Set up Go
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: apps/api-go/go.sum
+
+      - name: Install archive inspection tool
+        run: |
+          sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes libarchive-tools
+          test "$(command -v bsdtar)" = /usr/bin/bsdtar
+
+      - name: Verify native inspection, workspace, release, and package contracts
+        working-directory: apps/api-go
         env:
           TMPDIR: ${{ runner.temp }}
-        run: |
-          shellcheck deploy/production/test-release-artifact-contract.sh
-          bash deploy/production/test-release-artifact-contract.sh
+        run: go test -p 2 ./internal/appcli -count=1
+
+  pi-lmm-provider:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'pi-lmm-provider') }}
+    name: Pi LMM provider package
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22.19.0"
+          cache: npm
+          cache-dependency-path: packages/pi-lmm-provider/package-lock.json
+
+      - name: Install Pi provider dependencies
+        working-directory: packages/pi-lmm-provider
+        run: npm ci --ignore-scripts
+
+      - name: Typecheck Pi provider
+        working-directory: packages/pi-lmm-provider
+        run: npm run typecheck
+
+      - name: Test Pi provider
+        working-directory: packages/pi-lmm-provider
+        run: npm test
+
+      - name: Check Pi provider package
+        working-directory: packages/pi-lmm-provider
+        run: npm run pack:check
 
   web:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'web') }}
     name: Web checks, route manifest, and production build
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -103,15 +221,16 @@ jobs:
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: '1.3.14'
+          bun-version: "1.3.14"
 
       - name: Install workspace dependencies
         run: bun install --frozen-lockfile
 
-      - name: Check formatting and copyright headers
-        run: |
-          bun run --filter @lmm/web format:check
-          bun run --filter @lmm/web copyright:check
+      - name: Check formatting
+        run: bun run --filter @lmm/web format:check
+
+      - name: Check copyright headers
+        run: bun run --filter @lmm/web copyright:check
 
       - name: Lint and typecheck
         run: |
@@ -119,7 +238,20 @@ jobs:
           bun run --filter @lmm/web typecheck
 
       - name: Test web workspace
-        run: bun run --filter @lmm/web test
+        run: |
+          bun run --filter @lmm/web test
+          node --test scripts/service-unavailable.test.mjs
+
+      - name: Human-support confirmation regressions
+        working-directory: apps/web
+        run: |
+          for test in \
+            assistant-handoff-confirmation.test.ts \
+            assistant-handoff-tool.test.tsx \
+            assistant-handoff-review.test.tsx
+          do
+            bun test --preload ./scripts/test-preload.mjs --timeout 15000 "./src/features/assistant/$test"
+          done
 
       - name: Validate frontend API route manifest
         run: bash apps/api-rust/tests/behavior-oracle/tests/test-frontend-api-route-manifest.sh
@@ -131,27 +263,14 @@ jobs:
           bun run --filter @lmm/web build
           bun run --filter @lmm/web bundle:check
 
-      - name: Install production contract tools
-        run: |
-          if ! command -v bsdtar >/dev/null 2>&1; then
-            mkdir -p "$RUNNER_TEMP/compat-tools"
-            ln -s "$(command -v tar)" "$RUNNER_TEMP/compat-tools/bsdtar"
-            echo "$RUNNER_TEMP/compat-tools" >> "$GITHUB_PATH"
-          fi
-          bsdtar --version | head -1
-
-      - name: Verify protected production deployment contract
-        env:
-          TMPDIR: ${{ runner.temp }}
-        run: |
-          bash deploy/test-frontend-release.sh
-
   go:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'go') }}
     name: Go default backend, relaykit, and static build
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      GOMAXPROCS: '2'
+      GOMAXPROCS: "2"
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -169,15 +288,16 @@ jobs:
       - name: Check formatting and static analysis
         working-directory: apps/api-go
         run: |
-          test -z "$(gofmt -l .)"
+          bash ../../scripts/check-go-format.sh .
           go vet ./...
 
       - name: Install production contract tools
         run: |
+          sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
           sudo apt-get update
           sudo apt-get install --no-install-recommends --yes libarchive-tools
           test "$(command -v bsdtar)" = /usr/bin/bsdtar
-          bsdtar --version | head -1
+          bsdtar --version | sed -n '1p'
 
       - name: Test default Go module
         working-directory: apps/api-go
@@ -186,7 +306,7 @@ jobs:
       - name: Test and build independent relaykit module
         working-directory: apps/api-go/relaykit
         env:
-          GOWORK: 'off'
+          GOWORK: "off"
         run: |
           go vet ./...
           go test -p 2 ./...
@@ -195,17 +315,20 @@ jobs:
       - name: Build static Go production binary
         working-directory: apps/api-go
         env:
-          CGO_ENABLED: '0'
+          CGO_ENABLED: "0"
         run: |
           mkdir -p out
-          go build -p 2 -trimpath -ldflags="-s -w" -o out/lmm-api .
-          file out/lmm-api
-          if ldd out/lmm-api 2>&1 | grep -qvE 'not a dynamic executable|statically linked'; then
-            echo 'Go production binary is dynamically linked' >&2
-            exit 1
-          fi
+          go build -p 2 -trimpath -ldflags="-s -w" -o out/lmm-api-go .
+          rm -f out/.lmm-api.next
+          ln -s lmm-api-go out/.lmm-api.next
+          mv -Tf out/.lmm-api.next out/lmm-api
+          [[ -L out/lmm-api && $(readlink out/lmm-api) == lmm-api-go ]]
+          file out/lmm-api-go
+          bash ../../scripts/check-static-go-binary.sh out/lmm-api-go
 
   rust-preview:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'rust-preview') }}
     name: Rust backend formatting, lint, and tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -231,7 +354,7 @@ jobs:
           tar -xzf "$rg_dir/$rg_archive" -C "$rg_dir"
           install -m0755 "$rg_dir/ripgrep-${rg_version}-x86_64-unknown-linux-musl/rg" "$rg_dir/rg"
           echo "$rg_dir" >> "$GITHUB_PATH"
-          "$rg_dir/rg" --version | head -1
+          "$rg_dir/rg" --version | sed -n '1p'
 
       - name: Set up pinned Rust toolchain
         run: |
@@ -251,7 +374,13 @@ jobs:
         working-directory: apps/api-rust
         run: cargo test --workspace --all-targets --all-features --locked
 
+      - name: Test workspace documentation contracts
+        working-directory: apps/api-rust
+        run: cargo test --workspace --doc --all-features --locked
+
   route-coverage-contract:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'route-coverage-contract') }}
     name: Go and Rust route/behavior alignment gates
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -283,13 +412,13 @@ jobs:
           tar -xzf "$rg_dir/$rg_archive" -C "$rg_dir"
           install -m0755 "$rg_dir/ripgrep-${rg_version}-x86_64-unknown-linux-musl/rg" "$rg_dir/rg"
           echo "$rg_dir" >> "$GITHUB_PATH"
-          "$rg_dir/rg" --version | head -1
+          "$rg_dir/rg" --version | sed -n '1p'
 
       - name: Run route coverage and fixture contracts
         id: route-coverage
         shell: bash
         run: |
-          set -uo pipefail
+          set -euo pipefail
           artifact_dir="$RUNNER_TEMP/route-coverage-contract"
           mkdir -p "$artifact_dir"
           summary="$artifact_dir/results.jsonl"
@@ -302,10 +431,11 @@ jobs:
             local output="$artifact_dir/$name.log"
             local exit_code
 
-            set +e
-            "$@" >"$output" 2>&1
-            exit_code=$?
-            set -e
+            if "$@" >"$output" 2>&1; then
+              exit_code=0
+            else
+              exit_code=$?
+            fi
             cat "$output"
 
             if (( exit_code == 0 )); then
@@ -328,10 +458,16 @@ jobs:
             bash apps/api-rust/tests/scripts/check-behavior-deviations.sh
           run_check behavior-deviations-tests \
             bash apps/api-rust/tests/scripts/test-check-behavior-deviations.sh
-          run_check migration-plan \
-            bash apps/api-rust/tests/scripts/check-migration-plan.sh
-          run_check migration-plan-tests \
-            bash apps/api-rust/tests/scripts/test-check-migration-plan.sh
+          run_check route-plan \
+            bash apps/api-rust/tests/scripts/check-route-plan.sh
+          run_check route-plan-tests \
+            bash apps/api-rust/tests/scripts/test-check-route-plan.sh
+          run_check draft-route-coverage \
+            bash apps/api-rust/tests/scripts/check-draft-route-coverage.sh
+          run_check draft-route-completion \
+            bash apps/api-rust/tests/scripts/check-draft-route-completion.sh
+          run_check draft-route-coverage-tests \
+            bash apps/api-rust/tests/scripts/test-check-draft-route-coverage.sh
 
           {
             echo "route coverage contract status: $([[ $overall_status == 0 ]] && echo passed || echo failed)"
@@ -354,7 +490,87 @@ jobs:
             route-coverage-logs/
           if-no-files-found: error
 
+  rust-real-integration:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'rust-real-integration') }}
+    name: Rust PostgreSQL 18 and Valkey integration gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: lmm_ci
+          POSTGRES_USER: lmm_ci
+          POSTGRES_PASSWORD: lmm-ci-postgres-password
+        ports:
+          - "127.0.0.1:5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U lmm_ci -d lmm_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      valkey:
+        image: valkey/valkey:8-alpine
+        ports:
+          - "127.0.0.1:6379:6379"
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      LMM_AUTH_TEST_ALLOW_SCHEMA_RESET: "1"
+      LMM_AUTH_TEST_DATABASE_URL: postgresql://lmm_ci:lmm-ci-postgres-password@127.0.0.1:5432/lmm_ci
+      LMM_AUTH_TEST_VALKEY_URL: redis://:lmm-ci-valkey-password@127.0.0.1:6379/0
+      LMM_MODELS_TEST_DATABASE_URL: postgresql://lmm_ci:lmm-ci-postgres-password@127.0.0.1:5432/lmm_ci
+      LMM_MODELS_TEST_VALKEY_URL: redis://:lmm-ci-valkey-password@127.0.0.1:6379/0
+      LMM_API_TOKEN_TEST_DATABASE_URL: postgresql://lmm_ci:lmm-ci-postgres-password@127.0.0.1:5432/lmm_ci
+      LMM_API_TOKEN_TEST_VALKEY_URL: redis://:lmm-ci-valkey-password@127.0.0.1:6379/0
+      LMM_BILLING_SUBSCRIPTIONS_TEST_DATABASE_URL: postgresql://lmm_ci:lmm-ci-postgres-password@127.0.0.1:5432/lmm_ci
+      LMM_BILLING_SUBSCRIPTIONS_TEST_VALKEY_URL: redis://:lmm-ci-valkey-password@127.0.0.1:6379/0
+      LMM_TEST_DATABASE_URL: postgresql://lmm_ci:lmm-ci-postgres-password@127.0.0.1:5432/lmm_ci
+      LMM_SYSTEM_CONFIG_TEST_DATABASE_URL: postgresql://lmm_ci:lmm-ci-postgres-password@127.0.0.1:5432/lmm_ci
+      LMM_SYSTEM_CONFIG_TEST_VALKEY_URL: redis://:lmm-ci-valkey-password@127.0.0.1:6379/0
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up pinned Rust toolchain
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version --verbose
+
+      - name: Require authenticated loopback Valkey
+        env:
+          VALKEY_CONTAINER_ID: ${{ job.services.valkey.id }}
+          VALKEY_PASSWORD: lmm-ci-valkey-password
+        run: |
+          set -euo pipefail
+          docker exec "$VALKEY_CONTAINER_ID" valkey-cli CONFIG SET requirepass "$VALKEY_PASSWORD" >/dev/null
+          test "$(docker exec "$VALKEY_CONTAINER_ID" valkey-cli --no-auth-warning -a "$VALKEY_PASSWORD" ping)" = PONG
+          unauthenticated=$(docker exec "$VALKEY_CONTAINER_ID" valkey-cli ping 2>&1 || true)
+          [[ $unauthenticated != *PONG* ]]
+
+      - name: Set up Go for independent Pancake SDK verification
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache: false
+
+      - name: Verify RSA fixtures against pinned Pancake Go SDK
+        working-directory: apps/api-rust/tests/pancake-sdk-oracle
+        run: go test -mod=readonly -v ./...
+
+      - name: Run real integration suites
+        run: bash apps/api-rust/tests/scripts/run-real-integration-gates.sh all
+
   aur-package-matrix:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'aur-package-matrix') }}
     name: AUR direct-backend package contract
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -365,7 +581,8 @@ jobs:
           pacman --sync --refresh --noconfirm clang cosign curl git jq libarchive rust shellcheck
           paru_revision=9ac3578807a87858651e81a02586ceb947686e7c
           paru_archive=/tmp/paru.tar.gz
-          curl --fail --location --silent --show-error \
+          curl --fail --location --silent --show-error --retry 3 \
+            --connect-timeout 10 --max-time 120 \
             "https://github.com/Morganamilo/paru/archive/${paru_revision}.tar.gz" \
             --output "$paru_archive"
           echo 'fa1e2da402283f9584f98458c61ae8d0bb04c92b2cddb1d2727c8ce944da457e  /tmp/paru.tar.gz' | sha256sum --check --strict
@@ -382,18 +599,146 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Validate all public AUR packages
+      - name: Validate public AUR package matrix
         run: |
           chown --recursive package-builder:package-builder "$GITHUB_WORKSPACE"
           runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp bash packaging/aur/test-matrix.sh
+
+      - name: Verify pinned Go release integrity
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
           runuser --user package-builder -- env \
             TMPDIR=/home/package-builder/lmm-ci-tmp \
-            GITHUB_TOKEN='${{ github.token }}' \
-            bash packaging/aur/verify-go-release-pins.sh
+            GITHUB_TOKEN="$GITHUB_TOKEN" \
+            bash packaging/aur/verify-go-release-pins.sh --pinned
+
+      - name: Validate binary package with makepkg and paru
+        run: |
           runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp bash packaging/aur/test-bin-makepkg.sh
-          runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp bash packaging/aur/test-web-activation.sh
-          runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp bash deploy/production/test-precutover-packages.sh
-          runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp bash deploy/production/test-go-package-roundtrip.sh
-          runtime_dir="/run/user/$(id -u package-builder)"
-          install -d -m0700 -o package-builder -g package-builder "$runtime_dir"
-          runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp bash deploy/production/test-go-deploy-contract.sh
+
+  quality-gate:
+    name: CI Quality Gate
+    # Only explicitly unselected jobs may skip; all failures/cancellations still fail.
+    if: ${{ always() }}
+    needs:
+      - changes
+      - repository-contracts
+      - release-artifact-contract
+      - pi-lmm-provider
+      - web
+      - go
+      - rust-preview
+      - route-coverage-contract
+      - rust-real-integration
+      - aur-package-matrix
+      - translations
+      - root-route-acceptance-lockfile
+      - rustsec
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Require all mandatory jobs to succeed
+        env:
+          CI_NEEDS: ${{ toJSON(needs) }}
+          CI_SELECTED: ${{ needs.changes.outputs.required }}
+        run: python3 -B scripts/ci_quality_gate.py
+
+  translations:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'translations') }}
+    name: Translation regression check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout source and comparison history
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # Use the PR merge ref so older branches receive the current checker.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Test the translation checker
+        run: node --test scripts/check-i18n.test.mjs
+
+      - name: Check added keys and removed translations
+        # The checker still runs on tags; only the branch comparison is inapplicable.
+        if: github.ref_type != 'tag'
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before || inputs.base-ref || 'HEAD^' }}
+        run: |
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            node scripts/check-i18n.mjs --base "$BASE_REF" --merge-base
+          else
+            node scripts/check-i18n.mjs --base "$BASE_REF"
+          fi
+
+  root-route-acceptance-lockfile:
+    name: Rust root-route acceptance lockfile
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'root-route-acceptance-lockfile') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Set up pinned Rust toolchain
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component clippy
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version --verbose
+      - name: Validate independent lockfile structure
+        run: |
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          import re
+          import tomllib
+
+          lockfile = Path("apps/api-rust/tests/root-route-acceptance/Cargo.lock")
+          data = tomllib.loads(lockfile.read_text())
+          invalid = []
+          for package in data.get("package", []):
+              source = package.get("source", "")
+              checksum = package.get("checksum")
+              if source.startswith("registry+") and not (
+                  isinstance(checksum, str) and re.fullmatch(r"[0-9a-f]{64}", checksum)
+              ):
+                  invalid.append(f"{package['name']} {package['version']}: {checksum!r}")
+          if invalid:
+              raise SystemExit("invalid registry checksums:\n" + "\n".join(invalid))
+          PYTHON
+      - name: Fetch independent locked dependencies
+        run: |
+          cargo fetch --locked \
+            --manifest-path apps/api-rust/tests/root-route-acceptance/Cargo.toml
+      - name: Test root-route acceptance support harness
+        run: bash apps/api-rust/tests/scripts/test-root-route-acceptance.sh
+
+  rustsec:
+    name: RustSec advisory scan
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'rustsec') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      checks: write
+      issues: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Audit locked Rust dependencies
+        uses: rustsec/audit-check@858dc40f52ca2b8570b7a997c1c4e35c6fc9a432 # Node 24 support
+        with:
+          token: ${{ github.token }}
+          working-directory: apps/api-rust

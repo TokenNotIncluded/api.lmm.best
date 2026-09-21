@@ -81,6 +81,7 @@ func TestFinanceExportFilesAreRedactedAndClipboardFriendly(t *testing.T) {
 		"subscription-plans.json",
 		"topups.json",
 		"subscription-orders.json",
+		"subscription-payment-events.json",
 		"usage-billing-records.json",
 		"bounty-ledger.json",
 		"checkins.json",

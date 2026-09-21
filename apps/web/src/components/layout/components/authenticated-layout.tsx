@@ -24,8 +24,12 @@ import { AnimatedOutlet } from '@/components/page-transition'
 import { SkipToMain } from '@/components/skip-to-main'
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { LayoutProvider } from '@/context/layout-provider'
+import { ModelPlazaProvider } from '@/context/model-plaza-provider'
 import { SearchProvider } from '@/context/search-provider'
 import { AssistantLauncher } from '@/features/assistant/assistant-launcher'
+import { AccountStatus } from '@/features/onboarding/account-status'
+import { MandatoryAnnouncements } from '@/features/onboarding/mandatory-announcements'
+import { ModelPlazaPanel } from '@/features/pricing/components/model-plaza-panel'
 import { ReleaseNoteDialog } from '@/features/release-notes/release-note-dialog'
 import { isConsoleActivated } from '@/lib/console-activation'
 import { getCookie } from '@/lib/cookies'
@@ -49,41 +53,53 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
   const assistantPage = pathname === '/getting-started'
 
   return (
-    <LayoutProvider>
-      <SearchProvider>
-        <SidebarProvider
-          defaultOpen={defaultOpen}
-          className='console-editorial h-dvh min-h-0 flex-col overflow-hidden'
-        >
-          <SkipToMain />
-          <AppHeader
-            showTopNav={consoleActivated}
-            showSidebarTrigger={!assistantPage}
-          />
-          <div className='flex min-h-0 w-full min-w-0 flex-1 basis-0 flex-col flex-nowrap md:flex-row'>
-            {assistantPage ? null : <AppSidebar />}
-            <SidebarInset
-              className={cn(
-                '@container/content',
-                'min-h-0 min-w-0 flex-1 basis-0 overflow-hidden',
-                assistantPage
-                  ? 'pb-0'
-                  : 'pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-16 xl:pb-0'
-              )}
+    <MandatoryAnnouncements>
+      <LayoutProvider>
+        <ModelPlazaProvider>
+          <SearchProvider>
+            <SidebarProvider
+              defaultOpen={defaultOpen}
+              className='console-editorial h-dvh min-h-0 flex-col overflow-hidden'
             >
-              {assistantPage ? (
-                <AssistantLauncher page />
-              ) : (
-                (props.children ?? <AnimatedOutlet />)
-              )}
-            </SidebarInset>
-            {assistantPage ? null : <AssistantLauncher />}
-          </div>
-          <AccessRestrictionNotice className='shrink-0' />
-          <ReleaseNoteDialog />
-          <CommandMenu />
-        </SidebarProvider>
-      </SearchProvider>
-    </LayoutProvider>
+              <SkipToMain />
+              <AppHeader
+                showTopNav={consoleActivated}
+                showSidebarTrigger={!assistantPage}
+              />
+              <div className='flex min-h-0 w-full min-w-0 flex-1 basis-0 flex-col flex-nowrap md:flex-row'>
+                {assistantPage ? null : <AppSidebar />}
+                <SidebarInset
+                  className={cn(
+                    '@container/content',
+                    'min-h-0 min-w-0 flex-1 basis-0 overflow-hidden',
+                    assistantPage
+                      ? 'pb-0'
+                      : 'pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-16 xl:pb-0'
+                  )}
+                >
+                  {assistantPage ? (
+                    <div className='flex h-full min-h-0 flex-col'>
+                      <div className='max-h-[45dvh] shrink-0 overflow-y-auto px-4 pt-4'>
+                        <AccountStatus showRequestDetails />
+                      </div>
+                      <div className='min-h-0 flex-1'>
+                        <AssistantLauncher page />
+                      </div>
+                    </div>
+                  ) : (
+                    (props.children ?? <AnimatedOutlet />)
+                  )}
+                </SidebarInset>
+                {assistantPage ? null : <AssistantLauncher />}
+              </div>
+              <AccessRestrictionNotice className='shrink-0' />
+              <ReleaseNoteDialog />
+              <CommandMenu />
+              <ModelPlazaPanel />
+            </SidebarProvider>
+          </SearchProvider>
+        </ModelPlazaProvider>
+      </LayoutProvider>
+    </MandatoryAnnouncements>
   )
 }

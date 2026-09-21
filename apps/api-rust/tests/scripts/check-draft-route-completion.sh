@@ -118,9 +118,9 @@ require_approved_legacy_stubs() {
 
 export DRAFT_REPORT_MISSING=${DRAFT_REPORT_MISSING:-1}
 # The static scanner intentionally identifies every explicit 501. Completion
-# permits exactly one only after the gate proves its frozen owner and a
-# valid-token Go/Rust TCP status/body differential; no generic 501 escape is
-# available here.
+# permits only the entries pinned in the audited ledger after the gate proves
+# each frozen owner and valid-token Go/Rust TCP status/body differential; no
+# generic 501 escape is available here.
 coverage_output=$(DRAFT_REQUIRE_COMPLETE=0 DRAFT_OUTSIDE_BASELINE_ALLOWLIST="$outside_allowlist" bash "$checker")
 printf '%s\n' "$coverage_output"
 

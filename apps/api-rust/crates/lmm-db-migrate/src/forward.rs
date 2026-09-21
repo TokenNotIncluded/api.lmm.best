@@ -9,8 +9,13 @@ use crate::{
     MigrationError,
     contract::{ContractInstallOutcome, install_or_verify},
     forward_schema::{
-        BOUNTY_SCHEMA_CONTRACT_ID, CURRENT_DASHBOARD_SCHEMA_CONTRACT_ID,
-        verify_current_dashboard_schema, verify_open_source_bounty_schema,
+        ACCOUNT_BALANCE_ACCESS_SCHEMA_CONTRACT_ID, BOUNTY_SCHEMA_CONTRACT_ID,
+        COMPANY_BILLING_PROFILE_SCHEMA_CONTRACT_ID, CURRENT_DASHBOARD_SCHEMA_CONTRACT_ID,
+        SUBSCRIPTION_PAYMENT_REFUND_SCHEMA_CONTRACT_ID, SUBSCRIPTION_RESET_SCHEMA_CONTRACT_ID,
+        WAFFO_SUBSCRIPTION_SCHEMA_CONTRACT_ID, verify_account_balance_access_schema,
+        verify_company_billing_profile_schema, verify_current_dashboard_schema,
+        verify_open_source_bounty_schema, verify_subscription_payment_refund_schema,
+        verify_subscription_reset_schema, verify_waffo_subscription_schema,
     },
     postgres_catalog::acquire_shared_migration_lock,
     release::ReleaseBinding,
@@ -69,6 +74,21 @@ pub fn forward(options: &ForwardOptions<'_>) -> Result<ForwardReport, MigrationE
     verify_open_source_bounty_schema(&mut transaction, options.schema)?;
     if options.release.contract_id().as_i64() >= CURRENT_DASHBOARD_SCHEMA_CONTRACT_ID {
         verify_current_dashboard_schema(&mut transaction, options.schema)?;
+    }
+    if options.release.contract_id().as_i64() >= SUBSCRIPTION_RESET_SCHEMA_CONTRACT_ID {
+        verify_subscription_reset_schema(&mut transaction, options.schema)?;
+    }
+    if options.release.contract_id().as_i64() >= COMPANY_BILLING_PROFILE_SCHEMA_CONTRACT_ID {
+        verify_company_billing_profile_schema(&mut transaction, options.schema)?;
+    }
+    if options.release.contract_id().as_i64() >= WAFFO_SUBSCRIPTION_SCHEMA_CONTRACT_ID {
+        verify_waffo_subscription_schema(&mut transaction, options.schema)?;
+    }
+    if options.release.contract_id().as_i64() >= SUBSCRIPTION_PAYMENT_REFUND_SCHEMA_CONTRACT_ID {
+        verify_subscription_payment_refund_schema(&mut transaction, options.schema)?;
+    }
+    if options.release.contract_id().as_i64() >= ACCOUNT_BALANCE_ACCESS_SCHEMA_CONTRACT_ID {
+        verify_account_balance_access_schema(&mut transaction, options.schema)?;
     }
     transaction.commit()?;
     Ok(ForwardReport {

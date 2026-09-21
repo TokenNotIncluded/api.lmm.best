@@ -326,6 +326,18 @@ func matchAdvancedCustomIncomingPath(configuredPath string, requestPath string) 
 	if matchAdvancedCustomIncomingPathTemplate(configuredPath, requestPath) {
 		return true
 	}
+	// Browser playground endpoints use the same upstream protocols as /v1.
+	// Resolve their aliases before channel filtering, consistently with the
+	// relay's later URL rewrite, while preserving explicit /pg routes above.
+	// Configured route order still determines the first match.
+	switch requestPath {
+	case "/pg/chat/completions":
+		return matchAdvancedCustomIncomingPathTemplate(configuredPath, advancedCustomEndpointPathOpenAIChat)
+	case "/pg/images/generations":
+		return matchAdvancedCustomIncomingPathTemplate(configuredPath, advancedCustomEndpointPathImageGeneration)
+	case "/pg/images/edits":
+		return matchAdvancedCustomIncomingPathTemplate(configuredPath, "/v1/images/edits")
+	}
 	if strings.Contains(configuredPath, ":generateContent") {
 		streamPath := strings.Replace(configuredPath, ":generateContent", ":streamGenerateContent", 1)
 		return matchAdvancedCustomIncomingPathTemplate(streamPath, requestPath)

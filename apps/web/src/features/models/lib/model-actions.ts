@@ -145,7 +145,7 @@ export async function handleBatchDeleteModels(
       } else {
         failedCount++
         // eslint-disable-next-line no-console
-        console.error(`Failed to delete model ${ids[index]}:`, res.message)
+        console.error('Failed to delete model %s:', ids[index], res.message)
       }
     })
 

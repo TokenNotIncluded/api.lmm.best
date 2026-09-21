@@ -179,6 +179,7 @@ export function AntiRelaySection({ defaultValues }: AntiRelaySectionProps) {
 
     setSaveState('idle')
     try {
+      let saveFailed = false
       for (const key of orderedKeys) {
         const value = normalized[key]
         const response = await updateOption.mutateAsync({
@@ -186,9 +187,13 @@ export function AntiRelaySection({ defaultValues }: AntiRelaySectionProps) {
           value: Array.isArray(value) ? JSON.stringify(value) : value,
         })
         if (!response.success) {
-          setSaveState('error')
-          return
+          saveFailed = true
+          break
         }
+      }
+      if (saveFailed) {
+        setSaveState('error')
+        return
       }
 
       baselineRef.current = normalized

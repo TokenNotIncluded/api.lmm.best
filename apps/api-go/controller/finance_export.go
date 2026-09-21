@@ -125,15 +125,34 @@ type financeTopUpExport struct {
 }
 
 type financeSubscriptionOrderExport struct {
-	ID              int     `json:"order_id" gorm:"column:id"`
-	UserID          int     `json:"user_id" gorm:"column:user_id"`
-	PlanID          int     `json:"plan_id" gorm:"column:plan_id"`
-	Money           float64 `json:"money" gorm:"column:money"`
-	PaymentMethod   string  `json:"payment_method" gorm:"column:payment_method"`
-	PaymentProvider string  `json:"payment_provider" gorm:"column:payment_provider"`
-	Status          string  `json:"status" gorm:"column:status"`
-	CreateTime      int64   `json:"create_time" gorm:"column:create_time"`
-	CompleteTime    int64   `json:"complete_time" gorm:"column:complete_time"`
+	ID                        int     `json:"order_id" gorm:"column:id"`
+	UserID                    int     `json:"user_id" gorm:"column:user_id"`
+	PlanID                    int     `json:"plan_id" gorm:"column:plan_id"`
+	Money                     float64 `json:"plan_price" gorm:"column:money"`
+	PlanCurrency              string  `json:"plan_currency" gorm:"column:plan_currency"`
+	ExpectedAmountMicros      int64   `json:"expected_amount_micros" gorm:"column:expected_amount_micros"`
+	SettlementCurrency        string  `json:"settlement_currency" gorm:"column:settlement_currency"`
+	PaymentMethod             string  `json:"payment_method" gorm:"column:payment_method"`
+	PaymentProvider           string  `json:"payment_provider" gorm:"column:payment_provider"`
+	ProviderProductID         string  `json:"provider_product_id" gorm:"column:provider_product_id"`
+	ProviderSubscriptionState string  `json:"provider_subscription_state" gorm:"column:provider_subscription_state"`
+	CurrentPeriodStart        int64   `json:"current_period_start" gorm:"column:current_period_start"`
+	CurrentPeriodEnd          int64   `json:"current_period_end" gorm:"column:current_period_end"`
+	RefundedAmountMicros      int64   `json:"refunded_amount_micros" gorm:"column:refunded_amount_micros"`
+	Status                    string  `json:"status" gorm:"column:status"`
+	CreateTime                int64   `json:"create_time" gorm:"column:create_time"`
+	CompleteTime              int64   `json:"complete_time" gorm:"column:complete_time"`
+}
+
+type financeSubscriptionPaymentEventExport struct {
+	ID                     int    `json:"payment_event_id" gorm:"column:id"`
+	SubscriptionOrderID    int    `json:"subscription_order_id" gorm:"column:subscription_order_id"`
+	PaymentProvider        string `json:"payment_provider" gorm:"column:payment_provider"`
+	SettlementCurrency     string `json:"settlement_currency" gorm:"column:settlement_currency"`
+	SettlementAmountMicros int64  `json:"settlement_amount_micros" gorm:"column:settlement_amount_micros"`
+	PeriodStart            int64  `json:"period_start" gorm:"column:period_start"`
+	PeriodEnd              int64  `json:"period_end" gorm:"column:period_end"`
+	CreatedTime            int64  `json:"created_time" gorm:"column:created_time"`
 }
 
 type financeUsageExport struct {
@@ -206,29 +225,31 @@ type financeUserSubscriptionExport struct {
 }
 
 type financeExportBundle struct {
-	Manifest                 financeExportManifest
-	Options                  map[string]string
-	EffectivePricing         []model.Pricing
-	Users                    []financeUserExport
-	UserStream               func(io.Writer) error
-	Channels                 []financeChannelExport
-	ChannelsStream           func(io.Writer) error
-	Plans                    []financePlanExport
-	PlansStream              func(io.Writer) error
-	TopUps                   []financeTopUpExport
-	TopUpsStream             func(io.Writer) error
-	SubscriptionOrders       []financeSubscriptionOrderExport
-	SubscriptionOrdersStream func(io.Writer) error
-	Usage                    []financeUsageExport
-	UsageStream              func(io.Writer) error
-	BountyLedger             []financeBountyLedgerExport
-	BountyLedgerStream       func(io.Writer) error
-	Checkins                 []financeCheckinExport
-	CheckinsStream           func(io.Writer) error
-	Redemptions              []financeRedemptionExport
-	RedemptionsStream        func(io.Writer) error
-	UserSubscriptions        []financeUserSubscriptionExport
-	UserSubscriptionsStream  func(io.Writer) error
+	Manifest                   financeExportManifest
+	Options                    map[string]string
+	EffectivePricing           []model.Pricing
+	Users                      []financeUserExport
+	UserStream                 func(io.Writer) error
+	Channels                   []financeChannelExport
+	ChannelsStream             func(io.Writer) error
+	Plans                      []financePlanExport
+	PlansStream                func(io.Writer) error
+	TopUps                     []financeTopUpExport
+	TopUpsStream               func(io.Writer) error
+	SubscriptionOrders         []financeSubscriptionOrderExport
+	SubscriptionOrdersStream   func(io.Writer) error
+	SubscriptionPaymentEvents  []financeSubscriptionPaymentEventExport
+	SubscriptionPaymentsStream func(io.Writer) error
+	Usage                      []financeUsageExport
+	UsageStream                func(io.Writer) error
+	BountyLedger               []financeBountyLedgerExport
+	BountyLedgerStream         func(io.Writer) error
+	Checkins                   []financeCheckinExport
+	CheckinsStream             func(io.Writer) error
+	Redemptions                []financeRedemptionExport
+	RedemptionsStream          func(io.Writer) error
+	UserSubscriptions          []financeUserSubscriptionExport
+	UserSubscriptionsStream    func(io.Writer) error
 }
 
 func parseFinanceExportWindow(c *gin.Context) (int64, int64, error) {
@@ -447,7 +468,7 @@ func loadFinanceExportBundle(start, end int64) (financeExportBundle, error) {
 	}
 	subscriptionOrdersQuery := func() *gorm.DB {
 		return subscriptionOrdersBase().
-			Select("id", "user_id", "plan_id", "money", "payment_method", "payment_provider", "status", "create_time", "complete_time").
+			Select("id", "user_id", "plan_id", "money", "plan_currency", "expected_amount_micros", "settlement_currency", "payment_method", "payment_provider", "provider_product_id", "provider_subscription_state", "current_period_start", "current_period_end", "refunded_amount_micros", "status", "create_time", "complete_time").
 			Order("create_time ASC, id ASC").Limit(financeExportMaxRows)
 	}
 	subscriptionOrdersCount, subscriptionOrdersTruncated, err := countFinanceExportRows(subscriptionOrdersBase())
@@ -458,6 +479,25 @@ func loadFinanceExportBundle(start, end int64) (financeExportBundle, error) {
 	bundle.Manifest.Truncated["subscription_orders"] = subscriptionOrdersTruncated
 	bundle.SubscriptionOrdersStream = func(writer io.Writer) error {
 		return streamFinanceQueryJSON[financeSubscriptionOrderExport](writer, subscriptionOrdersQuery())
+	}
+
+	subscriptionPaymentsBase := func() *gorm.DB {
+		return model.DB.Model(&model.SubscriptionPaymentEvent{}).
+			Where("created_time >= ? AND created_time <= ?", start, end)
+	}
+	subscriptionPaymentsQuery := func() *gorm.DB {
+		return subscriptionPaymentsBase().
+			Select("id", "subscription_order_id", "payment_provider", "settlement_currency", "settlement_amount_micros", "period_start", "period_end", "created_time").
+			Order("created_time ASC, id ASC").Limit(financeExportMaxRows)
+	}
+	subscriptionPaymentsCount, subscriptionPaymentsTruncated, err := countFinanceExportRows(subscriptionPaymentsBase())
+	if err != nil {
+		return bundle, err
+	}
+	bundle.Manifest.Rows["subscription_payment_events"] = subscriptionPaymentsCount
+	bundle.Manifest.Truncated["subscription_payment_events"] = subscriptionPaymentsTruncated
+	bundle.SubscriptionPaymentsStream = func(writer io.Writer) error {
+		return streamFinanceQueryJSON[financeSubscriptionPaymentEventExport](writer, subscriptionPaymentsQuery())
 	}
 	usageTypes := []int{
 		model.LogTypeConsume,
@@ -721,6 +761,7 @@ func financeDocuments(bundle financeExportBundle) []financeDocument {
 		{Name: "subscription-plans.json", Value: bundle.Plans, Write: bundle.PlansStream},
 		{Name: "topups.json", Value: bundle.TopUps, Write: bundle.TopUpsStream},
 		{Name: "subscription-orders.json", Value: bundle.SubscriptionOrders, Write: bundle.SubscriptionOrdersStream},
+		{Name: "subscription-payment-events.json", Value: bundle.SubscriptionPaymentEvents, Write: bundle.SubscriptionPaymentsStream},
 		{Name: "usage-billing-records.json", Value: bundle.Usage, Write: bundle.UsageStream},
 		{Name: "bounty-ledger.json", Value: bundle.BountyLedger, Write: bundle.BountyLedgerStream},
 		{Name: "checkins.json", Value: bundle.Checkins, Write: bundle.CheckinsStream},

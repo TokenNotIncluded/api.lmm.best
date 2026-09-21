@@ -26,12 +26,18 @@ func GetAndValidateRequest(c *gin.Context, format types.RelayFormat) (request dt
 	case types.RelayFormatOpenAI:
 		request, err = GetAndValidateTextRequest(c, relayMode)
 	case types.RelayFormatGemini:
-		if strings.Contains(c.Request.URL.Path, ":embedContent") {
+		_, action, _ := strings.Cut(c.Request.URL.Path, ":")
+		switch action {
+		case "embedContent":
 			request, err = GetAndValidateGeminiEmbeddingRequest(c)
-		} else if strings.Contains(c.Request.URL.Path, ":batchEmbedContents") {
+		case "batchEmbedContents":
 			request, err = GetAndValidateGeminiBatchEmbeddingRequest(c)
-		} else {
+		case "generateContent", "streamGenerateContent":
 			request, err = GetAndValidateGeminiRequest(c)
+		case "countTokens":
+			return nil, types.NewErrorWithStatusCode(errors.New("Gemini countTokens is not supported; no generation was performed"), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		default:
+			return nil, types.NewErrorWithStatusCode(fmt.Errorf("unsupported Gemini action: %s", action), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 		}
 	case types.RelayFormatClaude:
 		request, err = GetAndValidateClaudeRequest(c)

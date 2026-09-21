@@ -586,37 +586,23 @@ describe('UserSubscriptionsDialog request isolation', () => {
     }
   })
 
-  test('suppresses a deferred reset completion after unmount', async () => {
-    const requests = installImmediateReads()
-    const mutation = deferred<unknown>()
-    let postCalls = 0
-    api.post = (async (url: string) => {
-      postCalls += 1
-      assert.equal(url, '/api/subscription/admin/users/1/subscriptions/reset')
-      return mutation.promise
-    }) as typeof api.post
-    const effects = captureMutationEffects()
-    const rendered = await renderDialog(
-      true,
-      { id: 1, username: 'A' },
-      effects.onSuccess
-    )
+  test('does not expose the legacy reset action outside the root workspace', async () => {
+    installImmediateReads()
+    const rendered = await renderDialog(true, { id: 1, username: 'A' })
 
-    await chooseRowAction('Reset quota')
-    await confirmDialogAction('Reset quota')
-    assert.equal(postCalls, 1)
-    await unmountDialog(rendered)
-    await act(async () => {
-      mutation.resolve({
-        data: { success: true, data: { reset_count: 1 } },
-      })
-      await flush()
-    })
-    assert.equal(requests.length, 2)
-    assert.deepEqual(effects.successes, [])
-    assert.deepEqual(effects.errors, [])
-    assert.equal(effects.onSuccessCalls(), 0)
-    assert.equal(dialogText(), '')
+    try {
+      await clickElement(document.querySelector('button[aria-label="Actions"]'))
+      assert.equal(
+        elementWithText('[role="menuitem"]', 'Reset quota'),
+        undefined
+      )
+      assert.equal(
+        elementWithText('[role="menuitem"]', 'Invalidate')?.textContent,
+        'Invalidate'
+      )
+    } finally {
+      await unmountDialog(rendered)
+    }
   })
 
   test('invalidates responses from a closed dialog before reopening it', async () => {

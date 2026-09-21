@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"math/rand"
+	nonSecureRand "math/rand/v2"
 	"sort"
 	"strings"
 	"sync"
@@ -125,11 +125,14 @@ func refreshChannelCache() error {
 		}
 		groups := strings.Split(channel.Group, ",")
 		for _, group := range groups {
+			if newGroup2model2channels[group] == nil {
+				// Channel configuration remains the routing authority even when
+				// its derived ability rows are missing from the snapshot.
+				newGroup2model2channels[group] = make(map[string][]int)
+				common.SysLog(fmt.Sprintf("channel cache: enabled channel %d references a group without abilities", channel.Id))
+			}
 			models := strings.Split(channel.Models, ",")
 			for _, model := range models {
-				if _, ok := newGroup2model2channels[group][model]; !ok {
-					newGroup2model2channels[group][model] = make([]int, 0)
-				}
 				newGroup2model2channels[group][model] = append(newGroup2model2channels[group][model], channel.Id)
 			}
 		}
@@ -182,10 +185,23 @@ func channelCacheNotReadyErrorLocked() error {
 }
 
 func SyncChannelCache(frequency int) {
+	SyncChannelCacheContext(context.Background(), frequency)
+}
+
+func SyncChannelCacheContext(ctx context.Context, frequency int) {
+	if frequency <= 0 {
+		return
+	}
+	ticker := time.NewTicker(time.Duration(frequency) * time.Second)
+	defer ticker.Stop()
 	for {
-		time.Sleep(time.Duration(frequency) * time.Second)
-		common.SysLog("syncing channels from database")
-		InitChannelCache()
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			common.SysLog("syncing channels from database")
+			_ = InitChannelCache()
+		}
 	}
 }
 
@@ -306,8 +322,8 @@ func GetRandomSatisfiedChannelExcluding(group string, model string, retry int, r
 	// Calculate the total weight of all channels up to endIdx
 	totalWeight := sumWeight * smoothingFactor
 
-	// Generate a random value in the range [0, totalWeight)
-	randomWeight := rand.Intn(totalWeight)
+	// Non-security weighted sampling balances requests across upstream channels.
+	randomWeight := nonSecureRand.IntN(totalWeight)
 
 	// Find a channel based on its weight
 	for _, channelID := range channels {

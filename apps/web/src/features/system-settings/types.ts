@@ -16,6 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
 export type SystemOption = {
   key: string
   value: string
@@ -27,93 +30,41 @@ export type SystemOptionsResponse = {
   success: boolean
   message: string
   data: SystemOption[]
+  capabilities?: { model_price_locks?: boolean }
 }
 
 export type UpdateOptionRequest = {
   key: string
   value: string | boolean | number
+  model?: string
 }
 
 export type UpdateOptionResponse = {
   success: boolean
   message: string
+  warnings?: string[]
+  locked_models?: string[]
 }
 
-export type DynamicPricingModelStatus = {
-  factor: number
-  request_factor_min: number
-  request_factor_max: number
-  engine_factor: number
-  hard_cost_floor: number
-  load_ema: number
-  cost_ema: number
-  has_unpriced_traffic: boolean
-  unpriced_tokens: number
-  unpriced_requests: number
-  updated_at: number
+export type UsdExchangeRateQuote = {
+  base_currency: 'USD'
+  quote_currency: string
+  rate: number
+  fetched_at: string
+  provider: string
 }
 
-export type DynamicPricingChannelStatus = {
-  id: number
-  name: string
-  cost: number
-  cost_floor: number
-  configured: boolean
-}
-
-export type DynamicPricingSetting = {
-  enabled: boolean
-  min_factor: number
-  require_channel_cost: boolean
-  tick_interval_seconds: number
-  window_minutes: number
-  target_tpm: number
-  target_rpm: number
-  target_cost_rate: number
-  base_price_usd_per_million: number
-  alpha_load: number
-  alpha_up: number
-  alpha_down: number
-  cost_floor_factor: number
-  max_factor: number
-  load_deadzone: number
-  heat_gamma: number
-  max_step_up: number
-  max_step_down: number
-  failover_probability: number
-  channel_costs: Record<string, number>
-  per_model: Record<string, unknown>
-}
-
-export type DynamicPricingStatusResponse = {
-  success: boolean
-  message: string
-  data: {
-    enabled: boolean
-    preview_factor: number
-    setting: DynamicPricingSetting
-    models: Record<string, DynamicPricingModelStatus>
-    safety: {
-      ready: boolean
-      status: string
-      reason: string
-      active_channel_count: number
-      configured_channel_count: number
-      channels: DynamicPricingChannelStatus[]
-      missing_channels: Array<{ id: number; name: string }>
-      require_channel_cost: boolean
+export type UsdExchangeRateResponse =
+  | {
+      success: true
+      message: string
+      data: UsdExchangeRateQuote
     }
-  }
-}
-
-export type DynamicPricingSettingUpdate = {
-  enabled: boolean
-  min_factor: number
-  base_price_usd_per_million: number
-  cost_floor_factor: number
-  max_factor: number
-  channel_costs: Record<string, number>
-}
+  | {
+      success: false
+      message: string
+      data?: never
+    }
 
 export type UpdateAdvancedSecuritySettingsRequest = {
   enabled: boolean
@@ -199,6 +150,8 @@ export type SiteSettings = {
   ServerAddress: string
   'legal.user_agreement': string
   'legal.privacy_policy': string
+  'legal.user_agreement_en': string
+  'legal.privacy_policy_en': string
   HeaderNavModules: string
   SidebarModulesAdmin: string
 }
@@ -318,12 +271,21 @@ export type ContentSettings = {
   AssistantCacheTTLMinutes: number
   AssistantPersona: string
   AssistantSystemPrompt: string
+  AssistantPreConversationPresets: string
   AssistantSearchProvider: AssistantSearchProvider
   AssistantSearchURL: string
   AssistantSearchAPIKey: string
   AssistantSearchMCPTool: string
   AssistantSkills: string
   AssistantSkillFiles: string
+  AssistantRegistrationAutoSuspendEnabled: boolean
+  AssistantRegistrationDailySuspendCap: number
+  AssistantL1AutoReviewEnabled: boolean
+  AssistantL1AutoReviewGroup: string
+  AssistantL1AutoReviewModel: string
+  AssistantL1AutoReviewPrompt: string
+  AssistantL1AutoReviewMinConfidence: number
+  AssistantL1AutoApprovalUserIDs: string
   AssistantReviewEnabled: boolean
   AssistantReviewWindowDays: number
   AssistantReviewIntervalHours: number
@@ -364,12 +326,7 @@ export type ModelSettings = {
   'claude.thinking_adapter_budget_tokens_percentage': number
   'grok.violation_deduction_enabled': boolean
   'grok.violation_deduction_amount': number
-  'dynamic_pricing_setting.enabled': boolean
-  'dynamic_pricing_setting.min_factor': number
-  'dynamic_pricing_setting.base_price_usd_per_million': number
-  'dynamic_pricing_setting.cost_floor_factor': number
-  'dynamic_pricing_setting.max_factor': number
-  'dynamic_pricing_setting.channel_costs': string
+  ModelPriceLock?: string
   ModelPrice: string
   ModelRatio: string
   CacheRatio: string
@@ -412,6 +369,11 @@ export type ModelSettings = {
 }
 
 export type BillingSettings = {
+  ReferralMinTopUpQuota: number
+  ReferralMaxRewardQuota: number
+  ReferralPenaltyPercent: number
+  ReferralMaxPenaltyQuota: number
+
   QuotaForNewUser: number
   PreConsumedQuota: number
   QuotaForInviter: number
@@ -422,8 +384,10 @@ export type BillingSettings = {
   'quota_setting.enable_free_model_pre_consume': boolean
   QuotaPerUnit: number
   USDExchangeRate: number
+  TopUpPlatformUnitsPerCNY: number
   'general_setting.quota_display_type': string
   'general_setting.custom_currency_symbol': string
+  'general_setting.custom_currency_code': string
   'general_setting.custom_currency_exchange_rate': number
   DisplayInCurrencyEnabled: boolean
   DisplayTokenStatEnabled: boolean

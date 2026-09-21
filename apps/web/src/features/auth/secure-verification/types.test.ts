@@ -27,6 +27,7 @@ describe('preferred secure verification methods', () => {
       has2FA: true,
       hasPasskey: true,
       passkeySupported: true,
+      availability: 'complete',
     })
 
     assert.deepEqual(result, {
@@ -35,6 +36,7 @@ describe('preferred secure verification methods', () => {
       has2FA: false,
       hasPasskey: false,
       passkeySupported: true,
+      availability: 'complete',
     })
   })
 
@@ -44,6 +46,7 @@ describe('preferred secure verification methods', () => {
       has2FA: true,
       hasPasskey: true,
       passkeySupported: true,
+      availability: 'complete',
     })
 
     assert.equal(result.hasEmail, false)
@@ -57,6 +60,7 @@ describe('preferred secure verification methods', () => {
       has2FA: false,
       hasPasskey: true,
       passkeySupported: true,
+      availability: 'complete',
     })
 
     assert.equal(result.hasEmail, false)
@@ -70,6 +74,7 @@ describe('preferred secure verification methods', () => {
       has2FA: false,
       hasPasskey: true,
       passkeySupported: false,
+      availability: 'complete',
     })
 
     assert.equal(result.hasEmail, false)

@@ -16,26 +16,49 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
+import { ApiBaseUrl } from './components/api-base-url'
 import { ApiKeysDialogs } from './components/api-keys-dialogs'
 import { ApiKeysPrimaryButtons } from './components/api-keys-primary-buttons'
 import { ApiKeysProvider } from './components/api-keys-provider'
 import { ApiKeysTable } from './components/api-keys-table'
+import { AutomaticApiKeyActions } from './components/automatic-api-key-actions'
+import type { ApiKeyCreationMode } from './types'
 
 export function ApiKeys() {
   const { t } = useTranslation()
+  const [creationMode, setCreationMode] = useState<ApiKeyCreationMode>('manual')
   return (
     <ApiKeysProvider>
       <SectionPageLayout fixedContent>
         <SectionPageLayout.Title>{t('API Keys')}</SectionPageLayout.Title>
         <SectionPageLayout.Actions>
-          <ApiKeysPrimaryButtons />
+          {creationMode === 'manual' ? <ApiKeysPrimaryButtons /> : null}
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
-          <ApiKeysTable />
+          <ApiBaseUrl />
+          <Tabs
+            value={creationMode}
+            onValueChange={(value) =>
+              setCreationMode(value as ApiKeyCreationMode)
+            }
+          >
+            <TabsList aria-label={t('API key creation mode')}>
+              <TabsTrigger value='manual'>{t('Manual creation')}</TabsTrigger>
+              <TabsTrigger value='automatic'>
+                {t('Automatic creation')}
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value={creationMode} className='pt-3'>
+              {creationMode === 'automatic' ? <AutomaticApiKeyActions /> : null}
+              <ApiKeysTable creationMode={creationMode} />
+            </TabsContent>
+          </Tabs>
         </SectionPageLayout.Content>
       </SectionPageLayout>
 

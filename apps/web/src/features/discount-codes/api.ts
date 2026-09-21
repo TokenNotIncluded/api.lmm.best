@@ -37,13 +37,6 @@ export async function listDiscountCodes(params: {
   return response.data
 }
 
-export async function createDiscountCode(
-  input: DiscountCodeInput
-): Promise<DiscountCodeResponse<DiscountCode>> {
-  const response = await api.post('/api/discount-code/', input)
-  return response.data
-}
-
 export async function createDiscountCodes(
   input: DiscountCodeBatchInput
 ): Promise<DiscountCodeResponse<DiscountCode[]>> {

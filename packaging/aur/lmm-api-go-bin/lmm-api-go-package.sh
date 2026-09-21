@@ -1,0 +1,1 @@
+../../common/lmm-api/lmm-api-go-package.sh

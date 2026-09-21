@@ -1,7 +1,7 @@
 package model
 
 import (
-	"crypto/rand"
+	cryptorand "crypto/rand"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -105,7 +105,7 @@ func CreateAuthFlow(input AuthFlowCreate) (string, *AuthFlow, error) {
 		return "", nil, ErrAuthFlowInvalid
 	}
 	random := make([]byte, AuthFlowTokenBytes)
-	if _, err := rand.Read(random); err != nil {
+	if _, err := cryptorand.Read(random); err != nil {
 		return "", nil, fmt.Errorf("generate auth flow token: %w", err)
 	}
 	token := base64.RawURLEncoding.EncodeToString(random)

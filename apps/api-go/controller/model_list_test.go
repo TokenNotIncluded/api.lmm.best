@@ -159,20 +159,20 @@ func withTieredBillingConfig(t *testing.T, modes map[string]string, exprs map[st
 func withSelfUseModeDisabled(t *testing.T) {
 	t.Helper()
 
-	original := operation_setting.SelfUseModeEnabled
-	operation_setting.SelfUseModeEnabled = false
+	original := operation_setting.SelfUseModeEnabled.Load()
+	operation_setting.SelfUseModeEnabled.Store(false)
 	t.Cleanup(func() {
-		operation_setting.SelfUseModeEnabled = original
+		operation_setting.SelfUseModeEnabled.Store(original)
 	})
 }
 
 func withSelfUseModeEnabled(t *testing.T) {
 	t.Helper()
 
-	original := operation_setting.SelfUseModeEnabled
-	operation_setting.SelfUseModeEnabled = true
+	original := operation_setting.SelfUseModeEnabled.Load()
+	operation_setting.SelfUseModeEnabled.Store(true)
 	t.Cleanup(func() {
-		operation_setting.SelfUseModeEnabled = original
+		operation_setting.SelfUseModeEnabled.Store(original)
 	})
 }
 

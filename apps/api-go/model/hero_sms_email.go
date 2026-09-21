@@ -876,7 +876,10 @@ func reserveHeroSMSEmailQuota(order *HeroSMSEmailOrder, activations []HeroSMSEma
 				return newHeroSMSError(http.StatusPaymentRequired, "INSUFFICIENT_BALANCE", "insufficient quota balance")
 			}
 			// pi-lens-ignore: ast-grep:gorm-n-plus-one
-			update := tx.Model(&User{}).Where("id = ? AND quota >= ?", order.UserID, order.ChargeQuota).UpdateColumn("quota", gorm.Expr("quota - ?", order.ChargeQuota))
+			update := UpdateWalletQuotaByDelta(
+				tx.Model(&User{}).Where("id = ? AND quota >= ?", order.UserID, order.ChargeQuota),
+				-order.ChargeQuota,
+			)
 			if update.Error != nil {
 				return update.Error
 			}
@@ -1239,7 +1242,7 @@ func heroSMSRefundOrderTx(tx *gorm.DB, order *HeroSMSEmailOrder, quota int, refu
 	if orderUpdate.RowsAffected != 1 {
 		return errors.New("HeroSMS refund exceeds reserved quota")
 	}
-	return tx.Model(&User{}).Where("id = ?", order.UserID).UpdateColumn("quota", gorm.Expr("quota + ?", quota)).Error
+	return ApplyWalletQuotaDelta(tx, order.UserID, quota)
 }
 
 func heroSMSRefundActivationTx(tx *gorm.DB, order *HeroSMSEmailOrder, activation *HeroSMSEmailActivation, quota int, refundKey string) error {
@@ -1266,7 +1269,7 @@ func heroSMSRefundActivationTx(tx *gorm.DB, order *HeroSMSEmailOrder, activation
 	if orderUpdate.RowsAffected != 1 {
 		return errors.New("HeroSMS refund exceeds reserved quota")
 	}
-	return tx.Model(&User{}).Where("id = ?", order.UserID).UpdateColumn("quota", gorm.Expr("quota + ?", quota)).Error
+	return ApplyWalletQuotaDelta(tx, order.UserID, quota)
 }
 
 func markHeroSMSEmailOrderStatus(orderID string, status string, errorCode string, errorMessage string, activationStatus string) error {
@@ -1901,7 +1904,14 @@ func hasPendingHeroSMSWork() (bool, error) {
 
 func HasPendingHeroSMSSMSReconciliationWork() (bool, error) {
 	var count int64
-	err := DB.Model(&HeroSMSSMSOrder{}).Where("status = ?", HeroSMSSMSOrderStatusPurchaseUnknown).Count(&count).Error
+	err := DB.Model(&HeroSMSSMSOrder{}).
+		Where(
+			"status IN ? OR (status = ? AND complaint_status IN ?)",
+			[]string{HeroSMSSMSOrderStatusPurchaseUnknown, HeroSMSSMSOrderStatusCancelPending},
+			HeroSMSSMSOrderStatusActive,
+			[]string{HeroSMSSMSComplaintStatusSubmitting, HeroSMSSMSComplaintStatusSubmitted, HeroSMSSMSComplaintStatusSubmitUnknown},
+		).
+		Count(&count).Error
 	return count > 0, err
 }
 
@@ -2193,7 +2203,8 @@ func mapHeroSMSProviderError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if heroErr, ok := err.(*HeroSMSError); ok {
+	var heroErr *HeroSMSError
+	if errors.As(err, &heroErr) && heroErr != nil {
 		return heroErr
 	}
 	switch {
@@ -2204,7 +2215,7 @@ func mapHeroSMSProviderError(err error) error {
 	case errors.Is(err, herosms.ErrNoSMSNumbersAvailable):
 		return newHeroSMSError(http.StatusConflict, "PRICE_CHANGED", "HeroSMS has no matching phone numbers")
 	case errors.Is(err, herosms.ErrProviderBalanceInsufficient):
-		return newHeroSMSError(http.StatusServiceUnavailable, "UPSTREAM_BUSY", "HeroSMS provider balance is insufficient")
+		return newHeroSMSError(http.StatusServiceUnavailable, "PROVIDER_BALANCE_INSUFFICIENT", "HeroSMS provider balance is insufficient")
 	case errors.Is(err, herosms.ErrInvalidRequest):
 		return newHeroSMSError(http.StatusBadRequest, "INVALID_REQUEST", "HeroSMS request was rejected")
 	case errors.Is(err, herosms.ErrRateLimited):

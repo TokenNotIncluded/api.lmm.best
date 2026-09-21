@@ -155,6 +155,25 @@ afterEach(() => {
 after(() => domWindow.close())
 
 describe('ModelDetails group pricing', () => {
+  test('does not invent availability when no status observations exist', async () => {
+    const rendered = await renderModelDetails()
+    const status = rendered.container.querySelector(
+      '[aria-label="Model availability"]'
+    )
+    assert.ok(status)
+    for (
+      let attempt = 0;
+      attempt < 30 && status.textContent?.includes('Loading status');
+      attempt++
+    ) {
+      await act(flushEffects)
+    }
+    assert.match(status.textContent ?? '', /No recent model status/)
+    assert.match(status.textContent ?? '', /Sign in to check model access/)
+    assert.doesNotMatch(status.textContent ?? '', /Recent calls succeeded/)
+    await unmount(rendered)
+  })
+
   test('offers a direct add-funds path from the mobile-friendly detail header', async () => {
     const rendered = await renderModelDetails()
 
@@ -180,6 +199,35 @@ describe('ModelDetails group pricing', () => {
       /free-model[\s\S]*1x/i
     )
 
+    await unmount(rendered)
+  })
+
+  test('shows an accessible request estimate with editable token defaults', async () => {
+    const rendered = await renderModelDetails()
+    const title = [...rendered.container.querySelectorAll('h3')].find(
+      (element) => element.textContent === 'Request cost estimate'
+    )
+    assert.ok(title)
+    const section = title.closest('section')
+    assert.ok(section)
+    assert.equal(section.getAttribute('aria-labelledby'), title.id)
+    const inputs = [...section.querySelectorAll('input')]
+    assert.deepEqual(
+      inputs.map((input) => input.value),
+      ['10000', '2000', '0']
+    )
+    for (const input of inputs) {
+      assert.ok(
+        [...section.querySelectorAll('label')].some(
+          (label) => label.htmlFor === input.id
+        )
+      )
+    }
+    assert.equal(section.querySelector('select')?.value, 'free')
+    assert.doesNotMatch(
+      section.querySelector('[aria-live]')?.textContent ?? '',
+      /unavailable/
+    )
     await unmount(rendered)
   })
 

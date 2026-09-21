@@ -53,18 +53,18 @@ func runBuildDeploy(args []string, stdout, stderr io.Writer) int {
 		return ExitOK
 	}
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy build: %v\n", ProgramName, err)
+		_, _ = fmt.Fprintf(stderr, "%s build: %v\n", DeployProgramName, err)
 		return ExitUsage
 	}
 	runtime := &buildDeployRuntime{runner: osProductionCommandRunner{}, now: time.Now}
 	result, err := runtime.build(context.Background(), options)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy build: %v\n", ProgramName, err)
+		_, _ = fmt.Fprintf(stderr, "%s build: %v\n", DeployProgramName, err)
 		return ExitError
 	}
 	encoded, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy build: encode result: %v\n", ProgramName, err)
+		_, _ = fmt.Fprintf(stderr, "%s build: encode result: %v\n", DeployProgramName, err)
 		return ExitError
 	}
 	_, _ = stdout.Write(append(encoded, '\n'))
@@ -154,7 +154,7 @@ func (buildRuntime *buildDeployRuntime) build(ctx context.Context, options build
 		return buildDeployResult{}, fmt.Errorf("hash built frontend index: %w", err)
 	}
 
-	binary := filepath.Join(outputDir, ProgramName+"-"+version)
+	binary := filepath.Join(outputDir, backendGoName+"-"+version)
 	if _, err := os.Lstat(binary); !errors.Is(err, os.ErrNotExist) {
 		return buildDeployResult{}, errors.New("versioned Go binary output already exists")
 	}
@@ -225,11 +225,11 @@ func validateBuildRepository(repo string) error {
 		"packaging/common/lmm-api/lmm-api-operator.sudoers",
 		"packaging/common/lmm-api/geoip2-country-update.service",
 		"packaging/common/lmm-api/geoip2-country-update.timer",
-		"deploy/nginx/http-map.conf",
-		"deploy/nginx/lmm-api-locations.conf",
-		"deploy/nginx/mime.types",
-		"deploy/nginx/new-api.conf",
-		"deploy/nginx/lmm-api-region-policy.conf",
+		"packaging/common/lmm-api/edge-policy/nginx/http-map.conf",
+		"packaging/common/lmm-api/edge-policy/nginx/lmm-api-locations.conf",
+		"packaging/common/lmm-api/edge-policy/nginx/mime.types",
+		"packaging/common/lmm-api/edge-policy/nginx/new-api.conf",
+		"packaging/common/lmm-api/edge-policy/nginx/lmm-api-region-policy.conf",
 	} {
 		path := filepath.Join(repo, filepath.FromSlash(relative))
 		info, err := os.Lstat(path)
@@ -415,7 +415,7 @@ func (buildRuntime *buildDeployRuntime) buildPackage(
 		mode        fs.FileMode
 	}{
 		{filepath.Join(options.Repo, "packaging/local/lmm-api-go/PKGBUILD"), filepath.Join(buildDir, "PKGBUILD"), 0o644},
-		{binary, filepath.Join(buildDir, ProgramName), 0o755},
+		{binary, filepath.Join(buildDir, backendGoName), 0o755},
 		{filepath.Join(options.Repo, "packaging/common/lmm-api/lmm-api.service"), filepath.Join(buildDir, "lmm-api.service"), 0o644},
 		{filepath.Join(options.Repo, "packaging/common/lmm-api/lmm-api-go.env"), filepath.Join(buildDir, "lmm-api-go.env"), 0o600},
 		{filepath.Join(options.Repo, "packaging/common/lmm-api/lmm-api-operator.sysusers"), filepath.Join(buildDir, "lmm-api-operator.sysusers"), 0o644},
@@ -424,11 +424,11 @@ func (buildRuntime *buildDeployRuntime) buildPackage(
 		{filepath.Join(options.Repo, "LICENSE"), filepath.Join(buildDir, "LICENSE"), 0o644},
 		{filepath.Join(options.Repo, "NOTICE"), filepath.Join(buildDir, "NOTICE"), 0o644},
 		{filepath.Join(options.Repo, "THIRD-PARTY-LICENSES.md"), filepath.Join(buildDir, "THIRD-PARTY-LICENSES.md"), 0o644},
-		{filepath.Join(options.Repo, "deploy/nginx/http-map.conf"), filepath.Join(buildDir, "nginx-http-map.conf"), 0o644},
-		{filepath.Join(options.Repo, "deploy/nginx/lmm-api-locations.conf"), filepath.Join(buildDir, "nginx-locations.conf"), 0o644},
-		{filepath.Join(options.Repo, "deploy/nginx/mime.types"), filepath.Join(buildDir, "nginx-mime.types"), 0o644},
-		{filepath.Join(options.Repo, "deploy/nginx/new-api.conf"), filepath.Join(buildDir, "nginx-new-api.conf"), 0o644},
-		{filepath.Join(options.Repo, "deploy/nginx/lmm-api-region-policy.conf"), filepath.Join(buildDir, "nginx-region-policy.conf"), 0o644},
+		{filepath.Join(options.Repo, "packaging/common/lmm-api/edge-policy/nginx/http-map.conf"), filepath.Join(buildDir, "nginx-http-map.conf"), 0o644},
+		{filepath.Join(options.Repo, "packaging/common/lmm-api/edge-policy/nginx/lmm-api-locations.conf"), filepath.Join(buildDir, "nginx-locations.conf"), 0o644},
+		{filepath.Join(options.Repo, "packaging/common/lmm-api/edge-policy/nginx/mime.types"), filepath.Join(buildDir, "nginx-mime.types"), 0o644},
+		{filepath.Join(options.Repo, "packaging/common/lmm-api/edge-policy/nginx/new-api.conf"), filepath.Join(buildDir, "nginx-new-api.conf"), 0o644},
+		{filepath.Join(options.Repo, "packaging/common/lmm-api/edge-policy/nginx/lmm-api-region-policy.conf"), filepath.Join(buildDir, "nginx-region-policy.conf"), 0o644},
 		{filepath.Join(options.Repo, "packaging/common/lmm-api/geoip2-country-update.service"), filepath.Join(buildDir, "geoip2-country-update.service"), 0o644},
 		{filepath.Join(options.Repo, "packaging/common/lmm-api/geoip2-country-update.timer"), filepath.Join(buildDir, "geoip2-country-update.timer"), 0o644},
 	}

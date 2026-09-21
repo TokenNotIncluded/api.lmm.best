@@ -16,6 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckSquare, RefreshCcw } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -27,7 +30,7 @@ import { Button } from '@/components/ui/button'
 import {
   fetchUpstreamRatios,
   getUpstreamChannels,
-  updateSystemOption,
+  updateSystemOptions,
 } from '../api'
 import type {
   DifferencesMap,
@@ -35,6 +38,7 @@ import type {
   UpstreamChannel,
   UpstreamConfig,
 } from '../types'
+import { showOptionUpdateToast } from '../utils/option-update-toast'
 import { ChannelSelectorDialog } from './channel-selector-dialog'
 import {
   ConflictConfirmDialog,
@@ -193,26 +197,31 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
   })
 
   const { mutate: syncMutate, isPending: isSyncPending } = useMutation({
-    mutationFn: async (updates: Array<{ key: string; value: string }>) => {
-      for (const update of updates) {
-        await updateSystemOption(update)
+    mutationFn: async (updates: Record<string, string>) => {
+      const response = await updateSystemOptions(updates)
+      if (!response.success) {
+        throw new Error(response.message || t('Failed to sync prices'))
       }
+      return response
     },
-    onSuccess: () => {
-      toast.success(t('Prices synced successfully'))
-      queryClient.invalidateQueries({ queryKey: ['system-options'] })
+    onSuccess: async (response) => {
+      await queryClient.invalidateQueries({ queryKey: ['system-options'] })
+      showOptionUpdateToast(response, t('Prices synced successfully'))
+      const lockedModels = new Set(response.locked_models)
 
       setDifferences((prevDiffs) => {
         const newDiffs = { ...prevDiffs }
         Object.entries(resolutions).forEach(([model, ratios]) => {
+          if (lockedModels.has(model) || !newDiffs[model]) return
+          const remaining = { ...newDiffs[model] }
           Object.keys(ratios).forEach((ratioType) => {
-            if (newDiffs[model]?.[ratioType as RatioType]) {
-              delete newDiffs[model][ratioType as RatioType]
-              if (Object.keys(newDiffs[model]).length === 0) {
-                delete newDiffs[model]
-              }
-            }
+            delete remaining[ratioType as RatioType]
           })
+          if (Object.keys(remaining).length === 0) {
+            delete newDiffs[model]
+          } else {
+            newDiffs[model] = remaining
+          }
         })
         return newDiffs
       })
@@ -378,10 +387,12 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
         })
       })
 
-      const updates = Object.entries(finalRatios).map(([key, value]) => ({
-        key,
-        value: JSON.stringify(value, null, 2),
-      }))
+      const updates = Object.fromEntries(
+        Object.entries(finalRatios).map(([key, value]) => [
+          key,
+          JSON.stringify(value, null, 2),
+        ])
+      )
 
       return new Promise<boolean>((resolve) => {
         syncMutate(updates, {

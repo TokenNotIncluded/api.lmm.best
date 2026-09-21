@@ -298,8 +298,9 @@ const (
 	MsgOAuthConnectFailed             = "oauth.connect_failed"
 	MsgOAuthTokenFailed               = "oauth.token_failed"
 	MsgOAuthUserInfoEmpty             = "oauth.user_info_empty"
-	MsgOAuthTrustLevelLow             = "oauth.trust_level_low"
-	MsgOAuthEmailVerificationRequired = "oauth.email_verification_required"
+	MsgOAuthTrustLevelLow                  = "oauth.trust_level_low"
+	MsgOAuthTrustLevelLowRequireAssistant  = "oauth.trust_level_low_require_assistant"
+	MsgOAuthEmailVerificationRequired      = "oauth.email_verification_required"
 )
 
 // Model layer error messages (for translation in controller)

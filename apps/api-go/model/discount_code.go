@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
 
@@ -158,8 +159,9 @@ func GetDiscountCodeByValue(value string) (*DiscountCode, error) {
 	return &row, nil
 }
 
-// ValidateDiscountCode checks only the current purchase eligibility.  It does
-// not reserve usage; usage is counted atomically when the payment settles.
+// ValidateDiscountCode checks current purchase eligibility. Order insertion
+// performs the authoritative atomic reservation; this read is only an early UI
+// rejection and must not be treated as the concurrency boundary.
 // pi-lens-ignore: go-bare-error
 func ValidateDiscountCode(value string, amount int64, now int64) (*DiscountCode, error) {
 	return ValidateDiscountCodeForUser(value, amount, now, 0)
@@ -170,6 +172,11 @@ func ValidateDiscountCode(value string, amount int64, now int64) (*DiscountCode,
 // owner. userID=0 is reserved for administrator/public validation and cannot
 // use a private code.
 func ValidateDiscountCodeForUser(value string, amount int64, now int64, userID int) (*DiscountCode, error) {
+	return ValidateDiscountCodeForUserDecimal(value, decimal.NewFromInt(amount), now, userID)
+}
+
+// ValidateDiscountCodeForUserDecimal preserves fractional platform amounts when enforcing coupon minimums.
+func ValidateDiscountCodeForUserDecimal(value string, amount decimal.Decimal, now int64, userID int) (*DiscountCode, error) {
 	row, err := GetDiscountCodeByValue(value)
 	if err != nil {
 		return nil, err
@@ -183,14 +190,22 @@ func ValidateDiscountCodeForUser(value string, amount int64, now int64, userID i
 	if row.ExpiredTime > 0 && row.ExpiredTime < now {
 		return nil, ErrDiscountCodeExpired
 	}
-	if amount < row.MinAmount {
+	if amount.LessThan(decimal.NewFromInt(row.MinAmount)) {
 		return nil, ErrDiscountCodeMinimum
 	}
 	if row.OwnerUserID != 0 && row.OwnerUserID != userID {
 		return nil, ErrDiscountCodeNotFound
 	}
-	if row.MaxUses > 0 && row.UsedCount >= row.MaxUses {
-		return nil, ErrDiscountCodeExhausted
+	if row.MaxUses > 0 {
+		var activeReservations int64
+		if err := DB.Model(&DiscountCodeReservation{}).
+			Where("discount_code_id = ? AND status = ? AND expires_time > ?", row.Id, DiscountCodeReservationStatusReserved, now).
+			Count(&activeReservations).Error; err != nil {
+			return nil, err
+		}
+		if row.UsedCount+activeReservations >= row.MaxUses {
+			return nil, ErrDiscountCodeExhausted
+		}
 	}
 	return row, nil
 }

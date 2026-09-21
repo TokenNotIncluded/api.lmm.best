@@ -1,0 +1,101 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+.root {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 3.25rem;
+  width: 3.25rem;
+  height: 1.25rem;
+  overflow: hidden;
+  border: 1px solid color-mix(in oklch, var(--forge-ink) 16%, transparent);
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--forge-paper) 88%, transparent);
+  contain: layout paint style;
+  isolation: isolate;
+  pointer-events: none;
+  user-select: none;
+}
+
+.root :global(*) {
+  pointer-events: none !important;
+}
+
+.fallback {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+}
+
+.dot {
+  display: block;
+  width: 0.4375rem;
+  height: 0.4375rem;
+  flex: 0 0 0.4375rem;
+  border: 1px solid color-mix(in oklch, var(--forge-ink) 13%, transparent);
+  border-radius: 50%;
+}
+
+.dotClose {
+  background: var(--forge-clay);
+}
+
+.dotMinimize {
+  background: color-mix(in oklch, var(--forge-clay) 36%, var(--forge-oat));
+}
+
+.dotExpand {
+  background: var(--forge-cactus);
+}
+
+.metal {
+  position: absolute !important;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: transparent !important;
+  color: transparent !important;
+  pointer-events: none !important;
+}
+
+.metalTarget {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: transparent;
+  pointer-events: none !important;
+}
+
+@media (forced-colors: active) {
+  .root {
+    border-color: CanvasText;
+    background: Canvas;
+  }
+
+  .dot {
+    border-color: CanvasText;
+    background: CanvasText;
+  }
+}

@@ -12,6 +12,17 @@ import (
 )
 
 func GetUserUsableGroups(userGroup string) map[string]string {
+	groupsCopy := getExplicitUserUsableGroups(userGroup)
+	if userGroup != "" {
+		// Ordinary API group resolution intentionally inherits the account group.
+		if _, ok := groupsCopy[userGroup]; !ok {
+			groupsCopy[userGroup] = "用户分组"
+		}
+	}
+	return groupsCopy
+}
+
+func getExplicitUserUsableGroups(userGroup string) map[string]string {
 	groupsCopy := setting.GetUserUsableGroupsCopy()
 	if userGroup != "" {
 		specialSettings, b := ratio_setting.GetGroupRatioSetting().GroupSpecialUsableGroup.Get(userGroup)
@@ -32,12 +43,16 @@ func GetUserUsableGroups(userGroup string) map[string]string {
 				}
 			}
 		}
-		// 如果userGroup不在UserUsableGroups中，返回UserUsableGroups + userGroup
-		if _, ok := groupsCopy[userGroup]; !ok {
-			groupsCopy[userGroup] = "用户分组"
-		}
 	}
 	return groupsCopy
+}
+
+func IsOAuthSelectableGroup(userGroup, groupName string) bool {
+	if groupName == "" || groupName == "auto" {
+		return false
+	}
+	_, explicitlyUsable := getExplicitUserUsableGroups(userGroup)[groupName]
+	return explicitlyUsable && ratio_setting.ContainsGroupRatio(groupName)
 }
 
 func GroupInUserUsableGroups(userGroup, groupName string) bool {

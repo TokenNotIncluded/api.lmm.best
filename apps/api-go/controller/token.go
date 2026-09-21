@@ -2,6 +2,7 @@ package controller
 
 import (
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 )
 
 type tokenAutoGroupsInput struct {
@@ -40,7 +42,8 @@ type tokenRequest struct {
 
 type tokenResponse struct {
 	*model.Token
-	AutoGroups []string `json:"auto_groups"`
+	AutoGroups         []string `json:"auto_groups"`
+	AccountBalanceRead bool     `json:"account_balance_read"`
 }
 
 func buildMaskedTokenResponse(token *model.Token) *tokenResponse {
@@ -57,7 +60,7 @@ func buildMaskedTokenResponse(token *model.Token) *tokenResponse {
 	if len(autoGroups) == 0 {
 		autoGroups = nil
 	}
-	return &tokenResponse{Token: &maskedToken, AutoGroups: autoGroups}
+	return &tokenResponse{Token: &maskedToken, AutoGroups: autoGroups, AccountBalanceRead: token.AccountBalanceRead}
 }
 
 func buildMaskedTokenResponses(tokens []*model.Token) []*tokenResponse {
@@ -120,13 +123,18 @@ func setTokenAutoGroups(c *gin.Context, token *model.Token, groups []string) boo
 
 func GetAllTokens(c *gin.Context) {
 	userId := c.GetInt("id")
+	creationMode := c.Query("creation_mode")
 	pageInfo := common.GetPageQuery(c)
-	tokens, err := model.GetAllUserTokens(userId, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	tokens, err := model.GetUserTokensByCreationMode(userId, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), creationMode)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	total, _ := model.CountUserTokens(userId)
+	total, err := model.CountUserTokensByCreationMode(userId, creationMode)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(buildMaskedTokenResponses(tokens))
 	common.ApiSuccess(c, pageInfo)
@@ -136,10 +144,11 @@ func SearchTokens(c *gin.Context) {
 	userId := c.GetInt("id")
 	keyword := c.Query("keyword")
 	token := c.Query("token")
+	creationMode := c.Query("creation_mode")
 
 	pageInfo := common.GetPageQuery(c)
 
-	tokens, total, err := model.SearchUserTokens(userId, keyword, token, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	tokens, total, err := model.SearchUserTokensByCreationMode(userId, keyword, token, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), creationMode)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -205,6 +214,10 @@ func GetTokenKey(c *gin.Context) {
 	token, err := model.GetTokenByIds(id, userId)
 	if err != nil {
 		common.ApiError(c, err)
+		return
+	}
+	if token.OneTimeReveal {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "code": "TOKEN_KEY_SHOWN_ONCE", "message": "This key was shown only at creation. Use your saved copy or revoke it and create a replacement."})
 		return
 	}
 	common.ApiSuccess(c, gin.H{
@@ -282,6 +295,19 @@ func GetTokenUsage(c *gin.Context) {
 	})
 }
 
+func maxLimitedTokenQuota() int {
+	if common.QuotaPerUnit <= 0 || math.IsNaN(common.QuotaPerUnit) || math.IsInf(common.QuotaPerUnit, 0) {
+		return 0
+	}
+	quota, err := common.WalletQuotaFromDecimalStrict(
+		decimal.NewFromInt(1_000_000_000).Mul(decimal.NewFromFloat(common.QuotaPerUnit)),
+	)
+	if err != nil {
+		return common.MaxWalletQuota
+	}
+	return quota
+}
+
 func AddToken(c *gin.Context) {
 	request := tokenRequest{}
 	err := c.ShouldBindJSON(&request)
@@ -300,8 +326,8 @@ func AddToken(c *gin.Context) {
 			common.ApiErrorI18n(c, i18n.MsgTokenQuotaNegative)
 			return
 		}
-		maxQuotaValue := common.QuotaFromFloat(1000000000 * common.QuotaPerUnit)
-		if token.RemainQuota > maxQuotaValue {
+		maxQuotaValue := maxLimitedTokenQuota()
+		if common.ValidateWalletQuota(token.RemainQuota) != nil || token.RemainQuota > maxQuotaValue {
 			common.ApiErrorI18n(c, i18n.MsgTokenQuotaExceedMax, map[string]any{"Max": maxQuotaValue})
 			return
 		}
@@ -324,10 +350,24 @@ func AddToken(c *gin.Context) {
 		if !setTokenAutoGroups(c, &token, request.AutoGroups.Groups) {
 			return
 		}
-	} else {
+	} else if strings.TrimSpace(token.Group) != "" {
+		userGroup, groupErr := getTokenRequestUserGroup(c)
+		if groupErr != nil {
+			common.ApiError(c, groupErr)
+			return
+		}
+		if !service.IsUserSelectableGroup(userGroup, token.Group) {
+			common.ApiError(c, fmt.Errorf("the selected group is not available to this account"))
+			return
+		}
 		if !requireGroupWarningConfirmation(c, token.Group, request.GroupWarningConfirmations) {
 			return
 		}
+		token.CrossGroupRetry = false
+		_ = token.SetAutoGroups(nil)
+	} else {
+		// An empty group keeps the existing API-key behavior: inherit the
+		// account's group at request time. It is not an explicit group choice.
 		token.CrossGroupRetry = false
 		_ = token.SetAutoGroups(nil)
 	}
@@ -338,6 +378,7 @@ func AddToken(c *gin.Context) {
 		return
 	}
 	cleanToken := model.Token{
+		OneTimeReveal:      token.OneTimeReveal,
 		UserId:             c.GetInt("id"),
 		Name:               token.Name,
 		Key:                key,
@@ -352,16 +393,20 @@ func AddToken(c *gin.Context) {
 		Group:              token.Group,
 		CrossGroupRetry:    token.CrossGroupRetry,
 		AutoGroups:         token.AutoGroups,
+		CreationSource:     model.TokenCreationSourceManual,
 	}
 	err = model.InsertTokenAndActivateConsole(&cleanToken)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-	})
+	data := gin.H{"id": cleanToken.Id, "name": cleanToken.Name, "group": cleanToken.Group, "one_time_reveal": cleanToken.OneTimeReveal}
+	if cleanToken.OneTimeReveal {
+		// Only the creating response can carry this secret. Never use reveal helpers.
+		c.Header("Cache-Control", "no-store")
+		data["key"] = key
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": data})
 }
 
 func DeleteToken(c *gin.Context) {
@@ -401,8 +446,8 @@ func UpdateToken(c *gin.Context) {
 			common.ApiErrorI18n(c, i18n.MsgTokenQuotaNegative)
 			return
 		}
-		maxQuotaValue := common.QuotaFromFloat(1000000000 * common.QuotaPerUnit)
-		if token.RemainQuota > maxQuotaValue {
+		maxQuotaValue := maxLimitedTokenQuota()
+		if common.ValidateWalletQuota(token.RemainQuota) != nil || token.RemainQuota > maxQuotaValue {
 			common.ApiErrorI18n(c, i18n.MsgTokenQuotaExceedMax, map[string]any{"Max": maxQuotaValue})
 			return
 		}

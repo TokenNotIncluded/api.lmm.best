@@ -17,67 +17,22 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 /**
- * ============================================================================
- * Currency Formatting Library
- * ============================================================================
+ * Currency terminology contract:
  *
- * This module provides currency formatting utilities that handle the conversion
- * between system USD amounts, local currency, and token displays based on
- * admin-configured settings.
+ * - Platform amounts are virtual credits. Format them with
+ *   `formatPlatformAmount()` as `$… (Platform)`; never label them USD.
+ * - Fiat amounts are real settlement money. Format them with
+ *   `formatFiatCurrencyAmount()` and an ISO code such as `1 USD` or `6.8 CNY`.
+ * - Raw quota becomes a platform amount through `formatQuotaWithCurrency()`.
+ * - Conversion is not formatting. Checkout converts with
+ *   `platform / platformUnitsPerUsd * settlementUnitsPerUsd` before calling a
+ *   formatter.
  *
- * ## Key Concepts
- *
- * 1. **System USD**: Internal currency unit used throughout the system (e.g., 10 USD)
- * 2. **Local Currency**: Admin-configured display currency (e.g., CNY, custom currency)
- * 3. **Exchange Rate (usdExchangeRate)**: Conversion rate from USD to local currency
- *    - Example: usdExchangeRate = 7 means 1 USD = 7 CNY
- * 4. **Recharge Price (priceRatio)**: Cost in local currency to purchase 1 system USD
- *    - Example: priceRatio = 5 means user pays 5 CNY to get 1 USD credit
- * 5. **Tokens**: Alternative display unit (e.g., 500,000 tokens = 1 USD)
- *
- * ## When to Use Each Function
- *
- * - `formatCurrencyFromUSD()`: Use for quota/balance display (stored as USD, converted for display)
- * - `formatBillingCurrencyFromUSD()`: Use for billing/pricing displays (never shows tokens)
- * - `formatLocalCurrencyAmount()`: Use for payment amounts already in local currency
- * - `formatQuotaWithCurrency()`: Use for raw quota values (converts to USD first)
- *
- * ## Example Scenario
- *
- * Admin Configuration:
- * - quotaDisplayType: 'CNY'
- * - usdExchangeRate: 7 (1 USD = 7 CNY)
- * - priceRatio: 5 (5 CNY per 1 USD credit)
- * - quotaPerUnit: 500000 (tokens per USD)
- *
- * User Flow:
- * 1. Recharge option: 10 USD
- *    - Display: formatCurrencyFromUSD(10) → "¥70"
- * 2. Payment amount: 10 × 5 = 50 (already in CNY)
- *    - Display: formatLocalCurrencyAmount(50) → "¥50"
- * 3. User receives: 10 USD credit
- *    - Balance display: formatCurrencyFromUSD(10) → "¥70"
- *
- * ## Quick Reference Guide
- *
- * | Scenario | Input Type | Function to Use | Why |
- * |----------|-----------|-----------------|-----|
- * | User balance display | USD (from DB) | `formatCurrencyFromUSD()` | Needs conversion to display currency |
- * | Recharge option button | USD | `formatCurrencyFromUSD()` | Needs conversion to local currency |
- * | Payment confirmation | Already local currency | `formatLocalCurrencyAmount()` | Already converted via priceRatio |
- * | Billing history Amount | USD (from DB) | `formatCurrencyFromUSD()` | Historical USD needs conversion |
- * | Billing history Payment | Local currency | `formatNumber()` | Just show number, no symbol |
- * | Model pricing | USD | `formatBillingCurrencyFromUSD()` | Never show as tokens |
- * | Raw quota from API | Tokens | `formatQuotaWithCurrency()` | Convert tokens → USD → display |
- *
- * ## Critical Rules
- *
- * 1. **Never double-convert**: If you multiply by exchangeRate, use formatLocalCurrencyAmount()
- * 2. **Database USD values**: Always use formatCurrencyFromUSD() for amounts stored as USD
- * 3. **Payment amounts**: Always use formatLocalCurrencyAmount() for priceRatio-calculated values
- * 4. **Billing displays**: Use formatBillingCurrencyFromUSD() to avoid token display
- * 5. **Effective exchange rate**: When quotaDisplayType is 'USD', use rate of 1 regardless of config
+ * `formatCurrencyFromUSD()`, `formatBillingCurrencyFromUSD()`, and
+ * `formatLocalCurrencyAmount()` remain only for legacy call sites. New code
+ * must choose platform or fiat semantics explicitly.
  */
+import i18n from '@/i18n/config'
 import {
   useSystemConfigStore,
   DEFAULT_CURRENCY_CONFIG,
@@ -369,12 +324,12 @@ export function getCurrencyDisplay() {
 }
 
 /**
- * Format a USD amount according to the admin-configured display settings.
+ * Format a USD amount according to the legacy admin-configured display
+ * settings. New user-facing credit displays should use
+ * formatPlatformAmount(); fiat payments should use
+ * formatFiatCurrencyAmount().
  *
- * This is the PRIMARY function for displaying quota/balance/credit amounts
- * that are stored in the system as USD values.
- *
- * @param amountUSD - Amount in system USD units (e.g., user balance, quota)
+ * @param amountUSD - Amount in system USD units
  * @param options - Optional formatting configuration
  * @returns Formatted string with currency symbol or token count
  *
@@ -402,7 +357,8 @@ export function getCurrencyDisplay() {
  * - Any value stored in database as USD
  *
  * DO NOT use for:
- * - Payment amounts already converted via priceRatio → use formatLocalCurrencyAmount()
+ * - Virtual platform credits → use formatPlatformAmount()
+ * - Fiat payment amounts → use formatFiatCurrencyAmount()
  * - Raw token values → use formatQuotaWithCurrency()
  */
 export function formatCurrencyFromUSD(
@@ -436,6 +392,68 @@ export function formatCurrencyFromUSD(
       : amountUSD * meta.exchangeRate
 
   return formatCurrencyValue(value, merged, meta)
+}
+
+function formatPlainCurrencyNumber(
+  value: number,
+  options: ResolvedCurrencyFormatOptions
+): string {
+  const digits = getFractionDigits(
+    value,
+    options.digitsLarge,
+    options.digitsSmall
+  )
+  const adjustedValue = adjustForMinimum(value, digits, options.minimumNonZero)
+  const compact = options.abbreviate || options.compact
+
+  return new Intl.NumberFormat(options.locale, {
+    notation: compact ? 'compact' : 'standard',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: compact ? 1 : digits,
+  }).format(adjustedValue)
+}
+
+/** Return the localized label used after the platform currency symbol. */
+export function getPlatformCurrencyLabel(platformLabel?: string): string {
+  const label = platformLabel?.trim() || i18n.t('Platform')
+  return `$ (${label || 'Platform'})`
+}
+
+/**
+ * Format virtual platform credits. These are not fiat funds, even though the
+ * underlying accounting value is normalized to USD.
+ */
+export function formatPlatformAmount(
+  amount: number | null | undefined,
+  options?: CurrencyFormatOptions,
+  platformLabel?: string
+): string {
+  if (amount == null || Number.isNaN(amount)) return '-'
+
+  const merged = mergeOptions(options)
+  const sign = amount < 0 ? '-' : ''
+  const number = formatPlainCurrencyNumber(Math.abs(amount), merged)
+  const label = platformLabel?.trim() || i18n.t('Platform') || 'Platform'
+  return `${sign}$${number} (${label})`
+}
+
+/**
+ * Format an amount in a fiat settlement currency. USD is deliberately written
+ * as the ISO code instead of relying on the ambiguous `$` symbol.
+ */
+export function formatFiatCurrencyAmount(
+  amount: number | null | undefined,
+  currencyCode = 'USD',
+  options?: CurrencyFormatOptions
+): string {
+  if (amount == null || Number.isNaN(amount)) return '-'
+
+  const merged = mergeOptions(options)
+  const code = currencyCode.trim().toUpperCase() || 'USD'
+  const number = formatPlainCurrencyNumber(amount, merged)
+  // Fiat amounts always carry their ISO code; `$` alone is reserved for
+  // virtual platform credits.
+  return `${number} ${code}`
 }
 
 /**
@@ -486,23 +504,14 @@ export function formatBillingCurrencyFromUSD(
 }
 
 /**
- * Format raw quota values (token units) to display currency.
+ * Format raw quota values (token units) as virtual platform dollars.
  *
- * Converts raw quota/token amounts to USD first, then formats according
- * to display settings. Use when you have quota in token units (e.g., 5000000)
- * and need to display it as currency (e.g., "$10").
+ * Converts raw quota/token amounts to the platform's USD-denominated unit and
+ * marks the result as platform currency so it cannot be mistaken for fiat.
  *
  * @param quota - Raw quota amount in token units (e.g., 5000000)
  * @param options - Optional formatting configuration
- * @returns Formatted string with currency symbol or token count
- *
- * @example
- * // With quotaPerUnit: 500000, quotaDisplayType: 'USD'
- * formatQuotaWithCurrency(5000000) → "$10"
- *
- * @example
- * // With quotaPerUnit: 500000, quotaDisplayType: 'CNY', usdExchangeRate: 7
- * formatQuotaWithCurrency(5000000) → "¥70"
+ * @returns Formatted string such as `$10 (Platform)`
  *
  * @remarks
  * Use this function for:
@@ -510,8 +519,8 @@ export function formatBillingCurrencyFromUSD(
  * - When you need to convert tokens → USD → display currency
  *
  * DO NOT use for:
- * - Values already in USD → use formatCurrencyFromUSD()
- * - Payment amounts → use formatLocalCurrencyAmount()
+ * - Fiat payment amounts → use formatFiatCurrencyAmount()
+ * - Values already in fiat settlement currency → use formatFiatCurrencyAmount()
  */
 export function formatQuotaWithCurrency(
   quota: number | null | undefined,
@@ -521,44 +530,18 @@ export function formatQuotaWithCurrency(
 
   const { config } = getCurrencyDisplay()
   const amountUSD = quota / config.quotaPerUnit
-  return formatCurrencyFromUSD(amountUSD, options)
+  return formatPlatformAmount(amountUSD, options)
 }
 
 /**
- * Get the current currency label for UI display.
+ * Get the label for the virtual platform currency.
  *
- * Returns a simple string label representing the current display currency.
- * Useful for labels, tooltips, and UI text.
- *
- * @returns Currency label string (e.g., "USD", "CNY", "Tokens")
- *
- * @example
- * getCurrencyLabel() → "USD"
- * getCurrencyLabel() → "CNY"
- * getCurrencyLabel() → "Tokens"
- *
- * @remarks
- * Use this for:
- * - Currency selector labels
- * - Table column headers
- * - Form field labels
+ * Platform credits are USD-denominated internally, but they are not fiat
+ * money. Keep the `$ (Platform)` marker in field labels and table headers;
+ * fiat settlement amounts must use their ISO currency code instead.
  */
 export function getCurrencyLabel(): string {
-  const { config, meta } = getCurrencyDisplay()
-
-  if (meta.kind === 'tokens') {
-    return 'Tokens'
-  }
-
-  switch (config.quotaDisplayType) {
-    case 'CNY':
-      return 'CNY'
-    case 'CUSTOM':
-      return meta.kind === 'custom' ? meta.symbol : 'Custom'
-    case 'USD':
-    default:
-      return 'USD'
-  }
+  return getPlatformCurrencyLabel()
 }
 
 /**

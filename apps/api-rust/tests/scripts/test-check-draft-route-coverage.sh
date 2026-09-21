@@ -69,7 +69,7 @@ use axum::{Router, routing::{get, post}};
 
 fn router() -> Router {
     Router::new()
-        .route("/api/widgets/{id}", get(show).post(update))
+        .route("/api/widgets/{id}", get(list_todos).post(update))
         .route(
             "/v1/models/{*request}",
             axum::routing::post(proxy),
@@ -82,7 +82,7 @@ fn router() -> Router {
         .route("/api/legacy-stub", get(relay_not_implemented))
 }
 
-async fn show() {}
+async fn list_todos() {}
 async fn update() {}
 async fn proxy() {}
 async fn health() {}
@@ -94,7 +94,7 @@ async fn relay_not_implemented() -> axum::http::StatusCode {
     axum::http::StatusCode::NOT_IMPLEMENTED
 }
 RS
-printf 'GET\t/api/widgets/:id\thandler.show\nPOST\t/api/widgets/:id\thandler.update\nPOST\t/v1/models/*request\thandler.proxy\nPOST\t/api/draft\thandler.draft\nGET\t/api/todo\thandler.todo\nGET\t/api/panic\thandler.panic\nGET\t/api/placeholder\thandler.placeholder\nGET\t/api/legacy-stub\tcontroller.RelayNotImplemented\n' >"$valid/baseline.tsv"
+printf 'GET\t/api/widgets/:id\thandler.list_todos\nPOST\t/api/widgets/:id\thandler.update\nPOST\t/v1/models/*request\thandler.proxy\nPOST\t/api/draft\thandler.draft\nGET\t/api/todo\thandler.todo\nGET\t/api/panic\thandler.panic\nGET\t/api/placeholder\thandler.placeholder\nGET\t/api/legacy-stub\tcontroller.RelayNotImplemented\n' >"$valid/baseline.tsv"
 write_plan "$valid/plan.tsv" \
   'GET\t/api/widgets/:id\tlmm_api_rs::routes::widgets' \
   'POST\t/api/widgets/:id\tlmm_api_rs::routes::widgets' \
@@ -142,7 +142,7 @@ for expected_placeholder in \
     exit 1
   }
 done
-[[ $valid_output == *'not differential verification, migration credit, or production ownership'* ]] || {
+[[ $valid_output == *'not differential verification, route ownership credit, or production ownership'* ]] || {
   echo "draft-only disclaimer is missing" >&2
   exit 1
 }
@@ -235,15 +235,12 @@ mkdir -p "$models_exact/src"
 cat >"$models_exact/src/routes.rs" <<'RS'
 fn router() -> Router {
     Router::new()
-        .route("/v1/models/{model}", get(show).post(proxy).delete(relay_not_implemented))
-        .route("/v1/models/{model}/{*tail}", post(proxy_tail).get(reject_tail).delete(reject_tail))
-        .route("/v1beta/models/{model}", post(proxy))
+        .route("/v1/models/{model}", get(show).delete(relay_not_implemented))
+        .route("/v1/models/{model}/{*tail}", post(proxy_tail))
         .route("/v1beta/models/{model}/{*tail}", post(proxy_tail))
 }
 async fn show() {}
-async fn proxy() {}
 async fn proxy_tail() {}
-async fn reject_tail() {}
 async fn relay_not_implemented() -> axum::http::StatusCode {
     axum::http::StatusCode::NOT_IMPLEMENTED
 }
@@ -483,6 +480,64 @@ unknown_output=$(DRAFT_OUTSIDE_BASELINE_ALLOWLIST="$unknown/allowlist.tsv" run_f
   exit 1
 }
 
+path_alias="$runtime/path-alias"
+mkdir -p "$path_alias/src"
+cat >"$path_alias/src/routes.rs" <<'RS'
+const ITEM_PATH: &str = "/api/items/{id}";
+fn owner() -> Router {
+    Router::new().route("/api/items/{id}", get(show))
+}
+fn non_owner() -> Router {
+    Router::new().route(ITEM_PATH, get(show))
+}
+async fn show() {}
+RS
+printf 'GET\t/api/items/:id\thandler\n' >"$path_alias/baseline.tsv"
+write_plan "$path_alias/plan.tsv" \
+  'GET\t/api/items/:id\tlmm_api_rs::routes::items'
+write_gate "$path_alias/gate.tsv" \
+  'GET\t/api/items/:id\tpresent\tunverified\tmounted\tunverified\tnot-applicable\tgo\tmounted-unverified\tfixture'
+path_alias_output=$(run_fixture "$path_alias/src" "$path_alias/baseline.tsv" "$path_alias/gate.tsv" 1)
+[[ $path_alias_output == *'frozen-matches=1 frozen-total=1 missing=0'* ]] || {
+  echo "*_PATH non-owner alias was not deduplicated against its literal owner" >&2
+  exit 1
+}
+
+alias_only="$runtime/alias-only"
+mkdir -p "$alias_only/src"
+cat >"$alias_only/src/routes.rs" <<'RS'
+const ITEM_PATH: &str = "/api/items/{id}";
+fn router() -> Router {
+    Router::new().route(ITEM_PATH, get(show))
+}
+async fn show() {}
+RS
+printf 'GET\t/api/items/:id\thandler\n' >"$alias_only/baseline.tsv"
+write_plan "$alias_only/plan.tsv" \
+  'GET\t/api/items/:id\tlmm_api_rs::routes::items'
+write_gate "$alias_only/gate.tsv" \
+  'GET\t/api/items/:id\tpresent\tunverified\tmounted\tunverified\tnot-applicable\tgo\tmounted-unverified\tfixture'
+assert_rejected alias-only 'non-owning *_PATH alias has no literal owner for GET /api/items/:id'
+
+models_forged_duplicate="$runtime/models-forged-duplicate"
+mkdir -p "$models_forged_duplicate/src"
+cat >"$models_forged_duplicate/src/routes.rs" <<'RS'
+fn first_router() -> Router {
+    Router::new().route("/v1/models/{model}", get(first))
+}
+fn forged_router() -> Router {
+    Router::new().route("/v1/models/:model", get(forged))
+}
+async fn first() {}
+async fn forged() {}
+RS
+printf 'GET\t/v1/models/:model\thandler\n' >"$models_forged_duplicate/baseline.tsv"
+write_plan "$models_forged_duplicate/plan.tsv" \
+  'GET\t/v1/models/:model\tlmm_api_rs::routes::relay'
+write_gate "$models_forged_duplicate/gate.tsv" \
+  'GET\t/v1/models/:model\tpresent\tunverified\tmounted\tunverified\tnot-applicable\tgo\tmounted-unverified\tfixture'
+assert_rejected models-forged-duplicate 'duplicate normalized route GET /v1/models/:model'
+
 duplicate="$runtime/duplicate"
 mkdir -p "$duplicate/src"
 cat >"$duplicate/src/routes.rs" <<'RS'
@@ -525,6 +580,6 @@ write_plan "$unparseable/plan.tsv" \
   'GET\t/api/items\tlmm_api_rs::routes::items'
 write_gate "$unparseable/gate.tsv" \
   'GET\t/api/items\tpresent\tunverified\tunmounted\tunverified\tnot-applicable\tgo\tlegacy-go\tfixture'
-assert_rejected unparseable 'route path must be a static string literal'
+assert_rejected unparseable 'route path identifier must use a *_PATH constant'
 
 echo "draft route coverage checker tests passed"

@@ -26,11 +26,16 @@ export type DeveloperAccessRequest = {
     | 'assistant_recommendation'
     | 'user_edited'
     | 'assistant_request'
+    | 'assistant_direct_grant'
     | 'legacy'
   ai_recommendation: string
   admin_note: string
   created_at: number
   reviewed_at: number
+}
+
+export function developerAccessRequestQueryKey(userId: number) {
+  return ['assistant-developer-access-request', userId] as const
 }
 
 type ApiEnvelope<T> = {

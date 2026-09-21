@@ -22,9 +22,16 @@ const (
 	// payment-method selectors, and redirect-free metadata. Bound the entire
 	// authenticated subscription surface before any ShouldBindJSON call.
 	subscriptionMutationRequestMaxBytes = 16 << 10
+	// A root reset preview may explicitly name up to 5,000 user-plan pairs.
+	// Keep that supported envelope bounded before auth and JSON decoding.
+	subscriptionResetMutationRequestMaxBytes = 512 << 10
 	// Self updates only contain profile fields and console preferences. Keep the
 	// decoded request bounded before UpdateSelf streams it into a map.
 	userSelfMutationRequestMaxBytes = 16 << 10
+	// Affiliate invitations contain one recipient address. Bound the payload
+	// before JSON decoding and SMTP work so the authenticated route cannot be
+	// used as an oversized-body sink.
+	affiliateInvitationRequestMaxBytes = 4 << 10
 	// Token mutation payloads contain only bounded metadata (name, group,
 	// optional model/IP limits, or at most 100 IDs).  Keep these key-management
 	// endpoints from handing an unbounded JSON stream to encoding/json.
@@ -57,20 +64,29 @@ const (
 )
 
 func SetApiRouter(router *gin.Engine) {
-	apiRouter := router.Group("/api")
+	router.GET("/scripts/:name", middleware.DisableCache(), controller.GetScriptRaw)
+	operations := controller.NewAssistantAdminOperationRegistry(router)
+	apiRouter := &assistantRouterGroup{group: router.Group("/api"), operations: operations}
+	apiRouter.Use(operations.Middleware())
 	apiRouter.Use(middleware.RouteTag("api"))
 	apiRouter.Use(gzip.Gzip(gzip.DefaultCompression))
 	apiRouter.Use(middleware.BodyStorageCleanup()) // 清理请求体存储
 	apiRouter.Use(middleware.GlobalAPIRateLimit())
 	apiRouter.Use(middleware.ConsoleAccessGate())
+	apiRouter.GET("/ratio-notifications", middleware.UserAuth(), middleware.DisableCache(), controller.ListRatioNotifications)
+	apiRouter.GET("/ratio-notifications/deliveries", middleware.RootAuth(), middleware.DisableCache(), controller.ListRatioDeliveries)
+	apiRouter.POST("/ratio-notifications/deliveries/:id/retry", middleware.RootAuth(), middleware.CriticalRateLimit(), controller.RetryRatioDelivery)
 	// Bounty routes have their own L1 boundary and a deliberately public board.
 	// Keep them outside ConsoleAccessGate so L0 callers can browse public data
 	// and receive redacted empty private feeds without a page-wide 404.
-	openSourceBountyApiRouter := router.Group("/api")
+	openSourceBountyApiRouter := &assistantRouterGroup{group: router.Group("/api"), operations: operations}
+	openSourceBountyApiRouter.Use(operations.Middleware())
 	openSourceBountyApiRouter.Use(middleware.RouteTag("api"))
 	openSourceBountyApiRouter.Use(gzip.Gzip(gzip.DefaultCompression))
 	openSourceBountyApiRouter.Use(middleware.BodyStorageCleanup())
 	openSourceBountyApiRouter.Use(middleware.GlobalAPIRateLimit())
+	setToolMarketRouter(openSourceBountyApiRouter)
+	setAcquisitionRouter(openSourceBountyApiRouter)
 	anonymousRequestBodyLimit := middleware.AnonymousRequestBodyLimit()
 	{
 		apiRouter.GET("/setup", controller.GetSetup)
@@ -86,6 +102,32 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/about", controller.GetAbout)
 		//apiRouter.GET("/midjourney", controller.GetMidjourney)
 		apiRouter.GET("/home_page_content", controller.GetHomePageContent)
+		piRemoteRoute := apiRouter.Group("/remote-control/v1/pi")
+		piRemoteRoute.Use(middleware.UserAuth(), middleware.DisableCache())
+		{
+			piRemoteRoute.GET("/sessions", controller.PiRemoteListSessions)
+			piRemoteRoute.PUT("/sessions/:session_id", middleware.RequestBodyLimit(24<<10), controller.PiRemoteUpsertSession)
+			piRemoteRoute.GET("/sessions/:session_id/messages", controller.PiRemoteGetMessages)
+			piRemoteRoute.POST("/sessions/:session_id/messages", middleware.RequestBodyLimit(80<<10), controller.PiRemoteAppendMessage)
+		}
+		apiRouter.GET("/scripts", middleware.DisableCache(), controller.ListScripts)
+		apiRouter.GET("/scripts/:name/raw", middleware.DisableCache(), controller.GetScriptRaw)
+		scriptRoute := apiRouter.Group("/scripts")
+		scriptRoute.Use(middleware.RootAuth(), middleware.DisableCache())
+		{
+			scriptRoute.GET("/repository", controller.GetScriptRepository)
+			scriptRoute.PUT("/repository", middleware.RequestBodyLimit(16<<10), controller.PutScriptRepository)
+			scriptRoute.POST("/repository/pull", middleware.CriticalRateLimit(), controller.PullScriptRepository)
+			scriptRoute.GET("/:name", controller.GetScript)
+			scriptRoute.PUT("/:name", middleware.RequestBodyLimit(512<<10), controller.PutScript)
+			scriptRoute.DELETE("/:name", controller.DeleteScript)
+		}
+		apiRouter.POST("/games/signal/attempts", middleware.CriticalRateLimit(), middleware.RequestBodyLimit(1024), middleware.DisableCache(), controller.BeginSignalGameAttempt)
+		apiRouter.POST("/games/signal/finish", middleware.CriticalRateLimit(), middleware.RequestBodyLimit(512<<10), middleware.DisableCache(), controller.FinishSignalGameAttempt)
+		apiRouter.GET("/games/signal/daily", middleware.DisableCache(), controller.GetSignalGameDaily)
+		apiRouter.GET("/games/signal/leaderboard", middleware.DisableCache(), controller.GetSignalGameLeaderboard)
+		apiRouter.GET("/games/signal/records", middleware.UserAuth(), middleware.DisableCache(), controller.GetSignalGameRecords)
+		apiRouter.POST("/games/signal/records", middleware.CriticalRateLimit(), middleware.RequestBodyLimit(512<<10), middleware.SessionCookieOriginGuard(), middleware.UserAuth(), middleware.DisableCache(), controller.SaveSignalGameRecord)
 		securityRoute := apiRouter.Group("/security")
 		{
 			// Public policy/statistics intentionally omit matcher patterns,
@@ -104,6 +146,8 @@ func SetApiRouter(router *gin.Engine) {
 			securityAdminRoute.GET("/events", controller.ListAdminSecurityEvents)
 			securityAdminRoute.GET("/ai-reviews", controller.ListAdminAssistantSecurityReviews)
 			securityAdminRoute.GET("/review-runs", controller.ListAdminAssistantReviewTasks)
+			securityAdminRoute.GET("/review-runs/cleanup-preview", middleware.DisableCache(), controller.PreviewAdminAssistantReviewTaskCleanup)
+			securityAdminRoute.DELETE("/review-runs", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.DeleteAdminAssistantReviewTasks)
 			securityAdminRoute.GET("/review-runs/:task_id", controller.GetAdminAssistantReviewTask)
 			securityAdminRoute.GET("/violation-fee-appeals", middleware.DisableCache(), controller.ListAdminViolationFeeAppeals)
 			securityAdminRoute.POST("/violation-fee-appeals/:id/:action", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.ReviewAdminViolationFeeAppeal)
@@ -130,6 +174,7 @@ func SetApiRouter(router *gin.Engine) {
 		// Nginx uses /internal/access-ip-policy outside the API rate-limit group.
 		apiRouter.GET("/internal/access-ip-policy", middleware.DisableCache(), controller.CheckIPAccessRoutingPolicy)
 		apiRouter.GET("/pricing", middleware.HeaderNavModuleAuth("pricing"), controller.GetPricing)
+		apiRouter.POST("/pricing/runtime", middleware.RequestBodyLimit(64<<10), middleware.HeaderNavModuleAuth("pricing"), controller.GetModelRuntimeStates)
 		perfMetricsRoute := apiRouter.Group("/perf-metrics")
 		perfMetricsRoute.Use(middleware.HeaderNavModulePublicOrUserAuth("pricing"))
 		{
@@ -201,15 +246,20 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.PUT("/access-ip", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.PersonalAccessIPRetired)
 				selfRoute.DELETE("/access-ip", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.PersonalAccessIPRetired)
 				selfRoute.GET("/sessions", middleware.DisableCache(), controller.GetLoginSessions)
+				selfRoute.PUT("/sessions/settings", middleware.CriticalRateLimit(), middleware.DisableCache(), middleware.RequestBodyLimit(userSelfMutationRequestMaxBytes), controller.UpdateLoginSessionSettings)
 				selfRoute.DELETE("/sessions/:sid", middleware.DisableCache(), controller.DeleteLoginSession)
 				selfRoute.POST("/sessions/revoke-others", middleware.DisableCache(), controller.RevokeOtherLoginSessions)
 				selfRoute.GET("/self/groups", controller.GetUserGroups)
 				selfRoute.GET("/self", controller.GetSelf)
+				selfRoute.GET("/self/announcements", middleware.DisableCache(), controller.GetSelfAnnouncementStatus)
+				selfRoute.POST("/self/announcements/read", middleware.DisableCache(), middleware.RequestBodyLimit(1024), controller.AcknowledgeSelfAnnouncement)
+				selfRoute.GET("/company-billing-profile", middleware.DisableCache(), controller.GetCompanyBillingProfile)
+				selfRoute.PUT("/company-billing-profile", middleware.CriticalRateLimit(), middleware.DisableCache(), middleware.RequestBodyLimit(userSelfMutationRequestMaxBytes), controller.PutCompanyBillingProfile)
 				selfRoute.GET("/models", controller.GetUserModels)
 				selfRoute.GET("/self/onboarding/todo", middleware.DisableCache(), controller.GetL1OnboardingTodo)
 				selfRoute.PATCH("/self/onboarding/todo", middleware.DisableCache(), controller.PatchL1OnboardingTodo)
 				selfRoute.GET("/developer-access/request", controller.GetDeveloperAccessRequest)
-				selfRoute.POST("/developer-access/request", middleware.CriticalRateLimit(), middleware.DecompressRequestMiddleware(), middleware.RequestBodyLimit(userSelfMutationRequestMaxBytes), controller.SubmitDeveloperAccessRequest)
+				selfRoute.POST("/developer-access/request", middleware.CriticalRateLimit(), middleware.DecompressRequestMiddleware(), middleware.RequestBodyLimit(userSelfMutationRequestMaxBytes), controller.RetiredDeveloperAccessRequest)
 				selfRoute.GET("/account-action-requests/appeal", middleware.DisableCache(), controller.GetAccountAppeal)
 				selfRoute.GET("/violation-fees", middleware.DisableCache(), controller.ListSelfViolationFeeRecords)
 				selfRoute.PUT("/self", middleware.CriticalRateLimit(), middleware.DisableCache(), middleware.DecompressRequestMiddleware(), middleware.RequestBodyLimit(userSelfMutationRequestMaxBytes), controller.UpdateSelf)
@@ -222,6 +272,8 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.POST("/passkey/verify/finish", middleware.DisableCache(), middleware.RequestBodyLimit(passkeyFinishRequestMaxBytes), controller.PasskeyVerifyFinish)
 				selfRoute.DELETE("/passkey", middleware.DisableCache(), controller.PasskeyDelete)
 				selfRoute.GET("/aff", controller.GetAffCode)
+				selfRoute.GET("/aff/rewards", controller.GetReferralRewards)
+				selfRoute.POST("/aff/invite", middleware.RequestBodyLimit(affiliateInvitationRequestMaxBytes), middleware.UserCriticalRateLimit("aff-invite-email"), controller.SendAffiliateInvitation)
 				selfRoute.GET("/topup/info", controller.GetTopUpInfo)
 				selfRoute.GET("/topup/self", controller.GetUserTopUps)
 				selfRoute.POST("/discount-code/validate", middleware.RequestBodyLimit(topUpMutationRequestMaxBytes), middleware.DisableCache(), controller.ValidateDiscountCode)
@@ -270,6 +322,7 @@ func SetApiRouter(router *gin.Engine) {
 				adminRoute.DELETE("/:id/oauth/bindings/:provider_id", controller.UnbindCustomOAuthByAdmin)
 				adminRoute.DELETE("/:id/bindings/:binding_type", controller.AdminClearUserBinding)
 				adminRoute.GET("/:id", controller.GetUser)
+				adminRoute.GET("/:id/announcements", middleware.DisableCache(), controller.GetUserAnnouncementStatus)
 				adminRoute.GET("/:id/developer-access/archives", middleware.DisableCache(), controller.ListUserDeveloperAccessRecommendationArchives)
 				adminRoute.GET("/:id/assistant-profile", controller.AdminGetAssistantUserProfile)
 				adminRoute.PUT("/:id/assistant-profile", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), controller.AdminUpdateAssistantUserProfile)
@@ -329,8 +382,10 @@ func SetApiRouter(router *gin.Engine) {
 		subscriptionRoute := apiRouter.Group("/subscription")
 		subscriptionRoute.Use(middleware.RequestBodyLimit(subscriptionMutationRequestMaxBytes), middleware.UserAuth())
 		{
-			subscriptionRoute.GET("/plans", controller.GetSubscriptionPlans)
-			subscriptionRoute.GET("/self", controller.GetSubscriptionSelf)
+			subscriptionRoute.GET("/plans", middleware.DisableCache(), controller.GetSubscriptionPlans)
+			subscriptionRoute.GET("/self", middleware.DisableCache(), controller.GetSubscriptionSelf)
+			subscriptionRoute.GET("/self/reset-vouchers", middleware.DisableCache(), controller.GetSubscriptionResetVouchers)
+			subscriptionRoute.POST("/self/reset-vouchers/:id/redeem", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.RedeemSubscriptionResetVoucher)
 			subscriptionRoute.PUT("/self/preference", controller.UpdateSubscriptionPreference)
 			subscriptionRoute.POST("/balance/pay", middleware.PaymentAccessGate(), middleware.CriticalRateLimit(), controller.SubscriptionRequestBalancePay)
 			subscriptionRoute.POST("/epay/pay", middleware.PaymentMethodAccessGate(), middleware.CriticalRateLimit(), controller.SubscriptionRequestEpay)
@@ -339,22 +394,29 @@ func SetApiRouter(router *gin.Engine) {
 			subscriptionRoute.POST("/waffo-pancake/pay", middleware.RequestBodyLimit(waffoPancakeMutationRequestMaxBytes), middleware.PaymentMethodAccessGate(), middleware.CriticalRateLimit(), controller.SubscriptionRequestWaffoPancakePay)
 		}
 		subscriptionAdminRoute := apiRouter.Group("/subscription/admin")
-		subscriptionAdminRoute.Use(middleware.AdminAuth())
+		subscriptionAdminRoute.Use(middleware.RequestBodyLimit(subscriptionMutationRequestMaxBytes), middleware.AdminAuth(), middleware.DisableCache())
 		{
 			subscriptionAdminRoute.GET("/plans", controller.AdminListSubscriptionPlans)
+			subscriptionAdminRoute.GET("/records", controller.AdminListSubscriptionRecords)
 			subscriptionAdminRoute.POST("/plans", controller.AdminCreateSubscriptionPlan)
 			subscriptionAdminRoute.PUT("/plans/:id", controller.AdminUpdateSubscriptionPlan)
 			subscriptionAdminRoute.DELETE("/plans/:id", controller.AdminDeleteSubscriptionPlan)
+			subscriptionAdminRoute.POST("/plans/:id/restore", controller.AdminRestoreSubscriptionPlan)
 			subscriptionAdminRoute.PATCH("/plans/:id", controller.AdminUpdateSubscriptionPlanStatus)
 			subscriptionAdminRoute.POST("/bind", controller.AdminBindSubscription)
-			subscriptionAdminRoute.POST("/plans/:id/subscriptions/reset", controller.AdminResetPlanSubscriptions)
 
 			// User subscription management (admin)
 			subscriptionAdminRoute.GET("/users/:id/subscriptions", controller.AdminListUserSubscriptions)
 			subscriptionAdminRoute.POST("/users/:id/subscriptions", controller.AdminCreateUserSubscription)
-			subscriptionAdminRoute.POST("/users/:id/subscriptions/reset", controller.AdminResetUserSubscriptionsByPlan)
 			subscriptionAdminRoute.POST("/user_subscriptions/:id/invalidate", controller.AdminInvalidateUserSubscription)
 			subscriptionAdminRoute.DELETE("/user_subscriptions/:id", controller.AdminDeleteUserSubscription)
+		}
+		subscriptionRootRoute := apiRouter.Group("/subscription/root")
+		subscriptionRootRoute.Use(middleware.RequestBodyLimit(subscriptionResetMutationRequestMaxBytes), middleware.RootAuth(), middleware.DisableCache())
+		{
+			subscriptionRootRoute.GET("/reset-targets", controller.RootListSubscriptionResetEligible)
+			subscriptionRootRoute.POST("/reset/preview", middleware.CriticalRateLimit(), controller.RootPreviewSubscriptionsBatch)
+			subscriptionRootRoute.POST("/reset", middleware.CriticalRateLimit(), controller.RootResetSubscriptionsBatch)
 		}
 
 		// Subscription payment callbacks (no auth)
@@ -366,6 +428,8 @@ func SetApiRouter(router *gin.Engine) {
 		optionRoute.Use(middleware.RootAuth())
 		{
 			optionRoute.GET("/", controller.GetOptions)
+			optionRoute.GET("/updates", middleware.DisableCache(), controller.GetUpdates)
+			optionRoute.GET("/exchange-rate", middleware.DisableCache(), controller.GetUsdExchangeRate)
 			optionRoute.PUT("/", controller.UpdateOption)
 			optionRoute.POST("/validate", middleware.RequestBodyLimit(rawOptionMutationRequestMaxBytes), controller.ValidateOptions)
 			optionRoute.POST("/bulk", middleware.RequestBodyLimit(rawOptionMutationRequestMaxBytes), controller.UpdateOptionsBulk)
@@ -404,24 +468,19 @@ func SetApiRouter(router *gin.Engine) {
 			heroSMSRoute.POST("/email/activations/:id/reorder", middleware.DisableCache(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("hero-sms-email-reorder"), middleware.RequestBodyLimit(heroSMSMutationRequestMaxBytes), controller.ReorderHeroSMSEmailActivation)
 			heroSMSRoute.GET("/sms/countries", middleware.DisableCache(), controller.ListHeroSMSSMSCountries)
 			heroSMSRoute.GET("/sms/services", middleware.DisableCache(), controller.ListHeroSMSSMSServices)
+			heroSMSRoute.GET("/sms/operators", middleware.DisableCache(), controller.ListHeroSMSSMSOperators)
 			heroSMSRoute.GET("/sms/offer", middleware.DisableCache(), controller.GetHeroSMSSMSOffer)
 			heroSMSRoute.POST("/sms/orders", middleware.DisableCache(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("hero-sms-sms-purchase"), middleware.RequestBodyLimit(heroSMSMutationRequestMaxBytes), controller.CreateHeroSMSSMSOrder)
 			heroSMSRoute.GET("/sms/orders", middleware.DisableCache(), controller.ListHeroSMSSMSOrders)
 			heroSMSRoute.GET("/sms/orders/current", middleware.DisableCache(), controller.GetCurrentHeroSMSSMSOrder)
+			heroSMSRoute.GET("/sms/orders/current-list", middleware.DisableCache(), controller.ListCurrentHeroSMSSMSOrders)
+			heroSMSRoute.DELETE("/sms/history", middleware.DisableCache(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("hero-sms-sms-history-clear"), controller.ClearHeroSMSSMSOrderHistory)
+			heroSMSRoute.DELETE("/sms/history/:id", middleware.DisableCache(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("hero-sms-sms-history-hide"), controller.HideHeroSMSSMSOrderFromHistory)
 			heroSMSRoute.GET("/sms/orders/:id", middleware.DisableCache(), controller.GetHeroSMSSMSOrder)
+			heroSMSRoute.POST("/sms/orders/:id/complaints", middleware.DisableCache(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("hero-sms-sms-complaint"), middleware.RequestBodyLimit(heroSMSMutationRequestMaxBytes), controller.SubmitHeroSMSSMSComplaint)
 			heroSMSRoute.POST("/sms/orders/:id/cancel", middleware.DisableCache(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("hero-sms-sms-cancel"), middleware.RequestBodyLimit(heroSMSMutationRequestMaxBytes), controller.CancelHeroSMSSMSOrder)
 		}
 
-		dynamicPricingRoute := apiRouter.Group("/dynamic_pricing")
-		dynamicPricingRoute.Use(middleware.AdminAuth())
-		{
-			dynamicPricingRoute.GET("/status", controller.GetDynamicPricingStatus)
-		}
-		dynamicPricingSettingRoute := apiRouter.Group("/dynamic_pricing")
-		dynamicPricingSettingRoute.Use(middleware.RootAuth())
-		{
-			dynamicPricingSettingRoute.PUT("/setting", controller.UpdateDynamicPricingSetting)
-		}
 		// Custom OAuth provider management (root only)
 		customOAuthRoute := apiRouter.Group("/custom-oauth-provider")
 		customOAuthRoute.Use(middleware.RootAuth())
@@ -453,6 +512,7 @@ func SetApiRouter(router *gin.Engine) {
 		registerAuthzRoutes(apiRouter)
 		tokenRoute := apiRouter.Group("/token")
 		tokenRoute.Use(middleware.UserAuth())
+		tokenRoute.PUT("/:id/account-balance-access", middleware.RequestBodyLimit(tokenMutationRequestMaxBytes), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.SetAccountBalanceAccess)
 		{
 			tokenRoute.GET("/", controller.GetAllTokens)
 			tokenRoute.GET("/search", middleware.SearchRateLimit(), controller.SearchTokens)
@@ -464,6 +524,15 @@ func SetApiRouter(router *gin.Engine) {
 			tokenRoute.DELETE("/:id", controller.DeleteToken)
 			tokenRoute.POST("/batch", middleware.RequestBodyLimit(tokenMutationRequestMaxBytes), controller.DeleteTokenBatch)
 			tokenRoute.POST("/batch/keys", middleware.RequestBodyLimit(tokenMutationRequestMaxBytes), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.GetTokenKeysBatch)
+		}
+		drawingMCPRoute := apiRouter.Group("/drawing")
+		drawingMCPRoute.Use(middleware.UserAuth())
+		{
+			drawingMCPRoute.POST("/key", middleware.CriticalRateLimit(), middleware.DisableCache(), middleware.RequestBodyLimit(1<<10), controller.EnsureAssistantDrawingKey)
+			drawingMCPRoute.GET("/mcp-keys", middleware.DisableCache(), controller.GetDrawingMCPAPIKeys)
+			drawingMCPRoute.GET("/mcp-token", middleware.DisableCache(), controller.GetDrawingMCPToken)
+			drawingMCPRoute.POST("/mcp-token", middleware.CriticalRateLimit(), middleware.DisableCache(), middleware.RequestBodyLimit(tokenMutationRequestMaxBytes), controller.RotateDrawingMCPToken)
+			drawingMCPRoute.DELETE("/mcp-token", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.RevokeDrawingMCPToken)
 		}
 
 		usageRoute := apiRouter.Group("/usage")

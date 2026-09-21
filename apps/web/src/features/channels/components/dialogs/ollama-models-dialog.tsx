@@ -59,6 +59,11 @@ import { useChannels } from '../channels-provider'
 
 const CHANNEL_TYPE_OLLAMA = 4
 
+type PullTerminalEvent =
+  | { type: 'done' }
+  | { type: 'error'; message: string }
+  | { type: 'success'; message: string }
+
 export function OllamaModelsDialog({
   open,
   onOpenChange,
@@ -225,6 +230,10 @@ export function OllamaModelsDialog({
     }
   }
 
+  const commitPullProgress = (progress: PullProgress) => {
+    setPullProgress(progress)
+  }
+
   const pullModel = async () => {
     if (!channelId) return
     if (!pullName.trim()) {
@@ -267,14 +276,16 @@ export function OllamaModelsDialog({
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
+      let terminalEvent: PullTerminalEvent | null = null
 
-      while (true) {
+      while (terminalEvent === null) {
         const { done, value } = await reader.read()
         if (done) break
 
         buffer += decoder.decode(value, { stream: true })
         const lines = buffer.split('\n')
         buffer = lines.pop() || ''
+        let nextProgress: PullProgress | null = null
 
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue
@@ -282,43 +293,48 @@ export function OllamaModelsDialog({
           if (!eventData) continue
 
           if (eventData === '[DONE]') {
-            setIsPulling(false)
-            setPullProgress(null)
-            pullAbortRef.current = null
-            return
+            terminalEvent = { type: 'done' }
+            break
           }
 
           try {
             const data = JSON.parse(eventData)
             if (data?.status) {
-              setPullProgress(data)
+              nextProgress = data
             } else if (data?.error) {
-              toast.error(String(data.error))
-              setIsPulling(false)
-              setPullProgress(null)
-              pullAbortRef.current = null
-              return
+              terminalEvent = { type: 'error', message: String(data.error) }
+              break
             } else if (data?.message) {
-              toast.success(String(data.message))
-              setPullName('')
-              setIsPulling(false)
-              setPullProgress(null)
-              pullAbortRef.current = null
-              await fetchOllamaModels()
-              queryClient.invalidateQueries({
-                queryKey: channelsQueryKeys.lists(),
-              })
-              return
+              terminalEvent = {
+                type: 'success',
+                message: String(data.message),
+              }
+              break
             }
           } catch {
             // ignore malformed events
           }
+        }
+
+        if (terminalEvent === null && nextProgress) {
+          commitPullProgress(nextProgress)
         }
       }
 
       setIsPulling(false)
       setPullProgress(null)
       pullAbortRef.current = null
+
+      if (terminalEvent?.type === 'error') {
+        toast.error(terminalEvent.message)
+        return
+      }
+      if (terminalEvent?.type === 'done') return
+      if (terminalEvent?.type === 'success') {
+        toast.success(terminalEvent.message)
+        setPullName('')
+      }
+
       await fetchOllamaModels()
       queryClient.invalidateQueries({ queryKey: channelsQueryKeys.lists() })
     } catch (err: unknown) {

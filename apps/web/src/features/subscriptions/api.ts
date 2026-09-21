@@ -22,14 +22,22 @@ import type {
   ApiResponse,
   PlanRecord,
   PlanPayload,
+  SubscriptionPlan,
   UserSubscriptionRecord,
   CreateUserSubscriptionRequest,
-  ResetUserSubscriptionsRequest,
-  ResetPlanSubscriptionsRequest,
+  SubscriptionPlanRemovalResult,
+  AdminSubscriptionRecordPage,
+  AdminSubscriptionResetEligiblePage,
+  SubscriptionResetPreviewRequest,
+  SubscriptionResetPreviewResult,
+  SubscriptionResetExecuteRequest,
+  SubscriptionResetBatchResult,
+  SubscriptionResetVoucher,
   SubscriptionResetResult,
   SubscriptionPayResponse,
   SubscriptionPayRequest,
   WaffoPancakeSubscriptionPayRequest,
+  WaffoPancakeProductType,
   SelfSubscriptionData,
 } from './types'
 
@@ -37,8 +45,12 @@ import type {
 // Admin Plan Management
 // ============================================================================
 
-export async function getAdminPlans(): Promise<ApiResponse<PlanRecord[]>> {
-  const res = await api.get('/api/subscription/admin/plans')
+export async function getAdminPlans(
+  includeArchived = false
+): Promise<ApiResponse<PlanRecord[]>> {
+  const res = await api.get('/api/subscription/admin/plans', {
+    params: includeArchived ? { include_archived: '1' } : undefined,
+  })
   return res.data
 }
 
@@ -57,8 +69,20 @@ export async function updatePlan(
   return res.data
 }
 
-export async function deletePlan(id: number): Promise<ApiResponse> {
-  const res = await api.delete(`/api/subscription/admin/plans/${id}`)
+export async function deletePlan(
+  id: number
+): Promise<ApiResponse<SubscriptionPlanRemovalResult>> {
+  const res = await api.delete(`/api/subscription/admin/plans/${id}`, {
+    skipBusinessError: true,
+    skipErrorHandler: true,
+  })
+  return res.data
+}
+
+export async function restorePlan(
+  id: number
+): Promise<ApiResponse<SubscriptionPlan>> {
+  const res = await api.post(`/api/subscription/admin/plans/${id}/restore`)
   return res.data
 }
 
@@ -114,25 +138,63 @@ export async function deleteUserSubscription(
   return res.data
 }
 
-export async function resetUserSubscriptionsByPlan(
-  userId: number,
-  data: ResetUserSubscriptionsRequest
-): Promise<ApiResponse<SubscriptionResetResult>> {
-  const res = await api.post(
-    `/api/subscription/admin/users/${userId}/subscriptions/reset`,
-    data
-  )
+export async function getAdminSubscriptionRecords(
+  params: {
+    page: number
+    pageSize: number
+    query?: string
+    planId?: number
+    status?: string
+  },
+  signal?: AbortSignal
+): Promise<ApiResponse<AdminSubscriptionRecordPage>> {
+  const res = await api.get('/api/subscription/admin/records', {
+    params: {
+      page: params.page,
+      page_size: params.pageSize,
+      query: params.query || undefined,
+      plan_id: params.planId || undefined,
+      status: params.status || 'all',
+    },
+    signal,
+  })
   return res.data
 }
 
-export async function resetPlanSubscriptions(
-  planId: number,
-  data: ResetPlanSubscriptionsRequest
-): Promise<ApiResponse<SubscriptionResetResult>> {
-  const res = await api.post(
-    `/api/subscription/admin/plans/${planId}/subscriptions/reset`,
-    data
-  )
+export async function getSubscriptionResetEligible(
+  params: {
+    page: number
+    pageSize: number
+    query?: string
+    planIds?: number[]
+    userIds?: number[]
+  },
+  signal?: AbortSignal
+): Promise<ApiResponse<AdminSubscriptionResetEligiblePage>> {
+  const res = await api.get('/api/subscription/root/reset-targets', {
+    params: {
+      page: params.page,
+      page_size: params.pageSize,
+      query: params.query || undefined,
+      plan_ids: params.planIds?.join(',') || undefined,
+      user_ids: params.userIds?.join(',') || undefined,
+    },
+    signal,
+  })
+  return res.data
+}
+
+export async function previewSubscriptionReset(
+  data: SubscriptionResetPreviewRequest
+): Promise<ApiResponse<SubscriptionResetPreviewResult>> {
+  const res = await api.post('/api/subscription/root/reset/preview', data)
+  return res.data
+}
+
+export async function executeSubscriptionReset(
+  data: SubscriptionResetExecuteRequest
+): Promise<ApiResponse<SubscriptionResetBatchResult>> {
+  const res = await api.post('/api/subscription/root/reset', data)
   return res.data
 }
 
@@ -157,7 +219,10 @@ export async function paySubscriptionCreem(
 export async function paySubscriptionWaffoPancake(
   data: WaffoPancakeSubscriptionPayRequest
 ): Promise<SubscriptionPayResponse> {
-  const res = await api.post('/api/subscription/waffo-pancake/pay', data)
+  const res = await api.post('/api/subscription/waffo-pancake/pay', data, {
+    skipBusinessError: true,
+    skipErrorHandler: true,
+  })
   return res.data
 }
 
@@ -168,13 +233,24 @@ export async function paySubscriptionBalance(
   return res.data
 }
 
-// Mints a Pancake OnetimeProduct (see controller for the OnetimeProduct vs
-// SubscriptionProduct rationale) using persisted creds + StoreID.
-export async function createWaffoPancakeSubscriptionProduct(data: {
+// Mints the selected Pancake plan product. amount and currency are the plan's
+// real ISO-fiat list price; the server converts it to Pancake USD.
+export async function createWaffoPancakePlanProduct(data: {
   name: string
   amount: string
+  currency: string
+  duration_unit: string
+  duration_value: number
+  product_type: WaffoPancakeProductType
 }): Promise<
-  ApiResponse<{ product_id: string; product_name: string; store_id: string }>
+  ApiResponse<{
+    product_id: string
+    product_name: string
+    store_id: string
+    settlement_currency: 'USD'
+    settlement_amount: string
+    product_type: WaffoPancakeProductType
+  }>
 > {
   const res = await api.post(
     '/api/option/waffo-pancake/subscription-product',
@@ -183,12 +259,17 @@ export async function createWaffoPancakeSubscriptionProduct(data: {
   return res.data
 }
 
-// Returns the OnetimeProducts in the saved Pancake store; empty when the
-// gateway isn't fully configured.
-export async function listWaffoPancakeSubscriptionProductOptions(): Promise<
+// Returns both one-time and recurring products in the saved Pancake store.
+export async function listWaffoPancakePlanProductOptions(): Promise<
   ApiResponse<{
     store_id: string
-    products: { id: string; name: string; status: string }[]
+    products: {
+      id: string
+      name: string
+      status: string
+      billingPeriod?: string
+      product_type?: WaffoPancakeProductType
+    }[]
   }>
 > {
   const res = await api.get(
@@ -227,8 +308,26 @@ export async function getSelfSubscriptionFull(): Promise<
   return res.data
 }
 
-export async function getPublicPlans(): Promise<ApiResponse<PlanRecord[]>> {
-  const res = await api.get('/api/subscription/plans')
+export async function getSubscriptionResetVouchers(): Promise<
+  ApiResponse<SubscriptionResetVoucher[]>
+> {
+  const res = await api.get('/api/subscription/self/reset-vouchers')
+  return res.data
+}
+
+export async function redeemSubscriptionResetVoucher(
+  voucherId: number
+): Promise<ApiResponse<SubscriptionResetResult>> {
+  const res = await api.post(
+    `/api/subscription/self/reset-vouchers/${voucherId}/redeem`
+  )
+  return res.data
+}
+
+export async function getPublicPlans(
+  signal?: AbortSignal
+): Promise<ApiResponse<PlanRecord[]>> {
+  const res = await api.get('/api/subscription/plans', { signal })
   return res.data
 }
 

@@ -70,15 +70,19 @@ type TieredResult struct {
 	MatchedTier            string             `json:"matched_tier"`
 	RequestRules           []RequestRuleTrace `json:"request_rules,omitempty"`
 	CrossedTier            bool               `json:"crossed_tier"`
-	// Clamp records an int32 saturation event during quota conversion so the
+	// Clamp records a single-request saturation event during quota conversion so the
 	// caller can surface it on the consume log for admin auditing. Nil when no
 	// clamping occurred. Not serialized: the marker is attached separately via
 	// the shared quota-saturation audit path.
 	Clamp *common.QuotaClamp `json:"-"`
 }
 
-// ExprHashString returns the SHA-256 hex digest of an expression string.
+// ExprHashString returns a stable, non-secret cache identity for an expression.
+// The expression is configuration metadata, not a password or credential, so
+// a plain SHA-256 digest is sufficient and keeps identities stable across
+// installations and secret rotation.
 func ExprHashString(expr string) string {
+	// lgtm [go/weak-sensitive-data-hashing] -- this value is never used to protect sensitive data.
 	h := sha256.Sum256([]byte(expr))
 	return fmt.Sprintf("%x", h)
 }

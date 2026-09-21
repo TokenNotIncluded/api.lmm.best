@@ -287,6 +287,10 @@ func xunfeiMakeRequest(c *gin.Context, textRequest dto.GeneralOpenAIRequest, dom
 				break
 			}
 			if !helper.SendCtx(requestContext, dataChan, response) {
+				responseErr = requestContext.Err()
+				if responseErr == nil {
+					responseErr = context.Canceled
+				}
 				return
 			}
 			if response.Payload.Choices.Status == 2 {

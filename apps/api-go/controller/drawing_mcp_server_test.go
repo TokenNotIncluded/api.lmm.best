@@ -27,8 +27,12 @@ func (transport drawingMCPBearerTransport) RoundTrip(request *http.Request) (*ht
 }
 
 func TestDrawingMCPAuthenticationDiscoveryAndConfirmation(t *testing.T) {
-	_, _, token := setupOpenSourceBountyMCPControllerTest(t)
-	require.NoError(t, model.DB.AutoMigrate(&model.Ability{}, &model.Channel{}))
+	db, user, bountyToken := setupOpenSourceBountyMCPControllerTest(t)
+	require.NoError(t, db.AutoMigrate(&model.Token{}, &model.DrawingMCPToken{}, &model.Ability{}, &model.Channel{}))
+	key := &model.Token{UserId: user.Id, Key: "drawing-test-key", Group: model.DrawingTokenGroup, Status: common.TokenStatusEnabled, ExpiredTime: -1, UnlimitedQuota: true}
+	require.NoError(t, db.Create(key).Error)
+	token, _, err := model.RotateDrawingMCPToken(user.Id, key.Id)
+	require.NoError(t, err)
 	previousDrawingEnabled := common.DrawingEnabled
 	common.DrawingEnabled = true
 	t.Cleanup(func() { common.DrawingEnabled = previousDrawingEnabled })
@@ -56,6 +60,14 @@ func TestDrawingMCPAuthenticationDiscoveryAndConfirmation(t *testing.T) {
 			assert.Equal(t, http.StatusUnauthorized, response.StatusCode)
 		})
 	}
+	request, err := http.NewRequest(http.MethodPost, server.URL, strings.NewReader(`{}`))
+	require.NoError(t, err)
+	request.Header.Set("Authorization", "Bearer "+bountyToken)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := http.DefaultClient.Do(request)
+	require.NoError(t, err)
+	response.Body.Close()
+	assert.Equal(t, http.StatusUnauthorized, response.StatusCode)
 
 	client := mcp.NewClient(&mcp.Implementation{Name: "drawing-mcp-test", Version: "1.0.0"}, &mcp.ClientOptions{
 		MultiRoundTrip: &mcp.MultiRoundTripOptions{Disabled: true},
@@ -85,6 +97,11 @@ func TestDrawingMCPAuthenticationDiscoveryAndConfirmation(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.True(t, invalid.IsError)
+	invalidModel, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "drawing.generate", Arguments: map[string]any{"prompt": "draw a safe test image", "model": "not-an-image-model"},
+	})
+	require.NoError(t, err)
+	assert.True(t, invalidModel.IsError, "an explicit model must not bypass the image catalog")
 }
 
 func TestDrawingMCPConfirmationRejectsForgeryWrongPayloadReplayAndDoubleSubmit(t *testing.T) {

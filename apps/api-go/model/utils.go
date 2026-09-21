@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"time"
@@ -22,6 +23,7 @@ const (
 
 var batchUpdateStores []map[int]int
 var batchUpdateLocks []sync.Mutex
+var batchUpdateFlushLock sync.Mutex
 
 func init() {
 	for i := 0; i < BatchUpdateTypeCount; i++ {
@@ -31,25 +33,53 @@ func init() {
 }
 
 func InitBatchUpdater() {
-	gopool.Go(func() {
-		for {
-			time.Sleep(time.Duration(common.BatchUpdateInterval) * time.Second)
+	gopool.Go(func() { RunBatchUpdater(context.Background()) })
+}
+
+// RunBatchUpdater periodically persists queued updates until ctx is cancelled.
+// InitBatchUpdater remains as a source-compatible background wrapper.
+func RunBatchUpdater(ctx context.Context) {
+	interval := time.Duration(common.BatchUpdateInterval) * time.Second
+	if interval <= 0 {
+		interval = time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
 			batchUpdate()
 		}
-	})
+	}
+}
+
+// FlushBatchUpdates synchronously persists all updates queued before the call.
+func FlushBatchUpdates() {
+	batchUpdate()
+}
+
+func saturatingAdd(a, b int) int {
+	if b > 0 && a > common.MaxWalletQuota-b {
+		return common.MaxWalletQuota
+	}
+	if b < 0 && a < common.MinWalletQuota-b {
+		return common.MinWalletQuota
+	}
+	return a + b
 }
 
 func addNewRecord(type_ int, id int, value int) {
 	batchUpdateLocks[type_].Lock()
 	defer batchUpdateLocks[type_].Unlock()
-	if _, ok := batchUpdateStores[type_][id]; !ok {
-		batchUpdateStores[type_][id] = value
-	} else {
-		batchUpdateStores[type_][id] += value
-	}
+	batchUpdateStores[type_][id] = saturatingAdd(batchUpdateStores[type_][id], value)
 }
 
 func batchUpdate() {
+	batchUpdateFlushLock.Lock()
+	defer batchUpdateFlushLock.Unlock()
+
 	// check if there's any data to update
 	hasData := false
 	for i := 0; i < BatchUpdateTypeCount; i++ {
@@ -107,7 +137,13 @@ func batchUpdate() {
 		userIDs[key] = struct{}{}
 	}
 	for key := range userIDs {
-		updateUserQuotaUsedQuotaAndRequestCount(key, userQuotaStore[key], usedQuotaStore[key], requestCountStore[key])
+		quotaDelta := userQuotaStore[key]
+		if err := updateUserQuotaUsedQuotaAndRequestCount(key, quotaDelta, usedQuotaStore[key], requestCountStore[key]); err == nil {
+			// A queued wallet mutation reaches Redis only after its database
+			// UPDATE has succeeded. This avoids exposing credits from a batch
+			// that was rejected by the final wallet boundary predicate.
+			syncUserQuotaDeltaCacheAsync(key, quotaDelta, "sync batched user quota")
+		}
 	}
 	common.SysLog("batch update finished")
 }

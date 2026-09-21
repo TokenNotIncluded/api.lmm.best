@@ -199,16 +199,22 @@ func consumeAssistantKeyPostgresFlowWithTwoFactor(token, sessionID, twoFactorCod
 	return err
 }
 
+func assistantKeyPostgresBlockedBy(db *gorm.DB, blockerPID int) (bool, error) {
+	var blocked bool
+	err := db.Raw(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM pg_stat_activity activity
+			WHERE ? = ANY(pg_blocking_pids(activity.pid))
+		)`, blockerPID).Scan(&blocked).Error
+	return blocked, err
+}
+
 func waitForAssistantKeyPostgresBlockedBy(t *testing.T, db *gorm.DB, blockerPID int) {
 	t.Helper()
 	for attempt := 0; attempt < 200; attempt++ {
-		var blocked bool
-		require.NoError(t, db.Raw(`
-			SELECT EXISTS (
-				SELECT 1
-				FROM pg_stat_activity activity
-				WHERE ? = ANY(pg_blocking_pids(activity.pid))
-			)`, blockerPID).Scan(&blocked).Error)
+		blocked, err := assistantKeyPostgresBlockedBy(db, blockerPID)
+		require.NoError(t, err)
 		if blocked {
 			return
 		}
@@ -218,18 +224,24 @@ func waitForAssistantKeyPostgresBlockedBy(t *testing.T, db *gorm.DB, blockerPID 
 	t.Fatalf("no PostgreSQL process was blocked by backend %d", blockerPID)
 }
 
+func assistantKeyPostgresRelationLocked(db *gorm.DB, schema, table, mode string, granted bool) (bool, error) {
+	var locked bool
+	err := db.Raw(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM pg_locks l
+			JOIN pg_class c ON c.oid = l.relation
+			JOIN pg_namespace n ON n.oid = c.relnamespace
+			WHERE n.nspname = ? AND c.relname = ? AND l.mode = ? AND l.granted = ?
+		)`, schema, table, mode, granted).Scan(&locked).Error
+	return locked, err
+}
+
 func waitForAssistantKeyPostgresRelationLock(t *testing.T, db *gorm.DB, schema, table, mode string, granted bool) {
 	t.Helper()
 	for attempt := 0; attempt < 200; attempt++ {
-		var locked bool
-		require.NoError(t, db.Raw(`
-			SELECT EXISTS (
-				SELECT 1
-				FROM pg_locks l
-				JOIN pg_class c ON c.oid = l.relation
-				JOIN pg_namespace n ON n.oid = c.relnamespace
-				WHERE n.nspname = ? AND c.relname = ? AND l.mode = ? AND l.granted = ?
-			)`, schema, table, mode, granted).Scan(&locked).Error)
+		locked, err := assistantKeyPostgresRelationLocked(db, schema, table, mode, granted)
+		require.NoError(t, err)
 		if locked {
 			return
 		}

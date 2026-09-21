@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+/* oxlint-disable react/no-danger -- SanitizedHtml is branded only after DOMPurify and post-mutation sanitization. */
 import DOMPurify, { type Config } from 'dompurify'
 import { useEffect, useMemo, useRef } from 'react'
 
@@ -33,7 +34,6 @@ const isolatedContentSandbox =
   'allow-forms allow-popups allow-popups-to-escape-sandbox allow-presentation'
 
 const isolatedContentBaseStyles = `
-<style>
   :host {
     display: block;
     width: 100%;
@@ -56,8 +56,13 @@ const isolatedContentBaseStyles = `
   iframe {
     border: 0;
   }
-</style>
 `
+
+declare const sanitizedHtmlBrand: unique symbol
+
+type SanitizedHtml = string & {
+  readonly [sanitizedHtmlBrand]: true
+}
 
 const isolatedSanitizeOptions = {
   ADD_ATTR: [
@@ -77,6 +82,7 @@ const isolatedSanitizeOptions = {
     'preload',
     'referrerpolicy',
     'rel',
+    'sandbox',
     'srclang',
     'style',
     'target',
@@ -87,15 +93,19 @@ const isolatedSanitizeOptions = {
   FORCE_BODY: true,
 } satisfies Config
 
-function hardenIsolatedHtml(html: string): string {
-  if (typeof document === 'undefined') {
-    return html
-  }
+function sanitizeToFragment(html: string, config: Config): DocumentFragment {
+  return DOMPurify.sanitize(html, {
+    ...config,
+    RETURN_DOM_FRAGMENT: true,
+  })
+}
 
-  const template = document.createElement('template')
-  template.innerHTML = html
+function sanitizeToHtml(html: string | Node, config?: Config): SanitizedHtml {
+  return DOMPurify.sanitize(html, config) as SanitizedHtml
+}
 
-  template.content.querySelectorAll('a[target="_blank"]').forEach((link) => {
+function hardenIsolatedHtml(fragment: DocumentFragment): void {
+  fragment.querySelectorAll('a[target="_blank"]').forEach((link) => {
     const rel = new Set(
       link.getAttribute('rel')?.split(/\s+/).filter(Boolean) ?? []
     )
@@ -105,7 +115,7 @@ function hardenIsolatedHtml(html: string): string {
     link.setAttribute('rel', [...rel].join(' '))
   })
 
-  template.content.querySelectorAll('iframe').forEach((frame) => {
+  fragment.querySelectorAll('iframe').forEach((frame) => {
     frame.removeAttribute('srcdoc')
     frame.setAttribute('sandbox', isolatedContentSandbox)
     frame.setAttribute('referrerpolicy', 'no-referrer')
@@ -114,21 +124,26 @@ function hardenIsolatedHtml(html: string): string {
       frame.setAttribute('loading', 'lazy')
     }
   })
-
-  return template.innerHTML
 }
 
 function sanitizeHtmlContent(
   content: string,
   variant: HtmlContentVariant
-): string {
+): SanitizedHtml {
   if (variant === 'isolated') {
-    const html = DOMPurify.sanitize(content, isolatedSanitizeOptions)
+    if (typeof document === 'undefined') {
+      return sanitizeToHtml(content, isolatedSanitizeOptions)
+    }
 
-    return hardenIsolatedHtml(html)
+    const fragment = sanitizeToFragment(content, isolatedSanitizeOptions)
+    hardenIsolatedHtml(fragment)
+
+    // Sanitize again after DOM mutation so mutation-XSS cannot bypass the
+    // policy between hardening and the eventual rendering sink.
+    return sanitizeToHtml(fragment, isolatedSanitizeOptions)
   }
 
-  return DOMPurify.sanitize(content)
+  return sanitizeToHtml(content)
 }
 
 function syncDarkClass(wrapper: HTMLElement): void {
@@ -136,9 +151,23 @@ function syncDarkClass(wrapper: HTMLElement): void {
   wrapper.classList.toggle('dark', isDark)
 }
 
+function SanitizedHtmlContent(props: {
+  className?: string
+  html: SanitizedHtml
+}): React.ReactElement {
+  return (
+    <div
+      className={props.className}
+      // biome-ignore lint/security/noDangerouslySetInnerHtml: SanitizedHtml values can only be created by DOMPurify.
+      // pi-lens-ignore: dangerously-set-inner-html, opengrep:typescript.react.security.audit.react-dangerouslysetinnerhtml.react-dangerouslysetinnerhtml
+      dangerouslySetInnerHTML={{ __html: props.html }}
+    />
+  )
+}
+
 function IsolatedHtmlContent(props: {
   className?: string
-  html: string
+  html: SanitizedHtml
 }): React.ReactElement {
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -158,16 +187,14 @@ function IsolatedHtmlContent(props: {
 
     const wrapper = document.createElement('div')
     syncDarkClass(wrapper)
-    wrapper.innerHTML = props.html
-
-    const contentTemplate = document.createElement('template')
-    contentTemplate.innerHTML = isolatedContentBaseStyles
-
-    shadowRoot.replaceChildren(
-      ...applicationStyleNodes,
-      contentTemplate.content,
-      wrapper
+    wrapper.replaceChildren(
+      sanitizeToFragment(props.html, isolatedSanitizeOptions)
     )
+
+    const contentStyle = document.createElement('style')
+    contentStyle.textContent = isolatedContentBaseStyles
+
+    shadowRoot.replaceChildren(...applicationStyleNodes, contentStyle, wrapper)
 
     const observer = new MutationObserver(() => syncDarkClass(wrapper))
     observer.observe(document.documentElement, {
@@ -195,13 +222,12 @@ export function HtmlContent(props: HtmlContentProps) {
   }
 
   return (
-    <div
+    <SanitizedHtmlContent
       className={cn(
         'prose prose-neutral dark:prose-invert max-w-none',
         props.className
       )}
-      // eslint-disable-next-line react/no-danger -- html is sanitized above
-      dangerouslySetInnerHTML={{ __html: html }}
+      html={html}
     />
   )
 }

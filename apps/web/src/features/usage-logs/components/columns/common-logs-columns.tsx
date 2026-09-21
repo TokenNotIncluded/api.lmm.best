@@ -36,7 +36,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
-import { formatBillingCurrencyFromUSD } from '@/lib/currency'
+import { formatPlatformAmount } from '@/lib/currency'
 import { formatLogQuota, formatTimestampToDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -94,7 +94,7 @@ function getGroupRatio(other: LogOtherData | null): number | null {
   return null
 }
 
-function getDynamicProfitMultiplier(other: LogOtherData | null): number | null {
+function getLegacyPricingAdjustment(other: LogOtherData | null): number | null {
   const multiplier = other?.dynamic_pricing
   if (multiplier == null || !Number.isFinite(multiplier) || multiplier <= 0) {
     return null
@@ -167,9 +167,9 @@ function buildTypeDetailSegments(
 
   const priceOpts = { digitsLarge: 4, digitsSmall: 6, abbreviate: false }
   const formatPrice = (price: number) =>
-    `${formatBillingCurrencyFromUSD(price, priceOpts)}/M`
+    `${formatPlatformAmount(price, priceOpts)}/M`
   const formatPriceCompact = (price: number) =>
-    formatBillingCurrencyFromUSD(price, priceOpts)
+    formatPlatformAmount(price, priceOpts)
   const formatPriceList = (prices: string[], showUnit: boolean) => {
     const text = prices.join(' / ')
     return showUnit ? `${text}/M` : text
@@ -233,7 +233,7 @@ function buildTypeDetailSegments(
     const isPerCall = isPerCallBilling(modelPrice)
     if (isPerCall && modelPrice != null) {
       segments.push({
-        text: `${t('Per-call')} · ${formatBillingCurrencyFromUSD(modelPrice, priceOpts)}`,
+        text: `${t('Per-call')} · ${formatPlatformAmount(modelPrice, priceOpts)}`,
       })
     } else if (other.model_ratio != null) {
       const inputPriceUSD = other.model_ratio * 2.0
@@ -566,7 +566,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
       let group = log.group
       if (!group) group = other?.group || ''
       const groupRatio = getGroupRatio(other)
-      const dynamicProfitMultiplier = getDynamicProfitMultiplier(other)
+      const legacyPricingAdjustment = getLegacyPricingAdjustment(other)
 
       return (
         <div className='flex max-w-[200px] flex-col gap-0.5'>
@@ -589,7 +589,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
               )}
             </Tooltip>
           </TooltipProvider>
-          {(group || groupRatio != null || dynamicProfitMultiplier != null) && (
+          {(group || groupRatio != null || legacyPricingAdjustment != null) && (
             <span className='flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs leading-none'>
               {group ? (
                 <GroupBadge
@@ -610,14 +610,14 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                   {t('Cost multiplier')} {formatRatioCompact(groupRatio)}x
                 </span>
               ) : null}
-              {dynamicProfitMultiplier != null ? (
+              {legacyPricingAdjustment != null ? (
                 <span
                   className='text-primary/80 relative top-px align-baseline tabular-nums'
-                  title={t('Profit multiplier')}
-                  aria-label={`${t('Profit multiplier')}: ${formatRatioCompact(dynamicProfitMultiplier)}x`}
+                  title={t('Legacy pricing adjustment')}
+                  aria-label={`${t('Legacy pricing adjustment')}: ${formatRatioCompact(legacyPricingAdjustment)}x`}
                 >
-                  {t('Profit multiplier')}{' '}
-                  {formatRatioCompact(dynamicProfitMultiplier)}x
+                  {t('Legacy pricing adjustment')}{' '}
+                  {formatRatioCompact(legacyPricingAdjustment)}x
                 </span>
               ) : null}
             </span>

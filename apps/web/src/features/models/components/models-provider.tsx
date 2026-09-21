@@ -25,7 +25,6 @@ import type {
   Vendor,
   SyncDiffData,
   SyncLocale,
-  SyncSource,
 } from '../types'
 
 // ============================================================================
@@ -59,9 +58,9 @@ type ModelsContextType = {
   ) => void
   upstreamConflicts: SyncDiffData['conflicts']
   setUpstreamConflicts: (conflicts: SyncDiffData['conflicts']) => void
-  syncWizardOptions: { locale: SyncLocale; source: SyncSource }
+  syncWizardOptions: { locale: SyncLocale }
   setSyncWizardOptions: React.Dispatch<
-    React.SetStateAction<{ locale: SyncLocale; source: SyncSource }>
+    React.SetStateAction<{ locale: SyncLocale }>
   >
   tabCategory: ModelTabCategory
   setTabCategory: (category: ModelTabCategory) => void
@@ -91,10 +90,8 @@ export function ModelsProvider({ children }: { children: React.ReactNode }) {
   >([])
   const [syncWizardOptions, setSyncWizardOptions] = useState<{
     locale: SyncLocale
-    source: SyncSource
   }>({
     locale: 'zh',
-    source: 'official',
   })
   const [tabCategory, setTabCategory] = useState<ModelTabCategory>('metadata')
 

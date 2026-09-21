@@ -31,7 +31,12 @@ var hotBucketDropped atomic.Uint64
 const seriesSchema = "dbcd0a3c01b55203"
 
 func Init() {
-	go flushLoop()
+	go Run(context.Background())
+}
+
+// Run owns the process-local metric flush loop until ctx is cancelled.
+func Run(ctx context.Context) {
+	flushLoop(ctx)
 }
 
 func RecordRelaySample(info *relaycommon.RelayInfo, success bool, outputTokens int64) {

@@ -147,7 +147,7 @@ func TestSetUserPermissionsStoresOnlyOverrides(t *testing.T) {
 			ActionSensitiveWrite: true,
 			ActionSecretView:     false,
 		},
-	}, ExplicitUserPermissions(42))
+	}, PermissionsMap{ResourceChannel: ExplicitUserPermissions(42)[ResourceChannel]})
 	assert.Equal(t, PermissionsMap{
 		ResourceChannel: {
 			ActionSensitiveWrite: true,
@@ -175,7 +175,7 @@ func TestSetUserPermissionsStoresOnlyOverrides(t *testing.T) {
 			ActionSensitiveWrite: false,
 			ActionSecretView:     false,
 		},
-	}, ExplicitUserPermissions(42))
+	}, PermissionsMap{ResourceChannel: ExplicitUserPermissions(42)[ResourceChannel]})
 	assert.Empty(t, ExplicitUserOverrides(42))
 }
 
@@ -268,4 +268,25 @@ func TestCapabilitiesUseCatalogShape(t *testing.T) {
 	assert.True(t, capabilities[ResourceChannel][ActionWrite])
 	assert.False(t, capabilities[ResourceChannel][ActionSensitiveWrite])
 	assert.False(t, capabilities[ResourceChannel][ActionSecretView])
+}
+
+func TestAcquisitionSummaryPermissionDoesNotGrantAccountDetails(t *testing.T) {
+	db := newAuthzTestDB(t)
+	require.NoError(t, Init(db))
+	assert.True(t, Can(92, common.RoleAdminUser, AcquisitionRead))
+	assert.True(t, Can(92, common.RoleAdminUser, AcquisitionWrite))
+	assert.False(t, Can(92, common.RoleAdminUser, AcquisitionDetails))
+	assert.False(t, Can(92, common.RoleAdminUser, AcquisitionExport))
+	assert.False(t, Can(93, common.RoleCommonUser, AcquisitionRead))
+}
+
+func TestAcquisitionDetailsAndExportMustBeGrantedSeparately(t *testing.T) {
+	db := newAuthzTestDB(t)
+	require.NoError(t, Init(db))
+	require.NoError(t, SetUserPermissions(94, PermissionsMap{"acquisition": {"details": true, "export": false}}))
+	assert.True(t, Can(94, common.RoleAdminUser, AcquisitionDetails))
+	assert.False(t, Can(94, common.RoleAdminUser, AcquisitionExport))
+	require.NoError(t, SetUserPermissions(94, PermissionsMap{"acquisition": {"details": false, "export": true}}))
+	assert.False(t, Can(94, common.RoleAdminUser, AcquisitionDetails))
+	assert.True(t, Can(94, common.RoleAdminUser, AcquisitionExport))
 }

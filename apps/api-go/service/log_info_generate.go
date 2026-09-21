@@ -50,6 +50,13 @@ func attachQuotaSaturation(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, o
 		clamp.Op, clamp.Kind, clamp.Original, clamp.Clamped, relayInfo.UserId, relayInfo.OriginModelName))
 }
 
+// AttachQuotaSaturation exposes the shared admin-only audit marker to callers
+// that build consume-log metadata outside the service package, such as channel
+// tests. It is a no-op when no conversion saturated.
+func AttachQuotaSaturation(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, other map[string]interface{}) {
+	attachQuotaSaturation(ctx, relayInfo, other)
+}
+
 func appendRequestPath(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, other map[string]interface{}) {
 	if other == nil {
 		return
@@ -138,8 +145,11 @@ func appendStreamStatus(relayInfo *relaycommon.RelayInfo, other map[string]inter
 		"status":     status,
 		"end_reason": string(ss.EndReason),
 	}
-	if ss.EndError != nil {
-		streamInfo["end_error"] = ss.EndError.Error()
+	if class := relaycommon.StreamErrorClass(ss.EndError); class != "" {
+		// Preserve the existing key for admin UI/schema compatibility while
+		// storing only a bounded class. Raw transport errors can contain
+		// upstream IPs, ports, proxy details, or other sensitive context.
+		streamInfo["end_error"] = class
 	}
 	if ss.ErrorCount > 0 {
 		streamInfo["error_count"] = ss.ErrorCount

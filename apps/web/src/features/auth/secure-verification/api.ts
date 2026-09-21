@@ -38,43 +38,120 @@ import type {
   VerificationMethods,
 } from './types'
 
+const VERIFICATION_PROBE_RETRY_DELAY_MS = 250
+
+type VerificationProbeResult<T> = { ok: true; value: T } | { ok: false }
+
+export interface VerificationProbeDependencies {
+  getSelf: () => ReturnType<typeof getSelf>
+  get2FAStatus: () => ReturnType<typeof get2FAStatus>
+  getPasskeyStatus: () => ReturnType<typeof getPasskeyStatus>
+  detectPasskeySupport: () => Promise<boolean>
+  wait: (delay: number) => Promise<void>
+  warn: (message: string, detail: string) => void
+}
+
+const defaultVerificationProbeDependencies: VerificationProbeDependencies = {
+  getSelf: () => getSelf(),
+  get2FAStatus: () => get2FAStatus({ skipErrorHandler: true }),
+  getPasskeyStatus: () => getPasskeyStatus({ skipErrorHandler: true }),
+  detectPasskeySupport,
+  wait: (delay) =>
+    new Promise((resolve) => globalThis.setTimeout(resolve, delay)),
+  // Expected probe failures are surfaced by the action that needs them.
+  // Keep optional capability checks from adding production console noise.
+  warn: () => undefined,
+}
+
 /**
  * Fetch available verification methods for the current user.
+ *
+ * Each capability is independent. A transient failure from one endpoint must
+ * not hide methods reported successfully by the other endpoints.
  */
-export async function checkVerificationMethods(): Promise<VerificationMethods> {
+export async function checkVerificationMethods(
+  dependencies: VerificationProbeDependencies = defaultVerificationProbeDependencies
+): Promise<VerificationMethods> {
+  const [selfProbe, twoFAProbe, passkeyProbe, passkeySupportProbe] =
+    await Promise.all([
+      probeVerificationMethod('account', dependencies.getSelf, dependencies),
+      probeVerificationMethod('2FA', dependencies.get2FAStatus, dependencies),
+      probeVerificationMethod(
+        'Passkey',
+        dependencies.getPasskeyStatus,
+        dependencies
+      ),
+      probeVerificationMethod(
+        'Passkey support',
+        dependencies.detectPasskeySupport,
+        dependencies
+      ),
+    ])
+
+  const selfResponse = selfProbe.ok ? selfProbe.value : undefined
+  const twoFAResponse = twoFAProbe.ok ? twoFAProbe.value : undefined
+  const passkeyResponse = passkeyProbe.ok ? passkeyProbe.value : undefined
+  const passkeySupported = passkeySupportProbe.ok
+    ? passkeySupportProbe.value
+    : false
+  const completedServerProbes = [selfProbe, twoFAProbe, passkeyProbe].filter(
+    (probe) => probe.ok
+  ).length
+  let availability: VerificationMethods['availability'] = 'partial'
+  if (completedServerProbes === 3) availability = 'complete'
+  if (completedServerProbes === 0) availability = 'unavailable'
+
+  const email = String(selfResponse?.data?.email ?? '').trim()
+  const has2FA =
+    Boolean(twoFAResponse?.success) && Boolean(twoFAResponse?.data?.enabled)
+  const hasPasskey =
+    Boolean(passkeyResponse?.success) && Boolean(passkeyResponse?.data?.enabled)
+
+  return {
+    hasEmail: email.length > 0,
+    emailHint: email ? maskEmail(email) : undefined,
+    has2FA,
+    hasPasskey,
+    passkeySupported,
+    availability,
+  }
+}
+
+async function probeVerificationMethod<T>(
+  method: string,
+  request: () => Promise<T>,
+  dependencies: Pick<VerificationProbeDependencies, 'wait' | 'warn'>
+): Promise<VerificationProbeResult<T>> {
   try {
-    const [selfResponse, twoFAResponse, passkeyResponse, passkeySupported] =
-      await Promise.all([
-        getSelf(),
-        get2FAStatus(),
-        getPasskeyStatus(),
-        detectPasskeySupport(),
-      ])
-
-    const email = String(selfResponse?.data?.email ?? '').trim()
-    const has2FA =
-      Boolean(twoFAResponse?.success) && Boolean(twoFAResponse?.data?.enabled)
-    const hasPasskey =
-      Boolean(passkeyResponse?.success) &&
-      Boolean(passkeyResponse?.data?.enabled)
-
-    return {
-      hasEmail: email.length > 0,
-      emailHint: email ? maskEmail(email) : undefined,
-      has2FA,
-      hasPasskey,
-      passkeySupported,
+    return { ok: true, value: await request() }
+  } catch (firstError) {
+    if (!isRetryableVerificationError(firstError)) {
+      dependencies.warn(
+        `[Secure Verification] Failed to check ${method}`,
+        String(firstError)
+      )
+      return { ok: false }
     }
-  } catch (error) {
-    // eslint-disable-next-line no-console
-    console.error('[Secure Verification] Failed to check methods', error)
-    return {
-      hasEmail: false,
-      has2FA: false,
-      hasPasskey: false,
-      passkeySupported: false,
+
+    await dependencies.wait(VERIFICATION_PROBE_RETRY_DELAY_MS)
+
+    try {
+      return { ok: true, value: await request() }
+    } catch (retryError) {
+      dependencies.warn(
+        `[Secure Verification] Failed to check ${method} after retry`,
+        String(retryError)
+      )
+      return { ok: false }
     }
   }
+}
+
+function isRetryableVerificationError(error: unknown): boolean {
+  const status = (error as { response?: { status?: unknown } })?.response
+    ?.status
+  if (typeof status !== 'number') return true
+  return status === 408 || status === 425 || status === 429 || status >= 500
 }
 
 function maskEmail(email: string): string {

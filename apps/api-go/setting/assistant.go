@@ -38,6 +38,7 @@ const (
 	AssistantCacheTTLMinutesOptionKey        = "AssistantCacheTTLMinutes"
 	AssistantPersonaOptionKey                = "AssistantPersona"
 	AssistantSystemPromptOptionKey           = "AssistantSystemPrompt"
+	AssistantPreConversationPresetsOptionKey = "AssistantPreConversationPresets"
 	AssistantSearchProviderOptionKey         = "AssistantSearchProvider"
 	AssistantSearchURLOptionKey              = "AssistantSearchURL"
 	AssistantSearchAPIKeyOptionKey           = "AssistantSearchAPIKey"
@@ -109,6 +110,7 @@ type AssistantSettings struct {
 	Model                  string
 	Group                  string
 	L1AutoApprovalUserIDs  string
+	L1AutoReview           AssistantL1AutoReviewSettings
 	ReasoningEffort        string
 	StreamEnabled          bool
 	Temperature            float64
@@ -157,13 +159,14 @@ var (
 		Model:                  DefaultAssistantModel,
 		Group:                  DefaultAssistantGroup,
 		L1AutoApprovalUserIDs:  DefaultAssistantL1AutoApprovalUserIDs,
+		L1AutoReview:           DefaultAssistantL1AutoReviewSettings(),
 		ReasoningEffort:        DefaultAssistantReasoningEffort,
 		StreamEnabled:          true,
 		Temperature:            DefaultAssistantTemperature,
 		MaxTokens:              DefaultAssistantMaxTokens,
 		AgentLoopEnabled:       true,
-		MaxSteps:               6,
-		TimeoutSeconds:         45,
+		MaxSteps:               12,
+		TimeoutSeconds:         90,
 		CacheEnabled:           true,
 		CacheTTLMinutes:        1440,
 		Persona:                "",
@@ -336,8 +339,8 @@ func SetAssistantAgentLoopEnabled(enabled bool) {
 
 func UpdateAssistantMaxSteps(value string) error {
 	steps, err := strconv.Atoi(strings.TrimSpace(value))
-	if err != nil || steps < 1 || steps > 12 {
-		return errors.New("assistant max steps must be between 1 and 12")
+	if err != nil || steps < 1 || steps > 32 {
+		return errors.New("assistant max steps must be between 1 and 32")
 	}
 
 	assistantSettingsMutex.Lock()
@@ -348,8 +351,8 @@ func UpdateAssistantMaxSteps(value string) error {
 
 func UpdateAssistantTimeoutSeconds(value string) error {
 	seconds, err := strconv.Atoi(strings.TrimSpace(value))
-	if err != nil || seconds < 5 || seconds > 120 {
-		return errors.New("assistant timeout must be between 5 and 120 seconds")
+	if err != nil || seconds < 5 || seconds > 300 {
+		return errors.New("assistant timeout must be between 5 and 300 seconds")
 	}
 
 	assistantSettingsMutex.Lock()
@@ -787,6 +790,10 @@ func UpdateAssistantRetentionIntervalHours(value string) error {
 }
 
 func ValidateAssistantOption(key string, value string) error {
+	if IsAssistantL1AutoReviewOption(key) {
+		_, err := ParseAssistantL1AutoReviewSettings(DefaultAssistantL1AutoReviewSettings(), map[string]string{key: value})
+		return err
+	}
 	switch key {
 	case AssistantReviewEnabledOptionKey:
 		if _, err := strconv.ParseBool(strings.TrimSpace(value)); err != nil {
@@ -828,13 +835,13 @@ func ValidateAssistantOption(key string, value string) error {
 		return validateAssistantNumber(value, 64, 8192, "assistant max tokens must be between 64 and 8192")
 	case AssistantMaxStepsOptionKey:
 		steps, err := strconv.Atoi(strings.TrimSpace(value))
-		if err != nil || steps < 1 || steps > 12 {
-			return errors.New("assistant max steps must be between 1 and 12")
+		if err != nil || steps < 1 || steps > 32 {
+			return errors.New("assistant max steps must be between 1 and 32")
 		}
 	case AssistantTimeoutSecondsOptionKey:
 		seconds, err := strconv.Atoi(strings.TrimSpace(value))
-		if err != nil || seconds < 5 || seconds > 120 {
-			return errors.New("assistant timeout must be between 5 and 120 seconds")
+		if err != nil || seconds < 5 || seconds > 300 {
+			return errors.New("assistant timeout must be between 5 and 300 seconds")
 		}
 	case AssistantCacheTTLMinutesOptionKey:
 		minutes, err := strconv.Atoi(strings.TrimSpace(value))
@@ -848,6 +855,23 @@ func ValidateAssistantOption(key string, value string) error {
 	case AssistantSystemPromptOptionKey:
 		if len([]rune(strings.TrimSpace(value))) > 8000 {
 			return errors.New("assistant system prompt must be at most 8000 characters")
+		}
+	case AssistantPreConversationPresetsOptionKey:
+		if len([]rune(value)) > 48_000 {
+			return errors.New("assistant pre-conversation presets must be at most 48000 characters")
+		}
+		if strings.TrimSpace(value) != "" && strings.TrimSpace(value) != "[]" {
+			var entries []struct{ ID, Label, Prompt string }
+			if err := json.Unmarshal([]byte(value), &entries); err != nil || len(entries) > 20 {
+				return errors.New("assistant pre-conversation presets must be a JSON array of at most 20 items")
+			}
+			seen := map[string]bool{}
+			for _, entry := range entries {
+				if !regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`).MatchString(entry.ID) || seen[entry.ID] || utf8.RuneCountInString(entry.Label) < 1 || utf8.RuneCountInString(entry.Label) > 80 || utf8.RuneCountInString(entry.Prompt) < 1 || utf8.RuneCountInString(entry.Prompt) > 2000 {
+					return errors.New("assistant pre-conversation preset entry is invalid")
+				}
+				seen[entry.ID] = true
+			}
 		}
 	case AssistantSearchProviderOptionKey:
 		if !IsAssistantSearchProvider(AssistantSearchProvider(strings.TrimSpace(value))) {

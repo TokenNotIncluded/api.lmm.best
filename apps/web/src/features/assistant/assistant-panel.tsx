@@ -30,7 +30,17 @@ import {
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { History, PanelLeft, Plus, Square } from 'lucide-react'
+import {
+  ArrowUpRight,
+  Download,
+  History,
+  KeyRound,
+  MessageCircle,
+  PanelLeft,
+  Plus,
+  Square,
+  Wrench,
+} from 'lucide-react'
 import { nanoid } from 'nanoid'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -71,9 +81,12 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
+import { WaitCompanion } from '@/components/wait-companion'
+import { useSystemConfig } from '@/hooks/use-system-config'
+import { getSelf } from '@/lib/api'
 import { isConsoleActivated } from '@/lib/console-activation'
 import { cn } from '@/lib/utils'
-import { useAuthStore } from '@/stores/auth-store'
+import { useAuthStore, type AuthUser } from '@/stores/auth-store'
 
 import {
   getAssistantAvailableModels,
@@ -81,6 +94,7 @@ import {
   getAssistantPreConversationPresets,
   getAssistantStatus,
   isAssistantRequestAborted,
+  isAssistantTurnUnavailable,
   recordAssistantPreConversationPresetClick,
   sendAssistantMessage,
   type AssistantPreConversationPreset,
@@ -104,9 +118,13 @@ import {
 import { AssistantAccountActionTool } from './assistant-account-action-tool'
 import { AssistantActivationTool } from './assistant-activation-tool'
 import { AssistantAdminChangeTool } from './assistant-admin-change-tool'
-import { copyAssistantText } from './assistant-clipboard'
+import {
+  copyAssistantText,
+  notifyAssistantCopyResult,
+} from './assistant-clipboard'
 import { AssistantCostTool } from './assistant-cost-tool'
 import {
+  requestAssistantOpen,
   subscribeToAssistantOpen,
   type AssistantPresetId,
 } from './assistant-events'
@@ -132,12 +150,24 @@ import { AssistantModelsTool } from './assistant-models-tool'
 import { AssistantNewUserGift } from './assistant-new-user-gift'
 import { AssistantOnboardingTodo } from './assistant-onboarding-todo'
 import { AssistantPlanTool } from './assistant-plan-tool'
+import {
+  ASSISTANT_PROMPT_PRESET_COPY_VERSION,
+  filterAssistantPreConversationPresets,
+  localizeAssistantPreConversationPresets,
+} from './assistant-prompt-presets'
 import { getAssistantPromptValidation } from './assistant-prompt-validation'
+import { AssistantRegistrationStatus } from './assistant-registration-status'
 import { AssistantSetupTool } from './assistant-setup-tool'
+import {
+  isExplicitAssistantHandoff,
+  type AssistantSupportInput,
+} from './assistant-support-api'
+import { AssistantSupportControls } from './assistant-support-controls'
 import { AssistantToolCalls } from './assistant-tool-calls'
 import { AssistantUsageTool } from './assistant-usage-tool'
 import { AssistantUserActionTool } from './assistant-user-action-tool'
 import { AssistantWeeklyDiscount } from './assistant-weekly-discount'
+import { useAssistantSupport } from './use-assistant-support'
 
 type AssistantActionPath =
   | '/'
@@ -172,7 +202,8 @@ type AssistantAction =
 
 type ConversationEntry = {
   id: string
-  role: 'user' | 'assistant'
+  role: 'user' | 'assistant' | 'human'
+  actorName?: string
   content: string
   tools?: AssistantToolTrace[]
   action?: AssistantAction
@@ -180,10 +211,13 @@ type ConversationEntry = {
   imageAction?: AssistantImageGenerationAction
   error?: boolean
   notice?: boolean
+  streaming?: boolean
+  interrupted?: boolean
   retry?: {
     message: string
     history: AssistantChatMessage[]
     presetId?: string
+    clientTurnId: string
   }
 }
 
@@ -238,6 +272,7 @@ function readAssistantClassicLayout(): boolean {
 
 function AssistantClassicWelcome() {
   const { t } = useTranslation()
+  const { systemName } = useSystemConfig()
   const prompts = [
     [t('Examples'), t('Explain an API setup')],
     [t('Examples'), t('Compare live model pricing')],
@@ -255,7 +290,7 @@ function AssistantClassicWelcome() {
         </div>
         <div className='min-w-0'>
           <p className='text-xs font-medium tracking-wide text-[#b5b5bd] uppercase'>
-            LMM Forge
+            {systemName}
           </p>
           <h2 className='mt-1 text-xl font-semibold tracking-tight text-[#f1f1f1] sm:text-2xl'>
             {t('How can I help?')}
@@ -302,12 +337,9 @@ function AssistantModernWelcome(props: {
 }) {
   const { t } = useTranslation()
 
-  /* Minimal gpt.ge-style empty state: one heading, one line of copy.
-   * Capability lanes and notice rows were cut — the preset chips under the
-   * composer already show what to ask. */
   return (
     <div
-      className='mx-auto flex w-full max-w-2xl flex-1 flex-col items-center justify-center gap-4 px-5 py-12 text-center sm:py-16'
+      className='mx-auto flex w-full max-w-2xl flex-col items-center justify-center gap-4 px-2 pt-10 pb-7 text-center sm:px-5 sm:pt-16 sm:pb-9'
       data-testid='assistant-modern-welcome'
     >
       <h2 className='text-2xl leading-snug font-semibold tracking-tight text-balance sm:text-3xl'>
@@ -322,12 +354,82 @@ function AssistantModernWelcome(props: {
   )
 }
 
+function AssistantGettingStartedActions(props: {
+  disabled: boolean
+  restricted: boolean
+  onOpen: (target: AssistantPresetId) => void
+}) {
+  const { t } = useTranslation()
+  const actions = [
+    {
+      icon: Download,
+      title: t('Download and connect a client'),
+      description: t('Choose your device and follow the installation steps.'),
+      open: () => props.onOpen('client-setup'),
+    },
+    {
+      icon: KeyRound,
+      title: props.restricted ? t('Get API access') : t('Create API key'),
+      description: props.restricted
+        ? t('Tell us your use case and follow the access review.')
+        : t('Create a key, then import it into a supported client.'),
+      open: () => props.onOpen(props.restricted ? 'onboarding' : 'api-key'),
+    },
+    {
+      icon: Wrench,
+      title: t('Fix a connection problem'),
+      description: t('Get help with sign-in, model selection, or API errors.'),
+      open: () =>
+        requestAssistantOpen(
+          undefined,
+          t(
+            'Help me troubleshoot my client connection. Ask for my device, client, and error message, then guide me step by step. Never ask for my API key.'
+          )
+        ),
+    },
+  ]
+
+  return (
+    <div
+      className='mx-auto mb-8 grid w-full max-w-xl gap-3 px-1 sm:px-4'
+      aria-label={t('Getting started')}
+      data-testid='assistant-getting-started-actions'
+    >
+      {actions.map(({ icon: Icon, title, description, open }) => (
+        <button
+          key={title}
+          type='button'
+          disabled={props.disabled}
+          onClick={open}
+          className='border-border/70 bg-background text-foreground hover:bg-muted focus-visible:ring-ring flex min-h-20 items-center gap-3 rounded-xl border px-4 py-4 text-start transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 sm:gap-4 sm:px-5'
+        >
+          <Icon
+            className='text-muted-foreground size-5 shrink-0'
+            aria-hidden='true'
+          />
+          <span className='min-w-0 flex-1'>
+            <span className='block text-sm font-medium'>{title}</span>
+            <span className='text-muted-foreground mt-1 block text-xs leading-5'>
+              {description}
+            </span>
+          </span>
+          <ArrowUpRight
+            className='text-muted-foreground size-4 shrink-0'
+            aria-hidden='true'
+          />
+        </button>
+      ))}
+    </div>
+  )
+}
+
 function AssistantClassicSidebar(props: {
   onNewConversation: () => void
   onOpenHistory: () => void
   onToggleLayout: () => void
 }) {
   const { t } = useTranslation()
+  const { systemName } = useSystemConfig()
   return (
     <aside
       className='hidden w-64 shrink-0 flex-col border-r border-[#4b4d56] bg-[#202123] text-[#ececf1] md:flex'
@@ -336,10 +438,8 @@ function AssistantClassicSidebar(props: {
       <div className='flex items-center gap-3 px-4 py-5'>
         <LmmBrandMark className='size-8' />
         <div className='min-w-0'>
-          <p className='truncate text-sm font-semibold'>LMM Forge</p>
-          <p className='truncate text-xs text-[#b5b5bd]'>
-            {t('Service guide')}
-          </p>
+          <p className='truncate text-sm font-semibold'>{systemName}</p>
+          <p className='truncate text-xs text-[#b5b5bd]'>{t('AI assistant')}</p>
         </div>
       </div>
       <div className='px-3'>
@@ -668,14 +768,19 @@ function AssistantPromptInputSync(props: {
 }
 
 function AssistantPresetPrompts(props: {
-  presets: AssistantPreConversationPreset[]
+  presets: AssistantPreConversationPreset[] | undefined
+  user: Pick<AuthUser, 'role' | 'trust_level_info'> | null
   onSelect: (preset: AssistantPreConversationPreset) => void
 }) {
   const { t } = useTranslation()
   const {
     textInput: { setInput },
   } = usePromptInputController()
-  if (props.presets.length === 0) return null
+  const presets = localizeAssistantPreConversationPresets(
+    filterAssistantPreConversationPresets(props.presets, props.user),
+    t
+  )
+  if (presets.length === 0) return null
 
   return (
     <div
@@ -684,13 +789,13 @@ function AssistantPresetPrompts(props: {
       aria-label={t('Choose a topic or write a message.')}
       data-testid='assistant-preset-prompts'
     >
-      {props.presets.map((preset) => (
+      {presets.map((preset) => (
         <Button
           key={preset.id}
           type='button'
           variant='ghost'
           size='sm'
-          className='bg-muted/40 h-auto min-h-8 shrink-0 rounded-full px-3 text-left whitespace-normal'
+          className='bg-muted/40 h-auto min-h-8 max-w-full shrink-0 rounded-full px-3 text-left whitespace-normal'
           onClick={() => {
             setInput(preset.prompt)
             props.onSelect(preset)
@@ -790,7 +895,7 @@ function AssistantPromptComposer(props: {
             type='button'
             variant='ghost'
             size='icon-sm'
-            className='text-muted-foreground hover:text-foreground'
+            className='text-muted-foreground hover:text-foreground size-11 sm:size-7'
             aria-label={t('Retry the last message')}
             title={t('Retry the last message')}
             data-testid='assistant-retry-last'
@@ -809,7 +914,7 @@ function AssistantPromptComposer(props: {
               variant='ghost'
               size='icon-sm'
               className={cn(
-                'text-muted-foreground hover:text-foreground',
+                'text-muted-foreground hover:text-foreground size-11 sm:size-7',
                 props.classicLayout &&
                   'text-[#19c37d] hover:bg-[#1aaf73] hover:text-[#202123]'
               )}
@@ -828,7 +933,7 @@ function AssistantPromptComposer(props: {
               size='icon-sm'
               aria-label={t('Send')}
               className={cn(
-                'size-8 rounded-full!',
+                'size-11 rounded-full! sm:size-8',
                 props.classicLayout
                   ? 'bg-[#19c37d] text-[#202123] hover:bg-[#1aaf73]'
                   : 'bg-primary text-primary-foreground hover:bg-primary/90'
@@ -871,11 +976,13 @@ function AssistantPanelHeader(props: {
   historyVisible: boolean
   historyDetail: boolean
   onOpenHistory: () => void
+  onContactSupport: () => void
   onCloseHistory: () => void
   onClose?: () => void
   fullscreen?: boolean
   onToggleFullscreen?: () => void
 }) {
+  const { systemName } = useSystemConfig()
   const { t } = useTranslation()
 
   if (props.classicLayout) {
@@ -902,7 +1009,7 @@ function AssistantPanelHeader(props: {
         <div className='min-w-0 flex-1'>
           <div className='flex min-w-0 items-center gap-2'>
             <h1 className='truncate text-sm font-semibold sm:text-base'>
-              LMM Forge
+              {systemName}
             </h1>
             <span className='hidden rounded-full border border-[#565869] px-2 py-0.5 text-[10px] tracking-wide text-[#b5b5bd] uppercase sm:inline'>
               {t('Classic chat')}
@@ -913,6 +1020,16 @@ function AssistantPanelHeader(props: {
           </p>
         </div>
         <div className='flex min-w-0 shrink-0 items-center gap-0.5'>
+          <Button
+            type='button'
+            variant='ghost'
+            size='icon-sm'
+            aria-label={t('Contact support')}
+            title={t('Contact support')}
+            onClick={props.onContactSupport}
+          >
+            <MessageCircle aria-hidden='true' />
+          </Button>
           <Button
             type='button'
             variant='ghost'
@@ -1020,12 +1137,37 @@ function AssistantPanelHeader(props: {
     )
   }
 
+  const supportActions = (
+    <>
+      <Button
+        type='button'
+        variant='ghost'
+        size='icon-sm'
+        aria-label={t('New conversation')}
+        title={t('New conversation')}
+        onClick={props.onNewConversation}
+      >
+        <Plus aria-hidden='true' />
+      </Button>
+      <Button
+        type='button'
+        variant='ghost'
+        size='icon-sm'
+        aria-label={t('Contact support')}
+        title={t('Contact support')}
+        onClick={props.onContactSupport}
+      >
+        <MessageCircle aria-hidden='true' />
+      </Button>
+    </>
+  )
+
   // Compact icon-only header for the overlay sheet and the desktop rail:
   // history + fullscreen on the left, close on the right. No dividers.
   if (props.mode === 'mobile') {
     return (
       <SheetHeader className='flex-row items-center gap-0.5 px-2 py-2 sm:px-3'>
-        <SheetTitle className='sr-only'>{t('Service guide')}</SheetTitle>
+        <SheetTitle className='sr-only'>{t('AI assistant')}</SheetTitle>
         <SheetDescription className='sr-only'>
           {props.description}
         </SheetDescription>
@@ -1042,6 +1184,7 @@ function AssistantPanelHeader(props: {
         >
           <History aria-hidden='true' />
         </Button>
+        {supportActions}
         <div className='ms-auto' />
         <Button
           type='button'
@@ -1078,6 +1221,7 @@ function AssistantPanelHeader(props: {
         >
           <History aria-hidden='true' />
         </Button>
+        {supportActions}
         <Button
           type='button'
           variant='ghost'
@@ -1117,6 +1261,7 @@ function AssistantPanelHeader(props: {
       >
         <History aria-hidden='true' />
       </Button>
+      {supportActions}
       <Button
         type='button'
         variant='ghost'
@@ -1156,7 +1301,7 @@ function AssistantPanelHeader(props: {
   )
 }
 
-export function AssistantPanel(props: {
+type AssistantPanelProps = {
   open: boolean
   mode?: AssistantPanelMode
   collapsed?: boolean
@@ -1170,20 +1315,60 @@ export function AssistantPanel(props: {
   onConversationReset?: () => void
   onToggleCollapsed?: () => void
   onToggleFullscreen?: () => void
-}) {
-  const { t } = useTranslation()
+}
+
+export function AssistantPanel(props: AssistantPanelProps) {
+  const userId = useAuthStore((state) => state.auth.user?.id)
+  const sessionId = useAuthStore((state) => state.auth.session?.sid)
+  return <AssistantPanelSession key={`${userId}:${sessionId}`} {...props} />
+}
+
+function AssistantPanelSession(props: AssistantPanelProps) {
+  const { t, i18n } = useTranslation()
+  const { systemName } = useSystemConfig()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const mode = props.mode ?? 'mobile'
   const onConversationReset = props.onConversationReset
   const panelVisible = mode === 'page' ? true : props.open
   const baseUrl = getBaseUrl()
+  const authUser = useAuthStore((state) => state.auth.user)
+  const authSessionId = useAuthStore((state) => state.auth.session?.sid)
+  const refreshAuthenticatedUser = useCallback(async () => {
+    const expectedUserId = authUser?.id
+    const expectedSessionId = authSessionId
+    if (!expectedUserId || !expectedSessionId) return
+    try {
+      const response = await getSelf()
+      const current = useAuthStore.getState().auth
+      if (
+        response?.success &&
+        response.data &&
+        current.user?.id === expectedUserId &&
+        current.session?.sid === expectedSessionId
+      ) {
+        current.setUser(response.data as AuthUser)
+      }
+    } catch {
+      // The assistant status is still refreshed below; focus/reload can retry
+      // the account snapshot without turning a successful grant into an error.
+    }
+  }, [authSessionId, authUser?.id])
+  const mountedRef = useRef(true)
+  const conversationGenerationRef = useRef(0)
   const [entries, setEntries] = useState<ConversationEntry[]>([])
   const [conversationId, setConversationId] = useState<number | null>(null)
+  const [conversationResetRevision, setConversationResetRevision] = useState(0)
+  const support = useAssistantSupport(
+    conversationId,
+    panelVisible,
+    conversationResetRevision
+  )
   const [selectedPreConversationPresetId, setSelectedPreConversationPresetId] =
     useState<string | null>(null)
   const [conversationRestricted, setConversationRestricted] = useState(false)
   const [sending, setSending] = useState(false)
+  const [agentStep, setAgentStep] = useState(0)
   const assistantAbortControllerRef = useRef<AbortController | null>(null)
   const [classicLayout, setClassicLayout] = useState(readAssistantClassicLayout)
   const submittedAutoSendIdRef = useRef<string | undefined>(undefined)
@@ -1216,13 +1401,7 @@ export function AssistantPanel(props: {
   >(null)
   const openedTargetRef = useRef<AssistantPresetId | undefined>(undefined)
   const activeToolRegionRef = useRef<HTMLDivElement | null>(null)
-  const [conversationResetRevision, setConversationResetRevision] = useState(0)
-  useEffect(
-    () => () => {
-      assistantAbortControllerRef.current?.abort()
-    },
-    []
-  )
+  const latestAssistantMessageRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
     try {
       window.localStorage.setItem(
@@ -1234,7 +1413,7 @@ export function AssistantPanel(props: {
     }
   }, [classicLayout])
   const statusQuery = useQuery({
-    queryKey: ['assistant-status'],
+    queryKey: ['assistant-status', authUser?.id, authSessionId],
     queryFn: getAssistantStatus,
     enabled: panelVisible,
     staleTime: 30_000,
@@ -1248,9 +1427,17 @@ export function AssistantPanel(props: {
     accountAccessState === 'granted' || accountAccessState === 'restricted'
   const developerAccessGranted = accountAccessState === 'granted'
   const assistantRouteUnavailable = statusQuery.data?.route_available === false
+  const presetLanguage = i18n.resolvedLanguage || i18n.language
   const preConversationPresetsQuery = useQuery({
-    queryKey: ['assistant-pre-conversation-presets'],
-    queryFn: getAssistantPreConversationPresets,
+    queryKey: [
+      'assistant-pre-conversation-presets',
+      ASSISTANT_PROMPT_PRESET_COPY_VERSION,
+      presetLanguage,
+      authUser?.id,
+      authSessionId,
+    ],
+    queryFn: () => getAssistantPreConversationPresets(presetLanguage),
+    placeholderData: (previous) => previous,
     // Presets are public onboarding guidance, not an L0-only capability.
     // Keep them available for L1/admin users too so returning users can still
     // discover the assistant's current workflows.
@@ -1258,13 +1445,15 @@ export function AssistantPanel(props: {
     staleTime: 5 * 60_000,
     retry: false,
   })
-  const authUser = useAuthStore((state) => state.auth.user)
-  useEffect(
-    () => () => {
-      assistantAbortControllerRef.current?.abort()
-    },
-    []
-  )
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      const pending = assistantAbortControllerRef.current
+      assistantAbortControllerRef.current = null
+      pending?.abort()
+    }
+  }, [])
   const isAdministrator = statusQuery.data?.is_admin === true
   const accessLevel = statusQuery.data?.access_level
   const withAccessLevel = (message: string) =>
@@ -1272,7 +1461,7 @@ export function AssistantPanel(props: {
   const superAdministratorFunded =
     statusQuery.data?.funding?.mode === 'super_administrator'
   const connectionModelsQuery = useQuery({
-    queryKey: ['assistant-available-models'],
+    queryKey: ['assistant-available-models', authUser?.id, authSessionId],
     queryFn: getAssistantAvailableModels,
     enabled:
       props.open &&
@@ -1301,7 +1490,7 @@ export function AssistantPanel(props: {
   if (isAdministrator) {
     assistantFooterStatus = withAccessLevel(t('Administrator mode'))
     assistantDescription = t(
-      'Administrator mode can inspect safe server settings and prepare model pricing changes for your confirmation.'
+      'Administrator mode executes requested management tasks using your current permissions and reports the results.'
     )
     assistantPromptPlaceholder = t(
       'Ask about server configuration, model pricing, or operations...'
@@ -1310,7 +1499,7 @@ export function AssistantPanel(props: {
     assistantFooterStatus = withAccessLevel(
       superAdministratorFunded
         ? t('Funded by the super administrator')
-        : t('Loading...')
+        : t('Write actions need your confirmation')
     )
     assistantDescription = t(
       'Guidance for plans, setup, API keys, costs, and support.'
@@ -1359,8 +1548,106 @@ export function AssistantPanel(props: {
     )
   }, [clearToolState])
 
+  const cancelPendingReply = useCallback(() => {
+    // Detach first: a cancelled request may still settle after another thread opens.
+    const pending = assistantAbortControllerRef.current
+    assistantAbortControllerRef.current = null
+    pending?.abort()
+    setSending(false)
+  }, [])
+
+  const wasHumanSupportRef = useRef(false)
+  useEffect(() => {
+    if (support.request && conversationId === null) {
+      setConversationId(support.request.conversation_id)
+    }
+  }, [conversationId, support.request])
+  useEffect(() => {
+    if (!support.aiPaused) return
+    cancelPendingReply()
+    clearTransientCards()
+    setEntries((current) => current.filter((entry) => !entry.streaming))
+  }, [support.aiPaused, cancelPendingReply, clearTransientCards])
+  useEffect(() => {
+    if (
+      !support.messages ||
+      support.request?.conversation_id !== conversationId
+    ) {
+      return
+    }
+    if (!support.aiPaused && !wasHumanSupportRef.current) return
+    if (assistantAbortControllerRef.current) return
+    const restored = support.messages.flatMap<ConversationEntry>((message) => {
+      if (message.role === 'secure_card') return []
+      return [
+        {
+          id: `history-${message.id}`,
+          role: message.role,
+          actorName: message.actor_name,
+          content: redactAssistantMessageForDisplay(
+            message.content,
+            t(
+              'Sensitive details are hidden until confirmation and remain visible only to you.'
+            )
+          ).content,
+        },
+      ]
+    })
+    setEntries(restored)
+    wasHumanSupportRef.current = support.aiPaused
+  }, [
+    support.detailRevision,
+    support.messages,
+    support.aiPaused,
+    support.request?.conversation_id,
+    conversationId,
+    t,
+  ])
+
+  const createSupport = async (
+    input: AssistantSupportInput
+  ): Promise<boolean> => {
+    if (!authUser || support.busy) return false
+    const generation = conversationGenerationRef.current
+    if (input.kind === 'handoff') {
+      cancelPendingReply()
+      clearTransientCards()
+      setEntries((current) => current.filter((entry) => !entry.streaming))
+    }
+    try {
+      const result = await support.create(input)
+      if (
+        !result ||
+        !mountedRef.current ||
+        conversationGenerationRef.current !== generation
+      ) {
+        return false
+      }
+      setConversationId(result.request.conversation_id)
+      if (!result.created) {
+        toast.message(
+          t('Your existing support request is already being handled.')
+        )
+      }
+      return true
+    } catch (error) {
+      if (
+        mountedRef.current &&
+        conversationGenerationRef.current === generation
+      ) {
+        toast.error(
+          error instanceof Error
+            ? t(error.message)
+            : t('Unable to update human support')
+        )
+      }
+      return false
+    }
+  }
+
   const resetConversation = useCallback(() => {
-    assistantAbortControllerRef.current?.abort()
+    conversationGenerationRef.current += 1
+    cancelPendingReply()
     setEntries([])
     setConversationId(null)
     setSelectedPreConversationPresetId(null)
@@ -1370,13 +1657,22 @@ export function AssistantPanel(props: {
     openedTargetRef.current = undefined
     setConversationResetRevision((revision) => revision + 1)
     onConversationReset?.()
-  }, [clearToolState, onConversationReset])
+  }, [cancelPendingReply, clearToolState, onConversationReset])
 
   const continueHistoryConversation = useCallback(
     (detail: AssistantConversationHistoryDetail) => {
+      conversationGenerationRef.current += 1
+      setConversationResetRevision((revision) => revision + 1)
+      cancelPendingReply()
       const restoredEntries = detail.messages.flatMap<ConversationEntry>(
         (message) => {
-          if (message.role !== 'user' && message.role !== 'assistant') return []
+          if (
+            message.role !== 'user' &&
+            message.role !== 'assistant' &&
+            message.role !== 'human'
+          ) {
+            return []
+          }
           const safeMessage = redactAssistantMessageForDisplay(
             message.content,
             t(
@@ -1387,6 +1683,7 @@ export function AssistantPanel(props: {
             {
               id: `history-${message.id}`,
               role: message.role,
+              actorName: message.actor_name,
               content: safeMessage.content,
             },
           ]
@@ -1398,7 +1695,7 @@ export function AssistantPanel(props: {
       clearToolState()
       setHistoryView(null)
     },
-    [clearToolState, t]
+    [cancelPendingReply, clearToolState, t]
   )
 
   const openAssistantTarget = useCallback(
@@ -1462,11 +1759,23 @@ export function AssistantPanel(props: {
   const requestAssistantReply = async (
     message: string,
     history: AssistantChatMessage[],
-    presetId?: string
+    presetId?: string,
+    replay = false,
+    clientTurnId = nanoid()
   ) => {
+    if (
+      assistantAbortControllerRef.current ||
+      support.aiPaused ||
+      support.busy
+    ) {
+      return
+    }
     setSending(true)
+    setAgentStep(0)
     const abortController = new AbortController()
     assistantAbortControllerRef.current = abortController
+    const isCurrentRequest = () =>
+      assistantAbortControllerRef.current === abortController
     const streamingEntryId = nanoid()
     let streamedContent = ''
     let streamFrame: number | null = null
@@ -1475,9 +1784,10 @@ export function AssistantPanel(props: {
     )
     setEntries((current) => [
       ...current,
-      { id: streamingEntryId, role: 'assistant', content: '' },
+      { id: streamingEntryId, role: 'assistant', content: '', streaming: true },
     ])
     const renderStreamedContent = () => {
+      if (!isCurrentRequest()) return
       const safeContent = redactAssistantMessageForDisplay(
         streamedContent,
         displayRedactionNotice
@@ -1504,11 +1814,18 @@ export function AssistantPanel(props: {
         conversationId ?? undefined,
         presetId,
         {
+          onProgress: ({ step }) => {
+            if (isCurrentRequest() && !abortController.signal.aborted) {
+              setAgentStep(step)
+            }
+          },
           onDelta: (delta) => {
+            if (!isCurrentRequest() || abortController.signal.aborted) return
             streamedContent += delta
             scheduleStreamRender()
           },
           onReset: () => {
+            if (!isCurrentRequest() || abortController.signal.aborted) return
             if (streamFrame !== null) {
               window.cancelAnimationFrame(streamFrame)
               streamFrame = null
@@ -1517,9 +1834,18 @@ export function AssistantPanel(props: {
             renderStreamedContent()
           },
         },
-        abortController.signal
+        abortController.signal,
+        replay,
+        clientTurnId
       )
+      if (!isCurrentRequest()) return
+      abortController.signal.throwIfAborted()
+      if (streamFrame !== null) {
+        window.cancelAnimationFrame(streamFrame)
+        streamFrame = null
+      }
       if (reply.conversationId) setConversationId(reply.conversationId)
+      void support.refresh()
       if (reply.restricted) setConversationRestricted(true)
       const safeReply = redactAssistantMessageForDisplay(
         reply.content,
@@ -1546,6 +1872,13 @@ export function AssistantPanel(props: {
         reply.action?.type === 'user_account_action'
           ? reply.action
           : undefined
+      const directL1GrantSucceeded =
+        reply.tools?.some(
+          (trace) =>
+            trace.name === 'grant_l1_access' &&
+            trace.status === 'output-available'
+        ) === true
+      if (directL1GrantSucceeded) void refreshAuthenticatedUser()
       let suggestedAction: AssistantAction | undefined
       const restrictedTargetAllowed =
         accountAccessState === 'restricted' &&
@@ -1563,7 +1896,15 @@ export function AssistantPanel(props: {
       if (developerAccessGranted || restrictedTargetAllowed) {
         suggestedAction = getAssistantActionForTarget(suggestedTarget, t)
       }
-      if (imageAction) {
+      if (directL1GrantSucceeded) {
+        setRecommendationDraft(null)
+        setAccountDisableDraft(null)
+        setHumanSupportAction(null)
+        setKeyCreationAction(null)
+        setUserActionDraft(null)
+        setActiveTool('setup')
+        suggestedAction = getAssistantActionForTarget('client-setup', t)
+      } else if (imageAction) {
         setRecommendationDraft(null)
         setAccountDisableDraft(null)
         setHumanSupportAction(null)
@@ -1591,14 +1932,16 @@ export function AssistantPanel(props: {
           href: assistantNavigationHref(reply.action),
         }
       } else if (reply.action?.type === 'l1_recommendation') {
-        setRecommendationDraft(reply.action)
+        // Old cached replies may contain a letter/token. Access is now decided
+        // from server-recorded evidence; do not restore that retired form.
+        setRecommendationDraft(null)
         setAccountDisableDraft(null)
         setHumanSupportAction(null)
         setUserActionDraft(null)
         setActiveTool('activation')
         suggestedAction = {
           kind: 'tool',
-          label: t('Review AI recommendation'),
+          label: t('Registration verification'),
           tool: 'activation',
         }
       } else if (reply.action?.type === 'account_disable_request') {
@@ -1637,6 +1980,7 @@ export function AssistantPanel(props: {
       if (
         accountAccessState === 'restricted' &&
         isExplicitAssistantL1Request(message) &&
+        !directL1GrantSucceeded &&
         !adminChange &&
         !imageAction &&
         !humanSupportAction &&
@@ -1649,7 +1993,7 @@ export function AssistantPanel(props: {
         setActiveTool('activation')
         suggestedAction ??= {
           kind: 'tool',
-          label: t('Submit for administrator review'),
+          label: t('Registration verification'),
           tool: 'activation',
         }
       }
@@ -1672,63 +2016,76 @@ export function AssistantPanel(props: {
       if (explicitNavigation && developerAccessGranted) {
         void navigate({ to: explicitNavigation })
       }
-      await queryClient.invalidateQueries({ queryKey: ['assistant-status'] })
-      await queryClient.invalidateQueries({ queryKey: ['assistant-journey'] })
-      await queryClient.invalidateQueries({
-        queryKey: ['assistant-new-user-gift'],
-      })
-      await queryClient.invalidateQueries({
-        queryKey: ['assistant-weekly-discount'],
-      })
-      await queryClient.invalidateQueries({
-        queryKey: ['assistant-conversations'],
-      })
+      // Account/history refreshes must not keep the completed answer's composer locked.
+      void Promise.all(
+        [
+          'assistant-status',
+          'assistant-registration-state',
+          'assistant-journey',
+          'assistant-new-user-gift',
+          'assistant-weekly-discount',
+          'assistant-conversations',
+        ].map((key) => queryClient.invalidateQueries({ queryKey: [key] }))
+      ).catch(() => undefined)
     } catch (error) {
-      if (isAssistantRequestAborted(error)) {
+      if (!isCurrentRequest()) return
+      if (isAssistantRequestAborted(error) || abortController.signal.aborted) {
         if (streamFrame !== null) {
           window.cancelAnimationFrame(streamFrame)
           streamFrame = null
         }
-        if (streamedContent) {
-          renderStreamedContent()
-        } else {
-          setEntries((current) =>
-            current.map((entry) =>
-              entry.id === streamingEntryId
-                ? { ...entry, content: t('Response stopped.'), notice: true }
-                : entry
-            )
+        const content = redactAssistantMessageForDisplay(
+          streamedContent,
+          displayRedactionNotice
+        ).content
+        setEntries((current) =>
+          current.map((entry) =>
+            entry.id === streamingEntryId
+              ? {
+                  ...entry,
+                  content,
+                  streaming: false,
+                  interrupted: true,
+                  retry: { message, history, presetId, clientTurnId },
+                }
+              : entry
           )
-        }
+        )
         return
       }
-      const canSubmitWithoutAssistant =
+      const showVerificationOnFailure =
         accountAccessState === 'restricted' &&
         isExplicitAssistantL1Request(message)
-      if (canSubmitWithoutAssistant) {
+      if (showVerificationOnFailure) {
         setRecommendationDraft(null)
         setActiveTool('activation')
       }
       let errorAction: AssistantAction | undefined
-      if (canSubmitWithoutAssistant) {
+      if (showVerificationOnFailure) {
         errorAction = {
           kind: 'tool',
-          label: t('Submit for administrator review'),
+          label: t('Registration verification'),
           tool: 'activation',
         }
-      } else if (developerAccessGranted) {
+      } else if (accountAccessConfirmed) {
         errorAction = {
-          kind: 'route',
+          kind: 'tool',
           label: t('Contact support'),
-          to: '/support',
+          tool: 'handoff',
         }
       }
       const errorEntry: ConversationEntry = {
         id: nanoid(),
         role: 'assistant',
-        content: assistantFailureMessage(error, t),
+        content: isAssistantTurnUnavailable(error)
+          ? t(
+              'This saved reply is no longer available. Send a new message to continue.'
+            )
+          : assistantFailureMessage(error, t),
         error: true,
-        retry: { message, history, presetId },
+        retry: isAssistantTurnUnavailable(error)
+          ? undefined
+          : { message, history, presetId, clientTurnId },
         action: errorAction,
       }
       setEntries((current) => [
@@ -1739,14 +2096,50 @@ export function AssistantPanel(props: {
       if (streamFrame !== null) window.cancelAnimationFrame(streamFrame)
       if (assistantAbortControllerRef.current === abortController) {
         assistantAbortControllerRef.current = null
+        setSending(false)
       }
-      setSending(false)
     }
   }
 
   const submitMessage = async ({ text }: { text?: string }) => {
     const message = text?.trim()
-    if (sending || conversationRestricted) return
+    if (message && authUser && isExplicitAssistantHandoff(message)) {
+      if (!(await createSupport({ kind: 'handoff', topic: message }))) {
+        throw new Error(t('Unable to update human support'))
+      }
+      return
+    }
+    if (support.aiPaused && message) {
+      const safe = redactAssistantMessageForRequest(message)
+      if (!hasAssistantMessageSubstantialMeaning(safe.content)) {
+        throw new Error(t('Please enter a message.'))
+      }
+      const generation = conversationGenerationRef.current
+      try {
+        await support.send(safe.content)
+      } catch (error) {
+        if (
+          mountedRef.current &&
+          conversationGenerationRef.current === generation
+        ) {
+          toast.error(
+            error instanceof Error
+              ? t(error.message)
+              : t('Unable to update human support')
+          )
+        }
+        throw error
+      }
+      return
+    }
+    if (
+      assistantAbortControllerRef.current ||
+      conversationRestricted ||
+      support.busy ||
+      assistantRouteUnavailable
+    ) {
+      return
+    }
     if (!message) {
       throw new Error(t('Please enter a message.'))
     }
@@ -1775,10 +2168,18 @@ export function AssistantPanel(props: {
       return
     }
     const history: AssistantChatMessage[] = entries
-      .filter((entry) => !entry.error && !entry.notice)
-      .map((entry) => ({ role: entry.role, content: entry.content }))
+      .filter((entry) => !entry.error && !entry.notice && !entry.interrupted)
+      .map((entry) => ({
+        role: entry.role === 'human' ? ('assistant' as const) : entry.role,
+        content:
+          entry.role === 'human'
+            ? `[Human technical support] ${entry.content}`
+            : entry.content,
+      }))
     setEntries((current) => [
-      ...current,
+      ...current.map((entry) =>
+        entry.retry ? { ...entry, retry: undefined } : entry
+      ),
       { id: nanoid(), role: 'user', content: safeMessage.content },
       ...(safeMessage.redacted
         ? [
@@ -1827,12 +2228,22 @@ export function AssistantPanel(props: {
   ])
 
   const retryMessage = async (entry: ConversationEntry) => {
-    if (!entry.retry || sending) return
+    if (
+      !entry.retry ||
+      support.aiPaused ||
+      support.busy ||
+      assistantAbortControllerRef.current ||
+      conversationRestricted
+    ) {
+      return
+    }
     setEntries((current) => current.filter((item) => item.id !== entry.id))
     await requestAssistantReply(
       entry.retry.message,
       entry.retry.history,
-      entry.retry.presetId
+      entry.retry.presetId,
+      true,
+      entry.retry.clientTurnId
     )
   }
 
@@ -1841,7 +2252,7 @@ export function AssistantPanel(props: {
       .filter((entry) => !entry.notice && !entry.error)
       .map(
         (entry) =>
-          `${entry.role === 'user' ? t('You') : t('Assistant')}: ${entry.content}`
+          `${entry.role === 'user' ? t('You') : entry.role === 'human' ? entry.actorName || t('Human technical support') : t('Assistant')}: ${entry.content}`
       )
       .join('\n\n')
 
@@ -1851,19 +2262,26 @@ export function AssistantPanel(props: {
     return copyAssistantText(text, navigator.clipboard)
   }
 
+  const notifyCopyResult = (copied: boolean) => {
+    notifyAssistantCopyResult(copied, {
+      success: () => toast.success(t('Conversation copied')),
+      error: () => toast.error(t('Copy failed')),
+    })
+  }
+
   const handleShareConversation = async () => {
     const text = conversationText()
     if (!text) return
     if (typeof navigator.share === 'function') {
       try {
-        await navigator.share({ title: 'LMM Forge', text })
+        await navigator.share({ title: systemName, text })
         return
       } catch {
         // User dismissed the share sheet — fall through to clipboard.
       }
     }
     const copied = await copyAssistantText(text, navigator.clipboard)
-    toast.success(copied ? t('Conversation copied') : t('Copy failed'))
+    notifyCopyResult(copied)
   }
 
   const panelContent = (
@@ -1873,6 +2291,16 @@ export function AssistantPanel(props: {
         description={assistantDescription}
         classicLayout={classicLayout}
         onNewConversation={resetConversation}
+        onContactSupport={() => {
+          if (authUser) {
+            setHistoryView(null)
+            void createSupport({ kind: 'handoff' })
+            return
+          }
+          assistantAbortControllerRef.current?.abort()
+          if (openAssistantTarget('human')) setHistoryView(null)
+          else void navigate({ to: '/support' })
+        }}
         onToggleClassicLayout={() => setClassicLayout((value) => !value)}
         historyVisible={historyVisible}
         historyDetail={historyView !== null && historyView !== 'list'}
@@ -1980,14 +2408,26 @@ export function AssistantPanel(props: {
                         restricted={accountAccessState === 'restricted'}
                       />
                     )}
+                    <AssistantGettingStartedActions
+                      disabled={!accountAccessConfirmed}
+                      restricted={accountAccessState === 'restricted'}
+                      onOpen={(target) => openAssistantTarget(target)}
+                    />
                   </div>
                 </div>
               ) : (
                 <>
                   {entries.map((entry) => (
                     <Message
-                      from={entry.role}
+                      from={entry.role === 'human' ? 'assistant' : entry.role}
                       key={entry.id}
+                      ref={
+                        entry.role === 'assistant' &&
+                        entry.id === entries.at(-1)?.id
+                          ? latestAssistantMessageRef
+                          : undefined
+                      }
+                      tabIndex={entry.role === 'assistant' ? -1 : undefined}
                       className={cn(
                         classicLayout &&
                           'assistant-classic-message mx-auto w-full max-w-3xl items-start px-5 py-5 sm:px-8 sm:py-6',
@@ -2019,13 +2459,19 @@ export function AssistantPanel(props: {
                         {classicLayout && entry.role === 'assistant' ? (
                           <div className='mb-3 flex items-center gap-2 text-xs font-medium text-[#f1f1f1]'>
                             <LmmBrandMark className='size-6' />
-                            <span>LMM Forge</span>
+                            <span>{systemName}</span>
                           </div>
+                        ) : null}
+                        {entry.role === 'human' ? (
+                          <p className='text-muted-foreground text-xs font-medium'>
+                            {t('Human technical support')} ·{' '}
+                            {entry.actorName || t('Administrator')}
+                          </p>
                         ) : null}
                         {entry.role === 'assistant' ? (
                           <Response
                             className='max-w-full leading-7 break-words [&_pre]:max-w-full [&_pre]:overflow-x-auto'
-                            final
+                            final={!entry.streaming}
                           >
                             {entry.content}
                           </Response>
@@ -2034,13 +2480,21 @@ export function AssistantPanel(props: {
                             {entry.content}
                           </p>
                         )}
+                        {entry.interrupted ? (
+                          <p
+                            className='text-muted-foreground text-xs'
+                            role='status'
+                          >
+                            {t('Response stopped.')}
+                          </p>
+                        ) : null}
                         {entry.tools?.length ? (
                           <AssistantToolCalls traces={entry.tools} />
                         ) : null}
-                        {entry.imageAction ? (
+                        {!support.aiPaused && entry.imageAction ? (
                           <AssistantImageTool action={entry.imageAction} />
                         ) : null}
-                        {entry.adminChange ? (
+                        {!support.aiPaused && entry.adminChange ? (
                           <AssistantAdminChangeTool
                             action={entry.adminChange}
                             onApplied={() => {
@@ -2048,14 +2502,14 @@ export function AssistantPanel(props: {
                             }}
                           />
                         ) : null}
-                        {entry.retry || entry.action ? (
+                        {!support.aiPaused && (entry.retry || entry.action) ? (
                           <div className='flex flex-wrap gap-2'>
                             {entry.retry ? (
                               <Button
                                 type='button'
                                 variant='outline'
                                 onClick={() => void retryMessage(entry)}
-                                disabled={sending}
+                                disabled={sending || conversationRestricted}
                               >
                                 <HugeiconsIcon
                                   icon={ReloadIcon}
@@ -2085,128 +2539,134 @@ export function AssistantPanel(props: {
                         aria-live='polite'
                       >
                         <Loader size={14} />
-                        <span>{t('Assistant is thinking...')}</span>
+                        <span>
+                          {t('Assistant is thinking...')}
+                          {agentStep > 0 ? ` · ${agentStep}` : ''}
+                        </span>
                       </MessageContent>
                     </Message>
                   ) : null}
                   <AssistantNewUserGift enabled={accountAccessConfirmed} />
                   <AssistantWeeklyDiscount enabled={accountAccessConfirmed} />
-                  <div
-                    ref={activeToolRegionRef}
-                    className={cn(
-                      'grid gap-5 outline-none',
-                      classicLayout &&
-                        'mx-auto w-full max-w-3xl px-5 py-5 sm:px-8'
-                    )}
-                    data-testid='assistant-active-tool-region'
-                    tabIndex={-1}
-                  >
-                    {accountToolActive && !accountAccessConfirmed ? (
-                      <AssistantAccountStatusNotice
-                        state={
-                          accountAccessState === 'error' ? 'error' : 'loading'
-                        }
-                        onRetry={() => void statusQuery.refetch()}
-                      />
-                    ) : null}
-                    {activeTool === 'key' && developerAccessGranted ? (
-                      <AssistantKeyTool
-                        baseUrl={baseUrl}
-                        availableModels={connectionModelsQuery.data ?? []}
-                        modelsLoading={connectionModelsQuery.isLoading}
-                        developerAccessGranted={developerAccessGranted}
-                        confirmationAction={keyCreationAction}
-                        autoConfirm={
-                          autoConfirmKeyToken ===
-                          keyCreationAction?.confirmation_token
-                        }
-                        onKeyPreparationInvalid={() => {
-                          setAutoConfirmKeyToken(null)
-                          setKeyCreationAction(null)
-                        }}
-                        onKeyCreated={() => {
-                          setAutoConfirmKeyToken(null)
-                          setKeyCreationAction(null)
-                          if (authUser) {
-                            void queryClient.invalidateQueries({
-                              queryKey: [
-                                'assistant-onboarding-todo',
-                                authUser.id,
-                              ],
-                            })
+                  {!support.aiPaused ? (
+                    <div
+                      ref={activeToolRegionRef}
+                      className={cn(
+                        'grid gap-5 outline-none',
+                        classicLayout &&
+                          'mx-auto w-full max-w-3xl px-5 py-5 sm:px-8'
+                      )}
+                      data-testid='assistant-active-tool-region'
+                      tabIndex={-1}
+                    >
+                      {accountToolActive && !accountAccessConfirmed ? (
+                        <AssistantAccountStatusNotice
+                          state={
+                            accountAccessState === 'error' ? 'error' : 'loading'
                           }
-                        }}
-                        onContinueSetup={() => setActiveTool('setup')}
-                      />
-                    ) : null}
-                    {activeTool === 'activation' && accountAccessConfirmed ? (
-                      <AssistantActivationTool
-                        recommendationDraft={recommendationDraft}
-                        onDraftConsumed={() => setRecommendationDraft(null)}
-                        onContinueSetup={() => setActiveTool('setup')}
-                        onSubmitted={() => {
-                          setRecommendationDraft(null)
-                          setEntries((current) => [
-                            ...current,
-                            {
-                              id: nanoid(),
-                              role: 'assistant',
-                              content: t(
-                                'Your AI recommendation was submitted to the automatic review agent. L1 remains locked until automatic review approves it or human fallback completes.'
-                              ),
-                            },
-                          ])
-                        }}
-                      />
-                    ) : null}
-                    {accountDisableDraft ? (
-                      <AssistantAccountActionTool
-                        action={accountDisableDraft}
-                        onSubmitted={() => setAccountDisableDraft(null)}
-                      />
-                    ) : null}
-                    {userActionDraft ? (
-                      <AssistantUserActionTool
-                        action={userActionDraft}
-                        onCompleted={() => setUserActionDraft(null)}
-                      />
-                    ) : null}
-                    {activeTool === 'cost' && accountAccessConfirmed ? (
-                      <AssistantCostTool
-                        developerAccessGranted={developerAccessGranted}
-                      />
-                    ) : null}
-                    {activeTool === 'handoff' && accountAccessConfirmed ? (
-                      <AssistantHandoffTool
-                        confirmationAction={humanSupportAction}
-                      />
-                    ) : null}
-                    {activeTool === 'models' && developerAccessGranted ? (
-                      <AssistantModelsTool />
-                    ) : null}
-                    {activeTool === 'plan' && accountAccessConfirmed ? (
-                      <AssistantPlanTool
-                        developerAccessGranted={developerAccessGranted}
-                        onRequestAccess={() => setActiveTool('activation')}
-                      />
-                    ) : null}
-                    {activeTool === 'setup' && accountAccessConfirmed ? (
-                      <AssistantSetupTool
-                        rootUrl={baseUrl.replace(/\/v1$/, '')}
-                        openAIBaseUrl={baseUrl}
-                        availableModels={connectionModelsQuery.data ?? []}
-                        modelsLoading={connectionModelsQuery.isLoading}
-                        developerAccessGranted={developerAccessGranted}
-                        onCreateKey={() => setActiveTool('key')}
-                        onRequestAccess={() => setActiveTool('activation')}
-                      />
-                    ) : null}
-                    {activeTool === 'usage' && developerAccessGranted ? (
-                      <AssistantUsageTool
-                        developerAccessGranted={developerAccessGranted}
-                      />
-                    ) : null}
-                  </div>
+                          onRetry={() => void statusQuery.refetch()}
+                        />
+                      ) : null}
+                      {activeTool === 'key' && developerAccessGranted ? (
+                        <AssistantKeyTool
+                          baseUrl={baseUrl}
+                          availableModels={connectionModelsQuery.data ?? []}
+                          modelsLoading={connectionModelsQuery.isLoading}
+                          developerAccessGranted={developerAccessGranted}
+                          confirmationAction={keyCreationAction}
+                          autoConfirm={
+                            autoConfirmKeyToken ===
+                            keyCreationAction?.confirmation_token
+                          }
+                          onKeyPreparationInvalid={() => {
+                            setAutoConfirmKeyToken(null)
+                            setKeyCreationAction(null)
+                          }}
+                          onKeyCreated={() => {
+                            setAutoConfirmKeyToken(null)
+                            setKeyCreationAction(null)
+                            if (authUser) {
+                              void queryClient.invalidateQueries({
+                                queryKey: [
+                                  'assistant-onboarding-todo',
+                                  authUser.id,
+                                ],
+                              })
+                            }
+                          }}
+                          onContinueSetup={() => setActiveTool('setup')}
+                        />
+                      ) : null}
+                      {activeTool === 'activation' && accountAccessConfirmed ? (
+                        <AssistantActivationTool
+                          recommendationDraft={recommendationDraft}
+                          onDraftConsumed={() => setRecommendationDraft(null)}
+                          onContinueSetup={() => setActiveTool('setup')}
+                          onApproved={refreshAuthenticatedUser}
+                        />
+                      ) : null}
+                      {accountDisableDraft ? (
+                        <AssistantAccountActionTool
+                          action={accountDisableDraft}
+                          onSubmitted={() => setAccountDisableDraft(null)}
+                        />
+                      ) : null}
+                      {userActionDraft ? (
+                        <AssistantUserActionTool
+                          action={userActionDraft}
+                          onCompleted={() => setUserActionDraft(null)}
+                        />
+                      ) : null}
+                      {activeTool === 'cost' && accountAccessConfirmed ? (
+                        <AssistantCostTool
+                          developerAccessGranted={developerAccessGranted}
+                        />
+                      ) : null}
+                      {activeTool === 'handoff' && accountAccessConfirmed ? (
+                        <AssistantHandoffTool
+                          onTransfer={
+                            authUser
+                              ? () =>
+                                  createSupport({
+                                    kind: 'handoff',
+                                    topic: humanSupportAction?.message,
+                                  })
+                              : undefined
+                          }
+                          transferring={support.busy}
+                          confirmationAction={humanSupportAction}
+                        />
+                      ) : null}
+                      {activeTool === 'models' && developerAccessGranted ? (
+                        <AssistantModelsTool />
+                      ) : null}
+                      {activeTool === 'plan' && accountAccessConfirmed ? (
+                        <AssistantPlanTool
+                          developerAccessGranted={developerAccessGranted}
+                          onRequestAccess={() => setActiveTool('activation')}
+                        />
+                      ) : null}
+                      {activeTool === 'setup' && accountAccessConfirmed ? (
+                        <AssistantSetupTool
+                          rootUrl={baseUrl.replace(/\/v1$/, '')}
+                          openAIBaseUrl={baseUrl}
+                          availableModels={connectionModelsQuery.data ?? []}
+                          modelsLoading={connectionModelsQuery.isLoading}
+                          developerAccessGranted={developerAccessGranted}
+                          onCreateKey={() => setActiveTool('key')}
+                          onRequestAccess={() => setActiveTool('activation')}
+                          onAskQuestion={(question) =>
+                            requestAssistantOpen(undefined, question)
+                          }
+                        />
+                      ) : null}
+                      {activeTool === 'usage' && developerAccessGranted ? (
+                        <AssistantUsageTool
+                          developerAccessGranted={developerAccessGranted}
+                        />
+                      ) : null}
+                    </div>
+                  ) : null}
 
                   <div
                     className={cn(
@@ -2239,11 +2699,7 @@ export function AssistantPanel(props: {
                       title={t('Copy conversation')}
                       data-testid='assistant-copy-conversation'
                       onClick={() => {
-                        void handleCopyConversation().then((copied) => {
-                          toast.success(
-                            copied ? t('Conversation copied') : t('Copy failed')
-                          )
-                        })
+                        void handleCopyConversation().then(notifyCopyResult)
                       }}
                     >
                       <HugeiconsIcon
@@ -2277,6 +2733,27 @@ export function AssistantPanel(props: {
             <ConversationScrollButton />
           </Conversation>
 
+          <WaitCompanion
+            taskKey={`${authUser?.id ?? 'guest'}:${conversationResetRevision}`}
+            pending={
+              sending &&
+              !(entries.at(-1)?.streaming && entries.at(-1)?.content.trim())
+            }
+            finishedLabel={sending ? t('The response has started.') : undefined}
+            onReturnToTask={() => {
+              latestAssistantMessageRef.current?.focus({
+                preventScroll: true,
+              })
+              latestAssistantMessageRef.current?.scrollIntoView({
+                block: 'nearest',
+                behavior: 'auto',
+              })
+            }}
+            className={cn(
+              'max-h-[35svh] shrink-0 overflow-y-auto px-4 sm:px-6',
+              classicLayout && 'mx-auto w-full max-w-3xl'
+            )}
+          />
           <div
             className={cn(
               'min-w-0 shrink-0 overflow-hidden pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:pb-[max(0.75rem,env(safe-area-inset-bottom))]',
@@ -2293,10 +2770,45 @@ export function AssistantPanel(props: {
                 classicLayout && 'px-5 py-4 sm:px-8 sm:py-5'
               )}
             >
+              {accountAccessConfirmed &&
+              !developerAccessGranted &&
+              activeTool !== 'activation' ? (
+                <div className='mb-2'>
+                  <AssistantRegistrationStatus compact />
+                </div>
+              ) : null}
               <PromptInputProvider
                 key={conversationResetRevision}
                 initialInput={props.initialMessage}
               >
+                {accountAccessConfirmed && entries.length > 0 ? (
+                  <div className='mb-2 flex flex-wrap items-center gap-1'>
+                    <Button
+                      type='button'
+                      variant='ghost'
+                      size='sm'
+                      className='text-muted-foreground min-h-10 max-w-full whitespace-normal'
+                      disabled={sending}
+                      onClick={() => openAssistantTarget('client-setup')}
+                    >
+                      <Download
+                        className='size-4 shrink-0'
+                        aria-hidden='true'
+                      />
+                      {t('Download and connect a client')}
+                    </Button>
+                    <Button
+                      variant='ghost'
+                      size='sm'
+                      className='text-muted-foreground min-h-10'
+                      render={<Link to='/guide' />}
+                      onClick={() => props.onOpenChange(false)}
+                    >
+                      {t('Browse the setup guide')}
+                      <ArrowUpRight className='size-4' aria-hidden='true' />
+                    </Button>
+                  </div>
+                ) : null}
                 <AssistantPromptInputSync
                   initialMessage={props.initialMessage}
                   initialMessageRevision={props.initialMessageRevision}
@@ -2304,7 +2816,12 @@ export function AssistantPanel(props: {
                 {accountAccessConfirmed &&
                 !entries.some((entry) => entry.role === 'user') ? (
                   <AssistantPresetPrompts
-                    presets={preConversationPresetsQuery.data?.presets ?? []}
+                    user={authUser}
+                    presets={
+                      preConversationPresetsQuery.isPending
+                        ? []
+                        : preConversationPresetsQuery.data?.presets
+                    }
                     onSelect={(preset) => {
                       setSelectedPreConversationPresetId(preset.id)
                       void recordAssistantPreConversationPresetClick(
@@ -2313,35 +2830,67 @@ export function AssistantPanel(props: {
                     }}
                   />
                 ) : null}
+                {authUser ? (
+                  <AssistantSupportControls
+                    request={support.request}
+                    eligible={support.eligible}
+                    busy={support.busy}
+                    error={Boolean(support.error)}
+                    onCreate={createSupport}
+                    onRetry={() => void support.refresh()}
+                    onClose={() => {
+                      const generation = conversationGenerationRef.current
+                      void support.close().catch((error: unknown) => {
+                        if (
+                          mountedRef.current &&
+                          conversationGenerationRef.current === generation
+                        ) {
+                          toast.error(
+                            error instanceof Error
+                              ? t(error.message)
+                              : t('Unable to update human support')
+                          )
+                        }
+                      })
+                    }}
+                  />
+                ) : null}
                 <AssistantPromptComposer
                   footerStatus={
-                    conversationRestricted
-                      ? t('Conversation ended by safety policy')
-                      : assistantFooterStatus
+                    support.aiPaused
+                      ? t('Human technical support')
+                      : conversationRestricted
+                        ? t('Conversation ended by safety policy')
+                        : assistantFooterStatus
                   }
-                  placeholder={assistantPromptPlaceholder}
+                  placeholder={
+                    support.aiPaused
+                      ? t('Message human support...')
+                      : assistantPromptPlaceholder
+                  }
                   classicLayout={classicLayout}
                   restricted={accountAccessState === 'restricted'}
-                  terminated={conversationRestricted}
-                  routeUnavailable={assistantRouteUnavailable}
-                  sending={sending}
+                  terminated={conversationRestricted && !authUser}
+                  routeUnavailable={assistantRouteUnavailable && !authUser}
+                  sending={sending || support.busy}
                   canRetry={
-                    entries.some(
-                      (entry) => entry.retry !== undefined && entry.error
-                    ) && !conversationRestricted
+                    entries.some((entry) => entry.retry !== undefined) &&
+                    !conversationRestricted &&
+                    !support.aiPaused
                   }
                   onRetry={() => {
-                    const retryable = [...entries]
-                      .reverse()
-                      .find((entry) => entry.retry !== undefined && entry.error)
+                    let retryable: (typeof entries)[number] | undefined
+                    for (let index = entries.length - 1; index >= 0; index--) {
+                      const entry = entries[index]
+                      if (entry?.retry !== undefined) {
+                        retryable = entry
+                        break
+                      }
+                    }
                     if (retryable) void retryMessage(retryable)
                   }}
                   onCopy={() => {
-                    void handleCopyConversation().then((copied) => {
-                      toast.success(
-                        copied ? t('Conversation copied') : t('Copy failed')
-                      )
-                    })
+                    void handleCopyConversation().then(notifyCopyResult)
                   }}
                   onShare={() => {
                     void handleShareConversation()
@@ -2366,7 +2915,7 @@ export function AssistantPanel(props: {
           classicLayout && 'assistant-classic-shell bg-[#343541] text-[#ececf1]'
         )}
         data-layout={classicLayout ? 'classic' : 'modern'}
-        aria-label={t('Service guide')}
+        aria-label={t('AI assistant')}
       >
         {classicLayout ? (
           <AssistantClassicSidebar
@@ -2394,7 +2943,7 @@ export function AssistantPanel(props: {
           id='ai-assistant-panel'
           role='dialog'
           aria-modal='true'
-          aria-label={t('Service guide')}
+          aria-label={t('AI assistant')}
           className={cn(
             'fixed inset-0 z-50 flex min-h-0 flex-col',
             classicLayout
@@ -2419,7 +2968,7 @@ export function AssistantPanel(props: {
             'assistant-classic-shell border-[#4b4d56] bg-[#343541] text-[#ececf1]'
         )}
         data-layout={classicLayout ? 'classic' : 'modern'}
-        aria-label={t('Service guide')}
+        aria-label={t('AI assistant')}
       >
         {panelContent}
       </aside>

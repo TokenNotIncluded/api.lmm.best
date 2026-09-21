@@ -29,6 +29,10 @@ func TestUpdateAdvancedSecurityOptionsPersistsAndAppliesAsUnit(t *testing.T) {
 	common.OptionMapRWMutex.Unlock()
 	t.Cleanup(func() {
 		DB = originalDB
+		sqlDB, err := database.DB()
+		if err == nil {
+			_ = sqlDB.Close()
+		}
 		_ = setting.ApplyAdvancedSecuritySettings(
 			originalSettings.Enabled,
 			originalSettings.OnPrompt,

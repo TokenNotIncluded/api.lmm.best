@@ -153,6 +153,11 @@ func validateEdgePolicyAssetContents(readAsset func(string) ([]byte, error)) err
 		{name: "nginx/new-api.conf", need: "include /etc/nginx/lmm-api-region-policy.conf;"},
 		{name: "nginx/lmm-api-locations.conf", need: "error_page 418 = @lmm_api_cors_preflight;"},
 		{name: "nginx/lmm-api-locations.conf", need: "location @lmm_api_cors_preflight {"},
+		{name: "nginx/lmm-api-locations.conf", need: "location = /.well-known/oauth-authorization-server {"},
+		{name: "nginx/lmm-api-locations.conf", need: "location = /.well-known/oauth-protected-resource/api/oauth2 {"},
+		{name: "nginx/lmm-api-locations.conf", need: "location = /api/oauth2/authorize {"},
+		{name: "nginx/lmm-api-locations.conf", need: "access_log /var/log/nginx/access.log combined if=$lmm_access_loggable;"},
+		{name: "nginx/http-map.conf", need: "map $request_uri $lmm_oauth_request_loggable {"},
 		{name: "nginx/lmm-api-locations.conf", need: "auth_request off;"},
 		{name: "nginx/lmm-api-locations.conf", need: "set $lmm_access_policy_original_uri $uri;"},
 		{name: "nginx/lmm-api-locations.conf", need: "if ($request_method = OPTIONS) { return 418; }"},
@@ -291,6 +296,51 @@ func legacyPolicyUnitIsEnabled(output []byte) bool {
 		// does not mean that this legacy policy is enabled.
 		return false
 	}
+}
+
+func (runtime *productionRuntime) validateEdgePolicyBackup(root, expectedDigest string) error {
+	manifestPath := filepath.Join(root, "manifest.json")
+	manifestBytes, err := readPrivateRegularFile(manifestPath, edgePolicyBackupLimit)
+	if err != nil {
+		return fmt.Errorf("read edge-policy restore manifest: %w", err)
+	}
+	if expectedDigest == "" || fmt.Sprintf("%x", sha256Bytes(manifestBytes)) != expectedDigest {
+		return errors.New("edge-policy restore manifest changed after deployment was armed")
+	}
+	var manifest edgePolicyBackupManifest
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil || manifest.Format != edgeBackupFormat {
+		return errors.New("edge-policy restore manifest is invalid")
+	}
+	assets := make(map[string]edgePolicyAsset)
+	for _, asset := range runtime.allEdgePolicyAssets() {
+		assets[asset.Key] = asset
+	}
+	if len(manifest.Entries) != len(assets) {
+		return errors.New("edge-policy restore manifest inventory is incomplete")
+	}
+	seen := make(map[string]bool, len(assets))
+	for _, entry := range manifest.Entries {
+		if _, ok := assets[entry.Key]; !ok || seen[entry.Key] || entry.State != "present" && entry.State != "absent" {
+			return errors.New("edge-policy restore manifest contains an unknown or duplicate entry")
+		}
+		seen[entry.Key] = true
+		backupFile := filepath.Join(root, entry.Key)
+		if entry.State == "absent" {
+			if _, err := os.Lstat(backupFile); !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("edge-policy restore contains unexpected absent-state data: %s", entry.Key)
+			}
+			continue
+		}
+		info, err := os.Lstat(backupFile)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() == 0 || info.Mode().Perm()&0o022 != 0 {
+			return fmt.Errorf("edge-policy restore file is missing or unsafe: %s", entry.Key)
+		}
+		actual, err := sha256File(backupFile)
+		if err != nil || actual != entry.SHA256 {
+			return fmt.Errorf("edge-policy restore checksum mismatch: %s", entry.Key)
+		}
+	}
+	return nil
 }
 
 func (runtime *productionRuntime) restoreEdgePolicyBackup(ctx context.Context, root, expectedDigest string) error {
@@ -432,12 +482,12 @@ func atomicInstallRegularFile(source, target string, mode os.FileMode) (returnEr
 
 func runProductionEdgePolicy(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 || (args[0] != "install" && args[0] != "verify") {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production edge-policy: choose install or verify\n", ProgramName)
+		_, _ = fmt.Fprintf(stderr, "%s production edge-policy: choose install or verify\n", DeployProgramName)
 		return ExitUsage
 	}
 	action := args[0]
 	options := edgePolicyOptions{Action: action, AssetRoot: defaultEdgeAssetRoot}
-	flags := flag.NewFlagSet("deploy production edge-policy "+action, flag.ContinueOnError)
+	flags := flag.NewFlagSet(DeployProgramName+" production edge-policy "+action, flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&options.AssetRoot, "asset-root", options.AssetRoot, "package-managed edge-policy asset root")
 	flags.StringVar(&options.BackupDir, "backup-dir", "", "private backup directory (install only)")
@@ -452,20 +502,20 @@ func runProductionEdgePolicy(args []string, stdout, stderr io.Writer) int {
 	}
 	assetRoot, err := cleanAbsoluteNonRoot(options.AssetRoot)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production edge-policy: invalid asset root: %v\n", ProgramName, err)
+		_, _ = fmt.Fprintf(stderr, "%s production edge-policy: invalid asset root: %v\n", DeployProgramName, err)
 		return ExitUsage
 	}
 	options.AssetRoot = assetRoot
 	if options.BackupDir != "" {
 		options.BackupDir, err = cleanAbsoluteNonRoot(options.BackupDir)
 		if err != nil {
-			_, _ = fmt.Fprintf(stderr, "%s deploy production edge-policy: invalid backup dir: %v\n", ProgramName, err)
+			_, _ = fmt.Fprintf(stderr, "%s production edge-policy: invalid backup dir: %v\n", DeployProgramName, err)
 			return ExitUsage
 		}
 	}
 	runtime := defaultProductionRuntime()
 	if err := runtime.assertProductionMutation(); err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production edge-policy: %v\n", ProgramName, err)
+		_, _ = fmt.Fprintf(stderr, "%s production edge-policy: %v\n", DeployProgramName, err)
 		return ExitError
 	}
 	status := "verified"
@@ -487,7 +537,7 @@ func runProductionEdgePolicy(args []string, stdout, stderr io.Writer) int {
 		return nil
 	})
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production edge-policy %s: %v\n", ProgramName, action, err)
+		_, _ = fmt.Fprintf(stderr, "%s production edge-policy %s: %v\n", DeployProgramName, action, err)
 		return ExitError
 	}
 	if options.BackupDir != "" {

@@ -92,6 +92,41 @@ const (
 	LogTypeLogin   = 7
 )
 
+// EstimateRecentModelQuota returns a conservative average from recent,
+// measured successful requests. Estimated/empty-usage rows are excluded so an
+// estimate can never feed itself and drift upward across repeated disconnects.
+func EstimateRecentModelQuota(modelName string, upperBound int) (quota int, samples int, err error) {
+	if LOG_DB == nil || strings.TrimSpace(modelName) == "" || upperBound <= 0 {
+		return 0, 0, nil
+	}
+	var logs []Log
+	err = LOG_DB.Select("quota", "prompt_tokens", "completion_tokens", "other").
+		Where("type = ? AND model_name = ? AND quota > 0 AND (prompt_tokens > 0 OR completion_tokens > 0)", LogTypeConsume, modelName).
+		Order("created_at DESC").Limit(50).Find(&logs).Error
+	if err != nil {
+		return 0, 0, err
+	}
+	var total int64
+	for _, item := range logs {
+		if strings.Contains(item.Other, `"upstream_empty_usage":true`) || strings.Contains(item.Other, `"usage_estimated":true`) {
+			continue
+		}
+		total += int64(item.Quota)
+		samples++
+	}
+	if samples == 0 {
+		return 0, samples, nil
+	}
+	average := total / int64(samples)
+	if average > int64(upperBound) {
+		average = int64(upperBound)
+	}
+	if average < 1 {
+		average = 1
+	}
+	return int(average), samples, nil
+}
+
 func ensureLogRequestId(log *Log) {
 	if log != nil && log.RequestId == "" {
 		log.RequestId = common.NewRequestId()
@@ -342,6 +377,9 @@ type RecordConsumeLogParams struct {
 
 func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams) {
 	if !common.LogConsumeEnabled {
+		if success, _ := params.Other["acquisition_success_v1"].(bool); success {
+			noteAcquisitionActivityGap(common.GetTimestamp())
+		}
 		return
 	}
 	logger.LogInfo(c, fmt.Sprintf("record consume log: userId=%d, params=%s", userId, common.GetJsonString(params)))
@@ -385,6 +423,9 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 	}
 	err := createLog(log)
 	if err != nil {
+		if success, _ := params.Other["acquisition_success_v1"].(bool); success {
+			noteAcquisitionActivityGap(createdAt)
+		}
 		logger.LogError(c, "failed to record log: "+err.Error())
 	}
 	if common.DataExportEnabled {

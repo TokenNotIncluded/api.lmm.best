@@ -19,6 +19,9 @@ func ShouldRetryRelayError(c *gin.Context, apiErr *types.NewAPIError, retryTimes
 	if apiErr == nil || ShouldSkipRetryAfterChannelAffinityFailure(c) {
 		return false
 	}
+	if apiErr.GetErrorCode() == types.ErrorCodeChannelUnsupportedEndpoint {
+		return false
+	}
 	if c != nil && c.Request != nil && c.Request.Context().Err() != nil {
 		return false
 	}

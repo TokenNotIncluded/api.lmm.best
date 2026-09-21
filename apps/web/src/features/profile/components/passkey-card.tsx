@@ -113,23 +113,26 @@ export function PasskeyCard({ loading: pageLoading }: PasskeyCardProps) {
 
     const methods = await fetchVerificationMethods()
     if (!methods.hasEmail && !methods.has2FA && !methods.hasPasskey) {
+      if (methods.availability !== 'complete') {
+        toast.error(t('Request failed'))
+        return
+      }
       // The first Passkey is the fallback credential itself, so there is no
       // existing Passkey available for a step-up proof yet.
       await register()
       return
     }
 
-    const requiredMethod: VerificationMethod = methods.hasEmail
-      ? 'email'
-      : methods.has2FA
-        ? '2fa'
-        : 'passkey'
+    let requiredMethod: VerificationMethod = 'passkey'
+    if (methods.hasEmail) requiredMethod = 'email'
+    else if (methods.has2FA) requiredMethod = '2fa'
     setRestrictedMethod(requiredMethod)
     await startVerification(register, {
       scope: 'passkey.register',
       preferredMethod: requiredMethod,
       title: t('Security verification'),
       description: t('Confirm your identity before registering a Passkey.'),
+      verificationMethods: methods,
     })
   }, [fetchVerificationMethods, register, startVerification, supported, t])
 
@@ -144,7 +147,9 @@ export function PasskeyCard({ loading: pageLoading }: PasskeyCardProps) {
 
     if (!required) {
       toast.error(
-        t('Please bind an email or set up a Passkey before proceeding')
+        methods.availability === 'complete'
+          ? t('Please bind an email or set up a Passkey before proceeding')
+          : t('Request failed')
       )
       return
     }
@@ -163,6 +168,7 @@ export function PasskeyCard({ loading: pageLoading }: PasskeyCardProps) {
       description: t(
         'Confirm your identity before removing this Passkey from your account.'
       ),
+      verificationMethods: methods,
     })
   }, [fetchVerificationMethods, remove, startVerification, t])
 

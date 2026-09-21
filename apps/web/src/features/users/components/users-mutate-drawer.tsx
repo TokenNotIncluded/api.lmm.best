@@ -62,6 +62,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Textarea } from '@/components/ui/textarea'
+import { UserSourceDetails } from '@/features/acquisition/user-sources'
 import {
   ADMIN_PERMISSION_ACTIONS,
   ADMIN_PERMISSION_RESOURCES,
@@ -91,6 +92,7 @@ import {
 } from '../lib'
 import type { User } from '../types'
 import { AssistantUserProfileEditor } from './assistant-user-profile-editor'
+import { UserAnnouncementStatus } from './user-announcement-status'
 import { UserQuotaDialog } from './user-quota-dialog'
 import { useUsers } from './users-provider'
 
@@ -250,6 +252,12 @@ export function UsersMutateDrawer({
               className={sideDrawerFormClassName()}
             >
               {/* Basic Information */}
+              {isUpdate && currentRow && open && (
+                <>
+                  <UserAnnouncementStatus userID={currentRow.id} />
+                  <UserSourceDetails userID={currentRow.id} />
+                </>
+              )}
               <SideDrawerSection>
                 <h3 className='text-sm font-medium'>
                   {t('Basic Information')}

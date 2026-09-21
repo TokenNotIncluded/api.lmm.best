@@ -16,154 +16,268 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Braces, Check, Gauge, ShieldCheck } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { ArrowUpRight, Lightbulb, RotateCcw, Shuffle } from 'lucide-react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { getStatus } from '@/lib/api'
+import { Button } from '@/components/ui/button'
+import { HUMAN } from '@/features/signal-game/api'
+import { SignalBoard } from '@/features/signal-game/board'
+import { formatGameTime } from '@/features/signal-game/format'
+import {
+  rotateSignalTile,
+  startSignalGame,
+  useSignalGame,
+} from '@/features/signal-game/store'
 
-const REQUEST_ENDPOINT = '/v1/responses'
-const REQUEST_MODEL_ROTATION_MS = 4200
+import { BOARD_SIZES, traceCircuit } from './signal-game'
 
-export function AuthArtPanel() {
-  const { t } = useTranslation()
-  const [requestModels, setRequestModels] = useState<string[]>([])
-  const [requestModelIndex, setRequestModelIndex] = useState(0)
+import './signal-game.css'
 
+export function GameClock({
+  phase,
+  startedAt,
+  readyAt,
+  elapsedMs,
+  displayCountdown = false,
+}: {
+  phase: string
+  startedAt: number
+  readyAt: number
+  elapsedMs: number | null
+  displayCountdown?: boolean
+}) {
+  const [now, setNow] = useState(() => performance.now())
   useEffect(() => {
-    let active = true
-
-    void getStatus()
-      .then((status) => {
-        const rawModelIDs = status?.preview_model_ids
-        if (!active || !Array.isArray(rawModelIDs)) return
-
-        const modelIDs = [...new Set(rawModelIDs)]
-          .filter(
-            (modelID): modelID is string =>
-              typeof modelID === 'string' && modelID.trim().length > 0
-          )
-          .map((modelID) => modelID.trim())
-
-        setRequestModels(modelIDs)
-        setRequestModelIndex(0)
-      })
-      .catch(() => undefined)
-
-    return () => {
-      active = false
-    }
-  }, [])
-
-  useEffect(() => {
-    if (requestModels.length < 2) return
-
-    const rotation = window.setInterval(() => {
-      setRequestModelIndex((current) => (current + 1) % requestModels.length)
-    }, REQUEST_MODEL_ROTATION_MS)
-
-    return () => window.clearInterval(rotation)
-  }, [requestModels.length])
-
-  const requestModel = requestModels[requestModelIndex] ?? '—'
-  const requestLines = [
-    ['POST', REQUEST_ENDPOINT],
-    ['model', requestModel],
-    ['stream', 'true'],
-  ] as const
-
-  const capabilities = [
-    {
-      icon: ShieldCheck,
-      title: t('Protected access'),
-      detail: t('Sessions, API keys, and account controls in one place.'),
-    },
-    {
-      icon: Gauge,
-      title: t('Visible usage'),
-      detail: t('Track model calls, latency, and spend without guesswork.'),
-    },
-  ]
-
+    if (phase !== 'playing' && phase !== 'countdown') return
+    const timer = setInterval(() => setNow(performance.now()), 100)
+    return () => clearInterval(timer)
+  }, [phase, startedAt, readyAt])
+  if (phase === 'countdown' && displayCountdown) {
+    return (
+      <strong className='text-6xl'>
+        {Math.max(1, Math.ceil((readyAt - now) / 1000))}
+      </strong>
+    )
+  }
   return (
-    <aside className='bg-card text-card-foreground flex h-full flex-col overflow-hidden rounded-[1.75rem] border p-8 xl:p-10'>
-      <div className='flex items-center gap-4 text-xs font-semibold tracking-[0.14em] uppercase'>
-        <span className='text-muted-foreground'>{t('LMM API Console')}</span>
-      </div>
-
-      <div className='my-auto max-w-2xl py-10'>
-        <p className='text-muted-foreground mb-4 flex items-center gap-2 text-sm font-medium'>
-          <Braces className='size-4' aria-hidden='true' />
-          {t('A clear route from key to response')}
+    <span className='tabular-nums'>
+      {formatGameTime(
+        elapsedMs ?? (phase === 'playing' ? Math.max(0, now - startedAt) : 0)
+      )}
+    </span>
+  )
+}
+export function AuthArtPanel() {
+  const { t } = useTranslation(),
+    titleId = useId(),
+    state = useSignalGame(),
+    [size, setSize] = useState(state.circuit.size),
+    [advanced, setAdvanced] = useState(state.circuit.size > 12),
+    [error, setError] = useState(false)
+  useEffect(() => {
+    setSize(state.circuit.size)
+    setAdvanced(state.circuit.size > 12)
+  }, [state.circuit.size])
+  const trace = useMemo(
+      () => traceCircuit(state.tiles, state.circuit.size),
+      [state.tiles, state.circuit.size]
+    ),
+    powered = useMemo(() => new Set(trace.path), [trace.path])
+  const turn = (index: number) => {
+    try {
+      rotateSignalTile(index)
+      setError(false)
+    } catch {
+      setError(true)
+    }
+  }
+  const start = (mode: 'practice' | 'challenge', repeat = false) => {
+    setError(false)
+    void startSignalGame(
+      mode,
+      repeat ? state.circuit.size : size,
+      HUMAN,
+      repeat ? state.circuit.seed : undefined
+    ).catch(() => setError(true))
+  }
+  const blocked = state.phase !== 'playing'
+  return (
+    <aside
+      className='signal-game bg-card text-card-foreground'
+      aria-labelledby={titleId}
+    >
+      <div className='signal-game-heading'>
+        <h2 id={titleId}>{t('Signal path')}</h2>
+        <p className='text-muted-foreground'>
+          {t('Rotate the tiles to connect input to output.')}
         </p>
-        <h2 className='max-w-xl font-serif text-4xl leading-[1.04] tracking-[-0.04em] text-balance xl:text-5xl'>
-          {t('One endpoint. Clear controls. No mystery.')}
-        </h2>
-        <p className='text-muted-foreground mt-5 max-w-lg text-base leading-7'>
+      </div>
+      <div className='mt-4 flex flex-wrap items-center gap-3 text-sm'>
+        <label>
+          {t('Board size')}{' '}
+          <select
+            className='bg-background rounded border px-2 py-1'
+            value={size}
+            onChange={(e) => setSize(Number(e.target.value))}
+          >
+            {BOARD_SIZES.filter((n) => advanced || n <= 12).map((n) => (
+              <option key={n} value={n}>
+                {n} × {n}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className='inline-flex items-center gap-2'>
+          <input
+            type='checkbox'
+            checked={advanced}
+            onChange={(e) => {
+              setAdvanced(e.target.checked)
+              if (!e.target.checked && size > 12) setSize(5)
+            }}
+          />
+          {t('Advanced mode')}
+        </label>
+      </div>
+      <div className='mt-3 flex flex-wrap gap-2'>
+        <Button
+          type='button'
+          variant='outline'
+          disabled={state.phase === 'loading'}
+          onClick={() => start('practice')}
+        >
+          {t('Practice')}
+        </Button>
+        <Button
+          type='button'
+          disabled={state.phase === 'loading'}
+          onClick={() => start('challenge')}
+        >
+          {t('Start challenge')}
+        </Button>
+      </div>
+      <p className='text-muted-foreground mt-2 text-xs'>
+        {t(
+          'Challenges: 3-second countdown, no hints, ranked by moves then time.'
+        )}
+      </p>
+      <div className='signal-game-score text-muted-foreground'>
+        <span>
+          {state.mode === 'challenge' ? t('Challenge') : t('Practice')} ·{' '}
+          {state.circuit.size} × {state.circuit.size}
+        </span>
+        <span>
+          {t('Moves')}:{' '}
+          <strong className='text-foreground'>{state.actions.length}</strong>
+        </span>
+        {state.mode === 'challenge' && (
+          <span>
+            {t('Time')}:{' '}
+            <GameClock
+              key={state.roundId}
+              {...state}
+              elapsedMs={state.elapsedMs}
+            />
+          </span>
+        )}
+      </div>
+      {state.participant.actor === 'ai' && (
+        <p className='mb-3 text-xs break-all'>
+          AI · {state.participant.agent_name} · {state.participant.harness} ·{' '}
+          {state.participant.model_id}
+        </p>
+      )}
+      <div className='relative'>
+        <SignalBoard
+          size={state.circuit.size}
+          tiles={state.tiles}
+          powered={powered}
+          hint={state.hint}
+          blocked={blocked}
+          turn={turn}
+        />
+        {(state.phase === 'countdown' || state.phase === 'loading') && (
+          <div className='signal-game-countdown' role='status'>
+            {state.phase === 'loading' ? (
+              t('Loading...')
+            ) : (
+              <GameClock
+                key={state.roundId}
+                {...state}
+                elapsedMs={state.elapsedMs}
+                displayCountdown
+              />
+            )}
+          </div>
+        )}
+      </div>
+      <div
+        className={`signal-game-status ${trace.won ? 'text-primary' : 'text-muted-foreground'}`}
+        role='status'
+        aria-live='polite'
+        aria-atomic='true'
+      >
+        {trace.won
+          ? t('Connected in {{count}} moves!', { count: state.actions.length })
+          : t('Signal reached {{count}} tiles', { count: trace.path.length })}
+      </div>
+      <div className='signal-game-actions'>
+        <Button
+          type='button'
+          variant={trace.won ? 'default' : 'outline'}
+          disabled={state.phase === 'loading'}
+          onClick={() => start(state.mode)}
+        >
+          <Shuffle className='size-4' aria-hidden='true' />
+          {trace.won ? t('Play again') : t('New circuit')}
+        </Button>
+        {state.mode === 'practice' && (
+          <Button
+            type='button'
+            variant='ghost'
+            onClick={() => turn(-1)}
+            disabled={blocked}
+          >
+            <Lightbulb className='size-4' aria-hidden='true' />
+            {t('Hint')}
+          </Button>
+        )}
+        <Button
+          type='button'
+          variant='ghost'
+          onClick={() => start(state.mode, true)}
+          disabled={state.actions.length === 0}
+          aria-label={t('Restart circuit')}
+          title={t('Restart circuit')}
+        >
+          <RotateCcw className='size-4' aria-hidden='true' />
+        </Button>
+      </div>
+      {(error || state.serviceError) && (
+        <p role='alert' className='text-destructive mt-3 text-sm'>
+          {t('Game service unavailable. Practice is still available.')}
+        </p>
+      )}
+      {state.storageError && (
+        <p role='alert' className='text-destructive mt-3 text-sm'>
           {t(
-            'Choose a model, send a compatible request, and see exactly how access and usage are managed.'
+            'Local storage failed. Keep this page open until your record is saved.'
           )}
         </p>
-
-        <div
-          className='bg-background/65 relative mt-9 overflow-hidden rounded-2xl border'
-          data-live-request-preview
-        >
-          <span
-            aria-hidden='true'
-            className='auth-art-request-sweep bg-primary/60 pointer-events-none absolute inset-x-0 top-0 h-px'
-          />
-          <div className='border-b px-5 py-3 text-xs font-semibold tracking-[0.12em] uppercase'>
-            {t('Request preview')}
-          </div>
-          <dl className='divide-y font-mono text-sm'>
-            {requestLines.map(([label, value]) => (
-              <div
-                className='grid grid-cols-[5.5rem_1fr] gap-4 px-5 py-3.5'
-                key={`${label}-${value}`}
-              >
-                <dt className='text-muted-foreground'>{label}</dt>
-                <dd
-                  className='auth-art-request-value truncate'
-                  data-request-endpoint={label === 'POST' ? value : undefined}
-                  data-request-model={label === 'model' ? value : undefined}
-                >
-                  {value}
-                </dd>
-              </div>
-            ))}
-          </dl>
-          <div className='bg-muted/40 flex items-center justify-between gap-4 border-t px-5 py-3.5 text-sm'>
-            <span className='text-muted-foreground'>{t('Response')}</span>
-            <span className='text-success flex items-center gap-2 font-medium'>
-              <span
-                aria-hidden='true'
-                className='auth-art-request-pulse bg-success size-1.5 rounded-full'
-              />
-              <Check className='size-4' aria-hidden='true' />
-              200 · {t('stream ready')}
-            </span>
-          </div>
-        </div>
-
-        <div className='mt-4 grid gap-4 sm:grid-cols-2'>
-          {capabilities.map(({ icon: Icon, title, detail }) => (
-            <section className='rounded-2xl border p-4' key={title}>
-              <Icon
-                className='text-muted-foreground size-5'
-                aria-hidden='true'
-              />
-              <h3 className='mt-4 text-sm font-semibold'>{title}</h3>
-              <p className='text-muted-foreground mt-1.5 text-sm leading-6'>
-                {detail}
-              </p>
-            </section>
-          ))}
-        </div>
-      </div>
-
-      <p className='text-muted-foreground border-t pt-5 text-xs leading-5'>
-        {t('Open-source infrastructure for accountable model access.')}
+      )}
+      <p className='signal-game-help text-muted-foreground'>
+        {t('Use arrow keys to move and Enter to rotate.')}
+      </p>
+      <a
+        href='/games/signal'
+        className='mt-4 inline-flex items-center justify-center gap-2 text-sm underline underline-offset-4'
+      >
+        {t('Leaderboard, records and AI guide')}
+        <ArrowUpRight className='size-4' />
+      </a>
+      <p className='signal-game-note text-muted-foreground'>
+        {t('Just for fun. You can sign in or register at any time.')}
       </p>
     </aside>
   )

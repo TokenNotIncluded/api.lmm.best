@@ -1,6 +1,9 @@
 package model
 
-import "gorm.io/gorm"
+import (
+	"fmt"
+	"gorm.io/gorm"
+)
 
 // lockAssistantOwner serializes private assistant writes with account
 // deletion. A scoped lookup deliberately rejects soft-deleted owners.
@@ -24,6 +27,26 @@ func deleteUserAssistantData(tx *gorm.DB, userID int) error {
 		Where("user_id = ? OR conversation_id IN (?)", userID, conversations)
 	requests := tx.Model(&DeveloperAccessRequest{}).Select("id").Where("user_id = ?", userID)
 
+	supportIDs := tx.Model(&AssistantSupportRequest{}).Select("id").Where("user_id = ?", userID)
+	if err := tx.Where("category = ? AND item_id IN (?)", UnifiedTodoCategoryHumanSupport, supportIDs).Delete(&UnifiedTodoRead{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("user_id = ?", userID).Delete(&AssistantSupportRequest{}).Error; err != nil {
+		return err
+	}
+	assignedIDs := tx.Model(&AssistantSupportRequest{}).Select("id").Where("assigned_admin_id = ? AND active_user_id IS NOT NULL", userID)
+	if err := tx.Where("category = ? AND item_id IN (?)", UnifiedTodoCategoryHumanSupport, assignedIDs).Delete(&UnifiedTodoRead{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Model(&AssistantSupportRequest{}).Where("assigned_admin_id = ? AND active_user_id IS NOT NULL", userID).Updates(map[string]any{"status": AssistantSupportStatusPending, "assigned_admin_id": 0, "assigned_admin_name": "", "accepted_at": 0}).Error; err != nil {
+		return err
+	}
+
+	if tx.Migrator().HasTable(&AssistantTurnReceipt{}) {
+		if err := tx.Where("conversation_id IN (?) OR turn_key LIKE ?", conversations, fmt.Sprintf("%d:%%", userID)).Delete(&AssistantTurnReceipt{}).Error; err != nil {
+			return err
+		}
+	}
 	deletes := []struct {
 		model any
 		where string

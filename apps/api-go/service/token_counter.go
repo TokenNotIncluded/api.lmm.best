@@ -19,6 +19,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func imageTokenQuota(imageTokens int, multiplier float64) int {
+	return common.QuotaRound(float64(imageTokens) * multiplier)
+}
+
 func getImageToken(c *gin.Context, fileMeta *types.FileMeta, model string, stream bool) (int, error) {
 	if fileMeta == nil || fileMeta.Source == nil {
 		return 0, fmt.Errorf("image_url_is_nil")
@@ -140,11 +144,11 @@ func getImageToken(c *gin.Context, fileMeta *types.FileMeta, model string, strea
 			if imageTokens > 1536 {
 				imageTokens = 1536
 			}
-			return int(math.Round(float64(imageTokens) * multiplier)), nil
+			return imageTokenQuota(imageTokens, multiplier), nil
 		}
 		// below cap
 		imageTokens := rawPatches
-		return int(math.Round(float64(imageTokens) * multiplier)), nil
+		return imageTokenQuota(imageTokens, multiplier), nil
 	}
 
 	// Tile-based calculation for 4o/4.1/4.5/o1/o3/etc.
@@ -201,12 +205,15 @@ func EstimateRequestToken(c *gin.Context, meta *types.TokenCountMeta, info *rela
 			if err != nil {
 				return 0, fmt.Errorf("error opening audio file: %v", err)
 			}
-			defer file.Close()
 			// get ext and io.seeker
 			ext := filepath.Ext(fileHeader.Filename)
-			duration, err := common.GetAudioDuration(c.Request.Context(), file, ext)
-			if err != nil {
-				return 0, fmt.Errorf("error getting audio duration: %v", err)
+			duration, durationErr := common.GetAudioDuration(c.Request.Context(), file, ext)
+			closeErr := file.Close()
+			if durationErr != nil {
+				return 0, fmt.Errorf("error getting audio duration: %v", durationErr)
+			}
+			if closeErr != nil {
+				return 0, fmt.Errorf("error closing audio file: %v", closeErr)
 			}
 			// duration 来自用户上传文件的元数据，可被伪造成天文数字或负数。
 			// 负值会让 token 估算变成负数（低估预扣费），先钳到 0 再转换。

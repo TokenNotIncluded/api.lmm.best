@@ -18,13 +18,30 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { parseCurrencyDisplayType } from '@/lib/currency'
 
-import { CheckinSettingsSection } from '../general/checkin-settings-section'
-import { PricingSection } from '../general/pricing-section'
-import { QuotaSettingsSection } from '../general/quota-settings-section'
-import { PaymentSettingsSection } from '../integrations/payment-settings-section'
-import { RatioSettingsCard } from '../models/ratio-settings-card'
 import type { BillingSettings } from '../types'
+import { lazyNamedSection } from '../utils/lazy-section'
 import { createSectionRegistry } from '../utils/section-registry'
+
+const CheckinSettingsSection = lazyNamedSection(
+  () => import('../general/checkin-settings-section'),
+  'CheckinSettingsSection'
+)
+const PricingSection = lazyNamedSection(
+  () => import('../general/pricing-section'),
+  'PricingSection'
+)
+const QuotaSettingsSection = lazyNamedSection(
+  () => import('../general/quota-settings-section'),
+  'QuotaSettingsSection'
+)
+const PaymentSettingsSection = lazyNamedSection(
+  () => import('../integrations/payment-settings-section'),
+  'PaymentSettingsSection'
+)
+const RatioSettingsCard = lazyNamedSection(
+  () => import('../models/ratio-settings-card'),
+  'RatioSettingsCard'
+)
 
 const getModelDefaults = (settings: BillingSettings) => ({
   ModelPrice: settings.ModelPrice,
@@ -63,7 +80,10 @@ const BILLING_SECTIONS = [
           QuotaForNewUser: settings.QuotaForNewUser,
           PreConsumedQuota: settings.PreConsumedQuota,
           QuotaForInviter: settings.QuotaForInviter,
-          QuotaForInvitee: settings.QuotaForInvitee,
+          ReferralMinTopUpQuota: settings.ReferralMinTopUpQuota,
+          ReferralMaxRewardQuota: settings.ReferralMaxRewardQuota,
+          ReferralPenaltyPercent: settings.ReferralPenaltyPercent,
+          ReferralMaxPenaltyQuota: settings.ReferralMaxPenaltyQuota,
           OpenSourceBountyFeeRate: settings.OpenSourceBountyFeeRate,
           TopUpLink: settings.TopUpLink,
           general_setting: {
@@ -89,6 +109,7 @@ const BILLING_SECTIONS = [
         defaultValues={{
           QuotaPerUnit: settings.QuotaPerUnit,
           USDExchangeRate: settings.USDExchangeRate,
+          TopUpPlatformUnitsPerCNY: settings.TopUpPlatformUnitsPerCNY ?? 1,
           DisplayInCurrencyEnabled: settings.DisplayInCurrencyEnabled,
           DisplayTokenStatEnabled: settings.DisplayTokenStatEnabled,
           general_setting: {
@@ -97,6 +118,8 @@ const BILLING_SECTIONS = [
             ),
             custom_currency_symbol:
               settings['general_setting.custom_currency_symbol'] ?? '¤',
+            custom_currency_code:
+              settings['general_setting.custom_currency_code'] ?? '',
             custom_currency_exchange_rate:
               settings['general_setting.custom_currency_exchange_rate'] ?? 1,
           },
@@ -139,7 +162,6 @@ const BILLING_SECTIONS = [
           PayAddress: settings.PayAddress,
           EpayId: settings.EpayId,
           EpayKey: settings.EpayKey,
-          Price: settings.Price,
           MinTopUp: settings.MinTopUp,
           CustomCallbackAddress: settings.CustomCallbackAddress,
           PayMethods: settings.PayMethods,

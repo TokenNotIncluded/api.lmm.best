@@ -6,8 +6,9 @@ it under the terms of the GNU Affero General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 */
+import { useQuery } from '@tanstack/react-query'
 import { Check, RefreshCw, X } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -25,45 +26,40 @@ export function DeveloperAccessRequestsPanel(props: {
   focusRequestId?: number
 }) {
   const { t } = useTranslation()
-  const [requests, setRequests] = useState<DeveloperAccessRequestAdmin[]>([])
-  const [loading, setLoading] = useState(true)
-  const [available, setAvailable] = useState(true)
   const [reviewing, setReviewing] = useState<number | null>(null)
   const [notes, setNotes] = useState<Record<number, string>>({})
 
-  const loadRequests = useCallback(async () => {
-    setLoading(true)
-    try {
+  const requestsQuery = useQuery({
+    queryKey: ['developer-access-requests', 'pending'],
+    queryFn: async () => {
       const response = await listDeveloperAccessRequests('pending')
       if (!response.success) {
         throw new Error(response.message || t('Unable to load unlock requests'))
       }
-      setRequests(
-        (response.data ?? []).filter((request) => request.source !== 'legacy')
+      return (response.data ?? []).filter(
+        (request) => request.source !== 'legacy'
       )
-      setAvailable(true)
-    } catch (error) {
-      // A mixed-version deployment may not have the optional admin route yet;
-      // hide the panel instead of showing a noisy global error in that case.
-      const status = (error as { response?: { status?: number } }).response
-        ?.status
-      if (status === 404) {
-        setAvailable(false)
-      } else {
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : t('Unable to load unlock requests')
-        )
-      }
-    } finally {
-      setLoading(false)
-    }
-  }, [t])
+    },
+    retry: false,
+    staleTime: 0,
+    refetchInterval: (query) => (query.state.error ? false : 5_000),
+    refetchIntervalInBackground: false,
+  })
+  const requests = requestsQuery.data ?? []
+  const loading = requestsQuery.isFetching
+  const errorStatus = (
+    requestsQuery.error as { response?: { status?: number } } | null
+  )?.response?.status
+  const available = !(requestsQuery.isError && errorStatus === 404)
 
   useEffect(() => {
-    void loadRequests()
-  }, [loadRequests])
+    if (!requestsQuery.isError || errorStatus === 404) return
+    toast.error(
+      requestsQuery.error instanceof Error
+        ? requestsQuery.error.message
+        : t('Unable to load unlock requests')
+    )
+  }, [errorStatus, requestsQuery.error, requestsQuery.isError, t])
 
   useEffect(() => {
     if (
@@ -76,7 +72,7 @@ export function DeveloperAccessRequestsPanel(props: {
     document
       .getElementById(`developer-access-request-${props.focusRequestId}`)
       ?.scrollIntoView({ block: 'center', behavior: 'smooth' })
-  }, [loading, props.focusRequestId, requests])
+  }, [loading, props.focusRequestId])
 
   const review = async (
     request: DeveloperAccessRequestAdmin,
@@ -103,13 +99,14 @@ export function DeveloperAccessRequestsPanel(props: {
       toast.success(
         approve ? t('Access request approved') : t('Access request rejected')
       )
-      setRequests((current) => current.filter((item) => item.id !== request.id))
+      await requestsQuery.refetch()
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
           : t('Unable to review unlock request')
       )
+      await requestsQuery.refetch()
     } finally {
       setReviewing(null)
     }
@@ -127,14 +124,14 @@ export function DeveloperAccessRequestsPanel(props: {
           </div>
           <p className='text-muted-foreground mt-1 text-sm'>
             {t(
-              'Review L0 access requests. AI recommendations are optional; L1 is granted only after your approval.'
+              'Pending L0 requests appear here only when automatic review has not approved them. The assistant may also grant L1 directly after three completed turns.'
             )}
           </p>
         </div>
         <Button
           variant='outline'
           size='sm'
-          onClick={() => void loadRequests()}
+          onClick={() => void requestsQuery.refetch()}
           disabled={loading}
         >
           <RefreshCw

@@ -102,4 +102,67 @@ describe('assistant plan recommender', () => {
     assert.ok(Math.abs((offers[1]?.savingsPercent ?? 0) - 10) < 1e-9)
     assert.deepEqual(getAssistantTopupOffers('{"100":0.8}'), [])
   })
+
+  test('scales a non-monthly plan price by the same repeat factor as its capacity', () => {
+    const trialPack = plan(1, 10_000_000)
+    trialPack.plan.duration_unit = 'day'
+    trialPack.plan.duration_value = 7
+    trialPack.plan.quota_reset_period = 'never'
+    trialPack.plan.price_amount = 9.9
+
+    const [item] = compareAssistantPlans([trialPack], 0, 1_000_000)
+    const factor = 30 / 7
+    assert.ok(Math.abs((item?.monthlyCreditUSD ?? 0) - 10 * factor) < 1e-9)
+    assert.ok(Math.abs((item?.monthlyCostAmount ?? 0) - 9.9 * factor) < 1e-9)
+  })
+
+  test('excludes a one-time-purchase plan from monthly-equivalent recommendations', () => {
+    const trialPack = plan(2, 10_000_000)
+    trialPack.plan.duration_unit = 'day'
+    trialPack.plan.duration_value = 7
+    trialPack.plan.quota_reset_period = 'never'
+    trialPack.plan.price_amount = 9.9
+    trialPack.plan.max_purchase_per_user = 1
+
+    const recurringPlan = plan(1, 20_000_000)
+
+    const ranked = compareAssistantPlans(
+      [trialPack, recurringPlan],
+      20,
+      1_000_000
+    )
+    const trial = ranked.find((item) => item.record.plan.id === 2)
+    const recurring = ranked.find((item) => item.record.plan.id === 1)
+    assert.equal(trial?.oneTimeOnly, true)
+    assert.equal(trial?.recommended, false)
+    assert.equal(recurring?.recommended, true)
+  })
+
+  test('recommends a one-time plan only as a last resort with no repeatable option', () => {
+    const trialPack = plan(1, 10_000_000)
+    trialPack.plan.duration_unit = 'day'
+    trialPack.plan.duration_value = 7
+    trialPack.plan.quota_reset_period = 'never'
+    trialPack.plan.max_purchase_per_user = 1
+
+    const ranked = compareAssistantPlans([trialPack], 40, 1_000_000)
+    assert.equal(ranked[0]?.record.plan.id, 1)
+    assert.equal(ranked[0]?.recommended, true)
+    assert.equal(ranked[0]?.oneTimeOnly, true)
+  })
+
+  test('prefers the cheapest true monthly cost among covering plans, not just the smallest capacity', () => {
+    const cheaperButBiggerMargin = plan(1, 25_000_000)
+    cheaperButBiggerMargin.plan.price_amount = 15
+    const pricierWithTighterMargin = plan(2, 22_000_000)
+    pricierWithTighterMargin.plan.price_amount = 40
+
+    const ranked = compareAssistantPlans(
+      [pricierWithTighterMargin, cheaperButBiggerMargin],
+      20,
+      1_000_000
+    )
+    assert.equal(ranked[0]?.record.plan.id, 1)
+    assert.equal(ranked[0]?.recommended, true)
+  })
 })

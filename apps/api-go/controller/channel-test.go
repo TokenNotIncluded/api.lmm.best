@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -69,7 +68,7 @@ func resolveChannelTestRequestPath(channel *model.Channel, modelName, endpointTy
 
 	lowerModelName := strings.ToLower(modelName)
 	if strings.Contains(lowerModelName, "rerank") {
-		requestPath = "/v1/rerank"
+		return "/v1/rerank"
 	}
 	if strings.Contains(lowerModelName, "embedding") ||
 		strings.HasPrefix(modelName, "m3e") ||
@@ -85,6 +84,59 @@ func resolveChannelTestRequestPath(channel *model.Channel, modelName, endpointTy
 		requestPath = "/v1/responses"
 	}
 	return requestPath
+}
+
+func channelTestRelayFormat(endpointType, requestPath string) types.RelayFormat {
+	// Determine relay format based on endpoint type or request path
+	var relayFormat types.RelayFormat
+	if endpointType != "" {
+		// 根据指定的端点类型设置 relayFormat
+		switch constant.EndpointType(endpointType) {
+		case constant.EndpointTypeOpenAI:
+			relayFormat = types.RelayFormatOpenAI
+		case constant.EndpointTypeOpenAIResponse:
+			relayFormat = types.RelayFormatOpenAIResponses
+		case constant.EndpointTypeOpenAIResponseCompact:
+			relayFormat = types.RelayFormatOpenAIResponsesCompaction
+		case constant.EndpointTypeAnthropic:
+			relayFormat = types.RelayFormatClaude
+		case constant.EndpointTypeGemini:
+			relayFormat = types.RelayFormatGemini
+		case constant.EndpointTypeJinaRerank:
+			relayFormat = types.RelayFormatRerank
+		case constant.EndpointTypeImageGeneration:
+			relayFormat = types.RelayFormatOpenAIImage
+		case constant.EndpointTypeEmbeddings:
+			relayFormat = types.RelayFormatEmbedding
+		default:
+			relayFormat = types.RelayFormatOpenAI
+		}
+	} else {
+		// 根据请求路径自动检测
+		relayFormat = types.RelayFormatOpenAI
+		if requestPath == "/v1/embeddings" {
+			relayFormat = types.RelayFormatEmbedding
+		}
+		if requestPath == "/v1/images/generations" {
+			relayFormat = types.RelayFormatOpenAIImage
+		}
+		if requestPath == "/v1/messages" {
+			relayFormat = types.RelayFormatClaude
+		}
+		if strings.Contains(requestPath, "/v1beta/models") {
+			relayFormat = types.RelayFormatGemini
+		}
+		if requestPath == "/v1/rerank" || requestPath == "/rerank" {
+			relayFormat = types.RelayFormatRerank
+		}
+		if requestPath == "/v1/responses" {
+			relayFormat = types.RelayFormatOpenAIResponses
+		}
+		if strings.HasPrefix(requestPath, "/v1/responses/compact") {
+			relayFormat = types.RelayFormatOpenAIResponsesCompaction
+		}
+	}
+	return relayFormat
 }
 
 func resolveChannelTestUserID(c *gin.Context) (int, error) {
@@ -105,6 +157,10 @@ func resolveChannelTestUserID(c *gin.Context) (int, error) {
 }
 
 func testChannel(ctx context.Context, channel *model.Channel, testUserID int, testModel string, endpointType string, isStream bool) testResult {
+	return testChannelWithRecoveryKey(ctx, channel, testUserID, testModel, endpointType, isStream, nil)
+}
+
+func testChannelWithRecoveryKey(ctx context.Context, channel *model.Channel, testUserID int, testModel string, endpointType string, isStream bool, recoveryIndex *int) testResult {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -169,7 +225,12 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	group, _ := model.GetUserGroup(testUserID, false)
 	c.Set("group", group)
 
-	newAPIError := middleware.SetupContextForSelectedChannel(c, channel, testModel)
+	var newAPIError *types.NewAPIError
+	if recoveryIndex != nil {
+		newAPIError = middleware.SetupContextForChannelRecovery(c, channel, testModel, *recoveryIndex)
+	} else {
+		newAPIError = middleware.SetupContextForSelectedChannel(c, channel, testModel)
+	}
 	if newAPIError != nil {
 		return testResult{
 			context:     c,
@@ -178,55 +239,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		}
 	}
 
-	// Determine relay format based on endpoint type or request path
-	var relayFormat types.RelayFormat
-	if endpointType != "" {
-		// 根据指定的端点类型设置 relayFormat
-		switch constant.EndpointType(endpointType) {
-		case constant.EndpointTypeOpenAI:
-			relayFormat = types.RelayFormatOpenAI
-		case constant.EndpointTypeOpenAIResponse:
-			relayFormat = types.RelayFormatOpenAIResponses
-		case constant.EndpointTypeOpenAIResponseCompact:
-			relayFormat = types.RelayFormatOpenAIResponsesCompaction
-		case constant.EndpointTypeAnthropic:
-			relayFormat = types.RelayFormatClaude
-		case constant.EndpointTypeGemini:
-			relayFormat = types.RelayFormatGemini
-		case constant.EndpointTypeJinaRerank:
-			relayFormat = types.RelayFormatRerank
-		case constant.EndpointTypeImageGeneration:
-			relayFormat = types.RelayFormatOpenAIImage
-		case constant.EndpointTypeEmbeddings:
-			relayFormat = types.RelayFormatEmbedding
-		default:
-			relayFormat = types.RelayFormatOpenAI
-		}
-	} else {
-		// 根据请求路径自动检测
-		relayFormat = types.RelayFormatOpenAI
-		if c.Request.URL.Path == "/v1/embeddings" {
-			relayFormat = types.RelayFormatEmbedding
-		}
-		if c.Request.URL.Path == "/v1/images/generations" {
-			relayFormat = types.RelayFormatOpenAIImage
-		}
-		if c.Request.URL.Path == "/v1/messages" {
-			relayFormat = types.RelayFormatClaude
-		}
-		if strings.Contains(c.Request.URL.Path, "/v1beta/models") {
-			relayFormat = types.RelayFormatGemini
-		}
-		if c.Request.URL.Path == "/v1/rerank" || c.Request.URL.Path == "/rerank" {
-			relayFormat = types.RelayFormatRerank
-		}
-		if c.Request.URL.Path == "/v1/responses" {
-			relayFormat = types.RelayFormatOpenAIResponses
-		}
-		if strings.HasPrefix(c.Request.URL.Path, "/v1/responses/compact") {
-			relayFormat = types.RelayFormatOpenAIResponsesCompaction
-		}
-	}
+	relayFormat := channelTestRelayFormat(endpointType, c.Request.URL.Path)
 
 	request := buildTestRequest(testModel, endpointType, channel, isStream)
 
@@ -530,6 +543,12 @@ func attachTestBillingRequestInput(info *relaycommon.RelayInfo, request dto.Requ
 	return nil
 }
 
+func noteChannelTestQuotaClamp(info *relaycommon.RelayInfo, clamp *common.QuotaClamp) {
+	if info != nil && clamp != nil && info.QuotaClamp == nil {
+		info.QuotaClamp = clamp
+	}
+}
+
 func settleTestQuota(info *relaycommon.RelayInfo, priceData hosttypes.PriceData, usage *dto.Usage) (int, *billingexpr.TieredResult) {
 	if usage != nil && info != nil && info.TieredBillingSnapshot != nil {
 		isClaudeUsageSemantic := usage.UsageSemantic == "anthropic" || info.GetFinalRequestRelayFormat() == types.RelayFormatClaude
@@ -541,15 +560,21 @@ func settleTestQuota(info *relaycommon.RelayInfo, priceData hosttypes.PriceData,
 
 	quota := 0
 	if !priceData.UsePrice {
-		quota = usage.PromptTokens + int(math.Round(float64(usage.CompletionTokens)*priceData.CompletionRatio))
-		quota = int(math.Round(float64(quota) * priceData.ModelRatio))
+		completionQuota, clamp := common.QuotaRoundChecked(float64(usage.CompletionTokens) * priceData.CompletionRatio)
+		noteChannelTestQuotaClamp(info, clamp)
+		quota, clamp = common.QuotaRoundChecked(float64(usage.PromptTokens) + float64(completionQuota))
+		noteChannelTestQuotaClamp(info, clamp)
+		quota, clamp = common.QuotaRoundChecked(float64(quota) * priceData.ModelRatio)
+		noteChannelTestQuotaClamp(info, clamp)
 		if priceData.ModelRatio != 0 && quota <= 0 {
 			quota = 1
 		}
 		return quota, nil
 	}
 
-	return int(priceData.ModelPrice * common.QuotaPerUnit), nil
+	quota, clamp := common.QuotaFromFloatChecked(priceData.ModelPrice * common.QuotaPerUnit)
+	noteChannelTestQuotaClamp(info, clamp)
+	return quota, nil
 }
 
 func buildTestLogOther(c *gin.Context, info *relaycommon.RelayInfo, priceData hosttypes.PriceData, usage *dto.Usage, tieredResult *billingexpr.TieredResult) map[string]interface{} {
@@ -558,6 +583,7 @@ func buildTestLogOther(c *gin.Context, info *relaycommon.RelayInfo, priceData ho
 	if tieredResult != nil {
 		service.InjectTieredBillingInfo(other, info, tieredResult)
 	}
+	service.AttachQuotaSaturation(c, info, other)
 	return other
 }
 
@@ -920,7 +946,19 @@ type channelTestSummary struct {
 }
 
 func testChannelForHealthCheck(ctx context.Context, channel *model.Channel, testUserID int, allowDisable bool, disableThreshold int64) channelTestSummary {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	summary := channelTestSummary{}
+	if channel.ChannelInfo.IsMultiKey && common.AutomaticEnableChannelEnabled && channel.Status != common.ChannelStatusManuallyDisabled {
+		summary = recoverChannelKeys(ctx, channel, testUserID)
+		// channel is the pre-probe snapshot. A disabled channel has already been
+		// checked key by key; do not add a redundant ordinary test this cycle.
+		// Successful recovery is persisted independently, including abilities/cache.
+		if channel.Status != common.ChannelStatusEnabled || ctx.Err() != nil {
+			return summary
+		}
+	}
 	isChannelEnabled := channel.Status == common.ChannelStatusEnabled
 	tik := time.Now()
 	result := testChannel(ctx, channel, testUserID, "", "", shouldUseStreamForAutomaticChannelTest(channel))
@@ -962,6 +1000,41 @@ func testChannelForHealthCheck(ctx context.Context, channel *model.Channel, test
 	}
 
 	channel.UpdateResponseTime(milliseconds)
+	return summary
+}
+
+func recoverChannelKeys(ctx context.Context, channel *model.Channel, userID int) channelTestSummary {
+	summary := channelTestSummary{}
+	for index, key := range channel.GetKeys() {
+		if ctx.Err() != nil {
+			break
+		}
+		if channel.ChannelInfo.MultiKeyStatusList[index] != common.ChannelStatusAutoDisabled {
+			continue
+		}
+		if summary.Tested > 0 && common.RequestInterval > 0 {
+			timer := time.NewTimer(common.RequestInterval)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return summary
+			case <-timer.C:
+			}
+		}
+		result := testChannelWithRecoveryKey(ctx, channel, userID, "", "", shouldUseStreamForAutomaticChannelTest(channel), &index)
+		if ctx.Err() != nil {
+			break
+		}
+		summary.Tested++
+		if result.localErr != nil || result.newAPIError != nil {
+			summary.Failed++
+			continue
+		}
+		summary.Succeeded++
+		if model.RecoverChannelKey(channel.Id, index, key) {
+			summary.Enabled++
+		}
+	}
 	return summary
 }
 

@@ -23,14 +23,20 @@ import { cn } from '@/lib/utils'
 function Card({
   className,
   size = 'default',
+  variant = 'outlined',
   ...props
-}: React.ComponentProps<'div'> & { size?: 'default' | 'sm' }) {
+}: React.ComponentProps<'div'> & {
+  size?: 'default' | 'sm'
+  variant?: 'outlined' | 'paper'
+}) {
   return (
     <div
       data-slot='card'
       data-size={size}
+      data-variant={variant}
       className={cn(
         'group/card bg-card text-card-foreground border-border/70 flex flex-col gap-4 overflow-hidden rounded-xl border py-4 text-sm shadow-xs transition-all has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:gap-3 data-[size=sm]:py-3 data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl',
+        variant === 'paper' && 'border-0 shadow-none',
         className
       )}
       {...props}

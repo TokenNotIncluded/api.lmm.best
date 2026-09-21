@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -17,6 +18,11 @@ import (
 var (
 	ErrNoSMSNumbersAvailable       = errors.New("hero sms has no matching phone numbers")
 	ErrProviderBalanceInsufficient = errors.New("hero sms provider balance is insufficient")
+)
+
+const (
+	maxSMSOperators       = 256
+	maxSMSOfferPriceTiers = 256
 )
 
 type SMSCountry struct {
@@ -32,19 +38,57 @@ type SMSService struct {
 	Name string `json:"name"`
 }
 
+type SMSPriceTier struct {
+	Count      int             `json:"count"`
+	Price      decimal.Decimal `json:"-"`
+	PriceValue string          `json:"price"`
+}
+
+func parseSMSPriceValue(value string) (decimal.Decimal, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > 64 || strings.ContainsAny(value, "eE+-") {
+		return decimal.Zero, false
+	}
+	digits := 0
+	decimalPoints := 0
+	for _, character := range value {
+		if character == '.' {
+			decimalPoints++
+			if decimalPoints > 1 {
+				return decimal.Zero, false
+			}
+			continue
+		}
+		if character < '0' || character > '9' {
+			return decimal.Zero, false
+		}
+		digits++
+	}
+	if digits == 0 {
+		return decimal.Zero, false
+	}
+	price, err := decimal.NewFromString(value)
+	if err != nil || price.LessThanOrEqual(decimal.Zero) || price.GreaterThan(decimal.NewFromInt(1_000_000)) {
+		return decimal.Zero, false
+	}
+	return price, true
+}
+
 type SMSOffer struct {
 	CountryID  int             `json:"country_id"`
 	Service    string          `json:"service"`
 	Count      int             `json:"count"`
 	Price      decimal.Decimal `json:"-"`
 	PriceValue string          `json:"price"`
+	Tiers      []SMSPriceTier  `json:"tiers"`
 }
 
 type SMSPurchaseRequest struct {
-	CountryID int
-	Service   string
-	Operator  string
-	MaxPrice  decimal.Decimal
+	CountryID    int
+	Service      string
+	Operator     string
+	MaxPrice     decimal.Decimal
+	CurrencyCode int
 }
 
 type SMSActivation struct {
@@ -65,27 +109,40 @@ type SMSStatus struct {
 	Text string `json:"text"`
 }
 
+const (
+	SMSActivationStateWaiting = "STATUS_WAIT_CODE"
+	SMSActivationStateRetry   = "STATUS_WAIT_RETRY"
+	SMSActivationStateResend  = "STATUS_WAIT_RESEND"
+	SMSActivationStateOK      = "STATUS_OK"
+	SMSActivationStateCancel  = "STATUS_CANCEL"
+)
+
 type SMSActiveActivation struct {
-	ID             string          `json:"activation_id"`
-	Service        string          `json:"service"`
-	PhoneNumber    string          `json:"phone_number"`
-	ActivationCost decimal.Decimal `json:"-"`
-	CostValue      string          `json:"activation_cost"`
-	CurrencyCode   int             `json:"currency_code"`
-	Status         int             `json:"status"`
-	SMSCode        string          `json:"sms_code"`
-	SMSText        string          `json:"sms_text"`
-	ActivationTime string          `json:"activation_time"`
-	CountryCode    int             `json:"country_code"`
+	ID                 string          `json:"activation_id"`
+	Service            string          `json:"service"`
+	PhoneNumber        string          `json:"phone_number"`
+	ActivationCost     decimal.Decimal `json:"-"`
+	CostValue          string          `json:"activation_cost"`
+	CurrencyCode       int             `json:"currency_code"`
+	Status             int             `json:"status"`
+	SMSCode            string          `json:"sms_code"`
+	SMSText            string          `json:"sms_text"`
+	ActivationTime     string          `json:"activation_time"`
+	ActivationEndTime  string          `json:"activation_end_time"`
+	ActivationOperator string          `json:"activation_operator"`
+	CountryCode        int             `json:"country_code"`
 }
 
 type SMSClient interface {
 	ListSMSCountries(ctx context.Context) ([]SMSCountry, error)
 	ListSMSServices(ctx context.Context) ([]SMSService, error)
+	ListSMSOperators(ctx context.Context, countryID int) ([]string, error)
 	GetSMSOffer(ctx context.Context, countryID int, service string) (*SMSOffer, error)
 	PurchaseSMSActivation(ctx context.Context, request SMSPurchaseRequest) (*SMSActivation, error)
 	GetSMSActivationStatus(ctx context.Context, activationID string) (*SMSStatus, error)
+	GetSMSActivationState(ctx context.Context, activationID string) (string, error)
 	SetSMSActivationStatus(ctx context.Context, activationID string, status int) error
+	SubmitSMSActivationComplaint(ctx context.Context, activationID string, complaintType string) error
 	ListActiveSMSActivations(ctx context.Context) ([]SMSActiveActivation, error)
 }
 
@@ -170,58 +227,159 @@ func normalizeSMSServices(services []SMSService) []SMSService {
 	return normalized
 }
 
-func (c *HTTPClient) GetSMSOffer(ctx context.Context, countryID int, service string) (*SMSOffer, error) {
-	service = strings.TrimSpace(service)
-	if countryID < 0 || service == "" {
+func (c *HTTPClient) ListSMSOperators(ctx context.Context, countryID int) ([]string, error) {
+	if countryID < 0 {
 		return nil, ErrInvalidRequest
 	}
-	query := url.Values{
+	body, err := c.doSMSActivate(ctx, "getOperators", url.Values{
 		"country": {strconv.Itoa(countryID)},
-		"service": {service},
-	}
-	body, err := c.doSMSActivate(ctx, "getPrices", query)
+	})
 	if err != nil {
 		return nil, err
 	}
-	payload := make(map[string]map[string]struct {
-		Cost  json.Number `json:"cost"`
-		Count int         `json:"count"`
+	if strings.TrimSpace(string(body)) == "OPERATORS_NOT_FOUND" {
+		return []string{}, nil
+	}
+	var payload struct {
+		Status           string              `json:"status"`
+		CountryOperators map[string][]string `json:"countryOperators"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil || !strings.EqualFold(strings.TrimSpace(payload.Status), "success") {
+		return nil, ErrBadResponse
+	}
+	operators := payload.CountryOperators[strconv.Itoa(countryID)]
+	normalized := make([]string, 0, len(operators))
+	seen := make(map[string]struct{}, len(operators))
+	for _, operator := range operators {
+		operator = strings.TrimSpace(operator)
+		if operator == "" || strings.EqualFold(operator, "any") || len(operator) > 64 || strings.Contains(operator, ",") {
+			continue
+		}
+		key := strings.ToLower(operator)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		if len(normalized) >= maxSMSOperators {
+			return nil, ErrBadResponse
+		}
+		seen[key] = struct{}{}
+		normalized = append(normalized, operator)
+	}
+	sort.Slice(normalized, func(i int, j int) bool {
+		return strings.ToLower(normalized[i]) < strings.ToLower(normalized[j])
 	})
+	return normalized, nil
+}
+
+func (c *HTTPClient) GetSMSOffer(ctx context.Context, countryID int, service string) (*SMSOffer, error) {
+	service = strings.TrimSpace(service)
+	if countryID < 0 || service == "" || len(service) > 64 {
+		return nil, ErrInvalidRequest
+	}
+	body, err := c.doSMSAPIv1(ctx, "/api/v1/activations/offers/sms", url.Values{
+		"countries": {strconv.Itoa(countryID)},
+		"services":  {service},
+	})
+	if err != nil {
+		return nil, err
+	}
+	var payload struct {
+		Data map[string]map[string]struct {
+			Counts struct {
+				Total        int `json:"total"`
+				DefaultPrice int `json:"defaultPrice"`
+			} `json:"counts"`
+			Prices struct {
+				Default json.Number `json:"default"`
+				Retail  json.Number `json:"retail"`
+				Min     json.Number `json:"min"`
+			} `json:"prices"`
+			Map map[string]int `json:"map"`
+		} `json:"data"`
+	}
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return nil, ErrBadResponse
 	}
-	countryOffers, ok := payload[strconv.Itoa(countryID)]
+	serviceOffers, ok := payload.Data[service]
 	if !ok {
 		return nil, ErrNoSMSNumbersAvailable
 	}
-	item, ok := countryOffers[service]
-	if !ok || item.Count <= 0 {
+	item, ok := serviceOffers[strconv.Itoa(countryID)]
+	if !ok || item.Counts.Total <= 0 {
 		return nil, ErrNoSMSNumbersAvailable
 	}
-	price, err := decimal.NewFromString(item.Cost.String())
-	if err != nil || price.LessThanOrEqual(decimal.Zero) {
-		return nil, ErrBadResponse
+
+	tierCounts := make(map[string]int, len(item.Map))
+	tierPrices := make(map[string]decimal.Decimal, len(item.Map))
+	for rawPrice, count := range item.Map {
+		price, valid := parseSMSPriceValue(rawPrice)
+		if !valid || count <= 0 {
+			continue
+		}
+		key := price.String()
+		if count > tierCounts[key] {
+			_, exists := tierCounts[key]
+			if !exists && len(tierCounts) >= maxSMSOfferPriceTiers {
+				return nil, ErrBadResponse
+			}
+			tierCounts[key] = count
+			tierPrices[key] = price
+		}
+	}
+	tiers := make([]SMSPriceTier, 0, len(tierCounts)+1)
+	for key, count := range tierCounts {
+		tiers = append(tiers, SMSPriceTier{
+			Count:      count,
+			Price:      tierPrices[key],
+			PriceValue: key,
+		})
+	}
+	if len(tiers) == 0 {
+		price, valid := parseSMSPriceValue(item.Prices.Default.String())
+		if !valid {
+			return nil, ErrBadResponse
+		}
+		count := item.Counts.DefaultPrice
+		if count <= 0 {
+			return nil, ErrBadResponse
+		}
+		tiers = append(tiers, SMSPriceTier{
+			Count:      count,
+			Price:      price,
+			PriceValue: price.String(),
+		})
+	}
+	sort.Slice(tiers, func(i int, j int) bool {
+		return tiers[i].Price.LessThan(tiers[j].Price)
+	})
+	previousCount := 0
+	for _, tier := range tiers {
+		if tier.Count < previousCount {
+			return nil, ErrBadResponse
+		}
+		previousCount = tier.Count
 	}
 	return &SMSOffer{
 		CountryID:  countryID,
 		Service:    service,
-		Count:      item.Count,
-		Price:      price,
-		PriceValue: price.String(),
+		Count:      tiers[0].Count,
+		Price:      tiers[0].Price,
+		PriceValue: tiers[0].PriceValue,
+		Tiers:      tiers,
 	}, nil
 }
 
 func (c *HTTPClient) PurchaseSMSActivation(ctx context.Context, request SMSPurchaseRequest) (*SMSActivation, error) {
 	request.Service = strings.TrimSpace(request.Service)
 	request.Operator = strings.TrimSpace(request.Operator)
-	if request.CountryID < 0 || request.Service == "" || request.MaxPrice.LessThanOrEqual(decimal.Zero) {
+	if request.CountryID < 0 || request.Service == "" || request.MaxPrice.LessThanOrEqual(decimal.Zero) || request.CurrencyCode <= 0 {
 		return nil, ErrInvalidRequest
 	}
 	query := url.Values{
-		"country":    {strconv.Itoa(request.CountryID)},
-		"service":    {request.Service},
-		"maxPrice":   {request.MaxPrice.String()},
-		"fixedPrice": {"true"},
+		"country":  {strconv.Itoa(request.CountryID)},
+		"service":  {request.Service},
+		"maxPrice": {request.MaxPrice.String()},
+		"currency": {strconv.Itoa(request.CurrencyCode)},
 	}
 	if request.Operator != "" {
 		query.Set("operator", request.Operator)
@@ -235,6 +393,7 @@ func (c *HTTPClient) PurchaseSMSActivation(ctx context.Context, request SMSPurch
 		PhoneNumber        string      `json:"phoneNumber"`
 		ActivationCost     json.Number `json:"activationCost"`
 		CurrencyCode       int         `json:"currencyCode"`
+		Currency           int         `json:"currency"`
 		CountryCode        int         `json:"countryCode"`
 		CanGetAnotherSMS   bool        `json:"canGetAnotherSms"`
 		ActivationTime     string      `json:"activationTime"`
@@ -248,12 +407,16 @@ func (c *HTTPClient) PurchaseSMSActivation(ctx context.Context, request SMSPurch
 	if err != nil || payload.ActivationID.String() == "" || strings.TrimSpace(payload.PhoneNumber) == "" || cost.LessThanOrEqual(decimal.Zero) {
 		return nil, ErrBadResponse
 	}
+	currencyCode := payload.CurrencyCode
+	if currencyCode == 0 {
+		currencyCode = payload.Currency
+	}
 	return &SMSActivation{
 		ID:                 payload.ActivationID.String(),
 		PhoneNumber:        strings.TrimSpace(payload.PhoneNumber),
 		ActivationCost:     cost,
 		CostValue:          cost.String(),
-		CurrencyCode:       payload.CurrencyCode,
+		CurrencyCode:       currencyCode,
 		CountryCode:        payload.CountryCode,
 		CanGetAnother:      payload.CanGetAnotherSMS,
 		ActivationTime:     payload.ActivationTime,
@@ -292,16 +455,18 @@ func (c *HTTPClient) ListActiveSMSActivations(ctx context.Context) ([]SMSActiveA
 	}
 	var payload struct {
 		Data []struct {
-			ActivationID   json.Number `json:"activationId"`
-			ServiceCode    string      `json:"serviceCode"`
-			PhoneNumber    string      `json:"phoneNumber"`
-			ActivationCost json.Number `json:"activationCost"`
-			Currency       int         `json:"currency"`
-			Status         int         `json:"activationStatus"`
-			SMSCode        string      `json:"smsCode"`
-			SMSText        string      `json:"smsText"`
-			ActivationTime string      `json:"activationTime"`
-			CountryCode    int         `json:"countryCode"`
+			ActivationID       json.Number `json:"activationId"`
+			ServiceCode        string      `json:"serviceCode"`
+			PhoneNumber        string      `json:"phoneNumber"`
+			ActivationCost     json.Number `json:"activationCost"`
+			Currency           int         `json:"currency"`
+			Status             int         `json:"activationStatus"`
+			SMSCode            string      `json:"smsCode"`
+			SMSText            string      `json:"smsText"`
+			ActivationTime     string      `json:"activationTime"`
+			ActivationEndTime  string      `json:"activationEndTime"`
+			ActivationOperator string      `json:"activationOperator"`
+			CountryCode        int         `json:"countryCode"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
@@ -314,20 +479,44 @@ func (c *HTTPClient) ListActiveSMSActivations(ctx context.Context) ([]SMSActiveA
 			continue
 		}
 		activations = append(activations, SMSActiveActivation{
-			ID:             item.ActivationID.String(),
-			Service:        strings.TrimSpace(item.ServiceCode),
-			PhoneNumber:    strings.TrimSpace(item.PhoneNumber),
-			ActivationCost: cost,
-			CostValue:      cost.String(),
-			CurrencyCode:   item.Currency,
-			Status:         item.Status,
-			SMSCode:        strings.TrimSpace(item.SMSCode),
-			SMSText:        strings.TrimSpace(item.SMSText),
-			ActivationTime: item.ActivationTime,
-			CountryCode:    item.CountryCode,
+			ID:                 item.ActivationID.String(),
+			Service:            strings.TrimSpace(item.ServiceCode),
+			PhoneNumber:        strings.TrimSpace(item.PhoneNumber),
+			ActivationCost:     cost,
+			CostValue:          cost.String(),
+			CurrencyCode:       item.Currency,
+			Status:             item.Status,
+			SMSCode:            strings.TrimSpace(item.SMSCode),
+			SMSText:            strings.TrimSpace(item.SMSText),
+			ActivationTime:     strings.TrimSpace(item.ActivationTime),
+			ActivationEndTime:  strings.TrimSpace(item.ActivationEndTime),
+			ActivationOperator: strings.TrimSpace(item.ActivationOperator),
+			CountryCode:        item.CountryCode,
 		})
 	}
 	return activations, nil
+}
+
+func (c *HTTPClient) GetSMSActivationState(ctx context.Context, activationID string) (string, error) {
+	activationID = strings.TrimSpace(activationID)
+	if activationID == "" {
+		return "", ErrInvalidRequest
+	}
+	body, err := c.doSMSActivate(ctx, "getStatus", url.Values{"id": {activationID}})
+	if err != nil {
+		return "", err
+	}
+	state := strings.TrimSpace(string(body))
+	switch state {
+	case SMSActivationStateWaiting, SMSActivationStateRetry, SMSActivationStateResend, SMSActivationStateOK, SMSActivationStateCancel:
+		return state, nil
+	case "NO_ACTIVATION":
+		return "", ErrNotFound
+	}
+	if strings.HasPrefix(state, SMSActivationStateOK+":") {
+		return SMSActivationStateOK, nil
+	}
+	return "", ErrBadResponse
 }
 
 func (c *HTTPClient) SetSMSActivationStatus(ctx context.Context, activationID string, status int) error {
@@ -342,10 +531,86 @@ func (c *HTTPClient) SetSMSActivationStatus(ctx context.Context, activationID st
 	if err != nil {
 		return err
 	}
-	if !strings.HasPrefix(strings.TrimSpace(string(body)), "ACCESS_") {
+	expectedResponse := map[int]string{
+		3: "ACCESS_RETRY_GET",
+		6: "ACCESS_ACTIVATION",
+		8: "ACCESS_CANCEL",
+	}[status]
+	if strings.TrimSpace(string(body)) != expectedResponse {
 		return ErrBadResponse
 	}
 	return nil
+}
+
+func (c *HTTPClient) SubmitSMSActivationComplaint(ctx context.Context, activationID string, complaintType string) error {
+	activationID = strings.TrimSpace(activationID)
+	complaintType = strings.TrimSpace(complaintType)
+	if activationID == "" || complaintType == "" || len(complaintType) > 64 {
+		return ErrInvalidRequest
+	}
+	for _, character := range complaintType {
+		if character != '_' && (character < 'A' || character > 'Z') {
+			return ErrInvalidRequest
+		}
+	}
+	_, err := c.doJSON(
+		ctx,
+		http.MethodPost,
+		"/complaints/activations/"+url.PathEscape(activationID),
+		nil,
+		map[string]string{"type": complaintType},
+	)
+	return err
+}
+
+func (c *HTTPClient) doSMSAPIv1(ctx context.Context, path string, query url.Values) ([]byte, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("%w: request context is required", ErrInvalidRequest)
+	}
+	if !strings.HasPrefix(path, "/api/v1/") || strings.TrimSpace(c.apiKey) == "" {
+		return nil, ErrInvalidRequest
+	}
+	base, err := url.Parse(c.baseURL)
+	if err != nil || base.Scheme != "https" && base.Scheme != "http" || base.Host == "" {
+		return nil, ErrInvalidRequest
+	}
+	base.Path = path
+	base.RawQuery = query.Encode()
+	base.Fragment = ""
+
+	requestCtx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	request, err := http.NewRequestWithContext(requestCtx, http.MethodGet, base.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Authorization", "ApiKey "+c.apiKey)
+	response, err := c.httpClient.Do(request)
+	if err != nil {
+		if isTimeoutError(err) || errors.Is(requestCtx.Err(), context.DeadlineExceeded) {
+			return nil, ErrUpstreamTimeout
+		}
+		return nil, ErrUpstreamBusy
+	}
+	defer response.Body.Close()
+	if err := common.LimitResponseBody(response, c.bodyLimit); err != nil {
+		return nil, ErrBadResponse
+	}
+	body, err := common.ReadAllLimit(response.Body, c.bodyLimit)
+	if err != nil {
+		return nil, ErrBadResponse
+	}
+	switch response.StatusCode {
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return nil, ErrUnauthorized
+	case http.StatusBadRequest, http.StatusUnprocessableEntity:
+		return nil, ErrInvalidRequest
+	case http.StatusOK:
+		return body, nil
+	default:
+		return nil, ErrUpstreamBusy
+	}
 }
 
 func (c *HTTPClient) doSMSActivate(ctx context.Context, action string, query url.Values) ([]byte, error) {

@@ -46,7 +46,11 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *common.RelayInfo, re
 
 // ConvertClaudeRequest implements channel.Adaptor.
 func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *common.RelayInfo, request *dto.ClaudeRequest) (any, error) {
-	return nil, errors.New("not implemented")
+	return nil, channel.NewUnsupportedEndpointError(a.GetChannelName(), channel.EndpointClaudeMessages)
+}
+
+func (a *Adaptor) SupportsEndpoint(endpoint channel.Endpoint) bool {
+	return endpoint != channel.EndpointClaudeMessages && endpoint != channel.EndpointRerank
 }
 
 // ConvertEmbeddingRequest implements channel.Adaptor.
@@ -74,7 +78,7 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *common.Rel
 
 // ConvertRerankRequest implements channel.Adaptor.
 func (a *Adaptor) ConvertRerankRequest(c *gin.Context, relayMode int, request dto.RerankRequest) (any, error) {
-	return nil, errors.New("not implemented")
+	return nil, channel.NewUnsupportedEndpointError(a.GetChannelName(), channel.EndpointRerank)
 }
 
 // DoRequest implements channel.Adaptor.

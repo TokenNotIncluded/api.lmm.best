@@ -9,6 +9,22 @@ License, or (at your option) any later version.
 
 type ClipboardWriter = Pick<Clipboard, 'writeText'>
 
+type CopyNotifications = {
+  success: () => void
+  error: () => void
+}
+
+export function notifyAssistantCopyResult(
+  copied: boolean,
+  notifications: CopyNotifications
+): void {
+  if (copied) {
+    notifications.success()
+    return
+  }
+  notifications.error()
+}
+
 export async function copyAssistantText(
   value: string,
   clipboard: ClipboardWriter | undefined | null

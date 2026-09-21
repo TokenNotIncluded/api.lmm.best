@@ -30,7 +30,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { formatBillingCurrencyFromUSD } from '@/lib/currency'
+import { formatFiatCurrencyAmount } from '@/lib/currency'
 import { formatQuota, formatTimestamp } from '@/lib/format'
 
 import {
@@ -45,6 +45,30 @@ import { UserAssistantHistoryDialog } from './user-assistant-history-dialog'
 import { UserAssistantReviewDialog } from './user-assistant-review-dialog'
 import { UserQuotaCell } from './user-quota-cell'
 import { UserTrustLevelCell } from './user-trust-level-cell'
+
+function resolveTopupCurrency(
+  summary: NonNullable<User['topup_summary']>
+): string | null {
+  const preferred = summary.currency?.trim().toUpperCase()
+  if (preferred && preferred !== 'MULTIPLE' && preferred !== 'UNKNOWN') {
+    return preferred
+  }
+  const currencies = new Set(
+    summary.methods
+      .map((method) => method.settlement_currency?.trim().toUpperCase())
+      .filter((currency): currency is string =>
+        Boolean(currency && currency !== 'UNKNOWN')
+      )
+  )
+  if (!preferred && currencies.size === 1) return [...currencies][0]
+  return null
+}
+
+function formatUnknownCurrencyAmount(micros: number): string {
+  return new Intl.NumberFormat(undefined, {
+    maximumFractionDigits: 6,
+  }).format(micros / 1_000_000)
+}
 
 export function useUsersColumns(): ColumnDef<User>[] {
   const { t } = useTranslation()
@@ -286,9 +310,22 @@ export function useUsersColumns(): ColumnDef<User>[] {
       id: 'topup_money',
       accessorFn: (row) => row.topup_summary?.money_micros ?? 0,
       header: t('Top-up amount'),
+      enableSorting: false,
       cell: ({ row }) => {
         const summary = row.original.topup_summary
         const methods = summary?.methods ?? []
+        const currency = summary ? resolveTopupCurrency(summary) : null
+        let totalDisplay = '—'
+        if (summary?.currency === 'MULTIPLE') {
+          totalDisplay = t('Multiple fiat currencies')
+        } else if (summary && currency) {
+          totalDisplay = formatFiatCurrencyAmount(
+            summary.money_micros / 1_000_000,
+            currency
+          )
+        } else if (summary && methods.length > 0) {
+          totalDisplay = t('Currency unavailable')
+        }
         return (
           <Tooltip>
             <TooltipTrigger
@@ -296,13 +333,11 @@ export function useUsersColumns(): ColumnDef<User>[] {
                 <div className='flex min-w-[130px] cursor-help flex-col gap-0.5 text-sm tabular-nums' />
               }
             >
-              {formatBillingCurrencyFromUSD(
-                (summary?.money_micros ?? 0) / 1_000_000
-              )}
+              {totalDisplay}
             </TooltipTrigger>
             <TooltipContent className='max-w-[320px]'>
               {methods.length === 0 ? (
-                <p className='text-xs'>{formatBillingCurrencyFromUSD(0)}</p>
+                <p className='text-xs'>—</p>
               ) : (
                 <div className='space-y-1'>
                   {methods.map((method) => {
@@ -312,12 +347,22 @@ export function useUsersColumns(): ColumnDef<User>[] {
                     ]
                       .filter(Boolean)
                       .join(' · ')
+                    const methodCurrency = method.settlement_currency
+                      ?.trim()
+                      .toUpperCase()
+                    const methodAmount =
+                      methodCurrency && methodCurrency !== 'UNKNOWN'
+                        ? formatFiatCurrencyAmount(
+                            method.money_micros / 1_000_000,
+                            methodCurrency
+                          )
+                        : `${formatUnknownCurrencyAmount(method.money_micros)} (${t('Currency unavailable')})`
                     return (
-                      <p key={`${label}-${method.orders}`} className='text-xs'>
-                        {label || '—'}:{' '}
-                        {formatBillingCurrencyFromUSD(
-                          method.money_micros / 1_000_000
-                        )}
+                      <p
+                        key={`${label}-${methodCurrency}-${method.orders}`}
+                        className='text-xs'
+                      >
+                        {label || '—'}: {methodAmount}
                       </p>
                     )
                   })}

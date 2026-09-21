@@ -1,5 +1,16 @@
 //! Reusable HTTP slices for the Rust control-plane binary.
 
+/// Native public command dispatch, run before service configuration.
+pub mod cli;
+/// Manual-only production deployment schemas and target recovery.
+pub mod deployment;
+/// Immutable frontend release publication.
+pub mod frontend_deploy;
+/// Strict generic-provider link management.
+pub mod provider_link;
+/// API-route contract revision generation and verification.
+pub mod route_contract;
+
 use std::net::IpAddr;
 
 use axum::{
@@ -47,11 +58,21 @@ pub fn legacy_empty_response(status: StatusCode, retry_after_seconds: Option<u64
 /// Dashboard authentication routes and their PostgreSQL/Valkey adapter.
 pub mod auth;
 
+/// Provider balance response normalization shared by channel operations.
+pub(crate) mod channel_balance;
+/// Mounted single-channel provider balance adapter for advanced routes.
+pub mod channel_balance_provider;
+/// Durable PostgreSQL state for provider balance refresh operations.
+pub(crate) mod channel_balance_store;
+
 /// Legacy-compatible OpenAI model discovery route.
 pub mod models;
 
 /// Hardened shared construction for outbound control-plane HTTP calls.
 pub mod outbound_http;
+
+/// Provider-specific HTTP deadlines and response consumption.
+pub mod relay_http;
 
 /// Bounded low-cardinality protocol-conversion observability.
 pub mod conversion_observability;
@@ -80,11 +101,12 @@ pub mod protocol_runtime_registry;
 /// Production protocol conversion backed by the cortexfs-protocol crate.
 pub mod cortexfs_protocol_bridge;
 
-/// Candidate route slices compiled for migration testing but not mounted.
-pub mod migration_routes;
+/// HTTP route modules grouped by product domain.
+pub mod routes;
 
 /// Focused candidate for the legacy model-deletion boundary.
-pub(crate) mod missing_relay_model_delete_candidate;
+#[cfg(test)]
+pub(crate) mod model_delete_candidate;
 
 /// Legacy-compatible public system status route.
 pub mod status;

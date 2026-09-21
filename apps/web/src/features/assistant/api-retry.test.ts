@@ -24,6 +24,7 @@ import { api } from '@/lib/api'
 import {
   ASSISTANT_MAX_REQUEST_ATTEMPTS,
   archiveAssistantConversation,
+  isAssistantTurnUnavailable,
   sendAssistantMessage,
   submitAssistantAccountDisableRequest,
   submitAssistantAdminChange,
@@ -106,23 +107,22 @@ describe('assistant automatic retry policy', () => {
     }
   })
 
-  test('retries an Axios network error once and keeps attempt numbering monotonic', async () => {
-    const attempts: Array<string | undefined> = []
+  test('does not replay a request with an unknown transport outcome', async () => {
     let callCount = 0
-
-    const reply = await withAssistantPost(
-      async (_url, _data, config) => {
+    const expected = assistantAxiosError()
+    await withAssistantPost(
+      async () => {
         callCount += 1
-        attempts.push(assistantAttempt(config))
-        if (callCount === 1) throw assistantAxiosError()
-        return assistantResponse('network recovered')
+        throw expected
       },
-      () => sendAssistantMessage('hello')
+      async () => {
+        await assert.rejects(
+          () => sendAssistantMessage('hello'),
+          (error) => error === expected
+        )
+      }
     )
-
-    assert.equal(reply.content, 'network recovered')
-    assert.equal(callCount, 2)
-    assert.deepEqual(attempts, ['1', '2'])
+    assert.equal(callCount, 1)
   })
 
   test('does not retry non-retryable HTTP 4xx responses', async () => {
@@ -171,7 +171,7 @@ describe('assistant automatic retry policy', () => {
     )
 
     assert.equal(callCount, ASSISTANT_MAX_REQUEST_ATTEMPTS)
-    assert.deepEqual(attempts, ['1', '2', '3', '4', '5'])
+    assert.deepEqual(attempts, ['1', '2'])
   })
 })
 
@@ -220,4 +220,42 @@ describe('assistant retry write boundary', () => {
       assert.deepEqual(calls, [write.url], write.name)
     }
   })
+})
+
+test('manual retry is marked as a replay and preserves the existing thread', async () => {
+  const calls: AssistantPostCall[] = []
+  await withAssistantPost(
+    async (url, data, config) => {
+      calls.push({ url, data, config: config as AssistantPostConfig })
+      return assistantResponse()
+    },
+    () =>
+      sendAssistantMessage(
+        'continue',
+        [],
+        42,
+        undefined,
+        undefined,
+        undefined,
+        true
+      )
+  )
+  const call = calls[0]
+  assert.ok(call)
+  assert.equal(assistantAttempt(call.config), '2')
+  assert.equal((call.data as { conversation_id: number }).conversation_id, 42)
+})
+
+test('expired or conflicting turn receipts are terminal, not retryable transport failures', () => {
+  assert.equal(
+    isAssistantTurnUnavailable({
+      isAxiosError: true,
+      response: {
+        status: 409,
+        data: { error: { code: 'ASSISTANT_TURN_UNAVAILABLE' } },
+      },
+    }),
+    true
+  )
+  assert.equal(isAssistantTurnUnavailable(assistantAxiosError(503)), false)
 })

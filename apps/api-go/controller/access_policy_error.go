@@ -37,6 +37,16 @@ func GetAccessPolicyErrorPage(c *gin.Context) {
 		return
 	}
 
+	// AI/relay paths never disclose that IP/region policy is the reason for the
+	// rejection: an anonymous or key-less request to these paths sees a plain
+	// 404, identical to abortRelayAsNotFound, so it cannot be distinguished
+	// from a path that simply does not exist. Every other path (the public
+	// site, static assets) keeps the diagnostic block page below.
+	if accessPolicyAPIPath(accessPolicyOriginalPath(c)) {
+		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"message": "Not Found"})
+		return
+	}
+
 	requestID := accessPolicyRequestID(c)
 	c.Header(common.RequestIdKey, requestID)
 	c.Header("Cache-Control", "private, no-store, max-age=0")
@@ -73,11 +83,7 @@ func applyAccessPolicyJSONCORS(c *gin.Context) {
 }
 
 func accessPolicyWantsJSON(c *gin.Context) bool {
-	originalURI := strings.TrimSpace(c.GetHeader(accessPolicyOriginalURIHeader))
-	if queryStart := strings.IndexByte(originalURI, '?'); queryStart >= 0 {
-		originalURI = originalURI[:queryStart]
-	}
-	if accessPolicyAPIPath(originalURI) {
+	if accessPolicyAPIPath(accessPolicyOriginalPath(c)) {
 		return true
 	}
 
@@ -97,6 +103,16 @@ func accessPolicyWantsJSON(c *gin.Context) bool {
 		}
 	}
 	return false
+}
+
+// accessPolicyOriginalPath strips the query string from the original
+// (pre-nginx-rejection) request URI forwarded by the edge.
+func accessPolicyOriginalPath(c *gin.Context) string {
+	originalURI := strings.TrimSpace(c.GetHeader(accessPolicyOriginalURIHeader))
+	if queryStart := strings.IndexByte(originalURI, '?'); queryStart >= 0 {
+		originalURI = originalURI[:queryStart]
+	}
+	return originalURI
 }
 
 func accessPolicyAPIPath(path string) bool {

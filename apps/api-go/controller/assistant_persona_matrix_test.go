@@ -172,7 +172,7 @@ func TestAssistantPersonaMatrix(t *testing.T) {
 			serialized, err := json.Marshal(context)
 			require.NoError(t, err)
 			encoded := string(serialized)
-			var modelContext map[string]any
+			modelContext := make(map[string]any)
 			require.NoError(t, json.Unmarshal(serialized, &modelContext))
 			assert.Equal(t, assistantSafeAccessLevel(context.AccessLevel), modelContext["access_level"])
 			assert.Equal(t, strategy, modelContext["welcome_strategy"])

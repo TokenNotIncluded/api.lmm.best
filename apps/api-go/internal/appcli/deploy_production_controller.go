@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -31,20 +32,20 @@ type productionReleaseControllerOptions struct {
 }
 
 type productionReleaseControllerState struct {
-	Format           int       `json:"format"`
-	DeploymentID     string    `json:"deployment_id"`
-	PlanSHA256       string    `json:"plan_sha256"`
-	Phase            string    `json:"phase"`
-	RemoteWorkspace  string    `json:"remote_workspace"`
-	TargetBackup     string    `json:"target_backup,omitempty"`
-	ControllerBackup string    `json:"controller_backup,omitempty"`
-	OffhostBackup    string    `json:"offhost_backup,omitempty"`
-	Version          string    `json:"version,omitempty"`
-	RollbackTimer    string    `json:"rollback_timer,omitempty"`
-	ActivationUnit   string    `json:"activation_unit,omitempty"`
-	DispatchAttempts int       `json:"dispatch_attempts,omitempty"`
-	DispatchObserved bool      `json:"dispatch_observed,omitempty"`
-	UpdatedUTC       time.Time `json:"updated_utc"`
+	Format                  int       `json:"format"`
+	DeploymentID            string    `json:"deployment_id"`
+	PlanSHA256              string    `json:"plan_sha256"`
+	Phase                   string    `json:"phase"`
+	RemoteWorkspace         string    `json:"remote_workspace"`
+	TargetBackup            string    `json:"target_backup,omitempty"`
+	ControllerBackup        string    `json:"controller_backup,omitempty"`
+	ControllerReceiptSHA256 string    `json:"controller_receipt_sha256,omitempty"`
+	OffhostBackup           string    `json:"offhost_backup,omitempty"`
+	Version                 string    `json:"version,omitempty"`
+	ActivationUnit          string    `json:"activation_unit,omitempty"`
+	DispatchAttempts        int       `json:"dispatch_attempts,omitempty"`
+	DispatchObserved        bool      `json:"dispatch_observed,omitempty"`
+	UpdatedUTC              time.Time `json:"updated_utc"`
 }
 
 type productionReleaseControllerResult struct {
@@ -56,7 +57,6 @@ type productionReleaseControllerResult struct {
 	TargetBackup     string `json:"target_backup,omitempty"`
 	ControllerBackup string `json:"controller_backup,omitempty"`
 	OffhostBackup    string `json:"offhost_backup,omitempty"`
-	RollbackTimer    string `json:"rollback_timer,omitempty"`
 	ActivationUnit   string `json:"activation_unit,omitempty"`
 	DispatchAttempts int    `json:"dispatch_attempts,omitempty"`
 	Workspace        string `json:"workspace"`
@@ -68,13 +68,13 @@ func runProductionReleaseStage(args []string, stdout, stderr io.Writer) int {
 		return ExitOK
 	}
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production stage: %v\n", ProgramName, err)
+		_, _ = fmt.Fprintf(stderr, "%s production stage: %v\n", DeployProgramName, err)
 		return ExitUsage
 	}
 	runtime := &productionReleaseRuntime{runner: osProductionCommandRunner{}, now: time.Now}
 	result, err := runtime.stage(context.Background(), options)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production stage: %v\n", ProgramName, err)
+		_, _ = fmt.Fprintf(stderr, "%s production stage: %v\n", DeployProgramName, err)
 		return ExitError
 	}
 	return writeJSONCommandResult(result, stdout, stderr, "production release stage")
@@ -86,13 +86,13 @@ func runProductionReleasePromote(args []string, stdout, stderr io.Writer) int {
 		return ExitOK
 	}
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production promote: %v\n", ProgramName, err)
+		_, _ = fmt.Fprintf(stderr, "%s production promote: %v\n", DeployProgramName, err)
 		return ExitUsage
 	}
 	runtime := &productionReleaseRuntime{runner: osProductionCommandRunner{}, now: time.Now}
 	result, err := runtime.promote(context.Background(), options)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production promote: %v\n", ProgramName, err)
+		_, _ = fmt.Fprintf(stderr, "%s production promote: %v\n", DeployProgramName, err)
 		return ExitError
 	}
 	return writeJSONCommandResult(result, stdout, stderr, "production release promote")
@@ -104,13 +104,13 @@ func runProductionReleaseControllerAction(action string, args []string, stdout, 
 		return ExitOK
 	}
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production %s: %v\n", ProgramName, action, err)
+		_, _ = fmt.Fprintf(stderr, "%s production %s: %v\n", DeployProgramName, action, err)
 		return ExitUsage
 	}
 	runtime := &productionReleaseRuntime{runner: osProductionCommandRunner{}, now: time.Now}
 	result, err := runtime.control(context.Background(), action, options)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production %s: %v\n", ProgramName, action, err)
+		_, _ = fmt.Fprintf(stderr, "%s production %s: %v\n", DeployProgramName, action, err)
 		return ExitError
 	}
 	return writeJSONCommandResult(result, stdout, stderr, "production release "+action)
@@ -118,12 +118,12 @@ func runProductionReleaseControllerAction(action string, args []string, stdout, 
 
 func parseProductionReleaseControllerOptions(action string, args []string, stderr io.Writer) (productionReleaseControllerOptions, error) {
 	options := productionReleaseControllerOptions{Reason: "operator-request"}
-	flags := flag.NewFlagSet("deploy production "+action, flag.ContinueOnError)
+	flags := flag.NewFlagSet(DeployProgramName+" production "+action, flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&options.Plan, "plan", "", "immutable controller release plan")
 	flags.StringVar(&options.PlanSHA256, "plan-sha256", "", "exact immutable release-plan SHA-256")
 	flags.StringVar(&options.Confirm, "confirm", "", "must equal api.lmm.best")
-	if action == "promote" {
+	if action == "promote" || action == "confirm" {
 		flags.StringVar(&options.AgeIdentityFile, "age-identity-file", "", "owner-protected age or SSH private identity for backup verification")
 	}
 	if action == "rollback" {
@@ -187,18 +187,9 @@ func (runtime *productionReleaseRuntime) stage(ctx context.Context, options prod
 		}
 	}
 	if state.RemoteWorkspace == "" {
-		output, err := runtime.ssh(ctx, plan.TargetAlias, 2*time.Minute,
-			productionOperatorBinary, "deploy", "production", "workspace", "create", "--deployment-id", plan.DeploymentID)
+		workspace, err := runtime.bootstrapRemoteWorkspace(ctx, plan)
 		if err != nil {
 			return productionReleaseControllerResult{}, fmt.Errorf("create target deployment workspace: %w", err)
-		}
-		var workspace productionWorkspaceResult
-		if err := json.Unmarshal(output, &workspace); err != nil || workspace.DeploymentID != plan.DeploymentID || !workspace.TransactionSet {
-			return productionReleaseControllerResult{}, errors.New("target workspace response is invalid")
-		}
-		expected := filepath.Join(defaultProductionPaths().WorkRoot, plan.DeploymentID)
-		if workspace.Workspace != expected {
-			return productionReleaseControllerResult{}, errors.New("target workspace path is not canonical")
 		}
 		state.RemoteWorkspace = workspace.Workspace
 		state.Phase = productionReleasePhaseWorkspaceCreated
@@ -219,6 +210,9 @@ func (runtime *productionReleaseRuntime) stage(ctx context.Context, options prod
 		if err := runtime.stageRemoteFile(ctx, plan.TargetAlias, file.Path, remote, file.SHA256, file.Executable); err != nil {
 			return productionReleaseControllerResult{}, err
 		}
+	}
+	if err := runtime.ensureRemoteCandidateEntrypoint(ctx, plan, state); err != nil {
+		return productionReleaseControllerResult{}, err
 	}
 	if err := runtime.verifyRemoteStagedRelease(ctx, plan, state); err != nil {
 		return productionReleaseControllerResult{}, err
@@ -251,7 +245,16 @@ func (runtime *productionReleaseRuntime) promote(ctx context.Context, options pr
 	if err := runtime.verifyRemoteStagedRelease(ctx, plan, state); err != nil {
 		return productionReleaseControllerResult{}, err
 	}
-	if plan.WithBackups && state.TargetBackup == "" {
+	if !plan.WithBackups && options.AgeIdentityFile != "" {
+		return productionReleaseControllerResult{}, errors.New("disabled backup plans forbid --age-identity-file")
+	}
+	if plan.Format == productionReleasePlanFormat && plan.WithBackups && state.DispatchAttempts == 0 &&
+		(state.Phase == productionReleasePhaseStaged || state.Phase == productionReleasePhaseBackupsReady) {
+		if err := runtime.prepareControllerOnlyBackup(ctx, plan, &state, options.AgeIdentityFile); err != nil {
+			return productionReleaseControllerResult{}, err
+		}
+	}
+	if plan.Format == 5 && plan.WithBackups && state.TargetBackup == "" {
 		if options.AgeIdentityFile == "" {
 			return productionReleaseControllerResult{}, errors.New("--age-identity-file is required by this backup-enabled plan")
 		}
@@ -285,12 +288,8 @@ func (runtime *productionReleaseRuntime) promote(ctx context.Context, options pr
 	if err := persistRemoteReleaseControllerStatus(plan, &state, status, runtime.now()); err != nil {
 		return productionReleaseControllerResult{}, err
 	}
-	expected := "CONFIRMED"
-	if plan.ManualConfirm {
-		expected = "AWAITING_CONFIRMATION"
-	}
-	if status.Phase != expected {
-		return productionReleaseControllerResult{}, fmt.Errorf("production release did not finish in %s: phase=%s", expected, status.Phase)
+	if status.Phase != "AWAITING_CONFIRMATION" {
+		return productionReleaseControllerResult{}, fmt.Errorf("production release requires operator recovery or did not reach explicit confirmation: phase=%s", status.Phase)
 	}
 	return releaseControllerResult(plan, state), nil
 }
@@ -310,13 +309,27 @@ func (runtime *productionReleaseRuntime) control(ctx context.Context, action str
 	if err := runtime.assertRemoteHost(ctx, plan.TargetAlias, plan.ExpectedHost); err != nil {
 		return productionReleaseControllerResult{}, err
 	}
+	if !plan.WithBackups && options.AgeIdentityFile != "" {
+		return productionReleaseControllerResult{}, errors.New("disabled backup plans forbid --age-identity-file")
+	}
+	if action == "confirm" && plan.WithBackups {
+		if options.AgeIdentityFile == "" {
+			return productionReleaseControllerResult{}, errors.New("--age-identity-file is required to reverify backup-enabled confirmation")
+		}
+		if err := runtime.reverifyControllerBackups(ctx, plan, state, options.AgeIdentityFile); err != nil {
+			return productionReleaseControllerResult{}, fmt.Errorf("reverify production backups before confirmation: %w", err)
+		}
+	}
 	if action != "status" {
-		arguments := []string{"deploy", "production", action, "--workspace", state.RemoteWorkspace}
+		arguments := []string{"operator", "production", action, "--workspace", state.RemoteWorkspace}
 		if action == "rollback" {
 			arguments = append(arguments, "--reason", options.Reason)
 		}
-		remoteOperator := productionRemoteOperatorPath(plan, state)
-		output, err := runtime.ssh(ctx, plan.TargetAlias, 12*time.Minute, append([]string{remoteOperator}, arguments...)...)
+		operator, err := runtime.controllerRecoveryOperator(ctx, plan, state)
+		if err != nil {
+			return productionReleaseControllerResult{}, err
+		}
+		output, err := runtime.ssh(ctx, plan.TargetAlias, 12*time.Minute, append([]string{operator}, arguments...)...)
 		if err != nil {
 			return productionReleaseControllerResult{}, fmt.Errorf("production %s failed or became transport-ambiguous: %w", action, err)
 		}
@@ -335,18 +348,20 @@ func (runtime *productionReleaseRuntime) control(ctx context.Context, action str
 	return releaseControllerResult(plan, state), nil
 }
 
-func productionRemoteOperatorPath(plan productionReleasePlan, state productionReleaseControllerState) string {
-	operator := plan.OperatorBinary.Path
-	if operator == "" {
-		operator = plan.ProbeBinary.Path
+func productionRemoteOperatorPath(state productionReleaseControllerState) string {
+	return filepath.Join(state.RemoteWorkspace, "staging", productionCandidateLinkName)
+}
+
+func (runtime *productionReleaseRuntime) remoteCandidateCommand(ctx context.Context, plan productionReleasePlan, state productionReleaseControllerState) (string, error) {
+	if err := runtime.verifyRemoteCandidateEntrypoint(ctx, plan, state); err != nil {
+		return "", err
 	}
-	return filepath.Join(state.RemoteWorkspace, "staging", filepath.Base(operator))
+	return productionRemoteOperatorPath(state), nil
 }
 
 func persistRemoteReleaseControllerStatus(plan productionReleasePlan, state *productionReleaseControllerState, status productionStatus, now time.Time) error {
 	state.Phase = status.Phase
 	state.Version = status.Version
-	state.RollbackTimer = status.RollbackTimer
 	state.UpdatedUTC = utcSecond(now)
 	if err := writeProductionReleaseControllerState(plan, *state); err != nil {
 		return fmt.Errorf("persist remote release status: %w", err)
@@ -356,12 +371,12 @@ func persistRemoteReleaseControllerStatus(plan productionReleasePlan, state *pro
 
 func (runtime *productionReleaseRuntime) productionApplyArguments(plan productionReleasePlan, state productionReleaseControllerState) []string {
 	remoteStage := filepath.Join(state.RemoteWorkspace, "staging")
-	remoteOperator := productionRemoteOperatorPath(plan, state)
-	remoteProbe := filepath.Join(remoteStage, filepath.Base(plan.ProbeBinary.Path))
+	remoteOperator := productionRemoteOperatorPath(state)
+	remoteProvider := filepath.Join(remoteStage, backendGoName)
 	arguments := []string{
 		"systemd-run", "--quiet", "--wait", "--collect", "--unit", productionActivationUnit(plan.DeploymentID),
 		"--property=Type=oneshot", "--property=TimeoutStartSec=18min",
-		remoteOperator, "deploy", "production", "apply",
+		remoteOperator, "operator", "production", "apply",
 		"--workspace", state.RemoteWorkspace,
 		"--operator-user", plan.OperatorUser,
 		"--go-package", filepath.Join(remoteStage, filepath.Base(plan.GoCandidate.PackagePath)),
@@ -372,13 +387,12 @@ func (runtime *productionReleaseRuntime) productionApplyArguments(plan productio
 		"--web-package-sha256", plan.WebCandidate.PackageSHA256,
 		"--web-rollback-package", filepath.Join(remoteStage, filepath.Base(plan.WebRollback.PackagePath)),
 		"--web-rollback-sha256", plan.WebRollback.PackageSHA256,
-		"--probe-binary", remoteProbe,
+		"--probe-binary", remoteProvider,
 		"--probe-binary-sha256", plan.ProbeBinary.SHA256,
-		"--operator-binary", remoteOperator,
+		"--operator-binary", remoteProvider,
 		"--operator-binary-sha256", plan.OperatorBinary.SHA256,
 		"--expected-version", plan.ExpectedVersion,
-		"--rollback-seconds", strconv.Itoa(plan.RollbackSeconds),
-		"--observation-seconds", strconv.Itoa(plan.ObservationSeconds),
+		"--observation-seconds", fmt.Sprintf("%d", plan.ObservationSeconds),
 	}
 	if plan.GoChanged {
 		arguments = append(arguments, "--go-changed")
@@ -387,10 +401,15 @@ func (runtime *productionReleaseRuntime) productionApplyArguments(plan productio
 		arguments = append(arguments, "--web-changed")
 	}
 	if plan.WithBackups {
-		arguments = append(arguments, "--with-backups", "--backup-dir", state.TargetBackup)
-	}
-	if plan.ManualConfirm {
-		arguments = append(arguments, "--manual-confirm")
+		if plan.Format == productionReleasePlanFormat {
+			arguments = append(arguments, "--with-backups",
+				"--controller-backup-public-key", plan.ControllerBackupPublicKey,
+				"--release-plan-sha256", state.PlanSHA256,
+				"--controller-backup-receipt", filepath.Join(state.RemoteWorkspace, "state", controllerBackupReceiptName),
+				"--controller-backup-receipt-sha256", state.ControllerReceiptSHA256)
+		} else {
+			arguments = append(arguments, "--with-backups", "--backup-dir", state.TargetBackup)
+		}
 	}
 	if plan.PreserveEdgePolicy {
 		arguments = append(arguments, "--preserve-edge-policy")
@@ -399,9 +418,12 @@ func (runtime *productionReleaseRuntime) productionApplyArguments(plan productio
 }
 
 func (runtime *productionReleaseRuntime) remoteDispatchEvidence(ctx context.Context, plan productionReleasePlan, state productionReleaseControllerState) (productionDispatchEvidence, error) {
-	remoteOperator := productionRemoteOperatorPath(plan, state)
+	remoteOperator, err := runtime.remoteCandidateCommand(ctx, plan, state)
+	if err != nil {
+		return productionDispatchEvidence{}, err
+	}
 	output, err := runtime.ssh(ctx, plan.TargetAlias, 30*time.Second,
-		remoteOperator, "deploy", "production", "dispatch-evidence",
+		remoteOperator, "operator", "production", "dispatch-evidence",
 		"--workspace", state.RemoteWorkspace, "--unit", state.ActivationUnit)
 	if err != nil {
 		return productionDispatchEvidence{}, fmt.Errorf("reconcile production activation dispatch: %w", err)
@@ -512,16 +534,13 @@ func (runtime *productionReleaseRuntime) awaitRemoteReleaseStatus(ctx context.Co
 	}
 }
 
-func productionActivationStatusTerminalForPlan(plan productionReleasePlan, status productionStatus) bool {
-	if status.Phase == "AWAITING_CONFIRMATION" && !plan.ManualConfirm && status.AutoConfirm {
-		return false
-	}
+func productionActivationStatusTerminalForPlan(_ productionReleasePlan, status productionStatus) bool {
 	return productionActivationStatusTerminal(status.Phase)
 }
 
 func productionActivationStatusTerminal(phase string) bool {
 	switch phase {
-	case "AWAITING_CONFIRMATION", "CONFIRMED", "ROLLED_BACK", "FAILED_PREARM", "ROLLBACK_FAILED", "ABORTED":
+	case "AWAITING_CONFIRMATION", "ROLLBACK_REQUIRED", "CONFIRMED", "ROLLED_BACK", "FAILED_PREARM", "ABORTED":
 		return true
 	default:
 		return false
@@ -542,10 +561,27 @@ func (runtime *productionReleaseRuntime) waitForDispatchObservation(ctx context.
 	}
 }
 
+func (runtime *productionReleaseRuntime) controllerRecoveryOperator(ctx context.Context, plan productionReleasePlan, state productionReleaseControllerState) (string, error) {
+	if plan.Format == productionReleasePlanFormat && plan.WithBackups {
+		// After activation the installed, package-bound CLI is sufficient even
+		// if disposable staging has disappeared. Never infer compatibility from
+		// a version string or fall back to an unverified N-1 provider.
+		provider := filepath.Join(filepath.Dir(productionOperatorBinary), backendGoName)
+		if err := runtime.verifyRemoteProviderEntrypoint(ctx, plan.TargetAlias, productionOperatorBinary, provider, plan.GoCandidate.PayloadSHA256); err == nil {
+			return productionOperatorBinary, nil
+		}
+		return runtime.remoteCandidateCommand(ctx, plan, state)
+	}
+	return productionOperatorBinary, nil
+}
+
 func (runtime *productionReleaseRuntime) readRemoteReleaseStatus(ctx context.Context, plan productionReleasePlan, state productionReleaseControllerState) (productionStatus, error) {
-	remoteOperator := productionRemoteOperatorPath(plan, state)
+	operator, err := runtime.controllerRecoveryOperator(ctx, plan, state)
+	if err != nil {
+		return productionStatus{}, err
+	}
 	output, err := runtime.ssh(ctx, plan.TargetAlias, 2*time.Minute,
-		remoteOperator, "deploy", "production", "status", "--workspace", state.RemoteWorkspace)
+		operator, "operator", "production", "status", "--workspace", state.RemoteWorkspace)
 	if err != nil {
 		return productionStatus{}, fmt.Errorf("read production release status: %w", err)
 	}
@@ -586,7 +622,7 @@ func productionReleaseStageFiles(plan productionReleasePlan, planPath string) ([
 		{planPath, planSHA256, false},
 		{digestPath, digestSHA256, false},
 	}
-	if plan.WithBackups {
+	if plan.WithBackups && plan.Format == 5 {
 		files = append(files, productionReleaseStageFile{plan.AgeRecipient.Path, plan.AgeRecipient.SHA256, false})
 	}
 	unique := make([]productionReleaseStageFile, 0, len(files))
@@ -644,6 +680,58 @@ func (runtime *productionReleaseRuntime) remoteFileSHA256(ctx context.Context, a
 	return fields[0], nil
 }
 
+func (runtime *productionReleaseRuntime) ensureRemoteCandidateEntrypoint(ctx context.Context, plan productionReleasePlan, state productionReleaseControllerState) error {
+	link := productionRemoteOperatorPath(state)
+	if output, err := runtime.ssh(ctx, plan.TargetAlias, 2*time.Minute, "readlink", "--", link); err == nil {
+		if strings.TrimSpace(string(output)) != backendGoName {
+			return errors.New("remote candidate entrypoint has an unexpected target")
+		}
+		return runtime.verifyRemoteCandidateEntrypoint(ctx, plan, state)
+	}
+	if _, err := runtime.ssh(ctx, plan.TargetAlias, 2*time.Minute, "test", "!", "-e", link); err != nil {
+		return errors.New("remote candidate entrypoint destination is occupied")
+	}
+	if _, err := runtime.ssh(ctx, plan.TargetAlias, 2*time.Minute, "test", "!", "-L", link); err != nil {
+		return errors.New("remote candidate entrypoint destination is a dangling link")
+	}
+	if _, err := runtime.ssh(ctx, plan.TargetAlias, 2*time.Minute, "ln", "-s", "--", backendGoName, link); err != nil {
+		return fmt.Errorf("create remote candidate entrypoint: %w", err)
+	}
+	return runtime.verifyRemoteCandidateEntrypoint(ctx, plan, state)
+}
+
+func (runtime *productionReleaseRuntime) verifyRemoteCandidateEntrypoint(ctx context.Context, plan productionReleasePlan, state productionReleaseControllerState) error {
+	link := productionRemoteOperatorPath(state)
+	target := filepath.Join(state.RemoteWorkspace, "staging", backendGoName)
+	return runtime.verifyRemoteProviderEntrypoint(ctx, plan.TargetAlias, link, target, plan.GoCandidate.PayloadSHA256)
+}
+
+func (runtime *productionReleaseRuntime) verifyRemoteProviderEntrypoint(ctx context.Context, alias, link, target, expectedSHA256 string) error {
+	if !productionSHA256Pattern.MatchString(expectedSHA256) {
+		return errors.New("remote provider verification requires a frozen package payload digest")
+	}
+	output, err := runtime.ssh(ctx, alias, 2*time.Minute, "readlink", "--", link)
+	if err != nil || strings.TrimSpace(string(output)) != backendGoName {
+		return errors.New("remote provider entrypoint is not a one-hop relative lmm-api link")
+	}
+	metadata, err := runtime.ssh(ctx, alias, 2*time.Minute, "stat", "-c", "%u:%f:%h", "--", target)
+	parts := strings.SplitN(strings.TrimSpace(string(metadata)), ":", 3)
+	if err != nil || len(parts) != 3 || parts[0] != "0" || parts[2] != "1" {
+		return errors.New("remote candidate provider target is not a root-owned single-link regular file")
+	}
+	mode, parseErr := strconv.ParseUint(parts[1], 16, 32)
+	if parseErr != nil || mode&0o170000 != 0o100000 || mode&0o7022 != 0 || mode&0o100 == 0 {
+		return errors.New("remote candidate provider target mode is unsafe")
+	}
+	for _, path := range []string{target, link} {
+		digest, err := runtime.remoteFileSHA256(ctx, alias, path)
+		if err != nil || digest != expectedSHA256 {
+			return errors.New("remote candidate entrypoint target digest mismatch")
+		}
+	}
+	return nil
+}
+
 func (runtime *productionReleaseRuntime) verifyRemoteStagedRelease(ctx context.Context, plan productionReleasePlan, state productionReleaseControllerState) error {
 	files := []productionReleaseFilePlan{
 		{Path: plan.GoCandidate.PackagePath, SHA256: plan.GoCandidate.PackageSHA256},
@@ -653,7 +741,7 @@ func (runtime *productionReleaseRuntime) verifyRemoteStagedRelease(ctx context.C
 		plan.ProbeBinary,
 		plan.OperatorBinary,
 	}
-	if plan.WithBackups {
+	if plan.WithBackups && plan.Format == 5 {
 		files = append(files, plan.AgeRecipient)
 	}
 	seen := make(map[string]string)
@@ -672,7 +760,7 @@ func (runtime *productionReleaseRuntime) verifyRemoteStagedRelease(ctx context.C
 			return fmt.Errorf("remote staged artifact failed digest verification: %s", base)
 		}
 	}
-	return nil
+	return runtime.verifyRemoteCandidateEntrypoint(ctx, plan, state)
 }
 
 type productionPreparedBackups struct {
@@ -682,11 +770,13 @@ type productionPreparedBackups struct {
 }
 
 func (runtime *productionReleaseRuntime) prepareControllerBackups(ctx context.Context, plan productionReleasePlan, state productionReleaseControllerState, ageIdentityFile string) (productionPreparedBackups, error) {
+	if plan.Format != 5 || !plan.WithBackups {
+		return productionPreparedBackups{}, errors.New("legacy multi-copy backup creation is unavailable to new release plans")
+	}
 	if err := runtime.assertRemoteHost(ctx, productionOffhostAlias, productionOffhostExpectedHost); err != nil {
 		return productionPreparedBackups{}, err
 	}
 	remoteStage := filepath.Join(state.RemoteWorkspace, "staging")
-	remoteProbe := filepath.Join(remoteStage, filepath.Base(plan.ProbeBinary.Path))
 	remoteRollback := filepath.Join(remoteStage, filepath.Base(plan.GoRollback.PackagePath))
 	remoteRecipient := filepath.Join(remoteStage, filepath.Base(plan.AgeRecipient.Path))
 	targetBackup := filepath.Join(defaultProductionPaths().BackupRoot, plan.DeploymentID)
@@ -695,8 +785,12 @@ func (runtime *productionReleaseRuntime) prepareControllerBackups(ctx context.Co
 		return productionPreparedBackups{}, err
 	}
 	if !exists {
+		remoteProbe, err := runtime.remoteCandidateCommand(ctx, plan, state)
+		if err != nil {
+			return productionPreparedBackups{}, err
+		}
 		if _, err := runtime.ssh(ctx, plan.TargetAlias, 12*time.Minute,
-			remoteProbe, "deploy", "production", "backup", "create",
+			remoteProbe, "operator", "production", "backup", "create",
 			"--workspace", state.RemoteWorkspace,
 			"--rollback-package", remoteRollback,
 			"--rollback-sha256", plan.GoRollback.PackageSHA256,
@@ -717,8 +811,12 @@ func (runtime *productionReleaseRuntime) prepareControllerBackups(ctx context.Co
 		if exists {
 			continue
 		}
+		remoteProbe, err := runtime.remoteCandidateCommand(ctx, plan, state)
+		if err != nil {
+			return productionPreparedBackups{}, err
+		}
 		if _, err := runtime.ssh(ctx, plan.TargetAlias, 12*time.Minute,
-			remoteProbe, "deploy", "production", "backup", "export",
+			remoteProbe, "operator", "production", "backup", "export",
 			"--workspace", state.RemoteWorkspace, "--role", role, "--output", output,
 			"--age-recipient-file", remoteRecipient,
 		); err != nil {
@@ -801,8 +899,17 @@ func (runtime *productionReleaseRuntime) prepareControllerBackups(ctx context.Co
 	if verification.DeploymentID != plan.DeploymentID {
 		return productionPreparedBackups{}, errors.New("verified backup deployment identity mismatch")
 	}
-	if _, err := runtime.ssh(ctx, productionOffhostAlias, 2*time.Minute, "install", "-d", "-m0700", productionOffhostRoot); err != nil {
-		return productionPreparedBackups{}, fmt.Errorf("prepare off-host backup root: %w", err)
+	offhostRootExists, err := runtime.remoteDirectoryExists(ctx, productionOffhostAlias, productionOffhostRoot)
+	if err != nil {
+		return productionPreparedBackups{}, err
+	}
+	if !offhostRootExists {
+		if _, err := runtime.ssh(ctx, productionOffhostAlias, 2*time.Minute, "install", "-d", "-m0700", productionOffhostRoot); err != nil {
+			return productionPreparedBackups{}, fmt.Errorf("prepare off-host backup root: %w", err)
+		}
+		if exists, err := runtime.remoteDirectoryExists(ctx, productionOffhostAlias, productionOffhostRoot); err != nil || !exists {
+			return productionPreparedBackups{}, errors.New("off-host backup root was not created safely")
+		}
 	}
 	offhostBackup := filepath.Join(productionOffhostRoot, plan.DeploymentID)
 	offhostExists, err := runtime.remoteDirectoryExists(ctx, productionOffhostAlias, offhostBackup)
@@ -814,14 +921,16 @@ func (runtime *productionReleaseRuntime) prepareControllerBackups(ctx context.Co
 			return productionPreparedBackups{}, fmt.Errorf("publish off-host backup: %w", err)
 		}
 	}
-	offhostDigestOutput, err := runtime.ssh(ctx, productionOffhostAlias, 2*time.Minute, "sha256sum", filepath.Join(offhostBackup, "SHA256SUMS"))
-	offhostDigestFields := strings.Fields(string(offhostDigestOutput))
-	if err != nil || len(offhostDigestFields) == 0 || offhostDigestFields[0] != verification.OffhostDigest {
-		return productionPreparedBackups{}, errors.New("off-host backup differs from verified controller copy")
+	if err := runtime.verifyRemoteExternalBackupCopy(ctx, productionOffhostAlias, offhostBackup, offhostMirror, "arch", verification.OffhostDigest); err != nil {
+		return productionPreparedBackups{}, fmt.Errorf("verify published off-host backup: %w", err)
+	}
+	remoteProbe, err := runtime.remoteCandidateCommand(ctx, plan, state)
+	if err != nil {
+		return productionPreparedBackups{}, err
 	}
 	if _, err := runtime.ssh(ctx, plan.TargetAlias, 2*time.Minute,
-		remoteProbe, "deploy", "production", "backup", "attest", "--workspace", state.RemoteWorkspace,
-		"--controller-digest", verification.ControllerDigest, "--offhost-digest", verification.OffhostDigest,
+		remoteProbe, "operator", "production", "backup", "attest", "--workspace", state.RemoteWorkspace,
+		"--target-digest", verification.TargetDigest, "--controller-digest", verification.ControllerDigest, "--offhost-digest", verification.OffhostDigest,
 	); err != nil {
 		return productionPreparedBackups{}, fmt.Errorf("attest verified external backup copies: %w", err)
 	}
@@ -842,12 +951,131 @@ func validateAgeIdentity(path string) error {
 	return nil
 }
 
+func externalBackupMemberNames() []string {
+	return []string{"application.archive", "configuration.age", "database.age", "frontend.archive", "manifest.env", "rollback.package"}
+}
+
+func (runtime *productionReleaseRuntime) verifyRemoteExternalBackupCopy(ctx context.Context, alias, remoteRoot, localRoot, expectedOwner, expectedChecksumDigest string) error {
+	exists, err := runtime.remoteDirectoryExists(ctx, alias, remoteRoot)
+	if err != nil || !exists {
+		return errors.New("off-host backup directory is missing or unsafe")
+	}
+	rootMetadata, err := runtime.ssh(ctx, alias, 2*time.Minute, "stat", "-c", "%U:%a:%F", "--", remoteRoot)
+	rootParts := strings.SplitN(strings.TrimSpace(string(rootMetadata)), ":", 3)
+	if err != nil || len(rootParts) != 3 || rootParts[0] != expectedOwner || rootParts[1] != "700" || rootParts[2] != "directory" {
+		return errors.New("off-host backup directory ownership or mode is unsafe")
+	}
+	members := externalBackupMemberNames()
+	if err := verifyNamedChecksums(localRoot, members); err != nil {
+		return fmt.Errorf("verify local off-host mirror before remote comparison: %w", err)
+	}
+	localChecksumDigest, err := sha256File(filepath.Join(localRoot, "SHA256SUMS"))
+	if err != nil || localChecksumDigest != expectedChecksumDigest {
+		return errors.New("local off-host checksum manifest digest changed")
+	}
+	listing, err := runtime.ssh(ctx, alias, 2*time.Minute, "find", remoteRoot, "-mindepth", "1", "-maxdepth", "1", "-print")
+	if err != nil {
+		return fmt.Errorf("list off-host backup members: %w", err)
+	}
+	expectedPaths := make([]string, 0, len(members)+1)
+	for _, name := range append(append([]string(nil), members...), "SHA256SUMS") {
+		expectedPaths = append(expectedPaths, filepath.Join(remoteRoot, name))
+	}
+	actualPaths := strings.Fields(string(listing))
+	sort.Strings(expectedPaths)
+	sort.Strings(actualPaths)
+	if strings.Join(actualPaths, "\n") != strings.Join(expectedPaths, "\n") {
+		return errors.New("off-host backup contains a missing or unexpected member")
+	}
+	digests, err := readNamedChecksums(localRoot, members)
+	if err != nil {
+		return err
+	}
+	digests["SHA256SUMS"] = localChecksumDigest
+	for name, expectedDigest := range digests {
+		path := filepath.Join(remoteRoot, name)
+		metadata, err := runtime.ssh(ctx, alias, 2*time.Minute, "stat", "-c", "%U:%a:%h:%s:%F", "--", path)
+		parts := strings.SplitN(strings.TrimSpace(string(metadata)), ":", 5)
+		if err != nil || len(parts) != 5 || parts[0] != expectedOwner || parts[2] != "1" || parts[4] != "regular file" {
+			return fmt.Errorf("off-host backup member is not an owner-controlled regular file: %s", name)
+		}
+		mode, modeErr := strconv.ParseUint(parts[1], 8, 32)
+		size, sizeErr := strconv.ParseInt(parts[3], 10, 64)
+		if modeErr != nil || sizeErr != nil || mode&0o077 != 0 || size <= 0 {
+			return fmt.Errorf("off-host backup member mode or size is unsafe: %s", name)
+		}
+		digest, err := runtime.remoteFileSHA256(ctx, alias, path)
+		if err != nil || digest != expectedDigest {
+			return fmt.Errorf("off-host backup member digest mismatch: %s", name)
+		}
+	}
+	return nil
+}
+
+func (runtime *productionReleaseRuntime) reverifyControllerBackups(ctx context.Context, plan productionReleasePlan, state productionReleaseControllerState, ageIdentityFile string) error {
+	if plan.Format == productionReleasePlanFormat {
+		return runtime.reverifyControllerOnlyBackup(ctx, plan, state, ageIdentityFile)
+	}
+	if plan.Format != 5 || !plan.WithBackups {
+		return errors.New("backup re-verification requires an explicitly selected supported plan")
+	}
+	if err := validateAgeIdentity(ageIdentityFile); err != nil {
+		return err
+	}
+	if err := runtime.assertRemoteHost(ctx, productionOffhostAlias, productionOffhostExpectedHost); err != nil {
+		return err
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("resolve controller home: %w", err)
+	}
+	targetBackup := filepath.Join(defaultProductionPaths().BackupRoot, plan.DeploymentID)
+	controllerBackup := filepath.Join(home, "backup", "lmm-api", plan.ExpectedHost, plan.DeploymentID)
+	offhostBackup := filepath.Join(productionOffhostRoot, plan.DeploymentID)
+	if state.TargetBackup != targetBackup || state.ControllerBackup != controllerBackup || state.OffhostBackup != offhostBackup {
+		return errors.New("persisted production backup paths do not match the release plan")
+	}
+	targetProof := filepath.Join(plan.ControllerWorkspace, "backups", "target-proof", plan.DeploymentID)
+	offhostMirror := filepath.Join(plan.ControllerWorkspace, "backups", "offhost", plan.DeploymentID)
+	verificationRuntime := &productionRuntime{runner: runtime.runner, now: runtime.now, effectiveUID: os.Geteuid}
+	verification, err := verificationRuntime.verifyExternalBackups(ctx, productionBackupVerifyOptions{
+		Workspace: plan.ControllerWorkspace, Target: targetProof, Controller: controllerBackup,
+		Offhost: offhostMirror, AgeIdentityFile: ageIdentityFile,
+	})
+	if err != nil {
+		return fmt.Errorf("reverify local production backup copies: %w", err)
+	}
+	if verification.DeploymentID != plan.DeploymentID {
+		return errors.New("reverified backup deployment identity mismatch")
+	}
+	if err := runtime.verifyRemoteExternalBackupCopy(ctx, productionOffhostAlias, offhostBackup, offhostMirror, "arch", verification.OffhostDigest); err != nil {
+		return err
+	}
+	remoteOperator, err := runtime.remoteCandidateCommand(ctx, plan, state)
+	if err != nil {
+		return err
+	}
+	if _, err := runtime.ssh(ctx, plan.TargetAlias, 2*time.Minute,
+		remoteOperator, "operator", "production", "backup", "attest", "--workspace", state.RemoteWorkspace,
+		"--confirmation",
+		"--target-digest", verification.TargetDigest, "--controller-digest", verification.ControllerDigest, "--offhost-digest", verification.OffhostDigest,
+	); err != nil {
+		return fmt.Errorf("revalidate target backup and external attestation: %w", err)
+	}
+	return nil
+}
+
 func (runtime *productionReleaseRuntime) remoteDirectoryExists(ctx context.Context, alias, path string) (bool, error) {
 	if _, err := runtime.ssh(ctx, alias, 2*time.Minute, "test", "-d", path); err == nil {
-		return true, nil
+		if _, err := runtime.ssh(ctx, alias, 2*time.Minute, "test", "!", "-L", path); err == nil {
+			return true, nil
+		}
+		return false, fmt.Errorf("remote directory is a symbolic link: %s", path)
 	}
 	if _, err := runtime.ssh(ctx, alias, 2*time.Minute, "test", "!", "-e", path); err == nil {
-		return false, nil
+		if _, err := runtime.ssh(ctx, alias, 2*time.Minute, "test", "!", "-L", path); err == nil {
+			return false, nil
+		}
 	}
 	return false, fmt.Errorf("remote directory is unsafe or could not be inspected: %s", path)
 }
@@ -936,7 +1164,7 @@ func validateProductionReleaseControllerState(plan productionReleasePlan, planSH
 		"CONFIRMED":             true,
 		"ROLLED_BACK":           true,
 		"FAILED_PREARM":         true,
-		"ROLLBACK_FAILED":       true,
+		"ROLLBACK_REQUIRED":     true,
 		"ABORTED":               true,
 	}
 	if !phases[state.Phase] {
@@ -962,6 +1190,9 @@ func validateProductionReleaseControllerState(plan productionReleasePlan, planSH
 	if state.Phase == productionReleasePhaseActivationDispatched && state.DispatchAttempts == 0 {
 		return errors.New("controller release state activation phase lacks a dispatch attempt")
 	}
+	if err := validateControllerOnlyBackupState(plan, state); err != nil {
+		return err
+	}
 	for _, path := range []string{state.TargetBackup, state.ControllerBackup, state.OffhostBackup} {
 		if path != "" && !filepath.IsAbs(path) {
 			return errors.New("controller release state contains a non-absolute backup path")
@@ -980,7 +1211,6 @@ func releaseControllerResult(plan productionReleasePlan, state productionRelease
 		TargetBackup:     state.TargetBackup,
 		ControllerBackup: state.ControllerBackup,
 		OffhostBackup:    state.OffhostBackup,
-		RollbackTimer:    state.RollbackTimer,
 		ActivationUnit:   state.ActivationUnit,
 		DispatchAttempts: state.DispatchAttempts,
 		Workspace:        state.RemoteWorkspace,

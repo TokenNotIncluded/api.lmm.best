@@ -33,7 +33,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { formatTimestampToDate } from '@/lib/format'
 import type { TrustLevelTier } from '@/stores/auth-store'
 
-import { formatCreditBalance, formatCreditValue } from '../lib'
+import { formatPlatformCreditBalance as formatPlatformCreditBalanceBase } from '../lib'
 import type { UserWalletData } from '../types'
 
 interface TrustLevelPanelProps {
@@ -73,6 +73,8 @@ export function TrustLevelPanel({
   loading = false,
 }: TrustLevelPanelProps) {
   const { t } = useTranslation()
+  const formatPlatformCreditBalance = (amount: number) =>
+    formatPlatformCreditBalanceBase(amount, t('Platform'))
   const info = user?.trust_level_info
   const tiers = user?.trust_level_tiers ?? []
 
@@ -176,12 +178,14 @@ export function TrustLevelPanel({
             <div className='text-muted-foreground flex flex-wrap justify-between gap-x-4 gap-y-1 text-[11px] leading-4'>
               <span>
                 {t('Eligible credited amount (USD)')}:{' '}
-                {formatCreditBalance(creditedAmountUSD)}
+                {formatPlatformCreditBalance(creditedAmountUSD)}
               </span>
               {info?.amount_to_next_level != null && info.next_level && (
                 <span>
                   {t('{{amount}} credited USD needed for L{{level}}', {
-                    amount: formatCreditValue(info.amount_to_next_level),
+                    amount: formatPlatformCreditBalance(
+                      info.amount_to_next_level
+                    ),
                     level: info.next_level,
                   })}
                 </span>
@@ -278,7 +282,7 @@ export function TrustLevelPanel({
                   <p className='text-muted-foreground mt-1 truncate text-[10px]'>
                     {tier.min_paid_amount === 0
                       ? t('No minimum')
-                      : formatCreditBalance(tier.min_paid_amount)}
+                      : formatPlatformCreditBalance(tier.min_paid_amount)}
                   </p>
                   <p
                     className='text-muted-foreground mt-2 line-clamp-2 text-[10px] leading-4'

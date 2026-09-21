@@ -36,6 +36,18 @@ describe('payment method JSON validation', () => {
     )
   })
 
+  test('accepts the real-USD bridge with a global platform-rate fallback', () => {
+    assert.equal(
+      isValidPaymentMethodData({
+        name: 'CNY gateway',
+        type: 'epay',
+        settlement_currency: 'CNY',
+        settlement_units_per_usd: '6.8',
+      }),
+      true
+    )
+  })
+
   test('accepts provider-defined Epay types with channel pricing', () => {
     assert.equal(
       isValidPaymentMethodData({
@@ -96,6 +108,17 @@ describe('payment method JSON validation', () => {
   test('rejects incomplete, unsafe, and non-decimal metadata', () => {
     const base = { name: 'LINUX DO Credit', type: 'epay' }
     for (const value of [
+      { ...base, settlement_currency: 'CNY' },
+      { ...base, settlement_units_per_usd: '6.8' },
+      {
+        ...base,
+        settlement_currency: 'CNY',
+        settlement_units_per_usd: '6.8',
+        settlement_unit: 'LDC',
+        unit_price: '10',
+      },
+      { ...base, settlement_currency: 'CN', settlement_units_per_usd: '6.8' },
+      { ...base, settlement_currency: 'CNY', settlement_units_per_usd: '0' },
       { ...base, settlement_unit: 'LDC' },
       { ...base, unit_price: '10' },
       { ...base, settlement_unit: ' LDC', unit_price: '10' },

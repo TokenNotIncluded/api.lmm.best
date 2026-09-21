@@ -1,3 +1,5 @@
+//go:build !windows
+
 package appcli
 
 import (
@@ -149,10 +151,10 @@ func TestNativeFrontendDeployNeverPrunesTheImmediateRollbackRelease(t *testing.T
 	}
 }
 
-func TestDeployUsageExposesNativeFrontendLifecycle(t *testing.T) {
+func TestOperatorUsageExposesNativeFrontendLifecycle(t *testing.T) {
 	var output bytes.Buffer
-	result := Dispatch([]string{"deploy", "help"}, "test", &output, &output)
-	if result.ExitCode != ExitOK || !strings.Contains(output.String(), "lmm-api deploy frontend publish") {
-		t.Fatalf("deploy help result=%#v output=%q", result, output.String())
+	result := Dispatch([]string{"operator", "help"}, "test", &output, &output)
+	if result.ExitCode != ExitOK || !strings.Contains(output.String(), "lmm-api-deploy frontend publish") {
+		t.Fatalf("operator help result=%#v output=%q", result, output.String())
 	}
 }

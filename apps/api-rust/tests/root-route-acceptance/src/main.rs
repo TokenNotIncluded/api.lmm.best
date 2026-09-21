@@ -18,7 +18,7 @@ mod config {
 }
 
 #[cfg(all(feature = "runtime", not(test)))]
-// The production binary calls lifecycle and migration-candidate helpers that
+// The production binary calls lifecycle and route helpers that
 // this focused harness intentionally does not exercise. The source is linted
 // in its owning crate; suppress duplicate-context diagnostics here.
 #[allow(clippy::all, dead_code)]
@@ -47,7 +47,7 @@ mod runtime {
             DashboardAuth, DashboardUser, LoginOutcome, LoginRequest, LogoutRequest, LogoutResult,
             RequestMetadata, TwoFactorLoginRequest,
         },
-        migration_routes::api_token::{ApiTokenHttpState, PgValkeyApiTokenService},
+        routes::api_token::{ApiTokenHttpState, PgValkeyApiTokenService},
         models::{
             ModelView, ModelsError, ModelsErrorKind, ModelsHttpState, ModelsRequest, ModelsService,
         },
@@ -416,13 +416,15 @@ mod runtime {
                     .map_err(|error| {
                         format!("{} {path} error body failed: {error}", method.as_str())
                     })?;
-            serde_json::from_slice::<serde_json::Value>(&bytes).ok().and_then(|value| {
-                if value["message"] == "Not Found" {
-                    Some("not_found".to_owned())
-                } else {
-                    value["error"]["code"].as_str().map(ToOwned::to_owned)
-                }
-            })
+            serde_json::from_slice::<serde_json::Value>(&bytes)
+                .ok()
+                .and_then(|value| {
+                    if value["message"] == "Not Found" {
+                        Some("not_found".to_owned())
+                    } else {
+                        value["error"]["code"].as_str().map(ToOwned::to_owned)
+                    }
+                })
         } else {
             None
         };

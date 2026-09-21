@@ -56,7 +56,7 @@ import {
   ProgressValue,
 } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
-import { formatCreditBalance } from '@/features/wallet/lib/format'
+import { formatCreditBalance as formatCreditBalanceBase } from '@/features/wallet/lib/format'
 import { toIntlLocale } from '@/i18n/languages'
 import { getCurrencyDisplay } from '@/lib/currency'
 
@@ -69,6 +69,8 @@ const USAGE_DAY_OPTIONS: UsageDays[] = [7, 30, 90]
 
 export function AssistantUsageTool(props: { developerAccessGranted: boolean }) {
   const { t, i18n } = useTranslation()
+  const formatCreditBalance = (amount: number) =>
+    formatCreditBalanceBase(amount, t('Platform'))
   const [days, setDays] = useState<UsageDays>(30)
   const usageQuery = useQuery({
     queryKey: ['assistant-usage', days],

@@ -33,10 +33,11 @@ export function getAvailableGroups(
   const modelEnableGroups = Array.isArray(model.enable_groups)
     ? model.enable_groups
     : []
+  const enablesAllGroups = modelEnableGroups.includes(FILTER_ALL)
 
   return Object.keys(usableGroup)
     .filter((g) => !EXCLUDED_GROUPS.includes(g))
-    .filter((g) => modelEnableGroups.includes(g))
+    .filter((g) => enablesAllGroups || modelEnableGroups.includes(g))
 }
 
 /**
@@ -47,7 +48,9 @@ export function getConfiguredGroupRatio(
   group: string
 ): number {
   const ratio = groupRatio[group]
-  return typeof ratio === 'number' && Number.isFinite(ratio) ? ratio : 1
+  return typeof ratio === 'number' && Number.isFinite(ratio) && ratio >= 0
+    ? ratio
+    : 1
 }
 
 /**
@@ -57,41 +60,43 @@ export function getConfiguredGroupRatio(
  * available to the viewer. When a group filter is active, it shows that
  * group's price instead.
  */
+export function getDisplayPriceGroup(
+  model: PricingModel,
+  selectedGroup?: string
+): string | undefined {
+  const groups = Array.isArray(model.enable_groups) ? model.enable_groups : []
+  const ratios = model.group_ratio || {}
+  const allGroups = groups.includes(FILTER_ALL)
+  if (
+    selectedGroup &&
+    selectedGroup !== FILTER_ALL &&
+    (allGroups || groups.includes(selectedGroup))
+  ) {
+    return selectedGroup
+  }
+
+  const candidates = (allGroups ? Object.keys(ratios) : groups).filter(
+    (group) => group !== FILTER_ALL && !EXCLUDED_GROUPS.includes(group)
+  )
+  let best: string | undefined
+  for (const group of candidates) {
+    const ratio = ratios[group]
+    if (typeof ratio !== 'number' || !Number.isFinite(ratio) || ratio < 0) {
+      continue
+    }
+    if (best === undefined || ratio < ratios[best]) best = group
+  }
+  return best
+}
+
 export function getDisplayGroupRatio(
   model: PricingModel,
   selectedGroup?: string
 ): number {
-  const modelEnableGroups = Array.isArray(model.enable_groups)
-    ? model.enable_groups
-    : []
-  const groupRatio = model.group_ratio || {}
-
-  if (
-    selectedGroup &&
-    selectedGroup !== FILTER_ALL &&
-    modelEnableGroups.includes(selectedGroup)
-  ) {
-    return getConfiguredGroupRatio(groupRatio, selectedGroup)
-  }
-
-  if (modelEnableGroups.length === 0) {
-    return 1
-  }
-
-  let minRatio = Number.POSITIVE_INFINITY
-
-  for (const group of modelEnableGroups) {
-    const ratio = groupRatio[group]
-    if (
-      typeof ratio === 'number' &&
-      Number.isFinite(ratio) &&
-      ratio < minRatio
-    ) {
-      minRatio = ratio
-    }
-  }
-
-  return minRatio === Number.POSITIVE_INFINITY ? 1 : minRatio
+  const group = getDisplayPriceGroup(model, selectedGroup)
+  return group === undefined
+    ? 1
+    : getConfiguredGroupRatio(model.group_ratio || {}, group)
 }
 
 /**

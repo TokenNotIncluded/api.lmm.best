@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/pprof"
 	"net/netip"
 	"os"
 	"os/signal"
@@ -34,11 +35,8 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/system_setting"
 
-	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
-
-	_ "net/http/pprof"
 )
 
 func main() {
@@ -71,8 +69,8 @@ func runMigrationCommand(mode model.DBMigrationMode) {
 		_, _ = fmt.Fprintf(os.Stderr, "%s migrate --%s: %v\n", appcli.ProgramName, mode, err)
 		os.Exit(appcli.ExitError)
 	}
-	if err := model.CloseDB(); err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "%s migrate --%s: close database: %v\n", appcli.ProgramName, mode, err)
+	if err := errors.Join(common.CloseRedis(), model.CloseDB()); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "%s migrate --%s: close resources: %v\n", appcli.ProgramName, mode, err)
 		os.Exit(appcli.ExitError)
 	}
 	_, _ = fmt.Fprintf(os.Stdout, "database migration %s completed\n", mode)
@@ -80,6 +78,20 @@ func runMigrationCommand(mode model.DBMigrationMode) {
 
 func runServer() {
 	startTime := time.Now()
+	loops := newRuntimeLoops(context.Background())
+	resourcesOpen := false
+	defer func() {
+		model.MarkCacheReadinessUnavailable()
+		loops.Stop()
+		waitCtx, cancel := context.WithTimeout(context.Background(), loopShutdownTimeout)
+		defer cancel()
+		_ = errors.Join(loops.Wait(waitCtx), model.WaitForCacheWarm(waitCtx))
+		if resourcesOpen {
+			if err := errors.Join(common.CloseRedis(), model.CloseDB()); err != nil {
+				common.SysError("failed to close resources: " + err.Error())
+			}
+		}
+	}()
 	kitutil.SetLogging(common.SysLog, func(message string) {
 		logger.LogError(context.TODO(), message)
 	})
@@ -87,9 +99,11 @@ func runServer() {
 
 	err := InitResources()
 	if err != nil {
+		_ = errors.Join(common.CloseRedis(), model.CloseDB())
 		common.FatalLog("failed to initialize resources: " + err.Error())
 		return
 	}
+	resourcesOpen = true
 
 	common.SysLog(common.SystemName + " " + common.Version + " started")
 	if os.Getenv("GIN_MODE") != "debug" {
@@ -101,12 +115,32 @@ func runServer() {
 
 	kitutil.Debug.Store(common.DebugEnabled)
 
-	defer func() {
-		err := model.CloseDB()
-		if err != nil {
-			common.FatalLog("failed to close database: " + err.Error())
+	multiSlotRuntime := strings.TrimSpace(common.APIInstanceSlot) != ""
+	if multiSlotRuntime {
+		if !common.UsingMainDatabase(common.DatabaseTypePostgreSQL) || model.DB == nil {
+			common.FatalLog("LMM_API_INSTANCE_SLOT requires an initialized PostgreSQL primary database")
+			return
 		}
-	}()
+		if _, err := model.DB.DB(); err != nil {
+			common.FatalLog("LMM_API_INSTANCE_SLOT cannot open the PostgreSQL leadership pool: " + err.Error())
+			return
+		}
+	}
+	runCriticalLoop := func(label string, run func(context.Context) error) func(context.Context) {
+		return func(ctx context.Context) {
+			if err := run(ctx); err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+				common.SysError(label + " stopped: " + err.Error())
+				model.MarkCacheReadinessUnavailable()
+			}
+		}
+	}
+
+	loops.Go(perfmetrics.Run)
+	loops.Go(service.RunRatioNotifications)
+	loops.Go(common.RunSystemMonitor)
+	loops.Go(service.RunAuthArtifactCleanup)
+	loops.Go(model.RunAcquisitionRetention)
+	loops.Go(model.RunAcquisitionActivity)
 
 	if common.RedisEnabled {
 		// for compatibility with old versions
@@ -115,9 +149,11 @@ func runServer() {
 	if common.MemoryCacheEnabled {
 		common.SysLog("memory cache enabled")
 		common.SysLog(fmt.Sprintf("sync frequency: %d seconds", common.SyncFrequency))
-		go model.SyncChannelCache(common.SyncFrequency)
+		loops.Go(func(ctx context.Context) { model.SyncChannelCacheContext(ctx, common.SyncFrequency) })
 	}
-	wsmanager.StartSubscriber(context.Background())
+	// Keep the Valkey subscriber inside the lifecycle registry so shutdown waits
+	// for it before closing the shared client.
+	loops.Go(wsmanager.RunSubscriber)
 
 	// Perform one bounded synchronous warm before the server starts accepting
 	// traffic. Transient failure keeps the process alive but readiness remains
@@ -128,31 +164,48 @@ func runServer() {
 	}
 
 	// 热更新配置
-	go model.SyncOptions(common.SyncFrequency)
+	loops.Go(func(ctx context.Context) { model.SyncOptionsContext(ctx, common.SyncFrequency) })
+	// Recover automatic L1 reviews that were lost with a previous process's
+	// in-memory worker or left pending after a transient reviewer failure.
 
 	// 周期性重载授权策略，保证多节点/多 master 部署下权限变更能传播到每个实例
-	go authz.StartPolicySync(common.SyncFrequency)
+	loops.Go(func(ctx context.Context) { authz.StartPolicySyncContext(ctx, common.SyncFrequency) })
 
 	// 数据看板
-	go model.UpdateQuotaData()
+	loops.Go(model.UpdateQuotaDataContext)
 
 	if os.Getenv("CHANNEL_UPDATE_FREQUENCY") != "" {
 		frequency, err := strconv.Atoi(os.Getenv("CHANNEL_UPDATE_FREQUENCY"))
-		if err != nil {
-			common.FatalLog("failed to parse CHANNEL_UPDATE_FREQUENCY: " + err.Error())
+		if err != nil || frequency <= 0 {
+			common.FatalLog("failed to parse positive CHANNEL_UPDATE_FREQUENCY: " + os.Getenv("CHANNEL_UPDATE_FREQUENCY"))
+			return
 		}
-		go controller.AutomaticallyUpdateChannels(frequency)
+		if multiSlotRuntime {
+			loops.Go(runCriticalLoop("automatic channel balance leadership", func(ctx context.Context) error {
+				return controller.RunAutomaticChannelBalanceUpdateWithLeadership(ctx, frequency)
+			}))
+		} else {
+			loops.Go(func(ctx context.Context) { controller.AutomaticallyUpdateChannelsContext(ctx, frequency) })
+		}
 	}
 
-	// Codex credential auto-refresh check every 10 minutes, refresh when expires within 1 day
-	service.StartCodexCredentialAutoRefreshTask()
+	// Codex credential auto-refresh check every 10 minutes, refresh when expires within 1 day.
+	if multiSlotRuntime {
+		loops.Go(runCriticalLoop("Codex credential refresh leadership", service.RunCodexCredentialAutoRefreshTaskWithLeadership))
+	} else {
+		loops.Go(service.RunCodexCredentialAutoRefreshTask)
+	}
 
-	// Subscription quota reset task (daily/weekly/monthly/custom)
-	service.StartSubscriptionQuotaResetTask()
+	// Subscription quota reset task (daily/weekly/monthly/custom).
+	if multiSlotRuntime {
+		loops.Go(runCriticalLoop("subscription maintenance leadership", service.RunSubscriptionMaintenanceScanWithLeadership))
+	} else {
+		loops.Go(service.RunSubscriptionQuotaResetTask)
+	}
 
 	// Report this process as a system instance so the System Info page can show
 	// all currently alive nodes in multi-instance deployments.
-	service.StartSystemInstanceReporter()
+	loops.Go(service.RunSystemInstanceReporter)
 
 	// Wire task polling adaptor factory (breaks service -> relay import cycle).
 	// Must run before the system task runner starts: the async_task_poll handler
@@ -171,12 +224,12 @@ func runServer() {
 	// schedules and executes them. Master-only execution and the UpdateTask
 	// switch are enforced inside the runner and each handler's Enabled().
 	controller.RegisterScheduledSystemTasks()
-	service.StartSystemTaskRunner()
+	loops.Go(service.RunSystemTaskRunner)
 
 	if os.Getenv("BATCH_UPDATE_ENABLED") == "true" {
 		common.BatchUpdateEnabled = true
 		common.SysLog("batch update enabled with interval " + strconv.Itoa(common.BatchUpdateInterval) + "s")
-		model.InitBatchUpdater()
+		loops.Go(model.RunBatchUpdater)
 	}
 
 	if os.Getenv("ENABLE_PPROF") == "true" {
@@ -188,12 +241,11 @@ func runServer() {
 			common.FatalLog("failed to configure pprof listen address: " + err.Error())
 			return
 		}
-		gopool.Go(func() {
-			if err := http.ListenAndServe(pprofAddress, nil); err != nil {
+		loops.Go(func(ctx context.Context) {
+			if err := runDiagnosticServer(ctx, pprofAddress, pprofHandler()); err != nil && !errors.Is(err, context.Canceled) {
 				common.SysError(fmt.Sprintf("pprof server stopped: %v", err))
 			}
 		})
-		go common.Monitor()
 		common.SysLog("pprof enabled on " + pprofAddress)
 	}
 
@@ -255,6 +307,12 @@ func runServer() {
 		Handler: server,
 	}
 
+	// Readiness can succeed as soon as the listener starts. Install the signal
+	// handler first so an immediate stop still drains requests and billing work.
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(quit)
+
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			common.FatalLog("failed to start HTTP server: " + err.Error())
@@ -265,21 +323,45 @@ func runServer() {
 
 	common.LogStartupSuccess(startTime, port)
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-quit
 	common.SysLog(fmt.Sprintf("received signal: %v, shutting down...", sig))
 
-	// SSE streams may run for minutes; give them time to finish before forced exit
-	shutdownTimeout := time.Duration(common.GetEnvOrDefault("SHUTDOWN_TIMEOUT_SECONDS", 120)) * time.Second
-	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-	defer cancel()
-	if err := srv.Shutdown(ctx); err != nil {
-		common.SysError(fmt.Sprintf("server forced to shutdown: %v", err))
-	}
-	// 内存中的看板数据保存入库，避免重启丢失未落库数据 (issue #5679)
-	if common.DataExportEnabled {
-		model.SaveQuotaDataCache()
+	shutdownTimeout := configuredShutdownTimeout(common.GetEnvOrDefault("SHUTDOWN_TIMEOUT_SECONDS", int(httpShutdownTimeout/time.Second)))
+	err = shutdownRuntime(shutdownSteps{
+		markUnready:  model.MarkCacheReadinessUnavailable,
+		stopLoops:    loops.Stop,
+		drainSockets: wsmanager.DrainAll,
+		shutdownHTTP: func(ctx context.Context) error {
+			if shutdownErr := srv.Shutdown(ctx); shutdownErr != nil {
+				// A timed-out graceful drain must not keep handlers mutating the
+				// in-memory stores while the final flush is running.
+				return errors.Join(shutdownErr, srv.Close())
+			}
+			return nil
+		},
+		waitLoops: func(ctx context.Context) error {
+			return errors.Join(loops.Wait(ctx), model.WaitForCacheWarm(ctx), middleware.WaitAdminAudits(ctx))
+		},
+		waitRefunds: func(ctx context.Context) (bool, error) {
+			report, err := service.DrainBillingRefundTasks(ctx)
+			complete := ctx.Err() == nil && report.Active == 0 && report.Accepted == report.Finished
+			common.SysLog(fmt.Sprintf("refund_tasks execution_complete=%t accepted=%d finished=%d active=%d failed=%d (execution completion is not financial success)", complete, report.Accepted, report.Finished, report.Active, report.Failed))
+			return complete, err
+		},
+		flushQuota: func() {
+			if common.DataExportEnabled {
+				model.SaveQuotaDataCache()
+			}
+		},
+		flushBatch:  model.FlushBatchUpdates,
+		flushPerf:   perfmetrics.Flush,
+		closeValkey: common.CloseRedis,
+		closeDB:     model.CloseDB,
+	}, shutdownTimeout, loopShutdownTimeout)
+	resourcesOpen = false
+	if err != nil {
+		common.SysError("shutdown failed: " + err.Error())
+		os.Exit(1)
 	}
 	common.SysLog("server exited")
 }
@@ -309,6 +391,7 @@ func edgeAccessBindPolicy(configuredBindAddress, listenAddress string) error {
 	if configured != "" && !isExactLoopbackHost(configured) {
 		return fmt.Errorf("IP access routing requires LMM_API_BIND_ADDRESS to be exactly 127.0.0.1 or ::1")
 	}
+
 	host, _, err := net.SplitHostPort(listenAddress)
 	if err != nil || !isExactLoopbackHost(host) {
 		return fmt.Errorf("IP access routing requires the final HTTP listen address to be loopback")
@@ -359,12 +442,16 @@ func InitResources() (returnErr error) {
 	}
 
 	// 加载环境变量
-	common.InitEnv()
+	if err := common.InitializeEnvironment(); err != nil {
+		return fmt.Errorf("initialize environment: %w", err)
+	}
 	if err := system_setting.InitServerAddressFromEnv(); err != nil {
 		return fmt.Errorf("failed to configure server address: %w", err)
 	}
 
-	logger.SetupLogger()
+	if err := logger.InitializeLogger(); err != nil {
+		return fmt.Errorf("initialize logger: %w", err)
+	}
 
 	// Initialize model settings
 	ratio_setting.InitRatioSettings()
@@ -412,14 +499,6 @@ func InitResources() (returnErr error) {
 		return err
 	}
 
-	perfmetrics.Init()
-
-	// 启动动态定价 ticker（按窗口聚合用量并更新模型价格倍率）
-	service.StartDynamicPricingTicker()
-
-	// 启动系统监控
-	common.StartSystemMonitor()
-
 	// Initialize i18n
 	err = i18n.Init()
 	if err != nil {
@@ -437,8 +516,6 @@ func InitResources() (returnErr error) {
 		common.SysError("failed to load custom OAuth providers: " + err.Error())
 		// Don't return error, custom OAuth is not critical
 	}
-
-	service.StartAuthArtifactCleanup()
 
 	return nil
 }
@@ -461,6 +538,10 @@ func pprofListenAddress(bindAddress, port string) (string, error) {
 	if strings.TrimSpace(bindAddress) == "" {
 		bindAddress = defaultPprofBindAddress
 	}
+	bindAddress = strings.TrimSpace(bindAddress)
+	if !isExactLoopbackHost(bindAddress) {
+		return "", fmt.Errorf("PPROF_BIND_ADDRESS must be exactly 127.0.0.1 or ::1")
+	}
 	if strings.TrimSpace(port) == "" {
 		port = defaultPprofPort
 	}
@@ -469,5 +550,15 @@ func pprofListenAddress(bindAddress, port string) (string, error) {
 	if err != nil || portNumber < 1 || portNumber > 65535 {
 		return "", fmt.Errorf("PPROF_PORT must be a numeric TCP port between 1 and 65535")
 	}
-	return buildListenAddress(bindAddress, port)
+	return net.JoinHostPort(bindAddress, port), nil
+}
+
+func pprofHandler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	return mux
 }

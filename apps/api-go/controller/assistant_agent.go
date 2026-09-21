@@ -33,6 +33,8 @@ import (
 const (
 	assistantToolArgumentsMaxBytes        = 16 * 1024
 	assistantToolCallsPerTurn             = 4
+	assistantToolCallsPerResponse         = 32
+	assistantAgentMaxSteps                = 32
 	assistantAgentDefaultTimeout          = 45 * time.Second
 	assistantUpstreamMaxAttempts          = 3
 	assistantUpstreamRetryBaseDelay       = 200 * time.Millisecond
@@ -48,6 +50,7 @@ const (
 	assistantUpstreamResponseMaxBytes     = 256 << 10
 	assistantToolResultMaxBytes           = 64 << 10
 	assistantAgentContextMaxBytes         = 512 << 10
+	assistantAgentContextTargetBytes      = 384 << 10
 	assistantAgentMaxConcurrent           = 16
 )
 
@@ -102,9 +105,11 @@ const (
 	toolGift
 	toolWeeklyDiscount
 	toolBounty
+	toolDirectL1Grant
+	toolRegistration
 )
 
-var assistantToolSets [1 << 9]struct {
+var assistantToolSets [1 << 11]struct {
 	once  sync.Once
 	tools []assistantOpenAIToolDefinition
 }
@@ -117,6 +122,20 @@ func assistantToolDefinitions() []assistantOpenAIToolDefinition {
 // filters this snapshot; it never rebuilds the nested JSON schemas per step.
 func buildAssistantTools() []assistantOpenAIToolDefinition {
 	definitions := []assistantOpenAIToolDefinition{
+		{Type: "function", Function: assistantOpenAIToolFunction{
+			Name:        "get_human_support_status",
+			Description: "Read live eligibility for technical support appointments and the signed-in user's active in-site support request. Any signed-in user can say 转人工 at any time. Appointments require a completed paid recharge.",
+			Parameters:  emptyObjectSchema(),
+		}},
+		{Type: "function", Function: assistantOpenAIToolFunction{
+			Name:        "book_technical_support",
+			Description: "Submit an in-site technical support appointment after the user explicitly requests booking. Collect the topic and a future date, time and timezone; use a Unix timestamp in seconds and a human-readable preferred_time including timezone. Server checks recharge eligibility. This is an appointment request awaiting administrator acceptance, not a guaranteed slot. Check created: false means an existing request, with no new booking or changed time.",
+			Parameters: objectSchema(map[string]any{
+				"topic":          map[string]any{"type": "string", "minLength": 1, "maxLength": 2000},
+				"preferred_time": map[string]any{"type": "string", "minLength": 1, "maxLength": 200},
+				"scheduled_at":   map[string]any{"type": "integer", "minimum": 1},
+			}, []string{"topic", "preferred_time", "scheduled_at"}),
+		}},
 		{
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
@@ -279,7 +298,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_new_user_gift",
-				Description: "For an eligible signed-in user who has not used their one lifetime welcome-gift opportunity, make the decision after at least two substantive user turns. This includes users who have already reached L1; access level does not erase an unused opportunity. Judge demonstrated clarity, coherent follow-up, concrete legitimate use, and constructive engagement from the complete conversation. Choose an integer 0-1000 US cents. Zero is a valid final decision and consumes the opportunity. Do not reward demands for money, self-reported expertise alone, promotions, referrals, multiple accounts, automation, or unsafe behavior. The server enforces eligibility and one-time issuance; never promise an amount before this tool succeeds.",
+				Description: "For an eligible signed-in user who has not used their one lifetime welcome-gift opportunity, make the decision only after the conversation contains a concrete legitimate workflow, the work they plan to do, and enough user-authored detail to evaluate it. A category label and client name alone are insufficient. This includes users who have already reached L1; access level does not erase an unused opportunity. Judge demonstrated clarity, coherent follow-up, specificity, and constructive engagement from the complete conversation. Choose an integer 0-1000 US cents. Zero is a valid final decision and consumes the opportunity. Do not reward demands for money, self-reported expertise alone, promotions, referrals, multiple accounts, automation, or unsafe behavior. The server enforces eligibility and one-time issuance; never promise an amount before this tool succeeds.",
 				Parameters: objectSchema(map[string]any{
 					"amount_cents": map[string]any{"type": "integer", "minimum": 0, "maximum": 1000},
 					"reason":       map[string]any{"type": "string", "minLength": 2, "maxLength": 240},
@@ -388,10 +407,10 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "get_setup_guide",
-				Description: "Return verified platform-specific install commands and gateway configuration for Claude Code, CC Switch, Claude Desktop, Codex, and compatible clients. model_id must be an exact value returned by get_available_models for this account; use this tool instead of guessing client capabilities, models, or endpoint formats.",
+				Description: "Return device-specific downloads, click-by-click setup, verification, and troubleshooting for Chatbox, Cherry Studio, Claude Code, CC Switch, Claude Desktop, Codex, and compatible clients. model_id must be an exact value returned by get_available_models for this account; use this tool instead of guessing client capabilities, models, or endpoint formats.",
 				Parameters: objectSchema(map[string]any{
-					"platform": map[string]any{"type": "string", "enum": []string{"windows", "linux", "macos"}},
-					"topic":    map[string]any{"type": "string", "enum": []string{"claude-code", "cc-switch", "claude-desktop", "chatgpt-client", "codex", "cursor", "open-webui", "other-openai-compatible"}},
+					"platform": map[string]any{"type": "string", "enum": []string{"windows", "linux", "macos", "android", "ios"}},
+					"topic":    map[string]any{"type": "string", "enum": []string{"claude-code", "cc-switch", "claude-desktop", "chatgpt-client", "codex", "cursor", "open-webui", "cherry-studio", "chatbox", "other-openai-compatible"}},
 					"model_id": map[string]any{"type": "string", "minLength": 1, "maxLength": 200},
 				}, []string{"platform", "topic", "model_id"}),
 			},
@@ -399,8 +418,19 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 		{
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
+				Name:        "grant_l1_access",
+				Description: "Grant the signed-in L0 user L1 access directly after at least three complete server-recorded conversation turns. Use this only when the conversation establishes a legitimate use of the relay and the tool is available. This action needs no user confirmation or administrator approval. The server atomically rechecks the account, owned conversation, completed turns, and any administrator trust override; repeated or concurrent calls cannot grant twice.",
+				Parameters: objectSchema(map[string]any{
+					"user_statement": map[string]any{"type": "string", "minLength": 5, "maxLength": 2000},
+					"recommendation": map[string]any{"type": "string", "minLength": 20, "maxLength": 2000},
+				}, []string{"user_statement", "recommendation"}),
+			},
+		},
+		{
+			Type: "function",
+			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_l1_recommendation",
-				Description: "Prepare a new or revised draft of the signed-in L0 user's one shared administrator recommendation after a substantive conversation. For an edit, use the current letter returned by get_l1_recommendation and the full conversation. Never use this tool to remove a letter. This does not submit, update, delete, or approve anything; the user must explicitly confirm the draft in the UI.",
+				Description: "Before the direct L1 grant tool becomes available, prepare a new or revised draft of the signed-in L0 user's one shared administrator recommendation after a substantive conversation. For an edit, use the current letter returned by get_l1_recommendation and the full conversation. Never use this tool to remove a letter. This does not submit, update, delete, or approve anything; the user must explicitly confirm the draft in the UI.",
 				Parameters: objectSchema(map[string]any{
 					"user_statement": map[string]any{"type": "string", "minLength": 5, "maxLength": 2000},
 					"recommendation": map[string]any{"type": "string", "minLength": 20, "maxLength": 2000},
@@ -453,7 +483,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_admin_user_skill_change",
-				Description: "For an administrator only, prepare a confirmation-gated edit to one permitted lower-role user's assistant memory or profile skill. Use get_admin_user_skills first. This never writes immediately; the administrator must confirm the exact preview in the UI. Memory deletes require memory_id. Never store credentials, payment data, protected traits, or security labels.",
+				Description: "For an administrator only, prepare a confirmation-gated edit to one permitted lower-role user's assistant memory or profile skill. Use get_admin_user_skills first. In an authenticated administrator agent session, this validates and applies the exact change immediately; otherwise it prepares a confirmation preview. Memory deletes require memory_id. Never store credentials, payment data, protected traits, or security labels.",
 				Parameters: objectSchema(map[string]any{
 					"target_user_id": map[string]any{"type": "integer", "minimum": 1},
 					"kind":           map[string]any{"type": "string", "enum": []string{"memory", "profile"}},
@@ -480,7 +510,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_admin_config_change",
-				Description: "For an administrator only, prepare an exact preview of one or more allowlisted non-secret server settings. This never applies a change; the administrator must confirm the preview in the UI.",
+				Description: "For an administrator only, prepare an exact preview of one or more allowlisted non-secret server settings. In an authenticated administrator agent session, this validates and applies the change immediately and returns the result; otherwise it prepares a confirmation preview.",
 				Parameters: objectSchema(map[string]any{
 					"changes": map[string]any{
 						"type":                 "object",
@@ -501,7 +531,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_admin_channel_change",
-				Description: "For an administrator only, prepare an exact preview for safe channel routing metadata or enable/disable status. This never applies a change; the administrator must confirm the preview in the UI. Never request keys, provider settings, headers, proxies, or upstream URLs through this tool.",
+				Description: "For an administrator only, prepare an exact preview for safe channel routing metadata or enable/disable status. In an authenticated administrator agent session, this validates and applies the change immediately and returns the result; otherwise it prepares a confirmation preview. Never request keys, provider settings, headers, proxies, or upstream URLs through this tool.",
 				Parameters: objectSchema(map[string]any{
 					"channel_id": map[string]any{"type": "integer", "minimum": 1},
 					"changes": map[string]any{
@@ -523,7 +553,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_admin_model_sync",
-				Description: "For a root administrator only, verify selected locally-missing model IDs against the live upstream catalog and prepare a confirmation-gated import for the IDs found there. Call get_admin_model_inventory first; do not claim an ID is available upstream until this tool returns its preview. This never writes immediately; the UI must show the exact metadata and skipped IDs, and the administrator must confirm.",
+				Description: "For a root administrator only, verify selected locally-missing model IDs against the live upstream catalog and prepare a confirmation-gated import for the IDs found there. Call get_admin_model_inventory first; do not claim an ID is available upstream until this tool returns its preview. In an authenticated root administrator agent session, this imports the validated metadata immediately and returns the imported and skipped IDs; otherwise it prepares a confirmation preview.",
 				Parameters: objectSchema(map[string]any{
 					"model_ids": map[string]any{"type": "array", "maxItems": assistantAdminMaxModelSyncItems, "items": map[string]any{"type": "string", "maxLength": assistantAdminMaxModelNameRunes}},
 					"locale":    map[string]any{"type": "string", "enum": []string{"en", "zh-CN", "zh-TW", "ja"}},
@@ -534,7 +564,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_admin_pricing_change",
-				Description: "For an administrator only, prepare an exact preview for one enabled model's pricing. Use ratio for token pricing or fixed_request for a per-request price; optional completion, cache, image, and audio ratios update the same exact model. This never applies a change; the administrator must confirm the preview in the UI.",
+				Description: "For an administrator only, prepare an exact preview for one enabled model's pricing. Use ratio for token pricing or fixed_request for a per-request price; optional completion, cache, image, and audio ratios update the same exact model. In an authenticated administrator agent session, this validates and applies the change immediately and returns the result; otherwise it prepares a confirmation preview.",
 				Parameters: objectSchema(map[string]any{
 					"model_id":               map[string]any{"type": "string", "minLength": 1, "maxLength": 200},
 					"mode":                   map[string]any{"type": "string", "enum": []string{"ratio", "fixed_request"}},
@@ -549,6 +579,12 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			},
 		},
 	}
+	definitions = slices.DeleteFunc(definitions, func(tool assistantOpenAIToolDefinition) bool {
+		return tool.Function.Name == "prepare_l1_recommendation" || tool.Function.Name == assistantInterlocutorAssessmentTool
+	})
+	definitions = append(definitions, assistantRegistrationTools()...)
+	definitions = append(definitions, assistantAdminOperationToolDefinitions()...)
+	definitions = append(definitions, assistantAdminPricingAuditTools()...)
 	return append(definitions, assistantSkillTools()...)
 }
 
@@ -572,6 +608,9 @@ func assistantToolDefinitionsForContext(userContext assistantUserContext) []assi
 
 func keyForTools(context assistantUserContext) toolSetKey {
 	var key toolSetKey
+	if !context.AdministratorMode && !context.DeveloperAccessGranted && context.AccessLevel == "L0" {
+		key |= toolRegistration
+	}
 	if assistantL0InterlocutorAssessmentRequired(context) {
 		key |= toolAssessment
 	}
@@ -599,7 +638,16 @@ func keyForTools(context assistantUserContext) toolSetKey {
 	if assistantBountyReadToolAllowed(context) {
 		key |= toolBounty
 	}
+	if assistantDirectL1GrantAllowed(context) {
+		key |= toolDirectL1Grant
+	}
 	return key
+}
+
+func assistantDirectL1GrantAllowed(context assistantUserContext) bool {
+	return !context.AdministratorMode && !context.DeveloperAccessGranted &&
+		strings.EqualFold(strings.TrimSpace(context.AccessLevel), "L0") &&
+		context.CompletedAssistantTurns >= model.AssistantDirectGrantMinCompletedTurns
 }
 
 func assistantNewUserGiftToolAllowed(context assistantUserContext) bool {
@@ -623,6 +671,12 @@ func assistantWeeklyDiscountToolAllowed(context assistantUserContext) bool {
 }
 
 func assistantToolAllowedForContext(name string, userContext assistantUserContext) bool {
+	if name == "prepare_l1_recommendation" {
+		return false
+	}
+	if isAssistantRegistrationTool(name) {
+		return !userContext.AdministratorMode && !userContext.DeveloperAccessGranted && userContext.AccessLevel == "L0"
+	}
 	if assistantL0InterlocutorAssessmentRequired(userContext) {
 		return name == assistantInterlocutorAssessmentTool
 	}
@@ -638,11 +692,17 @@ func assistantToolAllowedForContext(name string, userContext assistantUserContex
 	if name == "prepare_weekly_discount" {
 		return assistantWeeklyDiscountToolAllowed(userContext)
 	}
+	if name == "grant_l1_access" {
+		return assistantDirectL1GrantAllowed(userContext)
+	}
 	if name == "prepare_image_generation" {
 		return common.DrawingEnabled && userContext.DeveloperAccessGranted
 	}
 	if name == "get_bounty_data" {
 		return assistantBountyReadToolAllowed(userContext)
+	}
+	if isAssistantAdministratorTool(name) && !userContext.AdministratorMode {
+		return false
 	}
 	if userContext.AdministratorMode {
 		if userContext.AccessLevel != "ROOT" {
@@ -669,7 +729,9 @@ func assistantToolAllowedForContext(name string, userContext assistantUserContex
 		return true
 	}
 	switch name {
-	case "get_service_facts",
+	case "get_human_support_status",
+		"book_technical_support",
+		"get_service_facts",
 		"calculate_math",
 		"calculate_cost",
 		"get_account_access",
@@ -724,6 +786,8 @@ func assistantToolChoiceForContext(userContext assistantUserContext) any {
 		// A ready, explicit purchase request must read the live offers before
 		// the model can answer from stale plan context or invent a price.
 		name = "get_plan_offers"
+	} else if assistantSupportBookingDecision(userContext.LatestUserRequest) > 0 {
+		name = "get_human_support_status"
 	} else if assistantHumanSupportRequest(userContext.LatestUserRequest) {
 		name = "request_human_support"
 	} else if assistantPublicActivityQuestion(userContext.LatestUserRequest) {
@@ -833,9 +897,15 @@ func assistantBountyReadRequest(text string) bool {
 // confirmation-gated handoff tool so the assistant cannot merely draft prose;
 // the latter can still receive ordinary navigation guidance.
 func assistantHumanSupportRequest(text string) bool {
-	normalized := strings.ToLower(strings.TrimSpace(text))
+	normalized := strings.ToLower(strings.TrimSpace(assistantSupportQuotedText.ReplaceAllString(text, "")))
+	if assistantActionDeclined(normalized, assistantSupportActionRule) {
+		return false
+	}
+	if assistantExplicitHumanTransferRequest(text) {
+		return true
+	}
 	return assistantTextContainsAny(normalized,
-		"提交人工客服", "提交工单", "人工核查", "转人工", "联系管理员处理", "请管理员处理",
+		"提交人工客服", "提交工单", "人工核查", "联系管理员处理", "请管理员处理",
 		"submit a support ticket", "submit to support", "request human support", "human review",
 		"contact an administrator", "send this to support",
 	)
@@ -874,6 +944,9 @@ func assistantGiftPromotionConflict(text string) bool {
 
 func assistantNewUserGiftRequest(text string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(text))
+	if assistantActionDeclined(normalized, assistantGiftActionRule) {
+		return false
+	}
 	if assistantTextContainsAny(normalized,
 		"新用户礼包", "新用户福利", "新手礼包", "新手奖励", "新用户奖励", "新人礼包", "新人福利", "新手福利",
 		"welcome gift", "welcome bonus", "new-user gift", "new user gift", "new user bonus",
@@ -894,8 +967,11 @@ func assistantNewUserGiftRequest(text string) bool {
 
 func assistantWeeklyDiscountRequest(text string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(text))
+	if assistantActionDeclined(normalized, assistantDiscountActionRule) {
+		return false
+	}
 	return assistantTextContainsAny(normalized,
-		"优惠码", "折扣码", "充值折扣", "每周优惠", "每周折扣", "本周优惠",
+		"优惠码", "折扣码", "充值折扣", "每周优惠", "每周折扣", "本周优惠", "本周折扣",
 		"weekly discount", "weekly coupon", "recharge discount", "discount code",
 	)
 }
@@ -926,10 +1002,10 @@ func assistantReadChain(userContext assistantUserContext) []string {
 	if assistantPublicActivityQuestion(text) {
 		tools = append(tools, "get_service_facts")
 	}
-	if (assistantNewUserGiftRequest(text) || userContext.NewUserGiftRequested) && assistantNewUserGiftToolAllowed(userContext) {
+	if assistantNewUserGiftWorkflowRequired(userContext) {
 		tools = append(tools, "prepare_new_user_gift")
 	}
-	if (assistantWeeklyDiscountRequest(text) || userContext.WeeklyDiscountRequested) && assistantWeeklyDiscountToolAllowed(userContext) {
+	if assistantWeeklyDiscountWorkflowRequired(userContext) {
 		tools = append(tools, "prepare_weekly_discount")
 	}
 	if assistantTextContainsAny(text,
@@ -991,17 +1067,19 @@ func assistantPublicActivityWorkflowRequired(userContext assistantUserContext) b
 }
 
 func assistantNewUserGiftWorkflowRequired(userContext assistantUserContext) bool {
-	return (assistantNewUserGiftRequest(userContext.LatestUserRequest) || userContext.NewUserGiftRequested) &&
+	return !assistantActionDeclined(userContext.LatestUserRequest, assistantGiftActionRule) &&
+		(assistantNewUserGiftRequest(userContext.LatestUserRequest) || userContext.NewUserGiftRequested) &&
 		assistantNewUserGiftToolAllowed(userContext)
 }
 
 func assistantWeeklyDiscountWorkflowRequired(userContext assistantUserContext) bool {
-	return (assistantWeeklyDiscountRequest(userContext.LatestUserRequest) || userContext.WeeklyDiscountRequested) &&
+	return !assistantActionDeclined(userContext.LatestUserRequest, assistantDiscountActionRule) &&
+		(assistantWeeklyDiscountRequest(userContext.LatestUserRequest) || userContext.WeeklyDiscountRequested) &&
 		assistantWeeklyDiscountToolAllowed(userContext)
 }
 
 func assistantHumanSupportWorkflowRequired(userContext assistantUserContext) bool {
-	return assistantHumanSupportRequest(userContext.LatestUserRequest) &&
+	return (assistantSupportBookingDecision(userContext.LatestUserRequest) > 0 || assistantHumanSupportRequest(userContext.LatestUserRequest)) &&
 		assistantToolAllowedForContext("request_human_support", userContext)
 }
 
@@ -1010,6 +1088,9 @@ func assistantHumanSupportWorkflowMinSteps(userContext assistantUserContext) int
 		return 0
 	}
 	steps := 2 // prepare a confirmation card, then answer
+	if assistantSupportBookingDecision(userContext.LatestUserRequest) > 0 {
+		steps = 3
+	}
 	if userContext.ConversationTitleNeeded {
 		steps++
 	}
@@ -1065,10 +1146,8 @@ func assistantRecommendationWorkflowMinSteps(userContext assistantUserContext) i
 		return 0
 	}
 	steps := 2 // read the current letter, then produce a final answer
-	if userContext.RecommendationAction == assistantRecommendationActionRevise &&
-		!userContext.DeveloperAccessGranted &&
-		strings.EqualFold(strings.TrimSpace(userContext.AccessLevel), "L0") {
-		steps++ // prepare the confirmation-gated revision draft
+	if userContext.RecommendationAction == assistantRecommendationActionRevise && assistantDirectL1GrantAllowed(userContext) {
+		steps += 2 // read registration evidence, grant access, then answer
 	}
 	if userContext.ConversationTitleNeeded {
 		steps++
@@ -1108,6 +1187,15 @@ func assistantToolChoiceForAgentStep(userContext assistantUserContext, calledToo
 		return "none"
 	}
 	if assistantHumanSupportWorkflowRequired(userContext) {
+		if assistantSupportBookingDecision(userContext.LatestUserRequest) > 0 {
+			if !calledTools["get_human_support_status"] {
+				return assistantNamedToolChoice("get_human_support_status")
+			}
+			if !successfulTools["get_human_support_status"] {
+				return "none"
+			}
+			return "auto"
+		}
 		if !calledTools["request_human_support"] {
 			return assistantNamedToolChoice("request_human_support")
 		}
@@ -1167,8 +1255,13 @@ func assistantToolChoiceForAgentStep(userContext assistantUserContext, calledToo
 	if userContext.DeveloperAccessGranted || !strings.EqualFold(strings.TrimSpace(userContext.AccessLevel), "L0") {
 		return "none"
 	}
-	if !successfulTools["prepare_l1_recommendation"] {
-		return assistantNamedToolChoice("prepare_l1_recommendation")
+	if assistantDirectL1GrantAllowed(userContext) {
+		if !calledTools["get_registration_risk"] {
+			return assistantNamedToolChoice("get_registration_risk")
+		}
+		if successfulTools["get_registration_risk"] && !calledTools["grant_l1_access"] {
+			return assistantNamedToolChoice("grant_l1_access")
+		}
 	}
 	return "none"
 }
@@ -1303,6 +1396,10 @@ func objectSchema(properties map[string]any, required []string) map[string]any {
 }
 
 func setAssistantRelayRequest(c *gin.Context, request assistantOpenAIRequest) error {
+	// Keep the server-selected model explicit for billing and error reporting.
+	// Synthetic review contexts do not pass through the normal distributor
+	// model extraction middleware.
+	common.SetContextKey(c, constant.ContextKeyOriginalModel, request.Model)
 	payload, err := common.MarshalLimit(request, assistantUpstreamRequestMaxBytes)
 	if err != nil {
 		return err
@@ -1505,56 +1602,56 @@ func relayAssistantTurnWithRetry(c *gin.Context, request assistantOpenAIRequest,
 func relayAssistantTurnWithRetryUsing(c *gin.Context, request assistantOpenAIRequest, rootRequestID string, step int, turn func(*gin.Context, assistantOpenAIRequest, string, int) (int, []byte, error)) (int, []byte, error) {
 	var status int
 	var body []byte
+	var err error
 	responsesToolChoiceFallbackUsed := false
 	omitToolChoiceFallbackUsed := false
 	for attempt := 1; attempt <= assistantUpstreamMaxAttempts; attempt++ {
-		status, body, err := turn(c, request, rootRequestID, step)
+		if err := c.Request.Context().Err(); err != nil {
+			return http.StatusRequestTimeout, nil, err
+		}
+		// Do not shadow status/body: a compatibility fallback on the last
+		// attempt must return that failure, not a fabricated status 0.
+		status, body, err = turn(c, request, rootRequestID, step)
 		if err != nil {
 			return status, body, err
 		}
+		invalidResponse := false
 		if status >= http.StatusOK && status < http.StatusMultipleChoices {
 			response, parseErr := parseAssistantResponse(body)
 			if parseErr == nil && len(response.Choices) > 0 {
-				return status, body, nil
+				message := response.Choices[0].Message
+				if len(message.ToolCalls) > 0 || strings.TrimSpace(assistantResponseContent(message.Content)) != "" {
+					return status, body, nil
+				}
 			}
-			// A malformed/empty successful provider response is treated as a
-			// transient upstream failure and receives the same bounded retry.
-			if attempt == assistantUpstreamMaxAttempts {
-				return status, body, nil
-			}
+			invalidResponse = true
+		}
+		if attempt == assistantUpstreamMaxAttempts {
+			return status, body, nil
 		}
 		if assistantToolChoiceNameRequired(body) {
 			if !responsesToolChoiceFallbackUsed {
 				if fallback, ok := assistantResponsesToolChoice(request.ToolChoice); ok {
-					// A few OpenAI-compatible Responses gateways expose the chat
-					// endpoint but validate tool_choice using the Responses shape:
-					// {"type":"function","name":"..."}. Retry once with that
-					// shape instead of burning the normal retry budget on the same
-					// invalid request.
 					request.ToolChoice = fallback
 					responsesToolChoiceFallbackUsed = true
 					continue
 				}
 			}
 			if !omitToolChoiceFallbackUsed && assistantOmitToolChoiceForMissingName(request.ToolChoice) {
-				// Some gateways reject `auto` or `none` as if a named function
-				// were required. Omitting the field is the provider-neutral
-				// fallback for a turn that does not have a required tool.
 				request.ToolChoice = nil
 				omitToolChoiceFallbackUsed = true
 				continue
 			}
 		}
-		if !assistantRetryableUpstreamStatus(status) || attempt == assistantUpstreamMaxAttempts {
+		// A malformed HTTP 200 used to fall through the HTTP-status gate and
+		// return immediately, despite the documented recovery policy.
+		if !invalidResponse && !assistantRetryableUpstreamStatus(status) {
 			return status, body, nil
 		}
-
 		timer := time.NewTimer(assistantUpstreamRetryDelay(attempt))
 		select {
 		case <-c.Request.Context().Done():
-			if !timer.Stop() {
-				<-timer.C
-			}
+			timer.Stop()
 			return http.StatusRequestTimeout, nil, c.Request.Context().Err()
 		case <-timer.C:
 		}
@@ -1568,267 +1665,83 @@ func assistantContextBytes(messages []assistantOpenAIMessage) int {
 	return agent.Bytes(messages)
 }
 
-func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conversation []assistantOpenAIMessage) {
-	release, acquired := assistantAgentLimiter.TryAcquire()
-	if !acquired {
-		writeAssistantError(c, http.StatusServiceUnavailable, "ASSISTANT_BUSY", errors.New("AI assistant is busy; retry shortly"))
-		return
+func compactAssistantAgentContext(messages []assistantOpenAIMessage) ([]assistantOpenAIMessage, error) {
+	compacted, err := agent.Compact(messages, assistantAgentContextTargetBytes)
+	if errors.Is(err, agent.ErrContextBudget) {
+		// A large latest result can exceed the target while still fitting the
+		// hard transport budget. Never truncate that fresh execution receipt.
+		return agent.Compact(messages, assistantAgentContextMaxBytes)
 	}
-	defer release()
+	return compacted, err
+}
 
-	timeout := time.Duration(settings.TimeoutSeconds) * time.Second
-	if timeout < 5*time.Second {
-		timeout = assistantAgentDefaultTimeout
+func assistantUpstreamContextExceeded(status int, body []byte) bool {
+	if status != http.StatusBadRequest && status != http.StatusRequestEntityTooLarge {
+		return false
 	}
-	ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
-	defer cancel()
-	originalRequest := c.Request
-	c.Request = c.Request.WithContext(ctx)
-	defer func() {
-		c.Request = originalRequest
-		common.CleanupBodyStorage(c)
-	}()
-	streamSession := assistantStreamSessionFrom(c)
+	text := strings.ToLower(string(body))
+	return strings.Contains(text, "context_length_exceeded") || strings.Contains(text, "context_window_exceeded") ||
+		strings.Contains(text, "maximum context length") || strings.Contains(text, "prompt is too long") ||
+		strings.Contains(text, "too many input tokens")
+}
 
-	rootRequestID := c.GetString(common.RequestIdKey)
-	if rootRequestID == "" {
-		rootRequestID = common.NewRequestId()
-		c.Set(common.RequestIdKey, rootRequestID)
+func assistantAgentRequestStopped(c *gin.Context) bool {
+	err := c.Request.Context().Err()
+	if err == nil {
+		return false
 	}
+	code, message := "ASSISTANT_REQUEST_CANCELLED", "assistant request was cancelled"
+	if errors.Is(err, context.DeadlineExceeded) {
+		code, message = "ASSISTANT_REQUEST_TIMEOUT", "assistant request exceeded its time limit; inspect completed actions before retrying"
+	}
+	writeAssistantError(c, http.StatusRequestTimeout, code, errors.New(message))
+	return true
+}
 
+func assistantToolCallReadOnly(c *gin.Context, call assistantOpenAIToolCall) bool {
+	name := strings.TrimSpace(call.Function.Name)
+	if name == "execute_admin_operation" {
+		return assistantAdminOperationReadOnly(c, call.Function.Arguments)
+	}
+	return strings.HasPrefix(name, "get_") || strings.HasPrefix(name, "list_") ||
+		strings.HasPrefix(name, "calculate_") || name == "search_web" || name == "audit_admin_model_pricing" || name == "recall_memory"
+}
+
+func assistantAdminRetryMutationBlocked(c *gin.Context, call assistantOpenAIToolCall) bool {
+	return c != nil && c.Request != nil && isAssistantAdministratorTool(strings.TrimSpace(call.Function.Name)) && assistantRequestAttempt(c) > 1 && !assistantToolCallReadOnly(c, call)
+}
+
+func assistantAdminRetryMutationResult() map[string]any {
+	return map[string]any{"ok": false, "status": "retry_requires_verification", "do_not_retry": true, "error": "not executed: this is a retried conversation request and a previous write may already have committed; inspect live state and report the outcome, then require a new explicit user request for further changes"}
+}
+
+func assistantAgentToolResultJSON(result map[string]any) []byte {
+	encoded, err := common.MarshalLimit(result, assistantToolResultMaxBytes)
+	if err == nil {
+		return encoded
+	}
+	// Keep the execution outcome when its data is oversized. Reporting an
+	// applied write as failed invites the model to apply it a second time.
+	receipt := map[string]any{"context_compacted": true, "omitted": "tool result exceeded its byte budget; re-read live state for details"}
+	for _, key := range []string{"ok", "status", "applied", "verified", "mutation_attempted", "do_not_retry", "outcome"} {
+		switch value := result[key].(type) {
+		case bool:
+			receipt[key] = value
+		case string:
+			if len(value) <= 256 {
+				receipt[key] = value
+			}
+		}
+	}
+	encoded, _ = json.Marshal(receipt)
+	return encoded
+}
+
+func skipAssistantConversationTitle(c *gin.Context) assistantUserContext {
 	userContext := assistantUserContextFromGin(c)
-	messages := make([]assistantOpenAIMessage, 1, len(conversation)+1)
-	messages[0] = assistantOpenAIMessage{Role: "system", Content: assistantPrompt(c, settings, userContext)}
-	messages = append(messages, conversation...)
-	if assistantContextBytes(messages) > assistantAgentContextMaxBytes {
-		writeAssistantError(c, http.StatusRequestEntityTooLarge, "ASSISTANT_CONTEXT_TOO_LARGE", errors.New("assistant context exceeded its byte budget"))
-		return
-	}
-	maxSteps := settings.MaxSteps
-	if maxSteps < 1 {
-		maxSteps = 1
-	}
-	forceL0Assessment := assistantL0InterlocutorAssessmentRequired(userContext)
-	forceRecommendationWorkflow := assistantRecommendationWorkflowRequired(userContext)
-	forceCreateKeyWorkflow := assistantCreateKeyWorkflowRequired(userContext)
-	forceImageGenerationWorkflow := assistantImageGenerationWorkflowRequired(userContext)
-	forcePublicActivityWorkflow := assistantPublicActivityWorkflowRequired(userContext)
-	forceNewUserGiftWorkflow := assistantNewUserGiftWorkflowRequired(userContext)
-	forceWeeklyDiscountWorkflow := assistantWeeklyDiscountWorkflowRequired(userContext)
-	forceHumanSupportWorkflow := assistantHumanSupportWorkflowRequired(userContext)
-	forceConversationTitle := userContext.ConversationTitleNeeded
-	forceReadChain := assistantLiveReadRequired(userContext)
-	if forceL0Assessment && maxSteps < 2 {
-		maxSteps = 2
-	}
-	if forceConversationTitle && maxSteps < 2 {
-		// A title is a real agent action, not optional model prose. Keep it
-		// available even when an administrator disables the general-purpose
-		// multi-step loop.
-		maxSteps = 2
-	}
-	if minimum := assistantRecommendationWorkflowMinSteps(userContext); maxSteps < minimum {
-		maxSteps = minimum
-	}
-	if minimum := assistantCreateKeyWorkflowMinSteps(userContext); maxSteps < minimum {
-		maxSteps = minimum
-	}
-	if minimum := assistantImageGenerationWorkflowMinSteps(userContext); maxSteps < minimum {
-		maxSteps = minimum
-	}
-	if minimum := assistantLiveActivityWorkflowMinSteps(userContext); maxSteps < minimum {
-		maxSteps = minimum
-	}
-	if minimum := assistantHumanSupportWorkflowMinSteps(userContext); maxSteps < minimum {
-		maxSteps = minimum
-	}
-	if minimum := assistantReadChainSteps(userContext); maxSteps < minimum {
-		maxSteps = minimum
-	}
-	if !settings.AgentLoopEnabled {
-		if !forceL0Assessment && !forceConversationTitle && !forceRecommendationWorkflow && !forceCreateKeyWorkflow && !forceImageGenerationWorkflow && !forcePublicActivityWorkflow && !forceNewUserGiftWorkflow && !forceWeeklyDiscountWorkflow && !forceHumanSupportWorkflow && !forceReadChain {
-			maxSteps = 1
-		}
-	}
-	cacheKey := c.GetString("assistant_cache_key")
-	usedCacheSensitiveTool := false
-	agentEnabled := maxSteps > 1 && (settings.AgentLoopEnabled || forceL0Assessment || forceConversationTitle || forceRecommendationWorkflow || forceCreateKeyWorkflow || forceImageGenerationWorkflow || forcePublicActivityWorkflow || forceNewUserGiftWorkflow || forceWeeklyDiscountWorkflow || forceHumanSupportWorkflow || forceReadChain)
-	var tools []assistantOpenAIToolDefinition
-	var calledTools, successfulTools map[string]bool
-	toolTraces := make([]assistantToolTrace, 0, assistantToolCallsPerTurn)
-	if agentEnabled {
-		tools = assistantToolDefinitionsForContext(userContext)
-		calledTools = make(map[string]bool)
-		successfulTools = make(map[string]bool)
-	}
-
-	for step := 0; step < maxSteps; step++ {
-		streamTurn := streamSession != nil && settings.StreamEnabled
-		request := assistantOpenAIRequest{
-			Model:           settings.Model,
-			Messages:        messages,
-			Stream:          streamTurn,
-			Temperature:     settings.Temperature,
-			MaxTokens:       settings.MaxTokens,
-			ReasoningEffort: assistantReasoningEffort(settings),
-		}
-		// Reserve the last turn for a final natural-language answer. This
-		// makes MaxSteps a hard bound while ensuring a tool call can finish.
-		if agentEnabled && step < maxSteps-1 {
-			request.Tools = tools
-			request.ToolChoice = assistantToolChoiceForAgentStep(userContext, calledTools, successfulTools)
-		}
-
-		var status int
-		var body []byte
-		var err error
-		if streamTurn {
-			status, body, err = relayAssistantStreamTurn(c, request, rootRequestID, step, streamSession)
-		} else {
-			status, body, err = relayAssistantAgentTurn(c, request, rootRequestID, step)
-		}
-		if err != nil {
-			writeAssistantError(c, http.StatusInternalServerError, "ASSISTANT_REQUEST_BUILD_FAILED", errors.New("failed to build assistant request"))
-			return
-		}
-		if status < http.StatusOK || status >= http.StatusMultipleChoices {
-			forcedTool := assistantNamedToolChoiceName(request.ToolChoice)
-			if assistantNamedToolChoiceUnsupported(body) && assistantServerReadFallbackAllowed(forcedTool) {
-				// The provider cannot select the read explicitly. Execute the
-				// bounded server-owned read, append its verified result, then let
-				// the next streamed model turn draft from that context.
-				call := assistantOpenAIToolCall{
-					ID:       fmt.Sprintf("assistant-server-read-%d", step+1),
-					Type:     "function",
-					Function: assistantOpenAIToolCallFunction{Name: forcedTool},
-				}
-				result := executeAssistantTool(c, call)
-				if c.IsAborted() {
-					return
-				}
-				resultJSON, marshalErr := common.MarshalLimit(result, assistantToolResultMaxBytes)
-				if marshalErr != nil {
-					resultJSON = []byte(`{"ok":false,"error":"tool result exceeded its byte budget"}`)
-				}
-				calledTools[forcedTool] = true
-				if ok, _ := result["ok"].(bool); ok {
-					successfulTools[forcedTool] = true
-				}
-				usedCacheSensitiveTool = true
-				toolTraces = append(toolTraces, buildAssistantToolTrace(call, result))
-				c.Set(assistantClientToolsKey, toolTraces)
-				messages = append(messages, assistantOpenAIMessage{
-					Role:      "assistant",
-					ToolCalls: []assistantOpenAIToolCall{call},
-				})
-				messages = append(messages, assistantOpenAIMessage{
-					Role:       "tool",
-					Content:    string(resultJSON),
-					ToolCallID: call.ID,
-				})
-				continue
-			}
-			writeAssistantUpstreamError(c, "ASSISTANT_UPSTREAM_FAILED", "AI assistant upstream request failed")
-			return
-		}
-
-		response, err := parseAssistantResponse(body)
-		if err != nil || len(response.Choices) == 0 {
-			writeAssistantUpstreamError(c, "ASSISTANT_INVALID_UPSTREAM_RESPONSE", "AI assistant upstream returned an invalid response")
-			return
-		}
-		message := response.Choices[0].Message
-		if forceConversationTitle || forceRecommendationWorkflow || forceCreateKeyWorkflow || forceImageGenerationWorkflow || forcePublicActivityWorkflow || forceNewUserGiftWorkflow || forceWeeklyDiscountWorkflow || forceHumanSupportWorkflow || forceReadChain {
-			requiredTool := assistantNamedToolChoiceName(request.ToolChoice)
-			if requiredTool != "" && (len(message.ToolCalls) != 1 || strings.TrimSpace(message.ToolCalls[0].Function.Name) != requiredTool) {
-				writeAssistantError(c, http.StatusBadGateway, "ASSISTANT_REQUIRED_TOOL_MISSING", errors.New("assistant did not follow the required tool workflow"))
-				return
-			}
-		}
-		if len(message.ToolCalls) == 0 {
-			normalizedBody, normalizeErr := normalizeAssistantClientResponse(c, body)
-			if normalizeErr != nil {
-				writeAssistantUpstreamError(c, "ASSISTANT_EMPTY_UPSTREAM_RESPONSE", "AI assistant upstream returned no usable answer")
-				return
-			}
-			if !usedCacheSensitiveTool && cacheKey != "" {
-				storeAssistantCachedResponse(settings, cacheKey, status, normalizedBody, c.GetString(assistantConversationTitleDraftKey))
-				c.Header("X-LMM-Assistant-Cache", "STORE")
-			}
-			if streamSession != nil {
-				enrichedBody := assistantHistoryResponseBody(c, status, normalizedBody)
-				if !streamTurn {
-					finalResponse, parseErr := parseAssistantResponse(normalizedBody)
-					if parseErr == nil && len(finalResponse.Choices) > 0 {
-						_ = streamSession.appendContent(assistantResponseContent(finalResponse.Choices[0].Message.Content))
-					}
-				}
-				streamBody := sanitizeAssistantStreamResponseBody(enrichedBody, streamSession.safeContent())
-				c.Set(assistantFinalResponseBodyKey, streamBody)
-				if err := streamSession.finish(enrichedBody); err != nil {
-					writeAssistantError(c, http.StatusBadGateway, "ASSISTANT_STREAM_WRITE_FAILED", errors.New("assistant stream output failed"))
-				}
-				return
-			}
-			c.Data(status, "application/json; charset=utf-8", normalizedBody)
-			return
-		}
-		if (!settings.AgentLoopEnabled && !forceL0Assessment && !forceConversationTitle && !forceRecommendationWorkflow && !forceCreateKeyWorkflow && !forceImageGenerationWorkflow && !forcePublicActivityWorkflow && !forceNewUserGiftWorkflow && !forceWeeklyDiscountWorkflow && !forceHumanSupportWorkflow && !forceReadChain) || step >= maxSteps-1 {
-			writeAssistantError(c, http.StatusBadGateway, "ASSISTANT_AGENT_MAX_STEPS", errors.New("assistant agent reached its step limit before producing a final answer"))
-			return
-		}
-		if len(message.ToolCalls) > assistantToolCallsPerTurn {
-			writeAssistantError(c, http.StatusBadGateway, "ASSISTANT_TOO_MANY_TOOL_CALLS", errors.New("assistant requested too many tools in one turn"))
-			return
-		}
-
-		messages = append(messages, assistantOpenAIMessage{
-			Role:      "assistant",
-			Content:   assistantResponseContent(message.Content),
-			ToolCalls: message.ToolCalls,
-		})
-		for index, call := range message.ToolCalls {
-			toolName := strings.TrimSpace(call.Function.Name)
-			calledTools[toolName] = true
-			if toolName != "set_conversation_title" {
-				usedCacheSensitiveTool = true
-			}
-			result := executeAssistantTool(c, call)
-			if c.IsAborted() {
-				return
-			}
-			resultJSON, marshalErr := common.MarshalLimit(result, assistantToolResultMaxBytes)
-			if ok, _ := result["ok"].(bool); ok {
-				successfulTools[toolName] = true
-			}
-			if toolName == "set_conversation_title" {
-				// The title tool updates the Gin context. Keep this loop's local
-				// policy snapshot in sync so the next step advances to the task
-				// tool instead of forcing the title again.
-				userContext = assistantUserContextFromGin(c)
-			}
-			if marshalErr != nil {
-				resultJSON = []byte(`{"ok":false,"error":"tool result exceeded its byte budget"}`)
-			}
-			toolTraces = append(toolTraces, buildAssistantToolTrace(call, result))
-			c.Set(assistantClientToolsKey, toolTraces)
-			callID := strings.TrimSpace(call.ID)
-			if callID == "" {
-				callID = fmt.Sprintf("assistant-call-%d-%d", step+1, index+1)
-			}
-			messages = append(messages, assistantOpenAIMessage{
-				Role:       "tool",
-				Content:    string(resultJSON),
-				ToolCallID: callID,
-			})
-		}
-		if assistantContextBytes(messages) > assistantAgentContextMaxBytes {
-			writeAssistantError(c, http.StatusBadGateway, "ASSISTANT_CONTEXT_TOO_LARGE", errors.New("assistant tool context exceeded its byte budget"))
-			return
-		}
-	}
-
-	writeAssistantError(c, http.StatusBadGateway, "ASSISTANT_AGENT_MAX_STEPS", errors.New("assistant agent reached its step limit"))
+	userContext.ConversationTitleNeeded = false
+	c.Set(assistantUserContextKey, userContext)
+	return userContext
 }
 
 func parseAssistantResponse(body []byte) (assistantOpenAIResponse, error) {
@@ -1879,12 +1792,12 @@ func normalizeAssistantClientResponse(c *gin.Context, body []byte) ([]byte, erro
 }
 
 func writeAssistantUpstreamError(c *gin.Context, code, message string) {
-	payload := gin.H{"success": false, "code": code, "message": message, "retryable": true}
+	payload := gin.H{"success": false, "code": code, "message": message, "retryable": !c.GetBool("assistant_admin_mutation_attempted") && !c.GetBool("assistant_work_started")}
 	if requestID := strings.TrimSpace(c.GetString(common.RequestIdKey)); requestID != "" {
 		payload["request_id"] = requestID
 	}
 	if session := assistantStreamSessionFrom(c); session != nil {
-		_ = session.fail(http.StatusBadGateway, code, message)
+		_ = session.fail(http.StatusBadGateway, code, message, c.GetBool("assistant_admin_mutation_attempted"))
 		c.Abort()
 		return
 	}
@@ -1902,6 +1815,11 @@ func writeAssistantRawResponse(c *gin.Context, status int, body []byte, fallback
 		return
 	}
 	c.Data(status, "application/json; charset=utf-8", normalizedBody)
+}
+
+func isAssistantAdministratorTool(name string) bool {
+	return strings.HasPrefix(name, "get_admin_") || strings.HasPrefix(name, "prepare_admin_") ||
+		name == "list_admin_operations" || name == "execute_admin_operation" || name == "audit_admin_model_pricing"
 }
 
 func assistantActorUserID(c *gin.Context) int {
@@ -1934,6 +1852,9 @@ func assistantDeveloperCapabilityRequired(userID int, capability string) (map[st
 }
 
 func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[string]any {
+	if assistantHumanSupportInterrupted(c) {
+		return map[string]any{"ok": false, "status": "human_support_active"}
+	}
 	actorUserID := assistantActorUserID(c)
 	name := strings.TrimSpace(call.Function.Name)
 	if c != nil {
@@ -1947,6 +1868,16 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 			}
 		}
 	}
+	// Tool names, prompts, remembered roles and billing credentials are never
+	// authority. Recheck the original actor and live browser session per call.
+	if isAssistantAdministratorTool(name) || (c != nil && assistantUserContextFromGin(c).AdministratorMode) {
+		if _, err := validateAssistantAdminAutomationSession(c, actorUserID); err != nil {
+			return map[string]any{"ok": false, "status": "admin_access_denied", "error": "a current administrator browser session is required"}
+		}
+	}
+	if assistantAdminRetryMutationBlocked(c, call) {
+		return assistantAdminRetryMutationResult()
+	}
 	arguments := strings.TrimSpace(call.Function.Arguments)
 	if arguments == "" {
 		arguments = "{}"
@@ -1956,6 +1887,13 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 	}
 	var input map[string]any
 	if err := json.Unmarshal([]byte(arguments), &input); err != nil {
+		if name == "set_conversation_title" {
+			// The title is optional metadata. Some compatible providers emit an
+			// incomplete argument fragment even though the forced tool call itself
+			// is valid; fall back to the already-redacted user message instead of
+			// surfacing an internal metadata failure or delaying the real answer.
+			return executeAssistantConversationTitleTool(c, nil)
+		}
 		return map[string]any{"ok": false, "error": "tool arguments must be valid JSON"}
 	}
 	if name == forgetProfileTool && (c == nil || !assistantExplicitProfileForgetRequest(c.GetString("assistant_history_latest_message"))) {
@@ -1972,11 +1910,18 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 			}
 		}
 	}
+	if isAssistantRegistrationTool(name) {
+		return executeAssistantRegistrationTool(c, name, input)
+	}
 	if result, handled := runSkillTool(name, actorUserID, input, explicitProfileForget); handled {
 		return result
 	}
 
 	switch name {
+	case "get_human_support_status":
+		return executeAssistantHumanSupportStatusTool(c)
+	case "book_technical_support":
+		return executeAssistantBookTechnicalSupportTool(c, input)
 	case assistantInterlocutorAssessmentTool:
 		return executeAssistantInterlocutorAssessmentTool(c, input)
 	case "set_conversation_title":
@@ -2124,6 +2069,8 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 			}
 		}
 		return executeAssistantL1RecommendationTool(c, actorUserID, input)
+	case "grant_l1_access":
+		return executeAssistantDirectL1GrantTool(c, actorUserID, input)
 	case "request_create_key":
 		if c == nil {
 			return map[string]any{"ok": false, "error": "signed-in account is unavailable"}
@@ -2180,6 +2127,12 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 			"message":       "Ask the user to confirm sending this message to an administrator.",
 			"draft_message": message,
 		}
+	case "list_admin_operations":
+		return executeAssistantAdminOperationsTool(c, actorUserID, input)
+	case "execute_admin_operation":
+		return executeAssistantAdminOperationTool(c, actorUserID, input)
+	case "audit_admin_model_pricing":
+		return executeAssistantAdminPricingAuditTool(actorUserID, input)
 	case "get_admin_server_config":
 		return executeAssistantAdminConfigTool(c, actorUserID)
 	case "get_admin_model_inventory":
@@ -2211,7 +2164,7 @@ func executeAssistantConversationTitleTool(c *gin.Context, input map[string]any)
 	}
 	title := strings.TrimSpace(inputString(input, "title"))
 	if title == "" {
-		return map[string]any{"ok": false, "error": "a conversation title is required"}
+		title = strings.TrimSpace(c.GetString("assistant_history_latest_message"))
 	}
 	runes := []rune(model.RedactAssistantHistoryContent(title))
 	if len(runes) > assistantConversationTitleMaxRunes {
@@ -2241,7 +2194,7 @@ func executeAssistantL1RecommendationStateTool(c *gin.Context, userID int) map[s
 			"ok":             true,
 			"status":         "none",
 			"recommendation": "",
-			"next_step":      "Use the conversation context to prepare the user's one L1 recommendation when requested.",
+			"next_step":      "Recommendation submission has been retired. Continue tool-based registration verification; never direct the user to a recommendation form.",
 		}
 		if assistantUserContextFromGin(c).RecommendationAction == assistantRecommendationActionRemove {
 			result["next_step"] = "Tell the user there is no recommendation letter to remove. Do not call prepare_l1_recommendation."
@@ -2256,11 +2209,11 @@ func executeAssistantL1RecommendationStateTool(c *gin.Context, userID int) map[s
 		"recommendation":          request.AIRecommendation,
 		"administrator_note":      request.AdminNote,
 		"is_single_shared_letter": true,
-		"next_step":               "For an AI edit, prepare a revised draft of this same letter and require UI confirmation before replacing it.",
+		"next_step":               "This is read-only historical data. Recommendation editing and submission are retired. Continue tool-based registration verification without preparing a letter.",
 	}
 	if assistantUserContextFromGin(c).RecommendationAction == assistantRecommendationActionRemove {
-		result["next_step"] = "Do not call prepare_l1_recommendation and do not change the administrator queue. Tell the user to clear the visible Recommendation letter field in the existing UI and choose Save changes; that direct user action remains explicitly confirmed."
-		result["removal_requires_user_ui"] = true
+		result["next_step"] = "Do not call prepare_l1_recommendation. The recommendation form is retired; do not promise deletion or direct the user to that form. Explain that this historical record remains unchanged and offer human support for a record-removal request."
+		result["historical_read_only"] = true
 	}
 	return result
 }
@@ -2474,6 +2427,42 @@ func executeAssistantL1RecommendationTool(c *gin.Context, userID int, input map[
 		"status":  "confirmation_required",
 		"action":  "l1_recommendation",
 		"message": "Explain that this recommendation is only a draft. Ask the user to review and explicitly confirm it in the UI; administrator approval is still required.",
+	}
+}
+
+func executeAssistantDirectL1GrantTool(c *gin.Context, userID int, input map[string]any) map[string]any {
+	if c == nil || userID <= 0 {
+		return map[string]any{"ok": false, "status": "context_unavailable", "error": "signed-in account is unavailable"}
+	}
+	conversationID := assistantHistoryConversationID(c)
+	if conversationID <= 0 {
+		return map[string]any{"ok": false, "status": "turns_required", "error": "three completed turns in an existing conversation are required"}
+	}
+	statement := strings.TrimSpace(inputString(input, "user_statement"))
+	recommendation := strings.TrimSpace(inputString(input, "recommendation"))
+	grant, err := model.GrantAssistantDeveloperAccess(userID, conversationID, statement, recommendation)
+	if err != nil {
+		switch {
+		case errors.Is(err, model.ErrAssistantRegistrationCheck):
+			return map[string]any{"ok": false, "status": "verification_required", "error": "registration verification needs more context or human support; no access was granted"}
+		case errors.Is(err, model.ErrAssistantDirectGrantTurnsRequired):
+			return map[string]any{"ok": false, "status": "turns_required", "error": "three completed server-recorded conversation turns are required"}
+		case errors.Is(err, model.ErrAssistantDirectGrantNotL0):
+			return map[string]any{"ok": false, "status": "not_eligible", "error": "direct L1 grant is available only to an unrestricted L0 user"}
+		case errors.Is(err, model.ErrDeveloperAccessRequestReasonTooShort), errors.Is(err, model.ErrDeveloperAccessRecommendationTooShort), errors.Is(err, model.ErrDeveloperAccessRequestNoteTooLong):
+			return map[string]any{"ok": false, "status": "justification_invalid", "error": err.Error()}
+		default:
+			return map[string]any{"ok": false, "status": "grant_failed", "error": "L1 access could not be granted"}
+		}
+	}
+	status := "already_active"
+	if grant.Activated {
+		status = "activated"
+	}
+	return map[string]any{
+		"ok": true, "status": status, "access_level": "L1",
+		"completed_turns": grant.CompletedTurns, "request_id": grant.Request.Id,
+		"message": "L1 access is active. No further user or administrator approval is required.",
 	}
 }
 
@@ -3137,21 +3126,25 @@ func executeAssistantSearchTool(c *gin.Context, input map[string]any) map[string
 		ctx = c.Request.Context()
 	}
 	response, err := ExecuteAssistantSearch(ctx, query)
+	configured := response.Configured
+	responseQuery := response.Query
+	status := response.Status
+	results := response.Results
 	if err != nil {
 		return map[string]any{
 			"ok":         false,
-			"configured": response.Configured,
-			"query":      response.Query,
-			"status":     response.Status,
+			"configured": configured,
+			"query":      responseQuery,
+			"status":     status,
 			"error":      err.Error(),
 		}
 	}
 	return map[string]any{
 		"ok":         true,
-		"configured": response.Configured,
-		"query":      response.Query,
-		"status":     response.Status,
-		"results":    response.Results,
+		"configured": configured,
+		"query":      responseQuery,
+		"status":     status,
+		"results":    results,
 	}
 }
 
@@ -3194,13 +3187,35 @@ func executeAssistantAccountTool(userID int) map[string]any {
 		}
 	}
 	if access.Granted {
-		result["next_step"] = "Continue setup through the assistant; API-key creation still requires explicit UI confirmation."
+		fullUser, err := model.GetUserById(userID, false)
+		if err != nil {
+			return map[string]any{"ok": false, "error": "account setup status could not be loaded"}
+		}
+		onboarding, err := model.GetOnboardingStateForUser(fullUser)
+		if err != nil {
+			return map[string]any{"ok": false, "error": "account setup status could not be loaded"}
+		}
+		result["onboarding"] = onboarding
+		result["wallet_quota"] = fullUser.Quota
+		result["next_step"] = assistantAccountSetupNextStep(onboarding)
 	} else if request != nil && request.Status == model.DeveloperAccessRequestPending {
 		result["next_step"] = "Tell the user the recommendation is pending administrator review."
 	} else {
 		result["next_step"] = "Continue the onboarding conversation and prepare an L1 recommendation only after collecting a concrete use case."
 	}
 	return result
+}
+
+// Choose from server-observed setup state. OAuth credentials do not require a
+// second manual API key; wallet quota alone does not determine subscription access.
+func assistantAccountSetupNextStep(state model.OnboardingState) string {
+	if state.FirstRequestComplete {
+		return "Setup is complete. Offer usage records or help with the user's next task; do not create another key unless requested."
+	}
+	if state.CredentialComplete {
+		return "A credential already exists. Help configure the selected client and test its first request. OAuth clients do not need a manual API key."
+	}
+	return "Ask which client the user wants to use. For an OAuth client guide authorization; otherwise prepare an API key and request explicit confirmation before creating it. Check available funding before a paid test request."
 }
 
 // quotePOSIXShellLiteral returns a single shell word without leaving any part of
@@ -3218,10 +3233,10 @@ func quotePowerShellLiteral(value string) string {
 func executeAssistantSetupTool(userID int, input map[string]any) map[string]any {
 	platform := strings.ToLower(strings.TrimSpace(inputString(input, "platform")))
 	topic := strings.ToLower(strings.TrimSpace(inputString(input, "topic")))
-	if platform != "windows" && platform != "linux" && platform != "macos" {
-		return map[string]any{"ok": false, "error": "platform must be windows, linux, or macos"}
+	if platform != "windows" && platform != "linux" && platform != "macos" && platform != "android" && platform != "ios" {
+		return map[string]any{"ok": false, "error": "platform must be windows, linux, macos, android, or ios"}
 	}
-	if topic != "claude-code" && topic != "cc-switch" && topic != "claude-desktop" && topic != "chatgpt-client" && topic != "codex" && topic != "cursor" && topic != "open-webui" && topic != "other-openai-compatible" {
+	if topic != "claude-code" && topic != "cc-switch" && topic != "claude-desktop" && topic != "chatgpt-client" && topic != "codex" && topic != "cursor" && topic != "open-webui" && topic != "cherry-studio" && topic != "chatbox" && topic != "other-openai-compatible" {
 		return map[string]any{"ok": false, "error": "topic is not supported"}
 	}
 	rootURL := strings.TrimRight(system_setting.ServerAddress, "/")
@@ -3292,9 +3307,52 @@ func executeAssistantSetupTool(userID int, input map[string]any) map[string]any 
 		"developer_access_granted":    developerAccessGranted,
 		"account_model_access_locked": accountModelAccessLocked,
 		"security_note":               securityNote,
+		"verification":                lockedAwareStep("Save the provider, select the exact returned model, and send: Reply with OK. A response without an error confirms this request worked; importing settings alone does not verify connectivity.", testStep),
+		"troubleshooting": map[string]string{
+			"401": "In the private API-key page, check that the key is enabled, unexpired, and copied without whitespace. Paste it only into the client's API Key field; never into chat.",
+			"404": "Check the client-specific host and path below for a missing or duplicate /v1. Use one exact live model ID and a model that supports the client's API route.",
+			"429": "Read the error detail to distinguish rate limiting from insufficient quota. Respect Retry-After, reduce concurrent requests, and check account/key quota in the console; do not repeatedly retry or assume a payment is required.",
+		},
+		"support_details": "If the test fails, share only the client name/version, status code, and redacted error text. Remove API keys, Authorization headers, and key-bearing import links from any screenshot.",
+	}
+	if (platform == "android" || platform == "ios") && topic != "chatbox" && topic != "chatgpt-client" && topic != "open-webui" && topic != "other-openai-compatible" {
+		result["supported"] = false
+		result["limitation"] = "This guide is for a desktop client. Use Chatbox on Android or iOS, or continue this client's setup on Windows, macOS, or Linux."
+		result["recommended_alternatives"] = []string{"Chatbox"}
+		result["official_download"] = "https://chatboxai.app/en/guide/getting-started/download"
+		delete(result, "verification")
+		return result
 	}
 
 	switch topic {
+	case "chatbox", "cherry-studio":
+		result["supported"] = true
+		result["client_api_host"] = rootURL
+		result["api_path"] = "/v1/chat/completions"
+		result["endpoint_format"] = "OpenAI Chat Completions; API Host is the service root, with /v1/chat/completions as a separate request path. Do not duplicate /v1."
+		if topic == "chatbox" {
+			result["official_download"] = "https://chatboxai.app/en/guide/getting-started/download"
+			result["official_docs"] = "https://docs.chatboxai.app/guides/providers"
+			result["steps"] = []string{
+				"Open the official Chatbox download page and select " + platform + ". On Android or iOS follow its official store/download link, install the app, then open it.",
+				"Open Settings > Model Providers > Add. Name the provider LMM and choose OpenAI API Compatible.",
+				"Set API Host to " + rootURL + ". Leave API Path at /v1/chat/completions; do not add /v1 to API Host.",
+				credentialStep + " Paste the key only into Chatbox's API Key field.",
+				"Add a model with the exact ID " + clientModel + ", then save the provider. Enable only capabilities supported by that model.",
+				lockedAwareStep("Click Check and confirm a successful connection. Return to the home screen, start a new chat, select LMM and the configured model, then send: Reply with OK.", testStep),
+			}
+		} else {
+			result["official_download"] = "https://www.cherry-ai.com/download"
+			result["official_docs"] = "https://docs.cherry-ai.com/pre-basic/providers/newapi"
+			result["steps"] = []string{
+				"Open the official Cherry Studio download page, select " + platform + ", install the package for your device, and launch the app.",
+				"Open Settings > Model Services and select New API. This provider supports the service's OpenAI-compatible API.",
+				"Set API Address to " + rootURL + ". New API adds the API path automatically; do not enter /chat/completions in this field.",
+				credentialStep + " Paste the key only into Cherry Studio's API Key field.",
+				"Use Manage to fetch models, or Add to enter the exact ID " + clientModel + ". Turn on the provider's enable switch.",
+				lockedAwareStep("Click Check with the configured model. Open a new conversation, choose this provider and model, and send: Reply with OK.", testStep),
+			}
+		}
 	case "claude-code":
 		installCommand := "curl -fsSL https://claude.ai/install.sh | bash"
 		configuration := fmt.Sprintf("export ANTHROPIC_BASE_URL=%s\nexport ANTHROPIC_AUTH_TOKEN='<YOUR_API_KEY>'\nexport ANTHROPIC_MODEL=%s\nclaude", quotePOSIXShellLiteral(rootURL), quotePOSIXShellLiteral(clientModel))
@@ -3379,7 +3437,7 @@ func executeAssistantSetupTool(userID int, input map[string]any) map[string]any 
 		result["supported"] = false
 		result["direct_custom_gateway_supported"] = false
 		result["limitation"] = "The official ChatGPT app uses OpenAI sign-in and does not accept this service's Base URL or API key as a custom provider."
-		result["recommended_alternatives"] = []string{"CC Switch", "Codex CLI", "Open WebUI", "another client that explicitly supports custom OpenAI-compatible providers"}
+		result["recommended_alternatives"] = []string{"Chatbox", "Cherry Studio (Windows, macOS, Linux)", "CC Switch (desktop coding tools)"}
 		result["official_download"] = "https://chatgpt.com/download/"
 	case "codex":
 		apiKeyCommand := "export LMM_API_KEY='<YOUR_API_KEY>'"
@@ -3420,6 +3478,9 @@ func executeAssistantSetupTool(userID int, input map[string]any) map[string]any 
 			"Enter the returned /v1 Base URL, exact model ID, and " + credentialPhrase + ".",
 			lockedAwareStep("Send a short test and verify that the client uses a route supported by this service.", testStep),
 		}
+	}
+	if result["supported"] == false {
+		delete(result, "verification")
 	}
 	return result
 }

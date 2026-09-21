@@ -17,11 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Link } from '@tanstack/react-router'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { LanguageSwitcher } from '@/components/language-switcher'
 import { LmmBrandMark } from '@/components/lmm-brand-mark'
 import { ThemeSwitch } from '@/components/theme-switch'
+import { useSystemConfig } from '@/hooks/use-system-config'
 
 import { AuthArtPanel } from './components/auth-art-panel'
 
@@ -32,13 +34,16 @@ type AuthLayoutProps = {
 }
 
 export function AuthLayout({ children }: AuthLayoutProps) {
+  const { systemName } = useSystemConfig()
+  const { t } = useTranslation()
+  const [mobileGameOpen, setMobileGameOpen] = useState(false)
   useEffect(() => {
     const previousTitle = document.title
-    document.title = 'LMM Forge'
+    document.title = systemName
     return () => {
       document.title = previousTitle
     }
-  }, [])
+  }, [systemName])
 
   return (
     <div className='auth-editorial relative flex h-dvh max-w-none flex-col overflow-hidden lg:grid lg:grid-cols-[minmax(31rem,0.92fr)_minmax(31rem,1.08fr)]'>
@@ -47,8 +52,8 @@ export function AuthLayout({ children }: AuthLayoutProps) {
           to='/'
           className='flex items-center gap-2 transition-opacity hover:opacity-80'
         >
-          <LmmBrandMark className='size-8' title='LMM Forge' />
-          <h1 className='text-lg font-medium sm:text-xl'>LMM Forge</h1>
+          <LmmBrandMark className='size-8' title={systemName} />
+          <h1 className='text-lg font-medium sm:text-xl'>{systemName}</h1>
         </Link>
         <div className='flex items-center gap-1'>
           <LanguageSwitcher />
@@ -59,10 +64,19 @@ export function AuthLayout({ children }: AuthLayoutProps) {
         <div className='no-scrollbar container min-h-0 overflow-y-auto lg:pt-24'>
           <div className='mx-auto flex min-h-full w-full max-w-md flex-col justify-center px-5 py-7 sm:px-8 sm:py-12'>
             {children}
+            <details
+              className='mt-8 w-full lg:hidden'
+              onToggle={(event) => setMobileGameOpen(event.currentTarget.open)}
+            >
+              <summary className='text-muted-foreground cursor-pointer py-3 text-center text-sm underline underline-offset-4'>
+                {t('Play a round')}
+              </summary>
+              {mobileGameOpen && <AuthArtPanel />}
+            </details>
           </div>
         </div>
       </div>
-      <div className='hidden lg:sticky lg:top-0 lg:col-start-2 lg:row-start-1 lg:block lg:h-svh lg:min-h-[42rem] lg:p-3 lg:pl-0'>
+      <div className='hidden lg:sticky lg:top-0 lg:col-start-2 lg:row-start-1 lg:block lg:h-svh lg:min-h-0 lg:overflow-y-auto lg:p-3 lg:pl-0'>
         <AuthArtPanel />
       </div>
     </div>

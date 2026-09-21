@@ -33,11 +33,22 @@ interface HeroSmsEnvelope<T> {
 export interface HeroSmsSmsCountry {
   id: number
   name: string
+  english_name: string
+  chinese_name: string
+  popularity: number
 }
 
 export interface HeroSmsSmsService {
   code: string
   name: string
+  popularity: number
+}
+
+export interface HeroSmsSmsPriceTier {
+  id: string
+  inventory: number
+  customer_price_usd: string
+  charge_quota: number
 }
 
 export interface HeroSmsSmsOffer {
@@ -48,7 +59,19 @@ export interface HeroSmsSmsOffer {
   inventory: number
   customer_price_usd: string
   charge_quota: number
+  bid?: boolean
+  tiers?: HeroSmsSmsPriceTier[]
 }
+
+// typos:ignore DISMATCH -- HeroSMS's official complaint enum uses this spelling.
+export type HeroSmsSmsComplaintReason =
+  | 'NUMBER_BLOCKED'
+  | 'NUMBER_ALREADY_IN_USE'
+  | 'SMS_CODE_DISMATCH'
+  | 'SMS_NOT_RECEIVED'
+  | 'CODE_SENT_TO_APP'
+  | 'INCOMING_CALL_NUMBER'
+  | 'INCOMING_CALL_VOICE'
 
 export interface HeroSmsSmsOrder {
   id: string
@@ -60,6 +83,11 @@ export interface HeroSmsSmsOrder {
   charge_quota: number
   refunded_quota: number
   provider_id: string | null
+  can_cancel?: boolean
+  can_complain?: boolean
+  complaint_type?: HeroSmsSmsComplaintReason | ''
+  complaint_status?: string
+  complaint_submitted_at?: number
   phone_number: string
   code: string
   message: string
@@ -67,6 +95,7 @@ export interface HeroSmsSmsOrder {
   last_error_message: string
   created_at: number
   updated_at: number
+  expires_at?: number
 }
 
 export interface HeroSmsSmsOrderPage {
@@ -91,9 +120,12 @@ const requestOptions = {
   skipErrorHandler: true,
 } as const
 
-export function listHeroSmsSmsCountries() {
+export function listHeroSmsSmsCountries(service?: string) {
   return unwrap<HeroSmsSmsCountry[]>(
-    api.get('/api/hero-sms/sms/countries', requestOptions)
+    api.get('/api/hero-sms/sms/countries', {
+      ...requestOptions,
+      params: service ? { service } : undefined,
+    })
   )
 }
 
@@ -103,35 +135,47 @@ export function listHeroSmsSmsServices() {
   )
 }
 
-export function getHeroSmsSmsOffer(input: {
-  country: number
-  service: string
-  operator?: string
-}) {
-  return unwrap<HeroSmsSmsOffer>(
-    api.get('/api/hero-sms/sms/offer', {
+export function listHeroSmsSmsOperators(country: number) {
+  return unwrap<string[]>(
+    api.get('/api/hero-sms/sms/operators', {
       ...requestOptions,
-      params: input,
+      params: { country },
     })
   )
 }
 
-export function createHeroSmsSmsOrder(offerId: string) {
+export function getHeroSmsSmsOffer(input: {
+  country: number
+  service: string
+  operator?: string
+  maxPriceUSD?: string
+}) {
+  return unwrap<HeroSmsSmsOffer>(
+    api.get('/api/hero-sms/sms/offer', {
+      ...requestOptions,
+      params: {
+        country: input.country,
+        service: input.service,
+        operator: input.operator,
+        max_price_usd: input.maxPriceUSD,
+      },
+    })
+  )
+}
+
+export function createHeroSmsSmsOrder(
+  offerId: string,
+  idempotencyKey = createHeroSmsIdempotencyKey()
+) {
   return unwrap<{ order: HeroSmsSmsOrder; quota: number }>(
     api.post(
       '/api/hero-sms/sms/orders',
       { offer_id: offerId },
       {
         ...requestOptions,
-        headers: { 'Idempotency-Key': createHeroSmsIdempotencyKey() },
+        headers: { 'Idempotency-Key': idempotencyKey },
       }
     )
-  )
-}
-
-export function getCurrentHeroSmsSmsOrder() {
-  return unwrap<{ order: HeroSmsSmsOrder | null }>(
-    api.get('/api/hero-sms/sms/orders/current', requestOptions)
   )
 }
 
@@ -139,6 +183,19 @@ export function refreshHeroSmsSmsOrder(orderId: string) {
   return unwrap<{ order: HeroSmsSmsOrder }>(
     api.get(
       `/api/hero-sms/sms/orders/${encodeURIComponent(orderId)}`,
+      requestOptions
+    )
+  )
+}
+
+export function submitHeroSmsSmsComplaint(
+  orderId: string,
+  reason: HeroSmsSmsComplaintReason
+) {
+  return unwrap<{ order: HeroSmsSmsOrder }>(
+    api.post(
+      `/api/hero-sms/sms/orders/${encodeURIComponent(orderId)}/complaints`,
+      { reason },
       requestOptions
     )
   )
@@ -154,11 +211,33 @@ export function cancelHeroSmsSmsOrder(orderId: string) {
   )
 }
 
+export async function listCurrentHeroSmsSmsOrders() {
+  const data = await unwrap<{ items: HeroSmsSmsOrder[] }>(
+    api.get('/api/hero-sms/sms/orders/current-list', requestOptions)
+  )
+  return data.items
+}
+
 export function listHeroSmsSmsOrders(page = 1, size = 20) {
   return unwrap<HeroSmsSmsOrderPage>(
     api.get('/api/hero-sms/sms/orders', {
       ...requestOptions,
-      params: { page, size },
+      params: { page, size, summary: true },
     })
+  )
+}
+
+export function hideHeroSmsSmsOrderFromHistory(orderId: string) {
+  return unwrap<{ hidden: boolean }>(
+    api.delete(
+      `/api/hero-sms/sms/history/${encodeURIComponent(orderId)}`,
+      requestOptions
+    )
+  )
+}
+
+export function clearHeroSmsSmsOrderHistory() {
+  return unwrap<{ hidden_count: number }>(
+    api.delete('/api/hero-sms/sms/history', requestOptions)
   )
 }

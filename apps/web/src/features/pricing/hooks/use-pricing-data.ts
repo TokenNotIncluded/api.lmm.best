@@ -22,24 +22,26 @@ import { useMemo } from 'react'
 import { useStatus } from '@/hooks/use-status'
 
 import { getPricing } from '../api'
+import { useModelRuntime } from './use-model-runtime'
 
-export function usePricingData() {
+export function usePricingData(options?: { enabled?: boolean }) {
   const { status } = useStatus()
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['pricing'],
-    queryFn: getPricing,
+    queryFn: ({ signal }) => getPricing(signal),
+    enabled: options?.enabled ?? true,
     staleTime: 5 * 60 * 1000,
   })
 
-  // Ensure rates never reach zero to prevent division errors
+  // Missing/invalid conversion rates must not fabricate a USD estimate.
   const priceRate = useMemo(
-    () => Math.max((status?.price as number) ?? 1, 0.001),
+    () => Number(status?.price ?? Number.NaN),
     [status?.price]
   )
   const usdExchangeRate = useMemo(
-    () => Math.max((status?.usd_exchange_rate as number) ?? priceRate, 0.001),
-    [status?.usd_exchange_rate, priceRate]
+    () => Number(status?.usd_exchange_rate ?? Number.NaN),
+    [status?.usd_exchange_rate]
   )
 
   const models = useMemo(() => {
@@ -62,8 +64,20 @@ export function usePricingData() {
     })
   }, [data])
 
+  const runtime = useModelRuntime(
+    models.map((model) => model.model_name),
+    options?.enabled ?? true
+  )
+  const liveModels = useMemo(
+    () =>
+      models.map((model) => ({
+        ...model,
+        runtime_state: runtime[model.model_name],
+      })),
+    [models, runtime]
+  )
   return {
-    models,
+    models: liveModels,
     vendors: data?.vendors ?? [],
     groupRatio: data?.group_ratio ?? {},
     usableGroup: data?.usable_group ?? {},

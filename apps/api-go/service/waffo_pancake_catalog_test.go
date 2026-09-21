@@ -37,10 +37,14 @@ func TestListWaffoPancakeCatalogUsesRootProductQuery(t *testing.T) {
 			require.NotContains(t, request.Query, "onetimeProducts")
 			_, err = w.Write([]byte(`{"data":{"stores":[{"id":"STO_AbCdEfGhIjKlMnOpQrStUv","name":"main","status":"active","prodEnabled":true}]}}`))
 			require.NoError(t, err)
-		case strings.Contains(request.Query, "onetimeProducts(filter: { storeId: { eq: $storeId }"):
+		case strings.Contains(request.Query, "onetimeProducts(storeId: $storeId, filter: { status: { eq: \"active\" } })"):
 			productQuerySeen = true
+			require.Contains(t, request.Query, "subscriptionProducts(storeId: $storeId")
+			require.Contains(t, request.Query, "prices {\n\t\t\t\t\t\tcurrency\n\t\t\t\t\t\tpriceInfo { amount taxCategory }")
+			require.Contains(t, request.Query, "billingPeriod")
+			require.NotContains(t, request.Query, "storeId: { eq:")
 			require.Equal(t, "STO_AbCdEfGhIjKlMnOpQrStUv", request.Variables["storeId"])
-			_, err = w.Write([]byte(`{"data":{"onetimeProducts":[{"id":"PROD_AbCdEfGhIjKlMnOpQrStUv","name":"wallet","status":"active"},{"id":"PROD_Inactive0000000000000000","name":"old","status":"inactive"}]}}`))
+			_, err = w.Write([]byte(`{"data":{"onetimeProducts":[{"id":"PROD_AbCdEfGhIjKlMnOpQrStUv","name":"wallet","status":"active","prices":[{"currency":"USD","priceInfo":{"amount":"1.00","taxCategory":"standard"}},{"currency":"CNY","priceInfo":{"amount":"7.20"}}]},{"id":"PROD_Inactive0000000000000000","name":"old","status":"inactive","prices":[]}],"subscriptionProducts":[{"id":"PROD_Subscription000000000001","name":"monthly","status":"active","billingPeriod":"monthly","prices":[]},{"id":"PROD_SubscriptionInactive000002","name":"legacy","status":"inactive","billingPeriod":"monthly","prices":[]}]}}`))
 			require.NoError(t, err)
 		default:
 			http.Error(w, "unexpected GraphQL query", http.StatusBadRequest)
@@ -63,4 +67,33 @@ func TestListWaffoPancakeCatalogUsesRootProductQuery(t *testing.T) {
 	require.Len(t, catalog.Stores, 1)
 	require.Len(t, catalog.Stores[0].OnetimeProducts, 1)
 	require.Equal(t, "PROD_AbCdEfGhIjKlMnOpQrStUv", catalog.Stores[0].OnetimeProducts[0].ID)
+	require.Len(t, catalog.Stores[0].SubscriptionProducts, 1)
+	require.Equal(t, "PROD_Subscription000000000001", catalog.Stores[0].SubscriptionProducts[0].ID)
+	require.Equal(t, "monthly", catalog.Stores[0].SubscriptionProducts[0].BillingPeriod)
+	require.True(t, WaffoPancakeCatalogHasActiveSubscriptionProduct(
+		catalog,
+		"STO_AbCdEfGhIjKlMnOpQrStUv",
+		"PROD_Subscription000000000001",
+	))
+	require.False(t, WaffoPancakeCatalogHasActiveSubscriptionProduct(
+		catalog,
+		"STO_AbCdEfGhIjKlMnOpQrStUv",
+		"PROD_AbCdEfGhIjKlMnOpQrStUv", // one-time product
+	))
+	require.True(t, WaffoPancakeCatalogHasActiveOneTimeProduct(
+		catalog,
+		"STO_AbCdEfGhIjKlMnOpQrStUv",
+		"PROD_AbCdEfGhIjKlMnOpQrStUv",
+	))
+	require.True(t, WaffoPancakeCatalogHasActiveOneTimeProductForCurrency(
+		catalog, "STO_AbCdEfGhIjKlMnOpQrStUv", "PROD_AbCdEfGhIjKlMnOpQrStUv", "cny",
+	))
+	require.False(t, WaffoPancakeCatalogHasActiveOneTimeProductForCurrency(
+		catalog, "STO_AbCdEfGhIjKlMnOpQrStUv", "PROD_AbCdEfGhIjKlMnOpQrStUv", "EUR",
+	))
+	require.False(t, WaffoPancakeCatalogHasActiveOneTimeProduct(
+		catalog,
+		"STO_AbCdEfGhIjKlMnOpQrStUv",
+		"PROD_Subscription000000000001",
+	))
 }

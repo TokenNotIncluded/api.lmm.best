@@ -2,10 +2,21 @@ package middleware
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/gin-gonic/gin"
 )
+
+func loggedRequestPath(param gin.LogFormatterParams) string {
+	if param.Request != nil && param.Request.URL != nil &&
+		(strings.HasPrefix(param.Request.URL.Path, "/api/oauth2/") ||
+			strings.HasPrefix(param.Request.URL.Path, "/api/user/auth/oauth2/") ||
+			strings.HasPrefix(param.Request.URL.Path, "/oauth/")) {
+		return param.Request.URL.Path
+	}
+	return param.Path
+}
 
 const RouteTagKey = "route_tag"
 
@@ -34,7 +45,7 @@ func SetUpLogger(server *gin.Engine) {
 			param.Latency,
 			param.ClientIP,
 			param.Method,
-			param.Path,
+			loggedRequestPath(param),
 		)
 	}))
 }

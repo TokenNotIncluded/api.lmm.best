@@ -20,6 +20,9 @@ SUCCESS_BODY = (
     b'{"data":[{"embedding":[0.25],"index":0}],"model":"gpt-test",'
     b'"usage":{"prompt_tokens":1,"total_tokens":1}}'
 )
+SUCCESS_BODY_WITHOUT_USAGE = (
+    b'{"data":[{"embedding":[0.25],"index":0}],"model":"gpt-test"}'
+)
 ERROR_BODIES = {
     "fail": b'{"error":"fixture-rate-limit"}',
     "fail-message": b'{"message":"fixture-message"}',
@@ -27,7 +30,7 @@ ERROR_BODIES = {
         b'{"error":{"message":"fixture-openai","type":"server_error",'
         b'"param":"capacity","code":"busy"}}'
     ),
-    "fail-invalid-json": b'not-json',
+    "fail-invalid-json": b"not-json",
 }
 
 
@@ -39,7 +42,7 @@ class Fixture(http.server.BaseHTTPRequestHandler):
     # error before either relay can compare it.
     protocol_version = "HTTP/1.1"
 
-    def log_message(self, *_args: object) -> None:
+    def log_message(self, format: str, *args: object) -> None:
         return
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib callback name
@@ -61,10 +64,9 @@ class Fixture(http.server.BaseHTTPRequestHandler):
             "content_type": self.headers.get("content-type", ""),
             "path": self.path,
         }
-        with WRITE_LOCK:
-            with HITS_FILE.open("a", encoding="utf-8") as output:
-                output.write(json.dumps(record, sort_keys=True, separators=(",", ":")))
-                output.write("\n")
+        with WRITE_LOCK, HITS_FILE.open("a", encoding="utf-8") as output:
+            output.write(json.dumps(record, sort_keys=True, separators=(",", ":")))
+            output.write("\n")
 
         if not record["authorization_valid"]:
             self.send_response(400)
@@ -75,7 +77,10 @@ class Fixture(http.server.BaseHTTPRequestHandler):
 
         input_value = record["body"].get("input")
         failing = input_value in ERROR_BODIES
-        response_body = ERROR_BODIES.get(input_value, SUCCESS_BODY)
+        if input_value == "missing-usage":
+            response_body = SUCCESS_BODY_WITHOUT_USAGE
+        else:
+            response_body = ERROR_BODIES.get(input_value, SUCCESS_BODY)
         self.send_response(429 if failing else 200)
         self.send_header("content-type", "application/json")
         self.send_header("x-request-id", "provider-generic-request-id")

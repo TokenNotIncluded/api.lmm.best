@@ -222,6 +222,7 @@ GET	/api/user/:id/oauth/bindings	github.com/QuantumNous/new-api/controller.GetUs
 DELETE	/api/user/:id/oauth/bindings/:provider_id	github.com/QuantumNous/new-api/controller.UnbindCustomOAuthByAdmin
 DELETE	/api/user/:id/reset_passkey	github.com/QuantumNous/new-api/controller.AdminResetPasskey
 GET	/api/user/aff	github.com/QuantumNous/new-api/controller.GetAffCode
+POST	/api/user/aff/invite	github.com/LIghtJUNction/api.lmm.best/controller.SendAffiliateInvitation
 POST	/api/user/aff_transfer	github.com/QuantumNous/new-api/controller.TransferAffQuota
 POST	/api/user/amount	github.com/QuantumNous/new-api/controller.RequestAmount
 POST	/api/user/auth/logout	github.com/QuantumNous/new-api/controller.AuthLogout

@@ -115,6 +115,9 @@ export interface ToolSurchargeItem {
 }
 
 export interface LogOtherData {
+  status_code?: number
+  error_code?: string
+  error_type?: string
   admin_info?: {
     is_multi_key?: boolean
     multi_key_index?: number
@@ -180,9 +183,8 @@ export interface LogOtherData {
   model_price?: number
   group_ratio?: number
   user_group_ratio?: number
-  // The live profit multiplier is recorded separately from the static
-  // pricing-group cost multiplier. It is absent when dynamic pricing was
-  // disabled for the request.
+  // Historical adjustment retained for existing request records only.
+  // This is not a currently configurable pricing engine.
   dynamic_pricing?: number
   cache_ratio?: number
   cache_creation_ratio?: number

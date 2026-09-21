@@ -18,25 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
-import {
-  type LucideIcon,
-  ArrowRight,
-  BadgePercent,
-  BookOpen,
-  Braces,
-  Check,
-  ChevronRight,
-  CircleHelp,
-  Code2,
-  Copy,
-  Gauge,
-  Globe2,
-  Image,
-  MessageCircle,
-  ShieldCheck,
-  Sparkles,
-  Workflow,
-} from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -50,531 +32,374 @@ import {
 import { getAssistantPreConversationPresets } from '@/features/assistant/api'
 import { requestAssistantSend } from '@/features/assistant/assistant-events'
 import { redactAssistantMessageForRequest } from '@/features/assistant/assistant-message-safety'
+import {
+  ASSISTANT_PROMPT_PRESET_COPY_VERSION,
+  localizeAssistantPreConversationPresets,
+} from '@/features/assistant/assistant-prompt-presets'
 import { getAssistantPromptValidation } from '@/features/assistant/assistant-prompt-validation'
+import { codeForTab, type CodeTab } from '@/features/home/home-code-examples'
+import { CodePreview } from '@/features/home/home-code-preview'
+import { HomeLanding } from '@/features/home/home-landing'
+import { mountHomeMotion } from '@/features/home/home-motion'
+import type { ConnectionMethod } from '@/features/onboarding/next-step'
+import { useAccountNextStep } from '@/features/onboarding/use-account-next-step'
+import { PublicScriptsPanel } from '@/features/scripts/scripts-panel'
 import { useStatus } from '@/hooks/use-status'
+import { useTopNavLinks } from '@/hooks/use-top-nav-links'
 import { isConsoleActivated } from '@/lib/console-activation'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { ForgePublicShell } from './forge-public-shell'
+import { PurchaseJourney } from './purchase-journey'
 import { useTypewriterPlaceholder } from './use-typewriter-placeholder'
 
 import './forge-home.css'
 
-const FEATURE_CARDS: Array<{
-  icon: LucideIcon
-  title: string
-  description: string
-  tone: string
-}> = [
+const HOME_SETUP_PROMPTS = [
   {
-    icon: BookOpen,
-    title: 'Setup guide',
-    description: 'The built-in assistant configures keys, models, and budgets.',
-    tone: 'text-primary',
+    label: 'Help me choose an app',
+    prompt:
+      'I am new here. Help me choose an AI app. Ask about my device and what I want to do, then give me its official download link and installation steps.',
   },
   {
-    icon: BadgePercent,
-    title: 'Clear pricing',
-    description: 'Per-token billing with visible rates before you commit.',
-    tone: 'text-chart-2',
+    label: 'Connect my API key',
+    prompt:
+      'Help me connect an AI app to LMM step by step. Ask which app and device I use, explain the API address and model settings, and show me where to safely import my API key. Do not ask me to paste my key into chat.',
   },
   {
-    icon: Sparkles,
-    title: 'Model Square',
-    description:
-      'Discover curated AI models, compare pricing and capabilities, and choose the right model for every scenario.',
-    tone: 'text-chart-3',
+    label: 'Fix a connection issue',
+    prompt:
+      'My AI app cannot connect. Ask which app I use and what error I see, then walk me through one check at a time. Remind me to hide API keys and personal details in screenshots.',
   },
-  {
-    icon: Gauge,
-    title: 'Uptime',
-    description: 'Health-checked upstreams with latency you can inspect.',
-    tone: 'text-success',
-  },
-  {
-    icon: Globe2,
-    title: 'One endpoint',
-    description:
-      'Chat, reasoning, vision, and audio models behind one endpoint.',
-    tone: 'text-info',
-  },
-  {
-    icon: ShieldCheck,
-    title: 'Support',
-    description: 'Support and access requests stay auditable and fair.',
-    tone: 'text-chart-4',
-  },
-]
-
-const USE_CASES: Array<{
-  icon: LucideIcon
-  title: string
-  description: string
-}> = [
-  {
-    icon: MessageCircle,
-    title: 'Chat',
-    description:
-      'A guided assistant for setup, account, billing, and model questions.',
-  },
-  {
-    icon: Code2,
-    title: 'Client setup guide',
-    description:
-      'Use one Base URL, model ID, and API key across your compatible tools.',
-  },
-  {
-    icon: Braces,
-    title: 'API Endpoints',
-    description:
-      'OpenAI-compatible access for applications, scripts, and agents.',
-  },
-  {
-    icon: Image,
-    title: 'Model Square',
-    description:
-      'Compare providers, capabilities, and transparent token pricing before you choose.',
-  },
-  {
-    icon: Workflow,
-    title: 'Open-source challenges',
-    description:
-      'Connect public work, review evidence, and a practical AI gateway in one place.',
-  },
-]
-
-const CODE_TABS = ['Chat', 'API', 'Claude', 'Gemini'] as const
-type CodeTab = (typeof CODE_TABS)[number]
-
-const HOME_MODEL_NAMES = [
-  'deepseek-v4-pro-0813',
-  'gemini-3.7-flash',
-  'gemini-3.7-flash-search',
-  'grok-4.6',
 ] as const
-const HOME_MODEL_ROTATION_MS = 3500
+const PI_INSTALL_COMMAND =
+  'pi install git:github.com/TokenNotIncluded/pi-lmm-provider'
 
-function codeForTab(tab: CodeTab) {
-  if (tab === 'Claude') {
-    return `curl https://api.lmm.best/v1/messages \\
-  -H "x-api-key: sk-••••" \\
-  -H "anthropic-version: 2023-06-01" \\
-  -d '{"model":"model-name","max_tokens":256}'`
-  }
-  if (tab === 'Gemini') {
-    return `curl https://api.lmm.best/v1beta/models \\
-  -H "Authorization: Bearer sk-••••" \\
-  -d '{"model":"model-name","contents":[]}'`
-  }
-  if (tab === 'API') {
-    return `const client = new OpenAI({
-  baseURL: "https://api.lmm.best/v1",
-  apiKey: process.env.LMM_API_KEY,
-})
-
-const response = await client.chat.completions.create({
-  model: "model-name",
-  messages: [{ role: "user", content: "your prompt" }],
-})`
-  }
-  return `curl -X POST "https://api.lmm.best/v1/chat/completions" \\
-  -H "Authorization: Bearer sk-••••" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "model": "model-name",
-    "messages": [{ "role": "user", "content": "your prompt" }]
-  }'`
-}
-
-function HomeSectionHeading(props: {
-  eyebrow: string
-  title: string
-  description: string
-}) {
-  return (
-    <div className='forge-home-section-heading'>
-      <span className='forge-home-pill'>
-        {props.eyebrow}
-        <span className='bg-primary size-1.5 rounded-full' aria-hidden='true' />
-      </span>
-      <h2>{props.title}</h2>
-      <p>{props.description}</p>
-    </div>
-  )
-}
-
-function CodePreview(props: {
-  tab: CodeTab
-  onTabChange: (tab: CodeTab) => void
-}) {
-  const { t } = useTranslation()
-  const code = codeForTab(props.tab)
+function useCopyFeedback() {
   const [copied, setCopied] = useState(false)
-
-  const copyCode = async () => {
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const mounted = useRef(false)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+      clearTimeout(timer.current)
+    }
+  }, [])
+  const copy = async (value: string) => {
+    clearTimeout(timer.current)
     try {
-      await navigator.clipboard.writeText(code)
+      await navigator.clipboard.writeText(value)
+      if (!mounted.current) return
       setCopied(true)
-      window.setTimeout(() => setCopied(false), 1400)
+      timer.current = setTimeout(() => setCopied(false), 1400)
     } catch {
-      setCopied(false)
+      if (mounted.current) setCopied(false)
     }
   }
-
-  return (
-    <div className='forge-home-code-card'>
-      <div className='forge-home-window-bar'>
-        <span />
-        <span />
-        <span />
-      </div>
-      <div className='forge-home-code-tabs' role='tablist'>
-        {CODE_TABS.map((tab) => (
-          <button
-            key={tab}
-            type='button'
-            role='tab'
-            aria-selected={props.tab === tab}
-            className={props.tab === tab ? 'is-active' : undefined}
-            onClick={() => props.onTabChange(tab)}
-          >
-            {t(tab)}
-          </button>
-        ))}
-      </div>
-      <div className='forge-home-code-label'>
-        <span>{t('Request')}</span>
-        <Button
-          variant='ghost'
-          size='icon-sm'
-          className='text-muted-foreground hover:text-foreground size-7'
-          onClick={() => void copyCode()}
-          aria-label={t('Copy')}
-        >
-          {copied ? <Check /> : <Copy />}
-        </Button>
-      </div>
-      <pre className='forge-home-code-block'>
-        <code>{code}</code>
-      </pre>
-      <div className='forge-home-code-label forge-home-code-response'>
-        <span>{t('Response')}</span>
-        <span className='forge-home-code-status'>200 OK</span>
-      </div>
-      <pre className='forge-home-code-block forge-home-response-block'>
-        <code>{`{
-  "choices": [{
-    "message": { "role": "assistant", "content": "completion text..." }
-  }],
-  "usage": { "total_tokens": 15 }
-}`}</code>
-      </pre>
-    </div>
-  )
+  return { copied, copy }
 }
 
 export function ForgeHome() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const navigate = useNavigate()
+  const [connectionMethod, setConnectionMethod] =
+    useState<ConnectionMethod>('oauth')
+  const { nextStep } = useAccountNextStep(connectionMethod)
   const user = useAuthStore((state) => state.auth.user)
   const { status } = useStatus()
+  const securityLink = useTopNavLinks().find(
+    (link) => link.href === '/security'
+  )
+  const rootRef = useRef<HTMLElement>(null)
   const [message, setMessage] = useState('')
   const [messageFocused, setMessageFocused] = useState(false)
   const [codeTab, setCodeTab] = useState<CodeTab>('Chat')
-  const [modelIndex, setModelIndex] = useState(0)
-  const modelMeasureRef = useRef<HTMLSpanElement>(null)
-  const [modelWidth, setModelWidth] = useState<number>()
+  const [activeExplore, setActiveExplore] = useState('market')
+  const piCopy = useCopyFeedback()
+  const codeCopy = useCopyFeedback()
   const assistantEnabled = status?.assistant?.enabled !== false
-  const activeModelName = HOME_MODEL_NAMES[modelIndex]
-
-  useEffect(() => {
-    const measureModel = () => {
-      const width = modelMeasureRef.current?.getBoundingClientRect().width
-      if (width && Number.isFinite(width)) {
-        setModelWidth(Math.ceil(width))
-      }
-    }
-
-    measureModel()
-    if (typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(measureModel)
-    if (modelMeasureRef.current) observer.observe(modelMeasureRef.current)
-    return () => observer.disconnect()
-  }, [activeModelName])
-
-  useEffect(() => {
-    const intervalId = window.setInterval(() => {
-      setModelIndex((current) => (current + 1) % HOME_MODEL_NAMES.length)
-    }, HOME_MODEL_ROTATION_MS)
-    return () => window.clearInterval(intervalId)
-  }, [])
   const messageInvalid = getAssistantPromptValidation(message).invalid
+  const presetLanguage = i18n.resolvedLanguage || i18n.language || 'en'
   const preConversationPresetsQuery = useQuery({
-    queryKey: ['assistant-pre-conversation-presets'],
-    queryFn: getAssistantPreConversationPresets,
+    queryKey: [
+      'assistant-pre-conversation-presets',
+      presetLanguage,
+      ASSISTANT_PROMPT_PRESET_COPY_VERSION,
+    ],
+    queryFn: () => getAssistantPreConversationPresets(presetLanguage),
+    placeholderData: (previous) => previous,
     enabled: assistantEnabled,
     staleTime: 5 * 60_000,
     retry: false,
   })
   const animatedPlaceholder = useTypewriterPlaceholder(
-    preConversationPresetsQuery.data?.presets.map((preset) => preset.prompt) ??
-      [],
-    message.length === 0 && !messageFocused
+    localizeAssistantPreConversationPresets(
+      preConversationPresetsQuery.data?.presets,
+      t
+    ).map((preset) => preset.prompt),
+    assistantEnabled && message.length === 0 && !messageFocused
   )
+  useEffect(() => {
+    if (rootRef.current) return mountHomeMotion(rootRef.current)
+  }, [presetLanguage, connectionMethod])
 
-  const submitMessage = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const safeMessage = redactAssistantMessageForRequest(message).content.trim()
-    if (!safeMessage || messageInvalid || !assistantEnabled) return
-
-    if (!user) {
-      requestAssistantSend(undefined, safeMessage)
-      void navigate({
-        to: '/sign-in',
-        search: { redirect: '/dashboard' },
-      })
+  const startAssistant = (prompt: string) => {
+    const safeMessage = redactAssistantMessageForRequest(prompt).content.trim()
+    if (
+      !safeMessage ||
+      getAssistantPromptValidation(prompt).invalid ||
+      !assistantEnabled
+    ) {
       return
     }
-
+    if (!user) {
+      requestAssistantSend(undefined, safeMessage)
+      void navigate({ to: '/sign-in', search: { redirect: '/dashboard' } })
+      return
+    }
     const activated = isConsoleActivated(user)
     requestAssistantSend(activated ? 'service' : 'onboarding', safeMessage)
     void navigate({ to: activated ? '/dashboard' : '/getting-started' })
   }
+  const submitMessage = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    startAssistant(message)
+  }
 
   return (
     <ForgePublicShell>
-      <main className='forge-home-page'>
-        <div className='forge-home-aurora' aria-hidden='true'>
-          <div className='forge-home-aurora-layer' />
-        </div>
-
-        <section className='forge-home-hero' aria-labelledby='forge-home-title'>
-          <div className='forge-home-grid' aria-hidden='true' />
-          <div
-            className='forge-home-orb forge-home-orb-left'
-            aria-hidden='true'
-          />
-          <div
-            className='forge-home-orb forge-home-orb-right'
-            aria-hidden='true'
-          />
-          <div className='forge-home-hero-content'>
-            <div className='forge-home-model-badge'>
-              <span className='forge-home-badge-label'>
-                <Sparkles className='size-3' />
-                {t('New')}
-              </span>
-              <span
-                className='forge-home-model-viewport'
-                aria-live='polite'
-                style={modelWidth ? { width: `${modelWidth}px` } : undefined}
-              >
-                <span
-                  ref={modelMeasureRef}
-                  aria-hidden='true'
-                  className='invisible absolute whitespace-nowrap'
-                >
-                  {activeModelName}
-                </span>
-                <span
-                  key={activeModelName}
-                  className='forge-home-model-current'
-                >
-                  <Link to='/pricing'>{activeModelName}</Link>
-                </span>
-              </span>
-              <ChevronRight className='text-muted-foreground size-4' />
-            </div>
-            <h1 id='forge-home-title'>
-              <span>{t('Just one endpoint')}</span>
-              <span>{t('Connect the world’s most popular models')}</span>
-            </h1>
-            <p className='forge-home-hero-description'>
-              {t(
-                'A semi-public-interest AI gateway for high-quality, transparent access.'
-              )}
-            </p>
-            <p className='forge-home-hero-summary'>
-              {t(
-                'Pay as you go, no time limits, fast chat, transparent details, no hidden fees, and online recharge for access to every model.'
-              )}
-            </p>
-            <div className='forge-home-hero-actions'>
-              <Button
-                size='lg'
-                className='group h-14 rounded-full px-8 text-base'
-                render={
-                  <Link
-                    to={user ? '/dashboard' : '/sign-in'}
-                    search={user ? undefined : { redirect: '/dashboard' }}
-                  />
+      <HomeLanding
+        rootRef={rootRef}
+        connectionMethod={connectionMethod}
+        onConnectionMethodChange={setConnectionMethod}
+        t={t}
+        primaryAction={
+          <Button
+            size='lg'
+            render={
+              <Link
+                to={nextStep.to}
+                search={
+                  nextStep.to === '/sign-in'
+                    ? { redirect: '/getting-started' }
+                    : undefined
                 }
-              >
-                {t('Get started')}
-                <ArrowRight className='ml-2 size-4 transition-transform group-hover:translate-x-1' />
-              </Button>
+              />
+            }
+          >
+            {t(nextStep.label)}
+            <ArrowRight data-icon='inline-end' />
+          </Button>
+        }
+        pricingAction={
+          <Link to='/pricing' className='lmm-text-link'>
+            {isConsoleActivated(user)
+              ? t('View model pricing')
+              : t('Pricing and access')}
+            <ArrowRight aria-hidden='true' />
+          </Link>
+        }
+        code={
+          <CodePreview
+            t={t}
+            tab={codeTab}
+            copied={codeCopy.copied}
+            onTabChange={setCodeTab}
+            onCopy={() => void codeCopy.copy(codeForTab(codeTab))}
+          />
+        }
+        assistant={
+          <form onSubmit={submitMessage}>
+            <label
+              className='forge-home-assistant-label'
+              htmlFor='forge-home-message'
+            >
+              {t('Describe what you need...')}
+            </label>
+            <InputGroup className='forge-home-input'>
+              <InputGroupInput
+                id='forge-home-message'
+                value={message}
+                onChange={(event) => setMessage(event.target.value)}
+                onFocus={() => setMessageFocused(true)}
+                onBlur={() => setMessageFocused(false)}
+                className='min-w-0'
+                placeholder={
+                  animatedPlaceholder || t('Describe what you need...')
+                }
+                maxLength={4000}
+              />
+              <InputGroupAddon align='inline-end'>
+                <InputGroupButton
+                  type='submit'
+                  variant='default'
+                  size='sm'
+                  className='h-11 rounded-full px-4'
+                  aria-label={t('Ask AI assistant')}
+                  disabled={
+                    !message.trim() || messageInvalid || !assistantEnabled
+                  }
+                >
+                  <ArrowRight
+                    className='forge-home-submit-icon size-4'
+                    aria-hidden='true'
+                  />
+                </InputGroupButton>
+              </InputGroupAddon>
+            </InputGroup>
+            {assistantEnabled && (
+              <div className='forge-home-assistant-prompts'>
+                {HOME_SETUP_PROMPTS.map((preset) => (
+                  <button
+                    key={preset.label}
+                    type='button'
+                    onClick={() => startAssistant(t(preset.prompt))}
+                  >
+                    {t(preset.label)}
+                    <ArrowRight className='size-3.5' aria-hidden='true' />
+                  </button>
+                ))}
+              </div>
+            )}
+          </form>
+        }
+        pi={
+          <>
+            <p className='lmm-pi-description'>
+              {t(
+                'Install the LMM Pi plugin, sign in with OAuth, and choose a model in Pi. Access uses your account and normal model pricing.'
+              )}
+            </p>
+            <div className='lmm-pi-command'>
+              <code>{PI_INSTALL_COMMAND}</code>
               <Button
+                type='button'
                 variant='outline'
-                size='lg'
-                className='border-border/80 bg-card/50 h-14 rounded-full px-8 text-base'
-                render={<Link to='/guide' />}
+                size='sm'
+                onClick={() => void piCopy.copy(PI_INSTALL_COMMAND)}
+                aria-label={t('Copy Pi install command')}
               >
-                {t('Read the guide')}
+                <span aria-live='polite'>
+                  {piCopy.copied ? t('Copied') : t('Copy')}
+                </span>
               </Button>
             </div>
-            <form
-              className='forge-home-hero-assistant'
-              onSubmit={submitMessage}
-            >
-              <label className='sr-only' htmlFor='forge-home-message'>
-                {t('Tell us what you want to do')}
-              </label>
-              <InputGroup className='border-border/60 bg-card/60 h-12 rounded-full px-1 backdrop-blur-xl'>
-                <InputGroupInput
-                  id='forge-home-message'
-                  value={message}
-                  onChange={(event) => setMessage(event.target.value)}
-                  onFocus={() => setMessageFocused(true)}
-                  onBlur={() => setMessageFocused(false)}
-                  className='focus-visible:!outline-none'
-                  placeholder={
-                    animatedPlaceholder || t('Describe what you need...')
-                  }
-                  maxLength={4000}
-                />
-                <InputGroupAddon align='inline-end'>
-                  <InputGroupButton
-                    type='submit'
-                    variant='default'
-                    size='sm'
-                    className='h-10 rounded-full px-4'
-                    disabled={
-                      !message.trim() || messageInvalid || !assistantEnabled
-                    }
-                  >
-                    {t('Ask AI assistant')}
-                  </InputGroupButton>
-                </InputGroupAddon>
-              </InputGroup>
-            </form>
-          </div>
-        </section>
-
-        <section
-          className='forge-home-section'
-          aria-labelledby='forge-home-features-title'
-        >
-          <HomeSectionHeading
-            eyebrow={t('Usage at a glance')}
-            title={t('A gateway that stays out of your way')}
-            description={t(
-              'Use one clear API for your work, connect a client, or explore public open-source challenges.'
-            )}
-          />
-          <div
-            id='forge-home-features-title'
-            className='forge-home-feature-grid'
-          >
-            {FEATURE_CARDS.map((feature) => {
-              const Icon = feature.icon
-              return (
-                <article
-                  key={feature.title}
-                  className='forge-home-feature-card'
-                >
-                  <div className={`forge-home-feature-icon ${feature.tone}`}>
-                    <Icon />
-                  </div>
-                  <div>
-                    <h3>{t(feature.title)}</h3>
-                    <p>{t(feature.description)}</p>
-                  </div>
-                </article>
-              )
-            })}
-          </div>
-        </section>
-
-        <section
-          className='forge-home-section forge-home-quickstart'
-          aria-labelledby='forge-home-quickstart-title'
-        >
-          <HomeSectionHeading
-            eyebrow={t('Get started')}
-            title={t('A guide that ships answers')}
-            description={t(
-              'Use our unified OpenAI-compatible endpoint in your applications'
-            )}
-          />
-          <div className='forge-home-quickstart-grid'>
-            <div className='forge-home-steps'>
+            <a href='/guide#client-setup' className='lmm-text-link'>
+              {t('Read the Pi OAuth setup steps')}
+              <ArrowRight aria-hidden='true' />
+            </a>
+            <p className='lmm-webmcp-note'>
+              <strong>{t('WebMCP tools for compatible browsers')}</strong>{' '}
+              {t(
+                'Browser agents can read site information, model prices, and account status or open pages; the normal UI remains available when WebMCP is unsupported.'
+              )}
+            </p>
+          </>
+        }
+        explore={
+          <div className='lmm-explore-console'>
+            <nav className='lmm-destinations' aria-label={t('Explore LMM')}>
               {[
                 [
-                  '1',
-                  'Create an API key',
-                  'Generate and manage your API access token',
+                  'market',
+                  '/tool-market',
+                  'Tool market',
+                  'Browse, publish, authorize and run tools.',
                 ],
                 [
-                  '2',
-                  'API token management',
-                  'Set API key access restrictions',
+                  'pricing',
+                  '/pricing',
+                  'Models and pricing',
+                  'Compare model capabilities and account pricing.',
                 ],
-                ['3', 'Connect your client', 'Client setup guide'],
-              ].map(([number, title, description]) => (
-                <div key={number} className='forge-home-step'>
-                  <span className='forge-home-step-number'>{number}</span>
-                  <div>
-                    <h3>{t(title)}</h3>
-                    <p>{t(description)}</p>
-                  </div>
-                  <ChevronRight className='forge-home-step-arrow' />
-                </div>
+                [
+                  'challenges',
+                  '/challenges',
+                  'Open-source bounties',
+                  'Find focused work with funded reward slots.',
+                ],
+                [
+                  'scripts',
+                  '/scripts',
+                  'Public scripts',
+                  'Use the reviewed installation and setup scripts.',
+                ],
+                ...(securityLink
+                  ? [
+                      [
+                        'security',
+                        securityLink.requiresAuth ? '/sign-in' : '/security',
+                        'Security',
+                        'Review account and platform security controls.',
+                      ],
+                    ]
+                  : []),
+              ].map(([id, href, label]) => (
+                <a
+                  key={id}
+                  href={
+                    id === 'security' && securityLink?.requiresAuth
+                      ? '/sign-in?redirect=%2Fsecurity'
+                      : href
+                  }
+                  aria-current={activeExplore === id ? 'page' : undefined}
+                  onMouseEnter={() => setActiveExplore(id)}
+                  onFocus={() => setActiveExplore(id)}
+                  onClick={() => setActiveExplore(id)}
+                >
+                  <span>
+                    <small>{t('Explore')}</small>
+                    <strong>{t(label)}</strong>
+                  </span>
+                  <ArrowRight aria-hidden='true' />
+                </a>
               ))}
-              <div className='forge-home-quick-links'>
-                <Link to='/guide' className='forge-home-quick-link'>
-                  <Code2 />
-                  <span>{t('Read setup guide')}</span>
-                  <ArrowRight />
-                </Link>
-                <Link to='/pricing' className='forge-home-quick-link'>
-                  <CircleHelp />
-                  <span>{t('View model pricing')}</span>
-                  <ArrowRight />
-                </Link>
-              </div>
+            </nav>
+            <div className='lmm-explore-preview' aria-live='polite'>
+              {(() => {
+                const descriptions: Record<string, string> = {
+                  market: 'Browse, publish, authorize and run tools.',
+                  pricing: 'Compare model capabilities and account pricing.',
+                  challenges: 'Find focused work with funded reward slots.',
+                  scripts: 'Use the reviewed installation and setup scripts.',
+                  security: 'Review account and platform security controls.',
+                }
+                const labels: Record<string, string> = {
+                  market: 'Tool market',
+                  pricing: 'Models and pricing',
+                  challenges: 'Open-source bounties',
+                  scripts: 'Public scripts',
+                  security: 'Security',
+                }
+                return (
+                  <>
+                    <span className='lmm-explore-preview-index'>
+                      0
+                      {Math.max(
+                        1,
+                        [
+                          'market',
+                          'pricing',
+                          'challenges',
+                          'scripts',
+                          'security',
+                        ].indexOf(activeExplore) + 1
+                      )}
+                    </span>
+                    <strong>{t(labels[activeExplore] ?? labels.market)}</strong>
+                    <p>
+                      {t(descriptions[activeExplore] ?? descriptions.market)}
+                    </p>
+                  </>
+                )
+              })()}
             </div>
-            <CodePreview tab={codeTab} onTabChange={setCodeTab} />
           </div>
-        </section>
-
-        <section
-          className='forge-home-section'
-          aria-labelledby='forge-home-use-cases-title'
-        >
-          <HomeSectionHeading
-            eyebrow={t('Model Square')}
-            title={t('One platform, many uses')}
-            description={t(
-              'Discover curated AI models, compare pricing and capabilities, and choose the right model for every scenario.'
-            )}
-          />
-          <div
-            id='forge-home-use-cases-title'
-            className='forge-home-use-case-grid'
-          >
-            {USE_CASES.map((item) => {
-              const Icon = item.icon
-              return (
-                <article key={item.title} className='forge-home-use-case'>
-                  <Icon className='text-primary size-5' />
-                  <h3>{t(item.title)}</h3>
-                  <p>{t(item.description)}</p>
-                </article>
-              )
-            })}
-          </div>
-        </section>
-      </main>
+        }
+        scripts={<PublicScriptsPanel />}
+        purchase={<PurchaseJourney />}
+      />
     </ForgePublicShell>
   )
 }

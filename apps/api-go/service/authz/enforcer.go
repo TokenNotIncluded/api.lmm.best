@@ -1,6 +1,7 @@
 package authz
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"sync"
@@ -125,6 +126,11 @@ func verifyBuiltInAuthorizationData(db *gorm.DB) error {
 			return fmt.Errorf("built-in authorization policy for %q has an invalid shape", policy.V0)
 		}
 		if _, ok := expectedPolicies[key]; !ok {
+			if isFutureBuiltInReadWritePolicy(policy) {
+				// A newer binary may have added a different resource. This
+				// runtime cannot authorize it; retain the row for forward use.
+				continue
+			}
 			return fmt.Errorf("unexpected built-in authorization policy %q/%q/%q/%q", key.subject, key.resource, key.action, key.effect)
 		}
 		actualPolicies[key] = struct{}{}
@@ -164,13 +170,23 @@ func ReloadPolicy() error {
 // multi-node deployment would keep serving stale permissions (including not
 // honoring a revoked grant) until restart. Mirrors model.SyncOptions polling.
 func StartPolicySync(frequency int) {
+	StartPolicySyncContext(context.Background(), frequency)
+}
+
+func StartPolicySyncContext(ctx context.Context, frequency int) {
 	if frequency <= 0 {
 		return
 	}
+	ticker := time.NewTicker(time.Duration(frequency) * time.Second)
+	defer ticker.Stop()
 	for {
-		time.Sleep(time.Duration(frequency) * time.Second)
-		if err := ReloadPolicy(); err != nil {
-			common.SysError("failed to reload authz policy: " + err.Error())
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := ReloadPolicy(); err != nil {
+				common.SysError("failed to reload authz policy: " + err.Error())
+			}
 		}
 	}
 }

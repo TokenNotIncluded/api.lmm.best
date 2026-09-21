@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -95,6 +97,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	if relayFormat == types.RelayFormatOpenAIRealtime {
 		var err error
+		// pi-lens-ignore: opengrep:go.gorilla.security.audit.websocket-missing-origin-check.websocket-missing-origin-check
 		ws, err = upgrader.Upgrade(c.Writer, c.Request, nil)
 		if err != nil {
 			helper.WssError(c, ws, types.NewError(err, types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry()).ToOpenAIError())
@@ -244,15 +247,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			break
 		}
 		addUsedChannel(c, channel.Id)
-		if pricingErr := service.PrepareDynamicPricingForSelectedChannel(relayInfo, channel.Id); pricingErr != nil {
-			newAPIError = types.NewErrorWithStatusCode(
-				pricingErr,
-				types.ErrorCodeModelPriceError,
-				http.StatusServiceUnavailable,
-				types.ErrOptionWithSkipRetry(),
-			)
-			break
-		}
+
 		if billingErr := service.PrepareTieredBillingForSelectedGroup(c, relayInfo); billingErr != nil {
 			newAPIError = billingErr
 			break
@@ -322,9 +317,56 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 var upgrader = websocket.Upgrader{
 	Subprotocols: []string{"realtime", "responses"}, // WS 握手支持的协议，如果有使用 Sec-WebSocket-Protocol，则必须在此声明对应的 Protocol
-	CheckOrigin: func(r *http.Request) bool {
-		return true // 允许跨域
-	},
+	CheckOrigin:  checkWebSocketOrigin,
+}
+
+func checkWebSocketOrigin(request *http.Request) bool {
+	origins := request.Header.Values("Origin")
+	if len(origins) == 0 {
+		// API clients are not browsers and normally omit Origin.
+		return true
+	}
+	if len(origins) != 1 {
+		return false
+	}
+	origin, err := common.NormalizeOrigin(origins[0])
+	if err != nil {
+		return false
+	}
+
+	scheme := "http"
+	if request.TLS != nil {
+		scheme = "https"
+	}
+	if forwardedScheme := strings.TrimSpace(request.Header.Get("X-Forwarded-Proto")); forwardedScheme == "http" || forwardedScheme == "https" {
+		scheme = forwardedScheme
+	}
+	requestOrigin, err := common.NormalizeOrigin(scheme + "://" + request.Host)
+	if err == nil && strings.EqualFold(origin, requestOrigin) {
+		return true
+	}
+	for _, trustedOrigin := range common.SessionCookieTrustedURLs {
+		if strings.EqualFold(origin, trustedOrigin) {
+			return true
+		}
+	}
+
+	// Preserve the local frontend/backend split across development ports without
+	// allowing an arbitrary public web origin to open an authenticated socket.
+	parsedOrigin, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	requestHost := (&url.URL{Host: request.Host}).Hostname()
+	return isWebSocketLoopbackHost(parsedOrigin.Hostname()) && isWebSocketLoopbackHost(requestHost)
+}
+
+func isWebSocketLoopbackHost(host string) bool {
+	if strings.EqualFold(strings.TrimSuffix(host, "."), "localhost") {
+		return true
+	}
+	address := net.ParseIP(host)
+	return address != nil && address.IsLoopback()
 }
 
 func addUsedChannel(c *gin.Context, channelId int) {
@@ -376,12 +418,40 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 			AutoBan: &autoBanInt,
 		}, nil
 	}
-	channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(retryParam)
-	if err != nil {
-		return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %s", selectGroup, info.OriginModelName, err.Error()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
-	}
-	if channel == nil {
-		return nil, types.NewError(fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在（retry）", selectGroup, info.OriginModelName), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+
+	var (
+		channel             *model.Channel
+		selectGroup         string
+		err                 error
+		rejectedUnsupported bool
+	)
+	for {
+		channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(retryParam)
+		if err != nil {
+			return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %s", selectGroup, info.OriginModelName, err.Error()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+		}
+		if channel == nil {
+			// Exhausting request-local candidates must preserve the upstream
+			// failure. In particular, a sole unavailable channel's 503 must not
+			// become a misleading local get-channel 500 on the next attempt.
+			if info.LastError != nil {
+				return nil, info.LastError
+			}
+			if rejectedUnsupported {
+				return nil, types.NewErrorWithStatusCode(
+					errors.New("no retry channel supports requested endpoint"),
+					types.ErrorCodeChannelUnsupportedEndpoint,
+					http.StatusBadRequest,
+					types.ErrOptionWithSkipRetry(),
+				)
+			}
+			return nil, types.NewError(fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在（retry）", selectGroup, info.OriginModelName), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+		}
+		if middleware.ChannelSupportsRequestPath(channel, retryParam.RequestPath, info.OriginModelName) {
+			break
+		}
+		rejectedUnsupported = true
+		retryParam.ExcludeChannel(channel.Id)
 	}
 
 	info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
@@ -555,10 +625,7 @@ func RelayTask(c *gin.Context) {
 		}
 
 		addUsedChannel(c, channel.Id)
-		if pricingErr := service.PrepareDynamicPricingForSelectedChannel(relayInfo, channel.Id); pricingErr != nil {
-			taskErr = service.TaskErrorWrapperLocal(pricingErr, "dynamic_pricing_not_ready", http.StatusServiceUnavailable)
-			break
-		}
+
 		bodyStorage, bodyErr := common.GetBodyStorage(c)
 		if bodyErr != nil {
 			if common.IsRequestBodyTooLargeError(bodyErr) || errors.Is(bodyErr, common.ErrRequestBodyTooLarge) {

@@ -124,3 +124,40 @@ func TestQuotaFromDecimalChecked(t *testing.T) {
 		assert.Equal(t, QuotaClampOverflow, clamp.Kind)
 	}
 }
+
+func TestPerRequestQuotaExactBoundsAreNotReportedAsClamped(t *testing.T) {
+	quota, clamp := QuotaFromFloatChecked(float64(MaxQuota))
+	assert.Equal(t, MaxQuota, quota)
+	assert.Nil(t, clamp)
+
+	quota, clamp = QuotaFromFloatChecked(float64(MinQuota))
+	assert.Equal(t, MinQuota, quota)
+	assert.Nil(t, clamp)
+}
+
+func TestValidateWalletQuotaUsesSymmetricJavaScriptSafeRange(t *testing.T) {
+	for _, quota := range []int{MinWalletQuota, -1, 0, 1, MaxWalletQuota} {
+		require.NoError(t, ValidateWalletQuota(quota))
+	}
+	require.Error(t, ValidateWalletQuota(MaxWalletQuota+1))
+	require.Error(t, ValidateWalletQuota(MinWalletQuota-1))
+}
+
+func TestWalletQuotaFromDecimalStrictRoundsAndChecksBothBounds(t *testing.T) {
+	quota, err := WalletQuotaFromDecimalStrict(decimal.NewFromFloat(42.5))
+	require.NoError(t, err)
+	assert.Equal(t, 43, quota)
+
+	quota, err = WalletQuotaFromDecimalStrict(decimal.NewFromInt(MaxWalletQuota))
+	require.NoError(t, err)
+	assert.Equal(t, MaxWalletQuota, quota)
+
+	quota, err = WalletQuotaFromDecimalStrict(decimal.NewFromInt(MinWalletQuota))
+	require.NoError(t, err)
+	assert.Equal(t, MinWalletQuota, quota)
+
+	_, err = WalletQuotaFromDecimalStrict(decimal.NewFromInt(MaxWalletQuota).Add(decimal.NewFromInt(1)))
+	require.Error(t, err)
+	_, err = WalletQuotaFromDecimalStrict(decimal.NewFromInt(MinWalletQuota).Sub(decimal.NewFromInt(1)))
+	require.Error(t, err)
+}

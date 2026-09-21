@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, Loader2 } from 'lucide-react'
+import { ChevronDown, Loader2, Lock } from 'lucide-react'
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
@@ -31,6 +31,7 @@ import {
   sideDrawerFooterClassName,
   sideDrawerFormClassName,
   sideDrawerHeaderClassName,
+  sideDrawerSectionClassName,
   sideDrawerSwitchItemClassName,
 } from '@/components/drawer-layout'
 import { JsonEditor } from '@/components/json-editor'
@@ -72,11 +73,12 @@ import {
 } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { updateSystemOptions } from '@/features/system-settings/api'
 import {
   useSystemOptions,
   getOptionValue,
 } from '@/features/system-settings/hooks/use-system-options'
-import { useUpdateOption } from '@/features/system-settings/hooks/use-update-option'
+import { parseModelPriceLocks } from '@/features/system-settings/models/use-model-price-locks'
 import { normalizeJsonString } from '@/features/system-settings/models/utils'
 import type { ModelSettings } from '@/features/system-settings/types'
 import { safeJsonParse } from '@/features/system-settings/utils/json-parser'
@@ -96,6 +98,14 @@ const extendedModelFormSchema = z.object({
   vendor_id: z.number().optional(),
   endpoints: z.string(),
   name_rule: z.number(),
+  operational_status: z.enum([
+    'auto',
+    'congested',
+    'maintenance',
+    'unavailable',
+  ]),
+  operational_notice: z.string().max(280),
+  operational_until: z.number(),
   status: z.boolean(),
   sync_official: z.boolean(),
   price: z.string().optional(),
@@ -281,8 +291,6 @@ export function ModelMutateDrawer({
   // Fetch system options for ratio configuration
   const { data: systemOptionsData } = useSystemOptions()
 
-  const updateOption = useUpdateOption()
-
   // Get model settings from system options
   const modelSettings = useMemo(() => {
     if (!systemOptionsData?.data) return null
@@ -292,12 +300,6 @@ export function ModelMutateDrawer({
       'global.chat_completions_to_responses_policy': '{}',
       'general_setting.ping_interval_enabled': false,
       'general_setting.ping_interval_seconds': 60,
-      'dynamic_pricing_setting.enabled': false,
-      'dynamic_pricing_setting.min_factor': 1,
-      'dynamic_pricing_setting.base_price_usd_per_million': 1,
-      'dynamic_pricing_setting.cost_floor_factor': 1.2,
-      'dynamic_pricing_setting.max_factor': 3,
-      'dynamic_pricing_setting.channel_costs': '{}',
       'gemini.safety_settings': '',
       'gemini.version_settings': '',
       'gemini.supported_imagine_models': '',
@@ -310,6 +312,7 @@ export function ModelMutateDrawer({
       'claude.thinking_adapter_enabled': true,
       'claude.thinking_adapter_budget_tokens_percentage': 0.8,
       ModelPrice: '',
+      ModelPriceLock: '{}',
       ModelRatio: '',
       CacheRatio: '',
       CompletionRatio: '',
@@ -374,6 +377,9 @@ export function ModelMutateDrawer({
       vendor_id: undefined,
       endpoints: '',
       name_rule: 0,
+      operational_status: 'auto',
+      operational_notice: '',
+      operational_until: 0,
       status: true,
       sync_official: true,
       price: '',
@@ -385,6 +391,12 @@ export function ModelMutateDrawer({
       audioCompletionRatio: '',
     },
   })
+
+  const priceLocks = useMemo(
+    () => parseModelPriceLocks(modelSettings?.ModelPriceLock || '{}'),
+    [modelSettings?.ModelPriceLock]
+  )
+  const isPricingLocked = priceLocks[form.watch('model_name')] === true
 
   const validateNumber = (value: string) => {
     if (value === '') return true
@@ -442,6 +454,9 @@ export function ModelMutateDrawer({
         vendor_id: model.vendor_id,
         endpoints: model.endpoints || '',
         name_rule: model.name_rule || 0,
+        operational_status: model.operational_status || 'auto',
+        operational_notice: model.operational_notice || '',
+        operational_until: model.operational_until || 0,
         status: model.status === 1,
         sync_official: model.sync_official === 1,
         ...pricing.fields,
@@ -467,6 +482,9 @@ export function ModelMutateDrawer({
         vendor_id: undefined,
         endpoints: '',
         name_rule: 0,
+        operational_status: 'auto',
+        operational_notice: '',
+        operational_until: 0,
         status: true,
         sync_official: true,
         ...pricing.fields,
@@ -504,6 +522,7 @@ export function ModelMutateDrawer({
             : await createModel(modelData)
 
         if (response.success) {
+          let pricingIgnored = false
           // Handle ratio configuration updates in system settings
           const finalModelName = values.model_name
           const hasRatioConfig =
@@ -688,17 +707,55 @@ export function ModelMutateDrawer({
               })
             }
 
-            // Apply all updates (including deletions when clearing fields)
+            // Preserve locked entries even if the form was edited before a
+            // lock arrived or renamed onto an already locked model name.
+            const allowedUpdates: Record<string, string> = {}
             for (const update of updates) {
-              await updateOption.mutateAsync(update)
+              const previous =
+                safeJsonParse<Record<string, number>>(
+                  modelSettings[update.key as keyof ModelSettings] as string,
+                  { fallback: {}, silent: true }
+                ) || {}
+              const next = JSON.parse(update.value) as Record<string, number>
+              for (const name of new Set([
+                ...Object.keys(previous),
+                ...Object.keys(next),
+              ])) {
+                if (
+                  priceLocks[name] === true &&
+                  previous[name] !== next[name]
+                ) {
+                  pricingIgnored = true
+                  if (Object.hasOwn(previous, name)) next[name] = previous[name]
+                  else delete next[name]
+                }
+              }
+              const value = normalizeJsonString(JSON.stringify(next))
+              if (value !== normalizeJsonString(JSON.stringify(previous))) {
+                allowedUpdates[update.key] = value
+              }
+            }
+            if (pricingIgnored) {
+              toast.warning(
+                t('Locked model prices were preserved; changes were ignored.')
+              )
+            }
+            if (Object.keys(allowedUpdates).length > 0) {
+              const result = await updateSystemOptions(allowedUpdates)
+              if (!result.success) {
+                throw new Error(result.message || t('Failed to update setting'))
+              }
+              pricingIgnored ||= Boolean(result.warnings?.length)
             }
           }
 
-          toast.success(
-            isEditing
-              ? 'Model updated successfully'
-              : 'Model created successfully'
-          )
+          if (!pricingIgnored) {
+            toast.success(
+              isEditing
+                ? 'Model updated successfully'
+                : 'Model created successfully'
+            )
+          }
           queryClient.invalidateQueries({ queryKey: modelsQueryKeys.lists() })
           queryClient.invalidateQueries({ queryKey: ['system-options'] })
           onOpenChange(false)
@@ -720,7 +777,8 @@ export function ModelMutateDrawer({
       oldModelName,
       loadedPricingName,
       modelSettings,
-      updateOption,
+      priceLocks,
+      t,
     ]
   )
 
@@ -993,11 +1051,23 @@ export function ModelMutateDrawer({
             </SideDrawerSection>
 
             {/* Pricing Configuration */}
-            <SideDrawerSection>
+            <fieldset
+              disabled={isPricingLocked}
+              className={sideDrawerSectionClassName('disabled:opacity-60')}
+              aria-label={t('Pricing Configuration')}
+            >
               <h3 className='text-sm font-semibold'>
                 {t('Pricing Configuration')}
               </h3>
 
+              {isPricingLocked && (
+                <p className='text-muted-foreground flex items-center gap-2 text-sm'>
+                  <Lock className='h-4 w-4 shrink-0' aria-hidden='true' />
+                  {t(
+                    'Price is locked. Unlock it in model pricing settings to edit.'
+                  )}
+                </p>
+              )}
               <div className='space-y-4'>
                 <Label>{t('Pricing mode')}</Label>
                 <RadioGroup
@@ -1333,6 +1403,106 @@ export function ModelMutateDrawer({
                   </Collapsible>
                 </>
               )}
+            </fieldset>
+
+            <SideDrawerSection>
+              <h3 className='text-sm font-semibold'>
+                {t('Public operational status')}
+              </h3>
+              <p className='text-muted-foreground text-xs'>
+                {t(
+                  'This publishes a status notice only. It does not disable channels or change routing. Notices must expire within 30 days.'
+                )}
+              </p>
+              <FormField
+                control={form.control}
+                name='operational_status'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Operational status')}</FormLabel>
+                    <FormControl>
+                      <select
+                        className='bg-background h-10 w-full rounded border px-3'
+                        {...field}
+                        onChange={(event) => {
+                          field.onChange(event.target.value)
+                          if (
+                            event.target.value !== 'auto' &&
+                            !form.getValues('operational_until')
+                          ) {
+                            form.setValue(
+                              'operational_until',
+                              Math.floor(Date.now() / 1000) + 3600
+                            )
+                          }
+                        }}
+                      >
+                        <option value='auto'>
+                          {t('Use routing configuration')}
+                        </option>
+                        <option value='congested'>{t('Congested')}</option>
+                        <option value='maintenance'>
+                          {t('Under maintenance')}
+                        </option>
+                        <option value='unavailable'>
+                          {t('Temporarily unavailable')}
+                        </option>
+                      </select>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='operational_notice'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Public status explanation')}</FormLabel>
+                    <FormControl>
+                      <Textarea {...field} maxLength={280} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='operational_until'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Status notice expires')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='datetime-local'
+                        value={
+                          field.value
+                            ? new Date(
+                                field.value * 1000 -
+                                  new Date(
+                                    field.value * 1000
+                                  ).getTimezoneOffset() *
+                                    60_000
+                              )
+                                .toISOString()
+                                .slice(0, 16)
+                            : ''
+                        }
+                        onChange={(event) =>
+                          field.onChange(
+                            event.target.value
+                              ? Math.floor(
+                                  new Date(event.target.value).getTime() / 1000
+                                )
+                              : 0
+                          )
+                        }
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
             </SideDrawerSection>
 
             {/* Status & Sync */}

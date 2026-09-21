@@ -2,6 +2,7 @@ package model
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -177,8 +178,7 @@ func GetAvailableGiftsForUser(userId int) ([]GiftWithClaimStatus, error) {
 	return result, nil
 }
 
-// ClaimGift 用户主动领取礼包。资格校验 + 领取记录 + 加额度保持原子性：
-// MySQL/PostgreSQL 走事务；SQLite 走顺序操作 + 失败回滚（与签到一致）。
+// ClaimGift 用户主动领取礼包。资格校验、领取记录和钱包奖励在所有数据库上原子提交。
 // alreadyClaimed 返回 true 表示此前已领取过（额度不会重复发放），
 // 调用方应将其视为成功的幂等响应而非错误。
 func ClaimGift(userId int, giftId int) (claim *GiftClaim, alreadyClaimed bool, err error) {
@@ -206,12 +206,7 @@ func ClaimGift(userId int, giftId int) (claim *GiftClaim, alreadyClaimed bool, e
 		CreatedAt: now,
 	}
 
-	var createErr error
-	if common.UsingMainDatabase(common.DatabaseTypeSQLite) {
-		createErr = claimGiftWithoutTransaction(claim, userId, gift.Quota)
-	} else {
-		createErr = claimGiftWithTransaction(claim, userId, gift.Quota)
-	}
+	createErr := claimGiftWithTransaction(claim, userId, gift.Quota)
 	if createErr != nil {
 		// 唯一索引冲突 = 已领取过：返回既有领取记录，让调用方按幂等成功处理
 		if errors.Is(createErr, ErrGiftAlreadyClaimed) {
@@ -232,8 +227,7 @@ func claimGiftWithTransaction(claim *GiftClaim, userId int, quota int) error {
 		if err := tx.Create(claim).Error; err != nil {
 			return ErrGiftAlreadyClaimed
 		}
-		if err := tx.Model(&User{}).Where("id = ?", userId).
-			Update("quota", gorm.Expr("quota + ?", quota)).Error; err != nil {
+		if err := ApplyWalletQuotaDelta(tx, userId, quota); err != nil {
 			return errors.New("领取失败：更新额度出错")
 		}
 		return nil
@@ -243,21 +237,15 @@ func claimGiftWithTransaction(claim *GiftClaim, userId int, quota int) error {
 	}
 	if common.RedisEnabled {
 		go func() {
-			_ = cacheIncrUserQuota(userId, int64(quota))
+			if err := cacheIncrUserQuota(userId, int64(quota)); err != nil {
+				common.SysError(fmt.Sprintf("failed to invalidate quota cache after gift claim for user %d: %s", userId, err.Error()))
+			}
 		}()
 	}
 	return nil
 }
 
-// claimGiftWithoutTransaction 不使用事务执行领取（适用于 SQLite）
+// 保留该入口供现有调用方使用；SQLite 同样必须原子提交领取记录和钱包奖励。
 func claimGiftWithoutTransaction(claim *GiftClaim, userId int, quota int) error {
-	if err := DB.Create(claim).Error; err != nil {
-		return ErrGiftAlreadyClaimed
-	}
-	// 使用 db=true 强制直接写入数据库，不使用批量更新
-	if err := IncreaseUserQuota(userId, quota, true); err != nil {
-		DB.Delete(claim)
-		return errors.New("领取失败：更新额度出错")
-	}
-	return nil
+	return claimGiftWithTransaction(claim, userId, quota)
 }

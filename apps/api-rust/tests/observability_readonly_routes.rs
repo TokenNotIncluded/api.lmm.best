@@ -8,7 +8,7 @@ use axum::{
     body::Body,
     http::{HeaderMap, Request, StatusCode},
 };
-use lmm_api_rs::migration_routes::observability::{
+use lmm_api_rs::routes::observability::{
     ObservabilityAccess, ObservabilityAuthError, ObservabilityAuthorizer, ObservabilityCall,
     ObservabilityOperation, ObservabilityPrincipal, ObservabilityState, ObservabilityStore,
     ObservabilityStoreError, observability_router,

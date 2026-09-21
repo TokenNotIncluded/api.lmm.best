@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -340,11 +341,15 @@ func canViewAssistantReviewViolations(viewerUserID, viewerRole int, user *User) 
 // accounts the viewer may inspect. Keeping the ACL in the projection layer is
 // important: hiding the button in the web UI must not be the only protection.
 func PopulateAssistantReviewViolationCountsForViewer(users []*User, viewerUserID, viewerRole int) error {
+	return PopulateAssistantReviewViolationCountsForViewerContext(context.Background(), users, viewerUserID, viewerRole)
+}
+
+func PopulateAssistantReviewViolationCountsForViewerContext(ctx context.Context, users []*User, viewerUserID, viewerRole int) error {
 	if len(users) == 0 {
 		return nil
 	}
 	authorizedIDs := make([]int, 0, len(users))
-	if !assistantReviewTablesAvailable(DB) {
+	if !assistantReviewTablesAvailable(DB.WithContext(ctx)) {
 		for _, user := range users {
 			if canViewAssistantReviewViolations(viewerUserID, viewerRole, user) {
 				zero := int64(0)
@@ -373,7 +378,7 @@ func PopulateAssistantReviewViolationCountsForViewer(users []*User, viewerUserID
 		UserID         int   `gorm:"column:user_id"`
 		ViolationCount int64 `gorm:"column:violation_count"`
 	}
-	query := AssistantReviewViolationTotals(DB).Where("assistant_request_reviews.user_id IN ?", authorizedIDs)
+	query := AssistantReviewViolationTotals(DB.WithContext(ctx)).Where("assistant_request_reviews.user_id IN ?", authorizedIDs)
 	if err := query.Scan(&rows).Error; err != nil {
 		return err
 	}

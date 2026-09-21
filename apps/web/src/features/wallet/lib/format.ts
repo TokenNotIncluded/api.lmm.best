@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { formatLocalCurrencyAmount, getCurrencyDisplay } from '@/lib/currency'
+import { formatFiatCurrencyAmount } from '@/lib/currency'
 
 import { DEFAULT_DISCOUNT_RATE } from '../constants'
 
@@ -24,15 +24,16 @@ import { DEFAULT_DISCOUNT_RATE } from '../constants'
 // Wallet-specific Formatting Functions
 // ============================================================================
 
-/**
- * Format Creem price with currency symbol (USD/EUR)
- */
+/** Format a Creem fiat price with its ISO currency code. */
 export function formatCreemPrice(
   price: number,
   currency: 'USD' | 'EUR'
 ): string {
-  const symbol = currency === 'EUR' ? '€' : '$'
-  return `${symbol}${price.toFixed(2)}`
+  return formatFiatCurrencyAmount(price, currency, {
+    abbreviate: false,
+    digitsLarge: 2,
+    digitsSmall: 2,
+  })
 }
 
 /**
@@ -63,52 +64,53 @@ export function formatCurrency(amount: number | string): string {
   }).format(numeric)
 }
 
-/**
- * The currency code or configured label for money charged by a payment method.
- *
- * Token-only balance displays still charge a real currency, which defaults to
- * USD. A custom configured display has no ISO code available, so its configured
- * symbol is repeated to keep the amount distinguishable from credits.
- */
+/** Payment amounts use an explicit gateway ISO code; USD is the fallback. */
 export function getPaymentCurrencyLabel(): string {
-  const { config } = getCurrencyDisplay()
-
-  if (config.quotaDisplayType === 'TOKENS') {
-    return 'USD'
-  }
-
-  if (config.quotaDisplayType === 'CUSTOM') {
-    return config.customCurrencySymbol
-  }
-
-  return config.quotaDisplayType
-}
-
-/** API top-up credits are stored and granted in system USD. */
-export function getCreditCurrencyLabel(): string {
   return 'USD'
 }
 
-/** Format an API credit amount stored and granted in system USD. */
-export function formatCreditBalance(amount: number): string {
-  const formatted = new Intl.NumberFormat(undefined, {
-    style: 'currency',
-    currency: 'USD',
-    currencyDisplay: 'narrowSymbol',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: Math.abs(amount) >= 1 ? 2 : 4,
-  }).format(amount)
-
-  return `${formatted} ${getCreditCurrencyLabel()}`
+/** API top-up credits use a virtual unit label without a fiat symbol. */
+export function getCreditCurrencyLabel(platformLabel = 'Platform'): string {
+  const label = platformLabel.trim() || 'Platform'
+  return `(${label})`
 }
 
-/** Format the local-currency amount that will actually be charged. */
-export function formatPaymentAmount(amount: number): string {
-  return `${formatLocalCurrencyAmount(amount, {
+/** Format a wallet platform credit as a virtual unit, never fiat money. */
+export function formatPlatformCreditBalance(
+  amount: number,
+  platformLabel?: string
+): string {
+  const formattedAmount = formatCurrency(amount)
+  return formattedAmount === '-'
+    ? formattedAmount
+    : `${formattedAmount} ${getCreditCurrencyLabel(platformLabel)}`
+}
+
+/** Format a visible top-up credit amount (never fiat USD). */
+export function formatCreditBalance(
+  amount: number,
+  platformLabel?: string
+): string {
+  return formatPlatformCreditBalance(amount, platformLabel)
+}
+
+/** Format the fiat amount that will actually be charged. */
+export function formatPaymentAmount(amount: number, currency?: string): string {
+  if (currency) {
+    return formatFiatCurrencyAmount(amount, currency, {
+      abbreviate: false,
+      digitsLarge: 2,
+      digitsSmall: 2,
+    })
+  }
+
+  // Unknown/legacy gateways default to fiat USD rather than inheriting the
+  // platform display currency. Configured gateways pass their unit explicitly.
+  return formatFiatCurrencyAmount(amount, 'USD', {
     abbreviate: false,
     digitsLarge: 2,
     digitsSmall: 2,
-  })} ${getPaymentCurrencyLabel()}`
+  })
 }
 
 /** Format a system-USD credit value without repeating its unit label. */
@@ -118,9 +120,9 @@ export function formatCreditValue(amount: number): string {
   }).format(amount)
 }
 
-/** Format a local payment value with its symbol, but without its code suffix. */
+/** Format an actual fiat USD payment with its ISO code. */
 export function formatPaymentMoney(amount: number): string {
-  return formatLocalCurrencyAmount(amount, {
+  return formatFiatCurrencyAmount(amount, 'USD', {
     abbreviate: false,
     digitsLarge: 2,
     digitsSmall: 2,

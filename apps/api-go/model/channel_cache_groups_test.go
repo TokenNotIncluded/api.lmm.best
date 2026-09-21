@@ -10,6 +10,7 @@ License, or (at your option) any later version.
 package model
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -42,4 +43,30 @@ func TestRefreshChannelCachePreservesAbilityGroups(t *testing.T) {
 	require.Contains(t, group2model2channels["default"], "cache-group-model")
 	require.Contains(t, group2model2channels, "orphan-group")
 	require.Empty(t, group2model2channels["orphan-group"])
+}
+
+func TestRefreshChannelCacheBuildsMissingAbilityGroups(t *testing.T) {
+	for _, withAbility := range []bool{false, true} {
+		t.Run(fmt.Sprintf("ability=%t", withAbility), func(t *testing.T) {
+			preserveChannelTestState(t)
+			DB = openCacheTestDB(t, &Channel{}, &Ability{})
+			common.MemoryCacheEnabled = true
+			low, high := int64(1), int64(10)
+			require.NoError(t, DB.Create(&[]Channel{
+				{Id: 1, Status: common.ChannelStatusEnabled, Group: "default,missing", Models: "m1,m2", Priority: &low},
+				{Id: 2, Status: common.ChannelStatusEnabled, Group: "missing", Models: "m1", Priority: &high},
+				{Id: 3, Status: common.ChannelStatusManuallyDisabled, Group: "missing,disabled-only", Models: "m1"},
+			}).Error)
+			if withAbility {
+				require.NoError(t, DB.Create(&Ability{Group: "default", Model: "m1", ChannelId: 1, Enabled: true}).Error)
+			}
+			require.NoError(t, refreshChannelCache())
+			channelSyncLock.RLock()
+			defer channelSyncLock.RUnlock()
+			require.Equal(t, []int{2, 1}, group2model2channels["missing"]["m1"])
+			require.Equal(t, []int{1}, group2model2channels["missing"]["m2"])
+			require.Equal(t, []int{1}, group2model2channels["default"]["m1"])
+			require.NotContains(t, group2model2channels, "disabled-only")
+		})
+	}
 }

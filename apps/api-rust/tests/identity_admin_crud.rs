@@ -15,7 +15,7 @@ use lmm_api_rs::{
         DashboardUser, LoginOutcome, LoginRequest, LogoutRequest, LogoutResult, RequestMetadata,
         TwoFactorLoginRequest,
     },
-    migration_routes::identity_admin::{IdentityAdminState, router},
+    routes::identity_admin::{IdentityAdminState, router},
 };
 use secrecy::SecretString;
 use serde_json::{Value, json};

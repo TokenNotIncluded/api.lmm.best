@@ -20,8 +20,26 @@ const DEDICATED_PAYMENT_PRICING_TYPES = new Set([
   'stripe',
   'waffo',
   'waffo_pancake',
+  'alipay',
+  'wxpay',
 ])
 
 export function usesDedicatedPaymentPricing(type?: string): boolean {
   return !!type && DEDICATED_PAYMENT_PRICING_TYPES.has(type)
+}
+
+/** /api/status.price is platform units per real USD, not USD per credit. */
+export function platformUnitsToUsd(
+  amount: number,
+  platformUnitsPerUSD: number
+): number {
+  if (
+    !Number.isFinite(amount) ||
+    amount < 0 ||
+    !Number.isFinite(platformUnitsPerUSD) ||
+    platformUnitsPerUSD <= 0
+  ) {
+    return Number.NaN
+  }
+  return amount / platformUnitsPerUSD
 }

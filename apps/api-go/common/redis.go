@@ -53,6 +53,14 @@ func InitRedisClient() (err error) {
 	return err
 }
 
+// CloseRedis closes the process-owned Valkey/Redis client after all users have stopped.
+func CloseRedis() error {
+	if RDB == nil {
+		return nil
+	}
+	return RDB.Close()
+}
+
 func ParseRedisOption() *redis.Options {
 	opt, err := redis.ParseURL(os.Getenv("REDIS_CONN_STRING"))
 	if err != nil {

@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -17,6 +18,7 @@ const (
 
 var cacheWarmLock sync.Mutex
 var cacheReadinessEnforced atomic.Bool
+var cacheRuntimeUnavailable atomic.Bool
 var cacheWarmStateLock sync.Mutex
 var cacheWarmLastError error
 var cacheWarmNextRetry time.Time
@@ -25,6 +27,9 @@ var cacheWarmNow = time.Now
 var cacheWarmAttemptHook func()
 
 func CachesReady() bool {
+	if cacheRuntimeUnavailable.Load() {
+		return false
+	}
 	cacheWarmStateLock.Lock()
 	warmErr := cacheWarmLastError
 	cacheWarmStateLock.Unlock()
@@ -44,6 +49,9 @@ func CachesReady() bool {
 }
 
 func CacheReadinessError() error {
+	if cacheRuntimeUnavailable.Load() {
+		return errors.New("runtime is shutting down")
+	}
 	if !cacheReadinessEnforced.Load() {
 		return nil
 	}
@@ -69,6 +77,12 @@ func CacheReadinessError() error {
 		return errors.New("pricing cache is not ready")
 	}
 	return nil
+}
+
+// MarkCacheReadinessUnavailable fails readiness before graceful drain starts.
+func MarkCacheReadinessUnavailable() {
+	cacheReadinessEnforced.Store(true)
+	cacheRuntimeUnavailable.Store(true)
 }
 
 func WarmCaches() error {
@@ -138,10 +152,13 @@ func recordCacheWarmResult(err error) {
 // a database outage into a retry storm.
 func EnsureCachesWarmAsync() {
 	cacheReadinessEnforced.Store(true)
+	if cacheRuntimeUnavailable.Load() {
+		return
+	}
 	if !cacheWarmLock.TryLock() {
 		return
 	}
-	if !cacheWarmRetryAllowed() {
+	if cacheRuntimeUnavailable.Load() || !cacheWarmRetryAllowed() {
 		cacheWarmLock.Unlock()
 		return
 	}
@@ -153,4 +170,22 @@ func EnsureCachesWarmAsync() {
 			common.SysLog(fmt.Sprintf("cache warm retry failed: %v", err))
 		}
 	}()
+}
+
+// WaitForCacheWarm waits for any in-flight asynchronous warm attempt. Callers
+// must first mark readiness unavailable so no new attempt can be admitted.
+func WaitForCacheWarm(ctx context.Context) error {
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if cacheWarmLock.TryLock() {
+			cacheWarmLock.Unlock()
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }

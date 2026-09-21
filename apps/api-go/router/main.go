@@ -23,11 +23,19 @@ func SetRouter(router *gin.Engine) error {
 	router.GET("/internal/access-ip-policy", middleware.DisableCache(), controller.CheckIPAccessRoutingPolicy)
 	router.GET("/internal/errors/access-policy", controller.GetAccessPolicyErrorPage)
 
+	largeRequestAdmission := middleware.RelayRequestAdmission()
+	if err := SetOAuthServerRouter(router); err != nil {
+		return err
+	}
 	SetApiRouter(router)
+	if err := SetRedPacketRouter(router); err != nil {
+		return fmt.Errorf("configure red packet routes: %w", err)
+	}
 	SetOpenSourceBountyMCPRouter(router)
-	SetDrawingMCPRouter(router)
+	SetDrawingMCPRouter(router, largeRequestAdmission)
+	SetToolMarketMCPRouter(router)
 	SetDashboardRouter(router)
-	SetRelayRouter(router)
+	SetRelayRouter(router, largeRequestAdmission)
 	SetVideoRouter(router)
 
 	frontendBaseUrl := os.Getenv("FRONTEND_BASE_URL")

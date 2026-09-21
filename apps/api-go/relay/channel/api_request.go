@@ -473,8 +473,9 @@ func startPingKeepAlive(c *gin.Context, pingInterval time.Duration) (context.Can
 		var pingMutex sync.Mutex
 		logger.LogDebug(c, "SSE ping goroutine started")
 
-		// 增加超时控制，防止goroutine长时间运行
-		maxPingDuration := 120 * time.Minute // 最大ping持续时间
+		// MaxKeepaliveDuration limits the wall-clock lifetime of the pre-response keepalive.
+		// Consistent with the stream-phase keepalive in stream_scanner.go.
+		maxPingDuration := time.Duration(common2.MaxKeepaliveDuration) * time.Minute
 		pingTimeout := time.NewTimer(maxPingDuration)
 		defer pingTimeout.Stop()
 

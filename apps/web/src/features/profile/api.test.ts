@@ -21,12 +21,46 @@ import { afterEach, describe, test } from 'node:test'
 
 import { api } from '@/lib/api'
 
-import { performCheckin } from './api'
+import { getProfileUsageWindow, performCheckin } from './api'
 
+const originalGet = api.get
 const originalPost = api.post
 
 afterEach(() => {
+  api.get = originalGet
   api.post = originalPost
+})
+
+describe('profile activity API', () => {
+  test('requests one bounded self-usage window without global error toasts', async () => {
+    let request: { url: string; config: unknown } | null = null
+    const rows = [{ created_at: 1_700_000_000, token_used: 42, count: 2 }]
+
+    api.get = (async (url, config) => {
+      request = { url, config }
+      return { data: { success: true, data: rows } }
+    }) as typeof api.get
+
+    assert.deepEqual(
+      await getProfileUsageWindow({
+        start_timestamp: 1_700_000_000,
+        end_timestamp: 1_700_000_100,
+      }),
+      rows
+    )
+    assert.deepEqual(request, {
+      url: '/api/data/self',
+      config: {
+        params: {
+          start_timestamp: 1_700_000_000,
+          end_timestamp: 1_700_000_100,
+          default_time: 'day',
+        },
+        skipBusinessError: true,
+        skipErrorHandler: true,
+      },
+    })
+  })
 })
 
 describe('profile check-in API', () => {

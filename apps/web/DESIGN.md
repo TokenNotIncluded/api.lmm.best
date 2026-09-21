@@ -63,19 +63,19 @@ colors:
   sha256: `bf0b375a3d805346e05a2226a2ff29cb5bb72e92662d938eda31c6282dcac053`
   confidence: high
 - [observed] path: `src/styles/index.css`
-  sha256: `16177439bcda07f750eeadb7882bf5b5b3023c7b4c98b5cb70f786505a1ad686`
+  sha256: `8b01fba83e33b6699f9873beba640e0bea3daf04c2d69838b8b1862166ab377e`
   confidence: high
 - [observed] path: `src/styles/theme.css`
   sha256: `feb9173866b51ca2fe8177974f2d5514c0c1cb951cf7a21c2d475ee4b10d9f94`
   confidence: high
 - [observed] path: `src/styles/forge-tokens.css`
-  sha256: `f9941c89671a166774165f4bd667fa1765e21fc537c75218bc8b2ddb3546d84d`
+  sha256: `83bae3f180421622a7e235a4c3c4c45ce9bfbf9702c117b2e5a2720a19a98ec7`
   confidence: high
 - [observed] path: `src/components/layout/components/authenticated-layout.tsx`
-  sha256: `0e81f675fc00fca989529291c93105d529175da071e3ad257c0a85376ac832b8`
+  sha256: `6130102eae35da3412e96e2491c3035e03833219b5110f3308a94ba8bf4a4c7a`
   confidence: high
 - [observed] path: `src/components/layout/components/section-page-layout.tsx`
-  sha256: `494eb7db68889ba6feda69e381d436710556d8c0ee6061888a050d228d56ba50`
+  sha256: `c01116b8edecf578f324aaa27afc4daa220916f7bbcb2ceed605cfdf5e28443f`
   confidence: high
 - [observed] path: `src/features/system-settings/components/settings-form-layout.tsx`
   sha256: `ec38e8b80a48bba51062ab7d0b6f90018b82a3b92dabcccefe45b2b2579dca05`

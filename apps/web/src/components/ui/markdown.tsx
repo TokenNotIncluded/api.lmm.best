@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import DOMPurify from 'dompurify'
+import DOMPurify, { type Config } from 'dompurify'
 import * as katex from 'katex'
 
 import 'katex/dist/katex.min.css'
@@ -126,10 +126,27 @@ const allowedTags = [
   'tspan',
 ]
 
+declare const sanitizedHtmlBrand: unique symbol
+
+type SanitizedHtml = string & {
+  readonly [sanitizedHtmlBrand]: true
+}
+
 const sanitizeOptions = {
   ADD_ATTR: allowedAttributes,
   ADD_TAGS: allowedTags,
-} as const
+} satisfies Config
+
+function sanitizeToFragment(html: string, config: Config): DocumentFragment {
+  return DOMPurify.sanitize(html, {
+    ...config,
+    RETURN_DOM_FRAGMENT: true,
+  })
+}
+
+function sanitizeToHtml(html: string | Node, config: Config): SanitizedHtml {
+  return DOMPurify.sanitize(html, config) as SanitizedHtml
+}
 
 type FlowNode = {
   id: string
@@ -163,12 +180,9 @@ type SequenceMessage = {
 }
 
 function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;')
+  const element = document.createElement('span')
+  element.textContent = value
+  return element.innerHTML
 }
 
 function normalizeMathSource(source: string): string {
@@ -718,30 +732,71 @@ const markdownParser = new Marked({
 
 markdownParser.use(...markdownExtensions)
 
-function addExternalLinkAttributes(html: string): string {
-  if (typeof window === 'undefined') {
-    return html
+export function isExternalUrl(href: string): boolean {
+  if (!href) return false
+  const trimmed = href.trim()
+  if (trimmed.startsWith('#') || trimmed.startsWith('?')) {
+    return false
   }
-
-  const template = document.createElement('template')
-  template.innerHTML = html
-
-  template.content.querySelectorAll('a[href]').forEach((link) => {
-    link.setAttribute('target', '_blank')
-    link.setAttribute('rel', 'noopener noreferrer')
-  })
-
-  return template.innerHTML
+  try {
+    const base =
+      typeof window !== 'undefined' && window.location?.href
+        ? window.location.href
+        : 'http://localhost'
+    const url = new URL(trimmed, base)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return false
+    }
+    const currentOrigin =
+      typeof window !== 'undefined' && window.location?.origin
+        ? window.location.origin
+        : 'http://localhost'
+    return url.origin !== currentOrigin
+  } catch {
+    return false
+  }
 }
 
-function renderMarkdown(markdown: string, breaks = false): string {
+function addExternalLinkAttributes(fragment: DocumentFragment): void {
+  fragment.querySelectorAll('a[href]').forEach((link) => {
+    const href = link.getAttribute('href') ?? ''
+    if (isExternalUrl(href)) {
+      link.setAttribute('target', '_blank')
+      link.setAttribute('rel', 'noopener noreferrer')
+    }
+  })
+}
+
+function renderMarkdown(markdown: string, breaks = false): SanitizedHtml {
   const parsedHtml = markdownParser.parse(markdown, {
     ...markdownOptions,
     breaks,
   })
-  const html = DOMPurify.sanitize(parsedHtml, sanitizeOptions)
 
-  return addExternalLinkAttributes(html)
+  if (typeof document === 'undefined') {
+    return sanitizeToHtml(parsedHtml, sanitizeOptions)
+  }
+
+  const fragment = sanitizeToFragment(parsedHtml, sanitizeOptions)
+  addExternalLinkAttributes(fragment)
+
+  // Link hardening mutates the DOM after the first pass. A final sanitizer pass
+  // makes the branded value safe for the only React HTML sink below.
+  return sanitizeToHtml(fragment, sanitizeOptions)
+}
+
+function SanitizedHtmlContent(props: {
+  className?: string
+  html: SanitizedHtml
+}): React.ReactElement {
+  return (
+    <div
+      className={props.className}
+      // biome-ignore lint/security/noDangerouslySetInnerHtml: SanitizedHtml values can only be created by DOMPurify.
+      // pi-lens-ignore: dangerously-set-inner-html, opengrep:typescript.react.security.audit.react-dangerouslysetinnerhtml.react-dangerouslysetinnerhtml
+      dangerouslySetInnerHTML={{ __html: props.html }}
+    />
+  )
 }
 
 export function Markdown(props: MarkdownProps) {
@@ -751,7 +806,7 @@ export function Markdown(props: MarkdownProps) {
   )
 
   return (
-    <div
+    <SanitizedHtmlContent
       className={cn(
         'prose prose-sm dark:prose-invert max-w-none',
         '[&_h1]:mt-6 [&_h1]:mb-3 [&_h1]:text-2xl [&_h1]:font-semibold',
@@ -783,7 +838,7 @@ export function Markdown(props: MarkdownProps) {
         '[overflow-wrap:anywhere]',
         props.className
       )}
-      dangerouslySetInnerHTML={{ __html: html }}
+      html={html}
     />
   )
 }

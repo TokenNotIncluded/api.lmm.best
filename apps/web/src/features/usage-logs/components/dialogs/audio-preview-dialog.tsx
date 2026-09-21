@@ -26,6 +26,13 @@ import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
 import { IconBadge } from '@/components/ui/icon-badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { copyToClipboard } from '@/lib/copy-to-clipboard'
+import { openExternalUrl } from '@/lib/external-navigation'
+import {
+  getTrustedLocalObjectUrl,
+  revokeTrustedObjectUrl,
+  validatedExternalUrl,
+} from '@/lib/validated-external-url'
 
 export interface AudioClip {
   clip_id?: string
@@ -65,11 +72,31 @@ function AudioClipCard({ clip }: { clip: AudioClip }) {
     setHasError(false)
   }, [clip.audio_url])
 
+  const rawAudioUrl = clip.audio_url ?? ''
+  const currentOrigin =
+    typeof window === 'undefined' ? '' : window.location.origin
+  const audioUrl = rawAudioUrl.startsWith('blob:')
+    ? getTrustedLocalObjectUrl(rawAudioUrl, currentOrigin)
+    : validatedExternalUrl(rawAudioUrl, {
+        protocols: ['https:'],
+        origins: 'any',
+        hosts: 'any',
+        paths: 'any',
+      })
+
+  useEffect(
+    () => () => {
+      if (audioUrl?.startsWith('blob:')) {
+        revokeTrustedObjectUrl(audioUrl)
+      }
+    },
+    [audioUrl]
+  )
+
   const title = clip.title || t('Untitled')
   const tags = clip.tags || clip.metadata?.tags || ''
   const duration = clip.duration || clip.metadata?.duration
   const imageUrl = clip.image_url || clip.image_large_url
-  const audioUrl = clip.audio_url
 
   if (!audioUrl) return null
 
@@ -111,7 +138,12 @@ function AudioClipCard({ clip }: { clip: AudioClip }) {
               variant='outline'
               size='sm'
               className='h-7 gap-1 text-xs'
-              onClick={() => window.open(audioUrl, '_blank')}
+              onClick={async () => {
+                // Invariant: audioUrl is credential-free HTTPS or a tracked local object URL.
+                // pi-lens-ignore: ts-open-redirect, no-open-redirect
+                const opened = await openExternalUrl(audioUrl)
+                if (!opened) toast.error(t('Unable to open link'))
+              }}
             >
               <ExternalLink className='h-3 w-3' />
               {t('Open in new tab')}
@@ -120,9 +152,13 @@ function AudioClipCard({ clip }: { clip: AudioClip }) {
               variant='outline'
               size='sm'
               className='h-7 gap-1 text-xs'
-              onClick={() => {
-                navigator.clipboard.writeText(audioUrl)
-                toast.success(t('Copied'))
+              onClick={async () => {
+                const copied = await copyToClipboard(audioUrl)
+                if (copied) {
+                  toast.success(t('Copied'))
+                } else {
+                  toast.error(t('Failed to copy to clipboard'))
+                }
               }}
             >
               <Copy className='h-3 w-3' />

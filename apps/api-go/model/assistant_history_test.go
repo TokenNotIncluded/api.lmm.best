@@ -19,7 +19,7 @@ func setupAssistantHistoryTestDB(t *testing.T) (*User, *User, *User, *User) {
 	db := setupConsoleActivationTestDB(t)
 	require.NoError(t, db.AutoMigrate(
 		&TopUp{},
-		&AssistantConversation{},
+		&AssistantConversation{}, &AssistantSupportRequest{},
 		&AssistantHistoryMessage{},
 		&AssistantSecureCard{},
 		&AssistantSecurityIncident{},
@@ -644,11 +644,11 @@ func TestAssistantHistoryPostgreSQLMigration(t *testing.T) {
 		t.Skip("set TEST_POSTGRES_DSN and TEST_POSTGRES_ISOLATED_SCHEMA=1 to run PostgreSQL assistant history migration test")
 	}
 	previousDB, previousLogDB := DB, LOG_DB
-	db := openIsolatedPostgresCacheTestDB(t, &AssistantConversation{}, &AssistantHistoryMessage{}, &AssistantSecureCard{})
+	db := openIsolatedPostgresCacheTestDB(t, &AssistantConversation{}, &AssistantSupportRequest{}, &AssistantHistoryMessage{}, &AssistantSecureCard{})
 	DB, LOG_DB = db, db
 	usePostgresDatabaseType(t)
 	t.Cleanup(func() { DB, LOG_DB = previousDB, previousLogDB })
-	for _, record := range []any{&AssistantConversation{}, &AssistantHistoryMessage{}, &AssistantSecureCard{}} {
+	for _, record := range []any{&AssistantConversation{}, &AssistantSupportRequest{}, &AssistantHistoryMessage{}, &AssistantSecureCard{}} {
 		require.True(t, DB.Migrator().HasTable(record))
 	}
 
@@ -658,4 +658,128 @@ func TestAssistantHistoryPostgreSQLMigration(t *testing.T) {
 	var messages []AssistantHistoryMessage
 	require.NoError(t, DB.Where("conversation_id = ?", conversation.Id).Find(&messages).Error)
 	require.Len(t, messages, 2)
+}
+
+func TestAssistantHistoryHumanGroupingPreservesIncompleteAITurnAndSequenceGuards(t *testing.T) {
+	owner, _, _, _ := setupAssistantHistoryTestDB(t)
+	conversation, err := PrepareAssistantConversation(owner.Id, 0, "history integrity")
+	require.NoError(t, err)
+	rows := []AssistantHistoryMessage{
+		{Sequence: 1, Role: AssistantHistoryRoleUser, Content: "orphan AI question"},
+		{Sequence: 2, Role: AssistantHistoryRoleUser, Content: "valid AI question"},
+		{Sequence: 3, Role: AssistantHistoryRoleAssistant, Content: "valid AI answer"},
+		{Sequence: 4, Role: AssistantHistoryRoleAssistant, Content: "orphan AI answer"},
+		{Sequence: 5, Role: AssistantHistoryRoleHuman, Content: "orphan human reply"},
+		{Sequence: 6, Role: AssistantHistoryRoleUser, Content: "gap-separated question"},
+		{Sequence: 8, Role: AssistantHistoryRoleHuman, Content: "gap-separated human reply"},
+		{Sequence: 9, Role: AssistantHistoryRoleCard, Content: "card metadata"},
+		{Sequence: 10, Role: AssistantHistoryRoleUser, Content: "valid support question"},
+		{Sequence: 11, Role: AssistantHistoryRoleHuman, Content: "valid support reply"},
+		{Sequence: 12, Role: AssistantHistoryRoleCard, Content: "another card"},
+		{Sequence: 13, Role: AssistantHistoryRoleHuman, Content: "card-separated human reply"},
+		{Sequence: 14, Role: AssistantHistoryRoleUser, Content: "trailing incomplete user"},
+	}
+	for index := range rows {
+		rows[index].ConversationId = conversation.Id
+		rows[index].CreatedAt = 1
+	}
+	require.NoError(t, DB.Create(&rows).Error)
+	messages, err := LoadAssistantConversationMessages(owner.Id, conversation.Id, 20)
+	require.NoError(t, err)
+	require.Len(t, messages, 4)
+	assert.Equal(t, "valid AI question", messages[0].Content)
+	assert.Equal(t, "valid AI answer", messages[1].Content)
+	assert.Equal(t, "valid support question", messages[2].Content)
+	assert.Equal(t, "[Human technical support] valid support reply", messages[3].Content)
+}
+
+func TestAssistantHistoryHumanGroupingKeepsLatestWholeMessagesWithinByteBudget(t *testing.T) {
+	owner, _, _, _ := setupAssistantHistoryTestDB(t)
+	conversation, err := PrepareAssistantConversation(owner.Id, 0, "bounded support context")
+	require.NoError(t, err)
+	rows := []AssistantHistoryMessage{{ConversationId: conversation.Id, Sequence: 1, Role: AssistantHistoryRoleUser, Content: "the latest question", CreatedAt: 1}}
+	// Legacy rows can predate storage trimming; human labels also consume the
+	// context budget. Preserve recent whole replies rather than partial UTF-8.
+	for index := 0; index < 100; index++ {
+		rows = append(rows, AssistantHistoryMessage{ConversationId: conversation.Id, Sequence: index + 2, Role: AssistantHistoryRoleHuman, Content: fmt.Sprintf("step-%d ", index) + strings.Repeat("界", 1000), CreatedAt: 1})
+	}
+	require.NoError(t, DB.Create(&rows).Error)
+	messages, err := LoadAssistantConversationMessages(owner.Id, conversation.Id, 2)
+	require.NoError(t, err)
+	require.Len(t, messages, 2)
+	assert.LessOrEqual(t, len(messages[0].Content)+len(messages[1].Content), assistantHistoryConversationMaxBytes)
+	assert.Equal(t, "the latest question", messages[0].Content)
+	assert.True(t, strings.HasSuffix(messages[1].Content, rows[len(rows)-1].Content))
+	assert.NotContains(t, messages[1].Content, "step-0 ")
+	assert.Contains(t, messages[1].Content, "[Human technical support] step-99 ")
+	for _, part := range strings.Split(messages[1].Content, "\n\n") {
+		assert.True(t, strings.HasPrefix(part, "[Human technical support] "))
+		assert.True(t, strings.HasSuffix(part, strings.Repeat("界", 1000)))
+	}
+}
+
+func TestAssistantTenTurnsRemainOneConversationAndRetryDoesNotAppend(t *testing.T) {
+	owner, _, _, _ := setupAssistantHistoryTestDB(t)
+	var conversationID int64
+	for turn := 1; turn <= 10; turn++ {
+		question := fmt.Sprintf("Question %d", turn)
+		answer := fmt.Sprintf("Answer %d", turn)
+		id, err := RecordAssistantConversationTurnForRequest(owner.Id, conversationID, question, answer)
+		require.NoError(t, err)
+		if conversationID != 0 {
+			require.Equal(t, conversationID, id)
+		}
+		conversationID = id
+		require.NoError(t, RecordAssistantConversationTurnForRetry(owner.Id, conversationID, question, answer))
+	}
+	var conversations int64
+	require.NoError(t, DB.Model(&AssistantConversation{}).Where("user_id = ?", owner.Id).Count(&conversations).Error)
+	require.EqualValues(t, 1, conversations)
+	var messages []AssistantHistoryMessage
+	require.NoError(t, DB.Where("conversation_id = ?", conversationID).Order("sequence ASC").Find(&messages).Error)
+	require.Len(t, messages, 20)
+	for index, message := range messages {
+		require.Equal(t, index+1, message.Sequence)
+	}
+	// Recovery without an ID must never attach a lost first reply to an older
+	// multi-turn conversation just because one of its questions matches.
+	recovered, err := FindRecentAssistantConversationForRetry(owner.Id, "Question 1", time.Now().Add(-time.Minute))
+	require.NoError(t, err)
+	require.Nil(t, recovered)
+	recovered, err = FindRecentAssistantConversationForRetry(owner.Id, "Question 10", time.Now().Add(-time.Minute))
+	require.NoError(t, err)
+	require.Nil(t, recovered)
+}
+
+func TestAssistantTurnReceiptsSeparateAccountsAndSurviveTrimming(t *testing.T) {
+	owner, other, _, _ := setupAssistantHistoryTestDB(t)
+	require.NoError(t, DB.AutoMigrate(&AssistantTurnReceipt{}))
+	turn := "client_turn_123456789"
+	id, err := RecordAssistantConversationTurnForRequest(owner.Id, 0, "same question", "first answer", turn)
+	require.NoError(t, err)
+	again, err := RecordAssistantConversationTurnForRequest(owner.Id, 0, "same question", "duplicate answer", turn)
+	require.NoError(t, err)
+	require.Equal(t, id, again)
+	different, err := RecordAssistantConversationTurnForRequest(owner.Id, 0, "same question", "new answer", turn+"_new")
+	require.NoError(t, err)
+	require.NotEqual(t, id, different)
+	separate, err := RecordAssistantConversationTurnForRequest(other.Id, 0, "same question", "other answer", turn)
+	require.NoError(t, err)
+	require.NotEqual(t, id, separate)
+	_, err = RecordAssistantConversationTurnForRequest(owner.Id, 0, "changed question", "no", turn)
+	require.ErrorIs(t, err, ErrAssistantTurnConflict)
+	answer, err := LookupAssistantTurn(owner.Id, turn, 0, "same question")
+	require.NoError(t, err)
+	require.Equal(t, "first answer", answer.Content)
+	require.NoError(t, DB.Delete(answer).Error)
+	_, err = LookupAssistantTurn(owner.Id, turn, 0, "same question")
+	require.ErrorIs(t, err, ErrAssistantTurnExpired)
+	_, err = RecordAssistantConversationTurnForRequest(owner.Id, 0, "same question", "must not recreate", turn)
+	require.ErrorIs(t, err, ErrAssistantTurnExpired)
+	migrateUserAssistantData(t)
+	require.NoError(t, DB.Transaction(func(tx *gorm.DB) error { return deleteUserAssistantData(tx, owner.Id) }))
+	var remaining int64
+	require.NoError(t, DB.Model(&AssistantTurnReceipt{}).Count(&remaining).Error)
+	require.EqualValues(t, 1, remaining) // The other account retains its own receipt.
+
 }

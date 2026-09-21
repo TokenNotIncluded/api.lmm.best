@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { api } from '@/lib/http-client'
+import { api, type ApiRequestConfig } from '@/lib/http-client'
 
 export {
   applyAuthBundle,
@@ -93,15 +93,16 @@ export async function getStatus() {
   return extractStatusData(res.data)
 }
 
+function isUnknownRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
 export function extractStatusData(payload: unknown): Record<string, unknown> {
-  const data =
-    typeof payload === 'object' && payload !== null && 'data' in payload
-      ? (payload as { data?: unknown }).data
-      : undefined
-  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+  const data = isUnknownRecord(payload) ? payload.data : undefined
+  if (!isUnknownRecord(data)) {
     throw new Error('Status response did not include capability data')
   }
-  return data as Record<string, unknown>
+  return data
 }
 
 export async function getNotice(): Promise<{
@@ -121,8 +122,10 @@ export async function getNotice(): Promise<{
 // 2FA Management APIs
 // ============================================================================
 
-export async function get2FAStatus() {
-  const res = await api.get('/api/user/2fa/status')
+export async function get2FAStatus(
+  config: Pick<ApiRequestConfig, 'skipErrorHandler'> = {}
+) {
+  const res = await api.get('/api/user/2fa/status', config)
   return res.data
 }
 

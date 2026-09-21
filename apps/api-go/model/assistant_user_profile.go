@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"regexp"
@@ -271,6 +272,10 @@ func GetAssistantUserProfile(userID int) (*AssistantUserProfile, error) {
 // another account's internal profile. The query is batched for the page, so a
 // user table never incurs one profile query per row.
 func PopulateAssistantUserProfiles(users []*User, viewerUserID, viewerRole int) error {
+	return PopulateAssistantUserProfilesContext(context.Background(), users, viewerUserID, viewerRole)
+}
+
+func PopulateAssistantUserProfilesContext(ctx context.Context, users []*User, viewerUserID, viewerRole int) error {
 	authorizedIDs := make([]int, 0, len(users))
 	usersByID := make(map[int]*User, len(users))
 	for _, user := range users {
@@ -289,7 +294,7 @@ func PopulateAssistantUserProfiles(users []*User, viewerUserID, viewerRole int) 
 	}
 
 	var profiles []AssistantUserProfile
-	if err := DB.Where("user_id IN ? AND enabled = ?", authorizedIDs, true).
+	if err := DB.WithContext(ctx).Where("user_id IN ? AND enabled = ?", authorizedIDs, true).
 		Select("user_id, profile_key, tags_json, source, updated_at").
 		Find(&profiles).Error; err != nil {
 		return err

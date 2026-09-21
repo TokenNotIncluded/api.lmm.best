@@ -73,7 +73,7 @@ function getLineAndColumn(
   text: string,
   position: number
 ): { line: number; column: number } {
-  const lines = text.substring(0, position).split('\n')
+  const lines = text.slice(0, position).split('\n')
   return {
     line: lines.length,
     column: (lines.at(-1)?.length ?? 0) + 1,
@@ -132,7 +132,7 @@ export function safeJsonParse<T = unknown>(
         : 'Invalid JSON format'
       const description = formatErrorDescription(error, trimmedValue)
       // eslint-disable-next-line no-console
-      console.error(`[JSON Parse Error] ${message}:`, description)
+      console.error('[JSON Parse Error] %s:', message, description)
     }
     return (fallback ?? null) as T
   }
@@ -158,7 +158,7 @@ export function safeJsonParseWithValidation<T>(
         validatorMessage ??
         (context ? `Invalid ${context} structure` : 'Invalid data structure')
       // eslint-disable-next-line no-console
-      console.error(`[JSON Validation Error] ${message}`, { parsed })
+      console.error('[JSON Validation Error] %s', message, { parsed })
     }
     return fallback
   }

@@ -20,6 +20,7 @@ import { api } from '@/lib/api'
 import type { CustomOAuthBinding } from '@/lib/oauth'
 import type { LoginSession } from '@/stores/auth-store'
 
+import type { ProfileUsageQueryRange, ProfileUsageRow } from './lib/activity'
 import type {
   ApiResponse,
   UserProfile,
@@ -30,6 +31,7 @@ import type {
   CheckinResponse,
   GiftItem,
   GiftClaimResponse,
+  SettlementCurrencyPreference,
 } from './types'
 
 // ============================================================================
@@ -42,6 +44,24 @@ import type {
 export async function getUserProfile(): Promise<ApiResponse<UserProfile>> {
   const res = await api.get('/api/user/self')
   return res.data
+}
+
+/**
+ * Fetch one bounded window of the current user's token activity.
+ */
+export async function getProfileUsageWindow(
+  params: ProfileUsageQueryRange
+): Promise<ProfileUsageRow[]> {
+  const res = await api.get<ApiResponse<ProfileUsageRow[]>>('/api/data/self', {
+    params: { ...params, default_time: 'day' },
+    skipBusinessError: true,
+    skipErrorHandler: true,
+  })
+
+  if (!res.data.success) {
+    throw new Error(res.data.message || 'Unable to load profile activity')
+  }
+  return res.data.data ?? []
 }
 
 /**
@@ -73,6 +93,19 @@ export async function updateUserLanguage(
   language: string
 ): Promise<ApiResponse> {
   const res = await api.put('/api/user/self', { language })
+  return res.data
+}
+
+/** Save only the customer fiat preference, without changing language or quota. */
+export async function updateSettlementCurrency(
+  settlementCurrency: SettlementCurrencyPreference,
+  signal?: AbortSignal
+): Promise<ApiResponse> {
+  const res = await api.put(
+    '/api/user/self',
+    { settlement_currency: settlementCurrency },
+    { signal, skipBusinessError: true, skipErrorHandler: true }
+  )
   return res.data
 }
 
@@ -148,8 +181,23 @@ export async function startTelegramBind(): Promise<
 // Login Session APIs
 // ============================================================================
 
-export async function getLoginSessions(): Promise<ApiResponse<LoginSession[]>> {
+interface LoginSessionsResponse extends ApiResponse<LoginSession[]> {
+  session_auto_logout?: boolean
+}
+
+export async function getLoginSessions(): Promise<LoginSessionsResponse> {
   const res = await api.get('/api/user/sessions')
+  return res.data
+}
+
+export async function updateLoginSessionSettings(
+  sessionAutoLogout: boolean
+): Promise<ApiResponse> {
+  const res = await api.put(
+    '/api/user/sessions/settings',
+    { session_auto_logout: sessionAutoLogout },
+    { skipBusinessError: true, skipErrorHandler: true }
+  )
   return res.data
 }
 

@@ -1,7 +1,7 @@
 package model
 
 import (
-	"crypto/rand"
+	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -76,7 +76,7 @@ type OpenSourceBountyMCPTokenStatus struct {
 
 func newOpenSourceBountyMCPSecret() (string, error) {
 	raw := make([]byte, 32)
-	if _, err := rand.Read(raw); err != nil {
+	if _, err := cryptorand.Read(raw); err != nil {
 		return "", err
 	}
 	return openSourceBountyMCPTokenPrefix + base64.RawURLEncoding.EncodeToString(raw), nil
@@ -185,7 +185,7 @@ func VerifyOpenSourceBountyMCPToken(rawToken string) (int, error) {
 
 func CreateOpenSourceBountyMCPConfirmation(userId int, toolName string, payloadHash string) (string, error) {
 	raw := make([]byte, 24)
-	if _, err := rand.Read(raw); err != nil {
+	if _, err := cryptorand.Read(raw); err != nil {
 		return "", err
 	}
 	now := common.GetTimestamp()

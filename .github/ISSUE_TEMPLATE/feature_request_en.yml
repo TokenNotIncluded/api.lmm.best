@@ -11,7 +11,7 @@ body:
 
         Explain how this request improves LMM Forge bounty collaboration, delivery tracking, or operations.
 
-        Search this repository's Issues, then review the [project README](https://github.com/LIghtJUNction/api.lmm.best#readme) and [bounty workflow guide](https://github.com/LIghtJUNction/api.lmm.best/blob/main/docs/open-source-bounties.zh-CN.md) before submitting.
+        Search this repository's Issues, then review the [project README](https://github.com/TokenNotIncluded/api.lmm.best#readme) and [bounty workflow guide](https://github.com/TokenNotIncluded/api.lmm.best/blob/main/docs/open-source-bounties.zh-CN.md) before submitting.
 
         ## Rewards for valid feedback
 
@@ -22,7 +22,7 @@ body:
     attributes:
       label: Submission checks
       options:
-        - label: I searched this repository's [Issues](https://github.com/LIghtJUNction/api.lmm.best/issues) and found no duplicate request.
+        - label: I searched this repository's [Issues](https://github.com/TokenNotIncluded/api.lmm.best/issues) and found no duplicate request.
           required: true
         - label: I explained how this feature serves the current LMM Forge product workflow.
           required: true

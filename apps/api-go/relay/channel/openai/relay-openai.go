@@ -1,9 +1,11 @@
 package openai
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/constant"
@@ -17,7 +19,23 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/service"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
+
+func hasVisibleStreamOutput(data string) bool {
+	for _, choice := range gjson.Get(data, "choices").Array() {
+		delta := choice.Get("delta")
+		if delta.Get("content").String() != "" ||
+			delta.Get("reasoning_content").String() != "" ||
+			delta.Get("reasoning").String() != "" ||
+			delta.Get("tool_calls.#").Int() > 0 ||
+			delta.Get("function_call.name").String() != "" ||
+			delta.Get("function_call.arguments").String() != "" {
+			return true
+		}
+	}
+	return false
+}
 
 func sendStreamData(c *gin.Context, info *relaycommon.RelayInfo, data string, forceFormat bool, thinkToContent bool) error {
 	if data == "" {
@@ -100,6 +118,17 @@ func sendStreamData(c *gin.Context, info *relaycommon.RelayInfo, data string, fo
 	return helper.ObjectData(c, lastStreamResponse)
 }
 
+func shouldHoldOpenAIUsageChunk(info *relaycommon.RelayInfo, data string) bool {
+	if info == nil || info.RelayFormat != types.RelayFormatOpenAI || info.ShouldIncludeUsage {
+		return false
+	}
+	usage := gjson.Get(data, "usage")
+	if !usage.Exists() || usage.Type != gjson.JSON {
+		return false
+	}
+	return usage.Get("prompt_tokens").Int() != 0 || usage.Get("completion_tokens").Int() != 0
+}
+
 func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	if resp == nil || resp.Body == nil {
 		logger.LogError(c, "invalid response or response body")
@@ -107,6 +136,10 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	}
 
 	defer service.CloseResponseBodyGracefully(resp)
+	info.FirstResponseObserved = false
+	if info.FirstResponseTimeout <= 0 && common.OpenAIFirstOutputTimeout > 0 {
+		info.FirstResponseTimeout = time.Duration(common.OpenAIFirstOutputTimeout) * time.Second
+	}
 
 	model := info.UpstreamModelName
 	var responseId string
@@ -117,6 +150,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	var toolCount int
 	var usage = &dto.Usage{}
 	var lastStreamData string
+	var lastStreamDataSent bool
 	var secondLastStreamData string // 存储倒数第二个stream data，用于音频模型
 	seenStreamToolCalls := make(map[string]struct{})
 	var streamFunctionCallNames []string
@@ -125,11 +159,14 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	isAudioModel := strings.Contains(strings.ToLower(model), "audio")
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
-		if lastStreamData != "" {
+		if lastStreamData != "" && !lastStreamDataSent && !shouldHoldOpenAIUsageChunk(info, lastStreamData) {
 			if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
 				common.SysLog("error handling stream format: " + err.Error())
 				sr.Error(err)
+			} else if hasVisibleStreamOutput(lastStreamData) {
+				sr.MarkFirstResponse()
 			}
+			lastStreamDataSent = true
 		}
 		if len(data) > 0 {
 			// 对音频模型，保存倒数第二个stream data
@@ -138,13 +175,39 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 			}
 
 			lastStreamData = data
+			lastStreamDataSent = false
 			collectStreamFunctionCallNames(data, seenStreamToolCalls, &streamFunctionCallNames)
 			if err := processTokenData(info.RelayMode, data, &responseTextBuilder, &toolCount); err != nil {
 				logger.LogError(c, "error processing stream token data: "+err.Error())
 				sr.Error(err)
 			}
+			if info.RelayFormat == types.RelayFormatOpenAI && !shouldHoldOpenAIUsageChunk(info, data) {
+				if err := HandleStreamFormat(c, info, data, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+					common.SysLog("error handling stream format: " + err.Error())
+					sr.Error(err)
+				} else if hasVisibleStreamOutput(data) {
+					sr.MarkFirstResponse()
+				}
+				lastStreamDataSent = true
+			}
+			// Converted protocols do not need to wait for the next upstream event:
+			// forwarding the current chunk here avoids adding one model-token worth
+			// of latency before Claude/Gemini clients see the first output.
+			if info.RelayFormat != types.RelayFormatOpenAI && !shouldHoldOpenAIUsageChunk(info, data) {
+				if err := HandleStreamFormat(c, info, data, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+					common.SysLog("error handling converted stream format: " + err.Error())
+					sr.Error(err)
+				} else if hasVisibleStreamOutput(data) {
+					sr.MarkFirstResponse()
+				}
+				lastStreamDataSent = true
+			}
 		}
 	})
+	if errors.Is(info.StreamStatus.EndError, helper.ErrFirstResponseTimeout) && !info.FirstResponseObserved {
+		common.SetContextKey(c, constant.ContextKeyUpstreamChannelFailure, true)
+		return nil, types.NewOpenAIError(helper.ErrFirstResponseTimeout, types.ErrorCodeUpstreamTimeout, http.StatusGatewayTimeout)
+	}
 
 	// 对音频模型，从倒数第二个stream data中提取usage信息
 	if isAudioModel && secondLastStreamData != "" {
@@ -172,7 +235,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	}
 
 	if info.RelayFormat == types.RelayFormatOpenAI {
-		if shouldSendLastResp {
+		if shouldSendLastResp && !lastStreamDataSent {
 			_ = sendStreamData(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent)
 		}
 	}

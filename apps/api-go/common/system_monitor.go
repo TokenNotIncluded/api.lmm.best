@@ -1,6 +1,7 @@
 package common
 
 import (
+	"context"
 	"sync/atomic"
 	"time"
 
@@ -36,18 +37,27 @@ func init() {
 
 // StartSystemMonitor 启动系统监控
 func StartSystemMonitor() {
-	go func() {
-		for {
-			config := GetPerformanceMonitorConfig()
-			if !config.Enabled {
-				time.Sleep(30 * time.Second)
-				continue
-			}
+	go RunSystemMonitor(context.Background())
+}
 
+func RunSystemMonitor(ctx context.Context) {
+	for {
+		config := GetPerformanceMonitorConfig()
+		delay := 30 * time.Second
+		if config.Enabled {
 			updateSystemStatus()
-			time.Sleep(5 * time.Second)
+			delay = 5 * time.Second
 		}
-	}()
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return
+		case <-timer.C:
+		}
+	}
 }
 
 func updateSystemStatus() {

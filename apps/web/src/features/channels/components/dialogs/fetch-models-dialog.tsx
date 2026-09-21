@@ -140,7 +140,8 @@ export function FetchModelsDialog({
   }, [open, activeChannel?.id, customFetcher])
 
   const handleFetchModels = async () => {
-    if (!activeChannel && !customFetcher) return
+    const channelId = activeChannel?.id
+    if (channelId === undefined && !customFetcher) return
 
     setIsFetching(true)
     try {
@@ -150,7 +151,8 @@ export function FetchModelsDialog({
         setSelectedModels(existingModels)
         toast.success(t('Fetched {{count}} models', { count: list.length }))
       } else {
-        const response = await fetchUpstreamModels(activeChannel!.id)
+        if (channelId === undefined) return
+        const response = await fetchUpstreamModels(channelId)
         if (response.success) {
           const list = Array.isArray(response.data) ? response.data : []
           setFetchedModels(list)

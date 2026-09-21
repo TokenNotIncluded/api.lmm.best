@@ -64,6 +64,8 @@ for (const key of domGlobals) {
   })
 }
 
+const { QueryClient, QueryClientProvider } =
+  await import('@tanstack/react-query')
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const i18n = (await import('i18next')).default
@@ -92,6 +94,14 @@ const reactTestGlobals = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean
 }
 reactTestGlobals.IS_REACT_ACT_ENVIRONMENT = true
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: false,
+    },
+  },
+})
 
 type ApiMethod = (url: string, data?: unknown) => Promise<{ data: unknown }>
 type MockableApi = {
@@ -140,16 +150,18 @@ function deferred<T>() {
 
 function drawerTree(currentRow: Redemption) {
   return (
-    <I18nextProvider i18n={i18n}>
-      <RedemptionsProvider>
-        <RedemptionsMutateDrawer
-          open
-          currentRow={currentRow}
-          onOpenChange={() => undefined}
-        />
-      </RedemptionsProvider>
-      <Toaster duration={60_000} />
-    </I18nextProvider>
+    <QueryClientProvider client={queryClient}>
+      <I18nextProvider i18n={i18n}>
+        <RedemptionsProvider>
+          <RedemptionsMutateDrawer
+            open
+            currentRow={currentRow}
+            onOpenChange={() => undefined}
+          />
+        </RedemptionsProvider>
+        <Toaster duration={60_000} />
+      </I18nextProvider>
+    </QueryClientProvider>
   )
 }
 
@@ -167,6 +179,7 @@ async function renderDrawer(
       quotaPerUnit: 500000,
       usdExchangeRate: currency.usdExchangeRate,
       customCurrencySymbol: '¤',
+      customCurrencyCode: 'USD',
       customCurrencyExchangeRate: 1,
     },
   })
@@ -278,6 +291,7 @@ afterEach(async () => {
   apiClient.put = originalPut
   Reflect.set(console, 'log', originalConsoleLog)
   toast.dismiss()
+  queryClient.clear()
   domWindow.localStorage.clear()
   if (renderedDrawer) {
     await act(async () => renderedDrawer?.root.unmount())
@@ -301,7 +315,10 @@ test('redemption drawer shows the reported CNY quota without floating-point nois
   })
   await waitForLoadedForm()
 
-  assert.equal(getControlByLabel<HTMLInputElement>('Quota (CNY)').value, '200')
+  assert.equal(
+    getControlByLabel<HTMLInputElement>('Quota ($ (Platform))').value,
+    '200'
+  )
 })
 
 test('redemption drawer blocks updates and reports an error when loading rejects', async () => {
@@ -358,7 +375,10 @@ test('redemption drawer keeps the original quota when another field changes', as
 
   await renderDrawer(original)
   await waitForLoadedForm()
-  assert.equal(getControlByLabel<HTMLInputElement>('Quota (USD)').value, '1')
+  assert.equal(
+    getControlByLabel<HTMLInputElement>('Quota ($ (Platform))').value,
+    '1'
+  )
 
   await changeInput(getControlByLabel<HTMLInputElement>('Name'), 'renamed')
   await submitForm()
@@ -382,7 +402,10 @@ test('redemption drawer recalculates quota when the quota field changes', async 
 
   await renderDrawer(original)
   await waitForLoadedForm()
-  await changeInput(getControlByLabel<HTMLInputElement>('Quota (USD)'), '2')
+  await changeInput(
+    getControlByLabel<HTMLInputElement>('Quota ($ (Platform))'),
+    '2'
+  )
   await submitForm()
   await act(async () =>
     waitForCondition(() => updates.length === 1, 'update was not submitted')

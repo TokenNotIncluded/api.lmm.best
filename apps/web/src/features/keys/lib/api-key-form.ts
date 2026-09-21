@@ -161,6 +161,37 @@ export function transformFormDataToPayload(
 }
 
 /**
+ * Build an update payload that only changes the group, keeping every other
+ * field on the existing API key untouched. Used by the quick group-switch
+ * control in the API keys table so switching a key's group no longer
+ * requires opening the edit drawer.
+ */
+export function buildGroupChangePayload(
+  apiKey: ApiKey,
+  newGroup: string
+): ApiKeyFormData {
+  const isSwitchingToAuto = newGroup === 'auto'
+  const wasAlreadyAuto = (apiKey.group || '') === 'auto'
+  const storedAutoGroups = apiKey.auto_groups ?? []
+
+  return {
+    name: apiKey.name,
+    remain_quota: apiKey.remain_quota,
+    expired_time: apiKey.expired_time,
+    unlimited_quota: apiKey.unlimited_quota,
+    model_limits_enabled: apiKey.model_limits_enabled,
+    model_limits: apiKey.model_limits || '',
+    allow_ips: apiKey.allow_ips || '',
+    group: newGroup,
+    auto_groups:
+      isSwitchingToAuto && wasAlreadyAuto && storedAutoGroups.length > 0
+        ? storedAutoGroups
+        : [],
+    cross_group_retry: isSwitchingToAuto,
+  }
+}
+
+/**
  * Transform API key data to form defaults
  */
 export function transformApiKeyToFormDefaults(

@@ -149,21 +149,13 @@ export function AppHeader({
         <div className='ms-2 flex items-center'>{leftContent}</div>
       ) : null}
 
-      {/* Centered navigation. The absolutely-positioned full-width track keeps
-       * the links optically centered on the viewport regardless of how wide
-       * the brand block and the action cluster are; the track never intercepts
-       * clicks. `pointer-events` is inherited, so the nav must explicitly
-       * re-enable it for the links to stay clickable (same pattern as the
-       * public header). */}
       {showTopNav && (
-        <div className='pointer-events-none absolute inset-x-0 hidden lg:block'>
-          <div className='flex justify-center'>
-            <TopNav
-              links={links}
-              className='pointer-events-auto'
-              aria-label={t('Header navigation')}
-            />
-          </div>
+        <div className='mx-auto hidden min-w-0 flex-1 justify-center px-4 lg:flex'>
+          <TopNav
+            links={links}
+            className='max-h-11 min-w-0 [scrollbar-width:none] overflow-x-auto p-1 whitespace-nowrap [&::-webkit-scrollbar]:hidden'
+            aria-label={t('Header navigation')}
+          />
         </div>
       )}
 
@@ -179,7 +171,7 @@ export function AppHeader({
               variant='ghost'
               size='icon'
               className={cn(
-                'relative size-8',
+                'relative hidden size-8 sm:inline-flex',
                 railOpen && 'bg-accent text-accent-foreground'
               )}
               aria-label={t('Open AI assistant')}
@@ -204,6 +196,7 @@ export function AppHeader({
               onTabChange={notifications.setActiveTab}
               notice={notifications.notice}
               announcements={notifications.announcements}
+              ratioFeed={notifications.ratioFeed}
               bountyTips={notifications.bountyTips}
               thankingTipId={notifications.thankingTipId}
               onThankTip={notifications.thankTip}

@@ -46,7 +46,7 @@ func (a *AssistantFunding) reserve(amount int, enforceWalletBalance bool) error 
 	if enforceWalletBalance {
 		query = query.Where("quota >= ?", amount)
 	}
-	result := query.UpdateColumn("quota", gorm.Expr("quota - ?", amount))
+	result := model.UpdateWalletQuotaByDelta(query, -amount)
 	if result.Error != nil {
 		return result.Error
 	}
@@ -102,9 +102,10 @@ func (a *AssistantFunding) release(amount int) error {
 	if model.DB == nil || a.userId <= 0 {
 		return ErrAssistantBillingAccountUnavailable
 	}
-	result := model.DB.Unscoped().Model(&model.User{}).
-		Where("id = ?", a.userId).
-		UpdateColumn("quota", gorm.Expr("quota + ?", amount))
+	result := model.UpdateWalletQuotaByDelta(
+		model.DB.Unscoped().Model(&model.User{}).Where("id = ?", a.userId),
+		amount,
+	)
 	if result.Error != nil {
 		return result.Error
 	}

@@ -14,6 +14,7 @@ import (
 
 const (
 	UnifiedTodoCategoryAll              = "all"
+	UnifiedTodoCategoryHumanSupport     = "human_support"
 	UnifiedTodoCategoryBounty           = "open_source_bounty"
 	UnifiedTodoCategoryBountyReview     = "open_source_bounty_review"
 	UnifiedTodoCategoryDeveloperAccess  = "developer_access"
@@ -91,6 +92,7 @@ type todoRef struct {
 }
 
 var unifiedTodoCategories = []string{
+	UnifiedTodoCategoryHumanSupport,
 	UnifiedTodoCategorySecurityIncident,
 	UnifiedTodoCategoryBountyReview,
 	UnifiedTodoCategoryBounty,
@@ -270,6 +272,16 @@ func todoRefs(db *gorm.DB, userID, role int, category string, offset, limit int)
 		args = append(args, values...)
 	}
 
+	if selected[UnifiedTodoCategoryHumanSupport] {
+		add(`SELECT support.id AS source_id, ? AS category, support.updated_at AS updated_at
+			FROM assistant_support_requests AS support
+			JOIN users AS requester ON requester.id = support.user_id AND requester.deleted_at IS NULL
+			JOIN users AS viewer ON viewer.id = ? AND viewer.deleted_at IS NULL
+			WHERE viewer.role >= ? AND viewer.status = ?
+			AND (support.status = ? OR (support.status = ? AND support.assigned_admin_id = ?))`,
+			UnifiedTodoCategoryHumanSupport, userID, common.RoleAdminUser, common.UserStatusEnabled,
+			AssistantSupportStatusPending, AssistantSupportStatusAccepted, userID)
+	}
 	if selected[UnifiedTodoCategorySecurityIncident] && isAdmin {
 		add(`SELECT incident.id AS source_id, ? AS category, incident.updated_at AS updated_at
 			FROM assistant_security_incidents AS incident
@@ -350,6 +362,8 @@ func loadTodoCandidates(db *gorm.DB, userID, role int, refs []todoRef) ([]unifie
 		var items []unifiedTodoCandidate
 		var err error
 		switch category {
+		case UnifiedTodoCategoryHumanSupport:
+			items, err = unifiedHumanSupportCandidates(db, userID, ids[category])
 		case UnifiedTodoCategorySecurityIncident:
 			items, err = unifiedSecurityIncidentCandidates(db, role, ids[category])
 		case UnifiedTodoCategorySecurityReview:
@@ -727,6 +741,11 @@ func readTodoPage(db *gorm.DB, userID, role int, category string, page, pageSize
 	for _, knownCategory := range unifiedTodoCategories {
 		var total, unread int64
 		switch knownCategory {
+		case UnifiedTodoCategoryHumanSupport:
+			total, err = unifiedHumanSupportCount(db, userID, false)
+			if err == nil {
+				unread, err = unifiedHumanSupportCount(db, userID, true)
+			}
 		case UnifiedTodoCategorySecurityIncident:
 			total, err = unifiedSecurityIncidentCount(db, userID, role, false)
 			if err == nil {
@@ -814,6 +833,8 @@ func readTodoPage(db *gorm.DB, userID, role int, category string, page, pageSize
 func visibleTodoQuery(db *gorm.DB, userID, role int, category string) (*gorm.DB, string, error) {
 	isAdmin := role >= common.RoleAdminUser
 	switch category {
+	case UnifiedTodoCategoryHumanSupport:
+		return unifiedHumanSupportQuery(db, userID).Select("support.id"), "support.id", nil
 	case UnifiedTodoCategorySecurityIncident:
 		return unifiedSecurityIncidentQuery(db, role).Select("incident.id"), "incident.id", nil
 	case UnifiedTodoCategorySecurityReview:

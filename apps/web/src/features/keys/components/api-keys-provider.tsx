@@ -16,10 +16,43 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import React, { useState, useCallback, useRef, useEffect } from 'react'
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
+import { useQueryClient } from '@tanstack/react-query'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { refreshCurrentAccount } from '@/features/onboarding/use-auth-user-refresh'
 import useDialogState from '@/hooks/use-dialog'
 
 import { fetchTokenKey, fetchTokenKeysBatch } from '../api'
@@ -30,13 +63,13 @@ type ApiKeysContextType = {
   open: ApiKeysDialogType | null
   setOpen: (str: ApiKeysDialogType | null) => void
   currentRow: ApiKey | null
-  setCurrentRow: React.Dispatch<React.SetStateAction<ApiKey | null>>
+  setCurrentRow: Dispatch<SetStateAction<ApiKey | null>>
   refreshTrigger: number
   triggerRefresh: () => void
   resolvedKey: string
-  setResolvedKey: React.Dispatch<React.SetStateAction<string>>
+  setResolvedKey: Dispatch<SetStateAction<string>>
   revealOpenKeyId: number | null
-  setRevealOpenKeyId: React.Dispatch<React.SetStateAction<number | null>>
+  setRevealOpenKeyId: Dispatch<SetStateAction<number | null>>
   resolveRealKey: (id: number) => Promise<string | null>
   resolveRealKeysBatch: (ids: number[]) => Promise<Record<number, string>>
   resolvedKeys: Record<number, string>
@@ -45,10 +78,12 @@ type ApiKeysContextType = {
   markKeyCopied: (id: number) => void
 }
 
-const ApiKeysContext = React.createContext<ApiKeysContextType | null>(null)
+const ApiKeysContext = createContext<ApiKeysContextType | null>(null)
 
-export function ApiKeysProvider({ children }: { children: React.ReactNode }) {
+export function ApiKeysProvider({ children }: { children: ReactNode }) {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const secretGeneration = useRef(0)
   const [open, setOpen] = useDialogState<ApiKeysDialogType>(null)
   const [currentRow, setCurrentRow] = useState<ApiKey | null>(null)
   const [refreshTrigger, setRefreshTrigger] = useState(0)
@@ -73,18 +108,40 @@ export function ApiKeysProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const triggerRefresh = useCallback(() => {
+    secretGeneration.current += 1
+    setResolvedKeys({})
+    setResolvedKey('')
+    setRevealOpenKeyId(null)
     setRefreshTrigger((prev) => prev + 1)
-  }, [])
+    void refreshCurrentAccount()
+    void Promise.all(
+      [
+        'keys',
+        'api-key',
+        'user-models',
+        'user-models-ccswitch',
+        'user-groups',
+        'pricing',
+        'assistant-pricing',
+        'assistant-available-models',
+        'assistant-status',
+        'assistant-journey',
+        'assistant-onboarding-todo',
+      ].map((key) => queryClient.invalidateQueries({ queryKey: [key] }))
+    ).catch(() => undefined)
+  }, [queryClient])
 
   const resolveRealKey = useCallback(
     async (id: number): Promise<string | null> => {
       if (resolvedKeys[id]) return resolvedKeys[id]
       if (id in pendingRequests.current) return pendingRequests.current[id]
 
+      const generation = secretGeneration.current
       const request = (async () => {
         setLoadingKeys((prev) => ({ ...prev, [id]: true }))
         try {
           const res = await fetchTokenKey(id)
+          if (generation !== secretGeneration.current) return null
           if (res.success && res.data?.key) {
             const fullKey = `sk-${res.data.key}`
             setResolvedKeys((prev) => ({ ...prev, [id]: fullKey }))
@@ -120,12 +177,16 @@ export function ApiKeysProvider({ children }: { children: React.ReactNode }) {
         return result
       }
 
-      for (const id of uncachedIds) {
-        setLoadingKeys((prev) => ({ ...prev, [id]: true }))
-      }
+      setLoadingKeys((prev) => {
+        const next = { ...prev }
+        for (const id of uncachedIds) next[id] = true
+        return next
+      })
 
+      const generation = secretGeneration.current
       try {
         const res = await fetchTokenKeysBatch(uncachedIds)
+        if (generation !== secretGeneration.current) return {}
         if (res.success && res.data?.keys) {
           const newKeys: Record<number, string> = {}
           for (const [idStr, key] of Object.entries(res.data.keys)) {
@@ -145,13 +206,11 @@ export function ApiKeysProvider({ children }: { children: React.ReactNode }) {
         toast.error(t(ERROR_MESSAGES.UNEXPECTED))
         return {}
       } finally {
-        for (const id of uncachedIds) {
-          setLoadingKeys((prev) => {
-            const next = { ...prev }
-            delete next[id]
-            return next
-          })
-        }
+        setLoadingKeys((prev) => {
+          const next = { ...prev }
+          for (const id of uncachedIds) delete next[id]
+          return next
+        })
       }
     },
     [resolvedKeys, t]
@@ -185,7 +244,7 @@ export function ApiKeysProvider({ children }: { children: React.ReactNode }) {
 
 // eslint-disable-next-line react-refresh/only-export-components
 export const useApiKeys = () => {
-  const apiKeysContext = React.useContext(ApiKeysContext)
+  const apiKeysContext = useContext(ApiKeysContext)
 
   if (!apiKeysContext) {
     throw new Error('useApiKeys has to be used within <ApiKeysContext>')

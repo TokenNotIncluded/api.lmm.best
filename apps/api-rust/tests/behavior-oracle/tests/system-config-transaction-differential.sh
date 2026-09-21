@@ -613,7 +613,7 @@ pair system-option-affinity-clear-unauth DELETE /api/option/channel_affinity_cac
 pair system-option-payment-compliance-unauth POST /api/option/payment_compliance '{}'
 pair system-option-project-update-unauth GET /api/option/project-update
 pair system-option-reset-ratio-unauth POST /api/option/rest_model_ratio '{}'
-pair system-option-waffo-catalog-unauth GET /api/option/waffo-pancake/catalog
+pair system-option-waffo-catalog-unauth POST /api/option/waffo-pancake/catalog '{}'
 pair system-option-waffo-pair-unauth POST /api/option/waffo-pancake/pair '{}'
 pair system-option-waffo-save-unauth POST /api/option/waffo-pancake/save '{}'
 pair system-option-waffo-subscription-product-unauth POST /api/option/waffo-pancake/subscription-product '{}'

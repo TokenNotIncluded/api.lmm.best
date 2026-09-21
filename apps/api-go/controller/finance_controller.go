@@ -54,6 +54,12 @@ type financeMethodMetric struct {
 	TokenUnits   int64  `json:"token_units"`
 }
 
+type financeCurrencyMetric struct {
+	Currency     string `json:"currency"`
+	AmountMicros int64  `json:"amount_micros"`
+	Orders       int64  `json:"orders"`
+}
+
 type financeDailyMetric struct {
 	Date          string `json:"date"`
 	RevenueMicros int64  `json:"revenue_micros"`
@@ -93,6 +99,12 @@ type financeOverview struct {
 	NetRevenueMicros int64        `json:"net_revenue_micros"`
 	ExpenseMicros    int64        `json:"expense_micros"`
 	ProfitMicros     int64        `json:"profit_micros"`
+	// SettlementRevenueByCurrency is the native-fiat view. RevenueMicros and
+	// profit remain USD-only; no exchange rate is guessed in the report layer.
+	SettlementRevenueByCurrency []financeCurrencyMetric `json:"settlement_revenue_by_currency"`
+	// Missing/invalid ISO currency, missing settlement micros, and wallet-funded
+	// platform amounts are deliberately counted but never folded into fiat.
+	UnclassifiedSettlementOrders int64 `json:"unclassified_settlement_orders"`
 	// Token usage is recorded independently from payment receipts. Once a
 	// payment-method filter is applied, historical usage cannot be attributed
 	// to that method unless the request log carries an explicit source, so the
@@ -116,16 +128,27 @@ type financeOverview struct {
 }
 
 type financeAccumulator struct {
-	overview        financeOverview
-	start           int64
-	end             int64
-	methods         map[string]*financeMethodMetric
-	refunds         map[string]*financeMethodMetric
-	expenses        map[string]*financeMethodMetric
-	daily           map[string]*financeDailyMetric
-	users           map[int]*financeUserMetric
-	methodUsers     map[string]map[int]struct{}
-	methodUserPairs int
+	overview          financeOverview
+	start             int64
+	end               int64
+	methods           map[string]*financeMethodMetric
+	refunds           map[string]*financeMethodMetric
+	expenses          map[string]*financeMethodMetric
+	settlementRevenue map[string]*financeCurrencyMetric
+	daily             map[string]*financeDailyMetric
+	users             map[int]*financeUserMetric
+	methodUsers       map[string]map[int]struct{}
+	methodUserPairs   int
+}
+
+type financeSubscriptionPaymentEventRow struct {
+	Id                     int
+	UserId                 int
+	PaymentMethod          string
+	PaymentProvider        string
+	SettlementCurrency     string
+	SettlementAmountMicros int64
+	CreatedTime            int64
 }
 
 func newFinanceAccumulator(start, end int64, paymentMethods []model.FinancePaymentMethod) *financeAccumulator {
@@ -142,7 +165,7 @@ func newFinanceAccumulator(start, end int64, paymentMethods []model.FinancePayme
 			MethodUserMetricsLimit:    financeDashboardMaxMethodUserPairs,
 		},
 		start: start, end: end,
-		methods: make(map[string]*financeMethodMetric), refunds: make(map[string]*financeMethodMetric), expenses: make(map[string]*financeMethodMetric), daily: make(map[string]*financeDailyMetric), users: make(map[int]*financeUserMetric), methodUsers: make(map[string]map[int]struct{}),
+		methods: make(map[string]*financeMethodMetric), refunds: make(map[string]*financeMethodMetric), expenses: make(map[string]*financeMethodMetric), settlementRevenue: make(map[string]*financeCurrencyMetric), daily: make(map[string]*financeDailyMetric), users: make(map[int]*financeUserMetric), methodUsers: make(map[string]map[int]struct{}),
 	}
 }
 
@@ -214,6 +237,28 @@ func (a *financeAccumulator) addRevenue(method, provider string, amount, timesta
 	}
 	a.overview.RevenueMicros += amount
 	a.dailyMetric(timestamp).RevenueMicros += amount
+}
+
+func (a *financeAccumulator) addSettlementRevenue(currency, method, provider string, amount, timestamp int64, userID int) {
+	currency, validCurrency := financeNormalizeSettlementCurrency(currency)
+	if !validCurrency || amount <= 0 {
+		a.overview.UnclassifiedSettlementOrders++
+		return
+	}
+	metric := a.settlementRevenue[currency]
+	if metric == nil {
+		metric = &financeCurrencyMetric{Currency: currency}
+		a.settlementRevenue[currency] = metric
+	}
+	metric.AmountMicros += amount
+	metric.Orders++
+	if currency == model.FinanceCurrencyUSD {
+		a.addRevenue(method, provider, amount, timestamp, userID)
+	}
+}
+
+func (a *financeAccumulator) markUnclassifiedSettlement() {
+	a.overview.UnclassifiedSettlementOrders++
 }
 
 func (a *financeAccumulator) addExpense(category, method, provider string, amount, timestamp int64, userID int) {
@@ -306,6 +351,9 @@ func (a *financeAccumulator) finish() financeOverview {
 	for _, metric := range a.refunds {
 		a.overview.RefundByMethod = append(a.overview.RefundByMethod, *metric)
 	}
+	for _, metric := range a.settlementRevenue {
+		a.overview.SettlementRevenueByCurrency = append(a.overview.SettlementRevenueByCurrency, *metric)
+	}
 	// Keep a stable daily series even when a window has no transactions. This
 	// lets the chart communicate "zero activity" instead of rendering an empty
 	// plot with no dates.
@@ -329,6 +377,9 @@ func (a *financeAccumulator) finish() financeOverview {
 	})
 	sort.Slice(a.overview.RefundByMethod, func(i, j int) bool {
 		return a.overview.RefundByMethod[i].AmountMicros > a.overview.RefundByMethod[j].AmountMicros
+	})
+	sort.Slice(a.overview.SettlementRevenueByCurrency, func(i, j int) bool {
+		return a.overview.SettlementRevenueByCurrency[i].Currency < a.overview.SettlementRevenueByCurrency[j].Currency
 	})
 	sort.Slice(a.overview.Daily, func(i, j int) bool { return a.overview.Daily[i].Date < a.overview.Daily[j].Date })
 	sort.Slice(a.overview.Users, func(i, j int) bool {
@@ -447,19 +498,25 @@ func financeTopUpAmount(topUp model.TopUp) int64 {
 	if topUp.SettledAmountMicros > 0 {
 		return topUp.SettledAmountMicros
 	}
-	if topUp.ExpectedAmountMicros > 0 {
-		return topUp.ExpectedAmountMicros
-	}
-	return financeMicrosFromFloat(topUp.Money)
+	return topUp.ExpectedAmountMicros
 }
 
-// The dashboard's monetary unit is explicitly USD. Empty currency is kept
-// compatible with historical rows that predate settlement_currency; a known
-// non-USD settlement must not be silently presented as USD without an
-// exchange-rate policy.
-func financeSettlementCurrencyAllowed(currency string) bool {
+func financeNormalizeSettlementCurrency(currency string) (string, bool) {
 	currency = strings.ToUpper(strings.TrimSpace(currency))
-	return currency == "" || currency == model.FinanceCurrencyUSD
+	if len(currency) != 3 {
+		return "", false
+	}
+	for index := range len(currency) {
+		if currency[index] < 'A' || currency[index] > 'Z' {
+			return "", false
+		}
+	}
+	return currency, true
+}
+
+func financePlatformPaymentSource(method, provider string) bool {
+	return strings.EqualFold(strings.TrimSpace(method), model.PaymentMethodBalance) ||
+		strings.EqualFold(strings.TrimSpace(provider), model.PaymentProviderBalance)
 }
 
 func financePaymentMethodAllowed(method, provider string, configs map[string]model.FinancePaymentMethod) bool {
@@ -669,6 +726,10 @@ func financeSourceCursor[T any](row T, timestampColumn string) (int64, int64) {
 			}
 			return timestamp, int64(value.Id)
 		}
+	case financeSubscriptionPaymentEventRow:
+		if timestampColumn == "created_time" {
+			return value.CreatedTime, int64(value.Id)
+		}
 	case model.FinanceLedgerEntry:
 		if timestampColumn == "occurred_at" {
 			return value.OccurredAt, value.Id
@@ -704,19 +765,16 @@ func buildFinanceOverview(start, end int64, userFilter int, methodFilter string)
 			WHERE subscription_order.trade_no = top_ups.trade_no
 			  AND subscription_order.status = ?
 		)`, common.TopUpStatusSuccess)
-	// FinanceOverview is a USD view; exclude known non-USD settlements rather
-	// than treating their native minor units as USD. Empty values are legacy
-	// rows and remain compatible with the historical USD assumption.
-	tx = tx.Where("(settlement_currency IS NULL OR settlement_currency = '' OR UPPER(settlement_currency) = ?)", model.FinanceCurrencyUSD)
 	if userFilter > 0 {
 		tx = tx.Where("user_id = ?", userFilter)
 	}
 	if err := iterateFinanceSource[model.TopUp](tx.Select("id, user_id, expected_amount_micros, settled_amount_micros, settlement_currency, money, payment_method, payment_provider, create_time, complete_time, status"), financeCompletionTimestamp, func(topUp model.TopUp) error {
 		method, provider := financeMethodFromTopUp(topUp)
-		if !financeSettlementCurrencyAllowed(topUp.SettlementCurrency) {
+		if methodFilter != "" && method != methodFilter {
 			return nil
 		}
-		if methodFilter != "" && method != methodFilter {
+		if financePlatformPaymentSource(method, provider) {
+			a.markUnclassifiedSettlement()
 			return nil
 		}
 		if !financePaymentMethodAllowed(method, provider, configMap) {
@@ -726,24 +784,30 @@ func buildFinanceOverview(start, end int64, userFilter int, methodFilter string)
 		if timestamp <= 0 {
 			timestamp = topUp.CreateTime
 		}
-		a.addRevenue(method, provider, financeTopUpAmount(topUp), timestamp, topUp.UserId)
+		a.addSettlementRevenue(topUp.SettlementCurrency, method, provider, financeTopUpAmount(topUp), timestamp, topUp.UserId)
 		return nil
 	}); err != nil {
 		return financeOverview{}, err
 	}
-	tx = model.DB.Where("status = ? AND "+financeCompletionTimestamp+" >= ? AND "+financeCompletionTimestamp+" < ?", common.TopUpStatusSuccess, start, end)
+
+	// A payment event is the immutable per-cycle settlement source of truth. A
+	// legacy/single-cycle order is counted only when no event exists, avoiding
+	// both initial-payment duplication and lost recurring renewals.
+	tx = model.DB.Where("status = ? AND "+financeCompletionTimestamp+" >= ? AND "+financeCompletionTimestamp+" < ?", common.TopUpStatusSuccess, start, end).
+		Where(`NOT EXISTS (
+			SELECT 1 FROM subscription_payment_events AS payment_event
+			WHERE payment_event.subscription_order_id = subscription_orders.id
+		)`)
 	if userFilter > 0 {
 		tx = tx.Where("user_id = ?", userFilter)
 	}
-	if err := iterateFinanceSource[model.SubscriptionOrder](tx.Select("id, user_id, money, payment_method, payment_provider, create_time, complete_time, status"), financeCompletionTimestamp, func(order model.SubscriptionOrder) error {
-		method, provider := strings.TrimSpace(order.PaymentMethod), strings.TrimSpace(order.PaymentProvider)
-		if method == "" {
-			method = provider
-		}
-		if provider == "" {
-			provider = method
-		}
+	if err := iterateFinanceSource[model.SubscriptionOrder](tx.Select("id, user_id, expected_amount_micros, settlement_currency, payment_method, payment_provider, create_time, complete_time, status"), financeCompletionTimestamp, func(order model.SubscriptionOrder) error {
+		method, provider := financeNormalizePaymentSource(order.PaymentMethod, order.PaymentProvider)
 		if methodFilter != "" && method != methodFilter {
+			return nil
+		}
+		if financePlatformPaymentSource(method, provider) {
+			a.markUnclassifiedSettlement()
 			return nil
 		}
 		if !financePaymentMethodAllowed(method, provider, configMap) {
@@ -753,7 +817,41 @@ func buildFinanceOverview(start, end int64, userFilter int, methodFilter string)
 		if timestamp <= 0 {
 			timestamp = order.CreateTime
 		}
-		a.addRevenue(method, provider, financeMicrosFromFloat(order.Money), timestamp, order.UserId)
+		a.addSettlementRevenue(order.SettlementCurrency, method, provider, order.ExpectedAmountMicros, timestamp, order.UserId)
+		return nil
+	}); err != nil {
+		return financeOverview{}, err
+	}
+
+	eventSource := model.DB.Table("subscription_payment_events AS payment_event").
+		Select(`payment_event.id AS id,
+			subscription_order.user_id AS user_id,
+			subscription_order.payment_method AS payment_method,
+			payment_event.payment_provider AS payment_provider,
+			payment_event.settlement_currency AS settlement_currency,
+			payment_event.settlement_amount_micros AS settlement_amount_micros,
+			payment_event.created_time AS created_time`).
+		Joins("JOIN subscription_orders AS subscription_order ON subscription_order.id = payment_event.subscription_order_id").
+		Where("subscription_order.status = ? AND payment_event.created_time >= ? AND payment_event.created_time < ?", common.TopUpStatusSuccess, start, end)
+	if userFilter > 0 {
+		eventSource = eventSource.Where("subscription_order.user_id = ?", userFilter)
+	}
+	// Wrap the joined source so the generic cursor's id/created_time columns are
+	// unambiguous on SQLite, Postgres, and MySQL alike.
+	eventQuery := model.DB.Table("(?) AS subscription_payment_source", eventSource)
+	if err := iterateFinanceSource[financeSubscriptionPaymentEventRow](eventQuery, "created_time", func(event financeSubscriptionPaymentEventRow) error {
+		method, provider := financeNormalizePaymentSource(event.PaymentMethod, event.PaymentProvider)
+		if methodFilter != "" && method != methodFilter {
+			return nil
+		}
+		if financePlatformPaymentSource(method, provider) {
+			a.markUnclassifiedSettlement()
+			return nil
+		}
+		if !financePaymentMethodAllowed(method, provider, configMap) {
+			return nil
+		}
+		a.addSettlementRevenue(event.SettlementCurrency, method, provider, event.SettlementAmountMicros, event.CreatedTime, event.UserId)
 		return nil
 	}); err != nil {
 		return financeOverview{}, err

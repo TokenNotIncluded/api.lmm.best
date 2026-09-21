@@ -23,15 +23,107 @@ For commercial licensing, please contact support@quantumnous.com
  * normalise server-provided credential options into browser-compatible types.
  */
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
-/**
- * Convert a base64url string to an ArrayBuffer.
- */
 type NodeBufferCtor = {
   from(input: string, encoding: string): { toString(encoding: string): string }
 }
 
+type EncodedCredentialDescriptor = Omit<PublicKeyCredentialDescriptor, 'id'> & {
+  id: string
+}
+
+type CredentialCreationOptionsWithFormats = Omit<
+  PublicKeyCredentialCreationOptions,
+  'attestationFormats'
+> & {
+  attestationFormats?: string[]
+}
+
+type EncodedCredentialCreationOptions = Omit<
+  CredentialCreationOptionsWithFormats,
+  'challenge' | 'excludeCredentials' | 'user'
+> & {
+  challenge: string
+  excludeCredentials?: EncodedCredentialDescriptor[]
+  user: Omit<PublicKeyCredentialUserEntity, 'id'> & { id: string }
+}
+
+type EncodedCredentialRequestOptions = Omit<
+  PublicKeyCredentialRequestOptions,
+  'allowCredentials' | 'challenge'
+> & {
+  allowCredentials?: EncodedCredentialDescriptor[]
+  challenge: string
+}
+
+function isUnknownRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isEncodedCredentialDescriptor(
+  value: unknown
+): value is EncodedCredentialDescriptor {
+  return (
+    isUnknownRecord(value) &&
+    value.type === 'public-key' &&
+    typeof value.id === 'string' &&
+    (value.transports === undefined ||
+      (Array.isArray(value.transports) &&
+        value.transports.every((transport) => typeof transport === 'string')))
+  )
+}
+
+function resolveCredentialOptions(payload: unknown): unknown {
+  if (!isUnknownRecord(payload)) return undefined
+  return (
+    payload.publicKey ??
+    payload.PublicKey ??
+    payload.response ??
+    payload.Response ??
+    payload
+  )
+}
+
+function isEncodedCredentialCreationOptions(
+  value: unknown
+): value is EncodedCredentialCreationOptions {
+  if (!isUnknownRecord(value)) return false
+  const { user, rp, pubKeyCredParams, excludeCredentials } = value
+  return (
+    typeof value.challenge === 'string' &&
+    isUnknownRecord(user) &&
+    typeof user.id === 'string' &&
+    typeof user.name === 'string' &&
+    typeof user.displayName === 'string' &&
+    isUnknownRecord(rp) &&
+    typeof rp.name === 'string' &&
+    Array.isArray(pubKeyCredParams) &&
+    pubKeyCredParams.every(
+      (parameter) =>
+        isUnknownRecord(parameter) &&
+        parameter.type === 'public-key' &&
+        typeof parameter.alg === 'number'
+    ) &&
+    (excludeCredentials === undefined ||
+      (Array.isArray(excludeCredentials) &&
+        excludeCredentials.every(isEncodedCredentialDescriptor)))
+  )
+}
+
+function isEncodedCredentialRequestOptions(
+  value: unknown
+): value is EncodedCredentialRequestOptions {
+  if (!isUnknownRecord(value)) return false
+  return (
+    typeof value.challenge === 'string' &&
+    (value.allowCredentials === undefined ||
+      (Array.isArray(value.allowCredentials) &&
+        value.allowCredentials.every(isEncodedCredentialDescriptor)))
+  )
+}
+
+/**
+ * Convert a base64url string to an ArrayBuffer.
+ */
 export function base64UrlToArrayBuffer(value?: string | null): ArrayBuffer {
   if (!value) return new ArrayBuffer(0)
 
@@ -105,45 +197,35 @@ export function arrayBufferToBase64Url(
  * Prepare credential creation options returned by the backend.
  */
 export function prepareCredentialCreationOptions(
-  payload: any
+  payload: unknown
 ): PublicKeyCredentialCreationOptions {
-  const options =
-    payload?.publicKey ??
-    payload?.PublicKey ??
-    payload?.response ??
-    payload?.Response
-
-  if (!options) {
+  const options = resolveCredentialOptions(payload)
+  if (!isEncodedCredentialCreationOptions(options)) {
     throw new Error(
       'Unable to parse Passkey registration options from response'
     )
   }
 
-  const publicKey: PublicKeyCredentialCreationOptions & Record<string, any> = {
-    ...options,
-    challenge: base64UrlToArrayBuffer(options.challenge),
+  const { attestationFormats, challenge, excludeCredentials, user, ...rest } =
+    options
+
+  const publicKey: CredentialCreationOptionsWithFormats = {
+    ...rest,
+    challenge: base64UrlToArrayBuffer(challenge),
     user: {
-      ...options.user,
-      id: base64UrlToArrayBuffer(options.user?.id),
+      ...user,
+      id: base64UrlToArrayBuffer(user.id),
     },
+    ...(excludeCredentials
+      ? {
+          excludeCredentials: excludeCredentials.map((item) => ({
+            ...item,
+            id: base64UrlToArrayBuffer(item.id),
+          })),
+        }
+      : {}),
+    ...(attestationFormats?.length ? { attestationFormats } : {}),
   }
-
-  if (Array.isArray(options.excludeCredentials)) {
-    publicKey.excludeCredentials = options.excludeCredentials.map(
-      (item: any) => ({
-        ...item,
-        id: base64UrlToArrayBuffer(item.id),
-      })
-    )
-  }
-
-  if (
-    Array.isArray(options.attestationFormats) &&
-    options.attestationFormats.length === 0
-  ) {
-    delete publicKey.attestationFormats
-  }
-
   return publicKey
 }
 
@@ -151,31 +233,26 @@ export function prepareCredentialCreationOptions(
  * Prepare credential request options returned by the backend.
  */
 export function prepareCredentialRequestOptions(
-  payload: any
+  payload: unknown
 ): PublicKeyCredentialRequestOptions {
-  const options =
-    payload?.publicKey ??
-    payload?.PublicKey ??
-    payload?.response ??
-    payload?.Response
-
-  if (!options) {
+  const options = resolveCredentialOptions(payload)
+  if (!isEncodedCredentialRequestOptions(options)) {
     throw new Error('Unable to parse Passkey login options from response')
   }
 
-  const publicKey: PublicKeyCredentialRequestOptions & Record<string, any> = {
-    ...options,
-    challenge: base64UrlToArrayBuffer(options.challenge),
+  const { allowCredentials, challenge, ...rest } = options
+  return {
+    ...rest,
+    challenge: base64UrlToArrayBuffer(challenge),
+    ...(allowCredentials
+      ? {
+          allowCredentials: allowCredentials.map((item) => ({
+            ...item,
+            id: base64UrlToArrayBuffer(item.id),
+          })),
+        }
+      : {}),
   }
-
-  if (Array.isArray(options.allowCredentials)) {
-    publicKey.allowCredentials = options.allowCredentials.map((item: any) => ({
-      ...item,
-      id: base64UrlToArrayBuffer(item.id),
-    }))
-  }
-
-  return publicKey
 }
 
 /**
@@ -183,7 +260,7 @@ export function prepareCredentialRequestOptions(
  */
 export function buildRegistrationResult(
   credential: PublicKeyCredential | null
-): Record<string, any> | null {
+): Record<string, unknown> | null {
   if (!credential) return null
 
   const response = credential.response as AuthenticatorAttestationResponse & {
@@ -214,7 +291,7 @@ export function buildRegistrationResult(
  */
 export function buildAssertionResult(
   credential: PublicKeyCredential | null
-): Record<string, any> | null {
+): Record<string, unknown> | null {
   if (!credential) return null
 
   const response = credential.response as AuthenticatorAssertionResponse

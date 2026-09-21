@@ -48,6 +48,7 @@ func AssistantRetentionCutoffsFromNow(now time.Time, activeDays, archivedDays, r
 }
 
 func assistantRetentionEligible(query *gorm.DB, cutoffs AssistantRetentionCutoffs) *gorm.DB {
+	query = query.Where("id NOT IN (?)", query.Session(&gorm.Session{NewDB: true}).Model(&AssistantSupportRequest{}).Select("conversation_id").Where("active_user_id IS NOT NULL"))
 	return query.Where(
 		"(restricted_at > 0 AND restricted_at < ?) OR "+
 			"(restricted_at = 0 AND archived_at > 0 AND archived_at < ?) OR "+
@@ -84,6 +85,29 @@ func PurgeAssistantConversationsBefore(ctx context.Context, cutoffs AssistantRet
 			conversationIDs = append(conversationIDs, conversation.Id)
 		}
 
+		// SELECT FOR UPDATE may have waited on a creator whose insert was not
+		// visible in that statement's snapshot. Recheck after the locks are
+		// acquired, before deleting any transcript or request rows. A locking
+		// read also uses current committed data under MySQL REPEATABLE READ.
+		var activeIDs []int64
+		if err := lockForUpdate(tx).Model(&AssistantSupportRequest{}).Where("conversation_id IN ? AND active_user_id IS NOT NULL", conversationIDs).Pluck("conversation_id", &activeIDs).Error; err != nil {
+			return err
+		}
+		active := make(map[int64]bool, len(activeIDs))
+		for _, id := range activeIDs {
+			active[id] = true
+		}
+		retained := conversationIDs[:0]
+		for _, id := range conversationIDs {
+			if !active[id] {
+				retained = append(retained, id)
+			}
+		}
+		conversationIDs = retained
+		if len(conversationIDs) == 0 {
+			return nil
+		}
+
 		var incidentIDs []int
 		if err := tx.Model(&AssistantSecurityIncident{}).
 			Where("conversation_id IN ?", conversationIDs).
@@ -97,6 +121,13 @@ func PurgeAssistantConversationsBefore(ctx context.Context, cutoffs AssistantRet
 			}
 		}
 
+		requests := tx.Model(&AssistantSupportRequest{}).Select("id").Where("conversation_id IN ?", conversationIDs)
+		if err := tx.Where("category = ? AND item_id IN (?)", UnifiedTodoCategoryHumanSupport, requests).Delete(&UnifiedTodoRead{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("conversation_id IN ?", conversationIDs).Delete(&AssistantSupportRequest{}).Error; err != nil {
+			return err
+		}
 		cards := tx.Where("conversation_id IN ?", conversationIDs).Delete(&AssistantSecureCard{})
 		if cards.Error != nil {
 			return cards.Error

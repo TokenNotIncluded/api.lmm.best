@@ -1,10 +1,10 @@
 # LMM Forge
 
-[![CI](https://github.com/LIghtJUNction/api.lmm.best/actions/workflows/ci.yml/badge.svg)](https://github.com/LIghtJUNction/api.lmm.best/actions/workflows/ci.yml)
+[![CI](https://github.com/TokenNotIncluded/api.lmm.best/actions/workflows/ci.yml/badge.svg)](https://github.com/TokenNotIncluded/api.lmm.best/actions/workflows/ci.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](./LICENSE)
-[![Release](https://img.shields.io/github/v/release/LIghtJUNction/api.lmm.best?display_name=tag)](https://github.com/LIghtJUNction/api.lmm.best/releases)
-[![Issues](https://img.shields.io/github/issues/LIghtJUNction/api.lmm.best)](https://github.com/LIghtJUNction/api.lmm.best/issues)
-[![Last Commit](https://img.shields.io/github/last-commit/LIghtJUNction/api.lmm.best)](https://github.com/LIghtJUNction/api.lmm.best/commits/main)
+[![Release](https://img.shields.io/github/v/release/TokenNotIncluded/api.lmm.best?display_name=tag)](https://github.com/TokenNotIncluded/api.lmm.best/releases)
+[![Issues](https://img.shields.io/github/issues/TokenNotIncluded/api.lmm.best)](https://github.com/TokenNotIncluded/api.lmm.best/issues)
+[![Last Commit](https://img.shields.io/github/last-commit/TokenNotIncluded/api.lmm.best)](https://github.com/TokenNotIncluded/api.lmm.best/commits/main)
 
 > **Access policy:** Access from China is prohibited.
 
@@ -41,12 +41,16 @@ Key differentiators:
 | Concern | Status |
 | --- | --- |
 | Frontend | Shared React application in `apps/web` |
-| Default backend | Go service in `apps/api-go` |
-| Preview backend | Rust service in `apps/api-rust` (not default production traffic)
-| Deployment | Shell-driven operations in `deploy/` and workflow automation in `.github/workflows` |
-| Packaging | Local/release packaging in `packaging/` |
+| Default backend | Go provider CLI/service in `apps/api-go` |
+| Preview backend | Rust provider CLI/service in `apps/api-rust` (not default production traffic) |
+| LMM CLI | Rust setup tool in [`apps/lmm`](apps/lmm/README.md) (preview: discovery, planning and read-only OAuth login) |
+| Deployment | Reviewed `/usr/bin/lmm-api-deploy` script plus manual release operations |
+| Packaging | Provider binaries and immutable runtime assets in `packaging/` |
 
-The production path compiles frontend assets, embeds verified assets into Go service output, and builds the standalone Go API binary.
+For existing standalone installations on systemd Linux, see
+[manual cross-distribution deployment](docs/manual-systemd-deployment.md).
+
+Providers install real `lmm-api-go` or `lmm-api-rs` binaries. Production and operator actions always enter through the one-hop `lmm-api` provider symlink. The frontend is released independently.
 
 ## Quick start
 
@@ -60,7 +64,7 @@ The production path compiles frontend assets, embeds verified assets into Go ser
 
 ```bash
 
-git clone https://github.com/LIghtJUNction/api.lmm.best.git
+git clone https://github.com/TokenNotIncluded/api.lmm.best.git
 cd api.lmm.best
 just setup
 ```

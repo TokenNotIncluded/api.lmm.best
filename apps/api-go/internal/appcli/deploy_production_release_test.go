@@ -49,11 +49,11 @@ func validProductionReleasePlanArguments(root string) []string {
 		"--web-rollback-package", path("web-old.pkg.tar.zst"),
 		"--web-rollback-release-asset", path("web-old.tar.gz"),
 		"--web-rollback-release-bundle", path("web-old.tar.gz.bundle"),
-		"--probe-binary", path("lmm-api"),
+		"--probe-binary", path(backendGoName),
 	}
 }
 
-func TestParseProductionReleasePlanConstrainsRollbackAndObservationWindows(t *testing.T) {
+func TestParseProductionReleasePlanConstrainsObservationWindowAndRemovesAutomaticRollbackFlags(t *testing.T) {
 	tests := []struct {
 		name  string
 		flags []string
@@ -61,8 +61,8 @@ func TestParseProductionReleasePlanConstrainsRollbackAndObservationWindows(t *te
 	}{
 		{name: "short observation", flags: []string{"--observation-seconds", "119"}, want: "between 120 and 360"},
 		{name: "long observation", flags: []string{"--observation-seconds", "361"}, want: "between 120 and 360"},
-		{name: "short rollback", flags: []string{"--rollback-seconds", "599"}, want: "exactly 600"},
-		{name: "long rollback", flags: []string{"--rollback-seconds", "601"}, want: "exactly 600"},
+		{name: "rollback seconds removed", flags: []string{"--rollback-seconds", "600"}, want: "flag provided but not defined"},
+		{name: "manual confirm removed because confirmation is always manual", flags: []string{"--manual-confirm"}, want: "flag provided but not defined"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -78,24 +78,21 @@ func TestParseProductionReleasePlanConstrainsRollbackAndObservationWindows(t *te
 func TestParseProductionReleasePlanAcceptsSafeAbsoluteInputs(t *testing.T) {
 	arguments := append(validProductionReleasePlanArguments(t.TempDir()),
 		"--observation-seconds", "240",
-		"--rollback-seconds", "600",
-		"--manual-confirm",
 		"--preserve-edge-policy",
 	)
 	options, err := parseProductionReleasePlanOptions(arguments, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if options.ObservationSeconds != 240 || options.RollbackSeconds != 600 ||
-		!options.ManualConfirm || !options.PreserveEdgePolicy {
+	if options.ObservationSeconds != 240 || !options.PreserveEdgePolicy {
 		t.Fatalf("options=%#v", options)
 	}
 }
 
-func TestParseProductionReleasePlanRequiresAgeRecipientWithBackups(t *testing.T) {
+func TestParseProductionReleasePlanRequiresControllerImportWithSelectedBackups(t *testing.T) {
 	arguments := append(validProductionReleasePlanArguments(t.TempDir()), "--with-backups")
 	_, err := parseProductionReleasePlanOptions(arguments, &bytes.Buffer{})
-	if err == nil || !strings.Contains(err.Error(), "--age-recipient-file is required") {
+	if err == nil || !strings.Contains(err.Error(), "--controller-backup-dir is required") {
 		t.Fatalf("backup input error=%v", err)
 	}
 }
@@ -138,7 +135,7 @@ type productionCanonicalPackageMetadataRunner struct {
 func (runner *productionCanonicalPackageMetadataRunner) Run(_ context.Context, command productionCommand) ([]byte, error) {
 	switch command.Name {
 	case commandPacman:
-		return []byte(productionAURPackageName + " 0.1.58-1\n"), nil
+		return []byte(productionAURPackageName + " 0.2.0-1\n"), nil
 	case commandBsdtar:
 		if len(command.Args) != 3 || command.Args[0] != "-xOf" {
 			return nil, errors.New("unexpected bsdtar arguments")
@@ -151,25 +148,25 @@ func (runner *productionCanonicalPackageMetadataRunner) Run(_ context.Context, c
 			return []byte(strings.Repeat("b", 64) + "\n"), nil
 		case strings.HasSuffix(member, "/RELEASE_ASSET_SHA256"):
 			return []byte(strings.Repeat("c", 64) + "\n"), nil
-		case member == "usr/bin/lmm-api":
-			return []byte("canonical-cli"), nil
 		case member == "usr/bin/lmm-api-go":
+			return []byte("provider-cli"), nil
+		case member == "usr/bin/lmm-api":
 			runner.requestedLegacy = true
-			return nil, errors.New("legacy member must not be read")
+			return nil, errors.New("generic member must not be read")
 		}
 	}
 	return nil, errors.New("unexpected command")
 }
 
-func TestPackageMetadataReadsCanonicalCLIWithoutFollowingCompatibilitySymlink(t *testing.T) {
+func TestPackageMetadataReadsProviderExecutableWithoutGenericFallback(t *testing.T) {
 	runner := &productionCanonicalPackageMetadataRunner{}
 	runtime := &productionRuntime{runner: runner}
-	metadata, err := runtime.packageMetadata(context.Background(), "/safe/lmm-api-go-bin-0.1.58-1-x86_64.pkg.tar.zst", productionAURPackageName)
+	metadata, err := runtime.packageMetadata(context.Background(), "/safe/lmm-api-go-bin-0.2.0-1-x86_64.pkg.tar.zst", productionAURPackageName)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if runner.requestedLegacy {
-		t.Fatal("package metadata read the compatibility symlink after finding the canonical CLI")
+		t.Fatal("package metadata attempted the removed generic CLI payload")
 	}
 	if metadata.ReleaseAssetSHA256 != strings.Repeat("c", 64) || !productionSHA256Pattern.MatchString(metadata.BinarySHA256) {
 		t.Fatalf("metadata=%#v", metadata)
@@ -186,13 +183,6 @@ func testProductionReleasePackage(t *testing.T, root, name, version, digest, pay
 	if err != nil {
 		t.Fatal(err)
 	}
-	cliPhase := ""
-	if name == productionAURPackageName {
-		cliPhase, err = packageCLITransitionPhase(name, version, "")
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
 	return productionReleasePackagePlan{
 		PackagePath:           filepath.Join(root, name+"-"+version+".pkg.tar.zst"),
 		PackageSHA256:         digest,
@@ -201,7 +191,6 @@ func testProductionReleasePackage(t *testing.T, root, name, version, digest, pay
 		Identity:              name + " " + version,
 		GitRevision:           strings.Repeat("a", 40),
 		ContractRevision:      strings.Repeat("b", 64),
-		CLITransitionPhase:    cliPhase,
 		PayloadSHA256:         payload,
 		ReleaseAsset:          filepath.Join(root, name+"-"+releaseVersion+".tar.gz"),
 		ReleaseAssetSHA256:    strings.Repeat("d", 64),
@@ -214,28 +203,30 @@ func testProductionReleasePackage(t *testing.T, root, name, version, digest, pay
 
 func testProductionReleasePlan(t *testing.T, root string) productionReleasePlan {
 	t.Helper()
-	goCandidate := testProductionReleasePackage(t, root, productionAURPackageName, "0.1.59-1", strings.Repeat("1", 64), strings.Repeat("2", 64))
-	goRollback := testProductionReleasePackage(t, root, productionAURPackageName, "0.1.57-1", strings.Repeat("3", 64), strings.Repeat("4", 64))
+	goCandidate := testProductionReleasePackage(t, root, productionAURPackageName, "0.2.0-1", strings.Repeat("1", 64), strings.Repeat("2", 64))
+	goRollback := testProductionReleasePackage(t, root, productionAURPackageName, "0.1.69-1", strings.Repeat("3", 64), strings.Repeat("4", 64))
 	web := testProductionReleasePackage(t, root, productionWebPackageName, "0.1.41-1", strings.Repeat("5", 64), strings.Repeat("6", 64))
 	return productionReleasePlan{
-		Format:              productionReleasePlanFormat,
-		DeploymentID:        "release-0.1.59-test",
+		// Keep this fixture format 5 to exercise legacy recovery compatibility.
+		Format:              5,
+		DeploymentID:        "release-0.2.0-test",
 		CreatedUTC:          time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC),
 		ControllerWorkspace: root,
 		Repository:          filepath.Join(root, "repo"),
 		TargetAlias:         productionTargetAlias,
 		ExpectedHost:        productionExpectedHost,
 		OperatorUser:        productionOperatorUser,
-		ExpectedVersion:     "0.1.59",
+		ExpectedVersion:     "0.2.0",
 		GoCandidate:         goCandidate,
 		GoRollback:          goRollback,
 		WebCandidate:        web,
 		WebRollback:         web,
-		ProbeBinary:         productionReleaseFilePlan{Path: filepath.Join(root, "lmm-api"), SHA256: goCandidate.PayloadSHA256},
-		OperatorBinary:      productionReleaseFilePlan{Path: filepath.Join(root, "lmm-api"), SHA256: goCandidate.PayloadSHA256},
+		ProbeBinary:         productionReleaseFilePlan{Path: filepath.Join(root, backendGoName), SHA256: goCandidate.PayloadSHA256},
+		OperatorBinary:      productionReleaseFilePlan{Path: filepath.Join(root, backendGoName), SHA256: goCandidate.PayloadSHA256},
 		GoChanged:           true,
 		ObservationSeconds:  180,
-		RollbackSeconds:     600,
+		WithBackups:         true,
+		AgeRecipient:        productionReleaseFilePlan{Path: filepath.Join(root, "age-recipient.txt"), SHA256: strings.Repeat("f", 64)},
 	}
 }
 
@@ -278,6 +269,31 @@ func TestValidateProductionReleasePlanRejectsCandidateContractMismatch(t *testin
 	}
 }
 
+func TestValidateLegacyProductionReleasePlanPreservesGoBackupRequirement(t *testing.T) {
+	plan := testProductionReleasePlan(t, t.TempDir())
+	plan.WithBackups = false
+	plan.AgeRecipient = productionReleaseFilePlan{}
+	if err := validateProductionReleasePlan(plan); err == nil || !strings.Contains(err.Error(), "Go changes require verified three-copy backups") {
+		t.Fatalf("Go backup requirement error=%v", err)
+	}
+}
+
+func TestValidateProductionReleasePlanAllowsWebOnlyWithoutBackups(t *testing.T) {
+	plan := testProductionReleasePlan(t, t.TempDir())
+	plan.GoCandidate = plan.GoRollback
+	plan.GoChanged = false
+	plan.ExpectedVersion = "0.1.69"
+	plan.ProbeBinary.SHA256 = plan.GoCandidate.PayloadSHA256
+	plan.OperatorBinary.SHA256 = plan.GoCandidate.PayloadSHA256
+	plan.WebCandidate = testProductionReleasePackage(t, plan.ControllerWorkspace, productionWebPackageName, "0.1.42-1", strings.Repeat("7", 64), strings.Repeat("8", 64))
+	plan.WebChanged = true
+	plan.WithBackups = false
+	plan.AgeRecipient = productionReleaseFilePlan{}
+	if err := validateProductionReleasePlan(plan); err != nil {
+		t.Fatalf("Web-only plan without backups rejected: %v", err)
+	}
+}
+
 func TestValidateProductionReleasePlanRequiresCandidateOperatorBinary(t *testing.T) {
 	plan := testProductionReleasePlan(t, t.TempDir())
 	plan.OperatorBinary.SHA256 = strings.Repeat("9", 64)
@@ -286,7 +302,7 @@ func TestValidateProductionReleasePlanRequiresCandidateOperatorBinary(t *testing
 	}
 }
 
-func testProductionPackageInfo(t *testing.T, name, version, phase string) string {
+func testProductionPackageInfo(t *testing.T, name, version string) string {
 	t.Helper()
 	releaseVersion, err := packageReleaseVersion(version)
 	if err != nil {
@@ -300,25 +316,11 @@ func testProductionPackageInfo(t *testing.T, name, version, phase string) string
 	}
 	if name == productionAURPackageName {
 		lines = append(lines, "arch = x86_64", "backup = etc/lmm-api-go/lmm-api-go.env")
-		conflicts := []string{"lmm-api", "lmm-api-bin", "lmm-api-git", "lmm-api-go", "lmm-api-go-git"}
-		integrated, err := isIntegratedOperatorPackage(name, version)
-		if err != nil {
-			t.Fatal(err)
-		}
-		provides := []string{"lmm-api=" + releaseVersion}
-		dependencies := []string{"ca-certificates", "systemd", "tzdata"}
-		if integrated {
-			dependencies = []string{"ca-certificates", "coreutils", "libarchive", "pacman", "paru", "sudo", "systemd", "tzdata", "util-linux"}
-		}
-		if phase == productionCLIPhaseT0 {
-			if integrated {
-				provides = append(provides, "lmm-api-go="+releaseVersion)
-			} else {
-				provides = []string{"lmm-api-go=" + releaseVersion}
-			}
-		} else {
-			conflicts = append(conflicts, "lmm-api-deploy", "lmm-api-deploy-bin")
-			lines = append(lines, "replaces = lmm-api-deploy-bin")
+		conflicts := []string{"lmm-api-go", "lmm-api-go-git"}
+		provides := []string{"lmm-api-go=" + releaseVersion, "lmm-api-provider"}
+		if version == "0.1.69-1" {
+			conflicts = []string{"lmm-api", "lmm-api-bin", "lmm-api-git", "lmm-api-go", "lmm-api-go-git"}
+			provides = []string{"lmm-api=" + releaseVersion, "lmm-api-go=" + releaseVersion}
 		}
 		for _, value := range conflicts {
 			lines = append(lines, "conflict = "+value)
@@ -326,7 +328,7 @@ func testProductionPackageInfo(t *testing.T, name, version, phase string) string
 		for _, value := range provides {
 			lines = append(lines, "provides = "+value)
 		}
-		for _, value := range dependencies {
+		for _, value := range []string{"ca-certificates", "coreutils", "libarchive", "pacman", "paru", "sudo", "systemd", "tzdata", "util-linux"} {
 			lines = append(lines, "depend = "+value)
 		}
 	} else {
@@ -335,7 +337,11 @@ func testProductionPackageInfo(t *testing.T, name, version, phase string) string
 			"conflict = lmm-api-web",
 			"provides = lmm-api-web="+releaseVersion,
 		)
-		for _, value := range []string{"bash", "coreutils", "diffutils", "findutils", "gawk", "grep", "nginx", "sed", "systemd", "util-linux"} {
+		dependencies := []string{"lmm-api-provider", "nginx"}
+		if version == "0.1.50-1" {
+			dependencies = []string{"bash", "coreutils", "diffutils", "findutils", "gawk", "grep", "nginx", "sed", "systemd", "util-linux"}
+		}
+		for _, value := range dependencies {
 			lines = append(lines, "depend = "+value)
 		}
 	}
@@ -416,9 +422,9 @@ func writeTestTarGzip(t *testing.T, path string, entries []testTarEntry) {
 
 func testEdgePolicyTarEntries(prefix string) []testTarEntry {
 	return []testTarEntry{
-		{name: prefix + "nginx/http-map.conf", body: "geoip2 /var/lib/geoip2/DBIP-Country-Lite.mmdb {\n}\n", mode: 0o644},
+		{name: prefix + "nginx/http-map.conf", body: "geoip2 /var/lib/geoip2/DBIP-Country-Lite.mmdb {\n}\nmap $request_uri $lmm_oauth_request_loggable {\n}\n", mode: 0o644},
 		{name: prefix + "nginx/new-api.conf", body: "include /etc/nginx/lmm-api-region-policy.conf;\n", mode: 0o644},
-		{name: prefix + "nginx/lmm-api-locations.conf", body: "error_page 418 = @lmm_api_cors_preflight;\nlocation @lmm_api_cors_preflight {\nauth_request off;\n}\nset $lmm_access_policy_original_uri $uri;\nif ($request_method = OPTIONS) { return 418; }\nadd_header Access-Control-Allow-Methods $http_access_control_request_method always;\nadd_header Access-Control-Allow-Headers $http_access_control_request_headers always;\nadd_header Vary \"Origin, Access-Control-Request-Method, Access-Control-Request-Headers\" always;\n", mode: 0o644},
+		{name: prefix + "nginx/lmm-api-locations.conf", body: "location = /.well-known/oauth-authorization-server {\n}\nlocation = /.well-known/oauth-protected-resource/api/oauth2 {\n}\nlocation = /api/oauth2/authorize {\n}\naccess_log /var/log/nginx/access.log combined if=$lmm_access_loggable;\nerror_page 418 = @lmm_api_cors_preflight;\nlocation @lmm_api_cors_preflight {\nauth_request off;\n}\nset $lmm_access_policy_original_uri $uri;\nif ($request_method = OPTIONS) { return 418; }\nadd_header Access-Control-Allow-Methods $http_access_control_request_method always;\nadd_header Access-Control-Allow-Headers $http_access_control_request_headers always;\nadd_header Vary \"Origin, Access-Control-Request-Method, Access-Control-Request-Headers\" always;\n", mode: 0o644},
 		{name: prefix + "nginx/lmm-api-region-policy.conf", body: "auth_request /internal/access-ip-policy;\nproxy_set_header X-LMM-Original-URI $lmm_access_policy_original_uri;\nproxy_set_header X-LMM-Original-Accept $http_accept;\n", mode: 0o644},
 		{name: prefix + "nginx/mime.types", body: "types {}\n", mode: 0o644},
 		{name: prefix + "geoip2-country-update.service", body: "[Service]\n", mode: 0o644},
@@ -426,249 +432,203 @@ func testEdgePolicyTarEntries(prefix string) []testTarEntry {
 	}
 }
 
-func TestVerifySignedPackageLayoutRejectsUnsignedOperatorMutation(t *testing.T) {
+func TestVerifySignedPackageLayoutAcceptsOnlyProviderLayoutAndExactLegacyRollback(t *testing.T) {
 	workspace := t.TempDir()
-	asset := filepath.Join(workspace, "release.tar.gz")
-	releasePrefix := "lmm-api-go-0.1.59-linux-amd64/"
-	releaseEntries := []testTarEntry{
-		{name: releasePrefix + "lmm-api", body: "binary", mode: 0o755},
-		{name: releasePrefix + "lmm-api-go.env", body: "safe-env\n", mode: 0o640},
-		{name: releasePrefix + "lmm-api-operator.sudoers", body: "safe-sudoers\n", mode: 0o644},
-		{name: releasePrefix + "LICENSE", body: "license\n", mode: 0o644},
+	runtime := &productionReleaseRuntime{runner: osProductionCommandRunner{}}
+
+	newAsset := filepath.Join(workspace, "release-0.2.0.tar.gz")
+	newPrefix := "lmm-api-go-0.2.0-linux-amd64/"
+	newReleaseEntries := []testTarEntry{
+		{name: newPrefix + "lmm-api-go", body: "provider-binary", mode: 0o755},
+		{name: newPrefix + "OAUTH_MANAGED_TOKEN_CAPABILITY", body: "v1\n", mode: 0o644},
+		{name: newPrefix + "REFUND_TASK_DRAIN_CAPABILITY", body: "v1\n", mode: 0o644},
+		{name: newPrefix + "lmm-api-go.env", body: "safe-env\n", mode: 0o640},
+		{name: newPrefix + "lmm-api-operator.sudoers", body: "safe-sudoers\n", mode: 0o644},
+		{name: newPrefix + "LICENSE", body: "license\n", mode: 0o644},
 	}
-	releaseEntries = append(releaseEntries, testEdgePolicyTarEntries(releasePrefix+"edge-policy/")...)
-	writeTestTarGzip(t, asset, releaseEntries)
-	assetSHA256, err := sha256File(asset)
+	newReleaseEntries = append(newReleaseEntries, testEdgePolicyTarEntries(newPrefix+"edge-policy/")...)
+	writeTestTarGzip(t, newAsset, newReleaseEntries)
+	newAssetSHA256, err := sha256File(newAsset)
 	if err != nil {
 		t.Fatal(err)
 	}
-	packageEntries := func(version, phase, sudoers string, legacyAlias bool, sudoersDirectoryMode int64) []testTarEntry {
+	newPackageEntries := func(sudoers, capability, refundCapability string) []testTarEntry {
 		entries := []testTarEntry{
-			{name: ".PKGINFO", body: testProductionPackageInfo(t, productionAURPackageName, version, phase), mode: 0o644},
+			{name: ".PKGINFO", body: testProductionPackageInfo(t, productionAURPackageName, "0.2.0-1"), mode: 0o644},
 			{name: ".MTREE", body: testPackageMtree(t, true), mode: 0o644},
-			{name: "usr/bin/lmm-api", body: "binary", mode: 0o755},
+			{name: "usr/bin/lmm-api-go", body: "provider-binary", mode: 0o755},
 			{name: "etc/lmm-api-go/lmm-api-go.env", body: "safe-env\n", mode: 0o600},
-			{name: "etc/sudoers.d/", mode: sudoersDirectoryMode, directory: true},
+			{name: "etc/sudoers.d/", mode: 0o750, directory: true},
 			{name: "etc/sudoers.d/lmm-api-operator", body: sudoers, mode: 0o440},
 			{name: "usr/share/licenses/lmm-api-go-bin/LICENSE", body: "license\n", mode: 0o644},
-			{name: "usr/share/doc/lmm-api-go-bin/RELEASE_ASSET_SHA256", body: assetSHA256 + "\n", mode: 0o644},
+			{name: "usr/share/doc/lmm-api-go-bin/RELEASE_ASSET_SHA256", body: newAssetSHA256 + "\n", mode: 0o644},
 		}
-		entries = append(entries, testEdgePolicyTarEntries("usr/share/lmm-api-go/edge-policy/")...)
-		if legacyAlias {
-			entries = append(entries, testTarEntry{name: "usr/bin/lmm-api-go", mode: 0o777, linkTo: "lmm-api"})
+		if capability != "" {
+			entries = append(entries, testTarEntry{name: "usr/share/doc/lmm-api-go-bin/OAUTH_MANAGED_TOKEN_CAPABILITY", body: capability, mode: 0o644})
 		}
-		return entries
+		if refundCapability != "" {
+			entries = append(entries, testTarEntry{name: "usr/share/doc/lmm-api-go-bin/REFUND_TASK_DRAIN_CAPABILITY", body: refundCapability, mode: 0o644})
+		}
+		return append(entries, testEdgePolicyTarEntries("usr/share/lmm-api-go/edge-policy/")...)
 	}
-	packagePath := filepath.Join(workspace, "package.tar.gz")
-	writeTestTarGzip(t, packagePath, packageEntries("0.1.59-1", productionCLIPhaseT0, "safe-sudoers\n", true, 0o750))
-	runtime := &productionReleaseRuntime{runner: osProductionCommandRunner{}}
-	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.1.59-1", packagePath, asset, assetSHA256, true); err != nil {
+	newPackage := filepath.Join(workspace, "new-provider.tar.gz")
+	writeTestTarGzip(t, newPackage, newPackageEntries("safe-sudoers\n", "v1\n", "v1\n"))
+	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.2.0-1", newPackage, newAsset, newAssetSHA256, true); err != nil {
 		t.Fatal(err)
 	}
-	tamperedPackage := filepath.Join(workspace, "tampered.tar.gz")
-	writeTestTarGzip(t, tamperedPackage, packageEntries("0.1.59-1", productionCLIPhaseT0, "unsafe-sudoers\n", true, 0o750))
-	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.1.59-1", tamperedPackage, asset, assetSHA256, true); err == nil || !strings.Contains(err.Error(), "differs from signed release") {
-		t.Fatalf("tampered package error=%v", err)
-	}
-	t1Package := filepath.Join(workspace, "t1.tar.gz")
-	writeTestTarGzip(t, t1Package, packageEntries("0.1.60-1", productionCLIPhaseT1, "safe-sudoers\n", false, 0o750))
-	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.1.60-1", t1Package, asset, assetSHA256, true); err != nil {
-		t.Fatal(err)
-	}
-	t1AliasPackage := filepath.Join(workspace, "t1-alias.tar.gz")
-	writeTestTarGzip(t, t1AliasPackage, packageEntries("0.1.60-1", productionCLIPhaseT1, "safe-sudoers\n", true, 0o750))
-	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.1.60-1", t1AliasPackage, asset, assetSHA256, true); err == nil || !strings.Contains(err.Error(), "T1 package still exposes") {
-		t.Fatalf("T1 compatibility-link error=%v", err)
-	}
 
-	hookPackage := filepath.Join(workspace, "root-hook.tar.gz")
-	hookEntries := packageEntries("0.1.59-1", productionCLIPhaseT0, "safe-sudoers\n", true, 0o750)
-	hookEntries = append(hookEntries, testTarEntry{name: ".INSTALL", body: "#!/bin/sh\nexit 0\n", mode: 0o755})
-	writeTestTarGzip(t, hookPackage, hookEntries)
-	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.1.59-1", hookPackage, asset, assetSHA256, true); err == nil || !strings.Contains(err.Error(), "root install hook") {
-		t.Fatalf("Go install-hook error=%v", err)
+	// A local packaging recipe may not inject an unsigned operator script.
+	operatorPackage := filepath.Join(workspace, "operator-package.tar.gz")
+	operatorEntries := append(newPackageEntries("safe-sudoers\n", "v1\n", "v1\n"), testTarEntry{name: "usr/bin/lmm-api-deploy", body: "#!/bin/sh\nexec /usr/bin/lmm-api operator \"$@\"\n", mode: 0o755})
+	writeTestTarGzip(t, operatorPackage, operatorEntries)
+	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.2.0-1", operatorPackage, newAsset, newAssetSHA256, true); err == nil {
+		t.Fatal("unsigned operator script was accepted")
 	}
-
-	unsafeModePackage := filepath.Join(workspace, "unsafe-sudoers-mode.tar.gz")
-	writeTestTarGzip(t, unsafeModePackage, packageEntries("0.1.59-1", productionCLIPhaseT0, "safe-sudoers\n", true, 0o755))
-	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.1.59-1", unsafeModePackage, asset, assetSHA256, true); err == nil || !strings.Contains(err.Error(), "mode or type mismatch") {
-		t.Fatalf("sudoers.d mode error=%v", err)
-	}
-
-	setuidPackage := filepath.Join(workspace, "setuid-package.tar.gz")
-	setuidEntries := packageEntries("0.1.59-1", productionCLIPhaseT0, "safe-sudoers\n", true, 0o750)
-	for index := range setuidEntries {
-		if setuidEntries[index].name == "usr/bin/lmm-api" {
-			setuidEntries[index].mode = 0o4755
-		}
-	}
-	writeTestTarGzip(t, setuidPackage, setuidEntries)
-	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.1.59-1", setuidPackage, asset, assetSHA256, true); err == nil || !strings.Contains(err.Error(), "unsafe mode") {
-		t.Fatalf("setuid package error=%v", err)
-	}
-
-	ownerPackage := filepath.Join(workspace, "nonroot-owner-package.tar.gz")
-	ownerEntries := packageEntries("0.1.59-1", productionCLIPhaseT0, "safe-sudoers\n", true, 0o750)
-	for index := range ownerEntries {
-		if ownerEntries[index].name == "usr/bin/lmm-api" {
-			ownerEntries[index].uid = 1000
-		}
-	}
-	writeTestTarGzip(t, ownerPackage, ownerEntries)
-	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.1.59-1", ownerPackage, asset, assetSHA256, true); err == nil || !strings.Contains(err.Error(), "not root-owned") {
-		t.Fatalf("nonroot package error=%v", err)
-	}
-
-	nonHardenedEnvPackage := filepath.Join(workspace, "non-hardened-env-package.tar.gz")
-	nonHardenedEnvEntries := packageEntries("0.1.59-1", productionCLIPhaseT0, "safe-sudoers\n", true, 0o750)
-	for index := range nonHardenedEnvEntries {
-		if nonHardenedEnvEntries[index].name == "etc/lmm-api-go/lmm-api-go.env" {
-			nonHardenedEnvEntries[index].mode = 0o640
-		}
-	}
-	writeTestTarGzip(t, nonHardenedEnvPackage, nonHardenedEnvEntries)
-	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.1.59-1", nonHardenedEnvPackage, asset, assetSHA256, true); err == nil || !strings.Contains(err.Error(), "mode=0640 want=0600") {
-		t.Fatalf("environment hardening mode error=%v", err)
-	}
-
-	mappedModePackage := filepath.Join(workspace, "mapped-mode-package.tar.gz")
-	mappedModeEntries := packageEntries("0.1.59-1", productionCLIPhaseT0, "safe-sudoers\n", true, 0o750)
-	for index := range mappedModeEntries {
-		if mappedModeEntries[index].name == "usr/bin/lmm-api" {
-			mappedModeEntries[index].mode = 0o750
-		}
-	}
-	writeTestTarGzip(t, mappedModePackage, mappedModeEntries)
-	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.1.59-1", mappedModePackage, asset, assetSHA256, true); err == nil || !strings.Contains(err.Error(), "mode=0750 want=0755") {
-		t.Fatalf("mapped package mode error=%v", err)
-	}
-
-	mtreeMismatchPackage := filepath.Join(workspace, "mtree-mismatch-package.tar.gz")
-	mtreeMismatchEntries := packageEntries("0.1.59-1", productionCLIPhaseT0, "safe-sudoers\n", true, 0o750)
-	for index := range mtreeMismatchEntries {
-		if mtreeMismatchEntries[index].name == ".MTREE" {
-			mtreeMismatchEntries[index].body = testPackageMtree(t, true, "755")
-		}
-	}
-	writeTestTarGzip(t, mtreeMismatchPackage, mtreeMismatchEntries)
-	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.1.59-1", mtreeMismatchPackage, asset, assetSHA256, true); err == nil || !strings.Contains(err.Error(), "disagrees with its archive header") {
-		t.Fatalf("mtree/header mismatch error=%v", err)
-	}
-
-	unsafeMetadataPackage := filepath.Join(workspace, "unsafe-metadata.tar.gz")
-	unsafeMetadataEntries := packageEntries("0.1.59-1", productionCLIPhaseT0, "safe-sudoers\n", true, 0o750)
-	for index := range unsafeMetadataEntries {
-		if unsafeMetadataEntries[index].name == ".PKGINFO" {
-			unsafeMetadataEntries[index].body += "replaces = lmm-api-deploy-bin\n"
-		}
-	}
-	writeTestTarGzip(t, unsafeMetadataPackage, unsafeMetadataEntries)
-	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.1.59-1", unsafeMetadataPackage, asset, assetSHA256, true); err == nil || !strings.Contains(err.Error(), "replaces contract mismatch") {
-		t.Fatalf("T0 package metadata error=%v", err)
-	}
-
-	legacyPackage := filepath.Join(workspace, "legacy-package.tar.gz")
-	legacyEntries := []testTarEntry{
-		{name: ".PKGINFO", body: testProductionPackageInfo(t, productionAURPackageName, "0.1.57-1", productionCLIPhaseT0), mode: 0o644},
-		{name: ".MTREE", body: testPackageMtree(t, false), mode: 0o644},
-		{name: "usr/bin/lmm-api-go", body: "binary", mode: 0o755},
-		{name: "usr/bin/lmm-api", mode: 0o777, linkTo: "lmm-api-go"},
-		{name: "etc/lmm-api-go/lmm-api-go.env", body: "safe-env\n", mode: 0o600},
-		{name: "etc/sudoers.d/lmm-api-operator", body: "safe-sudoers\n", mode: 0o440},
-		{name: "usr/share/licenses/lmm-api-go-bin/LICENSE", body: "license\n", mode: 0o644},
-	}
-	legacyEntries = append(legacyEntries, testEdgePolicyTarEntries("usr/share/lmm-api-go/edge-policy/")...)
-	writeTestTarGzip(t, legacyPackage, legacyEntries)
-	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.1.57-1", legacyPackage, asset, assetSHA256, false); err != nil {
-		t.Fatalf("pre-T0 compatibility-link error=%v", err)
-	}
-}
-
-func TestVerifySignedPackageLayoutUsesSignedExplicitT0PhaseForNewRelease(t *testing.T) {
-	workspace := t.TempDir()
-	asset := filepath.Join(workspace, "release-0.1.63.tar.gz")
-	releasePrefix := "lmm-api-go-0.1.63-linux-amd64/"
-	releaseEntries := []testTarEntry{
-		{name: releasePrefix + "lmm-api", body: "binary", mode: 0o755},
-		{name: releasePrefix + "lmm-api-go.env", body: "safe-env\n", mode: 0o640},
-		{name: releasePrefix + "lmm-api-operator.sudoers", body: "safe-sudoers\n", mode: 0o644},
-		{name: releasePrefix + "CLI_TRANSITION_PHASE", body: "t0\n", mode: 0o644},
-	}
-	releaseEntries = append(releaseEntries, testEdgePolicyTarEntries(releasePrefix+"edge-policy/")...)
-	writeTestTarGzip(t, asset, releaseEntries)
-	assetSHA256, err := sha256File(asset)
+	operatorAsset := filepath.Join(workspace, "operator-release.tar.gz")
+	writeTestTarGzip(t, operatorAsset, append(newReleaseEntries, testTarEntry{name: newPrefix + "lmm-api-deploy", body: operatorEntries[len(operatorEntries)-1].body, mode: 0o755}))
+	operatorSHA, err := sha256File(operatorAsset)
 	if err != nil {
 		t.Fatal(err)
 	}
-	packageEntries := []testTarEntry{
-		{name: ".PKGINFO", body: testProductionPackageInfo(t, productionAURPackageName, "0.1.63-1", productionCLIPhaseT0), mode: 0o644},
+	for i := range operatorEntries {
+		if strings.HasSuffix(operatorEntries[i].name, "/RELEASE_ASSET_SHA256") {
+			operatorEntries[i].body = operatorSHA + "\n"
+		}
+	}
+	operatorPackage = filepath.Join(workspace, "signed-operator-package.tar.gz")
+	writeTestTarGzip(t, operatorPackage, operatorEntries)
+	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.2.0-1", operatorPackage, operatorAsset, operatorSHA, true); err != nil {
+		t.Fatal(err)
+	}
+	operatorEntries[len(operatorEntries)-1].body = "#!/bin/sh\nexit 0\n"
+	operatorPackage = filepath.Join(workspace, "tampered-operator-package.tar.gz")
+	writeTestTarGzip(t, operatorPackage, operatorEntries)
+	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.2.0-1", operatorPackage, operatorAsset, operatorSHA, true); err == nil {
+		t.Fatal("tampered operator script was accepted")
+	}
+
+	missingCapability := filepath.Join(workspace, "new-missing-capability.tar.gz")
+	writeTestTarGzip(t, missingCapability, newPackageEntries("safe-sudoers\n", "", "v1\n"))
+	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.2.0-1", missingCapability, newAsset, newAssetSHA256, true); err == nil {
+		t.Fatal("package without OAuth capability marker was accepted")
+	}
+	badCapability := filepath.Join(workspace, "new-bad-capability.tar.gz")
+	writeTestTarGzip(t, badCapability, newPackageEntries("safe-sudoers\n", "v0\n", "v1\n"))
+	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.2.0-1", badCapability, newAsset, newAssetSHA256, true); err == nil {
+		t.Fatal("package with rewritten OAuth capability marker was accepted")
+	}
+	missingRefund := filepath.Join(workspace, "new-missing-refund-capability.tar.gz")
+	writeTestTarGzip(t, missingRefund, newPackageEntries("safe-sudoers\n", "v1\n", ""))
+	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.2.0-1", missingRefund, newAsset, newAssetSHA256, true); err == nil {
+		t.Fatal("package without refund drain capability marker was accepted")
+	}
+	badRefund := filepath.Join(workspace, "new-bad-refund-capability.tar.gz")
+	writeTestTarGzip(t, badRefund, newPackageEntries("safe-sudoers\n", "v1\n", "v0\n"))
+	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.2.0-1", badRefund, newAsset, newAssetSHA256, true); err == nil {
+		t.Fatal("package with rewritten refund drain capability marker was accepted")
+	}
+
+	genericPayload := filepath.Join(workspace, "new-generic-payload.tar.gz")
+	genericEntries := newPackageEntries("safe-sudoers\n", "v1\n", "v1\n")
+	genericEntries = append(genericEntries, testTarEntry{name: "usr/bin/lmm-api", body: "generic", mode: 0o755})
+	writeTestTarGzip(t, genericPayload, genericEntries)
+	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.2.0-1", genericPayload, newAsset, newAssetSHA256, true); err == nil {
+		t.Fatal("new generic CLI payload was accepted")
+	}
+
+	reverseLink := filepath.Join(workspace, "new-reverse-link.tar.gz")
+	reverseEntries := newPackageEntries("safe-sudoers\n", "v1\n", "v1\n")
+	reverseEntries = append(reverseEntries, testTarEntry{name: "usr/bin/lmm-api", mode: 0o777, linkTo: "lmm-api-go"})
+	writeTestTarGzip(t, reverseLink, reverseEntries)
+	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.2.0-1", reverseLink, newAsset, newAssetSHA256, true); err == nil || !strings.Contains(err.Error(), "unexpected symlink") {
+		t.Fatalf("new reverse-link error=%v", err)
+	}
+
+	tampered := filepath.Join(workspace, "tampered-provider.tar.gz")
+	writeTestTarGzip(t, tampered, newPackageEntries("unsafe-sudoers\n", "v1\n", "v1\n"))
+	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.2.0-1", tampered, newAsset, newAssetSHA256, true); err == nil || !strings.Contains(err.Error(), "differs from signed release") {
+		t.Fatalf("tampered package error=%v", err)
+	}
+
+	legacyAsset := filepath.Join(workspace, "release-0.1.69.tar.gz")
+	legacyPrefix := "lmm-api-go-0.1.69-linux-amd64/"
+	legacyReleaseEntries := []testTarEntry{
+		{name: legacyPrefix + "lmm-api", body: "legacy-binary", mode: 0o755},
+		{name: legacyPrefix + "lmm-api-go.env", body: "safe-env\n", mode: 0o640},
+		{name: legacyPrefix + "lmm-api-operator.sudoers", body: "safe-sudoers\n", mode: 0o644},
+		{name: legacyPrefix + "CLI_TRANSITION_PHASE", body: "T1\n", mode: 0o644},
+	}
+	legacyReleaseEntries = append(legacyReleaseEntries, testEdgePolicyTarEntries(legacyPrefix+"edge-policy/")...)
+	writeTestTarGzip(t, legacyAsset, legacyReleaseEntries)
+	legacyAssetSHA256, err := sha256File(legacyAsset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyEntries := []testTarEntry{
+		{name: ".PKGINFO", body: testProductionPackageInfo(t, productionAURPackageName, "0.1.69-1"), mode: 0o644},
 		{name: ".MTREE", body: testPackageMtree(t, true), mode: 0o644},
-		{name: "usr/bin/lmm-api", body: "binary", mode: 0o755},
+		{name: "usr/bin/lmm-api", body: "legacy-binary", mode: 0o755},
 		{name: "usr/bin/lmm-api-go", mode: 0o777, linkTo: "lmm-api"},
 		{name: "etc/lmm-api-go/lmm-api-go.env", body: "safe-env\n", mode: 0o600},
 		{name: "etc/sudoers.d/", mode: 0o750, directory: true},
 		{name: "etc/sudoers.d/lmm-api-operator", body: "safe-sudoers\n", mode: 0o440},
-		{name: "usr/share/doc/lmm-api-go-bin/CLI_TRANSITION_PHASE", body: "t0\n", mode: 0o644},
-		{name: "usr/share/doc/lmm-api-go-bin/RELEASE_ASSET_SHA256", body: assetSHA256 + "\n", mode: 0o644},
+		{name: "usr/share/doc/lmm-api-go-bin/CLI_TRANSITION_PHASE", body: "T1\n", mode: 0o644},
+		{name: "usr/share/doc/lmm-api-go-bin/RELEASE_ASSET_SHA256", body: legacyAssetSHA256 + "\n", mode: 0o644},
 	}
-	packageEntries = append(packageEntries, testEdgePolicyTarEntries("usr/share/lmm-api-go/edge-policy/")...)
-	packagePath := filepath.Join(workspace, "package-0.1.63.tar.gz")
-	writeTestTarGzip(t, packagePath, packageEntries)
-	runtime := &productionReleaseRuntime{runner: osProductionCommandRunner{}}
-	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.1.63-1", packagePath, asset, assetSHA256, true); err != nil {
-		t.Fatal(err)
+	legacyEntries = append(legacyEntries, testEdgePolicyTarEntries("usr/share/lmm-api-go/edge-policy/")...)
+	legacyPackage := filepath.Join(workspace, "legacy-0.1.69.tar.gz")
+	writeTestTarGzip(t, legacyPackage, legacyEntries)
+	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.1.69-1", legacyPackage, legacyAsset, legacyAssetSHA256, true); err != nil {
+		t.Fatalf("verified legacy rollback rejected: %v", err)
 	}
 
-	missingPhaseAsset := filepath.Join(workspace, "release-missing-phase.tar.gz")
-	missingPhaseEntries := []testTarEntry{{name: releasePrefix + "lmm-api", body: "binary", mode: 0o755}}
-	missingPhaseEntries = append(missingPhaseEntries, testEdgePolicyTarEntries(releasePrefix+"edge-policy/")...)
-	writeTestTarGzip(t, missingPhaseAsset, missingPhaseEntries)
-	missingPhaseSHA256, err := sha256File(missingPhaseAsset)
-	if err != nil {
-		t.Fatal(err)
+	legacyWrongDirection := filepath.Join(workspace, "legacy-wrong-direction.tar.gz")
+	for index := range legacyEntries {
+		if legacyEntries[index].name == "usr/bin/lmm-api" {
+			legacyEntries[index] = testTarEntry{name: "usr/bin/lmm-api", mode: 0o777, linkTo: "lmm-api-go"}
+		}
+		if legacyEntries[index].name == "usr/bin/lmm-api-go" {
+			legacyEntries[index] = testTarEntry{name: "usr/bin/lmm-api-go", body: "legacy-binary", mode: 0o755}
+		}
 	}
-	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.1.63-1", packagePath, missingPhaseAsset, missingPhaseSHA256, true); err == nil || !strings.Contains(err.Error(), "CLI_TRANSITION_PHASE") {
-		t.Fatalf("missing explicit phase error=%v", err)
+	writeTestTarGzip(t, legacyWrongDirection, legacyEntries)
+	if err := runtime.verifySignedPackageLayout(context.Background(), workspace, productionAURPackageName, "0.1.69-1", legacyWrongDirection, legacyAsset, legacyAssetSHA256, true); err == nil {
+		t.Fatal("legacy reverse compatibility direction was accepted")
 	}
 }
 
-func TestVerifySignedWebPackageLayoutPinsInstallHook(t *testing.T) {
-	installHook, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "packaging", "aur", "lmm-api-web-bin", "lmm-api-web.install"))
+func TestVerifySignedWebPackageLayoutRequiresNativeCLIActivationHook(t *testing.T) {
+	installHook, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "packaging", "common", "lmm-api", "lmm-api-web.install"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if digest := sha256.Sum256(installHook); hex.EncodeToString(digest[:]) != productionLegacyWebInstallSHA256 {
-		t.Fatal("legacy Web install-hook fixture no longer matches the pinned digest")
-	}
-	assetEntries := []testTarEntry{
-		{name: "dist/index.html", body: "<!doctype html>\n", mode: 0o644},
-		{name: "lmm-api-web-activate", body: "#!/bin/sh\nexit 0\n", mode: 0o755},
-		{name: "frontend-release.sh", body: "#!/bin/sh\nexit 0\n", mode: 0o755},
-	}
-	verify := func(version string, signedHook bool, packageHook []byte, wantError string) {
+	verify := func(name string, packageHook []byte, includeSignedHook, includeShellPublisher bool, wantError string) {
 		t.Helper()
 		caseRoot := t.TempDir()
-		asset := filepath.Join(caseRoot, "web-"+version+".tar.gz")
-		entries := append([]testTarEntry(nil), assetEntries...)
-		if signedHook {
-			entries = append(entries, testTarEntry{name: "lmm-api-web.install", body: string(installHook), mode: 0o644})
+		asset := filepath.Join(caseRoot, "web-0.1.52.tar.gz")
+		assetEntries := []testTarEntry{{name: "dist/index.html", body: "<!doctype html>\n", mode: 0o644}}
+		packageEntries := []testTarEntry{
+			{name: ".PKGINFO", body: testProductionPackageInfo(t, productionWebPackageName, "0.1.52-1"), mode: 0o644},
+			{name: ".INSTALL", body: string(packageHook), mode: 0o644},
+			{name: "usr/share/lmm-api-web/frontend-dist/index.html", body: "<!doctype html>\n", mode: 0o644},
 		}
-		writeTestTarGzip(t, asset, entries)
+		if includeSignedHook {
+			assetEntries = append(assetEntries, testTarEntry{name: "lmm-api-web.install", body: string(installHook), mode: 0o644})
+		}
+		if includeShellPublisher {
+			assetEntries = append(assetEntries, testTarEntry{name: "frontend-release.sh", body: "#!/bin/sh\nexit 0\n", mode: 0o755})
+			packageEntries = append(packageEntries, testTarEntry{name: "usr/lib/lmm-api-web/frontend-release.sh", body: "#!/bin/sh\nexit 0\n", mode: 0o755})
+		}
+		writeTestTarGzip(t, asset, assetEntries)
 		assetSHA256, err := sha256File(asset)
 		if err != nil {
 			t.Fatal(err)
 		}
-		packagePath := filepath.Join(caseRoot, "web-package-"+version+".tar.gz")
-		writeTestTarGzip(t, packagePath, []testTarEntry{
-			{name: ".PKGINFO", body: testProductionPackageInfo(t, productionWebPackageName, version+"-1", ""), mode: 0o644},
-			{name: ".INSTALL", body: string(packageHook), mode: 0o644},
-			{name: "usr/share/lmm-api-web/frontend-dist/index.html", body: "<!doctype html>\n", mode: 0o644},
-			{name: "usr/lib/lmm-api-web/lmm-api-web-activate", body: "#!/bin/sh\nexit 0\n", mode: 0o755},
-			{name: "usr/lib/lmm-api-web/frontend-release.sh", body: "#!/bin/sh\nexit 0\n", mode: 0o755},
-			{name: "usr/share/doc/lmm-api-web-bin/RELEASE_ASSET_SHA256", body: assetSHA256 + "\n", mode: 0o644},
-		})
+		packageEntries = append(packageEntries, testTarEntry{name: "usr/share/doc/lmm-api-web-bin/RELEASE_ASSET_SHA256", body: assetSHA256 + "\n", mode: 0o644})
+		packagePath := filepath.Join(caseRoot, name+".tar.gz")
+		writeTestTarGzip(t, packagePath, packageEntries)
 		runtime := &productionReleaseRuntime{runner: osProductionCommandRunner{}}
-		err = runtime.verifySignedPackageLayout(context.Background(), caseRoot, productionWebPackageName, version+"-1", packagePath, asset, assetSHA256, false)
+		err = runtime.verifySignedPackageLayout(context.Background(), caseRoot, productionWebPackageName, "0.1.52-1", packagePath, asset, assetSHA256, false)
 		if wantError == "" {
 			if err != nil {
 				t.Fatal(err)
@@ -676,13 +636,44 @@ func TestVerifySignedWebPackageLayoutPinsInstallHook(t *testing.T) {
 			return
 		}
 		if err == nil || !strings.Contains(err.Error(), wantError) {
-			t.Fatalf("version=%s error=%v want %q", version, err, wantError)
+			t.Fatalf("%s error=%v want %q", name, err, wantError)
 		}
 	}
-	verify("0.1.42", false, installHook, "")
-	verify("0.1.42", false, append([]byte(nil), []byte("#!/bin/sh\nexit 1\n")...), "install hook")
-	verify("0.1.43", true, installHook, "")
-	verify("0.1.43", false, installHook, "lacks lmm-api-web.install")
+	verify("native", installHook, true, false, "")
+	verify("tampered-hook", []byte("post_install() { /bin/false; }\n"), true, false, "install hook")
+	verify("unsigned-hook", installHook, false, false, "lacks lmm-api-web.install")
+	verify("shell-publisher", installHook, true, true, "unmapped payload")
+}
+
+func TestVerifySignedLegacyWebRollbackLayout(t *testing.T) {
+	caseRoot := t.TempDir()
+	installHook := []byte("post_install() { /usr/lib/lmm-api-web/lmm-api-web-activate \"$1\"; }\n")
+	publisher := "#!/bin/sh\nexit 0\n"
+	activator := "#!/bin/sh\nexit 0\n"
+	asset := filepath.Join(caseRoot, "web-0.1.50.tar.gz")
+	writeTestTarGzip(t, asset, []testTarEntry{
+		{name: "dist/index.html", body: "<!doctype html>\n", mode: 0o644},
+		{name: "lmm-api-web.install", body: string(installHook), mode: 0o644},
+		{name: "frontend-release.sh", body: publisher, mode: 0o755},
+		{name: "lmm-api-web-activate", body: activator, mode: 0o755},
+	})
+	assetSHA256, err := sha256File(asset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packagePath := filepath.Join(caseRoot, "legacy-web.tar.gz")
+	writeTestTarGzip(t, packagePath, []testTarEntry{
+		{name: ".PKGINFO", body: testProductionPackageInfo(t, productionWebPackageName, "0.1.50-1"), mode: 0o644},
+		{name: ".INSTALL", body: string(installHook), mode: 0o644},
+		{name: "usr/share/lmm-api-web/frontend-dist/index.html", body: "<!doctype html>\n", mode: 0o644},
+		{name: "usr/lib/lmm-api-web/frontend-release.sh", body: publisher, mode: 0o755},
+		{name: "usr/lib/lmm-api-web/lmm-api-web-activate", body: activator, mode: 0o755},
+		{name: "usr/share/doc/lmm-api-web-bin/RELEASE_ASSET_SHA256", body: assetSHA256 + "\n", mode: 0o644},
+	})
+	runtime := &productionReleaseRuntime{runner: osProductionCommandRunner{}}
+	if err := runtime.verifySignedPackageLayout(context.Background(), caseRoot, productionWebPackageName, "0.1.50-1", packagePath, asset, assetSHA256, false); err != nil {
+		t.Fatalf("verified legacy Web rollback rejected: %v", err)
+	}
 }
 
 func TestRemoteGoPackageDeduplicatesPacmanProviderResolution(t *testing.T) {
@@ -710,5 +701,40 @@ func TestRemoteGoPackageRejectsDistinctInstalledPackages(t *testing.T) {
 	_, err := runtime.remoteGoPackage(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "multiple production Go packages") {
 		t.Fatalf("remoteGoPackage error=%v", err)
+	}
+}
+
+func TestProductionReleaseIdentityUsesOnlyExactHistoricalPin(t *testing.T) {
+	const historicalAsset = "54b7bbff7e9105ce248ed894373e40503995d6b2e7674c4a420e550c7c377ec4"
+	wantOld := "https://github.com/LIghtJUNction/api.lmm.best/.github/workflows/release-go.yml@refs/tags/go-v0.2.17"
+	newPrefix := "https://github.com/TokenNotIncluded/api.lmm.best/.github/workflows/release-go.yml@refs/tags/"
+	if got := productionReleaseIdentity(historicalAsset, productionAURPackageName, "release-go.yml", "go-v0.2.17"); got != wantOld {
+		t.Fatalf("exact historical identity=%q, want %q", got, wantOld)
+	}
+	for _, input := range [][3]string{
+		{historicalAsset, productionSourcePackageName, "go-v0.2.17"},
+		{historicalAsset, productionAURPackageName, "go-v0.2.18"},
+		{"54b7bbff7e9105ce248ed894373e40503995d6b2e7674c4a420e550c7c377ec5", productionAURPackageName, "go-v0.2.17"},
+	} {
+		want := newPrefix + input[2]
+		if got := productionReleaseIdentity(input[0], input[1], "release-go.yml", input[2]); got != want {
+			t.Fatalf("non-exact identity=%q, want %q", got, want)
+		}
+	}
+	webAsset := "941d7406559b2c4d102006d6e5bdf0d6d2c8151f866071d5d7c2ab63500f9835"
+	webOld := "https://github.com/LIghtJUNction/api.lmm.best/.github/workflows/release-web.yml@refs/tags/web-v0.1.64"
+	webNewPrefix := "https://github.com/TokenNotIncluded/api.lmm.best/.github/workflows/release-web.yml@refs/tags/"
+	if got := productionReleaseIdentity(webAsset, productionWebPackageName, "release-web.yml", "web-v0.1.64"); got != webOld {
+		t.Fatalf("exact historical web identity=%q, want %q", got, webOld)
+	}
+	for _, input := range [][3]string{
+		{webAsset, productionAURPackageName, "web-v0.1.64"},
+		{webAsset, productionWebPackageName, "web-v0.1.65"},
+		{"941d7406559b2c4d102006d6e5bdf0d6d2c8151f866071d5d7c2ab63500f9840", productionWebPackageName, "web-v0.1.64"},
+	} {
+		want := webNewPrefix + input[2]
+		if got := productionReleaseIdentity(input[0], input[1], "release-web.yml", input[2]); got != want {
+			t.Fatalf("non-exact web identity=%q, want %q", got, want)
+		}
 	}
 }

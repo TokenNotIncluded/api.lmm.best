@@ -1,0 +1,9 @@
+[submodule "packages/pi-lmm-provider"]
+	path = packages/pi-lmm-provider
+	url = https://github.com/TokenNotIncluded/pi-lmm-provider.git
+[submodule "packages/dsh-lmm-provider"]
+	path = packages/dsh-lmm-provider
+	url = https://github.com/TokenNotIncluded/dsh-lmm-provider.git
+[submodule "packages/lmm-scripts"]
+	path = packages/lmm-scripts
+	url = https://github.com/TokenNotIncluded/lmm-scripts.git

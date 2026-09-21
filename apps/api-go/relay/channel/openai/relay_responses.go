@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/constant"
 	"github.com/LIghtJUNction/api.lmm.best/logger"
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
 	"github.com/LIghtJUNction/api.lmm.best/relay/helper"
@@ -77,25 +78,63 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	var responseTextBuilder strings.Builder
 	imageCounter := &relaycommon.ImageGenerationCallCounter{}
 	imageCommitted := false
+	terminal := false
+	hasUsage := false
+	downstreamWriteFailed := false
+	var lastResponse *dto.OpenAIResponsesResponse
+	sequence := -1
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 
 		// 检查当前数据是否包含 completed 状态和 usage 信息
-		var streamResponse dto.ResponsesStreamResponse
-		if err := common.UnmarshalJsonStr(data, &streamResponse); err != nil {
+		var event struct {
+			dto.ResponsesStreamResponse
+			SequenceNumber *int `json:"sequence_number"`
+		}
+		if err := common.UnmarshalJsonStr(data, &event); err != nil {
 			logger.LogError(c, "failed to unmarshal stream response: "+err.Error())
 			sr.Error(err)
 			return
 		}
-		sendResponsesStreamData(c, streamResponse, data)
+		streamResponse := event.ResponsesStreamResponse
+		if strings.ContainsAny(streamResponse.Type, "\r\n") {
+			// JSON escapes are decoded above; validate the value at the SSE
+			// boundary before it can introduce another event or data field.
+			sr.Error(fmt.Errorf("invalid Responses event name"))
+			return
+		}
+		if event.SequenceNumber != nil && *event.SequenceNumber > sequence {
+			sequence = *event.SequenceNumber
+		}
+		if streamResponse.Response != nil {
+			lastResponse = streamResponse.Response
+			if lastResponse.Usage != nil {
+				candidate := &dto.Usage{}
+				service.ApplyResponsesUsage(candidate, lastResponse.Usage)
+				// Lifecycle placeholders do not report consumption. An explicit
+				// terminal usage report, including zero, remains authoritative.
+				finalUsage := false
+				switch streamResponse.Type {
+				case "response.completed", "response.done", "response.failed", "response.incomplete", "response.cancelled", "response.canceled":
+					finalUsage = true
+				}
+				if service.ValidUsage(candidate) || finalUsage {
+					*usage = *candidate
+					hasUsage = true
+				}
+			}
+		}
+		writeErr := writeResponsesEvent(c, streamResponse.Type, data)
 		switch streamResponse.Type {
 		case "response.completed", "response.done":
+			terminal = true
 			if streamResponse.Response != nil {
-				if streamResponse.Response.Usage != nil {
-					service.ApplyResponsesUsage(usage, streamResponse.Response.Usage)
+				failed := relaycommon.IsNonBillableResponsesStatus(streamResponse.Response.Status)
+				if failed {
+					info.StreamStatus.RecordError("upstream Responses terminal failure")
 				}
 				if !imageCommitted {
-					if relaycommon.IsNonBillableResponsesStatus(streamResponse.Response.Status) {
+					if failed {
 						imageCounter.Reset()
 						imageCounter.Commit(info)
 						imageCommitted = true
@@ -113,13 +152,19 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 				imageCommitted = true
 			}
 		case "response.failed", "response.incomplete", "response.cancelled", "response.canceled":
+			terminal = true
+			// A terminal event stops scanning; it does not by itself prove
+			// successful consumption. Keep measured usage, but prohibit the
+			// empty-usage estimator from treating this as a successful request.
+			info.StreamStatus.RecordError("upstream Responses terminal failure")
 			if !imageCommitted {
 				imageCounter.Reset()
 				imageCounter.Commit(info)
 				imageCommitted = true
 			}
-		case "response.output_text.delta":
-			// 处理输出文本
+		case "response.output_text.delta", "response.function_call_arguments.delta", "response.reasoning_text.delta", "response.reasoning_summary_text.delta":
+			// A tool-only partial response still consumed output. This is only a
+			// local lower-bound estimate when the provider supplied no usage.
 			responseTextBuilder.WriteString(streamResponse.Delta)
 		case dto.ResponsesOutputTypeItemDone:
 			if streamResponse.Item != nil {
@@ -137,23 +182,80 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 				}
 			}
 		}
+		if writeErr != nil {
+			downstreamWriteFailed = true
+			sr.Stop(writeErr)
+		} else if terminal {
+			sr.Done()
+		}
 	})
 
-	if usage.CompletionTokens == 0 {
+	if !hasUsage && usage.CompletionTokens == 0 {
 		// 计算输出文本的 token 数量
 		tempStr := responseTextBuilder.String()
 		if len(tempStr) > 0 {
 			// 非正常结束，使用输出文本的 token 数量
 			completionTokens := service.CountTextToken(tempStr, info.UpstreamModelName)
 			usage.CompletionTokens = completionTokens
+			if completionTokens > 0 {
+				common.SetContextKey(c, constant.ContextKeyLocalCountTokens, true)
+			}
 		}
 	}
 
-	if usage.PromptTokens == 0 && usage.CompletionTokens != 0 {
+	if !hasUsage && usage.PromptTokens == 0 && usage.CompletionTokens != 0 {
+		// response.created alone proves acceptance, not consumed input. Only
+		// estimate prompt usage after observed output; otherwise leave unknown
+		// usage at zero rather than inventing consumption from request size.
 		usage.PromptTokens = info.GetEstimatePromptTokens()
 	}
 
-	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+	if !hasUsage {
+		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+	}
+	if !terminal {
+		// A consumed HTTP stream must settle through ResponsesHelper's normal
+		// path. Returning an API error here would retry/refund the whole request.
+		const message = "Upstream response ended before a terminal event"
+		info.StreamStatus.RecordError(message)
+		if !c.Writer.Written() && !downstreamWriteFailed && c.Request.Context().Err() == nil {
+			return usage, types.NewOpenAIError(fmt.Errorf("%s", message), types.ErrorCodeBadResponseBody, http.StatusBadGateway)
+		}
+		if !downstreamWriteFailed && c.Request.Context().Err() == nil && info.StreamStatus.EndReason != relaycommon.StreamEndReasonHandlerStop && info.StreamStatus.EndReason != relaycommon.StreamEndReasonPingFail {
+			response := dto.OpenAIResponsesResponse{Object: "response", Output: []dto.ResponsesOutput{}}
+			if lastResponse != nil {
+				response = *lastResponse
+			}
+			response.Status = []byte(`"failed"`)
+			response.Error = map[string]string{"code": "upstream_stream_interrupted", "message": message}
+			event := struct {
+				dto.ResponsesStreamResponse
+				SequenceNumber int `json:"sequence_number"`
+			}{dto.ResponsesStreamResponse{Type: "response.failed", Response: &response}, sequence + 1}
+			data, err := common.Marshal(event)
+			if err == nil {
+				helper.ExtendWriteDeadline(c)
+				if err = writeResponsesEvent(c, event.Type, string(data)); err != nil {
+					info.StreamStatus.RecordError("failed to write Responses terminal event")
+				}
+			}
+		}
+	}
 
 	return usage, nil
+}
+
+// Return write failures directly: Gin's Render records them on the context but
+// does not return them to the stream handler, which must stop consuming output.
+func writeResponsesEvent(c *gin.Context, eventType, data string) error {
+	if strings.ContainsAny(eventType, "\r\n") {
+		return fmt.Errorf("invalid Responses event name")
+	}
+	if err := c.Request.Context().Err(); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", eventType, data); err != nil {
+		return err
+	}
+	return helper.FlushWriter(c)
 }

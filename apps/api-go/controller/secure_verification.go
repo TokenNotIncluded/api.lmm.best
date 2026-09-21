@@ -171,9 +171,11 @@ func UniversalVerify(c *gin.Context) {
 	})
 }
 
+const securityProofScopeReviewRunsDelete = "security.review_runs.delete"
+
 func isAllowedSecurityProofScope(scope string) bool {
 	switch scope {
-	case securityProofScopeChannelKeyRead, securityProofScopePasskeyRegister, securityProofScopePasskeyDelete:
+	case securityProofScopeChannelKeyRead, securityProofScopePasskeyRegister, securityProofScopePasskeyDelete, securityProofScopeReviewRunsDelete:
 		return true
 	default:
 		return false

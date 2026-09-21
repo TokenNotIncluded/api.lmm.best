@@ -96,7 +96,7 @@ export function FeedbackRewardButton() {
         >
           <HugeiconsIcon icon={GiftIcon} data-icon='inline-start' />
           <span className='hidden sm:inline'>{t('Report & earn')}</span>
-          <Badge variant='secondary'>$5+</Badge>
+          <Badge variant='secondary'>5+ USD</Badge>
         </PopoverTrigger>
         <PopoverContent
           side='top'
@@ -109,7 +109,7 @@ export function FeedbackRewardButton() {
             <PopoverTitle>{t('Feedback rewards')}</PopoverTitle>
             <PopoverDescription className='leading-relaxed'>
               {t(
-                'Valid reports earn at least $5 after review. Submission does not guarantee a reward.'
+                'Valid reports earn at least 5 USD after review. Submission does not guarantee a reward.'
               )}
             </PopoverDescription>
           </PopoverHeader>

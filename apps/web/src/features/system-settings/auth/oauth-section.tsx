@@ -54,6 +54,7 @@ import {
   buildOAuthCallbackUrl,
   resolveOAuthSiteUrl,
 } from './oauth-callback-url'
+import { discoverOIDCSettings, OIDCDiscoveryError } from './oidc-discovery'
 
 /**
  * react-hook-form 7 treats dotted `name` strings as nested paths. To keep
@@ -292,47 +293,38 @@ export function OAuthSection(props: OAuthSectionProps) {
   const onSubmit = async (values: OAuthFormValues) => {
     let finalValues = values
 
-    if (values.oidc.well_known && values.oidc.well_known.trim() !== '') {
-      const wellKnown = values.oidc.well_known.trim()
-      if (
-        !wellKnown.startsWith('http://') &&
-        !wellKnown.startsWith('https://')
-      ) {
-        toast.error(t('Well-Known URL must start with http:// or https://'))
-        return
-      }
-
-      try {
-        const res = await axios.create().get(wellKnown)
-        const authEndpoint = res.data['authorization_endpoint'] || ''
-        const tokenEndpoint = res.data['token_endpoint'] || ''
-        const userInfoEndpoint = res.data['userinfo_endpoint'] || ''
-
-        finalValues = {
-          ...values,
-          oidc: {
-            ...values.oidc,
-            authorization_endpoint: authEndpoint,
-            token_endpoint: tokenEndpoint,
-            user_info_endpoint: userInfoEndpoint,
-          },
-        }
-
-        form.setValue('oidc.authorization_endpoint', authEndpoint)
-        form.setValue('oidc.token_endpoint', tokenEndpoint)
-        form.setValue('oidc.user_info_endpoint', userInfoEndpoint)
-
-        toast.success(t('OIDC configuration fetched successfully'))
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.error(err)
-        toast.error(
-          t(
-            'Failed to fetch OIDC configuration. Please check the URL and network status'
-          )
+    try {
+      const result = await discoverOIDCSettings(
+        values.oidc,
+        {
+          enabled: baselineRef.current['oidc.enabled'],
+          well_known: baselineRef.current['oidc.well_known'],
+        },
+        async (url) => (await axios.create().get(url)).data
+      )
+      finalValues = { ...values, oidc: result.oidc }
+      if (result.discovered) {
+        form.setValue('oidc.well_known', result.oidc.well_known)
+        form.setValue(
+          'oidc.authorization_endpoint',
+          result.oidc.authorization_endpoint
         )
-        return
+        form.setValue('oidc.token_endpoint', result.oidc.token_endpoint)
+        form.setValue('oidc.user_info_endpoint', result.oidc.user_info_endpoint)
+        toast.success(t('OIDC configuration fetched successfully'))
       }
+    } catch (error) {
+      setActiveTab('oidc')
+      form.setError('oidc.well_known', {
+        type: 'manual',
+        message:
+          error instanceof OIDCDiscoveryError && error.kind === 'url'
+            ? t('Well-Known URL must start with http:// or https://')
+            : t(
+                'Failed to fetch OIDC configuration. Please check the URL and network status'
+              ),
+      })
+      return
     }
 
     const normalized = normalizeFormValues(finalValues)
@@ -372,8 +364,10 @@ export function OAuthSection(props: OAuthSectionProps) {
             <SettingsPageFormActions
               onSave={form.handleSubmit(onSubmit)}
               onReset={handleReset}
-              isSaving={updateOption.isPending}
-              isResetDisabled={!form.formState.isDirty}
+              isSaving={form.formState.isSubmitting}
+              isResetDisabled={
+                form.formState.isSubmitting || !form.formState.isDirty
+              }
             />
             <FormDirtyIndicator isDirty={form.formState.isDirty} />
 

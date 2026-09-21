@@ -82,16 +82,18 @@ type TokenCountMeta struct {
 }
 
 type RelayInfo struct {
-	TokenId           int
-	TokenKey          string
-	TokenGroup        string
-	UserId            int
-	UsingGroup        string // 使用的分组，当auto跨分组重试时，会变动
-	UserGroup         string // 用户所在分组
-	TokenUnlimited    bool
-	StartTime         time.Time
-	FirstResponseTime time.Time
-	isFirstResponse   bool
+	TokenId               int
+	TokenKey              string
+	TokenGroup            string
+	UserId                int
+	UsingGroup            string // 使用的分组，当auto跨分组重试时，会变动
+	UserGroup             string // 用户所在分组
+	TokenUnlimited        bool
+	StartTime             time.Time
+	FirstResponseTime     time.Time
+	FirstResponseTimeout  time.Duration
+	FirstResponseObserved bool
+	isFirstResponse       bool
 	//SendLastReasoningResponse bool
 	IsStream               bool
 	IsGeminiBatchEmbedding bool
@@ -154,7 +156,7 @@ type RelayInfo struct {
 	PriceData hosttypes.PriceData
 
 	// QuotaClamp is set (non-nil) when a quota conversion saturated at the
-	// int32 bound (or NaN fallback) while computing this request's charge.
+	// supported single-request bound (or NaN fallback) while computing this request's charge.
 	// It is surfaced onto the consume/task log's admin_info for auditing.
 	QuotaClamp *common.QuotaClamp
 
@@ -328,6 +330,7 @@ func (info *RelayInfo) ToString() string {
 // 定义支持流式选项的通道类型
 var streamSupportedChannels = map[int]bool{
 	constant.ChannelTypeOpenAI:         true,
+	constant.ChannelTypeOpenHuman:      true,
 	constant.ChannelTypeAnthropic:      true,
 	constant.ChannelTypeAws:            true,
 	constant.ChannelTypeGemini:         true,
@@ -545,7 +548,10 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 	}
 
 	if strings.HasPrefix(c.Request.URL.Path, "/pg") {
-		info.IsPlayground = true
+		// Real-key drawing uses the normal token reserve/settle/refund path.
+		// Chat playground keeps its historical token-accounting exemption.
+		info.IsPlayground = !(common.GetContextKeyBool(c, constant.ContextKeyDrawingRealToken) && info.TokenId > 0 &&
+			(info.RelayMode == relayconstant.RelayModeImagesGenerations || info.RelayMode == relayconstant.RelayModeImagesEdits))
 		info.RequestURLPath = strings.TrimPrefix(info.RequestURLPath, "/pg")
 		info.RequestURLPath = "/v1" + info.RequestURLPath
 	}

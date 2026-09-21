@@ -1,6 +1,7 @@
 package ali
 
 import (
+	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -189,19 +190,25 @@ func oaiFormEdit2AliImageEdit(c *gin.Context, info *relaycommon.RelayInfo, reque
 	return &imageRequest, nil
 }
 
-func updateTask(info *relaycommon.RelayInfo, taskID string) (*AliResponse, error, []byte) {
+const (
+	aliTaskInitialDelay = 5 * time.Second
+	aliTaskPollInterval = 10 * time.Second
+	aliTaskMaxAttempts  = 20
+	aliTaskPollTimeout  = aliTaskInitialDelay + aliTaskMaxAttempts*aliTaskPollInterval
+)
+
+func updateTask(ctx context.Context, client *http.Client, info *relaycommon.RelayInfo, taskID string) (*AliResponse, error, []byte) {
 	url := fmt.Sprintf("%s/api/v1/tasks/%s", info.ChannelBaseUrl, taskID)
 
 	var aliResponse AliResponse
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return &aliResponse, err, nil
 	}
 
 	req.Header.Set("Authorization", "Bearer "+info.ApiKey)
 
-	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
 		common.SysLog("updateTask client.Do err: " + err.Error())
@@ -226,47 +233,59 @@ func updateTask(info *relaycommon.RelayInfo, taskID string) (*AliResponse, error
 }
 
 func asyncTaskWait(c *gin.Context, info *relaycommon.RelayInfo, taskID string) (*AliResponse, []byte, error) {
-	waitSeconds := 10
-	step := 0
-	maxStep := 20
-
-	var taskResponse AliResponse
-	var responseBody []byte
-
-	time.Sleep(time.Duration(5) * time.Second)
-
-	for {
-		logger.LogDebug(c, "asyncTaskWait step %d/%d, wait %d seconds", step, maxStep, waitSeconds)
-		step++
-		rsp, err, body := updateTask(info, taskID)
-		responseBody = body
+	// This budget includes delays, response headers and body reads. A shorter
+	// incoming deadline (or cancellation) wins, even when RELAY_TIMEOUT is zero.
+	ctx, cancel := context.WithTimeout(c.Request.Context(), aliTaskPollTimeout)
+	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	client, err := service.GetHttpClientWithProxySettings(info.ChannelSetting.Proxy, info.ChannelSetting)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := waitAliTaskPoll(ctx, aliTaskInitialDelay); err != nil {
+		return nil, nil, err
+	}
+	for attempt := 1; attempt <= aliTaskMaxAttempts; attempt++ {
+		logger.LogDebug(c, "asyncTaskWait attempt %d/%d", attempt, aliTaskMaxAttempts)
+		rsp, err, body := updateTask(ctx, client, info, taskID)
+		if contextErr := ctx.Err(); contextErr != nil {
+			return nil, nil, contextErr
+		}
 		if err != nil {
 			logger.LogWarn(c, "asyncTaskWait UpdateTask err: "+err.Error())
-			time.Sleep(time.Duration(waitSeconds) * time.Second)
-			continue
+		} else {
+			if rsp.Output.TaskStatus == "" {
+				return &AliResponse{}, body, nil
+			}
+			switch rsp.Output.TaskStatus {
+			case "FAILED", "CANCELED", "SUCCEEDED", "UNKNOWN":
+				return rsp, body, nil
+			}
 		}
-
-		if rsp.Output.TaskStatus == "" {
-			return &taskResponse, responseBody, nil
+		// Failed requests consume an attempt too; never sleep after the last one.
+		if attempt < aliTaskMaxAttempts {
+			if err := waitAliTaskPoll(ctx, aliTaskPollInterval); err != nil {
+				return nil, nil, err
+			}
 		}
-
-		switch rsp.Output.TaskStatus {
-		case "FAILED":
-			fallthrough
-		case "CANCELED":
-			fallthrough
-		case "SUCCEEDED":
-			fallthrough
-		case "UNKNOWN":
-			return rsp, responseBody, nil
-		}
-		if step >= maxStep {
-			break
-		}
-		time.Sleep(time.Duration(waitSeconds) * time.Second)
 	}
-
 	return nil, nil, fmt.Errorf("aliAsyncTaskWait timeout")
+}
+
+func waitAliTaskPoll(ctx context.Context, delay time.Duration) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return ctx.Err()
+	}
 }
 
 func responseAli2OpenAIImage(c *gin.Context, response *AliResponse, originBody []byte, info *relaycommon.RelayInfo, responseFormat string) *dto.ImageResponse {

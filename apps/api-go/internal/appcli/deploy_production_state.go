@@ -17,27 +17,23 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
-
-	"golang.org/x/sys/unix"
 )
 
 const (
 	productionServiceName         = "lmm-api.service"
 	productionExpectedHost        = "arch-dmit"
-	productionDefaultRollback     = 10 * time.Minute
 	productionDefaultObservation  = 3 * time.Minute
 	productionObservationInterval = 10 * time.Second
-	productionConfirmationMargin  = 30 * time.Second
 	productionCommandTimeout      = 2 * time.Minute
 	productionProbeTimeout        = 8 * time.Second
 	productionProbeAttempts       = 45
-	productionTransactionFormat   = 6
-	productionStatusFormat        = 1
+	productionTransactionFormat   = 8
+	productionStatusFormat        = 2
 	productionFrontendReleaseKeep = 3
 	productionTransactionMarker   = "deployment.env"
 	productionWorkspaceMarker     = ".lmm-deploy-workspace"
+	productionCandidateLinkName   = "lmm-api"
 	productionManifestFilename    = "deployment.json"
 	productionStatusFilename      = "status.json"
 	// pi-lens-ignore: go-hardcoded-secrets
@@ -166,12 +162,13 @@ func defaultProductionPaths() productionPaths {
 }
 
 type productionCommand struct {
-	Name      string
-	Args      []string
-	Env       []string
-	Dir       string
-	Timeout   time.Duration
-	Sensitive bool
+	Name        string
+	Args        []string
+	Env         []string
+	Dir         string
+	Timeout     time.Duration
+	Sensitive   bool
+	OutputLimit int
 }
 
 type productionCommandRunner interface {
@@ -232,7 +229,7 @@ func (osProductionCommandRunner) Run(parent context.Context, command productionC
 	case commandVercmp:
 		process = exec.CommandContext(ctx, "/usr/bin/vercmp", command.Args...)
 	case productionOperatorBinary:
-		process = exec.CommandContext(ctx, productionOperatorBinary, command.Args...)
+		process = exec.CommandContext(ctx, "/usr/bin/lmm-api", command.Args...)
 	default:
 		return nil, fmt.Errorf("command executable is not allowlisted: %q", command.Name)
 	}
@@ -246,6 +243,10 @@ func (osProductionCommandRunner) Run(parent context.Context, command productionC
 	var stderr bytes.Buffer
 	process.Stdout = &stdout
 	process.Stderr = &stderr
+	if command.OutputLimit > 0 {
+		process.Stdout = &boundedBillingOutput{buffer: &stdout, limit: command.OutputLimit}
+		process.Stderr = &boundedBillingOutput{buffer: &stderr, limit: command.OutputLimit}
+	}
 	err := process.Run()
 	if err == nil {
 		return stdout.Bytes(), nil
@@ -278,14 +279,18 @@ func runVerifiedBinary(ctx context.Context, runner productionCommandRunner, bina
 }
 
 type productionRuntime struct {
-	paths            productionPaths
-	runner           productionCommandRunner
-	now              func() time.Time
-	sleep            func(time.Duration)
-	effectiveUID     func() int
-	hostname         func() (string, error)
-	probeAttempts    int
-	requiredOwnerUID uint32
+	billingAdmissionClosed  bool
+	billingRollback         bool
+	billingConnections      func() (int, error)
+	billingExecutableSHA256 func(int) (string, error)
+	paths                   productionPaths
+	runner                  productionCommandRunner
+	now                     func() time.Time
+	sleep                   func(time.Duration)
+	effectiveUID            func() int
+	hostname                func() (string, error)
+	probeAttempts           int
+	requiredOwnerUID        uint32
 }
 
 func defaultProductionRuntime() *productionRuntime {
@@ -322,29 +327,28 @@ type productionTransactionOptions struct {
 	ExpectedVersion      string
 	BackupDir            string
 	WithBackups          bool
-	RollbackWindow       time.Duration
+	ControllerBackup     controllerBackupBinding
 	ObservationWindow    time.Duration
-	ManualConfirm        bool
 	PreserveEdgePolicy   bool
 	Reason               string
 }
 
 type productionPackageTransition struct {
-	CandidatePackageName      string `json:"candidate_package_name"`
-	RollbackPackageName       string `json:"rollback_package_name"`
-	Changed                   bool   `json:"changed"`
-	CandidatePath             string `json:"candidate_path"`
-	RollbackPath              string `json:"rollback_path"`
-	CandidateIdentity         string `json:"candidate_identity"`
-	RollbackIdentity          string `json:"rollback_identity"`
-	CandidateSHA256           string `json:"candidate_sha256"`
-	RollbackSHA256            string `json:"rollback_sha256"`
-	CandidateGitRevision      string `json:"candidate_git_revision"`
-	RollbackGitRevision       string `json:"rollback_git_revision"`
-	CandidateContractRevision string `json:"candidate_contract_revision"`
-	RollbackContractRevision  string `json:"rollback_contract_revision"`
-	CandidateCLIPhase         string `json:"candidate_cli_phase,omitempty"`
-	RollbackCLIPhase          string `json:"rollback_cli_phase,omitempty"`
+	CandidatePackageName                      string `json:"candidate_package_name"`
+	RollbackPackageName                       string `json:"rollback_package_name"`
+	Changed                                   bool   `json:"changed"`
+	CandidatePath                             string `json:"candidate_path"`
+	RollbackPath                              string `json:"rollback_path"`
+	CandidateIdentity                         string `json:"candidate_identity"`
+	RollbackIdentity                          string `json:"rollback_identity"`
+	CandidateSHA256                           string `json:"candidate_sha256"`
+	RollbackSHA256                            string `json:"rollback_sha256"`
+	CandidateGitRevision                      string `json:"candidate_git_revision"`
+	RollbackGitRevision                       string `json:"rollback_git_revision"`
+	CandidateContractRevision                 string `json:"candidate_contract_revision"`
+	RollbackContractRevision                  string `json:"rollback_contract_revision"`
+	RollbackOAuthManagedTokenIsolation        bool   `json:"rollback_oauth_managed_token_isolation"`
+	RollbackManagedBillingSettlementIsolation bool   `json:"rollback_managed_billing_settlement_isolation"`
 }
 
 type productionFrontendTransition struct {
@@ -355,6 +359,7 @@ type productionFrontendTransition struct {
 }
 
 type productionManifest struct {
+	BillingGate              *productionBillingGate       `json:"billing_gate,omitempty"`
 	Format                   int                          `json:"format"`
 	DeploymentID             string                       `json:"deployment_id"`
 	OperatorUser             string                       `json:"operator_user"`
@@ -367,12 +372,17 @@ type productionManifest struct {
 	OperatorBinarySHA256     string                       `json:"operator_binary_sha256,omitempty"`
 	ExpectedVersion          string                       `json:"expected_version"`
 	OldVersion               string                       `json:"old_version"`
+	PreviousProviderTarget   string                       `json:"previous_provider_target,omitempty"`
+	NewProviderTarget        string                       `json:"new_provider_target,omitempty"`
 	BackupDir                string                       `json:"backup_dir,omitempty"`
 	BackupsEnabled           bool                         `json:"backups_enabled"`
+	BackupEvidenceFormat     int                          `json:"backup_evidence_format,omitempty"`
+	ControllerOnlyBackup     *controllerBackupBinding     `json:"controller_only_backup,omitempty"`
 	DatabaseBackupSHA256     string                       `json:"database_backup_sha256,omitempty"`
+	TargetBackupSHA256       string                       `json:"target_backup_sha256,omitempty"`
+	ControllerBackupSHA256   string                       `json:"controller_backup_sha256,omitempty"`
+	OffhostBackupSHA256      string                       `json:"offhost_backup_sha256,omitempty"`
 	DatabaseSchema           string                       `json:"database_schema"`
-	ArmedUTC                 time.Time                    `json:"armed_utc"`
-	DeadlineUTC              time.Time                    `json:"deadline_utc"`
 	ObservationStartedUTC    time.Time                    `json:"observation_started_utc,omitempty"`
 	ObservationSeconds       int64                        `json:"observation_seconds"`
 	ServiceRestartBaseline   int64                        `json:"service_restart_baseline"`
@@ -470,15 +480,16 @@ func packageIntegrityClean(output []byte, name string) bool {
 }
 
 type productionPackageMetadata struct {
-	Name               string
-	Version            string
-	Identity           string
-	GitRevision        string
-	ContractRevision   string
-	CLITransitionPhase string
-	IndexSHA256        string
-	BinarySHA256       string
-	ReleaseAssetSHA256 string
+	Name                              string
+	Version                           string
+	Identity                          string
+	GitRevision                       string
+	ContractRevision                  string
+	IndexSHA256                       string
+	BinarySHA256                      string
+	ReleaseAssetSHA256                string
+	OAuthManagedTokenIsolation        bool
+	ManagedBillingSettlementIsolation bool
 }
 
 func parseNamedPackageIdentity(output []byte, expected string) (productionPackageMetadata, error) {
@@ -536,15 +547,11 @@ func (runtime *productionRuntime) packageMetadata(ctx context.Context, packagePa
 		}
 		metadata.ReleaseAssetSHA256 = assetDigest
 	}
-	if packageName != productionWebPackageName {
-		explicitPhase, phaseErr := readMember("CLI_TRANSITION_PHASE")
-		if phaseErr != nil {
-			explicitPhase = ""
-		}
-		metadata.CLITransitionPhase, err = packageCLITransitionPhase(packageName, metadata.Version, explicitPhase)
-		if err != nil {
-			return productionPackageMetadata{}, fmt.Errorf("%s package CLI transition phase is invalid: %w", packageName, err)
-		}
+	if packageName == productionAURPackageName {
+		capability, capabilityErr := readMember("OAUTH_MANAGED_TOKEN_CAPABILITY")
+		metadata.OAuthManagedTokenIsolation = capabilityErr == nil && capability == "v1"
+		billingCapability, billingCapabilityErr := readMember("MANAGED_BILLING_SETTLEMENT_CAPABILITY")
+		metadata.ManagedBillingSettlementIsolation = billingCapabilityErr == nil && billingCapability == "v1"
 	}
 	if packageName == productionWebPackageName {
 		index, err := runtime.runner.Run(ctx, productionCommand{Name: commandBsdtar, Args: []string{"-xOf", packagePath, "usr/share/lmm-api-web/frontend-dist/index.html"}})
@@ -554,12 +561,17 @@ func (runtime *productionRuntime) packageMetadata(ctx context.Context, packagePa
 		digest := sha256.Sum256(index)
 		metadata.IndexSHA256 = hex.EncodeToString(digest[:])
 	} else {
-		binary, err := runtime.runner.Run(ctx, productionCommand{Name: commandBsdtar, Args: []string{"-xOf", packagePath, "usr/bin/lmm-api"}})
-		if err != nil || len(binary) == 0 {
-			binary, err = runtime.runner.Run(ctx, productionCommand{Name: commandBsdtar, Args: []string{"-xOf", packagePath, "usr/bin/lmm-api-go"}})
+		providerTarget, providerErr := providerTargetForPackage(packageName)
+		if providerErr != nil {
+			return productionPackageMetadata{}, providerErr
 		}
+		binaryMember := "usr/bin/" + providerTarget
+		if packageName == productionAURPackageName && metadata.Version == "0.1.69-1" {
+			binaryMember = "usr/bin/lmm-api"
+		}
+		binary, err := runtime.runner.Run(ctx, productionCommand{Name: commandBsdtar, Args: []string{"-xOf", packagePath, binaryMember}})
 		if err != nil || len(binary) == 0 {
-			return productionPackageMetadata{}, errors.New("Go package service binary is missing")
+			return productionPackageMetadata{}, errors.New("backend package provider binary is missing")
 		}
 		digest := sha256.Sum256(binary)
 		metadata.BinarySHA256 = hex.EncodeToString(digest[:])
@@ -568,17 +580,59 @@ func (runtime *productionRuntime) packageMetadata(ctx context.Context, packagePa
 }
 
 func (runtime *productionRuntime) verifyCanonicalOperator(ctx context.Context) error {
-	output, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qo", productionOperatorBinary}, Env: append(os.Environ(), "LC_ALL=C")})
-	prefix := productionOperatorBinary + " is owned by "
-	if err != nil || !strings.HasPrefix(strings.TrimSpace(string(output)), prefix) {
-		return errors.New("canonical deployment operator is not package-owned")
+	currentTarget, err := providerLinkState(runtime.paths.InstalledBinary)
+	if err != nil {
+		return fmt.Errorf("canonical deployment operator link is invalid: %w", err)
 	}
-	identity := strings.TrimPrefix(strings.TrimSpace(string(output)), prefix)
-	if _, err := parseNamedPackageIdentity([]byte(identity), productionOperatorPackageName); err != nil {
+	if currentTarget == "legacy-regular" {
+		return runtime.verifyLegacyCanonicalOperator(ctx)
+	}
+	selector := backendRuntime{
+		paths: backendPaths{
+			Canonical: runtime.paths.InstalledBinary,
+			Go:        runtime.paths.LegacyGoBinary,
+			Rust:      filepath.Join(filepath.Dir(runtime.paths.InstalledBinary), backendRustName),
+		},
+		owner:       productionBackendOwner{ctx: ctx, runner: runtime.runner},
+		effectiveID: runtime.effectiveUID,
+		requiredUID: runtime.requiredOwnerUID,
+	}
+	provider, err := selector.status()
+	if err != nil {
+		return fmt.Errorf("canonical deployment operator link is invalid: %w", err)
+	}
+	identity, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Q", provider.Package}, Env: append(os.Environ(), "LC_ALL=C")})
+	if err != nil {
+		return errors.New("canonical deployment operator package identity is unavailable")
+	}
+	if _, err := parseNamedPackageIdentity(identity, provider.Package); err != nil {
 		return errors.New("canonical deployment operator package identity is invalid")
 	}
-	integrity, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qkk", productionOperatorPackageName}, Env: append(os.Environ(), "LC_ALL=C")})
-	if err != nil || !packageIntegrityClean(integrity, productionOperatorPackageName) {
+	integrity, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qkk", provider.Package}, Env: append(os.Environ(), "LC_ALL=C")})
+	if err != nil || !packageIntegrityClean(integrity, provider.Package) {
+		return errors.New("canonical deployment operator package integrity check failed")
+	}
+	return nil
+}
+
+func (runtime *productionRuntime) verifyLegacyCanonicalOperator(ctx context.Context) error {
+	canonical, canonicalErr := os.Lstat(runtime.paths.InstalledBinary)
+	provider, providerErr := os.Lstat(runtime.paths.LegacyGoBinary)
+	target, targetErr := os.Readlink(runtime.paths.LegacyGoBinary)
+	if canonicalErr != nil || !canonical.Mode().IsRegular() || canonical.Mode()&0o111 == 0 || canonical.Mode().Perm()&0o022 != 0 ||
+		providerErr != nil || provider.Mode()&os.ModeSymlink == 0 || targetErr != nil || target != filepath.Base(runtime.paths.InstalledBinary) {
+		return errors.New("canonical deployment operator legacy layout is invalid")
+	}
+	identity, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Q", productionAURPackageName}, Env: append(os.Environ(), "LC_ALL=C")})
+	if err != nil {
+		return errors.New("canonical deployment operator package identity is unavailable")
+	}
+	metadata, err := parseNamedPackageIdentity(identity, productionAURPackageName)
+	if err != nil || metadata.Version != "0.1.69-1" {
+		return errors.New("canonical deployment operator legacy package identity is invalid")
+	}
+	integrity, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qkk", productionAURPackageName}, Env: append(os.Environ(), "LC_ALL=C")})
+	if err != nil || !packageIntegrityClean(integrity, productionAURPackageName) {
 		return errors.New("canonical deployment operator package integrity check failed")
 	}
 	return nil
@@ -684,10 +738,8 @@ type productionStatus struct {
 	Version        string    `json:"version,omitempty"`
 	Previous       string    `json:"previous_version,omitempty"`
 	Reason         string    `json:"reason,omitempty"`
-	RollbackTimer  string    `json:"rollback_timer,omitempty"`
-	DeadlineUTC    time.Time `json:"deadline_utc,omitempty"`
+	Failure        string    `json:"failure,omitempty"`
 	UpdatedUTC     time.Time `json:"updated_utc"`
-	AutoConfirm    bool      `json:"auto_confirm,omitempty"`
 	ObservationSec int64     `json:"observation_seconds,omitempty"`
 }
 
@@ -696,13 +748,10 @@ type productionWorkspace struct {
 	id            string
 	stateDir      string
 	stagingDir    string
+	candidateLink string
 	manifestPath  string
 	statusPath    string
 	probeToken    string
-	timerUnit     string
-	rollbackUnit  string
-	timerPath     string
-	rollbackPath  string
 	configRestore string
 }
 
@@ -717,18 +766,18 @@ func runProductionTransaction(action string, args []string, stdout, stderr io.Wr
 		return ExitOK
 	}
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production %s: %v\n", ProgramName, action, err)
+		_, _ = fmt.Fprintf(stderr, "%s production %s: %v\n", DeployProgramName, action, err)
 		return ExitUsage
 	}
 	runtime := defaultProductionRuntime()
 	status, err := runtime.executeTransaction(context.Background(), options)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production %s: %v\n", ProgramName, action, err)
+		_, _ = fmt.Fprintf(stderr, "%s production %s: %v\n", DeployProgramName, action, err)
 		return ExitError
 	}
 	encoded, err := json.MarshalIndent(status, "", "  ")
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s deploy production %s: encode status: %v\n", ProgramName, action, err)
+		_, _ = fmt.Fprintf(stderr, "%s production %s: encode status: %v\n", DeployProgramName, action, err)
 		return ExitError
 	}
 	_, _ = stdout.Write(append(encoded, '\n'))
@@ -737,10 +786,9 @@ func runProductionTransaction(action string, args []string, stdout, stderr io.Wr
 
 func parseProductionTransactionOptions(action string, args []string, stderr io.Writer) (productionTransactionOptions, error) {
 	options := productionTransactionOptions{
-		Action: action, RollbackWindow: productionDefaultRollback,
-		ObservationWindow: productionDefaultObservation, Reason: "operator-request",
+		Action: action, ObservationWindow: productionDefaultObservation, Reason: "operator-request",
 	}
-	flags := flag.NewFlagSet("deploy production "+action, flag.ContinueOnError)
+	flags := flag.NewFlagSet(DeployProgramName+" production "+action, flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&options.Workspace, "workspace", "", "marker-owned target deployment workspace")
 	if action == "apply" {
@@ -760,18 +808,18 @@ func parseProductionTransactionOptions(action string, args []string, stderr io.W
 		flags.StringVar(&options.OperatorBinary, "operator-binary", "", "deployment operator binary")
 		flags.StringVar(&options.OperatorBinarySHA256, "operator-binary-sha256", "", "operator binary SHA-256")
 		flags.StringVar(&options.ExpectedVersion, "expected-version", "", "candidate service version")
-		flags.StringVar(&options.BackupDir, "backup-dir", "", "current-turn-authorized verified target business backup directory")
-		flags.BoolVar(&options.WithBackups, "with-backups", false, "bind an explicitly authorized optional business backup")
-		rollbackSeconds := int(options.RollbackWindow / time.Second)
+		flags.StringVar(&options.BackupDir, "backup-dir", "", "verified target copy from the production three-copy backup set")
+		flags.BoolVar(&options.WithBackups, "with-backups", false, "bind explicitly selected verified production backup evidence")
+		flags.StringVar(&options.ControllerBackup.PublicKey, "controller-backup-public-key", "", "frozen controller verification public key")
+		flags.StringVar(&options.ControllerBackup.PlanSHA256, "release-plan-sha256", "", "immutable controller release-plan SHA-256")
+		flags.StringVar(&options.ControllerBackup.ReceiptPath, "controller-backup-receipt", "", "root-owned signed controller-only verification receipt")
+		flags.StringVar(&options.ControllerBackup.ReceiptSHA256, "controller-backup-receipt-sha256", "", "signed controller verification receipt SHA-256")
 		observationSeconds := int(options.ObservationWindow / time.Second)
-		flags.IntVar(&rollbackSeconds, "rollback-seconds", rollbackSeconds, "fixed automatic rollback window (must be 600)")
 		flags.IntVar(&observationSeconds, "observation-seconds", observationSeconds, "stability observation window (120-360)")
-		flags.BoolVar(&options.ManualConfirm, "manual-confirm", false, "leave a healthy release awaiting explicit confirmation")
 		flags.BoolVar(&options.PreserveEdgePolicy, "preserve-edge-policy", false, "preserve the active nginx edge policy")
 		if err := flags.Parse(args); err != nil {
 			return productionTransactionOptions{}, err
 		}
-		options.RollbackWindow = time.Duration(rollbackSeconds) * time.Second
 		options.ObservationWindow = time.Duration(observationSeconds) * time.Second
 	} else if action == "rollback" {
 		flags.StringVar(&options.Reason, "reason", options.Reason, "audit-safe rollback reason")
@@ -838,9 +886,6 @@ func parseProductionTransactionOptions(action string, args []string, stderr io.W
 		if !productionVersionPattern.MatchString(options.ExpectedVersion) {
 			return productionTransactionOptions{}, errors.New("invalid --expected-version")
 		}
-		if options.RollbackWindow != productionDefaultRollback {
-			return productionTransactionOptions{}, errors.New("--rollback-seconds must be exactly 600")
-		}
 		if options.ObservationWindow < 2*time.Minute || options.ObservationWindow > 6*time.Minute {
 			return productionTransactionOptions{}, errors.New("--observation-seconds must be between 120 and 360")
 		}
@@ -856,8 +901,8 @@ func parseProductionTransactionOptions(action string, args []string, stderr io.W
 			}
 			*value = clean
 		}
-		if options.WithBackups != (options.BackupDir != "") {
-			return productionTransactionOptions{}, errors.New("--with-backups and --backup-dir must be supplied together")
+		if err := validateControllerBackupTransactionOptions(options); err != nil {
+			return productionTransactionOptions{}, err
 		}
 		if options.BackupDir != "" {
 			clean, err := cleanAbsoluteNonRoot(options.BackupDir)
@@ -874,7 +919,13 @@ func parseProductionTransactionOptions(action string, args []string, stderr io.W
 }
 
 func (runtime *productionRuntime) executeTransaction(ctx context.Context, options productionTransactionOptions) (productionStatus, error) {
-	workspace, err := runtime.openWorkspace(options.Workspace)
+	var workspace productionWorkspace
+	var err error
+	if options.Action == "status" {
+		workspace, err = runtime.openWorkspaceForInspection(options.Workspace)
+	} else {
+		workspace, err = runtime.openWorkspace(options.Workspace)
+	}
 	if err != nil {
 		return productionStatus{}, err
 	}
@@ -895,7 +946,7 @@ func (runtime *productionRuntime) executeTransaction(ctx context.Context, option
 		return productionStatus{}, err
 	}
 	defer func() {
-		_ = unix.Flock(int(lock.Fd()), unix.LOCK_UN)
+		_ = unlockDeploymentFile(lock)
 		_ = lock.Close()
 	}()
 
@@ -914,6 +965,14 @@ func (runtime *productionRuntime) executeTransaction(ctx context.Context, option
 }
 
 func (runtime *productionRuntime) openWorkspace(root string) (productionWorkspace, error) {
+	return runtime.openWorkspaceWithMode(root, true)
+}
+
+func (runtime *productionRuntime) openWorkspaceForInspection(root string) (productionWorkspace, error) {
+	return runtime.openWorkspaceWithMode(root, false)
+}
+
+func (runtime *productionRuntime) openWorkspaceWithMode(root string, requireStaging bool) (productionWorkspace, error) {
 	if filepath.Dir(root) != filepath.Clean(runtime.paths.WorkRoot) {
 		return productionWorkspace{}, errors.New("workspace must be one direct child of the production work root")
 	}
@@ -948,8 +1007,10 @@ func (runtime *productionRuntime) openWorkspace(root string) (productionWorkspac
 		return productionWorkspace{}, errors.New("workspace marker does not own this deployment ID")
 	}
 	stateDir := filepath.Join(root, "state")
-	if err := ensureRealDirectory(stateDir, 0o700); err != nil {
-		return productionWorkspace{}, fmt.Errorf("prepare deployment state: %w", err)
+	if requireStaging {
+		if err := ensureRealDirectory(stateDir, 0o700); err != nil {
+			return productionWorkspace{}, fmt.Errorf("prepare deployment state: %w", err)
+		}
 	}
 	if err := runtime.requireOwnedSafePath(stateDir, true); err != nil {
 		return productionWorkspace{}, errors.New("deployment state must be root-owned and safe")
@@ -962,21 +1023,26 @@ func (runtime *productionRuntime) openWorkspace(root string) (productionWorkspac
 		return productionWorkspace{}, errors.New("deployment state must remain root-only")
 	}
 	stagingDir := filepath.Join(root, "staging")
-	if err := runtime.requireOwnedSafePath(stagingDir, true); err != nil {
-		return productionWorkspace{}, fmt.Errorf("validate deployment staging: %w", err)
+	if requireStaging {
+		if err := runtime.requireOwnedSafePath(stagingDir, true); err != nil {
+			return productionWorkspace{}, fmt.Errorf("validate deployment staging: %w", err)
+		}
+	} else if _, err := os.Lstat(stagingDir); err == nil {
+		if err := runtime.requireOwnedSafePath(stagingDir, true); err != nil {
+			return productionWorkspace{}, fmt.Errorf("validate deployment staging: %w", err)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return productionWorkspace{}, fmt.Errorf("inspect deployment staging: %w", err)
 	}
 	return productionWorkspace{
 		root:          root,
 		id:            id,
 		stateDir:      stateDir,
 		stagingDir:    stagingDir,
+		candidateLink: filepath.Join(stagingDir, productionCandidateLinkName),
 		manifestPath:  filepath.Join(stateDir, productionManifestFilename),
 		statusPath:    filepath.Join(stateDir, productionStatusFilename),
 		probeToken:    filepath.Join(stateDir, productionProbeTokenFilename),
-		timerUnit:     "lmm-api-go-rollback-" + id + ".timer",
-		rollbackUnit:  "lmm-api-go-rollback-" + id + ".service",
-		timerPath:     filepath.Join(runtime.paths.SystemdUnitRoot, "lmm-api-go-rollback-"+id+".timer"),
-		rollbackPath:  filepath.Join(runtime.paths.SystemdUnitRoot, "lmm-api-go-rollback-"+id+".service"),
 		configRestore: filepath.Join(stateDir, productionConfigRestoreDirname),
 	}, nil
 }
@@ -996,11 +1062,13 @@ func (runtime *productionRuntime) acquireGlobalLock(ctx context.Context) (*os.Fi
 	}
 	deadline := runtime.now().Add(2 * time.Minute)
 	for {
-		if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX|unix.LOCK_NB); err == nil {
-			return lock, nil
-		} else if !errors.Is(err, unix.EWOULDBLOCK) && !errors.Is(err, unix.EAGAIN) {
+		acquired, err := tryDeploymentFileLock(lock)
+		if err != nil {
 			_ = lock.Close()
 			return nil, fmt.Errorf("lock production deployment: %w", err)
+		}
+		if acquired {
+			return lock, nil
 		}
 		if runtime.now().After(deadline) {
 			_ = lock.Close()
@@ -1024,7 +1092,14 @@ func (runtime *productionRuntime) writeStatus(workspace productionWorkspace, sta
 	if err != nil {
 		return err
 	}
-	return writeAtomicRegularFile(workspace.statusPath, append(encoded, '\n'), 0o600)
+	if err := writeAtomicRegularFile(workspace.statusPath, append(encoded, '\n'), 0o600); err != nil {
+		return err
+	}
+	// Public copy is cosmetic: a publication failure must never stop recovery.
+	if err := runtime.publishServicePhase(workspace.id, status.Phase); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "public maintenance status unavailable: %v\n", err)
+	}
+	return nil
 }
 
 func (runtime *productionRuntime) readStatus(workspace productionWorkspace) (productionStatus, error) {
@@ -1053,6 +1128,39 @@ func (runtime *productionRuntime) writeManifest(workspace productionWorkspace, m
 }
 
 func (runtime *productionRuntime) readManifest(workspace productionWorkspace) (productionManifest, error) {
+	manifest, err := runtime.readManifestSchema(workspace)
+	if err != nil {
+		return productionManifest{}, err
+	}
+	if err := runtime.validateManifestArtifacts(workspace, manifest); err != nil {
+		return productionManifest{}, err
+	}
+	return manifest, nil
+}
+
+func (runtime *productionRuntime) readManifestForRollback(workspace productionWorkspace) (productionManifest, error) {
+	manifest, err := runtime.readManifestSchema(workspace)
+	if err != nil {
+		return productionManifest{}, err
+	}
+	for _, file := range []struct {
+		path, digest, label string
+		changed             bool
+	}{
+		{manifest.Go.RollbackPath, manifest.Go.RollbackSHA256, "rollback Go package", manifest.Go.Changed},
+		{manifest.Web.RollbackPath, manifest.Web.RollbackSHA256, "rollback Web package", manifest.Web.Changed},
+	} {
+		if !file.changed {
+			continue
+		}
+		if err := runtime.validateStagedFile(workspace, file.path, file.digest, file.label); err != nil {
+			return productionManifest{}, fmt.Errorf("deployment manifest %s failed validation: %w", file.label, err)
+		}
+	}
+	return manifest, nil
+}
+
+func (runtime *productionRuntime) readManifestSchema(workspace productionWorkspace) (productionManifest, error) {
 	content, err := readPrivateRegularFile(workspace.manifestPath, 256<<10)
 	if err != nil {
 		return productionManifest{}, fmt.Errorf("read deployment manifest: %w", err)
@@ -1064,27 +1172,58 @@ func (runtime *productionRuntime) readManifest(workspace productionWorkspace) (p
 	if manifest.Format != productionTransactionFormat || manifest.DeploymentID != workspace.id {
 		return productionManifest{}, errors.New("deployment manifest identity is invalid")
 	}
-	if err := runtime.validateManifest(workspace, manifest); err != nil {
+	if err := runtime.validateManifestSchema(workspace, manifest); err != nil {
 		return productionManifest{}, err
 	}
 	return manifest, nil
 }
 
+func providerTargetForPackage(name string) (string, error) {
+	switch name {
+	case "lmm-api-go", "lmm-api-go-bin", "lmm-api-go-git":
+		return backendGoName, nil
+	case "lmm-api-rs", "lmm-api-rs-bin", "lmm-api-rs-git":
+		return backendRustName, nil
+	default:
+		return "", fmt.Errorf("unsupported backend provider package %q", name)
+	}
+}
+
 func (runtime *productionRuntime) validateManifest(workspace productionWorkspace, manifest productionManifest) error {
+	if err := runtime.validateManifestSchema(workspace, manifest); err != nil {
+		return err
+	}
+	return runtime.validateManifestArtifacts(workspace, manifest)
+}
+
+func (runtime *productionRuntime) validateManifestSchema(workspace productionWorkspace, manifest productionManifest) error {
 	if !productionVersionPattern.MatchString(manifest.ExpectedVersion) || !productionVersionPattern.MatchString(manifest.OldVersion) ||
 		manifest.OperatorUser != productionOperatorUser {
 		return errors.New("deployment manifest contains invalid release or operator identity")
 	}
-	if manifest.Go.CandidatePackageName != productionAURPackageName ||
-		(manifest.Go.RollbackPackageName != productionAURPackageName && manifest.Go.RollbackPackageName != productionSourcePackageName) ||
+	candidateProviderTarget, candidateProviderErr := providerTargetForPackage(manifest.Go.CandidatePackageName)
+	rollbackProviderTarget, rollbackProviderErr := providerTargetForPackage(manifest.Go.RollbackPackageName)
+	if candidateProviderErr != nil || rollbackProviderErr != nil ||
 		manifest.Web.CandidatePackageName != productionWebPackageName || manifest.Web.RollbackPackageName != productionWebPackageName ||
 		manifest.Go.CandidateContractRevision != manifest.Web.CandidateContractRevision ||
 		manifest.Go.RollbackContractRevision != manifest.Web.RollbackContractRevision {
-		return errors.New("deployment manifest Go/Web package or contract pair mismatch")
+		return errors.New("deployment manifest backend/Web package or contract pair mismatch")
 	}
-	if !validCLITransitionPhase(manifest.Go.CandidateCLIPhase) || !validCLITransitionPhase(manifest.Go.RollbackCLIPhase) ||
-		manifest.Web.CandidateCLIPhase != "" || manifest.Web.RollbackCLIPhase != "" {
-		return errors.New("deployment manifest CLI transition phase is invalid")
+	if manifest.NewProviderTarget != candidateProviderTarget {
+		return errors.New("deployment manifest candidate provider target is invalid")
+	}
+	switch manifest.PreviousProviderTarget {
+	case backendGoName, backendRustName:
+		if manifest.PreviousProviderTarget != rollbackProviderTarget {
+			return errors.New("deployment manifest rollback provider target is invalid")
+		}
+	case "legacy-regular":
+		if manifest.Go.RollbackPackageName != productionAURPackageName || manifest.Go.RollbackIdentity != productionAURPackageName+" 0.1.69-1" {
+			return errors.New("deployment manifest legacy provider evidence is invalid")
+		}
+	case "missing":
+	default:
+		return errors.New("deployment manifest previous provider target is invalid")
 	}
 	for _, transition := range []productionPackageTransition{manifest.Go, manifest.Web} {
 		if !productionRevisionPattern.MatchString(transition.CandidateGitRevision) ||
@@ -1103,7 +1242,7 @@ func (runtime *productionRuntime) validateManifest(workspace productionWorkspace
 		}
 		if !transition.Changed && (transition.CandidatePackageName != transition.RollbackPackageName || transition.CandidateIdentity != transition.RollbackIdentity ||
 			transition.CandidateSHA256 != transition.RollbackSHA256 || transition.CandidateGitRevision != transition.RollbackGitRevision ||
-			transition.CandidateContractRevision != transition.RollbackContractRevision || transition.CandidateCLIPhase != transition.RollbackCLIPhase) {
+			transition.CandidateContractRevision != transition.RollbackContractRevision) {
 			return errors.New("unchanged package manifest identities differ")
 		}
 		for _, path := range []string{transition.CandidatePath, transition.RollbackPath} {
@@ -1120,24 +1259,38 @@ func (runtime *productionRuntime) validateManifest(workspace productionWorkspace
 			return errors.New("deployment manifest contains an invalid SHA-256")
 		}
 	}
-	if !pathWithinRoot(workspace.stagingDir, manifest.ProbeBinary) || filepath.Dir(manifest.ProbeBinary) != workspace.stagingDir {
-		return errors.New("deployment manifest probe binary escapes staging")
-	}
-	if !pathWithinRoot(workspace.stagingDir, manifest.OperatorBinary) || filepath.Dir(manifest.OperatorBinary) != workspace.stagingDir {
-		return errors.New("deployment manifest operator binary escapes staging")
+	if manifest.ProbeBinary != manifest.OperatorBinary || manifest.ProbeBinarySHA256 != manifest.OperatorBinarySHA256 ||
+		manifest.ProbeBinary != filepath.Join(workspace.stagingDir, backendGoName) {
+		return errors.New("deployment manifest candidate entrypoint is invalid")
 	}
 	if manifest.ConfigRestorePath != workspace.configRestore {
 		return errors.New("deployment manifest configuration rollback path escapes root-only state")
 	}
-	if manifest.BackupsEnabled {
+	if manifest.BackupEvidenceFormat == controllerBackupEvidenceFormat {
+		if err := validateControllerBackupBinding(workspace, manifest); err != nil {
+			return err
+		}
+	} else if manifest.BackupsEnabled {
+		if manifest.ControllerOnlyBackup != nil {
+			return errors.New("legacy backup evidence cannot contain a controller-only binding")
+		}
 		if manifest.BackupDir != filepath.Join(runtime.paths.BackupRoot, workspace.id) || !productionSHA256Pattern.MatchString(manifest.DatabaseBackupSHA256) {
 			return errors.New("deployment manifest backup path or digest is not release-scoped")
 		}
-	} else if manifest.BackupDir != "" || manifest.DatabaseBackupSHA256 != "" {
+		boundDigests := productionSHA256Pattern.MatchString(manifest.TargetBackupSHA256) &&
+			productionSHA256Pattern.MatchString(manifest.ControllerBackupSHA256) &&
+			productionSHA256Pattern.MatchString(manifest.OffhostBackupSHA256)
+		legacyDigests := manifest.TargetBackupSHA256 == "" && manifest.ControllerBackupSHA256 == "" && manifest.OffhostBackupSHA256 == ""
+		if (manifest.BackupEvidenceFormat == 2 && !boundDigests) ||
+			(manifest.BackupEvidenceFormat == 0 && !legacyDigests) ||
+			(manifest.BackupEvidenceFormat != 0 && manifest.BackupEvidenceFormat != 2) {
+			return errors.New("deployment manifest external backup digests are incomplete")
+		}
+	} else if manifest.ControllerOnlyBackup != nil || manifest.BackupDir != "" || manifest.BackupEvidenceFormat != 0 || manifest.DatabaseBackupSHA256 != "" || manifest.TargetBackupSHA256 != "" || manifest.ControllerBackupSHA256 != "" || manifest.OffhostBackupSHA256 != "" {
 		return errors.New("deployment manifest contains unauthorized optional backup state")
 	}
-	if manifest.ArmedUTC.IsZero() || !manifest.DeadlineUTC.Equal(manifest.ArmedUTC.Add(productionDefaultRollback)) || manifest.ObservationSeconds < 120 {
-		return errors.New("deployment manifest fixed deadline or observation window is invalid")
+	if manifest.ObservationSeconds < 120 || manifest.ObservationSeconds > 360 {
+		return errors.New("deployment manifest observation window is invalid")
 	}
 	webCandidate, candidateErr := parseNamedPackageIdentity([]byte(manifest.Web.CandidateIdentity), productionWebPackageName)
 	webRollback, rollbackErr := parseNamedPackageIdentity([]byte(manifest.Web.RollbackIdentity), productionWebPackageName)
@@ -1154,18 +1307,23 @@ func (runtime *productionRuntime) validateManifest(workspace productionWorkspace
 	if !isDatabaseSchema(manifest.DatabaseSchema) {
 		return errors.New("deployment manifest contains unsafe schema data")
 	}
+	return nil
+}
+
+func (runtime *productionRuntime) validateManifestArtifacts(workspace productionWorkspace, manifest productionManifest) error {
 	staged := []struct{ path, digest, label string }{
 		{manifest.Go.CandidatePath, manifest.Go.CandidateSHA256, "candidate Go package"},
 		{manifest.Go.RollbackPath, manifest.Go.RollbackSHA256, "rollback Go package"},
 		{manifest.Web.CandidatePath, manifest.Web.CandidateSHA256, "candidate Web package"},
 		{manifest.Web.RollbackPath, manifest.Web.RollbackSHA256, "rollback Web package"},
-		{manifest.ProbeBinary, manifest.ProbeBinarySHA256, "probe binary"},
-		{manifest.OperatorBinary, manifest.OperatorBinarySHA256, "operator binary"},
 	}
 	for _, file := range staged {
 		if err := runtime.validateStagedFile(workspace, file.path, file.digest, file.label); err != nil {
 			return fmt.Errorf("deployment manifest %s failed validation: %w", file.label, err)
 		}
+	}
+	if _, err := runtime.validateCandidateEntrypoint(workspace, manifest.ProbeBinary, manifest.ProbeBinarySHA256); err != nil {
+		return fmt.Errorf("deployment manifest candidate entrypoint failed validation: %w", err)
 	}
 	return nil
 }
@@ -1175,8 +1333,8 @@ func (runtime *productionRuntime) requireOwnedSafePath(path string, directory bo
 	if err != nil || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o022 != 0 || (directory && !info.IsDir()) || (!directory && !info.Mode().IsRegular()) {
 		return errors.New("path is missing, writable, or unsafe")
 	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || stat.Uid != runtime.requiredOwnerUID || (!directory && stat.Nlink != 1) {
+	uid, linkCount, ok := deploymentFileOwnership(info)
+	if !ok || uid != runtime.requiredOwnerUID || (!directory && linkCount != 1) {
 		return errors.New("path ownership or link count is unsafe")
 	}
 	return nil

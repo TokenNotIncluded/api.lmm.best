@@ -65,6 +65,11 @@ func rankPresetTopics(counts map[string]int64, fallback string) []string {
 }
 
 func generatePromptPreset(candidate promptCandidate, topicCounts map[string]int64, stat presetStats) (PromptPreset, bool) {
+	if _, ok := requiredPromptPresetCopy[candidate.Id]; ok {
+		// Signals rank the required starters, but must not rewrite their reviewed
+		// copy or append internal workflow instructions to a user's question.
+		return requiredPromptPreset(candidate.Id), true
+	}
 	focus := strings.Join(rankPresetTopics(topicCounts, candidate.Label), "、")
 	prompt := ""
 	switch candidate.Intent {

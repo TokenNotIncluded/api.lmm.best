@@ -1,9 +1,6 @@
 name: LMM web release
 
 on:
-  push:
-    tags:
-      - 'web-v*.*.*'
   workflow_dispatch:
 
 permissions:
@@ -14,7 +11,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  CI: 'true'
+  CI: "true"
 
 jobs:
   web:
@@ -26,6 +23,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
+      actions: read
+      checks: read
       contents: write
       id-token: write
     steps:
@@ -61,12 +60,22 @@ jobs:
           [[ "$aur_version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
           [[ "$aur_version" != "$version" ]]
           [[ $(printf '%s\n%s\n' "$aur_version" "$version" | sort -V | tail -n 1) == "$version" ]]
-          contract_revision=$(deploy/production/api-route-contract-revision.sh print)
+          contract_file=contracts/api-route/VERSION
+          [[ -f "$contract_file" && ! -L "$contract_file" ]]
+          [[ $(wc -l <"$contract_file") -eq 1 ]]
+          contract_version=$(<"$contract_file")
+          [[ "$contract_version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          contract_revision=$(sha256sum "$contract_file" | awk '{print $1}')
           {
             echo "contract_revision=$contract_revision"
             echo "version=$version"
             echo "revision=$revision"
           } >>"$GITHUB_OUTPUT"
+
+      - name: Require successful CI, CodeQL, and release contracts
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash scripts/verify-release-commit-checks.sh "${GITHUB_SHA}"
 
       - name: Install checksum-pinned Bun
         run: |
@@ -89,12 +98,15 @@ jobs:
       - name: Install workspace dependencies
         run: bun install --frozen-lockfile
 
+      - name: Check formatting and copyright headers
+        run: |
+          bun run --filter @lmm/web format:check
+          bun run --filter @lmm/web copyright:check
+
       - name: Test and build the web frontend
         env:
           VITE_REACT_APP_VERSION: ${{ steps.identity.outputs.version }}
         run: |
-          bun run --filter @lmm/web format:check
-          bun run --filter @lmm/web copyright:check
           bun run --filter @lmm/web lint
           bun run --filter @lmm/web typecheck
           bun run --filter @lmm/web test
@@ -103,16 +115,15 @@ jobs:
 
       - name: Verify package activation contract
         run: |
-          if ! command -v bsdtar >/dev/null 2>&1; then
-            mkdir -p "$RUNNER_TEMP/compat-tools"
-            ln -s "$(command -v tar)" "$RUNNER_TEMP/compat-tools/bsdtar"
-            echo "$RUNNER_TEMP/compat-tools" >> "$GITHUB_PATH"
-          fi
-          bsdtar --version | head -1
-          TMPDIR="$RUNNER_TEMP" bash deploy/test-frontend-release.sh
-          TMPDIR="$RUNNER_TEMP" bash packaging/aur/test-web-activation.sh
-          TMPDIR="$RUNNER_TEMP" bash deploy/production/test-api-route-contract.sh
-          TMPDIR="$RUNNER_TEMP" bash deploy/production/test-release-artifact-contract.sh
+          set -euo pipefail
+          hook=packaging/common/lmm-api/lmm-api-web.install
+          [[ -f "$hook" && ! -L "$hook" ]]
+          bash -n "$hook"
+          # Inspect the literal signed-package activation command.
+          # shellcheck disable=SC2016
+          grep -Fq '/usr/bin/lmm-api-deploy frontend package-activate --package-version "$1"' "$hook"
+          [[ ! -e deploy ]]
+          [[ ! -e packaging/aur/lmm-api-web-bin/lmm-api-web-activate ]]
 
       - name: Package immutable web artifact
         env:
@@ -124,19 +135,15 @@ jobs:
           bundle=release-web/bundle
           mkdir -p "$bundle"
           cp -a apps/web/dist "$bundle/"
-          cp packaging/aur/lmm-api-web-bin/lmm-api-web-activate "$bundle/"
-          cp packaging/aur/lmm-api-web-bin/lmm-api-web.install "$bundle/"
-          cp deploy/frontend-release.sh "$bundle/"
+          cp packaging/common/lmm-api/lmm-api-web.install "$bundle/lmm-api-web.install"
           cp LICENSE NOTICE THIRD-PARTY-LICENSES.md "$bundle/"
           printf '%s\n' "$RELEASE_REVISION" >"$bundle/REVISION"
-          deploy/production/api-route-contract-revision.sh generate \
-            "$bundle/API_ROUTE_CONTRACT_REVISION"
-          deploy/production/api-route-contract-revision.sh verify \
-            "$bundle/API_ROUTE_CONTRACT_REVISION"
+          printf '%s\n' "$EXPECTED_CONTRACT_REVISION" >"$bundle/API_ROUTE_CONTRACT_REVISION"
+          [[ -f "$bundle/API_ROUTE_CONTRACT_REVISION" && ! -L "$bundle/API_ROUTE_CONTRACT_REVISION" ]]
           [[ $(<"$bundle/API_ROUTE_CONTRACT_REVISION") == "$EXPECTED_CONTRACT_REVISION" ]]
           archive="release-web/lmm-api-web-${RELEASE_VERSION}.tar.gz"
           tar -czf "$archive" -C "$bundle" \
-            dist lmm-api-web-activate lmm-api-web.install frontend-release.sh \
+            dist lmm-api-web.install \
             LICENSE NOTICE THIRD-PARTY-LICENSES.md REVISION \
             API_ROUTE_CONTRACT_REVISION
           (cd release-web && sha256sum "${archive##*/}" >"${archive##*/}.sha256")
@@ -161,16 +168,65 @@ jobs:
             "$archive"
 
       - name: Publish immutable web release
-        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
-        with:
-          tag_name: ${{ github.ref_name }}
-          target_commitish: ${{ steps.identity.outputs.revision }}
-          name: LMM web ${{ github.ref_name }}
-          body: |
-            Independent production web frontend release.
+        env:
+          CONTRACT_REVISION: ${{ steps.identity.outputs.contract_revision }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REVISION: ${{ steps.identity.outputs.revision }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          version=${RELEASE_TAG#web-v}
+          expected_names=(
+            "lmm-api-web-${version}.tar.gz"
+            "lmm-api-web-${version}.tar.gz.sha256"
+            "lmm-api-web-${version}.tar.gz.sigstore.json"
+          )
+          assets=(release-web/*)
+          mapfile -t actual_names < <(printf '%s\n' "${assets[@]##*/}" | sort)
+          mapfile -t expected_names < <(printf '%s\n' "${expected_names[@]}" | sort)
+          [[ "${actual_names[*]}" == "${expected_names[*]}" ]] || {
+            echo 'Signed web release assets do not match the exact three-file contract.' >&2
+            exit 1
+          }
+          notes="$RUNNER_TEMP/web-release-notes.md"
+          printf "%s\n\nRevision: \`%s\`\nAPI/route contract revision: \`%s\`\n" \
+            'Independent production web frontend release.' \
+            "$RELEASE_REVISION" "$CONTRACT_REVISION" > "$notes"
 
-            Revision: `${{ steps.identity.outputs.revision }}`
-            API/route contract revision: `${{ steps.identity.outputs.contract_revision }}`
-          files: release-web/*
-          fail_on_unmatched_files: true
-          make_latest: false
+          verify_release() {
+            local readback=$1 asset name local_digest published_digest published_list
+            [[ $(jq -r '.tagName' <<<"$readback") == "$RELEASE_TAG" ]] || return 1
+            [[ $(jq -r '.targetCommitish' <<<"$readback") == "$RELEASE_REVISION" ]] || return 1
+            [[ $(jq -r '.name' <<<"$readback") == "LMM web $RELEASE_TAG" ]] || return 1
+            [[ $(jq -r '.body' <<<"$readback") == "$(<"$notes")" ]] || return 1
+            [[ $(jq -r '.isDraft, .isPrerelease' <<<"$readback") == $'false\nfalse' ]] || return 1
+            published_list=$(jq -er '.assets | map(.name) | sort | .[]' <<<"$readback") || return 1
+            mapfile -t published_names <<<"$published_list"
+            [[ "${published_names[*]}" == "${expected_names[*]}" ]] || return 1
+            for asset in "${assets[@]}"; do
+              name=${asset##*/}
+              local_digest=$(sha256sum "$asset" | cut -d' ' -f1) || return 1
+              published_digest=$(jq -er --arg name "$name" \
+                '.assets[] | select(.name == $name) | .digest' <<<"$readback") || return 1
+              [[ "$published_digest" == "sha256:$local_digest" ]] || return 1
+            done
+          }
+
+          if readback=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json tagName,targetCommitish,name,body,isDraft,isPrerelease,assets 2>/dev/null); then
+            verify_release "$readback" || {
+              echo "Release $RELEASE_TAG exists but differs; immutable releases cannot be edited or overwritten." >&2
+              exit 1
+            }
+            echo "Release $RELEASE_TAG already exists and exactly matches the immutable contract."
+            exit 0
+          fi
+          gh release create "$RELEASE_TAG" "${assets[@]}" \
+            --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --target "$RELEASE_REVISION" --title "LMM web $RELEASE_TAG" \
+            --notes-file "$notes" --latest=false
+
+          readback=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json tagName,targetCommitish,name,body,isDraft,isPrerelease,assets)
+          verify_release "$readback"
