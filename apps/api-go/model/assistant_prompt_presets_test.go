@@ -26,6 +26,55 @@ func TestPromptPresetCustomOptionSurvivesLocalizationAndAttribution(t *testing.T
 	assert.Equal(t, "setup_1", ref.PresetId)
 }
 
+func TestPromptPresetCustomOptionFollowsInterfaceLanguage(t *testing.T) {
+	setupPromptPresetTestDB(t)
+	common.OptionMapRWMutex.Lock()
+	previous := common.OptionMap
+	common.OptionMap = map[string]string{"AssistantPreConversationPresets": `[{"id":"setup_1","label":{"default":"Custom setup","zh":"自定义设置","fr":"Configuration personnalisée"},"prompt":{"default":"Please configure my client with the safest settings.","zh":"请用最安全的设置配置我的客户端。","fr":"Veuillez configurer mon client avec les paramètres les plus sûrs."}}]`}
+	common.OptionMapRWMutex.Unlock()
+	t.Cleanup(func() { common.OptionMapRWMutex.Lock(); common.OptionMap = previous; common.OptionMapRWMutex.Unlock() })
+
+	set, err := GetPromptPresets()
+	require.NoError(t, err)
+	require.Len(t, set.Presets, 1)
+	require.Equal(t, "custom", set.Presets[0].Source)
+	// The stored default stays the fallback for every locale.
+	assert.Equal(t, "Custom setup", set.Presets[0].Label)
+
+	for locale, want := range map[string]string{
+		"zh": "请用最安全的设置配置我的客户端。",
+		"fr": "Veuillez configurer mon client avec les paramètres les plus sûrs.",
+		// A language without a configured version falls back to the default.
+		"ja": "Please configure my client with the safest settings.",
+	} {
+		localized := LocalizePromptPresets(set, locale)
+		require.Len(t, localized.Presets, 1, locale)
+		assert.Equal(t, want, localized.Presets[0].Prompt, locale)
+		// Every configured language stays attributable, so a locale switch never
+		// silently drops the preset's conversion statistics.
+		_, err := ResolvePromptPreset("setup_1", localized.Presets[0].Prompt)
+		require.NoError(t, err, locale)
+	}
+}
+
+func TestPromptPresetCustomOptionKeepsLegacySingleLanguageEntry(t *testing.T) {
+	setupPromptPresetTestDB(t)
+	common.OptionMapRWMutex.Lock()
+	previous := common.OptionMap
+	common.OptionMap = map[string]string{"AssistantPreConversationPresets": `[{"id":"legacy_1","label":"Legacy label","prompt":"Legacy prompt copy."}]`}
+	common.OptionMapRWMutex.Unlock()
+	t.Cleanup(func() { common.OptionMapRWMutex.Lock(); common.OptionMap = previous; common.OptionMapRWMutex.Unlock() })
+
+	set, err := GetPromptPresets()
+	require.NoError(t, err)
+	require.Len(t, set.Presets, 1)
+	for _, locale := range []string{"en", "zh", "ja"} {
+		localized := LocalizePromptPresets(set, locale)
+		assert.Equal(t, "Legacy prompt copy.", localized.Presets[0].Prompt, locale)
+		assert.Equal(t, "Legacy label", localized.Presets[0].Label, locale)
+	}
+}
+
 func setupPromptPresetTestDB(t *testing.T) {
 	t.Helper()
 	_ = setupAssistantLeadTestDB(t)

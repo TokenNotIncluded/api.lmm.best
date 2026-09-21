@@ -132,9 +132,28 @@ export function GettingStarted() {
                 <h2 className='text-2xl font-medium'>{t('How can I help?')}</h2>
                 <p className='text-muted-foreground text-sm leading-6'>
                   {t(
-                    'You can browse challenges and ask the AI assistant to apply for API access.'
+                    'Browse models and prices, add funds, and start using the supported features right away. API keys and developer tools unlock after access approval.'
                   )}
                 </p>
+              </div>
+              <div className='mt-6 flex flex-wrap gap-2'>
+                <Button size='sm' render={<Link to='/wallet' />}>
+                  {t('Add funds and start')}
+                </Button>
+                <Button
+                  variant='outline'
+                  size='sm'
+                  render={<Link to='/pricing' />}
+                >
+                  {t('Browse models and pricing')}
+                </Button>
+                <Button
+                  variant='outline'
+                  size='sm'
+                  render={<Link to='/challenges' />}
+                >
+                  {t('Browse open challenges')}
+                </Button>
               </div>
 
               <Separator className='my-8' />

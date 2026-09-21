@@ -231,29 +231,49 @@ describe('assistant search provider settings', () => {
       setValue(prompt, 'Edited prompt')
       prompt.dispatchEvent(new Event('change', { bubbles: true }))
     })
-    assert.match(values.at(-1) ?? '', /Edited prompt/)
-    const add = [...editor.querySelectorAll('button')].find((button) =>
+    // The default copy is what every language falls back to.
+    const edited = JSON.parse(values.at(-1) ?? '[]')[0]
+    assert.equal(edited.label.default, 'Edited label')
+    assert.equal(edited.prompt.default, 'Edited prompt')
+    // A per-language override is stored under its locale key.
+    const frenchLabel = editor.querySelector(
+      'input[aria-label="Français label"]'
+    ) as HTMLInputElement | null
+    assert.ok(frenchLabel)
+    await act(async () => {
+      setValue(frenchLabel, 'Libellé personnalisé')
+      frenchLabel.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    assert.equal(
+      JSON.parse(values.at(-1) ?? '[]')[0].label.fr,
+      'Libellé personnalisé'
+    )
+    const add = [...container.querySelectorAll('button')].find((button) =>
       button.textContent?.includes('Add starter')
     )
     assert.ok(add)
-    await act(async () => add.click())
+    await act(async () => {
+      add.click()
+      await flushEffects()
+    })
     assert.equal(JSON.parse(values.at(-1) ?? '[]').length, 2)
-    const down = editor.querySelector(
-      'button[aria-label="Move starter down"]'
-    ) as HTMLButtonElement | null
-    assert.ok(down)
-    await act(async () => down.click())
-    assert.equal(
-      JSON.parse(values.at(-1) ?? '[]')[0].id.startsWith('custom_'),
-      true
-    )
-    const del = editor.querySelector(
-      'button[aria-label="Delete starter"]'
-    ) as HTMLButtonElement | null
-    assert.ok(del)
-    await act(async () => del.click())
-    assert.equal(JSON.parse(values.at(-1) ?? '[]').length, 1)
-    const restore = [...editor.querySelectorAll('button')].find((button) =>
+    // The second starter starts as the new custom entry in the emitted value.
+    const added = JSON.parse(values.at(-1) ?? '[]')
+    assert.equal(added[0].id, 'one')
+    assert.equal(added[1].id.startsWith('custom_'), true)
+    assert.equal(added[1].label.default, '')
+    const deleteButtons = [
+      ...container.querySelectorAll('button[aria-label="Delete starter"]'),
+    ] as HTMLButtonElement[]
+    assert.equal(deleteButtons.length, 2)
+    await act(async () => {
+      deleteButtons[1].click()
+      await flushEffects()
+    })
+    const afterDelete = JSON.parse(values.at(-1) ?? '[]')
+    assert.equal(afterDelete.length, 1)
+    assert.equal(afterDelete[0].id, 'one')
+    const restore = [...container.querySelectorAll('button')].find((button) =>
       button.textContent?.includes('Restore defaults')
     )
     assert.ok(restore)

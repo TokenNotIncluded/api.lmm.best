@@ -349,6 +349,66 @@ func UpdateAssistantMaxSteps(value string) error {
 	return nil
 }
 
+// assistantPreConversationPresetCopy accepts either the legacy plain string or
+// a map of locale to string, so administrators can publish per-language copy
+// while unmodified single-language presets keep working.
+type assistantPreConversationPresetCopy map[string]string
+
+func (copy *assistantPreConversationPresetCopy) UnmarshalJSON(data []byte) error {
+	var text string
+	if err := json.Unmarshal(data, &text); err == nil {
+		*copy = map[string]string{"default": text}
+		return nil
+	}
+	var byLocale map[string]string
+	if err := json.Unmarshal(data, &byLocale); err != nil {
+		return errors.New("preset copy must be a string or a locale map")
+	}
+	*copy = byLocale
+	return nil
+}
+
+func (copy assistantPreConversationPresetCopy) valid(maxRunes int) bool {
+	if len(copy) == 0 || len(copy) > 16 {
+		return false
+	}
+	for locale, text := range copy {
+		if !regexp.MustCompile(`^[A-Za-z0-9_-]{1,32}$`).MatchString(locale) {
+			return false
+		}
+		if runes := utf8.RuneCountInString(strings.TrimSpace(text)); runes < 1 || runes > maxRunes {
+			return false
+		}
+	}
+	return true
+}
+
+func validateAssistantPreConversationPresets(value string) error {
+	var entries []struct {
+		ID     string                             `json:"id"`
+		Label  assistantPreConversationPresetCopy `json:"label"`
+		Prompt assistantPreConversationPresetCopy `json:"prompt"`
+	}
+	if err := json.Unmarshal([]byte(value), &entries); err != nil || len(entries) > 20 {
+		return errors.New("assistant pre-conversation presets must be a JSON array of at most 20 items")
+	}
+	seen := map[string]bool{}
+	for _, entry := range entries {
+		if !regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`).MatchString(entry.ID) || seen[entry.ID] ||
+			!entry.Label.valid(80) || !entry.Prompt.valid(2000) {
+			return errors.New("assistant pre-conversation preset entry is invalid")
+		}
+		if _, ok := entry.Label["default"]; !ok {
+			return errors.New("assistant pre-conversation preset needs a default label")
+		}
+		if _, ok := entry.Prompt["default"]; !ok {
+			return errors.New("assistant pre-conversation preset needs a default prompt")
+		}
+		seen[entry.ID] = true
+	}
+	return nil
+}
+
 func UpdateAssistantTimeoutSeconds(value string) error {
 	seconds, err := strconv.Atoi(strings.TrimSpace(value))
 	if err != nil || seconds < 5 || seconds > 300 {
@@ -861,16 +921,8 @@ func ValidateAssistantOption(key string, value string) error {
 			return errors.New("assistant pre-conversation presets must be at most 48000 characters")
 		}
 		if strings.TrimSpace(value) != "" && strings.TrimSpace(value) != "[]" {
-			var entries []struct{ ID, Label, Prompt string }
-			if err := json.Unmarshal([]byte(value), &entries); err != nil || len(entries) > 20 {
-				return errors.New("assistant pre-conversation presets must be a JSON array of at most 20 items")
-			}
-			seen := map[string]bool{}
-			for _, entry := range entries {
-				if !regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`).MatchString(entry.ID) || seen[entry.ID] || utf8.RuneCountInString(entry.Label) < 1 || utf8.RuneCountInString(entry.Label) > 80 || utf8.RuneCountInString(entry.Prompt) < 1 || utf8.RuneCountInString(entry.Prompt) > 2000 {
-					return errors.New("assistant pre-conversation preset entry is invalid")
-				}
-				seen[entry.ID] = true
+			if err := validateAssistantPreConversationPresets(value); err != nil {
+				return err
 			}
 		}
 	case AssistantSearchProviderOptionKey:

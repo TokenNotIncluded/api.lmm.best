@@ -51,6 +51,7 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { INTERFACE_LANGUAGE_OPTIONS } from '@/i18n/languages'
 import { api } from '@/lib/api'
 
 import {
@@ -82,45 +83,75 @@ type AssistantSkillFile = {
 
 const EMPTY_ASSISTANT_MODEL_IDS: string[] = []
 
-type ConversationStarter = { id: string; label: string; prompt: string }
+// A starter keeps one administrator default for every language and may add an
+// explicit translation per interface language. Stored as "default" plus locale
+// keys so the server can select copy without client-side guessing.
+type ConversationStarterCopy = Record<string, string>
+type ConversationStarter = {
+  id: string
+  label: ConversationStarterCopy
+  prompt: ConversationStarterCopy
+}
 
 const DEFAULT_CONVERSATION_STARTERS: ConversationStarter[] = [
   {
     id: 'getting_started',
-    label: 'Where should I start?',
-    prompt: 'Where should I start?',
+    label: { default: 'Where should I start?' },
+    prompt: { default: 'Where should I start?' },
   },
   {
     id: 'new_user_gift',
-    label: 'How do I get the new-user gift?',
-    prompt: 'How do I get the new-user gift?',
+    label: { default: 'How do I get the new-user gift?' },
+    prompt: { default: 'How do I get the new-user gift?' },
   },
   {
     id: 'weekly_discount',
-    label: 'Any top-up discounts this week?',
-    prompt: 'Any top-up discounts this week?',
+    label: { default: 'Any top-up discounts this week?' },
+    prompt: { default: 'Any top-up discounts this week?' },
   },
   {
     id: 'ai_recommendation',
-    label: 'Help me write an L1 recommendation.',
-    prompt: 'Help me write an L1 recommendation.',
+    label: { default: 'Help me write an L1 recommendation.' },
+    prompt: { default: 'Help me write an L1 recommendation.' },
   },
 ]
+
+export function normalizeConversationStarterCopy(
+  value: unknown
+): ConversationStarterCopy | null {
+  // Legacy rows store one plain string; treat it as the default language.
+  if (typeof value === 'string') {
+    return { default: value }
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const copy: ConversationStarterCopy = {}
+  for (const [locale, text] of Object.entries(
+    value as Record<string, unknown>
+  )) {
+    if (typeof text !== 'string') continue
+    copy[locale] = text
+  }
+  // A freshly added starter has no copy yet; keep its row so it can be edited.
+  if (!Object.hasOwn(copy, 'default')) copy.default = ''
+  return copy
+}
 
 function parseConversationStarters(value: string): ConversationStarter[] {
   if (!value.trim()) return DEFAULT_CONVERSATION_STARTERS
   try {
     const parsed = JSON.parse(value) as unknown
     if (!Array.isArray(parsed)) return []
-    return parsed.filter((item): item is ConversationStarter => {
-      if (!item || typeof item !== 'object') return false
+    const starters: ConversationStarter[] = []
+    for (const item of parsed) {
+      if (!item || typeof item !== 'object') continue
       const candidate = item as Record<string, unknown>
-      return (
-        typeof candidate.id === 'string' &&
-        typeof candidate.label === 'string' &&
-        typeof candidate.prompt === 'string'
-      )
-    })
+      if (typeof candidate.id !== 'string') continue
+      const label = normalizeConversationStarterCopy(candidate.label)
+      const prompt = normalizeConversationStarterCopy(candidate.prompt)
+      if (!label || !prompt) continue
+      starters.push({ id: candidate.id, label, prompt })
+    }
+    return starters
   } catch {
     return []
   }
@@ -141,6 +172,25 @@ export function ConversationStartersEditor(props: {
         itemIndex === index ? { ...item, ...patch } : item
       )
     )
+  const updateCopy = (
+    index: number,
+    field: 'label' | 'prompt',
+    locale: string,
+    text: string
+  ) =>
+    update(index, {
+      [field]: { ...items[index][field], [locale]: text },
+    } as Partial<ConversationStarter>)
+  const clearCopy = (
+    index: number,
+    field: 'label' | 'prompt',
+    locale: string
+  ) =>
+    update(index, {
+      [field]: Object.fromEntries(
+        Object.entries(items[index][field]).filter(([key]) => key !== locale)
+      ),
+    } as Partial<ConversationStarter>)
   const remove = (index: number) =>
     write(items.filter((_, itemIndex) => itemIndex !== index))
   const move = (index: number, direction: -1 | 1) => {
@@ -157,7 +207,7 @@ export function ConversationStartersEditor(props: {
     >
       <div className='text-muted-foreground text-sm'>
         {t(
-          'These starter buttons use exactly the custom text you save. They are not translated automatically.'
+          'Each starter shows in the visitor’s interface language when you provide that language, and otherwise falls back to the default text.'
         )}
       </div>
       {items.map((item, index) => (
@@ -201,19 +251,77 @@ export function ConversationStartersEditor(props: {
           </div>
           <Input
             aria-label={t('Button label')}
-            value={item.label}
+            value={item.label.default ?? ''}
             maxLength={80}
-            onChange={(event) => update(index, { label: event.target.value })}
+            onChange={(event) =>
+              updateCopy(index, 'label', 'default', event.target.value)
+            }
             disabled={props.disabled}
           />
           <Textarea
             aria-label={t('Prompt text')}
-            value={item.prompt}
+            value={item.prompt.default ?? ''}
             maxLength={2000}
             rows={2}
-            onChange={(event) => update(index, { prompt: event.target.value })}
+            onChange={(event) =>
+              updateCopy(index, 'prompt', 'default', event.target.value)
+            }
             disabled={props.disabled}
           />
+          <div className='space-y-2'>
+            {INTERFACE_LANGUAGE_OPTIONS.map((language) => (
+              <div
+                key={language.code}
+                className='grid gap-2 sm:grid-cols-[8rem_minmax(0,1fr)] sm:items-center'
+              >
+                <span className='text-muted-foreground text-xs'>
+                  {language.label}
+                </span>
+                <Input
+                  aria-label={t('{{language}} label', {
+                    language: language.label,
+                  })}
+                  value={item.label[language.code] ?? ''}
+                  maxLength={80}
+                  placeholder={item.label.default ?? ''}
+                  onChange={(event) =>
+                    event.target.value
+                      ? updateCopy(
+                          index,
+                          'label',
+                          language.code,
+                          event.target.value
+                        )
+                      : clearCopy(index, 'label', language.code)
+                  }
+                  disabled={props.disabled}
+                />
+                <span className='text-muted-foreground text-xs sm:col-start-1'>
+                  {t('Prompt')}
+                </span>
+                <Textarea
+                  aria-label={t('{{language}} prompt', {
+                    language: language.label,
+                  })}
+                  value={item.prompt[language.code] ?? ''}
+                  maxLength={2000}
+                  rows={2}
+                  placeholder={item.prompt.default ?? ''}
+                  onChange={(event) =>
+                    event.target.value
+                      ? updateCopy(
+                          index,
+                          'prompt',
+                          language.code,
+                          event.target.value
+                        )
+                      : clearCopy(index, 'prompt', language.code)
+                  }
+                  disabled={props.disabled}
+                />
+              </div>
+            ))}
+          </div>
         </div>
       ))}
       <div className='flex flex-wrap gap-2'>
@@ -224,7 +332,11 @@ export function ConversationStartersEditor(props: {
           onClick={() =>
             write([
               ...items,
-              { id: `custom_${Date.now()}`, label: '', prompt: '' },
+              {
+                id: `custom_${Date.now()}`,
+                label: { default: '' },
+                prompt: { default: '' },
+              },
             ])
           }
           disabled={props.disabled || items.length >= 20}
