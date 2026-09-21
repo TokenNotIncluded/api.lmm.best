@@ -101,6 +101,12 @@ func SetRelayRouter(router *gin.Engine, sharedAdmission ...gin.HandlerFunc) {
 	playgroundImageRouter.Use(middleware.UserAuth(), largeRequestAdmission)
 	playgroundImageRouter.POST("/generations", middleware.RequestBodyLimit(32<<10), controller.PreparePlaygroundImageAuth, middleware.ModelRequestRateLimit(), middleware.Distribute(), controller.PlaygroundImage)
 	playgroundImageRouter.POST("/edits", middleware.RequestBodyLimit(82<<20), controller.PreparePlaygroundImageAuth, middleware.ModelRequestRateLimit(), middleware.Distribute(), controller.PlaygroundImageEdit)
+	// Red packet cover image generation with auto-managed keys
+	redPacketCoverImageRouter := router.Group("/red-packet-cover/images")
+	redPacketCoverImageRouter.Use(middleware.RouteTag("relay"))
+	redPacketCoverImageRouter.Use(middleware.SystemPerformanceCheck())
+	redPacketCoverImageRouter.Use(middleware.UserAuth(), largeRequestAdmission)
+	redPacketCoverImageRouter.POST("/generations", middleware.RequestBodyLimit(32<<10), controller.PrepareRedPacketCoverAuth, middleware.ModelRequestRateLimit(), middleware.Distribute(), controller.PlaygroundImage)
 	assistantPresetRouter := router.Group("/api/assistant/pre-conversation-presets")
 	assistantPresetRouter.Use(middleware.RouteTag("api"))
 	assistantPresetRouter.Use(middleware.SystemPerformanceCheck())
