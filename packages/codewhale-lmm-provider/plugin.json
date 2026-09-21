@@ -1,0 +1,6 @@
+{
+  "name": "codewhale-lmm-provider",
+  "version": "0.1.0-alpha.1",
+  "description": "LMM OAuth adapter usage and troubleshooting. Provider execution uses the companion codewhale-lmm CLI.",
+  "license": "AGPL-3.0-only"
+}
