@@ -18,7 +18,10 @@ deleted, recreated, or used as rollback evidence.
 
 A component tag must resolve to an exact commit reachable from the default
 branch. Its workflow then requires successful CI, CodeQL, and release-contract
-checks for that commit before building. The tracked AUR version must be older
+checks for that commit before building. Re-verifying an already published pin
+accepts the released tree being reachable from the default branch as well, so
+that a content-neutral history rewrite cannot retroactively orphan a release
+that still reproduces byte for byte. The tracked AUR version must be older
 than the proposed tag. Assets are checksum-bound, signed with the component
 workflow's Sigstore identity, and verified before publication.
 
