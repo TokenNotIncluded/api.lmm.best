@@ -196,7 +196,7 @@ var RelayMaxIdleConnsPerHost int
 // MaxKeepaliveDuration is the maximum wall-clock duration for SSE keepalive goroutines
 // in both pre-response and stream phases. Used to prevent unbounded goroutine lifetime
 // while still accommodating long-running streams. Unit is minutes.
-var MaxKeepaliveDuration int // unit is minutes
+var MaxKeepaliveDuration = 120 // unit is minutes; also valid before Init reads the environment
 
 var GeminiSafetySetting string
 
