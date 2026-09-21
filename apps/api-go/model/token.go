@@ -12,10 +12,11 @@ import (
 )
 
 const (
-	TokenCreationSourceManual     = "manual"
-	TokenCreationSourceSystem     = "system"
-	TokenCreationSourceDrawingMCP = "drawing_mcp"
-	TokenCreationSourceAssistant  = "assistant"
+	TokenCreationSourceManual         = "manual"
+	TokenCreationSourceSystem         = "system"
+	TokenCreationSourceDrawingMCP     = "drawing_mcp"
+	TokenCreationSourceAssistant      = "assistant"
+	TokenCreationSourceRedPacketCover = "red_packet_cover"
 
 	TokenCreationModeManual    = "manual"
 	TokenCreationModeAutomatic = "automatic"

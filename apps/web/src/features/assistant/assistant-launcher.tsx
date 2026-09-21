@@ -48,7 +48,10 @@ const AssistantPanel = lazy(() =>
 // Tailwind setup does not generate rules for.
 const RAIL_WIDTH = 'w-96 max-w-[26vw]'
 
-export function AssistantLauncher(props: { page?: boolean }) {
+export function AssistantLauncher(props: {
+  page?: boolean
+  hideMobileLauncher?: boolean
+}) {
   const { t } = useTranslation()
   const { status } = useStatus()
   const user = useAuthStore((state) => state.auth.user)
@@ -175,31 +178,33 @@ export function AssistantLauncher(props: { page?: boolean }) {
   return (
     <div className='contents'>
       {/* Mobile floating pill — opens the overlay sheet. */}
-      <div
-        className='pointer-events-none fixed inset-x-0 bottom-0 z-40 flex min-h-14 items-center justify-end px-3 py-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] xl:hidden'
-        data-testid='assistant-mobile-launcher'
-      >
-        <Button
-          type='button'
-          variant='secondary'
-          className='pointer-events-auto h-11 w-auto max-w-[calc(100vw-1.5rem)] justify-start gap-2 rounded-full px-4 shadow-sm md:min-w-44'
-          aria-label={accessibleLabel}
-          title={accessibleLabel}
-          aria-haspopup='dialog'
-          aria-expanded={mobileOpen}
-          aria-controls='ai-assistant-panel'
-          data-testid='assistant-launcher'
-          onClick={() => showAssistant({ id: 'manual', autoSend: false })}
+      {!props.hideMobileLauncher ? (
+        <div
+          className='pointer-events-none fixed inset-x-0 bottom-0 z-40 flex min-h-14 items-center justify-end px-3 py-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] xl:hidden'
+          data-testid='assistant-mobile-launcher'
         >
-          <HugeiconsIcon
-            icon={AiChat02Icon}
-            strokeWidth={2}
-            data-icon='inline-start'
-            aria-hidden='true'
-          />
-          <span className='truncate text-sm font-medium'>{visibleLabel}</span>
-        </Button>
-      </div>
+          <Button
+            type='button'
+            variant='secondary'
+            className='pointer-events-auto h-11 w-auto max-w-[calc(100vw-1.5rem)] justify-start gap-2 rounded-full px-4 shadow-sm md:min-w-44'
+            aria-label={accessibleLabel}
+            title={accessibleLabel}
+            aria-haspopup='dialog'
+            aria-expanded={mobileOpen}
+            aria-controls='ai-assistant-panel'
+            data-testid='assistant-launcher'
+            onClick={() => showAssistant({ id: 'manual', autoSend: false })}
+          >
+            <HugeiconsIcon
+              icon={AiChat02Icon}
+              strokeWidth={2}
+              data-icon='inline-start'
+              aria-hidden='true'
+            />
+            <span className='truncate text-sm font-medium'>{visibleLabel}</span>
+          </Button>
+        </div>
+      ) : null}
 
       {/* Desktop: in-flow right rail. Same stacking level as the main card —
        * opening it shrinks the content area, matching the shell's rounded

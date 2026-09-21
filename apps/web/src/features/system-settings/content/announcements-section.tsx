@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Plus, Trash2, Save } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import * as z from 'zod'
@@ -73,6 +73,7 @@ type Announcement = {
   type: 'default' | 'ongoing' | 'success' | 'warning' | 'error'
   extra?: string
   mandatory?: boolean
+  ackRevision?: string
 }
 
 type AnnouncementsSectionProps = {
@@ -82,6 +83,9 @@ type AnnouncementsSectionProps = {
 
 const announcementSchema = z.object({
   mandatory: z.boolean(),
+  // Editing the body no longer invalidates acknowledgements on its own, so
+  // asking readers to confirm again has to be a deliberate choice.
+  requireReacknowledgement: z.boolean(),
   content: z
     .string()
     .min(1, 'Content is required')
@@ -97,6 +101,15 @@ const announcementSchema = z.object({
 type AnnouncementFormValues = z.infer<typeof announcementSchema>
 
 const ANNOUNCEMENT_FORM_ID = 'announcement-form'
+
+// The backend accepts up to 32 characters of [A-Za-z0-9_.-] and treats the
+// value as an opaque generation, so plain counting keeps the stored JSON
+// readable while a non-numeric generation still advances predictably.
+function nextAckRevision(current: string | undefined): string {
+  const counter = Number(current)
+  if (Number.isSafeInteger(counter) && counter > 0) return String(counter + 1)
+  return `r${Date.now().toString(36)}`
+}
 
 type AnnouncementTone = 'neutral' | 'info' | 'success' | 'warning' | 'danger'
 
@@ -157,8 +170,10 @@ export function AnnouncementsSection({
       type: 'default',
       extra: '',
       mandatory: false,
+      requireReacknowledgement: false,
     },
   })
+  const mandatory = useWatch({ control: form.control, name: 'mandatory' })
 
   useEffect(() => {
     try {
@@ -202,6 +217,7 @@ export function AnnouncementsSection({
       type: 'default',
       extra: '',
       mandatory: false,
+      requireReacknowledgement: false,
     })
     setShowDialog(true)
   }
@@ -214,6 +230,7 @@ export function AnnouncementsSection({
       type: announcement.type,
       extra: announcement.extra || '',
       mandatory: announcement.mandatory === true,
+      requireReacknowledgement: false,
     })
     setShowDialog(true)
   }
@@ -256,17 +273,31 @@ export function AnnouncementsSection({
     setEditingAnnouncement(null)
   }
 
-  const handleSubmitForm = (values: AnnouncementFormValues) => {
+  const handleSubmitForm = ({
+    requireReacknowledgement,
+    ...values
+  }: AnnouncementFormValues) => {
     if (editingAnnouncement) {
+      // Pinning the generation is what decouples the acknowledgement from the
+      // body. A notice saved before pinning existed has to adopt one now, which
+      // is the single re-confirmation the dialog warns about.
+      const ackRevision = requireReacknowledgement
+        ? nextAckRevision(editingAnnouncement.ackRevision)
+        : (editingAnnouncement.ackRevision ?? '1')
       setAnnouncements((prev) =>
         prev.map((item) =>
-          item.id === editingAnnouncement.id ? { ...item, ...values } : item
+          item.id === editingAnnouncement.id
+            ? { ...item, ...values, ackRevision }
+            : item
         )
       )
       toast.success(t('Announcement updated. Click "Save Settings" to apply.'))
     } else {
       const newId = Math.max(...announcements.map((item) => item.id), 0) + 1
-      setAnnouncements((prev) => [...prev, { id: newId, ...values }])
+      setAnnouncements((prev) => [
+        ...prev,
+        { id: newId, ...values, ackRevision: '1' },
+      ])
       toast.success(t('Announcement added. Click "Save Settings" to apply.'))
     }
     setHasChanges(true)
@@ -489,6 +520,32 @@ export function AnnouncementsSection({
                 />
               )}
             />
+            {mandatory && (
+              <FormField
+                control={form.control}
+                name='requireReacknowledgement'
+                render={({ field }) => (
+                  <div className='space-y-2'>
+                    <SettingsSwitchField
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                      label={t('Ask every reader to confirm this again')}
+                      description={t(
+                        'Leave this off to correct the wording without sending readers who already confirmed back through the announcement.'
+                      )}
+                    />
+                    {editingAnnouncement &&
+                      !editingAnnouncement.ackRevision && (
+                        <p className='text-muted-foreground text-sm'>
+                          {t(
+                            'This announcement was created before confirmations were pinned, so saving it asks everyone to confirm once more.'
+                          )}
+                        </p>
+                      )}
+                  </div>
+                )}
+              />
+            )}
             <FormField
               control={form.control}
               name='content'

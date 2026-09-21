@@ -47,6 +47,10 @@ skills-lock.json
 /rust/target/
 /apps/api-rust/tests/root-route-acceptance/target/
 /packaging/local/lmm-api-rs-fallback-bin/out/
+
+# Compiled Go server binaries are build artifacts, never sources.
+/apps/api-go/lmm-api
+/apps/api-go/lmm-api-*
 /.codegraph/
 /SWAP.md
 /PLAN.md

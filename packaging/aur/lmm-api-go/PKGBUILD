@@ -1,7 +1,7 @@
 # Maintainer: LIghtJUNction
 
 pkgname=lmm-api-go
-pkgver=0.1.20.r1291.g1db462ebe
+pkgver=0.1.20.r1291.ged1da82d9
 pkgrel=1
 pkgdesc='LMM API Go backend, native CLI, systemd service, and web frontend'
 arch=('x86_64' 'aarch64')
@@ -21,7 +21,7 @@ options=('!strip')
 
 # This pin must already be reachable from main. A separate post-merge pin PR
 # advances it to the reviewed release merge instead of relying on branch-only objects.
-_commit=1db462ebe08cc99e32014d478eb866e85af3badd
+_commit=ed1da82d9b1bc3500fe9a5ef40f68790ec8392cb
 source=("lmm-api-go::git+${url}.git#commit=${_commit}" 'lmm-api-go-package.sh')
 sha256sums=('SKIP' '655e9346a6d87baa1cb81d97dcc412243d7ee305f90371b99d89033ea0e99bb1')
 
