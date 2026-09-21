@@ -233,3 +233,34 @@ test('pointer attraction works without consuming touch scrolling', () => {
   )
   dispose()
 })
+
+test('scene morphs stay bounded and continuous between the three shapes', () => {
+  for (const token of createL0Tokens(390)) {
+    const chat = projectL0Token(token, 100)
+    assert.deepEqual(chat, projectL0Token(token, 100, 0, 0))
+    for (const scene of [0, 0.5, 0.9999, 1, 1.0001, 1.5, 2]) {
+      const p = projectL0Token(token, 100, 0, scene)
+      const next = projectL0Token(token, 100, 0, scene + 0.0001)
+      assert.ok(Number.isFinite(p.x) && Math.abs(p.x) < 2)
+      assert.ok(Number.isFinite(p.y) && Math.abs(p.y) < 2)
+      assert.ok(Math.hypot(p.x - next.x, p.y - next.y) < 0.002)
+    }
+  }
+})
+
+test('scene changes under reduced motion redraw the correct static shape without a frame loop', () => {
+  const f = fixture({ reduced: true })
+  const dispose = f.mount()
+  const chat = f.positions.map((p) => [...p])
+  f.root.dataset.cloudScene = 'explore'
+  f.observers[2]([])
+  assert.notDeepEqual(f.positions, chat)
+  assert.equal(f.frames.size, 0)
+  const explore = f.positions.map((p) => [...p])
+  f.root.dataset.cloudScene = 'access'
+  f.observers[2]([])
+  assert.notDeepEqual(f.positions, explore)
+  assert.equal(f.frames.size, 0)
+  dispose()
+  assert.equal(f.disconnects, 3)
+})

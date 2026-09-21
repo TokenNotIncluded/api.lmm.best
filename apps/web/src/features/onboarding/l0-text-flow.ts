@@ -29,10 +29,18 @@ export function insertedTokens(before: string, after: string) {
   let start = 0
   let end = next.length
   let oldEnd = old.length
-  while (start < oldEnd && start < end && old[start].text === next[start].text) {
+  while (
+    start < oldEnd &&
+    start < end &&
+    old[start].text === next[start].text
+  ) {
     start++
   }
-  while (end > start && oldEnd > start && next[end - 1].text === old[oldEnd - 1].text) {
+  while (
+    end > start &&
+    oldEnd > start &&
+    next[end - 1].text === old[oldEnd - 1].text
+  ) {
     end--
     oldEnd--
   }
@@ -43,7 +51,11 @@ const MAX_FLIGHTS = 80
 const MAX_ARRIVAL_DELAY = 340
 
 type Point = { x: number; y: number }
-type Flight = { animation: Animation; settle: () => void; direction: 'up' | 'down' }
+type Flight = {
+  animation: Animation
+  settle: () => void
+  direction: 'up' | 'down'
+}
 
 /** The animation layer is disposable, non-interactive and never stores text. */
 export function mountL0TextFlow(cloud: HTMLElement) {
@@ -54,8 +66,11 @@ export function mountL0TextFlow(cloud: HTMLElement) {
   layer.className = 'l0-flight-layer'
   layer.setAttribute('aria-hidden', 'true')
   Object.assign(layer.style, {
-    position: 'fixed', inset: '0', overflow: 'hidden',
-    pointerEvents: 'none', zIndex: '49',
+    position: 'fixed',
+    inset: '0',
+    overflow: 'hidden',
+    pointerEvents: 'none',
+    zIndex: '49',
   })
   doc.body.append(layer)
   const flights = new Set<Flight>()
@@ -65,13 +80,20 @@ export function mountL0TextFlow(cloud: HTMLElement) {
   let sequence = 0
 
   const enabled = () =>
-    !disposed && !doc.hidden && !motion.matches &&
+    !disposed &&
+    !doc.hidden &&
+    !motion.matches &&
     typeof layer.animate === 'function' &&
-    cloud.querySelector('[data-cloud-pause]')?.getAttribute('aria-pressed') !== 'true'
+    cloud.querySelector('[data-cloud-pause]')?.getAttribute('aria-pressed') !==
+      'true'
 
   const onScreen = (rect: DOMRect) =>
-    rect.width > 0 && rect.height > 0 && rect.bottom > 0 &&
-    rect.top < win.innerHeight && rect.right > 0 && rect.left < win.innerWidth
+    rect.width > 0 &&
+    rect.height > 0 &&
+    rect.bottom > 0 &&
+    rect.top < win.innerHeight &&
+    rect.right > 0 &&
+    rect.left < win.innerWidth
 
   const cloudPoint = (): Point => {
     const rect = cloud.getBoundingClientRect()
@@ -84,8 +106,12 @@ export function mountL0TextFlow(cloud: HTMLElement) {
   }
 
   const fly = (
-    text: string, from: Point, to: Point, style: CSSStyleDeclaration,
-    direction: 'up' | 'down', done: () => void = () => {}
+    text: string,
+    from: Point,
+    to: Point,
+    style: CSSStyleDeclaration,
+    direction: 'up' | 'down',
+    done: () => void = () => {}
   ) => {
     if (!enabled() || flights.size >= MAX_FLIGHTS || !text.trim()) {
       done()
@@ -95,15 +121,25 @@ export function mountL0TextFlow(cloud: HTMLElement) {
     node.dataset.l0Flight = direction
     node.textContent = text
     Object.assign(node.style, {
-      position: 'absolute', left: '0', top: '0', margin: '0',
-      font: style.font, letterSpacing: style.letterSpacing,
-      color: style.color, whiteSpace: 'pre', lineHeight: style.lineHeight,
-      transformOrigin: 'center', willChange: 'transform,opacity',
+      position: 'absolute',
+      left: '0',
+      top: '0',
+      margin: '0',
+      font: style.font,
+      letterSpacing: style.letterSpacing,
+      color: style.color,
+      whiteSpace: 'pre',
+      lineHeight: style.lineHeight,
+      transformOrigin: 'center',
+      willChange: 'transform,opacity',
     })
     layer.append(node)
     const path = (point: Point, scale = 1) =>
       `translate3d(${point.x}px,${point.y}px,0) scale(${scale})`
-    const bend = { x: from.x * 0.4 + to.x * 0.6, y: from.y * 0.55 + to.y * 0.45 }
+    const bend = {
+      x: from.x * 0.4 + to.x * 0.6,
+      y: from.y * 0.55 + to.y * 0.45,
+    }
     let animation: Animation
     try {
       animation = node.animate(
@@ -121,8 +157,10 @@ export function mountL0TextFlow(cloud: HTMLElement) {
               { transform: path(to), opacity: 1, offset: 1 },
             ],
         {
-          duration: direction === 'up' ? 540 + (sequence % 5) * 24 : MAX_ARRIVAL_DELAY,
-          easing: 'cubic-bezier(.2,.65,.25,1)', fill: 'both',
+          duration:
+            direction === 'up' ? 540 + (sequence % 5) * 24 : MAX_ARRIVAL_DELAY,
+          easing: 'cubic-bezier(.2,.65,.25,1)',
+          fill: 'both',
         }
       )
     } catch {
@@ -132,7 +170,8 @@ export function mountL0TextFlow(cloud: HTMLElement) {
     }
     let settled = false
     const flight: Flight = {
-      animation, direction,
+      animation,
+      direction,
       settle: () => {
         if (settled) return
         settled = true
@@ -151,20 +190,26 @@ export function mountL0TextFlow(cloud: HTMLElement) {
   }
 
   const clear = () => {
-    for (const flight of [...flights]) flight.settle()
+    for (const flight of flights) flight.settle()
   }
   const clearResponses = () => {
-    for (const flight of [...flights]) if (flight.direction === 'down') flight.settle()
+    for (const flight of flights) {
+      if (flight.direction === 'down') flight.settle()
+    }
   }
   const canFly = () => enabled() && onScreen(cloud.getBoundingClientRect())
 
   // Preset spans occupy the exact original sentence positions, including wraps.
   const sentence = (source: HTMLElement) => {
     if (!canFly()) return
-    for (const token of source.querySelectorAll<HTMLElement>('[data-l0-source]')) {
+    for (const token of source.querySelectorAll<HTMLElement>(
+      '[data-l0-source]'
+    )) {
       const rect = token.getBoundingClientRect()
       const text = token.textContent ?? ''
-      if (!onScreen(rect) || !text.trim() || flights.size >= MAX_FLIGHTS) continue
+      if (!onScreen(rect) || !text.trim() || flights.size >= MAX_FLIGHTS) {
+        continue
+      }
       const style = win.getComputedStyle(token)
       const original = token.style.opacity
       const point = cloudPoint()
@@ -183,10 +228,15 @@ export function mountL0TextFlow(cloud: HTMLElement) {
     const rect = source.getBoundingClientRect()
     const style = win.getComputedStyle(source)
     const mirror = doc.createElement('span')
-    const lineHeight = Number.parseFloat(style.lineHeight) || Number.parseFloat(style.fontSize) * 1.5
+    const lineHeight =
+      Number.parseFloat(style.lineHeight) ||
+      Number.parseFloat(style.fontSize) * 1.5
     Object.assign(mirror.style, {
-      position: 'fixed', visibility: 'hidden', whiteSpace: 'pre',
-      font: style.font, letterSpacing: style.letterSpacing,
+      position: 'fixed',
+      visibility: 'hidden',
+      whiteSpace: 'pre',
+      font: style.font,
+      letterSpacing: style.letterSpacing,
       lineHeight: `${lineHeight}px`,
       left: `${rect.left - source.scrollLeft}px`,
       top: `${rect.top + (rect.height - lineHeight) / 2}px`,
@@ -199,44 +249,85 @@ export function mountL0TextFlow(cloud: HTMLElement) {
       range.setStart(text, token.index)
       range.setEnd(text, token.index + token.text.length)
       const start = range.getBoundingClientRect()
-      if (start.left < rect.left || start.right > rect.right || !onScreen(start)) continue
-      fly(token.text, { x: start.left, y: start.top }, cloudPoint(), style, 'up')
+      if (
+        start.left < rect.left ||
+        start.right > rect.right ||
+        !onScreen(start)
+      ) {
+        continue
+      }
+      fly(
+        token.text,
+        { x: start.left, y: start.top },
+        cloudPoint(),
+        style,
+        'up'
+      )
     }
     mirror.remove()
   }
 
   // Actual stream text is laid out first. Its visual copy lands at that same spot.
-  const receive = (answer: HTMLElement) => {
-    for (const token of answer.querySelectorAll<HTMLElement>('[data-l0-arrival]')) {
+  const receive = (answer: HTMLElement, animate = true) => {
+    for (const token of answer.querySelectorAll<HTMLElement>(
+      '[data-l0-arrival]'
+    )) {
       const text = token.textContent ?? ''
       if (seen.get(token) === text) continue
       seen.set(token, text)
       arrivals.get(token)?.()
+      // Hidden panels record arrivals without measuring or replaying their backlog.
+      if (!animate) continue
       const rect = token.getBoundingClientRect()
-      if (!canFly() || !onScreen(rect) || !text.trim() || flights.size >= MAX_FLIGHTS) continue
+      if (
+        !canFly() ||
+        !onScreen(rect) ||
+        !text.trim() ||
+        flights.size >= MAX_FLIGHTS
+      ) {
+        continue
+      }
       const style = win.getComputedStyle(token)
       const original = token.style.opacity
       token.style.opacity = '0'
       let cancel: (() => void) | undefined
-      cancel = fly(text, cloudPoint(), { x: rect.left, y: rect.top }, style, 'down', () => {
-        token.style.opacity = original
-        if (arrivals.get(token) === cancel) arrivals.delete(token)
-      })
+      cancel = fly(
+        text,
+        cloudPoint(),
+        { x: rect.left, y: rect.top },
+        style,
+        'down',
+        () => {
+          token.style.opacity = original
+          if (arrivals.get(token) === cancel) arrivals.delete(token)
+        }
+      )
       if (cancel) arrivals.set(token, cancel)
     }
   }
 
-  const settleOnChange = () => { if (!enabled()) clear() }
+  const settleOnChange = () => {
+    if (!enabled()) clear()
+  }
   const pause = new win.MutationObserver(settleOnChange)
   const toggle = cloud.querySelector('[data-cloud-pause]')
-  if (toggle) pause.observe(toggle, { attributes: true, attributeFilter: ['aria-pressed'] })
+  if (toggle) {
+    pause.observe(toggle, {
+      attributes: true,
+      attributeFilter: ['aria-pressed'],
+    })
+  }
   // Layout changes reveal authoritative text immediately, rather than land at stale coordinates.
   win.addEventListener('resize', clear, { passive: true })
   win.addEventListener('scroll', clear, { passive: true, capture: true })
   doc.addEventListener('visibilitychange', settleOnChange)
   motion.addEventListener('change', settleOnChange)
   return {
-    input, sentence, receive, clear, clearResponses,
+    input,
+    sentence,
+    receive,
+    clear,
+    clearResponses,
     dispose() {
       disposed = true
       clear()

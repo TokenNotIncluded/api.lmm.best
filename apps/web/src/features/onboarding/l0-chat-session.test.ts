@@ -9,7 +9,11 @@ License, or (at your option) any later version.
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { createL0ChatSession, type CloudSender, type CloudReply } from './l0-chat-session'
+import {
+  createL0ChatSession,
+  type CloudSender,
+  type CloudReply,
+} from './l0-chat-session'
 import { insertedTokens, visualTokens } from './l0-text-flow'
 
 const wait = (ms = 30) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -21,25 +25,47 @@ function fixture() {
     resolve: (reply: CloudReply) => void
     reject: (error: Error) => void
   }> = []
-  const session = createL0ChatSession((input, handlers, signal) => new Promise((resolve, reject) => {
-    calls.push({ input, handlers, signal, resolve, reject })
-  }))
+  const session = createL0ChatSession(
+    (input, handlers, signal) =>
+      new Promise((resolve, reject) => {
+        calls.push({ input, handlers, signal, resolve, reject })
+      })
+  )
   return { calls, session }
 }
 
 test('Chinese, combined emoji and accents preserve complete graphemes and offsets', () => {
   const text = '字👩🏽‍💻é🇨🇳\n[]'
   const tokens = visualTokens(text)
-  assert.deepEqual(tokens.map((token) => token.text), ['字', '👩🏽‍💻', 'é', '🇨🇳', '\n', '[', ']'])
-  assert.equal(tokens.map((token) => text.slice(token.index, token.index + token.text.length)).join(''), text)
+  assert.deepEqual(
+    tokens.map((token) => token.text),
+    ['字', '👩🏽‍💻', 'é', '🇨🇳', '\n', '[', ']']
+  )
+  assert.equal(
+    tokens
+      .map((token) => text.slice(token.index, token.index + token.text.length))
+      .join(''),
+    text
+  )
 })
 
 test('composition commit, middle edits, paste and delete produce only inserted graphemes', () => {
-  assert.deepEqual(insertedTokens('你', '你好').map((t) => t.text), ['好'])
-  assert.deepEqual(insertedTokens('你好吗', '你还好吗').map((t) => t.text), ['还'])
+  assert.deepEqual(
+    insertedTokens('你', '你好').map((t) => t.text),
+    ['好']
+  )
+  assert.deepEqual(
+    insertedTokens('你好吗', '你还好吗').map((t) => t.text),
+    ['还']
+  )
   assert.deepEqual(insertedTokens('你好', '你'), [])
   assert.deepEqual(insertedTokens('你好', '你好'), [])
-  assert.equal(insertedTokens('', '中文👩🏽‍💻').map((t) => t.text).join(''), '中文👩🏽‍💻')
+  assert.equal(
+    insertedTokens('', '中文👩🏽‍💻')
+      .map((t) => t.text)
+      .join(''),
+    '中文👩🏽‍💻'
+  )
 })
 
 test('a preset begins transport immediately and repeated clicks do not duplicate requests', () => {
@@ -57,7 +83,9 @@ test('no response is invented before deltas arrive; exact text survives chunk bo
   session.send('Hello')
   assert.equal(session.snapshot.answer, '')
   assert.equal(session.snapshot.phase, 'waiting')
-  for (const delta of ['你', '好', '👩', '🏽‍', '💻', '\n', 'code']) calls[0].handlers.onDelta(delta)
+  for (const delta of ['你', '好', '👩', '🏽‍', '💻', '\n', 'code']) {
+    calls[0].handlers.onDelta(delta)
+  }
   await wait()
   assert.equal(session.snapshot.answer, '你好👩🏽‍💻\ncode')
   calls[0].resolve({ content: '你好👩🏽‍💻\ncode' })
@@ -147,7 +175,10 @@ test('conversation ID and bounded history continue a dialogue; clear starts a ne
   await wait()
   session.send('Second')
   assert.equal(calls[1].input.conversationId, 42)
-  assert.deepEqual(calls[1].input.history, [{ role: 'user', content: 'First' }, { role: 'assistant', content: 'Answer' }])
+  assert.deepEqual(calls[1].input.history, [
+    { role: 'user', content: 'First' },
+    { role: 'assistant', content: 'Answer' },
+  ])
   session.clear()
   session.send('New')
   assert.equal(calls[2].input.conversationId, undefined)
@@ -158,7 +189,11 @@ test('conversation ID and bounded history continue a dialogue; clear starts a ne
 test('restricted replies cannot persist visible content or carry history forward', async () => {
   const { session, calls } = fixture()
   session.send('Question')
-  calls[0].resolve({ content: 'restricted', conversationId: 42, restricted: true })
+  calls[0].resolve({
+    content: 'restricted',
+    conversationId: 42,
+    restricted: true,
+  })
   await wait()
   assert.equal(session.snapshot.answer, '')
   assert.equal(session.snapshot.phase, 'error')

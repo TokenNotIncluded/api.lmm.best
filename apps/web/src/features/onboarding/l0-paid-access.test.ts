@@ -43,10 +43,10 @@ test('amounts use credited USD micros and the remaining configured threshold', (
 test('missing and invalid policy data never advertise paid activation', () => {
   assert.equal(getL0PaidAccess(null).mode, 'unknown')
   assert.equal(getL0PaidAccess({ id: 7 }).mode, 'unknown')
-  for (const threshold of [NaN, Infinity, -1, Number.MAX_VALUE]) {
+  for (const threshold of [Number.NaN, Infinity, -1, Number.MAX_VALUE]) {
     assert.equal(getL0PaidAccess(account(threshold)).mode, 'unknown')
   }
-  for (const paid of [NaN, Infinity, -1]) {
+  for (const paid of [Number.NaN, Infinity, -1]) {
     assert.equal(getL0PaidAccess(account(1, paid)).mode, 'unknown')
   }
   const user = account()

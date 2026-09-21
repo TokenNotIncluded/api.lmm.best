@@ -21,7 +21,12 @@ export type CloudSnapshot = {
   needsAction: boolean
 }
 export type CloudSender = (
-  input: { message: string; history: CloudMessage[]; conversationId?: number; turnId: string },
+  input: {
+    message: string
+    history: CloudMessage[]
+    conversationId?: number
+    turnId: string
+  },
   handlers: { onDelta: (text: string) => void; onReset: () => void },
   signal: AbortSignal
 ) => Promise<CloudReply>
@@ -32,7 +37,11 @@ export function createL0ChatSession(
   display: (text: string) => string = (text) => text
 ) {
   let snapshot: CloudSnapshot = {
-    question: '', answer: '', phase: 'idle', revision: 0, needsAction: false,
+    question: '',
+    answer: '',
+    phase: 'idle',
+    revision: 0,
+    needsAction: false,
   }
   let listener: ((state: CloudSnapshot) => void) | undefined
   let controller: AbortController | undefined
@@ -41,7 +50,8 @@ export function createL0ChatSession(
   let conversationId: number | undefined
   let history: CloudMessage[] = []
   let timer: ReturnType<typeof setTimeout> | undefined
-  const busy = () => snapshot.phase === 'waiting' || snapshot.phase === 'streaming'
+  const busy = () =>
+    snapshot.phase === 'waiting' || snapshot.phase === 'streaming'
   const publish = (update: Partial<CloudSnapshot>) => {
     snapshot = { ...snapshot, ...update }
     listener?.(snapshot)
@@ -60,7 +70,9 @@ export function createL0ChatSession(
     if (busy()) publish({ phase: 'stopped', answer: display(content) })
   }
   return {
-    get snapshot() { return snapshot },
+    get snapshot() {
+      return snapshot
+    },
     subscribe(next: (state: CloudSnapshot) => void) {
       listener = next
       listener(snapshot)
@@ -76,8 +88,11 @@ export function createL0ChatSession(
       controller = new AbortController()
       const signal = controller.signal
       publish({
-        question: message, answer: '', phase: 'waiting',
-        revision: snapshot.revision + 1, needsAction: false,
+        question: message,
+        answer: '',
+        phase: 'waiting',
+        revision: snapshot.revision + 1,
+        needsAction: false,
       })
       const current = () => serial === id && !signal.aborted
       const handlers = {
@@ -92,15 +107,25 @@ export function createL0ChatSession(
           clearTimeout(timer)
           timer = undefined
           content = ''
-          publish({ answer: '', phase: 'waiting', revision: snapshot.revision + 1 })
+          publish({
+            answer: '',
+            phase: 'waiting',
+            revision: snapshot.revision + 1,
+          })
         },
       }
       void (async () => {
         try {
-          const reply = await send({
-            message, history: [...history], conversationId,
-            turnId: crypto.randomUUID(),
-          }, handlers, signal)
+          const reply = await send(
+            {
+              message,
+              history: [...history],
+              conversationId,
+              turnId: crypto.randomUUID(),
+            },
+            handlers,
+            signal
+          )
           if (!current()) return
           clearTimeout(timer)
           timer = undefined
@@ -112,13 +137,22 @@ export function createL0ChatSession(
             return
           }
           content = reply.content
-          if (Number.isSafeInteger(reply.conversationId) && reply.conversationId! > 0) {
+          if (
+            Number.isSafeInteger(reply.conversationId) &&
+            reply.conversationId! > 0
+          ) {
             conversationId = reply.conversationId
           }
           history.push({ role: 'user', content: message })
-          if (content) history.push({ role: 'assistant', content: display(content) })
+          if (content) {
+            history.push({ role: 'assistant', content: display(content) })
+          }
           history = history.slice(-12)
-          publish({ answer: display(content), phase: 'done', needsAction: reply.needsAction === true })
+          publish({
+            answer: display(content),
+            phase: 'done',
+            needsAction: reply.needsAction === true,
+          })
         } catch {
           if (!current()) return
           clearTimeout(timer)
@@ -136,7 +170,13 @@ export function createL0ChatSession(
       history = []
       conversationId = undefined
       content = ''
-      publish({ question: '', answer: '', phase: 'idle', needsAction: false, revision: snapshot.revision + 1 })
+      publish({
+        question: '',
+        answer: '',
+        phase: 'idle',
+        needsAction: false,
+        revision: snapshot.revision + 1,
+      })
     },
   }
 }

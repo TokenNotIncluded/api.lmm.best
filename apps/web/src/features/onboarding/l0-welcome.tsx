@@ -9,9 +9,11 @@ License, or (at your option) any later version.
 import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import {
+  type KeyboardEvent,
   type ReactNode,
   useEffect,
   useRef,
+  useState,
 } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -37,6 +39,8 @@ import { useL0AccessCheck } from './use-l0-access-check'
 
 import './l0-welcome.css'
 
+const SCENES = ['chat', 'explore', 'access'] as const
+type Scene = (typeof SCENES)[number]
 const FALLBACK_TOKENS = createL0Tokens(390).filter(
   (_, index) => index % 3 === 0
 )
@@ -44,14 +48,48 @@ const FALLBACK_TOKENS = createL0Tokens(390).filter(
 function Arrow({ diagonal = false }: { diagonal?: boolean }) {
   return (
     <svg viewBox='0 0 24 24' fill='none' aria-hidden='true'>
-      <path
-        d={diagonal ? 'M6 18 18 6M6 6h12v12' : 'M5 12h14m-5-5 5 5-5 5'}
-      />
+      <path d={diagonal ? 'M6 18 18 6M6 6h12v12' : 'M5 12h14m-5-5 5 5-5 5'} />
     </svg>
   )
 }
 
-export function L0Welcome({
+function SceneIcon({ scene }: { scene: Scene }) {
+  return (
+    <svg viewBox='0 0 24 24' fill='none' aria-hidden='true'>
+      {scene === 'chat' ? (
+        <path d='M5 5h14v11H9l-4 4V5Zm4 5h6' />
+      ) : scene === 'explore' ? (
+        <>
+          <circle cx='12' cy='12' r='8' />
+          <path d='m15 9-2 4-4 2 2-4 4-2Z' />
+        </>
+      ) : (
+        <>
+          <rect x='5' y='10' width='14' height='10' rx='3' />
+          <path d='M8 10V7a4 4 0 0 1 8 0M12 14v2' />
+        </>
+      )}
+    </svg>
+  )
+}
+
+function closeDisclosure(event: KeyboardEvent<HTMLDetailsElement>) {
+  if (event.key !== 'Escape' || !event.currentTarget.open) return
+  event.preventDefault()
+  event.stopPropagation()
+  event.currentTarget.open = false
+  event.currentTarget.querySelector('summary')?.focus()
+}
+
+export function L0Welcome(props: {
+  user: AuthUser | null
+  children: ReactNode
+}) {
+  const sessionId = useAuthStore((state) => state.auth.session?.sid)
+  return <L0WelcomeStage key={`${props.user?.id}:${sessionId}`} {...props} />
+}
+
+function L0WelcomeStage({
   user,
   children,
 }: {
@@ -60,10 +98,11 @@ export function L0Welcome({
 }) {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
-  const sessionId = useAuthStore((state) => state.auth.session?.sid)
+  const [scene, setScene] = useState<Scene>('chat')
+  const [discovery, setDiscovery] = useState(0)
+  const tabs = useRef<Array<HTMLButtonElement | null>>([])
   const cloudRef = useRef<HTMLDivElement>(null)
   const { state: checkState, check } = useL0AccessCheck(user?.id)
-  // Observe the parent's account-scoped query without adding requests or polling.
   const request = useQuery({
     queryKey: developerAccessRequestQueryKey(user?.id ?? 0),
     queryFn: getDeveloperAccessRequest,
@@ -83,22 +122,132 @@ export function L0Welcome({
         : request.data?.status === 'approved'
           ? t('Access request approved')
           : t('Account and access')
+  const status = request.isError ? 'error' : request.data?.status || 'default'
   const money = (value: number) =>
     new Intl.NumberFormat(toIntlLocale(language), {
       style: 'currency',
       currency: 'USD',
       maximumFractionDigits: 6,
     }).format(value)
+  const destinations = [
+    {
+      to: '/pricing',
+      title: copy.models,
+      note: copy.modelsNote,
+      action: copy.browseModels,
+      mark: '[]',
+    },
+    {
+      to: '/tool-market',
+      title: copy.tools,
+      note: copy.toolsNote,
+      action: copy.browseTools,
+      mark: '/>',
+    },
+    {
+      to: '/challenges',
+      title: copy.challenges,
+      note: copy.challengesNote,
+      action: copy.browseChallenges,
+      mark: '{}',
+    },
+  ] as const
+  const selected = destinations[discovery]
+  const labels = {
+    chat: copy.conversation,
+    explore: copy.explore,
+    access: copy.access,
+  }
 
   useEffect(() => {
     if (cloudRef.current) return mountL0TokenCloud(cloudRef.current)
   }, [])
 
+  const selectScene = (next: Scene, focus = false) => {
+    setScene(next)
+    if (focus) tabs.current[SCENES.indexOf(next)]?.focus()
+  }
+  const navigateTabs = (
+    event: KeyboardEvent<HTMLButtonElement>,
+    index: number
+  ) => {
+    const next =
+      event.key === 'ArrowRight'
+        ? (index + 1) % SCENES.length
+        : event.key === 'ArrowLeft'
+          ? (index + SCENES.length - 1) % SCENES.length
+          : event.key === 'Home'
+            ? 0
+            : event.key === 'End'
+              ? SCENES.length - 1
+              : null
+    if (next === null) return
+    event.preventDefault()
+    selectScene(SCENES[next], true)
+  }
 
   return (
-    <div className='l0-welcome' data-testid='l0-conversation'>
-      <section className='l0-stage' aria-labelledby='l0-welcome-title'>
-        <div className='l0-cloud' ref={cloudRef} data-testid='l0-token-cloud'>
+    <div
+      className='l0-welcome'
+      data-testid='l0-conversation'
+      data-scene={scene}
+      onKeyDown={(event) => {
+        if (
+          event.key === 'Escape' &&
+          !event.defaultPrevented &&
+          scene !== 'chat'
+        ) {
+          event.preventDefault()
+          selectScene('chat', true)
+        }
+      }}
+    >
+      <header className='l0-topbar'>
+        <span className='l0-wordmark' aria-hidden='true'>
+          LMM<span>/</span>
+        </span>
+        <div className='l0-topbar-actions'>
+          <button
+            type='button'
+            className='l0-account-status'
+            data-status={status}
+            aria-controls='l0-panel-access'
+            onClick={() => selectScene('access', true)}
+          >
+            <span className='l0-status-dot' aria-hidden='true' />
+            <span aria-live='polite'>{statusLabel}</span>
+            <Arrow diagonal />
+          </button>
+          <details className='l0-help-menu' onKeyDown={closeDisclosure}>
+            <summary aria-label={copy.help}>?</summary>
+            <div className='l0-help-content'>
+              <button
+                type='button'
+                onClick={() => requestAssistantOpen('human')}
+              >
+                {copy.support}
+                <Arrow diagonal />
+              </button>
+              <button
+                type='button'
+                onClick={() => requestAssistantOpen('plan')}
+              >
+                {copy.plans}
+                <Arrow diagonal />
+              </button>
+              <p>{copy.privacyNote}</p>
+            </div>
+          </details>
+        </div>
+      </header>
+
+      <div className='l0-stage'>
+        <div
+          className='l0-cloud'
+          ref={cloudRef}
+          data-testid='l0-token-cloud'
+          data-cloud-scene={scene}
+        >
           <svg
             className='l0-cloud-fallback'
             viewBox='0 0 720 320'
@@ -123,7 +272,7 @@ export function L0Welcome({
             className='l0-cloud-toggle'
             data-cloud-pause
             aria-pressed='false'
-            aria-label={t('Pause')}
+            aria-label={copy.toggleMotion}
           >
             <svg viewBox='0 0 24 24' fill='none' aria-hidden='true'>
               <path className='l0-pause-icon' d='M9 7v10M15 7v10' />
@@ -132,161 +281,260 @@ export function L0Welcome({
           </button>
         </div>
 
-        <L0CloudConversation key={`${user?.id}:${sessionId}`} cloudRef={cloudRef} />
-
-        <section
-          className='l0-unlock'
-          data-testid='l0-activation'
-          data-access-mode={access.mode}
-          aria-label={t('Account and access')}
+        <div
+          className='l0-scene-tabs'
+          role='tablist'
+          aria-label={copy.navigation}
         >
-          <div className='l0-unlock-row'>
-            <div className='l0-unlock-label'>
+          <span
+            className='l0-tab-indicator'
+            aria-hidden='true'
+            style={{ transform: `translateX(${SCENES.indexOf(scene) * 100}%)` }}
+          />
+          {SCENES.map((item, index) => (
+            <button
+              key={item}
+              ref={(node) => {
+                tabs.current[index] = node
+              }}
+              id={`l0-tab-${item}`}
+              role='tab'
+              type='button'
+              aria-selected={scene === item}
+              aria-controls={`l0-panel-${item}`}
+              tabIndex={scene === item ? 0 : -1}
+              onClick={() => selectScene(item)}
+              onKeyDown={(event) => navigateTabs(event, index)}
+            >
+              <SceneIcon scene={item} />
+              <span>{labels[item]}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className='l0-panels'>
+          <div
+            id='l0-panel-chat'
+            role='tabpanel'
+            aria-labelledby='l0-tab-chat'
+            hidden={scene !== 'chat'}
+            className='l0-panel'
+          >
+            <L0CloudConversation
+              cloudRef={cloudRef}
+              active={scene === 'chat'}
+            />
+          </div>
+
+          <div
+            id='l0-panel-explore'
+            role='tabpanel'
+            aria-labelledby='l0-tab-explore'
+            hidden={scene !== 'explore'}
+            className='l0-panel'
+          >
+            <section
+              className='l0-discover'
+              aria-roledescription={copy.carousel}
+              aria-label={copy.explore}
+            >
+              <div
+                className='l0-discover-switch'
+                role='group'
+                aria-label={copy.explore}
+              >
+                {destinations.map((item, index) => (
+                  <button
+                    key={item.to}
+                    type='button'
+                    aria-pressed={index === discovery}
+                    onClick={() => setDiscovery(index)}
+                  >
+                    {item.title}
+                  </button>
+                ))}
+              </div>
+              <div
+                className='l0-discover-slide'
+                key={selected.to}
+                aria-live='polite'
+                aria-atomic='true'
+              >
+                <div className='l0-discover-eyebrow' aria-hidden='true'>
+                  <span>{selected.mark}</span>
+                  <span>0{discovery + 1} / 03</span>
+                </div>
+                <h2>{selected.title}</h2>
+                <p>{selected.note}</p>
+                <Link to={selected.to} className='l0-discover-link'>
+                  {selected.action}
+                  <Arrow diagonal />
+                </Link>
+              </div>
+              <div className='l0-discover-controls'>
+                <div className='l0-discover-progress' aria-hidden='true'>
+                  {destinations.map((item, index) => (
+                    <i key={item.to} data-active={index === discovery} />
+                  ))}
+                </div>
+                <button
+                  type='button'
+                  className='l0-previous'
+                  aria-label={copy.previous}
+                  onClick={() => setDiscovery((discovery + 2) % 3)}
+                >
+                  <Arrow />
+                </button>
+                <button
+                  type='button'
+                  aria-label={copy.next}
+                  onClick={() => setDiscovery((discovery + 1) % 3)}
+                >
+                  <Arrow />
+                </button>
+              </div>
+            </section>
+          </div>
+
+          <div
+            id='l0-panel-access'
+            role='tabpanel'
+            aria-labelledby='l0-tab-access'
+            hidden={scene !== 'access'}
+            className='l0-panel'
+          >
+            <section
+              className='l0-unlock'
+              data-testid='l0-activation'
+              data-access-mode={access.mode}
+              aria-label={t('Account and access')}
+            >
               <div className='l0-levels' aria-label='L0 → L1'>
                 <span>L0</span>
                 <i aria-hidden='true' />
                 <span>L1</span>
               </div>
-              <span className='l0-unlock-caption'>
+              <h2>
                 {canTopUp
-                  ? copy.title
+                  ? copy.unlockTitle
                   : access.mode === 'sync'
                     ? copy.sync
                     : copy.review}
-              </span>
-            </div>
-            {canTopUp ? (
-              <button
-                type='button'
-                className='l0-primary'
-                data-testid='l0-topup-direct'
-                onClick={() => void navigate({ to: '/wallet' })}
-              >
-                {copy.topup} <Arrow />
-              </button>
-            ) : access.mode === 'review' ? (
-              <button
-                type='button'
-                className='l0-primary'
-                onClick={() => requestAssistantOpen('onboarding')}
-              >
-                {copy.apply} <Arrow />
-              </button>
-            ) : (
-              <button
-                type='button'
-                className='l0-primary'
-                disabled={!user || busy}
-                onClick={check}
-              >
-                {t('Reload account status')} <Arrow />
-              </button>
-            )}
-          </div>
-          {canTopUp && (
-            <div className='l0-unlock-meta'>
-              <span data-testid='l0-paid-progress'>
-                {access.threshold > 0 ? (
-                  <>
-                    {copy.remaining} <b>{money(access.remaining)}</b>
-                  </>
-                ) : (
-                  copy.minimum
+              </h2>
+              {canTopUp ? (
+                <>
+                  <p className='l0-policy-note'>{copy.description}</p>
+                  <div className='l0-credit' data-testid='l0-paid-progress'>
+                    {access.threshold > 0 ? (
+                      <>
+                        <span>{copy.remaining}</span>
+                        <strong>{money(access.remaining)}</strong>
+                      </>
+                    ) : (
+                      <span>{copy.minimum}</span>
+                    )}
+                  </div>
+                  <button
+                    type='button'
+                    className='l0-primary'
+                    data-testid='l0-topup-direct'
+                    onClick={() => void navigate({ to: '/wallet' })}
+                  >
+                    {copy.topup}
+                    <Arrow />
+                  </button>
+                  <details
+                    className='l0-conditions'
+                    onKeyDown={closeDisclosure}
+                  >
+                    <summary>
+                      {copy.conditions}
+                      <span aria-hidden='true'>+</span>
+                    </summary>
+                    <p>{copy.eligibility}</p>
+                  </details>
+                </>
+              ) : (
+                <>
+                  <p className='l0-policy-note'>
+                    {access.mode === 'sync'
+                      ? copy.syncNote
+                      : access.mode === 'review'
+                        ? copy.reviewNote
+                        : copy.unknown}
+                  </p>
+                  {access.mode === 'review' ? (
+                    <button
+                      type='button'
+                      className='l0-primary'
+                      onClick={() => requestAssistantOpen('onboarding')}
+                    >
+                      {copy.apply}
+                      <Arrow />
+                    </button>
+                  ) : (
+                    <button
+                      type='button'
+                      className='l0-primary'
+                      disabled={!user || busy}
+                      onClick={check}
+                    >
+                      {t('Reload account status')}
+                      <Arrow />
+                    </button>
+                  )}
+                </>
+              )}
+              <div className='l0-secondary'>
+                {canTopUp && (
+                  <button
+                    type='button'
+                    onClick={() => requestAssistantOpen('onboarding')}
+                  >
+                    {copy.apply}
+                  </button>
                 )}
-              </span>
-              <details
-                className='l0-conditions'
-                onKeyDown={(event) => {
-                  if (event.key === 'Escape') {
-                    event.currentTarget.open = false
-                    event.currentTarget.querySelector('summary')?.focus()
-                  }
-                }}
-              >
-                <summary aria-label={copy.conditions}>ⓘ</summary>
-                <div>
-                  <p>{copy.description}</p>
-                  <p>{copy.eligibility}</p>
-                </div>
-              </details>
-            </div>
-          )}
-          {!canTopUp && (
-            <p className='l0-policy-note'>
-              {access.mode === 'sync'
-                ? copy.syncNote
-                : access.mode === 'review'
-                  ? copy.reviewNote
-                  : copy.unknown}
-            </p>
-          )}
-          <div className='l0-secondary'>
-            {canTopUp && (
-              <button
-                type='button'
-                onClick={() => requestAssistantOpen('onboarding')}
-              >
-                {copy.apply}
-              </button>
-            )}
-            <button
-              type='button'
-              data-testid='l0-check-payment'
-              disabled={!user || busy}
-              onClick={check}
+                <button
+                  type='button'
+                  data-testid='l0-check-payment'
+                  disabled={!user || busy}
+                  onClick={check}
+                >
+                  {copy.check}
+                </button>
+              </div>
+              <p className='l0-feedback' role='status' aria-live='polite'>
+                {checkState ? copy[checkState] : null}
+              </p>
+            </section>
+            <details
+              className='l0-account'
+              data-testid='l0-account-details'
+              onKeyDown={closeDisclosure}
             >
-              {copy.check}
-            </button>
+              <summary>
+                <span>{statusLabel}</span>
+                <span className='l0-disclosure-mark' aria-hidden='true'>
+                  +
+                </span>
+              </summary>
+              <div className='l0-account-body'>
+                {children}
+                <details className='l0-oauth' onKeyDown={closeDisclosure}>
+                  <summary>
+                    {copy.connectPi}
+                    <span className='l0-disclosure-mark' aria-hidden='true'>
+                      +
+                    </span>
+                  </summary>
+                  <PiOAuthGuide />
+                </details>
+                <SourceQuestionnaire />
+              </div>
+            </details>
           </div>
-          <p className='l0-feedback' role='status' aria-live='polite'>
-            {checkState ? copy[checkState] : null}
-          </p>
-        </section>
-      </section>
-
-      <nav className='l0-dock' aria-label={t('Explore before you commit')}>
-        <Link to='/pricing' aria-label={t('Models and pricing')}>
-          {copy.models}
-          <Arrow diagonal />
-        </Link>
-        <Link to='/tool-market' aria-label={t('Tool market')}>
-          {copy.tools}
-          <Arrow diagonal />
-        </Link>
-        <Link to='/challenges' aria-label={t('Browse open challenges')}>
-          {copy.challenges}
-          <Arrow diagonal />
-        </Link>
-        <button type='button' onClick={() => requestAssistantOpen('human')}>
-          {copy.help}
-          <Arrow diagonal />
-        </button>
-      </nav>
-      <details className='l0-account' data-testid='l0-account-details'>
-        <summary>
-          <span aria-live='polite'>{statusLabel}</span>
-          <span className='l0-disclosure-mark' aria-hidden='true'>+</span>
-        </summary>
-        <div className='l0-account-body'>
-          {children}
-          <p>
-            {t('API keys and developer tools unlock after access approval.')}
-          </p>
-          <p>
-            {t(
-              'Never paste a password, API key, session cookie, or other secret into the conversation.'
-            )}
-          </p>
-          <button type='button' onClick={() => requestAssistantOpen('plan')}>
-            {t('Explore plans and top-ups')} <Arrow diagonal />
-          </button>
-          <details className='l0-oauth'>
-            <summary>{t('Already use Pi? Connect with OAuth')}</summary>
-            <PiOAuthGuide />
-          </details>
-          <SourceQuestionnaire />
         </div>
-      </details>
+      </div>
     </div>
   )
 }

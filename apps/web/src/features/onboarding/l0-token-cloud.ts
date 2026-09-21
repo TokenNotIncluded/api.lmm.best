@@ -19,22 +19,39 @@ export function createL0Tokens(width: number) {
     cross: random() * Math.PI * 2,
     radius: 0.35 + Math.sqrt(random()) * (index % 9 === 0 ? 1.05 : 0.65),
     phase: random() * Math.PI * 2,
-    glyph:
-      index % 10 === 0 ? GLYPHS[Math.floor(random() * GLYPHS.length)] : '',
+    glyph: index % 10 === 0 ? GLYPHS[Math.floor(random() * GLYPHS.length)] : '',
   }))
 }
 
 type Token = ReturnType<typeof createL0Tokens>[number]
 
 /** Three breathing lobes share one continuous, perspective-projected field. */
-export function projectL0Token(token: Token, time: number, tilt = 0) {
+export function projectL0Token(
+  token: Token,
+  time: number,
+  tilt = 0,
+  scene = 0
+) {
   const u = token.angle + time * 0.000045
   const v = token.cross + Math.sin(time * 0.0002 + token.phase) * 0.12
   const tube = (0.32 + Math.sin(u * 3 + time * 0.00012) * 0.065) * token.radius
   const ring = 0.87 + Math.cos(u * 3) * 0.065 + Math.cos(v) * tube
-  const x = Math.cos(u) * ring
-  const y = Math.sin(u) * ring
-  const z = Math.sin(v) * tube
+  // One particle field reshapes between conversation, discovery and access.
+  const progress = Math.max(0, Math.min(2, scene))
+  const explore = 1 - Math.abs(progress - 1)
+  const access = Math.max(0, progress - 1)
+  const chat = 1 - explore - access
+  const group = Math.floor((token.phase / (Math.PI * 2)) * 3)
+  const spreadX = (group - 1) * 0.69 + Math.cos(u) * Math.cos(v) * 0.35
+  const spreadY = (group === 1 ? -0.36 : 0.2) + Math.sin(v) * 0.36
+  const linkedX = (token.phase < Math.PI ? -0.36 : 0.36) + Math.cos(u) * 0.48
+  const x = Math.cos(u) * ring * chat + spreadX * explore + linkedX * access
+  const y =
+    Math.sin(u) * ring * chat + spreadY * explore + Math.sin(u) * 0.7 * access
+  const z =
+    Math.sin(v) * tube * chat +
+    Math.sin(u) * 0.3 * explore +
+    Math.sin(v) * 0.15 * access
   const a = 0.62 + tilt * 0.15
   const y1 = y * Math.cos(a) - z * Math.sin(a)
   const z1 = y * Math.sin(a) + z * Math.cos(a)
@@ -70,6 +87,8 @@ export function mountL0TokenCloud(root: HTMLElement): () => void {
   let frame: number | null = null
   let lastFrame = 0
   let elapsed = 0
+  let scene = 0
+  let targetScene = 0
   let width = 1
   let height = 1
   let color = ''
@@ -80,6 +99,7 @@ export function mountL0TokenCloud(root: HTMLElement): () => void {
     !disposed && visible && !doc.hidden && !paused && !reduced.matches
 
   const paint = (delta = 0) => {
+    scene += (targetScene - scene) * Math.min(1, delta / 150)
     pointer.strength +=
       ((pointer.active ? 1 : 0) - pointer.strength) * Math.min(1, delta / 180)
     ctx.clearRect(0, 0, width, height)
@@ -91,7 +111,8 @@ export function mountL0TokenCloud(root: HTMLElement): () => void {
       const p = projectL0Token(
         token,
         elapsed,
-        (pointer.x / width - 0.5) * pointer.strength
+        (pointer.x / width - 0.5) * pointer.strength,
+        scene
       )
       let x = width / 2 + p.x * scale
       let y = height / 2 + p.y * scale
@@ -144,6 +165,13 @@ export function mountL0TokenCloud(root: HTMLElement): () => void {
   }
   const measure = () => {
     if (disposed) return
+    targetScene =
+      root.dataset.cloudScene === 'explore'
+        ? 1
+        : root.dataset.cloudScene === 'access'
+          ? 2
+          : 0
+    if (paused || reduced.matches || doc.hidden) scene = targetScene
     bounds = canvas.getBoundingClientRect()
     width = Math.max(1, bounds.width)
     height = Math.max(1, bounds.height)
@@ -212,6 +240,10 @@ export function mountL0TokenCloud(root: HTMLElement): () => void {
   theme?.observe(doc.documentElement, {
     attributes: true,
     attributeFilter: ['class', 'style', 'data-theme'],
+  })
+  theme?.observe(root, {
+    attributes: true,
+    attributeFilter: ['data-cloud-scene'],
   })
   root.dataset.cloudReady = 'true'
   measure()
