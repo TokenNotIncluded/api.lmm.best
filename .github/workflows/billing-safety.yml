@@ -1,0 +1,48 @@
+name: Billing safety regressions
+
+on:
+  pull_request:
+    paths:
+      - 'apps/api-go/service/**'
+      - 'apps/api-go/model/**'
+      - 'apps/api-go/go.mod'
+      - 'apps/api-go/go.sum'
+      - '.github/workflows/billing-safety.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/api-go/service/**'
+      - 'apps/api-go/model/**'
+      - 'apps/api-go/go.mod'
+      - 'apps/api-go/go.sum'
+      - '.github/workflows/billing-safety.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: billing-safety-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  billing-safety:
+    name: Billing boundaries and concurrent reservations
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GOMAXPROCS: '2'
+    defaults:
+      run:
+        working-directory: apps/api-go
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: |
+            apps/api-go/go.sum
+            apps/api-go/relaykit/go.sum
+      - name: Run real service-package regressions under the race detector
+        run: go test -race -p 2 ./service -run '^TestBillingSafety' -count=1 -timeout=5m
