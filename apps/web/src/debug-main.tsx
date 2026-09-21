@@ -17,6 +17,32 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { installPersonaDebugRuntime } from '@/features/debug/persona-runtime'
+import { api } from '@/lib/http-client'
 
 installPersonaDebugRuntime()
+
+// Navigation can preload the public scripts page. Keep this empty read fixture
+// in the development entry, never in the production app or network adapter.
+const personaAdapter = api.defaults.adapter
+if (typeof personaAdapter !== 'function') {
+  throw new Error('Persona debug adapter was not installed')
+}
+api.defaults.adapter = async (config) => {
+  const url = new URL(config.url ?? '', window.location.origin)
+  if (
+    (config.method ?? 'get').toUpperCase() === 'GET' &&
+    url.origin === window.location.origin &&
+    url.pathname === '/api/scripts'
+  ) {
+    return {
+      data: { success: true, data: [] },
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      config,
+    }
+  }
+  return personaAdapter(config)
+}
+
 void import('./main')

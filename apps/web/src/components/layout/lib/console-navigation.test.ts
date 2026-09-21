@@ -72,8 +72,9 @@ describe('console navigation organization', () => {
     const before = groups.flatMap((group) => group.items)
     const after = result.flatMap((group) => group.items)
     assert.equal(after.length, before.length)
-    for (const item of before)
+    for (const item of before) {
       assert.equal(after.filter((x) => x === item).length, 1)
+    }
     assert.equal(JSON.stringify(groups), original)
   })
 

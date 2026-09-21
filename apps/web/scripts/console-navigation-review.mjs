@@ -37,7 +37,14 @@ async function captureFailure(page, error, name) {
   })
   await writeFile(
     path.join(output, `${name}-failed.json`),
-    JSON.stringify({ error: String(error), url: page.url() }, null, 2)
+    JSON.stringify({
+      error: String(error),
+      url: page.url(),
+      tables: await page.locator('table').evaluateAll((tables) => tables.map((table) => ({
+        html: table.outerHTML,
+        rect: table.getBoundingClientRect().toJSON(),
+      }))),
+    }, null, 2)
   )
 }
 
@@ -81,6 +88,14 @@ async function session(persona, viewport) {
     await page.locator('html').getAttribute('data-persona-debug'),
     'true'
   )
+  // The development persona picker remains open after switching identities.
+  await page.keyboard.press('Escape')
+  await page.getByTestId('persona-debug-panel').waitFor({ state: 'hidden' })
+  const rejectAnalytics = page.getByRole('button', {
+    name: 'Do not collect',
+    exact: true,
+  })
+  if (await rejectAnalytics.isVisible()) await rejectAnalytics.click()
   return { context, page, errors }
 }
 
@@ -100,6 +115,16 @@ async function snapshot(page, name, errors) {
     'parallel top navigation'
   )
   assert.deepEqual(errors, [], 'browser/runtime errors')
+  assert.equal(
+    await page.locator('[data-sonner-toast][data-type="error"]').count(),
+    0,
+    'handled application error toast'
+  )
+  assert.equal(
+    await page.getByText(/PERSONA_DEBUG_UNMOCKED_REQUEST/).count(),
+    0,
+    'missing synthetic fixture'
+  )
   await page.screenshot({
     path: path.join(output, `${name}.png`),
     fullPage: true,
@@ -150,6 +175,14 @@ try {
       await page.getByRole('dialog').waitFor({ state: 'visible' })
       await page.keyboard.press('Escape')
       await page.getByRole('dialog').waitFor({ state: 'hidden' })
+      const empty = page.getByText('No API Keys Found', { exact: true })
+      const emptyBox = await empty.boundingBox()
+      const tableBox = await page.locator('table:visible').boundingBox()
+      assert.ok(emptyBox && tableBox)
+      assert.ok(
+        Math.abs(emptyBox.x + emptyBox.width / 2 - tableBox.x - tableBox.width / 2) < 3,
+        `Empty table content must be centered: ${JSON.stringify({ emptyBox, tableBox })}`
+      )
       await snapshot(page, `keys-${viewport.width}`, errors)
       if (viewport.width === 1440) {
         await page.evaluate(() =>
