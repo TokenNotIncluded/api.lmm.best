@@ -49,7 +49,7 @@ download_asset() {
   fi
 }
 
-for command in cosign curl jq sha256sum sort vercmp; do
+for command in cosign curl git jq sha256sum sort vercmp; do
   command -v "$command" >/dev/null 2>&1 || fail "required command is unavailable: $command"
 done
 [[ -x $VERSION_CHECK ]] || fail 'AUR candidate version checker is missing or not executable'
@@ -83,10 +83,33 @@ tag_revision=$(jq -r '.object.sha' <<<"$tag_object")
 [[ $(jq -r '.verification.verified' <<<"$tag_object") == true &&
    $(jq -r '.object.type' <<<"$tag_object") == commit && $tag_revision =~ ^[0-9a-f]{40}$ ]] ||
   fail "$release_tag is not a GitHub-verified signed commit tag"
+# A pin must name source that main still carries. Commit identity is the cheap
+# way to say that and is what every fresh release satisfies. It stops holding
+# the moment history is rewritten: a content-neutral rewrite renames every
+# commit without altering a byte of the released source, which would orphan
+# pins that still reproduce exactly. The guarantee such a pin rests on is the
+# tree, so fall back to requiring the released tree to remain reachable from
+# main. That is a statement about content, not about commit bookkeeping, and it
+# cannot be satisfied by source main never carried.
+require_released_tree_on_main() {
+  local commit_json tag_tree main_ref
+  commit_json=$(api_get "$API_ROOT/repos/$REPOSITORY/git/commits/$tag_revision")
+  tag_tree=$(jq -r '.tree.sha' <<<"$commit_json")
+  [[ $tag_tree =~ ^[0-9a-f]{40}$ ]] || fail "$release_tag does not resolve to a source tree"
+  main_ref=$(git -C "$HERE" rev-parse --verify --quiet refs/remotes/origin/main ||
+    git -C "$HERE" rev-parse --verify --quiet refs/heads/main) ||
+    fail "$release_tag is not an ancestor of main and no local main is available to match its tree"
+  git -C "$HERE" log --format=%T "$main_ref" >"$work/main-trees"
+  grep -Fxq -- "$tag_tree" "$work/main-trees" ||
+    fail "$release_tag does not identify a tree reachable from main"
+  printf 'verify-go-release-pins: %s predates a history rewrite; tree %s is still on main\n' \
+    "$release_tag" "$tag_tree"
+}
+
 comparison=$(api_get "$API_ROOT/repos/$REPOSITORY/compare/$tag_revision...main")
 case $(jq -r '.status' <<<"$comparison") in
   ahead|identical) ;;
-  *) fail "$release_tag does not identify an ancestor of main" ;;
+  *) require_released_tree_on_main ;;
 esac
 release_json="$work/release.json"
 api_get "$API_ROOT/repos/$REPOSITORY/releases/tags/$release_tag" >"$release_json"

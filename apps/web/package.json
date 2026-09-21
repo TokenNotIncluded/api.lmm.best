@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "rsbuild dev",
     "dev:debug": "LMM_ENABLE_PERSONA_DEBUG=1 rsbuild dev",
-    "build": "rsbuild build",
+    "build": "VITE_REACT_APP_VERSION=$(git rev-parse --short HEAD 2>/dev/null || echo 'dev') rsbuild build",
     "bundle:check": "node scripts/check-initial-bundle.mjs",
     "build:check": "tsgo -b && rsbuild build",
     "test": "bun scripts/test-serial.mjs",

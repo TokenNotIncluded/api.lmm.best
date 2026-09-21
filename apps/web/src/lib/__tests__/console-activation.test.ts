@@ -254,10 +254,13 @@ describe('console activation boundary', () => {
     )
   })
 
-  test('allows only onboarding before activation', () => {
+  test('allows onboarding, tools and checkout before activation', () => {
     assert.equal(isContributorRoute('/getting-started'), true)
     assert.equal(isContributorRoute('/getting-started/request'), true)
-    assert.equal(isContributorRoute('/wallet'), false)
+    assert.equal(isContributorRoute('/wallet'), true)
+    assert.equal(isContributorRoute('/wallet/'), true)
+    assert.equal(isContributorRoute('/wallet/admin'), false)
+    assert.equal(isContributorRoute('/tool-market'), true)
     assert.equal(isContributorRoute('/open-source-bounties'), false)
     assert.equal(isContributorRoute('/profile/security'), false)
     assert.equal(isContributorRoute('/support'), false)

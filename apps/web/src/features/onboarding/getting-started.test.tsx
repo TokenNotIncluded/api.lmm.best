@@ -249,18 +249,18 @@ describe('getting started access boundaries', () => {
     await unmountPage(page)
   })
 
-  test('opens the AI onboarding conversation once when an L0 user enters', async () => {
+  test('lets an L0 user explore before opening the assistant', async () => {
     const opened: Array<string | undefined> = []
     const unsubscribe = subscribeToAssistantOpen((request) =>
       opened.push(request.preset)
     )
 
     const first = await renderPage(false, undefined, null, { id: 7001 })
-    assert.deepEqual(opened, ['onboarding'])
+    assert.deepEqual(opened, [])
     await unmountPage(first)
 
     const second = await renderPage(false, undefined, null, { id: 7001 })
-    assert.deepEqual(opened, ['onboarding'])
+    assert.deepEqual(opened, [])
     await unmountPage(second)
     unsubscribe()
   })
@@ -272,7 +272,7 @@ describe('getting started access boundaries', () => {
       false
     )
     assert.equal(
-      l0Page.container.textContent?.includes('How can I help?'),
+      l0Page.container.textContent?.includes('Your next idea starts here.'),
       true
     )
     await unmountPage(l0Page)
@@ -292,7 +292,7 @@ describe('getting started access boundaries', () => {
     await unmountPage(l1Page)
   })
 
-  test('uses one assistant entry without a second composer or hard-coded presets', async () => {
+  test('opens the same assistant for an access application', async () => {
     const opened: Array<string | undefined> = []
     const messages: Array<string | undefined> = []
     const unsubscribe = subscribeToAssistantOpen((request) => {
@@ -327,12 +327,12 @@ describe('getting started access boundaries', () => {
       page.container.textContent?.includes('How is request cost calculated?'),
       false
     )
-    assert.equal(page.container.querySelector('input'), null)
+    assert.ok(page.container.querySelector('input#l0-question'))
     await unmountPage(page)
     unsubscribe()
   })
 
-  test('opens onboarding guidance once while administrator review is pending', async () => {
+  test('keeps pending review visible without forcing the assistant open', async () => {
     const opened: Array<string | undefined> = []
     const unsubscribe = subscribeToAssistantOpen((request) =>
       opened.push(request.preset)
@@ -351,7 +351,7 @@ describe('getting started access boundaries', () => {
       { data: { success: true, data: [] } },
       pendingRequest
     )
-    assert.deepEqual(opened, ['onboarding'])
+    assert.deepEqual(opened, [])
     await unmountPage(first)
 
     const second = await renderPage(
@@ -359,7 +359,7 @@ describe('getting started access boundaries', () => {
       { data: { success: true, data: [] } },
       pendingRequest
     )
-    assert.deepEqual(opened, ['onboarding'])
+    assert.deepEqual(opened, [])
     await unmountPage(second)
     unsubscribe()
   })
@@ -512,13 +512,21 @@ describe('getting started access boundaries', () => {
     const page = await renderPage(true)
     await act(flushEffects)
 
-    // A new account must be able to buy and use the product immediately.
-    const wallet = page.container.querySelector('a[href="/wallet"]')
-    assert.ok(wallet, 'L0 must reach the wallet')
-    assert.equal(wallet.textContent?.includes('Add funds and start'), true)
+    // The welcome page opens plan advice before the account's checkout.
+    assert.equal(page.container.querySelector('a[href="/wallet"]'), null)
+    const payment = [...page.container.querySelectorAll('button')].find(
+      (button) => button.textContent?.includes('Explore plans and top-ups')
+    )
+    assert.ok(payment)
+    await act(async () => payment.click())
+    assert.equal(consumeQueuedAssistantRequest()?.preset, 'plan')
+    assert.ok(page.container.querySelector('a[href="/tool-market"]'))
     assert.ok(page.container.querySelector('a[href="/pricing"]'))
     assert.ok(page.container.querySelector('a[href="/challenges"]'))
-    assert.equal(page.container.textContent?.includes('How can I help?'), true)
+    assert.equal(
+      page.container.textContent?.includes('Your next idea starts here.'),
+      true
+    )
     assert.equal(
       page.container.textContent?.includes(
         'API keys and developer tools unlock after access approval.'
@@ -531,6 +539,78 @@ describe('getting started access boundaries', () => {
       page.container.textContent?.includes('Open setup guide'),
       false
     )
+    await unmountPage(page)
+  })
+
+  test('shows the configured payment threshold and hides it when paid activation is disabled', async () => {
+    const onboarding = {
+      activation_complete: false,
+      credential_complete: false,
+      first_request_complete: false,
+      stage: 'activate' as const,
+      paid_activation_enabled: true,
+      paid_activation_min_amount: 5,
+    }
+    for (const language of ['en', 'zhCN', 'zhTW', 'fr', 'ja', 'ru', 'vi']) {
+      await i18n.changeLanguage(language)
+      const page = await renderPage(false, undefined, null, { onboarding })
+      assert.ok(
+        page.container.querySelector('[data-testid="l0-paid-progress"]')
+      )
+      assert.doesNotMatch(page.container.textContent ?? '', /NaN|undefined/)
+      await unmountPage(page)
+    }
+    await i18n.changeLanguage('en')
+    for (const override of [
+      { ...onboarding, paid_activation_enabled: false },
+      { ...onboarding, paid_activation_min_amount: undefined },
+    ]) {
+      const hidden = await renderPage(false, undefined, null, {
+        onboarding: override,
+      })
+      assert.equal(
+        hidden.container.querySelector('[data-testid="l0-paid-progress"]'),
+        null
+      )
+      await unmountPage(hidden)
+    }
+  })
+
+  test('sends a custom question to the assistant and rejects empty or punctuation-only input', async () => {
+    const page = await renderPage()
+    const input = page.container.querySelector<HTMLInputElement>('#l0-question')
+    assert.ok(input)
+    const form = input.closest('form')
+    assert.ok(form)
+    const submit = form.querySelector<HTMLButtonElement>(
+      'button[type="submit"]'
+    )
+    assert.ok(submit)
+    assert.equal(submit.disabled, true)
+    const setter = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      'value'
+    )?.set
+    assert.ok(setter)
+    for (const [value, disabled] of [
+      ['。', true],
+      ['Help me build a tool', false],
+    ] as const) {
+      await act(async () => {
+        setter.call(input, value)
+        input.dispatchEvent(new window.Event('input', { bubbles: true }))
+        await flushEffects()
+      })
+      assert.equal(submit.disabled, disabled)
+    }
+    await act(async () => {
+      form.dispatchEvent(
+        new window.Event('submit', { bubbles: true, cancelable: true })
+      )
+    })
+    const queued = consumeQueuedAssistantRequest()
+    assert.equal(queued?.message, 'Help me build a tool')
+    assert.equal(queued?.autoSend, true)
     await unmountPage(page)
   })
 
