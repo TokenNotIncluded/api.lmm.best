@@ -51,6 +51,10 @@ func requiredPromptPreset(id string) PromptPreset {
 
 func normalizePromptPresetLanguage(value string) string {
 	value = strings.ToLower(strings.ReplaceAll(strings.TrimSpace(value), "_", "-"))
+	if value == localizedPromptPresetLabel {
+		// The administrator default is a locale key too, not a language.
+		return localizedPromptPresetLabel
+	}
 	if value == "zhtw" || value == "zh-tw" || value == "zh-hk" || value == "zh-mo" || strings.HasPrefix(value, "zh-hant") {
 		return "zh-TW"
 	}
@@ -73,6 +77,7 @@ func LocalizePromptPresets(set PromptPresetSet, language string) PromptPresetSet
 	copy(presets, set.Presets)
 	for index, preset := range presets {
 		if preset.Source == "custom" {
+			presets[index].Prompt, presets[index].Label = customPromptPresetCopy(preset, locale)
 			continue
 		}
 		if prompt, ok := requiredPromptPresetCopy[preset.Id][locale]; ok {
@@ -82,4 +87,18 @@ func LocalizePromptPresets(set PromptPresetSet, language string) PromptPresetSet
 	}
 	set.Presets = presets
 	return set
+}
+
+// customPromptPresetCopy selects the requested locale, then the administrator
+// default, then the stored single-language copy. A custom preset therefore
+// follows the interface language whenever a translation exists.
+func customPromptPresetCopy(preset PromptPreset, locale string) (string, string) {
+	if len(preset.Translations) > 0 {
+		for _, candidate := range []string{locale, localizedPromptPresetLabel} {
+			if copy, ok := preset.Translations[candidate]; ok {
+				return copy.Prompt, copy.Label
+			}
+		}
+	}
+	return preset.Prompt, preset.Label
 }

@@ -61,7 +61,7 @@ export function AccountStatus({
         keyCreated === undefined
           ? 'Unknown'
           : keyCreated
-            ? 'Created'
+            ? 'API key exists'
             : 'Not created'
       ),
     ],

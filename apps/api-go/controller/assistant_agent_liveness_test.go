@@ -146,7 +146,7 @@ func TestAssistantLivenessWatchHasExactlyOneTerminalEvent(t *testing.T) {
 	require.NoError(t, session.start())
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
-	stop := session.watch(ctx, cancel, 5*time.Millisecond)
+	stop := session.watch(ctx, cancel, 5*time.Millisecond, nil)
 	require.NoError(t, session.progress("tool", 2))
 	session.markWorkStarted()
 	require.Eventually(t, func() bool { _, finished := session.startedAndFinished(); return finished }, time.Second, time.Millisecond)
@@ -156,6 +156,47 @@ func TestAssistantLivenessWatchHasExactlyOneTerminalEvent(t *testing.T) {
 	assert.Contains(t, recorder.Body.String(), "event: heartbeat")
 	assert.Contains(t, recorder.Body.String(), `"phase":"tool"`)
 	assert.Contains(t, recorder.Body.String(), `"retryable":false`)
+}
+
+func TestAssistantLivenessTimeoutReportsStructuralDiagnostics(t *testing.T) {
+	c, recorder := assistantLoopTestContext(t)
+	session := newAssistantStreamSession(c.Writer)
+	require.NoError(t, session.start())
+	c.Set(assistantStreamSessionKey, session)
+	c.Set("assistant_work_started", true)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Millisecond)
+	defer cancel()
+	c.Request = c.Request.WithContext(ctx)
+	original := relayAssistantAgentTurn
+	t.Cleanup(func() { relayAssistantAgentTurn = original })
+	relayAssistantAgentTurn = func(c *gin.Context, _ assistantOpenAIRequest, _ string, _ int) (int, []byte, error) {
+		<-c.Request.Context().Done()
+		return 0, nil, c.Request.Context().Err()
+	}
+
+	runAssistantAgent(c, setting.AssistantSettings{AgentLoopEnabled: true, MaxSteps: 12, TimeoutSeconds: 60},
+		[]assistantOpenAIMessage{{Role: "user", Content: "hello"}})
+
+	body := recorder.Body.String()
+	assert.Contains(t, body, "ASSISTANT_REQUEST_TIMEOUT")
+	// The deadline fired inside the first model turn of a twelve-step budget,
+	// and a tool had already been reported as started.
+	assert.Contains(t, body, `"steps":1`)
+	assert.Contains(t, body, `"max_steps":12`)
+	assert.Contains(t, body, `"work_started":true`)
+	var failure struct {
+		ElapsedMS int64 `json:"elapsed_ms"`
+		TimeoutMS int64 `json:"timeout_ms"`
+	}
+	for _, line := range strings.Split(body, "\n") {
+		if data, ok := strings.CutPrefix(line, "data: "); ok && strings.Contains(data, "ASSISTANT_REQUEST_TIMEOUT") {
+			require.NoError(t, json.Unmarshal([]byte(data), &failure))
+		}
+	}
+	// Measured at stop time, so it must be far below the configured budget.
+	assert.NotZero(t, failure.ElapsedMS)
+	assert.Less(t, failure.ElapsedMS, int64(50_000))
+	assert.Equal(t, int64(60_000), failure.TimeoutMS)
 }
 
 func TestAssistantLivenessCancelsStalledHTTPProvider(t *testing.T) {
