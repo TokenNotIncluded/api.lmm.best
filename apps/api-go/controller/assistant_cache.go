@@ -21,6 +21,7 @@ const (
 	assistantCacheMaxBytes          = 8 << 20
 	assistantCacheMaxValueBytes     = 256 << 10
 	assistantCacheMaxGates          = 256
+	assistantCacheGateMaxWait       = 250 * time.Millisecond
 )
 
 // Personal skills are deliberately request-scoped.  A cached first-turn
@@ -45,11 +46,17 @@ var (
 	assistantCacheGates        = syncx.NewKeyedGate(assistantCacheMaxGates)
 )
 
-// acquireAssistantCacheGate serializes only the same cache key. The returned
-// release function is idempotent. The shared implementation also caps the
-// number of distinct in-flight keys, preventing cardinality-driven map growth.
+// Cache coalescing runs before the agent deadline and before SSE starts.
+// Wait only briefly for an identical request; on expiry the caller continues
+// uncached under the existing global agent limiter. Never cancel the parent
+// request or wait for an entire slow model/tool run merely to check its cache.
 func acquireAssistantCacheGate(ctx context.Context, key string) (func(), bool) {
-	return assistantCacheGates.Acquire(ctx, key)
+	if ctx.Err() != nil {
+		return func() {}, false
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, assistantCacheGateMaxWait)
+	defer cancel()
+	return assistantCacheGates.Acquire(waitCtx, key)
 }
 
 func getAssistantResponseCache() *cachex.HybridCache[assistantCachedResponse] {
@@ -198,6 +205,7 @@ func getAssistantCachedResponse(key string) (assistantCachedResponse, bool) {
 	if !found || value.Status < 200 || value.Status >= 300 || len(value.Body) == 0 {
 		return assistantCachedResponse{}, false
 	}
+
 	normalized, err := normalizeAssistantClientResponse(nil, value.Body)
 	if err != nil {
 		return assistantCachedResponse{}, false
