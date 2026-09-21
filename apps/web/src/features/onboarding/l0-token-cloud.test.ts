@@ -9,13 +9,17 @@ License, or (at your option) any later version.
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { createL0Tokens, mountL0TokenCloud } from './l0-token-cloud'
+import {
+  createL0Tokens,
+  mountL0TokenCloud,
+  projectL0Token,
+} from './l0-token-cloud'
 
 function fixture({ reduced = false, contextAvailable = true } = {}) {
   const frames = new Map<number, FrameRequestCallback>()
   let nextFrame = 0
   let paints = 0
-  let measurements = 0
+  let reads = 0
   let disconnects = 0
   const positions: number[][] = []
   const context = {
@@ -27,6 +31,9 @@ function fixture({ reduced = false, contextAvailable = true } = {}) {
     fillText(_text: string, x: number, y: number) {
       positions.push([x, y])
     },
+    fillRect(x: number, y: number) {
+      positions.push([x, y])
+    },
   }
   const media = Object.assign(new EventTarget(), { matches: reduced })
   const doc = Object.assign(new EventTarget(), { hidden: false })
@@ -35,8 +42,8 @@ function fixture({ reduced = false, contextAvailable = true } = {}) {
     height: 0,
     getContext: () => (contextAvailable ? context : null),
     getBoundingClientRect: () => {
-      measurements++
-      return { top: 10, bottom: 310, left: 0, width: 900, height: 300 }
+      reads++
+      return { top: 10, bottom: 310, left: 0, width: 760, height: 300 }
     },
   })
   const toggle = Object.assign(new EventTarget(), {
@@ -46,14 +53,11 @@ function fixture({ reduced = false, contextAvailable = true } = {}) {
       this.attrs[key] = value
     },
   })
-  const observers: Array<{
-    callback: (entries: Array<{ isIntersecting: boolean }>) => void
-  }> = []
+  type Entries = Array<{ isIntersecting: boolean }>
+  const observers: Array<(entries: Entries) => void> = []
   class Observer {
-    constructor(
-      callback: (entries: Array<{ isIntersecting: boolean }>) => void
-    ) {
-      observers.push({ callback })
+    constructor(callback: (entries: Entries) => void) {
+      observers.push(callback)
     }
     observe() {}
     disconnect() {
@@ -85,29 +89,27 @@ function fixture({ reduced = false, contextAvailable = true } = {}) {
     querySelector: (selector: string) =>
       selector === 'canvas' ? canvas : toggle,
   }
-  const mount = () => mountL0TokenCloud(root as unknown as HTMLElement)
-  const step = (time: number) => {
-    const pending = [...frames.values()]
-    frames.clear()
-    pending.forEach((callback) => callback(time))
-  }
   return {
     root,
     canvas,
     toggle,
-    frames,
-    doc,
     media,
+    doc,
     win,
+    frames,
     observers,
     positions,
-    mount,
-    step,
+    mount: () => mountL0TokenCloud(root as unknown as HTMLElement),
+    step(time: number) {
+      const callbacks = [...frames.values()]
+      frames.clear()
+      callbacks.forEach((callback) => callback(time))
+    },
     get paints() {
       return paints
     },
-    get measurements() {
-      return measurements
+    get reads() {
+      return reads
     },
     get disconnects() {
       return disconnects
@@ -115,35 +117,39 @@ function fixture({ reduced = false, contextAvailable = true } = {}) {
   }
 }
 
-test('tokens are stable, ASCII-only, bounded and reduced on mobile', () => {
-  assert.deepEqual(createL0Tokens(900), createL0Tokens(900))
-  assert.equal(createL0Tokens(390).length, 92)
-  assert.equal(createL0Tokens(900).length, 174)
-  for (const token of createL0Tokens(900)) {
-    assert.match(token.glyph, /^[\x20-\x7e]+$/)
-    assert.ok(token.x > 0 && token.x < 1 && token.y > 0 && token.y < 1)
-    assert.ok(token.depth >= 0 && token.depth <= 1)
+test('deterministic bounded geometry with a smaller mobile budget', () => {
+  assert.deepEqual(createL0Tokens(760), createL0Tokens(760))
+  assert.equal(createL0Tokens(390).length, 1000)
+  assert.equal(createL0Tokens(760).length, 2600)
+  for (const token of createL0Tokens(760)) {
+    assert.match(token.glyph, /^[\x20-\x7e]*$/)
+    for (const time of [0, 120_000, 900_000]) {
+      const point = projectL0Token(token, time)
+      assert.ok(Number.isFinite(point.x) && Math.abs(point.x) < 2)
+      assert.ok(Number.isFinite(point.y) && Math.abs(point.y) < 2)
+      assert.ok(point.depth >= 0 && point.depth <= 1)
+    }
   }
 })
 
-test('mount caps resolution and paints at most 30fps without layout reads per frame', () => {
+test('DPR and draw rate are bounded with no per-frame layout reads', () => {
   const f = fixture()
   const dispose = f.mount()
-  assert.equal(f.canvas.width, 1800)
+  assert.equal(f.canvas.width, 1520)
   assert.equal(f.canvas.height, 600)
-  const reads = f.measurements
+  const reads = f.reads
   f.step(100)
-  const count = f.paints
+  const paints = f.paints
   f.step(116)
-  assert.equal(f.paints, count)
+  assert.equal(f.paints, paints)
   f.step(134)
-  assert.equal(f.paints, count + 1)
-  assert.equal(f.measurements, reads)
+  assert.equal(f.paints, paints + 1)
+  assert.equal(f.reads, reads)
   assert.equal(f.frames.size, 1)
   dispose()
 })
 
-test('pause, visibility and offscreen states cancel frames, then resume only one loop', () => {
+test('pause, hidden and offscreen states stop then resume one loop', () => {
   const f = fixture()
   const dispose = f.mount()
   f.toggle.dispatchEvent(new Event('click'))
@@ -155,14 +161,14 @@ test('pause, visibility and offscreen states cancel frames, then resume only one
   f.doc.hidden = false
   f.doc.dispatchEvent(new Event('visibilitychange'))
   assert.equal(f.frames.size, 1)
-  f.observers[1].callback([{ isIntersecting: false }])
+  f.observers[1]([{ isIntersecting: false }])
   assert.equal(f.frames.size, 0)
-  f.observers[1].callback([{ isIntersecting: true }])
+  f.observers[1]([{ isIntersecting: true }])
   assert.equal(f.frames.size, 1)
   dispose()
 })
 
-test('reduced motion is static initially and also reacts to a preference change', () => {
+test('reduced motion draws statically and reacts to preference changes', () => {
   const f = fixture({ reduced: true })
   const dispose = f.mount()
   assert.equal(f.frames.size, 0)
@@ -177,7 +183,7 @@ test('reduced motion is static initially and also reacts to a preference change'
   dispose()
 })
 
-test('cleanup is complete and remounting does not accumulate listeners or frames', () => {
+test('unmount removes observers, listeners and frames; remount is clean', () => {
   const f = fixture()
   f.mount()()
   assert.equal(f.frames.size, 0)
@@ -195,22 +201,22 @@ test('cleanup is complete and remounting does not accumulate listeners or frames
   dispose()
 })
 
-test('canvas failure leaves fallback visible and schedules no work', () => {
+test('canvas failure preserves the SVG fallback without scheduling work', () => {
   const f = fixture({ contextAvailable: false })
   f.mount()()
   assert.equal(f.root.dataset.cloudReady, undefined)
   assert.equal(f.frames.size, 0)
 })
 
-test('mouse input affects the cloud but touch leaves scrolling alone', () => {
+test('pointer attraction works without consuming touch scrolling', () => {
   const f = fixture()
   const dispose = f.mount()
   f.step(100)
   const event = (pointerType: string) =>
     Object.assign(new Event('pointermove'), {
       pointerType,
-      clientX: 450,
-      clientY: 150,
+      clientX: 470,
+      clientY: 180,
     })
   const touch = event('touch')
   f.canvas.dispatchEvent(touch)
@@ -221,11 +227,8 @@ test('mouse input affects the cloud but touch leaves scrolling alone', () => {
   f.step(168)
   assert.ok(
     f.positions.some(
-      (position, i) =>
-        Math.hypot(
-          position[0] - withoutPointer[i][0],
-          position[1] - withoutPointer[i][1]
-        ) > 1
+      (p, i) =>
+        Math.hypot(p[0] - withoutPointer[i][0], p[1] - withoutPointer[i][1]) > 1
     )
   )
   dispose()

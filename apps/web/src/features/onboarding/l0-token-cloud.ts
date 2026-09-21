@@ -6,41 +6,49 @@ it under the terms of the GNU Affero General Public License as
 published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
-const GLYPHS = ['{', '}', '[', ']', '/', ':', ';', '+', '=', '<', '>', '*', '_']
-const WORDS = ['const', 'return', 'if', 'await', '=>', '()', '[]', '</>', '...']
+const GLYPHS = ['{', '}', '/', '+', '>', ':', '[]', '01', '()', '*']
 
-/** Stable, decorative tokens only. Never copy prompts or credentials here. */
 export function createL0Tokens(width: number) {
-  const count = width < 560 ? 92 : 174
   let seed = 731
   const random = () => {
     seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0
     return seed / 4294967296
   }
-  const clusters = [
-    { x: 0.28, y: 0.55, rx: 0.19, ry: 0.31 },
-    { x: 0.52, y: 0.39, rx: 0.18, ry: 0.3 },
-    { x: 0.73, y: 0.57, rx: 0.16, ry: 0.28 },
-  ]
-  return Array.from({ length: count }, (_, index) => {
-    const cluster = clusters[index % clusters.length]
-    const angle = random() * Math.PI * 2
-    const radius = Math.sqrt(random())
-    const depth = random()
-    return {
-      x: cluster.x + Math.cos(angle) * radius * cluster.rx,
-      y: cluster.y + Math.sin(angle) * radius * cluster.ry,
-      depth,
-      phase: random() * Math.PI * 2,
-      glyph:
-        index % 11 === 0
-          ? WORDS[Math.floor(random() * WORDS.length)]
-          : GLYPHS[Math.floor(random() * GLYPHS.length)],
-    }
-  })
+  return Array.from({ length: width < 560 ? 1000 : 2600 }, (_, index) => ({
+    angle: random() * Math.PI * 2,
+    cross: random() * Math.PI * 2,
+    radius: 0.35 + Math.sqrt(random()) * (index % 9 === 0 ? 1.05 : 0.65),
+    phase: random() * Math.PI * 2,
+    glyph:
+      index % 10 === 0 ? GLYPHS[Math.floor(random() * GLYPHS.length)] : '',
+  }))
 }
 
-/** One bounded canvas; all listeners and animation frames belong to this mount. */
+type Token = ReturnType<typeof createL0Tokens>[number]
+
+/** Three breathing lobes share one continuous, perspective-projected field. */
+export function projectL0Token(token: Token, time: number, tilt = 0) {
+  const u = token.angle + time * 0.000045
+  const v = token.cross + Math.sin(time * 0.0002 + token.phase) * 0.12
+  const tube = (0.32 + Math.sin(u * 3 + time * 0.00012) * 0.065) * token.radius
+  const ring = 0.87 + Math.cos(u * 3) * 0.065 + Math.cos(v) * tube
+  const x = Math.cos(u) * ring
+  const y = Math.sin(u) * ring
+  const z = Math.sin(v) * tube
+  const a = 0.62 + tilt * 0.15
+  const y1 = y * Math.cos(a) - z * Math.sin(a)
+  const z1 = y * Math.sin(a) + z * Math.cos(a)
+  const x1 = x * 0.97 + z1 * 0.24
+  const z2 = z1 * 0.97 - x * 0.24
+  const perspective = 3.8 / (3.8 - z2)
+  return {
+    x: (x1 * 0.97 + y1 * 0.24) * perspective,
+    y: (y1 * 0.97 - x1 * 0.24) * perspective,
+    depth: Math.max(0, Math.min(1, (z2 + 1) / 2)),
+  }
+}
+
+/** No media, WebGL or network dependencies. Every resource has one owner. */
 export function mountL0TokenCloud(root: HTMLElement): () => void {
   const canvas = root.querySelector<HTMLCanvasElement>('canvas')
   const toggle = root.querySelector<HTMLButtonElement>('[data-cloud-pause]')
@@ -50,7 +58,7 @@ export function mountL0TokenCloud(root: HTMLElement): () => void {
   try {
     context = canvas.getContext('2d')
   } catch {
-    // The static ASCII fallback remains visible when canvas is unavailable.
+    // Keep the local SVG fallback visible when canvas is unavailable.
   }
   if (!context) return () => {}
   const ctx = context
@@ -68,33 +76,39 @@ export function mountL0TokenCloud(root: HTMLElement): () => void {
   let bounds = canvas.getBoundingClientRect()
   let tokens = createL0Tokens(bounds.width)
   const pointer = { x: 0, y: 0, strength: 0, active: false, pressed: false }
-
   const canAnimate = () =>
     !disposed && visible && !doc.hidden && !paused && !reduced.matches
+
   const paint = (delta = 0) => {
     pointer.strength +=
-      ((pointer.active ? 1 : 0) - pointer.strength) * Math.min(1, delta / 130)
+      ((pointer.active ? 1 : 0) - pointer.strength) * Math.min(1, delta / 180)
     ctx.clearRect(0, 0, width, height)
     ctx.fillStyle = color
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
+    const scale = Math.min(width * 0.35, height * 0.43)
     for (const token of tokens) {
-      const drift = elapsed * 0.00012
-      let x = token.x * width + Math.sin(drift + token.phase) * 9
-      let y = token.y * height + Math.cos(drift * 0.8 + token.phase) * 6
+      const p = projectL0Token(
+        token,
+        elapsed,
+        (pointer.x / width - 0.5) * pointer.strength
+      )
+      let x = width / 2 + p.x * scale
+      let y = height / 2 + p.y * scale
       const dx = pointer.x - x
       const dy = pointer.y - y
-      const distance = Math.hypot(dx, dy)
-      const influence = Math.max(0, 1 - distance / 150) * pointer.strength
-      const pull = pointer.pressed ? -0.6 : 0.24
+      const influence = Math.max(0, 1 - Math.hypot(dx, dy) / 105)
+      const pull = (pointer.pressed ? -0.75 : 0.18) * pointer.strength
       x += dx * influence * pull
       y += dy * influence * pull
-      ctx.globalAlpha = Math.min(
-        0.88,
-        0.16 + token.depth * 0.52 + influence * 0.2
-      )
-      ctx.font = `${10 + Math.round(token.depth * 4)}px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`
-      ctx.fillText(token.glyph, x, y)
+      ctx.globalAlpha = 0.16 + p.depth * p.depth * 0.84
+      if (token.glyph) {
+        ctx.font = `${8 + p.depth * 3}px ui-monospace, monospace`
+        ctx.fillText(token.glyph, x, y)
+      } else {
+        const size = 0.6 + p.depth * 1.1
+        ctx.fillRect(x, y, size, size)
+      }
     }
     ctx.globalAlpha = 1
   }
@@ -118,8 +132,8 @@ export function mountL0TokenCloud(root: HTMLElement): () => void {
         lastFrame = 0
         frame = win.requestAnimationFrame(tick)
       }
-    } else {
-      if (frame !== null) win.cancelAnimationFrame(frame)
+    } else if (frame !== null) {
+      win.cancelAnimationFrame(frame)
       frame = null
       lastFrame = 0
       pointer.active = false
@@ -139,15 +153,13 @@ export function mountL0TokenCloud(root: HTMLElement): () => void {
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
     color = win.getComputedStyle(canvas).color
     tokens = createL0Tokens(width)
-    visible =
-      bounds.bottom > 0 && bounds.top < win.innerHeight && bounds.width > 0
+    visible = bounds.bottom > 0 && bounds.top < win.innerHeight
     paint()
     sync()
   }
   const scroll = () => {
     bounds = canvas.getBoundingClientRect()
-    visible =
-      bounds.bottom > 0 && bounds.top < win.innerHeight && bounds.width > 0
+    visible = bounds.bottom > 0 && bounds.top < win.innerHeight
     sync()
   }
   const move = (event: PointerEvent) => {
@@ -175,19 +187,14 @@ export function mountL0TokenCloud(root: HTMLElement): () => void {
     paused = !paused
     sync()
   }
-  const resizeObserver = win.ResizeObserver
-    ? new win.ResizeObserver(measure)
-    : null
+  const resize = win.ResizeObserver ? new win.ResizeObserver(measure) : null
   const intersection = win.IntersectionObserver
     ? new win.IntersectionObserver(([entry]) => {
         visible = entry.isIntersecting
         sync()
       })
     : null
-  const themeObserver = win.MutationObserver
-    ? new win.MutationObserver(measure)
-    : null
-
+  const theme = win.MutationObserver ? new win.MutationObserver(measure) : null
   toggle.addEventListener('click', pause)
   canvas.addEventListener('pointerenter', enter)
   canvas.addEventListener('pointermove', move)
@@ -200,9 +207,9 @@ export function mountL0TokenCloud(root: HTMLElement): () => void {
   win.addEventListener('scroll', scroll, { passive: true, capture: true })
   doc.addEventListener('visibilitychange', sync)
   reduced.addEventListener('change', sync)
-  resizeObserver?.observe(root)
+  resize?.observe(root)
   intersection?.observe(canvas)
-  themeObserver?.observe(doc.documentElement, {
+  theme?.observe(doc.documentElement, {
     attributes: true,
     attributeFilter: ['class', 'style', 'data-theme'],
   })
@@ -211,9 +218,9 @@ export function mountL0TokenCloud(root: HTMLElement): () => void {
   return () => {
     disposed = true
     if (frame !== null) win.cancelAnimationFrame(frame)
-    resizeObserver?.disconnect()
+    resize?.disconnect()
     intersection?.disconnect()
-    themeObserver?.disconnect()
+    theme?.disconnect()
     toggle.removeEventListener('click', pause)
     canvas.removeEventListener('pointerenter', enter)
     canvas.removeEventListener('pointermove', move)

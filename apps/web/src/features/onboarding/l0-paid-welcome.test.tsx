@@ -81,22 +81,26 @@ const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { subscribeToAssistantOpen } =
   await import('@/features/assistant/assistant-events')
+const { developerAccessRequestQueryKey } = await import('./api')
 const { L0Welcome } = await import('./l0-welcome')
 const i18n = createInstance()
-await i18n
-  .use(initReactI18next)
-  .init({ lng: 'en', resources: { en: { translation: {} } } })
-;(
-  globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true
+await i18n.use(initReactI18next).init({
+  lng: 'en',
+  resources: { en: { translation: {} } },
+})
+const globals = globalThis as typeof globalThis & {
+  IS_REACT_ACT_ENVIRONMENT?: boolean
+}
+globals.IS_REACT_ACT_ENVIRONMENT = true
 const originalGet = api.get
+const flush = () => new Promise((resolve) => setTimeout(resolve, 30))
 
 after(() => {
   api.get = originalGet
   dom.close()
 })
 
-test('L0 top-up goes straight to wallet without opening an assistant or hiding pending review', async () => {
+test('compact L0 preserves status and goes directly to checkout', async () => {
   const user = {
     id: 707,
     username: 'paid-onboarding-test',
@@ -111,9 +115,11 @@ test('L0 top-up goes straight to wallet without opening an assistant or hiding p
       paid_activation_min_amount: 1,
     },
   }
-  api.get = (async () => ({
-    data: { success: true, data: {} },
-  })) as typeof api.get
+  let accessReads = 0
+  api.get = (async (url) => {
+    if (url === '/api/user/developer-access/request') accessReads++
+    return { data: { success: true, data: {} } }
+  }) as typeof api.get
   useAuthStore.getState().auth.setUser(user)
   const opened: Array<string | undefined> = []
   const unsubscribe = subscribeToAssistantOpen((event) =>
@@ -125,7 +131,7 @@ test('L0 top-up goes straight to wallet without opening an assistant or hiding p
     path: '/getting-started',
     component: () => (
       <L0Welcome user={user}>
-        <p>Pending review</p>
+        <p>Pending application details</p>
       </L0Welcome>
     ),
   })
@@ -141,6 +147,9 @@ test('L0 top-up goes straight to wallet without opening an assistant or hiding p
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
+  queryClient.setQueryData(developerAccessRequestQueryKey(user.id), {
+    status: 'pending',
+  })
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
@@ -153,21 +162,36 @@ test('L0 top-up goes straight to wallet without opening an assistant or hiding p
           </I18nextProvider>
         </QueryClientProvider>
       )
-      await new Promise((resolve) => setTimeout(resolve, 50))
+      await flush()
     })
+    await act(flush)
+    const details = container.querySelector<HTMLDetailsElement>(
+      '[data-testid="l0-account-details"]'
+    )
+    assert.ok(details)
+    assert.equal(details.open, false)
+    assert.match(details.querySelector('summary')?.textContent ?? '', /Pending/)
+    assert.match(details.textContent ?? '', /Pending application details/)
+    assert.equal(accessReads, 0)
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 30))
+      queryClient.setQueryData(developerAccessRequestQueryKey(user.id), {
+        status: 'rejected',
+      })
+      await flush()
     })
-    assert.ok(container.textContent?.includes('Pending review'))
+    assert.match(
+      details.querySelector('summary')?.textContent ?? '',
+      /Access request rejected/
+    )
+    assert.equal(accessReads, 0)
     const button = container.querySelector<HTMLButtonElement>(
       '[data-testid="l0-topup-direct"]'
     )
     assert.ok(button)
     assert.equal(button.disabled, false)
-    assert.ok(container.querySelector('a[href="#l0-access-title"]'))
     await act(async () => {
       button.click()
-      await new Promise((resolve) => setTimeout(resolve, 30))
+      await flush()
     })
     assert.equal(router.state.location.pathname, '/wallet')
     assert.deepEqual(opened, [])
