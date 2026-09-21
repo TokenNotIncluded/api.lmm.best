@@ -8,8 +8,14 @@ License, or (at your option) any later version.
 */
 import { ArrowRight01Icon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
-import { Link } from '@tanstack/react-router'
-import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react'
+import { Link, useNavigate } from '@tanstack/react-router'
+import {
+  type FormEvent,
+  type ReactNode,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Badge } from '@/components/ui/badge'
@@ -26,9 +32,28 @@ import { PiOAuthGuide } from '@/features/guide/pi-oauth-guide'
 import { toIntlLocale } from '@/i18n/languages'
 import type { AuthUser } from '@/stores/auth-store'
 
+import { getL0AccessCopy } from './l0-access-copy'
+import { getL0PaidAccess } from './l0-paid-access'
 import { mountL0TokenCloud } from './l0-token-cloud'
+import { useL0AccessCheck } from './use-l0-access-check'
 
 import './l0-welcome.css'
+
+const FALLBACK_TOKENS = [
+  '{',
+  'const',
+  '/',
+  '[]',
+  '=>',
+  '}',
+  'await',
+  '+',
+  '</>',
+  'return',
+  ';',
+  '()',
+  '*',
+]
 
 export function L0Welcome({
   user,
@@ -38,30 +63,27 @@ export function L0Welcome({
   children: ReactNode
 }) {
   const { t, i18n } = useTranslation()
+  const navigate = useNavigate()
   const [prompt, setPrompt] = useState('')
   const cloudRef = useRef<HTMLDivElement>(null)
+  const { state: checkState, check } = useL0AccessCheck(user?.id)
+  const language = i18n.resolvedLanguage || i18n.language
+  const copy = getL0AccessCopy(language)
+  const access = getL0PaidAccess(user)
+  const canTopUp = access.mode === 'topup'
+  const showThreshold =
+    (canTopUp || access.mode === 'sync') && access.threshold > 0
+  const money = (value: number) =>
+    new Intl.NumberFormat(toIntlLocale(language), {
+      style: 'currency',
+      currency: 'USD',
+      maximumFractionDigits: 6,
+    }).format(value)
+
   useEffect(() => {
     if (cloudRef.current) return mountL0TokenCloud(cloudRef.current)
   }, [])
-  const threshold = user?.onboarding?.paid_activation_min_amount
-  const paidEnabled = user?.onboarding?.paid_activation_enabled === true
-  const showThreshold =
-    paidEnabled &&
-    !user?.trust_level_info?.overridden &&
-    typeof threshold === 'number' &&
-    Number.isFinite(threshold) &&
-    threshold > 0
-  const paidAmount = Math.max(0, user?.trust_level_info?.paid_amount ?? 0)
-  const remaining = showThreshold ? Math.max(0, threshold - paidAmount) : 0
-  const money = (value: number) =>
-    new Intl.NumberFormat(
-      toIntlLocale(i18n.resolvedLanguage || i18n.language),
-      {
-        style: 'currency',
-        currency: 'USD',
-        maximumFractionDigits: 6,
-      }
-    ).format(value)
+
   const validPrompt =
     prompt.trim().length > 0 &&
     !getAssistantPromptValidation(prompt, true).invalid
@@ -73,8 +95,10 @@ export function L0Welcome({
   return (
     <div className='l0-welcome' data-testid='l0-conversation'>
       <div className='l0-welcome-topline'>
-        <span className='l0-welcome-wordmark' aria-hidden='true'>LMM /</span>
-        <a href='#l0-access-title' className='l0-welcome-account-link'>
+        <span className='l0-welcome-wordmark' aria-hidden='true'>
+          LMM /
+        </span>
+        <a href='#l0-activation-title' className='l0-welcome-account-link'>
           {t('Account and access')}
           <Badge variant='outline'>
             {t('L{{level}}', { level: user?.trust_level_info?.level ?? 0 })}
@@ -86,8 +110,8 @@ export function L0Welcome({
       <section className='l0-welcome-hero' aria-labelledby='l0-welcome-title'>
         <div className='l0-cloud' ref={cloudRef} data-testid='l0-token-cloud'>
           <div className='l0-cloud-fallback' aria-hidden='true'>
-            {['{', 'const', '/', '[]', '=>', '}', 'await', '+', '</>', 'return', ';', '()', '*'].map((glyph, index) => (
-              <span key={index}>{glyph}</span>
+            {FALLBACK_TOKENS.map((glyph) => (
+              <span key={glyph}>{glyph}</span>
             ))}
           </div>
           <canvas aria-hidden='true' />
@@ -125,74 +149,171 @@ export function L0Welcome({
           <div className='l0-welcome-shortcuts'>
             <button
               type='button'
-              onClick={() => requestAssistantSend(undefined, t('Help me choose a model'))}
+              onClick={() =>
+                requestAssistantSend(undefined, t('Help me choose a model'))
+              }
             >
               {t('Help me choose a model')} <span aria-hidden='true'>↗</span>
             </button>
-            <button type='button' onClick={() => requestAssistantOpen('client-setup')}>
+            <button
+              type='button'
+              onClick={() => requestAssistantOpen('client-setup')}
+            >
               {t('Connect my coding tools')} <span aria-hidden='true'>↗</span>
             </button>
           </div>
           <p id='l0-privacy' className='l0-welcome-privacy'>
-            {t('Never paste a password, API key, session cookie, or other secret into the conversation.')}
+            {t(
+              'Never paste a password, API key, session cookie, or other secret into the conversation.'
+            )}
           </p>
         </div>
       </section>
 
-      <nav className='l0-welcome-destinations' aria-label={t('Explore before you commit')}>
+      <section
+        className='l0-welcome-activation'
+        data-testid='l0-activation'
+        data-access-mode={access.mode}
+        aria-labelledby='l0-activation-title'
+      >
+        <div className='l0-activation-main'>
+          <div className='l0-activation-copy'>
+            <p className='l0-activation-eyebrow' aria-hidden='true'>
+              L0 → L1
+            </p>
+            <h2 id='l0-activation-title' tabIndex={-1}>
+              {canTopUp
+                ? copy.title
+                : access.mode === 'sync'
+                  ? copy.sync
+                  : copy.review}
+            </h2>
+            <p>
+              {canTopUp
+                ? copy.description
+                : access.mode === 'sync'
+                  ? copy.syncNote
+                  : access.mode === 'unknown'
+                    ? copy.unknown
+                    : copy.reviewNote}
+            </p>
+            {showThreshold && (
+              <div
+                className='l0-activation-credit'
+                data-testid='l0-paid-progress'
+              >
+                <span>
+                  {copy.remaining} <strong>{money(access.remaining)}</strong>
+                </span>
+                <Progress
+                  value={Math.min(100, (access.paid / access.threshold) * 100)}
+                  aria-label={t('Progress to L{{level}}', { level: 1 })}
+                />
+              </div>
+            )}
+            {canTopUp && access.threshold === 0 && (
+              <p className='l0-activation-credit'>{copy.minimum}</p>
+            )}
+          </div>
+          <div className='l0-activation-actions'>
+            {canTopUp ? (
+              <Button
+                type='button'
+                className='l0-activation-primary'
+                data-testid='l0-topup-direct'
+                onClick={() => void navigate({ to: '/wallet' })}
+              >
+                {copy.topup}
+                <HugeiconsIcon icon={ArrowRight01Icon} aria-hidden='true' />
+              </Button>
+            ) : (
+              <Button
+                type='button'
+                variant='outline'
+                className='l0-activation-primary'
+                disabled={!user || checkState === 'checking'}
+                onClick={check}
+              >
+                {t('Reload account status')}
+              </Button>
+            )}
+            <a href='#l0-access-title'>
+              {copy.apply} <span aria-hidden='true'>↗</span>
+            </a>
+          </div>
+        </div>
+        <div className='l0-activation-footer'>
+          <p>{canTopUp || access.mode === 'sync' ? copy.eligibility : ''}</p>
+          <button
+            type='button'
+            data-testid='l0-check-payment'
+            disabled={!user || checkState === 'checking'}
+            onClick={check}
+          >
+            {copy.check}
+          </button>
+        </div>
+        <p className='l0-activation-feedback' role='status' aria-live='polite'>
+          {checkState ? copy[checkState] : null}
+        </p>
+      </section>
+
+      <nav
+        className='l0-welcome-destinations'
+        aria-label={t('Explore before you commit')}
+      >
         {[
           { to: '/pricing', title: t('Models and pricing') },
           { to: '/tool-market', title: t('Tool market') },
           { to: '/challenges', title: t('Browse open challenges') },
         ].map((item, index) => (
           <Link key={item.to} to={item.to}>
-            <span className='l0-welcome-index' aria-hidden='true'>0{index + 1}</span>
+            <span className='l0-welcome-index' aria-hidden='true'>
+              0{index + 1}
+            </span>
             <span>{item.title}</span>
-            <span className='l0-welcome-destination-arrow' aria-hidden='true'>↗</span>
+            <span className='l0-welcome-destination-arrow' aria-hidden='true'>
+              ↗
+            </span>
           </Link>
         ))}
       </nav>
 
       <section className='l0-welcome-access' aria-labelledby='l0-access-title'>
         <div className='l0-welcome-access-intro'>
-          <h2 id='l0-access-title' tabIndex={-1}>{t('Make it yours with L1')}</h2>
-          <p>{t('API keys and developer tools unlock after access approval.')}</p>
+          <h2 id='l0-access-title' tabIndex={-1}>
+            {t('Apply with your use case')}
+          </h2>
+          <p>
+            {t('API keys and developer tools unlock after access approval.')}
+          </p>
           <div className='l0-welcome-support'>
             <span>{t('Need a person?')}</span>
-            <button type='button' onClick={() => requestAssistantOpen('human')}>
+            <button
+              type='button'
+              onClick={() => requestAssistantOpen('human')}
+            >
               {t('Talk to support')} <span aria-hidden='true'>↗</span>
             </button>
           </div>
         </div>
         <div className='l0-welcome-access-body'>
-          <h3>{t('Apply with your use case')}</h3>
           <p className='l0-welcome-access-note'>
-            {t('Describe what you want to build. Eligible requests may be approved automatically; others go to review.')}
+            {t(
+              'Describe what you want to build. Eligible requests may be approved automatically; others go to review.'
+            )}
           </p>
-          {/* Keep every real request state visible; never replace children with demo status. */}
           {children}
           <div className='l0-welcome-plans'>
-            {showThreshold ? (
-              <div className='l0-welcome-paid' data-testid='l0-paid-progress'>
-                <p>
-                  {t('{{amount}} eligible credit to unlock L1', { amount: money(threshold) })}
-                </p>
-                <Progress
-                  value={Math.min(100, (paidAmount / threshold) * 100)}
-                  aria-label={t('Progress to L{{level}}', { level: 1 })}
-                />
-                <p className='l0-welcome-access-note'>
-                  {t('{{amount}} remaining. Only eligible external top-ups count; LinuxDO Credit is excluded.', { amount: money(remaining) })}
-                </p>
-              </div>
-            ) : null}
-            <Button variant='outline' onClick={() => requestAssistantOpen('plan')}>
+            <span>{copy.help}</span>
+            <Button variant='link' onClick={() => requestAssistantOpen('plan')}>
               {t('Explore plans and top-ups')}
-              <HugeiconsIcon icon={ArrowRight01Icon} data-icon='inline-end' aria-hidden='true' />
+              <HugeiconsIcon
+                icon={ArrowRight01Icon}
+                data-icon='inline-end'
+                aria-hidden='true'
+              />
             </Button>
-            <p className='l0-welcome-access-note'>
-              {t('Review the price and payment options with the assistant before you pay.')}
-            </p>
           </div>
         </div>
       </section>
@@ -200,7 +321,9 @@ export function L0Welcome({
         <summary>{t('Already use Pi? Connect with OAuth')}</summary>
         <PiOAuthGuide />
       </details>
-      <div className='l0-welcome-source'><SourceQuestionnaire /></div>
+      <div className='l0-welcome-source'>
+        <SourceQuestionnaire />
+      </div>
     </div>
   )
 }
