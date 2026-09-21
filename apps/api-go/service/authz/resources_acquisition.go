@@ -9,7 +9,7 @@ func init() {
 	RegisterResource(ResourceDefinition{Resource: "acquisition", LabelKey: "User acquisition", Actions: []ActionDefinition{
 		{Action: ActionRead, LabelKey: "View acquisition summaries", DescriptionKey: "View aggregate channel and campaign results.", DefaultRoles: []string{BuiltInRoleAdmin}},
 		{Action: ActionWrite, LabelKey: "Manage promotion links", DescriptionKey: "Create and archive promotion links.", DefaultRoles: []string{BuiltInRoleAdmin}},
-		{Action: "details", LabelKey: "View acquisition account details", DescriptionKey: "View account-level source records.", DefaultRoles: []string{BuiltInRoleAdmin}},
-		{Action: "export", LabelKey: "Export acquisition details", DescriptionKey: "Export account-level source records.", DefaultRoles: []string{BuiltInRoleAdmin}},
+		{Action: "details", LabelKey: "View acquisition account details", DescriptionKey: "View account-level source records."},
+		{Action: "export", LabelKey: "Export acquisition details", DescriptionKey: "Export account-level source records."},
 	}})
 }
