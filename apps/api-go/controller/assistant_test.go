@@ -1741,19 +1741,13 @@ func TestAssistantAgentLoopOffExecutesSingleLiveModelRead(t *testing.T) {
 	originalRelay := relayAssistantAgentTurn
 	relayAssistantAgentTurn = func(_ *gin.Context, request assistantOpenAIRequest, _ string, _ int) (int, []byte, error) {
 		turn++
-		switch turn {
-		case 1:
-			assert.Equal(t, "get_available_models", assistantNamedToolChoiceName(request.ToolChoice))
-			return http.StatusOK, []byte(`{"choices":[{"message":{"tool_calls":[{"id":"models","type":"function","function":{"name":"get_available_models","arguments":"{}"}}]}}]}`), nil
-		case 2:
-			assert.Nil(t, request.ToolChoice)
-			assert.Empty(t, request.Tools)
-			encoded := string(mustAssistantJSON(t, request.Messages))
-			assert.Contains(t, encoded, `\"model_ids\":[\"gpt-5.6-sol\"]`)
-			return http.StatusOK, []byte(`{"choices":[{"message":{"content":"已读取实时模型目录。"}}]}`), nil
-		default:
-			return http.StatusInternalServerError, nil, nil
-		}
+		require.Equal(t, 1, turn, "the server performs the read before the only model turn")
+		assert.Nil(t, request.ToolChoice)
+		assert.Empty(t, request.Tools)
+		requireAssistantPairedReadReceipt(t, request, "get_available_models", true)
+		encoded := string(mustAssistantJSON(t, request.Messages))
+		assert.Contains(t, encoded, `\"model_ids\":[\"gpt-5.6-sol\"]`)
+		return http.StatusOK, []byte(`{"choices":[{"message":{"content":"已读取实时模型目录。"}}]}`), nil
 	}
 	t.Cleanup(func() { relayAssistantAgentTurn = originalRelay })
 
@@ -1761,7 +1755,7 @@ func TestAssistantAgentLoopOffExecutesSingleLiveModelRead(t *testing.T) {
 		Model: "live-read-off-model", AgentLoopEnabled: false, MaxSteps: 1, TimeoutSeconds: 45,
 	}, []assistantOpenAIMessage{{Role: "user", Content: message}})
 
-	assert.Equal(t, 2, turn)
+	assert.Equal(t, 1, turn)
 	assert.Equal(t, http.StatusOK, recorder.Code)
 	assert.Contains(t, recorder.Body.String(), "已读取实时模型目录")
 }

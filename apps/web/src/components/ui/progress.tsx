@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+// Luma visual recipes adapted from shadcn/ui (MIT); see LUMA-LICENSE.txt.
 'use client'
 
 import { Progress as ProgressPrimitive } from '@base-ui/react/progress'
@@ -32,7 +33,10 @@ function Progress({
     <ProgressPrimitive.Root
       value={value}
       data-slot='progress'
-      className={cn('flex flex-wrap gap-3', className)}
+      className={cn(
+        'flex flex-wrap gap-3 bg-muted h-3 rounded-full',
+        className
+      )}
       {...props}
     >
       {children}
@@ -47,7 +51,7 @@ function ProgressTrack({ className, ...props }: ProgressPrimitive.Track.Props) {
   return (
     <ProgressPrimitive.Track
       className={cn(
-        'bg-muted relative flex h-1 w-full items-center overflow-x-hidden rounded-full',
+        'relative flex w-full items-center overflow-x-hidden bg-muted h-3 rounded-full',
         className
       )}
       data-slot='progress-track'
@@ -63,7 +67,10 @@ function ProgressIndicator({
   return (
     <ProgressPrimitive.Indicator
       data-slot='progress-indicator'
-      className={cn('bg-primary h-full transition-all', className)}
+      className={cn(
+        'h-full transition-[color,background-color,border-color,box-shadow,opacity,transform] bg-primary motion-reduce:transition-none',
+        className
+      )}
       {...props}
     />
   )
