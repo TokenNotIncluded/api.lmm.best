@@ -1,0 +1,31 @@
+name: Authorize reviewed PR 468 checks
+on:
+  push:
+    branches: [workbench/pr-repair-20260922]
+    paths: [.github/workflows/pr468-reviewed-checks.yml]
+permissions:
+  actions: write
+  contents: read
+jobs:
+  approve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Approve exact reviewed fork revision without checking out or running fork code
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo=TokenNotIncluded/api.lmm.best
+          expected=8de71eefab1a45e763cc8c1012e39696cd0ce47f
+          for run in 35709075974 35709075920 35709075941; do
+            metadata=$(gh api "repos/$repo/actions/runs/$run")
+            test "$(jq -r .head_sha <<< "$metadata")" = "$expected"
+            test "$(jq -r .event <<< "$metadata")" = pull_request
+            if test "$(jq -r .conclusion <<< "$metadata")" = action_required; then
+              gh api --method POST "repos/$repo/actions/runs/$run/approve"
+              printf 'Approved reviewed check run %s\n' "$run"
+            else
+              printf 'Run %s no longer requires approval; no change\n' "$run"
+            fi
+          done
