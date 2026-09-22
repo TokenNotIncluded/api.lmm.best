@@ -222,8 +222,19 @@ func FetchUpstreamRatios(c *gin.Context) {
 		go func(chItem dto.UpstreamDTO) {
 			defer wg.Done()
 
-			sem <- struct{}{}
-			defer func() { <-sem }()
+			ctx, cancel := context.WithTimeout(c.Request.Context(), time.Duration(req.Timeout)*time.Second)
+			defer cancel()
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				ch <- upstreamResult{Name: chItem.Name, Err: "request cancelled"}
+				return
+			}
+			if ctx.Err() != nil {
+				ch <- upstreamResult{Name: chItem.Name, Err: "request cancelled"}
+				return
+			}
 
 			isOpenRouter := chItem.Endpoint == "openrouter"
 
@@ -247,9 +258,6 @@ func FetchUpstreamRatios(c *gin.Context) {
 			if chItem.ID != 0 {
 				uniqueName = fmt.Sprintf("%s(%d)", chItem.Name, chItem.ID)
 			}
-
-			ctx, cancel := context.WithTimeout(c.Request.Context(), time.Duration(req.Timeout)*time.Second)
-			defer cancel()
 
 			httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
 			if err != nil {
@@ -303,7 +311,15 @@ func FetchUpstreamRatios(c *gin.Context) {
 					return
 				}
 
-				time.Sleep(time.Duration(200*(1<<attempt)) * time.Millisecond)
+				backoff := time.NewTimer(time.Duration(200*(1<<attempt)) * time.Millisecond)
+				select {
+				case <-ctx.Done():
+					backoff.Stop()
+					logger.LogWarn(c.Request.Context(), "request cancelled during retry backoff on "+chItem.Name)
+					ch <- upstreamResult{Name: uniqueName, Err: "request cancelled"}
+					return
+				case <-backoff.C:
+				}
 			}
 			if lastErr != nil {
 				logger.LogWarn(c.Request.Context(), "http error on "+chItem.Name+": "+lastErr.Error())
