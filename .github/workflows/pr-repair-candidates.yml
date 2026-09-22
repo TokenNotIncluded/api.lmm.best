@@ -39,7 +39,11 @@ jobs:
           [[ "$PR" =~ ^[0-9]+$ ]]
           [[ "$HEAD$BASE$TREE" =~ ^[0-9a-f]{120}$ ]]
           mkdir -p "$RUNNER_TEMP/candidate"
-          cp "repairs/$PR.patch" "$RUNNER_TEMP/fix.patch"
+          if test -f "repairs/$PR.patch.gz.b64"; then
+            base64 --decode "repairs/$PR.patch.gz.b64" | gzip --decompress > "$RUNNER_TEMP/fix.patch"
+          else
+            cp "repairs/$PR.patch" "$RUNNER_TEMP/fix.patch"
+          fi
           git config core.hooksPath /dev/null
           git config user.name LIghtJUNction
           git config user.email lightjunction.me@gmail.com
@@ -103,5 +107,5 @@ jobs:
           test "$(git rev-parse "$candidate^{tree}")" = "$TREE"
           test "$(git show -s --format=%P "$candidate")" = "$HEAD $BASE"
           auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
-          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin "$candidate:refs/heads/repair/20260922-pr-$PR"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin "$candidate:refs/heads/repair/20260922-pr-$PR-$GITHUB_RUN_ID"
           printf 'CANDIDATE pr=%s commit=%s tree=%s\n' "$PR" "$candidate" "$TREE"
