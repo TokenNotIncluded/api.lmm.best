@@ -24,7 +24,6 @@ import (
 )
 
 var ErrFirstResponseTimeout = errors.New("upstream first response timeout")
-var ErrSSEEventTooLarge = errors.New("upstream SSE event exceeds response body limit")
 
 const (
 	InitialScannerBufferSize    = 64 << 10 // 64KB (64*1024)
@@ -186,7 +185,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	// Ensure gin.Context is not returned to Gin's pool while any stream goroutine can still use it.
 	defer cleanup()
 
-	scanner.Split(bufio.ScanLines)
+	scanner.Split(splitSSELines())
 	copyCodexSSEHeaders(c, resp)
 	SetEventStreamHeaders(c)
 
@@ -249,11 +248,11 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 
 	// Keep only one parsed event queued. A slow client still applies backpressure
 	// to the scanner, but cannot cause many large SSE strings to accumulate.
-	type streamEvent struct {
+	type scannedEvent struct {
 		data      string
 		heartbeat bool
 	}
-	dataChan := make(chan streamEvent, 1)
+	dataChan := make(chan scannedEvent, 1)
 
 	wg.Add(1)
 	gopool.Go(func() {
@@ -266,19 +265,19 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			wg.Done()
 		}()
 		sr := newStreamResult(info.StreamStatus, markFirstResponse)
-		for event := range dataChan {
+		for data := range dataChan {
 			sr.reset()
 			func() {
 				writeMutex.Lock()
 				defer writeMutex.Unlock()
-				if event.heartbeat {
+				if data.heartbeat {
 					if err := writeHeartbeat(); err != nil {
 						sr.Stop(err)
 					}
 					return
 				}
 				ExtendWriteDeadline(c)
-				dataHandler(event.data, sr)
+				dataHandler(data.data, sr)
 				businessWritten = c.Writer.Written()
 			}()
 			if sr.IsStopped() {
@@ -290,54 +289,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	// Scanner goroutine with improved error handling
 	wg.Add(1)
 	common.RelayCtxGo(ctx, func() {
-		var eventData strings.Builder
-		var eventDataSize int64
-		hasData := false
-		const eventDataSeparatorSize = 1 // LF inserted between consecutive data fields
-		maxEventSize := common.ResponseBodyLimit()
-		resetEvent := func() {
-			eventData.Reset()
-			eventDataSize = 0
-			hasData = false
-		}
-		appendEventData := func(data string) bool {
-			addition := int64(len(data))
-			if hasData {
-				addition += eventDataSeparatorSize
-			}
-			if maxEventSize > 0 && eventDataSize > maxEventSize-addition {
-				return false
-			}
-			if hasData {
-				eventData.WriteByte('\n')
-			}
-			eventData.WriteString(data)
-			hasData = true
-			eventDataSize += addition
-			return true
-		}
-		dispatchEvent := func() bool {
-			if !hasData {
-				return true
-			}
-			data := eventData.String()
-			resetEvent()
-			// A terminator is a complete event, never an individual data field.
-			if !strings.Contains(data, "\n") && strings.TrimSpace(data) == "[DONE]" {
-				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonDone, nil)
-				return false
-			}
-			info.SetFirstResponseTime()
-			info.ReceivedResponseCount++
-			select {
-			case dataChan <- streamEvent{data: data}:
-				return true
-			case <-ctx.Done():
-				return false
-			case <-stopChan:
-				return false
-			}
-		}
+		decoder := sseEventDecoder{limit: common.ResponseBodyLimit()}
 		defer func() {
 			close(dataChan)
 			if r := recover(); r != nil {
@@ -362,38 +314,37 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			ticker.Reset(streamingTimeout)
 			data := scanner.Text()
 			logger.LogDebug(c, "stream scanner data: %s", data)
-			if data == "" {
-				if !dispatchEvent() {
-					return
-				}
-				continue
-			}
 			if strings.HasPrefix(data, ":") {
 				select {
-				case dataChan <- streamEvent{heartbeat: true}:
+				case dataChan <- scannedEvent{heartbeat: true}:
 				case <-ctx.Done():
 					return
 				case <-stopChan:
 					return
 				}
-				continue
 			}
-
-			// SSE fields are split at the first colon; strip only one space.
-			field, value, _ := strings.Cut(data, ":")
-			if field != "data" {
-				continue
+			payload, ready, done, err := decoder.line(data)
+			if err != nil {
+				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonScannerErr, err)
+				return
 			}
-			data = strings.TrimPrefix(value, " ")
-
-			if !appendEventData(data) {
-				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonScannerErr, ErrSSEEventTooLarge)
-				logger.LogError(c, "SSE event exceeds response body limit")
+			if ready {
+				info.SetFirstResponseTime()
+				info.ReceivedResponseCount++
+				select {
+				case dataChan <- scannedEvent{data: payload}:
+				case <-ctx.Done():
+					return
+				case <-stopChan:
+					return
+				}
+			}
+			if done {
+				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonDone, nil)
 				return
 			}
 		}
 
-		// EOF does not complete an SSE event. Discard any unterminated data.
 		if err := scanner.Err(); err != nil {
 			if err != io.EOF {
 				logger.LogError(c, "scanner error: class="+relaycommon.StreamErrorClass(err))

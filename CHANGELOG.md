@@ -16,8 +16,9 @@ authenticated users then see it once after their next login.
 - Go SSE relays assemble data fields at blank-line event boundaries before
   interpreting terminators, preserving multiline and empty data fields.
   Upstreams must separate events with a blank line; JSON validity no longer
-  substitutes for framing, bare [DONE] fields do not terminate the stream,
-  and unterminated EOF data is not dispatched.
+  substitutes for framing. Bare [DONE] retains its legacy termination behavior;
+  otherwise unterminated EOF data is not dispatched. CR, LF, CRLF and an initial
+  UTF-8 BOM are supported.
 
 - Ollama model discovery, pull, streaming pull, deletion, and version checks now
   honor the channel's configured proxy and HTTP transport settings.

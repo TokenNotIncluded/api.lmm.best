@@ -15,6 +15,8 @@ func TestStreamScannerHandler_DONEMarkersDoNotBecomePayloads(t *testing.T) {
 		name  string
 		value string
 	}{
+		{"bare", "[DONE]"},
+		{"bare whitespace", " \t[DONE]\t "},
 		{"prefixed", "data: [DONE]"},
 		{"prefixed without space", "data:[DONE]"},
 		{"prefixed whitespace", "data: \t[DONE]\t "},
@@ -50,16 +52,16 @@ func TestStreamScannerHandler_DONEMarkersDoNotBecomePayloads(t *testing.T) {
 	}
 }
 
-func TestStreamScannerHandler_BareDONEIsAnUnknownField(t *testing.T) {
+func TestStreamScannerHandler_BareDONEPreservesLegacyBoundary(t *testing.T) {
 	for _, marker := range []string{"[DONE]", " \t[DONE]\t "} {
 		t.Run(marker, func(t *testing.T) {
-			c, resp, info := setupStreamTest(t, strings.NewReader(marker+"\n\ndata: still active\n\n"))
+			c, resp, info := setupStreamTest(t, strings.NewReader("data: kept\n"+marker+"\n\ndata: ignored\n\n"))
 			var received []string
 			StreamScannerHandler(c, resp, info, func(data string, _ *StreamResult) {
 				received = append(received, data)
 			})
-			require.Equal(t, []string{"still active"}, received)
-			require.Contains(t, info.StreamStatus.Summary(), "reason=eof")
+			require.Equal(t, []string{"kept"}, received)
+			require.Contains(t, info.StreamStatus.Summary(), "reason=done")
 		})
 	}
 }
