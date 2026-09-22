@@ -9185,6 +9185,12 @@
     "Registration protection and L1 review": "Registration protection and L1 review",
     "Anonymous metrics and review frequency": "Anonymous metrics and review frequency",
     "Retention periods and cleanup": "Retention periods and cleanup",
-    "Translations": "Translations"
+    "Translations": "Translations",
+    "Assistant connection": "Kết nối",
+    "Assistant conversation": "Hội thoại",
+    "Assistant tools": "Công cụ",
+    "Assistant runtime": "Vận hành",
+    "Assistant review": "Xét duyệt",
+    "Assistant data": "Dữ liệu"
   }
 }

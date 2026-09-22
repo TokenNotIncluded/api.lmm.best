@@ -201,3 +201,70 @@ test('restricted replies cannot persist visible content or carry history forward
   assert.equal(calls[1].input.conversationId, undefined)
   session.stop()
 })
+
+test('previous turns remain visible and immutable while the next response streams', async () => {
+  const { session, calls } = fixture()
+  session.send('First')
+  calls[0].resolve({ content: 'First answer', conversationId: 42 })
+  await wait()
+  session.send('Second')
+  const turns = session.snapshot.turns
+  assert.equal(turns.length, 1)
+  assert.equal(turns[0].question, 'First')
+  assert.equal(turns[0].answer, 'First answer')
+  calls[1].handlers.onDelta('Second answer')
+  assert.equal(session.snapshot.answer, 'Second answer')
+  assert.equal(session.snapshot.turns, turns)
+  session.clear()
+  assert.deepEqual(session.snapshot.turns, [])
+})
+
+test('stopped partial answers stay readable but are not sent as completed context', () => {
+  const { session, calls } = fixture()
+  session.send('First')
+  calls[0].handlers.onDelta('Partial')
+  session.stop()
+  session.send('Second')
+  assert.equal(session.snapshot.turns[0].phase, 'stopped')
+  assert.equal(session.snapshot.turns[0].answer, 'Partial')
+  assert.deepEqual(calls[1].input.history, [])
+  session.stop()
+})
+
+test('manual retry reuses the same idempotency key without duplicating the visible turn', async () => {
+  const { session, calls } = fixture()
+  session.send('Configured question', 'custom-preset')
+  assert.equal(calls[0].input.presetId, 'custom-preset')
+  calls[0].reject(new Error('offline'))
+  await wait()
+  assert.equal(session.retry(), true)
+  assert.equal(calls[1].input.turnId, calls[0].input.turnId)
+  assert.equal(calls[1].input.replay, true)
+  assert.equal(session.snapshot.turns.length, 0)
+  assert.equal(session.retry(), false)
+  session.stop()
+})
+
+test('restricted responses clear earlier visible history as well as request history', async () => {
+  const { session, calls } = fixture()
+  session.send('First')
+  calls[0].resolve({ content: 'Private earlier reply', conversationId: 42 })
+  await wait()
+  session.send('Second')
+  calls[1].resolve({ content: 'Restricted', restricted: true })
+  await wait()
+  assert.deepEqual(session.snapshot.turns, [])
+  assert.equal(session.snapshot.question, '')
+  assert.equal(session.retry(), false)
+})
+
+test('the in-memory transcript remains bounded over many turns', async () => {
+  const { session, calls } = fixture()
+  for (let n = 0; n < 32; n++) {
+    session.send(`Question ${n}`)
+    calls[n].resolve({ content: `Answer ${n}` })
+    await Promise.resolve()
+  }
+  assert.equal(session.snapshot.turns.length, 24)
+  assert.ok(calls.at(-1)!.input.history.length <= 12)
+})

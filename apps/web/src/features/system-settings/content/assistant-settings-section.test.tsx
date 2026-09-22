@@ -146,7 +146,7 @@ async function renderSettings(
     defaultOptions: { mutations: { retry: false } },
   })
 
-  await act(async () => {
+  const render = (next: Partial<AssistantSettingsFormValues> = {}) => {
     root.render(
       <QueryClientProvider client={queryClient}>
         <I18nextProvider i18n={i18n}>
@@ -158,15 +158,23 @@ async function renderSettings(
               AssistantSearchMCPTool:
                 provider === 'mcp_streamable_http' ? 'web_search' : '',
               ...overrides,
+              ...next,
             }}
           />
         </I18nextProvider>
       </QueryClientProvider>
     )
-  })
+  }
+  await act(async () => render())
 
   return {
     container,
+    queryClient,
+    rerender: (next: Partial<AssistantSettingsFormValues>) =>
+      act(async () => {
+        render(next)
+        await flushEffects()
+      }),
     cleanup: async () => {
       await act(async () => root.unmount())
       container.remove()
@@ -316,6 +324,9 @@ describe('assistant search provider settings', () => {
       api.get = (async (url: string) => {
         requests.push(url)
         if (url === '/api/group/') return { data: { data: ['default'] } }
+        if (url === '/api/assistant/models') {
+          return { data: { data: ['deepseek-v4-flash'] } }
+        }
         assert.equal(url, '/api/assistant/admin/registration-events')
         if (outcome === 'error') throw new Error('offline')
         return {
@@ -365,7 +376,11 @@ describe('assistant search provider settings', () => {
           ),
           null
         )
-        assert.equal(requests.includes('/api/assistant/models'), false)
+        // The connection tab loads its selector once, not a separate risk-review model.
+        assert.equal(
+          requests.filter((url) => url === '/api/assistant/models').length,
+          1
+        )
         if (outcome === 'error') {
           assert.match(panel.textContent ?? '', /Unable to load risk inbox/)
         }
@@ -636,7 +651,14 @@ describe('assistant search provider settings', () => {
     }
   })
 
-  test('loads model IDs only after the administrator requests the list', async () => {
+  test('loads model IDs for the selected group automatically and permits an explicit refresh', async () => {
+    const waitForState = async (ready: () => boolean) => {
+      const deadline = Date.now() + 5000
+      while (!ready() && Date.now() < deadline) {
+        await act(flushEffects)
+      }
+      assert.ok(ready(), 'model request and rendered control must settle')
+    }
     const originalGet = api.get
     const modelRequests: string[] = []
     api.get = (async (url: string) => {
@@ -656,18 +678,24 @@ describe('assistant search provider settings', () => {
 
     const rendered = await renderSettings('none')
     try {
-      await act(flushEffects)
-      assert.equal(modelRequests.length, 0)
+      await waitForState(() => modelRequests.length === 1)
+      assert.equal(modelRequests.length, 1)
 
       const groupTrigger =
         rendered.container.querySelectorAll<HTMLButtonElement>(
           'button[role="combobox"]'
         )[0]
       assert.ok(groupTrigger)
+      await waitForState(() => !groupTrigger.disabled)
       await act(async () => {
         groupTrigger.click()
         await flushEffects()
       })
+      await waitForState(() =>
+        [...document.querySelectorAll('[role="option"]')].some((option) =>
+          option.textContent?.includes('国产')
+        )
+      )
       const domesticOption = [
         ...document.querySelectorAll('[role="option"]'),
       ].find((option) => option.textContent?.includes('国产'))
@@ -682,6 +710,9 @@ describe('assistant search provider settings', () => {
           '[data-testid="assistant-get-model-list"]'
         )
       assert.ok(getModelListButton)
+      await waitForState(
+        () => modelRequests.length === 2 && !getModelListButton.disabled
+      )
       assert.equal(getModelListButton.disabled, false)
 
       await act(async () => {
@@ -689,7 +720,10 @@ describe('assistant search provider settings', () => {
         await flushEffects()
       })
 
-      assert.deepEqual(modelRequests, ['/api/assistant/models'])
+      await waitForState(
+        () => modelRequests.length === 3 && !getModelListButton.disabled
+      )
+      assert.deepEqual(modelRequests, Array(3).fill('/api/assistant/models'))
       const modelTrigger =
         rendered.container.querySelectorAll<HTMLButtonElement>(
           'button[role="combobox"]'
@@ -702,6 +736,11 @@ describe('assistant search provider settings', () => {
         modelTrigger.click()
         await flushEffects()
       })
+      await waitForState(() =>
+        [...document.querySelectorAll('[role="option"]')].some((option) =>
+          option.textContent?.includes('deepseek-v4-flash-0731')
+        )
+      )
       const modelOption = [
         ...document.querySelectorAll('[role="option"]'),
       ].find((option) => option.textContent?.includes('deepseek-v4-flash-0731'))
@@ -715,6 +754,172 @@ describe('assistant search provider settings', () => {
     } finally {
       api.get = originalGet
       await rendered.cleanup()
+    }
+  })
+})
+
+describe('assistant settings workspace', () => {
+  function mockReads() {
+    const original = api.get
+    api.get = (async (url: string) => ({
+      data: {
+        success: true,
+        data:
+          url === '/api/group/'
+            ? ['default']
+            : url === '/api/assistant/models'
+              ? [baseValues.AssistantModel]
+              : [],
+      },
+    })) as typeof api.get
+    return () => {
+      api.get = original
+    }
+  }
+  const edit = async (
+    node: HTMLInputElement | HTMLTextAreaElement,
+    value: string
+  ) => {
+    await act(async () => {
+      const prototype =
+        node.tagName === 'TEXTAREA'
+          ? window.HTMLTextAreaElement.prototype
+          : window.HTMLInputElement.prototype
+      const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set
+      assert.ok(setter)
+      setter.call(node, value)
+      node.dispatchEvent(new Event('input', { bubbles: true }))
+      node.dispatchEvent(new Event('change', { bubbles: true }))
+      await flushEffects()
+    })
+  }
+
+  test('only one group is exposed and keyboard navigation preserves an unsaved draft', async () => {
+    const restore = mockReads()
+    const page = await renderSettings('none')
+    try {
+      const tabs = [
+        ...page.container.querySelectorAll<HTMLButtonElement>(
+          '[data-settings-tab]'
+        ),
+      ]
+      assert.equal(tabs.length, 6)
+      assert.equal(
+        page.container.querySelectorAll('[role="tabpanel"]:not([hidden])')
+          .length,
+        1
+      )
+      await act(async () => tabs[1].click())
+      const prompt = page.container.querySelector<HTMLTextAreaElement>(
+        'textarea[name="AssistantSystemPrompt"]'
+      )!
+      assert.ok(prompt)
+      await edit(prompt, 'Keep my draft')
+      await act(async () =>
+        tabs[1].dispatchEvent(
+          Object.assign(new Event('keydown', { bubbles: true }), {
+            key: 'ArrowRight',
+          })
+        )
+      )
+      assert.equal(tabs[2].getAttribute('aria-selected'), 'true')
+      assert.equal(
+        page.container.querySelectorAll('[role="tabpanel"]:not([hidden])')
+          .length,
+        1
+      )
+      await act(async () => tabs[1].click())
+      assert.equal(prompt.value, 'Keep my draft')
+      assert.ok(page.container.textContent?.includes('Unsaved changes'))
+      await page.rerender({
+        AssistantSystemPrompt: 'Remote edit',
+        AssistantTimeoutSeconds: 60,
+      })
+      assert.equal(prompt.value, 'Keep my draft')
+      assert.equal(
+        page.container.querySelector<HTMLInputElement>(
+          'input[name="AssistantTimeoutSeconds"]'
+        )?.value,
+        '60'
+      )
+      const reset = page.container.querySelector<HTMLButtonElement>(
+        '.assistant-settings-footer button'
+      )!
+      await act(async () => reset.click())
+      assert.equal(prompt.value, 'Remote edit')
+    } finally {
+      await page.cleanup()
+      restore()
+    }
+  })
+
+  test('a save failure keeps the draft, while successful preset edits invalidate cached starters', async () => {
+    const restore = mockReads()
+    const originalPost = api.post
+    let failed = true
+    api.post = (async () => {
+      if (failed) throw new Error('offline')
+      return { data: { success: true } }
+    }) as typeof api.post
+    const page = await renderSettings('none')
+    const presetsKey = [
+      'assistant-pre-conversation-presets',
+      'natural-v2',
+      'en',
+    ]
+    const statusKey = ['assistant-status', 7, 'session']
+    page.queryClient.setQueryData(presetsKey, { presets: [] })
+    page.queryClient.setQueryData(statusKey, { enabled: true })
+    try {
+      await act(async () =>
+        page.container
+          .querySelector<HTMLButtonElement>(
+            '[data-settings-tab="conversation"]'
+          )!
+          .click()
+      )
+      const preset = page.container.querySelector<HTMLTextAreaElement>(
+        '[data-testid="assistant-conversation-starters-editor"] textarea'
+      )!
+      assert.ok(preset)
+      await edit(preset, 'Custom starter from settings')
+      const form = page.container.querySelector('form')
+      assert.ok(form)
+      const save = () =>
+        act(async () => {
+          form.dispatchEvent(
+            new Event('submit', { bubbles: true, cancelable: true })
+          )
+          await flushEffects()
+          await flushEffects()
+        })
+      await save()
+      assert.equal(preset.value, 'Custom starter from settings')
+      assert.ok(page.container.textContent?.includes('Unsaved changes'))
+      assert.equal(
+        page.queryClient.getQueryState(presetsKey)?.isInvalidated,
+        false
+      )
+      failed = false
+      await save()
+      assert.equal(
+        page.queryClient.getQueryState(presetsKey)?.isInvalidated,
+        true
+      )
+      assert.equal(
+        page.queryClient.getQueryState(statusKey)?.isInvalidated,
+        true
+      )
+      assert.equal(
+        page.container.querySelector<HTMLButtonElement>(
+          '.assistant-settings-footer button[type="submit"]'
+        )?.disabled,
+        true
+      )
+    } finally {
+      await page.cleanup()
+      api.post = originalPost
+      restore()
     }
   })
 })

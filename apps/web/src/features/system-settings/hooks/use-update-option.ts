@@ -81,8 +81,24 @@ async function invalidateOptionQueries(
   queryClient: ReturnType<typeof useQueryClient>,
   keys: Iterable<string>
 ) {
-  await queryClient.invalidateQueries({ queryKey: ['system-options'] })
-  if ([...keys].some((key) => STATUS_RELATED_KEYS.has(key))) {
+  const changedKeys = [...keys]
+  const refreshes = [
+    queryClient.invalidateQueries({ queryKey: ['system-options'] }),
+  ]
+  if (changedKeys.some((key) => key.startsWith('Assistant'))) {
+    refreshes.push(
+      queryClient.invalidateQueries({ queryKey: ['assistant-status'] })
+    )
+  }
+  if (changedKeys.includes('AssistantPreConversationPresets')) {
+    refreshes.push(
+      queryClient.invalidateQueries({
+        queryKey: ['assistant-pre-conversation-presets'],
+      })
+    )
+  }
+  await Promise.all(refreshes)
+  if (changedKeys.some((key) => STATUS_RELATED_KEYS.has(key))) {
     queryClient.invalidateQueries({ queryKey: ['status'] })
     try {
       window.localStorage.removeItem('status')

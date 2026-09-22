@@ -9185,6 +9185,12 @@
     "Registration protection and L1 review": "Registration protection and L1 review",
     "Anonymous metrics and review frequency": "Anonymous metrics and review frequency",
     "Retention periods and cleanup": "Retention periods and cleanup",
-    "Translations": "Translations"
+    "Translations": "Translations",
+    "Assistant connection": "モデル",
+    "Assistant conversation": "会話",
+    "Assistant tools": "ツール",
+    "Assistant runtime": "実行",
+    "Assistant review": "審査",
+    "Assistant data": "データ"
   }
 }

@@ -1,0 +1,103 @@
+/*
+Copyright (C) 2026 LIghtJUNction
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+*/
+.assistant-settings-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.assistant-settings-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-block: 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 24px;
+}
+.assistant-settings-tabs button {
+  position: relative;
+  min-height: 44px;
+  flex-shrink: 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.assistant-settings-tabs button[aria-selected='true'] {
+  background: var(--muted);
+  color: var(--foreground);
+  font-weight: 500;
+}
+.assistant-settings-tabs button:hover {
+  color: var(--foreground);
+}
+.assistant-settings-tabs button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+.assistant-settings-dirty {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.assistant-settings-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.assistant-settings-panel {
+  display: grid;
+  gap: 24px;
+  min-width: 0;
+}
+.assistant-settings-panel[hidden] {
+  display: none !important;
+}
+.assistant-settings-panel > .border {
+  border: 0;
+  padding: 0;
+  background: none;
+}
+.assistant-settings-panel [data-slot='form-description'] {
+  font-size: 12px;
+  line-height: 1.7;
+}
+.assistant-settings-footer {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-block: 14px;
+  margin-top: 28px;
+  border-top: 1px solid var(--border);
+  background: var(--background);
+  z-index: 2;
+}
+@media (max-width: 640px) {
+  .assistant-settings-toolbar {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .assistant-settings-tabs {
+    width: 100%;
+  }
+  .assistant-settings-dirty {
+    margin-inline: 14px;
+  }
+  .assistant-settings-footer > button {
+    min-height: 44px;
+    flex: 1;
+  }
+}

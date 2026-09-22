@@ -280,3 +280,52 @@ describe('assistant request-wide deadline', () => {
     assert.equal(calls, 0)
   })
 })
+
+describe('SSE line endings', () => {
+  test('finishes a CR-delimited response without waiting for HTTP EOF', async () => {
+    const { body, wasCancelled } = eventStream(
+      'event: delta\rdata: {"content":"ready"}\r\revent: done\rdata: {"content":"ready"}\r\r',
+      false
+    )
+    const deltas: string[] = []
+    const result = await consumeAssistantAISDKStream(
+      body,
+      { onDelta: (text) => deltas.push(text) },
+      { timeoutMs: 200 }
+    )
+    assert.deepEqual(deltas, ['ready'])
+    assert.deepEqual(result, { content: 'ready' })
+    assert.equal(wasCancelled(), true)
+  })
+
+  test('mixed endings and byte-split UTF-8 dispatch each delta once', async () => {
+    const bytes = new TextEncoder().encode(
+      ': heartbeat\r\nevent: delta\rdata: {"content":"你好👨‍👩‍👧"}\r\n\r\n' +
+        'event: delta\ndata: {"content":" again"}\n\n' +
+        'event: done\rdata: {"content":"complete"}\r\r'
+    )
+    let offset = 0
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (offset === bytes.length) controller.close()
+        else controller.enqueue(bytes.slice(offset, ++offset))
+      },
+    })
+    const deltas: string[] = []
+    await consumeAssistantAISDKStream(body, {
+      onDelta: (text) => deltas.push(text),
+    })
+    assert.deepEqual(deltas, ['你好👨‍👩‍👧', ' again'])
+    assert.equal(body.locked, false)
+  })
+
+  test('CR framing still rejects a truncated response', async () => {
+    const { body } = eventStream(
+      'event: delta\rdata: {"content":"partial"}\r\r'
+    )
+    await assert.rejects(
+      consumeAssistantAISDKStream(body, {}),
+      /ended before completion/
+    )
+  })
+})

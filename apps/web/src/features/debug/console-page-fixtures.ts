@@ -117,6 +117,7 @@ const reads: Record<string, unknown> = {
     models_history: { points: [], models: [], buckets: 0 },
     vendor_share_history: { points: [], vendors: [], buckets: 0 },
   },
+  '/api/assistant/models': modelNames,
   '/api/assistant/weekly-discount': null,
   '/api/assistant/support/eligibility': {
     eligible: false,
