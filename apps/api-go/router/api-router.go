@@ -648,8 +648,6 @@ func SetApiRouter(router *gin.Engine) {
 		logRoute.GET("/stat", middleware.AdminAuth(), controller.GetLogsStat)
 		logRoute.GET("/self/stat", middleware.UserAuth(), controller.GetLogsSelfStat)
 		logRoute.GET("/channel_affinity_usage_cache", middleware.AdminAuth(), controller.GetChannelAffinityUsageCacheStats)
-		// pi-lens-ignore: deprecated:default
-		logRoute.GET("/search", middleware.AdminAuth(), controller.SearchAllLogs)
 
 		financeRoute := apiRouter.Group("/finance")
 		financeRoute.Use(middleware.AdminAuth(), middleware.DisableCache())
@@ -665,8 +663,6 @@ func SetApiRouter(router *gin.Engine) {
 			financeRoute.PUT("/payment-methods/:method", controller.UpdateFinancePaymentMethod)
 		}
 		logRoute.GET("/self", middleware.UserAuth(), controller.GetUserLogs)
-		// pi-lens-ignore: deprecated:default
-		logRoute.GET("/self/search", middleware.UserAuth(), middleware.SearchRateLimit(), controller.SearchUserLogs)
 
 		systemTaskRoute := apiRouter.Group("/system-task")
 		systemTaskRoute.Use(middleware.RootAuth())

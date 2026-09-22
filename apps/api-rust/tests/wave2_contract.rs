@@ -79,9 +79,7 @@ const OBSERVABILITY_ROUTES: &[LegacyRoute] = &[
         "/api/log/channel_affinity_usage_cache",
         "GetChannelAffinityUsageCacheStats",
     ),
-    route("GET", "/api/log/search", "SearchAllLogs"),
     route("GET", "/api/log/self", "GetUserLogs"),
-    route("GET", "/api/log/self/search", "SearchUserLogs"),
     route("GET", "/api/log/self/stat", "GetLogsSelfStat"),
     route("GET", "/api/log/stat", "GetLogsStat"),
     route("GET", "/api/log/token", "GetLogByKey"),
@@ -236,7 +234,7 @@ fn wave2_route_fixture_should_match_the_frozen_go_manifest() {
         .chain(OBSERVABILITY_ROUTES)
         .copied()
         .collect::<HashSet<_>>();
-    assert_eq!(expected.len(), 47, "Wave 2 contains a duplicate route");
+    assert_eq!(expected.len(), 45, "Wave 2 contains a duplicate route");
 
     let frozen = frozen_routes();
     let missing = expected.difference(&frozen).copied().collect::<Vec<_>>();

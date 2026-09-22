@@ -2196,9 +2196,7 @@ fn observability_read_routes() -> Router<ObservabilityState> {
             "/api/log/channel_affinity_usage_cache",
             get(channel_affinity_usage_cache_stats),
         )
-        .route("/api/log/search", get(deprecated_log_search))
         .route("/api/log/self", get(self_logs))
-        .route("/api/log/self/search", get(deprecated_self_log_search))
         .route("/api/log/self/stat", get(self_log_stats))
         .route("/api/log/stat", get(log_stats))
         .route("/api/log/token", get(logs_by_token))
@@ -2726,18 +2724,6 @@ async fn channel_affinity_usage_cache_stats(
     .await
 }
 
-async fn deprecated_log_search(
-    State(state): State<ObservabilityState>,
-    headers: HeaderMap,
-) -> Response {
-    let principal = match authorize(&state, &headers, ObservabilityAccess::Admin).await {
-        Ok(principal) => principal,
-        Err(response) => return response,
-    };
-    let _ = principal;
-    failure(StatusCode::OK, "该接口已废弃")
-}
-
 async fn self_logs(
     State(state): State<ObservabilityState>,
     headers: HeaderMap,
@@ -2751,18 +2737,6 @@ async fn self_logs(
         raw_query,
     )
     .await
-}
-
-async fn deprecated_self_log_search(
-    State(state): State<ObservabilityState>,
-    headers: HeaderMap,
-) -> Response {
-    let principal = match authorize(&state, &headers, ObservabilityAccess::User).await {
-        Ok(principal) => principal,
-        Err(response) => return response,
-    };
-    let _ = principal;
-    failure(StatusCode::OK, "该接口已废弃")
 }
 
 async fn self_log_stats(
