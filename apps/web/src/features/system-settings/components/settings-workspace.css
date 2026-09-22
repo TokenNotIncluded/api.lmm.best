@@ -72,9 +72,9 @@
 }
 .settings-workspace
   :is(
-    [data-slot='input'],
-    [data-slot='select-trigger'],
-    [data-slot='textarea']
+    input:not([type='checkbox']):not([type='radio']):not([type='hidden']),
+    button[role='combobox'],
+    textarea
   ) {
   border-radius: 0.65rem;
   background: color-mix(in oklch, var(--muted) 16%, var(--card));
@@ -84,17 +84,21 @@
     background-color 0.16s,
     box-shadow 0.16s;
 }
-.settings-workspace :is([data-slot='input'], [data-slot='select-trigger']) {
+.settings-workspace
+  :is(
+    input:not([type='checkbox']):not([type='radio']):not([type='hidden']),
+    button[role='combobox']
+  ) {
   min-height: 2.75rem;
 }
-.settings-workspace [data-slot='textarea'] {
+.settings-workspace textarea {
   padding: 0.8rem;
 }
 .settings-workspace
   :is(
-    [data-slot='input'],
-    [data-slot='select-trigger'],
-    [data-slot='textarea']
+    input:not([type='checkbox']):not([type='radio']):not([type='hidden']),
+    button[role='combobox'],
+    textarea
   ):focus-visible {
   background: var(--background);
   box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 16%, transparent);
@@ -122,6 +126,13 @@
   list-style: none;
   border-radius: 0.6rem;
 }
+/* Each chevron reflects its own disclosure, not an open ancestor. */
+.settings-disclosure > .settings-disclosure-summary > svg {
+  rotate: 0deg;
+}
+.settings-disclosure[open] > .settings-disclosure-summary > svg {
+  rotate: 180deg;
+}
 .settings-disclosure-summary::-webkit-details-marker {
   display: none;
 }
@@ -148,8 +159,9 @@
   gap: 0;
 }
 .settings-workspace .settings-stack > .settings-switch-row {
-  margin-bottom: 1rem;
+  margin-bottom: 0;
   padding-top: 0;
+  border-bottom: 0;
 }
 .settings-workspace .settings-stack > [data-settings-form-span] {
   width: 100%;
