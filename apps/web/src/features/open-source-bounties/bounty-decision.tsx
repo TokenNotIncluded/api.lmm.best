@@ -20,6 +20,7 @@ import { useTranslation } from 'react-i18next'
 
 import { formatQuota } from '@/lib/format'
 
+import { toIntlLocale } from '@/i18n/languages'
 import { bountyAvailableSlots } from './timeline'
 import type { BountyProject } from './types'
 
@@ -57,7 +58,7 @@ export function BountyDecision({
           <dd>
             {project.updated_at > 0
               ? new Date(project.updated_at * 1000).toLocaleDateString(
-                  i18n.language
+                  toIntlLocale(i18n.resolvedLanguage || i18n.language)
                 )
               : t('Unknown')}
           </dd>
