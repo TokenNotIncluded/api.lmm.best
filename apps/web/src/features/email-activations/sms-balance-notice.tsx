@@ -32,7 +32,7 @@ export function SmsBalanceNotice({
   if (status === 'allowed' && !serverDenied) return null
 
   return (
-    <Alert id={id} role='status'>
+    <Alert id={id} role='status' className='console-sms-balance'>
       <AlertTitle>
         {t('Temporary SMS purchases require a balance of at least USD 10')}
       </AlertTitle>
@@ -63,15 +63,20 @@ export function SmsBalanceNotice({
             'Existing orders can still receive codes, be cancelled, and receive eligible refunds.'
           )}
         </p>
-        <Button
-          type='button'
-          variant='outline'
-          size='sm'
-          disabled={isRefreshing}
-          onClick={onRefresh}
-        >
-          {t('Refresh balance')}
-        </Button>
+        <div className='mt-1 flex flex-wrap items-center gap-2'>
+          <Button size='sm' render={<a href='/wallet' />}>
+            {t('Wallet')}
+          </Button>
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            disabled={isRefreshing}
+            onClick={onRefresh}
+          >
+            {t('Refresh balance')}
+          </Button>
+        </div>
       </AlertDescription>
     </Alert>
   )

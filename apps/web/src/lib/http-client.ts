@@ -54,7 +54,9 @@ const originalGet = api.get.bind(api)
 const refreshBeforeSeconds = 60
 
 api.get = ((url: string, config: ApiRequestConfig = {}) => {
-  if (config.disableDuplicate) return originalGet(url, config)
+  // AbortSignal belongs to one observer's lifecycle. Sharing its promise can
+  // cancel a newly mounted page when the previous observer is disposed.
+  if (config.disableDuplicate || config.signal) return originalGet(url, config)
 
   const params = config.params ? JSON.stringify(config.params) : '{}'
   const sessionSID = useAuthStore.getState().auth.session?.sid || 'anonymous'
@@ -114,6 +116,9 @@ api.interceptors.response.use(
     return response
   },
   async (error) => {
+    // Route/query cancellation is control flow, not an application failure.
+    // Preserve the rejection for the caller without a toast or auth retry.
+    if (axios.isCancel(error)) throw error
     const config = error?.config as ApiRequestConfig | undefined
     const skipErrorHandler = config?.skipErrorHandler
     const status = error?.response?.status

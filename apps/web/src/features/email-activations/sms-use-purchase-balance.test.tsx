@@ -218,57 +218,61 @@ function mockPanelApi(self: () => Promise<ReturnType<typeof response>>) {
 }
 
 describe('SMS purchase controls', () => {
-  test('both entry and confirmation disable after a balance drop or failed read, and exact USD 10 restores them', async () => {
-    login(1)
-    mockPanelApi(async () => response(1, 5_000_000))
-    const probe = await mount(true)
-    try {
-      await settle(() => probe.balance.canPurchase)
-      await act(async () => findButton('Favorites').click())
-      await settle(() =>
-        Array.from(document.querySelectorAll('button')).some(
-          (item) => item.textContent?.includes('Telegram') && !item.disabled
-        )
-      )
-      await act(async () => findButton('Telegram').click())
-      await settle(() => !findButton('Buy phone activation').disabled)
-      await act(async () => findButton('Buy phone activation').click())
-      await settle(
-        () => document.body.textContent?.includes('Confirm purchase') === true
-      )
-      assert.equal(findButton('Confirm purchase').disabled, false)
-      await act(async () => probe.balance.recordQuota(4_999_999))
-      await settle(() => findButton('Confirm purchase').disabled)
-      assert.equal(findButton('Buy phone activation').disabled, true)
-      assert.match(
-        document.getElementById('sms-confirm-balance-notice')?.textContent ??
-          '',
-        /Current balance: USD 9\.999998/
-      )
-      mockPanelApi(async () => {
-        throw new Error('offline')
-      })
-      await act(async () => {
-        await probe.balance.refresh()
-      })
-      await settle(() => probe.balance.status === 'unknown')
-      assert.equal(findButton('Buy phone activation').disabled, true)
-      assert.equal(findButton('Confirm purchase').disabled, true)
-      assert.match(
-        document.getElementById('sms-confirm-balance-notice')?.textContent ??
-          '',
-        /balance could not be verified/
-      )
+  for (const language of ['en', 'zhCN', 'zhTW', 'invalid_locale']) {
+    test(`entry and confirmation survive ${language} and recover at exactly USD 10`, async () => {
+      await i18n.changeLanguage(language)
+      login(1)
       mockPanelApi(async () => response(1, 5_000_000))
-      await act(async () => {
-        await probe.balance.refresh()
-      })
-      await settle(() => !findButton('Confirm purchase').disabled)
-      assert.equal(findButton('Buy phone activation').disabled, false)
-    } finally {
-      await probe.close()
-    }
-  })
+      const probe = await mount(true)
+      try {
+        await settle(() => probe.balance.canPurchase)
+        await act(async () => findButton('Favorites').click())
+        await settle(() =>
+          Array.from(document.querySelectorAll('button')).some(
+            (item) => item.textContent?.includes('Telegram') && !item.disabled
+          )
+        )
+        await act(async () => findButton('Telegram').click())
+        await settle(() => !findButton('Buy phone activation').disabled)
+        await act(async () => findButton('Buy phone activation').click())
+        await settle(
+          () => document.body.textContent?.includes('Confirm purchase') === true
+        )
+        assert.equal(findButton('Confirm purchase').disabled, false)
+        await act(async () => probe.balance.recordQuota(4_999_999))
+        await settle(() => findButton('Confirm purchase').disabled)
+        assert.equal(findButton('Buy phone activation').disabled, true)
+        assert.match(
+          document.getElementById('sms-confirm-balance-notice')?.textContent ??
+            '',
+          /Current balance: USD 9\.999998/
+        )
+        mockPanelApi(async () => {
+          throw new Error('offline')
+        })
+        await act(async () => {
+          await probe.balance.refresh()
+        })
+        await settle(() => probe.balance.status === 'unknown')
+        assert.equal(findButton('Buy phone activation').disabled, true)
+        assert.equal(findButton('Confirm purchase').disabled, true)
+        assert.match(
+          document.getElementById('sms-confirm-balance-notice')?.textContent ??
+            '',
+          /balance could not be verified/
+        )
+        mockPanelApi(async () => response(1, 5_000_000))
+        await act(async () => {
+          await probe.balance.refresh()
+        })
+        await settle(() => !findButton('Confirm purchase').disabled)
+        assert.equal(findButton('Buy phone activation').disabled, false)
+      } finally {
+        await probe.close()
+        await i18n.changeLanguage('en')
+      }
+    })
+  }
 
   test('switching WhatsApp back to SMS retains the last SMS service selection', async () => {
     login(1)

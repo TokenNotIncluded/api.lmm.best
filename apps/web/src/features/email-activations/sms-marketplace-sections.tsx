@@ -319,7 +319,7 @@ export function SmsPurchaseDetails({
             }
           >
             <SelectTrigger id='hero-sms-operator' className='w-full'>
-              <SelectValue placeholder={t('Any operator')} />
+              <SelectValue>{operator || t('Any operator')}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value='__any__'>{t('Any operator')}</SelectItem>

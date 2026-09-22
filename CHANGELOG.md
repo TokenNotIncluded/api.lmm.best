@@ -16,6 +16,9 @@ authenticated users then see it once after their next login.
 - Fixed status timestamps, bounty delivery timelines, and SMS balance notices
   crashing in Simplified or Traditional Chinese; invalid locale settings now
   use the browser default.
+- OpenRouter price previews omit the entire model when the derived output
+  ratio overflows, avoiding a partial input-only quote.
+
 - Fixed the Go new-user journey: L0 checkout, security-email verification and
   public script/game reads no longer disappear behind the console gate.
   Authentication, payment restrictions and developer/admin boundaries remain.

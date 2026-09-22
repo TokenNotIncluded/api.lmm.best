@@ -46,10 +46,8 @@ function collect(directory, pattern, target) {
 function run(executable, args) {
   const result = spawnSync(executable, args, {
     cwd: root,
-    encoding: 'utf8',
+    stdio: ['ignore', 'inherit', 'inherit'],
   })
-  if (result.stdout) process.stdout.write(result.stdout)
-  if (result.stderr) process.stderr.write(result.stderr)
   if (result.error) console.error(result.error)
   if (result.error || result.status !== 0) {
     failures.push({ file: args.at(-1), status: result.status ?? 1 })

@@ -195,7 +195,6 @@ func TestAssistantKeyConfirmationIsSessionBoundOneTimeAndOpaque(t *testing.T) {
 
 	confirmed, confirmedBody := confirmAssistantKeyForTest(t, user.Id, "key-session", action.ConfirmationToken, "")
 	require.Equal(t, http.StatusOK, confirmed.Code, confirmedBody)
-	assert.NotContains(t, confirmedBody, "sk-")
 	var response struct {
 		Data struct {
 			ID   int `json:"id"`
@@ -209,12 +208,15 @@ func TestAssistantKeyConfirmationIsSessionBoundOneTimeAndOpaque(t *testing.T) {
 	require.NotEmpty(t, response.Data.Card.ID)
 	var card model.AssistantSecureCard
 	require.NoError(t, db.First(&card, "id = ?", response.Data.Card.ID).Error)
-	assert.NotContains(t, card.Ciphertext, "sk-")
 	revealed, _, err := model.RevealAssistantSecureCard(user.Id, response.Data.Card.ID)
 	require.NoError(t, err)
 	payload, err := model.AssistantSecureCardPayload(revealed)
 	require.NoError(t, err)
 	assert.True(t, strings.HasPrefix(payload["api_key"], "sk-"))
+	// Random Base64URL ciphertext can contain the API-key prefix by chance.
+	// Check that the actual secret is absent rather than rejecting valid ciphertext.
+	assert.NotContains(t, confirmedBody, payload["api_key"])
+	assert.NotContains(t, card.Ciphertext, payload["api_key"])
 
 	replayed, replayBody := confirmAssistantKeyForTest(t, user.Id, "key-session", action.ConfirmationToken, "")
 	assert.Equal(t, http.StatusUnprocessableEntity, replayed.Code)
