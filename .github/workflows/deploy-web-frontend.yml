@@ -1,0 +1,139 @@
+name: Deploy web frontend
+
+# Frontend-only automatic deployment. The backend is never deployed by Actions:
+# Go releases stay on the manual, signed package transaction path described in
+# docs/production-release-transaction.md. A web release is a static archive and
+# is published with the native `frontend publish` entry point, which switches an
+# atomic symlink and keeps the previous release for rollback.
+#
+# The production key is restricted to a single forced command
+# (/usr/local/sbin/lmm-web-deploy), so possession of the key alone cannot run
+# arbitrary commands on either host.
+on:
+  workflow_run:
+    workflows: ["LMM web release"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing web release tag to (re)deploy, e.g. web-v0.1.85
+        required: true
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: deploy-web-frontend
+  cancel-in-progress: false
+
+env:
+  CI: "true"
+
+jobs:
+  deploy:
+    name: Publish web release to production origins
+    # A workflow_run carries no trust of its own; only a successful run of the
+    # release workflow reaches this job.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    steps:
+      - name: Resolve release tag
+        id: release
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.release_tag }}
+          RUN_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            tag="$INPUT_TAG"
+          else
+            # The release workflow runs on the tag ref itself.
+            tag="$RUN_HEAD_BRANCH"
+          fi
+          [[ "$tag" =~ ^web-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+            echo "unexpected web release tag: $tag" >&2
+            exit 1
+          }
+          version=${tag#web-v}
+          echo "tag=$tag" >>"$GITHUB_OUTPUT"
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+
+      - name: Download signed release archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p deploy
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --dir deploy \
+            --pattern "lmm-api-web-${VERSION}.tar.gz" \
+            --pattern "lmm-api-web-${VERSION}.tar.gz.sha256"
+          cd deploy
+          sha256sum --check "lmm-api-web-${VERSION}.tar.gz.sha256"
+          [[ -s "lmm-api-web-${VERSION}.tar.gz" ]]
+          tar -tzf "lmm-api-web-${VERSION}.tar.gz" | grep -qx 'dist/index.html'
+          tar -tzf "lmm-api-web-${VERSION}.tar.gz" | grep -qx 'REVISION'
+
+      - name: Install restricted deploy key
+        env:
+          DEPLOY_KEY: ${{ secrets.LMM_WEB_DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.LMM_WEB_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m0700 "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_KEY" >"$HOME/.ssh/deploy_key"
+          chmod 0600 "$HOME/.ssh/deploy_key"
+          printf '%s\n' "$KNOWN_HOSTS" >"$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/known_hosts"
+
+      - name: Publish to both production origins
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          archive="deploy/lmm-api-web-${VERSION}.tar.gz"
+          # Host coordinates are explicit: the runner has no ssh config, and the
+          # restricted key is bound to a forced command per host.
+          #
+          # Both origins serve the same immutable release; publishing the same
+          # archive to each keeps them byte-identical.
+          publish() {
+            local label=$1 host=$2 port=$3
+            echo "::group::publishing ${VERSION} to ${label} (${host}:${port})"
+            ssh -i "$HOME/.ssh/deploy_key" \
+              -o IdentitiesOnly=yes -o BatchMode=yes \
+              -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+              -o StrictHostKeyChecking=yes \
+              -p "$port" "root@${host}" "${VERSION}:1" <"$archive"
+            echo "::endgroup::"
+          }
+          publish "ArchDmit (API, PostgreSQL, Valkey)" 45.59.187.63 222
+          publish "DmitUbuntu (public ingress)" 174.136.205.93 22
+
+      - name: Verify public origin
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          # The public ingress is the Ubuntu node; assert the served document
+          # matches the release that was just published rather than any cache.
+          for attempt in $(seq 1 10); do
+            index=$(curl -fsS --max-time 15 "https://api.lmm.best/index.html" || true)
+            if [[ -n "$index" ]] && grep -q 'static/js/index\.' <<<"$index"; then
+              echo "public index.html served (attempt $attempt)"
+              exit 0
+            fi
+            sleep 6
+          done
+          echo "public origin did not serve the frontend" >&2
+          exit 1
+
+      - name: Remove deploy key
+        if: always()
+        run: rm -f "$HOME/.ssh/deploy_key"
