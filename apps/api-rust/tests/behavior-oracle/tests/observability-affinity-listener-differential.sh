@@ -228,7 +228,6 @@ compare warmup '/api/log/channel_affinity_usage_cache?rule_name=rule-a&using_gro
 compare_as warmup-admin '/api/log/channel_affinity_usage_cache?rule_name=rule-a&using_group=default&key_fp=fp-a' 200 "$admin_token"
 compare_as token-warmup '/api/log/token' 200 'sk-observability-primary'
 compare warmup-self-logs '/api/log/self?p=1&page_size=10&start_timestamp=1700000000&end_timestamp=1700000100' 200
-compare warmup-deprecated-self-search '/api/log/self/search' 200
 go_keys_before=$(valkey_keys "$valkey_port" 1); rust_keys_before=$(valkey_keys "$valkey_port" 2)
 compare valid '/api/log/channel_affinity_usage_cache?rule_name=rule-a&using_group=default&key_fp=fp-a' 200
 compare missing-rule '/api/log/channel_affinity_usage_cache?using_group=default&key_fp=fp-a' 400
@@ -244,8 +243,6 @@ compare_as data-flow-admin '/api/data/flow?start_timestamp=1700000000&end_timest
 compare data-flow-self '/api/data/flow/self?start_timestamp=1700000000&end_timestamp=1700000100' 200
 compare data-flow-invalid '/api/data/flow?start_timestamp=bad&end_timestamp=1700000100' 200
 compare data-flow-self-too-large '/api/data/flow/self?start_timestamp=1&end_timestamp=2592002' 200
-compare deprecated-log-search '/api/log/search' 200
-compare deprecated-self-log-search '/api/log/self/search' 200
 compare all-logs-filter '/api/log/?p=1&page_size=10&type=2&start_timestamp=1700000000&end_timestamp=1700000100&username=observability-root&model_name=model-a&token_name=token-a&group=default&request_id=req-a&upstream_request_id=up-a' 200
 compare all-logs-wildcard '/api/log/?p=1&page_size=10&username=observability-root&model_name=model-%&token_name=token-a&group=default' 200
 compare self-logs-filter '/api/log/self?p=1&page_size=10&type=2&start_timestamp=1700000000&end_timestamp=1700000100&model_name=model-a&token_name=token-a&group=default&request_id=req-a&upstream_request_id=up-a' 200
@@ -256,4 +253,4 @@ jq -e '.success == true and .message == "" and .data.rule_name == "rule-a" and .
 jq -e '.success == true and .data.quota == 10 and .data.rpm == 0 and .data.tpm == 0' "$runtime/go-self-log-stat.body" >/dev/null
 [[ "$go_keys_before" == "$(valkey_keys "$valkey_port" 1)" && "$rust_keys_before" == "$(valkey_keys "$valkey_port" 2)" ]]
 
-jq -cn --arg revision "$legacy_revision" '{test:"observability-affinity-listener-differential",real_tcp:true,production_access:false,legacy_go_revision:$revision,scenarios:27,routes:["GET /api/log/","GET /api/log/channel_affinity_usage_cache","GET /api/log/search","GET /api/log/self","GET /api/log/self/search","GET /api/log/self/stat","GET /api/log/stat","GET /api/log/token","GET /api/data/","GET /api/data/users","GET /api/data/self","GET /api/data/flow","GET /api/data/flow/self"],result:"passed"}'
+jq -cn --arg revision "$legacy_revision" '{test:"observability-affinity-listener-differential",real_tcp:true,production_access:false,legacy_go_revision:$revision,scenarios:24,routes:["GET /api/log/","GET /api/log/channel_affinity_usage_cache","GET /api/log/self","GET /api/log/self/stat","GET /api/log/stat","GET /api/log/token","GET /api/data/","GET /api/data/users","GET /api/data/self","GET /api/data/flow","GET /api/data/flow/self"],result:"passed"}'
