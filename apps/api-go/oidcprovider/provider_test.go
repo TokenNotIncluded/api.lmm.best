@@ -1,0 +1,259 @@
+package oidcprovider
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+)
+
+type entry struct {
+	value   []byte
+	expires int64
+	owner   string
+}
+type memoryStore struct {
+	mu   sync.Mutex
+	rows map[string]entry
+}
+
+func (s *memoryStore) Set(_ context.Context, k string, v []byte, exp int64, owner string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.rows[k] = entry{append([]byte{}, v...), exp, owner}
+	return nil
+}
+func (s *memoryStore) Get(_ context.Context, k string) ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, ok := s.rows[k]
+	if !ok || v.expires <= time.Now().Unix() {
+		return nil, ErrMissing
+	}
+	return append([]byte{}, v.value...), nil
+}
+func (s *memoryStore) Take(_ context.Context, k string) ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, ok := s.rows[k]
+	if !ok || v.expires <= time.Now().Unix() {
+		return nil, ErrMissing
+	}
+	delete(s.rows, k)
+	if strings.HasPrefix(k, "refresh:") {
+		s.rows["used-refresh:"+strings.TrimPrefix(k, "refresh:")] = v
+	}
+	return append([]byte{}, v.value...), nil
+}
+func (s *memoryStore) Delete(_ context.Context, k string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.rows, k)
+	return nil
+}
+func (s *memoryStore) Families(_ context.Context, owner string) ([][]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out [][]byte
+	for k, v := range s.rows {
+		if strings.HasPrefix(k, "family:") && v.owner == owner {
+			out = append(out, v.value)
+		}
+	}
+	return out, nil
+}
+func setup(t *testing.T) (*Provider, *memoryStore) {
+	t.Helper()
+	key, e := rsa.GenerateKey(rand.Reader, 2048)
+	if e != nil {
+		t.Fatal(e)
+	}
+	store := &memoryStore{rows: map[string]entry{}}
+	p, e := New(Config{Issuer: "https://api.lmm.best/oidc", Key: key, Store: store, Clients: []Client{{ID: "coweft-web", Name: "CoWeft", RedirectURIs: []string{"https://forum.example/auth/callback"}, Resources: []string{"https://forum.example/mcp"}, Scopes: knownScopes, Controller: "human"}}, Resources: []Resource{{ID: "coweft", URI: "https://forum.example/mcp", Secret: strings.Repeat("s", 32)}}, BrowserIdentity: func(context.Context, *http.Request) (Identity, error) {
+		return Identity{Subject: "lmm:7", Name: "member", SessionID: "session", SessionVersion: 1, AuthVersion: 1}, nil
+	}, ValidateIdentity: func(context.Context, Identity) error { return nil }})
+	if e != nil {
+		t.Fatal(e)
+	}
+	return p, store
+}
+func query() url.Values {
+	return url.Values{"client_id": {"coweft-web"}, "redirect_uri": {"https://forum.example/auth/callback"}, "resource": {"https://forum.example/mcp"}, "scope": {"openid profile coweft:read coweft:write"}, "response_type": {"code"}, "state": {strings.Repeat("s", 32)}, "nonce": {strings.Repeat("n", 32)}, "code_challenge": {digest(strings.Repeat("v", 43))}, "code_challenge_method": {"S256"}}
+}
+func post(p *Provider, path string, values url.Values, basic bool) *httptest.ResponseRecorder {
+	r := httptest.NewRequest("POST", "https://api.lmm.best"+path, strings.NewReader(values.Encode()))
+	r.TLS = &tls.ConnectionState{}
+	r.RemoteAddr = "127.0.0.1:54321"
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if basic {
+		r.SetBasicAuth("coweft", strings.Repeat("s", 32))
+	}
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, r)
+	return w
+}
+func tokenFor(t *testing.T, p *Provider) map[string]any {
+	t.Helper()
+	a, e := p.parseAuthorization(query())
+	if e != nil {
+		t.Fatal(e)
+	}
+	code := strings.Repeat("c", 43)
+	g := grant{Identity: Identity{Subject: "lmm:7", Name: "member", SessionID: "session", SessionVersion: 1, AuthVersion: 1}, Request: a, Controller: "human", ExpiresAt: time.Now().Add(time.Hour).Unix()}
+	if e = p.put(context.Background(), "code:"+digest(code), g, time.Now().Add(time.Minute).Unix(), "lmm:7"); e != nil {
+		t.Fatal(e)
+	}
+	w := post(p, "/api/oidc/token", url.Values{"client_id": {"coweft-web"}, "grant_type": {"authorization_code"}, "code": {code}, "redirect_uri": {a.Redirect}, "resource": {a.Resource}, "code_verifier": {strings.Repeat("v", 43)}}, false)
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	var out map[string]any
+	if e = json.Unmarshal(w.Body.Bytes(), &out); e != nil {
+		t.Fatal(e)
+	}
+	return out
+}
+func TestStrictAuthorization(t *testing.T) {
+	p, _ := setup(t)
+	q := query()
+	if _, e := p.parseAuthorization(q); e != nil {
+		t.Fatal(e)
+	}
+	for _, field := range []string{"redirect_uri", "resource", "code_challenge_method", "client_id", "scope"} {
+		bad := query()
+		bad.Set(field, "attacker")
+		if _, e := p.parseAuthorization(bad); e == nil {
+			t.Fatal("accepted invalid", field)
+		}
+	}
+	q.Add("client_id", "coweft-web")
+	if _, e := p.parseAuthorization(q); e == nil {
+		t.Fatal("duplicate parameter accepted")
+	}
+}
+func TestCodeTokenIntrospectionAndRevocation(t *testing.T) {
+	p, _ := setup(t)
+	tokens := tokenFor(t, p)
+	access := tokens["access_token"].(string)
+	if tokens["id_token"] == nil {
+		t.Fatal("missing id_token")
+	}
+	v := url.Values{"token": {access}, "resource": {"https://forum.example/mcp"}}
+	w := post(p, "/api/oidc/introspect", v, true)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"active":true`) {
+		t.Fatal(w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "session_id") {
+		t.Fatal("session leaked")
+	}
+	post(p, "/api/oidc/revoke", url.Values{"token": {access}, "client_id": {"coweft-web"}}, false)
+	w = post(p, "/api/oidc/introspect", v, true)
+	if !strings.Contains(w.Body.String(), `"active":false`) {
+		t.Fatal("revocation ineffective")
+	}
+}
+func TestWrongResourceCannotIntrospect(t *testing.T) {
+	p, _ := setup(t)
+	tokens := tokenFor(t, p)
+	w := post(p, "/api/oidc/introspect", url.Values{"token": {tokens["access_token"].(string)}, "resource": {"https://other.example/mcp"}}, true)
+	if !strings.Contains(w.Body.String(), `"active":false`) {
+		t.Fatal(w.Body.String())
+	}
+}
+func TestRefreshReplayRevokesFamily(t *testing.T) {
+	p, _ := setup(t)
+	tokens := tokenFor(t, p)
+	v := url.Values{"client_id": {"coweft-web"}, "grant_type": {"refresh_token"}, "refresh_token": {tokens["refresh_token"].(string)}, "resource": {"https://forum.example/mcp"}}
+	first := post(p, "/api/oidc/token", v, false)
+	if first.Code != 200 {
+		t.Fatal(first.Body.String())
+	}
+	var fresh map[string]any
+	json.Unmarshal(first.Body.Bytes(), &fresh)
+	second := post(p, "/api/oidc/token", v, false)
+	if second.Code != 400 {
+		t.Fatal("replay accepted")
+	}
+	_, _, e := p.access(context.Background(), fresh["access_token"].(string))
+	if e == nil {
+		t.Fatal("replay did not revoke new token")
+	}
+}
+func TestCurrentSessionCheckedForEveryAccess(t *testing.T) {
+	p, _ := setup(t)
+	tokens := tokenFor(t, p)
+	p.config.ValidateIdentity = func(context.Context, Identity) error { return ErrDenied }
+	_, _, e := p.access(context.Background(), tokens["access_token"].(string))
+	if e == nil {
+		t.Fatal("revoked session accepted")
+	}
+}
+func TestSigningKeyAndDiscovery(t *testing.T) {
+	p, _ := setup(t)
+	w := httptest.NewRecorder()
+	p.discovery(w)
+	if !strings.Contains(w.Body.String(), `"issuer":"https://api.lmm.best/oidc"`) {
+		t.Fatal(w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "registration_endpoint") {
+		t.Fatal("dynamic registration advertised")
+	}
+	w = httptest.NewRecorder()
+	p.jwks(w)
+	if strings.Contains(w.Body.String(), `"d":`) {
+		t.Fatal("private key leaked")
+	}
+}
+func TestLoopbackRedirectPinsHostAndPath(t *testing.T) {
+	c := Client{Loopback: true, RedirectURIs: []string{"http://127.0.0.1/callback"}}
+	if !redirectMatches(c, "http://127.0.0.1:49152/callback") {
+		t.Fatal("valid loopback rejected")
+	}
+	for _, u := range []string{"http://localhost:49152/callback", "http://127.0.0.1:49152/evil", "http://127.0.0.1.attacker.example:49152/callback"} {
+		if redirectMatches(c, u) {
+			t.Fatal("unsafe redirect accepted", u)
+		}
+	}
+}
+func TestMissingTLSRejected(t *testing.T) {
+	p, _ := setup(t)
+	r := httptest.NewRequest("GET", "http://api.lmm.best/api/oidc/jwks", nil)
+	w := httptest.NewRecorder()
+	p.Handler().ServeHTTP(w, r)
+	if w.Code != 400 {
+		t.Fatal("plaintext endpoint accepted")
+	}
+}
+func TestAtomicTake(t *testing.T) {
+	_, s := setup(t)
+	ctx := context.Background()
+	s.Set(ctx, "refresh:a", []byte(`{"family_id":"x"}`), time.Now().Add(time.Hour).Unix(), "u")
+	var wg sync.WaitGroup
+	success := make(chan bool, 20)
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() { defer wg.Done(); _, e := s.Take(ctx, "refresh:a"); success <- e == nil }()
+	}
+	wg.Wait()
+	close(success)
+	n := 0
+	for ok := range success {
+		if ok {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatal("consumed", n, "times")
+	}
+	if _, e := s.Get(ctx, "used-refresh:a"); e != nil {
+		t.Fatal("atomic replay marker absent")
+	}
+}

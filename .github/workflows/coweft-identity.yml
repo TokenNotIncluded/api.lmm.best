@@ -1,0 +1,22 @@
+name: CoWeft identity boundary
+on:
+  push:
+    branches: ['feat/coweft-oidc']
+  pull_request:
+    paths: ['apps/api-go/oidcprovider/**','apps/api-go/service/oidc_provider.go','apps/api-go/router/oidc_provider.go','apps/api-go/router/oauth_server.go','.github/workflows/coweft-identity.yml']
+permissions:
+  contents: read
+jobs:
+  provider:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api-go
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: apps/api-go/go.sum
+      - run: go test -race ./oidcprovider
+      - run: go test ./service ./router -run 'OIDC|OAuth' -count=1
