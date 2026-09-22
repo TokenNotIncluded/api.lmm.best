@@ -9185,6 +9185,12 @@
     "Registration protection and L1 review": "Registration protection and L1 review",
     "Anonymous metrics and review frequency": "Anonymous metrics and review frequency",
     "Retention periods and cleanup": "Retention periods and cleanup",
-    "Translations": "Translations"
+    "Translations": "Translations",
+    "Assistant connection": "Подключение",
+    "Assistant conversation": "Диалог",
+    "Assistant tools": "Инструменты",
+    "Assistant runtime": "Выполнение",
+    "Assistant review": "Проверка",
+    "Assistant data": "Данные"
   }
 }

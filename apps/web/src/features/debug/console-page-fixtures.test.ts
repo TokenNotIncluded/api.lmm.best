@@ -78,3 +78,21 @@ test('admin list fixtures keep the API array contract rather than a paginated en
     assert.ok(Array.isArray(response.data), url)
   }
 })
+
+test('assistant model reads are explicit, cloned fixtures and never authorize writes', () => {
+  const first = consolePageFixture(
+    config('/api/assistant/models?group=default')
+  ) as { data: string[] }
+  assert.ok(Array.isArray(first.data))
+  assert.ok(first.data.length > 0)
+  assert.ok(first.data.every((model) => typeof model === 'string'))
+  first.data.push('mutated-preview')
+  const second = consolePageFixture(
+    config('/api/assistant/models?group=default')
+  ) as { data: string[] }
+  assert.ok(!second.data.includes('mutated-preview'))
+  assert.equal(
+    consolePageFixture(config('/api/assistant/models', 'post')),
+    undefined
+  )
+})

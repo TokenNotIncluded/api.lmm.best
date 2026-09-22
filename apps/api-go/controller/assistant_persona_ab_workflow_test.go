@@ -366,18 +366,12 @@ func TestPersonaAAgentChain(t *testing.T) {
 		turn++
 		switch turn {
 		case 1:
-			assert.Equal(t, "set_conversation_title", assistantNamedToolChoiceName(request.ToolChoice))
-			return http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"title","type":"function","function":{"name":"set_conversation_title","arguments":"{\"title\":\"自建模型价格核对\"}"}}]}}]}`), nil
-		case 2:
-			assert.Equal(t, "get_service_facts", assistantNamedToolChoiceName(request.ToolChoice))
-			return http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"facts","type":"function","function":{"name":"get_service_facts","arguments":"{}"}}]}}]}`), nil
-		case 3:
-			assert.Equal(t, "get_available_models", assistantNamedToolChoiceName(request.ToolChoice))
-			return http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"models","type":"function","function":{"name":"get_available_models","arguments":"{}"}}]}}]}`), nil
-		case 4:
 			assert.Equal(t, "get_model_pricing", assistantNamedToolChoiceName(request.ToolChoice))
+			require.Len(t, request.Messages, 6)
+			assert.Contains(t, request.Messages[3].Content, `"openai_base_url"`)
+			assert.Contains(t, request.Messages[5].Content, `"model_ids":["gpt-5.6-sol"]`)
 			return http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"pricing","type":"function","function":{"name":"get_model_pricing","arguments":"{\"model_id\":\"gpt-5.6-sol\"}"}}]}}]}`), nil
-		case 5:
+		case 2:
 			assert.Nil(t, request.ToolChoice)
 			assert.Empty(t, request.Tools)
 			encoded := string(mustAssistantJSON(t, request.Messages))
@@ -391,10 +385,10 @@ func TestPersonaAAgentChain(t *testing.T) {
 	t.Cleanup(func() { relayAssistantAgentTurn = originalRelay })
 
 	runAssistantAgent(c, setting.AssistantSettings{
-		Model: "persona-a-workflow-model", AgentLoopEnabled: true, MaxSteps: 5, TimeoutSeconds: 45,
+		Model: "persona-a-workflow-model", AgentLoopEnabled: true, MaxSteps: 4, TimeoutSeconds: 45,
 	}, []assistantOpenAIMessage{{Role: "user", Content: message}})
 
-	assert.Equal(t, 5, turn)
+	assert.Equal(t, 2, turn)
 	assert.Equal(t, http.StatusOK, recorder.Code)
 	assert.Contains(t, recorder.Body.String(), "不会推荐中转")
 }
@@ -428,20 +422,15 @@ func TestPersonaBAgentChainKeepsGuidedStrategy(t *testing.T) {
 	originalRelay := relayAssistantAgentTurn
 	relayAssistantAgentTurn = func(_ *gin.Context, request assistantOpenAIRequest, _ string, _ int) (int, []byte, error) {
 		turn++
-		switch turn {
-		case 1:
-			assert.Equal(t, "get_account_access", assistantNamedToolChoiceName(request.ToolChoice))
-			encoded := string(mustAssistantJSON(t, request))
-			assert.Contains(t, encoded, "Treat the user's stated experience level as already answered")
-			assert.NotContains(t, encoded, `"name":"get_plan_offers"`)
-			return http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"access","type":"function","function":{"name":"get_account_access","arguments":"{}"}}]}}]}`), nil
-		case 2:
-			assert.Nil(t, request.ToolChoice)
-			assert.Empty(t, request.Tools)
-			return http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","content":"1. 先确认你要使用的客户端。你已经说明自己是新手，我不会再重复询问；在用途和金额明确前也不会展示付费方案。"}}]}`), nil
-		default:
-			return http.StatusInternalServerError, nil, nil
-		}
+		assert.Nil(t, request.ToolChoice)
+		assert.Empty(t, request.Tools)
+		encoded := string(mustAssistantJSON(t, request))
+		assert.Contains(t, encoded, "Treat the user's stated experience level as already answered")
+		assert.NotContains(t, encoded, `"name":"get_plan_offers"`)
+		require.Len(t, request.Messages, 4)
+		assert.Equal(t, "get_account_access", request.Messages[2].ToolCalls[0].Function.Name)
+		assert.Contains(t, request.Messages[3].Content, `"ok":true`)
+		return http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","content":"1. 先确认你要使用的客户端。你已经说明自己是新手，我不会再重复询问；在用途和金额明确前也不会展示付费方案。"}}]}`), nil
 	}
 	t.Cleanup(func() { relayAssistantAgentTurn = originalRelay })
 
@@ -449,12 +438,12 @@ func TestPersonaBAgentChainKeepsGuidedStrategy(t *testing.T) {
 		Model: "persona-b-workflow-model", AgentLoopEnabled: true, MaxSteps: 2, TimeoutSeconds: 45,
 	}, []assistantOpenAIMessage{{Role: "user", Content: message}})
 
-	assert.Equal(t, 2, turn)
+	assert.Equal(t, 1, turn)
 	assert.Equal(t, http.StatusOK, recorder.Code)
 	assert.Contains(t, recorder.Body.String(), "不会再重复询问")
 }
 
-func TestAssistantTitleWorkflowRunsWhenAgentLoopIsDisabled(t *testing.T) {
+func TestAssistantTitleDoesNotBlockDisabledAgentLoop(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
@@ -468,18 +457,9 @@ func TestAssistantTitleWorkflowRunsWhenAgentLoopIsDisabled(t *testing.T) {
 	originalRelay := relayAssistantAgentTurn
 	relayAssistantAgentTurn = func(_ *gin.Context, request assistantOpenAIRequest, _ string, _ int) (int, []byte, error) {
 		turn++
-		switch turn {
-		case 1:
-			assert.Equal(t, "set_conversation_title", assistantNamedToolChoiceName(request.ToolChoice))
-			assert.NotEmpty(t, request.Tools)
-			return http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"title","type":"function","function":{"name":"set_conversation_title","arguments":"{\"title\":\"配置 API 密钥\"}"}}]}}]}`), nil
-		case 2:
-			assert.Nil(t, request.ToolChoice)
-			assert.Empty(t, request.Tools)
-			return http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","content":"标题已生成。"}}]}`), nil
-		default:
-			return http.StatusInternalServerError, nil, nil
-		}
+		assert.Nil(t, request.ToolChoice)
+		assert.Empty(t, request.Tools)
+		return http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","content":"先打开密钥管理。"}}]}`), nil
 	}
 	t.Cleanup(func() { relayAssistantAgentTurn = originalRelay })
 
@@ -487,8 +467,8 @@ func TestAssistantTitleWorkflowRunsWhenAgentLoopIsDisabled(t *testing.T) {
 		Model: "title-workflow-model", AgentLoopEnabled: false, MaxSteps: 1, TimeoutSeconds: 45,
 	}, []assistantOpenAIMessage{{Role: "user", Content: "帮我配置 API 密钥"}})
 
-	assert.Equal(t, 2, turn)
+	assert.Equal(t, 1, turn)
 	assert.Equal(t, http.StatusOK, recorder.Code)
-	assert.Contains(t, recorder.Body.String(), "标题已生成")
-	assert.Equal(t, "配置 API 密钥", c.GetString(assistantConversationTitleDraftKey))
+	assert.Contains(t, recorder.Body.String(), "先打开密钥管理")
+	assert.False(t, assistantUserContextFromGin(c).ConversationTitleNeeded)
 }
