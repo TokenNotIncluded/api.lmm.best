@@ -45,14 +45,27 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           INPUT_TAG: ${{ inputs.release_tag }}
-          RUN_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
             tag="$INPUT_TAG"
           else
-            # The release workflow runs on the tag ref itself.
-            tag="$RUN_HEAD_BRANCH"
+            # The release workflow publishes on a tag ref. `head_branch` is the
+            # tag name for that case, but it is not guaranteed across dispatch
+            # styles, so resolve the release from the run's immutable commit
+            # instead and require exactly one match.
+            mapfile -t matches < <(
+              gh release list --repo "$GITHUB_REPOSITORY" \
+                --limit 50 --json tagName,targetCommitish \
+                --jq ".[] | select(.targetCommitish == \"$RUN_HEAD_SHA\") | .tagName"
+            )
+            [[ ${#matches[@]} -eq 1 ]] || {
+              echo "expected exactly one release for ${RUN_HEAD_SHA}, found ${#matches[@]}" >&2
+              exit 1
+            }
+            tag=${matches[0]}
           fi
           [[ "$tag" =~ ^web-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
             echo "unexpected web release tag: $tag" >&2
