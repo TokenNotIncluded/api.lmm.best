@@ -7,12 +7,19 @@ permissions:
   contents: read
 jobs:
   dependencies:
+    strategy:
+      matrix:
+        include:
+          - label: main
+            ref: dee38480ed17e8464b582b20bca142a436118d78
+          - label: luma
+            ref: 6f7a1e989d648e48d34b5f05a90edabf302f8916
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
-          ref: 40a81eee3bd6e97dafb9e05b86cb840aa8a5efa6
+          ref: ${{ matrix.ref }}
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
@@ -21,12 +28,12 @@ jobs:
       - name: Package locked toolchain without credentials
         run: |
           mkdir -p "$RUNNER_TEMP/deps"
-          tar -czf "$RUNNER_TEMP/deps/web-dependencies.tar.gz" node_modules apps/web/node_modules
+          tar -czf "$RUNNER_TEMP/deps/web-dependencies.tar.gz" node_modules
           cp "$(command -v bun)" "$RUNNER_TEMP/deps/bun"
           sha256sum bun.lock > "$RUNNER_TEMP/deps/lock.sha256"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: pr-repair-web-dependencies
+          name: pr-repair-web-dependencies-${{ matrix.label }}
           path: ${{ runner.temp }}/deps
           retention-days: 1
           if-no-files-found: error
