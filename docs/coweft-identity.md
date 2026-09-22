@@ -37,7 +37,7 @@ openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out /run/secrets/l
 chmod 600 /run/secrets/lmm-oidc.pem
 ```
 
-Set `LMM_OIDC_ENABLED=true`, `LMM_OIDC_SIGNING_KEY_FILE=/run/secrets/lmm-oidc.pem`, `LMM_OIDC_ISSUER=https://api.lmm.best/oidc` and the registrations from `deploy/coweft/oidc.env.example`. Use the actual CoWeft HTTPS origin in both callback and resource. Generate a separate random resource credential and configure it in both backends; never expose it in frontend code or native clients. Configure only the actual trusted TLS-proxy CIDRs. Arbitrary forwarding headers are not trusted. Without explicit enablement all new endpoints return 404.
+Set `LMM_OIDC_ENABLED=true`, `LMM_OIDC_SIGNING_KEY_FILE=/run/secrets/lmm-oidc.pem`, `LMM_OIDC_ISSUER=https://api.lmm.best/oidc` and the registrations from `packaging/common/lmm-api/lmm-oidc.env.example`. Use the actual CoWeft HTTPS origin in both callback and resource. Generate a separate random resource credential and configure it in both backends; never expose it in frontend code or native clients. Configure only the actual trusted TLS-proxy CIDRs. Arbitrary forwarding headers are not trusted. Without explicit enablement all new endpoints return 404.
 
 All LMM replicas need the same signing key and persistent database. Overlapping-key rotation is not implemented and must be addressed before a high-availability public rollout. No domain, production secret, live client registration or paid model credential is provisioned by this change.
 
