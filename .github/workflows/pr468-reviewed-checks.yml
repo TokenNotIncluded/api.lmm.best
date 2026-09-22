@@ -18,7 +18,7 @@ jobs:
           set -euo pipefail
           repo=TokenNotIncluded/api.lmm.best
           expected=8de71eefab1a45e763cc8c1012e39696cd0ce47f
-          for run in 35709075974 35709075920 35709075941; do
+          for run in 35709036993 35709036983 35709037004; do
             metadata=$(gh api "repos/$repo/actions/runs/$run")
             test "$(jq -r .head_sha <<< "$metadata")" = "$expected"
             test "$(jq -r .event <<< "$metadata")" = pull_request
