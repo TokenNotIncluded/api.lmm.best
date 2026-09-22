@@ -6,6 +6,13 @@ it under the terms of the GNU Affero General Public License as
 published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
+import {
+  l0FlightFrames,
+  L0_ARRIVAL_DURATION,
+  L0_MAX_FLIGHTS,
+} from './l0-flight-path'
+import { getL0CloudAnchor } from './l0-token-cloud'
+
 // Display graphemes, not model tokenizer IDs. Stream deltas carry text only.
 const segmenter =
   typeof Intl.Segmenter === 'function'
@@ -47,9 +54,6 @@ export function insertedTokens(before: string, after: string) {
   return next.slice(start, end)
 }
 
-const MAX_FLIGHTS = 80
-const MAX_ARRIVAL_DELAY = 340
-
 type Point = { x: number; y: number }
 type Flight = {
   animation: Animation
@@ -57,10 +61,21 @@ type Flight = {
   direction: 'up' | 'down'
 }
 
-/** The animation layer is disposable, non-interactive and never stores text. */
+/** Disposable visual copies only: no interaction, persistence or network work. */
 export function mountL0TextFlow(cloud: HTMLElement) {
   const doc = cloud.ownerDocument
-  const win = doc.defaultView!
+  const win = doc.defaultView
+  if (!win) {
+    const noop = () => {}
+    return {
+      input: noop,
+      sentence: noop,
+      receive: noop,
+      clear: noop,
+      clearResponses: noop,
+      dispose: noop,
+    }
+  }
   const motion = win.matchMedia('(prefers-reduced-motion: reduce)')
   const layer = doc.createElement('div')
   layer.className = 'l0-flight-layer'
@@ -75,7 +90,7 @@ export function mountL0TextFlow(cloud: HTMLElement) {
   doc.body.append(layer)
   const flights = new Set<Flight>()
   const seen = new WeakMap<HTMLElement, string>()
-  const arrivals = new Map<HTMLElement, () => void>()
+  const arrivals = new Map<HTMLElement, { cancel?: () => void }>()
   let disposed = false
   let sequence = 0
 
@@ -97,11 +112,10 @@ export function mountL0TextFlow(cloud: HTMLElement) {
 
   const cloudPoint = (): Point => {
     const rect = cloud.getBoundingClientRect()
-    const a = sequence++ * 2.39996323
-    const radius = Math.min(rect.width * 0.29, rect.height * 0.34)
+    const point = getL0CloudAnchor(cloud, sequence++)
     return {
-      x: rect.left + rect.width / 2 + Math.cos(a) * radius,
-      y: rect.top + rect.height / 2 + Math.sin(a) * radius * 0.65,
+      x: rect.left + point.x * rect.width,
+      y: rect.top + point.y * rect.height,
     }
   }
 
@@ -113,7 +127,7 @@ export function mountL0TextFlow(cloud: HTMLElement) {
     direction: 'up' | 'down',
     done: () => void = () => {}
   ) => {
-    if (!enabled() || flights.size >= MAX_FLIGHTS || !text.trim()) {
+    if (!enabled() || flights.size >= L0_MAX_FLIGHTS || !text.trim()) {
       done()
       return
     }
@@ -134,32 +148,16 @@ export function mountL0TextFlow(cloud: HTMLElement) {
       willChange: 'transform,opacity',
     })
     layer.append(node)
-    const path = (point: Point, scale = 1) =>
-      `translate3d(${point.x}px,${point.y}px,0) scale(${scale})`
-    const bend = {
-      x: from.x * 0.4 + to.x * 0.6,
-      y: from.y * 0.55 + to.y * 0.45,
-    }
     let animation: Animation
     try {
       animation = node.animate(
-        direction === 'up'
-          ? [
-              { transform: path(from), opacity: 1, offset: 0 },
-              { transform: path(bend, 0.9), opacity: 0.95, offset: 0.48 },
-              { transform: path(to, 0.7), opacity: 0.65, offset: 0.78 },
-              { transform: path(to, 0.5), opacity: 0, offset: 1 },
-            ]
-          : [
-              { transform: path(from, 0.7), opacity: 0, offset: 0 },
-              { transform: path(from, 0.8), opacity: 1, offset: 0.13 },
-              { transform: path(bend, 0.95), opacity: 1, offset: 0.52 },
-              { transform: path(to), opacity: 1, offset: 1 },
-            ],
+        l0FlightFrames(from, to, direction === 'up', sequence),
         {
           duration:
-            direction === 'up' ? 540 + (sequence % 5) * 24 : MAX_ARRIVAL_DELAY,
-          easing: 'cubic-bezier(.2,.65,.25,1)',
+            direction === 'up'
+              ? 620 + (sequence % 3) * 30
+              : L0_ARRIVAL_DURATION,
+          easing: 'cubic-bezier(.22,.7,.25,1)',
           fill: 'both',
         }
       )
@@ -199,31 +197,75 @@ export function mountL0TextFlow(cloud: HTMLElement) {
   }
   const canFly = () => enabled() && onScreen(cloud.getBoundingClientRect())
 
-  // Preset spans occupy the exact original sentence positions, including wraps.
-  const sentence = (source: HTMLElement) => {
-    if (!canFly()) return
-    for (const token of source.querySelectorAll<HTMLElement>(
-      '[data-l0-source]'
-    )) {
-      const rect = token.getBoundingClientRect()
-      const text = token.textContent ?? ''
-      if (!onScreen(rect) || !text.trim() || flights.size >= MAX_FLIGHTS) {
-        continue
+  // Small adjacent grapheme packets keep the sentence in place without a swarm.
+  // Never join separate lines or reorder RTL spans. Text is still laid out by React.
+  const animateTokens = (nodes: HTMLElement[], direction: 'up' | 'down') => {
+    const groups: Array<
+      Array<{ node: HTMLElement; text: string; rect: DOMRect }>
+    > = []
+    for (const node of nodes) {
+      const rect = node.getBoundingClientRect()
+      if (!onScreen(rect) || node.getClientRects().length !== 1) continue
+      const text = node.textContent ?? ''
+      const last = groups.at(-1)
+      const previous = last?.at(-1)
+      if (
+        last &&
+        last.length < 3 &&
+        previous &&
+        Math.abs(previous.rect.top - rect.top) < 1 &&
+        Math.abs(previous.rect.height - rect.height) < 1 &&
+        Math.abs(previous.rect.right - rect.left) < 1
+      ) {
+        last.push({ node, text, rect })
+      } else {
+        groups.push([{ node, text, rect }])
       }
-      const style = win.getComputedStyle(token)
-      const original = token.style.opacity
-      const point = cloudPoint()
-      token.style.opacity = '0'
-      fly(text, { x: rect.left, y: rect.top }, point, style, 'up', () => {
-        token.style.opacity = original
-      })
+    }
+    for (const group of groups) {
+      if (flights.size >= L0_MAX_FLIGHTS) break
+      const text = group.map((item) => item.text).join('')
+      if (!text.trim()) continue
+      const rect = group[0].rect
+      const original = group.map(({ node }) => node.style.opacity)
+      const local = { x: rect.left, y: rect.top }
+      const remote = cloudPoint()
+      for (const { node } of group) node.style.opacity = '0'
+      const handle: { cancel?: () => void } = {}
+      handle.cancel = fly(
+        text,
+        direction === 'up' ? local : remote,
+        direction === 'up' ? remote : local,
+        win.getComputedStyle(group[0].node),
+        direction,
+        () => {
+          group.forEach(({ node }, index) => {
+            node.style.opacity = original[index]
+            if (arrivals.get(node) === handle) arrivals.delete(node)
+          })
+        }
+      )
+      if (handle.cancel && direction === 'down') {
+        for (const { node } of group) arrivals.set(node, handle)
+      }
+    }
+  }
+
+  const sentence = (source: HTMLElement) => {
+    if (canFly()) {
+      animateTokens(
+        Array.from(source.querySelectorAll<HTMLElement>('[data-l0-source]')),
+        'up'
+      )
     }
   }
 
   // Native input remains editable. Only committed inserted text is visualized.
   const input = (source: HTMLInputElement, before = '') => {
     if (!canFly()) return
-    const tokens = insertedTokens(before, source.value).slice(-MAX_FLIGHTS)
+    const tokens = insertedTokens(before, source.value).slice(
+      -L0_MAX_FLIGHTS * 3
+    )
     if (!tokens.length) return
     const rect = source.getBoundingClientRect()
     const style = win.getComputedStyle(source)
@@ -244,10 +286,14 @@ export function mountL0TextFlow(cloud: HTMLElement) {
     const text = doc.createTextNode(source.value)
     mirror.append(text)
     doc.body.append(mirror)
-    for (const token of tokens) {
+    for (let index = 0; index < tokens.length; index += 3) {
+      const packet = tokens.slice(index, index + 3)
+      const first = packet[0]
+      const last = packet.at(-1)
+      if (!last) continue
       const range = doc.createRange()
-      range.setStart(text, token.index)
-      range.setEnd(text, token.index + token.text.length)
+      range.setStart(text, first.index)
+      range.setEnd(text, last.index + last.text.length)
       const start = range.getBoundingClientRect()
       if (
         start.left < rect.left ||
@@ -257,7 +303,7 @@ export function mountL0TextFlow(cloud: HTMLElement) {
         continue
       }
       fly(
-        token.text,
+        packet.map((token) => token.text).join(''),
         { x: start.left, y: start.top },
         cloudPoint(),
         style,
@@ -267,43 +313,19 @@ export function mountL0TextFlow(cloud: HTMLElement) {
     mirror.remove()
   }
 
-  // Actual stream text is laid out first. Its visual copy lands at that same spot.
+  // Mark every real delta, even when hidden or over budget; never replay a backlog.
   const receive = (answer: HTMLElement, animate = true) => {
+    const pending: HTMLElement[] = []
     for (const token of answer.querySelectorAll<HTMLElement>(
       '[data-l0-arrival]'
     )) {
       const text = token.textContent ?? ''
       if (seen.get(token) === text) continue
       seen.set(token, text)
-      arrivals.get(token)?.()
-      // Hidden panels record arrivals without measuring or replaying their backlog.
-      if (!animate) continue
-      const rect = token.getBoundingClientRect()
-      if (
-        !canFly() ||
-        !onScreen(rect) ||
-        !text.trim() ||
-        flights.size >= MAX_FLIGHTS
-      ) {
-        continue
-      }
-      const style = win.getComputedStyle(token)
-      const original = token.style.opacity
-      token.style.opacity = '0'
-      let cancel: (() => void) | undefined
-      cancel = fly(
-        text,
-        cloudPoint(),
-        { x: rect.left, y: rect.top },
-        style,
-        'down',
-        () => {
-          token.style.opacity = original
-          if (arrivals.get(token) === cancel) arrivals.delete(token)
-        }
-      )
-      if (cancel) arrivals.set(token, cancel)
+      arrivals.get(token)?.cancel?.()
+      pending.push(token)
     }
+    if (animate && pending.length && canFly()) animateTokens(pending, 'down')
   }
 
   const settleOnChange = () => {
