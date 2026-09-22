@@ -119,6 +119,32 @@ try {
         assert.ok(box && box.height >= 44)
       }
       await capture(page, '/keys', `l1-keys-${width}-active-filter.png`, errors)
+      if (width < 640) {
+        const content = page.locator('.console-section-content')
+        const scroll = await content.evaluate((element) => {
+          element.scrollTop = element.scrollHeight
+          return {
+            top: element.scrollTop,
+            overflow: element.scrollHeight - element.clientHeight,
+            behavior: getComputedStyle(element).overflowY,
+          }
+        })
+        assert.equal(scroll.behavior, 'auto')
+        if (scroll.overflow > 1) assert.ok(scroll.top > 0)
+        const card = page.getByText('开发环境 · Preview', { exact: true })
+        await card.scrollIntoViewIfNeeded()
+        const cardBox = await card.boundingBox()
+        const contentBox = await content.boundingBox()
+        assert.ok(cardBox && contentBox)
+        assert.ok(
+          cardBox.y >= contentBox.y - 1 &&
+            cardBox.y + cardBox.height <= contentBox.y + contentBox.height + 1
+        )
+        await capture(page, '/keys', `l1-keys-${width}-list-scroll.png`, errors)
+        await content.evaluate((element) => {
+          element.scrollTop = 0
+        })
+      }
       if (width === 1440) {
         await page.evaluate(() =>
           document.documentElement.classList.add('dark')

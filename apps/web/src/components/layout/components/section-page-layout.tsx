@@ -99,7 +99,7 @@ export function SectionPageLayout(props: SectionPageLayoutProps) {
         <div
           className={
             props.fixedContent
-              ? 'console-section-content min-h-0 flex-1 overflow-hidden px-4 pt-2 pb-6 sm:px-6 sm:pb-8'
+              ? 'console-section-content min-h-0 flex-1 overflow-auto px-4 pt-2 pb-6 sm:overflow-hidden sm:px-6 sm:pb-8'
               : 'console-section-content min-h-0 flex-1 overflow-auto px-4 pt-2 pb-6 sm:px-6 sm:pb-8'
           }
         >
