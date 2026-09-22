@@ -6,30 +6,90 @@ it under the terms of the GNU Affero General Public License as
 published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
+import { useQuery } from '@tanstack/react-query'
+import { Link, useNavigate } from '@tanstack/react-router'
 import {
-  ArrowRight01Icon,
-  CheckmarkCircle02Icon,
-} from '@hugeicons/core-free-icons'
-import { HugeiconsIcon } from '@hugeicons/react'
-import { Link } from '@tanstack/react-router'
-import { type FormEvent, type ReactNode, useState } from 'react'
+  type KeyboardEvent,
+  type ReactNode,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Progress } from '@/components/ui/progress'
 import { SourceQuestionnaire } from '@/features/acquisition/source-questionnaire'
-import {
-  requestAssistantOpen,
-  requestAssistantSend,
-} from '@/features/assistant/assistant-events'
-import { getAssistantPromptValidation } from '@/features/assistant/assistant-prompt-validation'
+import { requestAssistantOpen } from '@/features/assistant/assistant-events'
 import { PiOAuthGuide } from '@/features/guide/pi-oauth-guide'
 import { toIntlLocale } from '@/i18n/languages'
-import type { AuthUser } from '@/stores/auth-store'
+import { useAuthStore, type AuthUser } from '@/stores/auth-store'
 
-export function L0Welcome({
+import {
+  developerAccessRequestQueryKey,
+  getDeveloperAccessRequest,
+} from './api'
+import { getL0AccessCopy } from './l0-access-copy'
+import { L0CloudConversation } from './l0-cloud-conversation'
+import { getL0PaidAccess } from './l0-paid-access'
+import {
+  createL0Tokens,
+  mountL0TokenCloud,
+  projectL0Token,
+} from './l0-token-cloud'
+import { useL0AccessCheck } from './use-l0-access-check'
+
+import './l0-welcome.css'
+
+const SCENES = ['chat', 'explore', 'access'] as const
+type Scene = (typeof SCENES)[number]
+const FALLBACK_TOKENS = createL0Tokens(390).filter(
+  (_, index) => index % 3 === 0
+)
+
+function Arrow({ diagonal = false }: { diagonal?: boolean }) {
+  return (
+    <svg viewBox='0 0 24 24' fill='none' aria-hidden='true'>
+      <path d={diagonal ? 'M6 18 18 6M6 6h12v12' : 'M5 12h14m-5-5 5 5-5 5'} />
+    </svg>
+  )
+}
+
+function SceneIcon({ scene }: { scene: Scene }) {
+  return (
+    <svg viewBox='0 0 24 24' fill='none' aria-hidden='true'>
+      {scene === 'chat' ? (
+        <path d='M5 5h14v11H9l-4 4V5Zm4 5h6' />
+      ) : scene === 'explore' ? (
+        <>
+          <circle cx='12' cy='12' r='8' />
+          <path d='m15 9-2 4-4 2 2-4 4-2Z' />
+        </>
+      ) : (
+        <>
+          <rect x='5' y='10' width='14' height='10' rx='3' />
+          <path d='M8 10V7a4 4 0 0 1 8 0M12 14v2' />
+        </>
+      )}
+    </svg>
+  )
+}
+
+function closeDisclosure(event: KeyboardEvent<HTMLDetailsElement>) {
+  if (event.key !== 'Escape' || !event.currentTarget.open) return
+  event.preventDefault()
+  event.stopPropagation()
+  event.currentTarget.open = false
+  event.currentTarget.querySelector('summary')?.focus()
+}
+
+export function L0Welcome(props: {
+  user: AuthUser | null
+  children: ReactNode
+}) {
+  const sessionId = useAuthStore((state) => state.auth.session?.sid)
+  return <L0WelcomeStage key={`${props.user?.id}:${sessionId}`} {...props} />
+}
+
+function L0WelcomeStage({
   user,
   children,
 }: {
@@ -37,267 +97,443 @@ export function L0Welcome({
   children: ReactNode
 }) {
   const { t, i18n } = useTranslation()
-  const [prompt, setPrompt] = useState('')
-  const threshold = user?.onboarding?.paid_activation_min_amount
-  const paidEnabled = user?.onboarding?.paid_activation_enabled === true
-  const showThreshold =
-    paidEnabled &&
-    !user?.trust_level_info?.overridden &&
-    typeof threshold === 'number' &&
-    Number.isFinite(threshold) &&
-    threshold > 0
-  const paidAmount = Math.max(0, user?.trust_level_info?.paid_amount ?? 0)
-  const remaining = showThreshold ? Math.max(0, threshold - paidAmount) : 0
+  const navigate = useNavigate()
+  const [scene, setScene] = useState<Scene>('chat')
+  const [discovery, setDiscovery] = useState(0)
+  const tabs = useRef<Array<HTMLButtonElement | null>>([])
+  const cloudRef = useRef<HTMLDivElement>(null)
+  const { state: checkState, check } = useL0AccessCheck(user?.id)
+  const request = useQuery({
+    queryKey: developerAccessRequestQueryKey(user?.id ?? 0),
+    queryFn: getDeveloperAccessRequest,
+    enabled: false,
+  })
+  const language = i18n.resolvedLanguage || i18n.language
+  const copy = getL0AccessCopy(language)
+  const access = getL0PaidAccess(user)
+  const canTopUp = access.mode === 'topup'
+  const busy = checkState === 'checking'
+  const statusLabel = request.isError
+    ? t('Unable to load access status')
+    : request.data?.status === 'pending'
+      ? t('Pending review')
+      : request.data?.status === 'rejected'
+        ? t('Access request rejected')
+        : request.data?.status === 'approved'
+          ? t('Access request approved')
+          : t('Account and access')
+  const status = request.isError ? 'error' : request.data?.status || 'default'
   const money = (value: number) =>
-    new Intl.NumberFormat(
-      toIntlLocale(i18n.resolvedLanguage || i18n.language),
-      {
-        style: 'currency',
-        currency: 'USD',
-        maximumFractionDigits: 6,
-      }
-    ).format(value)
-  const validPrompt =
-    prompt.trim().length > 0 &&
-    !getAssistantPromptValidation(prompt, true).invalid
-  const submit = (event: FormEvent<HTMLFormElement>) => {
+    new Intl.NumberFormat(toIntlLocale(language), {
+      style: 'currency',
+      currency: 'USD',
+      maximumFractionDigits: 6,
+    }).format(value)
+  const destinations = [
+    {
+      to: '/pricing',
+      title: copy.models,
+      note: copy.modelsNote,
+      action: copy.browseModels,
+      mark: '[]',
+    },
+    {
+      to: '/tool-market',
+      title: copy.tools,
+      note: copy.toolsNote,
+      action: copy.browseTools,
+      mark: '/>',
+    },
+    {
+      to: '/challenges',
+      title: copy.challenges,
+      note: copy.challengesNote,
+      action: copy.browseChallenges,
+      mark: '{}',
+    },
+  ] as const
+  const selected = destinations[discovery]
+  const labels = {
+    chat: copy.conversation,
+    explore: copy.explore,
+    access: copy.access,
+  }
+
+  useEffect(() => {
+    if (cloudRef.current) return mountL0TokenCloud(cloudRef.current)
+  }, [])
+
+  const selectScene = (next: Scene, focus = false) => {
+    setScene(next)
+    if (focus) tabs.current[SCENES.indexOf(next)]?.focus()
+  }
+  const navigateTabs = (
+    event: KeyboardEvent<HTMLButtonElement>,
+    index: number
+  ) => {
+    const next =
+      event.key === 'ArrowRight'
+        ? (index + 1) % SCENES.length
+        : event.key === 'ArrowLeft'
+          ? (index + SCENES.length - 1) % SCENES.length
+          : event.key === 'Home'
+            ? 0
+            : event.key === 'End'
+              ? SCENES.length - 1
+              : null
+    if (next === null) return
     event.preventDefault()
-    if (validPrompt) requestAssistantSend(undefined, prompt.trim())
+    selectScene(SCENES[next], true)
   }
 
   return (
     <div
-      className='mx-auto w-full max-w-6xl pb-12 sm:pb-16'
+      className='l0-welcome'
       data-testid='l0-conversation'
+      data-scene={scene}
+      onKeyDown={(event) => {
+        if (
+          event.key === 'Escape' &&
+          !event.defaultPrevented &&
+          scene !== 'chat'
+        ) {
+          event.preventDefault()
+          selectScene('chat', true)
+        }
+      }}
     >
-      <div className='grid border-b xl:grid-cols-[minmax(0,1.45fr)_minmax(19rem,1fr)]'>
-        <section
-          className='min-w-0 py-8 sm:py-12 xl:pr-10'
-          aria-labelledby='l0-welcome-title'
-        >
-          <h2
-            id='l0-welcome-title'
-            className='max-w-xl text-3xl leading-tight font-semibold tracking-tight text-balance sm:text-4xl'
+      <header className='l0-topbar'>
+        <span className='l0-wordmark' aria-hidden='true'>
+          LMM<span>/</span>
+        </span>
+        <div className='l0-topbar-actions'>
+          <button
+            type='button'
+            className='l0-account-status'
+            data-status={status}
+            aria-controls='l0-panel-access'
+            onClick={() => selectScene('access', true)}
           >
-            {t('Your next idea starts here.')}
-          </h2>
-          <p className='text-muted-foreground mt-5 max-w-lg text-base leading-7'>
-            {t(
-              'Find a model, plan your first integration, or explore tools. Start with what you want to make.'
-            )}
-          </p>
-          <form onSubmit={submit} className='mt-8 space-y-3'>
-            <label htmlFor='l0-question' className='text-sm font-medium'>
-              {t('What would you like to do?')}
-            </label>
-            <div className='bg-card focus-within:border-ring flex flex-col gap-3 rounded-xl border p-3 sm:flex-row sm:items-center'>
-              <Input
-                id='l0-question'
-                value={prompt}
-                onChange={(event) => setPrompt(event.target.value)}
-                maxLength={4000}
-                placeholder={t('Describe your idea or ask a question')}
-                aria-describedby='l0-privacy'
-                className='h-11 min-w-0 flex-1 border-0 bg-transparent text-base shadow-none focus-visible:ring-0 dark:bg-transparent'
-              />
-              <Button
-                type='submit'
-                disabled={!validPrompt}
-                className='h-11 px-4'
+            <span className='l0-status-dot' aria-hidden='true' />
+            <span aria-live='polite'>{statusLabel}</span>
+            <Arrow diagonal />
+          </button>
+          <details className='l0-help-menu' onKeyDown={closeDisclosure}>
+            <summary aria-label={copy.help}>?</summary>
+            <div className='l0-help-content'>
+              <button
+                type='button'
+                onClick={() => requestAssistantOpen('human')}
               >
-                {t('Ask AI assistant')}
-                <HugeiconsIcon
-                  icon={ArrowRight01Icon}
-                  aria-hidden='true'
-                  data-icon='inline-end'
-                />
-              </Button>
+                {copy.support}
+                <Arrow diagonal />
+              </button>
+              <button
+                type='button'
+                onClick={() => requestAssistantOpen('plan')}
+              >
+                {copy.plans}
+                <Arrow diagonal />
+              </button>
+              <p>{copy.privacyNote}</p>
             </div>
-          </form>
-          <div className='mt-4 flex flex-wrap gap-2'>
-            <Button
-              variant='outline'
-              className='h-auto min-h-11 px-3 py-2 whitespace-normal'
-              onClick={() =>
-                requestAssistantSend(undefined, t('Help me choose a model'))
-              }
-            >
-              {t('Help me choose a model')}
-            </Button>
-            <Button
-              variant='outline'
-              className='h-auto min-h-11 px-3 py-2 whitespace-normal'
-              onClick={() => requestAssistantOpen('client-setup')}
-            >
-              {t('Connect my coding tools')}
-            </Button>
-          </div>
-          <p
-            id='l0-privacy'
-            className='text-muted-foreground mt-5 max-w-lg text-xs leading-5'
-          >
-            {t(
-              'Never paste a password, API key, session cookie, or other secret into the conversation.'
-            )}
-          </p>
-          <div className='mt-8 flex flex-wrap items-center gap-x-5 gap-y-2 border-t pt-5'>
-            <span className='text-muted-foreground text-sm'>
-              {t('Need a person?')}
-            </span>
-            <Button
-              variant='link'
-              className='h-auto min-h-11 px-0'
-              onClick={() => requestAssistantOpen('human')}
-            >
-              {t('Talk to support')}
-            </Button>
-          </div>
-        </section>
+          </details>
+        </div>
+      </header>
 
-        <aside
-          className='bg-muted/40 min-w-0 rounded-xl p-5 sm:p-7 xl:my-8'
-          aria-labelledby='l0-access-title'
+      <div className='l0-stage'>
+        <div
+          className='l0-cloud'
+          ref={cloudRef}
+          data-testid='l0-token-cloud'
+          data-cloud-scene={scene}
         >
-          <div className='flex flex-wrap items-center justify-between gap-3'>
-            <h2 id='l0-access-title' className='text-xl font-semibold'>
-              {t('Make it yours with L1')}
-            </h2>
-            <Badge variant='outline'>
-              {t('L{{level}}', { level: user?.trust_level_info?.level ?? 0 })}
-            </Badge>
-          </div>
-          <p className='text-muted-foreground mt-3 text-sm leading-6'>
-            {t('API keys and developer tools unlock after access approval.')}
-          </p>
-          <ul className='my-5 space-y-3 text-sm'>
-            {[
-              t('Developer console access'),
-              t('Your own API keys'),
-              t('Usage and spending history'),
-            ].map((benefit) => (
-              <li key={benefit} className='flex items-start gap-2'>
-                <HugeiconsIcon
-                  icon={CheckmarkCircle02Icon}
-                  className='text-primary mt-0.5 size-4 shrink-0'
-                  aria-hidden='true'
-                />
-                {benefit}
-              </li>
-            ))}
-          </ul>
-          {showThreshold ? (
-            <div
-              className='space-y-3 border-t pt-5'
-              data-testid='l0-paid-progress'
-            >
-              <p className='text-sm font-medium'>
-                {t('{{amount}} eligible credit to unlock L1', {
-                  amount: money(threshold),
-                })}
-              </p>
-              <Progress
-                value={Math.min(100, (paidAmount / threshold) * 100)}
-                aria-label={t('Progress to L{{level}}', { level: 1 })}
-              />
-              <p className='text-muted-foreground text-xs leading-5'>
-                {t(
-                  '{{amount}} remaining. Only eligible external top-ups count; LinuxDO Credit is excluded.',
-                  { amount: money(remaining) }
-                )}
-              </p>
-            </div>
-          ) : null}
-          <Button
-            className='mt-5 h-auto min-h-11 w-full px-4 py-2 whitespace-normal'
-            onClick={() => requestAssistantOpen('plan')}
+          <svg
+            className='l0-cloud-fallback'
+            viewBox='0 0 720 320'
+            aria-hidden='true'
           >
-            {t('Explore plans and top-ups')}
-            <HugeiconsIcon
-              icon={ArrowRight01Icon}
-              data-icon='inline-end'
-              aria-hidden='true'
-            />
-          </Button>
-          <p className='text-muted-foreground mt-3 text-xs leading-5'>
-            {t(
-              'Review the price and payment options with the assistant before you pay.'
-            )}
-          </p>
-          <div className='mt-6 border-t pt-5'>
-            <h3 className='mb-3 text-sm font-semibold'>
-              {t('Apply with your use case')}
-            </h3>
-            <p className='text-muted-foreground mb-4 text-xs leading-5'>
-              {t(
-                'Describe what you want to build. Eligible requests may be approved automatically; others go to review.'
-              )}
-            </p>
-            {children}
-          </div>
-        </aside>
-      </div>
-
-      <section className='py-8 sm:py-10' aria-labelledby='l0-explore-title'>
-        <h2 id='l0-explore-title' className='text-lg font-semibold'>
-          {t('Explore before you commit')}
-        </h2>
-        <div className='mt-5 divide-y border-y'>
-          {[
-            {
-              to: '/pricing',
-              title: t('Models and pricing'),
-              description: t(
-                'Compare models and prices before your first request.'
-              ),
-            },
-            {
-              to: '/tool-market',
-              title: t('Tool market'),
-              description: t(
-                'Explore available tools and their access requirements.'
-              ),
-            },
-            {
-              to: '/challenges',
-              title: t('Browse open challenges'),
-              description: t(
-                'Find a project to contribute to. Contributions do not automatically unlock API access.'
-              ),
-            },
-          ].map((item) => (
-            <Link
-              key={item.to}
-              to={item.to}
-              className='group hover:bg-muted/40 focus-visible:ring-ring grid min-h-20 items-center gap-2 rounded-sm px-3 py-5 outline-none focus-visible:ring-2 sm:grid-cols-[12rem_1fr_auto] sm:gap-6'
-            >
-              <span className='flex items-center justify-between gap-3 font-medium'>
-                {item.title}
-                <HugeiconsIcon
-                  icon={ArrowRight01Icon}
-                  className='size-4 sm:hidden'
-                  aria-hidden='true'
+            {FALLBACK_TOKENS.map((token, index) => {
+              const p = projectL0Token(token, 0)
+              return (
+                <circle
+                  key={index}
+                  cx={360 + p.x * 145}
+                  cy={160 + p.y * 145}
+                  r={0.8 + p.depth}
+                  opacity={0.15 + p.depth * 0.6}
                 />
-              </span>
-              <span className='text-muted-foreground text-sm leading-6'>
-                {item.description}
-              </span>
-              <HugeiconsIcon
-                icon={ArrowRight01Icon}
-                className='text-muted-foreground hidden size-5 sm:block'
-                aria-hidden='true'
-              />
-            </Link>
+              )
+            })}
+          </svg>
+          <canvas aria-hidden='true' />
+          <button
+            type='button'
+            className='l0-cloud-toggle'
+            data-cloud-pause
+            aria-pressed='false'
+            aria-label={copy.toggleMotion}
+          >
+            <svg viewBox='0 0 24 24' fill='none' aria-hidden='true'>
+              <path className='l0-pause-icon' d='M9 7v10M15 7v10' />
+              <path className='l0-play-icon' d='m9 6 9 6-9 6z' />
+            </svg>
+          </button>
+        </div>
+
+        <div
+          className='l0-scene-tabs'
+          role='tablist'
+          aria-label={copy.navigation}
+        >
+          <span
+            className='l0-tab-indicator'
+            aria-hidden='true'
+            style={{ transform: `translateX(${SCENES.indexOf(scene) * 100}%)` }}
+          />
+          {SCENES.map((item, index) => (
+            <button
+              key={item}
+              ref={(node) => {
+                tabs.current[index] = node
+              }}
+              id={`l0-tab-${item}`}
+              role='tab'
+              type='button'
+              aria-selected={scene === item}
+              aria-controls={`l0-panel-${item}`}
+              tabIndex={scene === item ? 0 : -1}
+              onClick={() => selectScene(item)}
+              onKeyDown={(event) => navigateTabs(event, index)}
+            >
+              <SceneIcon scene={item} />
+              <span>{labels[item]}</span>
+            </button>
           ))}
         </div>
-      </section>
-      <details className='group border-b pb-5'>
-        <summary className='focus-visible:ring-ring cursor-pointer rounded-sm py-3 text-sm font-medium outline-none focus-visible:ring-2'>
-          {t('Already use Pi? Connect with OAuth')}
-        </summary>
-        <PiOAuthGuide />
-      </details>
-      <div className='mt-6'>
-        <SourceQuestionnaire />
+
+        <div className='l0-panels'>
+          <div
+            id='l0-panel-chat'
+            role='tabpanel'
+            aria-labelledby='l0-tab-chat'
+            hidden={scene !== 'chat'}
+            className='l0-panel'
+          >
+            <L0CloudConversation
+              cloudRef={cloudRef}
+              active={scene === 'chat'}
+            />
+          </div>
+
+          <div
+            id='l0-panel-explore'
+            role='tabpanel'
+            aria-labelledby='l0-tab-explore'
+            hidden={scene !== 'explore'}
+            className='l0-panel'
+          >
+            <section
+              className='l0-discover'
+              aria-roledescription={copy.carousel}
+              aria-label={copy.explore}
+            >
+              <div
+                className='l0-discover-switch'
+                role='group'
+                aria-label={copy.explore}
+              >
+                {destinations.map((item, index) => (
+                  <button
+                    key={item.to}
+                    type='button'
+                    aria-pressed={index === discovery}
+                    onClick={() => setDiscovery(index)}
+                  >
+                    {item.title}
+                  </button>
+                ))}
+              </div>
+              <div
+                className='l0-discover-slide'
+                key={selected.to}
+                aria-live='polite'
+                aria-atomic='true'
+              >
+                <div className='l0-discover-eyebrow' aria-hidden='true'>
+                  <span>{selected.mark}</span>
+                  <span>0{discovery + 1} / 03</span>
+                </div>
+                <h2>{selected.title}</h2>
+                <p>{selected.note}</p>
+                <Link to={selected.to} className='l0-discover-link'>
+                  {selected.action}
+                  <Arrow diagonal />
+                </Link>
+              </div>
+              <div className='l0-discover-controls'>
+                <div className='l0-discover-progress' aria-hidden='true'>
+                  {destinations.map((item, index) => (
+                    <i key={item.to} data-active={index === discovery} />
+                  ))}
+                </div>
+                <button
+                  type='button'
+                  className='l0-previous'
+                  aria-label={copy.previous}
+                  onClick={() => setDiscovery((discovery + 2) % 3)}
+                >
+                  <Arrow />
+                </button>
+                <button
+                  type='button'
+                  aria-label={copy.next}
+                  onClick={() => setDiscovery((discovery + 1) % 3)}
+                >
+                  <Arrow />
+                </button>
+              </div>
+            </section>
+          </div>
+
+          <div
+            id='l0-panel-access'
+            role='tabpanel'
+            aria-labelledby='l0-tab-access'
+            hidden={scene !== 'access'}
+            className='l0-panel'
+          >
+            <section
+              className='l0-unlock'
+              data-testid='l0-activation'
+              data-access-mode={access.mode}
+              aria-label={t('Account and access')}
+            >
+              <div className='l0-levels' aria-label='L0 → L1'>
+                <span>L0</span>
+                <i aria-hidden='true' />
+                <span>L1</span>
+              </div>
+              <h2>
+                {canTopUp
+                  ? copy.unlockTitle
+                  : access.mode === 'sync'
+                    ? copy.sync
+                    : copy.review}
+              </h2>
+              {canTopUp ? (
+                <>
+                  <p className='l0-policy-note'>{copy.description}</p>
+                  <div className='l0-credit' data-testid='l0-paid-progress'>
+                    {access.threshold > 0 ? (
+                      <>
+                        <span>{copy.remaining}</span>
+                        <strong>{money(access.remaining)}</strong>
+                      </>
+                    ) : (
+                      <span>{copy.minimum}</span>
+                    )}
+                  </div>
+                  <button
+                    type='button'
+                    className='l0-primary'
+                    data-testid='l0-topup-direct'
+                    onClick={() => void navigate({ to: '/wallet' })}
+                  >
+                    {copy.topup}
+                    <Arrow />
+                  </button>
+                  <details
+                    className='l0-conditions'
+                    onKeyDown={closeDisclosure}
+                  >
+                    <summary>
+                      {copy.conditions}
+                      <span aria-hidden='true'>+</span>
+                    </summary>
+                    <p>{copy.eligibility}</p>
+                  </details>
+                </>
+              ) : (
+                <>
+                  <p className='l0-policy-note'>
+                    {access.mode === 'sync'
+                      ? copy.syncNote
+                      : access.mode === 'review'
+                        ? copy.reviewNote
+                        : copy.unknown}
+                  </p>
+                  {access.mode === 'review' ? (
+                    <button
+                      type='button'
+                      className='l0-primary'
+                      onClick={() => requestAssistantOpen('onboarding')}
+                    >
+                      {copy.apply}
+                      <Arrow />
+                    </button>
+                  ) : (
+                    <button
+                      type='button'
+                      className='l0-primary'
+                      disabled={!user || busy}
+                      onClick={check}
+                    >
+                      {t('Reload account status')}
+                      <Arrow />
+                    </button>
+                  )}
+                </>
+              )}
+              <div className='l0-secondary'>
+                {canTopUp && (
+                  <button
+                    type='button'
+                    onClick={() => requestAssistantOpen('onboarding')}
+                  >
+                    {copy.apply}
+                  </button>
+                )}
+                <button
+                  type='button'
+                  data-testid='l0-check-payment'
+                  disabled={!user || busy}
+                  onClick={check}
+                >
+                  {copy.check}
+                </button>
+              </div>
+              <p className='l0-feedback' role='status' aria-live='polite'>
+                {checkState ? copy[checkState] : null}
+              </p>
+            </section>
+            <details
+              className='l0-account'
+              data-testid='l0-account-details'
+              onKeyDown={closeDisclosure}
+            >
+              <summary>
+                <span>{statusLabel}</span>
+                <span className='l0-disclosure-mark' aria-hidden='true'>
+                  +
+                </span>
+              </summary>
+              <div className='l0-account-body'>
+                {children}
+                <details className='l0-oauth' onKeyDown={closeDisclosure}>
+                  <summary>
+                    {copy.connectPi}
+                    <span className='l0-disclosure-mark' aria-hidden='true'>
+                      +
+                    </span>
+                  </summary>
+                  <PiOAuthGuide />
+                </details>
+                <SourceQuestionnaire />
+              </div>
+            </details>
+          </div>
+        </div>
       </div>
     </div>
   )
