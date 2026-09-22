@@ -103,8 +103,10 @@ try {
       const draft = page.getByRole('textbox', { name: '保留的草稿' })
       await draft.fill('切换后保留')
       await page.getByRole('tab', { name: '历史记录', exact: true }).click()
+      await draft.waitFor({ state: 'hidden' })
       assert.equal(await draft.isVisible(), false)
       await page.getByRole('tab', { name: '概览', exact: true }).click()
+      await draft.waitFor({ state: 'visible' })
       assert.equal(await draft.inputValue(), '切换后保留')
       const toggle = page.getByRole('switch', { name: '自动刷新' })
       assert.equal(await toggle.getAttribute('aria-checked'), 'true')
@@ -215,8 +217,7 @@ try {
         path: path.join(output, `failed-${width}.png`),
         fullPage: true,
       })
-      report.push({ width, error: String(error), errors })
-      throw error
+      report.push({ width, error: String(error), stack: error.stack, errors })
     } finally {
       await context.close()
     }
@@ -227,6 +228,12 @@ try {
     JSON.stringify(report, null, 2)
   )
   await browser.close()
+}
+const failures = report.filter((entry) => entry.error)
+if (failures.length) {
+  throw new Error(
+    `${failures.length} foundation viewport checks failed; see ui-report.json`
+  )
 }
 console.log(
   `UI foundation: ${report.length} views and interaction contracts passed`
