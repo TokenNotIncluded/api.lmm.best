@@ -13,7 +13,6 @@ import (
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/logger"
-	"github.com/LIghtJUNction/api.lmm.best/relaykit/types"
 
 	"github.com/gin-gonic/gin"
 )
@@ -133,28 +132,6 @@ func GetFileTypeFromUrl(c *gin.Context, url string, reason ...string) (string, e
 	return "application/octet-stream", nil
 }
 
-// GetFileBase64FromUrl 从 URL 获取文件的 base64 编码数据
-// Deprecated: 请使用 GetBase64Data 配合 types.NewURLFileSource 替代
-// 此函数保留用于向后兼容，内部已重构为调用统一的文件服务
-func GetFileBase64FromUrl(c *gin.Context, url string, reason ...string) (*types.LocalFileData, error) {
-	source := types.NewURLFileSource(url)
-	cachedData, err := LoadFileSource(c, source, reason...)
-	if err != nil {
-		return nil, err
-	}
-
-	// 转换为旧的 LocalFileData 格式以保持兼容
-	base64Data, err := cachedData.GetBase64Data()
-	if err != nil {
-		return nil, err
-	}
-	return &types.LocalFileData{
-		Base64Data: base64Data,
-		MimeType:   cachedData.MimeType,
-		Size:       cachedData.Size,
-		Url:        url,
-	}, nil
-}
 
 func GetMimeTypeByExtension(ext string) string {
 	// Convert to lowercase for case-insensitive comparison
