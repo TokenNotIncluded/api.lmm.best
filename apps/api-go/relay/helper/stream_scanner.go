@@ -3,6 +3,7 @@ package helper
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -24,6 +25,7 @@ import (
 )
 
 var ErrFirstResponseTimeout = errors.New("upstream first response timeout")
+var ErrSSEEventTooLarge = errors.New("upstream SSE event exceeds response body limit")
 
 const (
 	InitialScannerBufferSize    = 64 << 10 // 64KB (64*1024)
@@ -54,6 +56,21 @@ func NewStreamScanner(reader io.Reader) *bufio.Scanner {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, InitialScannerBufferSize), getScannerBufferSize())
 	return scanner
+}
+
+func looksLikeJSON(data string) bool {
+	if data == "null" || data == "true" || data == "false" {
+		return true
+	}
+	if data == "" {
+		return false
+	}
+	switch data[0] {
+	case '{', '[', '"':
+		return true
+	default:
+		return false
+	}
 }
 
 func copyCodexSSEHeaders(c *gin.Context, resp *http.Response) {
@@ -285,6 +302,48 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	// Scanner goroutine with improved error handling
 	wg.Add(1)
 	common.RelayCtxGo(ctx, func() {
+		var eventData strings.Builder
+		var eventDataSize int64
+		pendingJSONEvent := false
+		const eventDataSeparatorSize = 1 // LF inserted between consecutive data fields
+		maxEventSize := common.ResponseBodyLimit()
+		resetEvent := func() {
+			eventData.Reset()
+			eventDataSize = 0
+			pendingJSONEvent = false
+		}
+		appendEventData := func(data string) bool {
+			addition := int64(len(data))
+			if eventData.Len() > 0 {
+				addition += eventDataSeparatorSize
+			}
+			if maxEventSize > 0 && eventDataSize > maxEventSize-addition {
+				return false
+			}
+			if eventData.Len() > 0 {
+				eventData.WriteByte('\n')
+			}
+			eventData.WriteString(data)
+			eventDataSize += addition
+			return true
+		}
+		dispatchEvent := func() bool {
+			if eventData.Len() == 0 {
+				return true
+			}
+			info.SetFirstResponseTime()
+			info.ReceivedResponseCount++
+			data := eventData.String()
+			resetEvent()
+			select {
+			case dataChan <- data:
+				return true
+			case <-ctx.Done():
+				return false
+			case <-stopChan:
+				return false
+			}
+		}
 		defer func() {
 			close(dataChan)
 			if r := recover(); r != nil {
@@ -309,6 +368,12 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			ticker.Reset(streamingTimeout)
 			data := scanner.Text()
 			logger.LogDebug(c, "stream scanner data: %s", data)
+			if data == "" {
+				if !dispatchEvent() {
+					return
+				}
+				continue
+			}
 			if strings.HasPrefix(data, ":") {
 				select {
 				case dataChan <- ":": // normalize and keep the existing bounded queue
@@ -323,6 +388,9 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			// Check for bare [DONE] terminator first, before stripping prefix
 			trimmed := strings.TrimSpace(data)
 			if trimmed == "[DONE]" {
+				if !dispatchEvent() {
+					return
+				}
 				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonDone, nil)
 				logger.LogDebug(c, "received [DONE], stopping scanner")
 				return
@@ -338,23 +406,35 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			}
 			// Check for prefixed [DONE] (data: [DONE])
 			if data == "[DONE]" {
+				if !dispatchEvent() {
+					return
+				}
 				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonDone, nil)
 				logger.LogDebug(c, "received [DONE], stopping scanner")
 				return
 			}
 
-			info.SetFirstResponseTime()
-			info.ReceivedResponseCount++
-
-			select {
-			case dataChan <- data:
-			case <-ctx.Done():
+			if !appendEventData(data) {
+				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonScannerErr, ErrSSEEventTooLarge)
+				logger.LogError(c, "SSE event exceeds response body limit")
 				return
-			case <-stopChan:
+			}
+			// Most providers emit one complete JSON object per data line without
+			// the optional blank separator. Preserve that compatibility while
+			// folding standards-compliant multiline JSON events: an incomplete
+			// JSON-looking line remains pending until the event boundary.
+			if looksLikeJSON(data) && !json.Valid([]byte(eventData.String())) {
+				pendingJSONEvent = true
+				continue
+			}
+			if !pendingJSONEvent && !dispatchEvent() {
 				return
 			}
 		}
 
+		if !dispatchEvent() {
+			return
+		}
 		if err := scanner.Err(); err != nil {
 			if err != io.EOF {
 				logger.LogError(c, "scanner error: class="+relaycommon.StreamErrorClass(err))

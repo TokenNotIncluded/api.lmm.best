@@ -254,7 +254,15 @@ func writeResponsesEvent(c *gin.Context, eventType, data string) error {
 	if err := c.Request.Context().Err(); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", eventType, data); err != nil {
+	if _, err := fmt.Fprintf(c.Writer, "event: %s\n", eventType); err != nil {
+		return err
+	}
+	for _, line := range strings.Split(data, "\n") {
+		if _, err := fmt.Fprintf(c.Writer, "data: %s\n", line); err != nil {
+			return err
+		}
+	}
+	if _, err := fmt.Fprint(c.Writer, "\n"); err != nil {
 		return err
 	}
 	return helper.FlushWriter(c)

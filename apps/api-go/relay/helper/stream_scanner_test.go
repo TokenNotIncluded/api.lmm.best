@@ -3,6 +3,7 @@ package helper
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -223,6 +224,63 @@ func TestStreamScannerHandler_DataWithExtraSpaces(t *testing.T) {
 	})
 
 	assert.Equal(t, "{\"trimmed\":true}", got)
+}
+
+func TestStreamScannerHandler_FoldsMultilineSSEDataEvent(t *testing.T) {
+	t.Parallel()
+
+	body := "event: response.created\r\n" +
+		"data: {\"type\":\"response.created\",\r\n" +
+		": keep-alive\r\n" +
+		"data: \"response\":{\"id\":\"resp_test\",\"status\":\"in_progress\"}}\r\n" +
+		"\r\n" +
+		"data: [DONE]\r\n"
+	c, resp, info := setupStreamTest(t, strings.NewReader(body))
+
+	var payloads []map[string]any
+	StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {
+		if strings.HasPrefix(data, ":") {
+			return
+		}
+		var payload map[string]any
+		require.NoError(t, json.Unmarshal([]byte(data), &payload))
+		payloads = append(payloads, payload)
+	})
+
+	require.Len(t, payloads, 1)
+	assert.Equal(t, "response.created", payloads[0]["type"])
+	response, ok := payloads[0]["response"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "resp_test", response["id"])
+	assert.Equal(t, 1, info.ReceivedResponseCount)
+	require.NotNil(t, info.StreamStatus)
+	assert.Equal(t, relaycommon.StreamEndReasonDone, info.StreamStatus.EndReason)
+}
+
+func TestStreamScannerHandler_RejectsOversizedSSEEvent(t *testing.T) {
+	previous := constant.MaxResponseBodyMB
+	constant.MaxResponseBodyMB = 1
+	t.Cleanup(func() { constant.MaxResponseBodyMB = previous })
+
+	var body strings.Builder
+	body.WriteString("data: {\n")
+	for i := 0; i < 1024; i++ {
+		body.WriteString("data: \"")
+		body.WriteString(strings.Repeat("x", 1024))
+		body.WriteString("\"\n")
+	}
+	body.WriteString("\n")
+	c, resp, info := setupStreamTest(t, strings.NewReader(body.String()))
+
+	var callbacks int
+	StreamScannerHandler(c, resp, info, func(data string, _ *StreamResult) {
+		callbacks++
+	})
+
+	assert.Zero(t, callbacks)
+	require.NotNil(t, info.StreamStatus)
+	assert.Equal(t, relaycommon.StreamEndReasonScannerErr, info.StreamStatus.EndReason)
+	assert.ErrorIs(t, info.StreamStatus.EndError, ErrSSEEventTooLarge)
 }
 
 // TestStreamScannerHandler_ClientCancelAbortsUpstreamAndReturns pins the

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
+	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
 	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -104,4 +105,32 @@ func TestStreamScannerHeartbeatFrames(t *testing.T) {
 	})
 	require.True(t, w.Flushed)
 	require.Equal(t, "data: business\n\n: PING\n\n", w.Body.String())
+}
+
+func TestStringDataPrefixesEmbeddedNewlines(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+
+	require.NoError(t, StringData(c, "{\"a\":1}\n{\"b\":2}"))
+	require.Equal(t, "data: {\"a\":1}\ndata: {\"b\":2}\n\n", w.Body.String())
+}
+
+func TestNamedSSEDataHelpersPrefixEmbeddedNewlines(t *testing.T) {
+	for _, name := range []string{"claude", "responses"} {
+		t.Run(name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+			if name == "claude" {
+				ClaudeChunkData(c, dto.ClaudeResponse{Type: "message"}, "{\"a\":1}\n{\"b\":2}")
+			} else {
+				require.NoError(t, ResponseChunkData(c, dto.ResponsesStreamResponse{Type: "response.created"}, "{\"a\":1}\n{\"b\":2}"))
+			}
+			require.Equal(t,
+				"event: "+map[string]string{"claude": "message", "responses": "response.created"}[name]+"\n"+
+					"data: {\"a\":1}\ndata: {\"b\":2}\n\n",
+				w.Body.String())
+		})
+	}
 }
