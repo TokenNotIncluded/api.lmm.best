@@ -17,7 +17,8 @@
   font-family: inherit;
 }
 /* The legal notice and launcher remain outside the scrolling workspace. */
-.console-editorial [data-slot='sidebar-inset']:has(.settings-workspace) {
+.console-editorial [data-slot='sidebar-inset']:has(.settings-workspace),
+.console-editorial [class~='@container/content']:has(.settings-workspace) {
   padding-bottom: 0;
 }
 .settings-workspace .console-section-header :is(h1, h2) {
