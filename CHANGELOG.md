@@ -13,6 +13,9 @@ authenticated users then see it once after their next login.
 
 <!-- Add user-facing or operational changes here before the next release. -->
 
+- Ollama model discovery, pull, streaming pull, deletion, and version checks now
+  honor the channel's configured proxy and HTTP transport settings.
+
 - Rust model relays now use independent response-header (1800 seconds), byte-idle
   (300 seconds), and optional per-attempt total deadlines (disabled by default),
   with Rust environment settings taking precedence over Go-compatible aliases.
