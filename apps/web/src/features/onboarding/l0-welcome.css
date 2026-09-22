@@ -416,11 +416,11 @@ License, or (at your option) any later version.
 @keyframes l0-slide-in {
   from {
     opacity: 0;
-    transform: translateX(16px);
+    transform: translateY(10px);
   }
   to {
     opacity: 1;
-    transform: translateX(0);
+    transform: translateY(0);
   }
 }
 .l0-discover-eyebrow {
