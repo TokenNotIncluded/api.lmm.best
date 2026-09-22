@@ -185,7 +185,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	// Ensure gin.Context is not returned to Gin's pool while any stream goroutine can still use it.
 	defer cleanup()
 
-	scanner.Split(bufio.ScanLines)
+	scanner.Split(splitSSELines())
 	copyCodexSSEHeaders(c, resp)
 	SetEventStreamHeaders(c)
 
@@ -248,7 +248,11 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 
 	// Keep only one parsed event queued. A slow client still applies backpressure
 	// to the scanner, but cannot cause many large SSE strings to accumulate.
-	dataChan := make(chan string, 1)
+	type scannedEvent struct {
+		data      string
+		heartbeat bool
+	}
+	dataChan := make(chan scannedEvent, 1)
 
 	wg.Add(1)
 	gopool.Go(func() {
@@ -266,14 +270,14 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			func() {
 				writeMutex.Lock()
 				defer writeMutex.Unlock()
-				if strings.HasPrefix(data, ":") {
+				if data.heartbeat {
 					if err := writeHeartbeat(); err != nil {
 						sr.Stop(err)
 					}
 					return
 				}
 				ExtendWriteDeadline(c)
-				dataHandler(data, sr)
+				dataHandler(data.data, sr)
 				businessWritten = c.Writer.Written()
 			}()
 			if sr.IsStopped() {
@@ -285,6 +289,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	// Scanner goroutine with improved error handling
 	wg.Add(1)
 	common.RelayCtxGo(ctx, func() {
+		decoder := sseEventDecoder{limit: common.ResponseBodyLimit()}
 		defer func() {
 			close(dataChan)
 			if r := recover(); r != nil {
@@ -311,46 +316,31 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			logger.LogDebug(c, "stream scanner data: %s", data)
 			if strings.HasPrefix(data, ":") {
 				select {
-				case dataChan <- ":": // normalize and keep the existing bounded queue
+				case dataChan <- scannedEvent{heartbeat: true}:
 				case <-ctx.Done():
 					return
 				case <-stopChan:
 					return
 				}
-				continue
 			}
-
-			// Check for bare [DONE] terminator first, before stripping prefix
-			trimmed := strings.TrimSpace(data)
-			if trimmed == "[DONE]" {
+			payload, ready, done, err := decoder.line(data)
+			if err != nil {
+				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonScannerErr, err)
+				return
+			}
+			if ready {
+				info.SetFirstResponseTime()
+				info.ReceivedResponseCount++
+				select {
+				case dataChan <- scannedEvent{data: payload}:
+				case <-ctx.Done():
+					return
+				case <-stopChan:
+					return
+				}
+			}
+			if done {
 				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonDone, nil)
-				logger.LogDebug(c, "received [DONE], stopping scanner")
-				return
-			}
-
-			// Only process lines with data: prefix
-			if len(data) < 6 || !strings.HasPrefix(data, "data:") {
-				continue
-			}
-			data = strings.TrimSpace(data[5:])
-			if data == "" {
-				continue
-			}
-			// Check for prefixed [DONE] (data: [DONE])
-			if data == "[DONE]" {
-				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonDone, nil)
-				logger.LogDebug(c, "received [DONE], stopping scanner")
-				return
-			}
-
-			info.SetFirstResponseTime()
-			info.ReceivedResponseCount++
-
-			select {
-			case dataChan <- data:
-			case <-ctx.Done():
-				return
-			case <-stopChan:
 				return
 			}
 		}

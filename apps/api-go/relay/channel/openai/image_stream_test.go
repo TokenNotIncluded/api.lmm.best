@@ -87,7 +87,7 @@ func TestOpenaiImageStreamHandlerForwardsSSEAndUsage(t *testing.T) {
 		``,
 		`data: [DONE]`,
 		``,
-	}, "\n")
+	}, "\n") + "\n"
 
 	c, recorder, resp, info := newImageTestContext(t, body, "text/event-stream", true)
 	info.PriceData.UsePrice = true
@@ -126,7 +126,7 @@ func TestOpenaiImageStreamHandlerUsesCompletedEventCount(t *testing.T) {
 		``,
 		`data: [DONE]`,
 		``,
-	}, "\n")
+	}, "\n") + "\n"
 
 	c, _, resp, info := newImageTestContext(t, body, "text/event-stream", true)
 	info.PriceData.UsePrice = true
@@ -266,7 +266,7 @@ func TestOpenaiImageStreamHandlerClientDisconnectRaisesCount(t *testing.T) {
 		`data: {"type":"image_generation.completed","b64_json":"second"}`,
 		``,
 		``,
-	}, "\n")
+	}, "\n") + "\n"
 	c, _, resp, info := newDisconnectingImageStream(t, body, "second")
 	info.PriceData.UsePrice = true
 	info.PriceData.AddOtherRatio("n", 1)
@@ -429,7 +429,7 @@ func TestOpenaiImageStreamHandlerRecordsUpstreamErrorEvent(t *testing.T) {
 		`event: error`,
 		`data: {"type":"upstream_error","error":{"message":"stream error: stream ID 77; INTERNAL_ERROR; received from peer"}}`,
 		``,
-	}, "\n")
+	}, "\n") + "\n"
 
 	c, recorder, resp, info := newImageTestContext(t, body, "text/event-stream", true)
 
