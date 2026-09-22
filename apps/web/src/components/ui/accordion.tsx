@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+// Luma visual recipes adapted from shadcn/ui (MIT); see LUMA-LICENSE.txt.
 import { Accordion as AccordionPrimitive } from '@base-ui/react/accordion'
 import { ArrowDown01Icon, ArrowUp01Icon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
@@ -26,7 +27,10 @@ function Accordion({ className, ...props }: AccordionPrimitive.Root.Props) {
   return (
     <AccordionPrimitive.Root
       data-slot='accordion'
-      className={cn('flex w-full flex-col', className)}
+      className={cn(
+        'flex w-full flex-col overflow-hidden rounded-2xl border',
+        className
+      )}
       {...props}
     />
   )
@@ -36,7 +40,7 @@ function AccordionItem({ className, ...props }: AccordionPrimitive.Item.Props) {
   return (
     <AccordionPrimitive.Item
       data-slot='accordion-item'
-      className={cn('not-last:border-b', className)}
+      className={cn('data-open:bg-muted/50 not-last:border-b', className)}
       {...props}
     />
   )
@@ -52,7 +56,7 @@ function AccordionTrigger({
       <AccordionPrimitive.Trigger
         data-slot='accordion-trigger'
         className={cn(
-          'group/accordion-trigger focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:after:border-ring **:data-[slot=accordion-trigger-icon]:text-muted-foreground relative flex flex-1 items-start justify-between rounded-lg border border-transparent py-2.5 text-left text-sm font-medium transition-all outline-none hover:underline focus-visible:ring-3 aria-disabled:pointer-events-none aria-disabled:opacity-50 **:data-[slot=accordion-trigger-icon]:ml-auto **:data-[slot=accordion-trigger-icon]:size-4',
+          'group/accordion-trigger focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:after:border-ring relative flex flex-1 items-start justify-between rounded-lg border border-transparent transition-[color,background-color,border-color,box-shadow,opacity,transform] outline-none focus-visible:ring-3 aria-disabled:pointer-events-none aria-disabled:opacity-50 **:data-[slot=accordion-trigger-icon]:text-muted-foreground gap-6 p-4 text-left text-sm font-medium hover:underline **:data-[slot=accordion-trigger-icon]:ml-auto **:data-[slot=accordion-trigger-icon]:size-4 motion-reduce:transition-none',
           className
         )}
         {...props}
@@ -83,7 +87,9 @@ function AccordionContent({
   return (
     <AccordionPrimitive.Panel
       data-slot='accordion-content'
-      className='data-open:animate-accordion-down data-closed:animate-accordion-up overflow-hidden text-sm'
+      className={
+        'data-open:animate-accordion-down data-closed:animate-accordion-up overflow-hidden px-4 text-sm motion-reduce:animate-none'
+      }
       {...props}
     >
       <div

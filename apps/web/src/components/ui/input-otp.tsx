@@ -16,31 +16,47 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { MinusSignIcon } from '@hugeicons/core-free-icons'
-import { HugeiconsIcon } from '@hugeicons/react'
-import { OTPInput, OTPInputContext } from 'input-otp'
+// Luma visual recipes adapted from shadcn/ui (MIT); see LUMA-LICENSE.txt.
+import { OTPField } from '@base-ui/react/otp-field'
+import { Minus } from 'lucide-react'
 import * as React from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { cn } from '@/lib/utils'
+
+const OTPPresentation = React.createContext<{
+  length: number
+  invalid?: React.AriaAttributes['aria-invalid']
+  describedBy?: string
+}>({ length: 6 })
 
 function InputOTP({
   className,
   containerClassName,
+  length,
+  'aria-invalid': invalid,
+  'aria-describedby': describedBy,
   ...props
-}: React.ComponentProps<typeof OTPInput> & {
-  containerClassName?: string
-}) {
+}: OTPField.Root.Props & { containerClassName?: string }) {
+  const presentation = React.useMemo(
+    () => ({ length, invalid, describedBy }),
+    [length, invalid, describedBy]
+  )
   return (
-    <OTPInput
-      data-slot='input-otp'
-      containerClassName={cn(
-        'cn-input-otp flex items-center has-disabled:opacity-50',
-        containerClassName
-      )}
-      spellCheck={false}
-      className={cn('disabled:cursor-not-allowed', className)}
-      {...props}
-    />
+    <OTPPresentation.Provider value={presentation}>
+      <OTPField.Root
+        data-slot='input-otp'
+        length={length}
+        aria-invalid={invalid}
+        aria-describedby={describedBy}
+        className={cn(
+          'flex min-w-0 items-center gap-2 has-disabled:opacity-50',
+          containerClassName,
+          className
+        )}
+        {...props}
+      />
+    </OTPPresentation.Provider>
   )
 }
 
@@ -48,10 +64,7 @@ function InputOTPGroup({ className, ...props }: React.ComponentProps<'div'>) {
   return (
     <div
       data-slot='input-otp-group'
-      className={cn(
-        'has-aria-invalid:border-destructive has-aria-invalid:ring-destructive/20 dark:has-aria-invalid:ring-destructive/40 flex items-center rounded-lg has-aria-invalid:ring-3',
-        className
-      )}
+      className={cn('flex min-w-0 items-center gap-1', className)}
       {...props}
     />
   )
@@ -61,42 +74,41 @@ function InputOTPSlot({
   index,
   className,
   ...props
-}: React.ComponentProps<'div'> & {
-  index: number
-}) {
-  const inputOTPContext = React.useContext(OTPInputContext)
-  const { char, hasFakeCaret, isActive } = inputOTPContext?.slots[index] ?? {}
-
+}: OTPField.Input.Props & { index: number }) {
+  const { t } = useTranslation()
+  const { length, invalid, describedBy } = React.useContext(OTPPresentation)
   return (
-    <div
+    <OTPField.Input
       data-slot='input-otp-slot'
-      data-active={isActive}
+      aria-invalid={invalid}
+      aria-describedby={describedBy}
+      aria-label={
+        index === 0
+          ? undefined
+          : `${t('Verification Code')} ${index + 1} / ${length}`
+      }
       className={cn(
-        'border-input aria-invalid:border-destructive data-[active=true]:border-ring data-[active=true]:ring-ring/50 data-[active=true]:aria-invalid:border-destructive data-[active=true]:aria-invalid:ring-destructive/20 dark:bg-input/30 dark:data-[active=true]:aria-invalid:ring-destructive/40 relative flex size-8 items-center justify-center border-y border-r text-sm transition-all outline-none first:rounded-l-lg first:border-l last:rounded-r-lg data-[active=true]:z-10 data-[active=true]:ring-3',
+        'bg-input/50 border-transparent text-foreground size-10 min-w-0 rounded-xl border text-center text-base tabular-nums outline-none transition-[border-color,box-shadow,background-color] focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-3 aria-invalid:border-destructive aria-invalid:ring-destructive/20 disabled:cursor-not-allowed motion-reduce:transition-none sm:size-12',
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function InputOTPSeparator({ className, ...props }: OTPField.Separator.Props) {
+  return (
+    <OTPField.Separator
+      data-slot='input-otp-separator'
+      aria-hidden='true'
+      className={cn(
+        'text-muted-foreground flex shrink-0 items-center',
         className
       )}
       {...props}
     >
-      {char}
-      {hasFakeCaret && (
-        <div className='pointer-events-none absolute inset-0 flex items-center justify-center'>
-          <div className='animate-caret-blink bg-foreground h-4 w-px duration-1000' />
-        </div>
-      )}
-    </div>
-  )
-}
-
-function InputOTPSeparator({ ...props }: React.ComponentProps<'div'>) {
-  return (
-    <div
-      data-slot='input-otp-separator'
-      className="flex items-center [&_svg:not([class*='size-'])]:size-4"
-      role='separator'
-      {...props}
-    >
-      <HugeiconsIcon icon={MinusSignIcon} strokeWidth={2} />
-    </div>
+      <Minus className='size-3' />
+    </OTPField.Separator>
   )
 }
 

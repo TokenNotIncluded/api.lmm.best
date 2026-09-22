@@ -183,23 +183,25 @@ export function LogsFilterToolbar<TData>(props: LogsFilterToolbarProps<TData>) {
                 />
               </Button>
               {props.actionStart}
-              <DrawerTrigger asChild>
-                <Button
-                  type='button'
-                  variant='ghost'
-                  className={cn(
-                    'text-muted-foreground hover:text-foreground gap-1 px-2',
-                    activeMobileFilterCount > 0 &&
-                      'text-primary hover:text-primary'
-                  )}
-                >
-                  {t('Filter')}
-                  {activeMobileFilterCount > 0 && (
-                    <Badge className='ml-0.5 size-5 justify-center p-0 text-[10px]'>
-                      {activeMobileFilterCount}
-                    </Badge>
-                  )}
-                </Button>
+              <DrawerTrigger
+                render={
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    className={cn(
+                      'text-muted-foreground hover:text-foreground gap-1 px-2',
+                      activeMobileFilterCount > 0 &&
+                        'text-primary hover:text-primary'
+                    )}
+                  />
+                }
+              >
+                {t('Filter')}
+                {activeMobileFilterCount > 0 && (
+                  <Badge className='ml-0.5 size-5 justify-center p-0 text-[10px]'>
+                    {activeMobileFilterCount}
+                  </Badge>
+                )}
               </DrawerTrigger>
               <Button
                 type='button'
