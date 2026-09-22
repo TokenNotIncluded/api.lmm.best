@@ -28,17 +28,20 @@ import appI18n from '@/i18n/config'
 import '@/styles/index.css'
 
 import { UIFoundationPreview } from './ui-foundation-preview'
+import { UIFoundationSheetPreview } from './ui-foundation-sheet-preview'
 
 // This module is only imported from debug-main. There is no production route.
 const element = document.getElementById('root')
 if (!element) throw new Error('Missing preview root')
+const sheetReview =
+  new URLSearchParams(window.location.search).get('sheet_review') === '1'
 createRoot(element).render(
   <StrictMode>
     <I18nextProvider i18n={appI18n}>
       <ThemeProvider defaultTheme='light'>
         <FontProvider>
           <DirectionProvider>
-            <UIFoundationPreview />
+            {sheetReview ? <UIFoundationSheetPreview /> : <UIFoundationPreview />}
           </DirectionProvider>
         </FontProvider>
       </ThemeProvider>
