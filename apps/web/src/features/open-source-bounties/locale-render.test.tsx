@@ -55,7 +55,14 @@ for (const { code } of INTERFACE_LANGUAGE_OPTIONS) {
       )
     )
     assert.ok(timeline.includes(new Date(updatedAt * 1000).toISOString()))
-    assert.ok(timeline.includes('https://github.com/example/project/pull/2'))
+    const evidenceLinks = Array.from(
+      timeline.matchAll(/href="([^"]*)"/g),
+      ([, href]) => href
+    )
+    assert.deepEqual(evidenceLinks, [
+      challenge.issue_url,
+      challenge.pull_request_url,
+    ])
     assert.equal((timeline.match(/<time /g) ?? []).length, 2)
   })
 }
