@@ -13,6 +13,11 @@ authenticated users then see it once after their next login.
 
 <!-- Add user-facing or operational changes here before the next release. -->
 
+- Chat-to-Responses streams report interrupted upstream responses as failures
+  instead of fabricated completions, preserving partial output and existing
+  usage accounting. Clean EOF after a recognized finish reason remains valid;
+  cancellation and downstream write failures do not append terminal events.
+
 - Chat-to-Responses streams create a new reasoning output item when reasoning
   resumes after a closed segment, preserving each segment's ID, position, text,
   and closing status in the final response.
