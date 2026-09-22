@@ -18,7 +18,7 @@ Install the repository's locked dependencies and Playwright Chromium. Start the 
 
 Set `CONSOLE_REVIEW_OUTPUT` to an isolated output directory, optionally set `PLAYWRIGHT_MODULE` to an installed Playwright module path, and run `node scripts/console-page-review.mjs`.
 
-The target is fixed to `http://127.0.0.1:4174`. Requests to external origins are blocked; unexpected backend requests fail the review. `console_review=1` selects the explicit GET-only fixture catalog in the development entry. Production builds use `main.tsx`, not `debug-main.tsx`.
+The target is fixed to `http://127.0.0.1:4174`. Requests to external origins are blocked; unexpected backend requests fail the review. `console_review=1` selects the explicit read-only fixture catalog in the development entry. The catalog permits GET reads and the exact POST `/api/pricing/runtime` batch query; all purchase/payment/reset/refund mutations remain blocked. Production builds use `main.tsx`, not `debug-main.tsx`.
 
 `report.json` records identity, route, resolved URL, viewport, screenshot, errors, and visible page text. A review fails on route exceptions, error toasts, known data-load error states, or document-width overflow. Keep the artifact's `revision.txt` with the screenshots when comparing versions.
 
