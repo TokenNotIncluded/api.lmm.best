@@ -3424,7 +3424,7 @@
     "footer.columns.related.links.midjourney": "MjProxy",
     "footer.columns.related.title": "Связанные проекты",
     "footer.defaultCopyright": "Все права защищены.",
-    "footer.new\u0061pi.projectAttributionSuffix": "Все права защищены. Разработано участниками проекта.",
+    "footer.newapi.projectAttributionSuffix": "Все права защищены. Разработано участниками проекта.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "Для каналов, добавленных после 10 мая 2025 г., не нужно удалять \".\" из имён моделей при развёртывании",
     "For example, a reliable OpenAI-compatible endpoint": "Например: надежный эндпоинт, совместимый с OpenAI",
     "For example: 12, 34, 56": "Например: 12, 34, 56",
@@ -9160,6 +9160,12 @@
     "Zhipu V4": "Zhipu V4",
     "Zoom": "Масштаб",
     "Zoom in": "Увеличить",
-    "Zoom out": "Уменьшить"
+    "Zoom out": "Уменьшить",
+    "Assistant connection": "Подключение",
+    "Assistant conversation": "Диалог",
+    "Assistant tools": "Инструменты",
+    "Assistant runtime": "Выполнение",
+    "Assistant review": "Проверка",
+    "Assistant data": "Данные"
   }
 }

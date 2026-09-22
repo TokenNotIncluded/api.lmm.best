@@ -3424,7 +3424,7 @@
     "footer.columns.related.links.midjourney": "MjProxy",
     "footer.columns.related.title": "関連プロジェクト",
     "footer.defaultCopyright": "すべての権利を留保します。",
-    "footer.new\u0061pi.projectAttributionSuffix": "すべての権利を留保します。プロジェクトコントリビューターにより設計・開発されています。",
+    "footer.newapi.projectAttributionSuffix": "すべての権利を留保します。プロジェクトコントリビューターにより設計・開発されています。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "2025 年 5 月 10 日以降に追加されたチャネルの場合、デプロイ時にモデル名から「.」を削除する必要はありません",
     "For example, a reliable OpenAI-compatible endpoint": "例：信頼できる OpenAI 互換エンドポイント",
     "For example: 12, 34, 56": "例：12, 34, 56",
@@ -9160,6 +9160,12 @@
     "Zhipu V4": "Zhipu V 4",
     "Zoom": "ズーム",
     "Zoom in": "拡大",
-    "Zoom out": "縮小"
+    "Zoom out": "縮小",
+    "Assistant connection": "モデル",
+    "Assistant conversation": "会話",
+    "Assistant tools": "ツール",
+    "Assistant runtime": "実行",
+    "Assistant review": "審査",
+    "Assistant data": "データ"
   }
 }

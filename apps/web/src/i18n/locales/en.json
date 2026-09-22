@@ -3424,7 +3424,7 @@
     "footer.columns.related.links.midjourney": "MjProxy",
     "footer.columns.related.title": "Related Projects",
     "footer.defaultCopyright": "All rights reserved.",
-    "footer.new\u0061pi.projectAttributionSuffix": "All rights reserved. Designed and developed by the project contributors.",
+    "footer.newapi.projectAttributionSuffix": "All rights reserved. Designed and developed by the project contributors.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment",
     "For example, a reliable OpenAI-compatible endpoint": "For example, a reliable OpenAI-compatible endpoint",
     "For example: 12, 34, 56": "For example: 12, 34, 56",
@@ -9160,6 +9160,12 @@
     "Zhipu V4": "Zhipu V4",
     "Zoom": "Zoom",
     "Zoom in": "Zoom in",
-    "Zoom out": "Zoom out"
+    "Zoom out": "Zoom out",
+    "Assistant connection": "Connection",
+    "Assistant conversation": "Conversation",
+    "Assistant tools": "Tools",
+    "Assistant runtime": "Runtime",
+    "Assistant review": "Review",
+    "Assistant data": "Data"
   }
 }

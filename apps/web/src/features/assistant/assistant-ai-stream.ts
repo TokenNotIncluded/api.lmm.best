@@ -131,6 +131,15 @@ export async function consumeAssistantAISDKStream(
       const reader = body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
+      let skipLeadingLF = false
+      // SSE allows CR, LF and CRLF. Preserve a CRLF boundary split across reads,
+      // including decoder calls that produce no characters for partial UTF-8.
+      const normalizeLines = (text: string) => {
+        if (!text) return text
+        const start = skipLeadingLF && text.startsWith('\n') ? 1 : 0
+        skipLeadingLF = text.endsWith('\r')
+        return text.slice(start).replaceAll(/\r\n?/g, '\n')
+      }
       let eventName = ''
       let eventData: string[] = []
       let eventSize = 0
@@ -244,7 +253,7 @@ export async function consumeAssistantAISDKStream(
           const { done, value } = await Promise.race([reader.read(), stopped])
           if (signal.aborted) throw assistantAbortReason(signal)
           if (done) {
-            buffer += decoder.decode()
+            buffer += normalizeLines(decoder.decode())
             if (buffer) processLine(buffer)
             dispatch()
             if (!result) {
@@ -254,7 +263,7 @@ export async function consumeAssistantAISDKStream(
           }
           // Heartbeats reset idle time, never the absolute request deadline.
           if (value.byteLength) resetIdle()
-          buffer += decoder.decode(value, { stream: true })
+          buffer += normalizeLines(decoder.decode(value, { stream: true }))
           let index: number
           while ((index = buffer.indexOf('\n')) >= 0) {
             const line = buffer.slice(0, index)

@@ -3424,7 +3424,7 @@
     "footer.columns.related.links.midjourney": "MjProxy",
     "footer.columns.related.title": "Các Dự Án Liên Quan",
     "footer.defaultCopyright": "Bản quyền được bảo lưu.",
-    "footer.new\u0061pi.projectAttributionSuffix": "Bản quyền được bảo lưu. Được thiết kế và phát triển bởi các cộng tác viên dự án.",
+    "footer.newapi.projectAttributionSuffix": "Bản quyền được bảo lưu. Được thiết kế và phát triển bởi các cộng tác viên dự án.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "Đối với các kênh được thêm sau ngày 10 tháng 5 năm 2025, không cần loại bỏ \".\" khỏi tên mô hình trong quá trình triển khai",
     "For example, a reliable OpenAI-compatible endpoint": "Ví dụ: một endpoint tương thích OpenAI đáng tin cậy",
     "For example: 12, 34, 56": "Ví dụ: 12, 34, 56",
@@ -9160,6 +9160,12 @@
     "Zhipu V4": "Zhipu V4",
     "Zoom": "Thu phóng",
     "Zoom in": "Phóng to",
-    "Zoom out": "Thu nhỏ"
+    "Zoom out": "Thu nhỏ",
+    "Assistant connection": "Kết nối",
+    "Assistant conversation": "Hội thoại",
+    "Assistant tools": "Công cụ",
+    "Assistant runtime": "Vận hành",
+    "Assistant review": "Xét duyệt",
+    "Assistant data": "Dữ liệu"
   }
 }

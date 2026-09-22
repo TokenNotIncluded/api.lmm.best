@@ -3424,7 +3424,7 @@
     "footer.columns.related.links.midjourney": "MjProxy",
     "footer.columns.related.title": "相關項目",
     "footer.defaultCopyright": "版權所有。",
-    "footer.new\u0061pi.projectAttributionSuffix": "版權所有，由項目貢獻者設計與開發。",
+    "footer.newapi.projectAttributionSuffix": "版權所有，由項目貢獻者設計與開發。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "對於 2025 年 5 月 10 日之後新增的渠道，在部署時無需從模型名稱中移除 \".\"",
     "For example, a reliable OpenAI-compatible endpoint": "例如：穩定的 OpenAI 相容介面",
     "For example: 12, 34, 56": "例如：12, 34, 56",
@@ -9160,6 +9160,12 @@
     "Zhipu V4": "智譜 V4",
     "Zoom": "縮放",
     "Zoom in": "放大",
-    "Zoom out": "縮小"
+    "Zoom out": "縮小",
+    "Assistant connection": "模型",
+    "Assistant conversation": "對話",
+    "Assistant tools": "工具",
+    "Assistant runtime": "執行",
+    "Assistant review": "審核",
+    "Assistant data": "資料"
   }
 }
