@@ -83,7 +83,7 @@ func setupCheckinTestDB(t *testing.T) *gorm.DB {
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 	DB, LOG_DB = db, db
-		// Trust-level evaluation reads payment history, so top_ups must exist too.
+	// Trust-level evaluation reads payment history, so top_ups must exist too.
 	require.NoError(t, db.AutoMigrate(&User{}, &Checkin{}, &TopUp{}))
 
 	t.Cleanup(func() {
