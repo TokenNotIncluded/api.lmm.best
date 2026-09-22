@@ -14,54 +14,64 @@ export function createL0Tokens(width: number) {
     seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0
     return seed / 4294967296
   }
-  return Array.from({ length: width < 560 ? 1000 : 2600 }, (_, index) => ({
-    angle: random() * Math.PI * 2,
-    cross: random() * Math.PI * 2,
-    radius: 0.35 + Math.sqrt(random()) * (index % 9 === 0 ? 1.05 : 0.65),
+  // A broad volume, not thousands of points compressed onto a thin torus.
+  return Array.from({ length: width < 560 ? 320 : 780 }, (_, index) => ({
+    angle: index * 2.39996323 + random() * 0.35,
+    cross: Math.acos(random() * 2 - 1),
+    radius: (0.24 + Math.cbrt(random()) * 0.76) * (index % 11 === 0 ? 1.18 : 1),
     phase: random() * Math.PI * 2,
-    glyph: index % 10 === 0 ? GLYPHS[Math.floor(random() * GLYPHS.length)] : '',
+    group: index % 3,
+    softness: 0.55 + random() * 0.45,
+    glyph: index % 8 === 0 ? GLYPHS[Math.floor(random() * GLYPHS.length)] : '',
   }))
 }
 
 type Token = ReturnType<typeof createL0Tokens>[number]
+type Point = { x: number; y: number }
+const anchors = new WeakMap<HTMLElement, Point[]>()
 
-/** Three breathing lobes share one continuous, perspective-projected field. */
+/** Normalized positions from the last painted cloud, shared with text flights. */
+export function getL0CloudAnchor(root: HTMLElement, sequence: number): Point {
+  const points = anchors.get(root)
+  return points?.[sequence % points.length] ?? { x: 0.5, y: 0.6 }
+}
+
+/** Soft overlapping lobes retain depth while morphing into separate scenes. */
 export function projectL0Token(
   token: Token,
   time: number,
   tilt = 0,
   scene = 0
 ) {
-  const u = token.angle + time * 0.000045
-  const v = token.cross + Math.sin(time * 0.0002 + token.phase) * 0.12
-  const tube = (0.32 + Math.sin(u * 3 + time * 0.00012) * 0.065) * token.radius
-  const ring = 0.87 + Math.cos(u * 3) * 0.065 + Math.cos(v) * tube
-  // One particle field reshapes between conversation, discovery and access.
+  const u = token.angle + time * 0.000018
+  const v = token.cross
+  const breath = 1 + Math.sin(time * 0.00025 + token.phase) * 0.055
+  const radius = token.radius * breath
+  const sx = Math.cos(u) * Math.sin(v) * radius
+  const sy = Math.cos(v) * radius
+  const sz = Math.sin(u) * Math.sin(v) * radius
+  const group = token.group
   const progress = Math.max(0, Math.min(2, scene))
   const explore = 1 - Math.abs(progress - 1)
   const access = Math.max(0, progress - 1)
   const chat = 1 - explore - access
-  const group = Math.floor((token.phase / (Math.PI * 2)) * 3)
-  const spreadX = (group - 1) * 0.69 + Math.cos(u) * Math.cos(v) * 0.35
-  const spreadY = (group === 1 ? -0.36 : 0.2) + Math.sin(v) * 0.36
-  const linkedX = (token.phase < Math.PI ? -0.36 : 0.36) + Math.cos(u) * 0.48
-  const x = Math.cos(u) * ring * chat + spreadX * explore + linkedX * access
+  const x =
+    ((group - 1) * 0.7 + sx * 0.64) * chat +
+    ((group - 1) * 0.96 + sx * 0.38) * explore +
+    ((group === 0 ? -0.44 : 0.44) + Math.cos(u) * 0.52 + sx * 0.12) * access
   const y =
-    Math.sin(u) * ring * chat + spreadY * explore + Math.sin(u) * 0.7 * access
-  const z =
-    Math.sin(v) * tube * chat +
-    Math.sin(u) * 0.3 * explore +
-    Math.sin(v) * 0.15 * access
-  const a = 0.62 + tilt * 0.15
+    ((group === 1 ? -0.12 : 0.12) + sy * 0.54) * chat +
+    ((group === 1 ? -0.3 : 0.18) + sy * 0.38) * explore +
+    (Math.sin(u) * 0.57 + sy * 0.16) * access
+  const z = sz * (0.46 * chat + 0.35 * explore + 0.27 * access)
+  const a = 0.2 + tilt * 0.12
   const y1 = y * Math.cos(a) - z * Math.sin(a)
   const z1 = y * Math.sin(a) + z * Math.cos(a)
-  const x1 = x * 0.97 + z1 * 0.24
-  const z2 = z1 * 0.97 - x * 0.24
-  const perspective = 3.8 / (3.8 - z2)
+  const perspective = 4.8 / (4.8 - z1)
   return {
-    x: (x1 * 0.97 + y1 * 0.24) * perspective,
-    y: (y1 * 0.97 - x1 * 0.24) * perspective,
-    depth: Math.max(0, Math.min(1, (z2 + 1) / 2)),
+    x: (x + z1 * 0.12) * perspective,
+    y: y1 * perspective,
+    depth: Math.max(0, Math.min(1, (z1 + 0.7) / 1.4)),
   }
 }
 
@@ -106,7 +116,8 @@ export function mountL0TokenCloud(root: HTMLElement): () => void {
     ctx.fillStyle = color
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    const scale = Math.min(width * 0.35, height * 0.43)
+    const scale = Math.min(width * 0.3, height * 0.67)
+    const landingPoints: Point[] = []
     for (const token of tokens) {
       const p = projectL0Token(
         token,
@@ -122,15 +133,19 @@ export function mountL0TokenCloud(root: HTMLElement): () => void {
       const pull = (pointer.pressed ? -0.75 : 0.18) * pointer.strength
       x += dx * influence * pull
       y += dy * influence * pull
-      ctx.globalAlpha = 0.16 + p.depth * p.depth * 0.84
+      ctx.globalAlpha = (0.14 + p.depth * p.depth * 0.74) * token.softness
+      if (token.glyph && p.y > -0.05 && landingPoints.length < 24) {
+        landingPoints.push({ x: x / width, y: y / height })
+      }
       if (token.glyph) {
-        ctx.font = `${8 + p.depth * 3}px ui-monospace, monospace`
+        ctx.font = `${9 + Math.round(p.depth * 3)}px ui-monospace, monospace`
         ctx.fillText(token.glyph, x, y)
       } else {
-        const size = 0.6 + p.depth * 1.1
+        const size = 0.65 + p.depth * 0.8
         ctx.fillRect(x, y, size, size)
       }
     }
+    anchors.set(root, landingPoints)
     ctx.globalAlpha = 1
   }
   const tick = (now: number) => {
@@ -265,6 +280,7 @@ export function mountL0TokenCloud(root: HTMLElement): () => void {
     win.removeEventListener('scroll', scroll, true)
     doc.removeEventListener('visibilitychange', sync)
     reduced.removeEventListener('change', sync)
+    anchors.delete(root)
     delete root.dataset.cloudReady
   }
 }

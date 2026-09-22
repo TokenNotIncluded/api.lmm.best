@@ -119,8 +119,8 @@ function fixture({ reduced = false, contextAvailable = true } = {}) {
 
 test('deterministic bounded geometry with a smaller mobile budget', () => {
   assert.deepEqual(createL0Tokens(760), createL0Tokens(760))
-  assert.equal(createL0Tokens(390).length, 1000)
-  assert.equal(createL0Tokens(760).length, 2600)
+  assert.equal(createL0Tokens(390).length, 320)
+  assert.equal(createL0Tokens(760).length, 780)
   for (const token of createL0Tokens(760)) {
     assert.match(token.glyph, /^[\x20-\x7e]*$/)
     for (const time of [0, 120_000, 900_000]) {
@@ -263,4 +263,20 @@ test('scene changes under reduced motion redraw the correct static shape without
   assert.equal(f.frames.size, 0)
   dispose()
   assert.equal(f.disconnects, 3)
+})
+
+test('letters populate all three lobes and the cloud has a broad silhouette', () => {
+  for (const width of [390, 760]) {
+    const tokens = createL0Tokens(width)
+    assert.equal(
+      new Set(tokens.filter((token) => token.glyph).map((token) => token.group))
+        .size,
+      3
+    )
+    const points = tokens.map((token) => projectL0Token(token, 0))
+    const span =
+      Math.max(...points.map((point) => point.x)) -
+      Math.min(...points.map((point) => point.x))
+    assert.ok(span > 2.2)
+  }
 })

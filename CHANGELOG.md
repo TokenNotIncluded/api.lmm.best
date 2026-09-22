@@ -13,6 +13,9 @@ authenticated users then see it once after their next login.
 
 <!-- Add user-facing or operational changes here before the next release. -->
 
+- OpenRouter price previews omit the entire model when the derived output
+  ratio overflows, avoiding a partial input-only quote.
+
 - Fixed the Go new-user journey: L0 checkout, security-email verification and
   public script/game reads no longer disappear behind the console gate.
   Authentication, payment restrictions and developer/admin boundaries remain.

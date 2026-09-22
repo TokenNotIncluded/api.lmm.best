@@ -42,7 +42,7 @@ import './l0-welcome.css'
 const SCENES = ['chat', 'explore', 'access'] as const
 type Scene = (typeof SCENES)[number]
 const FALLBACK_TOKENS = createL0Tokens(390).filter(
-  (_, index) => index % 3 === 0
+  (_, index) => index % 4 === 0
 )
 
 function Arrow({ diagonal = false }: { diagonal?: boolean }) {
@@ -258,8 +258,8 @@ function L0WelcomeStage({
               return (
                 <circle
                   key={index}
-                  cx={360 + p.x * 145}
-                  cy={160 + p.y * 145}
+                  cx={360 + p.x * 200}
+                  cy={160 + p.y * 200}
                   r={0.8 + p.depth}
                   opacity={0.15 + p.depth * 0.6}
                 />
