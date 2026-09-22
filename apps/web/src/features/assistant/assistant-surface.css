@@ -49,12 +49,34 @@
   border-bottom-color: transparent;
 }
 .assistant-user-message {
-  margin-inline-start: auto;
-  width: fit-content;
+  margin: 0;
+  max-width: 100%;
+}
+.assistant-surface .is-user > div {
   max-width: 92%;
   padding: 0.625rem 0.875rem;
   border-radius: 1rem 1rem 0.3rem 1rem;
   background: var(--muted);
+}
+/* Override inherited data-side widths only for this assistant instance. */
+.assistant-surface[data-slot='sheet-content'] {
+  inset: 0;
+  width: 100vw;
+  max-width: 100vw;
+  height: 100dvh;
+  max-height: 100dvh;
+  border: 0;
+  border-radius: 0;
+}
+@media (min-width: 640px) {
+  .assistant-surface[data-slot='sheet-content'] {
+    inset: 0.5rem 0.5rem 0.5rem auto;
+    width: min(32rem, calc(100vw - 1rem));
+    max-width: none;
+    height: auto;
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+  }
 }
 .assistant-conversation-actions {
   color: var(--muted-foreground);

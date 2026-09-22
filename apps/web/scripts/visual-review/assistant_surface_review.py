@@ -142,6 +142,7 @@ async def main():
                     await page.locator('.l0-help-menu summary').click()
                     await page.locator('.l0-help-content button').nth(1).click()
                     await page.get_by_test_id('l0-assistant-task').wait_for()
+                    assert await page.locator('.l0-help-menu').get_attribute('open') is None
                     await page.locator('#ai-assistant-panel textarea').wait_for()
                     assert await page.locator('#l0-question').is_hidden()
                     assert await page.get_by_test_id('assistant-rail').count() == 0
@@ -164,6 +165,10 @@ async def main():
                     panel = page.locator('#ai-assistant-panel')
                     await panel.locator('textarea').wait_for()
                     await page.wait_for_timeout(800)
+                    if width < 640:
+                        box = await panel.bounding_box()
+                        assert abs(box['width'] - width) <= 1, box
+                        assert abs(box['height'] - height) <= 1, box
                     await capture('empty')
                     if width >= 1280:
                         box = await panel.bounding_box()

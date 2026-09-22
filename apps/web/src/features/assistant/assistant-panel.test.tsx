@@ -905,9 +905,9 @@ describe('AssistantPanel', () => {
           presets.getAttribute('aria-label'),
           'Choose a topic or write a message.'
         )
-        assert.match(presets.className, /flex-wrap/)
+        assert.doesNotMatch(presets.className, /flex-wrap/)
         assert.doesNotMatch(presets.className, /flex-nowrap/)
-        assert.doesNotMatch(presets.className, /overflow-x-auto/)
+        assert.match(presets.className, /overflow-x-auto/)
         assert.ok(findButton('Talk to support'))
         assert.match(document.body.textContent ?? '', /Configure my client/)
 
@@ -929,8 +929,8 @@ describe('AssistantPanel', () => {
         assert.ok(promptShell)
         assert.ok(textarea)
         assert.match(promptShell.className, /assistant-prompt-input/)
-        assert.match(promptShell.className, /rounded-3xl/)
-        assert.match(textarea.className, /min-h-10/)
+        assert.match(promptShell.className, /rounded-2xl/)
+        assert.match(textarea.className, /min-h-12/)
         assert.doesNotMatch(
           document.body.textContent ?? '',
           /charged to the super administrator account, not your wallet/
@@ -1048,7 +1048,8 @@ describe('AssistantPanel', () => {
                 (item) => item.textContent === prompt
               )
             )
-            assert.match(button.className, /max-w-full/)
+            assert.match(button.className, /max-w-\[85%\]/)
+            assert.match(button.className, /whitespace-nowrap/)
             assert.doesNotMatch(group.textContent ?? '', /旧标签|权限边界/)
             const previousChats = chats.length
             await act(async () => {

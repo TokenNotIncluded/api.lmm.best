@@ -29,6 +29,15 @@ for (const key of [
   'history',
   'location',
   'HTMLElement',
+  'HTMLButtonElement',
+  'HTMLFormElement',
+  'HTMLInputElement',
+  'HTMLTextAreaElement',
+  'FormData',
+  'File',
+  'FileReader',
+  'ResizeObserver',
+  'getComputedStyle',
   'SVGElement',
   'Node',
   'Element',
@@ -431,7 +440,9 @@ describe('getting started access boundaries', () => {
     const page = await renderPage(true)
     assert.equal(page.container.querySelector('a[href="/wallet"]'), null)
     await act(async () => button(page, 'Plans & top-ups').click())
-    assert.equal(consumeQueuedAssistantRequest()?.preset, 'plan')
+    assert.equal(consumeQueuedAssistantRequest(), null)
+    assert.ok(page.container.querySelector('[data-testid="l0-assistant-task"]'))
+    await act(async () => button(page, 'Back to conversation').click())
     await act(async () => button(page, 'Explore').click())
     for (const [label, path] of [
       ['Tools', '/tool-market'],
