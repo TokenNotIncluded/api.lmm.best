@@ -13,6 +13,10 @@ authenticated users then see it once after their next login.
 
 <!-- Add user-facing or operational changes here before the next release. -->
 
+- Chat-to-Responses streams create a new reasoning output item when reasoning
+  resumes after a closed segment, preserving each segment's ID, position, text,
+  and closing status in the final response.
+
 - Ollama model discovery, pull, streaming pull, deletion, and version checks now
   honor the channel's configured proxy and HTTP transport settings.
 
