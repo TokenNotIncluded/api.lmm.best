@@ -1,0 +1,100 @@
+name: Console navigation review
+
+on:
+  pull_request:
+    paths:
+      - "apps/web/src/components/layout/**"
+      - "apps/web/src/components/command-menu.tsx"
+      - "apps/web/src/components/data-table/core/**"
+      - "apps/web/src/features/acquisition/consent.tsx"
+      - "apps/web/src/debug-main.tsx"
+      - "apps/web/scripts/console-navigation-review.mjs"
+      - ".github/workflows/console-navigation-review.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: console-navigation-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  browser-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.3.14"
+      - name: Install locked application dependencies
+        run: bun install --frozen-lockfile
+      - name: Capture formatter suggestions without changing the tested source
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/console-review"
+          bun run --filter @lmm/web format
+          git diff -- apps/web > "$RUNNER_TEMP/console-review/format.patch"
+          git restore -- apps/web
+      - name: Install isolated browser tooling
+        shell: bash
+        run: |
+          npm install --prefix "$RUNNER_TEMP/console-browser" --no-package-lock --ignore-scripts playwright@1.56.1
+          node "$RUNNER_TEMP/console-browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Exercise real UI with development-only synthetic personas
+        shell: bash
+        working-directory: apps/web
+        env:
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/console-browser/node_modules/playwright/index.mjs
+          CONSOLE_REVIEW_OUTPUT: ${{ runner.temp }}/console-review
+        run: |
+          LMM_ENABLE_PERSONA_DEBUG=1 bun run dev --port 4174 > "$RUNNER_TEMP/console-review/dev.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for _ in $(seq 1 120); do
+            if curl --fail --silent http://127.0.0.1:4174/ > /dev/null; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          test "$ready" = 1
+          node scripts/console-navigation-review.mjs
+      - name: Upload browser evidence before quality checks
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: console-navigation-visuals
+          path: |
+            ${{ runner.temp }}/console-review/*.png
+            ${{ runner.temp }}/console-review/*.json
+            ${{ runner.temp }}/console-review/format.patch
+          retention-days: 7
+          if-no-files-found: warn
+      - name: Collect independent frontend quality evidence
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/console-review"
+          failed=0
+          for check in format:check copyright:check lint typecheck test build bundle:check; do
+            if bun run --filter @lmm/web "$check" > "$RUNNER_TEMP/console-review/${check//:/-}.log" 2>&1; then
+              printf '%s: PASS\n' "$check" | tee -a "$RUNNER_TEMP/console-review/quality.txt"
+            else
+              failed=1
+              printf '%s: FAIL\n' "$check" | tee -a "$RUNNER_TEMP/console-review/quality.txt"
+              tail -n 40 "$RUNNER_TEMP/console-review/${check//:/-}.log"
+            fi
+          done
+          exit "$failed"
+      - name: Upload screenshots, assertions, and diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: console-navigation-review
+          path: ${{ runner.temp }}/console-review
+          retention-days: 7
+          if-no-files-found: warn

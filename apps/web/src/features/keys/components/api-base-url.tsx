@@ -24,12 +24,14 @@ export function ApiBaseUrl() {
     : ''
   return (
     <section
-      className='mb-4 min-w-0 space-y-2 rounded-lg border p-3'
+      className='bg-muted/30 mb-5 min-w-0 space-y-2 rounded-xl border p-4'
       aria-label={t('Base URL')}
     >
-      <p className='text-sm font-medium'>{t('OpenAI-compatible Base URL')}</p>
+      <p className='text-muted-foreground text-xs font-medium'>
+        {t('Base URL')}
+      </p>
       <div className='flex min-w-0 flex-wrap items-center gap-2'>
-        <code className='min-w-0 flex-1 text-sm break-all'>
+        <code className='min-w-0 flex-1 text-sm font-medium break-all'>
           {baseUrl ?? t(loading ? 'Loading...' : 'API address unavailable')}
         </code>
         <Button
