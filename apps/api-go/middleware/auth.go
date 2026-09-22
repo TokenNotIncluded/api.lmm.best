@@ -353,8 +353,22 @@ func preActivationRouteAllowed(method string, path string) bool {
 		return method == http.MethodGet
 	case "/api/user/register", "/api/user/login", "/api/user/login/2fa", "/api/user/reset", "/api/user/auth/refresh", "/api/user/auth/logout":
 		return method == http.MethodPost
-	case "/api/verify":
+	case "/api/verify", "/api/verify/email":
 		return method == http.MethodPost
+	case "/api/user/topup/info", "/api/user/topup/self":
+		return method == http.MethodGet
+	case "/api/user/discount-code/validate", "/api/user/amount", "/api/user/pay",
+		"/api/user/stripe/amount", "/api/user/stripe/pay", "/api/user/creem/pay",
+		"/api/user/waffo/amount", "/api/user/waffo/pay", "/api/user/waffo-pancake/amount", "/api/user/waffo-pancake/pay":
+		// Checkout must precede paid activation. UserAuth, body limits and the
+		// provider-specific payment policy still run on every request.
+		return method == http.MethodPost
+	case "/api/livez", "/api/uptime/status", "/api/scripts", "/api/games/signal/daily", "/api/games/signal/leaderboard":
+		return method == http.MethodGet
+	case "/api/games/signal/attempts", "/api/games/signal/finish":
+		return method == http.MethodPost
+	case "/api/games/signal/records":
+		return method == http.MethodGet || method == http.MethodPost
 	case "/api/data/self", "/api/data/flow/self":
 		// These endpoints are authenticated, user-scoped reads. Keep them
 		// available to an authenticated account before console activation;
@@ -385,6 +399,11 @@ func preActivationRouteAllowed(method string, path string) bool {
 		return method == http.MethodPut
 	}
 
+	// Only public raw-script reads; repository settings and editors remain root-only.
+	if strings.HasPrefix(path, "/api/scripts/") && strings.HasSuffix(path, "/raw") {
+		name := strings.TrimSuffix(strings.TrimPrefix(path, "/api/scripts/"), "/raw")
+		return method == http.MethodGet && name != "" && !strings.Contains(name, "/")
+	}
 	if strings.HasPrefix(path, "/api/user/sessions/") || strings.HasPrefix(path, "/api/user/oauth/bindings/") || strings.HasPrefix(path, "/api/user/bindings/") {
 		return method == http.MethodDelete
 	}
