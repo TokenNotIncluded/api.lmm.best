@@ -1,0 +1,97 @@
+name: Apply reviewed console patch once
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/console-transfer-once.yml"
+      - ".github/console-transfer/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: console-transfer-447
+  cancel-in-progress: false
+
+jobs:
+  apply-and-preview:
+    if: ${{ github.event.pull_request.number == 447 && github.event.pull_request.head.repo.full_name == 'TokenNotIncluded/api.lmm.best' && github.event.pull_request.head.ref == 'codex/console-single-navigation' }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Validate the exact patch and apply to the isolated PR branch
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD^)" = ae0ebf94ba3d38f284153782402a27d6f35cf2e5
+          python3 - <<'PY'
+          import gzip, hashlib, json, pathlib, subprocess
+          root = pathlib.Path('.github/console-transfer')
+          data = b''.join((root / f'{i}.gzpart').read_bytes() for i in range(6))
+          assert hashlib.sha256(data).hexdigest() == 'c5f9c11353d7878b9ecaf333f69a43634d01ce6eccce1cd0d81ba1481f2a963a'
+          payload = json.loads(gzip.decompress(data))
+          assert set(payload) == {'patch', 'scanner'}
+          patch = payload['patch'].encode()
+          for line in payload['patch'].splitlines():
+              if line.startswith('diff --git '):
+                  _, _, old, new = line.split()
+                  assert old.startswith('a/apps/web/src/') and new.startswith('b/apps/web/src/')
+                  assert '..' not in pathlib.PurePosixPath(new).parts
+          subprocess.run(['git', 'apply', '--check', '-'], input=patch, check=True)
+          subprocess.run(['git', 'apply', '-'], input=patch, check=True)
+          pathlib.Path('apps/web/scripts/console-page-review.mjs').write_text(payload['scanner'])
+          PY
+          git diff --check
+          git diff --stat
+          git rm .github/console-transfer/*.gzpart
+          git add apps/web/src apps/web/scripts/console-page-review.mjs
+          git -c user.name='LIghtJUNction' -c user.email='106986785+LIghtJUNction@users.noreply.github.com' commit -m 'feat(web): simplify console pages and fix Chinese SMS balance crash' -m 'Normalize Intl locale callers following #454 by kilisamemarisaaa. Add ordinary-user balance regressions, persistent filter/disclosure tests, and an explicit read-only page-review fixture catalog. No production deployment.'
+      - name: Fast-forward only the existing console review branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/codex/console-single-navigation
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.3.14"
+      - name: Install locked application and isolated browser tools
+        shell: bash
+        run: |
+          bun install --frozen-lockfile
+          npm install --prefix "$RUNNER_TEMP/console-browser" --no-package-lock --ignore-scripts playwright@1.56.1
+          node "$RUNNER_TEMP/console-browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Capture Chinese console pages without real service requests
+        shell: bash
+        working-directory: apps/web
+        env:
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/console-browser/node_modules/playwright/index.mjs
+          CONSOLE_REVIEW_OUTPUT: ${{ runner.temp }}/console-pages
+        run: |
+          mkdir -p "$CONSOLE_REVIEW_OUTPUT"
+          git rev-parse HEAD > "$CONSOLE_REVIEW_OUTPUT/revision.txt"
+          LMM_ENABLE_PERSONA_DEBUG=1 bun run dev --port 4174 > "$CONSOLE_REVIEW_OUTPUT/dev.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for _ in $(seq 1 90); do
+            if curl --fail --silent http://127.0.0.1:4174/ > /dev/null; then ready=1; break; fi
+            sleep 2
+          done
+          test "$ready" = 1
+          node scripts/console-page-review.mjs
+      - name: Upload actual page screenshots and diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: console-pages
+          path: ${{ runner.temp }}/console-pages
+          retention-days: 7
+          if-no-files-found: warn
