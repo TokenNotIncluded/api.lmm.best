@@ -56,7 +56,7 @@ func TestOaiResponsesToChatStreamHandlerConvertsSSEOrderAndUsage(t *testing.T) {
 		`data: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":2,"output_tokens":3,"total_tokens":5}}}`,
 		`data: [DONE]`,
 		``,
-	}, "\n")
+	}, "\n\n")
 
 	c, recorder, resp, info := newResponsesChatTestContext(t, body, true)
 
@@ -102,7 +102,7 @@ func TestOaiResponsesToChatStreamHandlerConvertsClaudeSSETerminalsAndUsage(t *te
 		`data: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":2,"output_tokens":3,"total_tokens":5}}}`,
 		`data: [DONE]`,
 		``,
-	}, "\n")
+	}, "\n\n")
 
 	c, recorder, resp, info := newResponsesChatTestContext(t, body, true)
 	info.RelayFormat = types.RelayFormatClaude
@@ -153,7 +153,7 @@ func TestOaiResponsesToChatBufferedStreamHandlerReturnsJSONFromSSE(t *testing.T)
 		`data: {"type":"response.done","response":{"model":"gpt-test","status":"completed","usage":{"input_tokens":1,"output_tokens":2,"total_tokens":3}}}`,
 		`data: [DONE]`,
 		``,
-	}, "\n")
+	}, "\n\n")
 
 	c, recorder, resp, info := newResponsesChatTestContext(t, body, false)
 
@@ -189,7 +189,7 @@ func TestOaiChatToResponsesStreamHandlerConvertsSSEOrderAndUsage(t *testing.T) {
 		`data: {"id":"chatcmpl_1","object":"chat.completion.chunk","created":1710000000,"model":"gpt-test","choices":[],"usage":{"prompt_tokens":2,"completion_tokens":3,"total_tokens":5}}`,
 		`data: [DONE]`,
 		``,
-	}, "\n")
+	}, "\n\n")
 
 	c, recorder, resp, info := newResponsesChatTestContext(t, body, true)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)

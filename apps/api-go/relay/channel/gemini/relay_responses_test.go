@@ -139,7 +139,7 @@ func TestGeminiResponsesStreamHandlerReturnsOpenAIResponsesSSE(t *testing.T) {
 		"",
 		"data: [DONE]",
 		"",
-	}, "\n")
+	}, "\n") + "\n"
 
 	usage, newAPIError := GeminiResponsesStreamHandler(c, info, &http.Response{
 		Body: io.NopCloser(strings.NewReader(streamBody)),

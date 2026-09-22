@@ -3,6 +3,7 @@ package helper
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -50,9 +51,9 @@ func setupStreamTest(t *testing.T, body io.Reader) (*gin.Context, *http.Response
 func buildSSEBody(n int) string {
 	var b strings.Builder
 	for i := 0; i < n; i++ {
-		fmt.Fprintf(&b, "data: {\"id\":%d,\"choices\":[{\"delta\":{\"content\":\"token_%d\"}}]}\n", i, i)
+		fmt.Fprintf(&b, "data: {\"id\":%d,\"choices\":[{\"delta\":{\"content\":\"token_%d\"}}]}\n\n", i, i)
 	}
-	b.WriteString("data: [DONE]\n")
+	b.WriteString("data: [DONE]\n\n")
 	return b.String()
 }
 
@@ -155,7 +156,7 @@ func TestStreamScannerHandler_OrderPreserved(t *testing.T) {
 func TestStreamScannerHandler_DoneStopsScanner(t *testing.T) {
 	t.Parallel()
 
-	body := buildSSEBody(50) + "data: should_not_appear\n"
+	body := buildSSEBody(50) + "data: should_not_appear\n\n"
 	c, resp, info := setupStreamTest(t, strings.NewReader(body))
 
 	var count atomic.Int64
@@ -196,10 +197,10 @@ func TestStreamScannerHandler_SkipsNonDataLines(t *testing.T) {
 	b.WriteString("id: 12345\n")
 	b.WriteString("retry: 5000\n")
 	for i := 0; i < 100; i++ {
-		fmt.Fprintf(&b, "data: payload_%d\n", i)
+		fmt.Fprintf(&b, "data: payload_%d\n\n", i)
 		b.WriteString(": interleaved comment\n")
 	}
-	b.WriteString("data: [DONE]\n")
+	b.WriteString("data: [DONE]\n\n")
 
 	c, resp, info := setupStreamTest(t, strings.NewReader(b.String()))
 
@@ -214,7 +215,7 @@ func TestStreamScannerHandler_SkipsNonDataLines(t *testing.T) {
 func TestStreamScannerHandler_DataWithExtraSpaces(t *testing.T) {
 	t.Parallel()
 
-	body := "data:   {\"trimmed\":true}  \ndata: [DONE]\n"
+	body := "data:   {\"trimmed\":true}  \n\ndata: [DONE]\n\n"
 	c, resp, info := setupStreamTest(t, strings.NewReader(body))
 
 	var got string
@@ -222,7 +223,64 @@ func TestStreamScannerHandler_DataWithExtraSpaces(t *testing.T) {
 		got = data
 	})
 
-	assert.Equal(t, "{\"trimmed\":true}", got)
+	assert.Equal(t, "  {\"trimmed\":true}  ", got)
+}
+
+func TestStreamScannerHandler_FoldsMultilineSSEDataEvent(t *testing.T) {
+	t.Parallel()
+
+	body := "event: response.created\r\n" +
+		"data: {\"type\":\"response.created\",\r\n" +
+		": keep-alive\r\n" +
+		"data: \"response\":{\"id\":\"resp_test\",\"status\":\"in_progress\"}}\r\n" +
+		"\r\n" +
+		"data: [DONE]\r\n\r\n"
+	c, resp, info := setupStreamTest(t, strings.NewReader(body))
+
+	var payloads []map[string]any
+	StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {
+		if strings.HasPrefix(data, ":") {
+			return
+		}
+		var payload map[string]any
+		require.NoError(t, json.Unmarshal([]byte(data), &payload))
+		payloads = append(payloads, payload)
+	})
+
+	require.Len(t, payloads, 1)
+	assert.Equal(t, "response.created", payloads[0]["type"])
+	response, ok := payloads[0]["response"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "resp_test", response["id"])
+	assert.Equal(t, 1, info.ReceivedResponseCount)
+	require.NotNil(t, info.StreamStatus)
+	assert.Equal(t, relaycommon.StreamEndReasonDone, info.StreamStatus.EndReason)
+}
+
+func TestStreamScannerHandler_RejectsOversizedSSEEvent(t *testing.T) {
+	previous := constant.MaxResponseBodyMB
+	constant.MaxResponseBodyMB = 1
+	t.Cleanup(func() { constant.MaxResponseBodyMB = previous })
+
+	var body strings.Builder
+	body.WriteString("data: {\n")
+	for i := 0; i < 1024; i++ {
+		body.WriteString("data: \"")
+		body.WriteString(strings.Repeat("x", 1024))
+		body.WriteString("\"\n")
+	}
+	body.WriteString("\n")
+	c, resp, info := setupStreamTest(t, strings.NewReader(body.String()))
+
+	var callbacks int
+	StreamScannerHandler(c, resp, info, func(data string, _ *StreamResult) {
+		callbacks++
+	})
+
+	assert.Zero(t, callbacks)
+	require.NotNil(t, info.StreamStatus)
+	assert.Equal(t, relaycommon.StreamEndReasonScannerErr, info.StreamStatus.EndReason)
+	assert.ErrorIs(t, info.StreamStatus.EndError, ErrSSEEventTooLarge)
 }
 
 // TestStreamScannerHandler_ClientCancelAbortsUpstreamAndReturns pins the
@@ -264,7 +322,7 @@ func TestStreamScannerHandler_ClientCancelAbortsUpstreamAndReturns(t *testing.T)
 		close(done)
 	}()
 
-	_, err := fmt.Fprint(pw, "data: first\n")
+	_, err := fmt.Fprint(pw, "data: first\n\n")
 	require.NoError(t, err)
 
 	select {
@@ -285,7 +343,7 @@ func TestStreamScannerHandler_ClientCancelAbortsUpstreamAndReturns(t *testing.T)
 
 	// Upstream read side must be closed so the provider stops generating
 	// (and billing) for a request nobody is listening to.
-	_, err = fmt.Fprint(pw, "data: second\n")
+	_, err = fmt.Fprint(pw, "data: second\n\n")
 	require.ErrorIs(t, err, io.ErrClosedPipe, "upstream body should be closed after client disconnect")
 
 	assert.Equal(t, int64(1), count.Load(), "no chunk after disconnect should be processed")
@@ -314,10 +372,10 @@ func TestStreamScannerHandler_PingSentDuringSlowUpstream(t *testing.T) {
 	go func() {
 		defer pw.Close()
 		for i := 0; i < 4; i++ {
-			fmt.Fprintf(pw, "data: chunk_%d\n", i)
+			fmt.Fprintf(pw, "data: chunk_%d\n\n", i)
 			time.Sleep(400 * time.Millisecond)
 		}
-		fmt.Fprint(pw, "data: [DONE]\n")
+		fmt.Fprint(pw, "data: [DONE]\n\n")
 	}()
 
 	recorder := httptest.NewRecorder()
@@ -418,7 +476,7 @@ func TestStreamScannerHandler_StreamStatus_EOFWithoutDone(t *testing.T) {
 
 	var b strings.Builder
 	for i := 0; i < 5; i++ {
-		fmt.Fprintf(&b, "data: {\"id\":%d}\n", i)
+		fmt.Fprintf(&b, "data: {\"id\":%d}\n\n", i)
 	}
 	c, resp, info := setupStreamTest(t, strings.NewReader(b.String()))
 
@@ -476,7 +534,7 @@ func TestStreamScannerHandler_StreamStatus_Timeout(t *testing.T) {
 
 	pr, pw := io.Pipe()
 	go func() {
-		fmt.Fprint(pw, "data: {\"id\":1}\n")
+		fmt.Fprint(pw, "data: {\"id\":1}\n\n")
 		time.Sleep(2 * time.Second)
 		pw.Close()
 	}()
@@ -604,7 +662,7 @@ func TestStreamScannerHandler_StreamStatus_ErrorThenStop(t *testing.T) {
 	// and handler's Stop on the sync.Once EndReason.
 	var b strings.Builder
 	for i := 0; i < 100; i++ {
-		fmt.Fprintf(&b, "data: {\"id\":%d}\n", i)
+		fmt.Fprintf(&b, "data: {\"id\":%d}\n\n", i)
 	}
 	c, resp, info := setupStreamTest(t, strings.NewReader(b.String()))
 

@@ -232,7 +232,7 @@ func runOaiAudioStream(t *testing.T, shouldIncludeUsage bool) (*dto.Usage, strin
 		`data: {"id":"chatcmpl-audio","object":"chat.completion.chunk","created":1710000000,"model":"gpt-audio","choices":[],"finish_reason":"stop"}`,
 		`data: [DONE]`,
 		``,
-	}, "\n")
+	}, "\n\n")
 
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
