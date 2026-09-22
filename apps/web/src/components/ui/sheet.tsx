@@ -72,11 +72,10 @@ function SheetContent({
 }) {
   const { t } = useTranslation()
 
-  // Side-specific classes are emitted via JS conditionals (rather than
-  // `data-[side=*]:` variants) so consumer-provided width overrides such as
-  // `sm:max-w-2xl` can be correctly merged by `tailwind-merge` and the CSS
-  // cascade — the data-attribute variants would otherwise win on specificity
-  // and trap the panel at the default `sm:max-w-sm` width.
+  // Keep ALL side-specific geometry in these plain conditional classes.
+  // A data-[side=*]: sizing variant in the shared classes has higher CSS
+  // specificity and survives tailwind-merge, overriding consumers such as
+  // w-full / sm:max-w-5xl and crushing the channel editor's desktop columns.
   return (
     <SheetPortal>
       <SheetOverlay className={overlayClassName} />
@@ -84,13 +83,13 @@ function SheetContent({
         data-slot='sheet-content'
         data-side={side}
         className={cn(
-          'gap-4 overflow-hidden data-ending-style:opacity-0 data-starting-style:opacity-0 bg-popover text-popover-foreground fixed z-50 flex flex-col bg-clip-padding text-sm shadow-xl transition duration-200 ease-in-out data-[side=bottom]:inset-x-0 data-[side=bottom]:bottom-0 data-[side=bottom]:h-auto data-[side=bottom]:border-t data-[side=left]:inset-y-0 data-[side=left]:left-0 data-[side=left]:h-full data-[side=left]:w-3/4 data-[side=left]:border-r data-[side=right]:inset-y-0 data-[side=right]:right-0 data-[side=right]:h-full data-[side=right]:w-3/4 data-[side=right]:border-l data-[side=top]:inset-x-0 data-[side=top]:top-0 data-[side=top]:h-auto data-[side=top]:border-b data-[side=left]:sm:max-w-sm data-[side=right]:sm:max-w-sm motion-reduce:transition-none',
+          'gap-4 overflow-hidden data-ending-style:opacity-0 data-starting-style:opacity-0 bg-popover text-popover-foreground fixed z-50 flex flex-col bg-clip-padding text-sm shadow-xl transition duration-200 ease-in-out motion-reduce:transition-none',
           side === 'right' &&
             'inset-y-0 right-0 h-full w-3/4 border-l data-ending-style:translate-x-[2.5rem] data-starting-style:translate-x-[2.5rem] sm:max-w-sm',
           side === 'left' &&
             'inset-y-0 left-0 h-full w-3/4 border-r data-ending-style:translate-x-[-2.5rem] data-starting-style:translate-x-[-2.5rem] sm:max-w-sm',
           side === 'top' &&
-            'inset-x-0 top-0 h-auto border-b data-ending-style:translate-y-[-2.5rem] data-starting-style:translate-y-[-2.5rem]',
+            'inset-x-0 top-0 h-auto border-t data-ending-style:translate-y-[-2.5rem] data-starting-style:translate-y-[-2.5rem]',
           side === 'bottom' &&
             'inset-x-0 bottom-0 h-auto border-t data-ending-style:translate-y-[2.5rem] data-starting-style:translate-y-[2.5rem]',
           className
