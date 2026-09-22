@@ -204,10 +204,12 @@ try {
         true
       )
       await page.emulateMedia({ reducedMotion: 'reduce' })
-      const duration = await toggle.evaluate(
-        (el) => getComputedStyle(el).transitionDuration
+      // Tailwind transition-none disables the property; its inherited duration
+      // may remain nonzero without producing any transition.
+      const transitionProperty = await toggle.evaluate(
+        (el) => getComputedStyle(el).transitionProperty
       )
-      assert.equal(duration, '0s')
+      assert.equal(transitionProperty, 'none')
     } catch (error) {
       await page.screenshot({
         path: path.join(output, `failed-${width}.png`),
