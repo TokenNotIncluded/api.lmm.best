@@ -13,6 +13,9 @@ authenticated users then see it once after their next login.
 
 <!-- Add user-facing or operational changes here before the next release. -->
 
+- Ollama model discovery, pull, streaming pull, deletion, and version checks now
+  honor the channel's configured proxy and HTTP transport settings.
+
 - OpenRouter price previews omit the entire model when the derived output
   ratio overflows, avoiding a partial input-only quote.
 
