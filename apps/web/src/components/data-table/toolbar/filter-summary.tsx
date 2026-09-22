@@ -23,6 +23,8 @@ import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 
+import { getFilterValues, removeFilterValue } from './filter-values'
+
 export type FilterDef = {
   columnId: string
   title: string
@@ -34,24 +36,6 @@ export type FilterDef = {
     count?: number
   }[]
   singleSelect?: boolean
-}
-
-type FilterValue = string | number | boolean
-
-/** Ignore malformed filter state instead of constructing a Set from an object. */
-export function getFilterValues(value: unknown): FilterValue[] {
-  const values = Array.isArray(value) ? value : [value]
-  return values.filter(
-    (item): item is FilterValue =>
-      (typeof item === 'string' && item !== '') ||
-      (typeof item === 'number' && Number.isFinite(item)) ||
-      typeof item === 'boolean'
-  )
-}
-
-export function removeFilterValue(current: unknown, value: FilterValue) {
-  const remaining = getFilterValues(current).filter((item) => item !== value)
-  return remaining.length ? remaining : undefined
 }
 
 export function DataTableFilterSummary<TData>({

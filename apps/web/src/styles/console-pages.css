@@ -218,14 +218,21 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 /* Preserve semantic vertical tabs; horizontal labels must not shrink into each other. */
-.console-editorial .console-page [data-slot='tabs-list'][aria-orientation='horizontal'] {
+.console-editorial
+  .console-page
+  [data-slot='tabs-list'][aria-orientation='horizontal'] {
   scroll-padding-inline: 0.5rem;
   scrollbar-width: thin;
 }
-.console-editorial .console-page [data-slot='tabs-list'][aria-orientation='horizontal'] > [data-slot='tabs-trigger'] {
+.console-editorial
+  .console-page
+  [data-slot='tabs-list'][aria-orientation='horizontal']
+  > [data-slot='tabs-trigger'] {
   flex-shrink: 0;
 }
-.console-editorial .console-page [data-slot='tabs-list'][aria-orientation='vertical'] {
+.console-editorial
+  .console-page
+  [data-slot='tabs-list'][aria-orientation='vertical'] {
   flex-direction: column;
   overflow-x: visible;
 }

@@ -40,7 +40,7 @@ import {
 import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
 
-import { getFilterValues } from './filter-summary'
+import { getFilterValues } from './filter-values'
 
 type DataTableFacetedFilterProps<TData, TValue> = {
   column?: Column<TData, TValue>

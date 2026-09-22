@@ -28,23 +28,44 @@ const report = []
 
 async function capture(page, route, name, errors) {
   await page.evaluate(() => document.fonts.ready)
-  await page.screenshot({ path: path.join(output, name), animations: 'disabled', fullPage: true })
+  await page.screenshot({
+    path: path.join(output, name),
+    animations: 'disabled',
+    fullPage: true,
+  })
   const dimensions = await page.evaluate(() => ({
-    width: innerWidth, scroll: document.documentElement.scrollWidth,
+    width: innerWidth,
+    scroll: document.documentElement.scrollWidth,
   }))
   const text = await page.locator('body').innerText()
-  assert.ok(!/Invalid language tag|Internal Server Error|PERSONA_DEBUG_UNMOCKED_REQUEST/.test(text))
+  assert.ok(
+    !/Invalid language tag|Internal Server Error|PERSONA_DEBUG_UNMOCKED_REQUEST/.test(
+      text
+    )
+  )
   assert.ok(dimensions.scroll <= dimensions.width + 1)
   assert.deepEqual(errors, [])
-  assert.equal(await page.locator('[data-sonner-toast][data-type="error"]:visible').count(), 0)
-  report.push({ persona: 'l1', path: route, screenshot: name, dimensions, errors: [...errors] })
+  assert.equal(
+    await page
+      .locator('[data-sonner-toast][data-type="error"]:visible')
+      .count(),
+    0
+  )
+  report.push({
+    persona: 'l1',
+    path: route,
+    screenshot: name,
+    dimensions,
+    errors: [...errors],
+  })
 }
 
 try {
   for (const width of [1440, 390, 320]) {
     const context = await browser.newContext({
       viewport: { width, height: width > 640 ? 1000 : 844 },
-      locale: 'zh-CN', serviceWorkers: 'block',
+      locale: 'zh-CN',
+      serviceWorkers: 'block',
     })
     await context.addInitScript(() => {
       localStorage.setItem('i18nextLng', 'zhCN')
@@ -54,9 +75,18 @@ try {
     await context.route('**/*', async (route) => {
       const url = new URL(route.request().url())
       if (url.origin !== origin) return route.abort('blockedbyclient')
-      if (url.pathname === '/api/status') return route.fulfill({ json: {
-        success: true, data: { system_name: 'LMM Best', assistant: { enabled: true }, announcements_enabled: false },
-      } })
+      if (url.pathname === '/api/status') {
+        return route.fulfill({
+          json: {
+            success: true,
+            data: {
+              system_name: 'LMM Best',
+              assistant: { enabled: true },
+              announcements_enabled: false,
+            },
+          },
+        })
+      }
       if (url.pathname.startsWith('/api/')) {
         errors.push(`Unexpected backend request: ${url.pathname}`)
         return route.abort('blockedbyclient')
@@ -74,10 +104,14 @@ try {
       await toggle.click()
       const status = toolbar.getByRole('button', { name: /^(Status|状态)$/ })
       await status.click()
-      await page.getByRole('option', { name: /^(Enabled|已启用)(?:\s|$)/ }).click()
+      await page
+        .getByRole('option', { name: /^(Enabled|已启用)(?:\s|$)/ })
+        .click()
       await page.keyboard.press('Escape')
       await toggle.click()
-      const chips = toolbar.getByRole('group', { name: /^(Filters active|筛选已启用)$/ })
+      const chips = toolbar.getByRole('group', {
+        name: /^(Filters active|筛选已启用)$/,
+      })
       await chips.waitFor({ state: 'visible' })
       assert.equal(await toggle.getAttribute('aria-expanded'), 'false')
       if (width < 640) {
@@ -86,13 +120,25 @@ try {
       }
       await capture(page, '/keys', `l1-keys-${width}-active-filter.png`, errors)
       if (width === 1440) {
-        await page.evaluate(() => document.documentElement.classList.add('dark'))
-        await capture(page, '/keys', 'l1-keys-1440-active-filter-dark.png', errors)
-        await page.evaluate(() => document.documentElement.classList.remove('dark'))
+        await page.evaluate(() =>
+          document.documentElement.classList.add('dark')
+        )
+        await capture(
+          page,
+          '/keys',
+          'l1-keys-1440-active-filter-dark.png',
+          errors
+        )
+        await page.evaluate(() =>
+          document.documentElement.classList.remove('dark')
+        )
       }
       await chips.getByRole('button').click()
       await chips.waitFor({ state: 'detached' })
-      assert.equal(await toggle.evaluate((el) => el === document.activeElement), true)
+      assert.equal(
+        await toggle.evaluate((el) => el === document.activeElement),
+        true
+      )
       await toggle.click()
       assert.equal((await status.innerText()).trim(), '状态')
       await toggle.click()
@@ -108,23 +154,41 @@ try {
         await drawer.waitFor({ state: 'visible' })
         const rect = await drawer.boundingBox()
         assert.ok(rect && rect.x >= -1 && rect.x + rect.width <= width + 1)
-        await capture(page, '/usage-logs/common', `l1-logs-${width}-filter-drawer.png`, errors)
+        await capture(
+          page,
+          '/usage-logs/common',
+          `l1-logs-${width}-filter-drawer.png`,
+          errors
+        )
         await page.keyboard.press('Escape')
         await page.evaluate(() => {
           history.pushState({}, '', '/temporary-activations?console_review=1')
           window.dispatchEvent(new PopStateEvent('popstate'))
         })
         await page.locator('#sms-purchase-balance-notice').waitFor()
-        await capture(page, '/temporary-activations', `l1-sms-${width}-low-balance.png`, errors)
+        await capture(
+          page,
+          '/temporary-activations',
+          `l1-sms-${width}-low-balance.png`,
+          errors
+        )
       }
     } catch (error) {
-      await page.screenshot({ path: path.join(output, `interaction-${width}-failed.png`), fullPage: true })
+      await page.screenshot({
+        path: path.join(output, `interaction-${width}-failed.png`),
+        fullPage: true,
+      })
       report.push({ width, error: String(error), errors })
       throw error
-    } finally { await context.close() }
+    } finally {
+      await context.close()
+    }
   }
 } finally {
-  await writeFile(path.join(output, 'interactions.json'), JSON.stringify(report, null, 2))
+  await writeFile(
+    path.join(output, 'interactions.json'),
+    JSON.stringify(report, null, 2)
+  )
   await browser.close()
 }
 console.log(`Console interaction review: ${report.length} views passed`)
