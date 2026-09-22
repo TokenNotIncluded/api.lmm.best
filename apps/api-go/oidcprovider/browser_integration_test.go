@@ -12,7 +12,6 @@ import (
  "strings"
  "testing"
 )
-
 func TestBrowserConsentPKCEAndSingleUse(t *testing.T){
  p,_:=setup(t)
  authorize:=httptest.NewRequest("GET","https://api.lmm.best/api/user/auth/oidc/authorize?"+query().Encode(),nil)
@@ -34,7 +33,7 @@ func TestBrowserConsentPKCEAndSingleUse(t *testing.T){
  response=post(p,"/api/oidc/token",values,false);if response.Code!=200{t.Fatal(response.Code,response.Body.String())}
  var tokens map[string]any;json.Unmarshal(response.Body.Bytes(),&tokens)
  parts:=strings.Split(tokens["id_token"].(string),".");raw,_:=base64.RawURLEncoding.DecodeString(parts[1]);var claims map[string]any;json.Unmarshal(raw,&claims)
- if claims["nonce"]!=query().Get("nonce")||claims["aud"]!="coweft-web"||claims["sub"]!="lmm:7" {t.Fatal(claims)}
+ if claims["nonce"]!=query().Get("nonce")||claims["aud"]!="coweft-web"||claims["sub"]!="lmm:7"{t.Fatal(claims)}
  if post(p,"/api/oidc/token",values,false).Code!=400{t.Fatal("authorization code replay accepted")}
 }
 func TestLoginBridgePreservesValidatedFlowWithoutFrontendRedirectAssumption(t *testing.T){
@@ -46,15 +45,12 @@ func TestLoginBridgePreservesValidatedFlowWithoutFrontendRedirectAssumption(t *t
  response=httptest.NewRecorder();p.BrowserEntryHandler().ServeHTTP(response,httptest.NewRequest("GET","https://api.lmm.best/api/user/auth/oidc/authorize?"+bad.Encode(),nil))
  if response.Code!=400{t.Fatal("unregistered redirect rendered")}
 }
-// CI exports only public keys and a non-bearer receipt. Rust consumes the result
-// to verify the actual Go-issued representation across the repository boundary.
+// Only a PUBLIC key/receipt leaves this test; no private key or bearer token.
 func TestExportInteroperabilityFixture(t *testing.T){
  path:=os.Getenv("COWEFT_INTEROP_FIXTURE");if path==""{t.Skip("fixture export not requested")}
  p,_:=setup(t);tokens:=tokenFor(t,p)
  snapshot:=`{"version":1,"source":"https://forum.example","id":"a59cdd36-9229-4d17-a2e5-41c810e122b1","title":"Cross-language publication","body":"Public evidence from the Go provider.","kind":"discussion","revision":1}`
- request:=httptest.NewRequest("POST","https://api.lmm.best/api/oidc/attest",strings.NewReader(`{"digest":"`+digest(snapshot)+`","purpose":"public-thread-v1"}`))
- request.Header.Set("Content-Type","application/json");request.Header.Set("Authorization","Bearer "+tokens["access_token"].(string))
- response:=httptest.NewRecorder();p.AttestationHandler().ServeHTTP(response,request)
+ response:=httptest.NewRecorder();p.AttestationHandler().ServeHTTP(response,receiptRequest(tokens["access_token"].(string),digest(snapshot)))
  if response.Code!=200{t.Fatal(response.Code,response.Body.String())}
  var result map[string]string;json.Unmarshal(response.Body.Bytes(),&result)
  public:=httptest.NewRecorder();p.jwks(public);var jwks any;json.Unmarshal(public.Body.Bytes(),&jwks)
