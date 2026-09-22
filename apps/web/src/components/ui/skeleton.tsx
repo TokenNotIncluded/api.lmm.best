@@ -16,13 +16,17 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+// Luma visual recipes adapted from shadcn/ui (MIT); see LUMA-LICENSE.txt.
 import { cn } from '@/lib/utils'
 
 function Skeleton({ className, ...props }: React.ComponentProps<'div'>) {
   return (
     <div
       data-slot='skeleton'
-      className={cn('bg-muted animate-pulse rounded-md', className)}
+      className={cn(
+        'animate-pulse bg-muted rounded-2xl motion-reduce:animate-none',
+        className
+      )}
       {...props}
     />
   )

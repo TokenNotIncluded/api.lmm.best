@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+// Luma visual recipes adapted from shadcn/ui (MIT); see LUMA-LICENSE.txt.
 import { mergeProps } from '@base-ui/react/merge-props'
 import { useRender } from '@base-ui/react/use-render'
 import {
@@ -46,7 +47,7 @@ function BreadcrumbList({ className, ...props }: React.ComponentProps<'ol'>) {
     <ol
       data-slot='breadcrumb-list'
       className={cn(
-        'text-muted-foreground flex flex-wrap items-center gap-1.5 text-sm wrap-break-word',
+        'flex flex-wrap items-center wrap-break-word text-muted-foreground gap-1.5 text-sm sm:gap-2.5',
         className
       )}
       {...props}
@@ -58,7 +59,7 @@ function BreadcrumbItem({ className, ...props }: React.ComponentProps<'li'>) {
   return (
     <li
       data-slot='breadcrumb-item'
-      className={cn('inline-flex items-center gap-1', className)}
+      className={cn('inline-flex items-center gap-1.5', className)}
       {...props}
     />
   )
@@ -127,7 +128,7 @@ function BreadcrumbEllipsis({
       role='presentation'
       aria-hidden='true'
       className={cn(
-        'flex size-5 items-center justify-center [&>svg]:size-4',
+        'flex items-center justify-center size-5 [&>svg]:size-4',
         className
       )}
       {...props}

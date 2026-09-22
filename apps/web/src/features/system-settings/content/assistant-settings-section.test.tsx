@@ -652,6 +652,13 @@ describe('assistant search provider settings', () => {
   })
 
   test('loads model IDs for the selected group automatically and permits an explicit refresh', async () => {
+    const waitForState = async (ready: () => boolean) => {
+      const deadline = Date.now() + 5000
+      while (!ready() && Date.now() < deadline) {
+        await act(flushEffects)
+      }
+      assert.ok(ready(), 'model request and rendered control must settle')
+    }
     const originalGet = api.get
     const modelRequests: string[] = []
     api.get = (async (url: string) => {
@@ -671,7 +678,7 @@ describe('assistant search provider settings', () => {
 
     const rendered = await renderSettings('none')
     try {
-      await act(flushEffects)
+      await waitForState(() => modelRequests.length === 1)
       assert.equal(modelRequests.length, 1)
 
       const groupTrigger =
@@ -679,10 +686,16 @@ describe('assistant search provider settings', () => {
           'button[role="combobox"]'
         )[0]
       assert.ok(groupTrigger)
+      await waitForState(() => !groupTrigger.disabled)
       await act(async () => {
         groupTrigger.click()
         await flushEffects()
       })
+      await waitForState(() =>
+        [...document.querySelectorAll('[role="option"]')].some((option) =>
+          option.textContent?.includes('国产')
+        )
+      )
       const domesticOption = [
         ...document.querySelectorAll('[role="option"]'),
       ].find((option) => option.textContent?.includes('国产'))
@@ -697,6 +710,9 @@ describe('assistant search provider settings', () => {
           '[data-testid="assistant-get-model-list"]'
         )
       assert.ok(getModelListButton)
+      await waitForState(
+        () => modelRequests.length === 2 && !getModelListButton.disabled
+      )
       assert.equal(getModelListButton.disabled, false)
 
       await act(async () => {
@@ -704,6 +720,9 @@ describe('assistant search provider settings', () => {
         await flushEffects()
       })
 
+      await waitForState(
+        () => modelRequests.length === 3 && !getModelListButton.disabled
+      )
       assert.deepEqual(modelRequests, Array(3).fill('/api/assistant/models'))
       const modelTrigger =
         rendered.container.querySelectorAll<HTMLButtonElement>(
@@ -717,6 +736,11 @@ describe('assistant search provider settings', () => {
         modelTrigger.click()
         await flushEffects()
       })
+      await waitForState(() =>
+        [...document.querySelectorAll('[role="option"]')].some((option) =>
+          option.textContent?.includes('deepseek-v4-flash-0731')
+        )
+      )
       const modelOption = [
         ...document.querySelectorAll('[role="option"]'),
       ].find((option) => option.textContent?.includes('deepseek-v4-flash-0731'))

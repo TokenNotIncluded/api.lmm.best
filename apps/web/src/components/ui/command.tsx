@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+// Luma visual recipes adapted from shadcn/ui (MIT); see LUMA-LICENSE.txt.
 'use client'
 
 import { SearchIcon, Tick02Icon } from '@hugeicons/core-free-icons'
@@ -41,7 +42,7 @@ function Command({
     <CommandPrimitive
       data-slot='command'
       className={cn(
-        'bg-popover text-popover-foreground flex size-full flex-col overflow-hidden rounded-xl! p-1',
+        'flex size-full flex-col overflow-hidden rounded-xl! bg-popover text-popover-foreground rounded-4xl p-1',
         className
       )}
       {...props}
@@ -87,12 +88,12 @@ function CommandInput({
   ...props
 }: React.ComponentProps<typeof CommandPrimitive.Input>) {
   return (
-    <div data-slot='command-input-wrapper' className='p-1 pb-0'>
+    <div data-slot='command-input-wrapper' className={'p-1 pb-0'}>
       <InputGroup className='border-input/30 bg-input/30 h-8! rounded-lg! shadow-none! *:data-[slot=input-group-addon]:pl-2!'>
         <CommandPrimitive.Input
           data-slot='command-input'
           className={cn(
-            'w-full text-sm outline-hidden disabled:cursor-not-allowed disabled:opacity-50',
+            'outline-hidden disabled:cursor-not-allowed disabled:opacity-50 w-full text-sm',
             className
           )}
           {...props}
@@ -117,7 +118,7 @@ function CommandList({
     <CommandPrimitive.List
       data-slot='command-list'
       className={cn(
-        'no-scrollbar max-h-72 scroll-py-1 overflow-x-hidden overflow-y-auto outline-none',
+        'no-scrollbar overflow-x-hidden overflow-y-auto no-scrollbar max-h-72 scroll-py-1 outline-none',
         className
       )}
       {...props}
@@ -146,7 +147,7 @@ function CommandGroup({
     <CommandPrimitive.Group
       data-slot='command-group'
       className={cn(
-        'text-foreground **:[[cmdk-group-heading]]:text-muted-foreground overflow-hidden p-1 **:[[cmdk-group-heading]]:px-2 **:[[cmdk-group-heading]]:py-1.5 **:[[cmdk-group-heading]]:text-xs **:[[cmdk-group-heading]]:font-medium',
+        'text-foreground **:[[cmdk-group-heading]]:text-muted-foreground overflow-hidden p-1.5 **:[[cmdk-group-heading]]:px-3 **:[[cmdk-group-heading]]:py-2 **:[[cmdk-group-heading]]:text-xs **:[[cmdk-group-heading]]:font-medium',
         className
       )}
       {...props}
@@ -161,7 +162,7 @@ function CommandSeparator({
   return (
     <CommandPrimitive.Separator
       data-slot='command-separator'
-      className={cn('bg-border -mx-1 h-px', className)}
+      className={cn('-mx-1 bg-border/50 my-1.5 h-px', className)}
       {...props}
     />
   )
@@ -176,7 +177,7 @@ function CommandItem({
     <CommandPrimitive.Item
       data-slot='command-item'
       className={cn(
-        "group/command-item data-selected:bg-muted data-selected:text-foreground data-selected:*:[svg]:text-foreground relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none in-data-[slot=dialog-content]:rounded-lg! data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "group/command-item in-data-[slot=dialog-content]:rounded-lg! data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 data-selected:bg-muted data-selected:text-foreground data-selected:*:[svg]:text-foreground relative flex cursor-default items-center gap-2 rounded-2xl px-3 py-2 text-sm font-medium outline-hidden select-none in-data-[slot=dialog-content]:rounded-3xl [&_svg:not([class*='size-'])]:size-4",
         className
       )}
       {...props}

@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+// Luma visual recipes adapted from shadcn/ui (MIT); see LUMA-LICENSE.txt.
 import { cva, type VariantProps } from 'class-variance-authority'
 import * as React from 'react'
 
@@ -57,7 +58,7 @@ function AlertTitle({ className, ...props }: React.ComponentProps<'div'>) {
     <div
       data-slot='alert-title'
       className={cn(
-        '[&_a]:hover:text-foreground font-medium group-has-[>svg]/alert:col-start-2 [&_a]:underline [&_a]:underline-offset-3',
+        '[&_a]:hover:text-foreground [&_a]:underline [&_a]:underline-offset-3 font-medium group-has-[>svg]/alert:col-start-2',
         className
       )}
       {...props}
@@ -73,7 +74,7 @@ function AlertDescription({
     <div
       data-slot='alert-description'
       className={cn(
-        'text-muted-foreground [&_a]:hover:text-foreground text-sm text-balance md:text-pretty [&_a]:underline [&_a]:underline-offset-3 [&_p:not(:last-child)]:mb-4',
+        '[&_a]:hover:text-foreground [&_a]:underline [&_a]:underline-offset-3 text-muted-foreground text-sm text-balance md:text-pretty [&_p:not(:last-child)]:mb-4',
         className
       )}
       {...props}
@@ -85,7 +86,7 @@ function AlertAction({ className, ...props }: React.ComponentProps<'div'>) {
   return (
     <div
       data-slot='alert-action'
-      className={cn('absolute top-2 right-2', className)}
+      className={cn('absolute top-2.5 right-3', className)}
       {...props}
     />
   )
