@@ -1,0 +1,31 @@
+name: PR 480 source snapshot
+on:
+  push:
+    branches: [workbench/review-480-source]
+    paths: [.github/workflows/review-480-source.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: a372940b98ce51d2f4c62a4e6fffc8f314316281
+          persist-credentials: false
+      - name: Archive tracked source without running repository code
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = a372940b98ce51d2f4c62a4e6fffc8f314316281
+          mkdir -p "$RUNNER_TEMP/review-480-source"
+          git rev-parse HEAD > "$RUNNER_TEMP/review-480-source/revision.txt"
+          git ls-tree -r HEAD > "$RUNNER_TEMP/review-480-source/tree.txt"
+          git archive --format=tar.gz -o "$RUNNER_TEMP/review-480-source/source.tar.gz" HEAD
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: review-480-source
+          path: ${{ runner.temp }}/review-480-source
+          retention-days: 1
+          if-no-files-found: error
