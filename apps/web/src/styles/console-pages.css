@@ -195,3 +195,24 @@ For commercial licensing, please contact support@quantumnous.com
 .console-editorial .console-page h2 {
   font-family: var(--font-sans);
 }
+
+/* Balance restrictions remain visible without pushing both order views away. */
+.console-editorial .console-sms-balance [data-slot='alert-description'] p {
+  margin-block: 0;
+}
+@media (min-width: 768px) {
+  .console-editorial .console-sms-balance [data-slot='alert-description'] {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.3rem 1.5rem;
+  }
+  .console-editorial
+    .console-sms-balance
+    [data-slot='alert-description']
+    > div {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    margin-top: 0;
+  }
+}

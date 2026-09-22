@@ -993,7 +993,7 @@ export function HeroSmsSmsActivationPanel() {
         <Tabs defaultValue='current' className='console-sms-orders'>
           <TabsList aria-label={t('Phone number')}>
             <TabsTrigger value='current'>
-              {t('Current phone activation')} ({currentOrders.length})
+              {t('Active phone activations')} ({currentOrders.length})
             </TabsTrigger>
             <TabsTrigger value='history'>
               {t('Phone activation history')}

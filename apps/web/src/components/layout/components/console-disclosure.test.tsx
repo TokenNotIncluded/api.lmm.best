@@ -55,14 +55,7 @@ Object.defineProperty(globalThis, 'getComputedStyle', {
 ).IS_REACT_ACT_ENVIRONMENT = true
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
-const { createInstance } = await import('i18next')
-const { I18nextProvider } = await import('react-i18next')
-const i18n = createInstance()
-await i18n.init({
-  lng: 'en',
-  resources: { en: { translation: {} } },
-  keySeparator: false,
-})
+
 after(() => domWindow.happyDOM.abort())
 
 let hash = ''

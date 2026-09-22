@@ -132,7 +132,7 @@ const reads: Record<string, unknown> = {
   '/api/user/': page,
   '/api/redemption/': page,
   '/api/discount-code/': page,
-  '/api/red-packet/admin': page,
+  '/api/red-packet/admin': [],
   '/api/system-info/instances': [],
   '/api/system-task/list': [],
   '/api/system-task/current': null,
@@ -175,12 +175,12 @@ const reads: Record<string, unknown> = {
   },
   '/api/security/admin/ai-reviews': page,
   '/api/security/admin/events': page,
-  '/api/security/admin/review-runs': page,
+  '/api/security/admin/review-runs': [],
   '/api/security/admin/policy': {
     settings: { enabled: false, on_prompt: false, action: 'audit' },
     rules: [],
   },
-  '/api/assistant/admin/registration-events': page,
+  '/api/assistant/admin/registration-events': [],
   '/api/option/hero-sms': {
     enabled: false,
     email_enabled: false,

@@ -67,3 +67,14 @@ test('empty read responses are cloned so one page cannot mutate another fixture'
   }
   assert.deepEqual(second.data, [])
 })
+
+test('admin list fixtures keep the API array contract rather than a paginated envelope', () => {
+  for (const url of [
+    '/api/red-packet/admin',
+    '/api/security/admin/review-runs',
+    '/api/assistant/admin/registration-events',
+  ]) {
+    const response = consolePageFixture(config(url)) as { data: unknown }
+    assert.ok(Array.isArray(response.data), url)
+  }
+})

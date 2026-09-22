@@ -124,9 +124,16 @@ async function snapshot(page, persona, destination, errors, suffix = '') {
   }))
   const title = await page.locator('h1:visible,h2:visible').allTextContents()
   const crash =
-    /Oops|Internal Server Error|Something went wrong|PERSONA_DEBUG_UNMOCKED_REQUEST|Invalid language tag|invalid language tag/.test(
+    /Oops|Internal Server Error|Something went wrong|PERSONA_DEBUG_UNMOCKED_REQUEST|Invalid language tag|invalid language tag|糟糕！出错了/.test(
       text
     )
+  const loadErrors =
+    text.match(
+      /无法加载企业资料|待办加载失败|获取启用模型失败|加载 playground 模型失败|无法加载符合条件的订阅/g
+    ) ?? []
+  const errorToasts = await page
+    .locator('[data-sonner-toast][data-type="error"]:visible')
+    .allTextContents()
   const entry = {
     persona,
     path: destination,
@@ -135,7 +142,7 @@ async function snapshot(page, persona, destination, errors, suffix = '') {
     screenshot: `${name}.png`,
     dimensions,
     crash,
-    errors: [...errors],
+    errors: [...errors, ...loadErrors, ...errorToasts],
     text: text.slice(0, 16000),
   }
   await page.screenshot({
@@ -202,7 +209,7 @@ try {
     page.setDefaultTimeout(10000)
     page.on('pageerror', (error) => errors.push(String(error.stack ?? error)))
     page.on('console', (message) => {
-      if (message.type() === 'error' && !message.text().includes('canceled')) {
+      if (message.type() === 'error') {
         errors.push(message.text())
       }
     })
