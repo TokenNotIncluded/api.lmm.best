@@ -15,6 +15,16 @@ authenticated users then see it once after their next login.
 
 - Ollama model discovery, pull, streaming pull, deletion, and version checks now
   honor the channel's configured proxy and HTTP transport settings.
+- Fixed the Go new-user journey: L0 checkout, security-email verification and
+  public script/game reads no longer disappear behind the console gate.
+  Authentication, payment restrictions and developer/admin boundaries remain.
+- Registration now commits its optional initial key and invitation counter with
+  the account; a failed key insert no longer leaves a half-registered user.
+  Payment contact emails no longer silently become account login emails.
+- L0 administration filters now follow the configured paid-activation threshold;
+  failed check-in statistics reads no longer return fabricated zero values.
+  Key edits reject groups that are unavailable to the account.
+
 
 - Rust model relays now use independent response-header (1800 seconds), byte-idle
   (300 seconds), and optional per-attempt total deadlines (disabled by default),
