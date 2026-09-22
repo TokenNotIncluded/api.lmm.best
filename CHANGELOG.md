@@ -17,6 +17,9 @@ authenticated users then see it once after their next login.
   resumes after a closed segment, preserving each segment's ID, position, text,
   and closing status in the final response.
 
+- Fixed status timestamps, bounty delivery timelines, and SMS balance notices
+  crashing in Simplified or Traditional Chinese; invalid locale settings now
+  use the browser default.
 - Ollama model discovery, pull, streaming pull, deletion, and version checks now
   honor the channel's configured proxy and HTTP transport settings.
 

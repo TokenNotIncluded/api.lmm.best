@@ -172,12 +172,17 @@ export function OtpForm({ className, ...props }: OtpFormProps) {
                   />
                 ) : (
                   <InputOTP
-                    maxLength={OTP_LENGTH}
-                    {...field}
-                    containerClassName='justify-between sm:[&>[data-slot="input-otp-group"]>div]:w-12'
+                    length={OTP_LENGTH}
+                    name={field.name}
+                    value={field.value}
+                    onValueChange={field.onChange}
+                    onBlur={field.onBlur}
+                    disabled={isLoading}
+                    autoSubmit={false}
+                    containerClassName='justify-between'
                   >
                     <InputOTPGroup>
-                      <InputOTPSlot index={0} />
+                      <InputOTPSlot index={0} ref={field.ref} />
                       <InputOTPSlot index={1} />
                     </InputOTPGroup>
                     <InputOTPSeparator />

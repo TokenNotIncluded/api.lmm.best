@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+// Luma visual recipes adapted from shadcn/ui (MIT); see LUMA-LICENSE.txt.
 'use client'
 
 import { Dialog as SheetPrimitive } from '@base-ui/react/dialog'
@@ -48,7 +49,7 @@ function SheetOverlay({ className, ...props }: SheetPrimitive.Backdrop.Props) {
     <SheetPrimitive.Backdrop
       data-slot='sheet-overlay'
       className={cn(
-        'fixed inset-0 z-50 bg-black/10 transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0 supports-backdrop-filter:backdrop-blur-xs',
+        'fixed inset-0 z-50 transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0 bg-foreground/20 dark:bg-background/70 supports-backdrop-filter:backdrop-blur-sm motion-reduce:transition-none',
         className
       )}
       {...props}
@@ -83,7 +84,7 @@ function SheetContent({
         data-slot='sheet-content'
         data-side={side}
         className={cn(
-          'bg-background text-foreground fixed z-50 flex flex-col gap-4 overflow-hidden bg-clip-padding text-sm shadow-none transition duration-200 ease-in-out data-ending-style:opacity-0 data-starting-style:opacity-0',
+          'gap-4 overflow-hidden data-ending-style:opacity-0 data-starting-style:opacity-0 bg-popover text-popover-foreground fixed z-50 flex flex-col bg-clip-padding text-sm shadow-xl transition duration-200 ease-in-out data-[side=bottom]:inset-x-0 data-[side=bottom]:bottom-0 data-[side=bottom]:h-auto data-[side=bottom]:border-t data-[side=left]:inset-y-0 data-[side=left]:left-0 data-[side=left]:h-full data-[side=left]:w-3/4 data-[side=left]:border-r data-[side=right]:inset-y-0 data-[side=right]:right-0 data-[side=right]:h-full data-[side=right]:w-3/4 data-[side=right]:border-l data-[side=top]:inset-x-0 data-[side=top]:top-0 data-[side=top]:h-auto data-[side=top]:border-b data-[side=left]:sm:max-w-sm data-[side=right]:sm:max-w-sm motion-reduce:transition-none',
           side === 'right' &&
             'inset-y-0 right-0 h-full w-3/4 border-l data-ending-style:translate-x-[2.5rem] data-starting-style:translate-x-[2.5rem] sm:max-w-sm',
           side === 'left' &&
@@ -121,7 +122,7 @@ function SheetHeader({ className, ...props }: React.ComponentProps<'div'>) {
   return (
     <div
       data-slot='sheet-header'
-      className={cn('flex flex-col gap-0.5 p-4', className)}
+      className={cn('flex flex-col gap-1.5 p-6', className)}
       {...props}
     />
   )
@@ -131,7 +132,7 @@ function SheetFooter({ className, ...props }: React.ComponentProps<'div'>) {
   return (
     <div
       data-slot='sheet-footer'
-      className={cn('mt-auto flex flex-col gap-2 p-4', className)}
+      className={cn('mt-auto flex flex-col gap-2 p-6', className)}
       {...props}
     />
   )
