@@ -97,7 +97,7 @@ export function AssistantNewUserGift(props: { enabled: boolean }) {
 
   return (
     <section
-      className='border-border/60 bg-accent/20 my-2 grid gap-3 border-y px-1 py-5 sm:grid-cols-[1fr_auto] sm:items-center sm:px-4'
+      className='assistant-gift-receipt border-border/60 grid grid-cols-[1fr_auto] items-start gap-3 border-y py-3'
       data-testid='assistant-new-user-gift'
     >
       <div className='flex min-w-0 gap-3'>
@@ -120,9 +120,18 @@ export function AssistantNewUserGift(props: { enabled: boolean }) {
               t('Platform')
             )}
           </p>
-          <p className='text-muted-foreground mt-1 text-xs leading-5'>
-            {gift.reason}
-          </p>
+          {gift.status === 'claimed' ? (
+            <details className='text-muted-foreground mt-1 text-xs leading-5'>
+              <summary className='cursor-pointer rounded-sm focus-visible:outline-2'>
+                {t('Details')}
+              </summary>
+              <p className='pt-2'>{gift.reason}</p>
+            </details>
+          ) : (
+            <p className='text-muted-foreground mt-1 text-xs leading-5'>
+              {gift.reason}
+            </p>
+          )}
         </div>
       </div>
       {giftAction}

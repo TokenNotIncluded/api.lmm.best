@@ -9,6 +9,8 @@ License, or (at your option) any later version.
 import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import {
+  lazy,
+  Suspense,
   type KeyboardEvent,
   type ReactNode,
   useEffect,
@@ -17,8 +19,15 @@ import {
 } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { Button } from '@/components/ui/button'
 import { SourceQuestionnaire } from '@/features/acquisition/source-questionnaire'
-import { requestAssistantOpen } from '@/features/assistant/assistant-events'
+import {
+  requestAssistantOpen,
+  peekQueuedAssistantRequest,
+  consumeQueuedAssistantRequest,
+  subscribeToAssistantOpen,
+  type QueuedAssistantRequest,
+} from '@/features/assistant/assistant-events'
 import { PiOAuthGuide } from '@/features/guide/pi-oauth-guide'
 import { toIntlLocale } from '@/i18n/languages'
 import { useAuthStore, type AuthUser } from '@/stores/auth-store'
@@ -38,6 +47,12 @@ import {
 import { useL0AccessCheck } from './use-l0-access-check'
 
 import './l0-welcome.css'
+
+const AssistantTaskPanel = lazy(() =>
+  import('@/features/assistant/assistant-panel').then((module) => ({
+    default: module.AssistantPanel,
+  }))
+)
 
 const SCENES = ['chat', 'explore', 'access'] as const
 type Scene = (typeof SCENES)[number]
@@ -99,6 +114,11 @@ function L0WelcomeStage({
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const [scene, setScene] = useState<Scene>('chat')
+  const [taskRequest, setTaskRequest] = useState<QueuedAssistantRequest | null>(
+    null
+  )
+  const [taskRevision, setTaskRevision] = useState(0)
+  const [consumedRequestId, setConsumedRequestId] = useState<string>()
   const [discovery, setDiscovery] = useState(0)
   const tabs = useRef<Array<HTMLButtonElement | null>>([])
   const cloudRef = useRef<HTMLDivElement>(null)
@@ -161,6 +181,42 @@ function L0WelcomeStage({
 
   useEffect(() => {
     if (cloudRef.current) return mountL0TokenCloud(cloudRef.current)
+  }, [])
+
+  useEffect(() => {
+    const openTask = (request: QueuedAssistantRequest) => {
+      setTaskRequest(request)
+      setTaskRevision((revision) => revision + 1)
+      if (!request.autoSend) consumeQueuedAssistantRequest(request.id)
+    }
+    const queued = peekQueuedAssistantRequest()
+    if (queued) openTask(queued)
+    return subscribeToAssistantOpen(openTask)
+  }, [])
+
+  const returnToConversation = () => {
+    setTaskRequest(null)
+    setScene('chat')
+    window.requestAnimationFrame(() => {
+      document.getElementById('l0-question')?.focus()
+    })
+  }
+
+  useEffect(() => {
+    const focusConversation = (event: globalThis.KeyboardEvent) => {
+      if (
+        !event.defaultPrevented &&
+        !event.altKey &&
+        event.shiftKey &&
+        (event.metaKey || event.ctrlKey) &&
+        event.key.toLowerCase() === 'a'
+      ) {
+        event.preventDefault()
+        returnToConversation()
+      }
+    }
+    window.addEventListener('keydown', focusConversation)
+    return () => window.removeEventListener('keydown', focusConversation)
   }, [])
 
   const selectScene = (next: Scene, focus = false) => {
@@ -241,7 +297,51 @@ function L0WelcomeStage({
         </div>
       </header>
 
-      <div className='l0-stage'>
+      {taskRequest ? (
+        <section className='l0-assistant-task' data-testid='l0-assistant-task'>
+          <div className='l0-task-navigation'>
+            <Button variant='ghost' onClick={returnToConversation}>
+              <span aria-hidden='true'>←</span>
+              {t('Back to conversation')}
+            </Button>
+          </div>
+          <Suspense fallback={<p role='status'>{t('Loading...')}</p>}>
+            <AssistantTaskPanel
+              mode='page'
+              open
+              initialPreset={taskRequest.preset}
+              initialMessage={taskRequest.message}
+              initialMessageRevision={taskRevision}
+              autoSendRequestId={
+                taskRequest.autoSend && consumedRequestId !== taskRequest.id
+                  ? taskRequest.id
+                  : undefined
+              }
+              onAutoSendConsumed={(id) => {
+                consumeQueuedAssistantRequest(id)
+                setConsumedRequestId(id)
+              }}
+              onOpenChange={(open) => {
+                if (!open) returnToConversation()
+              }}
+              onConversationReset={() =>
+                setTaskRequest((current) =>
+                  current
+                    ? {
+                        ...current,
+                        preset: undefined,
+                        message: undefined,
+                        autoSend: false,
+                      }
+                    : current
+                )
+              }
+            />
+          </Suspense>
+        </section>
+      ) : null}
+
+      <div className='l0-stage' hidden={taskRequest !== null}>
         <div
           className='l0-cloud'
           ref={cloudRef}
@@ -322,7 +422,7 @@ function L0WelcomeStage({
           >
             <L0CloudConversation
               cloudRef={cloudRef}
-              active={scene === 'chat'}
+              active={scene === 'chat' && taskRequest === null}
             />
           </div>
 

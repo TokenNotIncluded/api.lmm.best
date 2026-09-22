@@ -219,8 +219,11 @@ export function AssistantLauncher(props: {
           data-testid='assistant-rail'
           data-open={railOpen}
           aria-hidden={!railOpen}
+          inert={!railOpen}
         >
-          <div className={cn('h-full min-w-0', RAIL_WIDTH)}>
+          <div
+            className={cn('assistant-rail-frame h-full min-w-0', RAIL_WIDTH)}
+          >
             <Suspense
               fallback={
                 <aside

@@ -1,0 +1,129 @@
+/* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
+/* Scoped to the assistant: the L0 cloud and console design tokens stay intact. */
+.assistant-rail-frame {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding-block: 0.5rem;
+}
+.assistant-rail-surface {
+  max-height: 48rem;
+  box-shadow: 0 6px 24px color-mix(in oklch, var(--foreground) 4%, transparent);
+}
+.assistant-surface {
+  color: var(--foreground);
+  isolation: isolate;
+}
+.assistant-surface-header {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex-shrink: 0;
+  min-width: 0;
+  gap: 0.125rem;
+  padding: 0.75rem 0.875rem 0.75rem 1.25rem;
+  border-bottom: 1px solid color-mix(in oklch, var(--border) 70%, transparent);
+}
+.assistant-surface-header > button {
+  border-radius: 0.65rem;
+  color: var(--muted-foreground);
+}
+.assistant-surface-header > button:hover,
+.assistant-surface-header > button[aria-pressed='true'] {
+  color: var(--foreground);
+}
+.assistant-welcome {
+  padding: 2rem 0.75rem 1.25rem;
+  text-align: start;
+}
+.assistant-empty-content {
+  padding-bottom: 1rem;
+}
+.assistant-start-actions {
+  margin-bottom: 1rem;
+}
+.assistant-start-actions > button {
+  border-bottom: 1px solid var(--border);
+}
+.assistant-start-actions > button:last-child {
+  border-bottom-color: transparent;
+}
+.assistant-user-message {
+  margin-inline-start: auto;
+  width: fit-content;
+  max-width: 92%;
+  padding: 0.625rem 0.875rem;
+  border-radius: 1rem 1rem 0.3rem 1rem;
+  background: var(--muted);
+}
+.assistant-conversation-actions {
+  color: var(--muted-foreground);
+}
+.assistant-conversation-actions > button {
+  width: 2rem;
+  padding-inline: 0;
+}
+.assistant-composer-dock {
+  border-top: 1px solid color-mix(in oklch, var(--border) 65%, transparent);
+}
+.assistant-surface .assistant-modern-prompt {
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  transition:
+    border-color 150ms,
+    box-shadow 150ms;
+}
+.assistant-surface .assistant-modern-prompt:focus-within {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--ring) 14%, transparent);
+}
+.assistant-preset-strip {
+  scrollbar-width: thin;
+  overscroll-behavior-inline: contain;
+}
+.assistant-preset-strip > button {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.assistant-support-strip > div:has(> button) {
+  gap: 0.25rem;
+}
+.assistant-support-strip > div > button {
+  min-width: 0;
+}
+.assistant-gift-receipt > div > svg {
+  flex-shrink: 0;
+}
+@media (max-width: 639px) {
+  .assistant-surface-header {
+    padding: 0.5rem 0.5rem 0.5rem 1rem;
+  }
+  .assistant-surface-header > button {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+  .assistant-surface .assistant-modern-prompt textarea {
+    font-size: 1rem;
+  }
+  .assistant-surface .assistant-transcript-content {
+    padding-inline: 1rem;
+  }
+  .assistant-conversation-actions > button {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+  .assistant-preset-strip > button,
+  .assistant-support-strip button {
+    min-height: 2.75rem;
+  }
+  .assistant-welcome {
+    padding-top: 1.25rem;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .assistant-surface *,
+  .assistant-rail-frame {
+    scroll-behavior: auto;
+    transition: none;
+  }
+}

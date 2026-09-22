@@ -924,3 +924,30 @@ License, or (at your option) any later version.
     max-width: 80%;
   }
 }
+
+/* Explicit help replaces the main conversation; the cloud stays mounted so
+   returning never loses a draft or a completed turn. */
+.l0-stage[hidden] {
+  display: none;
+}
+.l0-assistant-task {
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 54rem);
+  height: min(48rem, calc(100dvh - 10rem));
+  min-height: 20rem;
+  margin: 0 auto;
+}
+.l0-task-navigation {
+  flex-shrink: 0;
+  padding: 0.25rem 0.5rem;
+}
+.l0-assistant-task > [role='status'] {
+  padding: 1rem;
+}
+@media (max-width: 640px) {
+  .l0-assistant-task {
+    height: calc(100dvh - 9rem);
+    min-height: 0;
+  }
+}

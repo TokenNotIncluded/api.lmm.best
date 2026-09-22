@@ -55,6 +55,7 @@ type AppHeaderProps = {
   /** The console puts the brand and low-frequency preferences in its sidebar. */
   showBrand?: boolean
   showLanguageSwitcher?: boolean
+  showAssistant?: boolean
 }
 
 export function AppHeader({
@@ -68,6 +69,7 @@ export function AppHeader({
   showProfileDropdown = true,
   showBrand = true,
   showLanguageSwitcher = true,
+  showAssistant = true,
 }: AppHeaderProps) {
   const dynamicLinks = useTopNavLinks()
   const links = dynamicLinks.length > 0 ? dynamicLinks : navLinks
@@ -112,7 +114,7 @@ export function AppHeader({
               <TopNav links={links} aria-label={t('Header navigation')} />
             </div>
           )}
-          {assistantEnabled && (
+          {showAssistant && assistantEnabled && (
             <Button
               variant='ghost'
               size='icon'

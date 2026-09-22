@@ -39,6 +39,8 @@ import {
   Plus,
   Square,
   Wrench,
+  X,
+  ArrowLeft,
 } from 'lucide-react'
 import { nanoid } from 'nanoid'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -138,7 +140,6 @@ import {
   getAssistantPresetForIntent,
   isExplicitAssistantL1Request,
 } from './assistant-intent'
-import { AssistantJourneyProgress } from './assistant-journey'
 import { AssistantKeyTool } from './assistant-key-tool'
 import {
   hasAssistantMessageSubstantialMeaning,
@@ -167,6 +168,8 @@ import { AssistantUsageTool } from './assistant-usage-tool'
 import { AssistantUserActionTool } from './assistant-user-action-tool'
 import { AssistantWeeklyDiscount } from './assistant-weekly-discount'
 import { useAssistantSupport } from './use-assistant-support'
+
+import './assistant-surface.css'
 
 type AssistantActionPath =
   | '/'
@@ -264,15 +267,15 @@ function AssistantModernWelcome(props: {
 
   return (
     <div
-      className='mx-auto flex w-full max-w-2xl flex-col items-center justify-center gap-4 px-2 pt-10 pb-7 text-center sm:px-5 sm:pt-16 sm:pb-9'
+      className='assistant-welcome mx-auto flex w-full max-w-xl flex-col gap-3'
       data-testid='assistant-modern-welcome'
     >
-      <h2 className='text-2xl leading-snug font-semibold tracking-tight text-balance sm:text-3xl'>
+      <h2 className='text-2xl leading-tight font-medium tracking-tight text-balance'>
         {props.restricted
           ? t('What would you like to do?')
           : t('How can I help?')}
       </h2>
-      <p className='text-muted-foreground max-w-xl text-sm leading-7'>
+      <p className='text-muted-foreground max-w-md text-sm leading-6'>
         {props.description}
       </p>
     </div>
@@ -316,7 +319,7 @@ function AssistantGettingStartedActions(props: {
 
   return (
     <div
-      className='mx-auto mb-8 grid w-full max-w-xl gap-3 px-1 sm:px-4'
+      className='assistant-start-actions mx-auto grid w-full max-w-xl gap-1'
       aria-label={t('Getting started')}
       data-testid='assistant-getting-started-actions'
     >
@@ -326,7 +329,7 @@ function AssistantGettingStartedActions(props: {
           type='button'
           disabled={props.disabled}
           onClick={open}
-          className='border-border/70 bg-background text-foreground hover:bg-muted focus-visible:ring-ring flex min-h-20 items-center gap-3 rounded-xl border px-4 py-4 text-start transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 sm:gap-4 sm:px-5'
+          className='text-foreground hover:bg-muted focus-visible:ring-ring flex min-h-14 items-center gap-3 rounded-xl px-3 py-3 text-start transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50'
         >
           <Icon
             className='text-muted-foreground size-5 shrink-0'
@@ -334,9 +337,7 @@ function AssistantGettingStartedActions(props: {
           />
           <span className='min-w-0 flex-1'>
             <span className='block text-sm font-medium'>{title}</span>
-            <span className='text-muted-foreground mt-1 block text-xs leading-5'>
-              {description}
-            </span>
+            <span className='sr-only'>{description}</span>
           </span>
           <ArrowUpRight
             className='text-muted-foreground size-4 shrink-0'
@@ -667,7 +668,7 @@ function AssistantPresetPrompts(props: {
 
   return (
     <div
-      className='mb-2 flex max-w-full flex-wrap gap-2 pb-1'
+      className='assistant-preset-strip mb-2 flex max-w-full gap-2 overflow-x-auto pb-1'
       role='group'
       aria-label={t('Choose a topic or write a message.')}
       data-testid='assistant-preset-prompts'
@@ -678,7 +679,7 @@ function AssistantPresetPrompts(props: {
           type='button'
           variant='ghost'
           size='sm'
-          className='bg-muted/40 h-auto min-h-8 max-w-full shrink-0 rounded-full px-3 text-left whitespace-normal'
+          className='border-border/70 text-muted-foreground min-h-9 max-w-[85%] shrink-0 rounded-full border px-3 text-left text-xs whitespace-nowrap'
           onClick={() => {
             setInput(preset.prompt)
             props.onSelect(preset)
@@ -733,9 +734,8 @@ function AssistantPromptComposer(props: {
       <PromptInput
         onSubmit={handleSubmit}
         groupClassName={cn(
-          // Full-rounded composer on a light card with a soft shadow.
-          'assistant-prompt-input has-[[data-slot=input-group-control]:focus-visible]:border-transparent has-[[data-slot=input-group-control]:focus-visible]:ring-0 rounded-3xl border-transparent',
-          'assistant-modern-prompt bg-card border-border/60 shadow-sm'
+          'assistant-prompt-input rounded-2xl',
+          'assistant-modern-prompt bg-background border-border shadow-none'
         )}
         aria-label={t('Ask AI assistant')}
         data-testid='assistant-prompt-form'
@@ -755,30 +755,35 @@ function AssistantPromptComposer(props: {
             disabled={
               props.sending || props.terminated || props.routeUnavailable
             }
-            className='max-h-24 min-h-10 sm:max-h-32 sm:min-h-12'
+            className='max-h-28 min-h-12 text-base sm:text-sm'
           />
         </PromptInputBody>
         <PromptInputFooter className='items-center gap-0.5 px-1.5 py-1 pb-1.5'>
-          <span className='text-muted-foreground min-w-0 flex-1 truncate text-[11px]'>
+          <span
+            className='text-muted-foreground min-w-0 flex-1 truncate text-xs'
+            title={props.footerStatus}
+          >
             {props.footerStatus}
           </span>
-          <Button
-            type='button'
-            variant='ghost'
-            size='icon-sm'
-            className='text-muted-foreground hover:text-foreground size-11 sm:size-7'
-            aria-label={t('Retry the last message')}
-            title={t('Retry the last message')}
-            data-testid='assistant-retry-last'
-            disabled={!props.canRetry || props.sending}
-            onClick={props.onRetry}
-          >
-            <HugeiconsIcon
-              icon={ReloadIcon}
-              strokeWidth={2}
-              aria-hidden='true'
-            />
-          </Button>
+          {props.canRetry ? (
+            <Button
+              type='button'
+              variant='ghost'
+              size='icon-sm'
+              className='text-muted-foreground hover:text-foreground size-11 sm:size-7'
+              aria-label={t('Retry the last message')}
+              title={t('Retry the last message')}
+              data-testid='assistant-retry-last'
+              disabled={!props.canRetry || props.sending}
+              onClick={props.onRetry}
+            >
+              <HugeiconsIcon
+                icon={ReloadIcon}
+                strokeWidth={2}
+                aria-hidden='true'
+              />
+            </Button>
+          ) : null}
           {props.sending ? (
             <Button
               type='button'
@@ -843,9 +848,38 @@ function AssistantPanelHeader(props: {
   onToggleFullscreen?: () => void
 }) {
   const { t } = useTranslation()
-
-  const supportActions = (
+  const title = props.historyVisible
+    ? t('Conversation history')
+    : t('AI assistant')
+  const heading =
+    props.mode === 'mobile' ? (
+      <SheetTitle className='min-w-0 flex-1 truncate text-sm font-medium'>
+        {title}
+      </SheetTitle>
+    ) : (
+      <h2 className='min-w-0 flex-1 truncate text-sm font-medium'>{title}</h2>
+    )
+  const controls = (
     <>
+      {heading}
+      <Button
+        type='button'
+        variant='ghost'
+        size='icon-sm'
+        aria-label={t('Conversation history')}
+        title={t('Conversation history')}
+        data-testid='assistant-history-toggle'
+        aria-pressed={props.historyVisible}
+        onClick={
+          props.historyVisible ? props.onCloseHistory : props.onOpenHistory
+        }
+      >
+        {props.historyVisible ? (
+          <ArrowLeft aria-hidden='true' />
+        ) : (
+          <History aria-hidden='true' />
+        )}
+      </Button>
       <Button
         type='button'
         variant='ghost'
@@ -866,129 +900,53 @@ function AssistantPanelHeader(props: {
       >
         <MessageCircle aria-hidden='true' />
       </Button>
-    </>
-  )
-
-  // Compact icon-only header for the overlay sheet and the desktop rail:
-  // history + fullscreen on the left, close on the right. No dividers.
-  if (props.mode === 'mobile') {
-    return (
-      <SheetHeader className='flex-row items-center gap-0.5 px-2 py-2 sm:px-3'>
-        <SheetTitle className='sr-only'>{t('AI assistant')}</SheetTitle>
-        <SheetDescription className='sr-only'>
-          {props.description}
-        </SheetDescription>
+      {props.mode === 'rail' && props.onToggleFullscreen ? (
         <Button
           type='button'
           variant='ghost'
           size='icon-sm'
-          aria-label={t('Conversation history')}
-          title={t('Conversation history')}
-          data-testid='assistant-history-toggle'
-          onClick={
-            props.historyVisible ? props.onCloseHistory : props.onOpenHistory
+          aria-label={
+            props.fullscreen ? t('Exit full screen') : t('Enter full screen')
           }
+          title={
+            props.fullscreen ? t('Exit full screen') : t('Enter full screen')
+          }
+          data-testid='assistant-fullscreen'
+          onClick={props.onToggleFullscreen}
         >
-          <History aria-hidden='true' />
+          <HugeiconsIcon
+            icon={props.fullscreen ? Minimize01Icon : Maximize01Icon}
+            strokeWidth={2}
+            aria-hidden='true'
+          />
         </Button>
-        {supportActions}
-        <div className='ms-auto' />
+      ) : null}
+      {props.mode !== 'page' ? (
         <Button
           type='button'
           variant='ghost'
           size='icon-sm'
           aria-label={t('Close')}
           title={t('Close')}
-          data-testid='assistant-close'
-          onClick={() => props.onClose?.()}
-        >
-          <HugeiconsIcon
-            icon={ArrowRight01Icon}
-            strokeWidth={2}
-            aria-hidden='true'
-          />
-        </Button>
-      </SheetHeader>
-    )
-  }
-
-  if (props.mode === 'page') {
-    return (
-      <header className='assistant-modern-header flex min-w-0 shrink-0 items-center gap-0.5 px-3 py-2 sm:px-4'>
-        <Button
-          type='button'
-          variant='ghost'
-          size='icon-sm'
-          aria-label={t('Conversation history')}
-          title={t('Conversation history')}
-          data-testid='assistant-history-toggle'
-          onClick={
-            props.historyVisible ? props.onCloseHistory : props.onOpenHistory
+          data-testid={
+            props.mode === 'mobile' ? 'assistant-close' : 'assistant-collapse'
           }
+          onClick={props.onClose}
         >
-          <History aria-hidden='true' />
+          <X aria-hidden='true' />
         </Button>
-        {supportActions}
-        <div className='ms-auto flex min-w-0 items-center gap-2'>
-          <AssistantJourneyProgress presentation='page' />
-        </div>
-      </header>
-    )
-  }
-
-  // Desktop rail header
-  return (
-    <header className='flex min-w-0 shrink-0 items-center gap-0.5 px-2 py-2 sm:px-3'>
-      <Button
-        type='button'
-        variant='ghost'
-        size='icon-sm'
-        aria-label={t('Conversation history')}
-        title={t('Conversation history')}
-        data-testid='assistant-history-toggle'
-        onClick={
-          props.historyVisible ? props.onCloseHistory : props.onOpenHistory
-        }
-      >
-        <History aria-hidden='true' />
-      </Button>
-      {supportActions}
-      <Button
-        type='button'
-        variant='ghost'
-        size='icon-sm'
-        aria-label={
-          props.fullscreen ? t('Exit full screen') : t('Enter full screen')
-        }
-        title={
-          props.fullscreen ? t('Exit full screen') : t('Enter full screen')
-        }
-        data-testid='assistant-fullscreen'
-        onClick={props.onToggleFullscreen}
-      >
-        <HugeiconsIcon
-          icon={props.fullscreen ? Minimize01Icon : Maximize01Icon}
-          strokeWidth={2}
-          aria-hidden='true'
-        />
-      </Button>
-      <div className='ms-auto' />
-      <Button
-        type='button'
-        variant='ghost'
-        size='icon-sm'
-        aria-label={t('Close')}
-        title={t('Close')}
-        data-testid='assistant-collapse'
-        onClick={() => props.onClose?.()}
-      >
-        <HugeiconsIcon
-          icon={ArrowRight01Icon}
-          strokeWidth={2}
-          aria-hidden='true'
-        />
-      </Button>
-    </header>
+      ) : null}
+    </>
+  )
+  return props.mode === 'mobile' ? (
+    <SheetHeader className='assistant-surface-header'>
+      {controls}
+      <SheetDescription className='sr-only'>
+        {props.description}
+      </SheetDescription>
+    </SheetHeader>
+  ) : (
+    <header className='assistant-surface-header'>{controls}</header>
   )
 }
 
@@ -1398,15 +1356,29 @@ function AssistantPanelSession(props: AssistantPanelProps) {
       const action = getAssistantActionForTarget(target, t)
       clearTransientCards()
       setActiveTool(tool)
-      setEntries((current) => [
-        ...current,
-        {
-          id: nanoid(),
-          role: 'assistant',
-          content: assistantDescription,
-          action: tool ? undefined : action,
-        },
-      ])
+      setEntries((current) => {
+        if (tool || !action) {
+          if (current.length > 0) return current
+          return [
+            {
+              id: nanoid(),
+              role: 'assistant',
+              content: assistantDescription,
+              notice: true,
+            },
+          ]
+        }
+        return [
+          ...current,
+          {
+            id: nanoid(),
+            role: 'assistant',
+            content: action.label,
+            action,
+            notice: true,
+          },
+        ]
+      })
       return true
     },
     [accountAccessState, assistantDescription, clearTransientCards, t]
@@ -1994,10 +1966,10 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         onToggleFullscreen={props.onToggleFullscreen}
       />
       {historyVisible ? (
-        <Conversation className={cn('min-h-0 min-w-0 flex-1', 'bg-muted/20')}>
+        <Conversation className='assistant-transcript min-h-0 min-w-0 flex-1'>
           <ConversationContent
             className={cn(
-              'flex min-h-full min-w-0 flex-col gap-5 overflow-x-hidden px-4 py-5 sm:px-6',
+              'assistant-transcript-content flex min-h-full min-w-0 flex-col gap-5 overflow-x-hidden px-5 py-5',
               mode === 'page' ? 'mx-auto w-full max-w-3xl' : 'max-w-full'
             )}
           >
@@ -2040,10 +2012,10 @@ function AssistantPanelSession(props: AssistantPanelProps) {
               }}
             />
           ) : null}
-          <Conversation className={cn('min-h-0 min-w-0 flex-1', 'bg-muted/20')}>
+          <Conversation className='assistant-transcript min-h-0 min-w-0 flex-1'>
             <ConversationContent
               className={cn(
-                'flex min-h-full min-w-0 flex-col gap-5 overflow-x-hidden px-4 py-5 sm:px-6',
+                'assistant-transcript-content flex min-h-full min-w-0 flex-col gap-5 overflow-x-hidden px-5 py-5',
                 mode === 'page' ? 'mx-auto w-full max-w-3xl' : 'max-w-full'
               )}
             >
@@ -2051,7 +2023,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                 <div
                   className={cn(
                     'flex min-h-0 flex-1 flex-col',
-                    mode === 'page' && 'justify-center'
+                    'justify-center'
                   )}
                 >
                   {accountAccessState === 'loading' ||
@@ -2064,7 +2036,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                     />
                   ) : null}
                   <div
-                    className='flex min-h-0 flex-1 flex-col'
+                    className='assistant-empty-content flex min-h-0 flex-1 flex-col justify-center'
                     data-testid='assistant-l0-welcome'
                   >
                     <AssistantModernWelcome
@@ -2114,7 +2086,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                             {entry.content}
                           </Response>
                         ) : (
-                          <p className='break-words whitespace-pre-wrap'>
+                          <p className='assistant-user-message break-words whitespace-pre-wrap'>
                             {entry.content}
                           </p>
                         )}
@@ -2302,14 +2274,14 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                     </div>
                   ) : null}
 
-                  <div
-                    className={cn('flex flex-wrap items-center gap-0.5 pt-1')}
-                  >
+                  <div className='assistant-conversation-actions flex items-center gap-1'>
                     <Button
                       type='button'
                       variant='ghost'
                       size='sm'
                       onClick={resetConversation}
+                      aria-label={t('Clear conversation')}
+                      title={t('Clear conversation')}
                       disabled={sending}
                     >
                       <HugeiconsIcon
@@ -2318,7 +2290,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                         data-icon='inline-start'
                         aria-hidden='true'
                       />
-                      {t('Clear conversation')}
+                      <span className='sr-only'>{t('Clear conversation')}</span>
                     </Button>
                     <Button
                       type='button'
@@ -2386,13 +2358,13 @@ function AssistantPanelSession(props: AssistantPanelProps) {
           <div
             className={cn(
               'min-w-0 shrink-0 overflow-hidden pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:pb-[max(0.75rem,env(safe-area-inset-bottom))]',
-              'bg-background/95 supports-[backdrop-filter]:bg-background/85 backdrop-blur'
+              'assistant-composer-dock bg-card'
             )}
             data-testid='assistant-composer-footer'
           >
             <div
               className={cn(
-                'assistant-composer px-4 py-3 sm:px-6',
+                'assistant-composer px-4 pt-3 pb-2',
                 mode === 'page' && 'mx-auto w-full max-w-3xl'
               )}
             >
@@ -2407,34 +2379,6 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                 key={conversationResetRevision}
                 initialInput={props.initialMessage}
               >
-                {accountAccessConfirmed && entries.length > 0 ? (
-                  <div className='mb-2 flex flex-wrap items-center gap-1'>
-                    <Button
-                      type='button'
-                      variant='ghost'
-                      size='sm'
-                      className='text-muted-foreground min-h-10 max-w-full whitespace-normal'
-                      disabled={sending}
-                      onClick={() => openAssistantTarget('client-setup')}
-                    >
-                      <Download
-                        className='size-4 shrink-0'
-                        aria-hidden='true'
-                      />
-                      {t('Download and connect a client')}
-                    </Button>
-                    <Button
-                      variant='ghost'
-                      size='sm'
-                      className='text-muted-foreground min-h-10'
-                      render={<Link to='/guide' />}
-                      onClick={() => props.onOpenChange(false)}
-                    >
-                      {t('Browse the setup guide')}
-                      <ArrowUpRight className='size-4' aria-hidden='true' />
-                    </Button>
-                  </div>
-                ) : null}
                 <AssistantPromptInputSync
                   initialMessage={props.initialMessage}
                   initialMessageRevision={props.initialMessageRevision}
@@ -2535,7 +2479,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
     return (
       <section
         id='ai-assistant-panel'
-        className='bg-background flex min-h-0 min-w-0 flex-1'
+        className='assistant-surface bg-card flex min-h-0 min-w-0 flex-1'
         data-layout='modern'
         aria-label={t('AI assistant')}
       >
@@ -2554,7 +2498,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
           role='dialog'
           aria-modal='true'
           aria-label={t('AI assistant')}
-          className='bg-background fixed inset-0 z-50 flex min-h-0 flex-col'
+          className='assistant-surface bg-card fixed inset-0 z-50 flex min-h-0 flex-col'
           data-layout='modern'
         >
           {panelContent}
@@ -2567,7 +2511,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
     return (
       <aside
         id='ai-assistant-panel'
-        className='bg-card flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border shadow-sm'
+        className='assistant-surface assistant-rail-surface bg-card flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border'
         data-layout='modern'
         aria-label={t('AI assistant')}
       >
@@ -2589,7 +2533,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
             // sm+: floating right-side dialog aligned with the shell's
             // rounded-card language (radius follows the theme token).
             'sm:inset-y-2 sm:right-2 sm:left-auto sm:h-auto sm:w-[min(32rem,calc(100vw-1rem))] sm:max-w-none sm:rounded-xl sm:border sm:shadow-lg',
-            'bg-background'
+            'assistant-surface bg-card'
           )
         )}
         data-layout='modern'

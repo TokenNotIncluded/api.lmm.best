@@ -55,7 +55,10 @@ export function AssistantSupportControls(props: {
   const active = request?.status === 'pending' || request?.status === 'accepted'
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
   return (
-    <div className='mb-3 grid gap-2' data-testid='assistant-human-support'>
+    <div
+      className='assistant-support-strip mb-2 grid gap-2'
+      data-testid='assistant-human-support'
+    >
       {active ? (
         <div
           className='border-border/70 bg-muted/40 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border px-3 py-2.5'
@@ -105,7 +108,8 @@ export function AssistantSupportControls(props: {
           <Button
             type='button'
             size='sm'
-            variant='outline'
+            variant='ghost'
+            className='text-muted-foreground px-2 text-xs'
             disabled={props.busy}
             onClick={() => void props.onCreate({ kind: 'handoff' })}
           >

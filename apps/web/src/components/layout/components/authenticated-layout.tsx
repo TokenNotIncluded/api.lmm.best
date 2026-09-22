@@ -74,6 +74,7 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
                     showBrand={focusedOnboarding}
                     showLanguageSwitcher={focusedOnboarding}
                     showConfigDrawer={focusedOnboarding}
+                    showAssistant={!focusedOnboarding}
                     leftContent={
                       focusedOnboarding ? undefined : <ConsoleLocation />
                     }
@@ -90,7 +91,9 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
                     >
                       {props.children ?? <AnimatedOutlet />}
                     </div>
-                    <AssistantLauncher hideMobileLauncher={assistantPage} />
+                    {!focusedOnboarding && (
+                      <AssistantLauncher hideMobileLauncher={assistantPage} />
+                    )}
                   </div>
                 </SidebarInset>
               </div>

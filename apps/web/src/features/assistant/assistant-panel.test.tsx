@@ -3604,3 +3604,53 @@ describe('AssistantPanel in-site human support', () => {
     }
   })
 })
+
+test('opening an assistant tool repeatedly does not duplicate its introduction', async () => {
+  api.get = (async (url) => {
+    if (url === '/api/assistant/status') {
+      return {
+        data: {
+          success: true,
+          data: {
+            ...assistantStatus,
+            developer_access_granted: false,
+            access_level: 'L0',
+          },
+        },
+      }
+    }
+    if (url === '/api/assistant/registration-check') {
+      return { data: { success: true, data: { state: 'ready' } } }
+    }
+    return { data: { success: true, data: null } }
+  }) as typeof api.get
+  const { root } = await renderPanel('onboarding', 'page', registrationUser)
+  await act(async () => {
+    await waitForCondition(
+      () =>
+        Boolean(
+          document.querySelector(
+            '[data-testid="assistant-registration-status"]'
+          )
+        ),
+      'Tool did not open'
+    )
+  })
+  const responses = () =>
+    document.querySelectorAll('[data-testid="assistant-active-tool-region"]')
+      .length
+  const before = document.body.textContent ?? ''
+  await act(async () => {
+    requestAssistantOpen('onboarding')
+    requestAssistantOpen('onboarding')
+    await flushEffects()
+  })
+  assert.equal(
+    document.body.textContent,
+    before,
+    'Reopening a tool appended another introduction'
+  )
+  assert.equal(responses(), 1)
+  assert.equal(document.querySelectorAll('textarea').length, 1)
+  await act(async () => root.unmount())
+})
