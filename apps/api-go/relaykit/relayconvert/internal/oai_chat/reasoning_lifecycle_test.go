@@ -41,12 +41,14 @@ func TestChatCompletionsStreamResumedReasoningUsesNewOutputItem(t *testing.T) {
 		Delta: dto.ChatCompletionsStreamResponseChoiceDelta{ReasoningContent: ptr("round 2")},
 	}}})
 	stop := "stop"
-	feed(&dto.ChatCompletionsStreamResponse{Choices: []dto.ChatCompletionsStreamResponseChoice{{
+	stopped := feed(&dto.ChatCompletionsStreamResponse{Choices: []dto.ChatCompletionsStreamResponseChoice{{
 		FinishReason: &stop,
 	}}})
 	final := FinalizeChatCompletionsStreamToResponses(state)
 
 	allEvents := append(append(append(first, tool...), closed...), resumed...)
+	allEvents = append(allEvents, stopped...)
+	allEvents = append(allEvents, final...)
 	closedIDs := make(map[string]bool)
 	addedIDs := make(map[string]bool)
 	var reasoningDeltaIDs []string
@@ -55,6 +57,7 @@ func TestChatCompletionsStreamResumedReasoningUsesNewOutputItem(t *testing.T) {
 			addedIDs[event.Payload.Item.ID] = true
 		}
 		if event.Type == responsesEventOutputItemDone && event.Payload.Item != nil && event.Payload.Item.Type == responsesOutputTypeReasoning {
+			assert.False(t, closedIDs[event.Payload.Item.ID], "item must close once")
 			closedIDs[event.Payload.Item.ID] = true
 		}
 		if event.Type == responsesEventReasoningSummaryDelta {
@@ -64,6 +67,7 @@ func TestChatCompletionsStreamResumedReasoningUsesNewOutputItem(t *testing.T) {
 		}
 	}
 	assert.Equal(t, []string{"resp_reasoning_reasoning_0", "resp_reasoning_reasoning_1"}, reasoningDeltaIDs)
+	assert.Len(t, closedIDs, 2)
 
 	require.NotEmpty(t, final)
 	completed := final[len(final)-1]
@@ -81,6 +85,82 @@ func TestChatCompletionsStreamResumedReasoningUsesNewOutputItem(t *testing.T) {
 	assert.Equal(t, "resp_reasoning_reasoning_1", reasoning[1].ID)
 	assert.Equal(t, "round 2", reasoning[1].Content[0].Text)
 	assert.Empty(t, FinalizeChatCompletionsStreamToResponses(state))
+}
+
+func TestChatCompletionsStreamResumedReasoningWithDelayedToolNames(t *testing.T) {
+	for _, name := range []string{"", "lookup", "ns_lookup"} {
+		t.Run("name="+name, func(t *testing.T) {
+			state := NewChatToResponsesStreamState("resp_tools", "gpt-test")
+			state.ToolMapping = responsesToolMappingForTest()
+			var events []ChatToResponsesStreamEvent
+			feed := func(delta dto.ChatCompletionsStreamResponseChoiceDelta, finish *string) {
+				got, err := ChatCompletionsStreamChunkToResponsesEvents(&dto.ChatCompletionsStreamResponse{Choices: []dto.ChatCompletionsStreamResponseChoice{{Delta: delta, FinishReason: finish}}}, state)
+				require.NoError(t, err)
+				events = append(events, got...)
+			}
+			index := 0
+			feed(dto.ChatCompletionsStreamResponseChoiceDelta{ToolCalls: []dto.ToolCallResponse{{Index: &index, ID: "call_late", Function: dto.FunctionResponse{Arguments: `{"id":"7"}`}}}}, nil)
+			feed(dto.ChatCompletionsStreamResponseChoiceDelta{ReasoningContent: ptr("before")}, nil)
+			if name != "" {
+				feed(dto.ChatCompletionsStreamResponseChoiceDelta{ToolCalls: []dto.ToolCallResponse{{Index: &index, Function: dto.FunctionResponse{Name: name}}}}, nil)
+			}
+			feed(dto.ChatCompletionsStreamResponseChoiceDelta{}, ptr("tool_calls"))
+			feed(dto.ChatCompletionsStreamResponseChoiceDelta{ReasoningContent: ptr("after")}, nil)
+			feed(dto.ChatCompletionsStreamResponseChoiceDelta{}, ptr("stop"))
+			events = append(events, FinalizeChatCompletionsStreamToResponses(state)...)
+			output := events[len(events)-1].Payload.Response.Output
+			expectedCount := 3
+			if name == "" {
+				expectedCount = 2
+			}
+			require.Len(t, output, expectedCount)
+			require.Equal(t, "before", output[0].Content[0].Text)
+			require.Equal(t, "after", output[len(output)-1].Content[0].Text)
+			for _, event := range events {
+				if event.Payload.OutputIndex == nil {
+					continue
+				}
+				index := *event.Payload.OutputIndex
+				require.GreaterOrEqual(t, index, 0)
+				require.Less(t, index, len(output))
+				if event.Payload.Item != nil {
+					require.Equal(t, output[index].ID, event.Payload.Item.ID)
+				}
+				if event.Payload.ItemID != "" {
+					require.Equal(t, output[index].ID, event.Payload.ItemID)
+				}
+			}
+			if name == "ns_lookup" {
+				require.Equal(t, "lookup", output[1].Name)
+				require.Equal(t, "crm", output[1].Namespace)
+			}
+		})
+	}
+}
+
+func TestChatCompletionsStreamClosedReasoningKeepsStatus(t *testing.T) {
+	for _, finishes := range [][2]string{{"tool_calls", "length"}, {"length", "stop"}} {
+		t.Run(finishes[0]+"_then_"+finishes[1], func(t *testing.T) {
+			state := NewChatToResponsesStreamState("resp_status", "gpt-test")
+			var closed []dto.ResponsesOutput
+			for index, finish := range finishes {
+				_, err := ChatCompletionsStreamChunkToResponsesEvents(&dto.ChatCompletionsStreamResponse{Choices: []dto.ChatCompletionsStreamResponseChoice{{Delta: dto.ChatCompletionsStreamResponseChoiceDelta{ReasoningContent: ptr(fmt.Sprint(index))}}}}, state)
+				require.NoError(t, err)
+				events, err := ChatCompletionsStreamChunkToResponsesEvents(&dto.ChatCompletionsStreamResponse{Choices: []dto.ChatCompletionsStreamResponseChoice{{FinishReason: &finish}}}, state)
+				require.NoError(t, err)
+				for _, event := range events {
+					if event.Type == responsesEventOutputItemDone && event.Payload.Item.Type == responsesOutputTypeReasoning {
+						closed = append(closed, *event.Payload.Item)
+					}
+				}
+			}
+			final := FinalizeChatCompletionsStreamToResponses(state)
+			require.NotEmpty(t, final)
+			require.Len(t, closed, 2)
+			assert.Equal(t, closed, final[len(final)-1].Payload.Response.Output)
+			assert.Empty(t, FinalizeChatCompletionsStreamToResponses(state))
+		})
+	}
 }
 
 func TestChatCompletionsStreamEmptyReasoningDoesNotCreateSegment(t *testing.T) {

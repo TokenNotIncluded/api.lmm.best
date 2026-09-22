@@ -56,6 +56,7 @@ type chatToResponsesStreamTool struct {
 type chatToResponsesReasoningSegment struct {
 	OutputIndex int
 	ID          string
+	Status      string
 	Text        strings.Builder
 	Done        bool
 }
@@ -417,6 +418,7 @@ func (s *ChatToResponsesStreamState) doneDeltaEvents() ([]ChatToResponsesStreamE
 		segment := s.reasoningSegments[len(s.reasoningSegments)-1]
 		if !segment.Done {
 			segment.Done = true
+			segment.Status = status
 			events = append(events, responsesStreamEvent(responsesEventReasoningSummaryDone, dto.ResponsesStreamResponse{
 				Type:         responsesEventReasoningSummaryDone,
 				OutputIndex:  intPtr(segment.OutputIndex),
@@ -491,9 +493,7 @@ func (s *ChatToResponsesStreamState) finalResponse() (*dto.OpenAIResponsesRespon
 		case "message":
 			output = append(output, *s.messageOutput(status))
 		case "reasoning":
-			if ref.ReasoningIndex >= 0 && ref.ReasoningIndex < len(s.reasoningSegments) {
-				output = append(output, *s.reasoningOutput(s.reasoningSegments[ref.ReasoningIndex], status))
-			}
+			output = append(output, *s.reasoningOutput(s.reasoningSegments[ref.ReasoningIndex], status))
 		case "tool":
 			if tool := s.toolsByIndex[ref.ToolIndex]; tool != nil {
 				item, err := s.toolOutput(tool, status)
@@ -586,6 +586,9 @@ func (s *ChatToResponsesStreamState) messageOutput(status string) *dto.Responses
 }
 
 func (s *ChatToResponsesStreamState) reasoningOutput(segment *chatToResponsesReasoningSegment, status string) *dto.ResponsesOutput {
+	if segment.Done {
+		status = segment.Status
+	}
 	return &dto.ResponsesOutput{
 		Type:   responsesOutputTypeReasoning,
 		ID:     segment.ID,
