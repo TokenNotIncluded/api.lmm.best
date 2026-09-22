@@ -87,13 +87,13 @@ function DialogFixture(props: { initialEndpoints?: Record<number, string> }) {
 }
 
 /**
- * The select trigger of the single `https://example.test` row. Scoping by row
- * keeps the assertion about *that* channel's endpoint rather than the dialog's
- * first rendered combobox.
+ * The select trigger of the single `Upstream` row. Scoping by row keeps the
+ * assertion about *that* channel's endpoint rather than the dialog's first
+ * rendered combobox.
  */
 function endpointSelect() {
   const row = [...document.querySelectorAll('[data-slot="table-row"]')].find(
-    (candidate) => candidate.textContent?.includes('https://example.test')
+    (candidate) => candidate.textContent?.includes('Upstream')
   )
   assert.ok(row, 'expected the upstream channel row to be rendered')
   const trigger = row.querySelector('[data-slot="select-trigger"]')
