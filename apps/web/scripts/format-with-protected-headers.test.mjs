@@ -23,9 +23,9 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { delimiter, join } from 'node:path'
+import { join } from 'node:path'
 import { test } from 'node:test'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const target = new URL('./format-with-protected-headers.mjs', import.meta.url)
 const script = fileURLToPath(target)
@@ -40,18 +40,39 @@ function check(t, mode, source, replacement, formatterExit = 0) {
   writeFileSync(path, header + source)
   const encoded = JSON.stringify(replacement)
   const mock = [
-    '#!/usr/bin/env node',
     `require('node:fs').writeFileSync('fixture.ts', ${encoded})`,
     `process.exit(${formatterExit})`,
     '',
   ].join('\n')
-  writeFileSync(join(bin, 'oxfmt'), mock, { mode: 0o700 })
-  const result = spawnSync(process.execPath, [script, mode], {
-    cwd: root,
-    env: { ...process.env, PATH: bin + delimiter + process.env.PATH },
-    encoding: 'utf8',
-    timeout: 10000,
-  })
+  const mockPath = join(bin, 'formatter.cjs')
+  writeFileSync(mockPath, mock)
+  // Resolve only the formatter launch to a real Node child process. A shebang
+  // executable on PATH is not portable to Windows and may hit an installed tool.
+  const preload = join(bin, 'formatter-launch.mjs')
+  writeFileSync(
+    preload,
+    [
+      "import childProcess from 'node:child_process'",
+      "import { syncBuiltinESMExports } from 'node:module'",
+      "import assert from 'node:assert/strict'",
+      'const spawn = childProcess.spawnSync',
+      'childProcess.spawnSync = (command, args, options) => {',
+      "  assert.equal(command, 'oxfmt')",
+      "  assert.deepEqual(args, ['-c', '.oxfmtrc.json', '--ignore-path', '.gitignore', '--write', '.'])",
+      `  return spawn(process.execPath, [${JSON.stringify(mockPath)}], options)`,
+      '}',
+      'syncBuiltinESMExports()',
+    ].join('\n')
+  )
+  const result = spawnSync(
+    process.execPath,
+    ['--import', pathToFileURL(preload).href, script, mode],
+    {
+      cwd: root,
+      encoding: 'utf8',
+      timeout: 10000,
+    }
+  )
   assert.ifError(result.error)
   return { ...result, source: readFileSync(path, 'utf8') }
 }
@@ -87,6 +108,7 @@ test('diagnostic lines are bounded and cannot emit workflow commands', (t) => {
   const source = `::error::${'x'.repeat(1000)}\n`
   const result = check(t, '--check', source, 'fixed\n')
   assert.equal(result.status, 1)
+  assert.match(result.stderr, /First difference at line 4/)
   assert.doesNotMatch(result.stderr, /^::/m)
   assert.ok(result.stderr.length < 600)
   assert.equal(result.source, header + source)

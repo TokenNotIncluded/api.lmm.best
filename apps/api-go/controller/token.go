@@ -479,6 +479,17 @@ func UpdateToken(c *gin.Context) {
 		cleanToken.ModelLimits = token.ModelLimits
 		cleanToken.AllowIps = token.AllowIps
 		cleanToken.Group = token.Group
+		if token.Group != "auto" && strings.TrimSpace(token.Group) != "" {
+			userGroup, groupErr := getTokenRequestUserGroup(c)
+			if groupErr != nil {
+				common.ApiError(c, groupErr)
+				return
+			}
+			if !service.IsUserSelectableGroup(userGroup, token.Group) {
+				common.ApiError(c, fmt.Errorf("the selected group is not available to this account"))
+				return
+			}
+		}
 		if !requireGroupWarningConfirmation(c, cleanToken.Group, request.GroupWarningConfirmations) {
 			return
 		}

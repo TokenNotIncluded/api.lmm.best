@@ -28,6 +28,7 @@ function Tabs({
 }: TabsPrimitive.Root.Props) {
   return (
     <TabsPrimitive.Root
+      orientation={orientation}
       data-slot='tabs'
       data-orientation={orientation}
       className={cn(

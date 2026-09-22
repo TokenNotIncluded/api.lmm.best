@@ -18,6 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useRouterState } from '@tanstack/react-router'
 
+import '@/styles/console-pages.css'
+
 import { AccessRestrictionNotice } from '@/components/access-restriction-notice'
 import { CommandMenu } from '@/components/command-menu'
 import { AnimatedOutlet } from '@/components/page-transition'
@@ -37,6 +39,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { AppHeader } from './app-header'
 import { AppSidebar } from './app-sidebar'
+import { ConsoleLocation } from './console-navigation'
 
 type AuthenticatedLayoutProps = {
   children?: React.ReactNode
@@ -50,6 +53,7 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
     select: (state) => state.location.pathname,
   })
   const assistantPage = pathname === '/getting-started'
+  const focusedOnboarding = assistantPage && !consoleActivated
 
   return (
     <MandatoryAnnouncements>
@@ -61,24 +65,34 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
               className='console-editorial h-dvh min-h-0 flex-col overflow-hidden'
             >
               <SkipToMain />
-              <AppHeader
-                showTopNav={consoleActivated}
-                showSidebarTrigger={!assistantPage}
-              />
               <div className='flex min-h-0 w-full min-w-0 flex-1 basis-0 flex-col flex-nowrap md:flex-row'>
-                {assistantPage ? null : <AppSidebar />}
-                <SidebarInset
-                  className={cn(
-                    '@container/content',
-                    'min-h-0 min-w-0 flex-1 basis-0 overflow-hidden',
-                    assistantPage
-                      ? 'pb-0'
-                      : 'pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-16 xl:pb-0'
-                  )}
-                >
-                  {props.children ?? <AnimatedOutlet />}
+                {focusedOnboarding ? null : <AppSidebar />}
+                <SidebarInset className='min-h-0 min-w-0 flex-1 overflow-hidden'>
+                  <AppHeader
+                    showTopNav={false}
+                    showSidebarTrigger={!focusedOnboarding}
+                    showBrand={focusedOnboarding}
+                    showLanguageSwitcher={focusedOnboarding}
+                    showConfigDrawer={focusedOnboarding}
+                    leftContent={
+                      focusedOnboarding ? undefined : <ConsoleLocation />
+                    }
+                  />
+                  <div className='flex min-h-0 min-w-0 flex-1'>
+                    <div
+                      className={cn(
+                        '@container/content flex flex-col',
+                        'min-h-0 min-w-0 flex-1 basis-0 overflow-hidden',
+                        assistantPage
+                          ? 'pb-0'
+                          : 'pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-16 xl:pb-0'
+                      )}
+                    >
+                      {props.children ?? <AnimatedOutlet />}
+                    </div>
+                    <AssistantLauncher hideMobileLauncher={assistantPage} />
+                  </div>
                 </SidebarInset>
-                <AssistantLauncher hideMobileLauncher={assistantPage} />
               </div>
               <AccessRestrictionNotice className='shrink-0' />
               <ReleaseNoteDialog />

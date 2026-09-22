@@ -804,8 +804,6 @@ func convertOpenRouterToRatioData(reader io.Reader) (map[string]any, error) {
 		if !isValidNonNegativeCost(ratio) {
 			continue
 		}
-		modelRatioMap[m.ID] = ratio
-
 		compRatio := completionPrice / promptPrice
 		compRatio = roundRatioValue(compRatio)
 
@@ -813,6 +811,7 @@ func convertOpenRouterToRatioData(reader io.Reader) (map[string]any, error) {
 		if !isValidNonNegativeCost(compRatio) {
 			continue
 		}
+		modelRatioMap[m.ID] = ratio
 		completionRatioMap[m.ID] = compRatio
 
 		// Convert input_cache_read to cache_ratio (= cache_read_price / prompt_price)

@@ -1,0 +1,38 @@
+name: Standalone deployment tests
+
+on:
+  pull_request:
+    paths:
+      - scripts/deploy-systemd.py
+      - scripts/lmm-api-deploy.sh
+      - scripts/test-deploy-systemd*.py
+      - .github/workflows/standalone-deployment-tests.yml
+  push:
+    branches: [main]
+    paths:
+      - scripts/deploy-systemd.py
+      - scripts/lmm-api-deploy.sh
+      - scripts/test-deploy-systemd*.py
+      - .github/workflows/standalone-deployment-tests.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  standalone-deployment-tests:
+    name: Standalone CLI and recovery contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Test without service or database access
+        shell: bash
+        run: |
+          python3 -c 'import sys; assert sys.version_info >= (3, 11)'
+          bash -n scripts/lmm-api-deploy.sh
+          python3 -B scripts/test-deploy-systemd.py -v
+          python3 -B scripts/test-deploy-systemd-cli.py -v

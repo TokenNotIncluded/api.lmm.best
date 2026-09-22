@@ -277,7 +277,7 @@ func (s *ChatToResponsesStreamState) appendToolCallDelta(toolCall dto.ToolCallRe
 	if tool == nil {
 		tool = &chatToResponsesStreamTool{
 			ChatIndex:   chatIndex,
-			OutputIndex: s.nextIndex("tool", chatIndex),
+			OutputIndex: -1,
 			ID:          strings.TrimSpace(toolCall.ID),
 		}
 		s.toolsByIndex[chatIndex] = tool
@@ -291,7 +291,7 @@ func (s *ChatToResponsesStreamState) appendToolCallDelta(toolCall dto.ToolCallRe
 		}
 		tool.ID = id
 	}
-	if name := toolCall.Function.Name; name != "" {
+	if name := strings.TrimSpace(toolCall.Function.Name); name != "" {
 		if tool.Started {
 			if tool.Name != name {
 				return nil, fmt.Errorf("tool call %d changed name after argument deltas", chatIndex)
@@ -303,11 +303,15 @@ func (s *ChatToResponsesStreamState) appendToolCallDelta(toolCall dto.ToolCallRe
 	if toolCall.Function.Arguments != "" {
 		tool.Arguments.WriteString(toolCall.Function.Arguments)
 	}
+	if strings.TrimSpace(tool.Name) != "" && tool.OutputIndex < 0 {
+		tool.Name = strings.TrimSpace(tool.Name)
+		tool.OutputIndex = s.nextIndex("tool", chatIndex)
+	}
 	if !tool.Started {
 		// A name may arrive in multiple chunks. Mapped identities (including
 		// prefixes) stay buffered until completion so search calls never leak
 		// function_call events. Ordinary functions start at their first args.
-		if tool.Arguments.Len() == 0 || s.bufferToolIdentity(tool.Name) {
+		if tool.OutputIndex < 0 || tool.Arguments.Len() == 0 || s.bufferToolIdentity(tool.Name) {
 			return nil, nil
 		}
 		item, err := s.toolOutput(tool, "in_progress")
@@ -337,7 +341,7 @@ func (s *ChatToResponsesStreamState) appendToolCallDelta(toolCall dto.ToolCallRe
 }
 
 func (s *ChatToResponsesStreamState) bufferToolIdentity(name string) bool {
-	if name == "" {
+	if strings.TrimSpace(name) == "" {
 		return true
 	}
 	for alias := range s.ToolMapping {
@@ -365,8 +369,12 @@ func (s *ChatToResponsesStreamState) doneDeltaEvents() ([]ChatToResponsesStreamE
 	status := s.outputStatus()
 	outputs := make(map[int]*dto.ResponsesOutput, len(s.toolsByIndex))
 	for _, tool := range s.sortedTools() {
-		if tool.Done {
+		if tool.Done || strings.TrimSpace(tool.Name) == "" {
 			continue
+		}
+		tool.Name = strings.TrimSpace(tool.Name)
+		if tool.OutputIndex < 0 {
+			tool.OutputIndex = s.nextIndex("tool", tool.ChatIndex)
 		}
 		item, err := s.toolOutput(tool, status)
 		if err != nil {
@@ -407,10 +415,13 @@ func (s *ChatToResponsesStreamState) doneDeltaEvents() ([]ChatToResponsesStreamE
 		}))
 	}
 	for _, tool := range s.sortedTools() {
-		if tool.Done {
+		if tool.Done || tool.OutputIndex < 0 {
 			continue
 		}
 		item := outputs[tool.ChatIndex]
+		if item == nil {
+			continue
+		}
 		if !tool.Started {
 			added := *item
 			added.Status = "in_progress"
