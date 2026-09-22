@@ -1,0 +1,34 @@
+name: Assistant isolated workspace
+on:
+  push:
+    branches: [work/assistant-chain-20260922]
+    paths: [.github/workflows/assistant-workspace-check.yml]
+permissions:
+  contents: read
+jobs:
+  workspace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.3.14
+      - name: Prepare locked web workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile
+          mkdir -p /tmp/assistant-workspace
+          git archive --format=tar HEAD | gzip > /tmp/assistant-workspace/source.tar.gz
+          tar -czf /tmp/assistant-workspace/dependencies.tar.gz node_modules apps/web/node_modules
+          cp "$HOME/.bun/bin/bun" /tmp/assistant-workspace/bun
+          git rev-parse HEAD > /tmp/assistant-workspace/COMMIT
+      - uses: actions/upload-artifact@v4
+        with:
+          name: assistant-web-workspace
+          path: /tmp/assistant-workspace/
+          retention-days: 1
+          if-no-files-found: error
