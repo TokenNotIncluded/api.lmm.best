@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { toIntlLocale } from '@/i18n/languages'
 
 import { SMS_MINIMUM_BALANCE_USD } from './sms-balance'
 
@@ -42,10 +43,13 @@ export function SmsBalanceNotice({
                 'Minimum balance: USD {{minimum}}. Current balance: USD {{balance}}.',
                 {
                   minimum: SMS_MINIMUM_BALANCE_USD,
-                  balance: new Intl.NumberFormat(i18n.language || 'en', {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 6,
-                  }).format(balanceUSD),
+                  balance: new Intl.NumberFormat(
+                    toIntlLocale(i18n.language || 'en'),
+                    {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 6,
+                    }
+                  ).format(balanceUSD),
                 }
               )
             : isLoading

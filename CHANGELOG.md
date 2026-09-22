@@ -13,8 +13,9 @@ authenticated users then see it once after their next login.
 
 <!-- Add user-facing or operational changes here before the next release. -->
 
-- Fixed the status page crashing when formatting sample timestamps in Simplified
-  or Traditional Chinese; invalid locale settings now use the browser default.
+- Fixed status timestamps, bounty delivery timelines, and SMS balance notices
+  crashing in Simplified or Traditional Chinese; invalid locale settings now
+  use the browser default.
 
 - Rust model relays now use independent response-header (1800 seconds), byte-idle
   (300 seconds), and optional per-attempt total deadlines (disabled by default),
