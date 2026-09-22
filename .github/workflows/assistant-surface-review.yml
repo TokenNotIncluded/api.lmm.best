@@ -15,6 +15,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: fix/assistant-single-surface-20260923
+          fetch-depth: 5
       - name: Apply verified implementation and remove staging payload
         run: |
           python - <<'PY'
