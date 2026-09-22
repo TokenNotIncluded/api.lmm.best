@@ -162,3 +162,52 @@ describe('dashboard chart palette', () => {
     assert.doesNotMatch(stylesheet, /--forge-model-\d+:\s*#[\da-f]{6}/i)
   })
 })
+
+describe('dashboard chart time buckets', () => {
+  test('preserves sparse real buckets without inventing replacement periods', () => {
+    const rows: QuotaDataItem[] = [
+      {
+        created_at: new Date('2026-09-15T12:00:00Z').getTime() / 1000,
+        model_name: 'model-b',
+        quota: 28_625_679,
+        count: 3,
+      },
+      {
+        created_at: new Date('2026-09-14T12:00:00Z').getTime() / 1000,
+        model_name: 'model-a',
+        quota: 11_671_440,
+        count: 2,
+      },
+    ]
+
+    const result = processChartData(rows, 'week')
+    const values = result.spec_line.data[0].values as Array<{
+      Time: string
+      rawQuota: number
+    }>
+
+    assert.equal(new Set(values.map((row) => row.Time)).size, 2)
+    assert.equal(
+      values.reduce((sum, row) => sum + Number(row.rawQuota), 0),
+      40_297_119
+    )
+    assert.equal(result.totalCountDisplay, '5')
+  })
+
+  test('shows a point when area and call-trend charts have only one bucket', () => {
+    const result = processChartData(
+      [
+        {
+          created_at: new Date('2026-09-15T12:00:00Z').getTime() / 1000,
+          model_name: 'model-a',
+          quota: 500_000,
+          count: 2,
+        },
+      ],
+      'day'
+    )
+
+    assert.equal(result.spec_area.point.visible, true)
+    assert.equal(result.spec_model_line.point.visible, true)
+  })
+})
