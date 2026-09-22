@@ -12,6 +12,7 @@ import asyncio
 import functools
 import json
 import os
+import re
 import threading
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -60,7 +61,9 @@ async def main():
             await page.screenshot(path=str(OUT / f'{name}.png'))
             report['pages'][name] = {'url': page.url, 'body': (await page.locator('body').inner_text())[:12000],
                                    'viewport': page.viewport_size,
-                                   'overflow': await page.evaluate('document.documentElement.scrollWidth > innerWidth')}
+                                   'overflow': await page.evaluate('document.documentElement.scrollWidth > innerWidth'),
+                                   'headingFont': await page.locator('h2').first.evaluate('e => getComputedStyle(e).fontFamily'),
+                                   'inputs': await page.locator('.settings-sheet input').evaluate_all('es => es.slice(0, 5).map(e => ({slot: e.dataset.slot, height: e.getBoundingClientRect().height, minHeight: getComputedStyle(e).minHeight}))')}
 
         async def check(name, fn):
             try:
@@ -73,7 +76,8 @@ async def main():
         async def go(route):
             await page.goto(url + route)
             await page.locator('.settings-sheet').wait_for(timeout=20000)
-            await page.wait_for_timeout(700)
+            await page.evaluate('document.fonts.ready')
+            await page.wait_for_timeout(1100)
 
         async def click(locator):
             await locator.scroll_into_view_if_needed()
@@ -154,9 +158,14 @@ async def main():
         await check('assistant-persistent-edit', assistant_flow)
 
         async def dark_flow():
-            await click(page.get_by_role('button', name='切换主题', exact=True))
+            await click(page.get_by_role('button', name='打开主题设置', exact=True))
+            await click(page.get_by_role('radio', name='选择深色', exact=True))
+            await capture('theme-drawer')
+            await page.keyboard.press('Escape')
             await page.wait_for_timeout(600)
             assert await page.locator('html').evaluate("e => e.classList.contains('dark')")
+            await page.locator('.console-section-content').evaluate('e => e.scrollTo({top: 0, behavior: "smooth"})')
+            await page.wait_for_timeout(700)
             await capture('desktop-dark-assistant')
         await check('dark-appearance', dark_flow)
 
@@ -172,12 +181,21 @@ async def main():
             q.on('pageerror', lambda error: report['errors'].append(str(error)))
             for section in ['site', 'assistant']:
                 try:
-                    await q.goto(url + ROUTES[section]); await q.locator('.settings-sheet').wait_for(timeout=20000); await q.wait_for_timeout(600)
+                    await q.goto(url + ROUTES[section]); await q.locator('.settings-sheet').wait_for(timeout=20000); await q.evaluate('document.fonts.ready'); await q.wait_for_timeout(1200)
                     await q.screenshot(path=str(OUT / f'{name}-{section}.png'))
                     overflow = await q.evaluate('document.documentElement.scrollWidth > innerWidth')
                     assert not overflow
                     dock = q.locator('.settings-form-actions').last
                     assert await dock.is_visible()
+                    if width == 390 and section == 'site':
+                        await q.get_by_label('系统名称', exact=True).fill('LMM Studio')
+                        await q.wait_for_timeout(800)
+                        await dock.get_by_role('button').last.click()
+                        await q.wait_for_timeout(800)
+                        assert f.options['SystemName'] == 'LMM Studio'
+                        await q.locator('summary').filter(has_text='页面内容').first.click()
+                        await q.wait_for_timeout(1000)
+                        await q.screenshot(path=str(OUT / 'mobile-content-expanded.png'))
                     report['checks'].append({'name': f'{name}-{section}', 'passed': True})
                 except Exception as error:
                     report['checks'].append({'name': f'{name}-{section}', 'passed': False, 'error': str(error)})
@@ -186,15 +204,22 @@ async def main():
                 await q.video.save_as(str(OUT / 'settings-mobile.webm'))
 
         # Failed settings loads must not expose an editable default configuration.
-        bad = await browser.new_context(viewport={'width': 1440, 'height': 1000})
+        bad = await browser.new_context(viewport={'width': 1440, 'height': 1000}, locale='zh-CN')
         f = Fixture(); f.fail_options = True; await setup(bad, f)
         q = await bad.new_page()
         try:
-            await q.goto(url + ROUTES['site']); await q.get_by_text('无法加载设置', exact=True).wait_for(timeout=20000)
+            await q.goto(url + ROUTES['site']); await q.get_by_text(re.compile(r'^(无法加载设置|Unable to load settings)$')).wait_for(timeout=45000)
             assert await q.locator('.settings-sheet input').count() == 0
             await q.screenshot(path=str(OUT / 'load-error.png'))
-            report['checks'].append({'name': 'failed-load-no-default-form', 'passed': True})
+            assert await q.locator('.settings-save-dock').is_visible() is False
+            f.fail_options = False
+            await q.get_by_role('button', name=re.compile(r'^(重试|Retry)$')).click()
+            await q.get_by_label('系统名称', exact=True).wait_for(timeout=20000)
+            assert await q.get_by_label('系统名称', exact=True).input_value() == 'LMM'
+            report['checks'].append({'name': 'failed-load-no-default-form-and-retry', 'passed': True})
         except Exception as error:
+            await q.screenshot(path=str(OUT / 'failure-load-error.png'))
+            report['pages']['failure-load-error'] = {'body': await q.locator('body').inner_text(), 'url': q.url, 'requests': f.requests}
             report['checks'].append({'name': 'failed-load-no-default-form', 'passed': False, 'error': str(error)})
         await bad.close()
         await browser.close()
