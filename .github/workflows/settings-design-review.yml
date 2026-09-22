@@ -3,58 +3,28 @@ name: Settings design review
 on:
   push:
     branches: [design/settings-workspace-20260922]
+  pull_request:
+    paths:
+      - 'apps/web/src/features/system-settings/**'
+      - 'apps/web/src/components/layout/**'
+      - 'apps/web/scripts/visual-review/**'
+      - '.github/workflows/settings-design-review.yml'
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: settings-design-review-${{ github.ref }}
+  group: settings-design-review-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   review:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: design/settings-workspace-20260922
-      - name: Import integrity-checked settings changes
-        shell: bash
-        run: |
-          if [ -f .settings-review/part-1.txt ]; then
-          python3 - <<'PY'
-          import base64, hashlib, json, lzma
-          from pathlib import Path
-          raw = lzma.decompress(base64.b64decode(''.join(Path(f'.settings-review/part-{i}.txt').read_text() for i in range(1, 4))))
-          assert hashlib.sha256(raw).hexdigest() == '81484bc63e66c874d50a130cf8196f2ac3254ca786fff00842444eb156736d8d', 'Transport integrity mismatch'
-          prepared = []
-          for change in json.loads(raw):
-              path = Path(change['path'])
-              assert str(path).startswith('apps/web/') and not path.is_absolute() and '..' not in path.parts
-              old = path.read_text() if path.exists() else ''
-              if change['sha256'] is None:
-                  assert not path.exists(), f'New path exists: {path}'
-              else:
-                  assert hashlib.sha256(old.encode()).hexdigest() == change['sha256'], f'Base mismatch: {path}'
-              lines = old.splitlines(keepends=True)
-              for start, end, text in reversed(change['edits']):
-                  lines[start:end] = [text]
-              new = ''.join(lines)
-              assert hashlib.sha256(new.encode()).hexdigest() == change['result'], f'Result mismatch: {path}'
-              prepared.append((path, new))
-          for path, new in prepared:
-              path.parent.mkdir(parents=True, exist_ok=True)
-              path.write_text(new)
-          print(f'Applied {len(prepared)} verified frontend files')
-          PY
-          git add apps/web
-          git rm -r .settings-review
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'feat(web): redesign settings workspace with progressive forms and visual review'
-          git push origin HEAD:refs/heads/design/settings-workspace-20260922
-          fi
+          persist-credentials: false
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.14
@@ -63,9 +33,11 @@ jobs:
         run: bun run typecheck:web
       - name: Settings regression tests
         working-directory: apps/web
+        shell: bash
         run: |
-          bun test src/features/system-settings/content/assistant-settings-section.test.tsx
-          bun test src/features/system-settings/components/settings-disclosure.test.tsx
+          while IFS= read -r test; do
+            bun test "$test"
+          done < <(find src/features/system-settings -type f \( -name '*.test.ts' -o -name '*.test.tsx' \) | sort)
       - name: Build
         run: bun run build:web
       - uses: actions/setup-python@v5
