@@ -15,6 +15,7 @@ LMM Forge is a production-grade, web-first bounty collaboration system for open-
 - [Overview](#overview)
 - [Architecture](#architecture)
 - [Quick start](#quick-start)
+- [Deployment and upgrades](#deployment-and-upgrades)
 - [What LMM Forge supports](#what-lmm-forge-supports)
 - [Repository layout](#repository-layout)
 - [Documentation and operations](#documentation-and-operations)
@@ -44,11 +45,11 @@ Key differentiators:
 | Default backend | Go provider CLI/service in `apps/api-go` |
 | Preview backend | Rust provider CLI/service in `apps/api-rust` (not default production traffic) |
 | LMM CLI | Rust setup tool in [`apps/lmm`](apps/lmm/README.md) (preview: discovery, planning and read-only OAuth login) |
-| Deployment | Reviewed `/usr/bin/lmm-api-deploy` script plus manual release operations |
+| Deployment | Signed package transactions or existing standalone systemd upgrades; see [deployment and upgrades](#deployment-and-upgrades) |
 | Packaging | Provider binaries and immutable runtime assets in `packaging/` |
 
 For existing standalone installations on systemd Linux, see
-[manual cross-distribution deployment](docs/manual-systemd-deployment.md).
+[standalone systemd deployment](docs/manual-systemd-deployment.md).
 
 Providers install real `lmm-api-go` or `lmm-api-rs` binaries. Production and operator actions always enter through the one-hop `lmm-api` provider symlink. The frontend is released independently.
 
@@ -92,6 +93,21 @@ Open <http://localhost:3000> and complete the setup flow.
 just build
 just test
 ```
+
+## Deployment and upgrades
+
+Local development commands are not production installers. Choose the path that
+matches the existing installation; do not replace package-owned files manually.
+
+| Installation | Entry point | Guide |
+| --- | --- | --- |
+| Standalone Go on systemd | `sudo bash scripts/lmm-api-deploy.sh systemd doctor`, then `upgrade` and explicit `confirm` | [Standalone workflow](docs/manual-systemd-deployment.md) |
+| Package-owned Go/Web | Installed `/usr/bin/lmm-api-deploy production` signed-plan workflow | [Package transactions](docs/seamless-upgrades.md) |
+
+`bash scripts/lmm-api-deploy.sh --help` works without a compiled backend.
+The standalone workflow updates an existing server, not a clean installation.
+Backend and frontend versions remain independent. Neither path is automatically
+run against production when code is merged or a release is published.
 
 ## What LMM Forge supports
 
@@ -139,7 +155,7 @@ just dev             Frontend + Go backend in one process group
 just build           Build frontend and Go backend artifacts
 just test            Run backend and frontend tests
 just check           Formatting, lint, typecheck, and contract checks
-just deploy-production  Production deployment entry point
+just deploy-production  Promote an already-staged signed package release plan
 ```
 
 ### Additional commands

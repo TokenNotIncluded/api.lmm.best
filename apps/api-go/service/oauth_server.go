@@ -25,6 +25,8 @@ const (
 	OAuthPiClientName        = "LMM for Pi"
 	OAuthDshClientID         = "lmm-dsh"
 	OAuthDshClientName       = "LMM for DSH"
+	OAuthCodewhaleClientID   = "lmm-codewhale"
+	OAuthCodewhaleClientName = "LMM for Codewhale"
 	OAuthCLIClientID         = "lmm"
 	OAuthCLIClientName       = "LMM CLI"
 	OAuthNativeRedirect      = "http://127.0.0.1/oauth/lmm/callback"
@@ -125,6 +127,12 @@ func NewOAuthIntegration(db *gorm.DB, cfg OAuthServerConfig) (*OAuthIntegration,
 		{ID: OAuthPiClientID, Name: OAuthPiClientName, RedirectURIs: []string{OAuthNativeRedirect}, Resources: []string{integration.Resource}, Scopes: scopes},
 		{ID: OAuthDshClientID, Name: OAuthDshClientName, RedirectURIs: []string{OAuthNativeRedirect}, Resources: []string{integration.Resource}, Scopes: scopes},
 	}
+	// Codewhale's companion adapter has no MCP or marketplace integration.
+	codewhaleScopes := []string{OAuthCatalogScope, OAuthBalanceScope, OAuthUsageScope, OAuthInvokeScope}
+	for _, group := range groups {
+		codewhaleScopes = append(codewhaleScopes, OAuthGroupScope(group))
+	}
+	clients = append(clients, oauthserver.NativeClient{ID: OAuthCodewhaleClientID, Name: OAuthCodewhaleClientName, RedirectURIs: []string{OAuthNativeRedirect}, Resources: []string{integration.Resource}, Scopes: codewhaleScopes})
 	// CLI discovery does not authorize relay, MCP or account administration.
 	cliScopes := []string{OAuthCatalogScope, OAuthBalanceScope}
 	for _, group := range groups {
@@ -216,7 +224,7 @@ func (s *OAuthIntegration) GrantedGroups(user *model.User, grant oauthserver.Gra
 // validation. Database/cache failures never imply access. It does not mutate
 // OAuth tables or acquire a second pool connection while core owns a transaction.
 func (s *OAuthIntegration) Authorize(ctx context.Context, tx *gorm.DB, grant oauthserver.Grant) error {
-	if (grant.ClientID != OAuthPiClientID && grant.ClientID != OAuthDshClientID && grant.ClientID != OAuthCLIClientID) || grant.Resource != s.Resource {
+	if (grant.ClientID != OAuthPiClientID && grant.ClientID != OAuthDshClientID && grant.ClientID != OAuthCLIClientID && grant.ClientID != OAuthCodewhaleClientID) || grant.Resource != s.Resource {
 		return ErrOAuthDenied
 	}
 	if tx == nil {
@@ -277,6 +285,8 @@ func (s *OAuthIntegration) ConsentQuery(raw string, user *model.User) (string, [
 	}
 	if query.Get("client_id") == OAuthCLIClientID {
 		profiles = [][]string{{OAuthCatalogScope, OAuthBalanceScope}}
+	} else if query.Get("client_id") == OAuthCodewhaleClientID {
+		profiles = [][]string{currentBase}
 	}
 	slices.Sort(requested)
 	validProfile := false

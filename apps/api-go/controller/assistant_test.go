@@ -450,6 +450,12 @@ func TestAssistantNewConversationPersistsOnlyAfterSuccessfulAnswer(t *testing.T)
 		PrepareAssistantRequest(c)
 	}, func(c *gin.Context) {
 		requestCount++
+		context := assistantUserContextFromGin(c)
+		assert.False(t, context.ConversationTitleNeeded)
+		assert.NotEqual(t, "set_conversation_title", assistantNamedToolChoiceName(assistantToolChoiceForContext(context)))
+		for _, tool := range assistantToolDefinitionsForContext(context) {
+			assert.NotEqual(t, "set_conversation_title", tool.Function.Name)
+		}
 		var before int64
 		require.NoError(t, db.Model(&model.AssistantConversation{}).Where("user_id = ?", user.Id).Count(&before).Error)
 		assert.Zero(t, before)
@@ -484,6 +490,9 @@ func TestAssistantNewConversationPersistsOnlyAfterSuccessfulAnswer(t *testing.T)
 	var messages int64
 	require.NoError(t, db.Model(&model.AssistantHistoryMessage{}).Count(&messages).Error)
 	assert.EqualValues(t, 2, messages)
+	var stored model.AssistantConversation
+	require.NoError(t, db.Where("user_id = ?", user.Id).First(&stored).Error)
+	assert.Equal(t, "successful question", stored.Title)
 }
 
 func TestTrimAssistantHistoryToRuneBudgetKeepsNewestCompletePairs(t *testing.T) {
@@ -840,20 +849,18 @@ func TestAssistantCreateKeyAgentConfirmationIsSessionBoundAndExactlyOnce(t *test
 		turn++
 		switch turn {
 		case 1:
-			assert.Equal(t, "get_service_facts", assistantNamedToolChoiceName(request.ToolChoice))
-			return http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"facts","type":"function","function":{"name":"get_service_facts","arguments":"{}"}}]}}]}`), nil
-		case 2:
+			requireAssistantPairedReadReceipt(t, request, "get_service_facts", true)
 			assert.Equal(t, "request_create_key", assistantNamedToolChoiceName(request.ToolChoice))
 			return http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"key-groups","type":"function","function":{"name":"request_create_key","arguments":"{\"name\":\"chat-created\",\"group\":\"default\"}"}}]}}]}`), nil
-		case 3:
+		case 2:
 			assert.Nil(t, request.ToolChoice)
 			assert.Empty(t, request.Tools)
 			assert.Contains(t, string(mustAssistantJSON(t, request.Messages)), `\"status\":\"group_required\"`)
 			return http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","content":"请选择一个 routing group，例如 default。"}}]}`), nil
-		case 4:
+		case 3:
 			assert.Equal(t, "request_create_key", assistantNamedToolChoiceName(request.ToolChoice))
 			return http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"key-confirm","type":"function","function":{"name":"request_create_key","arguments":"{\"name\":\"chat-created\",\"group\":\"default\"}"}}]}}]}`), nil
-		case 5:
+		case 4:
 			assert.Nil(t, request.ToolChoice)
 			assert.Empty(t, request.Tools)
 			encoded := string(mustAssistantJSON(t, request.Messages))
@@ -892,7 +899,7 @@ func TestAssistantCreateKeyAgentConfirmationIsSessionBoundAndExactlyOnce(t *test
 	selectionGin.Set(assistantUserContextKey, selectionContext)
 	selectionGin.Set("assistant_history_conversation_id", conversationRecord.Id)
 	runAssistantAgent(selectionGin, settings, selectionConversation)
-	require.Equal(t, 5, turn)
+	require.Equal(t, 4, turn)
 	require.Equal(t, http.StatusOK, selectionRecorder.Code)
 
 	var reply map[string]any
@@ -2066,9 +2073,7 @@ func TestAssistantAgentReadsHistoricalRecommendationWithoutRetiredEdit(t *testin
 		turn++
 		switch turn {
 		case 1:
-			assert.Equal(t, "get_l1_recommendation", assistantNamedToolChoiceName(request.ToolChoice))
-			return http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"read-letter","type":"function","function":{"name":"get_l1_recommendation","arguments":"{}"}}]}}]}`), nil
-		case 2:
+			requireAssistantPairedReadReceipt(t, request, "get_l1_recommendation", true)
 			assert.Nil(t, request.ToolChoice)
 			assert.Empty(t, request.Tools)
 			encoded := string(mustAssistantJSON(t, request.Messages))
@@ -2088,7 +2093,7 @@ func TestAssistantAgentReadsHistoricalRecommendationWithoutRetiredEdit(t *testin
 		TimeoutSeconds:   45,
 	}, []assistantOpenAIMessage{{Role: "user", Content: "请帮我重写这封推荐信"}})
 
-	assert.Equal(t, 2, turn)
+	assert.Equal(t, 1, turn)
 	assert.Equal(t, http.StatusOK, recorder.Code)
 	var response map[string]any
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
@@ -2144,9 +2149,7 @@ func TestAssistantAgentKeepsRetiredRecommendationRemovalReadOnly(t *testing.T) {
 		turn++
 		switch turn {
 		case 1:
-			assert.Equal(t, "get_l1_recommendation", assistantNamedToolChoiceName(request.ToolChoice))
-			return http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"read-before-remove","type":"function","function":{"name":"get_l1_recommendation","arguments":"{}"}}]}}]}`), nil
-		case 2:
+			requireAssistantPairedReadReceipt(t, request, "get_l1_recommendation", true)
 			assert.Nil(t, request.ToolChoice)
 			assert.Empty(t, request.Tools)
 			require.NotEmpty(t, request.Messages)
@@ -2167,7 +2170,7 @@ func TestAssistantAgentKeepsRetiredRecommendationRemovalReadOnly(t *testing.T) {
 		TimeoutSeconds:   45,
 	}, []assistantOpenAIMessage{{Role: "user", Content: "删除我的推荐信"}})
 
-	assert.Equal(t, 2, turn)
+	assert.Equal(t, 1, turn)
 	assert.Equal(t, http.StatusOK, recorder.Code)
 	assert.Contains(t, recorder.Body.String(), "form is retired")
 	_, hasAction := c.Get(assistantClientActionKey)
@@ -2194,7 +2197,7 @@ func TestAssistantAgentKeepsRetiredRecommendationRemovalReadOnly(t *testing.T) {
 	assert.Zero(t, flowCount)
 }
 
-func TestAssistantAgentRejectsSkippedRecommendationRead(t *testing.T) {
+func TestAssistantAgentFailedRecommendationReadCannotAuthorizeMutation(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
@@ -2209,8 +2212,10 @@ func TestAssistantAgentRejectsSkippedRecommendationRead(t *testing.T) {
 	originalRelay := relayAssistantAgentTurn
 	relayAssistantAgentTurn = func(_ *gin.Context, request assistantOpenAIRequest, _ string, _ int) (int, []byte, error) {
 		turns++
-		assert.Equal(t, "get_l1_recommendation", assistantNamedToolChoiceName(request.ToolChoice))
-		return http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","content":"I changed it without reading it."}}]}`), nil
+		receipt := requireAssistantPairedReadReceipt(t, request, "get_l1_recommendation", false)
+		assert.Contains(t, receipt["error"], "signed-in account is unavailable")
+		assert.Equal(t, "none", request.ToolChoice)
+		return http.StatusOK, assistantLoopCallBody(t, []assistantOpenAIToolCall{{ID: "unauthorized-write", Type: "function", Function: assistantOpenAIToolCallFunction{Name: "prepare_l1_recommendation", Arguments: "{}"}}}, ""), nil
 	}
 	t.Cleanup(func() { relayAssistantAgentTurn = originalRelay })
 
@@ -2223,7 +2228,7 @@ func TestAssistantAgentRejectsSkippedRecommendationRead(t *testing.T) {
 
 	assert.Equal(t, 1, turns)
 	assert.Equal(t, http.StatusBadGateway, recorder.Code)
-	assert.Contains(t, recorder.Body.String(), "ASSISTANT_REQUIRED_TOOL_MISSING")
+	assert.Contains(t, recorder.Body.String(), "ASSISTANT_TOOL_CHOICE_VIOLATION")
 	_, hasAction := c.Get(assistantClientActionKey)
 	assert.False(t, hasAction)
 }

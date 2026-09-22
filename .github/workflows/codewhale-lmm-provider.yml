@@ -1,0 +1,40 @@
+name: Codewhale LMM provider
+on:
+  pull_request:
+    paths:
+      - 'packages/codewhale-lmm-provider/**'
+      - 'packages/codewhale-lmm-provider'
+      - '.gitmodules'
+      - 'apps/api-go/service/oauth_server.go'
+      - 'apps/api-go/oauthserver/codewhale_integration_test.go'
+      - '.github/workflows/codewhale-lmm-provider.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  adapter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - name: Initialize adapter when extracted as a submodule
+        run: |
+          if git ls-files --stage packages/codewhale-lmm-provider | grep -q '^160000 '; then
+            git submodule update --init --depth 1 -- packages/codewhale-lmm-provider
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm run check && npm test && npm run pack:check
+        working-directory: packages/codewhale-lmm-provider
+  registration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: apps/api-go/go.sum
+      - run: go test ./oauthserver -run TestCodewhale -count=1
+        working-directory: apps/api-go

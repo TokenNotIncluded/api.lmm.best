@@ -62,6 +62,12 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
 const { act, useEffect } = await import('react')
 const { createRoot } = await import('react-dom/client')
+const {
+  createRouter,
+  createRootRoute,
+  createMemoryHistory,
+  RouterContextProvider,
+} = await import('@tanstack/react-router')
 const { QueryClient, QueryClientProvider } =
   await import('@tanstack/react-query')
 const { createInstance } = await import('i18next')
@@ -96,7 +102,21 @@ async function render(node: React.ReactNode) {
   const root = createRoot(container)
   mounted.push({ root, container })
   await act(async () => {
-    root.render(<I18nextProvider i18n={i18n}>{node}</I18nextProvider>)
+    const router = createRouter({
+      routeTree: createRootRoute(),
+      history: createMemoryHistory({
+        initialEntries: [
+          window.location.pathname +
+            window.location.search +
+            window.location.hash,
+        ],
+      }),
+    })
+    root.render(
+      <RouterContextProvider router={router}>
+        <I18nextProvider i18n={i18n}>{node}</I18nextProvider>
+      </RouterContextProvider>
+    )
   })
   return container
 }

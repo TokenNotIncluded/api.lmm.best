@@ -346,6 +346,12 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 			return
 		}
 		message := response.Choices[0].Message
+		// A failed required read closes tool selection. An upstream must not
+		// turn that failure into a mutation by ignoring tool_choice=none.
+		if choice, ok := request.ToolChoice.(string); ok && choice == "none" && len(message.ToolCalls) > 0 {
+			writeAssistantError(c, http.StatusBadGateway, "ASSISTANT_TOOL_CHOICE_VIOLATION", errors.New("assistant requested tools after tool selection was closed"))
+			return
+		}
 		if forceTaskWorkflow || forceRecommendationWorkflow || forceCreateKeyWorkflow || forceImageGenerationWorkflow || forcePublicActivityWorkflow || forceNewUserGiftWorkflow || forceWeeklyDiscountWorkflow || forceHumanSupportWorkflow || forceReadChain {
 			requiredTool := assistantNamedToolChoiceName(request.ToolChoice)
 			if requiredTool != "" && (len(message.ToolCalls) != 1 || strings.TrimSpace(message.ToolCalls[0].Function.Name) != requiredTool) {

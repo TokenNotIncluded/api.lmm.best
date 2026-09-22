@@ -123,14 +123,18 @@ export function sortStatusGroups(groups: StatusGroup[], sort: StatusSort) {
   return [...groups].sort((left, right) => {
     if (sort === 'name') return left.group.localeCompare(right.group)
     if (sort === 'reliability') {
-      const successDelta = right.successRate - left.successRate
-      if (successDelta !== 0) return successDelta
+      const leftRate = Number.isFinite(left.successRate)
+        ? left.successRate
+        : Number.NEGATIVE_INFINITY
+      const rightRate = Number.isFinite(right.successRate)
+        ? right.successRate
+        : Number.NEGATIVE_INFINITY
+      if (leftRate !== rightRate) return rightRate - leftRate
     }
 
-    const ttftDelta =
-      finitePositiveOrInfinity(left.avgTtftMs) -
-      finitePositiveOrInfinity(right.avgTtftMs)
-    if (ttftDelta !== 0) return ttftDelta
+    const leftTtft = finitePositiveOrInfinity(left.avgTtftMs)
+    const rightTtft = finitePositiveOrInfinity(right.avgTtftMs)
+    if (leftTtft !== rightTtft) return leftTtft - rightTtft
     return left.group.localeCompare(right.group)
   })
 }
