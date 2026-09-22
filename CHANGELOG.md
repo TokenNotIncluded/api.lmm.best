@@ -20,6 +20,10 @@ authenticated users then see it once after their next login.
   otherwise unterminated EOF data is not dispatched. CR, LF, CRLF and an initial
   UTF-8 BOM are supported.
 
+- Fixed status timestamps, bounty delivery timelines, and SMS balance notices
+  crashing in Simplified or Traditional Chinese; invalid locale settings now
+  use the browser default.
+
 - Ollama model discovery, pull, streaming pull, deletion, and version checks now
   honor the channel's configured proxy and HTTP transport settings.
 
