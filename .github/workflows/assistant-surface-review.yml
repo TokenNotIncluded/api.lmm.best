@@ -33,13 +33,17 @@ jobs:
         run: |
           mkdir -p output/assistant-review
           git rev-parse HEAD > output/assistant-review/commit.txt
+      - name: Lint assistant and layout components
+        working-directory: apps/web
+        run: |
+          ../../node_modules/.bin/oxlint -c .oxlintrc.json src/features/onboarding/l0-welcome.tsx src/features/assistant/assistant-panel.tsx src/features/assistant/assistant-new-user-gift.tsx src/features/assistant/assistant-support-controls.tsx src/features/assistant/assistant-launcher.tsx src/components/layout/components/app-header.tsx src/components/layout/components/authenticated-layout.tsx
       - name: Typecheck
         id: types
         continue-on-error: true
         run: |
           set -o pipefail
           bun run typecheck:web 2>&1 | tee output/assistant-review/typecheck.log
-      - name: Assistant and L0 regression tests
+      - name: Assistant, L0 and layout regression tests
         id: tests
         continue-on-error: true
         working-directory: apps/web
@@ -47,8 +51,9 @@ jobs:
         run: |
           failed=0
           while IFS= read -r test; do
-            bun test "$test" >> ../../output/assistant-review/tests.log 2>&1 || failed=1
-          done < <(find src/features/assistant src/features/onboarding -type f \( -name '*.test.ts' -o -name '*.test.tsx' \) | sort)
+            bun test --preload ./scripts/test-preload.mjs --timeout 15000 "$test" >> ../../output/assistant-review/tests.log 2>&1 || failed=1
+          done < <(find src/features/assistant src/features/onboarding src/components/layout -type f \( -name '*.test.ts' -o -name '*.test.tsx' \) | sort)
+          if grep -Eq '\(fail\)|^[[:space:]]*[1-9][0-9]* fail$' ../../output/assistant-review/tests.log; then failed=1; fi
           tail -100 ../../output/assistant-review/tests.log
           exit "$failed"
       - name: Build
