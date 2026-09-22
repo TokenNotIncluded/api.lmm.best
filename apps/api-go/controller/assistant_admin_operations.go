@@ -403,7 +403,7 @@ func assistantAdminHandlerReadOnly(method, handler string) bool {
 		"GetCodexChannelRateLimitResetCredits", "OllamaVersion", "GetAllUsers", "SearchUsers",
 		"GetUser", "GetAllTopUps", "GetUserOAuthBindingsByAdmin", "ListUserDeveloperAccessRecommendationArchives",
 		"AdminGetAssistantUserProfile", "AdminListMemories", "Admin2FAStats", "GetAllLogs",
-		"SearchAllLogs", "GetLogsStat", "GetChannelAffinityUsageCacheStats", "GetAllQuotaDates",
+		"GetLogsStat", "GetChannelAffinityUsageCacheStats", "GetAllQuotaDates",
 		"GetQuotaDatesByUser", "GetAllFlowQuotaDates", "GetPermissionCatalog", "GetAllVendors",
 		"GetVendorMeta", "SearchVendors", "GetAllModelsMeta", "GetModelMeta",
 		"SearchModelsMeta", "GetMissingModels", "SyncUpstreamPreview", "GetGroups",
