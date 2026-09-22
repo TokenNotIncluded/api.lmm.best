@@ -84,7 +84,9 @@ export function SettingsSection({
   )
 
   return (
-    <section className={cn('flex flex-col gap-4', className)}>
+    <section
+      className={cn('console-settings-section flex flex-col gap-5', className)}
+    >
       {!suppressHeader && (
         <div className='flex flex-wrap items-center justify-between gap-2'>
           <h3

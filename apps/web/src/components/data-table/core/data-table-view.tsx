@@ -49,10 +49,9 @@ export { DataTableRowActionMenu } from './row-action-menu'
 
 export function DataTableView<TData>(props: DataTableViewProps<TData>) {
   const rows = props.rows ?? props.table.getRowModel().rows
-  const colSpan = React.useMemo(
-    () => props.table.getVisibleLeafColumns().length,
-    [props.table]
-  )
+  // The table instance is stable when visibility changes. Do not memoize the
+  // span by instance identity or hidden columns leave phantom empty-state cells.
+  const colSpan = Math.max(1, props.table.getVisibleLeafColumns().length)
   const columnClassName = useResolvedColumnClassName(
     props.table,
     props.getColumnClassName,
@@ -61,8 +60,9 @@ export function DataTableView<TData>(props: DataTableViewProps<TData>) {
 
   return (
     <div
+      data-slot='data-table-viewport'
       className={cn(
-        'overflow-hidden rounded-lg border',
+        '@container/table overflow-hidden rounded-lg border',
         props.containerClassName
       )}
       {...props.containerProps}
@@ -296,7 +296,9 @@ function renderEmptyState<TData>(
     return (
       <TableRow>
         <TableCell colSpan={colSpan} className={props.emptyCellClassName}>
-          {props.emptyContent}
+          <div className='sticky start-0 max-w-[100cqi] whitespace-normal'>
+            {props.emptyContent}
+          </div>
         </TableCell>
       </TableRow>
     )
@@ -308,6 +310,7 @@ function renderEmptyState<TData>(
       title={props.emptyTitle}
       description={props.emptyDescription}
       icon={props.emptyIcon}
+      className='sticky start-0 max-w-[100cqi] whitespace-normal'
     >
       {props.emptyAction}
     </TableEmpty>

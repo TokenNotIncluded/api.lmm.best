@@ -182,6 +182,12 @@ function jsonFixture(pathname) {
   if (pathname === '/api/user/self') {
     return { success: true, data: authFixture.user, message: 'smoke fixture' }
   }
+  if (pathname === '/api/user/self/announcements') {
+    return { success: true, data: [], message: 'smoke fixture' }
+  }
+  if (pathname === '/api/ratio-notifications') {
+    return { success: true, data: [], message: 'smoke fixture' }
+  }
   if (pathname === '/api/user/groups') {
     return { success: true, data: {}, message: 'smoke fixture' }
   }

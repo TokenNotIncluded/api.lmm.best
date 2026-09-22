@@ -84,14 +84,12 @@ export function SectionPageLayout(props: SectionPageLayoutProps) {
           {breadcrumb != null && (
             <div className='mb-2 sm:mb-3'>{breadcrumb}</div>
           )}
-          <div className='flex flex-wrap items-center justify-between gap-x-4 gap-y-3'>
+          <div className='console-page-heading flex flex-wrap items-center justify-between gap-x-4 gap-y-3'>
             <div className='min-w-0 flex-1'>
-              <h2 className='text-xl leading-snug font-semibold tracking-tight break-words sm:text-2xl'>
-                {title}
-              </h2>
+              <h1 className='console-page-title break-words'>{title}</h1>
             </div>
             {actions != null && (
-              <div className='flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2 sm:gap-x-4'>
+              <div className='console-page-actions flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2'>
                 {actions}
               </div>
             )}
@@ -101,7 +99,7 @@ export function SectionPageLayout(props: SectionPageLayoutProps) {
         <div
           className={
             props.fixedContent
-              ? 'console-section-content min-h-0 flex-1 overflow-hidden px-4 pt-2 pb-6 sm:px-6 sm:pb-8'
+              ? 'console-section-content min-h-0 flex-1 overflow-auto px-4 pt-2 pb-6 sm:overflow-hidden sm:px-6 sm:pb-8'
               : 'console-section-content min-h-0 flex-1 overflow-auto px-4 pt-2 pb-6 sm:px-6 sm:pb-8'
           }
         >

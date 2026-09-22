@@ -15,6 +15,10 @@ authenticated users then see it once after their next login.
 
 - Ollama model discovery, pull, streaming pull, deletion, and version checks now
   honor the channel's configured proxy and HTTP transport settings.
+
+- OpenRouter price previews omit the entire model when the derived output
+  ratio overflows, avoiding a partial input-only quote.
+
 - Fixed the Go new-user journey: L0 checkout, security-email verification and
   public script/game reads no longer disappear behind the console gate.
   Authentication, payment restrictions and developer/admin boundaries remain.
