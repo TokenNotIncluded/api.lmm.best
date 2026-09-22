@@ -35,7 +35,9 @@ jobs:
         run: |
           mkdir -p /tmp/settings-review-tools
           cp "$(command -v bun)" /tmp/settings-review-tools/bun
-          tar -czf /tmp/settings-offline-tools.tar.gz node_modules apps/web/node_modules -C /tmp settings-review-tools
+          paths=(node_modules)
+          if [ -d apps/web/node_modules ]; then paths+=(apps/web/node_modules); fi
+          tar -czf /tmp/settings-offline-tools.tar.gz "${paths[@]}" -C /tmp settings-review-tools
       - uses: actions/upload-artifact@v4
         with:
           name: settings-review-offline-tools
