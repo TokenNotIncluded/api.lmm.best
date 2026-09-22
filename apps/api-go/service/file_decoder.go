@@ -132,7 +132,6 @@ func GetFileTypeFromUrl(c *gin.Context, url string, reason ...string) (string, e
 	return "application/octet-stream", nil
 }
 
-
 func GetMimeTypeByExtension(ext string) string {
 	// Convert to lowercase for case-insensitive comparison
 	ext = strings.ToLower(ext)
