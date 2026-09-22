@@ -465,4 +465,3 @@ func ResetProxyClientCache() {
 	defaultClient.CloseIdleConnections()
 	proxyClients.store(clientCacheKey("", defaultHTTPTransportPolicy()), defaultClient)
 }
-
