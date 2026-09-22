@@ -25,7 +25,7 @@ await mkdir(output, { recursive: true })
 const browser = await chromium.launch({ headless: true })
 const report = []
 
-async function capture(page, name, errors) {
+async function settle(page) {
   await page.evaluate(async () => {
     await document.fonts.ready
     await new Promise(requestAnimationFrame)
@@ -39,6 +39,10 @@ async function capture(page, name, errors) {
       animations.map((animation) => animation.finished.catch(() => undefined))
     )
   })
+}
+
+async function capture(page, name, errors, fullPage = true) {
+  await settle(page)
   const dimensions = await page.evaluate(() => ({
     width: innerWidth,
     scroll: document.documentElement.scrollWidth,
@@ -50,12 +54,13 @@ async function capture(page, name, errors) {
   assert.deepEqual(errors, [])
   await page.screenshot({
     path: path.join(output, `${name}.png`),
-    fullPage: true,
+    fullPage,
     animations: 'disabled',
   })
   report.push({
     name,
     viewport: page.viewportSize(),
+    capture: fullPage ? 'document' : 'viewport',
     dimensions,
     errors: [...errors],
   })
@@ -109,21 +114,43 @@ try {
       await draft.waitFor({ state: 'visible' })
       assert.equal(await draft.inputValue(), '切换后保留')
       const toggle = page.getByRole('switch', { name: '自动刷新' })
-      assert.equal(await toggle.getAttribute('aria-checked'), 'true')
-      await toggle.click()
-      assert.equal(await toggle.getAttribute('aria-checked'), 'false')
-      await toggle.click()
-      await page.waitForTimeout(250)
-      const track = await toggle.boundingBox()
-      const thumb = await toggle
-        .locator('[data-slot=switch-thumb]')
-        .boundingBox()
-      assert.ok(
-        track &&
-          thumb &&
-          thumb.x >= track.x &&
-          thumb.x + thumb.width <= track.x + track.width + 1
-      )
+      const compactToggle = page.getByRole('switch', { name: '紧凑模式' })
+      for (const control of [toggle, compactToggle]) {
+        // Exercise actual keyboard state changes in both writing directions.
+        const initial = await control.getAttribute('aria-checked')
+        for (const direction of ['ltr', 'rtl']) {
+          await control.evaluate(
+            (el, dir) => el.setAttribute('dir', dir),
+            direction
+          )
+          for (const checked of ['true', 'false']) {
+            if ((await control.getAttribute('aria-checked')) !== checked) {
+              await control.focus()
+              await page.keyboard.press('Space')
+            }
+            assert.equal(await control.getAttribute('aria-checked'), checked)
+            await settle(page)
+            const track = await control.boundingBox()
+            const thumb = await control
+              .locator('[data-slot=switch-thumb]')
+              .boundingBox()
+            assert.ok(track && thumb)
+            assert.ok(
+              thumb.x >= track.x - 1 &&
+                thumb.x + thumb.width <= track.x + track.width + 1,
+              `Switch thumb escaped ${direction} track: ${JSON.stringify({ track, thumb, checked })}`
+            )
+            const center = thumb.x + thumb.width / 2
+            const trackCenter = track.x + track.width / 2
+            const onRight = (direction === 'ltr') === (checked === 'true')
+            assert.ok(onRight ? center > trackCenter : center < trackCenter)
+          }
+        }
+        await control.evaluate((el) => el.removeAttribute('dir'))
+        if ((await control.getAttribute('aria-checked')) !== initial) {
+          await control.click()
+        }
+      }
       const form = page.getByTestId('otp-preview-form')
       const slots = form.locator('[data-slot=input-otp-slot]')
       assert.equal(await slots.count(), 6)
@@ -160,6 +187,15 @@ try {
         .getByTestId('otp-submit-count')
         .filter({ hasText: '1' })
         .waitFor()
+      await capture(page, `otp-complete-${width}`, errors)
+      await slots.last().focus()
+      await page.keyboard.press('Backspace')
+      assert.equal(await slots.last().inputValue(), '')
+      assert.equal(await page.getByTestId('otp-submit-count').innerText(), '1')
+      assert.equal(
+        await form.evaluate((el) => new FormData(el).get('otp')),
+        '12345'
+      )
       const dialogTrigger = page.getByRole('button', {
         name: '打开弹窗',
         exact: true,
@@ -171,7 +207,7 @@ try {
         .getByRole('option', { name: '低延迟连接', exact: true })
         .click()
       assert.equal(await dialog.isVisible(), true)
-      await capture(page, `dialog-${width}`, errors)
+      await capture(page, `dialog-${width}`, errors, false)
       await dialog.getByRole('button', { name: '完成', exact: true }).click()
       await dialog.waitFor({ state: 'hidden' })
       assert.equal(
@@ -198,7 +234,7 @@ try {
           rect.x >= -1 &&
           rect.x + rect.width <= width + 1
       )
-      await capture(page, `drawer-${width}`, errors)
+      await capture(page, `drawer-${width}`, errors, false)
       await page.keyboard.press('Escape')
       await drawer.waitFor({ state: 'hidden' })
       assert.equal(
