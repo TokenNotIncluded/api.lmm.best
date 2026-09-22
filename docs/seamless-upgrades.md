@@ -1,12 +1,20 @@
 # Frontend and backend upgrades
 
-The package exposes one public backend and operator CLI at
-`/usr/bin/lmm-api`. Serving, health checks, HTTP requests, and deployment are
-subcommands of that CLI; source-tree deployment helpers and a second public
-deploy command are not supported. A temporary package-owned
-`/usr/bin/lmm-api-go` compatibility link may exist during the T0 transition,
-but documentation, services, automation, and new releases must use
-`/usr/bin/lmm-api`.
+## Choose the installation path
+
+This guide describes the **signed package transaction** path. For an existing
+standalone Go installation on systemd, use
+[standalone systemd deployment](manual-systemd-deployment.md): `doctor`,
+`upgrade`, then explicit `confirm`. That workflow refuses package-owned
+providers and does not replace the signed package controller or its gates.
+Its software rollback does not restore a database, and it has no automatic
+rollback watchdog. Do not assume the package guarantees below apply to it.
+
+Packages install a real `lmm-api-go` or `lmm-api-rs` provider and a one-hop
+`/usr/bin/lmm-api` symlink. Service and native operator actions enter through
+that symlink. The reviewed `/usr/bin/lmm-api-deploy` package script is the public
+deployment entry; it dispatches native operator actions through `lmm-api`.
+Backend and frontend release versions remain independent.
 
 Use the native CLI for application-level server control:
 
@@ -70,7 +78,7 @@ referenced by every retained release.
 
 Rollback is performed by the same guarded transaction and restores the exact
 verified prior frontend release. Do not invoke a source-tree publisher or
-construct a parallel public helper command.
+construct a parallel public helper command for package-owned installations.
 
 The site uses its own `/etc/nginx/lmm-api-mime.types`; it never creates or
 overwrites nginx's global `/etc/nginx/mime.types`. Publish all nginx inputs
