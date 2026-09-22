@@ -21,6 +21,7 @@ import { createRoot } from 'react-dom/client'
 import { I18nextProvider } from 'react-i18next'
 
 import { DirectionProvider } from '@/context/direction-provider'
+import { FontProvider } from '@/context/font-provider'
 import { ThemeProvider } from '@/context/theme-provider'
 import appI18n from '@/i18n/config'
 
@@ -35,9 +36,11 @@ createRoot(element).render(
   <StrictMode>
     <I18nextProvider i18n={appI18n}>
       <ThemeProvider defaultTheme='light'>
-        <DirectionProvider>
-          <UIFoundationPreview />
-        </DirectionProvider>
+        <FontProvider>
+          <DirectionProvider>
+            <UIFoundationPreview />
+          </DirectionProvider>
+        </FontProvider>
       </ThemeProvider>
     </I18nextProvider>
   </StrictMode>

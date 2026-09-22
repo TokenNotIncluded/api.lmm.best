@@ -26,7 +26,19 @@ const browser = await chromium.launch({ headless: true })
 const report = []
 
 async function capture(page, name, errors) {
-  await page.evaluate(() => document.fonts.ready)
+  await page.evaluate(async () => {
+    await document.fonts.ready
+    await new Promise(requestAnimationFrame)
+    await new Promise(requestAnimationFrame)
+    const animations = document
+      .getAnimations()
+      .filter((animation) =>
+        Number.isFinite(animation.effect?.getComputedTiming().endTime)
+      )
+    await Promise.all(
+      animations.map((animation) => animation.finished.catch(() => undefined))
+    )
+  })
   const dimensions = await page.evaluate(() => ({
     width: innerWidth,
     scroll: document.documentElement.scrollWidth,
@@ -62,6 +74,14 @@ try {
     )
     await context.route('**/*', (route) => {
       const url = new URL(route.request().url())
+      // The shared HTML template includes this optional tracker. Block it in
+      // the isolated preview; never load it or count it as application traffic.
+      if (
+        url.origin === 'https://cdn.agentlane.com' &&
+        url.pathname === '/v1/snippet.js'
+      ) {
+        return route.abort('blockedbyclient')
+      }
       if (url.origin !== origin || url.pathname.startsWith('/api/')) {
         errors.push(`Unexpected request: ${url.origin}${url.pathname}`)
         return route.abort('blockedbyclient')
