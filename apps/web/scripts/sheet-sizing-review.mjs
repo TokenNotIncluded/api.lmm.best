@@ -164,7 +164,9 @@ try {
               await firstInput.inputValue(),
               'https://changed.example.test/v1'
             )
-            await sheet.getByRole('button', { name: '保存', exact: true }).click()
+            await sheet
+              .getByRole('button', { name: '保存', exact: true })
+              .click()
             assert.equal(await page.getByTestId('sheet-saved').innerText(), id)
             // Record the form at the top, with the fixed footer still visible.
             await sheet.locator('form').evaluate((form) => {
@@ -193,7 +195,12 @@ try {
       await page.screenshot({
         path: path.join(output, `sheet-failed-${viewport.width}.png`),
       })
-      report.push({ viewport, error: String(error), stack: error.stack, errors })
+      report.push({
+        viewport,
+        error: String(error),
+        stack: error.stack,
+        errors,
+      })
     } finally {
       await context.close()
     }

@@ -41,7 +41,11 @@ createRoot(element).render(
       <ThemeProvider defaultTheme='light'>
         <FontProvider>
           <DirectionProvider>
-            {sheetReview ? <UIFoundationSheetPreview /> : <UIFoundationPreview />}
+            {sheetReview ? (
+              <UIFoundationSheetPreview />
+            ) : (
+              <UIFoundationPreview />
+            )}
           </DirectionProvider>
         </FontProvider>
       </ThemeProvider>

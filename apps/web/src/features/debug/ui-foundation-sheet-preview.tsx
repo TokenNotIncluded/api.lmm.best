@@ -80,9 +80,7 @@ export function UIFoundationSheetPreview() {
               side={side}
               data-testid={id}
               className={
-                wide
-                  ? sideDrawerContentClassName('sm:max-w-5xl')
-                  : 'gap-0 p-0'
+                wide ? sideDrawerContentClassName('sm:max-w-5xl') : 'gap-0 p-0'
               }
             >
               <SheetHeader className={sideDrawerHeaderClassName()}>
