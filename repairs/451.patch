@@ -1,0 +1,194 @@
+diff --git a/apps/api-go/controller/ratio_sync.go b/apps/api-go/controller/ratio_sync.go
+index fec02fa2..d2600cc0 100644
+--- a/apps/api-go/controller/ratio_sync.go
++++ b/apps/api-go/controller/ratio_sync.go
+@@ -216,25 +216,32 @@ func FetchUpstreamRatios(c *gin.Context) {
+ 		return dialer.DialContext(ctx, network, addr)
+ 	}
+ 	client := &http.Client{Transport: transport}
++	defer transport.CloseIdleConnections()
+ 
+ 	for _, chn := range upstreams {
+ 		wg.Add(1)
+ 		go func(chItem dto.UpstreamDTO) {
+ 			defer wg.Done()
+ 
+-			ctx, cancel := context.WithTimeout(c.Request.Context(), time.Duration(req.Timeout)*time.Second)
+-			defer cancel()
++			uniqueName := chItem.Name
++			if chItem.ID != 0 {
++				uniqueName = fmt.Sprintf("%s(%d)", chItem.Name, chItem.ID)
++			}
++			parent := c.Request.Context()
+ 			select {
+ 			case sem <- struct{}{}:
+ 				defer func() { <-sem }()
+-			case <-ctx.Done():
+-				ch <- upstreamResult{Name: chItem.Name, Err: "request cancelled"}
++			case <-parent.Done():
++				ch <- upstreamResult{Name: uniqueName, Err: "request cancelled"}
+ 				return
+ 			}
+-			if ctx.Err() != nil {
+-				ch <- upstreamResult{Name: chItem.Name, Err: "request cancelled"}
++			if parent.Err() != nil {
++				ch <- upstreamResult{Name: uniqueName, Err: "request cancelled"}
+ 				return
+ 			}
++			// Queueing is governed by the caller; each acquired slot gets its own request budget.
++			ctx, cancel := context.WithTimeout(parent, time.Duration(req.Timeout)*time.Second)
++			defer cancel()
+ 
+ 			isOpenRouter := chItem.Endpoint == "openrouter"
+ 
+@@ -254,11 +261,6 @@ func FetchUpstreamRatios(c *gin.Context) {
+ 			}
+ 			isModelsDev := isModelsDevAPIEndpoint(fullURL)
+ 
+-			uniqueName := chItem.Name
+-			if chItem.ID != 0 {
+-				uniqueName = fmt.Sprintf("%s(%d)", chItem.Name, chItem.ID)
+-			}
+-
+ 			httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
+ 			if err != nil {
+ 				logger.LogWarn(c.Request.Context(), "build request failed: "+err.Error())
+@@ -311,6 +313,9 @@ func FetchUpstreamRatios(c *gin.Context) {
+ 					return
+ 				}
+ 
++				if attempt == 2 {
++					break
++				}
+ 				backoff := time.NewTimer(time.Duration(200*(1<<attempt)) * time.Millisecond)
+ 				select {
+ 				case <-ctx.Done():
+diff --git a/apps/api-go/controller/ratio_sync_queue_test.go b/apps/api-go/controller/ratio_sync_queue_test.go
+new file mode 100644
+index 00000000..cc7f6078
+--- /dev/null
++++ b/apps/api-go/controller/ratio_sync_queue_test.go
+@@ -0,0 +1,123 @@
++package controller
++
++import (
++	"context"
++	"encoding/json"
++	"fmt"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"sync/atomic"
++	"testing"
++	"time"
++
++	"github.com/gin-gonic/gin"
++	"github.com/stretchr/testify/require"
++)
++
++func runRatioQueueRequest(ctx context.Context, base string, count, timeout int) *httptest.ResponseRecorder {
++	var body strings.Builder
++	fmt.Fprintf(&body, `{"timeout":%d,"upstreams":[`, timeout)
++	for i := 0; i < count; i++ {
++		if i > 0 {
++			body.WriteByte(',')
++		}
++		fmt.Fprintf(&body, `{"name":"queue-%d","base_url":%q,"endpoint":"/api/ratio_config"}`, i, base)
++	}
++	body.WriteString(`]}`)
++	w := httptest.NewRecorder()
++	c, _ := gin.CreateTestContext(w)
++	c.Request = httptest.NewRequest(http.MethodPost, "/api/ratio_sync/fetch", strings.NewReader(body.String())).WithContext(ctx)
++	c.Request.Header.Set("Content-Type", "application/json")
++	FetchUpstreamRatios(c)
++	return w
++}
++
++func TestRatioSyncCancelsAnOccupiedQueue(t *testing.T) {
++	var calls atomic.Int32
++	occupied := make(chan struct{})
++	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if calls.Add(1) == maxConcurrentFetches {
++			close(occupied)
++		}
++		<-r.Context().Done()
++	}))
++	defer server.Close()
++	ctx, cancel := context.WithCancel(context.Background())
++	defer cancel()
++	done := make(chan struct{})
++	go func() { runRatioQueueRequest(ctx, server.URL, maxConcurrentFetches*2, 10); close(done) }()
++	select {
++	case <-occupied:
++	case <-time.After(5 * time.Second):
++		t.Fatal("queue never filled")
++	}
++	cancel()
++	select {
++	case <-done:
++	case <-time.After(2 * time.Second):
++		t.Fatal("occupied queue ignored cancellation")
++	}
++	require.EqualValues(t, maxConcurrentFetches, calls.Load(), "queued requests must never reach upstream")
++}
++
++func TestRatioSyncQueueDoesNotConsumeRequestBudget(t *testing.T) {
++	var calls atomic.Int32
++	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		calls.Add(1)
++		select {
++		case <-time.After(650 * time.Millisecond):
++		case <-r.Context().Done():
++			return
++		}
++		w.Header().Set("Content-Type", "application/json")
++		fmt.Fprint(w, `{"success":true,"data":{"model_ratio":{"queue-test":1}}}`)
++	}))
++	defer server.Close()
++	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
++	defer cancel()
++	w := runRatioQueueRequest(ctx, server.URL, maxConcurrentFetches*2, 1)
++	var response struct {
++		Data struct {
++			Results []struct{ Status string } `json:"test_results"`
++		} `json:"data"`
++	}
++	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
++	require.Len(t, response.Data.Results, maxConcurrentFetches*2)
++	for _, result := range response.Data.Results {
++		require.Equal(t, "success", result.Status)
++	}
++	require.EqualValues(t, maxConcurrentFetches*2, calls.Load())
++}
++
++func TestRatioSyncLastFailureHasNoBackoff(t *testing.T) {
++	var calls atomic.Int32
++	lastFailure := make(chan struct{})
++	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		conn, _, err := w.(http.Hijacker).Hijack()
++		if err != nil {
++			t.Error(err)
++			return
++		}
++		if calls.Add(1) == 3 {
++			close(lastFailure)
++		}
++		_ = conn.Close()
++	}))
++	defer server.Close()
++	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
++	defer cancel()
++	done := make(chan struct{})
++	go func() { runRatioQueueRequest(ctx, server.URL, 1, 5); close(done) }()
++	select {
++	case <-lastFailure:
++	case <-time.After(5 * time.Second):
++		t.Fatal("three attempts not observed")
++	}
++	select {
++	case <-done:
++	case <-time.After(600 * time.Millisecond):
++		t.Fatal("waited after final failed attempt")
++	}
++	require.EqualValues(t, 3, calls.Load())
++}

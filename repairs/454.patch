@@ -1,0 +1,20 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 8d444d68..e45d9eb9 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -13,15 +13,12 @@ authenticated users then see it once after their next login.
+ 
+ <!-- Add user-facing or operational changes here before the next release. -->
+ 
+-<<<<<<< HEAD
+ - Fixed status timestamps, bounty delivery timelines, and SMS balance notices
+   crashing in Simplified or Traditional Chinese; invalid locale settings now
+   use the browser default.
+-=======
+ - OpenRouter price previews omit the entire model when the derived output
+   ratio overflows, avoiding a partial input-only quote.
+ 
+->>>>>>> review-main
+ - Fixed the Go new-user journey: L0 checkout, security-email verification and
+   public script/game reads no longer disappear behind the console gate.
+   Authentication, payment restrictions and developer/admin boundaries remain.
