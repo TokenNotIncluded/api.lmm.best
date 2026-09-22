@@ -16,6 +16,9 @@ authenticated users then see it once after their next login.
 - Fixed status timestamps, bounty delivery timelines, and SMS balance notices
   crashing in Simplified or Traditional Chinese; invalid locale settings now
   use the browser default.
+- Ollama model discovery, pull, streaming pull, deletion, and version checks now
+  honor the channel's configured proxy and HTTP transport settings.
+
 - OpenRouter price previews omit the entire model when the derived output
   ratio overflows, avoiding a partial input-only quote.
 

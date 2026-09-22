@@ -330,10 +330,10 @@ func ollamaEmbeddingHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *h
 	return usage, nil
 }
 
-func FetchOllamaModels(ctx context.Context, baseURL, apiKey string) ([]OllamaModel, error) {
+func FetchOllamaModels(ctx context.Context, baseURL, apiKey string, settings dto.ChannelSettings) ([]OllamaModel, error) {
 	url := fmt.Sprintf("%s/api/tags", baseURL)
 
-	client, err := service.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
+	client, err := service.GetHttpClientWithProxySettings(settings.Proxy, settings)
 	if err != nil {
 		return nil, fmt.Errorf("创建HTTP客户端失败: %v", err)
 	}
@@ -373,7 +373,7 @@ func FetchOllamaModels(ctx context.Context, baseURL, apiKey string) ([]OllamaMod
 }
 
 // 拉取 Ollama 模型 (非流式)
-func PullOllamaModel(ctx context.Context, baseURL, apiKey, modelName string) error {
+func PullOllamaModel(ctx context.Context, baseURL, apiKey, modelName string, settings dto.ChannelSettings) error {
 	url := fmt.Sprintf("%s/api/pull", baseURL)
 
 	pullRequest := OllamaPullRequest{
@@ -386,7 +386,7 @@ func PullOllamaModel(ctx context.Context, baseURL, apiKey, modelName string) err
 		return fmt.Errorf("序列化请求失败: %v", err)
 	}
 
-	client, err := service.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
+	client, err := service.GetHttpClientWithProxySettings(settings.Proxy, settings)
 	if err != nil {
 		return fmt.Errorf("创建HTTP客户端失败: %v", err)
 	}
@@ -415,7 +415,7 @@ func PullOllamaModel(ctx context.Context, baseURL, apiKey, modelName string) err
 }
 
 // 流式拉取 Ollama 模型 (支持进度回调)
-func PullOllamaModelStream(ctx context.Context, baseURL, apiKey, modelName string, progressCallback func(OllamaPullResponse)) error {
+func PullOllamaModelStream(ctx context.Context, baseURL, apiKey, modelName string, settings dto.ChannelSettings, progressCallback func(OllamaPullResponse)) error {
 	url := fmt.Sprintf("%s/api/pull", baseURL)
 
 	pullRequest := OllamaPullRequest{
@@ -428,7 +428,7 @@ func PullOllamaModelStream(ctx context.Context, baseURL, apiKey, modelName strin
 		return fmt.Errorf("序列化请求失败: %v", err)
 	}
 
-	client, err := service.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
+	client, err := service.GetHttpClientWithProxySettings(settings.Proxy, settings)
 	if err != nil {
 		return fmt.Errorf("创建HTTP客户端失败: %v", err)
 	}
@@ -493,7 +493,7 @@ func PullOllamaModelStream(ctx context.Context, baseURL, apiKey, modelName strin
 }
 
 // 删除 Ollama 模型
-func DeleteOllamaModel(ctx context.Context, baseURL, apiKey, modelName string) error {
+func DeleteOllamaModel(ctx context.Context, baseURL, apiKey, modelName string, settings dto.ChannelSettings) error {
 	url := fmt.Sprintf("%s/api/delete", baseURL)
 
 	deleteRequest := OllamaDeleteRequest{
@@ -505,7 +505,7 @@ func DeleteOllamaModel(ctx context.Context, baseURL, apiKey, modelName string) e
 		return fmt.Errorf("序列化请求失败: %v", err)
 	}
 
-	client, err := service.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
+	client, err := service.GetHttpClientWithProxySettings(settings.Proxy, settings)
 	if err != nil {
 		return fmt.Errorf("创建HTTP客户端失败: %v", err)
 	}
@@ -533,7 +533,7 @@ func DeleteOllamaModel(ctx context.Context, baseURL, apiKey, modelName string) e
 	return nil
 }
 
-func FetchOllamaVersion(ctx context.Context, baseURL, apiKey string) (string, error) {
+func FetchOllamaVersion(ctx context.Context, baseURL, apiKey string, settings dto.ChannelSettings) (string, error) {
 	trimmedBase := strings.TrimRight(baseURL, "/")
 	if trimmedBase == "" {
 		return "", fmt.Errorf("baseURL 为空")
@@ -541,7 +541,7 @@ func FetchOllamaVersion(ctx context.Context, baseURL, apiKey string) (string, er
 
 	url := fmt.Sprintf("%s/api/version", trimmedBase)
 
-	client, err := service.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
+	client, err := service.GetHttpClientWithProxySettings(settings.Proxy, settings)
 	if err != nil {
 		return "", fmt.Errorf("创建HTTP客户端失败: %v", err)
 	}
