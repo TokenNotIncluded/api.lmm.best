@@ -16,22 +16,20 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { cn } from '@/lib/utils'
+type FilterValue = string | number | boolean
 
-type MainProps = React.HTMLAttributes<HTMLElement> & {
-  fluid?: boolean
+/** Ignore malformed filter state instead of constructing a Set from an object. */
+export function getFilterValues(value: unknown): FilterValue[] {
+  const values = Array.isArray(value) ? value : [value]
+  return values.filter(
+    (item): item is FilterValue =>
+      (typeof item === 'string' && item !== '') ||
+      (typeof item === 'number' && Number.isFinite(item)) ||
+      typeof item === 'boolean'
+  )
 }
 
-export function Main({ className, fluid = true, ...props }: MainProps) {
-  return (
-    <main
-      className={cn(
-        'console-page flex min-h-0 flex-1 flex-col overflow-hidden',
-        !fluid &&
-          '@7xl/content:mx-auto @7xl/content:w-full @7xl/content:max-w-7xl',
-        className
-      )}
-      {...props}
-    />
-  )
+export function removeFilterValue(current: unknown, value: FilterValue) {
+  const remaining = getFilterValues(current).filter((item) => item !== value)
+  return remaining.length ? remaining : undefined
 }

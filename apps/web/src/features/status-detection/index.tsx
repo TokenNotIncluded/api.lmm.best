@@ -55,6 +55,7 @@ import {
   type SuccessRateLevel,
 } from '@/features/performance-metrics/lib/format'
 import { usePricingData } from '@/features/pricing/hooks/use-pricing-data'
+import { toIntlLocale } from '@/i18n/languages'
 import { cn } from '@/lib/utils'
 
 import { useStatusDetection } from './hooks/use-status-detection'
@@ -80,7 +81,7 @@ function formatStatusTimestamp(
     return t('Performance window: last {{hours}} hours', { hours })
   }
   return t('Latest data: {{time}}', {
-    time: date.toLocaleString(locale || undefined),
+    time: date.toLocaleString(toIntlLocale(locale)),
   })
 }
 

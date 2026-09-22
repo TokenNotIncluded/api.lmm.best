@@ -62,7 +62,7 @@ async def main():
             report['pages'][name] = {'url': page.url, 'body': (await page.locator('body').inner_text())[:12000],
                                    'viewport': page.viewport_size,
                                    'overflow': await page.evaluate('document.documentElement.scrollWidth > innerWidth'),
-                                   'headingFont': await page.locator('h2').first.evaluate('e => getComputedStyle(e).fontFamily'),
+                                   'headingFont': await page.locator('.console-section-header :is(h1, h2)').first.evaluate('e => getComputedStyle(e).fontFamily'),
                                    'inputs': await page.locator('.settings-sheet input').evaluate_all('es => es.slice(0, 5).map(e => ({slot: e.dataset.slot, height: e.getBoundingClientRect().height, minHeight: getComputedStyle(e).minHeight}))')}
 
         async def check(name, fn):

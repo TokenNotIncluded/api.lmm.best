@@ -73,19 +73,20 @@ export function SettingsSection({
   const configureButton = (
     <Button
       type='button'
-      size='icon'
-      variant='ghost'
+      size='sm'
+      variant='outline'
       onClick={copyConfigurationPrompt}
       title={t('Copy configuration prompt to AI')}
-      aria-label={t('Copy configuration prompt to AI')}
     >
       <Copy data-icon='inline-start' />
-      <span className='sr-only'>{t('Help me configure')}</span>
+      <span>{t('Help me configure')}</span>
     </Button>
   )
 
   return (
-    <section className={cn('settings-section flex flex-col gap-4', className)}>
+    <section
+      className={cn('settings-section console-settings-section flex flex-col gap-5', className)}
+    >
       {!suppressHeader && (
         <div className='flex flex-wrap items-center justify-between gap-2'>
           <h3

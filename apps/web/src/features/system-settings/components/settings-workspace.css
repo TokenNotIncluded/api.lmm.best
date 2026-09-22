@@ -20,7 +20,7 @@
 .console-editorial [data-slot='sidebar-inset']:has(.settings-workspace) {
   padding-bottom: 0;
 }
-.settings-workspace .console-section-header h2 {
+.settings-workspace .console-section-header :is(h1, h2) {
   font-size: 1.7rem;
   letter-spacing: -0.035em;
 }
@@ -237,7 +237,7 @@
   .settings-workspace .console-section-header {
     padding-block: 1.25rem 1rem;
   }
-  .settings-workspace .console-section-header h2 {
+  .settings-workspace .console-section-header :is(h1, h2) {
     font-size: 1.35rem;
   }
   .settings-sheet {

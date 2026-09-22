@@ -142,7 +142,7 @@ export function SourceConsent() {
   }
   return (
     <section
-      className='bg-background border-t p-4 text-sm'
+      className='bg-background relative z-50 border-t p-4 text-sm'
       aria-label={t('Source privacy')}
     >
       <p className='max-w-3xl'>
