@@ -52,7 +52,7 @@ awk -F '\t' '
     if (method == "POST" && path == "/api/user/topup/complete") return "admin"
     if (method == "POST" && path == "/pg/chat/completions") return "user"
     if ((method == "GET" && path == "/api/ratio_sync/channels") || (method == "POST" && path == "/api/ratio_sync/fetch")) return "root"
-    if (method == "GET" && (path == "/api/data/flow/self" || path == "/api/data/self" || path == "/api/log/self" || path == "/api/log/self/search" || path == "/api/log/self/stat" || path == "/api/subscription/plans")) return "user"
+    if (method == "GET" && (path == "/api/data/flow/self" || path == "/api/data/self" || path == "/api/log/self" || path == "/api/log/self/stat" || path == "/api/subscription/plans")) return "user"
     if (method == "GET" && path == "/api/log/token") return "token"
     if (method == "POST" && (path == "/api/subscription/balance/pay" || path == "/api/subscription/creem/pay" || path == "/api/subscription/epay/pay" || path == "/api/subscription/stripe/pay" || path == "/api/subscription/waffo-pancake/pay")) return "user"
     if ((method == "GET" || method == "POST") && path == "/api/subscription/epay/return") return "public"
