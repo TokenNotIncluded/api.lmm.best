@@ -142,9 +142,7 @@ GET	/api/internal/access-ip-policy	lmm_api_rs::routes::access_ip::router
 GET	/api/livez	lmm_api_rs::http::livez
 GET	/api/log/	lmm_api_rs::routes::observability::observability_read_router
 GET	/api/log/channel_affinity_usage_cache	lmm_api_rs::routes::observability::observability_read_router
-GET	/api/log/search	lmm_api_rs::routes::observability::observability_read_router
 GET	/api/log/self	lmm_api_rs::routes::observability::observability_read_router
-GET	/api/log/self/search	lmm_api_rs::routes::observability::observability_read_router
 GET	/api/log/self/stat	lmm_api_rs::routes::observability::observability_read_router
 GET	/api/log/stat	lmm_api_rs::routes::observability::observability_read_router
 GET	/api/log/token	lmm_api_rs::routes::observability::observability_read_router
