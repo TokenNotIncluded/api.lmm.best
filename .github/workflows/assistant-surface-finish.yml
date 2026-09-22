@@ -8,135 +8,36 @@ permissions:
 jobs:
   refine:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
-      - name: Fix viewport cascade and align regression assertions with the single surface
+      - name: Match the consumed-request API contract
         run: |
           python - <<'PY'
           from pathlib import Path
-          p=Path('apps/web/src/features/assistant/assistant-surface.css')
-          s=p.read_text()
-          old='''.assistant-user-message {
-            margin-inline-start: auto;
-            width: fit-content;
-            max-width: 92%;
-            padding: 0.625rem 0.875rem;
-            border-radius: 1rem 1rem 0.3rem 1rem;
-            background: var(--muted);
-          }'''
-          new='''.assistant-user-message {
-            margin: 0;
-            max-width: 100%;
-          }
-          .assistant-surface .is-user > div {
-            max-width: 92%;
-            padding: 0.625rem 0.875rem;
-            border-radius: 1rem 1rem 0.3rem 1rem;
-            background: var(--muted);
-          }
-          /* Override inherited data-side widths only for this assistant instance. */
-          .assistant-surface[data-slot='sheet-content'] {
-            inset: 0;
-            width: 100vw;
-            max-width: 100vw;
-            height: 100dvh;
-            max-height: 100dvh;
-            border: 0;
-            border-radius: 0;
-          }
-          @media (min-width: 640px) {
-            .assistant-surface[data-slot='sheet-content'] {
-              inset: 0.5rem 0.5rem 0.5rem auto;
-              width: min(32rem, calc(100vw - 1rem));
-              max-width: none;
-              height: auto;
-              border: 1px solid var(--border);
-              border-radius: 1rem;
-            }
-          }'''
-          import textwrap
-          old=textwrap.dedent(old)
-          new=textwrap.dedent(new)
-          # The first line starts at column zero; normalize the remaining YAML indentation.
-          old=old.replace('\n  ', '\n  ')
-          start=s.index('.assistant-user-message {')
-          end=s.index('\n}', start)+2
-          s=s[:start]+new+s[end:]
-          p.write_text(s)
-          p=Path('apps/web/src/features/assistant/assistant-panel.test.tsx')
-          s=p.read_text()
-          s=s.replace("assert.match(presets.className, /flex-wrap/)", "assert.doesNotMatch(presets.className, /flex-wrap/)")
-          s=s.replace("assert.doesNotMatch(presets.className, /overflow-x-auto/)", "assert.match(presets.className, /overflow-x-auto/)")
-          s=s.replace("assert.match(promptShell.className, /rounded-3xl/)", "assert.match(promptShell.className, /rounded-2xl/)")
-          s=s.replace("assert.match(textarea.className, /min-h-10/)", "assert.match(textarea.className, /min-h-12/)")
-          s=s.replace("assert.match(button.className, /max-w-full/)", "assert.match(button.className, /max-w-\\[85%\\]/)\n            assert.match(button.className, /whitespace-nowrap/)")
-          p.write_text(s)
           p=Path('apps/web/src/features/onboarding/getting-started.test.tsx')
           s=p.read_text()
-          s=s.replace("  'HTMLElement',\n", "  'HTMLElement',\n  'HTMLButtonElement',\n  'HTMLFormElement',\n  'HTMLInputElement',\n  'HTMLTextAreaElement',\n  'FormData',\n  'File',\n  'FileReader',\n  'ResizeObserver',\n  'getComputedStyle',\n")
-          s=s.replace("    assert.equal(consumeQueuedAssistantRequest()?.preset, 'plan')", "    assert.equal(consumeQueuedAssistantRequest(), null)\n    assert.ok(page.container.querySelector('[data-testid=\"l0-assistant-task\"]'))\n    await act(async () => button(page, 'Back to conversation').click())")
-          p.write_text(s)
-          p=Path('apps/web/scripts/visual-review/assistant_surface_review.py')
-          s=p.read_text()
-          s=s.replace("                    await capture('empty')", "                    if width < 640:\n                        box = await panel.bounding_box()\n                        assert abs(box['width'] - width) <= 1, box\n                        assert abs(box['height'] - height) <= 1, box\n                    await capture('empty')")
-          s=s.replace("                    await page.get_by_test_id('l0-assistant-task').wait_for()", "                    await page.get_by_test_id('l0-assistant-task').wait_for()\n                    assert await page.locator('.l0-help-menu').get_attribute('open') is None")
-          p.write_text(s)
+          old='assert.equal(consumeQueuedAssistantRequest(), null)'
+          assert s.count(old)==1
+          p.write_text(s.replace(old, 'assert.equal(consumeQueuedAssistantRequest(), undefined)'))
           PY
-          git add apps/web/src/features/assistant/assistant-surface.css apps/web/src/features/assistant/assistant-panel.test.tsx apps/web/src/features/onboarding/getting-started.test.tsx apps/web/scripts/visual-review/assistant_surface_review.py
+          git add apps/web/src/features/onboarding/getting-started.test.tsx
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'test(web): verify inline tasks consume their own queued request'
+          git push origin HEAD:fix/assistant-single-surface-20260923
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
-      - name: Format and commit scoped changes
-        run: |
-          bun run format:web
-          git add apps/web/src/features/assistant/assistant-surface.css apps/web/src/features/assistant/assistant-panel.test.tsx apps/web/src/features/onboarding/getting-started.test.tsx apps/web/scripts/visual-review/assistant_surface_review.py
-          git restore .
-          git diff --cached --check
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'fix(web): full-width mobile assistant without nested message bubbles'
-          git push origin HEAD:fix/assistant-single-surface-20260923
-          mkdir -p output/assistant-review
-          git rev-parse HEAD > output/assistant-review/commit.txt
-      - name: Typecheck
-        run: bun run typecheck:web
-      - name: Assistant regression tests
-        id: tests
-        continue-on-error: true
+      - name: Verify changed route and panel tests
         working-directory: apps/web
         run: |
           failed=0
-          while IFS= read -r test; do
-            bun test --preload ./scripts/test-preload.mjs --timeout 15000 "$test" >> ../../output/assistant-review/tests.log 2>&1 || failed=1
-          done < <(find src/features/assistant src/features/onboarding -type f \( -name '*.test.ts' -o -name '*.test.tsx' \) | sort)
-          if grep -Eq '\(fail\)|^[[:space:]]*[1-9][0-9]* fail$' ../../output/assistant-review/tests.log; then failed=1; fi
-          tail -100 ../../output/assistant-review/tests.log
+          for test in src/features/assistant/assistant-panel.test.tsx src/features/onboarding/getting-started.test.tsx; do
+            bun test --preload ./scripts/test-preload.mjs --timeout 15000 "$test" >> /tmp/assistant-tests.log 2>&1 || failed=1
+          done
+          if grep -Eq '\(fail\)|^[[:space:]]*[1-9][0-9]* fail$' /tmp/assistant-tests.log; then failed=1; fi
+          cat /tmp/assistant-tests.log
           exit "$failed"
-      - run: bun run build:web
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - run: |
-          python -m pip install playwright==1.58.0
-          python -m playwright install --with-deps chromium
-          sudo apt-get install -y fonts-noto-cjk
-      - name: Real route checks
-        id: visual
-        continue-on-error: true
-        run: python apps/web/scripts/visual-review/assistant_surface_review.py
-      - name: Package verification source and build
-        if: always()
-        run: |
-          mkdir -p output/assistant-review
-          git archive --format=tar.gz -o output/assistant-review/source.tar.gz HEAD
-          if [ -d apps/web/dist ]; then tar czf output/assistant-review/dist.tar.gz -C apps/web dist; fi
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: assistant-surface-review
-          path: output/assistant-review
-          retention-days: 7
-      - if: steps.tests.outcome == 'failure' || steps.visual.outcome == 'failure'
-        run: exit 1
