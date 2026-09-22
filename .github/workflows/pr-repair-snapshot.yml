@@ -1,0 +1,33 @@
+name: PR repair source snapshot
+on:
+  push:
+    branches: [workbench/pr-repair-20260922]
+    paths: [.github/workflows/pr-repair-snapshot.yml]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Capture main and pending PR heads without executing their code
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/repair-snapshot"
+          git fetch --no-tags origin main:refs/heads/snapshot-main
+          for pr in 443 450 451 454 456 466 467 468 469; do
+            git fetch --no-tags origin "refs/pull/$pr/head:refs/heads/snapshot-pr-$pr"
+          done
+          git for-each-ref --format='%(refname) %(objectname)' refs/heads/snapshot- > "$RUNNER_TEMP/repair-snapshot/refs.txt"
+          git bundle create "$RUNNER_TEMP/repair-snapshot/repository.bundle" snapshot-main snapshot-pr-443 snapshot-pr-450 snapshot-pr-451 snapshot-pr-454 snapshot-pr-456 snapshot-pr-466 snapshot-pr-467 snapshot-pr-468 snapshot-pr-469
+          cat "$RUNNER_TEMP/repair-snapshot/refs.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr-repair-source
+          path: ${{ runner.temp }}/repair-snapshot
+          retention-days: 1
+          if-no-files-found: error
