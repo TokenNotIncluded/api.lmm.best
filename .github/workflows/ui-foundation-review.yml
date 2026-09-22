@@ -4,10 +4,13 @@ on:
   pull_request:
     paths:
       - 'apps/web/src/components/ui/**'
+      - 'apps/web/src/components/drawer-layout.ts'
+      - 'apps/web/src/features/channels/components/drawers/**'
       - 'apps/web/src/features/auth/otp/**'
       - 'apps/web/src/features/debug/ui-foundation-*.tsx'
       - 'apps/web/src/debug-main.tsx'
       - 'apps/web/scripts/ui-foundation-review.mjs'
+      - 'apps/web/scripts/sheet-sizing*.mjs'
       - 'apps/web/package.json'
       - 'bun.lock'
       - '.github/workflows/ui-foundation-review.yml'
@@ -58,6 +61,8 @@ jobs:
             sleep 2
           done
           test "$ready" = 1
+          node --test scripts/sheet-sizing.test.mjs
+          node scripts/sheet-sizing-review.mjs
           node scripts/ui-foundation-review.mjs
       - name: Upload foundation evidence
         if: always()
