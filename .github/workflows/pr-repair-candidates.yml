@@ -1,0 +1,107 @@
+name: PR repair candidates
+on:
+  push:
+    branches: [workbench/pr-repair-20260922]
+    paths: [repairs/queue.json]
+permissions:
+  contents: read
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - id: plan
+        run: echo "matrix=$(jq -c '{include:.targets}' repairs/queue.json)" >> "$GITHUB_OUTPUT"
+  assemble:
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Assemble reviewed source only, without executing PR code
+        env:
+          PR: ${{ matrix.pr }}
+          HEAD: ${{ matrix.head }}
+          BASE: ${{ matrix.base }}
+          TREE: ${{ matrix.tree }}
+        run: |
+          set -euo pipefail
+          [[ "$PR" =~ ^[0-9]+$ ]]
+          [[ "$HEAD$BASE$TREE" =~ ^[0-9a-f]{120}$ ]]
+          mkdir -p "$RUNNER_TEMP/candidate"
+          cp "repairs/$PR.patch" "$RUNNER_TEMP/fix.patch"
+          git config core.hooksPath /dev/null
+          git config user.name LIghtJUNction
+          git config user.email lightjunction.me@gmail.com
+          git fetch --no-tags origin "refs/pull/$PR/head"
+          test "$(git rev-parse FETCH_HEAD)" = "$HEAD"
+          git fetch --no-tags origin "$BASE"
+          git checkout --detach "$HEAD"
+          git update-ref refs/heads/review-main "$BASE"
+          git merge --no-commit --no-ff review-main || test -f .git/MERGE_HEAD
+          if test -s "$RUNNER_TEMP/fix.patch"; then git apply --whitespace=error "$RUNNER_TEMP/fix.patch"; fi
+          git add -A
+          git diff --cached --check
+          test "$(git write-tree)" = "$TREE"
+          git commit -m "fix: integrate main and resolve reviewed blockers for PR #$PR"
+          git diff "$HEAD" HEAD --stat
+          git rev-parse HEAD > "$RUNNER_TEMP/candidate/commit.txt"
+          printf '%s\n' "$HEAD" "$BASE" "$TREE" > "$RUNNER_TEMP/candidate/expected.txt"
+          git bundle create "$RUNNER_TEMP/candidate/candidate.bundle" HEAD --not "$HEAD" "$BASE"
+          cat "$RUNNER_TEMP/candidate/commit.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: candidate-${{ matrix.pr }}
+          path: ${{ runner.temp }}/candidate
+          retention-days: 1
+          if-no-files-found: error
+  publish:
+    needs: [plan, assemble]
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: candidate-${{ matrix.pr }}
+          path: ${{ runner.temp }}/candidate
+      - name: Verify candidate objects and publish only a repair staging branch
+        env:
+          PR: ${{ matrix.pr }}
+          HEAD: ${{ matrix.head }}
+          BASE: ${{ matrix.base }}
+          TREE: ${{ matrix.tree }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$PR" =~ ^[0-9]+$ ]]
+          git config core.hooksPath /dev/null
+          git fetch --no-tags origin "$HEAD" "$BASE"
+          git bundle verify "$RUNNER_TEMP/candidate/candidate.bundle"
+          git fetch "$RUNNER_TEMP/candidate/candidate.bundle" HEAD
+          candidate=$(cat "$RUNNER_TEMP/candidate/commit.txt")
+          [[ "$candidate" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse FETCH_HEAD)" = "$candidate"
+          test "$(git rev-parse "$candidate^{tree}")" = "$TREE"
+          test "$(git show -s --format=%P "$candidate")" = "$HEAD $BASE"
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin "$candidate:refs/heads/repair/20260922-pr-$PR"
+          printf 'CANDIDATE pr=%s commit=%s tree=%s\n' "$PR" "$candidate" "$TREE"
