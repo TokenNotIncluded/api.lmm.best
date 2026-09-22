@@ -384,7 +384,6 @@ POST	/pg/chat/completions	user	token
 GET	/api/data/flow/self	user	admin
 GET	/api/data/self	user	admin
 GET	/api/log/self	user	admin
-GET	/api/log/self/search	user	admin
 GET	/api/log/self/stat	user	admin
 GET	/api/log/token	token	admin
 GET	/api/subscription/plans	user	admin
