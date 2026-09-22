@@ -3,6 +3,7 @@ package openai
 import (
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/logger"
@@ -76,6 +77,8 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 	}
 	streamErr := (*types.NewAPIError)(nil)
+	writeFailed := false
+	endEvidence := chatResponsesEndEvidence{choices: make(map[int]bool)}
 
 	sendEvent := func(event relayconvert.ChatToResponsesStreamEvent) bool {
 		data, err := common.Marshal(event.Payload)
@@ -83,7 +86,12 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			streamErr = types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
 			return false
 		}
-		helper.ResponseChunkData(c, dto.ResponsesStreamResponse{Type: event.Type}, string(data))
+		if err := writeResponsesEvent(c, event.Type, string(data)); err != nil {
+			writeFailed = true
+			info.StreamStatus.RecordError("downstream stream write failed")
+			streamErr = types.NewOpenAIError(fmt.Errorf("downstream stream write failed"), types.ErrorCodeBadResponseBody, http.StatusBadGateway)
+			return false
+		}
 		return true
 	}
 
@@ -108,6 +116,7 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			sr.Error(err)
 			return
 		}
+		endEvidence.observe(&chunk)
 
 		results, err := relayconvert.ConvertStreamResponseChunk(c, info, state, &chunk)
 		if err != nil {
@@ -129,29 +138,102 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		}
 	})
 
-	if streamErr != nil {
-		return nil, streamErr
-	}
-
 	usage := state.Usage()
 	if usage == nil || usage.TotalTokens == 0 {
 		usage = service.ResponseText2Usage(c, state.UsageText(), info.UpstreamModelName, info.GetEstimatePromptTokens())
 		state.SetUsage(usage)
 	}
+	// A write failure or canceled downstream must not trigger retries or another
+	// terminal write after consumption. Keep the existing usage/settlement path.
+	if writeFailed || c.Request.Context().Err() != nil || info.StreamStatus.EndReason == relaycommon.StreamEndReasonClientGone || info.StreamStatus.EndReason == relaycommon.StreamEndReasonPingFail {
+		return usage, nil
+	}
+	if streamErr != nil && !c.Writer.Written() {
+		return usage, streamErr
+	}
+	complete := streamErr == nil && !info.StreamStatus.HasErrors() && endEvidence.valid && !endEvidence.invalid &&
+		(info.StreamStatus.EndReason == relaycommon.StreamEndReasonDone ||
+			(info.StreamStatus.EndReason == relaycommon.StreamEndReasonEOF && endEvidence.finished()))
+	fail := func() (*dto.Usage, *types.NewAPIError) {
+		const message = "Upstream response ended before a terminal event"
+		info.StreamStatus.RecordError(message)
+		if !c.Writer.Written() {
+			return usage, types.NewOpenAIError(fmt.Errorf("%s", message), types.ErrorCodeBadResponseBody, http.StatusBadGateway)
+		}
+		response, err := relayconvert.FailChatToResponsesStream(state, "upstream_stream_interrupted", message)
+		if err != nil {
+			info.StreamStatus.RecordError("failed to snapshot interrupted Responses stream")
+			return usage, nil
+		}
+		if response != nil {
+			sendEvent(relayconvert.ChatToResponsesStreamEvent{Type: "response.failed", Payload: dto.ResponsesStreamResponse{Type: "response.failed", Response: response}})
+		}
+		return usage, nil
+	}
+	if !complete {
+		return fail()
+	}
 
 	finalResults, err := relayconvert.FinalizeStreamResponse(c, info, state)
 	if err != nil {
-		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+		return fail()
 	}
 	for _, result := range finalResults {
 		event, ok := result.Value.(relayconvert.ChatToResponsesStreamEvent)
 		if !ok {
-			return nil, types.NewOpenAIError(fmt.Errorf("expected OAI responses stream event, got %T", result.Value), types.ErrorCodeBadResponse, http.StatusInternalServerError)
+			return fail()
 		}
 		if !sendEvent(event) {
-			return nil, streamErr
+			return usage, nil
 		}
 	}
 
 	return usage, nil
+}
+
+// A finish reason closes the current choice, not any future resumed segment.
+// Usage-only chunks preserve that evidence while subsequent content revokes it.
+type chatResponsesEndEvidence struct {
+	valid   bool
+	invalid bool
+	choices map[int]bool
+}
+
+func (e *chatResponsesEndEvidence) observe(chunk *dto.ChatCompletionsStreamResponse) {
+	if len(chunk.Choices) > 0 || chunk.Usage != nil {
+		e.valid = true
+	}
+	for _, choice := range chunk.Choices {
+		finished := e.choices[choice.Index]
+		delta := choice.Delta
+		resumed := delta.GetContentString() != "" || delta.GetReasoningContent() != ""
+		for _, tool := range delta.ToolCalls {
+			resumed = resumed || tool.ID != "" || tool.Function.Name != "" || tool.Function.Arguments != ""
+		}
+		if resumed {
+			finished = false
+		}
+		if choice.FinishReason != nil && strings.TrimSpace(*choice.FinishReason) != "" {
+			switch strings.TrimSpace(*choice.FinishReason) {
+			case "stop", "tool_calls", "function_call", "length", "content_filter":
+				finished = true
+			default:
+				finished = false
+				e.invalid = true
+			}
+		}
+		e.choices[choice.Index] = finished
+	}
+}
+
+func (e *chatResponsesEndEvidence) finished() bool {
+	if len(e.choices) == 0 {
+		return false
+	}
+	for _, finished := range e.choices {
+		if !finished {
+			return false
+		}
+	}
+	return true
 }

@@ -24,20 +24,22 @@ type ChatToResponsesStreamState struct {
 
 	err error
 
-	status            string
-	incompleteDetails *dto.IncompleteDetails
-	sentCreated       bool
-	textOutputIndex   int
-	textStarted       bool
-	textDone          bool
-	finalized         bool
-	nextOutputIndex   int
-	sentOutputCount   int
-	pendingEvents     []ChatToResponsesStreamEvent
-	toolsByIndex      map[int]*chatToResponsesStreamTool
-	reasoningSegments []*chatToResponsesReasoningSegment
-	outputOrder       []chatToResponsesOutputRef
-	text              strings.Builder
+	status             string
+	incompleteDetails  *dto.IncompleteDetails
+	sentCreated        bool
+	textOutputIndex    int
+	textStarted        bool
+	textDone           bool
+	finalized          bool
+	nextOutputIndex    int
+	sentOutputCount    int
+	pendingEvents      []ChatToResponsesStreamEvent
+	closedOutputs      map[int]dto.ResponsesOutput
+	emittedTextLengths map[int]int
+	toolsByIndex       map[int]*chatToResponsesStreamTool
+	reasoningSegments  []*chatToResponsesReasoningSegment
+	outputOrder        []chatToResponsesOutputRef
+	text               strings.Builder
 }
 
 type chatToResponsesStreamTool struct {
@@ -187,6 +189,19 @@ func (s *ChatToResponsesStreamState) orderedEvents(events []ChatToResponsesStrea
 				eligible = *event.Payload.OutputIndex < s.sentOutputCount
 			}
 			if eligible {
+				switch event.Type {
+				case responsesEventReasoningSummaryDelta, responsesEventFunctionArgsDelta, "response.output_text.delta":
+					if s.emittedTextLengths == nil {
+						s.emittedTextLengths = make(map[int]int)
+					}
+					s.emittedTextLengths[*event.Payload.OutputIndex] += len(event.Payload.Delta)
+				}
+				if event.Type == responsesEventOutputItemDone && event.Payload.Item != nil {
+					if s.closedOutputs == nil {
+						s.closedOutputs = make(map[int]dto.ResponsesOutput)
+					}
+					s.closedOutputs[*event.Payload.OutputIndex] = *event.Payload.Item
+				}
 				ready = append(ready, event)
 				progress = true
 			} else {
@@ -211,6 +226,46 @@ func (s *ChatToResponsesStreamState) Err() error {
 		return nil
 	}
 	return s.err
+}
+
+// Fail closes only the response lifecycle. It never completes active output
+// items or releases events waiting for an unresolved tool identity.
+func (s *ChatToResponsesStreamState) Fail(code, message string) (*dto.OpenAIResponsesResponse, error) {
+	if s == nil || s.finalized {
+		return nil, nil
+	}
+	output := make([]dto.ResponsesOutput, 0, s.sentOutputCount)
+	for index, ref := range s.outputOrder[:s.sentOutputCount] {
+		if closed, ok := s.closedOutputs[index]; ok {
+			output = append(output, closed)
+			continue
+		}
+		switch ref.Kind {
+		case "message":
+			item := s.messageOutput("in_progress")
+			item.Content[0].Text = s.text.String()[:s.emittedTextLengths[index]]
+			output = append(output, *item)
+		case "reasoning":
+			item := s.reasoningOutput(s.reasoningSegments[ref.ReasoningIndex], "in_progress")
+			item.Status = "in_progress" // Only a released done event closes the snapshot.
+			item.Content[0].Text = s.reasoningSegments[ref.ReasoningIndex].Text.String()[:s.emittedTextLengths[index]]
+			output = append(output, *item)
+		case "tool":
+			item, err := s.toolOutput(s.toolsByIndex[ref.ToolIndex], "in_progress")
+			if err != nil {
+				return nil, err
+			}
+			item.Arguments = chatArgumentsRawMessage(s.toolsByIndex[ref.ToolIndex].Arguments.String()[:s.emittedTextLengths[index]])
+			output = append(output, *item)
+		}
+	}
+	s.finalized = true
+	s.pendingEvents = nil
+	return &dto.OpenAIResponsesResponse{
+		ID: s.ID, Object: "response", CreatedAt: int(s.Created), Model: s.Model,
+		Status: []byte(`"failed"`), Output: output, Usage: s.Usage,
+		Error: map[string]string{"code": code, "message": message},
+	}, nil
 }
 
 func (s *ChatToResponsesStreamState) UsageText() string {
