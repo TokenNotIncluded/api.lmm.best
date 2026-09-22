@@ -7,6 +7,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/relayconvert/convmeta"
 	kitutil "github.com/LIghtJUNction/api.lmm.best/relaykit/relayconvert/kitutil"
+	"github.com/LIghtJUNction/api.lmm.best/relaykit/relayconvert/reasoning"
 )
 
 const (
@@ -22,20 +23,60 @@ type openRouterRequestReasoning struct {
 	Exclude   bool   `json:"exclude,omitempty"`
 }
 
+// OpenAI-compatible effort levels this compatibility path may emit. It is
+// derived from the shared suffix table rather than restated, so a level the
+// fork does not declare for OpenAI-compatible targets is never sent.
+func gptCompatibilitySupportsEffort(effort string) bool {
+	for _, suffix := range reasoning.OpenAIEffortSuffixes {
+		if strings.TrimPrefix(suffix, "-") == effort {
+			return true
+		}
+	}
+	return false
+}
+
+// clampGPTCompatibilityEffort keeps an unsupported level from turning a
+// request that previously succeeded into an upstream rejection. `max` is not
+// declared by this path, so it is clamped to the strongest declared level.
+func clampGPTCompatibilityEffort(effort string) string {
+	if effort == "" || gptCompatibilitySupportsEffort(effort) {
+		return effort
+	}
+	if effort == "max" {
+		return "xhigh"
+	}
+	return ""
+}
+
 func mapClaudeReasoningEffortFromEffort(effort string) string {
-	switch strings.ToLower(strings.TrimSpace(effort)) {
-	case "low":
-		return "low"
-	case "medium":
-		return "medium"
-	case "high":
-		return "high"
+	switch normalized := strings.ToLower(strings.TrimSpace(effort)); normalized {
+	case "low", "medium", "high", "xhigh", "max":
+		return clampGPTCompatibilityEffort(normalized)
 	case "minimal":
 		return "low"
-	case "xhigh":
-		return "high"
+	case "none":
+		return "none"
 	default:
 		return ""
+	}
+}
+
+// budgetEffortLadder is the semantic budget→effort mapping. Callers clamp the
+// result to what the outbound compatibility path declares.
+func budgetEffortLadder(budgetTokens int) string {
+	switch {
+	case budgetTokens <= 0:
+		return "none"
+	case budgetTokens <= 1024:
+		return "low"
+	case budgetTokens <= 8192:
+		return "medium"
+	case budgetTokens < 16000:
+		return "high"
+	case budgetTokens < 32000:
+		return "xhigh"
+	default:
+		return "max"
 	}
 }
 
@@ -44,16 +85,7 @@ func mapClaudeThinkingToReasoningEffort(thinkingType string, budgetTokens int) s
 	case "adaptive":
 		return "medium"
 	case "enabled":
-		switch {
-		case budgetTokens <= 1536:
-			return "low"
-		case budgetTokens <= 3072:
-			return "medium"
-		case budgetTokens > 3072:
-			return "high"
-		default:
-			return "low"
-		}
+		return clampGPTCompatibilityEffort(budgetEffortLadder(budgetTokens))
 	default:
 		return ""
 	}

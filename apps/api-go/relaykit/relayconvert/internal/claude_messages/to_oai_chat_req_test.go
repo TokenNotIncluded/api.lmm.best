@@ -2,6 +2,7 @@ package claudemessages
 
 import (
 	"encoding/json"
+	"strconv"
 	"testing"
 
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
@@ -34,12 +35,52 @@ func TestClaudeMessagesRequestToOpenAIChatMapsEffortInCompatibilityMode(t *testi
 }
 
 func TestClaudeMessagesRequestToOpenAIChatMapsThinkingToEffortInCompatibilityMode(t *testing.T) {
+	// Boundaries from the shared ladder. `max` is not declared by this
+	// compatibility path, so the two largest budgets clamp to `xhigh` rather
+	// than sending a level the target rejects.
+	tests := []struct {
+		budget int
+		want   string
+	}{
+		{budget: 0, want: "none"},
+		{budget: 1024, want: "low"},
+		{budget: 4096, want: "medium"},
+		{budget: 8192, want: "medium"},
+		{budget: 8193, want: "high"},
+		{budget: 15999, want: "high"},
+		{budget: 16000, want: "xhigh"},
+		{budget: 31999, want: "xhigh"},
+		{budget: 32000, want: "xhigh"},
+		{budget: 64000, want: "xhigh"},
+	}
+
+	for _, tt := range tests {
+		t.Run(strconv.Itoa(tt.budget), func(t *testing.T) {
+			claudeRequest := dto.ClaudeRequest{
+				Model: "gpt-4o-mini",
+				Thinking: &dto.Thinking{
+					Type:         "enabled",
+					BudgetTokens: intPtr(tt.budget),
+				},
+			}
+
+			info := &convmeta.Values{
+				Options: &convmeta.Options{
+					EnableMessagesToGPTCompatibility: true,
+				},
+			}
+
+			openAIRequest, err := ClaudeMessagesRequestToOpenAIChat(claudeRequest, info)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, openAIRequest.ReasoningEffort)
+		})
+	}
+}
+
+func TestClaudeMessagesRequestToOpenAIChatPreservesExplicitXHighEffort(t *testing.T) {
 	claudeRequest := dto.ClaudeRequest{
-		Model: "gpt-4o-mini",
-		Thinking: &dto.Thinking{
-			Type:         "enabled",
-			BudgetTokens: intPtr(4096),
-		},
+		Model:        "gpt-4o-mini",
+		OutputConfig: json.RawMessage(`{"effort":"xhigh"}`),
 	}
 
 	info := &convmeta.Values{
@@ -50,7 +91,24 @@ func TestClaudeMessagesRequestToOpenAIChatMapsThinkingToEffortInCompatibilityMod
 
 	openAIRequest, err := ClaudeMessagesRequestToOpenAIChat(claudeRequest, info)
 	require.NoError(t, err)
-	assert.Equal(t, "high", openAIRequest.ReasoningEffort)
+	assert.Equal(t, "xhigh", openAIRequest.ReasoningEffort)
+}
+
+func TestClaudeMessagesRequestToOpenAIChatClampsUndeclaredMaxEffort(t *testing.T) {
+	claudeRequest := dto.ClaudeRequest{
+		Model:        "gpt-4o-mini",
+		OutputConfig: json.RawMessage(`{"effort":"max"}`),
+	}
+
+	info := &convmeta.Values{
+		Options: &convmeta.Options{
+			EnableMessagesToGPTCompatibility: true,
+		},
+	}
+
+	openAIRequest, err := ClaudeMessagesRequestToOpenAIChat(claudeRequest, info)
+	require.NoError(t, err)
+	assert.Equal(t, "xhigh", openAIRequest.ReasoningEffort)
 }
 
 func TestClaudeMessagesRequestToOpenAIChatDoesNotMapEffortForNonGPTCompatibilityModels(t *testing.T) {
