@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+// Luma visual recipes adapted from shadcn/ui (MIT); see LUMA-LICENSE.txt.
 import { Slider as SliderPrimitive } from '@base-ui/react/slider'
 
 import { cn } from '@/lib/utils'
@@ -36,7 +37,10 @@ function Slider({
 
   return (
     <SliderPrimitive.Root
-      className={cn('data-horizontal:w-full data-vertical:h-full', className)}
+      className={cn(
+        'data-horizontal:w-full data-vertical:h-full data-vertical:min-h-40',
+        className
+      )}
       data-slot='slider'
       defaultValue={defaultValue}
       value={value}
@@ -48,18 +52,24 @@ function Slider({
       <SliderPrimitive.Control className='relative flex w-full touch-none items-center select-none data-disabled:opacity-50 data-vertical:h-full data-vertical:min-h-40 data-vertical:w-auto data-vertical:flex-col'>
         <SliderPrimitive.Track
           data-slot='slider-track'
-          className='bg-muted relative grow overflow-hidden rounded-full select-none data-horizontal:h-1 data-horizontal:w-full data-vertical:h-full data-vertical:w-1'
+          className={
+            'bg-input/90 relative grow overflow-hidden rounded-full select-none data-horizontal:h-2 data-horizontal:w-full data-vertical:h-full data-vertical:w-2'
+          }
         >
           <SliderPrimitive.Indicator
             data-slot='slider-range'
-            className='bg-primary select-none data-horizontal:h-full data-vertical:w-full'
+            className={
+              'bg-primary select-none data-horizontal:h-full data-vertical:w-full'
+            }
           />
         </SliderPrimitive.Track>
         {Array.from({ length: _values.length }, (_, index) => (
           <SliderPrimitive.Thumb
             data-slot='slider-thumb'
             key={index}
-            className='border-ring ring-ring/50 relative block size-3 shrink-0 rounded-full border bg-white transition-[color,box-shadow] select-none after:absolute after:-inset-2 hover:ring-3 focus-visible:ring-3 focus-visible:outline-hidden active:ring-3 disabled:pointer-events-none disabled:opacity-50'
+            className={
+              'border-ring ring-foreground/10 bg-background hover:ring-ring/30 focus-visible:ring-ring/30 relative block h-4 w-6 shrink-0 rounded-full border shadow-md ring-1 transition-[color,box-shadow,background-color] select-none not-dark:bg-clip-padding after:absolute after:-inset-2 hover:ring-4 focus-visible:ring-4 focus-visible:outline-hidden active:ring-3 disabled:pointer-events-none disabled:opacity-50 data-vertical:h-6 data-vertical:w-4 motion-reduce:transition-none'
+            }
           />
         ))}
       </SliderPrimitive.Control>

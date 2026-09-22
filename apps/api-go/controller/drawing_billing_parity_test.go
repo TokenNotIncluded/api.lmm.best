@@ -17,6 +17,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/types"
 	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
+	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -97,6 +98,13 @@ func newDrawingParityFixture(t *testing.T, quota int, upstreamStatus int) *drawi
 	require.Eventually(t, func() bool {
 		return assistantDrawingModelAllowed("default", "image-2", drawingParityModel)
 	}, 3*time.Second, 10*time.Millisecond, "the isolated drawing model must be in the live catalog")
+	t.Cleanup(func() {
+		// PostTextConsumeQuota schedules performance recording after the HTTP
+		// handler returns. Join those workers before earlier fixture cleanups
+		// restore the database and Redis globals that recording still reads.
+		require.Eventually(t, func() bool { return gopool.WorkerCount() == 0 },
+			5*time.Second, time.Millisecond, "relay background work must finish before fixture teardown")
+	})
 	return fixture
 }
 

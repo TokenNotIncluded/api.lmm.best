@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+// Luma visual recipes adapted from shadcn/ui (MIT); see LUMA-LICENSE.txt.
 import * as React from 'react'
 
 import { cn } from '@/lib/utils'
@@ -35,8 +36,8 @@ function Card({
       data-size={size}
       data-variant={variant}
       className={cn(
-        'group/card bg-card text-card-foreground border-border/70 flex flex-col gap-4 overflow-hidden rounded-xl border py-4 text-sm shadow-xs transition-all has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:gap-3 data-[size=sm]:py-3 data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl',
-        variant === 'paper' && 'border-0 shadow-none',
+        'group/card border-border/70 flex flex-col border transition-[color,background-color,border-color,box-shadow,opacity,transform] has-data-[slot=card-footer]:pb-0 data-[size=sm]:has-data-[slot=card-footer]:pb-0 bg-card text-card-foreground ring-foreground/5 dark:ring-foreground/10 gap-(--card-spacing) overflow-hidden rounded-4xl py-(--card-spacing) text-sm shadow-md ring-1 [--card-spacing:--spacing(6)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] *:[img:first-child]:rounded-t-4xl *:[img:last-child]:rounded-b-4xl motion-reduce:transition-none',
+        variant === 'paper' && 'border-0 ring-0 shadow-none',
         className
       )}
       {...props}
@@ -49,7 +50,7 @@ function CardHeader({ className, ...props }: React.ComponentProps<'div'>) {
     <div
       data-slot='card-header'
       className={cn(
-        'group/card-header @container/card-header grid auto-rows-min items-start gap-1 rounded-t-xl px-4 group-data-[size=sm]/card:px-3 has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=card-description]:grid-rows-[auto_auto] [.border-b]:pb-4 group-data-[size=sm]/card:[.border-b]:pb-3',
+        'group/card-header @container/card-header grid auto-rows-min items-start has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=card-description]:grid-rows-[auto_auto] gap-1.5 rounded-t-4xl px-(--card-spacing) [.border-b]:pb-(--card-spacing)',
         className
       )}
       {...props}
@@ -62,7 +63,7 @@ function CardTitle({ className, ...props }: React.ComponentProps<'div'>) {
     <div
       data-slot='card-title'
       className={cn(
-        'text-base leading-snug font-semibold tracking-tight group-data-[size=sm]/card:text-sm',
+        'tracking-tight group-data-[size=sm]/card:text-sm text-base font-medium',
         className
       )}
       {...props}
@@ -97,7 +98,7 @@ function CardContent({ className, ...props }: React.ComponentProps<'div'>) {
   return (
     <div
       data-slot='card-content'
-      className={cn('px-4 group-data-[size=sm]/card:px-3', className)}
+      className={cn('px-(--card-spacing)', className)}
       {...props}
     />
   )
@@ -108,7 +109,7 @@ function CardFooter({ className, ...props }: React.ComponentProps<'div'>) {
     <div
       data-slot='card-footer'
       className={cn(
-        'bg-muted/50 flex items-center rounded-b-xl border-t p-4 group-data-[size=sm]/card:p-3',
+        'bg-muted/50 flex items-center border-t p-4 group-data-[size=sm]/card:p-3 rounded-b-4xl px-(--card-spacing) [.border-t]:pt-(--card-spacing)',
         className
       )}
       {...props}
