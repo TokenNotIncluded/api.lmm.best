@@ -1,0 +1,624 @@
+diff --git a/apps/api-go/relay/channel/openai/relay_responses.go b/apps/api-go/relay/channel/openai/relay_responses.go
+index 1d08f8fa..d3f98c99 100644
+--- a/apps/api-go/relay/channel/openai/relay_responses.go
++++ b/apps/api-go/relay/channel/openai/relay_responses.go
+@@ -257,6 +257,7 @@ func writeResponsesEvent(c *gin.Context, eventType, data string) error {
+ 	if _, err := fmt.Fprintf(c.Writer, "event: %s\n", eventType); err != nil {
+ 		return err
+ 	}
++	data = strings.ReplaceAll(strings.ReplaceAll(data, "\r\n", "\n"), "\r", "\n")
+ 	for _, line := range strings.Split(data, "\n") {
+ 		if _, err := fmt.Fprintf(c.Writer, "data: %s\n", line); err != nil {
+ 			return err
+diff --git a/apps/api-go/relay/helper/common.go b/apps/api-go/relay/helper/common.go
+index 925556ca..92e1d289 100644
+--- a/apps/api-go/relay/helper/common.go
++++ b/apps/api-go/relay/helper/common.go
+@@ -100,6 +100,7 @@ func ResponseChunkData(c *gin.Context, resp dto.ResponsesStreamResponse, data st
+ // fields are rendered as one event rather than one event per source line.
+ func renderSSEDataLines(c *gin.Context, data string) {
+ 	normalized := strings.ReplaceAll(data, "\r\n", "\n")
++	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+ 	lines := strings.Split(normalized, "\n")
+ 	var encoded strings.Builder
+ 	for i, line := range lines {
+diff --git a/apps/api-go/relay/helper/sse_event.go b/apps/api-go/relay/helper/sse_event.go
+new file mode 100644
+index 00000000..345fe810
+--- /dev/null
++++ b/apps/api-go/relay/helper/sse_event.go
+@@ -0,0 +1,90 @@
++package helper
++
++import (
++	"bufio"
++	"errors"
++	"strings"
++)
++
++var ErrSSEEventTooLarge = errors.New("upstream SSE event exceeds response body limit")
++
++// sseEventDecoder assembles data fields, independently of the payload format.
++// EOF does not dispatch an unfinished event. A bare [DONE] line remains an
++// explicit legacy terminator; a data: marker is interpreted only at a boundary.
++type sseEventDecoder struct {
++	data    strings.Builder
++	fields  int
++	limit   int64
++	started bool
++}
++
++func (d *sseEventDecoder) dispatch() (string, bool, bool, error) {
++	if d.fields == 0 {
++		return "", false, false, nil
++	}
++	payload, fields := d.data.String(), d.fields
++	d.data.Reset()
++	d.fields = 0
++	if fields == 1 && strings.TrimSpace(payload) == "[DONE]" {
++		return "", false, true, nil
++	}
++	return payload, true, false, nil
++}
++
++func (d *sseEventDecoder) line(line string) (string, bool, bool, error) {
++	if !d.started {
++		line = strings.TrimPrefix(line, "\uFEFF")
++		d.started = true
++	}
++	if line == "" {
++		return d.dispatch()
++	}
++	if strings.TrimSpace(line) == "[DONE]" {
++		payload, ready, _, err := d.dispatch()
++		return payload, ready, true, err
++	}
++	field, value, _ := strings.Cut(line, ":")
++	if field != "data" {
++		return "", false, false, nil
++	}
++	value = strings.TrimPrefix(value, " ") // SSE removes exactly one optional space.
++	addition := int64(len(value))
++	if d.fields > 0 {
++		addition++
++	}
++	if d.limit > 0 && int64(d.data.Len()) > d.limit-addition {
++		return "", false, false, ErrSSEEventTooLarge
++	}
++	if d.fields > 0 {
++		d.data.WriteByte('\n')
++	}
++	d.data.WriteString(value)
++	d.fields++
++	return "", false, false, nil
++}
++
++// A trailing CR completes the line immediately. Its optional LF is skipped on
++// the next invocation, even when CRLF is split between upstream reads.
++func splitSSELines() bufio.SplitFunc {
++	skipLF := false
++	return func(data []byte, atEOF bool) (int, []byte, error) {
++		offset := 0
++		if skipLF && len(data) > 0 {
++			skipLF = false
++			if data[0] == '\n' {
++				offset = 1
++			}
++		}
++		for i := offset; i < len(data); i++ {
++			b := data[i]
++			if b == '\r' || b == '\n' {
++				skipLF = b == '\r'
++				return i + 1, data[offset:i], nil
++			}
++		}
++		if atEOF && len(data) > offset {
++			return len(data), data[offset:], nil
++		}
++		return offset, nil, nil
++	}
++}
+diff --git a/apps/api-go/relay/helper/sse_event_integration_test.go b/apps/api-go/relay/helper/sse_event_integration_test.go
+new file mode 100644
+index 00000000..4690c891
+--- /dev/null
++++ b/apps/api-go/relay/helper/sse_event_integration_test.go
+@@ -0,0 +1,64 @@
++package helper
++
++import (
++	"bufio"
++	"github.com/gin-gonic/gin"
++	"net/http/httptest"
++	"strings"
++	"testing"
++	"testing/iotest"
++
++	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
++	"github.com/stretchr/testify/require"
++)
++
++func TestSSEScannerAndWriterRoundTrip(t *testing.T) {
++	for _, ending := range []string{"\n", "\r\n", "\r"} {
++		t.Run(strings.ReplaceAll(ending, "\r", "CR"), func(t *testing.T) {
++			body := "data: hello\ndata: world\n\ndata: {}\ndata: []\n\ndata:\ndata: tail\ndata:\n\ndata: [DONE]\ndata: more\n\ndata: :payload\n\ndata: [DONE]\n\n"
++			c, response, info := setupStreamTest(t, iotest.OneByteReader(strings.NewReader(strings.ReplaceAll(body, "\n", ending))))
++			var got []string
++			var writeErr error
++			StreamScannerHandler(c, response, info, func(data string, result *StreamResult) {
++				got = append(got, data)
++				if err := StringData(c, data); err != nil {
++					writeErr = err
++					result.Stop(err)
++				}
++			})
++			require.NoError(t, writeErr)
++			want := []string{"hello\nworld", "{}\n[]", "\ntail\n", "[DONE]\nmore", ":payload"}
++			require.Equal(t, want, got)
++			require.Equal(t, len(want), info.ReceivedResponseCount)
++			require.Equal(t, relaycommon.StreamEndReasonDone, info.StreamStatus.EndReason)
++		})
++	}
++}
++
++// Exercise the actual writer and then independently parse its event fields.
++// This catches unprefixed lines and accidental event/field injection on CR.
++func TestSSEWriterKeepsEveryPayloadLineInsideData(t *testing.T) {
++	w := httptest.NewRecorder()
++	c, _ := gin.CreateTestContext(w)
++	c.Request = httptest.NewRequest("POST", "/", nil)
++	for _, data := range []string{"a\nb", "a\rb", "a\r\nb", "\nx\n", ":not-a-comment", "a\revent: injected"} {
++		// Each call appends exactly one event to the actual Gin writer.
++		require.NoError(t, StringData(c, data))
++	}
++	scanner := bufio.NewScanner(strings.NewReader(w.Body.String()))
++	var events []string
++	var fields []string
++	for scanner.Scan() {
++		line := scanner.Text()
++		if line == "" {
++			events = append(events, strings.Join(fields, "\n"))
++			fields = nil
++			continue
++		}
++		require.True(t, strings.HasPrefix(line, "data: "), line)
++		fields = append(fields, strings.TrimPrefix(line, "data: "))
++	}
++	require.NoError(t, scanner.Err())
++	require.Empty(t, fields)
++	require.Equal(t, []string{"a\nb", "a\nb", "a\nb", "\nx\n", ":not-a-comment", "a\nevent: injected"}, events)
++}
+diff --git a/apps/api-go/relay/helper/sse_event_test.go b/apps/api-go/relay/helper/sse_event_test.go
+new file mode 100644
+index 00000000..3e2b0e3a
+--- /dev/null
++++ b/apps/api-go/relay/helper/sse_event_test.go
+@@ -0,0 +1,79 @@
++package helper
++
++import (
++	"bufio"
++	"io"
++	"reflect"
++	"strings"
++	"testing"
++	"testing/iotest"
++)
++
++func TestSSEEventBoundaries(t *testing.T) {
++	cases := []struct {
++		name, body string
++		want       []string
++		done       bool
++	}{
++		{"plain multiline", "data: hello\ndata: world\n\n", []string{"hello\nworld"}, false},
++		{"complete JSON first", "data: {}\ndata: []\n\n", []string{"{}\n[]"}, false},
++		{"empty fields", "data\ndata:\ndata: tail\ndata:\n\n", []string{"\n\ntail\n"}, false},
++		{"empty event", "data:\n\n", []string{""}, false},
++		{"marker inside event", "data: [DONE]\ndata: more\n\ndata: next\n\n", []string{"[DONE]\nmore", "next"}, false},
++		{"marker after empty field", "data:\ndata: [DONE]\n\n", []string{"\n[DONE]"}, false},
++		{"marker event", "data: [DONE]\n\ndata: ignored\n\n", nil, true},
++		{"bare compatibility", "data: kept\n[DONE]\n", []string{"kept"}, true},
++		{"comment and colon payload", ": heartbeat\ndata: :payload\n: between\ndata: two\n\n", []string{":payload\ntwo"}, false},
++		{"whitespace", "data:  padded  \n\n", []string{" padded  "}, false},
++		{"unfinished EOF", "data: {}\n", nil, false},
++		{"BOM", "\uFEFFdata: hello\n\n", []string{"hello"}, false},
++	}
++	for _, tc := range cases {
++		for _, ending := range []string{"\n", "\r\n", "\r"} {
++			for _, fragmented := range []bool{false, true} {
++				t.Run(tc.name+"/"+strings.ReplaceAll(ending, "\r", "CR"), func(t *testing.T) {
++					decoder := sseEventDecoder{limit: 1024}
++					var reader io.Reader = strings.NewReader(strings.ReplaceAll(tc.body, "\n", ending))
++					if fragmented {
++						reader = iotest.OneByteReader(reader)
++					}
++					scanner := bufio.NewScanner(reader)
++					scanner.Split(splitSSELines())
++					var got []string
++					ended := false
++					for scanner.Scan() {
++						payload, ready, done, err := decoder.line(scanner.Text())
++						if err != nil {
++							t.Fatal(err)
++						}
++						if ready {
++							got = append(got, payload)
++						}
++						if done {
++							ended = true
++							break
++						}
++					}
++					if err := scanner.Err(); err != nil {
++						t.Fatal(err)
++					}
++					if !reflect.DeepEqual(got, tc.want) || ended != tc.done {
++						t.Fatalf("got %#v done=%v; want %#v done=%v", got, ended, tc.want, tc.done)
++					}
++				})
++			}
++		}
++	}
++}
++
++func TestSSESizeIncludesEmptyFieldSeparators(t *testing.T) {
++	decoder := sseEventDecoder{limit: 2}
++	for i := 0; i < 3; i++ {
++		if _, _, _, err := decoder.line("data:"); err != nil {
++			t.Fatal(err)
++		}
++	}
++	if _, _, _, err := decoder.line("data:"); err != ErrSSEEventTooLarge {
++		t.Fatalf("got %v", err)
++	}
++}
+diff --git a/apps/api-go/relay/helper/stream_scanner.go b/apps/api-go/relay/helper/stream_scanner.go
+index f95a4ceb..3a820093 100644
+--- a/apps/api-go/relay/helper/stream_scanner.go
++++ b/apps/api-go/relay/helper/stream_scanner.go
+@@ -3,7 +3,6 @@ package helper
+ import (
+ 	"bufio"
+ 	"context"
+-	"encoding/json"
+ 	"errors"
+ 	"fmt"
+ 	"io"
+@@ -25,7 +24,6 @@ import (
+ )
+ 
+ var ErrFirstResponseTimeout = errors.New("upstream first response timeout")
+-var ErrSSEEventTooLarge = errors.New("upstream SSE event exceeds response body limit")
+ 
+ const (
+ 	InitialScannerBufferSize    = 64 << 10 // 64KB (64*1024)
+@@ -58,21 +56,6 @@ func NewStreamScanner(reader io.Reader) *bufio.Scanner {
+ 	return scanner
+ }
+ 
+-func looksLikeJSON(data string) bool {
+-	if data == "null" || data == "true" || data == "false" {
+-		return true
+-	}
+-	if data == "" {
+-		return false
+-	}
+-	switch data[0] {
+-	case '{', '[', '"':
+-		return true
+-	default:
+-		return false
+-	}
+-}
+-
+ func copyCodexSSEHeaders(c *gin.Context, resp *http.Response) {
+ 	if c == nil || c.Writer == nil || resp == nil {
+ 		return
+@@ -202,7 +185,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
+ 	// Ensure gin.Context is not returned to Gin's pool while any stream goroutine can still use it.
+ 	defer cleanup()
+ 
+-	scanner.Split(bufio.ScanLines)
++	scanner.Split(splitSSELines())
+ 	copyCodexSSEHeaders(c, resp)
+ 	SetEventStreamHeaders(c)
+ 
+@@ -265,7 +248,11 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
+ 
+ 	// Keep only one parsed event queued. A slow client still applies backpressure
+ 	// to the scanner, but cannot cause many large SSE strings to accumulate.
+-	dataChan := make(chan string, 1)
++	type scannedEvent struct {
++		data      string
++		heartbeat bool
++	}
++	dataChan := make(chan scannedEvent, 1)
+ 
+ 	wg.Add(1)
+ 	gopool.Go(func() {
+@@ -283,14 +270,14 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
+ 			func() {
+ 				writeMutex.Lock()
+ 				defer writeMutex.Unlock()
+-				if strings.HasPrefix(data, ":") {
++				if data.heartbeat {
+ 					if err := writeHeartbeat(); err != nil {
+ 						sr.Stop(err)
+ 					}
+ 					return
+ 				}
+ 				ExtendWriteDeadline(c)
+-				dataHandler(data, sr)
++				dataHandler(data.data, sr)
+ 				businessWritten = c.Writer.Written()
+ 			}()
+ 			if sr.IsStopped() {
+@@ -302,48 +289,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
+ 	// Scanner goroutine with improved error handling
+ 	wg.Add(1)
+ 	common.RelayCtxGo(ctx, func() {
+-		var eventData strings.Builder
+-		var eventDataSize int64
+-		pendingJSONEvent := false
+-		const eventDataSeparatorSize = 1 // LF inserted between consecutive data fields
+-		maxEventSize := common.ResponseBodyLimit()
+-		resetEvent := func() {
+-			eventData.Reset()
+-			eventDataSize = 0
+-			pendingJSONEvent = false
+-		}
+-		appendEventData := func(data string) bool {
+-			addition := int64(len(data))
+-			if eventData.Len() > 0 {
+-				addition += eventDataSeparatorSize
+-			}
+-			if maxEventSize > 0 && eventDataSize > maxEventSize-addition {
+-				return false
+-			}
+-			if eventData.Len() > 0 {
+-				eventData.WriteByte('\n')
+-			}
+-			eventData.WriteString(data)
+-			eventDataSize += addition
+-			return true
+-		}
+-		dispatchEvent := func() bool {
+-			if eventData.Len() == 0 {
+-				return true
+-			}
+-			info.SetFirstResponseTime()
+-			info.ReceivedResponseCount++
+-			data := eventData.String()
+-			resetEvent()
+-			select {
+-			case dataChan <- data:
+-				return true
+-			case <-ctx.Done():
+-				return false
+-			case <-stopChan:
+-				return false
+-			}
+-		}
++		decoder := sseEventDecoder{limit: common.ResponseBodyLimit()}
+ 		defer func() {
+ 			close(dataChan)
+ 			if r := recover(); r != nil {
+@@ -368,73 +314,37 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
+ 			ticker.Reset(streamingTimeout)
+ 			data := scanner.Text()
+ 			logger.LogDebug(c, "stream scanner data: %s", data)
+-			if data == "" {
+-				if !dispatchEvent() {
+-					return
+-				}
+-				continue
+-			}
+ 			if strings.HasPrefix(data, ":") {
+ 				select {
+-				case dataChan <- ":": // normalize and keep the existing bounded queue
++				case dataChan <- scannedEvent{heartbeat: true}:
+ 				case <-ctx.Done():
+ 					return
+ 				case <-stopChan:
+ 					return
+ 				}
+-				continue
+ 			}
+-
+-			// Check for bare [DONE] terminator first, before stripping prefix
+-			trimmed := strings.TrimSpace(data)
+-			if trimmed == "[DONE]" {
+-				if !dispatchEvent() {
+-					return
+-				}
+-				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonDone, nil)
+-				logger.LogDebug(c, "received [DONE], stopping scanner")
++			payload, ready, done, err := decoder.line(data)
++			if err != nil {
++				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonScannerErr, err)
+ 				return
+ 			}
+-
+-			// Only process lines with data: prefix
+-			if len(data) < 6 || !strings.HasPrefix(data, "data:") {
+-				continue
+-			}
+-			data = strings.TrimSpace(data[5:])
+-			if data == "" {
+-				continue
+-			}
+-			// Check for prefixed [DONE] (data: [DONE])
+-			if data == "[DONE]" {
+-				if !dispatchEvent() {
++			if ready {
++				info.SetFirstResponseTime()
++				info.ReceivedResponseCount++
++				select {
++				case dataChan <- scannedEvent{data: payload}:
++				case <-ctx.Done():
++					return
++				case <-stopChan:
+ 					return
+ 				}
+-				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonDone, nil)
+-				logger.LogDebug(c, "received [DONE], stopping scanner")
+-				return
+ 			}
+-
+-			if !appendEventData(data) {
+-				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonScannerErr, ErrSSEEventTooLarge)
+-				logger.LogError(c, "SSE event exceeds response body limit")
+-				return
+-			}
+-			// Most providers emit one complete JSON object per data line without
+-			// the optional blank separator. Preserve that compatibility while
+-			// folding standards-compliant multiline JSON events: an incomplete
+-			// JSON-looking line remains pending until the event boundary.
+-			if looksLikeJSON(data) && !json.Valid([]byte(eventData.String())) {
+-				pendingJSONEvent = true
+-				continue
+-			}
+-			if !pendingJSONEvent && !dispatchEvent() {
++			if done {
++				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonDone, nil)
+ 				return
+ 			}
+ 		}
+ 
+-		if !dispatchEvent() {
+-			return
+-		}
+ 		if err := scanner.Err(); err != nil {
+ 			if err != io.EOF {
+ 				logger.LogError(c, "scanner error: class="+relaycommon.StreamErrorClass(err))
+diff --git a/apps/api-go/relay/helper/stream_scanner_done_test.go b/apps/api-go/relay/helper/stream_scanner_done_test.go
+index 17b7f00d..c11627a5 100644
+--- a/apps/api-go/relay/helper/stream_scanner_done_test.go
++++ b/apps/api-go/relay/helper/stream_scanner_done_test.go
+@@ -24,9 +24,9 @@ func TestStreamScannerHandler_DONEMarkersDoNotBecomePayloads(t *testing.T) {
+ 	for _, marker := range markers {
+ 		for _, withPayload := range []bool{false, true} {
+ 			t.Run(fmt.Sprintf("%s/payload=%t", marker.name, withPayload), func(t *testing.T) {
+-				body := marker.value + "\ndata: {\"must_not_be_read\":true}\n"
++				body := marker.value + "\n\ndata: {\"must_not_be_read\":true}\n"
+ 				if withPayload {
+-					body = "data: " + payload + "\n" + body
++					body = "data: " + payload + "\n\n" + body
+ 				}
+ 				c, resp, info := setupStreamTest(t, strings.NewReader(body))
+ 				var mu sync.Mutex
+diff --git a/apps/api-go/relay/helper/stream_scanner_test.go b/apps/api-go/relay/helper/stream_scanner_test.go
+index 204fc489..eea48f21 100644
+--- a/apps/api-go/relay/helper/stream_scanner_test.go
++++ b/apps/api-go/relay/helper/stream_scanner_test.go
+@@ -51,9 +51,9 @@ func setupStreamTest(t *testing.T, body io.Reader) (*gin.Context, *http.Response
+ func buildSSEBody(n int) string {
+ 	var b strings.Builder
+ 	for i := 0; i < n; i++ {
+-		fmt.Fprintf(&b, "data: {\"id\":%d,\"choices\":[{\"delta\":{\"content\":\"token_%d\"}}]}\n", i, i)
++		fmt.Fprintf(&b, "data: {\"id\":%d,\"choices\":[{\"delta\":{\"content\":\"token_%d\"}}]}\n\n", i, i)
+ 	}
+-	b.WriteString("data: [DONE]\n")
++	b.WriteString("data: [DONE]\n\n")
+ 	return b.String()
+ }
+ 
+@@ -197,10 +197,10 @@ func TestStreamScannerHandler_SkipsNonDataLines(t *testing.T) {
+ 	b.WriteString("id: 12345\n")
+ 	b.WriteString("retry: 5000\n")
+ 	for i := 0; i < 100; i++ {
+-		fmt.Fprintf(&b, "data: payload_%d\n", i)
++		fmt.Fprintf(&b, "data: payload_%d\n\n", i)
+ 		b.WriteString(": interleaved comment\n")
+ 	}
+-	b.WriteString("data: [DONE]\n")
++	b.WriteString("data: [DONE]\n\n")
+ 
+ 	c, resp, info := setupStreamTest(t, strings.NewReader(b.String()))
+ 
+@@ -215,7 +215,7 @@ func TestStreamScannerHandler_SkipsNonDataLines(t *testing.T) {
+ func TestStreamScannerHandler_DataWithExtraSpaces(t *testing.T) {
+ 	t.Parallel()
+ 
+-	body := "data:   {\"trimmed\":true}  \ndata: [DONE]\n"
++	body := "data:   {\"trimmed\":true}  \n\ndata: [DONE]\n\n"
+ 	c, resp, info := setupStreamTest(t, strings.NewReader(body))
+ 
+ 	var got string
+@@ -223,7 +223,7 @@ func TestStreamScannerHandler_DataWithExtraSpaces(t *testing.T) {
+ 		got = data
+ 	})
+ 
+-	assert.Equal(t, "{\"trimmed\":true}", got)
++	assert.Equal(t, "  {\"trimmed\":true}  ", got)
+ }
+ 
+ func TestStreamScannerHandler_FoldsMultilineSSEDataEvent(t *testing.T) {
+@@ -234,7 +234,7 @@ func TestStreamScannerHandler_FoldsMultilineSSEDataEvent(t *testing.T) {
+ 		": keep-alive\r\n" +
+ 		"data: \"response\":{\"id\":\"resp_test\",\"status\":\"in_progress\"}}\r\n" +
+ 		"\r\n" +
+-		"data: [DONE]\r\n"
++		"data: [DONE]\r\n\r\n"
+ 	c, resp, info := setupStreamTest(t, strings.NewReader(body))
+ 
+ 	var payloads []map[string]any
+@@ -322,7 +322,7 @@ func TestStreamScannerHandler_ClientCancelAbortsUpstreamAndReturns(t *testing.T)
+ 		close(done)
+ 	}()
+ 
+-	_, err := fmt.Fprint(pw, "data: first\n")
++	_, err := fmt.Fprint(pw, "data: first\n\n")
+ 	require.NoError(t, err)
+ 
+ 	select {
+@@ -343,7 +343,7 @@ func TestStreamScannerHandler_ClientCancelAbortsUpstreamAndReturns(t *testing.T)
+ 
+ 	// Upstream read side must be closed so the provider stops generating
+ 	// (and billing) for a request nobody is listening to.
+-	_, err = fmt.Fprint(pw, "data: second\n")
++	_, err = fmt.Fprint(pw, "data: second\n\n")
+ 	require.ErrorIs(t, err, io.ErrClosedPipe, "upstream body should be closed after client disconnect")
+ 
+ 	assert.Equal(t, int64(1), count.Load(), "no chunk after disconnect should be processed")
+@@ -372,10 +372,10 @@ func TestStreamScannerHandler_PingSentDuringSlowUpstream(t *testing.T) {
+ 	go func() {
+ 		defer pw.Close()
+ 		for i := 0; i < 4; i++ {
+-			fmt.Fprintf(pw, "data: chunk_%d\n", i)
++			fmt.Fprintf(pw, "data: chunk_%d\n\n", i)
+ 			time.Sleep(400 * time.Millisecond)
+ 		}
+-		fmt.Fprint(pw, "data: [DONE]\n")
++		fmt.Fprint(pw, "data: [DONE]\n\n")
+ 	}()
+ 
+ 	recorder := httptest.NewRecorder()
+@@ -476,7 +476,7 @@ func TestStreamScannerHandler_StreamStatus_EOFWithoutDone(t *testing.T) {
+ 
+ 	var b strings.Builder
+ 	for i := 0; i < 5; i++ {
+-		fmt.Fprintf(&b, "data: {\"id\":%d}\n", i)
++		fmt.Fprintf(&b, "data: {\"id\":%d}\n\n", i)
+ 	}
+ 	c, resp, info := setupStreamTest(t, strings.NewReader(b.String()))
+ 
+@@ -534,7 +534,7 @@ func TestStreamScannerHandler_StreamStatus_Timeout(t *testing.T) {
+ 
+ 	pr, pw := io.Pipe()
+ 	go func() {
+-		fmt.Fprint(pw, "data: {\"id\":1}\n")
++		fmt.Fprint(pw, "data: {\"id\":1}\n\n")
+ 		time.Sleep(2 * time.Second)
+ 		pw.Close()
+ 	}()
+@@ -662,7 +662,7 @@ func TestStreamScannerHandler_StreamStatus_ErrorThenStop(t *testing.T) {
+ 	// and handler's Stop on the sync.Once EndReason.
+ 	var b strings.Builder
+ 	for i := 0; i < 100; i++ {
+-		fmt.Fprintf(&b, "data: {\"id\":%d}\n", i)
++		fmt.Fprintf(&b, "data: {\"id\":%d}\n\n", i)
+ 	}
+ 	c, resp, info := setupStreamTest(t, strings.NewReader(b.String()))
+ 
