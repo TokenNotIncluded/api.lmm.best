@@ -23,12 +23,13 @@ jobs:
           bun install --frozen-lockfile
           mkdir -p /tmp/assistant-workspace
           git archive --format=tar HEAD | gzip > /tmp/assistant-workspace/source.tar.gz
-          tar -czf /tmp/assistant-workspace/dependencies.tar.gz node_modules apps/web/node_modules
+          tar -czf /tmp/assistant-workspace/dependencies.tar.gz node_modules
           cp "$HOME/.bun/bin/bun" /tmp/assistant-workspace/bun
           git rev-parse HEAD > /tmp/assistant-workspace/COMMIT
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: assistant-web-workspace
           path: /tmp/assistant-workspace/
           retention-days: 1
           if-no-files-found: error
+          compression-level: 0
