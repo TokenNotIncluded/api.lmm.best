@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { ComponentProps, ReactNode } from 'react'
+import { useId, type ComponentProps, type ReactNode } from 'react'
 
 import { FormItem } from '@/components/ui/form'
 import { Label } from '@/components/ui/label'
@@ -45,14 +45,14 @@ type SettingsSwitchFieldProps = SettingsSwitchRowProps & {
 }
 
 const settingsSwitchRowClassName =
-  'flex min-w-0 flex-row items-center justify-between gap-4 py-2.5'
+  'settings-switch-row flex min-w-0 flex-row items-center justify-between gap-4 py-3'
 
 export function SettingsFormGrid(props: SettingsFormGridProps) {
   return (
     <div
       data-settings-form-span='full'
       className={cn(
-        'grid min-w-0 gap-x-10 gap-y-8 lg:grid-cols-2',
+        'settings-fields grid min-w-0 gap-x-8 gap-y-7 lg:grid-cols-2',
         'lg:[&>[data-settings-form-span=full]]:col-span-2',
         '[&>[data-slot=form-item]]:min-w-0',
         'lg:[&>[data-slot=form-item]:has(textarea)]:col-span-2',
@@ -115,15 +115,22 @@ export function SettingsSwitchField({
   className,
   ...props
 }: SettingsSwitchFieldProps) {
+  const id = useId()
   return (
     <SettingsSwitchRow className={className} {...props}>
       <SettingsSwitchContent>
-        <Label className='text-sm font-medium'>{label}</Label>
+        <Label htmlFor={id} className='text-sm font-medium'>
+          {label}
+        </Label>
         {description ? (
-          <p className='text-muted-foreground text-xs'>{description}</p>
+          <p id={`${id}-description`} className='text-muted-foreground text-xs'>
+            {description}
+          </p>
         ) : null}
       </SettingsSwitchContent>
       <Switch
+        id={id}
+        aria-describedby={description ? `${id}-description` : undefined}
         checked={checked}
         onCheckedChange={onCheckedChange}
         disabled={disabled}
@@ -172,7 +179,7 @@ export function SettingsForm({ className, ...props }: ComponentProps<'form'>) {
   return (
     <form
       className={cn(
-        'grid min-w-0 gap-x-10 gap-y-8 lg:grid-cols-2',
+        'settings-fields grid min-w-0 gap-x-8 gap-y-7 lg:grid-cols-2',
         'lg:[&>*:not([data-slot=form-item])]:col-span-2',
         'lg:[&>[data-settings-form-span=full]]:col-span-2',
         'lg:[&>[data-slot=alert]]:col-span-2',

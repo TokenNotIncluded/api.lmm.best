@@ -16,11 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Main } from '@/components/layout'
-import {
-  CardStaggerContainer,
-  CardStaggerItem,
-} from '@/components/page-transition'
+import { useTranslation } from 'react-i18next'
+
+import { SectionPageLayout } from '@/components/layout'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useStatus } from '@/hooks/use-status'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -53,67 +52,85 @@ export function ProfilePasskeyCapability({
 }
 
 export function Profile() {
+  const { t } = useTranslation()
   const { profile, loading, refreshProfile } = useProfile()
   const { status, capabilitiesReady } = useStatus()
   const permissions = useAuthStore((s) => s.auth.user?.permissions)
-
   const checkinEnabled = status?.checkin_enabled === true
-  const turnstileEnabled = !!(
+  const turnstileEnabled = Boolean(
     status?.turnstile_check && status?.turnstile_site_key
   )
-  const turnstileSiteKey = status?.turnstile_site_key || ''
   const canConfigureSidebar = permissions?.sidebar_settings !== false
 
   return (
-    <Main>
-      <div className='min-h-0 flex-1 overflow-auto px-3 py-3 sm:px-4 sm:py-6'>
-        <CardStaggerContainer className='mx-auto flex w-full max-w-7xl flex-col gap-4 sm:gap-6'>
-          <CardStaggerItem>
+    <SectionPageLayout>
+      <SectionPageLayout.Title>{t('Profile')}</SectionPageLayout.Title>
+      <SectionPageLayout.Content>
+        <Tabs
+          defaultValue='overview'
+          className='console-page-tabs mx-auto max-w-6xl'
+        >
+          <TabsList aria-label={t('Profile')}>
+            <TabsTrigger value='overview'>{t('Overview')}</TabsTrigger>
+            <TabsTrigger value='account'>{t('Account')}</TabsTrigger>
+            <TabsTrigger value='security'>{t('Security')}</TabsTrigger>
+            <TabsTrigger value='preferences'>{t('Preferences')}</TabsTrigger>
+            <TabsTrigger value='rewards'>{t('Rewards')}</TabsTrigger>
+          </TabsList>
+          <TabsContent value='overview' keepMounted>
             <ProfileHeader profile={profile} loading={loading} />
-          </CardStaggerItem>
-
-          <CardStaggerItem>
-            <div className='grid gap-4 sm:gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.46fr)] xl:items-start'>
-              <div className='space-y-4 sm:space-y-6'>
-                <ProfileSettingsCard
-                  profile={profile}
-                  loading={loading}
-                  onProfileUpdate={refreshProfile}
-                />
-                <LanguagePreferencesCard
-                  profile={profile}
-                  onProfileUpdate={refreshProfile}
-                />
-                <SettlementCurrencyCard
-                  profile={profile}
-                  loading={loading}
-                  onProfileUpdate={refreshProfile}
-                />
-                <ProfileSecurityCard profile={profile} loading={loading} />
-                <LoginSessionsCard />
-              </div>
-
-              <div className='space-y-4 sm:space-y-6 xl:sticky xl:top-6'>
-                <GiftCard />
-                {checkinEnabled && (
-                  <CheckinCalendarCard
-                    checkinEnabled={checkinEnabled}
-                    turnstileEnabled={turnstileEnabled}
-                    turnstileSiteKey={turnstileSiteKey}
-                  />
-                )}
-                {canConfigureSidebar && <SidebarModulesCard />}
+          </TabsContent>
+          <TabsContent value='account' keepMounted className='space-y-5'>
+            <ProfileSettingsCard
+              profile={profile}
+              loading={loading}
+              onProfileUpdate={refreshProfile}
+            />
+          </TabsContent>
+          <TabsContent value='security' keepMounted className='space-y-5'>
+            <div className='grid items-start gap-5 lg:grid-cols-2'>
+              <ProfileSecurityCard profile={profile} loading={loading} />
+              <div className='space-y-5'>
+                <TwoFACard loading={loading} />
                 <ProfilePasskeyCapability
                   capabilitiesReady={capabilitiesReady}
                   passkeyLogin={status?.passkey_login === true}
                   loading={loading}
                 />
-                <TwoFACard loading={loading} />
               </div>
             </div>
-          </CardStaggerItem>
-        </CardStaggerContainer>
-      </div>
-    </Main>
+            <LoginSessionsCard />
+          </TabsContent>
+          <TabsContent value='preferences' keepMounted className='space-y-5'>
+            <div className='grid items-start gap-5 lg:grid-cols-2'>
+              <LanguagePreferencesCard
+                profile={profile}
+                onProfileUpdate={refreshProfile}
+              />
+              <SettlementCurrencyCard
+                profile={profile}
+                loading={loading}
+                onProfileUpdate={refreshProfile}
+              />
+            </div>
+            {canConfigureSidebar && <SidebarModulesCard />}
+          </TabsContent>
+          <TabsContent
+            value='rewards'
+            keepMounted
+            className='grid items-start gap-5 lg:grid-cols-2'
+          >
+            <GiftCard />
+            {checkinEnabled && (
+              <CheckinCalendarCard
+                checkinEnabled={checkinEnabled}
+                turnstileEnabled={turnstileEnabled}
+                turnstileSiteKey={status?.turnstile_site_key || ''}
+              />
+            )}
+          </TabsContent>
+        </Tabs>
+      </SectionPageLayout.Content>
+    </SectionPageLayout>
   )
 }

@@ -43,67 +43,18 @@ import { Header } from './header'
 import { SystemBrand } from './system-brand'
 import { TopNav } from './top-nav'
 
-/**
- * General application Header component
- * Integrates navigation bar, search, configuration and profile functions
- *
- * @example
- * // Basic usage
- * <AppHeader />
- *
- * @example
- * // Custom navigation links
- * <AppHeader navLinks={customLinks} />
- *
- * @example
- * // Hide navigation bar
- * <AppHeader showTopNav={false} />
- *
- * @example
- * // Fully customize left and right content
- * <AppHeader
- *   leftContent={<CustomLeft />}
- *   rightContent={<CustomRight />}
- * />
- */
 type AppHeaderProps = {
-  /**
-   * Custom navigation links, uses default global navigation or dynamically generated from backend if not provided
-   */
   navLinks?: TopNavLink[]
-  /**
-   * Whether to show top navigation bar
-   * @default true
-   */
   showTopNav?: boolean
-  /**
-   * Left content, overrides TopNav if provided
-   */
   leftContent?: React.ReactNode
-  /**
-   * Custom right content, overrides default right content if provided
-   */
   rightContent?: React.ReactNode
-  /**
-   * Whether to show notification button
-   * @default true
-   */
   showNotifications?: boolean
-  /**
-   * Whether to show config drawer
-   * @default true
-   */
   showConfigDrawer?: boolean
-  /**
-   * Whether to show the sidebar trigger
-   * @default true
-   */
   showSidebarTrigger?: boolean
-  /**
-   * Whether to show profile dropdown
-   * @default true
-   */
   showProfileDropdown?: boolean
+  /** The console puts the brand and low-frequency preferences in its sidebar. */
+  showBrand?: boolean
+  showLanguageSwitcher?: boolean
 }
 
 export function AppHeader({
@@ -115,16 +66,14 @@ export function AppHeader({
   showConfigDrawer = true,
   showSidebarTrigger = true,
   showProfileDropdown = true,
+  showBrand = true,
+  showLanguageSwitcher = true,
 }: AppHeaderProps) {
-  // Prioritize dynamically generated links from backend
   const dynamicLinks = useTopNavLinks()
   const links = dynamicLinks.length > 0 ? dynamicLinks : navLinks
   const { t } = useTranslation()
   const { status } = useStatus()
-
-  // Notifications hook
   const notifications = useNotifications()
-
   const assistantEnabled = status?.assistant?.enabled !== false
   const [railOpen, setRailOpenState] = useState(false)
 
@@ -143,12 +92,10 @@ export function AppHeader({
 
   return (
     <Header showSidebarTrigger={showSidebarTrigger}>
-      <SystemBrand variant='inline' />
-
+      {showBrand && <SystemBrand variant='inline' />}
       {leftContent ? (
-        <div className='ms-2 flex items-center'>{leftContent}</div>
+        <div className='ms-2 flex min-w-0 items-center'>{leftContent}</div>
       ) : null}
-
       {showTopNav && (
         <div className='mx-auto hidden min-w-0 flex-1 justify-center px-4 lg:flex'>
           <TopNav
@@ -158,9 +105,8 @@ export function AppHeader({
           />
         </div>
       )}
-
       {rightContent ?? (
-        <div className='ms-auto flex items-center gap-1 sm:gap-2'>
+        <div className='ms-auto flex shrink-0 items-center gap-1 sm:gap-2'>
           {showTopNav && (
             <div className='lg:hidden'>
               <TopNav links={links} aria-label={t('Header navigation')} />
@@ -203,7 +149,7 @@ export function AppHeader({
               loading={notifications.loading}
             />
           )}
-          <LanguageSwitcher />
+          {showLanguageSwitcher && <LanguageSwitcher />}
           {showConfigDrawer && <ConfigDrawer />}
           {showProfileDropdown && <ProfileDropdown />}
         </div>

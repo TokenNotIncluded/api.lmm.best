@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useTranslation } from 'react-i18next'
 
+import { toIntlLocale } from '@/i18n/languages'
 import { formatQuota } from '@/lib/format'
 
 import { bountyAvailableSlots } from './timeline'
@@ -57,7 +58,7 @@ export function BountyDecision({
           <dd>
             {project.updated_at > 0
               ? new Date(project.updated_at * 1000).toLocaleDateString(
-                  i18n.language
+                  toIntlLocale(i18n.resolvedLanguage || i18n.language)
                 )
               : t('Unknown')}
           </dd>

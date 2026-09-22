@@ -17,66 +17,83 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
+import { useTranslation } from 'react-i18next'
 
-import { Sidebar, SidebarContent, SidebarRail } from '@/components/ui/sidebar'
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarHeader,
+  SidebarRail,
+} from '@/components/ui/sidebar'
 import { useLayout } from '@/context/layout-provider'
 import { useSidebarDensity } from '@/hooks/use-sidebar-config'
 import { useSidebarView } from '@/hooks/use-sidebar-view'
 import { MOTION_TRANSITION, MOTION_VARIANTS } from '@/lib/motion'
 
+import { organizeConsoleNavigation } from '../lib/console-navigation'
+import {
+  ConsoleNavSection,
+  ConsoleSearch,
+  ConsoleSidebarFooter,
+} from './console-navigation'
 import { NavGroup } from './nav-group'
 import { SidebarViewHeader } from './sidebar-view-header'
+import { SystemBrand } from './system-brand'
 
-/**
- * Application sidebar.
- *
- * Adopts the Vercel / Cloudflare "drill-in" pattern: the URL drives
- * which sidebar *view* is rendered. Clicking a top-level entry like
- * `System Settings` swaps the sidebar to a contextual workspace —
- * with a `← Back to Dashboard` affordance — instead of stacking the
- * sub-navigation inside the root tree.
- *
- * Architecture:
- *   - View resolution + filtering: {@link useSidebarView}
- *   - View registry: `layout/lib/sidebar-view-registry.ts`
- *   - Per-view header: {@link SidebarViewHeader}
- *
- * Adding a new nested view only requires registering a {@link SidebarView}
- * in the registry; this component requires no changes.
- */
 export function AppSidebar() {
+  const { t } = useTranslation()
   const { collapsible, variant } = useLayout()
   const density = useSidebarDensity()
   const { key, view, navGroups } = useSidebarView()
   const shouldReduce = useReducedMotion()
+  const groups = view
+    ? navGroups
+    : organizeConsoleNavigation(navGroups, t('Console'))
 
   return (
     <Sidebar
       collapsible={collapsible}
       variant={variant}
       data-sidebar-density={density}
+      className='top-0 h-dvh'
     >
+      <SidebarHeader className='gap-3 px-3 pt-3 pb-2 group-data-[collapsible=icon]:px-1'>
+        <SystemBrand variant='navigation' />
+        <ConsoleSearch />
+      </SidebarHeader>
       {view && <SidebarViewHeader view={view} />}
-
-      <SidebarContent className='py-2'>
-        <AnimatePresence mode='wait' initial={false}>
-          <motion.div
-            key={key}
-            initial={
-              shouldReduce ? false : MOTION_VARIANTS.sidebarSlide.initial
-            }
-            animate={MOTION_VARIANTS.sidebarSlide.animate}
-            exit={shouldReduce ? undefined : MOTION_VARIANTS.sidebarSlide.exit}
-            transition={MOTION_TRANSITION.fast}
-            className='flex flex-col'
-          >
-            {navGroups.map((props) => (
-              <NavGroup key={props.id || props.title} {...props} />
-            ))}
-          </motion.div>
-        </AnimatePresence>
+      <SidebarContent className='gap-1 py-2 group-data-[collapsible=icon]:overflow-auto'>
+        <nav aria-label={t('Sidebar')}>
+          <AnimatePresence mode='wait' initial={false}>
+            <motion.div
+              key={key}
+              initial={
+                shouldReduce ? false : MOTION_VARIANTS.sidebarSlide.initial
+              }
+              animate={MOTION_VARIANTS.sidebarSlide.animate}
+              exit={
+                shouldReduce ? undefined : MOTION_VARIANTS.sidebarSlide.exit
+              }
+              transition={MOTION_TRANSITION.fast}
+              className='flex flex-col gap-1'
+            >
+              {groups.map((group) =>
+                view ||
+                group.id === 'console-primary' ||
+                group.id === 'onboarding' ? (
+                  <NavGroup key={group.id || group.title} {...group} />
+                ) : (
+                  <ConsoleNavSection
+                    key={group.id || group.title}
+                    group={group}
+                  />
+                )
+              )}
+            </motion.div>
+          </AnimatePresence>
+        </nav>
       </SidebarContent>
-
+      <ConsoleSidebarFooter groups={navGroups} />
       <SidebarRail />
     </Sidebar>
   )

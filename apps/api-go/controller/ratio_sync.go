@@ -216,25 +216,32 @@ func FetchUpstreamRatios(c *gin.Context) {
 		return dialer.DialContext(ctx, network, addr)
 	}
 	client := &http.Client{Transport: transport}
+	defer transport.CloseIdleConnections()
 
 	for _, chn := range upstreams {
 		wg.Add(1)
 		go func(chItem dto.UpstreamDTO) {
 			defer wg.Done()
 
-			ctx, cancel := context.WithTimeout(c.Request.Context(), time.Duration(req.Timeout)*time.Second)
-			defer cancel()
+			uniqueName := chItem.Name
+			if chItem.ID != 0 {
+				uniqueName = fmt.Sprintf("%s(%d)", chItem.Name, chItem.ID)
+			}
+			parent := c.Request.Context()
 			select {
 			case sem <- struct{}{}:
 				defer func() { <-sem }()
-			case <-ctx.Done():
-				ch <- upstreamResult{Name: chItem.Name, Err: "request cancelled"}
+			case <-parent.Done():
+				ch <- upstreamResult{Name: uniqueName, Err: "request cancelled"}
 				return
 			}
-			if ctx.Err() != nil {
-				ch <- upstreamResult{Name: chItem.Name, Err: "request cancelled"}
+			if parent.Err() != nil {
+				ch <- upstreamResult{Name: uniqueName, Err: "request cancelled"}
 				return
 			}
+			// Queueing is governed by the caller; each acquired slot gets its own request budget.
+			ctx, cancel := context.WithTimeout(parent, time.Duration(req.Timeout)*time.Second)
+			defer cancel()
 
 			isOpenRouter := chItem.Endpoint == "openrouter"
 
@@ -253,11 +260,6 @@ func FetchUpstreamRatios(c *gin.Context) {
 				fullURL = chItem.BaseURL + endpoint
 			}
 			isModelsDev := isModelsDevAPIEndpoint(fullURL)
-
-			uniqueName := chItem.Name
-			if chItem.ID != 0 {
-				uniqueName = fmt.Sprintf("%s(%d)", chItem.Name, chItem.ID)
-			}
 
 			httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
 			if err != nil {
@@ -311,6 +313,9 @@ func FetchUpstreamRatios(c *gin.Context) {
 					return
 				}
 
+				if attempt == 2 {
+					break
+				}
 				backoff := time.NewTimer(time.Duration(200*(1<<attempt)) * time.Millisecond)
 				select {
 				case <-ctx.Done():
@@ -820,8 +825,6 @@ func convertOpenRouterToRatioData(reader io.Reader) (map[string]any, error) {
 		if !isValidNonNegativeCost(ratio) {
 			continue
 		}
-		modelRatioMap[m.ID] = ratio
-
 		compRatio := completionPrice / promptPrice
 		compRatio = roundRatioValue(compRatio)
 
@@ -829,6 +832,7 @@ func convertOpenRouterToRatioData(reader io.Reader) (map[string]any, error) {
 		if !isValidNonNegativeCost(compRatio) {
 			continue
 		}
+		modelRatioMap[m.ID] = ratio
 		completionRatioMap[m.ID] = compRatio
 
 		// Convert input_cache_read to cache_ratio (= cache_read_price / prompt_price)

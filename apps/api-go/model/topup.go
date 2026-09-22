@@ -472,15 +472,9 @@ func completeExternalTopUpOnDB(db *gorm.DB, settlement ExternalTopUpSettlement) 
 			if settlement.StripeCustomer != "" {
 				userUpdates["stripe_customer"] = settlement.StripeCustomer
 			}
-			if settlement.CustomerEmail != "" {
-				var user User
-				if err := tx.Select("email").First(&user, completed.UserId).Error; err != nil {
-					return err
-				}
-				if user.Email == "" {
-					userUpdates["email"] = settlement.CustomerEmail
-				}
-			}
+			// A payer's contact email is not a verified login-email binding.
+			// Do not change account identity or fail a valid credit on a shared
+			// payer address. Email binding remains a separate verified action.
 			if err := creditTopUpQuota(tx, completed.UserId, quota, userUpdates); err != nil {
 				return err
 			}
