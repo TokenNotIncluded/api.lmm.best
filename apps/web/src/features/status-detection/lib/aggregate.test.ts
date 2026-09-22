@@ -25,6 +25,68 @@ import { describe, test } from 'node:test'
 import { aggregateStatusGroups, sortStatusGroups } from './aggregate'
 
 describe('aggregateStatusGroups', () => {
+  test('orders aggregated metrics consistently for every input permutation', () => {
+    const metrics = [
+      { group: 'unknown', success_rate: Number.NaN, avg_ttft_ms: 0 },
+      { group: 'down', success_rate: 0, avg_ttft_ms: 0 },
+      { group: 'slow', success_rate: 100, avg_ttft_ms: 500 },
+      { group: 'fast', success_rate: 100, avg_ttft_ms: 100 },
+    ]
+    const groups = aggregateStatusGroups([
+      {
+        modelName: 'example',
+        groups: metrics.map((metric) => ({
+          ...metric,
+          avg_latency_ms: 0,
+          avg_tps: 0,
+          series: [],
+        })),
+      },
+    ])
+    // Exhaust all 24 permutations, including unknown data between valid items.
+    for (let a = 0; a < 4; a++) {
+      for (let b = 0; b < 4; b++) {
+        for (let c = 0; c < 4; c++) {
+          if (new Set([a, b, c]).size !== 3) continue
+          const d = 6 - a - b - c // Remaining index from 0 + 1 + 2 + 3.
+          const input = [groups[a], groups[b], groups[c], groups[d]]
+          assert.deepEqual(
+            sortStatusGroups(input, 'reliability').map((group) => group.group),
+            ['fast', 'slow', 'down', 'unknown']
+          )
+          assert.deepEqual(
+            sortStatusGroups(input, 'ttft').map((group) => group.group),
+            ['fast', 'slow', 'down', 'unknown']
+          )
+        }
+      }
+    }
+  })
+  test('sorts known reliability ahead of missing data and breaks missing-latency ties by name', () => {
+    const base = {
+      avgLatencyMs: 0,
+      avgTps: 0,
+      successTrend: [],
+      ttftTrend: [],
+      modelCount: 1,
+      avgTtftMs: Number.NaN,
+    }
+    const groups = [
+      { ...base, group: 'z-unknown', successRate: Number.NaN },
+      { ...base, group: 'down', successRate: 0 },
+      { ...base, group: 'healthy', successRate: 100 },
+      { ...base, group: 'a-unknown', successRate: Number.NaN },
+    ]
+    assert.deepEqual(
+      sortStatusGroups(groups, 'reliability').map((group) => group.group),
+      ['healthy', 'down', 'a-unknown', 'z-unknown']
+    )
+    assert.deepEqual(
+      sortStatusGroups(groups, 'ttft').map((group) => group.group),
+      ['a-unknown', 'down', 'healthy', 'z-unknown']
+    )
+    assert.equal(groups[0].group, 'z-unknown')
+  })
   test('averages model group metrics and aligns trend buckets', () => {
     const groups = aggregateStatusGroups([
       {
