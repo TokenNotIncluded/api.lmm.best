@@ -77,7 +77,7 @@ class AssistantFixture(Fixture):
         elif path == '/api/assistant/weekly-discount':
             data = None
         elif path == '/api/assistant/conversations':
-            data = {'items': [], 'total': 0, 'page': 1, 'page_size': 20}
+            data = {'conversations': [{'id': 7201, 'title': '客户端连接', 'last_message_preview': ANSWER, 'created_at': 1790100000, 'updated_at': 1790100000, 'archived_at': 0, 'owner': 'self', 'privacy_notice': ''}] if self.chats else []}
         elif path == '/api/assistant/offers':
             data = {'ok': True, 'plans': [], 'topup_discounts': [], 'price': 1}
         elif path == '/api/user/models':
@@ -151,7 +151,7 @@ async def main():
                     assert await page.locator('#ai-assistant-panel').count() == 0
                     assert await page.locator('.l0-answer').filter(has_text='先选择').is_visible()
                     await page.keyboard.press('Control+Shift+A')
-                    assert await page.locator('#l0-question').evaluate('e => e === document.activeElement')
+                    await page.wait_for_function("document.activeElement?.id === 'l0-question'")
                     await capture('returned')
                 else:
                     if width >= 1280:

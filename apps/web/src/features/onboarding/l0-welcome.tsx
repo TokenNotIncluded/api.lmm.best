@@ -13,6 +13,7 @@ import {
   Suspense,
   type KeyboardEvent,
   type ReactNode,
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -121,6 +122,7 @@ function L0WelcomeStage({
   const [consumedRequestId, setConsumedRequestId] = useState<string>()
   const [discovery, setDiscovery] = useState(0)
   const tabs = useRef<Array<HTMLButtonElement | null>>([])
+  const helpMenu = useRef<HTMLDetailsElement>(null)
   const cloudRef = useRef<HTMLDivElement>(null)
   const { state: checkState, check } = useL0AccessCheck(user?.id)
   const request = useQuery({
@@ -185,6 +187,7 @@ function L0WelcomeStage({
 
   useEffect(() => {
     const openTask = (request: QueuedAssistantRequest) => {
+      helpMenu.current?.removeAttribute('open')
       setTaskRequest(request)
       setTaskRevision((revision) => revision + 1)
       if (!request.autoSend) consumeQueuedAssistantRequest(request.id)
@@ -194,13 +197,13 @@ function L0WelcomeStage({
     return subscribeToAssistantOpen(openTask)
   }, [])
 
-  const returnToConversation = () => {
+  const returnToConversation = useCallback(() => {
     setTaskRequest(null)
     setScene('chat')
     window.requestAnimationFrame(() => {
       document.getElementById('l0-question')?.focus()
     })
-  }
+  }, [])
 
   useEffect(() => {
     const focusConversation = (event: globalThis.KeyboardEvent) => {
@@ -217,9 +220,10 @@ function L0WelcomeStage({
     }
     window.addEventListener('keydown', focusConversation)
     return () => window.removeEventListener('keydown', focusConversation)
-  }, [])
+  }, [returnToConversation])
 
   const selectScene = (next: Scene, focus = false) => {
+    setTaskRequest(null)
     setScene(next)
     if (focus) tabs.current[SCENES.indexOf(next)]?.focus()
   }
@@ -274,7 +278,11 @@ function L0WelcomeStage({
             <span aria-live='polite'>{statusLabel}</span>
             <Arrow diagonal />
           </button>
-          <details className='l0-help-menu' onKeyDown={closeDisclosure}>
+          <details
+            ref={helpMenu}
+            className='l0-help-menu'
+            onKeyDown={closeDisclosure}
+          >
             <summary aria-label={copy.help}>?</summary>
             <div className='l0-help-content'>
               <button
