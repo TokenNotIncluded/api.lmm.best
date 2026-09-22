@@ -29,7 +29,7 @@ jobs:
       - name: Capture review inputs without credentials or font binaries
         shell: bash
         run: |
-          mkdir -p "$RUNNER_TEMP/ui-prepare/registry"
+          mkdir -p "$RUNNER_TEMP/ui-prepare/registry" apps/web/node_modules
           git rev-parse HEAD > "$RUNNER_TEMP/ui-prepare/revision.txt"
           git diff -- bun.lock apps/web/package.json > "$RUNNER_TEMP/ui-prepare/dependencies.patch"
           cp "$(command -v bun)" "$RUNNER_TEMP/ui-prepare/bun"
@@ -38,7 +38,9 @@ jobs:
           for component in button input textarea card dialog sheet drawer input-otp select popover dropdown-menu tabs checkbox radio-group switch tooltip badge; do
             curl --fail --silent --show-error --max-time 20 "https://ui.shadcn.com/r/styles/base-luma/$component.json" -o "$RUNNER_TEMP/ui-prepare/registry/$component.json" || printf '%s registry unavailable\n' "$component" >> "$RUNNER_TEMP/ui-prepare/registry/errors.txt"
           done
+          curl --fail --silent --show-error --max-time 20 https://raw.githubusercontent.com/shadcn-ui/ui/main/apps/v4/registry/styles/style-luma.css -o "$RUNNER_TEMP/ui-prepare/registry/style-luma.css"
       - name: Upload disposable review workspace
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ui-migration-workspace
