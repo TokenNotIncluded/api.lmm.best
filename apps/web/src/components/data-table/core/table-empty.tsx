@@ -48,6 +48,8 @@ interface TableEmptyProps {
    * @default Database icon
    */
   icon?: React.ReactNode
+  /** Constrain the message to the visible viewport of a horizontally scrolling table. */
+  className?: string
   /**
    * Additional content to display (e.g., buttons)
    */
@@ -63,6 +65,7 @@ export function TableEmpty({
   title,
   description,
   icon,
+  className,
   children,
 }: TableEmptyProps) {
   const { t } = useTranslation()
@@ -72,7 +75,7 @@ export function TableEmpty({
   return (
     <TableRow>
       <TableCell colSpan={colSpan} className='h-[400px] p-0'>
-        <Empty>
+        <Empty className={className}>
           <EmptyHeader>
             <EmptyMedia variant='icon'>
               {icon || <Database className='size-6' />}

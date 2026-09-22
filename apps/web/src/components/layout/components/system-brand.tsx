@@ -33,31 +33,41 @@ import { cn } from '@/lib/utils'
 type SystemBrandProps = {
   defaultName?: string
   defaultVersion?: string
-  /**
-   * Visual layout:
-   * - 'sidebar': stacked card style (used inside the sidebar header).
-   * - 'inline': compact horizontal pill (used inside the top app bar).
-   */
-  variant?: 'sidebar' | 'inline'
+  variant?: 'sidebar' | 'inline' | 'navigation'
 }
 
-/**
- * System brand component
- * Displays current system logo + name.
- * - inline: compact pill in the top app bar; clicking navigates to home (/)
- * - sidebar: stacked card in the sidebar header (display only)
- */
 export function SystemBrand(props: SystemBrandProps) {
   const { t } = useTranslation()
   const { status } = useStatus()
   const { logo, systemName } = useSystemConfig()
-
   const variant = props.variant ?? 'sidebar'
   const name = systemName || props.defaultName || 'LMM Best'
   const apiVersion =
     status?.version || props.defaultVersion || t('Unknown version')
   const webVersion = getBuildVersion()
   const version = `${t('API')} ${apiVersion} · ${t('Web')} ${webVersion}`
+
+  if (variant === 'navigation') {
+    return (
+      <SidebarMenu>
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            className='h-9 font-semibold'
+            tooltip={t('Go to home')}
+            render={<Link to='/' aria-label={t('Go to home')} />}
+          >
+            <span className='flex size-5 shrink-0 items-center justify-center'>
+              <BrandLogo src={logo} className='size-full object-contain' />
+            </span>
+            <span className='truncate group-data-[collapsible=icon]:hidden'>
+              {name}
+            </span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      </SidebarMenu>
+    )
+  }
+
   if (variant === 'inline') {
     return (
       <Link

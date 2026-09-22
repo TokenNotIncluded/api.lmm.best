@@ -18,6 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useTranslation } from 'react-i18next'
 
+import { toIntlLocale } from '@/i18n/languages'
+
 import { bountyTimeline } from './timeline'
 import type { BountyChallenge } from './types'
 
@@ -38,7 +40,9 @@ export function BountyProgress({ challenge }: { challenge: BountyChallenge }) {
               className='text-muted-foreground text-xs'
               dateTime={new Date(event.time * 1000).toISOString()}
             >
-              {new Date(event.time * 1000).toLocaleString(i18n.language)}
+              {new Date(event.time * 1000).toLocaleString(
+                toIntlLocale(i18n.language)
+              )}
             </time>
             {event.evidence && (
               <div className='flex flex-wrap gap-4'>

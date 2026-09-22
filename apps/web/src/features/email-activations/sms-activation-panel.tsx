@@ -27,6 +27,7 @@ import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useDebounce } from '@/hooks/use-debounce'
 
 import {
@@ -917,7 +918,7 @@ export function HeroSmsSmsActivationPanel() {
         {...purchaseBalance}
         onRefresh={() => void purchaseBalance.refresh()}
       />
-      <div className='grid gap-4 xl:grid-cols-[minmax(0,430px)_minmax(0,1fr)]'>
+      <div className='console-sms-workspace grid gap-5 xl:grid-cols-[minmax(0,430px)_minmax(0,1fr)]'>
         <SmsPurchaseCard
           language={language}
           services={queries.services.data ?? []}
@@ -989,54 +990,70 @@ export function HeroSmsSmsActivationPanel() {
             if (purchaseBalance.canPurchase) setConfirmOpen(true)
           }}
         />
-        <SmsActiveOrdersCard
-          orders={currentOrders}
-          countries={countryMap}
-          services={serviceMap}
-          language={language}
-          isPending={queries.current.isPending}
-          isError={queries.current.isError}
-          errorTitle={t('Unable to load current phone activation')}
-          errorDescription={t(parseHeroSmsError(queries.current.error).message)}
-          onRetry={() => void queries.current.refetch()}
-          refresh={{
-            pendingOrderId: refreshMutation.isPending
-              ? refreshMutation.variables
-              : undefined,
-            onOrder: (orderId) => refreshMutation.mutate(orderId),
-          }}
-          complaint={{
-            pendingOrderId: complaintMutation.isPending
-              ? complaintMutation.variables?.orderId
-              : undefined,
-            onOrder: (orderId, reason) =>
-              complaintMutation.mutate({ orderId, reason }),
-          }}
-          cancel={{
-            pendingOrderId: cancelMutation.isPending
-              ? cancelMutation.variables
-              : undefined,
-            onOrder: setCancelConfirmOrderId,
-          }}
-        />
+        <Tabs defaultValue='current' className='console-sms-orders'>
+          <TabsList aria-label={t('Phone number')}>
+            <TabsTrigger value='current'>
+              {t('Active phone activations')} ({currentOrders.length})
+            </TabsTrigger>
+            <TabsTrigger value='history'>
+              {t('Phone activation history')}
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value='current' keepMounted>
+            <SmsActiveOrdersCard
+              orders={currentOrders}
+              countries={countryMap}
+              services={serviceMap}
+              language={language}
+              isPending={queries.current.isPending}
+              isError={queries.current.isError}
+              errorTitle={t('Unable to load current phone activation')}
+              errorDescription={t(
+                parseHeroSmsError(queries.current.error).message
+              )}
+              onRetry={() => void queries.current.refetch()}
+              refresh={{
+                pendingOrderId: refreshMutation.isPending
+                  ? refreshMutation.variables
+                  : undefined,
+                onOrder: (orderId) => refreshMutation.mutate(orderId),
+              }}
+              complaint={{
+                pendingOrderId: complaintMutation.isPending
+                  ? complaintMutation.variables?.orderId
+                  : undefined,
+                onOrder: (orderId, reason) =>
+                  complaintMutation.mutate({ orderId, reason }),
+              }}
+              cancel={{
+                pendingOrderId: cancelMutation.isPending
+                  ? cancelMutation.variables
+                  : undefined,
+                onOrder: setCancelConfirmOrderId,
+              }}
+            />
+          </TabsContent>
+          <TabsContent value='history' keepMounted>
+            <SmsOrderHistoryCard
+              orders={historyOrders}
+              countries={countryMap}
+              services={serviceMap}
+              language={language}
+              isPending={queries.history.isPending}
+              isError={queries.history.isError}
+              errorTitle={t('Unable to load phone activation history')}
+              errorDescription={view.historyError}
+              onRetry={() => void queries.history.refetch()}
+              onOpenOrder={setHistoryDetailOrderId}
+              onRemoveOrder={(orderId) =>
+                setHistoryCleanupTarget({ kind: 'one', orderId })
+              }
+              onClearHistory={() => setHistoryCleanupTarget({ kind: 'all' })}
+              cleanupPending={historyCleanupMutation.isPending}
+            />
+          </TabsContent>
+        </Tabs>
       </div>
-      <SmsOrderHistoryCard
-        orders={historyOrders}
-        countries={countryMap}
-        services={serviceMap}
-        language={language}
-        isPending={queries.history.isPending}
-        isError={queries.history.isError}
-        errorTitle={t('Unable to load phone activation history')}
-        errorDescription={view.historyError}
-        onRetry={() => void queries.history.refetch()}
-        onOpenOrder={setHistoryDetailOrderId}
-        onRemoveOrder={(orderId) =>
-          setHistoryCleanupTarget({ kind: 'one', orderId })
-        }
-        onClearHistory={() => setHistoryCleanupTarget({ kind: 'all' })}
-        cleanupPending={historyCleanupMutation.isPending}
-      />
       <SmsOrderDetailDialog
         open={historyDetailOrderId !== null}
         onOpenChange={(open) => {

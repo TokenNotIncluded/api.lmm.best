@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useLocation, useNavigate } from '@tanstack/react-router'
+import { useNavigate } from '@tanstack/react-router'
 import { ArrowRight, ChevronRight, Laptop, Moon, Sun } from 'lucide-react'
 import React from 'react'
 import { useTranslation } from 'react-i18next'
@@ -31,11 +31,11 @@ import {
   CommandList,
   CommandSeparator,
 } from '@/components/ui/command'
+import { useModelPlaza } from '@/context/model-plaza-provider'
 import { useSearch } from '@/context/search-provider'
 import { useTheme } from '@/context/theme-provider'
-import { useSidebarData } from '@/hooks/use-sidebar-data'
+import { useSidebarView } from '@/hooks/use-sidebar-view'
 
-import { getNavGroupsForPath } from './layout/lib/sidebar-view-registry'
 import { ScrollArea } from './ui/scroll-area'
 
 export function CommandMenu() {
@@ -43,12 +43,9 @@ export function CommandMenu() {
   const navigate = useNavigate()
   const { setTheme } = useTheme()
   const { open, setOpen } = useSearch()
-  const { pathname } = useLocation()
-  const sidebarData = useSidebarData()
-
-  // Use the active nested sidebar view's nav groups when one matches
-  // the current URL; otherwise fall back to the root navigation.
-  const navGroups = getNavGroupsForPath(pathname, t) ?? sidebarData.navGroups
+  const { openPanel } = useModelPlaza()
+  // Search must respect the same role and module filters as the visible sidebar.
+  const { navGroups } = useSidebarView()
 
   const runCommand = React.useCallback(
     (command: () => unknown) => {
@@ -73,8 +70,13 @@ export function CommandMenu() {
                       <CommandItem
                         key={`${navItem.url}-${i}`}
                         value={navItem.title}
+                        disabled={navItem.disabled}
                         onSelect={() => {
-                          runCommand(() => navigate({ to: navItem.url }))
+                          runCommand(() =>
+                            navItem.interaction === 'model-panel'
+                              ? openPanel()
+                              : navigate({ to: navItem.url })
+                          )
                         }}
                       >
                         <div className='flex size-4 items-center justify-center'>
@@ -89,8 +91,13 @@ export function CommandMenu() {
                     <CommandItem
                       key={`${navItem.title}-${subItem.url}-${i}`}
                       value={`${navItem.title}-${subItem.url}`}
+                      disabled={navItem.disabled || subItem.disabled}
                       onSelect={() => {
-                        runCommand(() => navigate({ to: subItem.url }))
+                        runCommand(() =>
+                          subItem.interaction === 'model-panel'
+                            ? openPanel()
+                            : navigate({ to: subItem.url })
+                        )
                       }}
                     >
                       <div className='flex size-4 items-center justify-center'>

@@ -40,6 +40,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { getL0AccessCopy } from './l0-access-copy'
 import { createL0ChatSession, type CloudTurn } from './l0-chat-session'
+import { L0_ARRIVAL_DURATION } from './l0-flight-path'
 import {
   mountL0TextFlow,
   visualTokens,
@@ -226,7 +227,7 @@ export function L0CloudConversation({
     const timer = setTimeout(() => {
       flow.current?.clear()
       setFormatted(true)
-    }, 360)
+    }, L0_ARRIVAL_DURATION + 40)
     return () => clearTimeout(timer)
   }, [state.phase, state.answer])
 

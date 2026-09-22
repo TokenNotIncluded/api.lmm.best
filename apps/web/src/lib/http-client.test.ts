@@ -20,7 +20,13 @@ import assert from 'node:assert/strict'
 import { afterEach, describe, test } from 'node:test'
 
 import { QueryClient } from '@tanstack/react-query'
-import type { AxiosAdapter, AxiosResponse } from 'axios'
+import {
+  AxiosError,
+  CanceledError,
+  type AxiosAdapter,
+  type AxiosResponse,
+} from 'axios'
+import { toast } from 'sonner'
 
 import {
   bindAuthCache,
@@ -166,6 +172,79 @@ describe('authenticated HTTP requests', () => {
       assert.equal(useAuthStore.getState().auth.user, null)
     } finally {
       unbind()
+    }
+  })
+})
+
+describe('route navigation request cancellation', () => {
+  test('independent abort signals cannot share a cancelled request', async () => {
+    const first = new AbortController()
+    const second = new AbortController()
+    const releases: Array<() => void> = []
+    api.defaults.adapter = (config) =>
+      new Promise((resolve) => {
+        releases.push(() =>
+          resolve(response(config, 200, { success: true, data: [] }))
+        )
+      })
+    const results = Promise.allSettled([
+      api.get('/api/navigation-cancellation-test', {
+        signal: first.signal,
+        skipErrorHandler: true,
+      }),
+      api.get('/api/navigation-cancellation-test', {
+        signal: second.signal,
+        skipErrorHandler: true,
+      }),
+    ])
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    first.abort()
+    releases.forEach((release) => release())
+    const settled = await results
+    assert.equal(settled[0].status, 'rejected')
+    assert.equal(settled[1].status, 'fulfilled')
+    assert.equal(releases.length, 2)
+  })
+
+  test('signal-free concurrent reads still share a single request', async () => {
+    let calls = 0
+    api.defaults.adapter = async (config) => {
+      calls += 1
+      return response(config, 200, { success: true, data: [] })
+    }
+    await Promise.all([
+      api.get('/api/navigation-deduplication-test'),
+      api.get('/api/navigation-deduplication-test'),
+    ])
+    assert.equal(calls, 1)
+  })
+
+  test('cancellation stays rejected without a failure toast; network failures remain visible', async () => {
+    const originalToast = toast.error
+    const messages: unknown[] = []
+    toast.error = ((message: unknown) => {
+      messages.push(message)
+      return 'toast-test'
+    }) as typeof toast.error
+    try {
+      api.defaults.adapter = async (config) => {
+        throw new CanceledError('canceled', config)
+      }
+      await assert.rejects(
+        api.get('/api/navigation-cancel-toast-test'),
+        /canceled/
+      )
+      assert.equal(messages.length, 0)
+      api.defaults.adapter = async (config) => {
+        throw new AxiosError('Network failure', 'ERR_NETWORK', config)
+      }
+      await assert.rejects(
+        api.get('/api/navigation-real-failure-test'),
+        /Network failure/
+      )
+      assert.equal(messages.length, 1)
+    } finally {
+      toast.error = originalToast
     }
   })
 })

@@ -23,7 +23,6 @@ import { useParams } from '@tanstack/react-router'
 import { Suspense, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { SectionPageLayout } from '@/components/layout'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -42,11 +41,17 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { ErrorState } from '@/components/error-state'
+import { SectionPageLayout } from '@/components/layout'
+import { PageFooterPortal } from '@/components/layout/components/page-footer'
+
+import './settings-workspace.css'
 import { LoadingState } from '@/components/loading-state'
 
 import { useSystemOptions, getOptionValue } from '../hooks/use-system-options'
 import type { SystemOption } from '../types'
 import { SettingsPageProvider } from './settings-page-context'
+import { SettingsBreadcrumb, SettingsSearch } from './settings-search'
 
 type SettingsPageProps<
   TSettings extends Record<string, string | number | boolean | unknown[]>,
@@ -78,6 +83,8 @@ type SettingsPageFrameProps = {
 }
 
 function SettingsPageFrame(props: SettingsPageFrameProps) {
+  const [formActionsContainer, setFormActionsContainer] =
+    useState<HTMLDivElement | null>(null)
   const [actionsContainer, setActionsContainer] =
     useState<HTMLDivElement | null>(null)
   const [titleStatusContainer, setTitleStatusContainer] =
@@ -86,11 +93,15 @@ function SettingsPageFrame(props: SettingsPageFrameProps) {
   return (
     <SettingsPageProvider
       actionsContainer={actionsContainer}
+      formActionsContainer={formActionsContainer}
       titleStatusContainer={titleStatusContainer}
     >
-      <SectionPageLayout>
+      <SectionPageLayout className='settings-workspace'>
+        <SectionPageLayout.Breadcrumb>
+          <SettingsBreadcrumb />
+        </SectionPageLayout.Breadcrumb>
         <SectionPageLayout.Title>
-          <span className='inline-flex max-w-full min-w-0 items-center gap-2 align-middle'>
+          <span className='inline-flex max-w-full min-w-0 flex-wrap items-center gap-3 align-middle'>
             <span className='truncate'>{props.title}</span>
             <span
               ref={setTitleStatusContainer}
@@ -99,15 +110,25 @@ function SettingsPageFrame(props: SettingsPageFrameProps) {
           </span>
         </SectionPageLayout.Title>
         <SectionPageLayout.Actions>
+          <SettingsSearch />
           <div
             ref={setActionsContainer}
             className='flex flex-wrap items-center justify-end gap-2'
           />
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
-          <div className='flex h-full min-h-0 w-full flex-col gap-4'>
-            {props.children}
-          </div>
+          <div className='settings-sheet'>{props.children}</div>
+          <PageFooterPortal>
+            <div className='settings-save-dock'>
+              <span className='settings-save-context text-muted-foreground text-sm'>
+                {props.title}
+              </span>
+              <div
+                ref={setFormActionsContainer}
+                className='settings-save-target flex flex-wrap items-center justify-end gap-2'
+              />
+            </div>
+          </PageFooterPortal>
         </SectionPageLayout.Content>
       </SectionPageLayout>
     </SettingsPageProvider>
@@ -133,7 +154,7 @@ export function SettingsPage<
   resolveSettings,
 }: SettingsPageProps<TSettings, TSectionId, TExtraArgs>) {
   const { t } = useTranslation()
-  const { data, isLoading } = useSystemOptions()
+  const { data, isLoading, isError, refetch } = useSystemOptions()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const params = useParams({ from: routePath as any })
   const activeSection = (params?.section ?? defaultSection) as TSectionId
@@ -153,6 +174,20 @@ export function SettingsPage<
     return (
       <SettingsPageFrame title={t(sectionMeta.titleKey)}>
         <LoadingState message={t(loadingMessage)} />
+      </SettingsPageFrame>
+    )
+  }
+
+  if (isError) {
+    return (
+      <SettingsPageFrame title={t(sectionMeta.titleKey)}>
+        <ErrorState
+          title={t('Unable to load settings')}
+          description={t('Your settings have not been changed. Try again.')}
+          onRetry={() => {
+            void refetch()
+          }}
+        />
       </SettingsPageFrame>
     )
   }
