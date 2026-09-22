@@ -55,7 +55,6 @@ func GetUserLogs(c *gin.Context) {
 	return
 }
 
-
 func GetLogByKey(c *gin.Context) {
 	tokenId := c.GetInt("token_id")
 	if tokenId == 0 {
