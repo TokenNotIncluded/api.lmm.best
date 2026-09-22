@@ -24,9 +24,9 @@ func TestStreamScannerHandler_DONEMarkersDoNotBecomePayloads(t *testing.T) {
 	for _, marker := range markers {
 		for _, withPayload := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/payload=%t", marker.name, withPayload), func(t *testing.T) {
-				body := marker.value + "\ndata: {\"must_not_be_read\":true}\n"
+				body := marker.value + "\n\ndata: {\"must_not_be_read\":true}\n"
 				if withPayload {
-					body = "data: " + payload + "\n" + body
+					body = "data: " + payload + "\n\n" + body
 				}
 				c, resp, info := setupStreamTest(t, strings.NewReader(body))
 				var mu sync.Mutex

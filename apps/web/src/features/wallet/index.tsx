@@ -21,6 +21,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { SectionPageLayout } from '@/components/layout'
+import { ConsoleDisclosure } from '@/components/layout/components/console-disclosure'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { useAuthUserRefresh } from '@/features/onboarding'
 import { useStatus } from '@/hooks/use-status'
@@ -945,14 +946,16 @@ function WalletCheckout(props: WalletProps) {
             {developerAccessGranted ? (
               <>
                 <WalletStatsCard user={user} loading={userLoading} />
-                <TrustLevelPanel user={user} loading={userLoading} />
+                <ConsoleDisclosure id='trust-level' title={t('Trust level')}>
+                  <TrustLevelPanel user={user} loading={userLoading} />
+                </ConsoleDisclosure>
               </>
             ) : null}
 
             <div
               className={
                 developerAccessGranted && showSubscriptionPanel
-                  ? 'grid gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.95fr)] xl:items-start'
+                  ? 'grid gap-5'
                   : 'grid gap-4'
               }
             >
@@ -1042,18 +1045,26 @@ function WalletCheckout(props: WalletProps) {
               </div>
 
               {developerAccessGranted ? (
-                <SubscriptionPlansCard
-                  topupInfo={topupInfo}
-                  onAvailabilityChange={handleSubscriptionAvailabilityChange}
-                  userId={user?.id}
-                  userQuota={user?.quota}
-                  onPurchaseSuccess={refreshWalletUser}
-                />
+                <ConsoleDisclosure
+                  id='subscription-plans'
+                  title={t('Subscriptions')}
+                >
+                  <SubscriptionPlansCard
+                    topupInfo={topupInfo}
+                    onAvailabilityChange={handleSubscriptionAvailabilityChange}
+                    userId={user?.id}
+                    userQuota={user?.quota}
+                    onPurchaseSuccess={refreshWalletUser}
+                  />
+                </ConsoleDisclosure>
               ) : null}
             </div>
 
             {developerAccessGranted ? (
-              <div id='referral-program' className='scroll-mt-4'>
+              <ConsoleDisclosure
+                id='referral-program'
+                title={t('Referral Program')}
+              >
                 <AffiliateRewardsCard
                   user={user}
                   affiliateLink={affiliateLink}
@@ -1063,7 +1074,7 @@ function WalletCheckout(props: WalletProps) {
                   }
                   loading={affiliateLoading}
                 />
-              </div>
+              </ConsoleDisclosure>
             ) : null}
           </div>
         </SectionPageLayout.Content>

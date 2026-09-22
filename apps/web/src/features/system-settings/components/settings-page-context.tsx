@@ -31,18 +31,21 @@ import { Button } from '@/components/ui/button'
 
 type SettingsPageContextValue = {
   actionsContainer: HTMLDivElement | null
+  formActionsContainer: HTMLDivElement | null
   titleStatusContainer: HTMLSpanElement | null
   suppressSectionHeader: boolean
 }
 
 const SettingsPageContext = createContext<SettingsPageContextValue>({
   actionsContainer: null,
+  formActionsContainer: null,
   titleStatusContainer: null,
   suppressSectionHeader: false,
 })
 
 type SettingsPageProviderProps = {
   actionsContainer: HTMLDivElement | null
+  formActionsContainer?: HTMLDivElement | null
   titleStatusContainer?: HTMLSpanElement | null
   children: ReactNode
   suppressSectionHeader?: boolean
@@ -53,6 +56,7 @@ export function SettingsPageProvider(props: SettingsPageProviderProps) {
     <SettingsPageContext.Provider
       value={{
         actionsContainer: props.actionsContainer,
+        formActionsContainer: props.formActionsContainer ?? null,
         titleStatusContainer: props.titleStatusContainer ?? null,
         suppressSectionHeader: props.suppressSectionHeader ?? true,
       }}
@@ -114,12 +118,17 @@ type SettingsPageFormActionsProps = {
 
 export function SettingsPageFormActions(props: SettingsPageFormActionsProps) {
   const { t } = useTranslation()
+  const { formActionsContainer, actionsContainer } =
+    useContext(SettingsPageContext)
+  const container = formActionsContainer ?? actionsContainer
   const saveLabel = props.isSaving
     ? (props.savingLabel ?? 'Saving...')
     : (props.saveLabel ?? 'Save Changes')
 
-  return (
-    <SettingsPageActionsPortal>
+  if (!container) return null
+
+  return createPortal(
+    <div className='settings-form-actions flex flex-wrap items-center justify-end gap-2'>
       {props.onReset && (
         <Button
           type='button'
@@ -142,6 +151,7 @@ export function SettingsPageFormActions(props: SettingsPageFormActionsProps) {
         <Save data-icon='inline-start' />
         <span>{t(saveLabel)}</span>
       </Button>
-    </SettingsPageActionsPortal>
+    </div>,
+    container
   )
 }

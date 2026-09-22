@@ -100,6 +100,7 @@ func ResponseChunkData(c *gin.Context, resp dto.ResponsesStreamResponse, data st
 // fields are rendered as one event rather than one event per source line.
 func renderSSEDataLines(c *gin.Context, data string) {
 	normalized := strings.ReplaceAll(data, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
 	lines := strings.Split(normalized, "\n")
 	var encoded strings.Builder
 	for i, line := range lines {

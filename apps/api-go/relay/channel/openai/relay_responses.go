@@ -257,6 +257,7 @@ func writeResponsesEvent(c *gin.Context, eventType, data string) error {
 	if _, err := fmt.Fprintf(c.Writer, "event: %s\n", eventType); err != nil {
 		return err
 	}
+	data = strings.ReplaceAll(strings.ReplaceAll(data, "\r\n", "\n"), "\r", "\n")
 	for _, line := range strings.Split(data, "\n") {
 		if _, err := fmt.Fprintf(c.Writer, "data: %s\n", line); err != nil {
 			return err
