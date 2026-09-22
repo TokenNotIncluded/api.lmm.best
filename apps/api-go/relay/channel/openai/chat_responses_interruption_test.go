@@ -167,3 +167,28 @@ func TestChatResponsesTimeoutReleasesUpstream(t *testing.T) {
 		})
 	}
 }
+
+func TestChatResponsesPreOutputErrorCompatibility(t *testing.T) {
+	previous := constant.StreamingTimeout
+	constant.StreamingTimeout = 5
+	t.Cleanup(func() { constant.StreamingTimeout = previous })
+	for _, explicit := range []bool{false, true} {
+		t.Run(fmt.Sprint(explicit), func(t *testing.T) {
+			body := "data: invalid-json\n\n"
+			if explicit {
+				body = "data: {\"error\":{\"type\":\"rate_limit_error\",\"message\":\"upstream rate limited\",\"code\":\"rate_limit\"}}\n\n"
+			}
+			c, recorder, response, info := newResponsesChatTestContext(t, body, true)
+			response.StatusCode = http.StatusTooManyRequests
+			_, apiErr := OaiChatToResponsesStreamHandler(c, info, response)
+			require.NotNil(t, apiErr)
+			require.Empty(t, recorder.Body.String())
+			if explicit {
+				require.Equal(t, http.StatusTooManyRequests, apiErr.StatusCode)
+			} else {
+				require.Equal(t, http.StatusBadGateway, apiErr.StatusCode)
+				require.NotContains(t, apiErr.Error(), "invalid-json")
+			}
+		})
+	}
+}

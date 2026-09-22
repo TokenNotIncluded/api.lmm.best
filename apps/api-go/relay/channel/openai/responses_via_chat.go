@@ -77,6 +77,7 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 	}
 	streamErr := (*types.NewAPIError)(nil)
+	upstreamAPIError := false
 	writeFailed := false
 	endEvidence := chatResponsesEndEvidence{choices: make(map[int]bool)}
 
@@ -104,6 +105,7 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		var errorResp dto.OpenAITextResponse
 		if err := common.UnmarshalJsonStr(data, &errorResp); err == nil {
 			if oaiError := errorResp.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
+				upstreamAPIError = true
 				streamErr = types.WithOpenAIError(*oaiError, resp.StatusCode)
 				sr.Stop(streamErr)
 				return
@@ -148,7 +150,7 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 	if writeFailed || c.Request.Context().Err() != nil || info.StreamStatus.EndReason == relaycommon.StreamEndReasonClientGone || info.StreamStatus.EndReason == relaycommon.StreamEndReasonPingFail {
 		return usage, nil
 	}
-	if streamErr != nil && !c.Writer.Written() {
+	if upstreamAPIError && !c.Writer.Written() {
 		return usage, streamErr
 	}
 	complete := streamErr == nil && !info.StreamStatus.HasErrors() && endEvidence.valid && !endEvidence.invalid &&
