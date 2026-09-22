@@ -1,0 +1,49 @@
+name: L0 air source and public probe
+on:
+  push:
+    branches: [verify/l0-air-20260922]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - name: Snapshot source and public read-only responses
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/l0-air
+          git archive HEAD | gzip -1 > /tmp/l0-air/source.tar.gz
+          python3 - <<'PY'
+          import json, urllib.request, urllib.error
+          results = []
+          for path in ['/api/status', '/api/open-source-bounties?page=1&page_size=5', '/challenges', '/open-source-bounties']:
+              try:
+                  req = urllib.request.Request('https://api.lmm.best' + path, headers={'User-Agent': 'LMM-read-only-diagnostic'})
+                  with urllib.request.urlopen(req, timeout=20) as response:
+                      body = response.read(120000).decode('utf-8', 'replace')
+                      entry = {'path': path, 'status': response.status, 'type': response.headers.get('Content-Type')}
+                      if path == '/api/status':
+                          data = json.loads(body).get('data', {})
+                          entry['data'] = {key: data.get(key) for key in ['version', 'backend_capabilities', 'system_name']}
+                      else:
+                          entry['body'] = body[:4000]
+                      results.append(entry)
+              except urllib.error.HTTPError as error:
+                  results.append({'path': path, 'status': error.code, 'body': error.read(4000).decode('utf-8', 'replace')})
+              except Exception as error:
+                  results.append({'path': path, 'error': str(error)})
+          with open('/tmp/l0-air/public-probe.json', 'w') as output:
+              json.dump(results, output, ensure_ascii=False, indent=2)
+          print(json.dumps(results, ensure_ascii=False))
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: l0-air-current-source
+          path: /tmp/l0-air
+          retention-days: 1
+          compression-level: 0
