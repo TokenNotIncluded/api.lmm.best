@@ -94,3 +94,46 @@ func TestProxiedDiscoveryCancelsWhileWaitingForHeaders(t *testing.T) {
 		t.Fatal("proxy request was not released")
 	}
 }
+
+func TestProxiedDiscoveryCancelsStalledResponseBody(t *testing.T) {
+	started, released := make(chan struct{}), make(chan struct{})
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"models":[`)
+		w.(http.Flusher).Flush()
+		close(started)
+		<-r.Context().Done()
+		close(released)
+	}))
+	defer proxy.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := FetchOllamaModels(ctx, "http://ollama.invalid", "test-key", dto.ChannelSettings{Proxy: proxy.URL})
+		done <- err
+	}()
+	select {
+	case <-started:
+	case <-ctx.Done():
+		t.Fatal("proxy did not send response headers")
+	}
+	// A partial JSON body must not be mistaken for a successful empty model list.
+	select {
+	case err := <-done:
+		t.Fatalf("discovery returned before body completion or cancellation: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	cancel()
+	select {
+	case err := <-done:
+		require.Error(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("body read did not cancel")
+	}
+	select {
+	case <-released:
+	case <-time.After(2 * time.Second):
+		t.Fatal("stalled proxy response was not released")
+	}
+}
