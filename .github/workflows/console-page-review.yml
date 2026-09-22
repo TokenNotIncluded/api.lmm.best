@@ -21,6 +21,19 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
+      - name: Capture exact review source and revision
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/console-source"
+          git rev-parse HEAD > "$RUNNER_TEMP/console-source/revision.txt"
+          git archive --format=tar.gz -o "$RUNNER_TEMP/console-source/source.tar.gz" HEAD apps/web package.json bun.lock
+      - name: Upload reproducible source snapshot
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: console-review-source
+          path: ${{ runner.temp }}/console-source
+          retention-days: 7
+          if-no-files-found: error
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: "1.3.14"
