@@ -77,8 +77,12 @@ jobs:
           cd deploy
           sha256sum --check "lmm-api-web-${VERSION}.tar.gz.sha256"
           [[ -s "lmm-api-web-${VERSION}.tar.gz" ]]
-          tar -tzf "lmm-api-web-${VERSION}.tar.gz" | grep -qx 'dist/index.html'
-          tar -tzf "lmm-api-web-${VERSION}.tar.gz" | grep -qx 'REVISION'
+          # List once into a file: piping tar into `grep -q` makes grep exit on
+          # the first match, and the resulting SIGPIPE fails the whole pipeline
+          # under `set -o pipefail`.
+          tar -tzf "lmm-api-web-${VERSION}.tar.gz" > archive-contents.txt
+          grep -qx 'dist/index.html' archive-contents.txt
+          grep -qx 'REVISION' archive-contents.txt
 
       - name: Install restricted deploy key
         env:
