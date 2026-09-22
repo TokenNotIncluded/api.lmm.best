@@ -15,8 +15,6 @@ func TestStreamScannerHandler_DONEMarkersDoNotBecomePayloads(t *testing.T) {
 		name  string
 		value string
 	}{
-		{"bare", "[DONE]"},
-		{"bare whitespace", " \t[DONE]\t "},
 		{"prefixed", "data: [DONE]"},
 		{"prefixed without space", "data:[DONE]"},
 		{"prefixed whitespace", "data: \t[DONE]\t "},
@@ -24,9 +22,9 @@ func TestStreamScannerHandler_DONEMarkersDoNotBecomePayloads(t *testing.T) {
 	for _, marker := range markers {
 		for _, withPayload := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/payload=%t", marker.name, withPayload), func(t *testing.T) {
-				body := marker.value + "\ndata: {\"must_not_be_read\":true}\n"
+				body := marker.value + "\n\ndata: {\"must_not_be_read\":true}\n\n"
 				if withPayload {
-					body = "data: " + payload + "\n" + body
+					body = "data: " + payload + "\n\n" + body
 				}
 				c, resp, info := setupStreamTest(t, strings.NewReader(body))
 				var mu sync.Mutex
@@ -49,5 +47,19 @@ func TestStreamScannerHandler_DONEMarkersDoNotBecomePayloads(t *testing.T) {
 				require.Contains(t, info.StreamStatus.Summary(), "reason=done")
 			})
 		}
+	}
+}
+
+func TestStreamScannerHandler_BareDONEIsAnUnknownField(t *testing.T) {
+	for _, marker := range []string{"[DONE]", " \t[DONE]\t "} {
+		t.Run(marker, func(t *testing.T) {
+			c, resp, info := setupStreamTest(t, strings.NewReader(marker+"\n\ndata: still active\n\n"))
+			var received []string
+			StreamScannerHandler(c, resp, info, func(data string, _ *StreamResult) {
+				received = append(received, data)
+			})
+			require.Equal(t, []string{"still active"}, received)
+			require.Contains(t, info.StreamStatus.Summary(), "reason=eof")
+		})
 	}
 }

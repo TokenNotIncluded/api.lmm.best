@@ -3,7 +3,6 @@ package helper
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -56,21 +55,6 @@ func NewStreamScanner(reader io.Reader) *bufio.Scanner {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, InitialScannerBufferSize), getScannerBufferSize())
 	return scanner
-}
-
-func looksLikeJSON(data string) bool {
-	if data == "null" || data == "true" || data == "false" {
-		return true
-	}
-	if data == "" {
-		return false
-	}
-	switch data[0] {
-	case '{', '[', '"':
-		return true
-	default:
-		return false
-	}
 }
 
 func copyCodexSSEHeaders(c *gin.Context, resp *http.Response) {
@@ -265,7 +249,11 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 
 	// Keep only one parsed event queued. A slow client still applies backpressure
 	// to the scanner, but cannot cause many large SSE strings to accumulate.
-	dataChan := make(chan string, 1)
+	type streamEvent struct {
+		data      string
+		heartbeat bool
+	}
+	dataChan := make(chan streamEvent, 1)
 
 	wg.Add(1)
 	gopool.Go(func() {
@@ -278,19 +266,19 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			wg.Done()
 		}()
 		sr := newStreamResult(info.StreamStatus, markFirstResponse)
-		for data := range dataChan {
+		for event := range dataChan {
 			sr.reset()
 			func() {
 				writeMutex.Lock()
 				defer writeMutex.Unlock()
-				if strings.HasPrefix(data, ":") {
+				if event.heartbeat {
 					if err := writeHeartbeat(); err != nil {
 						sr.Stop(err)
 					}
 					return
 				}
 				ExtendWriteDeadline(c)
-				dataHandler(data, sr)
+				dataHandler(event.data, sr)
 				businessWritten = c.Writer.Written()
 			}()
 			if sr.IsStopped() {
@@ -304,39 +292,45 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	common.RelayCtxGo(ctx, func() {
 		var eventData strings.Builder
 		var eventDataSize int64
-		pendingJSONEvent := false
+		hasData := false
 		const eventDataSeparatorSize = 1 // LF inserted between consecutive data fields
 		maxEventSize := common.ResponseBodyLimit()
 		resetEvent := func() {
 			eventData.Reset()
 			eventDataSize = 0
-			pendingJSONEvent = false
+			hasData = false
 		}
 		appendEventData := func(data string) bool {
 			addition := int64(len(data))
-			if eventData.Len() > 0 {
+			if hasData {
 				addition += eventDataSeparatorSize
 			}
 			if maxEventSize > 0 && eventDataSize > maxEventSize-addition {
 				return false
 			}
-			if eventData.Len() > 0 {
+			if hasData {
 				eventData.WriteByte('\n')
 			}
 			eventData.WriteString(data)
+			hasData = true
 			eventDataSize += addition
 			return true
 		}
 		dispatchEvent := func() bool {
-			if eventData.Len() == 0 {
+			if !hasData {
 				return true
+			}
+			data := eventData.String()
+			resetEvent()
+			// A terminator is a complete event, never an individual data field.
+			if !strings.Contains(data, "\n") && strings.TrimSpace(data) == "[DONE]" {
+				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonDone, nil)
+				return false
 			}
 			info.SetFirstResponseTime()
 			info.ReceivedResponseCount++
-			data := eventData.String()
-			resetEvent()
 			select {
-			case dataChan <- data:
+			case dataChan <- streamEvent{data: data}:
 				return true
 			case <-ctx.Done():
 				return false
@@ -376,7 +370,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			}
 			if strings.HasPrefix(data, ":") {
 				select {
-				case dataChan <- ":": // normalize and keep the existing bounded queue
+				case dataChan <- streamEvent{heartbeat: true}:
 				case <-ctx.Done():
 					return
 				case <-stopChan:
@@ -385,56 +379,21 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 				continue
 			}
 
-			// Check for bare [DONE] terminator first, before stripping prefix
-			trimmed := strings.TrimSpace(data)
-			if trimmed == "[DONE]" {
-				if !dispatchEvent() {
-					return
-				}
-				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonDone, nil)
-				logger.LogDebug(c, "received [DONE], stopping scanner")
-				return
-			}
-
-			// Only process lines with data: prefix
-			if len(data) < 6 || !strings.HasPrefix(data, "data:") {
+			// SSE fields are split at the first colon; strip only one space.
+			field, value, _ := strings.Cut(data, ":")
+			if field != "data" {
 				continue
 			}
-			data = strings.TrimSpace(data[5:])
-			if data == "" {
-				continue
-			}
-			// Check for prefixed [DONE] (data: [DONE])
-			if data == "[DONE]" {
-				if !dispatchEvent() {
-					return
-				}
-				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonDone, nil)
-				logger.LogDebug(c, "received [DONE], stopping scanner")
-				return
-			}
+			data = strings.TrimPrefix(value, " ")
 
 			if !appendEventData(data) {
 				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonScannerErr, ErrSSEEventTooLarge)
 				logger.LogError(c, "SSE event exceeds response body limit")
 				return
 			}
-			// Most providers emit one complete JSON object per data line without
-			// the optional blank separator. Preserve that compatibility while
-			// folding standards-compliant multiline JSON events: an incomplete
-			// JSON-looking line remains pending until the event boundary.
-			if looksLikeJSON(data) && !json.Valid([]byte(eventData.String())) {
-				pendingJSONEvent = true
-				continue
-			}
-			if !pendingJSONEvent && !dispatchEvent() {
-				return
-			}
 		}
 
-		if !dispatchEvent() {
-			return
-		}
+		// EOF does not complete an SSE event. Discard any unterminated data.
 		if err := scanner.Err(); err != nil {
 			if err != io.EOF {
 				logger.LogError(c, "scanner error: class="+relaycommon.StreamErrorClass(err))

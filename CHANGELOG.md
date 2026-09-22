@@ -13,6 +13,11 @@ authenticated users then see it once after their next login.
 
 <!-- Add user-facing or operational changes here before the next release. -->
 
+- Go SSE relays assemble data fields at blank-line event boundaries before
+  interpreting terminators, preserving multiline and empty data fields.
+  Upstreams must separate events with a blank line; JSON validity no longer
+  substitutes for framing, and unterminated EOF data is not dispatched.
+
 - Rust model relays now use independent response-header (1800 seconds), byte-idle
   (300 seconds), and optional per-attempt total deadlines (disabled by default),
   with Rust environment settings taking precedence over Go-compatible aliases.
