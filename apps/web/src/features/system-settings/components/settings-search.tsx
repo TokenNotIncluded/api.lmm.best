@@ -36,7 +36,7 @@ import {
   CommandList,
 } from '@/components/ui/command'
 
-export function useSettingsNavigation() {
+function useSettingsNavigation() {
   const { t } = useTranslation()
   const pathname = useLocation({ select: (location) => location.pathname })
   const groups = useMemo(
