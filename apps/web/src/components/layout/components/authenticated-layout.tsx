@@ -18,6 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useRouterState } from '@tanstack/react-router'
 
+import '@/styles/console-pages.css'
+
 import { AccessRestrictionNotice } from '@/components/access-restriction-notice'
 import { CommandMenu } from '@/components/command-menu'
 import { AnimatedOutlet } from '@/components/page-transition'

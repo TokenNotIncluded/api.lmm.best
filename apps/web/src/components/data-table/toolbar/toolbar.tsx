@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { Table } from '@tanstack/react-table'
-import { ChevronDown, Loader2, X as Cross2Icon } from 'lucide-react'
+import { SlidersHorizontal, Loader2, X as Cross2Icon } from 'lucide-react'
 import * as React from 'react'
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -74,8 +74,7 @@ export type DataTableToolbarProps<TData> = {
    */
   customSearch?: ReactNode
   /**
-   * Extra inputs/selects displayed in the primary row alongside the
-   * search input and filter chips.
+   * Extra inputs/selects kept mounted in the collapsible filter panel.
    */
   additionalSearch?: ReactNode
   /**
@@ -90,7 +89,7 @@ export type DataTableToolbarProps<TData> = {
   onReset?: () => void
   /**
    * Additional filter inputs hidden behind an Expand/Collapse toggle.
-   * Inputs flow inline with the primary row when expanded.
+   * Inputs remain mounted in a separate panel when collapsed.
    */
   expandable?: ReactNode
   /**
@@ -124,11 +123,7 @@ export type DataTableToolbarProps<TData> = {
    */
   viewToggle?: ReactNode
   /**
-   * Content rendered on the LEFT side of the secondary action row. When
-   * provided the toolbar splits into two visual rows:
-   *   Row 1: search inputs / filter chips …… Expand
-   *   Row 2: expanded filters
-   *   Row 3: leftActions …… Reset / Search / ViewOptions
+   * Additional actions alongside the view controls in the primary row.
    */
   leftActions?: ReactNode
   /**
@@ -137,33 +132,25 @@ export type DataTableToolbarProps<TData> = {
   className?: string
 }
 
-/**
- * Unified data-table filter panel — Ant Design Pro inspired.
- *
- * Layout (single flex-wrap row):
- * - Filters (search input + additional inputs + filter chips + expandable
- *   inputs) flow horizontally and wrap as needed.
- * - The action cluster (Reset / Search / View / Expand) hugs the right
- *   edge via `ms-auto`. When filters fill a row, the cluster naturally
- *   wraps to the next line — still right-aligned — matching the
- *   collapsed/expanded states from the user's reference design.
- *
- * No background panel, no row separators — relies on whitespace and the
- * adjacent table border for visual hierarchy.
- */
+/** Search and primary actions stay visible; secondary filters share one panel. */
 export function DataTableToolbar<TData>(props: DataTableToolbarProps<TData>) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
   const [isSearchComposing, setIsSearchComposing] = useState(false)
 
   const filters = props.filters ?? []
-  const hasExpandable = props.expandable != null
+  const hasExpandable =
+    props.expandable != null ||
+    props.additionalSearch != null ||
+    filters.length > 0
+  const filterPanelId = React.useId()
   const hasSearch = props.onSearch != null
 
   const isFiltered =
     props.table.getState().columnFilters.length > 0 ||
     !!props.table.getState().globalFilter ||
-    !!props.hasAdditionalFilters
+    !!props.hasAdditionalFilters ||
+    !!props.hasExpandedActiveFilters
 
   const placeholder = props.searchPlaceholder ?? t('Filter...')
   const currentSearchValue = props.searchKey
@@ -317,82 +304,57 @@ export function DataTableToolbar<TData>(props: DataTableToolbarProps<TData>) {
 
   const viewToggleNode = props.viewToggle ?? null
 
+  const activeFilterCount =
+    props.table
+      .getState()
+      .columnFilters.filter((filter) => filter.id !== props.searchKey).length +
+    (props.hasAdditionalFilters || props.hasExpandedActiveFilters ? 1 : 0)
   const expandToggle = hasExpandable ? (
     <Button
-      variant='ghost'
-      onClick={() => setExpanded((p) => !p)}
+      type='button'
+      variant={expanded || activeFilterCount > 0 ? 'secondary' : 'outline'}
+      onClick={() => setExpanded((current) => !current)}
       aria-expanded={expanded}
-      className={cn(
-        'text-muted-foreground hover:text-foreground gap-1 px-2',
-        props.hasExpandedActiveFilters &&
-          !expanded &&
-          'text-primary hover:text-primary'
-      )}
+      aria-controls={filterPanelId}
+      className='gap-2'
     >
-      {expanded ? t('Collapse') : t('Expand')}
-      <ChevronDown
-        className={cn(
-          'size-3.5 transition-transform duration-200',
-          expanded && 'rotate-180'
-        )}
-      />
+      <SlidersHorizontal className='size-4' aria-hidden='true' />
+      {t('Filters')}
+      {activeFilterCount > 0 && (
+        <span className='bg-background rounded px-1.5 text-xs tabular-nums'>
+          {activeFilterCount}
+        </span>
+      )}
     </Button>
   ) : null
 
-  const hasLeftActions = props.leftActions != null
-
-  if (hasLeftActions) {
-    return (
-      <div className={cn('flex flex-col gap-2', props.className)}>
-        <div className='flex flex-wrap items-center gap-2 sm:gap-3'>
-          {props.customSearch !== undefined ? props.customSearch : searchInput}
-          {props.additionalSearch}
-          {filterChips}
-          <div className='ms-auto flex shrink-0 items-center gap-1.5 sm:gap-2'>
-            {expandToggle}
-          </div>
-        </div>
-
-        {expanded && hasExpandable && (
-          <div className='flex flex-wrap items-center gap-2 sm:gap-3'>
-            {props.expandable}
-          </div>
-        )}
-
-        <div className='flex flex-wrap items-center gap-2 sm:gap-3'>
-          {props.leftActions}
-          <div className='ms-auto flex shrink-0 items-center gap-1.5 sm:gap-2'>
-            {props.preActions}
-            {resetButton}
-            {searchButton}
-            {viewToggleNode}
-            {viewOptionsNode}
-          </div>
-        </div>
-      </div>
-    )
-  }
-
   return (
-    <div
-      className={cn(
-        'flex flex-wrap items-center gap-2 sm:gap-3',
-        props.className
-      )}
-    >
-      {props.customSearch !== undefined ? props.customSearch : searchInput}
-      {props.additionalSearch}
-      {filterChips}
-      {expanded && hasExpandable && props.expandable}
-
-      <div className='ms-auto flex shrink-0 items-center gap-1.5 sm:gap-2'>
-        {props.preActions}
+    <div className={cn('console-toolbar flex flex-col gap-3', props.className)}>
+      <div className='flex min-w-0 flex-wrap items-center gap-2'>
+        {props.customSearch !== undefined ? props.customSearch : searchInput}
+        {expandToggle}
         {resetButton}
         {searchButton}
-        {viewToggleNode}
-        {viewOptionsNode}
-        {expandToggle}
+        <div className='ms-auto flex min-w-0 flex-wrap items-center gap-2'>
+          {props.leftActions}
+          {props.preActions}
+          {viewToggleNode}
+          {viewOptionsNode}
+        </div>
       </div>
+      {hasExpandable && (
+        <div
+          id={filterPanelId}
+          hidden={!expanded}
+          role='region'
+          aria-label={t('Filters')}
+          className='console-filter-panel bg-muted/20 flex flex-wrap items-end gap-3 rounded-xl border p-3'
+        >
+          {props.additionalSearch}
+          {filterChips}
+          {props.expandable}
+        </div>
+      )}
     </div>
   )
 }

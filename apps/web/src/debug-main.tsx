@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { withConsolePageFixtures } from '@/features/debug/console-page-fixtures'
 import { installPersonaDebugRuntime } from '@/features/debug/persona-runtime'
 import { api } from '@/lib/http-client'
 
@@ -43,6 +44,10 @@ api.defaults.adapter = async (config) => {
     }
   }
   return personaAdapter(config)
+}
+
+if (new URLSearchParams(window.location.search).get('console_review') === '1') {
+  api.defaults.adapter = withConsolePageFixtures(api.defaults.adapter)
 }
 
 void import('./main')
