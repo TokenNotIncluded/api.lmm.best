@@ -601,21 +601,29 @@ func GetMaxUserId() int {
 }
 
 func applyL0UserFilter(tx *gorm.DB, query *gorm.DB) *gorm.DB {
-	creditedQuotaExpression, creditedQuotaArgs := positiveNormalizedCreditedQuotaSQL()
-	paidTopUpSubquery := successfulExternalPaidTopUpQuery(tx.Model(&TopUp{}).
-		Select("1").
-		Where("top_ups.user_id = users.id")).
-		Where("("+creditedQuotaExpression+") > 0", creditedQuotaArgs...)
+	return applyL0UserFilterWithPolicy(tx, query, CurrentDeveloperAccessPolicy())
+}
 
-	return query.
-		Where("users.role < ?", common.RoleAdminUser).
-		Where(
-			"(users.trust_level_override IS NOT NULL AND users.trust_level_override NOT BETWEEN ? AND ?) OR "+
-				"(users.trust_level_override IS NULL AND users.console_activated_at = 0 AND NOT EXISTS (?))",
-			TrustLevelMinUser+1,
-			TrustLevelMaxUser,
-			paidTopUpSubquery,
-		)
+func applyL0UserFilterWithPolicy(tx *gorm.DB, query *gorm.DB, policy DeveloperAccessPolicy) *gorm.DB {
+	ordinaryL0 := "users.trust_level_override IS NULL AND users.console_activated_at = 0"
+	args := []interface{}{TrustLevelMinUser + 1, TrustLevelMaxUser}
+	if policy.paidActivationEnabled {
+		expression, expressionArgs := positiveNormalizedCreditedQuotaSQL()
+		paid := successfulExternalPaidTopUpQuery(tx.Model(&TopUp{}).
+			Select("1").Where("top_ups.user_id = users.id")).
+			Where("("+expression+") > 0", expressionArgs...)
+		if policy.paidActivationMinMicros > 0 {
+			// Sum before rounding, just like the authoritative access snapshot.
+			// Floating division and single-argument ROUND work on all three DBs.
+			havingArgs := append(append([]interface{}{}, expressionArgs...), common.QuotaPerUnit, policy.paidActivationMinMicros)
+			paid = paid.Group("top_ups.user_id").Having(
+				"ROUND(SUM("+expression+") * 1000000.0 / NULLIF(?, 0)) >= ?", havingArgs...)
+		}
+		ordinaryL0 += " AND NOT EXISTS (?)"
+		args = append(args, paid)
+	}
+	return query.Where("users.role < ?", common.RoleAdminUser).
+		Where("(users.trust_level_override IS NOT NULL AND users.trust_level_override NOT BETWEEN ? AND ?) OR ("+ordinaryL0+")", args...)
 }
 
 func GetAllUsers(pageInfo *common.PageInfo, onlyL0 bool, sortOptions ...UserSortOptions) (users []*User, total int64, err error) {

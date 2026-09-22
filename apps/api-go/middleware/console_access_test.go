@@ -18,6 +18,9 @@ func TestPreActivationRouteMatrixKeepsChallengesReadOnly(t *testing.T) {
 		method string
 		path   string
 	}{
+		{http.MethodGet, "/api/user/topup/info"},
+		{http.MethodGet, "/api/user/topup/self"},
+		{http.MethodPost, "/api/user/stripe/pay"},
 		{http.MethodGet, "/api/open-source-bounties"},
 		{http.MethodGet, "/api/open-source-bounties/projects/7"},
 		{http.MethodGet, "/api/user/developer-access/request"},
@@ -56,9 +59,6 @@ func TestPreActivationRouteMatrixKeepsChallengesReadOnly(t *testing.T) {
 		{http.MethodPost, "/api/open-source-bounties/challenges/9/withdraw"},
 		{http.MethodPost, "/api/open-source-bounties/challenges/9/rate-owner"},
 		{http.MethodPost, "/api/open-source-bounties/challenges/9/disputes"},
-		{http.MethodGet, "/api/user/topup/info"},
-		{http.MethodGet, "/api/user/topup/self"},
-		{http.MethodPost, "/api/user/stripe/pay"},
 		{http.MethodGet, "/api/user/aff"},
 		{http.MethodGet, "/api/user/checkin"},
 		{http.MethodPost, "/api/user/checkin"},
