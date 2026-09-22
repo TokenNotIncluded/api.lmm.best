@@ -91,7 +91,9 @@ GET	/api/group/	github.com/QuantumNous/new-api/controller.GetGroups
 GET	/api/home_page_content	github.com/QuantumNous/new-api/controller.GetHomePageContent
 GET	/api/log/	github.com/QuantumNous/new-api/controller.GetAllLogs
 GET	/api/log/channel_affinity_usage_cache	github.com/QuantumNous/new-api/controller.GetChannelAffinityUsageCacheStats
+GET	/api/log/search	github.com/QuantumNous/new-api/controller.SearchAllLogs
 GET	/api/log/self	github.com/QuantumNous/new-api/controller.GetUserLogs
+GET	/api/log/self/search	github.com/QuantumNous/new-api/controller.SearchUserLogs
 GET	/api/log/self/stat	github.com/QuantumNous/new-api/controller.GetLogsSelfStat
 GET	/api/log/stat	github.com/QuantumNous/new-api/controller.GetLogsStat
 GET	/api/log/token	github.com/QuantumNous/new-api/controller.GetLogByKey

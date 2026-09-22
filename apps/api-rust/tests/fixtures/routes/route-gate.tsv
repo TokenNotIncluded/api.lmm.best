@@ -92,7 +92,9 @@ GET	/api/group/	present	unverified	mounted	unverified	not-applicable	go	mounted-
 GET	/api/home_page_content	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	apps/api-rust/src/http.rs
 GET	/api/log/	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	source=apps/api-rust/src/routes/observability.rs;mount=apps/api-rust/src/routes/observability.rs
 GET	/api/log/channel_affinity_usage_cache	present	unverified	mounted	unverified	pending-independent-approval	go	candidate-pending-independent-approval	source=apps/api-rust/src/routes/observability.rs;mount=apps/api-rust/src/routes/observability.rs;listener=apps/api-rust/src/main.rs;differential=apps/api-rust/tests/behavior-oracle/tests/observability-metrics-listener-differential.sh
+GET	/api/log/search	absent	not-applicable	unmounted	not-applicable	not-applicable	go	legacy-go	retired=true;issue=385;test=apps/api-rust/tests/observability.rs
 GET	/api/log/self	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	source=apps/api-rust/src/routes/observability.rs;mount=apps/api-rust/src/routes/observability.rs
+GET	/api/log/self/search	absent	not-applicable	unmounted	not-applicable	not-applicable	go	legacy-go	retired=true;issue=385;test=apps/api-rust/tests/observability.rs
 GET	/api/log/self/stat	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	source=apps/api-rust/src/routes/observability.rs;mount=apps/api-rust/src/routes/observability.rs
 GET	/api/log/stat	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	source=apps/api-rust/src/routes/observability.rs;mount=apps/api-rust/src/routes/observability.rs
 GET	/api/log/token	present	unverified	mounted	unverified	not-applicable	go	mounted-unverified	source=apps/api-rust/src/routes/observability.rs;mount=apps/api-rust/src/routes/observability.rs

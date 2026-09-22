@@ -92,7 +92,9 @@ GET	/api/group/	admin
 GET	/api/home_page_content	public
 GET	/api/log/	admin
 GET	/api/log/channel_affinity_usage_cache	admin
+GET	/api/log/search	admin
 GET	/api/log/self	user
+GET	/api/log/self/search	user
 GET	/api/log/self/stat	user
 GET	/api/log/stat	admin
 GET	/api/log/token	token
