@@ -1,0 +1,61 @@
+name: Pending PR repair diagnostics
+on:
+  push:
+    branches: [workbench/pr-repair-20260922]
+    paths: [.github/workflows/pr-repair-audit.yml]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Collect exact source and existing check diagnostics without executing PR code
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/repair-audit"
+          mkdir -p "$out"
+          repo=TokenNotIncluded/api.lmm.best
+          git fetch --no-tags origin main:refs/heads/audit-main
+          for pr in 443 450 451 466 468; do
+            git fetch --no-tags origin "refs/pull/$pr/head:refs/heads/audit-pr-$pr"
+            gh api "repos/$repo/pulls/$pr" --jq '{number,state,merged,draft,head:.head.sha,base:.base.sha}' | tee "$out/pr-$pr.json"
+            sha=$(git rev-parse "audit-pr-$pr")
+            gh api "repos/$repo/actions/runs?head_sha=$sha&per_page=30" --jq '[.workflow_runs[]|{id,name,status,conclusion,head_sha}]' | tee "$out/runs-$pr.json"
+          done
+          git bundle create "$out/source.bundle" audit-main audit-pr-443 audit-pr-450 audit-pr-451 audit-pr-466 audit-pr-468
+          for run in 35711545978 35711546017 35709016123 35711718419; do
+            gh api "repos/$repo/actions/runs/$run/logs" > "$out/logs-$run.zip" || rm -f "$out/logs-$run.zip"
+          done
+          python3 - "$out" <<'PY'
+          import pathlib,zipfile,re,sys
+          root=pathlib.Path(sys.argv[1])
+          for p in root.glob('logs-*.zip'):
+              print('\nDIAGNOSTICS',p.name)
+              with zipfile.ZipFile(p) as z:
+                  count=0
+                  for name in z.namelist():
+                      lines=z.read(name).decode('utf-8','replace').splitlines()
+                      hits=[i for i,line in enumerate(lines) if re.search(r'--- FAIL:|Error Trace:|##\[error\]|AssertionError|^panic:|error TS\d+',line)]
+                      if not hits: continue
+                      print('LOG',name)
+                      indices=sorted({j for i in hits for j in range(max(0,i-2),min(len(lines),i+12))})
+                      for i in indices:
+                          print(lines[i][:800])
+                          count+=1
+                          if count>=180: break
+                      if count>=180: break
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pending-pr-repair-audit
+          path: ${{ runner.temp }}/repair-audit
+          retention-days: 1
+          if-no-files-found: error
