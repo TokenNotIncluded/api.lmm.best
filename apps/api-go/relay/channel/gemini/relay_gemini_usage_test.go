@@ -106,7 +106,7 @@ func TestGeminiStreamHandlerCompletionTokensExcludeToolUsePromptTokens(t *testin
 	chunkData, err := common.Marshal(chunk)
 	require.NoError(t, err)
 
-	streamBody := []byte("data: " + string(chunkData) + "\n" + "data: [DONE]\n")
+	streamBody := []byte("data: " + string(chunkData) + "\n\n" + "data: [DONE]\n\n")
 	resp := &http.Response{
 		Body: io.NopCloser(bytes.NewReader(streamBody)),
 	}
@@ -261,7 +261,7 @@ func TestGeminiStreamHandlerUsesEstimatedPromptTokensWhenUsagePromptMissing(t *t
 	chunkData, err := common.Marshal(chunk)
 	require.NoError(t, err)
 
-	streamBody := []byte("data: " + string(chunkData) + "\n" + "data: [DONE]\n")
+	streamBody := []byte("data: " + string(chunkData) + "\n\n" + "data: [DONE]\n\n")
 	resp := &http.Response{
 		Body: io.NopCloser(bytes.NewReader(streamBody)),
 	}
@@ -398,7 +398,7 @@ func TestGeminiStreamHandlerPromptOnlyUsageMetadataEstimatesCompletionTokens(t *
 	chunkData, err := common.Marshal(chunk)
 	require.NoError(t, err)
 
-	streamBody := []byte("data: " + string(chunkData) + "\n" + "data: [DONE]\n")
+	streamBody := []byte("data: " + string(chunkData) + "\n\n" + "data: [DONE]\n\n")
 	resp := &http.Response{
 		Body: io.NopCloser(bytes.NewReader(streamBody)),
 	}
@@ -483,7 +483,7 @@ func TestGeminiStreamHandlerEmptyUsageMetadataBuildsEstimatedBillingUsage(t *tes
 	}
 	info.SetEstimatePromptTokens(20)
 
-	streamBody := []byte("data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"partial\"}]}}],\"usageMetadata\":{}}\n" + "data: [DONE]\n")
+	streamBody := []byte("data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"partial\"}]}}],\"usageMetadata\":{}}\n\n" + "data: [DONE]\n\n")
 	resp := &http.Response{
 		Body: io.NopCloser(bytes.NewReader(streamBody)),
 	}

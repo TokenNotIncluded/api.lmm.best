@@ -124,6 +124,8 @@ func TestClaudeMessagesSSEPreservesSharedNativeToolEvents(t *testing.T) {
 	// The Go pipeline may enrich message_delta usage. Native tool events and
 	// unknown future fields must otherwise remain the same shared wire data.
 	for _, line := range strings.Split(string(body), "\n") {
+		// SSE accepts CRLF input; downstream encoding normalizes line endings.
+		line = strings.TrimSuffix(line, "\r")
 		if strings.HasPrefix(line, "data: ") && !strings.Contains(line, `"type":"message_delta"`) {
 			require.Contains(t, recorder.Body.String(), line)
 		}

@@ -57,6 +57,22 @@ func TestResponsesCreatedOnlyUsagePolicy(t *testing.T) {
 	}
 }
 
+func TestResponsesMultilineSSEDataPreservesEventFraming(t *testing.T) {
+	body := "data: {\"type\":\"response.created\",\r\n" +
+		"data: \"response\":{\"id\":\"resp_test\"}}\r\n\r\n" +
+		"data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\r\n\r\n"
+	_, apiErr, writer, _ := runResponsesTerminalTest(t, strings.NewReader(body), false)
+	require.Nil(t, apiErr)
+
+	lines := strings.Split(writer.Body.String(), "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "{") || strings.HasPrefix(line, "\"") {
+			t.Fatalf("multiline response data escaped the SSE data field: %q", line)
+		}
+	}
+	require.Contains(t, writer.Body.String(), "data: {\"type\":\"response.created\",\ndata: \"response\":{\"id\":\"resp_test\"}}")
+}
+
 func TestResponsesZeroUsageDoesNotSuppressObservedOutput(t *testing.T) {
 	for _, ending := range []string{"", "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n"} {
 		for _, deltaType := range []string{"response.output_text.delta", "response.function_call_arguments.delta", "response.reasoning_text.delta"} {

@@ -13,9 +13,17 @@ authenticated users then see it once after their next login.
 
 <!-- Add user-facing or operational changes here before the next release. -->
 
+- Go SSE relays assemble data fields at blank-line event boundaries before
+  interpreting terminators, preserving multiline and empty data fields.
+  Upstreams must separate events with a blank line; JSON validity no longer
+  substitutes for framing. Bare [DONE] retains its legacy termination behavior;
+  otherwise unterminated EOF data is not dispatched. CR, LF, CRLF and an initial
+  UTF-8 BOM are supported.
+
 - Fixed status timestamps, bounty delivery timelines, and SMS balance notices
   crashing in Simplified or Traditional Chinese; invalid locale settings now
   use the browser default.
+
 - Ollama model discovery, pull, streaming pull, deletion, and version checks now
   honor the channel's configured proxy and HTTP transport settings.
 
