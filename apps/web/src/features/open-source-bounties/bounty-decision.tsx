@@ -21,7 +21,6 @@ import { useTranslation } from 'react-i18next'
 import { toIntlLocale } from '@/i18n/languages'
 import { formatQuota } from '@/lib/format'
 
-import { toIntlLocale } from '@/i18n/languages'
 import { bountyAvailableSlots } from './timeline'
 import type { BountyProject } from './types'
 

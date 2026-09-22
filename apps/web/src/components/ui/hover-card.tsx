@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+// Luma visual recipes adapted from shadcn/ui (MIT); see LUMA-LICENSE.txt.
 'use client'
 
 import { PreviewCard as PreviewCardPrimitive } from '@base-ui/react/preview-card'
@@ -56,7 +57,7 @@ function HoverCardContent({
         <PreviewCardPrimitive.Popup
           data-slot='hover-card-content'
           className={cn(
-            'bg-popover text-popover-foreground ring-foreground/10 data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 z-50 w-64 origin-(--transform-origin) rounded-lg p-2.5 text-sm shadow-md ring-1 outline-hidden duration-100',
+            'data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 z-50 origin-(--transform-origin) outline-hidden ring-foreground/5 dark:ring-foreground/10 bg-popover text-popover-foreground w-72 rounded-3xl p-4 text-sm shadow-lg ring-1 duration-100 motion-reduce:animate-none',
             className
           )}
           {...props}

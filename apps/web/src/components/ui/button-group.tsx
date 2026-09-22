@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+// Luma visual recipes adapted from shadcn/ui (MIT); see LUMA-LICENSE.txt.
 import { mergeProps } from '@base-ui/react/merge-props'
 import { useRender } from '@base-ui/react/use-render'
 import { cva, type VariantProps } from 'class-variance-authority'
@@ -24,14 +25,14 @@ import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
 
 const buttonGroupVariants = cva(
-  "flex w-fit items-stretch *:focus-visible:relative *:focus-visible:z-10 has-[>[data-slot=button-group]]:gap-2 has-[select[aria-hidden=true]:last-child]:[&>[data-slot=select-trigger]:last-of-type]:rounded-r-lg [&>[data-slot=select-trigger]:not([class*='w-'])]:w-fit [&>input]:flex-1",
+  "flex w-fit items-stretch *:focus-visible:relative *:focus-visible:z-10 [&>[data-slot=select-trigger]:not([class*='w-'])]:w-fit [&>input]:flex-1 has-[>[data-slot=button-group]]:gap-2 has-[select[aria-hidden=true]:last-child]:[&>[data-slot=select-trigger]:last-of-type]:rounded-r-4xl has-[>[data-variant=outline]]:[&>input]:border-border has-[>[data-variant=outline]]:[&>input:focus-visible]:border-ring has-[>[data-variant=outline]]:*:data-[slot=input-group]:border-border has-[>[data-variant=outline]]:[&>[data-slot=input-group]:has(:focus-visible)]:border-ring has-[>[data-variant=outline]]:*:data-[slot=select-trigger]:border-border has-[>[data-variant=outline]]:[&>[data-slot=select-trigger]:focus-visible]:border-ring",
   {
     variants: {
       orientation: {
         horizontal:
-          '*:data-slot:rounded-r-none [&>[data-slot]:not(:has(~[data-slot]))]:rounded-r-lg! [&>[data-slot]~[data-slot]]:rounded-l-none [&>[data-slot]~[data-slot]]:border-l-0',
+          '*:data-slot:rounded-none [&>[data-slot]:first-child]:rounded-l-4xl [&>[data-slot]:last-child]:rounded-r-4xl [&>[data-slot]~[data-slot]]:border-l-0',
         vertical:
-          'flex-col *:data-slot:rounded-b-none [&>[data-slot]:not(:has(~[data-slot]))]:rounded-b-lg! [&>[data-slot]~[data-slot]]:rounded-t-none [&>[data-slot]~[data-slot]]:border-t-0',
+          'flex-col *:data-slot:rounded-none [&>[data-slot]:first-child]:rounded-t-4xl [&>[data-slot]:last-child]:rounded-b-4xl [&>[data-slot]~[data-slot]]:border-t-0',
       },
     },
     defaultVariants: {
@@ -66,7 +67,7 @@ function ButtonGroupText({
     props: mergeProps<'div'>(
       {
         className: cn(
-          "flex items-center gap-2 rounded-lg border bg-muted px-2.5 text-sm font-medium [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4",
+          "flex items-center gap-2 rounded-4xl border bg-muted px-2.5 text-sm font-medium [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4",
           className
         ),
       },
@@ -89,7 +90,7 @@ function ButtonGroupSeparator({
       data-slot='button-group-separator'
       orientation={orientation}
       className={cn(
-        'bg-input relative self-stretch data-horizontal:mx-px data-horizontal:w-auto data-vertical:my-px data-vertical:h-auto',
+        'relative self-stretch data-horizontal:mx-px data-horizontal:w-auto data-vertical:my-px data-vertical:h-auto bg-input',
         className
       )}
       {...props}
