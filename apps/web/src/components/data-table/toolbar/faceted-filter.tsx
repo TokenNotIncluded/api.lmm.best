@@ -40,6 +40,8 @@ import {
 import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
 
+import { getFilterValues } from './filter-summary'
+
 type DataTableFacetedFilterProps<TData, TValue> = {
   column?: Column<TData, TValue>
   title?: string
@@ -62,8 +64,9 @@ function DataTableFacetedFilterInner<TData, TValue>({
 }: DataTableFacetedFilterProps<TData, TValue>) {
   const { t } = useTranslation()
   const facets = column?.getFacetedUniqueValues()
-  const filterValue = column?.getFilterValue() as string[] | undefined
-  const selectedValues = new Set(filterValue)
+  const selectedValues = new Set(
+    getFilterValues(column?.getFilterValue()).map(String)
+  )
 
   const handleOptionSelect = (optionValue: string) => {
     const nextSelectedValues = getNextSelectedValues(
@@ -191,9 +194,8 @@ function DataTableFacetedFilterInner<TData, TValue>({
   )
 }
 
-export const DataTableFacetedFilter = React.memo(
-  DataTableFacetedFilterInner
-) as typeof DataTableFacetedFilterInner
+// Column identity stays stable when Reset or URL navigation changes its value.
+export const DataTableFacetedFilter = DataTableFacetedFilterInner
 
 function renderOptionIcon(option: {
   icon?: React.ComponentType<{ className?: string }>

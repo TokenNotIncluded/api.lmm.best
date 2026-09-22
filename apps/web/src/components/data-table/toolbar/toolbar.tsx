@@ -28,20 +28,8 @@ import { useDebounce } from '@/hooks'
 import { cn } from '@/lib/utils'
 
 import { DataTableFacetedFilter } from './faceted-filter'
+import { DataTableFilterSummary, type FilterDef } from './filter-summary'
 import { DataTableViewOptions } from './view-options'
-
-type FilterDef = {
-  columnId: string
-  title: string
-  options: {
-    label: string
-    value: string
-    icon?: React.ComponentType<{ className?: string }>
-    iconNode?: React.ReactNode
-    count?: number
-  }[]
-  singleSelect?: boolean
-}
 
 type SearchDraft = {
   baseValue: string
@@ -144,6 +132,7 @@ export function DataTableToolbar<TData>(props: DataTableToolbarProps<TData>) {
     props.additionalSearch != null ||
     filters.length > 0
   const filterPanelId = React.useId()
+  const filterToggleRef = React.useRef<HTMLButtonElement>(null)
   const hasSearch = props.onSearch != null
 
   const isFiltered =
@@ -232,6 +221,7 @@ export function DataTableToolbar<TData>(props: DataTableToolbarProps<TData>) {
 
   const searchInput = (
     <Input
+      aria-label={placeholder}
       placeholder={placeholder}
       value={searchValue}
       onChange={handleSearchChange}
@@ -241,24 +231,20 @@ export function DataTableToolbar<TData>(props: DataTableToolbarProps<TData>) {
     />
   )
 
-  const filterChips = React.useMemo(
-    () =>
-      filters.map((filter) => {
-        const column = props.table.getColumn(filter.columnId)
-        if (!column) return null
-        return (
-          <DataTableFacetedFilter
-            key={filter.columnId}
-            column={column}
-            title={filter.title}
-            options={filter.options}
-            singleSelect={filter.singleSelect}
-          />
-        )
-      }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [props.filters, props.table]
-  )
+  // A stable table/column instance does not mean its filter state is unchanged.
+  const filterChips = filters.map((filter) => {
+    const column = props.table.getColumn(filter.columnId)
+    if (!column) return null
+    return (
+      <DataTableFacetedFilter
+        key={filter.columnId}
+        column={column}
+        title={filter.title}
+        options={filter.options}
+        singleSelect={filter.singleSelect}
+      />
+    )
+  })
 
   const handleReset = () => {
     setIsSearchComposing(false)
@@ -274,13 +260,19 @@ export function DataTableToolbar<TData>(props: DataTableToolbarProps<TData>) {
   let resetButton: ReactNode = null
   if (hasSearch) {
     resetButton = (
-      <Button variant='outline' onClick={handleReset} disabled={!isFiltered}>
+      <Button
+        type='button'
+        variant='outline'
+        onClick={handleReset}
+        disabled={!isFiltered}
+      >
         {t('Reset')}
       </Button>
     )
   } else if (isFiltered) {
     resetButton = (
       <Button
+        type='button'
         variant='ghost'
         onClick={handleReset}
         className='text-muted-foreground hover:text-foreground gap-1 px-2'
@@ -292,7 +284,11 @@ export function DataTableToolbar<TData>(props: DataTableToolbarProps<TData>) {
   }
 
   const searchButton = hasSearch ? (
-    <Button onClick={props.onSearch} disabled={props.searchLoading}>
+    <Button
+      type='button'
+      onClick={props.onSearch}
+      disabled={props.searchLoading}
+    >
       {props.searchLoading && <Loader2 className='animate-spin' />}
       {t('Search')}
     </Button>
@@ -312,6 +308,7 @@ export function DataTableToolbar<TData>(props: DataTableToolbarProps<TData>) {
   const expandToggle = hasExpandable ? (
     <Button
       type='button'
+      ref={filterToggleRef}
       variant={expanded || activeFilterCount > 0 ? 'secondary' : 'outline'}
       onClick={() => setExpanded((current) => !current)}
       aria-expanded={expanded}
@@ -342,6 +339,11 @@ export function DataTableToolbar<TData>(props: DataTableToolbarProps<TData>) {
           {viewOptionsNode}
         </div>
       </div>
+      <DataTableFilterSummary
+        table={props.table}
+        filters={filters}
+        onRemove={() => filterToggleRef.current?.focus()}
+      />
       {hasExpandable && (
         <div
           id={filterPanelId}

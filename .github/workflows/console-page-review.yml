@@ -52,6 +52,7 @@ jobs:
           CONSOLE_REVIEW_OUTPUT: ${{ runner.temp }}/console-pages
         run: |
           mkdir -p "$CONSOLE_REVIEW_OUTPUT"
+          git rev-parse HEAD > "$CONSOLE_REVIEW_OUTPUT/revision.txt"
           LMM_ENABLE_PERSONA_DEBUG=1 bun run dev --port 4174 > "$CONSOLE_REVIEW_OUTPUT/dev.log" 2>&1 &
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT
@@ -64,7 +65,11 @@ jobs:
             sleep 2
           done
           test "$ready" = 1
-          node scripts/console-page-review.mjs
+          # Collect the route gallery even when an interaction assertion fails.
+          failed=0
+          node scripts/console-interaction-review.mjs || failed=1
+          node scripts/console-page-review.mjs || failed=1
+          exit "$failed"
       - name: Upload route-by-route evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

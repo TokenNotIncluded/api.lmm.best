@@ -216,3 +216,50 @@ For commercial licensing, please contact support@quantumnous.com
     margin-top: 0;
   }
 }
+
+/* Preserve semantic vertical tabs; horizontal labels must not shrink into each other. */
+.console-editorial .console-page [data-slot='tabs-list'][aria-orientation='horizontal'] {
+  scroll-padding-inline: 0.5rem;
+  scrollbar-width: thin;
+}
+.console-editorial .console-page [data-slot='tabs-list'][aria-orientation='horizontal'] > [data-slot='tabs-trigger'] {
+  flex-shrink: 0;
+}
+.console-editorial .console-page [data-slot='tabs-list'][aria-orientation='vertical'] {
+  flex-direction: column;
+  overflow-x: visible;
+}
+.console-editorial .console-active-filters {
+  padding-block: 0.125rem;
+}
+.console-editorial .console-page [data-slot='form-item'] {
+  min-width: 0;
+}
+.console-editorial .console-page [data-slot='form-message'] {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 639px) {
+  .console-editorial .console-page-heading > .console-page-actions {
+    flex-basis: 100%;
+    max-width: 100%;
+  }
+  .console-editorial .console-page-actions > [data-slot='button'],
+  .console-editorial .console-toolbar [data-slot='button'],
+  .console-editorial .console-log-toolbar [data-slot='button'],
+  .console-log-filter-drawer [data-slot='button'],
+  .console-log-filter-drawer [data-slot='input'],
+  .console-log-filter-drawer [data-slot='select-trigger'] {
+    min-height: 2.75rem;
+  }
+  .console-editorial .console-page [data-slot='input'],
+  .console-editorial .console-page [data-slot='textarea'],
+  .console-log-filter-drawer [data-slot='input'] {
+    font-size: 1rem;
+  }
+  .console-editorial .console-page [data-slot='tabs-trigger'] {
+    min-height: 2.75rem;
+  }
+  .console-log-filter-drawer [data-slot='drawer-footer'] {
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+}
