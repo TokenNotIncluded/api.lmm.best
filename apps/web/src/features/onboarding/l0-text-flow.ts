@@ -30,6 +30,21 @@ export function visualTokens(text: string) {
   return text ? [{ text, index: 0 }] : []
 }
 
+/** Bound segmentation work to the animated suffix, not the whole growing answer. */
+export function visualTokenTail(text: string, limit = 192) {
+  if (!text || limit <= 0) return []
+  if (!segmenter) return visualTokens(text)
+  const segments = segmenter.segment(text)
+  const start =
+    segments.containing(Math.max(0, text.length - limit * 8))?.index ?? 0
+  return visualTokens(text.slice(start))
+    .map((token) => ({
+      ...token,
+      index: token.index + start,
+    }))
+    .slice(-limit)
+}
+
 export function insertedTokens(before: string, after: string) {
   const old = visualTokens(before)
   const next = visualTokens(after)

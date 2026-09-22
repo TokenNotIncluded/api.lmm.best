@@ -41,7 +41,7 @@ export function BountyProgress({ challenge }: { challenge: BountyChallenge }) {
               dateTime={new Date(event.time * 1000).toISOString()}
             >
               {new Date(event.time * 1000).toLocaleString(
-                toIntlLocale(i18n.language)
+                toIntlLocale(i18n.resolvedLanguage || i18n.language)
               )}
             </time>
             {event.evidence && (

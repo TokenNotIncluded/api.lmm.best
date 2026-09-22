@@ -800,6 +800,8 @@ export function OpenSourceBounties({
   let bountyBoardContent: React.ReactNode
   if (bountyQuery.isLoading) {
     bountyBoardContent = <LoadingState label={t('Loading bounties...')} />
+  } else if (bountyQuery.isError && !bountyQuery.data?.items.length) {
+    bountyBoardContent = null
   } else if ((bountyQuery.data?.items.length ?? 0) === 0) {
     bountyBoardContent = (
       <Empty className='min-h-72 border'>
@@ -958,6 +960,23 @@ export function OpenSourceBounties({
               </TabsList>
 
               <TabsContent value='browse' className='mt-3 sm:mt-4'>
+                {bountyQuery.isError && (
+                  <Alert role='status' aria-live='polite'>
+                    <AlertDescription className='flex flex-wrap items-center justify-between gap-4'>
+                      <span>
+                        {t('Challenges are temporarily unavailable.')}
+                      </span>
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        disabled={bountyQuery.isFetching}
+                        onClick={() => void bountyQuery.refetch()}
+                      >
+                        {t('Retry')}
+                      </Button>
+                    </AlertDescription>
+                  </Alert>
+                )}
                 {bountyBoardContent}
               </TabsContent>
 

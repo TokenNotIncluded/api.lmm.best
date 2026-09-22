@@ -26,8 +26,8 @@ import {
   RefreshCw,
   Trash2,
 } from 'lucide-react'
-import { useEffect, useState } from 'react'
-import { useForm, useWatch } from 'react-hook-form'
+import { useEffect, useRef, useState } from 'react'
+import { useForm, useWatch, type FieldErrors } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -54,7 +54,6 @@ import { Textarea } from '@/components/ui/textarea'
 import { INTERFACE_LANGUAGE_OPTIONS } from '@/i18n/languages'
 import { api } from '@/lib/api'
 
-import { FormDirtyIndicator } from '../components/form-dirty-indicator'
 import { SettingsDisclosure } from '../components/settings-disclosure'
 import {
   SettingsForm,
@@ -72,10 +71,18 @@ import {
 } from '../types'
 import { safeNumberFieldProps } from '../utils/numeric-field'
 import { AssistantL1ReviewSettings } from './assistant-l1-review-settings'
+
+import './assistant-settings-workspace.css'
 import {
   assistantSettingsSchema,
   type AssistantSettingsFormValues,
 } from './assistant-settings-schema'
+import {
+  getAssistantSettingsGroup,
+  rebaseAssistantDraft,
+  ASSISTANT_SETTINGS_GROUPS,
+  type AssistantSettingsGroup,
+} from './assistant-settings-workspace'
 
 type AssistantSkillFile = {
   path: string
@@ -586,28 +593,73 @@ export function AssistantSettingsSection(props: {
 }) {
   const { t } = useTranslation()
   const updateOptions = useUpdateOptions()
+  const [panel, setPanel] = useState<AssistantSettingsGroup>('model')
+  const baseline = useRef(props.defaultValues)
+  const workspace = useRef<HTMLDivElement>(null)
   const form = useForm<AssistantSettingsFormValues>({
     resolver: zodResolver(assistantSettingsSchema),
     defaultValues: props.defaultValues,
   })
 
   useEffect(() => {
+    const rebased = rebaseAssistantDraft(
+      baseline.current,
+      form.getValues(),
+      props.defaultValues
+    )
+    baseline.current = props.defaultValues
     form.reset(props.defaultValues)
+    form.reset(rebased, { keepDefaultValues: true })
   }, [form, props.defaultValues])
+
+  const revealError = (errors: FieldErrors<AssistantSettingsFormValues>) => {
+    const field = Object.keys(errors)[0] as
+      | keyof AssistantSettingsFormValues
+      | undefined
+    if (!field) return
+    setPanel(getAssistantSettingsGroup(field))
+    // Focus after the hidden panel has become visible.
+    requestAnimationFrame(() => form.setFocus(field))
+  }
+  const switchPanel = (index: number) => {
+    const next =
+      ASSISTANT_SETTINGS_GROUPS[
+        (index + ASSISTANT_SETTINGS_GROUPS.length) %
+          ASSISTANT_SETTINGS_GROUPS.length
+      ]
+    setPanel(next.id)
+    workspace.current
+      ?.querySelector<HTMLButtonElement>(`[data-settings-tab="${next.id}"]`)
+      ?.focus()
+  }
 
   const onSubmit = async (values: AssistantSettingsFormValues) => {
     const updates = Object.fromEntries(
       Object.entries(values)
         .filter(
           ([key, value]) =>
-            value !==
-            props.defaultValues[key as keyof AssistantSettingsFormValues]
+            value !== baseline.current[key as keyof AssistantSettingsFormValues]
         )
         .map(([key, value]) => [key, String(value)])
     )
 
     if (Object.keys(updates).length > 0) {
-      await updateOptions.mutateAsync(updates)
+      const beforeSave = baseline.current
+      try {
+        const response = await updateOptions.mutateAsync(updates)
+        if (response.success) {
+          const saved =
+            baseline.current !== beforeSave
+              ? baseline.current
+              : { ...values, AssistantSearchAPIKey: '' }
+          const rebased = rebaseAssistantDraft(values, form.getValues(), saved)
+          baseline.current = saved
+          form.reset(saved)
+          form.reset(rebased, { keepDefaultValues: true })
+        }
+      } catch {
+        // The mutation hook reports the failure; preserve the complete draft.
+      }
     }
   }
 
@@ -659,7 +711,7 @@ export function AssistantSettingsSection(props: {
   const assistantModelsQuery = useQuery({
     queryKey: ['assistant-routing-models', selectedGroup],
     queryFn: () => getEnabledAssistantModelIDs(selectedGroup),
-    enabled: false,
+    enabled: enabled && Boolean(selectedGroup) && panel === 'model',
     staleTime: 60_000,
     retry: false,
   })
@@ -702,941 +754,1162 @@ export function AssistantSettingsSection(props: {
   }
 
   return (
-    <SettingsSection title={t('AI assistant settings')}>
-      <Form {...form}>
-        <SettingsForm
-          className='settings-stack'
-          onSubmit={form.handleSubmit(onSubmit)}
-        >
-          <SettingsPageFormActions
-            onSave={form.handleSubmit(onSubmit)}
-            onReset={() => form.reset(props.defaultValues)}
-            isResetDisabled={!form.formState.isDirty}
-            isSaveDisabled={!form.formState.isDirty}
-            isSaving={updateOptions.isPending}
-            saveLabel='Save assistant settings'
-          />
-          <FormDirtyIndicator isDirty={form.formState.isDirty} />
-          <FormField
-            control={form.control}
-            name='AssistantEnabled'
-            render={({ field }) => (
-              <SettingsSwitchItem>
-                <SettingsSwitchContent>
-                  <FormLabel>{t('Enable AI assistant')}</FormLabel>
-                  <FormDescription>
-                    {t(
-                      'Show the assistant launcher and allow assistant conversations.'
-                    )}
-                  </FormDescription>
-                </SettingsSwitchContent>
-                <FormControl>
-                  <Switch
-                    checked={field.value}
-                    onCheckedChange={field.onChange}
-                  />
-                </FormControl>
-                <FormMessage />
-              </SettingsSwitchItem>
-            )}
-          />
-          <SettingsDisclosure
-            title={t('Model & response')}
-            description={t('Routing, streaming and response length')}
-            defaultOpen
+    <SettingsSection
+      title={t('AI assistant settings')}
+      className='assistant-settings'
+    >
+      <div ref={workspace}>
+        <Form {...form}>
+          <SettingsForm
+            className='settings-stack'
+            onSubmit={form.handleSubmit(onSubmit, revealError)}
           >
-            <div className='settings-fields grid gap-6 md:grid-cols-2'>
-              <FormField
-                control={form.control}
-                name='AssistantGroup'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Routing group')}</FormLabel>
-                    <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
-                      <Select
-                        value={field.value}
-                        onValueChange={(value) => {
-                          field.onChange(value)
-                          form.setValue('AssistantModel', '', {
-                            shouldDirty: true,
-                            shouldValidate: true,
-                          })
-                        }}
-                      >
-                        <FormControl>
-                          <SelectTrigger
-                            className='w-full sm:flex-1'
-                            disabled={!enabled || groupsQuery.isLoading}
-                          >
-                            <SelectValue placeholder={t('Select a group')} />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent alignItemWithTrigger={false}>
-                          <SelectGroup>
-                            {assistantGroups.map((group) => (
-                              <SelectItem key={group} value={group}>
-                                {group}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                      <Button
-                        type='button'
-                        variant='outline'
-                        className='w-full sm:w-auto'
-                        onClick={() => {
-                          void assistantModelsQuery.refetch()
-                        }}
-                        disabled={
-                          !enabled ||
-                          !selectedGroup ||
-                          assistantModelsQuery.isFetching
-                        }
-                        data-testid='assistant-get-model-list'
-                      >
-                        <RefreshCw
-                          data-icon='inline-start'
-                          className={
-                            assistantModelsQuery.isFetching
-                              ? 'animate-spin'
-                              : undefined
-                          }
-                        />
-                        <span>{t('Get model list')}</span>
-                      </Button>
-                    </div>
-                    <FormDescription>
-                      {t(
-                        'Select the routing group used by the assistant, then get its enabled model IDs.'
-                      )}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+            <SettingsPageFormActions
+              onSave={form.handleSubmit(onSubmit, revealError)}
+              onReset={() => form.reset(baseline.current)}
+              isSaveDisabled={!form.formState.isDirty}
+              isResetDisabled={!form.formState.isDirty}
+              isSaving={updateOptions.isPending}
+              saveLabel='Save assistant settings'
+            />
 
-              <FormField
-                control={form.control}
-                name='AssistantModel'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Assistant model ID')}</FormLabel>
-                    <Select
-                      value={field.value}
-                      onValueChange={(value) => {
-                        if (typeof value !== 'string' || value.trim() === '') {
-                          return
-                        }
-                        form.setValue('AssistantModel', value, {
-                          shouldDirty: true,
-                          shouldTouch: true,
-                          shouldValidate: true,
-                        })
-                        form.clearErrors('AssistantModel')
-                      }}
-                    >
-                      <FormControl>
-                        <SelectTrigger
-                          className='w-full'
-                          disabled={
-                            !enabled ||
-                            !assistantModelListLoaded ||
-                            assistantModelsQuery.isFetching ||
-                            assistantModelsQuery.isError ||
-                            assistantModels.length === 0
-                          }
-                        >
-                          <SelectValue placeholder={t('Select a model ID')} />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent alignItemWithTrigger={false}>
-                        <SelectGroup>
-                          {assistantModelOptions.map((modelID) => (
-                            <SelectItem key={modelID} value={modelID}>
-                              {modelID}
-                              {modelID === selectedModel &&
-                              selectedModelIsUnavailable
-                                ? ` · ${t('not enabled')}`
-                                : null}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                    <FormDescription>{modelDescription}</FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name='AssistantReasoningEffort'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Reasoning Effort')}</FormLabel>
-                    <Select
-                      value={field.value}
-                      onValueChange={(value) => {
-                        if (
-                          typeof value === 'string' &&
-                          (
-                            ASSISTANT_REASONING_EFFORTS as readonly string[]
-                          ).includes(value)
-                        ) {
-                          field.onChange(value as AssistantReasoningEffort)
-                        }
-                      }}
-                    >
-                      <FormControl>
-                        <SelectTrigger className='w-full' disabled={!enabled}>
-                          <SelectValue />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent alignItemWithTrigger={false}>
-                        {ASSISTANT_REASONING_EFFORTS.map((effort) => (
-                          <SelectItem key={effort} value={effort}>
-                            {effort}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormDescription>
-                      {t(
-                        'Controls the default reasoning hint sent with assistant requests. Auto lets each model use its native default.'
-                      )}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+            <div className='assistant-settings-toolbar'>
+              <nav
+                className='assistant-settings-tabs'
+                role='tablist'
+                aria-label={t('AI assistant settings')}
+              >
+                {ASSISTANT_SETTINGS_GROUPS.map((group, index) => (
+                  <button
+                    key={group.id}
+                    type='button'
+                    role='tab'
+                    id={`assistant-tab-${group.id}`}
+                    data-settings-tab={group.id}
+                    aria-controls={`assistant-panel-${group.id}`}
+                    aria-selected={panel === group.id}
+                    tabIndex={panel === group.id ? 0 : -1}
+                    onClick={() => setPanel(group.id)}
+                    onKeyDown={(event) => {
+                      if (
+                        !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(
+                          event.key
+                        )
+                      ) {
+                        return
+                      }
+                      event.preventDefault()
+                      switchPanel(
+                        event.key === 'Home'
+                          ? 0
+                          : event.key === 'End'
+                            ? ASSISTANT_SETTINGS_GROUPS.length - 1
+                            : index + (event.key === 'ArrowRight' ? 1 : -1)
+                      )
+                    }}
+                  >
+                    {t(group.label)}
+                  </button>
+                ))}
+              </nav>
+              <span className='assistant-settings-dirty' role='status'>
+                {form.formState.isDirty ? t('Unsaved changes') : t('Saved')}
+              </span>
             </div>
-            <div className='grid gap-6'>
-              <SettingsSwitchItem className='border-0 p-0'>
-                <SettingsSwitchContent>
-                  <FormLabel>{t('Stream responses')}</FormLabel>
-                  <FormDescription>
-                    {t('Stream tokens incrementally as they are generated')}
-                  </FormDescription>
-                </SettingsSwitchContent>
-                <FormField
-                  control={form.control}
-                  name='AssistantStreamEnabled'
-                  render={({ field }) => (
-                    <FormControl>
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                        disabled={!enabled}
-                      />
-                    </FormControl>
-                  )}
-                />
-              </SettingsSwitchItem>
-
-              <div className='grid gap-5 sm:grid-cols-2'>
-                <FormField
-                  control={form.control}
-                  name='AssistantTemperature'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('Response temperature')}</FormLabel>
-                      <FormControl>
-                        <Input
-                          type='number'
-                          min={0}
-                          max={2}
-                          step={0.1}
-                          {...safeNumberFieldProps(field)}
-                          disabled={!enabled}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        {t(
-                          'Controls how varied the assistant response can be (0–2).'
-                        )}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name='AssistantMaxTokens'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('Maximum output tokens')}</FormLabel>
-                      <FormControl>
-                        <Input
-                          type='number'
-                          min={64}
-                          max={8192}
-                          step={1}
-                          {...safeNumberFieldProps(field)}
-                          disabled={!enabled}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        {t('Limits each final response to 64–8192 tokens.')}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-            </div>
-          </SettingsDisclosure>
-          <SettingsDisclosure
-            title={t('Assistant behavior')}
-            description={t('Personality and instructions')}
-          >
-            <div className='space-y-6'>
-              <div>
-                <p className='text-muted-foreground mt-1 text-sm'>
-                  {t(
-                    'Customize the assistant without changing its built-in privacy and confirmation rules.'
-                  )}
-                </p>
-              </div>
-              <FormField
-                control={form.control}
-                name='AssistantPersona'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Personality')}</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        {...field}
-                        disabled={!enabled}
-                        rows={3}
-                        maxLength={2000}
-                        placeholder={t(
-                          'Helpful onboarding coach, concise technical writer, and honest product guide.'
-                        )}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t('Describe the tone, role, and communication style.')}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name='AssistantSystemPrompt'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Administrator instructions')}</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        {...field}
-                        disabled={!enabled}
-                        rows={5}
-                        maxLength={8000}
-                        placeholder={t(
-                          'Add product policies, support workflow, and facts the assistant should follow.'
-                        )}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t(
-                        'These instructions are appended to the assistant context.'
+            <fieldset
+              disabled={updateOptions.isPending}
+              className='assistant-settings-fields'
+            >
+              <section
+                role='tabpanel'
+                id='assistant-panel-model'
+                aria-labelledby='assistant-tab-model'
+                hidden={panel !== 'model'}
+                className='assistant-settings-panel'
+              >
+                <SettingsDisclosure title={t('Model & response')} defaultOpen>
+                  <div className='space-y-6'>
+                    <FormField
+                      control={form.control}
+                      name='AssistantEnabled'
+                      render={({ field }) => (
+                        <SettingsSwitchItem>
+                          <SettingsSwitchContent>
+                            <FormLabel>{t('Enable AI assistant')}</FormLabel>
+                            <FormDescription>
+                              {t(
+                                'Show the assistant launcher and allow assistant conversations.'
+                              )}
+                            </FormDescription>
+                          </SettingsSwitchContent>
+                          <FormControl>
+                            <Switch
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </SettingsSwitchItem>
                       )}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-          </SettingsDisclosure>
-          <SettingsDisclosure
-            title={t('Conversation starter prompts')}
-            description={t('Questions shown before a conversation')}
-          >
-            <FormField
-              control={form.control}
-              name='AssistantPreConversationPresets'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Conversation starter prompts')}</FormLabel>
-                  <FormControl>
-                    <ConversationStartersEditor
-                      value={field.value}
-                      disabled={!enabled}
-                      onChange={field.onChange}
                     />
-                  </FormControl>
-                  <FormDescription>
-                    {t(
-                      'Optional JSON list of starter buttons. Leave empty for reviewed defaults; use [] to hide them.'
-                    )}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </SettingsDisclosure>
-          <SettingsDisclosure
-            title={t('Search & skills')}
-            description={t('Search providers, tools and playbooks')}
-          >
-            <div className='space-y-6'>
-              <FormField
-                control={form.control}
-                name='AssistantSearchProvider'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Search provider')}</FormLabel>
-                    <Select
-                      value={field.value}
-                      onValueChange={(value) => {
-                        if (
-                          typeof value === 'string' &&
-                          (
-                            ASSISTANT_SEARCH_PROVIDERS as readonly string[]
-                          ).includes(value)
-                        ) {
-                          field.onChange(value)
-                        }
-                      }}
-                    >
-                      <FormControl>
-                        <SelectTrigger className='w-full' disabled={!enabled}>
-                          <SelectValue
-                            placeholder={t('Select a search provider')}
-                          />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent alignItemWithTrigger={false}>
-                        <SelectGroup>
-                          <SelectItem value='none'>{t('Disabled')}</SelectItem>
-                          <SelectItem value='exa'>Exa</SelectItem>
-                          <SelectItem value='tavily'>Tavily</SelectItem>
-                          <SelectItem value='brave'>Brave Search</SelectItem>
-                          <SelectItem value='generic_http'>
-                            {t('Custom HTTP')}
-                          </SelectItem>
-                          <SelectItem value='mcp_streamable_http'>
-                            {t('MCP (Streamable HTTP)')}
-                          </SelectItem>
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                    <FormDescription>
-                      {searchProviderDescription[searchProvider]}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              {searchProvider === 'generic_http' && (
-                <FormField
-                  control={form.control}
-                  name='AssistantSearchURL'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('Search tool API URL')}</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          disabled={!enabled}
-                          placeholder='https://search.example/api/search'
-                          autoComplete='off'
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        {t(
-                          'The assistant sends a GET request with the query parameter q.'
+
+                    <div className='grid gap-6 md:grid-cols-2'>
+                      <FormField
+                        control={form.control}
+                        name='AssistantGroup'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('Routing group')}</FormLabel>
+                            <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
+                              <Select
+                                value={field.value}
+                                onValueChange={(value) => {
+                                  if (value === field.value) return
+                                  field.onChange(value)
+                                  form.setValue('AssistantModel', '', {
+                                    shouldDirty: true,
+                                    shouldValidate: true,
+                                  })
+                                }}
+                              >
+                                <FormControl>
+                                  <SelectTrigger
+                                    className='w-full sm:flex-1'
+                                    disabled={!enabled || groupsQuery.isLoading}
+                                  >
+                                    <SelectValue
+                                      placeholder={t('Select a group')}
+                                    />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent alignItemWithTrigger={false}>
+                                  <SelectGroup>
+                                    {assistantGroups.map((group) => (
+                                      <SelectItem key={group} value={group}>
+                                        {group}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectGroup>
+                                </SelectContent>
+                              </Select>
+                              <Button
+                                type='button'
+                                variant='outline'
+                                className='w-full sm:w-auto'
+                                onClick={() => {
+                                  void assistantModelsQuery.refetch()
+                                }}
+                                disabled={
+                                  !enabled ||
+                                  !selectedGroup ||
+                                  assistantModelsQuery.isFetching
+                                }
+                                data-testid='assistant-get-model-list'
+                              >
+                                <RefreshCw
+                                  data-icon='inline-start'
+                                  className={
+                                    assistantModelsQuery.isFetching
+                                      ? 'animate-spin'
+                                      : undefined
+                                  }
+                                />
+                                <span>{t('Refresh')}</span>
+                              </Button>
+                            </div>
+                            <FormDescription>
+                              {t(
+                                'Select the routing group used by the assistant, then get its enabled model IDs.'
+                              )}
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
                         )}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              )}
-              {searchProvider === 'mcp_streamable_http' && (
-                <>
-                  <FormField
-                    control={form.control}
-                    name='AssistantSearchURL'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>
-                          {t('MCP Streamable HTTP endpoint')}
-                        </FormLabel>
-                        <FormControl>
-                          <Input
-                            {...field}
-                            disabled={!enabled}
-                            placeholder='https://search.example/mcp'
-                            autoComplete='off'
-                          />
-                        </FormControl>
-                        <FormDescription>
-                          {t(
-                            'The endpoint and credentials are used only by the server.'
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name='AssistantModel'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('Assistant model ID')}</FormLabel>
+                            <Select
+                              value={field.value}
+                              onValueChange={(value) => {
+                                if (
+                                  typeof value !== 'string' ||
+                                  value.trim() === ''
+                                ) {
+                                  return
+                                }
+                                form.setValue('AssistantModel', value, {
+                                  shouldDirty: true,
+                                  shouldTouch: true,
+                                  shouldValidate: true,
+                                })
+                                form.clearErrors('AssistantModel')
+                              }}
+                            >
+                              <FormControl>
+                                <SelectTrigger
+                                  className='w-full'
+                                  disabled={
+                                    !enabled ||
+                                    !assistantModelListLoaded ||
+                                    assistantModelsQuery.isFetching ||
+                                    assistantModelsQuery.isError ||
+                                    assistantModels.length === 0
+                                  }
+                                >
+                                  <SelectValue
+                                    placeholder={t('Select a model ID')}
+                                  />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent alignItemWithTrigger={false}>
+                                <SelectGroup>
+                                  {assistantModelOptions.map((modelID) => (
+                                    <SelectItem key={modelID} value={modelID}>
+                                      {modelID}
+                                      {modelID === selectedModel &&
+                                      selectedModelIsUnavailable
+                                        ? ` · ${t('not enabled')}`
+                                        : null}
+                                    </SelectItem>
+                                  ))}
+                                </SelectGroup>
+                              </SelectContent>
+                            </Select>
+                            <FormDescription>
+                              {modelDescription}
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name='AssistantReasoningEffort'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('Reasoning Effort')}</FormLabel>
+                            <Select
+                              value={field.value}
+                              onValueChange={(value) => {
+                                if (
+                                  typeof value === 'string' &&
+                                  (
+                                    ASSISTANT_REASONING_EFFORTS as readonly string[]
+                                  ).includes(value)
+                                ) {
+                                  field.onChange(
+                                    value as AssistantReasoningEffort
+                                  )
+                                }
+                              }}
+                            >
+                              <FormControl>
+                                <SelectTrigger
+                                  className='w-full'
+                                  disabled={!enabled}
+                                >
+                                  <SelectValue />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent alignItemWithTrigger={false}>
+                                {ASSISTANT_REASONING_EFFORTS.map((effort) => (
+                                  <SelectItem key={effort} value={effort}>
+                                    {effort}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <FormDescription>
+                              {t(
+                                'Controls the default reasoning hint sent with assistant requests. Auto lets each model use its native default.'
+                              )}
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+
+                    <div className='border-border/60 bg-muted/20 grid gap-5 rounded-lg border p-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]'>
+                      <SettingsSwitchItem className='border-0 p-0'>
+                        <SettingsSwitchContent>
+                          <FormLabel>{t('Stream responses')}</FormLabel>
+                          <FormDescription>
+                            {t(
+                              'Stream tokens incrementally as they are generated'
+                            )}
+                          </FormDescription>
+                        </SettingsSwitchContent>
+                        <FormField
+                          control={form.control}
+                          name='AssistantStreamEnabled'
+                          render={({ field }) => (
+                            <FormControl>
+                              <Switch
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                                disabled={!enabled}
+                              />
+                            </FormControl>
                           )}
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                        />
+                      </SettingsSwitchItem>
 
-                  <FormField
-                    control={form.control}
-                    name='AssistantSearchMCPTool'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>
-                          {t('Optional MCP search tool name')}
-                        </FormLabel>
-                        <FormControl>
-                          <Input
-                            {...field}
-                            disabled={!enabled}
-                            placeholder='web_search'
-                            autoComplete='off'
-                          />
-                        </FormControl>
-                        <FormDescription>
-                          {t(
-                            'Leave empty to automatically find a search tool.'
+                      <div className='grid gap-5 sm:grid-cols-2'>
+                        <FormField
+                          control={form.control}
+                          name='AssistantTemperature'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>{t('Response temperature')}</FormLabel>
+                              <FormControl>
+                                <Input
+                                  type='number'
+                                  min={0}
+                                  max={2}
+                                  step={0.1}
+                                  {...safeNumberFieldProps(field)}
+                                  disabled={!enabled}
+                                />
+                              </FormControl>
+                              <FormDescription>
+                                {t(
+                                  'Controls how varied the assistant response can be (0–2).'
+                                )}
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
                           )}
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </>
-              )}
-              <FormField
-                control={form.control}
-                name='AssistantSearchAPIKey'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Search tool API key')}</FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        type='password'
-                        disabled={!enabled}
-                        placeholder={t('Leave blank to keep the existing key')}
-                        autoComplete='new-password'
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name='AssistantMaxTokens'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>
+                                {t('Maximum output tokens')}
+                              </FormLabel>
+                              <FormControl>
+                                <Input
+                                  type='number'
+                                  min={64}
+                                  max={8192}
+                                  step={1}
+                                  {...safeNumberFieldProps(field)}
+                                  disabled={!enabled}
+                                />
+                              </FormControl>
+                              <FormDescription>
+                                {t(
+                                  'Limits each final response to 64–8192 tokens.'
+                                )}
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </SettingsDisclosure>
+              </section>
+              <section
+                role='tabpanel'
+                id='assistant-panel-conversation'
+                aria-labelledby='assistant-tab-conversation'
+                hidden={panel !== 'conversation'}
+                className='assistant-settings-panel'
+              >
+                <SettingsDisclosure title={t('Assistant behavior')} defaultOpen>
+                  <div className='space-y-6'>
+                    <div className='border-border/60 bg-muted/20 space-y-4 rounded-lg border p-4'>
+                      <div>
+                        <h3 className='text-sm font-medium'>
+                          {t('Assistant behavior')}
+                        </h3>
+                        <p className='text-muted-foreground mt-1 text-sm'>
+                          {t(
+                            'Customize the assistant without changing its built-in privacy and confirmation rules.'
+                          )}
+                        </p>
+                      </div>
+
+                      <FormField
+                        control={form.control}
+                        name='AssistantPersona'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('Personality')}</FormLabel>
+                            <FormControl>
+                              <Textarea
+                                {...field}
+                                disabled={!enabled}
+                                rows={3}
+                                maxLength={2000}
+                                placeholder={t(
+                                  'Helpful onboarding coach, concise technical writer, and honest product guide.'
+                                )}
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              {t(
+                                'Describe the tone, role, and communication style.'
+                              )}
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
                       />
-                    </FormControl>
-                    <FormDescription>
-                      {t(
-                        'The key is stored server-side and is never shown in the options response.'
+
+                      <FormField
+                        control={form.control}
+                        name='AssistantSystemPrompt'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>
+                              {t('Administrator instructions')}
+                            </FormLabel>
+                            <FormControl>
+                              <Textarea
+                                {...field}
+                                disabled={!enabled}
+                                rows={5}
+                                maxLength={8000}
+                                placeholder={t(
+                                  'Add product policies, support workflow, and facts the assistant should follow.'
+                                )}
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              {t(
+                                'These instructions are appended to the assistant context.'
+                              )}
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <SettingsDisclosure
+                        title={t('Conversation starter prompts')}
+                      >
+                        <FormField
+                          control={form.control}
+                          name='AssistantPreConversationPresets'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>
+                                {t('Conversation starter prompts')}
+                              </FormLabel>
+                              <FormControl>
+                                <ConversationStartersEditor
+                                  value={field.value}
+                                  disabled={!enabled}
+                                  onChange={field.onChange}
+                                />
+                              </FormControl>
+                              <FormDescription>
+                                {t(
+                                  'Optional JSON list of starter buttons. Leave empty for reviewed defaults; use [] to hide them.'
+                                )}
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </SettingsDisclosure>
+                    </div>
+                  </div>
+                </SettingsDisclosure>
+              </section>
+              <section
+                role='tabpanel'
+                id='assistant-panel-tools'
+                aria-labelledby='assistant-tab-tools'
+                hidden={panel !== 'tools'}
+                className='assistant-settings-panel'
+              >
+                <SettingsDisclosure title={t('Search & skills')} defaultOpen>
+                  <div className='space-y-6'>
+                    <div className='space-y-5'>
+                      <FormField
+                        control={form.control}
+                        name='AssistantSearchProvider'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('Search provider')}</FormLabel>
+                            <Select
+                              value={field.value}
+                              onValueChange={(value) => {
+                                if (
+                                  typeof value === 'string' &&
+                                  (
+                                    ASSISTANT_SEARCH_PROVIDERS as readonly string[]
+                                  ).includes(value)
+                                ) {
+                                  field.onChange(value)
+                                }
+                              }}
+                            >
+                              <FormControl>
+                                <SelectTrigger
+                                  className='w-full'
+                                  disabled={!enabled}
+                                >
+                                  <SelectValue
+                                    placeholder={t('Select a search provider')}
+                                  />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent alignItemWithTrigger={false}>
+                                <SelectGroup>
+                                  <SelectItem value='none'>
+                                    {t('Disabled')}
+                                  </SelectItem>
+                                  <SelectItem value='exa'>Exa</SelectItem>
+                                  <SelectItem value='tavily'>Tavily</SelectItem>
+                                  <SelectItem value='brave'>
+                                    Brave Search
+                                  </SelectItem>
+                                  <SelectItem value='generic_http'>
+                                    {t('Custom HTTP')}
+                                  </SelectItem>
+                                  <SelectItem value='mcp_streamable_http'>
+                                    {t('MCP (Streamable HTTP)')}
+                                  </SelectItem>
+                                </SelectGroup>
+                              </SelectContent>
+                            </Select>
+                            <FormDescription>
+                              {searchProviderDescription[searchProvider]}
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      {searchProvider === 'generic_http' && (
+                        <FormField
+                          control={form.control}
+                          name='AssistantSearchURL'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>{t('Search tool API URL')}</FormLabel>
+                              <FormControl>
+                                <Input
+                                  {...field}
+                                  disabled={!enabled}
+                                  placeholder='https://search.example/api/search'
+                                  autoComplete='off'
+                                />
+                              </FormControl>
+                              <FormDescription>
+                                {t(
+                                  'The assistant sends a GET request with the query parameter q.'
+                                )}
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
                       )}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name='AssistantSkills'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Skills and playbooks')}</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        {...field}
-                        disabled={!enabled}
-                        rows={6}
-                        maxLength={12000}
-                        placeholder={t(
-                          'One skill or workflow per line. Example: CC Switch troubleshooting: check endpoint, model ID, key, then run a small request.'
-                        )}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t(
-                        'Give the agent reusable guidance for platform setup and support workflows.'
+
+                      {searchProvider === 'mcp_streamable_http' && (
+                        <>
+                          <FormField
+                            control={form.control}
+                            name='AssistantSearchURL'
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>
+                                  {t('MCP Streamable HTTP endpoint')}
+                                </FormLabel>
+                                <FormControl>
+                                  <Input
+                                    {...field}
+                                    disabled={!enabled}
+                                    placeholder='https://search.example/mcp'
+                                    autoComplete='off'
+                                  />
+                                </FormControl>
+                                <FormDescription>
+                                  {t(
+                                    'The endpoint and credentials are used only by the server.'
+                                  )}
+                                </FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <FormField
+                            control={form.control}
+                            name='AssistantSearchMCPTool'
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>
+                                  {t('Optional MCP search tool name')}
+                                </FormLabel>
+                                <FormControl>
+                                  <Input
+                                    {...field}
+                                    disabled={!enabled}
+                                    placeholder='web_search'
+                                    autoComplete='off'
+                                  />
+                                </FormControl>
+                                <FormDescription>
+                                  {t(
+                                    'Leave empty to automatically find a search tool.'
+                                  )}
+                                </FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </>
                       )}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name='AssistantSkillFiles'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormControl>
-                      <AssistantSkillFilesEditor
-                        value={field.value}
-                        disabled={!enabled}
-                        onChange={field.onChange}
+
+                      <FormField
+                        control={form.control}
+                        name='AssistantSearchAPIKey'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('Search tool API key')}</FormLabel>
+                            <FormControl>
+                              <Input
+                                {...field}
+                                type='password'
+                                disabled={!enabled}
+                                placeholder={t(
+                                  'Leave blank to keep the existing key'
+                                )}
+                                autoComplete='new-password'
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              {t(
+                                'The key is stored server-side and is never shown in the options response.'
+                              )}
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
                       />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
+
+                      <FormField
+                        control={form.control}
+                        name='AssistantSkills'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('Skills and playbooks')}</FormLabel>
+                            <FormControl>
+                              <Textarea
+                                {...field}
+                                disabled={!enabled}
+                                rows={6}
+                                maxLength={12000}
+                                placeholder={t(
+                                  'One skill or workflow per line. Example: CC Switch troubleshooting: check endpoint, model ID, key, then run a small request.'
+                                )}
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              {t(
+                                'Give the agent reusable guidance for platform setup and support workflows.'
+                              )}
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name='AssistantSkillFiles'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormControl>
+                              <AssistantSkillFilesEditor
+                                value={field.value}
+                                disabled={!enabled}
+                                onChange={field.onChange}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                  </div>
+                </SettingsDisclosure>
+              </section>
+              <section
+                role='tabpanel'
+                id='assistant-panel-runtime'
+                aria-labelledby='assistant-tab-runtime'
+                hidden={panel !== 'runtime'}
+                className='assistant-settings-panel'
+              >
+                <SettingsDisclosure title={t('Agent runtime')} defaultOpen>
+                  <div className='space-y-6'>
+                    <div className='border-border/60 bg-muted/20 space-y-4 rounded-lg border p-4'>
+                      <div>
+                        <h3 className='text-sm font-medium'>
+                          {t('Agent runtime')}
+                        </h3>
+                        <p className='text-muted-foreground mt-1 text-sm'>
+                          {t(
+                            'Configure the assistant tool loop and its safety limits. Tool actions that change an account still require explicit confirmation.'
+                          )}
+                        </p>
+                      </div>
+
+                      <FormField
+                        control={form.control}
+                        name='AssistantAgentLoopEnabled'
+                        render={({ field }) => (
+                          <SettingsSwitchItem>
+                            <SettingsSwitchContent>
+                              <FormLabel>
+                                {t('Enable agent tool loop')}
+                              </FormLabel>
+                              <FormDescription>
+                                {t(
+                                  'Allow the assistant to call safe information and calculation tools before producing its final answer.'
+                                )}
+                              </FormDescription>
+                            </SettingsSwitchContent>
+                            <FormControl>
+                              <Switch
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                                disabled={!enabled}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </SettingsSwitchItem>
+                        )}
+                      />
+
+                      <div className='grid gap-6 sm:grid-cols-2'>
+                        <FormField
+                          control={form.control}
+                          name='AssistantMaxSteps'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>{t('Maximum agent steps')}</FormLabel>
+                              <FormControl>
+                                <Input
+                                  type='number'
+                                  min={1}
+                                  max={32}
+                                  step={1}
+                                  {...safeNumberFieldProps(field)}
+                                  disabled={!enabled || !agentLoopEnabled}
+                                />
+                              </FormControl>
+                              <FormDescription>
+                                {t(
+                                  'Maximum number of model/tool turns in one assistant request (1–32).'
+                                )}
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name='AssistantTimeoutSeconds'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>
+                                {t('Agent timeout (seconds)')}
+                              </FormLabel>
+                              <FormControl>
+                                <Input
+                                  type='number'
+                                  min={5}
+                                  max={300}
+                                  step={1}
+                                  {...safeNumberFieldProps(field)}
+                                  disabled={!enabled || !agentLoopEnabled}
+                                />
+                              </FormControl>
+                              <FormDescription>
+                                {t(
+                                  'Hard limit for the complete agent loop (5–300 seconds).'
+                                )}
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+
+                      <FormField
+                        control={form.control}
+                        name='AssistantCacheEnabled'
+                        render={({ field }) => (
+                          <SettingsSwitchItem>
+                            <SettingsSwitchContent>
+                              <FormLabel>
+                                {t('Cache identical first questions')}
+                              </FormLabel>
+                              <FormDescription>
+                                {t(
+                                  'Return the same successful answer for an identical first question during the cache window without calling an upstream model.'
+                                )}
+                              </FormDescription>
+                            </SettingsSwitchContent>
+                            <FormControl>
+                              <Switch
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                                disabled={!enabled}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </SettingsSwitchItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name='AssistantCacheTTLMinutes'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('Cache window (minutes)')}</FormLabel>
+                            <FormControl>
+                              <Input
+                                type='number'
+                                min={0}
+                                max={10080}
+                                step={1}
+                                {...safeNumberFieldProps(field)}
+                                disabled={!enabled || !cacheEnabled}
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              {t(
+                                'Set to 0 to disable caching; the maximum is 7 days.'
+                              )}
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                  </div>
+                </SettingsDisclosure>
+              </section>
+              <section
+                role='tabpanel'
+                id='assistant-panel-review'
+                aria-labelledby='assistant-tab-review'
+                hidden={panel !== 'review'}
+                className='assistant-settings-panel'
+              >
+                <SettingsDisclosure title={t('Access & safety')} defaultOpen>
+                  <div className='space-y-6'>
+                    <AssistantL1ReviewSettings
+                      groups={assistantGroups}
+                      groupsLoading={groupsQuery.isLoading}
+                      getModels={getEnabledAssistantModelIDs}
+                    />
+
+                    <div className='grid gap-5 border-t pt-6'>
+                      <div>
+                        <h3 className='text-sm font-medium'>
+                          {t('Automatic review')}
+                        </h3>
+                        <p className='text-muted-foreground mt-1 text-sm'>
+                          {t(
+                            'Periodically summarize anonymous assistant metrics and highlight conversion, support, and safety follow-ups.'
+                          )}
+                        </p>
+                      </div>
+
+                      <FormField
+                        control={form.control}
+                        name='AssistantReviewEnabled'
+                        render={({ field }) => (
+                          <SettingsSwitchItem>
+                            <SettingsSwitchContent>
+                              <FormLabel>
+                                {t('Enable scheduled review')}
+                              </FormLabel>
+                              <FormDescription>
+                                {t(
+                                  'Create a bounded background review without copying conversations or user identities.'
+                                )}
+                              </FormDescription>
+                            </SettingsSwitchContent>
+                            <FormControl>
+                              <Switch
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </SettingsSwitchItem>
+                        )}
+                      />
+
+                      <div className='grid gap-5 sm:grid-cols-2'>
+                        <FormField
+                          control={form.control}
+                          name='AssistantReviewWindowDays'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>{t('Review window (days)')}</FormLabel>
+                              <FormControl>
+                                <Input
+                                  type='number'
+                                  min={1}
+                                  max={90}
+                                  step={1}
+                                  {...safeNumberFieldProps(field)}
+                                  disabled={!reviewEnabled}
+                                />
+                              </FormControl>
+                              <FormDescription>
+                                {t('Summarize the last 1–90 days.')}
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name='AssistantReviewIntervalHours'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>
+                                {t('Review interval (hours)')}
+                              </FormLabel>
+                              <FormControl>
+                                <Input
+                                  type='number'
+                                  min={1}
+                                  max={168}
+                                  step={1}
+                                  {...safeNumberFieldProps(field)}
+                                  disabled={!reviewEnabled}
+                                />
+                              </FormControl>
+                              <FormDescription>
+                                {t('Run every 1–168 hours.')}
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </SettingsDisclosure>
+              </section>
+              <section
+                role='tabpanel'
+                id='assistant-panel-retention'
+                aria-labelledby='assistant-tab-retention'
+                hidden={panel !== 'retention'}
+                className='assistant-settings-panel'
+              >
+                <SettingsDisclosure
+                  title={t('Conversation retention')}
+                  defaultOpen
+                >
+                  <div className='space-y-6'>
+                    <div className='grid gap-5 border-t pt-6'>
+                      <div>
+                        <h3 className='text-sm font-medium'>
+                          {t('Conversation retention')}
+                        </h3>
+                        <p className='text-muted-foreground mt-1 text-sm'>
+                          {t(
+                            'Automatically remove old assistant conversations in small batches. Revealed or expired private-card secrets are erased separately.'
+                          )}
+                        </p>
+                      </div>
+
+                      <FormField
+                        control={form.control}
+                        name='AssistantRetentionEnabled'
+                        render={({ field }) => (
+                          <SettingsSwitchItem>
+                            <SettingsSwitchContent>
+                              <FormLabel>
+                                {t('Enable scheduled cleanup')}
+                              </FormLabel>
+                              <FormDescription>
+                                {t(
+                                  'Run conversation cleanup as a background system task.'
+                                )}
+                              </FormDescription>
+                            </SettingsSwitchContent>
+                            <FormControl>
+                              <Switch
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </SettingsSwitchItem>
+                        )}
+                      />
+
+                      <div className='grid gap-5 sm:grid-cols-2'>
+                        <FormField
+                          control={form.control}
+                          name='AssistantActiveRetentionDays'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>
+                                {t('Active conversations (days)')}
+                              </FormLabel>
+                              <FormControl>
+                                <Input
+                                  type='number'
+                                  min={7}
+                                  max={3650}
+                                  step={1}
+                                  {...safeNumberFieldProps(field)}
+                                  disabled={!retentionEnabled}
+                                />
+                              </FormControl>
+                              <FormDescription>
+                                {t(
+                                  'Keep inactive conversations for 7–3650 days.'
+                                )}
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name='AssistantArchivedRetentionDays'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>
+                                {t('Archived conversations (days)')}
+                              </FormLabel>
+                              <FormControl>
+                                <Input
+                                  type='number'
+                                  min={1}
+                                  max={3650}
+                                  step={1}
+                                  {...safeNumberFieldProps(field)}
+                                  disabled={!retentionEnabled}
+                                />
+                              </FormControl>
+                              <FormDescription>
+                                {t(
+                                  'Keep archived conversations for 1–3650 days.'
+                                )}
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name='AssistantSecurityRetentionDays'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>
+                                {t('Security reports (days)')}
+                              </FormLabel>
+                              <FormControl>
+                                <Input
+                                  type='number'
+                                  min={30}
+                                  max={3650}
+                                  step={1}
+                                  {...safeNumberFieldProps(field)}
+                                  disabled={!retentionEnabled}
+                                />
+                              </FormControl>
+                              <FormDescription>
+                                {t(
+                                  'Keep terminated security conversations for 30–3650 days.'
+                                )}
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name='AssistantRetentionIntervalHours'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>
+                                {t('Cleanup interval (hours)')}
+                              </FormLabel>
+                              <FormControl>
+                                <Input
+                                  type='number'
+                                  min={1}
+                                  max={168}
+                                  step={1}
+                                  {...safeNumberFieldProps(field)}
+                                  disabled={!retentionEnabled}
+                                />
+                              </FormControl>
+                              <FormDescription>
+                                {t(
+                                  'Run every 1–168 hours; each pass is memory-bounded.'
+                                )}
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </SettingsDisclosure>
+              </section>
+            </fieldset>
+            <div className='assistant-settings-footer'>
+              <Button
+                type='button'
+                variant='outline'
+                disabled={!form.formState.isDirty || updateOptions.isPending}
+                onClick={() => form.reset(baseline.current)}
+              >
+                {t('Reset')}
+              </Button>
+              <Button
+                type='submit'
+                disabled={!form.formState.isDirty || updateOptions.isPending}
+              >
+                {t(
+                  updateOptions.isPending
+                    ? 'Saving...'
+                    : 'Save assistant settings'
                 )}
-              />
+              </Button>
             </div>
-          </SettingsDisclosure>
-          <SettingsDisclosure
-            title={t('Agent runtime')}
-            description={t('Tool calls, timeouts and caching')}
-          >
-            <div className='space-y-6'>
-              <FormField
-                control={form.control}
-                name='AssistantAgentLoopEnabled'
-                render={({ field }) => (
-                  <SettingsSwitchItem>
-                    <SettingsSwitchContent>
-                      <FormLabel>{t('Enable agent tool loop')}</FormLabel>
-                      <FormDescription>
-                        {t(
-                          'Allow the assistant to call safe information and calculation tools before producing its final answer.'
-                        )}
-                      </FormDescription>
-                    </SettingsSwitchContent>
-                    <FormControl>
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                        disabled={!enabled}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </SettingsSwitchItem>
-                )}
-              />
-              <div className='grid gap-6 sm:grid-cols-2'>
-                <FormField
-                  control={form.control}
-                  name='AssistantMaxSteps'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('Maximum agent steps')}</FormLabel>
-                      <FormControl>
-                        <Input
-                          type='number'
-                          min={1}
-                          max={32}
-                          step={1}
-                          {...safeNumberFieldProps(field)}
-                          disabled={!enabled || !agentLoopEnabled}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        {t(
-                          'Maximum number of model/tool turns in one assistant request (1–32).'
-                        )}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name='AssistantTimeoutSeconds'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('Agent timeout (seconds)')}</FormLabel>
-                      <FormControl>
-                        <Input
-                          type='number'
-                          min={5}
-                          max={300}
-                          step={1}
-                          {...safeNumberFieldProps(field)}
-                          disabled={!enabled || !agentLoopEnabled}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        {t(
-                          'Hard limit for the complete agent loop (5–300 seconds).'
-                        )}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-              <FormField
-                control={form.control}
-                name='AssistantCacheEnabled'
-                render={({ field }) => (
-                  <SettingsSwitchItem>
-                    <SettingsSwitchContent>
-                      <FormLabel>
-                        {t('Cache identical first questions')}
-                      </FormLabel>
-                      <FormDescription>
-                        {t(
-                          'Return the same successful answer for an identical first question during the cache window without calling an upstream model.'
-                        )}
-                      </FormDescription>
-                    </SettingsSwitchContent>
-                    <FormControl>
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                        disabled={!enabled}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </SettingsSwitchItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name='AssistantCacheTTLMinutes'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Cache window (minutes)')}</FormLabel>
-                    <FormControl>
-                      <Input
-                        type='number'
-                        min={0}
-                        max={10080}
-                        step={1}
-                        {...safeNumberFieldProps(field)}
-                        disabled={!enabled || !cacheEnabled}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t('Set to 0 to disable caching; the maximum is 7 days.')}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-          </SettingsDisclosure>
-          <SettingsDisclosure
-            title={t('Access & safety')}
-            description={t('Registration protection and L1 review')}
-          >
-            <AssistantL1ReviewSettings
-              groups={assistantGroups}
-              groupsLoading={groupsQuery.isLoading}
-              getModels={getEnabledAssistantModelIDs}
-            />
-          </SettingsDisclosure>
-          <SettingsDisclosure
-            title={t('Automatic review')}
-            description={t('Anonymous metrics and review frequency')}
-          >
-            <div className='space-y-6'>
-              <FormField
-                control={form.control}
-                name='AssistantReviewEnabled'
-                render={({ field }) => (
-                  <SettingsSwitchItem>
-                    <SettingsSwitchContent>
-                      <FormLabel>{t('Enable scheduled review')}</FormLabel>
-                      <FormDescription>
-                        {t(
-                          'Create a bounded background review without copying conversations or user identities.'
-                        )}
-                      </FormDescription>
-                    </SettingsSwitchContent>
-                    <FormControl>
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </SettingsSwitchItem>
-                )}
-              />
-              <div className='grid gap-5 sm:grid-cols-2'>
-                <FormField
-                  control={form.control}
-                  name='AssistantReviewWindowDays'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('Review window (days)')}</FormLabel>
-                      <FormControl>
-                        <Input
-                          type='number'
-                          min={1}
-                          max={90}
-                          step={1}
-                          {...safeNumberFieldProps(field)}
-                          disabled={!reviewEnabled}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        {t('Summarize the last 1–90 days.')}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name='AssistantReviewIntervalHours'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('Review interval (hours)')}</FormLabel>
-                      <FormControl>
-                        <Input
-                          type='number'
-                          min={1}
-                          max={168}
-                          step={1}
-                          {...safeNumberFieldProps(field)}
-                          disabled={!reviewEnabled}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        {t('Run every 1–168 hours.')}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-            </div>
-          </SettingsDisclosure>
-          <SettingsDisclosure
-            title={t('Conversation retention')}
-            description={t('Retention periods and cleanup')}
-          >
-            <div className='space-y-6'>
-              <FormField
-                control={form.control}
-                name='AssistantRetentionEnabled'
-                render={({ field }) => (
-                  <SettingsSwitchItem>
-                    <SettingsSwitchContent>
-                      <FormLabel>{t('Enable scheduled cleanup')}</FormLabel>
-                      <FormDescription>
-                        {t(
-                          'Run conversation cleanup as a background system task.'
-                        )}
-                      </FormDescription>
-                    </SettingsSwitchContent>
-                    <FormControl>
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </SettingsSwitchItem>
-                )}
-              />
-              <div className='grid gap-5 sm:grid-cols-2'>
-                <FormField
-                  control={form.control}
-                  name='AssistantActiveRetentionDays'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('Active conversations (days)')}</FormLabel>
-                      <FormControl>
-                        <Input
-                          type='number'
-                          min={7}
-                          max={3650}
-                          step={1}
-                          {...safeNumberFieldProps(field)}
-                          disabled={!retentionEnabled}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        {t('Keep inactive conversations for 7–3650 days.')}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name='AssistantArchivedRetentionDays'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>
-                        {t('Archived conversations (days)')}
-                      </FormLabel>
-                      <FormControl>
-                        <Input
-                          type='number'
-                          min={1}
-                          max={3650}
-                          step={1}
-                          {...safeNumberFieldProps(field)}
-                          disabled={!retentionEnabled}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        {t('Keep archived conversations for 1–3650 days.')}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name='AssistantSecurityRetentionDays'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('Security reports (days)')}</FormLabel>
-                      <FormControl>
-                        <Input
-                          type='number'
-                          min={30}
-                          max={3650}
-                          step={1}
-                          {...safeNumberFieldProps(field)}
-                          disabled={!retentionEnabled}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        {t(
-                          'Keep terminated security conversations for 30–3650 days.'
-                        )}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name='AssistantRetentionIntervalHours'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('Cleanup interval (hours)')}</FormLabel>
-                      <FormControl>
-                        <Input
-                          type='number'
-                          min={1}
-                          max={168}
-                          step={1}
-                          {...safeNumberFieldProps(field)}
-                          disabled={!retentionEnabled}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        {t(
-                          'Run every 1–168 hours; each pass is memory-bounded.'
-                        )}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-            </div>
-          </SettingsDisclosure>
-        </SettingsForm>
-      </Form>
+          </SettingsForm>
+        </Form>
+      </div>
     </SettingsSection>
   )
 }

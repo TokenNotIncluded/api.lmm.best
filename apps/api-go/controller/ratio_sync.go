@@ -216,14 +216,32 @@ func FetchUpstreamRatios(c *gin.Context) {
 		return dialer.DialContext(ctx, network, addr)
 	}
 	client := &http.Client{Transport: transport}
+	defer transport.CloseIdleConnections()
 
 	for _, chn := range upstreams {
 		wg.Add(1)
 		go func(chItem dto.UpstreamDTO) {
 			defer wg.Done()
 
-			sem <- struct{}{}
-			defer func() { <-sem }()
+			uniqueName := chItem.Name
+			if chItem.ID != 0 {
+				uniqueName = fmt.Sprintf("%s(%d)", chItem.Name, chItem.ID)
+			}
+			parent := c.Request.Context()
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-parent.Done():
+				ch <- upstreamResult{Name: uniqueName, Err: "request cancelled"}
+				return
+			}
+			if parent.Err() != nil {
+				ch <- upstreamResult{Name: uniqueName, Err: "request cancelled"}
+				return
+			}
+			// Queueing is governed by the caller; each acquired slot gets its own request budget.
+			ctx, cancel := context.WithTimeout(parent, time.Duration(req.Timeout)*time.Second)
+			defer cancel()
 
 			isOpenRouter := chItem.Endpoint == "openrouter"
 
@@ -242,14 +260,6 @@ func FetchUpstreamRatios(c *gin.Context) {
 				fullURL = chItem.BaseURL + endpoint
 			}
 			isModelsDev := isModelsDevAPIEndpoint(fullURL)
-
-			uniqueName := chItem.Name
-			if chItem.ID != 0 {
-				uniqueName = fmt.Sprintf("%s(%d)", chItem.Name, chItem.ID)
-			}
-
-			ctx, cancel := context.WithTimeout(c.Request.Context(), time.Duration(req.Timeout)*time.Second)
-			defer cancel()
 
 			httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
 			if err != nil {
@@ -303,7 +313,18 @@ func FetchUpstreamRatios(c *gin.Context) {
 					return
 				}
 
-				time.Sleep(time.Duration(200*(1<<attempt)) * time.Millisecond)
+				if attempt == 2 {
+					break
+				}
+				backoff := time.NewTimer(time.Duration(200*(1<<attempt)) * time.Millisecond)
+				select {
+				case <-ctx.Done():
+					backoff.Stop()
+					logger.LogWarn(c.Request.Context(), "request cancelled during retry backoff on "+chItem.Name)
+					ch <- upstreamResult{Name: uniqueName, Err: "request cancelled"}
+					return
+				case <-backoff.C:
+				}
 			}
 			if lastErr != nil {
 				logger.LogWarn(c.Request.Context(), "http error on "+chItem.Name+": "+lastErr.Error())
