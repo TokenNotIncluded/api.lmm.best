@@ -68,6 +68,7 @@ func TestReasoningSegmentsThroughHTTPChatToResponsesHandler(t *testing.T) {
 			_, apiErr := OaiChatToResponsesStreamHandler(c, info, response)
 			if !canceled {
 				require.Nil(t, apiErr)
+				require.Equal(t, 1, strings.Count(recorder.Body.String(), "event: response.completed"))
 				closed := map[string]dto.ResponsesOutput{}
 				for _, line := range strings.Split(recorder.Body.String(), "\n") {
 					if !strings.HasPrefix(line, "data: ") {
