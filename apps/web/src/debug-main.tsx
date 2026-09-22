@@ -53,4 +53,8 @@ if (new URLSearchParams(window.location.search).get('console_review') === '1') {
   )
 }
 
-void import('./main')
+if (new URLSearchParams(window.location.search).get('ui_review') === '1') {
+  void import('@/features/debug/ui-foundation-entry')
+} else {
+  void import('./main')
+}

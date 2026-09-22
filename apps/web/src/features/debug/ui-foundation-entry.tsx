@@ -23,6 +23,7 @@ import { I18nextProvider } from 'react-i18next'
 import { DirectionProvider } from '@/context/direction-provider'
 import { ThemeProvider } from '@/context/theme-provider'
 import appI18n from '@/i18n/config'
+
 import '@/styles/index.css'
 
 import { UIFoundationPreview } from './ui-foundation-preview'
@@ -31,7 +32,13 @@ import { UIFoundationPreview } from './ui-foundation-preview'
 const element = document.getElementById('root')
 if (!element) throw new Error('Missing preview root')
 createRoot(element).render(
-  <StrictMode><I18nextProvider i18n={appI18n}><ThemeProvider defaultTheme='light'>
-    <DirectionProvider><UIFoundationPreview /></DirectionProvider>
-  </ThemeProvider></I18nextProvider></StrictMode>
+  <StrictMode>
+    <I18nextProvider i18n={appI18n}>
+      <ThemeProvider defaultTheme='light'>
+        <DirectionProvider>
+          <UIFoundationPreview />
+        </DirectionProvider>
+      </ThemeProvider>
+    </I18nextProvider>
+  </StrictMode>
 )

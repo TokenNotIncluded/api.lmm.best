@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+// Luma visual recipes adapted from shadcn/ui (MIT); see LUMA-LICENSE.txt.
 import { OTPField } from '@base-ui/react/otp-field'
 import { Minus } from 'lucide-react'
 import * as React from 'react'
@@ -48,7 +49,11 @@ function InputOTP({
         length={length}
         aria-invalid={invalid}
         aria-describedby={describedBy}
-        className={cn('flex min-w-0 items-center gap-2 has-disabled:opacity-50', containerClassName, className)}
+        className={cn(
+          'flex min-w-0 items-center gap-2 has-disabled:opacity-50',
+          containerClassName,
+          className
+        )}
         {...props}
       />
     </OTPPresentation.Provider>
@@ -56,11 +61,20 @@ function InputOTP({
 }
 
 function InputOTPGroup({ className, ...props }: React.ComponentProps<'div'>) {
-  return <div data-slot='input-otp-group'
-    className={cn('flex min-w-0 items-center gap-1', className)} {...props} />
+  return (
+    <div
+      data-slot='input-otp-group'
+      className={cn('flex min-w-0 items-center gap-1', className)}
+      {...props}
+    />
+  )
 }
 
-function InputOTPSlot({ index, className, ...props }: OTPField.Input.Props & { index: number }) {
+function InputOTPSlot({
+  index,
+  className,
+  ...props
+}: OTPField.Input.Props & { index: number }) {
   const { t } = useTranslation()
   const { length, invalid, describedBy } = React.useContext(OTPPresentation)
   return (
@@ -68,7 +82,11 @@ function InputOTPSlot({ index, className, ...props }: OTPField.Input.Props & { i
       data-slot='input-otp-slot'
       aria-invalid={invalid}
       aria-describedby={describedBy}
-      aria-label={index === 0 ? undefined : `${t('Verification Code')} ${index + 1} / ${length}`}
+      aria-label={
+        index === 0
+          ? undefined
+          : `${t('Verification Code')} ${index + 1} / ${length}`
+      }
       className={cn(
         'bg-input/50 border-transparent text-foreground size-10 min-w-0 rounded-xl border text-center text-base tabular-nums outline-none transition-[border-color,box-shadow,background-color] focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-3 aria-invalid:border-destructive aria-invalid:ring-destructive/20 disabled:cursor-not-allowed motion-reduce:transition-none sm:size-12',
         className
@@ -79,10 +97,19 @@ function InputOTPSlot({ index, className, ...props }: OTPField.Input.Props & { i
 }
 
 function InputOTPSeparator({ className, ...props }: OTPField.Separator.Props) {
-  return <OTPField.Separator data-slot='input-otp-separator' aria-hidden='true'
-    className={cn('text-muted-foreground flex shrink-0 items-center', className)} {...props}>
-    <Minus className='size-3' />
-  </OTPField.Separator>
+  return (
+    <OTPField.Separator
+      data-slot='input-otp-separator'
+      aria-hidden='true'
+      className={cn(
+        'text-muted-foreground flex shrink-0 items-center',
+        className
+      )}
+      {...props}
+    >
+      <Minus className='size-3' />
+    </OTPField.Separator>
+  )
 }
 
 export { InputOTP, InputOTPGroup, InputOTPSlot, InputOTPSeparator }
