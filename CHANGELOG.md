@@ -13,6 +13,10 @@ authenticated users then see it once after their next login.
 
 <!-- Add user-facing or operational changes here before the next release. -->
 
+- The bounty board now shows a recoverable query error instead of an empty
+  project list when loading fails. Retry refreshes only the list, while cached
+  projects remain visible with an error notice after a failed refresh.
+
 - Go SSE relays assemble data fields at blank-line event boundaries before
   interpreting terminators, preserving multiline and empty data fields.
   Upstreams must separate events with a blank line; JSON validity no longer
