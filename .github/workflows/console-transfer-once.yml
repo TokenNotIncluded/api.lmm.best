@@ -26,22 +26,24 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 2
           persist-credentials: false
-      - name: Validate the exact patch and apply to the isolated PR branch
+      - name: Validate and apply the exact final review patch
         shell: bash
         run: |
-          test "$(git rev-parse HEAD^)" = ae0ebf94ba3d38f284153782402a27d6f35cf2e5
+          test "$(git rev-parse HEAD^)" = 3c47472460a49437a399d6d69461b9cfc0ad98d7
           python3 - <<'PY'
-          import gzip, hashlib, json, pathlib, subprocess
-          root = pathlib.Path('.github/console-transfer')
-          data = b''.join((root / f'{i}.gzpart').read_bytes() for i in range(6))
-          assert hashlib.sha256(data).hexdigest() == 'c5f9c11353d7878b9ecaf333f69a43634d01ce6eccce1cd0d81ba1481f2a963a'
+          import base64, gzip, hashlib, json, pathlib, subprocess
+          data = pathlib.Path('.github/console-transfer/final.gzpart').read_bytes()
+          # Recover one known transport insertion, then require the original digest.
+          encoded = base64.b64encode(data).decode().replace('8r148+OLb', '8r148+Lb').rstrip('=')
+          data = base64.b64decode(encoded + '=' * (-len(encoded) % 4))
+          assert hashlib.sha256(data).hexdigest() == '60382cd521fd7787af9155ae2c553fbabb4a5ed8079078603226557241578a88'
           payload = json.loads(gzip.decompress(data))
           assert set(payload) == {'patch', 'scanner'}
           patch = payload['patch'].encode()
           for line in payload['patch'].splitlines():
               if line.startswith('diff --git '):
                   _, _, old, new = line.split()
-                  assert old.startswith('a/apps/web/src/') and new.startswith('b/apps/web/src/')
+                  assert old.startswith('a/apps/web/') and new.startswith('b/apps/web/')
                   assert '..' not in pathlib.PurePosixPath(new).parts
           subprocess.run(['git', 'apply', '--check', '-'], input=patch, check=True)
           subprocess.run(['git', 'apply', '-'], input=patch, check=True)
@@ -49,9 +51,9 @@ jobs:
           PY
           git diff --check
           git diff --stat
-          git rm .github/console-transfer/*.gzpart
-          git add apps/web/src apps/web/scripts/console-page-review.mjs
-          git -c user.name='LIghtJUNction' -c user.email='106986785+LIghtJUNction@users.noreply.github.com' commit -m 'feat(web): simplify console pages and fix Chinese SMS balance crash' -m 'Normalize Intl locale callers following #454 by kilisamemarisaaa. Add ordinary-user balance regressions, persistent filter/disclosure tests, and an explicit read-only page-review fixture catalog. No production deployment.'
+          git rm .github/console-transfer/final.gzpart .github/workflows/console-transfer-once.yml
+          git add apps/web
+          git -c user.name='LIghtJUNction' -c user.email='106986785+LIghtJUNction@users.noreply.github.com' commit -m 'fix(web): isolate route cancellations and complete console page regressions' -m 'Preserve signal-free request deduplication, reject cancellation without false error toasts, keep real failures visible, and correct read-only admin fixture shapes. Remove temporary patch transport and its write workflow.'
       - name: Fast-forward only the existing console review branch
         shell: bash
         env:
@@ -68,7 +70,7 @@ jobs:
           bun install --frozen-lockfile
           npm install --prefix "$RUNNER_TEMP/console-browser" --no-package-lock --ignore-scripts playwright@1.56.1
           node "$RUNNER_TEMP/console-browser/node_modules/playwright/cli.js" install --with-deps chromium
-      - name: Capture Chinese console pages without real service requests
+      - name: Capture every Chinese console page without real service requests
         shell: bash
         working-directory: apps/web
         env:
@@ -93,5 +95,30 @@ jobs:
         with:
           name: console-pages
           path: ${{ runner.temp }}/console-pages
+          retention-days: 7
+          if-no-files-found: warn
+      - name: Frontend quality checks on the committed source
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          failed=0
+          mkdir -p "$RUNNER_TEMP/console-quality"
+          git rev-parse HEAD > "$RUNNER_TEMP/console-quality/revision.txt"
+          for check in format:check copyright:check lint typecheck test build bundle:check; do
+            if bun run --filter @lmm/web "$check" > "$RUNNER_TEMP/console-quality/${check//:/-}.log" 2>&1; then
+              printf '%s: PASS\n' "$check" | tee -a "$RUNNER_TEMP/console-quality/results.txt"
+            else
+              failed=1
+              printf '%s: FAIL\n' "$check" | tee -a "$RUNNER_TEMP/console-quality/results.txt"
+              tail -n 30 "$RUNNER_TEMP/console-quality/${check//:/-}.log"
+            fi
+          done
+          exit "$failed"
+      - name: Upload exact-commit frontend quality evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: console-quality
+          path: ${{ runner.temp }}/console-quality
           retention-days: 7
           if-no-files-found: warn
