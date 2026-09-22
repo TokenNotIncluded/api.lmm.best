@@ -1,0 +1,54 @@
+name: Settings design review
+
+on:
+  push:
+    branches: [design/settings-workspace-20260922]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: settings-design-review-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Package source for isolated visual review
+        run: git archive --format=tar.gz --output=/tmp/settings-source.tar.gz HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: settings-review-source
+          path: /tmp/settings-source.tar.gz
+          retention-days: 3
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - name: Install locked frontend dependencies
+        run: bun install --frozen-lockfile
+      - name: Package offline review workspace
+        run: |
+          mkdir -p /tmp/settings-review-tools
+          cp "$(command -v bun)" /tmp/settings-review-tools/bun
+          tar -czf /tmp/settings-offline-tools.tar.gz node_modules apps/web/node_modules -C /tmp settings-review-tools
+      - uses: actions/upload-artifact@v4
+        with:
+          name: settings-review-offline-tools
+          path: /tmp/settings-offline-tools.tar.gz
+          compression-level: 0
+          retention-days: 3
+      - name: Typecheck
+        run: bun run typecheck:web
+      - name: Build
+        run: bun run build:web
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: settings-review-web-dist
+          path: apps/web/dist
+          retention-days: 3
