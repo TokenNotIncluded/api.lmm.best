@@ -120,22 +120,29 @@ jobs:
           publish "ArchDmit (API, PostgreSQL, Valkey)" 45.59.187.63 222
           publish "DmitUbuntu (public ingress)" 174.136.205.93 22
 
-      - name: Verify public origin
+      - name: Verify the public origin serves this release
         env:
           VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -euo pipefail
-          # The public ingress is the Ubuntu node; assert the served document
-          # matches the release that was just published rather than any cache.
+          # A reachability check would pass on a cached or stale document, so
+          # compare the served document against the archive that was published.
+          # Each host also verifies its own active symlink inside the forced
+          # command, so a host that did not switch fails the publish step above.
+          archive="deploy/lmm-api-web-${VERSION}.tar.gz"
+          expected=$(tar -xzOf "$archive" dist/index.html | sha256sum | cut -d' ' -f1)
+          echo "expected dist/index.html sha256: $expected"
           for attempt in $(seq 1 10); do
-            index=$(curl -fsS --max-time 15 "https://api.lmm.best/index.html" || true)
-            if [[ -n "$index" ]] && grep -q 'static/js/index\.' <<<"$index"; then
-              echo "public index.html served (attempt $attempt)"
+            served=$(curl -fsS --max-time 15 "https://api.lmm.best/index.html" \
+              | sha256sum | cut -d' ' -f1 || true)
+            if [[ "$served" == "$expected" ]]; then
+              echo "public origin serves ${VERSION} (attempt $attempt)"
               exit 0
             fi
+            echo "attempt $attempt: served=${served:-<none>}"
             sleep 6
           done
-          echo "public origin did not serve the frontend" >&2
+          echo "public origin does not serve the published release" >&2
           exit 1
 
       - name: Remove deploy key
