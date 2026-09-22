@@ -52,6 +52,7 @@ SectionPageLayoutBreadcrumb.displayName = 'SectionPageLayout.Breadcrumb'
 export type SectionPageLayoutProps = {
   children: ReactNode
   fixedContent?: boolean
+  className?: string
 }
 
 export function SectionPageLayout(props: SectionPageLayoutProps) {
@@ -79,7 +80,7 @@ export function SectionPageLayout(props: SectionPageLayoutProps) {
 
   return (
     <PageFooterProvider container={footerContainer}>
-      <Main>
+      <Main className={props.className}>
         <div className='console-section-header shrink-0 px-4 pt-5 pb-4 sm:px-6 sm:pt-7 sm:pb-5'>
           {breadcrumb != null && (
             <div className='mb-2 sm:mb-3'>{breadcrumb}</div>
