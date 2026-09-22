@@ -25,6 +25,31 @@ import { describe, test } from 'node:test'
 import { aggregateStatusGroups, sortStatusGroups } from './aggregate'
 
 describe('aggregateStatusGroups', () => {
+  test('sorts known reliability ahead of missing data and breaks missing-latency ties by name', () => {
+    const base = {
+      avgLatencyMs: 0,
+      avgTps: 0,
+      successTrend: [],
+      ttftTrend: [],
+      modelCount: 1,
+      avgTtftMs: Number.NaN,
+    }
+    const groups = [
+      { ...base, group: 'z-unknown', successRate: Number.NaN },
+      { ...base, group: 'down', successRate: 0 },
+      { ...base, group: 'healthy', successRate: 100 },
+      { ...base, group: 'a-unknown', successRate: Number.NaN },
+    ]
+    assert.deepEqual(
+      sortStatusGroups(groups, 'reliability').map((group) => group.group),
+      ['healthy', 'down', 'a-unknown', 'z-unknown']
+    )
+    assert.deepEqual(
+      sortStatusGroups(groups, 'ttft').map((group) => group.group),
+      ['a-unknown', 'down', 'healthy', 'z-unknown']
+    )
+    assert.equal(groups[0].group, 'z-unknown')
+  })
   test('averages model group metrics and aligns trend buckets', () => {
     const groups = aggregateStatusGroups([
       {
