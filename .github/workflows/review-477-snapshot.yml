@@ -1,0 +1,32 @@
+name: PR 477 source snapshot
+on:
+  push:
+    branches: [workbench/review-477-snapshot]
+    paths: [.github/workflows/review-477-snapshot.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 3c7d453fa45db195fe59df026f8fd64e149cd683
+          persist-credentials: false
+      - name: Archive tracked source without running repository code
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 3c7d453fa45db195fe59df026f8fd64e149cd683
+          mkdir -p "$RUNNER_TEMP/review-477-source"
+          git rev-parse HEAD > "$RUNNER_TEMP/review-477-source/revision.txt"
+          git ls-tree -r HEAD > "$RUNNER_TEMP/review-477-source/tree.txt"
+          git archive --format=tar.gz -o "$RUNNER_TEMP/review-477-source/source.tar.gz" HEAD
+          sha256sum "$RUNNER_TEMP/review-477-source/source.tar.gz" > "$RUNNER_TEMP/review-477-source/source.sha256"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: review-477-source
+          path: ${{ runner.temp }}/review-477-source
+          retention-days: 1
+          if-no-files-found: error
