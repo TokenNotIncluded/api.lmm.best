@@ -21,11 +21,12 @@ Copyright (C) 2026 LIghtJUNction
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { Check, Copy, Gift, RotateCcw, Ticket, Wallet } from 'lucide-react'
+import { Check, Copy, RotateCcw, Ticket, Wallet } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
+import { ForgePublicShell } from '@/features/forge/forge-public-shell'
 import { formatQuota } from '@/lib/format'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -51,9 +52,9 @@ function RewardCard({ reward }: { reward: RedPacketReward }) {
   }
 
   return (
-    <div className='bg-background/80 rounded-xl border p-4 shadow-sm backdrop-blur'>
+    <div className='border-foreground/20 border-b py-5'>
       <div className='flex items-start gap-3'>
-        <div className='bg-primary/10 text-primary flex size-10 shrink-0 items-center justify-center rounded-full'>
+        <div className='bg-muted text-foreground flex size-10 shrink-0 items-center justify-center'>
           {isDiscount ? (
             <Ticket className='size-5' />
           ) : isResetVoucher ? (
@@ -70,12 +71,13 @@ function RewardCard({ reward }: { reward: RedPacketReward }) {
               : t('Redeem this code in Wallet when you are ready.')}
           </div>
           <div className='mt-3 flex gap-2'>
-            <code className='bg-muted min-w-0 flex-1 truncate rounded-md px-3 py-2 text-xs'>
+            <code className='bg-muted min-w-0 flex-1 truncate px-3 py-2 text-xs'>
               {reward.code}
             </code>
             <Button
               size='sm'
               variant='outline'
+              aria-label={t('Copy')}
               onClick={async () => {
                 await navigator.clipboard?.writeText(reward.code)
                 toast.success(t('Copied to clipboard'))
@@ -130,16 +132,41 @@ export function RedPacketPublicPage({ slug }: { slug: string }) {
 
   if (packetQuery.isLoading) {
     return (
-      <div className='text-muted-foreground flex min-h-screen items-center justify-center'>
-        {t('Loading...')}
-      </div>
+      <ForgePublicShell>
+        <main className='mx-auto flex min-h-[calc(100svh-4rem)] max-w-5xl items-center px-5 py-20 md:px-10'>
+          <p className='text-muted-foreground' role='status'>
+            {t('Loading...')}
+          </p>
+        </main>
+      </ForgePublicShell>
     )
   }
-  if (!packet) {
+  if (packetQuery.isError || !packet) {
     return (
-      <div className='text-muted-foreground flex min-h-screen items-center justify-center'>
-        {t('This red packet is unavailable.')}
-      </div>
+      <ForgePublicShell>
+        <main className='mx-auto flex min-h-[calc(100svh-4rem)] max-w-5xl flex-col justify-center px-5 py-20 md:px-10'>
+          <h1 className='max-w-2xl font-serif text-5xl leading-[1.05] font-normal tracking-tight sm:text-6xl'>
+            {packetQuery.isError
+              ? t('Request failed')
+              : t('This red packet is unavailable.')}
+          </h1>
+          {packetQuery.isError ? (
+            <p className='text-muted-foreground mt-5 text-base leading-7'>
+              {t('Please try again in a moment.')}
+            </p>
+          ) : null}
+          <div className='mt-8 flex flex-wrap gap-3'>
+            {packetQuery.isError ? (
+              <Button onClick={() => void packetQuery.refetch()}>
+                {t('Retry')}
+              </Button>
+            ) : null}
+            <Button variant='outline' render={<Link to='/' />}>
+              {t('Back to home')}
+            </Button>
+          </div>
+        </main>
+      </ForgePublicShell>
     )
   }
 
@@ -151,93 +178,88 @@ export function RedPacketPublicPage({ slug }: { slug: string }) {
     packet.remaining_items <= 0
 
   return (
-    <main className='bg-muted/25 min-h-screen px-4 py-10 sm:py-16'>
-      <div className='mx-auto w-full max-w-xl'>
-        <div className='bg-card overflow-hidden rounded-3xl border shadow-xl shadow-black/5'>
-          {packet.cover_image ? (
-            <img
-              src={packet.cover_image}
-              alt=''
-              className='aspect-[3/1] w-full object-cover'
-            />
-          ) : (
-            <div className='from-primary/20 via-primary/5 to-muted flex aspect-[3/1] items-center justify-center bg-gradient-to-br'>
-              <Gift className='text-primary size-12' />
-            </div>
-          )}
-          <div className='p-6 sm:p-8'>
-            <div className='text-center'>
-              <div className='bg-primary/10 text-primary mx-auto mb-4 flex size-12 items-center justify-center rounded-full'>
-                <Gift className='size-6' />
-              </div>
-              <h1 className='text-2xl font-semibold tracking-tight'>
-                {packet.title}
-              </h1>
-              {packet.description ? (
-                <p className='text-muted-foreground mt-2 text-sm'>
-                  {packet.description}
+    <ForgePublicShell>
+      <main className='mx-auto min-h-svh w-full max-w-5xl px-5 pt-12 pb-20 md:px-10 md:pt-16'>
+        <div className='mx-auto w-full max-w-3xl'>
+          <div className='border-foreground/20 border-y'>
+            {packet.cover_image ? (
+              <img
+                src={packet.cover_image}
+                alt=''
+                className='aspect-[3/1] w-full object-cover'
+              />
+            ) : null}
+            <div className='py-8'>
+              <div>
+                <h1 className='font-serif text-5xl leading-[1.05] font-normal tracking-tight sm:text-6xl'>
+                  {packet.title}
+                </h1>
+                {packet.description ? (
+                  <p className='text-muted-foreground mt-5 max-w-2xl text-base leading-7'>
+                    {packet.description}
+                  </p>
+                ) : null}
+                <p className='text-muted-foreground mt-5 text-sm'>
+                  {packet.remaining_items}/{packet.total_items} {t('remaining')}{' '}
+                  · {packet.claim_count} {t('claimed')}
                 </p>
-              ) : null}
-              <p className='text-muted-foreground mt-3 text-xs'>
-                {packet.remaining_items}/{packet.total_items} {t('remaining')} ·{' '}
-                {packet.claim_count} {t('claimed')}
-              </p>
-            </div>
+              </div>
 
-            <div className='mt-6'>
-              {!user ? (
-                <Button
-                  className='w-full'
-                  size='lg'
-                  render={
-                    <Link
-                      to='/sign-in'
-                      search={{ redirect: `/red-packet/${slug}` }}
-                    />
-                  }
-                >
-                  {t('Sign in to draw')}
-                </Button>
-              ) : (
-                <Button
-                  className='w-full'
-                  size='lg'
-                  disabled={
-                    inactive || remainingDraws <= 0 || claimMutation.isPending
-                  }
-                  onClick={() => claimMutation.mutate()}
-                >
-                  {claimMutation.isPending
-                    ? t('Drawing...')
-                    : remainingDraws <= 0
-                      ? t('You have used all draws')
-                      : inactive
-                        ? t('Red packet unavailable')
-                        : t('Open red packet')}
-                </Button>
-              )}
-              {user && remainingDraws > 0 ? (
-                <div className='text-muted-foreground mt-2 text-center text-xs'>
-                  {t('{{count}} draw(s) remaining for you', {
-                    count: remainingDraws,
-                  })}
-                </div>
-              ) : null}
+              <div className='border-foreground/20 mt-8 border-t pt-8 sm:max-w-sm'>
+                {!user ? (
+                  <Button
+                    className='min-h-11 w-full'
+                    size='lg'
+                    render={
+                      <Link
+                        to='/sign-in'
+                        search={{ redirect: `/red-packet/${slug}` }}
+                      />
+                    }
+                  >
+                    {t('Sign in to draw')}
+                  </Button>
+                ) : (
+                  <Button
+                    className='min-h-11 w-full'
+                    size='lg'
+                    disabled={
+                      inactive || remainingDraws <= 0 || claimMutation.isPending
+                    }
+                    onClick={() => claimMutation.mutate()}
+                  >
+                    {claimMutation.isPending
+                      ? t('Drawing...')
+                      : remainingDraws <= 0
+                        ? t('You have used all draws')
+                        : inactive
+                          ? t('Red packet unavailable')
+                          : t('Open red packet')}
+                  </Button>
+                )}
+                {user && remainingDraws > 0 ? (
+                  <div className='text-muted-foreground mt-2 text-center text-xs'>
+                    {t('{{count}} draw(s) remaining for you', {
+                      count: remainingDraws,
+                    })}
+                  </div>
+                ) : null}
+              </div>
             </div>
           </div>
-        </div>
 
-        {claims.length > 0 ? (
-          <section className='mt-6 space-y-3'>
-            <div className='flex items-center gap-2 px-1 text-sm font-medium'>
-              <Check className='size-4' /> {t('Your rewards')}
-            </div>
-            {claims.map((reward) => (
-              <RewardCard key={reward.claim_id} reward={reward} />
-            ))}
-          </section>
-        ) : null}
-      </div>
-    </main>
+          {claims.length > 0 ? (
+            <section className='mt-10'>
+              <div className='border-foreground/20 flex items-center gap-2 border-b pb-4 text-sm font-semibold'>
+                <Check className='size-4' /> {t('Your rewards')}
+              </div>
+              {claims.map((reward) => (
+                <RewardCard key={reward.claim_id} reward={reward} />
+              ))}
+            </section>
+          ) : null}
+        </div>
+      </main>
+    </ForgePublicShell>
   )
 }
