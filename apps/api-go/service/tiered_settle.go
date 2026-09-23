@@ -153,6 +153,25 @@ func PrepareTieredBillingForSelectedGroup(c *gin.Context, relayInfo *relaycommon
 	return nil
 }
 
+// The funding reservation may use only the remaining subscription grant.
+// Missing-usage fallback still needs the original request-side estimate.
+func estimatedBillingQuotaCap(info *relaycommon.RelayInfo) int {
+	if info == nil {
+		return 0
+	}
+	cap := info.FinalPreConsumedQuota
+	if snap := info.TieredBillingSnapshot; snap != nil && snap.BillingMode == "tiered_expr" {
+		if snap.EstimatedQuotaAfterGroup > cap {
+			cap = snap.EstimatedQuotaAfterGroup
+		}
+		return cap
+	}
+	if info.BillingSource == BillingSourceSubscription && info.PriceData.QuotaToPreConsume > cap {
+		cap = info.PriceData.QuotaToPreConsume
+	}
+	return cap
+}
+
 // TryTieredSettle checks if the request uses tiered_expr billing and, if so,
 // computes the actual quota using the captured BillingSnapshot. Returns:
 //   - ok=true, quota, result  when tiered billing applies
@@ -170,10 +189,7 @@ func TryTieredSettle(relayInfo *relaycommon.RelayInfo, params billingexpr.TokenP
 
 	tr, err := billingexpr.ComputeTieredQuotaWithRequest(snap, params, requestInput)
 	if err != nil {
-		quota = relayInfo.FinalPreConsumedQuota
-		if quota <= 0 {
-			quota = snap.EstimatedQuotaAfterGroup
-		}
+		quota = estimatedBillingQuotaCap(relayInfo)
 		return true, quota, nil
 	}
 

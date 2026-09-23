@@ -697,7 +697,7 @@ func TestTryTieredSettle_RatioMode_EmptyBillingMode(t *testing.T) {
 
 func TestTryTieredSettle_ErrorFallbackToEstimatedQuotaAfterGroup(t *testing.T) {
 	info := &relaycommon.RelayInfo{
-		FinalPreConsumedQuota: 0,
+		FinalPreConsumedQuota: 100,
 		TieredBillingSnapshot: &billingexpr.BillingSnapshot{
 			BillingMode:              "tiered_expr",
 			ExprString:               `invalid expr!!!`,
@@ -711,7 +711,7 @@ func TestTryTieredSettle_ErrorFallbackToEstimatedQuotaAfterGroup(t *testing.T) {
 	if !ok {
 		t.Fatal("expected tiered settle to apply")
 	}
-	// FinalPreConsumedQuota is 0, should fall back to EstimatedQuotaAfterGroup
+	// A partial funding reservation must not replace the original estimate.
 	if quota != 999 {
 		t.Fatalf("quota = %d, want 999", quota)
 	}

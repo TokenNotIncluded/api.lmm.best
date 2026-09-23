@@ -4,16 +4,62 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"gorm.io/gorm"
 )
 
 var ErrSubscriptionBillingTokenQuota = errors.New("token quota insufficient")
+var ErrSubscriptionBillingWalletQuota = errors.New("wallet quota insufficient for subscription overflow")
+
+func pendingSubscriptionWalletQuota(tx *gorm.DB, userID int, excludeRequestID string) (int64, error) {
+	var pending int64
+	query := tx.Model(&SubscriptionPreConsumeRecord{}).
+		Select("COALESCE(SUM(CASE WHEN token_consumed > pre_consumed THEN token_consumed - pre_consumed ELSE 0 END), 0)").
+		Where("user_id = ? AND billing_managed = ? AND wallet_overflow = ? AND status IN ?", userID, true, true, []string{"consumed", "settling"})
+	if excludeRequestID != "" {
+		query = query.Where("request_id <> ?", excludeRequestID)
+	}
+	if err := query.Scan(&pending).Error; err != nil {
+		// Legacy SQLite fixtures can omit the billing ledger. A missing table in
+		// a production database is an error, never an authorization bypass.
+		if tx.Dialector.Name() == "sqlite" && strings.Contains(err.Error(), "no such table: subscription_pre_consume_records") {
+			return 0, nil
+		}
+		return 0, err
+	}
+	return pending, nil
+}
+
+// Check the uncovered budget under the managed user lock. Keeping the wallet
+// debit at final settlement preserves rollback compatibility with older Go
+// packages, which know how to refund subscription/token reservations only.
+// Other in-flight managed requests count against the same available balance.
+func authorizeSubscriptionWalletQuota(tx *gorm.DB, userID int, requestID string, amount int64) error {
+	if amount <= 0 {
+		return nil
+	}
+	if err := common.ValidateWalletQuota(int(amount)); err != nil {
+		return err
+	}
+	quota, err := currentWalletQuota(tx, userID)
+	if err != nil {
+		return err
+	}
+	pending, err := pendingSubscriptionWalletQuota(tx, userID, requestID)
+	if err != nil {
+		return err
+	}
+	if pending > math.MaxInt64-amount || int64(quota) < pending+amount {
+		return ErrSubscriptionBillingWalletQuota
+	}
+	return nil
+}
 
 // SubscriptionBillingResult separates measured cost from committed debits.
 // A settling record can be retried with the same request ID and actual quota,
-// without resending the upstream request. PreConsumed includes every Reserve.
+// without resending the upstream request. ReservedQuota includes every Reserve.
 type SubscriptionBillingResult struct {
 	RequestId         string
 	Status            string
@@ -119,17 +165,29 @@ func PreConsumeSubscriptionBilling(requestID string, userID, tokenID int, modelN
 			return errors.New("subscription billing replay mismatch")
 		}
 		var err error
-		result, err = preConsumeUserSubscription(tx, requestID, userID, modelName, 0, amount)
+		result, err = preConsumeUserSubscriptionWithPolicy(tx, requestID, userID, modelName, 0, amount, walletOverflow)
 		if err != nil {
 			return err
 		}
 		if q.RowsAffected > 0 {
+			result.TokenConsumed = existing.TokenConsumed
 			return nil
+		}
+		walletReserve := amount - result.PreConsumed
+		if walletReserve > 0 {
+			if !walletOverflow {
+				return ErrSubscriptionQuotaInsufficient
+			}
+			if err := authorizeSubscriptionWalletQuota(tx, userID, requestID, walletReserve); err != nil {
+				return err
+			}
 		}
 		var subscription UserSubscription
 		if err := tx.First(&subscription, result.UserSubscriptionId).Error; err != nil {
 			return err
 		}
+		// The subscription may reserve only its remaining grant, but an API
+		// token limit still authorizes the entire requested budget.
 		tokenKey, err = subscriptionBillingTokenDelta(tx, userID, tokenID, amount, true)
 		if err != nil {
 			return err
@@ -138,8 +196,10 @@ func PreConsumeSubscriptionBilling(requestID string, userID, tokenID int, modelN
 		if tokenID == 0 {
 			tokenConsumed = 0
 		}
+		result.TokenConsumed = tokenConsumed
 		return tx.Model(&SubscriptionPreConsumeRecord{}).Where("request_id = ?", requestID).Updates(map[string]interface{}{
-			"billing_managed": true, "token_id": tokenID, "token_consumed": tokenConsumed, "wallet_overflow": walletOverflow, "reserved_version": subscription.QuotaVersion,
+			"billing_managed": true, "token_id": tokenID, "token_consumed": tokenConsumed, "wallet_overflow": walletOverflow,
+			"reserved_version": subscription.QuotaVersion,
 		}).Error
 	})
 	if err != nil {
@@ -182,8 +242,17 @@ func ReserveSubscriptionBilling(requestID string, userID int, target int64) (*Su
 		if r.Status != "consumed" {
 			return 0, "", errors.New("subscription billing is no longer reservable")
 		}
-		if target <= r.PreConsumed {
+		fundingDelta := target - r.PreConsumed
+		tokenDelta := int64(0)
+		if r.TokenId != 0 && target > r.TokenConsumed {
+			tokenDelta = target - r.TokenConsumed
+		}
+		if fundingDelta <= 0 && tokenDelta == 0 {
 			return 0, "", nil
+		}
+		var active []UserSubscription
+		if err := lockForUpdate(tx).Where("user_id = ? AND status = ? AND end_time > ?", userID, "active", getDBTimestamp(tx)).Order("end_time asc, id asc").Find(&active).Error; err != nil {
+			return 0, "", err
 		}
 		var subscription UserSubscription
 		if err := lockForUpdate(tx).First(&subscription, r.UserSubscriptionId).Error; err != nil {
@@ -192,18 +261,46 @@ func ReserveSubscriptionBilling(requestID string, userID int, target int64) (*Su
 		if subscription.QuotaVersion != r.ReservedVersion {
 			return 0, "", errors.New("subscription period changed; reserve rejected")
 		}
-		delta := target - r.PreConsumed
-		if err := postConsumeUserSubscriptionDeltaTx(tx, r.UserSubscriptionId, delta); err != nil {
-			return 0, "", err
+		if fundingDelta < 0 {
+			fundingDelta = 0
 		}
-		key, err := subscriptionBillingTokenDelta(tx, userID, r.TokenId, delta, true)
-		if err != nil {
-			return 0, "", err
+		if subscription.AmountTotal > 0 {
+			remaining := subscription.AmountTotal - subscription.AmountUsed
+			if remaining < 0 {
+				remaining = 0
+			}
+			if fundingDelta > remaining {
+				allowed := r.WalletOverflow && subscription.AllowWalletOverflow
+				for _, policy := range active {
+					allowed = allowed && policy.AllowWalletOverflow
+				}
+				if !allowed {
+					return 0, "", ErrSubscriptionQuotaInsufficient
+				}
+				fundingDelta = remaining
+			}
 		}
-		r.PreConsumed = target
-		if r.TokenId != 0 {
-			r.TokenConsumed += delta
+		if fundingDelta > 0 {
+			if err := postConsumeUserSubscriptionDeltaTx(tx, r.UserSubscriptionId, fundingDelta); err != nil {
+				return 0, "", err
+			}
 		}
+		walletReserve := target - (r.PreConsumed + fundingDelta)
+		if walletReserve > 0 {
+			if err := authorizeSubscriptionWalletQuota(tx, userID, requestID, walletReserve); err != nil {
+				return 0, "", err
+			}
+		}
+		var key string
+		if tokenDelta > 0 {
+			var err error
+			key, err = subscriptionBillingTokenDelta(tx, userID, r.TokenId, tokenDelta, true)
+			if err != nil {
+				return 0, "", err
+			}
+		}
+		r.PreConsumed += fundingDelta
+		r.TokenConsumed += tokenDelta
 		return 0, key, nil
 	})
 }
@@ -281,15 +378,11 @@ func SettleSubscriptionBilling(requestID string, userID int, actual int64) (*Sub
 			return 0, "", err
 		}
 		if wallet > 0 {
-			if err := common.ValidateWalletQuota(int(wallet)); err != nil {
-				return 0, "", err
-			}
-			// As with wallet settlement, completed usage can create wallet debt.
 			if err := ApplyWalletQuotaDelta(tx, userID, -int(wallet)); err != nil {
 				return 0, "", err
 			}
 		}
-		key, err := subscriptionBillingTokenDelta(tx, userID, r.TokenId, delta, false)
+		key, err := subscriptionBillingTokenDelta(tx, userID, r.TokenId, actual-r.TokenConsumed, false)
 		if err != nil {
 			return 0, "", fmt.Errorf("settle subscription token: %w", err)
 		}

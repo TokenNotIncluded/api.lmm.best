@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LIghtJUNction/api.lmm.best/relaykit/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -64,4 +65,24 @@ func TestInlineImageTokenMetadata(t *testing.T) {
 	longText := strings.Repeat("tool text ", 10000)
 	request := ClaudeRequest{Messages: []ClaudeMessage{{Role: "user", Content: []ClaudeMediaMessage{{Type: "tool_result", Content: longText}}}}}
 	require.Contains(t, request.GetTokenCountMeta().CombineText, longText)
+}
+
+func TestResponsesTokenEstimateIgnoresEncryptedReasoningBytes(t *testing.T) {
+	// Encrypted reasoning is an opaque transport value. Its byte length is not
+	// the number of input tokens the upstream model will report.
+	ciphertext := strings.Repeat("encrypted-payload-", 10000)
+	input, err := json.Marshal([]map[string]interface{}{
+		{"type": "reasoning", "encrypted_content": ciphertext, "summary": []map[string]string{{"type": "summary_text", "text": "short summary"}}},
+		{"type": "message", "role": "user", "content": []map[string]string{{"type": "input_text", "text": "real prompt"}}},
+		{"type": "function_call_output", "call_id": "call_1", "output": "real tool output"},
+	})
+	require.NoError(t, err)
+	for _, meta := range []*types.TokenCountMeta{
+		(&OpenAIResponsesRequest{Input: input}).GetTokenCountMeta(),
+		(&OpenAIResponsesCompactionRequest{Input: input}).GetTokenCountMeta(),
+	} {
+		require.NotContains(t, meta.CombineText, ciphertext)
+		require.Contains(t, meta.CombineText, "real prompt")
+		require.Contains(t, meta.CombineText, "real tool output")
+	}
 }

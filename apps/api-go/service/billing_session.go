@@ -295,6 +295,12 @@ func (s *BillingSession) preConsume(c *gin.Context, quota int) *types.NewAPIErro
 		if errors.Is(err, model.ErrSubscriptionBillingTokenQuota) {
 			return types.NewErrorWithStatusCode(err, types.ErrorCodePreConsumeTokenQuotaFailed, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
 		}
+		if errors.Is(err, model.ErrSubscriptionBillingWalletQuota) {
+			return types.NewErrorWithStatusCode(
+				fmt.Errorf("订阅与钱包余额不足以预留本次预计费用: %w", err),
+				types.ErrorCodeInsufficientUserQuota, http.StatusForbidden,
+				types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+		}
 		if errors.Is(err, ErrWebDrawingMinimumBalance) {
 			return newWebDrawingMinimumBalanceError()
 		}
@@ -321,7 +327,7 @@ func (s *BillingSession) preConsume(c *gin.Context, quota int) *types.NewAPIErro
 	if subscriptionManaged {
 		s.preConsumedQuota = int(sub.preConsumed)
 		if sub.tokenId != 0 {
-			s.tokenConsumed = s.preConsumedQuota
+			s.tokenConsumed = int(sub.tokenConsumed)
 		}
 	}
 
@@ -544,7 +550,7 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 				// Async task refunds currently persist only one funding source.
 				// Keep their existing no-split policy until task bookkeeping can
 				// carry and refund both committed funding amounts.
-				walletOverflow: pref == "subscription_first" && relayInfo.TaskRelayInfo == nil,
+				walletOverflow: pref == "subscription_first" && relayInfo.TaskRelayInfo == nil && !relayInfo.IsPlayground,
 			},
 		}
 		if !relayInfo.IsPlayground && !relayInfo.IsAssistant {
@@ -587,6 +593,9 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 		}
 		session, apiErr := trySubscription()
 		if apiErr != nil {
+			if errors.Is(apiErr.Err, model.ErrSubscriptionBillingWalletQuota) {
+				return nil, apiErr
+			}
 			if apiErr.GetErrorCode() == types.ErrorCodeInsufficientUserQuota {
 				// 仅当用户的活跃订阅允许钱包回退时才回退到钱包，否则返回订阅额度不足错误
 				allowOverflow, overflowErr := model.UserActiveSubscriptionsAllowWalletOverflow(relayInfo.UserId)
