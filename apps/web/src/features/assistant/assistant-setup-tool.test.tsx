@@ -232,7 +232,10 @@ describe('AssistantSetupTool', () => {
       findButton('Pi (OAuth)').click()
       await flushEffects()
     })
-    assert.match(container.textContent ?? '', /pi install/)
+    assert.match(
+      container.textContent ?? '',
+      /lmm-pi-provider npm:@tokennotincluded\/pi-lmm-provider@0\.1\.0-alpha\.2/
+    )
     assert.throws(() => findButton('Create API key'))
     assert.equal(container.querySelector('select[aria-label="Model ID"]'), null)
 
