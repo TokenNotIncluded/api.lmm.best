@@ -118,7 +118,7 @@ func TestSubscriptionBillingPartialPreconsumeConcurrentPostgres(t *testing.T) {
 	require.EqualValues(t, 100000, sub.AmountUsed)
 	var token Token
 	require.NoError(t, db.First(&token, 9002).Error)
-	require.Equal(t, 10000, token.UsedQuota)
+	require.Equal(t, 60000, token.UsedQuota)
 	_, err := SettleSubscriptionBilling(winner, 9001, 8000)
 	require.NoError(t, err)
 	require.NoError(t, db.First(&sub, 9101).Error)
@@ -177,7 +177,8 @@ func TestSubscriptionBillingPreconsumeTokenFailure(t *testing.T) {
 func TestSubscriptionBillingPartialPreconsumeFailureIsAtomic(t *testing.T) {
 	db := subscriptionBillingModelFixture(t, false)
 	require.NoError(t, db.Model(&UserSubscription{}).Where("id = ?", 9101).Update("amount_used", 99900).Error)
-	require.NoError(t, db.Model(&Token{}).Where("id = ?", 9002).Update("remain_quota", 50).Error)
+	// The key can cover the remaining grant (100), but not the request budget.
+	require.NoError(t, db.Model(&Token{}).Where("id = ?", 9002).Update("remain_quota", 10000).Error)
 	_, err := PreConsumeSubscriptionBilling("partial-token-failure", 9001, 9002, "model", 60000, true)
 	require.ErrorIs(t, err, ErrSubscriptionBillingTokenQuota)
 	var sub UserSubscription

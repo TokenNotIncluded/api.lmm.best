@@ -124,20 +124,24 @@ func PreConsumeSubscriptionBilling(requestID string, userID, tokenID int, modelN
 			return err
 		}
 		if q.RowsAffected > 0 {
+			result.TokenConsumed = existing.TokenConsumed
 			return nil
 		}
 		var subscription UserSubscription
 		if err := tx.First(&subscription, result.UserSubscriptionId).Error; err != nil {
 			return err
 		}
-		tokenKey, err = subscriptionBillingTokenDelta(tx, userID, tokenID, result.PreConsumed, true)
+		// The subscription may reserve only its remaining grant, but an API
+		// token limit still authorizes the entire requested budget.
+		tokenKey, err = subscriptionBillingTokenDelta(tx, userID, tokenID, amount, true)
 		if err != nil {
 			return err
 		}
-		tokenConsumed := result.PreConsumed
+		tokenConsumed := amount
 		if tokenID == 0 {
 			tokenConsumed = 0
 		}
+		result.TokenConsumed = tokenConsumed
 		return tx.Model(&SubscriptionPreConsumeRecord{}).Where("request_id = ?", requestID).Updates(map[string]interface{}{
 			"billing_managed": true, "token_id": tokenID, "token_consumed": tokenConsumed, "wallet_overflow": walletOverflow, "reserved_version": subscription.QuotaVersion,
 		}).Error
@@ -182,7 +186,12 @@ func ReserveSubscriptionBilling(requestID string, userID int, target int64) (*Su
 		if r.Status != "consumed" {
 			return 0, "", errors.New("subscription billing is no longer reservable")
 		}
-		if target <= r.PreConsumed {
+		fundingDelta := target - r.PreConsumed
+		tokenDelta := int64(0)
+		if r.TokenId != 0 && target > r.TokenConsumed {
+			tokenDelta = target - r.TokenConsumed
+		}
+		if fundingDelta <= 0 && tokenDelta == 0 {
 			return 0, "", nil
 		}
 		var active []UserSubscription
@@ -196,13 +205,15 @@ func ReserveSubscriptionBilling(requestID string, userID int, target int64) (*Su
 		if subscription.QuotaVersion != r.ReservedVersion {
 			return 0, "", errors.New("subscription period changed; reserve rejected")
 		}
-		delta := target - r.PreConsumed
+		if fundingDelta < 0 {
+			fundingDelta = 0
+		}
 		if subscription.AmountTotal > 0 {
 			remaining := subscription.AmountTotal - subscription.AmountUsed
 			if remaining < 0 {
 				remaining = 0
 			}
-			if delta > remaining {
+			if fundingDelta > remaining {
 				allowed := r.WalletOverflow && subscription.AllowWalletOverflow
 				for _, policy := range active {
 					allowed = allowed && policy.AllowWalletOverflow
@@ -210,23 +221,24 @@ func ReserveSubscriptionBilling(requestID string, userID int, target int64) (*Su
 				if !allowed {
 					return 0, "", ErrSubscriptionQuotaInsufficient
 				}
-				delta = remaining
+				fundingDelta = remaining
 			}
 		}
-		if delta == 0 {
-			return 0, "", nil
+		if fundingDelta > 0 {
+			if err := postConsumeUserSubscriptionDeltaTx(tx, r.UserSubscriptionId, fundingDelta); err != nil {
+				return 0, "", err
+			}
 		}
-		if err := postConsumeUserSubscriptionDeltaTx(tx, r.UserSubscriptionId, delta); err != nil {
-			return 0, "", err
+		var key string
+		if tokenDelta > 0 {
+			var err error
+			key, err = subscriptionBillingTokenDelta(tx, userID, r.TokenId, tokenDelta, true)
+			if err != nil {
+				return 0, "", err
+			}
 		}
-		key, err := subscriptionBillingTokenDelta(tx, userID, r.TokenId, delta, true)
-		if err != nil {
-			return 0, "", err
-		}
-		r.PreConsumed += delta
-		if r.TokenId != 0 {
-			r.TokenConsumed += delta
-		}
+		r.PreConsumed += fundingDelta
+		r.TokenConsumed += tokenDelta
 		return 0, key, nil
 	})
 }
@@ -312,7 +324,7 @@ func SettleSubscriptionBilling(requestID string, userID int, actual int64) (*Sub
 				return 0, "", err
 			}
 		}
-		key, err := subscriptionBillingTokenDelta(tx, userID, r.TokenId, delta, false)
+		key, err := subscriptionBillingTokenDelta(tx, userID, r.TokenId, actual-r.TokenConsumed, false)
 		if err != nil {
 			return 0, "", fmt.Errorf("settle subscription token: %w", err)
 		}

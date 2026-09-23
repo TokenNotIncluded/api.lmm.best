@@ -206,10 +206,10 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		}
 	}
 
-	if !hasUsage && usage.PromptTokens == 0 && usage.CompletionTokens != 0 && successfulTerminal && !downstreamWriteFailed && c.Request.Context().Err() == nil {
-		// Partial output proves some output was generated, but an interrupted
-		// stream gives no reliable input usage. The request-side token estimate
-		// can include opaque replay payloads and must not become a final debit.
+	if !hasUsage && usage.PromptTokens == 0 && usage.CompletionTokens != 0 && successfulTerminal {
+		// A successful upstream terminal can justify the request-side input
+		// estimate even if writing that terminal to the client fails. Partial
+		// output without an upstream terminal cannot justify that input debit.
 		usage.PromptTokens = info.GetEstimatePromptTokens()
 	}
 

@@ -321,7 +321,7 @@ func (s *BillingSession) preConsume(c *gin.Context, quota int) *types.NewAPIErro
 	if subscriptionManaged {
 		s.preConsumedQuota = int(sub.preConsumed)
 		if sub.tokenId != 0 {
-			s.tokenConsumed = s.preConsumedQuota
+			s.tokenConsumed = int(sub.tokenConsumed)
 		}
 	}
 
