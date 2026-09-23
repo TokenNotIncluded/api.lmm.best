@@ -327,6 +327,12 @@ type GeminiChatTool struct {
 	URLContext            any `json:"urlContext,omitempty"`
 }
 
+// GeminiFunctionDeclaration keeps Gemini-only schema fields out of OpenAI tools.
+type GeminiFunctionDeclaration struct {
+	FunctionRequest
+	ParametersJsonSchema any `json:"parametersJsonSchema,omitempty"`
+}
+
 type GeminiChatGenerationConfig struct {
 	Temperature                *float64              `json:"temperature,omitempty"`
 	TopP                       *float64              `json:"topP,omitempty"`
