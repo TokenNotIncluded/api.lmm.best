@@ -1,11 +1,14 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
 import {
   createCamera,
+  createNetwork,
   createTrainingScene,
   PALETTE,
   projectPoint,
+  rasterizeToken,
   Shape,
   type Camera,
+  type CorePalette,
   type Rgb,
   type SceneSink,
 } from './home-core'
@@ -16,16 +19,23 @@ const css = (color: Rgb, alpha = 1) =>
 const FONT = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
 
 /** Canvas 2D fallback for the same training scene, drawn in emission order. */
-export function createCanvasCore(canvas: HTMLCanvasElement): CoreFilm | null {
+export function createCanvasCore(
+  canvas: HTMLCanvasElement,
+  palette: CorePalette = PALETTE
+): CoreFilm | null {
   const ctx = canvas.getContext('2d')
   if (!ctx) return null
-  const scene = createTrainingScene()
+  const scene = createTrainingScene(
+    createNetwork(palette),
+    rasterizeToken,
+    palette
+  )
   let camera: Camera | null = null
   let width = 0
   let height = 0
   let pixelRatio = 0
   let layout: ReturnType<typeof filmLayout> = 'side'
-  const ground = css(PALETTE.ground)
+  const ground = css(palette.ground)
   const additive = (glow: boolean) => {
     ctx.globalCompositeOperation = glow ? 'lighter' : 'source-over'
   }
@@ -113,13 +123,13 @@ export function createCanvasCore(canvas: HTMLCanvasElement): CoreFilm | null {
         ctx.lineWidth = Math.max(1.5, r * 0.32)
         ctx.stroke()
         if (fill >= 0.3 && shape === Shape.neuron) {
-          ctx.fillStyle = css([255, 255, 255], alpha * 0.8)
+          ctx.fillStyle = css(palette.ink, alpha * 0.8)
           ctx.fillRect(q.x - r * 0.24, q.y - r * 0.24, r * 0.48, r * 0.48)
         }
       }
     },
   }
-  return (time, pointer, progress) => {
+  const draw: CoreFilm = (time, pointer, progress) => {
     const w = canvas.clientWidth
     const h = canvas.clientHeight
     if (!w || !h) return
@@ -141,4 +151,6 @@ export function createCanvasCore(canvas: HTMLCanvasElement): CoreFilm | null {
     additive(false)
     canvas.parentElement?.setAttribute('data-rendered', '')
   }
+  draw.setToken = scene.setToken
+  return draw
 }

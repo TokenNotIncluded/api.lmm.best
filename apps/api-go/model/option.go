@@ -320,6 +320,9 @@ func SyncOptionsContext(ctx context.Context, frequency int) {
 }
 
 func validateOptionValue(key string, value string) error {
+	if key == AIDirectoryLinksOptionKey {
+		return ValidateAIDirectoryLinks(value)
+	}
 	if err := validateReferralOption(key, value); err != nil {
 		return err
 	}

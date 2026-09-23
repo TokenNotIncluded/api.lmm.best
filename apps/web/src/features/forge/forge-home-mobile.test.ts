@@ -75,7 +75,7 @@ test('section progress drives the current scene and story styles', () => {
   assert.match(motion, /setProperty\('--story-progress',/)
   assert.match(
     motion,
-    /draw\(reduced\.matches \? 0 : clock, pointer, sceneProgress\)/
+    /const time = reduced\.matches \? 0 : clock\s+draw\(time, pointer, sceneProgress\)/
   )
   assert.match(css, /var\(--story-progress\)/)
 })

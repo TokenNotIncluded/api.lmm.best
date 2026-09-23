@@ -46,6 +46,10 @@ const AIDirectorySection = lazyNamedSection(
   () => import('./ai-directory-section'),
   'AIDirectorySection'
 )
+const AIDirectoryAdsSection = lazyNamedSection(
+  () => import('./ai-directory-ads-section'),
+  'AIDirectoryAdsSection'
+)
 
 const SITE_SECTIONS = [
   {
@@ -111,8 +115,13 @@ const SITE_SECTIONS = [
     id: 'ai-directory',
     titleKey: 'AI directory',
     build: (settings: SiteSettings) => (
-      <AIDirectorySection initialValue={settings.HeaderNavModules} />
+      <AIDirectorySection initialValue={settings.AIDirectoryLinks} />
     ),
+  },
+  {
+    id: 'ai-directory-ads',
+    titleKey: 'Advertisement moderation',
+    build: () => <AIDirectoryAdsSection />,
   },
 ] as const
 

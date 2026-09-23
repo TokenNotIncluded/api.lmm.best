@@ -16,8 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { CYCLE_START, createCamera, INPUT, projectPoint } from './home-core'
 import { createCanvasCore } from './home-core-canvas'
-import { createWebGLCore, type CoreFilm } from './home-core-webgl'
+import { createWebGLCore, filmLayout, type CoreFilm } from './home-core-webgl'
+import { mountHomeGravity } from './home-gravity'
 import { createTokenCloud } from './home-token-cloud'
 
 export function unit(value: number) {
@@ -49,7 +51,7 @@ export function cinemaPosition(
   return unit((stickyTop - top) / Math.max(height - frameHeight, 1))
 }
 
-/** A small network reading tokens: forward pass, prediction, then backpropagation. */
+/** A small network reading the chosen token through fixed visual layers. */
 function createFilm(canvas: HTMLCanvasElement): CoreFilm | null {
   return createWebGLCore(canvas) ?? createCanvasCore(canvas)
 }
@@ -61,9 +63,107 @@ export function mountHomeMotion(root: HTMLElement) {
   const canvas = root.querySelector<HTMLCanvasElement>('[data-film]')
   if (!cinema || !inner || !canvas) return () => {}
   let draw = createFilm(canvas)
+  const inputZone = root.querySelector<HTMLElement>('[data-token-input]')
+  const result = root.querySelector<HTMLOutputElement>('[data-token-result]')
+  const chosen = root.querySelector<HTMLElement>('[data-selected-token]')
+  const predicted = root.querySelector<HTMLElement>('[data-predicted-token]')
+  const releaseGravity = mountHomeGravity(root, inputZone)
+  let layout = filmLayout(canvas)
+  let refreshSelection = () => {}
+  const placeInput = (
+    time: number,
+    pointer: { x: number; y: number },
+    progress: number
+  ) => {
+    if (!inputZone || !canvas.clientWidth || !canvas.clientHeight) return
+    const camera = createCamera(
+      time,
+      pointer,
+      progress,
+      canvas.clientWidth,
+      canvas.clientHeight,
+      layout
+    )
+    const halfWidth = (INPUT.cols * INPUT.cell) / 2 + 0.06
+    const halfHeight = (INPUT.rows * INPUT.cell) / 2 + 0.06
+    const corners = [
+      { x: INPUT.x - halfWidth, y: -halfHeight, z: 0 },
+      { x: INPUT.x + halfWidth, y: -halfHeight, z: 0 },
+      { x: INPUT.x + halfWidth, y: halfHeight, z: 0 },
+      { x: INPUT.x - halfWidth, y: halfHeight, z: 0 },
+    ].map((point) => projectPoint(camera, point))
+    const left = Math.min(...corners.map((point) => point.x))
+    const right = Math.max(...corners.map((point) => point.x))
+    const top = Math.min(...corners.map((point) => point.y))
+    const bottom = Math.max(...corners.map((point) => point.y))
+    const width = Math.min(
+      canvas.clientWidth - 24,
+      Math.max(96, right - left + 20)
+    )
+    const height = Math.max(68, bottom - top + 16)
+    inputZone.style.left = `${Math.max(12, Math.min(canvas.clientWidth - width - 12, (left + right - width) / 2))}px`
+    inputZone.style.top = `${Math.max(42, (top + bottom - height) / 2)}px`
+    inputZone.style.width = `${width}px`
+    inputZone.style.height = `${height}px`
+  }
+  const selectToken = (token: string) => {
+    const match = draw?.setToken?.(token)
+    if (!match) return
+    if (chosen) chosen.textContent = token
+    if (predicted) predicted.textContent = match
+    if (result) result.hidden = false
+    root
+      .querySelectorAll<HTMLElement>('[data-token-option]')
+      .forEach((option) =>
+        option.toggleAttribute(
+          'data-selected',
+          option.dataset.tokenOption === token
+        )
+      )
+    refreshSelection()
+  }
+  const resetSelection = () => {
+    if (chosen) chosen.textContent = ''
+    if (predicted) predicted.textContent = ''
+    if (result) result.hidden = true
+    root
+      .querySelectorAll<HTMLElement>('[data-token-option]')
+      .forEach((option) => option.removeAttribute('data-selected'))
+  }
   const tokens = createTokenCloud(
-    root.querySelector<HTMLElement>('[data-token-cloud]')
+    root.querySelector<HTMLElement>('[data-token-cloud]'),
+    selectToken
   )
+  const allowedTokens = new Set(
+    [...root.querySelectorAll<HTMLElement>('[data-token-option]')].map(
+      (option) => option.dataset.tokenOption
+    )
+  )
+  const dragOver = (event: DragEvent) => {
+    event.preventDefault()
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+    inputZone?.setAttribute('data-drag-over', '')
+  }
+  const dragLeave = (event: DragEvent) => {
+    if (!inputZone?.contains(event.relatedTarget as Node | null)) {
+      inputZone?.removeAttribute('data-drag-over')
+    }
+  }
+  const drop = (event: DragEvent) => {
+    event.preventDefault()
+    inputZone?.removeAttribute('data-drag-over')
+    const token = event.dataTransfer?.getData('text/plain')
+    if (token && allowedTokens.has(token)) selectToken(token)
+  }
+  inputZone?.addEventListener('dragover', dragOver)
+  inputZone?.addEventListener('dragleave', dragLeave)
+  inputZone?.addEventListener('drop', drop)
+  const releaseInput = () => {
+    inputZone?.removeEventListener('dragover', dragOver)
+    inputZone?.removeEventListener('dragleave', dragLeave)
+    inputZone?.removeEventListener('drop', drop)
+    inputZone?.removeAttribute('data-drag-over')
+  }
   const scenePanels = [
     ...root.querySelectorAll<HTMLElement>('[data-cinema-panel]'),
   ]
@@ -79,14 +179,22 @@ export function mountHomeMotion(root: HTMLElement) {
     typeof window.IntersectionObserver !== 'function' ||
     typeof window.ResizeObserver !== 'function'
   ) {
+    refreshSelection = () => draw?.(0, { x: 0, y: 0 }, 0)
     draw?.(0, { x: 0, y: 0 }, 0)
-    tokens?.measure(inner.getBoundingClientRect(), scenePanels)
+    placeInput(0, { x: 0, y: 0 }, 0)
+    tokens?.measure(inner.getBoundingClientRect(), [
+      ...scenePanels,
+      ...(inputZone ? [inputZone] : []),
+    ])
     tokens?.draw(0, null, false)
     root.dataset.motion = 'static'
     if (toggle) toggle.hidden = true
     return () => {
       draw?.dispose?.()
       tokens?.dispose()
+      releaseInput()
+      releaseGravity()
+      resetSelection()
       delete root.dataset.motion
     }
   }
@@ -135,6 +243,12 @@ export function mountHomeMotion(root: HTMLElement) {
       frame = requestAnimationFrame(render)
     }
   }
+  refreshSelection = () => {
+    clock = CYCLE_START
+    lastTime = 0
+    dirty = true
+    schedule()
+  }
   const readLayout = () => {
     const cinemaRect = cinema.getBoundingClientRect()
     const frameRect = inner.getBoundingClientRect()
@@ -148,6 +262,8 @@ export function mountHomeMotion(root: HTMLElement) {
           stickyTop
         )
       : 0
+    layout = filmLayout(canvas)
+    placeInput(animated ? clock : 0, pointer, sceneProgress)
     inner.style.setProperty('--scene-progress', String(sceneProgress))
     const focused = scenePanels.findIndex((panel) =>
       panel.contains(document.activeElement)
@@ -172,7 +288,9 @@ export function mountHomeMotion(root: HTMLElement) {
     tokens?.measure(frameRect, [
       ...scenePanels,
       ...sceneSteps,
+      ...(inputZone ? [inputZone] : []),
       ...(toggle ? [toggle] : []),
+      ...root.querySelectorAll<HTMLElement>('.lmm-simulation-info'),
     ])
     if (story) {
       const rect = story.getBoundingClientRect()
@@ -232,7 +350,9 @@ export function mountHomeMotion(root: HTMLElement) {
       (dirty || (animate && visible && now - lastTime >= 1000 / 30))
     ) {
       if (lastTime && animate) clock += Math.min((now - lastTime) / 1000, 0.1)
-      draw(reduced.matches ? 0 : clock, pointer, sceneProgress)
+      const time = reduced.matches ? 0 : clock
+      draw(time, pointer, sceneProgress)
+      placeInput(time, pointer, sceneProgress)
       tokens?.draw(clock, tokenPointer, animate)
       lastTime = now
       dirty = false
@@ -349,6 +469,9 @@ export function mountHomeMotion(root: HTMLElement) {
     disposed = true
     draw?.dispose?.()
     tokens?.dispose()
+    releaseInput()
+    releaseGravity()
+    resetSelection()
     if (frame !== null) cancelAnimationFrame(frame)
     observer.disconnect()
     resizeObserver.disconnect()
@@ -379,6 +502,9 @@ export function mountHomeMotion(root: HTMLElement) {
       '--scene-progress',
     ]) {
       inner.style.removeProperty(key)
+    }
+    for (const key of ['left', 'top', 'width', 'height']) {
+      inputZone?.style.removeProperty(key)
     }
     story?.style.removeProperty('--story-progress')
     if (story) delete story.dataset.chapter

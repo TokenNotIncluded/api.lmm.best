@@ -1,12 +1,15 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
 import {
   createCamera,
+  createNetwork,
   createTrainingScene,
   PALETTE,
   PIVOT,
   projectPoint,
+  rasterizeToken,
   SCENE_TEXT,
   type Camera,
+  type CorePalette,
   type CorePoint,
   type Rgb,
   type SceneSink,
@@ -16,7 +19,7 @@ export type CoreFilm = ((
   time: number,
   pointer: { x: number; y: number },
   progress: number
-) => void) & { dispose?: () => void }
+) => void) & { dispose?: () => void; setToken?: (text: string) => string }
 
 const PRECISION = `
   #ifdef GL_FRAGMENT_PRECISION_HIGH
@@ -218,7 +221,10 @@ const CORNERS = [
 ] as const
 
 /** Local network renderer: wiring, activations, gradients and a token cloud. */
-export function createWebGLCore(canvas: HTMLCanvasElement): CoreFilm | null {
+export function createWebGLCore(
+  canvas: HTMLCanvasElement,
+  palette: CorePalette = PALETTE
+): CoreFilm | null {
   let gl: WebGLRenderingContext | null
   try {
     gl = canvas.getContext('webgl', {
@@ -336,7 +342,11 @@ export function createWebGLCore(canvas: HTMLCanvasElement): CoreFilm | null {
       gl.ALIASED_POINT_SIZE_RANGE
     ) as Float32Array | null
     const maxPoint = pointRange?.[1] ?? 64
-    const scene = createTrainingScene()
+    const scene = createTrainingScene(
+      createNetwork(palette),
+      rasterizeToken,
+      palette
+    )
 
     const tokens = batch(),
       lines = batch(),
@@ -480,9 +490,9 @@ export function createWebGLCore(canvas: HTMLCanvasElement): CoreFilm | null {
       gl.uniform1f(program.uniform('uMaxPoint'), maxPoint)
       gl.uniform3f(
         program.uniform('uGround'),
-        PALETTE.ground[0] / 255,
-        PALETTE.ground[1] / 255,
-        PALETTE.ground[2] / 255
+        palette.ground[0] / 255,
+        palette.ground[1] / 255,
+        palette.ground[2] / 255
       )
       gl.uniform1i(program.uniform('uAtlas'), 0)
       gl.uniform4fv(program.uniform('uQuiet'), camera.quiet)
@@ -552,6 +562,7 @@ export function createWebGLCore(canvas: HTMLCanvasElement): CoreFilm | null {
       flush(text, labels, gl.TRIANGLES, false, w, h, dpr)
       canvas.parentElement?.setAttribute('data-rendered', '')
     }
+    draw.setToken = scene.setToken
     draw.dispose = () => {
       canvas.removeEventListener('webglcontextlost', lost)
       release()

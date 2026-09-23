@@ -19,7 +19,6 @@ import {
   type AIDirectoryLink,
 } from '@/features/ai-directory/api'
 
-import { getSystemOptions } from '../api'
 import { FormNavigationGuard } from '../components/form-navigation-guard'
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
@@ -28,6 +27,7 @@ import { useUpdateOption } from '../hooks/use-update-option'
 const categoryLabels: Record<AIDirectoryCategory, string> = {
   chat: 'Chat assistants',
   research: 'Research',
+  resources: 'Useful resources',
   developer: 'Developer tools',
   creative: 'Creative tools',
   other: 'More websites',
@@ -120,26 +120,9 @@ export function AIDirectorySection({ initialValue }: { initialValue: string }) {
       return
     }
     if (next.length > 60) return
-    let existing: Record<string, unknown> = {}
-    try {
-      const response = await getSystemOptions()
-      if (!response.success) throw new Error('Unable to read current settings')
-      const currentValue =
-        response.data.find((item) => item.key === 'HeaderNavModules')?.value ??
-        initialValue
-      const parsed: unknown = currentValue.trim()
-        ? JSON.parse(currentValue)
-        : {}
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        existing = parsed as Record<string, unknown>
-      }
-    } catch {
-      toast.error(t('Unable to load current navigation settings. Try again.'))
-      return
-    }
     await updateOption.mutateAsync({
-      key: 'HeaderNavModules',
-      value: JSON.stringify({ ...existing, aiDirectoryLinks: next }),
+      key: 'AIDirectoryLinks',
+      value: JSON.stringify(next),
     })
   }
 

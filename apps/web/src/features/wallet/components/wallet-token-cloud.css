@@ -27,12 +27,17 @@ Copyright (C) 2026 LIghtJUNction
   pointer-events: auto;
   cursor: grab;
   user-select: none;
-  color: color-mix(in oklch, var(--success) 70%, var(--foreground));
-  transition: color 180ms ease-out;
+  color: color-mix(in oklch, var(--success) 62%, var(--foreground));
+  transition:
+    color 200ms ease-out,
+    filter 200ms ease-out;
 }
 
 .wallet-token-cloud--balance:hover {
   color: var(--success);
+  filter: drop-shadow(
+    0 0 7px color-mix(in oklch, var(--success) 32%, transparent)
+  );
 }
 
 .wallet-token-cloud svg {
@@ -43,8 +48,8 @@ Copyright (C) 2026 LIghtJUNction
   fill: currentColor;
   pointer-events: none;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-weight: 600;
-  letter-spacing: -0.045em;
+  font-weight: 620;
+  letter-spacing: -0.03em;
 }
 
 .wallet-token-cloud:active {
@@ -56,20 +61,23 @@ Copyright (C) 2026 LIghtJUNction
 
 .wallet-token-cloud--balance {
   width: 49%;
-  -webkit-mask-image: linear-gradient(to right, transparent, black 17%);
-  mask-image: linear-gradient(to right, transparent, black 17%);
+  -webkit-mask-image: linear-gradient(to right, transparent, black 19%);
+  mask-image: linear-gradient(to right, transparent, black 19%);
 }
 
 .wallet-token-cloud--preset {
   width: 48%;
+  color: color-mix(in oklch, var(--success) 38%, var(--foreground));
   opacity: 0.85;
   transition:
+    color 180ms ease-out,
     transform 180ms ease-out,
     opacity 180ms ease-out;
 }
 
 button:hover .wallet-token-cloud--preset,
 button[aria-pressed='true'] .wallet-token-cloud--preset {
+  color: color-mix(in oklch, var(--success) 66%, var(--foreground));
   opacity: 1;
   transform: scale(1.15) rotate(-2deg);
 }

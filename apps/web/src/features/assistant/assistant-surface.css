@@ -64,6 +64,27 @@ the Free Software Foundation, either version 3 of the License, or
   display: block;
   width: 100%;
   height: 100%;
+  /* Soft edge falloff so the cloud reads as a contained volume rather
+   * than tokens getting cut off flush against the panel bounds. */
+  -webkit-mask-image: radial-gradient(
+    ellipse 62% 68% at 50% 46%,
+    black 55%,
+    transparent 100%
+  );
+  mask-image: radial-gradient(
+    ellipse 62% 68% at 50% 46%,
+    black 55%,
+    transparent 100%
+  );
+}
+
+.assistant-token-cloud canvas {
+  opacity: 0;
+  transition: opacity 240ms ease-out;
+}
+
+.assistant-token-cloud[data-cloud-ready='true'] canvas {
+  opacity: 1;
 }
 
 .assistant-token-cloud-fallback {
@@ -89,6 +110,7 @@ the Free Software Foundation, either version 3 of the License, or
   justify-content: center;
   border-radius: 50%;
   color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--foreground) 5%, transparent);
   transition:
     background-color 180ms ease-out,
     color 180ms ease-out;
@@ -348,6 +370,7 @@ the Free Software Foundation, either version 3 of the License, or
 
 @media (prefers-reduced-motion: reduce) {
   .assistant-token-cloud-toggle,
+  .assistant-token-cloud canvas,
   .assistant-start-action,
   .assistant-preset-disclosure summary svg {
     transition: none;

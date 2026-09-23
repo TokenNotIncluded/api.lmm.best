@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 56" role="img" aria-label="LMM Best">
   <style>:root{color:#141413}@media(prefers-color-scheme:dark){:root{color:#faf9f5}}</style>
-  <path d="M10 39V16l18 18 18-18v23" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="square" stroke-linejoin="round"/>
-  <path d="M12 45h32" fill="none" stroke="#b8634c" stroke-width="2.5" stroke-linecap="square"/>
+  <path d="M9 8v39h39" fill="none" stroke="#b8634c" stroke-width="4" stroke-linecap="square"/>
+  <path d="M18 39V17l7 11 7-11 7 11 7-11v22M32 17v22" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="miter" stroke-miterlimit="10"/>
 </svg>

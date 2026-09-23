@@ -33,11 +33,16 @@ function tokenPoint(
   const point = TOKENS[index]
   const mini = variant === 'preset'
   const extent = walletCloudExtent(amount, variant)
+  // Longer glyphs (e.g. "token") are scaled down a touch so they occupy
+  // roughly the same visual weight as short symbol glyphs, keeping the
+  // cloud's rhythm even instead of a few wide words dominating it.
+  const glyphTrim = point.glyph.length > 2 ? 0.82 : 1
   return {
     x: (mini ? 45 : 210) + point.x * (mini ? 35 : 170) * extent,
     y: (mini ? 25 : 80) + point.y * (mini ? 19 : 67) * extent,
-    fontSize: (mini ? 7 : 9) + point.depth * (mini ? 1.7 : 2.5),
-    opacity: 0.38 + point.depth * 0.58,
+    fontSize:
+      ((mini ? 7 : 9) + point.depth ** 1.15 * (mini ? 1.9 : 2.7)) * glyphTrim,
+    opacity: 0.3 + point.depth ** 1.3 * 0.66,
     glyph: point.glyph,
   }
 }

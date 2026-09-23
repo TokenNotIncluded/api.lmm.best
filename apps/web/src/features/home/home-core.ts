@@ -2,20 +2,21 @@
 export type CorePoint = { x: number; y: number; z: number }
 export type Rgb = readonly [number, number, number]
 
-/** Pixel-console palette: idle navy wiring, blue forward pass, crimson backward pass. */
+/** Forge theme roles used by the canvas when no stylesheet is available. */
 export const PALETTE = {
   /** Matches the stage background; hollow neurons are filled with it to hide wires. */
-  ground: [5, 8, 18],
-  wire: [34, 46, 88],
-  idle: [48, 64, 118],
-  lattice: [38, 52, 96],
-  muted: [112, 128, 170],
-  blue: [52, 118, 255],
-  cyan: [94, 230, 255],
-  pink: [255, 64, 128],
-  crimson: [196, 30, 76],
-  ink: [232, 238, 250],
+  ground: [240, 238, 230],
+  wire: [139, 136, 127],
+  idle: [139, 136, 127],
+  lattice: [139, 136, 127],
+  muted: [94, 90, 82],
+  forward: [217, 119, 87],
+  highlight: [20, 20, 19],
+  feedback: [120, 140, 93],
+  feedbackDeep: [164, 79, 54],
+  ink: [20, 20, 19],
 } satisfies Record<string, Rgb>
+export type CorePalette = { [K in keyof typeof PALETTE]: Rgb }
 
 /** Output vocabulary. The network "reads" a rasterized token and predicts which one it is. */
 export const VOCABULARY = [
@@ -170,7 +171,7 @@ export function hash(n: number) {
   return (x >>> 0) / 4294967296
 }
 
-export function createNetwork(): Network {
+export function createNetwork(palette: CorePalette = PALETTE): Network {
   const neurons: Neuron[] = []
   const layers: number[][] = [[]]
   for (const x of HIDDEN_X) {
@@ -254,16 +255,17 @@ export function createNetwork(): Network {
   }
 
   const tints: Rgb[] = [
-    PALETTE.muted,
-    PALETTE.muted,
-    PALETTE.muted,
-    PALETTE.blue,
-    PALETTE.cyan,
-    PALETTE.pink,
+    palette.muted,
+    palette.muted,
+    palette.muted,
+    palette.forward,
+    palette.highlight,
+    palette.feedback,
   ]
   const cloud: CloudToken[] = []
   const words = SCENE_TEXT
-  for (let i = 0; i < 64; i++) {
+  // Enough to cover every scene word once; more reads as noise behind the copy.
+  for (let i = 0; i < 40; i++) {
     const h = hash(i * 7919)
     cloud.push({
       text: words[i % words.length],
@@ -271,7 +273,7 @@ export function createNetwork(): Network {
       angle: i * 2.39996,
       y: (hash(i * 53) - 0.5) * 6.4,
       color: tints[Math.floor(h * tints.length)],
-      alpha: 0.26 + hash(i * 17) * 0.34,
+      alpha: 0.18 + hash(i * 17) * 0.28,
       size: 0.13 + hash(i * 13) * 0.1,
       phase: hash(i * 71) * Math.PI * 2,
     })
@@ -280,8 +282,9 @@ export function createNetwork(): Network {
 }
 
 export const CYCLE = 6.4
-/** Offset so a motionless frame (reduced motion, static fallback) shows backpropagation. */
+/** Offset so a motionless frame shows the input and the computed closest match. */
 const STILL = 0.77 * CYCLE
+export const CYCLE_START = -STILL
 
 export function trainingClock(time: number) {
   const cycle = (time + STILL) / CYCLE
@@ -341,48 +344,103 @@ export function rasterizeToken(text: string, cols: number, rows: number) {
       bitmap[i] = data[i * 4 + 3] > 128 ? 1 : 0
     }
   } catch {
-    // Decorative input only.
+    // A missing 2D context leaves a blank but safe input.
   }
   return bitmap
 }
 
-function createSample(net: Network, sample: number, raster: Raster): Sample {
-  const target = (sample * 7 + 3) % VOCABULARY.length
-  const wrong = sample % 4 === 2
-  const predicted = wrong ? (target + 3) % VOCABULARY.length : target
+function hiddenFeatures(net: Network, bitmap: Uint8Array) {
   const act = new Float32Array(net.neurons.length)
-  const grad = new Float32Array(net.neurons.length)
-  for (const neuron of net.neurons) {
-    const id = neuron.id
-    if (neuron.layer === 4) {
-      const row = id - net.layers[4][0]
-      act[id] =
-        row === predicted
-          ? 0.94
-          : row === target
-            ? 0.56
-            : hash(sample * 311 + row) * 0.3
-      grad[id] =
-        row === predicted && wrong
-          ? 1
-          : row === target
-            ? wrong
-              ? -1
-              : -0.35
-            : hash(sample * 17 + row) > 0.72
-              ? 0.3
-              : 0
-      continue
+  // The first grid reads real 7 × ~2 pixel regions of the supplied glyph.
+  for (let col = 0; col < HIDDEN.cols; col++) {
+    for (let row = 0; row < HIDDEN.rows; row++) {
+      const x0 = Math.floor((col * INPUT.cols) / HIDDEN.cols)
+      const x1 = Math.floor(((col + 1) * INPUT.cols) / HIDDEN.cols)
+      const y0 = Math.floor((row * INPUT.rows) / HIDDEN.rows)
+      const y1 = Math.floor(((row + 1) * INPUT.rows) / HIDDEN.rows)
+      let lit = 0
+      for (let y = y0; y < y1; y++) {
+        for (let x = x0; x < x1; x++) lit += bitmap[y * INPUT.cols + x] || 0
+      }
+      act[net.layers[1][col * HIDDEN.rows + row]] = Math.min(
+        1,
+        (lit / Math.max(1, (x1 - x0) * (y1 - y0))) * 2.5
+      )
     }
-    const v = hash(sample * 977 + id * 13)
-    act[id] = v > 0.46 ? 0.35 + ((v - 0.46) / 0.54) * 0.65 : 0
-    const g = hash(sample * 1553 + id * 29)
-    grad[id] =
-      g > 0.52
-        ? ((g - 0.52) / 0.48) *
-          (hash(id * 3 + sample) > 0.5 ? 1 : -1) *
-          (wrong ? 1 : 0.6)
-        : 0
+  }
+  // Later grids combine those measured regions through fixed connections.
+  for (let layer = 2; layer <= 3; layer++) {
+    for (const id of net.layers[layer]) {
+      let sum = 0
+      let weight = 0
+      for (const edge of net.gaps[layer - 1]) {
+        if (edge.to !== id) continue
+        const amount = Math.abs(edge.weight)
+        sum += act[edge.from] * amount
+        weight += amount
+      }
+      act[id] = weight ? Math.min(1, (sum / weight) * 1.2) : 0
+    }
+  }
+  return act
+}
+
+function similarity(a: ArrayLike<number>, b: ArrayLike<number>) {
+  let dot = 0
+  let aa = 0
+  let bb = 0
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i]
+    aa += a[i] * a[i]
+    bb += b[i] * b[i]
+  }
+  return aa && bb ? dot / Math.sqrt(aa * bb) : 0
+}
+
+function prefixSimilarity(input: string, candidate: string) {
+  const a = input.toLowerCase()
+  const b = candidate.toLowerCase()
+  let shared = 0
+  while (shared < a.length && shared < b.length && a[shared] === b[shared]) {
+    shared++
+  }
+  return shared / Math.max(a.length, b.length, 1)
+}
+
+function createSample(
+  net: Network,
+  text: string,
+  raster: Raster,
+  templates: { bitmap: Uint8Array; act: Float32Array }[]
+): Sample {
+  const bitmap = raster(text, INPUT.cols, INPUT.rows)
+  const act = hiddenFeatures(net, bitmap)
+  const last = net.layers[3]
+  const hidden = last.map((id) => act[id])
+  const scores = templates.map((template, row) => {
+    const reference = last.map((id) => template.act[id])
+    const visual =
+      0.55 * similarity(hidden, reference) +
+      0.45 * similarity(bitmap, template.bitmap)
+    // A longer picked token can still match a familiar short prefix, e.g. token → tok.
+    return 0.55 * visual + 0.45 * prefixSimilarity(text, VOCABULARY[row])
+  })
+  const predicted = scores.indexOf(Math.max(...scores))
+  const target = VOCABULARY.findIndex((value) => value === text)
+  const grad = new Float32Array(net.neurons.length)
+  VOCABULARY.forEach((_, row) => {
+    const id = net.layers[4][row]
+    act[id] = scores[row]
+    grad[id] = row === predicted ? 1 - scores[row] : 0
+  })
+  // Feedback reflects the actual difference from the closest prepared glyph.
+  for (const id of net.layers[3]) {
+    grad[id] = act[id] - templates[predicted].act[id]
+  }
+  for (let layer = 2; layer >= 1; layer--) {
+    for (const edge of net.gaps[layer]) {
+      grad[edge.from] += grad[edge.to] * edge.weight * 0.25
+    }
   }
   const strongest = (synapses: Synapse[], score: (s: Synapse) => number) =>
     synapses
@@ -397,29 +455,24 @@ function createSample(net: Network, sample: number, raster: Raster): Sample {
   const backward = net.gaps.map((gap) =>
     strongest(gap, (s) => Math.abs(grad[s.to] * s.weight) * (act[s.from] + 0.3))
   )
-  const bitmap = raster(VOCABULARY[target], INPUT.cols, INPUT.rows)
   const lit = [...bitmap.keys()].filter((i) => bitmap[i])
-  const active = net.layers[1].filter((id) => act[id] > 0)
   const taps: Sample['taps'] = []
-  for (let i = 0; i < Math.min(12, lit.length) && active.length; i++) {
-    taps.push([
-      lit[Math.floor(hash(sample * 41 + i) * lit.length)],
-      active[Math.floor(hash(sample * 43 + i) * active.length)],
-    ])
+  for (let i = 0; i < Math.min(12, lit.length); i++) {
+    const pixel = lit[Math.floor((i * lit.length) / Math.min(12, lit.length))]
+    const col = Math.min(
+      HIDDEN.cols - 1,
+      Math.floor((pixel % INPUT.cols) / (INPUT.cols / HIDDEN.cols))
+    )
+    const row = Math.min(
+      HIDDEN.rows - 1,
+      Math.floor(Math.floor(pixel / INPUT.cols) / (INPUT.rows / HIDDEN.rows))
+    )
+    taps.push([pixel, net.layers[1][col * HIDDEN.rows + row]])
   }
-  // Pixels near the stroke receive gradient "noise", the way saliency looks.
+  // The highlighted pixels are the actual mismatch with the closest template.
   const saliency = new Float32Array(bitmap.length)
   for (let i = 0; i < bitmap.length; i++) {
-    const col = i % INPUT.cols
-    const near =
-      bitmap[i] ||
-      bitmap[i - 1] ||
-      bitmap[i + 1] ||
-      bitmap[i - INPUT.cols] ||
-      bitmap[i + INPUT.cols] ||
-      (col > 1 && bitmap[i - 2])
-    const h = hash(sample * 7 + i * 3)
-    if (near && h > 0.45) saliency[i] = (h - 0.45) / 0.55
+    saliency[i] = Math.abs(bitmap[i] - templates[predicted].bitmap[i])
   }
   return {
     target,
@@ -434,29 +487,30 @@ function createSample(net: Network, sample: number, raster: Raster): Sample {
   }
 }
 
-/** Builds each training frame: token intake, forward pass, prediction and backpropagation. */
+/** Draws a fixed feature comparison for the token that the visitor supplied. */
 export function createTrainingScene(
   net: Network = createNetwork(),
-  raster: Raster = rasterizeToken
+  raster: Raster = rasterizeToken,
+  palette: CorePalette = PALETTE
 ) {
+  const templates = VOCABULARY.map((text) => {
+    const bitmap = raster(text, INPUT.cols, INPUT.rows)
+    return { bitmap, act: hiddenFeatures(net, bitmap) }
+  })
+  let selected = 'api'
   let cached: Sample | null = null
-  let cachedIndex = -1
-  const sampleFor = (index: number) => {
-    if (!cached || cachedIndex !== index) {
-      cached = createSample(net, index, raster)
-      cachedIndex = index
-    }
-    return cached
-  }
+  const sampleFor = () =>
+    (cached ??= createSample(net, selected, raster, templates))
   const neuron = (id: number) => net.neurons[id].position
   const barEnd = (row: number, value: number) =>
     point(BAR_X + 0.05 + value * BAR_LENGTH, neuron(net.layers[4][row]).y, 0)
 
-  return (sink: SceneSink, time: number) => {
+  const render = (sink: SceneSink, time: number) => {
     const clock = trainingClock(time)
-    const s = sampleFor(clock.sample)
+    const s = sampleFor()
     const live = 1 - clock.fade
     const forwardFade = 1 - 0.75 * ramp(0.58, 0.68, clock.t)
+    const mismatch = Math.max(0, 1 - s.act[net.layers[4][s.predicted]])
 
     // Token cloud: a slow orbit of vocabulary around the network.
     for (const [index, token] of net.cloud.entries()) {
@@ -484,8 +538,8 @@ export function createTrainingScene(
       const e = clock.intake
       sink.token(
         lerp(start, landing, e * e * (3 - 2 * e)),
-        VOCABULARY[s.target],
-        PALETTE.cyan,
+        selected,
+        palette.highlight,
         (0.35 + e * 0.65) * (1 - clock.reveal),
         0.2 + e * 0.46
       )
@@ -503,7 +557,7 @@ export function createTrainingScene(
       point(INPUT.x - half.w, half.h, 0),
     ]
     corners.forEach((corner, i) =>
-      sink.segment(corner, corners[(i + 1) % 4], PALETTE.idle, 0.9, 1.5)
+      sink.segment(corner, corners[(i + 1) % 4], palette.idle, 0.9, 1.5)
     )
     const backIntoInput = ramp(0.9, -0.1, clock.backward)
     s.bitmap.forEach((on, i) => {
@@ -514,7 +568,7 @@ export function createTrainingScene(
       if (shown) {
         sink.sprite(
           p,
-          mix(PALETTE.ink, PALETTE.pink, heat * 0.5),
+          mix(palette.ink, palette.feedback, heat * 0.5),
           live,
           INPUT.cell,
           Shape.pixel
@@ -522,13 +576,13 @@ export function createTrainingScene(
       } else if (heat > 0.05) {
         sink.sprite(
           p,
-          mix(PALETTE.crimson, PALETTE.pink, heat),
+          mix(palette.feedbackDeep, palette.feedback, heat),
           heat * live,
           INPUT.cell,
           Shape.pixel
         )
       } else {
-        sink.sprite(p, PALETTE.lattice, 0.4, INPUT.cell * 0.36, Shape.pixel)
+        sink.sprite(p, palette.lattice, 0.4, INPUT.cell * 0.36, Shape.pixel)
       }
     })
     if (clock.reveal > 0 && clock.reveal < 1) {
@@ -536,7 +590,7 @@ export function createTrainingScene(
       sink.segment(
         point(x, -half.h, 0.01),
         point(x, half.h, 0.01),
-        PALETTE.cyan,
+        palette.highlight,
         0.9,
         2,
         true
@@ -548,10 +602,12 @@ export function createTrainingScene(
       const updating =
         clock.backward <= dot.gap + 1 && clock.backward >= dot.gap - 0.4
       const flicker =
-        updating && hash(dot.seed + Math.floor(time * 14) * 977) > 0.78
+        mismatch > 0.01 &&
+        updating &&
+        hash(dot.seed + Math.floor(time * 14) * 977) > 0.78
       sink.sprite(
         dot.position,
-        flicker ? PALETTE.pink : PALETTE.lattice,
+        flicker ? palette.feedback : palette.lattice,
         flicker ? 0.9 * live : 0.42,
         0.034,
         Shape.pixel
@@ -564,8 +620,8 @@ export function createTrainingScene(
         sink.segment(
           neuron(synapse.from),
           neuron(synapse.to),
-          PALETTE.wire,
-          0.55,
+          palette.wire,
+          0.38,
           1
         )
       }
@@ -588,7 +644,7 @@ export function createTrainingScene(
       const alpha = tail * (0.45 + 0.55 * strength) * live * forwardFade
       if (alpha < 0.02) return
       const head = lerp(a, b, u)
-      const color = mix(PALETTE.blue, PALETTE.cyan, Math.abs(weight))
+      const color = mix(palette.forward, palette.highlight, Math.abs(weight))
       sink.segment(
         a,
         head,
@@ -598,7 +654,15 @@ export function createTrainingScene(
         true
       )
       if (u < 1) {
-        sink.sprite(head, PALETTE.cyan, 0.95 * live, 0.2, Shape.glow, 1, true)
+        sink.sprite(
+          head,
+          palette.highlight,
+          0.95 * live,
+          0.2,
+          Shape.glow,
+          1,
+          true
+        )
       }
     }
     const backwardEdge = (
@@ -619,18 +683,28 @@ export function createTrainingScene(
       sink.segment(
         b,
         head,
-        sign > 0 ? PALETTE.pink : PALETTE.cyan,
+        sign > 0 ? palette.feedback : palette.highlight,
         alpha,
         strength > 0.6 ? 2.6 : 1.8,
         true
       )
       if (u < 1) {
-        sink.sprite(head, PALETTE.pink, 0.95 * live, 0.2, Shape.glow, 1, true)
+        sink.sprite(
+          head,
+          palette.feedback,
+          0.95 * live,
+          0.2,
+          Shape.glow,
+          1,
+          true
+        )
       }
     }
     for (const [pixel, target] of s.taps) {
       forwardEdge(net.pixels[pixel], neuron(target), 0, 0.5, 0.6)
-      backwardEdge(net.pixels[pixel], neuron(target), 0, 1, 0.5)
+      if (s.saliency[pixel]) {
+        backwardEdge(net.pixels[pixel], neuron(target), 0, 1, 0.5)
+      }
     }
     for (let g = 1; g <= 3; g++) {
       for (const synapse of s.forward[g]) {
@@ -660,7 +734,7 @@ export function createTrainingScene(
       if (tapping > 0.01) {
         sink.sprite(
           net.pixels[pixel],
-          PALETTE.cyan,
+          palette.highlight,
           tapping * live,
           INPUT.cell * 2.2,
           Shape.frame
@@ -669,7 +743,7 @@ export function createTrainingScene(
       if (blaming > 0.01) {
         sink.sprite(
           net.pixels[pixel],
-          PALETTE.pink,
+          palette.feedback,
           blaming,
           INPUT.cell * 2.2,
           Shape.frame
@@ -689,13 +763,13 @@ export function createTrainingScene(
       const b =
         Math.abs(s.grad[n.id]) * ramp(d + 0.3, d - 0.05, clock.backward) * live
       let color = mix(
-        PALETTE.idle,
-        mix(PALETTE.blue, PALETTE.cyan, flash),
+        palette.idle,
+        mix(palette.forward, palette.highlight, flash),
         Math.min(1, f * 1.6)
       )
       color = mix(
         color,
-        mix(PALETTE.crimson, PALETTE.pink, b),
+        mix(palette.feedbackDeep, palette.feedback, b),
         Math.min(1, b * 1.8)
       )
       const size = d === 4 ? 0.24 : 0.28
@@ -710,7 +784,7 @@ export function createTrainingScene(
       if (f > 0.55 && b < 0.2) {
         sink.sprite(
           n.position,
-          PALETTE.blue,
+          palette.forward,
           f * 0.35,
           size * 2.2,
           Shape.glow,
@@ -729,19 +803,19 @@ export function createTrainingScene(
       sink.label(
         point(OUTPUT_X + 0.16, p.y, 0),
         text,
-        chosen && clock.predict > 0.5 ? PALETTE.ink : PALETTE.muted,
+        chosen && clock.predict > 0.5 ? palette.ink : palette.muted,
         chosen ? 0.6 + 0.4 * clock.predict : 0.75,
         0.15
       )
       sink.segment(
         point(BAR_X, p.y, 0),
         barEnd(row, value),
-        chosen ? PALETTE.cyan : PALETTE.blue,
+        chosen ? palette.highlight : palette.forward,
         0.45 + value * 0.55,
         3,
         chosen
       )
-      sink.segment(barEnd(row, 0), LOSS, PALETTE.wire, 0.7, 1, false, 3)
+      sink.segment(barEnd(row, 0), LOSS, palette.wire, 0.7, 1, false, 3)
       const g = s.grad[id]
       if (g) {
         const u = clamp(5 - clock.backward)
@@ -752,7 +826,7 @@ export function createTrainingScene(
           sink.segment(
             LOSS,
             head,
-            g > 0 ? PALETTE.pink : PALETTE.cyan,
+            g > 0 ? palette.feedback : palette.highlight,
             tail * Math.abs(g) * live,
             2,
             true
@@ -760,7 +834,7 @@ export function createTrainingScene(
           if (u < 1) {
             sink.sprite(
               head,
-              PALETTE.pink,
+              palette.feedback,
               0.95 * live,
               0.2,
               Shape.glow,
@@ -774,7 +848,7 @@ export function createTrainingScene(
 
     // Prediction box and loss diamond.
     const correct = s.predicted === s.target
-    const verdict = correct ? PALETTE.cyan : PALETTE.pink
+    const verdict = correct ? palette.highlight : palette.feedback
     const box = [
       point(
         PREDICTION.x - PREDICTION.w / 2,
@@ -799,7 +873,7 @@ export function createTrainingScene(
     ]
     const shown = clock.predict * live
     box.forEach((corner, i) => {
-      sink.segment(corner, box[(i + 1) % 4], PALETTE.idle, 0.9, 1.5)
+      sink.segment(corner, box[(i + 1) % 4], palette.idle, 0.9, 1.5)
       if (shown > 0.01) {
         sink.segment(corner, box[(i + 1) % 4], verdict, shown * 0.8, 1.5, true)
       }
@@ -824,12 +898,12 @@ export function createTrainingScene(
     }
     const loss =
       clock.backward <= 5.2
-        ? Math.exp(-Math.abs(clock.backward - 4.6) * 1.4)
+        ? Math.exp(-Math.abs(clock.backward - 4.6) * 1.4) * mismatch
         : 0
-    const severity = correct ? 0.45 : 1
+    const severity = mismatch
     sink.sprite(
       LOSS,
-      mix(PALETTE.crimson, PALETTE.pink, loss),
+      mix(palette.feedbackDeep, palette.feedback, loss),
       0.95,
       0.3,
       Shape.diamond,
@@ -838,7 +912,7 @@ export function createTrainingScene(
     if (loss > 0.05) {
       sink.sprite(
         LOSS,
-        PALETTE.pink,
+        palette.feedback,
         loss * severity * 0.55 * live,
         0.9,
         Shape.glow,
@@ -847,6 +921,13 @@ export function createTrainingScene(
       )
     }
   }
+  return Object.assign(render, {
+    setToken(text: string) {
+      selected = text
+      cached = null
+      return VOCABULARY[sampleFor().predicted]
+    },
+  })
 }
 
 export type TrainingScene = ReturnType<typeof createTrainingScene>

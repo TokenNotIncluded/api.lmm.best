@@ -90,7 +90,7 @@ async function invalidateOptionQueries(
       queryClient.invalidateQueries({ queryKey: ['assistant-status'] })
     )
   }
-  if (changedKeys.includes('HeaderNavModules')) {
+  if (changedKeys.includes('AIDirectoryLinks')) {
     refreshes.push(
       queryClient.invalidateQueries({ queryKey: ['ai-directory'] })
     )

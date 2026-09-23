@@ -757,7 +757,9 @@ describe('Primary next step follows account access', () => {
       '/sign-in?redirect=%2Fgetting-started'
     )
     assert.ok(
-      ready.container.textContent?.includes('Payment does not unlock access.')
+      ready.container.textContent?.includes(
+        'unlocks developer access (L1) automatically.'
+      )
     )
     await unmountHome(ready)
   })

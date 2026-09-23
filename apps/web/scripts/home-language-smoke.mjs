@@ -71,16 +71,16 @@ const assertHeadline = async (text) => {
 }
 try {
   await page.goto(`${origin}/`, { waitUntil: 'networkidle' })
-  await assertHeadline('把时间留给下一个想法。')
+  await assertHeadline('把时间，留给下一个想法。')
   const rejectConsent = page.getByRole('button', {
     name: '不收集',
     exact: true,
   })
   if (await rejectConsent.isVisible()) await rejectConsent.click()
   for (const [label, code, title] of [
-    ['繁體中文', 'zhTW', '把時間留給下一個想法。'],
+    ['繁體中文', 'zhTW', '把時間，留給下一個想法。'],
     ['English', 'en', 'Make room for your next idea.'],
-    ['简体中文', 'zhCN', '把时间留给下一个想法。'],
+    ['简体中文', 'zhCN', '把时间，留给下一个想法。'],
   ]) {
     await page
       .getByRole('button', {
@@ -104,7 +104,7 @@ try {
     'zhCN'
   )
   await page.goBack({ waitUntil: 'networkidle' })
-  await assertHeadline('把时间留给下一个想法。')
+  await assertHeadline('把时间，留给下一个想法。')
   assert.deepEqual(pageErrors, [])
   console.log(
     JSON.stringify({

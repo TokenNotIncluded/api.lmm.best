@@ -357,7 +357,7 @@ func mainMigrationModels() []interface{} {
 		&FinanceLedgerEntry{}, &FinancePaymentMethod{},
 		&HeroSMSEmailOrder{}, &HeroSMSEmailActivation{}, &HeroSMSEmailQuotaLedger{}, &HeroSMSSMSOrder{}, &HeroSMSSMSQuotaLedger{}, &HeroSMSProviderPurchaseLease{},
 		&ReleaseNote{}, &ReleaseNoteRead{}, &AnnouncementRead{}, &AcquisitionLink{}, &AcquisitionVisitor{}, &AcquisitionVisit{}, &AcquisitionAccount{}, &AcquisitionConfig{}, &AcquisitionAttributionPolicy{}, &AcquisitionFirstPayment{}, &AcquisitionActivity{}, &AcquisitionActivityState{}, &AcquisitionConsent{}, &AcquisitionSelfReport{}, &AcquisitionCost{}, &AcquisitionCorrection{}, &AcquisitionCorrectionHead{}, &AcquisitionActivityGap{}, &UnifiedTodoRead{}, &L1OnboardingTodo{},
-		&PublicRelayContribution{}, &PublicRelayReport{}, &PublicRelayTip{}, &PublicRelayReview{}, &PublicRelayPreference{},
+		&PublicRelayContribution{}, &PublicRelayReport{}, &PublicRelayTip{}, &PublicRelayReview{}, &PublicRelayPreference{}, &AIDirectoryAd{},
 	}, toolMarketModels()...)
 }
 
@@ -595,6 +595,7 @@ func migrateDBFast() error {
 		{&PublicRelayTip{}, "PublicRelayTip"},
 		{&PublicRelayReview{}, "PublicRelayReview"},
 		{&PublicRelayPreference{}, "PublicRelayPreference"},
+		{&AIDirectoryAd{}, "AIDirectoryAd"},
 	}
 	// 动态计算migration数量，确保errChan缓冲区足够大
 	for _, marketModel := range toolMarketModels() {

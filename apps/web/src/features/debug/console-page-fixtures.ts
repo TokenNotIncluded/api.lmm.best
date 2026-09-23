@@ -219,6 +219,9 @@ const reads: Record<string, unknown> = {
     { key: 'SystemName', value: 'LMM Best' },
     { key: 'QuotaPerUnit', value: '500000' },
   ],
+  '/api/ai-directory/ads': { items: [], has_more: false, next_offset: 0 },
+  '/api/ai-directory/ads/mine': { items: [] },
+  '/api/ai-directory': { links: null },
 }
 
 export function consolePageFixture(
@@ -229,6 +232,66 @@ export function consolePageFixture(
   if (url.origin !== window.location.origin) return undefined
   const user = useAuthStore.getState().auth.user
   const path = url.pathname
+  if (
+    path === '/api/ai-directory/ads' &&
+    new URLSearchParams(window.location.search).get('ads_preview') === '1'
+  ) {
+    const now = Math.floor(Date.now() / 1000)
+    return {
+      success: true,
+      data: {
+        items: [
+          {
+            id: 1,
+            name: 'Example Studio',
+            url: 'https://example.com',
+            summary: 'A sample promoted creative workspace.',
+            description: 'Synthetic preview placement for layout review.',
+            bid_cents: 500,
+            charged_quota: 2500000,
+            status: 'active',
+            paid_at: now - 60,
+            expires_at: now + 30 * 86400,
+            hidden_at: 0,
+            refunded_at: 0,
+          },
+          {
+            id: 2,
+            name: 'Research Notes',
+            url: 'https://example.org',
+            summary: 'A sample promoted research resource.',
+            description: '',
+            bid_cents: 150,
+            charged_quota: 750000,
+            status: 'active',
+            paid_at: now - 30,
+            expires_at: now + 30 * 86400,
+            hidden_at: 0,
+            refunded_at: 0,
+          },
+        ],
+        has_more: false,
+        next_offset: 2,
+      },
+    }
+  }
+  if (path === '/api/ai-directory/ads/quote') {
+    const bidCents = Number(url.searchParams.get('bid_cents'))
+    if (!Number.isInteger(bidCents) || bidCents < 100 || bidCents > 1_000_000) {
+      return undefined
+    }
+    return {
+      success: true,
+      data: {
+        bid_cents: bidCents,
+        quota: bidCents * 5000,
+        currency: 'USD',
+        duration_days: 30,
+        min_bid_cents: 100,
+        max_bid_cents: 1_000_000,
+      },
+    }
+  }
   if (path === '/api/todos') {
     const category = url.searchParams.get('category') || 'all'
     return {

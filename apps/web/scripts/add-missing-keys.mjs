@@ -31,6 +31,7 @@ import { drawingMcpExtraCopy } from './drawing-mcp-extra-copy.mjs'
 import { drawingWalletCopy } from './drawing-wallet-copy.mjs'
 import { dshGuideCopy } from './dsh-guide-copy.mjs'
 import { homeEditorialCopy } from './home-editorial-copy.mjs'
+import { homeTokenCopy } from './home-token-copy.mjs'
 import { passkeyCopy } from './passkey-copy.mjs'
 import { paymentPricingCopy } from './payment-pricing-copy.mjs'
 import { piGuideCopy } from './pi-guide-copy.mjs'
@@ -11840,6 +11841,7 @@ async function main() {
   // Allow scoped additions without overwriting unrelated in-progress translations.
   const paymentOnly = process.argv.includes('--only-payment-pricing')
   const homeOnly = process.argv.includes('--only-home-editorial')
+  const homeTokenOnly = process.argv.includes('--only-home-token')
   const waitOnly = process.argv.includes('--only-wait-companion')
   const assistantToolOnly = process.argv.includes('--only-assistant-tool')
   const experienceOnly = process.argv.includes('--only-experience')
@@ -11877,60 +11879,63 @@ async function main() {
     experienceOnly ||
     paymentOnly ||
     homeOnly ||
+    homeTokenOnly ||
     waitOnly ||
     assistantToolOnly
-  const entries = passkeyOnly
-    ? passkeyCopy
-    : operationsFinishOnly
-      ? operationsFinishCopy
-      : fixedGroupOnly
-        ? fixedGroupCopy
-        : keyFollowthroughOnly
-          ? keyFollowthroughCopy
-          : competitionOnly
-            ? Object.fromEntries(
-                Object.entries(signalCompetitionKeys).map(
-                  ([locale, values]) => [
-                    locale,
-                    Object.fromEntries(
-                      Object.entries(values).filter(
-                        ([key]) => !['Account', 'Public'].includes(key)
-                      )
-                    ),
-                  ]
+  const entries = homeTokenOnly
+    ? homeTokenCopy
+    : passkeyOnly
+      ? passkeyCopy
+      : operationsFinishOnly
+        ? operationsFinishCopy
+        : fixedGroupOnly
+          ? fixedGroupCopy
+          : keyFollowthroughOnly
+            ? keyFollowthroughCopy
+            : competitionOnly
+              ? Object.fromEntries(
+                  Object.entries(signalCompetitionKeys).map(
+                    ([locale, values]) => [
+                      locale,
+                      Object.fromEntries(
+                        Object.entries(values).filter(
+                          ([key]) => !['Account', 'Public'].includes(key)
+                        )
+                      ),
+                    ]
+                  )
                 )
-              )
-            : costOnly
-              ? acquisitionCostCopy
-              : clientsOnly
-                ? clientPresetsCopy
-                : feedbackOnly
-                  ? sourceFeedbackCopy
-                  : logRecoveryOnly
-                    ? logRecoveryCopy
-                    : statusOnly
-                      ? modelStatusCopy
-                      : parallelOnly
-                        ? parallelExperienceCopy
-                        : estimateOnly
-                          ? requestEstimateCopy
-                          : activityOnly
-                            ? acquisitionActivityCopy
-                            : toolMarketOnly
-                              ? toolMarketCopy
-                              : acquisitionOnly
-                                ? acquisitionCopy
-                                : experienceOnly
-                                  ? experienceCopy
-                                  : paymentOnly
-                                    ? paymentPricingCopy
-                                    : homeOnly
-                                      ? homeEditorialCopy
-                                      : waitOnly
-                                        ? waitCompanionCopy
-                                        : assistantToolOnly
-                                          ? assistantToolCopy
-                                          : newKeys
+              : costOnly
+                ? acquisitionCostCopy
+                : clientsOnly
+                  ? clientPresetsCopy
+                  : feedbackOnly
+                    ? sourceFeedbackCopy
+                    : logRecoveryOnly
+                      ? logRecoveryCopy
+                      : statusOnly
+                        ? modelStatusCopy
+                        : parallelOnly
+                          ? parallelExperienceCopy
+                          : estimateOnly
+                            ? requestEstimateCopy
+                            : activityOnly
+                              ? acquisitionActivityCopy
+                              : toolMarketOnly
+                                ? toolMarketCopy
+                                : acquisitionOnly
+                                  ? acquisitionCopy
+                                  : experienceOnly
+                                    ? experienceCopy
+                                    : paymentOnly
+                                      ? paymentPricingCopy
+                                      : homeOnly
+                                        ? homeEditorialCopy
+                                        : waitOnly
+                                          ? waitCompanionCopy
+                                          : assistantToolOnly
+                                            ? assistantToolCopy
+                                            : newKeys
   const selectedEntries = passkeyOnly ? passkeyCopy : entries
   let totalAdded = 0
   for (const [locale, baseTranslations] of Object.entries(selectedEntries)) {
@@ -11941,6 +11946,7 @@ async function main() {
           ...apiKeySourceCopy[locale],
           ...paymentPricingCopy[locale],
           ...homeEditorialCopy[locale],
+          ...homeTokenCopy[locale],
           ...drawingWalletCopy[locale],
           ...piOAuthCopy[locale],
           ...assistantSettingsCopy[locale],

@@ -26,7 +26,10 @@ type LmmBrandMarkProps = SVGProps<SVGSVGElement> & {
   title?: string
 }
 
-/** A quiet angular monogram for the LMM Best identity. */
+/**
+ * LMM monogram: the L is a corner bracket that holds two Ms sharing one
+ * middle leg — many models behind one endpoint.
+ */
 export function LmmBrandMark({
   className,
   title,
@@ -44,18 +47,18 @@ export function LmmBrandMark({
       {...props}
     >
       <path
-        d='M10 39V16l18 18 18-18v23'
+        d='M18 39V17l7 11 7-11 7 11 7-11v22M32 17v22'
         fill='none'
         stroke='var(--forge-brand-mark-ink, currentColor)'
-        strokeWidth='3.5'
-        strokeLinecap='square'
-        strokeLinejoin='round'
+        strokeWidth='4'
+        strokeLinejoin='miter'
+        strokeMiterlimit='10'
       />
       <path
-        d='M12 45h32'
+        d='M9 8v39h39'
         fill='none'
         stroke='var(--forge-brand-mark-accent, currentColor)'
-        strokeWidth='2.5'
+        strokeWidth='4'
         strokeLinecap='square'
       />
     </svg>

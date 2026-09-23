@@ -1,7 +1,13 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { ArrowUpRight, Globe2, Search, Settings2 } from 'lucide-react'
+import {
+  ArrowUpRight,
+  Globe2,
+  Search,
+  Settings2,
+  ShieldCheck,
+} from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -20,6 +26,7 @@ import {
   type AIDirectoryCategory,
   type AIDirectoryLink,
 } from './api'
+import { SponsoredDirectorySection } from './sponsored-section'
 
 import './style.css'
 
@@ -40,6 +47,7 @@ const iconByID: Record<string, string> = {
 const categoryLabels: Record<AIDirectoryCategory, string> = {
   chat: 'Chat assistants',
   research: 'Research',
+  resources: 'Useful resources',
   developer: 'Developer tools',
   creative: 'Creative tools',
   other: 'More websites',
@@ -133,6 +141,8 @@ export function AIDirectory() {
           <Button
             variant='outline'
             size='sm'
+            aria-label={t('Manage websites')}
+            title={t('Manage websites')}
             render={
               <Link
                 to='/system-settings/site/$section'
@@ -141,7 +151,22 @@ export function AIDirectory() {
             }
           >
             <Settings2 data-icon='inline-start' />
-            {t('Manage websites')}
+            <span className='hidden sm:inline'>{t('Manage websites')}</span>
+          </Button>
+          <Button
+            variant='outline'
+            size='sm'
+            aria-label={t('Manage ads')}
+            title={t('Manage ads')}
+            render={
+              <Link
+                to='/system-settings/site/$section'
+                params={{ section: 'ai-directory-ads' }}
+              />
+            }
+          >
+            <ShieldCheck data-icon='inline-start' />
+            <span className='hidden sm:inline'>{t('Manage ads')}</span>
           </Button>
         </SectionPageLayout.Actions>
       )}
@@ -161,21 +186,23 @@ export function AIDirectory() {
             </div>
           </div>
 
+          <SponsoredDirectorySection />
+
           <div className='ai-directory-tools'>
             <label className='ai-directory-search'>
               <Search size={18} aria-hidden='true' />
-              <span className='sr-only'>{t('Search websites')}</span>
+              <span className='sr-only'>{t('Search curated websites')}</span>
               <Input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder={t('Search websites')}
+                placeholder={t('Search curated websites')}
                 type='search'
               />
             </label>
             <div
               className='ai-directory-filters'
               role='group'
-              aria-label={t('Filter websites')}
+              aria-label={t('Filter curated websites')}
             >
               <button
                 type='button'

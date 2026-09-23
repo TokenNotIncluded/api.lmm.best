@@ -1,9 +1,10 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
-import { getStatus } from '@/lib/api'
+import { api } from '@/lib/api'
 
 export const AI_DIRECTORY_CATEGORIES = [
   'chat',
   'research',
+  'resources',
   'developer',
   'creative',
   'other',
@@ -81,6 +82,46 @@ export const DEFAULT_AI_DIRECTORY_LINKS: AIDirectoryLink[] = [
     enabled: true,
   },
   {
+    id: 'codexreset',
+    name: 'Codex Reset',
+    url: 'https://codexreset.dev',
+    category: 'resources',
+    summary: 'Codex reset and quota tracker',
+    description:
+      'A community site for reset history, quota countdowns, and personal reminders. It is not an OpenAI service.',
+    enabled: true,
+  },
+  {
+    id: 'openai-status',
+    name: 'OpenAI Status',
+    url: 'https://status.openai.com',
+    category: 'resources',
+    summary: 'Official service status',
+    description:
+      'Check current incidents and service history for ChatGPT, Codex, and OpenAI APIs.',
+    enabled: true,
+  },
+  {
+    id: 'codexradar',
+    name: 'Codex Radar',
+    url: 'https://codexradar.com',
+    category: 'resources',
+    summary: 'Community Codex radar',
+    description:
+      'Follow community observations about Codex resets, usage, and model news. Unofficial information should be checked against OpenAI.',
+    enabled: true,
+  },
+  {
+    id: 'reset-radar',
+    name: 'Codex Reset Radar',
+    url: 'https://codex-reset-radar.sumerchaser.top',
+    category: 'resources',
+    summary: 'Reset signal monitor',
+    description:
+      'A community maintained radar for public Codex reset signals and source links.',
+    enabled: true,
+  },
+  {
     id: 'copilot',
     name: 'Microsoft Copilot',
     url: 'https://copilot.microsoft.com',
@@ -150,16 +191,7 @@ export function safeDirectoryUrl(value: string): string | null {
 export function parseDirectoryLinks(value: string): AIDirectoryLink[] | null {
   if (!value.trim()) return DEFAULT_AI_DIRECTORY_LINKS
   try {
-    const container: unknown = JSON.parse(value)
-    if (
-      !container ||
-      typeof container !== 'object' ||
-      Array.isArray(container)
-    ) {
-      return null
-    }
-    const parsed = (container as Record<string, unknown>).aiDirectoryLinks
-    if (parsed === undefined) return DEFAULT_AI_DIRECTORY_LINKS
+    const parsed: unknown = JSON.parse(value)
     if (!Array.isArray(parsed)) return null
     if (
       parsed.some(
@@ -200,10 +232,13 @@ export function parseDirectoryLinks(value: string): AIDirectoryLink[] | null {
 }
 
 export async function getAIDirectory(): Promise<AIDirectoryLink[]> {
-  const status = await getStatus()
-  const raw = status.HeaderNavModules
-  return (
-    parseDirectoryLinks(typeof raw === 'string' ? raw : '') ??
-    DEFAULT_AI_DIRECTORY_LINKS
-  )
+  const response = await api.get<{
+    success: boolean
+    data: { links: AIDirectoryLink[] | null }
+  }>('/api/ai-directory')
+  if (!response.data.success) throw new Error('Unable to load AI directory')
+  const links = response.data.data.links
+  return links === null
+    ? DEFAULT_AI_DIRECTORY_LINKS
+    : (parseDirectoryLinks(JSON.stringify(links)) ?? DEFAULT_AI_DIRECTORY_LINKS)
 }

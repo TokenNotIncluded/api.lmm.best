@@ -436,7 +436,6 @@ For commercial licensing, please contact support@quantumnous.com
     var(--forge-ink-light) 68%,
     transparent
   );
-  --forge-brand-mark-accent: var(--forge-header-ink);
 }
 
 .dark .forge-public-header,
@@ -453,7 +452,6 @@ For commercial licensing, please contact support@quantumnous.com
     var(--forge-foreground-dark) 68%,
     transparent
   );
-  --forge-brand-mark-accent: var(--forge-header-ink);
 }
 
 .forge-public-nav {

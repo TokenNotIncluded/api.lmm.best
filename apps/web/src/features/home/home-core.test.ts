@@ -14,6 +14,7 @@ import {
   projectPoint,
   SCENE_TEXT,
   trainingClock,
+  VOCABULARY,
   type CorePoint,
   type SceneSink,
 } from './home-core'
@@ -86,10 +87,26 @@ test('every emitted frame stays finite, uses known text and shows both passes', 
       assert.ok(Math.abs(p.x) < 10 && Math.abs(p.y) < 10 && Math.abs(p.z) < 10)
     }
     for (const value of text) assert.ok(SCENE_TEXT.includes(value), value)
-    forwardSeen ||= colors.includes(PALETTE.cyan)
-    backwardSeen ||= colors.includes(PALETTE.pink)
+    forwardSeen ||= colors.includes(PALETTE.highlight)
+    backwardSeen ||= colors.includes(PALETTE.feedback)
   }
   assert.ok(forwardSeen && backwardSeen)
+})
+
+test('the chosen bitmap determines the closest output instead of the animation cycle', () => {
+  const raster = (text: string, cols: number, rows: number) => {
+    const bitmap = new Uint8Array(cols * rows)
+    const input = text === 'unknown-api' ? 'api' : text
+    const index = VOCABULARY.indexOf(input as (typeof VOCABULARY)[number])
+    if (index >= 0) bitmap[index * 37 + 5] = 1
+    return bitmap
+  }
+  const scene = createTrainingScene(createNetwork(), raster)
+  assert.equal(scene.setToken('api'), 'api')
+  assert.equal(scene.setToken('gpt'), 'gpt')
+  assert.equal(scene.setToken('unknown-api'), 'api')
+  assert.equal(scene.setToken('token'), 'tok')
+  assert.equal(scene.setToken('api'), 'api')
 })
 
 test('the camera keeps the network on screen through the scroll orbit', () => {

@@ -170,6 +170,7 @@ export function ForgeHome() {
     <ForgePublicShell>
       <HomeLanding
         rootRef={rootRef}
+        language={presetLanguage}
         connectionMethod={connectionMethod}
         onConnectionMethodChange={setConnectionMethod}
         t={t}
