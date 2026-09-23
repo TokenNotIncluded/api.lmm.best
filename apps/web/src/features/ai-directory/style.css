@@ -120,7 +120,9 @@
   color: var(--muted-foreground);
   font-size: 0.84rem;
   font-weight: 600;
-  transition: background-color 150ms, color 150ms;
+  transition:
+    background-color 150ms,
+    color 150ms;
   cursor: pointer;
 }
 
@@ -178,7 +180,10 @@
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--card);
-  transition: border-color 170ms, background-color 170ms, transform 170ms;
+  transition:
+    border-color 170ms,
+    background-color 170ms,
+    transform 170ms;
 }
 
 .ai-directory-item:hover {
@@ -232,7 +237,9 @@
   place-items: center;
   border-radius: 9px;
   color: var(--muted-foreground);
-  transition: background-color 150ms, color 150ms;
+  transition:
+    background-color 150ms,
+    color 150ms;
 }
 
 .ai-directory-visit:hover {
@@ -278,14 +285,24 @@
 }
 
 @media (max-width: 760px) {
-  .ai-directory-intro-symbol { display: none; }
-  .ai-directory-grid { grid-template-columns: 1fr; }
-  .ai-directory-search { width: 100%; }
+  .ai-directory-intro-symbol {
+    display: none;
+  }
+  .ai-directory-grid {
+    grid-template-columns: 1fr;
+  }
+  .ai-directory-search {
+    width: 100%;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .ai-directory-item,
   .ai-directory-filters button,
-  .ai-directory-visit { transition: none; }
-  .ai-directory-item:hover { transform: none; }
+  .ai-directory-visit {
+    transition: none;
+  }
+  .ai-directory-item:hover {
+    transform: none;
+  }
 }

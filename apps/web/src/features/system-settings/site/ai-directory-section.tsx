@@ -65,9 +65,9 @@ export function AIDirectorySection({ initialValue }: { initialValue: string }) {
   }, [initialLinks])
 
   const updateLink = (id: string, patch: Partial<AIDirectoryLink>) => {
-    setLinks((current) => current.map((link) =>
-      link.id === id ? { ...link, ...patch } : link
-    ))
+    setLinks((current) =>
+      current.map((link) => (link.id === id ? { ...link, ...patch } : link))
+    )
     setErrors((current) => {
       if (!current[id]) return current
       const next = { ...current }
@@ -124,8 +124,12 @@ export function AIDirectorySection({ initialValue }: { initialValue: string }) {
     try {
       const response = await getSystemOptions()
       if (!response.success) throw new Error('Unable to read current settings')
-      const currentValue = response.data.find((item) => item.key === 'HeaderNavModules')?.value ?? initialValue
-      const parsed: unknown = currentValue.trim() ? JSON.parse(currentValue) : {}
+      const currentValue =
+        response.data.find((item) => item.key === 'HeaderNavModules')?.value ??
+        initialValue
+      const parsed: unknown = currentValue.trim()
+        ? JSON.parse(currentValue)
+        : {}
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
         existing = parsed as Record<string, unknown>
       }
@@ -156,17 +160,37 @@ export function AIDirectorySection({ initialValue }: { initialValue: string }) {
       />
       <div className='flex flex-wrap items-start justify-between gap-4'>
         <p className='text-muted-foreground max-w-2xl text-sm leading-relaxed'>
-          {t('Add and arrange websites shown in the Ecosystem directory. Changes are visible to everyone after saving.')}
+          {t(
+            'Add and arrange websites shown in the Ecosystem directory. Changes are visible to everyone after saving.'
+          )}
         </p>
-        <Button type='button' variant='outline' size='sm' onClick={addLink} disabled={links.length >= 60}>
+        <Button
+          type='button'
+          variant='outline'
+          size='sm'
+          onClick={addLink}
+          disabled={links.length >= 60}
+        >
           <Plus data-icon='inline-start' />
           {t('Add website')}
         </Button>
       </div>
       {!initialLinks && (
         <div className='bg-destructive/10 rounded-xl p-4 text-sm'>
-          <p>{t('The saved directory could not be read. Load the preset websites to start again.')}</p>
-          <Button type='button' variant='outline' size='sm' className='mt-3' onClick={() => setLinks(DEFAULT_AI_DIRECTORY_LINKS.map((link) => ({ ...link })))}>
+          <p>
+            {t(
+              'The saved directory could not be read. Load the preset websites to start again.'
+            )}
+          </p>
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            className='mt-3'
+            onClick={() =>
+              setLinks(DEFAULT_AI_DIRECTORY_LINKS.map((link) => ({ ...link })))
+            }
+          >
             {t('Load preset websites')}
           </Button>
         </div>
@@ -184,54 +208,164 @@ export function AIDirectorySection({ initialValue }: { initialValue: string }) {
                 type='button'
                 className='focus-visible:ring-ring min-w-0 flex-1 rounded text-left focus-visible:ring-2'
                 aria-expanded={activeID === link.id}
-                onClick={() => setActiveID(activeID === link.id ? null : link.id)}
+                onClick={() =>
+                  setActiveID(activeID === link.id ? null : link.id)
+                }
               >
-                <span className='block truncate text-sm font-semibold'>{link.name || t('New website')}</span>
-                <span className='text-muted-foreground block truncate text-xs'>{link.url}</span>
+                <span className='block truncate text-sm font-semibold'>
+                  {link.name || t('New website')}
+                </span>
+                <span className='text-muted-foreground block truncate text-xs'>
+                  {link.url}
+                </span>
               </button>
-              {!link.enabled && <span className='text-muted-foreground text-xs'>{t('Hidden from directory')}</span>}
-              <Button type='button' variant='ghost' size='icon-sm' disabled={index === 0} onClick={() => moveLink(index, -1)} aria-label={t('Move {{name}} up', { name: link.name || t('New website') })}>
+              {!link.enabled && (
+                <span className='text-muted-foreground text-xs'>
+                  {t('Hidden from directory')}
+                </span>
+              )}
+              <Button
+                type='button'
+                variant='ghost'
+                size='icon-sm'
+                disabled={index === 0}
+                onClick={() => moveLink(index, -1)}
+                aria-label={t('Move {{name}} up', {
+                  name: link.name || t('New website'),
+                })}
+              >
                 <ArrowUp />
               </Button>
-              <Button type='button' variant='ghost' size='icon-sm' disabled={index === links.length - 1} onClick={() => moveLink(index, 1)} aria-label={t('Move {{name}} down', { name: link.name || t('New website') })}>
+              <Button
+                type='button'
+                variant='ghost'
+                size='icon-sm'
+                disabled={index === links.length - 1}
+                onClick={() => moveLink(index, 1)}
+                aria-label={t('Move {{name}} down', {
+                  name: link.name || t('New website'),
+                })}
+              >
                 <ArrowDown />
               </Button>
-              <Button type='button' variant='ghost' size='icon-sm' onClick={() => setLinks((current) => current.filter((item) => item.id !== link.id))} aria-label={t('Remove {{name}}', { name: link.name || t('New website') })}>
+              <Button
+                type='button'
+                variant='ghost'
+                size='icon-sm'
+                onClick={() =>
+                  setLinks((current) =>
+                    current.filter((item) => item.id !== link.id)
+                  )
+                }
+                aria-label={t('Remove {{name}}', {
+                  name: link.name || t('New website'),
+                })}
+              >
                 <Trash2 />
               </Button>
             </div>
             {activeID === link.id && (
               <div className='bg-muted/25 grid gap-4 border-t p-4 lg:grid-cols-2'>
                 <div className='grid gap-1.5'>
-                  <Label htmlFor={`directory-name-${link.id}`}>{t('Website name')}</Label>
-                  <Input id={`directory-name-${link.id}`} value={link.name} maxLength={80} onChange={(event) => updateLink(link.id, { name: event.target.value })} />
+                  <Label htmlFor={`directory-name-${link.id}`}>
+                    {t('Website name')}
+                  </Label>
+                  <Input
+                    id={`directory-name-${link.id}`}
+                    value={link.name}
+                    maxLength={80}
+                    onChange={(event) =>
+                      updateLink(link.id, { name: event.target.value })
+                    }
+                  />
                 </div>
                 <div className='grid gap-1.5'>
-                  <Label htmlFor={`directory-url-${link.id}`}>{t('Website address')}</Label>
-                  <Input id={`directory-url-${link.id}`} type='url' value={link.url} onChange={(event) => updateLink(link.id, { url: event.target.value })} placeholder='https://example.com' />
+                  <Label htmlFor={`directory-url-${link.id}`}>
+                    {t('Website address')}
+                  </Label>
+                  <Input
+                    id={`directory-url-${link.id}`}
+                    type='url'
+                    value={link.url}
+                    onChange={(event) =>
+                      updateLink(link.id, { url: event.target.value })
+                    }
+                    placeholder='https://example.com'
+                  />
                 </div>
                 <div className='grid gap-1.5'>
-                  <Label htmlFor={`directory-category-${link.id}`}>{t('Category')}</Label>
-                  <NativeSelect className='w-full' id={`directory-category-${link.id}`} value={link.category} onChange={(event) => updateLink(link.id, { category: event.target.value as AIDirectoryCategory })}>
-                    {AI_DIRECTORY_CATEGORIES.map((value) => <NativeSelectOption key={value} value={value}>{t(categoryLabels[value])}</NativeSelectOption>)}
+                  <Label htmlFor={`directory-category-${link.id}`}>
+                    {t('Category')}
+                  </Label>
+                  <NativeSelect
+                    className='w-full'
+                    id={`directory-category-${link.id}`}
+                    value={link.category}
+                    onChange={(event) =>
+                      updateLink(link.id, {
+                        category: event.target.value as AIDirectoryCategory,
+                      })
+                    }
+                  >
+                    {AI_DIRECTORY_CATEGORIES.map((value) => (
+                      <NativeSelectOption key={value} value={value}>
+                        {t(categoryLabels[value])}
+                      </NativeSelectOption>
+                    ))}
                   </NativeSelect>
                 </div>
                 <div className='flex items-center justify-between gap-4 rounded-xl border px-4 py-3'>
                   <div>
-                    <Label htmlFor={`directory-visible-${link.id}`}>{t('Show in directory')}</Label>
-                    <p className='text-muted-foreground mt-1 text-xs'>{t('Hidden websites stay in your configuration.')}</p>
+                    <Label htmlFor={`directory-visible-${link.id}`}>
+                      {t('Show in directory')}
+                    </Label>
+                    <p className='text-muted-foreground mt-1 text-xs'>
+                      {t('Hidden websites stay in your configuration.')}
+                    </p>
                   </div>
-                  <Switch id={`directory-visible-${link.id}`} checked={link.enabled} onCheckedChange={(enabled) => updateLink(link.id, { enabled })} />
+                  <Switch
+                    id={`directory-visible-${link.id}`}
+                    checked={link.enabled}
+                    onCheckedChange={(enabled) =>
+                      updateLink(link.id, { enabled })
+                    }
+                  />
                 </div>
                 <div className='grid gap-1.5 lg:col-span-2'>
-                  <Label htmlFor={`directory-summary-${link.id}`}>{t('Short summary')}</Label>
-                  <Input id={`directory-summary-${link.id}`} value={link.summary} maxLength={180} onChange={(event) => updateLink(link.id, { summary: event.target.value })} />
+                  <Label htmlFor={`directory-summary-${link.id}`}>
+                    {t('Short summary')}
+                  </Label>
+                  <Input
+                    id={`directory-summary-${link.id}`}
+                    value={link.summary}
+                    maxLength={180}
+                    onChange={(event) =>
+                      updateLink(link.id, { summary: event.target.value })
+                    }
+                  />
                 </div>
                 <div className='grid gap-1.5 lg:col-span-2'>
-                  <Label htmlFor={`directory-description-${link.id}`}>{t('Expanded description')}</Label>
-                  <Textarea id={`directory-description-${link.id}`} rows={3} value={link.description} maxLength={1200} onChange={(event) => updateLink(link.id, { description: event.target.value })} />
+                  <Label htmlFor={`directory-description-${link.id}`}>
+                    {t('Expanded description')}
+                  </Label>
+                  <Textarea
+                    id={`directory-description-${link.id}`}
+                    rows={3}
+                    value={link.description}
+                    maxLength={1200}
+                    onChange={(event) =>
+                      updateLink(link.id, { description: event.target.value })
+                    }
+                  />
                 </div>
-                {errors[link.id] && <p className='text-destructive text-sm lg:col-span-2' role='alert'>{t(errors[link.id])}</p>}
+                {errors[link.id] && (
+                  <p
+                    className='text-destructive text-sm lg:col-span-2'
+                    role='alert'
+                  >
+                    {t(errors[link.id])}
+                  </p>
+                )}
               </div>
             )}
           </div>

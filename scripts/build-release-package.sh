@@ -61,10 +61,11 @@ else
 fi
 
 pkgdest="$build/pkgdest"
-mkdir -p "$pkgdest"
+builddir="$build/makepkg"
+mkdir -p "$pkgdest" "$builddir"
 useradd --create-home --uid 1000 package-builder 2>/dev/null || true
 chown -R package-builder:package-builder "$build"
-runuser -u package-builder -- env SRCDEST="$build" PKGDEST="$pkgdest" \
+runuser -u package-builder -- env SRCDEST="$build" PKGDEST="$pkgdest" BUILDDIR="$builddir" \
   makepkg --nodeps --noconfirm --cleanbuild --clean --holdver --dir "$build"
 package=$(find "$pkgdest" -maxdepth 1 -type f \
   -name "${package_name}-${version}-${package_release}-*.pkg.tar.*" -print -quit)

@@ -20,6 +20,7 @@ import {
   type AIDirectoryCategory,
   type AIDirectoryLink,
 } from './api'
+
 import './style.css'
 
 const iconByID: Record<string, string> = {
@@ -86,8 +87,8 @@ function DirectoryItem({ item }: { item: AIDirectoryLink }) {
 
 export function AIDirectory() {
   const { t } = useTranslation()
-  const isOwner = useAuthStore((state) =>
-    (state.auth.user?.role ?? 0) >= ROLE.SUPER_ADMIN
+  const isOwner = useAuthStore(
+    (state) => (state.auth.user?.role ?? 0) >= ROLE.SUPER_ADMIN
   )
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState<AIDirectoryCategory | 'all'>('all')
@@ -113,7 +114,11 @@ export function AIDirectory() {
       AI_DIRECTORY_CATEGORIES.map((value) => [value, 0])
     ) as Record<AIDirectoryCategory, number>
     for (const item of query.data ?? []) {
-      if (item.enabled && safeDirectoryUrl(item.url) && item.category in result) {
+      if (
+        item.enabled &&
+        safeDirectoryUrl(item.url) &&
+        item.category in result
+      ) {
         result[item.category]++
       }
     }
@@ -145,7 +150,11 @@ export function AIDirectory() {
           <div className='ai-directory-intro'>
             <div>
               <h2>{t('Explore AI websites')}</h2>
-              <p>{t('A curated starting point for the AI tools you use every day.')}</p>
+              <p>
+                {t(
+                  'A curated starting point for the AI tools you use every day.'
+                )}
+              </p>
             </div>
             <div className='ai-directory-intro-symbol' aria-hidden='true'>
               <Globe2 strokeWidth={1.2} />
@@ -163,22 +172,30 @@ export function AIDirectory() {
                 type='search'
               />
             </label>
-            <div className='ai-directory-filters' role='group' aria-label={t('Filter websites')}>
-              <button type='button' aria-pressed={category === 'all'} onClick={() => setCategory('all')}>
+            <div
+              className='ai-directory-filters'
+              role='group'
+              aria-label={t('Filter websites')}
+            >
+              <button
+                type='button'
+                aria-pressed={category === 'all'}
+                onClick={() => setCategory('all')}
+              >
                 {t('All websites')}
               </button>
-              {AI_DIRECTORY_CATEGORIES.filter((value) => categoryCounts[value] > 0).map(
-                (value) => (
-                  <button
-                    key={value}
-                    type='button'
-                    aria-pressed={category === value}
-                    onClick={() => setCategory(value)}
-                  >
-                    {t(categoryLabels[value])}
-                  </button>
-                )
-              )}
+              {AI_DIRECTORY_CATEGORIES.filter(
+                (value) => categoryCounts[value] > 0
+              ).map((value) => (
+                <button
+                  key={value}
+                  type='button'
+                  aria-pressed={category === value}
+                  onClick={() => setCategory(value)}
+                >
+                  {t(categoryLabels[value])}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -196,7 +213,13 @@ export function AIDirectory() {
             <div className='ai-directory-state'>
               <p>{t('No websites match your search.')}</p>
               {(search || category !== 'all') && (
-                <Button variant='link' onClick={() => { setSearch(''); setCategory('all') }}>
+                <Button
+                  variant='link'
+                  onClick={() => {
+                    setSearch('')
+                    setCategory('all')
+                  }}
+                >
                   {t('Clear filters')}
                 </Button>
               )}
@@ -214,7 +237,9 @@ export function AIDirectory() {
                       <span>{items.length}</span>
                     </div>
                     <div className='ai-directory-grid'>
-                      {items.map((item) => <DirectoryItem item={item} key={item.id} />)}
+                      {items.map((item) => (
+                        <DirectoryItem item={item} key={item.id} />
+                      ))}
                     </div>
                   </section>
                 )

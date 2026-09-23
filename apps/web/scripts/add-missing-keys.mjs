@@ -11883,52 +11883,54 @@ async function main() {
     ? passkeyCopy
     : operationsFinishOnly
       ? operationsFinishCopy
-    : fixedGroupOnly
-      ? fixedGroupCopy
-      : keyFollowthroughOnly
-        ? keyFollowthroughCopy
-        : competitionOnly
-          ? Object.fromEntries(
-              Object.entries(signalCompetitionKeys).map(([locale, values]) => [
-                locale,
-                Object.fromEntries(
-                  Object.entries(values).filter(
-                    ([key]) => !['Account', 'Public'].includes(key)
-                  )
-                ),
-              ])
-            )
-          : costOnly
-            ? acquisitionCostCopy
-            : clientsOnly
-              ? clientPresetsCopy
-              : feedbackOnly
-                ? sourceFeedbackCopy
-                : logRecoveryOnly
-                  ? logRecoveryCopy
-                  : statusOnly
-                    ? modelStatusCopy
-                    : parallelOnly
-                      ? parallelExperienceCopy
-                      : estimateOnly
-                        ? requestEstimateCopy
-                        : activityOnly
-                          ? acquisitionActivityCopy
-                          : toolMarketOnly
-                            ? toolMarketCopy
-                            : acquisitionOnly
-                              ? acquisitionCopy
-                              : experienceOnly
-                                ? experienceCopy
-                                : paymentOnly
-                                  ? paymentPricingCopy
-                                  : homeOnly
-                                    ? homeEditorialCopy
-                                    : waitOnly
-                                      ? waitCompanionCopy
-                                      : assistantToolOnly
-                                        ? assistantToolCopy
-                                        : newKeys
+      : fixedGroupOnly
+        ? fixedGroupCopy
+        : keyFollowthroughOnly
+          ? keyFollowthroughCopy
+          : competitionOnly
+            ? Object.fromEntries(
+                Object.entries(signalCompetitionKeys).map(
+                  ([locale, values]) => [
+                    locale,
+                    Object.fromEntries(
+                      Object.entries(values).filter(
+                        ([key]) => !['Account', 'Public'].includes(key)
+                      )
+                    ),
+                  ]
+                )
+              )
+            : costOnly
+              ? acquisitionCostCopy
+              : clientsOnly
+                ? clientPresetsCopy
+                : feedbackOnly
+                  ? sourceFeedbackCopy
+                  : logRecoveryOnly
+                    ? logRecoveryCopy
+                    : statusOnly
+                      ? modelStatusCopy
+                      : parallelOnly
+                        ? parallelExperienceCopy
+                        : estimateOnly
+                          ? requestEstimateCopy
+                          : activityOnly
+                            ? acquisitionActivityCopy
+                            : toolMarketOnly
+                              ? toolMarketCopy
+                              : acquisitionOnly
+                                ? acquisitionCopy
+                                : experienceOnly
+                                  ? experienceCopy
+                                  : paymentOnly
+                                    ? paymentPricingCopy
+                                    : homeOnly
+                                      ? homeEditorialCopy
+                                      : waitOnly
+                                        ? waitCompanionCopy
+                                        : assistantToolOnly
+                                          ? assistantToolCopy
+                                          : newKeys
   const selectedEntries = passkeyOnly ? passkeyCopy : entries
   let totalAdded = 0
   for (const [locale, baseTranslations] of Object.entries(selectedEntries)) {
