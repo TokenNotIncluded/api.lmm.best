@@ -335,7 +335,7 @@ func InitLogDB(session *StartupMigrationSession) (err error) {
 func mainMigrationModels() []interface{} {
 	return append([]interface{}{
 		&RatioNotification{}, &RatioDelivery{},
-		&Channel{}, &Token{}, &UserRankingRevision{}, &User{}, &UserSession{}, &AuthFlow{}, &ExternalIdentityClaim{},
+		&Channel{}, &Token{}, &UserRankingRevision{}, &User{}, &ProfileShare{}, &UserSession{}, &AuthFlow{}, &ExternalIdentityClaim{},
 		&PasskeyCredential{}, &Option{}, &Redemption{}, &Ability{}, &Log{}, &Midjourney{},
 		&DiscountCode{}, &DiscountCodeReservation{},
 		&RedPacket{}, &RedPacketItem{}, &RedPacketClaim{}, &SignalGameRecord{}, &SignalGameAttempt{},
@@ -474,6 +474,7 @@ func migrateDBFast() error {
 		{&Token{}, "Token"},
 		{&UserRankingRevision{}, "UserRankingRevision"},
 		{&User{}, "User"},
+		{&ProfileShare{}, "ProfileShare"},
 		{&UserSession{}, "UserSession"},
 		{&AuthFlow{}, "AuthFlow"},
 		{&ExternalIdentityClaim{}, "ExternalIdentityClaim"},

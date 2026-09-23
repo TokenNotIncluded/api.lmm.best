@@ -21,6 +21,7 @@ func TestBackendJourneyPreActivationCapabilitiesAreMethodScoped(t *testing.T) {
 		{http.MethodPost, "/api/verify/email"}, {http.MethodGet, "/api/scripts"},
 		{http.MethodGet, "/api/scripts/install.sh/raw"}, {http.MethodGet, "/api/uptime/status"},
 		{http.MethodGet, "/api/livez"}, {http.MethodGet, "/api/games/signal/daily"},
+		{http.MethodGet, "/api/share/profile/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.svg"},
 		{http.MethodGet, "/api/games/signal/leaderboard"}, {http.MethodPost, "/api/games/signal/attempts"},
 		{http.MethodPost, "/api/games/signal/finish"},
 	} {
