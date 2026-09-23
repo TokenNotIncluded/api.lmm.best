@@ -263,7 +263,7 @@ export function ProfileActivity({
             'Token activity for the past year, with {{count}} active days',
             { count: activeDays }
           )}
-          className='overflow-x-auto pb-2 [scrollbar-width:thin]'
+          className='[scrollbar-width:thin] overflow-x-auto pb-2'
         >
           {loading ? (
             <ActivityGridSkeleton />
