@@ -82,7 +82,7 @@ export function usePasskeyManagement(
   }, [])
 
   const register = useCallback(
-    async (proofToken?: string) => {
+    async (name: string, proofToken?: string) => {
       if (!supported) {
         toast.error(i18next.t('This device does not support Passkey'))
         return false
@@ -129,6 +129,7 @@ export function usePasskeyManagement(
         const finishResponse = await finishPasskeyRegistration(
           flowToken,
           attestation,
+          name,
           proofToken
         )
         if (!finishResponse.success) {
@@ -162,10 +163,10 @@ export function usePasskeyManagement(
   )
 
   const remove = useCallback(
-    async (proofToken?: string) => {
+    async (id: number, proofToken?: string) => {
       setRemoving(true)
       try {
-        const res = await deletePasskey(proofToken)
+        const res = await deletePasskey(id, proofToken)
         if (!res.success) {
           toast.error(res.message || i18next.t('Failed to remove Passkey'))
           return false

@@ -22,11 +22,19 @@ export interface ApiResponse<T = unknown> {
   data?: T
 }
 
+export interface PasskeyCredentialSummary {
+  id: number
+  name: string
+  created_at: string
+  last_used_at: string | null
+  backup_eligible: boolean
+  backup_state: boolean
+}
+
 export interface PasskeyStatus {
   enabled: boolean
   last_used_at?: string | null
-  backup_eligible?: boolean
-  backup_state?: boolean
+  credentials?: PasskeyCredentialSummary[]
   [key: string]: unknown
 }
 

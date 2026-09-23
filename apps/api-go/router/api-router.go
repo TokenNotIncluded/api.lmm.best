@@ -275,6 +275,7 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.POST("/passkey/verify/begin", middleware.DisableCache(), middleware.RequestBodyLimit(passkeyBeginRequestMaxBytes), controller.PasskeyVerifyBegin)
 				selfRoute.POST("/passkey/verify/finish", middleware.DisableCache(), middleware.RequestBodyLimit(passkeyFinishRequestMaxBytes), controller.PasskeyVerifyFinish)
 				selfRoute.DELETE("/passkey", middleware.DisableCache(), controller.PasskeyDelete)
+				selfRoute.DELETE("/passkey/:id", middleware.DisableCache(), controller.PasskeyDeleteOne)
 				selfRoute.GET("/aff", controller.GetAffCode)
 				selfRoute.GET("/aff/rewards", controller.GetReferralRewards)
 				selfRoute.POST("/aff/invite", middleware.RequestBodyLimit(affiliateInvitationRequestMaxBytes), middleware.UserCriticalRateLimit("aff-invite-email"), controller.SendAffiliateInvitation)
