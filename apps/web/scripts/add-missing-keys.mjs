@@ -29,6 +29,7 @@ import { drawingMcpExtraCopy } from './drawing-mcp-extra-copy.mjs'
 import { drawingWalletCopy } from './drawing-wallet-copy.mjs'
 import { dshGuideCopy } from './dsh-guide-copy.mjs'
 import { homeEditorialCopy } from './home-editorial-copy.mjs'
+import { passkeyCopy } from './passkey-copy.mjs'
 import { paymentPricingCopy } from './payment-pricing-copy.mjs'
 import { piGuideCopy } from './pi-guide-copy.mjs'
 import { piOAuthCopy } from './pi-oauth-copy.mjs'
@@ -11853,7 +11854,9 @@ async function main() {
   const keyFollowthroughOnly = process.argv.includes('--only-key-followthrough')
   const fixedGroupOnly = process.argv.includes('--only-fixed-group')
   const operationsFinishOnly = process.argv.includes('--only-operations-finish')
+  const passkeyOnly = process.argv.includes('--only-passkey')
   const scoped =
+    passkeyOnly ||
     operationsFinishOnly ||
     fixedGroupOnly ||
     keyFollowthroughOnly ||
@@ -11921,8 +11924,9 @@ async function main() {
                                       : assistantToolOnly
                                         ? assistantToolCopy
                                         : newKeys
+  const selectedEntries = passkeyOnly ? passkeyCopy : entries
   let totalAdded = 0
-  for (const [locale, baseTranslations] of Object.entries(entries)) {
+  for (const [locale, baseTranslations] of Object.entries(selectedEntries)) {
     const translations = scoped
       ? baseTranslations
       : {

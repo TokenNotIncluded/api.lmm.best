@@ -363,6 +363,9 @@ func mainMigrationModels() []interface{} {
 
 func migrateDB() error {
 	backfillConsoleActivation := ConsoleActivationNeedsLegacyBackfill()
+	if err := migratePasskeyCredentialUserIndex(); err != nil {
+		return err
+	}
 	// Migrate price_amount column from float/double to decimal for existing tables
 	migrateSubscriptionPlanPriceAmount()
 	// Migrate model_limits column from varchar to text for existing tables
@@ -456,6 +459,9 @@ func migrateLegacySubscriptionPlanCurrencies() error {
 }
 
 func migrateDBFast() error {
+	if err := migratePasskeyCredentialUserIndex(); err != nil {
+		return err
+	}
 	backfillConsoleActivation := ConsoleActivationNeedsLegacyBackfill()
 
 	var wg sync.WaitGroup

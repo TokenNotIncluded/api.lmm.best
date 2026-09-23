@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -406,6 +407,10 @@ func preActivationRouteAllowed(method string, path string) bool {
 	}
 	if strings.HasPrefix(path, "/api/user/sessions/") || strings.HasPrefix(path, "/api/user/oauth/bindings/") || strings.HasPrefix(path, "/api/user/bindings/") {
 		return method == http.MethodDelete
+	}
+	if method == http.MethodDelete && strings.HasPrefix(path, "/api/user/passkey/") {
+		id, err := strconv.Atoi(strings.TrimPrefix(path, "/api/user/passkey/"))
+		return err == nil && id > 0
 	}
 	if strings.HasPrefix(path, "/api/release-notes/") && strings.HasSuffix(path, "/read") {
 		return method == http.MethodPost

@@ -31,7 +31,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import {
@@ -42,8 +41,13 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { IconBadge } from '@/components/ui/icon-badge'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
-import { usePasskeyManagement } from '@/features/auth/passkey'
+import {
+  usePasskeyManagement,
+  type PasskeyCredentialSummary,
+} from '@/features/auth/passkey'
 import {
   SecureVerificationDialog,
   useSecureVerification,
@@ -59,6 +63,9 @@ interface PasskeyCardProps {
 export function PasskeyCard({ loading: pageLoading }: PasskeyCardProps) {
   const { t } = useTranslation()
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [passkeyName, setPasskeyName] = useState('')
+  const [removeTarget, setRemoveTarget] =
+    useState<PasskeyCredentialSummary | null>(null)
   const [restrictedMethod, setRestrictedMethod] =
     useState<VerificationMethod | null>(null)
 
@@ -73,6 +80,7 @@ export function PasskeyCard({ loading: pageLoading }: PasskeyCardProps) {
     register,
     remove,
   } = usePasskeyManagement()
+  const credentials = status?.credentials ?? []
 
   const {
     open: verificationOpen,
@@ -111,6 +119,12 @@ export function PasskeyCard({ loading: pageLoading }: PasskeyCardProps) {
       return
     }
 
+    const name = passkeyName.trim()
+    const completeRegistration = async (proofToken?: string) => {
+      const registered = await register(name, proofToken)
+      if (registered) setPasskeyName('')
+      return registered
+    }
     const methods = await fetchVerificationMethods()
     if (!methods.hasEmail && !methods.has2FA && !methods.hasPasskey) {
       if (methods.availability !== 'complete') {
@@ -119,7 +133,7 @@ export function PasskeyCard({ loading: pageLoading }: PasskeyCardProps) {
       }
       // The first Passkey is the fallback credential itself, so there is no
       // existing Passkey available for a step-up proof yet.
-      await register()
+      await completeRegistration()
       return
     }
 
@@ -127,20 +141,31 @@ export function PasskeyCard({ loading: pageLoading }: PasskeyCardProps) {
     if (methods.hasEmail) requiredMethod = 'email'
     else if (methods.has2FA) requiredMethod = '2fa'
     setRestrictedMethod(requiredMethod)
-    await startVerification(register, {
+    await startVerification(completeRegistration, {
       scope: 'passkey.register',
       preferredMethod: requiredMethod,
       title: t('Security verification'),
       description: t('Confirm your identity before registering a Passkey.'),
       verificationMethods: methods,
     })
-  }, [fetchVerificationMethods, register, startVerification, supported, t])
+  }, [
+    fetchVerificationMethods,
+    passkeyName,
+    register,
+    startVerification,
+    supported,
+    t,
+  ])
 
   const handleRemove = useCallback(async () => {
+    if (!removeTarget) return
+    const credentialID = removeTarget.id
     const methods = await fetchVerificationMethods()
     let required: VerificationMethod | null = null
     if (methods.hasEmail) {
       required = 'email'
+    } else if (methods.has2FA) {
+      required = '2fa'
     } else if (methods.hasPasskey) {
       required = 'passkey'
     }
@@ -161,7 +186,7 @@ export function PasskeyCard({ loading: pageLoading }: PasskeyCardProps) {
 
     setConfirmOpen(false)
     setRestrictedMethod(required)
-    await startVerification(remove, {
+    await startVerification((proofToken) => remove(credentialID, proofToken), {
       scope: 'passkey.delete',
       preferredMethod: required,
       title: t('Security verification'),
@@ -170,7 +195,7 @@ export function PasskeyCard({ loading: pageLoading }: PasskeyCardProps) {
       ),
       verificationMethods: methods,
     })
-  }, [fetchVerificationMethods, remove, startVerification, t])
+  }, [fetchVerificationMethods, remove, removeTarget, startVerification, t])
 
   const handleVerificationCancel = useCallback(() => {
     setRestrictedMethod(null)
@@ -220,25 +245,9 @@ export function PasskeyCard({ loading: pageLoading }: PasskeyCardProps) {
       ? dayjs(lastUsed).fromNow()
       : t('Not used yet')
 
-  const showUnsupportedNotice = !supported && !enabled
-  let backupStatus: {
-    label: string
-    variant: 'success' | 'warning' | 'neutral'
-  } | null = null
-
-  if (status?.backup_eligible !== undefined) {
-    backupStatus = {
-      label: t('No backup'),
-      variant: 'neutral',
-    }
-
-    if (status.backup_eligible) {
-      backupStatus = {
-        label: status.backup_state ? t('Backed up') : t('Not backed up'),
-        variant: status.backup_state ? 'success' : 'warning',
-      }
-    }
-  }
+  const showUnsupportedNotice = !supported
+  const passkeyLabel = (credential: PasskeyCredentialSummary) =>
+    credential.name || `${t('Passkey')} #${credential.id}`
 
   return (
     <>
@@ -254,98 +263,153 @@ export function PasskeyCard({ loading: pageLoading }: PasskeyCardProps) {
 
         <CardContent className='p-3 sm:p-5'>
           <div className='space-y-6'>
-            <div className='flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between xl:flex-col 2xl:flex-row'>
-              <div className='flex items-start gap-4'>
-                <IconBadge tone='info' size='sm'>
-                  <KeyRound />
-                </IconBadge>
-                <div className='space-y-1'>
-                  <div className='flex flex-wrap items-center gap-2'>
-                    <p className='font-medium'>{t('Passkey Authentication')}</p>
-                    <StatusBadge
-                      label={enabled ? t('Enabled') : t('Disabled')}
-                      variant={enabled ? 'success' : 'neutral'}
-                      showDot
-                      copyable={false}
-                    />
-                    {backupStatus && (
-                      <StatusBadge
-                        label={backupStatus.label}
-                        variant={backupStatus.variant}
-                        showDot
-                        copyable={false}
-                      />
-                    )}
-                  </div>
-                  <p className='text-muted-foreground text-sm'>
-                    {t('Last used:')} {formattedLastUsed}
-                  </p>
+            <div className='flex items-start gap-4'>
+              <IconBadge tone='info' size='sm'>
+                <KeyRound />
+              </IconBadge>
+              <div className='space-y-1'>
+                <div className='flex flex-wrap items-center gap-2'>
+                  <p className='font-medium'>{t('Passkey Authentication')}</p>
+                  <StatusBadge
+                    label={enabled ? t('Enabled') : t('Disabled')}
+                    variant={enabled ? 'success' : 'neutral'}
+                    showDot
+                    copyable={false}
+                  />
                 </div>
+                <p className='text-muted-foreground text-sm'>
+                  {t('Last used:')} {formattedLastUsed}
+                </p>
               </div>
+            </div>
 
-              {!enabled && (
+            <div className='space-y-2'>
+              <Label htmlFor='passkey-name'>
+                {t('Passkey name (optional)')}
+              </Label>
+              <div className='flex flex-col gap-2 sm:flex-row'>
+                <Input
+                  id='passkey-name'
+                  value={passkeyName}
+                  onChange={(event) => setPasskeyName(event.target.value)}
+                  placeholder={t('e.g. Laptop or security key')}
+                  maxLength={64}
+                  disabled={registering || removing}
+                />
                 <Button
-                  className='w-full sm:w-auto xl:w-full 2xl:w-auto'
+                  className='w-full shrink-0 sm:w-auto'
                   onClick={handleRegister}
-                  disabled={!supported || registering}
+                  disabled={!supported || registering || removing}
                 >
                   {registering && (
                     <Loader2 className='mr-2 h-4 w-4 animate-spin' />
                   )}
-                  {t('Enable Passkey')}
+                  {enabled ? t('Add Passkey') : t('Enable Passkey')}
                 </Button>
-              )}
+              </div>
             </div>
 
-            {enabled && (
-              <div className='flex flex-col gap-3 border-t pt-6 sm:flex-row xl:flex-col 2xl:flex-row'>
-                <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-                  <AlertDialogTrigger
-                    render={
-                      <Button
-                        variant='destructive'
-                        className='flex-1'
-                        disabled={removing}
-                      />
-                    }
+            {credentials.length > 0 && (
+              <div className='space-y-3 border-t pt-5'>
+                {credentials.map((credential) => (
+                  <div
+                    key={credential.id}
+                    className='flex flex-col gap-3 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between'
                   >
-                    {removing ? (
-                      <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                    ) : (
+                    <div className='min-w-0 space-y-1'>
+                      <div className='flex flex-wrap items-center gap-2'>
+                        <p className='truncate font-medium'>
+                          {passkeyLabel(credential)}
+                        </p>
+                        <StatusBadge
+                          label={
+                            credential.backup_eligible
+                              ? credential.backup_state
+                                ? t('Backed up')
+                                : t('Not backed up')
+                              : t('No backup')
+                          }
+                          variant={
+                            credential.backup_eligible
+                              ? credential.backup_state
+                                ? 'success'
+                                : 'warning'
+                              : 'neutral'
+                          }
+                          showDot
+                          copyable={false}
+                        />
+                      </div>
+                      <p className='text-muted-foreground text-xs'>
+                        {t('Added on {{date}}', {
+                          date: dayjs(credential.created_at).format(
+                            'YYYY-MM-DD HH:mm'
+                          ),
+                        })}
+                        {' · '}
+                        {t('Last used:')}{' '}
+                        {credential.last_used_at
+                          ? dayjs(credential.last_used_at).fromNow()
+                          : t('Not used yet')}
+                      </p>
+                    </div>
+                    <Button
+                      variant='outline'
+                      size='sm'
+                      className='text-destructive shrink-0'
+                      disabled={removing || registering}
+                      aria-label={t('Remove {{name}}', {
+                        name: passkeyLabel(credential),
+                      })}
+                      onClick={() => {
+                        setRemoveTarget(credential)
+                        setConfirmOpen(true)
+                      }}
+                    >
                       <AlertTriangle className='mr-2 h-4 w-4' />
-                    )}
-                    {t('Remove Passkey')}
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>
-                        {t('Remove Passkey?')}
-                      </AlertDialogTitle>
-                      <AlertDialogDescription>
-                        {t(
-                          'Removing Passkey will require you to sign in with your password next time. You can re-register anytime.'
-                        )}
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel disabled={removing}>
-                        {t('Cancel')}
-                      </AlertDialogCancel>
-                      <AlertDialogAction
-                        variant='destructive'
-                        disabled={removing}
-                        onClick={(event) => {
-                          event.preventDefault()
-                          handleRemove()
-                        }}
-                      >
-                        {t('Remove')}
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
+                      {t('Remove')}
+                    </Button>
+                  </div>
+                ))}
               </div>
             )}
+
+            <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>{t('Remove Passkey?')}</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {removeTarget && (
+                      <>
+                        {passkeyLabel(removeTarget)}:{' '}
+                        {credentials.length === 1
+                          ? t(
+                              'Removing Passkey will require you to sign in with your password next time. You can re-register anytime.'
+                            )
+                          : t(
+                              'This Passkey will stop working for sign-in. Your other Passkeys will remain available.'
+                            )}
+                      </>
+                    )}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={removing}>
+                    {t('Cancel')}
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    variant='destructive'
+                    disabled={removing || !removeTarget}
+                    onClick={(event) => {
+                      event.preventDefault()
+                      handleRemove()
+                    }}
+                  >
+                    {t('Remove')}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
 
             {showUnsupportedNotice && (
               <div className='bg-muted/60 text-muted-foreground flex items-start gap-3 rounded-md p-4 text-sm'>
