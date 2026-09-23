@@ -135,8 +135,9 @@ describe('profile passkey capability visibility', () => {
 
   test('lists each Passkey and offers another registration', async () => {
     api.get = (async (url) => {
-      if (url !== '/api/user/passkey')
+      if (url !== '/api/user/passkey') {
         throw new Error(`Unexpected request: ${url}`)
+      }
       return {
         data: {
           success: true,
