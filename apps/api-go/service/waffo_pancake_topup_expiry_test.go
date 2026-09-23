@@ -36,6 +36,7 @@ func TestWaffoPancakePaymentsByTradeNoRequiresCompleteMatchingProviderRead(t *te
 		wantErr bool
 	}{
 		{name: "unpaid", body: `{"data":{"paymentsCount":0,"payments":[]}}`, wantLen: 0},
+		{name: "advisory warning", body: `{"data":{"paymentsCount":0,"payments":[]},"warnings":[{"message":"deprecated field","layer":"graphql"}]}`, wantLen: 0},
 		{name: "succeeded", body: `{"data":{"paymentsCount":1,"payments":[{"status":"succeeded","orderMerchantExternalId":"WAFFO-1"}]}}`, wantLen: 1},
 		{name: "missing list", body: `{"data":{}}`, wantErr: true},
 		{name: "truncated list", body: `{"data":{"paymentsCount":2,"payments":[{"status":"failed","orderMerchantExternalId":"WAFFO-1"}]}}`, wantErr: true},

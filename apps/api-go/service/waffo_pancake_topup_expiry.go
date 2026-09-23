@@ -48,7 +48,7 @@ func waffoPancakePaymentsByTradeNo(ctx context.Context, client *pancake.Client, 
 	if err != nil {
 		return nil, err
 	}
-	if response == nil || len(response.Errors) != 0 || len(response.Warnings) != 0 ||
+	if response == nil || len(response.Errors) != 0 ||
 		len(response.Data) == 0 || string(response.Data) == "null" {
 		return nil, errors.New("incomplete Waffo Pancake payment query")
 	}
