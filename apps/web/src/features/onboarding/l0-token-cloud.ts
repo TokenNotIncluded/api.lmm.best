@@ -104,6 +104,7 @@ export function mountL0TokenCloud(root: HTMLElement): () => void {
   let color = ''
   let bounds = canvas.getBoundingClientRect()
   let tokens = createL0Tokens(bounds.width)
+  const opacityScale = root.dataset.cloudContrast === 'strong' ? 1.8 : 1
   const pointer = { x: 0, y: 0, strength: 0, active: false, pressed: false }
   const canAnimate = () =>
     !disposed && visible && !doc.hidden && !paused && !reduced.matches
@@ -133,7 +134,10 @@ export function mountL0TokenCloud(root: HTMLElement): () => void {
       const pull = (pointer.pressed ? -0.75 : 0.18) * pointer.strength
       x += dx * influence * pull
       y += dy * influence * pull
-      ctx.globalAlpha = (0.14 + p.depth * p.depth * 0.74) * token.softness
+      ctx.globalAlpha = Math.min(
+        1,
+        (0.14 + p.depth * p.depth * 0.74) * token.softness * opacityScale
+      )
       if (token.glyph && p.y > -0.05 && landingPoints.length < 24) {
         landingPoints.push({ x: x / width, y: y / height })
       }
