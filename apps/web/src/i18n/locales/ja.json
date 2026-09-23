@@ -6584,7 +6584,7 @@
     "Remote MCP endpoint": "Remote MCP のアドレス",
     "Remove": "削除",
     "Remove {{group}}": "{{group}} を削除",
-    "Remove {{name}}": "{{name}}を削除",
+    "Remove {{name}}": "{{name}} を削除",
     "Remove {{value}}": "{{value}} を削除",
     "Remove ${{amount}}": "${{amount}}を削除",
     "Remove all log entries created before the selected timestamp.": "選択したタイムスタンプより前に作成されたすべてのログエントリを削除します。",

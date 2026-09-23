@@ -1,3 +1,4 @@
+/* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
 export const passkeyCopy = {
   en: {
     'Add Passkey': 'Add Passkey',
@@ -33,7 +34,8 @@ export const passkeyCopy = {
     'Remove {{name}}': 'Supprimer {{name}}',
     'This Passkey will stop working for sign-in. Your other Passkeys will remain available.':
       'Cette passkey ne permettra plus de se connecter. Vos autres passkeys resteront utilisables.',
-    'e.g. Laptop or security key': 'Ex. : ordinateur portable ou clé de sécurité',
+    'e.g. Laptop or security key':
+      'Ex. : ordinateur portable ou clé de sécurité',
   },
   ja: {
     'Add Passkey': 'パスキーを追加',
