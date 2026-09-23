@@ -550,7 +550,7 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 				// Async task refunds currently persist only one funding source.
 				// Keep their existing no-split policy until task bookkeeping can
 				// carry and refund both committed funding amounts.
-				walletOverflow: pref == "subscription_first" && relayInfo.TaskRelayInfo == nil,
+				walletOverflow: pref == "subscription_first" && relayInfo.TaskRelayInfo == nil && !relayInfo.IsPlayground,
 			},
 		}
 		if !relayInfo.IsPlayground && !relayInfo.IsAssistant {

@@ -96,7 +96,7 @@ func TestPostTextConsumeQuotaMissingUsageKeepsEstimateAfterPartialReserve(t *tes
 	info.Billing = session
 	info.SubscriptionAmountTotal = 0
 	require.Equal(t, 100, info.FinalPreConsumedQuota)
-	assertSubscriptionBillingBalances(t, db, info, 100, 59900, 60000)
+	assertSubscriptionBillingBalances(t, db, info, 100, 0, 60000)
 
 	PostTextConsumeQuota(c, info, &dto.Usage{}, nil)
 	assertSubscriptionBillingBalances(t, db, info, 100, 59900, 60000)

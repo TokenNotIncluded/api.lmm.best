@@ -12,20 +12,29 @@ import (
 var ErrSubscriptionBillingTokenQuota = errors.New("token quota insufficient")
 var ErrSubscriptionBillingWalletQuota = errors.New("wallet quota insufficient for subscription overflow")
 
-// wallet_consumed is the wallet amount held while a managed record is
-// consumed/settling, and the final wallet debit once it is settled.
-func reserveSubscriptionWalletQuota(tx *gorm.DB, userID int, amount int64) error {
+// Check the uncovered budget under the managed user lock. Keeping the wallet
+// debit at final settlement preserves rollback compatibility with older Go
+// packages, which know how to refund subscription/token reservations only.
+// Other in-flight managed requests count against the same available balance.
+func authorizeSubscriptionWalletQuota(tx *gorm.DB, userID int, requestID string, amount int64) error {
 	if amount <= 0 {
 		return nil
 	}
 	if err := common.ValidateWalletQuota(int(amount)); err != nil {
 		return err
 	}
-	result := UpdateWalletQuotaByDelta(tx.Model(&User{}).Where("id = ? AND quota >= ?", userID, amount), -int(amount))
-	if result.Error != nil {
-		return result.Error
+	quota, err := currentWalletQuota(tx, userID)
+	if err != nil {
+		return err
 	}
-	if result.RowsAffected != 1 {
+	var pending int64
+	if err := tx.Model(&SubscriptionPreConsumeRecord{}).
+		Select("COALESCE(SUM(CASE WHEN token_consumed > pre_consumed THEN token_consumed - pre_consumed ELSE 0 END), 0)").
+		Where("user_id = ? AND request_id <> ? AND billing_managed = ? AND wallet_overflow = ? AND status IN ?", userID, requestID, true, true, []string{"consumed", "settling"}).
+		Scan(&pending).Error; err != nil {
+		return err
+	}
+	if pending > math.MaxInt64-amount || int64(quota) < pending+amount {
 		return ErrSubscriptionBillingWalletQuota
 	}
 	return nil
@@ -34,7 +43,6 @@ func reserveSubscriptionWalletQuota(tx *gorm.DB, userID int, amount int64) error
 // SubscriptionBillingResult separates measured cost from committed debits.
 // A settling record can be retried with the same request ID and actual quota,
 // without resending the upstream request. ReservedQuota includes every Reserve.
-// WalletQuota is held funding until settlement and the final debit afterwards.
 type SubscriptionBillingResult struct {
 	RequestId         string
 	Status            string
@@ -127,7 +135,6 @@ func syncSubscriptionBillingCache(userID int, walletDelta int64, tokenKey string
 func PreConsumeSubscriptionBilling(requestID string, userID, tokenID int, modelName string, amount int64, walletOverflow bool) (*SubscriptionPreConsumeResult, error) {
 	var result *SubscriptionPreConsumeResult
 	var tokenKey string
-	var walletDelta int64
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		if err := lockSubscriptionBillingUser(tx, userID); err != nil {
 			return err
@@ -154,10 +161,9 @@ func PreConsumeSubscriptionBilling(requestID string, userID, tokenID int, modelN
 			if !walletOverflow {
 				return ErrSubscriptionQuotaInsufficient
 			}
-			if err := reserveSubscriptionWalletQuota(tx, userID, walletReserve); err != nil {
+			if err := authorizeSubscriptionWalletQuota(tx, userID, requestID, walletReserve); err != nil {
 				return err
 			}
-			walletDelta = -walletReserve
 		}
 		var subscription UserSubscription
 		if err := tx.First(&subscription, result.UserSubscriptionId).Error; err != nil {
@@ -176,13 +182,13 @@ func PreConsumeSubscriptionBilling(requestID string, userID, tokenID int, modelN
 		result.TokenConsumed = tokenConsumed
 		return tx.Model(&SubscriptionPreConsumeRecord{}).Where("request_id = ?", requestID).Updates(map[string]interface{}{
 			"billing_managed": true, "token_id": tokenID, "token_consumed": tokenConsumed, "wallet_overflow": walletOverflow,
-			"wallet_consumed": walletReserve, "reserved_version": subscription.QuotaVersion,
+			"reserved_version": subscription.QuotaVersion,
 		}).Error
 	})
 	if err != nil {
 		return nil, err
 	}
-	syncSubscriptionBillingCache(userID, walletDelta, tokenKey)
+	syncSubscriptionBillingCache(userID, 0, tokenKey)
 	return result, nil
 }
 
@@ -263,14 +269,10 @@ func ReserveSubscriptionBilling(requestID string, userID int, target int64) (*Su
 			}
 		}
 		walletReserve := target - (r.PreConsumed + fundingDelta)
-		walletDelta := walletReserve - r.WalletConsumed
-		if walletDelta > 0 {
-			if err := reserveSubscriptionWalletQuota(tx, userID, walletDelta); err != nil {
+		if walletReserve > 0 {
+			if err := authorizeSubscriptionWalletQuota(tx, userID, requestID, walletReserve); err != nil {
 				return 0, "", err
 			}
-			r.WalletConsumed += walletDelta
-		} else {
-			walletDelta = 0
 		}
 		var key string
 		if tokenDelta > 0 {
@@ -282,7 +284,7 @@ func ReserveSubscriptionBilling(requestID string, userID int, target int64) (*Su
 		}
 		r.PreConsumed += fundingDelta
 		r.TokenConsumed += tokenDelta
-		return -walletDelta, key, nil
+		return 0, key, nil
 	})
 }
 
@@ -358,11 +360,8 @@ func SettleSubscriptionBilling(requestID string, userID int, actual int64) (*Sub
 		if err := tx.Save(&sub).Error; err != nil {
 			return 0, "", err
 		}
-		walletAdjustment := r.WalletConsumed - wallet
-		if walletAdjustment != 0 {
-			// The pre-reserved wallet amount is refunded or topped up to the
-			// final actual excess in this same transaction.
-			if err := ApplyWalletQuotaDelta(tx, userID, int(walletAdjustment)); err != nil {
+		if wallet > 0 {
+			if err := ApplyWalletQuotaDelta(tx, userID, -int(wallet)); err != nil {
 				return 0, "", err
 			}
 		}
@@ -374,7 +373,7 @@ func SettleSubscriptionBilling(requestID string, userID int, actual int64) (*Sub
 		if r.TokenId != 0 {
 			r.TokenConsumed = actual
 		}
-		return walletAdjustment, key, nil
+		return -wallet, key, nil
 	})
 	if err != nil {
 		return intent, err
@@ -403,14 +402,8 @@ func RefundSubscriptionBilling(requestID string, userID int) error {
 		if err != nil {
 			return 0, "", err
 		}
-		walletRefund := r.WalletConsumed
-		if walletRefund > 0 {
-			if err := ApplyWalletQuotaDelta(tx, userID, int(walletRefund)); err != nil {
-				return 0, "", err
-			}
-		}
-		r.Status, r.TokenConsumed, r.WalletConsumed = "refunded", 0, 0
-		return walletRefund, key, nil
+		r.Status, r.TokenConsumed = "refunded", 0
+		return 0, key, nil
 	})
 	return err
 }

@@ -1886,7 +1886,7 @@ type SubscriptionPreConsumeRecord struct {
 	TokenConsumed      int64  `json:"token_consumed" gorm:"type:bigint;not null;default:0"`
 	WalletOverflow     bool   `json:"wallet_overflow" gorm:"not null;default:false"`
 	ActualQuota        int64  `json:"actual_quota" gorm:"type:bigint;not null;default:0"`
-	WalletConsumed     int64  `json:"wallet_consumed" gorm:"type:bigint;not null;default:0"` // held until settlement; final wallet debit after settlement
+	WalletConsumed     int64  `json:"wallet_consumed" gorm:"type:bigint;not null;default:0"`
 	ReservedVersion    int64  `json:"reserved_version" gorm:"type:bigint;not null;default:0"`
 	Status             string `json:"status" gorm:"type:varchar(32);index"` // consumed/settling/settled/refunded
 	CreatedAt          int64  `json:"created_at" gorm:"bigint"`
