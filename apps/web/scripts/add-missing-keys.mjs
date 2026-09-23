@@ -23,6 +23,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 
 import { acquisitionCopy as acquisitionLinkCopy } from './acquisition-copy.mjs'
+import { aiDirectoryCopy } from './ai-directory-copy.mjs'
 import { apiKeySourceCopy } from './api-key-source-copy.mjs'
 import { assistantSettingsCopy } from './assistant-settings-copy.mjs'
 import { assistantToolCopy } from './assistant-tool-copy.mjs'
@@ -12892,6 +12893,10 @@ for (const [locale, values] of Object.entries(profileShareCopy)) {
 }
 
 for (const [locale, values] of Object.entries(acquisitionLinkCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(aiDirectoryCopy)) {
   Object.assign(newKeys[locale], values)
 }
 
