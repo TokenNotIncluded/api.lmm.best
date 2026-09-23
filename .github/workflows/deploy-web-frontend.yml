@@ -86,15 +86,20 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p deploy
+          base="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}"
+          archive="lmm-api-web-${VERSION}.tar.gz"
           for attempt in 1 2 3 4 5 6; do
-            rm -f "deploy/lmm-api-web-${VERSION}.tar.gz" \
-              "deploy/lmm-api-web-${VERSION}.tar.gz.sha256"
-            if gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
-              --dir deploy \
-              --pattern "lmm-api-web-${VERSION}.tar.gz" \
-              --pattern "lmm-api-web-${VERSION}.tar.gz.sha256" && \
-              [[ -s "deploy/lmm-api-web-${VERSION}.tar.gz" && \
-                 -s "deploy/lmm-api-web-${VERSION}.tar.gz.sha256" ]]; then
+            rm -f "deploy/${archive}" "deploy/${archive}.sha256" \
+              "deploy/${archive}.sigstore.json"
+            if curl --fail --silent --show-error --location \
+              --connect-timeout 10 --max-time 120 \
+              "$base/$archive" --output "deploy/$archive" && \
+              curl --fail --silent --show-error --location \
+                --connect-timeout 10 --max-time 30 \
+                "$base/${archive}.sha256" --output "deploy/${archive}.sha256" && \
+              curl --fail --silent --show-error --location \
+                --connect-timeout 10 --max-time 30 \
+                "$base/${archive}.sigstore.json" --output "deploy/${archive}.sigstore.json"; then
               break
             fi
             if (( attempt == 6 )); then
@@ -115,6 +120,28 @@ jobs:
           grep -qx 'dist/legal/terms.html' archive-contents.txt
           grep -qx 'dist/legal/privacy.html' archive-contents.txt
           grep -qx 'dist/legal/forge-legal.css' archive-contents.txt
+          revision=$(tar -xzOf "lmm-api-web-${VERSION}.tar.gz" REVISION)
+          [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
+          release_id=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.id')
+          target=$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}?fresh=${GITHUB_RUN_ID}-$(date +%s%N)" --jq '.target_commitish')
+          [[ "$target" == "$revision" ]]
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Verify release signature
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          archive="deploy/lmm-api-web-${VERSION}.tar.gz"
+          cosign verify-blob \
+            --bundle "${archive}.sigstore.json" \
+            --certificate-identity \
+              "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/.github/workflows/release-web.yml@refs/tags/${RELEASE_TAG}" \
+            --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+            "$archive"
 
       - name: Install restricted deploy key
         env:

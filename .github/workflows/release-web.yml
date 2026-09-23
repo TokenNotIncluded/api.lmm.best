@@ -207,7 +207,11 @@ jobs:
             "$RELEASE_REVISION" "$CONTRACT_REVISION" > "$notes"
 
           read_release() {
-            gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}"
+            local release_id
+            # The tag lookup identifies the release, but its embedded asset
+            # list can stay stale. Read the release by ID with a unique URL.
+            release_id=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.id') || return 1
+            gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}?fresh=${GITHUB_RUN_ID}-$(date +%s%N)"
           }
 
           # Return 0 only for the exact signed asset set, 2 for a release with

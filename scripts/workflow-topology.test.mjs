@@ -51,7 +51,12 @@ test('frontend deployment is restricted to a signed web release on both origins'
   assert.match(release, /gh release upload/);
   assert.match(release, /stable_checks == 2/);
   assert.match(deploy, /for attempt in 1 2 3 4 5 6/);
-  assert.match(deploy, /gh release download/);
+  assert.ok(deploy.includes('/releases/download/${RELEASE_TAG}'));
+  assert.match(deploy, /cosign verify-blob/);
+  assert.match(deploy, /certificate-oidc-issuer/);
+  assert.match(deploy, /revision=\$\(tar -xzOf/);
+  assert.match(deploy, /\[\[ "\$target" == "\$revision" \]\]/);
+  assert.doesNotMatch(deploy, /gh release download/);
   assert.match(deploy, /sha256sum --check/);
   assert.match(deploy, /publish \"ArchDmit/);
   assert.match(deploy, /publish \"DmitUbuntu/);
