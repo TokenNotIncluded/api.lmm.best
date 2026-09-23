@@ -17,6 +17,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// Missing provider usage is estimated from locally countable input. Keep the
+// fallback within the largest currently supported Responses context window;
+// opaque replay payload bytes must not turn it into an unbounded final debit.
+const maxUnverifiedResponsesInputTokens = 1_050_000
+
 func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	defer service.CloseResponseBodyGracefully(resp)
 
@@ -79,7 +84,6 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	imageCounter := &relaycommon.ImageGenerationCallCounter{}
 	imageCommitted := false
 	terminal := false
-	successfulTerminal := false
 	hasUsage := false
 	downstreamWriteFailed := false
 	var lastResponse *dto.OpenAIResponsesResponse
@@ -129,11 +133,9 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		switch streamResponse.Type {
 		case "response.completed", "response.done":
 			terminal = true
-			successfulTerminal = true
 			if streamResponse.Response != nil {
 				failed := relaycommon.IsNonBillableResponsesStatus(streamResponse.Response.Status)
 				if failed {
-					successfulTerminal = false
 					info.StreamStatus.RecordError("upstream Responses terminal failure")
 				}
 				if !imageCommitted {
@@ -206,11 +208,17 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		}
 	}
 
-	if !hasUsage && usage.PromptTokens == 0 && usage.CompletionTokens != 0 && successfulTerminal {
-		// A successful upstream terminal can justify the request-side input
-		// estimate even if writing that terminal to the client fails. Partial
-		// output without an upstream terminal cannot justify that input debit.
-		usage.PromptTokens = info.GetEstimatePromptTokens()
+	if !hasUsage && usage.PromptTokens == 0 && usage.CompletionTokens != 0 {
+		// Observed output means the provider accepted and processed input even
+		// when the client disconnects before usage arrives. Charge a bounded
+		// local estimate so cancellation cannot bypass input billing.
+		estimated := info.GetEstimatePromptTokens()
+		if estimated < 0 {
+			estimated = 0
+		} else if estimated > maxUnverifiedResponsesInputTokens {
+			estimated = maxUnverifiedResponsesInputTokens
+		}
+		usage.PromptTokens = estimated
 	}
 
 	if !hasUsage {
