@@ -27,9 +27,6 @@ type ChatToResponsesStreamState struct {
 	status             string
 	incompleteDetails  *dto.IncompleteDetails
 	sentCreated        bool
-	textOutputIndex    int
-	textStarted        bool
-	textDone           bool
 	finalized          bool
 	nextOutputIndex    int
 	sentOutputCount    int
@@ -37,6 +34,7 @@ type ChatToResponsesStreamState struct {
 	closedOutputs      map[int]dto.ResponsesOutput
 	emittedTextLengths map[int]int
 	toolsByIndex       map[int]*chatToResponsesStreamTool
+	messageSegments    []*chatToResponsesMessageSegment
 	reasoningSegments  []*chatToResponsesReasoningSegment
 	outputOrder        []chatToResponsesOutputRef
 	text               strings.Builder
@@ -63,21 +61,30 @@ type chatToResponsesReasoningSegment struct {
 	Done        bool
 }
 
+// Ordinary message items follow the same immutable segment lifecycle as reasoning.
+type chatToResponsesMessageSegment struct {
+	OutputIndex int
+	ID          string
+	Status      string
+	Text        strings.Builder
+	Done        bool
+}
+
 type chatToResponsesOutputRef struct {
 	Kind           string
 	ToolIndex      int
 	ReasoningIndex int
+	MessageIndex   int
 }
 
 func NewChatToResponsesStreamState(id string, model string) *ChatToResponsesStreamState {
 	return &ChatToResponsesStreamState{
-		ID:              id,
-		Model:           model,
-		Created:         time.Now().Unix(),
-		Usage:           &dto.Usage{},
-		status:          "completed",
-		textOutputIndex: -1,
-		toolsByIndex:    make(map[int]*chatToResponsesStreamTool),
+		ID:           id,
+		Model:        model,
+		Created:      time.Now().Unix(),
+		Usage:        &dto.Usage{},
+		status:       "completed",
+		toolsByIndex: make(map[int]*chatToResponsesStreamTool),
 	}
 }
 
@@ -242,8 +249,10 @@ func (s *ChatToResponsesStreamState) Fail(code, message string) (*dto.OpenAIResp
 		}
 		switch ref.Kind {
 		case "message":
-			item := s.messageOutput("in_progress")
-			item.Content[0].Text = s.text.String()[:s.emittedTextLengths[index]]
+			segment := s.messageSegments[ref.MessageIndex]
+			item := s.messageOutput(segment, "in_progress")
+			item.Status = "in_progress" // Only a released done event closes the snapshot.
+			item.Content[0].Text = segment.Text.String()[:s.emittedTextLengths[index]]
 			output = append(output, *item)
 		case "reasoning":
 			item := s.reasoningOutput(s.reasoningSegments[ref.ReasoningIndex], "in_progress")
@@ -277,28 +286,40 @@ func (s *ChatToResponsesStreamState) UsageText() string {
 
 func (s *ChatToResponsesStreamState) appendTextDelta(delta string) []ChatToResponsesStreamEvent {
 	events := make([]ChatToResponsesStreamEvent, 0, 2)
-	if !s.textStarted {
-		s.textStarted = true
-		s.textOutputIndex = s.nextIndex("message", -1)
+	if delta == "" {
+		return events
+	}
+	var segment *chatToResponsesMessageSegment
+	if len(s.messageSegments) > 0 {
+		segment = s.messageSegments[len(s.messageSegments)-1]
+	}
+	if segment == nil || segment.Done {
+		segment = &chatToResponsesMessageSegment{
+			OutputIndex: s.nextMessageIndex(len(s.messageSegments)),
+			ID:          fmt.Sprintf("%s_msg_%d", s.ID, len(s.messageSegments)),
+		}
+		s.messageSegments = append(s.messageSegments, segment)
 		events = append(events, responsesStreamEvent(responsesEventOutputItemAdded, dto.ResponsesStreamResponse{
 			Type:        responsesEventOutputItemAdded,
-			OutputIndex: intPtr(s.textOutputIndex),
+			OutputIndex: intPtr(segment.OutputIndex),
 			Item: &dto.ResponsesOutput{
 				Type:    responsesOutputTypeMessage,
-				ID:      s.messageID(),
+				ID:      segment.ID,
 				Status:  "in_progress",
 				Role:    "assistant",
 				Content: []dto.ResponsesOutputContent{},
 			},
 		}))
 	}
+	segment.Text.WriteString(delta)
+	// Preserve aggregate ordinary text for the existing usage-accounting path.
 	s.text.WriteString(delta)
 	events = append(events, responsesStreamEvent(responsesEventOutputTextDelta, dto.ResponsesStreamResponse{
 		Type:         responsesEventOutputTextDelta,
-		OutputIndex:  intPtr(s.textOutputIndex),
+		OutputIndex:  intPtr(segment.OutputIndex),
 		ContentIndex: intPtr(0),
 		Delta:        delta,
-		ItemID:       s.messageID(),
+		ItemID:       segment.ID,
 	}))
 	return events
 }
@@ -455,19 +476,23 @@ func (s *ChatToResponsesStreamState) doneDeltaEvents() ([]ChatToResponsesStreamE
 		}
 		outputs[tool.ChatIndex] = item
 	}
-	if s.textStarted && !s.textDone {
-		s.textDone = true
-		events = append(events, responsesStreamEvent("response.output_text.done", dto.ResponsesStreamResponse{
-			Type:         "response.output_text.done",
-			OutputIndex:  intPtr(s.textOutputIndex),
-			ContentIndex: intPtr(0),
-			ItemID:       s.messageID(),
-		}))
-		events = append(events, responsesStreamEvent(responsesEventOutputItemDone, dto.ResponsesStreamResponse{
-			Type:        responsesEventOutputItemDone,
-			OutputIndex: intPtr(s.textOutputIndex),
-			Item:        s.messageOutput(status),
-		}))
+	if len(s.messageSegments) > 0 {
+		segment := s.messageSegments[len(s.messageSegments)-1]
+		if !segment.Done {
+			segment.Done = true
+			segment.Status = status
+			events = append(events, responsesStreamEvent("response.output_text.done", dto.ResponsesStreamResponse{
+				Type:         "response.output_text.done",
+				OutputIndex:  intPtr(segment.OutputIndex),
+				ContentIndex: intPtr(0),
+				ItemID:       segment.ID,
+			}))
+			events = append(events, responsesStreamEvent(responsesEventOutputItemDone, dto.ResponsesStreamResponse{
+				Type:        responsesEventOutputItemDone,
+				OutputIndex: intPtr(segment.OutputIndex),
+				Item:        s.messageOutput(segment, status),
+			}))
+		}
 	}
 	if len(s.reasoningSegments) > 0 {
 		segment := s.reasoningSegments[len(s.reasoningSegments)-1]
@@ -546,7 +571,7 @@ func (s *ChatToResponsesStreamState) finalResponse() (*dto.OpenAIResponsesRespon
 	for _, ref := range s.outputOrder {
 		switch ref.Kind {
 		case "message":
-			output = append(output, *s.messageOutput(status))
+			output = append(output, *s.messageOutput(s.messageSegments[ref.MessageIndex], status))
 		case "reasoning":
 			output = append(output, *s.reasoningOutput(s.reasoningSegments[ref.ReasoningIndex], status))
 		case "tool":
@@ -585,7 +610,7 @@ func (s *ChatToResponsesStreamState) createdResponse() *dto.OpenAIResponsesRespo
 func (s *ChatToResponsesStreamState) nextIndex(kind string, toolIndex int) int {
 	index := s.nextOutputIndex
 	s.nextOutputIndex++
-	s.outputOrder = append(s.outputOrder, chatToResponsesOutputRef{Kind: kind, ToolIndex: toolIndex, ReasoningIndex: -1})
+	s.outputOrder = append(s.outputOrder, chatToResponsesOutputRef{Kind: kind, ToolIndex: toolIndex, ReasoningIndex: -1, MessageIndex: -1})
 	return index
 }
 
@@ -595,6 +620,19 @@ func (s *ChatToResponsesStreamState) nextReasoningIndex(reasoningIndex int) int 
 	s.outputOrder = append(s.outputOrder, chatToResponsesOutputRef{
 		Kind:           "reasoning",
 		ReasoningIndex: reasoningIndex,
+		ToolIndex:      -1,
+		MessageIndex:   -1,
+	})
+	return index
+}
+
+func (s *ChatToResponsesStreamState) nextMessageIndex(messageIndex int) int {
+	index := s.nextOutputIndex
+	s.nextOutputIndex++
+	s.outputOrder = append(s.outputOrder, chatToResponsesOutputRef{
+		Kind:           "message",
+		MessageIndex:   messageIndex,
+		ReasoningIndex: -1,
 		ToolIndex:      -1,
 	})
 	return index
@@ -620,20 +658,19 @@ func (s *ChatToResponsesStreamState) outputStatus() string {
 	return "completed"
 }
 
-func (s *ChatToResponsesStreamState) messageID() string {
-	return fmt.Sprintf("%s_msg_0", s.ID)
-}
-
-func (s *ChatToResponsesStreamState) messageOutput(status string) *dto.ResponsesOutput {
+func (s *ChatToResponsesStreamState) messageOutput(segment *chatToResponsesMessageSegment, status string) *dto.ResponsesOutput {
+	if segment.Done {
+		status = segment.Status
+	}
 	return &dto.ResponsesOutput{
 		Type:   responsesOutputTypeMessage,
-		ID:     s.messageID(),
+		ID:     segment.ID,
 		Status: status,
 		Role:   "assistant",
 		Content: []dto.ResponsesOutputContent{
 			{
 				Type:        "output_text",
-				Text:        s.text.String(),
+				Text:        segment.Text.String(),
 				Annotations: []interface{}{},
 			},
 		},

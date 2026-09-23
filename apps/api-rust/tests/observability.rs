@@ -243,9 +243,7 @@ async fn observability_routes_accept_their_expected_authenticated_scopes() {
             "GET",
             "/api/log/channel_affinity_usage_cache?rule_name=r&key_fp=k",
         ),
-        ("GET", "/api/log/search"),
         ("GET", "/api/log/self"),
-        ("GET", "/api/log/self/search"),
         ("GET", "/api/log/self/stat"),
         ("GET", "/api/log/stat"),
         ("GET", "/api/log/token"),
@@ -267,6 +265,19 @@ async fn observability_routes_accept_their_expected_authenticated_scopes() {
             .expect("request");
         let response = router(100).oneshot(request).await.expect("router response");
         assert_eq!(response.status(), StatusCode::OK, "{method} {uri}");
+    }
+}
+
+#[tokio::test]
+async fn retired_log_search_routes_are_not_mounted() {
+    for uri in ["/api/log/search", "/api/log/self/search"] {
+        let request = Request::builder()
+            .method("GET")
+            .uri(uri)
+            .body(Body::empty())
+            .expect("request");
+        let response = router(100).oneshot(request).await.expect("router response");
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{uri}");
     }
 }
 

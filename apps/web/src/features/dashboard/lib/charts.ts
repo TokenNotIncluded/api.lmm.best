@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { MAX_CHART_TREND_POINTS } from '@/features/dashboard/constants'
 import type {
   QuotaDataItem,
   ProcessedChartData,
@@ -418,29 +417,7 @@ export function processChartData(
     domain: modelColorDomain,
     range: modelColorRange,
   }
-
-  // Pad time points if too few (default 7 points)
-  const MAX_TREND_POINTS = MAX_CHART_TREND_POINTS
-  const fillTimePoints = (times: string[]) => {
-    if (times.length >= MAX_TREND_POINTS) return times
-    const lastTime = Math.max(
-      ...data.map((item) => Number(item.created_at) || 0)
-    )
-    const intervalSec =
-      timeGranularity === 'week'
-        ? 604800
-        : timeGranularity === 'day'
-          ? 86400
-          : 3600
-    const padded = Array.from({ length: MAX_TREND_POINTS }, (_, i) =>
-      formatChartTime(
-        lastTime - (MAX_TREND_POINTS - 1 - i) * intervalSec,
-        timeGranularity
-      )
-    )
-    return padded
-  }
-  const chartTimes = fillTimePoints(sortedTimes)
+  const chartTimes = sortedTimes
 
   const totalTimes = [...modelTotalsMap.values()].reduce(
     (sum, x) => sum + (Number(x.count) || 0),
@@ -732,7 +709,7 @@ export function processChartData(
           curveType: 'monotone',
         },
       },
-      point: { visible: false },
+      point: { visible: chartTimes.length === 1 },
       background: { fill: 'transparent' },
       animation: true,
     },
@@ -810,7 +787,7 @@ export function processChartData(
           curveType: 'monotone',
         },
       },
-      point: { visible: false },
+      point: { visible: chartTimes.length === 1 },
       background: { fill: 'transparent' },
       animation: true,
     },

@@ -132,29 +132,51 @@ async def main():
 
         async def assistant_flow():
             await go(ROUTES['assistant'])
-            assert ['GET', '/api/assistant/models'] not in fixture.requests, 'Eager model request'
+            assert ['GET', '/api/assistant/models'] in fixture.requests, 'Automatic model list missing'
+            before_refresh = fixture.requests.count(['GET', '/api/assistant/models'])
             await click(page.get_by_test_id('assistant-get-model-list'))
-            assert ['GET', '/api/assistant/models'] in fixture.requests
-            model_group = page.locator('summary').filter(has_text='模型与响应').first
-            await click(model_group)
-            await click(page.locator('summary').filter(has_text='开始对话前的快捷提问').first)
-            await capture('assistant-starters')
-            await click(page.locator('.settings-starter summary').filter(has_text='多语言文案').first)
-            await capture('assistant-translations')
-            # Edits must survive hiding the panel.
+            await page.wait_for_timeout(600)
+            assert fixture.requests.count(['GET', '/api/assistant/models']) > before_refresh
+            await click(page.locator('[data-settings-tab=conversation]'))
+            assert await page.locator('#assistant-panel-model').is_hidden()
+            assert await page.locator('#assistant-panel-conversation').is_visible()
+            # Anchor disclosures to the actual editor, not a translated heading.
+            # Labels may change; expanding, editing and persisting must still work.
             editor = page.get_by_test_id('assistant-conversation-starters-editor')
-            field = editor.get_by_role('textbox', name='按钮文案', exact=True).first
-            if await field.count() == 0:
-                field = editor.get_by_role('textbox', name='Button label', exact=True).first
+            disclosure = editor.locator('xpath=ancestor::details[1]')
+            summary = disclosure.locator(':scope > summary')
+            await click(summary)
+            await editor.wait_for(state='visible')
+            await capture('assistant-starters')
+            starter = editor.locator('.settings-starter').first
+            translations = starter.locator('details').first
+            await click(translations.locator(':scope > summary'))
+            assert await translations.evaluate('e => e.open'), 'Translations did not expand'
+            await capture('assistant-translations')
+            # The first textbox is the default button label; locale overrides follow it.
+            field = starter.get_by_role('textbox').first
+            assert await field.get_attribute('aria-label'), 'Starter label has no accessible name'
             await field.fill('带我完成第一次调用')
-            await click(page.locator('summary').filter(has_text='开始对话前的快捷提问').first)
-            await click(page.locator('summary').filter(has_text='开始对话前的快捷提问').first)
+            await click(page.locator('[data-settings-tab=model]'))
+            await click(page.locator('[data-settings-tab=conversation]'))
+            assert await field.input_value() == '带我完成第一次调用'
+            await click(summary)
+            assert await editor.is_hidden(), 'Starter disclosure did not collapse'
+            await click(summary)
+            await field.wait_for(state='visible')
             assert await field.input_value() == '带我完成第一次调用'
             await click(page.locator('.settings-form-actions').get_by_role('button').last)
             await page.wait_for_timeout(600)
             presets = json.loads(fixture.options['AssistantPreConversationPresets'])
             assert presets[0]['label']['default'] == '带我完成第一次调用'
             await capture('assistant-saved')
+            # Verify server-backed persistence, not only the still-mounted draft.
+            await go(ROUTES['assistant'])
+            await click(page.locator('[data-settings-tab=conversation]'))
+            await click(summary)
+            await field.wait_for(state='visible')
+            assert await field.input_value() == '带我完成第一次调用'
+            await capture('assistant-reloaded')
         await check('assistant-persistent-edit', assistant_flow)
 
         async def dark_flow():

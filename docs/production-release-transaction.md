@@ -64,9 +64,15 @@ plan digest, expected version, native status, outcome, and reason. Keep that fil
 outside temporary controller directories. Preserve recovery evidence after an
 interrupted operation; a nonterminal receipt is not success.
 
-No GitHub workflow loads production SSH credentials or invokes the deployment
-wrapper. Offline regression tests still run in the isolated server qualification
-workflow; these tests do not access production.
+No GitHub workflow invokes the Go deployment wrapper: backend deployment stays
+operator-controlled, and no workflow holds a credential that can reach the
+backend CLI. Offline regression tests still run in the isolated server
+qualification workflow; these tests do not access production.
+
+The single exception is frontend-only: `deploy-web-frontend.yml` uses a key
+restricted to `/usr/local/sbin/lmm-web-deploy` on both origins, which can only
+run `frontend publish` for a new release id. It cannot invoke this wrapper, the
+backend CLI, or any other command.
 
 ## Local validation
 

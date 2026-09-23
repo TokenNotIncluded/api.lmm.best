@@ -9185,6 +9185,12 @@
     "Registration protection and L1 review": "注册保护与 L1 审核",
     "Anonymous metrics and review frequency": "匿名指标与回顾频率",
     "Retention periods and cleanup": "保留期限与定时清理",
-    "Translations": "多语言文案"
+    "Translations": "多语言文案",
+    "Assistant connection": "模型",
+    "Assistant conversation": "对话",
+    "Assistant tools": "工具",
+    "Assistant runtime": "运行",
+    "Assistant review": "审核",
+    "Assistant data": "数据"
   }
 }

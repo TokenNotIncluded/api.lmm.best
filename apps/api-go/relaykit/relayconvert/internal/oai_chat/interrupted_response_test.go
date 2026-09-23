@@ -7,6 +7,61 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestFailedChatResponseKeepsEachMessageSegment(t *testing.T) {
+	state := NewChatToResponsesStreamState("resp_messages", "gpt-test")
+	feed := func(text string, finish *string) []ChatToResponsesStreamEvent {
+		events, err := ChatCompletionsStreamChunkToResponsesEvents(&dto.ChatCompletionsStreamResponse{Choices: []dto.ChatCompletionsStreamResponseChoice{{Delta: dto.ChatCompletionsStreamResponseChoiceDelta{Content: ptr(text)}, FinishReason: finish}}}, state)
+		require.NoError(t, err)
+		return events
+	}
+	var closed []dto.ResponsesOutput
+	for _, text := range []string{"first message", "second message"} {
+		for _, event := range feed(text, ptr("stop")) {
+			if event.Type == responsesEventOutputItemDone {
+				closed = append(closed, *event.Payload.Item)
+			}
+		}
+	}
+	feed("active third", nil)
+	failed, err := state.Fail("upstream_stream_interrupted", "safe message")
+	require.NoError(t, err)
+	require.Len(t, closed, 2)
+	require.Len(t, failed.Output, 3)
+	require.Equal(t, closed, failed.Output[:2])
+	require.Equal(t, "resp_messages_msg_2", failed.Output[2].ID)
+	require.Equal(t, "active third", failed.Output[2].Content[0].Text)
+	require.Equal(t, "in_progress", failed.Output[2].Status)
+	require.Equal(t, "first messagesecond messageactive third", state.UsageText())
+}
+
+func TestFailedChatResponseDoesNotLeakResumedMessageFromRejectedChunk(t *testing.T) {
+	state := NewChatToResponsesStreamState("resp_message_error", "gpt-test")
+	state.ToolMapping = responsesToolMappingForTest()
+	feed := func(delta dto.ChatCompletionsStreamResponseChoiceDelta, finish *string) ([]ChatToResponsesStreamEvent, error) {
+		return ChatCompletionsStreamChunkToResponsesEvents(&dto.ChatCompletionsStreamResponse{Choices: []dto.ChatCompletionsStreamResponseChoice{{Delta: delta, FinishReason: finish}}}, state)
+	}
+	events, err := feed(dto.ChatCompletionsStreamResponseChoiceDelta{Content: ptr("closed")}, ptr("stop"))
+	require.NoError(t, err)
+	var closed dto.ResponsesOutput
+	for _, event := range events {
+		if event.Type == responsesEventOutputItemDone {
+			closed = *event.Payload.Item
+		}
+	}
+	_, err = feed(dto.ChatCompletionsStreamResponseChoiceDelta{Content: ptr("seen resumed")}, nil)
+	require.NoError(t, err)
+	index := 0
+	_, err = feed(dto.ChatCompletionsStreamResponseChoiceDelta{Content: ptr("hidden suffix"), ToolCalls: []dto.ToolCallResponse{{Index: &index, Function: dto.FunctionResponse{Name: "compat_search", Arguments: "{"}}}}, ptr("stop"))
+	require.Error(t, err)
+	failed, err := state.Fail("upstream_stream_interrupted", "safe message")
+	require.NoError(t, err)
+	require.Len(t, failed.Output, 2)
+	require.Equal(t, closed, failed.Output[0])
+	require.Equal(t, "resp_message_error_msg_1", failed.Output[1].ID)
+	require.Equal(t, "seen resumed", failed.Output[1].Content[0].Text)
+	require.Equal(t, "in_progress", failed.Output[1].Status)
+}
+
 func TestFailedChatResponsePreservesClosedAndActiveItems(t *testing.T) {
 	state := NewChatToResponsesStreamState("resp_failure", "gpt-test")
 	feed := func(delta dto.ChatCompletionsStreamResponseChoiceDelta, finish *string) []ChatToResponsesStreamEvent {

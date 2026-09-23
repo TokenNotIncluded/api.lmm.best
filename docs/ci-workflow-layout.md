@@ -1,6 +1,6 @@
 # GitHub Actions 入口
 
-GitHub Actions 负责构建、测试、签名和发布产物；服务器部署与运维由操作者手动执行。
+GitHub Actions 负责构建、测试、签名和发布产物；后端服务器部署与运维由操作者手动执行，前端发布则是唯一例外。
 
 | 文件 | 职责 |
 | --- | --- |
@@ -8,6 +8,7 @@ GitHub Actions 负责构建、测试、签名和发布产物；服务器部署�
 | `server-release-qualification.yml` | 保留生产形态 Go、PostgreSQL、Valkey、迁移和恢复验收，以及每日验收 |
 | `release-go.yml` | 手动触发 Go 签名发布，不连接服务器 |
 | `release-web.yml` | 手动触发 Web 签名发布，不连接服务器 |
+| `deploy-web-frontend.yml` | Web 签名发布成功后自动发布到两台生产 origin，仅限前端 |
 
 PR 描述和格式检查已移除，PR 仍执行与代码改动相关的测试。
 
@@ -23,7 +24,9 @@ GitHub 默认配置的 CodeQL 是仓库设置管理的动态工作流，不是�
 
 ## 队列与生产隔离
 
-同一 PR 或 main 上被新提交替代的测试可以取消；手动检查与标签检查保留独立运行。服务器部署不属于 Actions 队列。工作流没有生产 SSH 凭据、部署 job 或运维请求入口；服务器迁移和恢复验收只使用 runner 内的隔离测试环境。
+同一 PR 或 main 上被新提交替代的测试可以取消；手动检查与标签检查保留独立运行。后端服务器部署不属于 Actions 队列：除 `deploy-web-frontend.yml` 外，工作流没有生产 SSH 凭据或部署 job；服务器迁移和恢复验收只使用 runner 内的隔离测试环境。
+
+`deploy-web-frontend.yml` 是唯一持有生产凭据的工作流。它的密钥在服务器侧被 `authorized_keys` 的强制命令 `/usr/local/sbin/lmm-web-deploy` 限制，只能执行前端 `frontend publish`，无法开 shell、无法执行任意命令、无法触达后端。撤销该密钥并在两台服务器移除对应的 `authorized_keys` 行即可关闭自动前端发布。
 
 `release-go.yml` 和 `release-web.yml` 的路径是签名身份的一部分，因此不为减少文件数量而合并。所有必须的 main-push 检查、CodeQL 和 `Server release qualification gate` 仍需真实通过，不能用 PR 的部分检查、旧提交或手动绿色状态替代。
 

@@ -60,6 +60,13 @@ const en = {
   chatError: 'The response was interrupted. Try again or contact support.',
   stopped: 'Stopped',
   stop: 'Stop response',
+  latest: 'Latest message',
+  copyAnswer: 'Copy response',
+  copied: 'Copied',
+  copyFailed: 'Copy failed',
+  retry: 'Retry',
+  unavailable: 'Assistant unavailable',
+  checkingAssistant: 'Connecting…',
   continueAction: 'Continue with assistant',
 }
 
@@ -117,6 +124,13 @@ const zhCN: Copy = {
   chatError: '回复中断，请重试或联系支持。',
   stopped: '已停止',
   stop: '停止回复',
+  latest: '最新消息',
+  copyAnswer: '复制回答',
+  copied: '已复制',
+  copyFailed: '复制失败',
+  retry: '重试',
+  unavailable: '助手暂不可用',
+  checkingAssistant: '正在连接…',
   continueAction: '继续办理',
 }
 const zhTW: Copy = {
@@ -172,6 +186,13 @@ const zhTW: Copy = {
   chatError: '回覆中斷，請重試或聯絡支援。',
   stopped: '已停止',
   stop: '停止回覆',
+  latest: '最新訊息',
+  copyAnswer: '複製回應',
+  copied: '已複製',
+  copyFailed: '複製失敗',
+  retry: '重試',
+  unavailable: '助手暫不可用',
+  checkingAssistant: '正在連線…',
   continueAction: '繼續辦理',
 }
 export function getL0AccessCopy(language: string): Copy {

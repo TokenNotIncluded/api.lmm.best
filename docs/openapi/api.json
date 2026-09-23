@@ -4302,41 +4302,6 @@
         ]
       }
     },
-    "/api/log/search": {
-      "get": {
-        "summary": "搜索日志",
-        "deprecated": false,
-        "description": "👨‍💼 需要管理员权限（Admin）",
-        "tags": [
-          "日志"
-        ],
-        "parameters": [
-          {
-            "name": "keyword",
-            "in": "query",
-            "description": "",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "成功",
-            "headers": {}
-          }
-        },
-        "security": [
-          {
-            "Combination343": []
-          },
-          {
-            "Combination1243": []
-          }
-        ]
-      }
-    },
     "/api/log/self": {
       "get": {
         "summary": "获取个人日志",
@@ -4346,41 +4311,6 @@
           "日志"
         ],
         "parameters": [],
-        "responses": {
-          "200": {
-            "description": "成功",
-            "headers": {}
-          }
-        },
-        "security": [
-          {
-            "Combination343": []
-          },
-          {
-            "Combination1243": []
-          }
-        ]
-      }
-    },
-    "/api/log/self/search": {
-      "get": {
-        "summary": "搜索个人日志",
-        "deprecated": false,
-        "description": "🔐 需要登录（User权限）",
-        "tags": [
-          "日志"
-        ],
-        "parameters": [
-          {
-            "name": "keyword",
-            "in": "query",
-            "description": "",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "成功",

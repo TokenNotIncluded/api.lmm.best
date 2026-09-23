@@ -18,9 +18,14 @@ authenticated users then see it once after their next login.
   usage accounting. Clean EOF after a recognized finish reason remains valid;
   cancellation and downstream write failures do not append terminal events.
 
-- Chat-to-Responses streams create a new reasoning output item when reasoning
-  resumes after a closed segment, preserving each segment's ID, position, text,
-  and closing status in the final response.
+- Chat-to-Responses streams create a new reasoning or ordinary-message output
+  item when content resumes after a closed segment, preserving each segment's
+  ID, position, text, and closing status in the final response. Aggregate usage
+  text and upstream usage accounting remain unchanged.
+
+- The bounty board now shows a recoverable query error instead of an empty
+  project list when loading fails. Retry refreshes only the list, while cached
+  projects remain visible with an error notice after a failed refresh.
 
 - Go SSE relays assemble data fields at blank-line event boundaries before
   interpreting terminators, preserving multiline and empty data fields.
