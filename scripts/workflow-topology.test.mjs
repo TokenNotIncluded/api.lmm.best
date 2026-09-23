@@ -16,14 +16,14 @@ function job(source, id) {
   return found;
 }
 
-test('workflows build and publish without server access', () => {
+test('backend and release workflows do not have server access', () => {
   const files = readdirSync(new URL('.github/workflows/', root))
     .filter((name) => /\.ya?ml$/.test(name));
   for (const name of ['ci.yml', 'release-go.yml', 'release-web.yml', 'server-release-qualification.yml']) {
     assert.ok(files.includes(name), `missing workflow: ${name}`);
   }
   assert.ok(!files.includes('server-ops.yml'));
-  for (const file of files) {
+  for (const file of files.filter((name) => name !== 'deploy-web-frontend.yml')) {
     const source = read(`.github/workflows/${file}`);
     assert.doesNotMatch(source, /PRODUCTION_SSH|production-auto-deploy|deploy-production|server-ops|inputs\.deploy/);
     assert.doesNotMatch(source, /environment:\s*production/);
@@ -33,6 +33,21 @@ test('workflows build and publish without server access', () => {
     assert.throws(() => read(path), /ENOENT/);
   }
   assert.match(workflow('server-release-qualification'), /qualify-go-migration-startup.sh/);
+});
+
+test('frontend deployment is restricted to a signed web release on both origins', () => {
+  const deploy = workflow('deploy-web-frontend');
+  assert.match(deploy, /workflows: \[\"LMM web release\"\]/);
+  assert.match(deploy, /types: \[completed\]/);
+  assert.match(deploy, /github\.event\.workflow_run\.conclusion == 'success'/);
+  assert.match(deploy, /environment: production/);
+  assert.match(deploy, /LMM_WEB_DEPLOY_SSH_KEY/);
+  assert.match(deploy, /LMM_WEB_DEPLOY_KNOWN_HOSTS/);
+  assert.match(deploy, /gh release download/);
+  assert.match(deploy, /sha256sum --check/);
+  assert.match(deploy, /publish \"ArchDmit/);
+  assert.match(deploy, /publish \"DmitUbuntu/);
+  assert.doesNotMatch(deploy, /release-go\.yml|production-release-transaction\.py|lmm-api-deploy\s|operator\s+plan/);
 });
 
 test('CI keeps every original quality gate and the translation check name', () => {
