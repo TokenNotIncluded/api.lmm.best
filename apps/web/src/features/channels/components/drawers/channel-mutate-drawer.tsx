@@ -683,18 +683,21 @@ export function ChannelMutateDrawer({
   const { data: groupsData, isLoading: isLoadingGroups } = useQuery({
     queryKey: ['groups'],
     queryFn: getGroups,
+    enabled: open && !submission,
   })
 
   // Fetch all available models
   const { data: allModelsData } = useQuery({
     queryKey: ['channel_models'],
     queryFn: getAllModels,
+    enabled: open && !submission,
   })
 
   // Fetch prefill model groups
   const { data: prefillGroupsData } = useQuery({
     queryKey: ['prefill_groups', 'model'],
     queryFn: () => getPrefillGroups('model'),
+    enabled: open && !submission,
   })
 
   const { copyToClipboard } = useCopyToClipboard()

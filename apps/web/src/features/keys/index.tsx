@@ -35,7 +35,7 @@ export function ApiKeys() {
   const [creationMode, setCreationMode] = useState<ApiKeyCreationMode>('manual')
   return (
     <ApiKeysProvider>
-      <SectionPageLayout fixedContent>
+      <SectionPageLayout>
         <SectionPageLayout.Title>{t('API Keys')}</SectionPageLayout.Title>
         <SectionPageLayout.Actions>
           {creationMode === 'manual' ? <ApiKeysPrimaryButtons /> : null}

@@ -17,6 +17,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// Missing provider usage is estimated from locally countable input. Keep the
+// fallback within the largest currently supported Responses context window;
+// opaque replay payload bytes must not turn it into an unbounded final debit.
+const maxUnverifiedResponsesInputTokens = 1_050_000
+
 func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	defer service.CloseResponseBodyGracefully(resp)
 
@@ -204,10 +209,16 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	}
 
 	if !hasUsage && usage.PromptTokens == 0 && usage.CompletionTokens != 0 {
-		// response.created alone proves acceptance, not consumed input. Only
-		// estimate prompt usage after observed output; otherwise leave unknown
-		// usage at zero rather than inventing consumption from request size.
-		usage.PromptTokens = info.GetEstimatePromptTokens()
+		// Observed output means the provider accepted and processed input even
+		// when the client disconnects before usage arrives. Charge a bounded
+		// local estimate so cancellation cannot bypass input billing.
+		estimated := info.GetEstimatePromptTokens()
+		if estimated < 0 {
+			estimated = 0
+		} else if estimated > maxUnverifiedResponsesInputTokens {
+			estimated = maxUnverifiedResponsesInputTokens
+		}
+		usage.PromptTokens = estimated
 	}
 
 	if !hasUsage {

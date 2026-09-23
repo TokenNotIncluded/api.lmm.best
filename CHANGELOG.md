@@ -15,6 +15,8 @@ authenticated users then see it once after their next login.
 
 - The homepage now follows the selected interface language, including saved
   Chinese preferences and runtime language changes, instead of forcing English.
+- Pricing cards and table rows show complete model names with wrapping instead
+  of ellipses. Card actions sit below the name so they no longer squeeze it.
 
 - Chat-to-Responses streams create a new reasoning or ordinary-message output
   item when content resumes after a closed segment, preserving each segment's

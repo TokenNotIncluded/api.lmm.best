@@ -138,6 +138,7 @@ export function PublicRelay() {
   const queryClient = useQueryClient()
   const user = useAuthStore((state) => state.auth.user)
   const isAdmin = (user?.role ?? 0) >= ROLE.ADMIN
+  const isRoot = (user?.role ?? 0) >= ROLE.SUPER_ADMIN
   const [submitOpen, setSubmitOpen] = useState(false)
   const [reportTarget, setReportTarget] = useState<PublicRelay | null>(null)
   const [reviewTarget, setReviewTarget] = useState<PublicRelay | null>(null)
@@ -207,7 +208,7 @@ export function PublicRelay() {
   const systemOptionsQuery = useQuery({
     queryKey: ['public-relays', 'system-options'],
     queryFn: getSystemOptions,
-    enabled: isAdmin,
+    enabled: isRoot,
   })
   useEffect(() => {
     const value = systemOptionsQuery.data?.data?.find(
@@ -534,7 +535,7 @@ export function PublicRelay() {
                 {t('The contributor account email is shown publicly.')}
               </span>
             </div>
-            {isAdmin ? (
+            {isRoot ? (
               <div className='border-border/70 mb-8 grid gap-3 border-y py-4 sm:grid-cols-[1fr_auto] sm:items-end'>
                 <div className='grid gap-1.5'>
                   <Label>{t('Public channel group')}</Label>

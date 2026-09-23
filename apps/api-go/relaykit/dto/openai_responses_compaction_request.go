@@ -71,6 +71,27 @@ func collectResponsesTokenInput(raw json.RawMessage, texts *[]string, files *[]*
 	}
 	if json.Unmarshal(raw, &item) == nil {
 		switch item.Type {
+		case "reasoning":
+			// encrypted_content is an opaque replay payload. Tokenizing its
+			// ciphertext as ordinary text can turn a normal prompt into millions
+			// of estimated tokens. Visible summary/content text is countable.
+			var reasoning struct {
+				Summary []struct {
+					Text string `json:"text"`
+				} `json:"summary"`
+				Content []struct {
+					Text string `json:"text"`
+				} `json:"content"`
+			}
+			if json.Unmarshal(raw, &reasoning) == nil {
+				for _, part := range reasoning.Summary {
+					*texts = append(*texts, part.Text)
+				}
+				for _, part := range reasoning.Content {
+					*texts = append(*texts, part.Text)
+				}
+			}
+			return
 		case "input_text", "output_text":
 			*texts = append(*texts, item.Text)
 			return

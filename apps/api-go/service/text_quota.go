@@ -489,6 +489,7 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	}
 
 	if !summary.hasBillableUsage() {
+		estimatedCap := estimatedBillingQuotaCap(relayInfo)
 		if !canEstimateMissingTextUsage(ctx, relayInfo) {
 			// Unknown usage on an interrupted/failed request is not evidence
 			// of a successful request. Settle zero through the normal path so
@@ -496,7 +497,7 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 			summary.Quota = 0
 			extraContent = append(extraContent, "请求未正常完成且没有可计费用量；不使用历史或预扣额度估算")
 		} else {
-			estimated, samples, estimateErr := model.EstimateRecentModelQuota(summary.ModelName, relayInfo.FinalPreConsumedQuota)
+			estimated, samples, estimateErr := model.EstimateRecentModelQuota(summary.ModelName, estimatedCap)
 			estimateSamples = samples
 			if estimateErr != nil {
 				logger.LogError(ctx, "missing-usage quota estimate failed: "+estimateErr.Error())
@@ -506,8 +507,8 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 				estimateBasis = "same_model_recent_success_average"
 				extraContent = append(extraContent, fmt.Sprintf("上游未返回用量；按同模型 %d 个历史成功请求的平均额度估算结算", samples))
 			}
-			if !estimatedMissingUsage && relayInfo.FinalPreConsumedQuota > 0 {
-				summary.Quota = relayInfo.FinalPreConsumedQuota
+			if !estimatedMissingUsage && estimatedCap > 0 {
+				summary.Quota = estimatedCap
 				estimatedMissingUsage = true
 				estimateBasis = "preconsumed_fallback_no_history"
 				extraContent = append(extraContent, "上游未返回用量且无同模型历史样本；保留本次预扣额度结算")
@@ -516,7 +517,7 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 				extraContent = append(extraContent, "上游没有返回计费信息且本地无法估算，本次没有可结算额度")
 			}
 		}
-		logger.LogError(ctx, fmt.Sprintf("total tokens is 0, fallback billing applied=%t, userId %d, channelId %d, tokenId %d, model %s, pre-consumed quota %d", estimatedMissingUsage, relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, summary.ModelName, relayInfo.FinalPreConsumedQuota))
+		logger.LogError(ctx, fmt.Sprintf("total tokens is 0, fallback billing applied=%t, userId %d, channelId %d, tokenId %d, model %s, pre-consumed quota %d, estimate cap %d", estimatedMissingUsage, relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, summary.ModelName, relayInfo.FinalPreConsumedQuota, estimatedCap))
 	}
 	if summary.hasBillableUsage() || estimatedMissingUsage {
 		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, summary.Quota)
@@ -559,7 +560,7 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 			other["usage_estimated"] = true
 			other["usage_estimate_basis"] = estimateBasis
 			other["usage_estimate_samples"] = estimateSamples
-			other["usage_estimate_cap"] = relayInfo.FinalPreConsumedQuota
+			other["usage_estimate_cap"] = estimatedBillingQuotaCap(relayInfo)
 		}
 	}
 	appendUsageBillingPathForLog(other, common.GetContextKeyBool(ctx, constant.ContextKeyLocalCountTokens), originUsage)

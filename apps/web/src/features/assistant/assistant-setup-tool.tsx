@@ -39,6 +39,7 @@ import {
 } from '@/components/ui/card'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { DshOAuthGuide } from '@/features/guide/dsh-oauth-guide'
 import { PiOAuthGuide } from '@/features/guide/pi-oauth-guide'
 import {
   readSetupPreferences,
@@ -94,6 +95,7 @@ const PLATFORM_LABELS: Record<AssistantSetupPlatform, string> = {
 }
 export type ClientTab =
   | 'pi'
+  | 'dsh'
   | 'astrbot'
   | 'openai-sdk'
   | 'anthropic-sdk'
@@ -220,8 +222,10 @@ export function AssistantSetupTool(props: {
     ? selectGuideModel(eligibleModels, selectedModel)
     : ''
   const modelValue = model || '<MODEL_ID>'
+  const oauthClient = clientTab === 'pi' || clientTab === 'dsh'
   const clientNames: Record<ClientTab, string> = {
     pi: 'Pi (OAuth)',
+    dsh: t('DSH Desktop (OAuth)'),
     astrbot: 'AstrBot',
     'openai-sdk': 'OpenAI SDK',
     'anthropic-sdk': 'Anthropic SDK',
@@ -238,6 +242,7 @@ export function AssistantSetupTool(props: {
     ? ['chatbox', 'chatgpt']
     : [
         'pi',
+        'dsh',
         'claude-code',
         'codex',
         'cc-switch',
@@ -359,7 +364,7 @@ export function AssistantSetupTool(props: {
           ) : null}
         </div>
 
-        {clientTab === 'pi' ? null : !canConnect ? (
+        {oauthClient ? null : !canConnect ? (
           <Alert>
             <AlertTitle>
               {t(
@@ -536,6 +541,9 @@ export function AssistantSetupTool(props: {
             <>
               <TabsContent value='pi' className='mt-5'>
                 <PiOAuthGuide />
+              </TabsContent>
+              <TabsContent value='dsh' className='mt-5'>
+                <DshOAuthGuide windows={platform === 'windows'} />
               </TabsContent>
               <TabsContent value='astrbot' className='mt-5 grid gap-5'>
                 <p className='text-sm leading-7'>
@@ -1008,7 +1016,7 @@ export function AssistantSetupTool(props: {
           </TabsContent>
         </Tabs>
 
-        {!canConnect && clientTab !== 'pi' ? (
+        {!canConnect && !oauthClient ? (
           <Button
             type='button'
             className='min-h-11'
@@ -1037,7 +1045,9 @@ export function AssistantSetupTool(props: {
               onClick={() =>
                 props.onAskQuestion?.(
                   t(
-                    'I am setting up {{client}} on {{platform}}. Please walk me through downloading it, entering the connection settings, and sending a first test. Ask which step I am on, and never ask for my API key.',
+                    oauthClient
+                      ? 'I am setting up {{client}} on {{platform}}. Please check the supported version, help me install the LMM plugin, sign in with OAuth, choose a model, and send a first test. Never ask for my API key.'
+                      : 'I am setting up {{client}} on {{platform}}. Please walk me through downloading it, entering the connection settings, and sending a first test. Ask which step I am on, and never ask for my API key.',
                     {
                       client: clientNames[clientTab],
                       platform: PLATFORM_LABELS[platform],

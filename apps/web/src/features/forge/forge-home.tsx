@@ -37,6 +37,7 @@ import {
   localizeAssistantPreConversationPresets,
 } from '@/features/assistant/assistant-prompt-presets'
 import { getAssistantPromptValidation } from '@/features/assistant/assistant-prompt-validation'
+import { PI_INSTALL_LATEST_COMMAND } from '@/features/guide/provider-install-commands'
 import { codeForTab, type CodeTab } from '@/features/home/home-code-examples'
 import { CodePreview } from '@/features/home/home-code-preview'
 import { HomeLanding } from '@/features/home/home-landing'
@@ -72,8 +73,6 @@ const HOME_SETUP_PROMPTS = [
       'My AI app cannot connect. Ask which app I use and what error I see, then walk me through one check at a time. Remind me to hide API keys and personal details in screenshots.',
   },
 ] as const
-const PI_INSTALL_COMMAND =
-  'pi install git:github.com/TokenNotIncluded/pi-lmm-provider'
 
 function useCopyFeedback() {
   const [copied, setCopied] = useState(false)
@@ -272,12 +271,12 @@ export function ForgeHome() {
               )}
             </p>
             <div className='lmm-pi-command'>
-              <code>{PI_INSTALL_COMMAND}</code>
+              <code>{PI_INSTALL_LATEST_COMMAND}</code>
               <Button
                 type='button'
                 variant='outline'
                 size='sm'
-                onClick={() => void piCopy.copy(PI_INSTALL_COMMAND)}
+                onClick={() => void piCopy.copy(PI_INSTALL_LATEST_COMMAND)}
                 aria-label={t('Copy Pi install command')}
               >
                 <span aria-live='polite'>
