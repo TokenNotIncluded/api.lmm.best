@@ -190,12 +190,15 @@ grep -Fq 'cosign verify-blob' "$web_release_workflow" ||
 # shellcheck disable=SC2016 # Deliberately inspect workflow source literals.
 grep -Fq 'gh release create "$RELEASE_TAG"' "$web_release_workflow" ||
   die 'web release workflow does not create a new immutable release'
+# shellcheck disable=SC2016 # Inspect the literal workflow error message.
 grep -Fq 'Release $RELEASE_TAG differs or has partial assets; refusing to overwrite it.' "$web_release_workflow" ||
   die 'web release workflow does not reject mismatched or partially published assets'
+# shellcheck disable=SC2016 # Inspect the literal workflow resume message.
 grep -Fq 'Release $RELEASE_TAG already has the exact signed asset set.' "$web_release_workflow" ||
   die 'web release workflow cannot safely resume an exactly matching immutable release'
 grep -Fq 'if (( count == 0 )); then return 2; fi' "$web_release_workflow" ||
   die 'web release does not distinguish a truly empty release from a partial one'
+# shellcheck disable=SC2016 # Inspect the literal shell predicate.
 grep -Fq '[[ $state -eq 2 && $repairs -lt 2 ]]' "$web_release_workflow" ||
   die 'web release signed-asset repair is not restricted to an empty release'
 grep -Fq 'stable_checks == 2' "$web_release_workflow" ||
