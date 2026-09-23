@@ -240,6 +240,21 @@ func TestTryTieredSettle_ZeroTokens(t *testing.T) {
 	}
 }
 
+func TestTryTieredSettle_PositiveShortRequestKeepsOneQuotaMinimum(t *testing.T) {
+	info := makeRelayInfo(`tier("default", p * 0.1)`, 1.0, 1, 0)
+
+	ok, quota, result := TryTieredSettle(info, billingexpr.TokenParams{P: 1})
+	if !ok || result == nil {
+		t.Fatalf("expected successful tiered settlement, ok=%v result=%v", ok, result)
+	}
+	if result.ActualQuotaBeforeGroup <= 0 {
+		t.Fatalf("expected positive pre-group quota, got %v", result.ActualQuotaBeforeGroup)
+	}
+	if quota != 1 {
+		t.Fatalf("positive billable request rounded down to quota %d, want one", quota)
+	}
+}
+
 func TestTryTieredSettle_HugeTokens(t *testing.T) {
 	info := makeRelayInfo(flatExpr, 1.0, 10000000, 5000000)
 

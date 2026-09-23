@@ -467,6 +467,13 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 			tieredBillingApplied = true
 			tieredResult = tieredRes
 			summary.Quota = composeTieredTextQuota(relayInfo, summary, tieredQuota, tieredRes)
+			if tieredRes != nil {
+				summary.Quota = enforceTieredMinimumQuota(
+					summary.Quota,
+					tieredRes,
+					relayInfo.TieredBillingSnapshot.GroupRatio,
+				)
+			}
 		}
 	}
 
