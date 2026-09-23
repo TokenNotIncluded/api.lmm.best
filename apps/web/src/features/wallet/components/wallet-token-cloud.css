@@ -1,0 +1,135 @@
+.wallet-token-cloud {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  isolation: isolate;
+  pointer-events: auto;
+  cursor: grab;
+  user-select: none;
+  color: color-mix(in oklch, var(--success) 70%, var(--foreground));
+  transition: color 180ms ease-out;
+}
+
+.wallet-token-cloud--balance:hover {
+  color: var(--success);
+}
+
+.wallet-token-cloud svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  fill: currentColor;
+  pointer-events: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-weight: 600;
+  letter-spacing: -0.045em;
+}
+
+.wallet-token-cloud:active {
+  cursor: grabbing;
+}
+.wallet-token-cloud text {
+  pointer-events: none;
+}
+
+.wallet-token-cloud--balance {
+  width: 49%;
+  -webkit-mask-image: linear-gradient(to right, transparent, black 17%);
+  mask-image: linear-gradient(to right, transparent, black 17%);
+}
+
+.wallet-token-cloud--preset {
+  width: 48%;
+  opacity: 0.85;
+  transition:
+    transform 180ms ease-out,
+    opacity 180ms ease-out;
+}
+
+button:hover .wallet-token-cloud--preset,
+button[aria-pressed='true'] .wallet-token-cloud--preset {
+  opacity: 1;
+  transform: scale(1.15) rotate(-2deg);
+}
+
+.wallet-token-cloud--balance[data-success='true'] svg {
+  animation: wallet-token-cloud-grow 2.95s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.wallet-token-cloud-added,
+.wallet-token-cloud-burst {
+  fill: var(--success);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.wallet-token-cloud-added {
+  animation: wallet-token-cloud-arrive 1.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.wallet-token-cloud-burst {
+  animation: wallet-token-cloud-burst 1.75s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes wallet-token-cloud-grow {
+  0% {
+    transform: scale(var(--cloud-start-scale, 0.82));
+    filter: brightness(0.85);
+  }
+  55% {
+    transform: scale(1.09);
+    filter: brightness(1.45);
+  }
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+}
+
+@keyframes wallet-token-cloud-arrive {
+  0% {
+    opacity: 0;
+    transform: translate(56px, 72px) scale(0.15);
+  }
+  65% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.85;
+    transform: translate(0, 0) scale(1);
+  }
+}
+
+@keyframes wallet-token-cloud-burst {
+  0% {
+    opacity: 0;
+    transform: translate(var(--burst-x), var(--burst-y)) scale(0.2);
+  }
+  35% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(0, 0) scale(1.15);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wallet-token-cloud,
+  .wallet-token-cloud svg,
+  .wallet-token-cloud-added,
+  .wallet-token-cloud-burst {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .wallet-token-cloud-burst {
+    display: none;
+  }
+}
+
+[dir='rtl'] .wallet-token-cloud--balance {
+  -webkit-mask-image: linear-gradient(to left, transparent, black 17%);
+  mask-image: linear-gradient(to left, transparent, black 17%);
+}

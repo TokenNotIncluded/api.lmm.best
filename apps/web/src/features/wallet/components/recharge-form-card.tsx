@@ -92,6 +92,7 @@ import {
 } from '../lib'
 import { discountCodeSavings } from '../lib/discount-state'
 import type { TopupAvailability } from '../lib/payment'
+import { visiblePlatformCredit } from '../lib/platform-credit-display'
 import {
   formatSettlementQuote,
   parseSettlementQuote,
@@ -105,6 +106,8 @@ import type {
   WaffoPayMethod,
 } from '../types'
 import { CreemProductsSection } from './creem-products-section'
+import { PlatformCreditHelp } from './platform-credit-help'
+import { WalletTokenCloud } from './wallet-token-cloud'
 
 interface RechargeFormCardProps {
   topupInfo: TopupInfo | null
@@ -583,11 +586,14 @@ export function RechargeFormCard({
                 {presetAmounts.length > 0 && (
                   <FieldGroup>
                     <Field>
-                      <FieldLabel>
-                        {neutralMode
-                          ? t('Current account balance')
-                          : t('Platform credit')}
-                      </FieldLabel>
+                      <div className='flex items-center gap-1'>
+                        <FieldLabel>
+                          {neutralMode
+                            ? t('Current account balance')
+                            : t('Platform credit')}
+                        </FieldLabel>
+                        <PlatformCreditHelp />
+                      </div>
                       <FieldDescription>
                         {neutralMode
                           ? t(
@@ -660,7 +666,7 @@ export function RechargeFormCard({
                               key={preset.value}
                               variant='outline'
                               className={cn(
-                                'flex min-h-15 min-w-0 flex-col items-start justify-center gap-1 rounded-lg px-3 py-2 text-left whitespace-normal transition-colors sm:min-h-16',
+                                'relative isolate flex min-h-15 min-w-0 flex-col items-start justify-center gap-1 overflow-hidden rounded-lg px-3 py-2 text-left whitespace-normal transition-colors sm:min-h-16',
                                 activeSelectedPreset === preset.value
                                   ? 'border-primary bg-primary/10 text-foreground ring-1 ring-primary/30'
                                   : 'border-border/70 bg-background hover:border-primary/50 hover:bg-muted/40'
@@ -698,9 +704,19 @@ export function RechargeFormCard({
                                     )
                               }
                             >
-                              <div className='flex w-full min-w-0 flex-col items-start gap-1'>
-                                <div className='min-w-0 text-sm font-semibold tabular-nums'>
-                                  {credits}
+                              <WalletTokenCloud
+                                amount={preset.value}
+                                variant='preset'
+                              />
+                              <div className='pointer-events-none relative z-10 flex w-full min-w-0 flex-col items-start gap-1'>
+                                <div
+                                  data-slot='wallet-credit-value'
+                                  className='min-w-0 text-sm font-semibold tabular-nums'
+                                >
+                                  {visiblePlatformCredit(
+                                    credits,
+                                    t('Platform')
+                                  )}
                                 </div>
                                 {hasDiscount && (
                                   <Badge variant='secondary'>
@@ -714,52 +730,42 @@ export function RechargeFormCard({
                           )
                         })}
                       </div>
-                      {!neutralMode ? (
+                      {!neutralMode && selectedPresetDetails ? (
                         <div className='space-y-1.5 border-t pt-3 text-xs leading-5'>
-                          <div className='text-foreground font-medium'>
-                            {t('Payment notes')}
-                          </div>
-                          <p className='text-muted-foreground'>
-                            {t(
-                              'The amount shown on each card is the platform credit. The actual payment and any discount are calculated for the selected payment method.'
-                            )}
-                          </p>
-                          {selectedPresetDetails && (
-                            <>
-                              <p className='text-muted-foreground'>
-                                {selectedPresetQuoteBreakdown
-                                  ? t(
-                                      'Selected method: {{method}} · Estimated payment: {{amount}} (original {{original}})',
-                                      {
-                                        method: selectedPaymentMethodName,
-                                        amount:
-                                          formatSelectedPaymentAmount(
-                                            paymentAmount
-                                          ),
-                                        original: formatSelectedPaymentAmount(
-                                          selectedPresetQuoteBreakdown.originalPrice
+                          <>
+                            <p className='text-muted-foreground'>
+                              {selectedPresetQuoteBreakdown
+                                ? t(
+                                    'Selected method: {{method}} · Estimated payment: {{amount}} (original {{original}})',
+                                    {
+                                      method: selectedPaymentMethodName,
+                                      amount:
+                                        formatSelectedPaymentAmount(
+                                          paymentAmount
                                         ),
-                                      }
-                                    )
-                                  : t(
-                                      'Selected method: {{method}} · Amount due: {{amount}} (actual payment)',
-                                      {
-                                        method: selectedPaymentMethodName,
-                                        amount: paymentAmountLabel,
-                                      }
-                                    )}
+                                      original: formatSelectedPaymentAmount(
+                                        selectedPresetQuoteBreakdown.originalPrice
+                                      ),
+                                    }
+                                  )
+                                : t(
+                                    'Selected method: {{method}} · Amount due: {{amount}} (actual payment)',
+                                    {
+                                      method: selectedPaymentMethodName,
+                                      amount: paymentAmountLabel,
+                                    }
+                                  )}
+                            </p>
+                            {selectedPresetQuoteBreakdown?.hasDiscount && (
+                              <p className='text-muted-foreground'>
+                                {t('Discount applied {{amount}}', {
+                                  amount: formatSelectedPaymentAmount(
+                                    selectedPresetQuoteBreakdown.savedAmount
+                                  ),
+                                })}
                               </p>
-                              {selectedPresetQuoteBreakdown?.hasDiscount && (
-                                <p className='text-muted-foreground'>
-                                  {t('Discount applied {{amount}}', {
-                                    amount: formatSelectedPaymentAmount(
-                                      selectedPresetQuoteBreakdown.savedAmount
-                                    ),
-                                  })}
-                                </p>
-                              )}
-                            </>
-                          )}
+                            )}
+                          </>
                         </div>
                       ) : null}
                     </Field>
@@ -793,17 +799,17 @@ export function RechargeFormCard({
                             onChange={(e) => handleAmountChange(e.target.value)}
                             min={minTopup}
                             placeholder={t('Minimum {{amount}}', {
-                              amount: formatPlatformCreditBalance(minTopup),
+                              amount: visiblePlatformCredit(
+                                formatPlatformCreditBalance(minTopup),
+                                t('Platform')
+                              ),
                             })}
                             aria-describedby='topup-amount-description'
                             aria-label={t('Custom platform credit')}
                             className='text-base sm:text-lg'
                           />
-                          <InputGroupAddon
-                            align='inline-end'
-                            aria-hidden='true'
-                          >
-                            ({t('Platform')})
+                          <InputGroupAddon align='inline-end'>
+                            <PlatformCreditHelp />
                           </InputGroupAddon>
                         </InputGroup>
                         <div className='flex shrink-0 gap-1'>
@@ -1032,17 +1038,28 @@ export function RechargeFormCard({
                             disabledReason = t(
                               'Minimum topup amount: {{amount}}',
                               {
-                                amount: formatPlatformCreditBalance(minTopup),
+                                amount: visiblePlatformCredit(
+                                  formatPlatformCreditBalance(minTopup),
+                                  t('Platform')
+                                ),
                               }
                             )
-                            disabledLabel = `${t('Minimum:')} ${formatPlatformCreditBalance(minTopup)}`
+                            disabledLabel = `${t('Minimum:')} ${visiblePlatformCredit(formatPlatformCreditBalance(minTopup), t('Platform'))}`
                           } else if (aboveMaximum) {
                             disabledReason = t(
                               'Maximum platform credit per payment: {{amount}}',
-                              { amount: formatPlatformCreditBalance(maxTopup) }
+                              {
+                                amount: visiblePlatformCredit(
+                                  formatPlatformCreditBalance(maxTopup),
+                                  t('Platform')
+                                ),
+                              }
                             )
                             disabledLabel = t('Maximum: {{amount}}', {
-                              amount: formatPlatformCreditBalance(maxTopup),
+                              amount: visiblePlatformCredit(
+                                formatPlatformCreditBalance(maxTopup),
+                                t('Platform')
+                              ),
                             })
                           }
                           const settlementRule = shouldShowSettlementRule(
@@ -1217,11 +1234,14 @@ export function RechargeFormCard({
                         const belowMin = waffoMin > topupAmount
                         const disabledReason = belowMin
                           ? t('Minimum topup amount: {{amount}}', {
-                              amount: formatPlatformCreditBalance(waffoMin),
+                              amount: visiblePlatformCredit(
+                                formatPlatformCreditBalance(waffoMin),
+                                t('Platform')
+                              ),
                             })
                           : undefined
                         const disabledLabel = belowMin
-                          ? `${t('Minimum:')} ${formatPlatformCreditBalance(waffoMin)}`
+                          ? `${t('Minimum:')} ${visiblePlatformCredit(formatPlatformCreditBalance(waffoMin), t('Platform'))}`
                           : undefined
                         const paymentMethodLabel = neutralMode
                           ? t('Payment option {{number}}', {

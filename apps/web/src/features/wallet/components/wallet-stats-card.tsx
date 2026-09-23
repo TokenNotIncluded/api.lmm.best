@@ -23,8 +23,14 @@ import { IconBadge, type IconBadgeTone } from '@/components/ui/icon-badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import {
+  DEFAULT_CURRENCY_CONFIG,
+  useSystemConfigStore,
+} from '@/stores/system-config-store'
 
 import type { UserWalletData } from '../types'
+import { PlatformCreditAmount } from './platform-credit-help'
+import { WalletTokenCloud, type WalletCloudSuccess } from './wallet-token-cloud'
 
 function formatDiscount(percent: number) {
   return `${Math.round(percent)}%`
@@ -33,20 +39,30 @@ function formatDiscount(percent: number) {
 interface WalletStatsCardProps {
   user: UserWalletData | null
   loading?: boolean
+  success?: WalletCloudSuccess | null
 }
 
 export function WalletStatsCard(props: WalletStatsCardProps) {
   const { t } = useTranslation()
+  const configuredQuotaPerUnit = useSystemConfigStore(
+    (state) => state.config.currency.quotaPerUnit
+  )
+  const quotaPerUnit =
+    Number.isFinite(configuredQuotaPerUnit) && configuredQuotaPerUnit > 0
+      ? configuredQuotaPerUnit
+      : DEFAULT_CURRENCY_CONFIG.quotaPerUnit
+  const balanceCredits = Math.max(0, (props.user?.quota ?? 0) / quotaPerUnit)
   if (props.loading) {
     return (
-      <div className='bg-card grid grid-cols-2 overflow-hidden rounded-xl border sm:grid-cols-[1.25fr_repeat(3,minmax(0,1fr))]'>
+      <div className='bg-card grid grid-cols-3 overflow-hidden rounded-xl border'>
         {['balance', 'usage', 'requests', 'trust'].map((key, index) => (
           <div
             key={key}
             className={cn(
-              'min-w-0 border-b p-3.5 even:border-l sm:border-b-0 sm:border-l sm:px-5 sm:py-4 sm:first:border-l-0',
-              index > 1 && 'border-b-0',
-              index === 0 && 'bg-primary/5'
+              'min-w-0 p-3.5 sm:px-6 sm:py-4',
+              index === 0
+                ? 'bg-primary/5 col-span-3 min-h-32 border-b sm:min-h-36'
+                : 'border-e last:border-e-0'
             )}
           >
             <Skeleton className='h-3.5 w-full' />
@@ -96,35 +112,47 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
   ]
 
   return (
-    <div className='bg-card grid grid-cols-2 overflow-hidden rounded-xl border sm:grid-cols-[1.25fr_repeat(3,minmax(0,1fr))]'>
+    <div className='bg-card grid grid-cols-3 overflow-hidden rounded-xl border'>
       {stats.map((item, index) => (
         <div
           key={item.label}
           className={cn(
-            'min-w-0 p-3.5 sm:px-5 sm:py-4',
-            'border-b even:border-l sm:border-b-0 sm:border-l sm:first:border-l-0',
-            index > 1 && 'border-b-0',
-            index === 0 && 'bg-primary/5'
+            'min-w-0 p-3.5 sm:px-6 sm:py-4',
+            index === 0
+              ? 'bg-primary/5 relative isolate col-span-3 min-h-32 overflow-hidden border-b sm:min-h-36'
+              : 'border-e last:border-e-0'
           )}
         >
-          <div className='flex items-center gap-2'>
+          {index === 0 && (
+            <WalletTokenCloud amount={balanceCredits} success={props.success} />
+          )}
+          <div className='pointer-events-none relative z-10 flex items-center gap-2'>
             <IconBadge tone={item.tone} size='stat'>
               <item.icon />
             </IconBadge>
-            <div className='text-muted-foreground truncate text-xs font-medium'>
+            <div className='text-muted-foreground min-h-8 text-xs leading-4 font-medium sm:min-h-0'>
               {item.label}
             </div>
           </div>
 
           <div
             className={cn(
-              'text-foreground mt-2.5 font-semibold tracking-tight break-words tabular-nums',
-              index === 0 ? 'text-lg sm:text-2xl' : 'text-lg sm:text-xl'
+              'text-foreground pointer-events-none relative z-10 mt-2.5 font-semibold tracking-tight break-words tabular-nums',
+              index === 0 ? 'text-3xl sm:text-4xl' : 'text-sm sm:text-xl'
             )}
           >
-            {item.value}
+            {index < 2 ? (
+              <PlatformCreditAmount value={item.value} />
+            ) : (
+              item.value
+            )}
           </div>
-          <div className='text-muted-foreground mt-1 hidden text-xs md:block'>
+          <div
+            className={cn(
+              'text-muted-foreground pointer-events-none relative z-10 mt-1 text-xs',
+              index > 0 && 'hidden sm:block'
+            )}
+          >
             {item.description}
           </div>
         </div>

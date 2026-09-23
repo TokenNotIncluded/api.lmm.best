@@ -387,17 +387,36 @@ describe('wallet payment clarity', () => {
         ?.textContent,
       '自定义平台额度'
     )
-    assert.equal(presetCard?.textContent?.includes('10 (平台)'), true)
+    assert.equal(
+      presetCard
+        ?.querySelector('[data-slot="wallet-credit-value"]')
+        ?.textContent?.trim(),
+      '10'
+    )
     assert.equal(presetCard?.textContent?.includes('$'), false)
     assert.deepEqual(
       addons.map((addon) => addon.textContent),
-      ['(平台)']
+      ['?']
     )
     assert.equal(
       addons.some((addon) => addon.textContent?.includes('$')),
       false
     )
     assert.equal(text.includes('$'), false)
+    const creditHelp = rendered.container.querySelector<HTMLButtonElement>(
+      'button[aria-label="平台额度"]'
+    )
+    assert.ok(creditHelp)
+    await act(async () => {
+      creditHelp.click()
+      await flushEffects()
+    })
+    assert.equal(
+      document.body.textContent?.includes(
+        '平台额度是用于服务消耗的余额。结算页面会单独列出实际付款金额及结算币种。'
+      ),
+      true
+    )
     await unmount(rendered)
   })
 
@@ -716,7 +735,12 @@ describe('wallet payment clarity', () => {
         '[aria-label="Preset amount: 6.8 (Platform). Actual payment: 1 USD. Original payment: 1 USD. Platform discount 0%"]'
       )
     )
-    assert.equal(text.includes('6.8 (Platform)'), true)
+    assert.equal(
+      recharge.container
+        .querySelector('button[aria-pressed] [data-slot="wallet-credit-value"]')
+        ?.textContent?.trim(),
+      '6.8'
+    )
     assert.equal(text.includes('Estimated payment: 1 USD'), true)
     assert.equal(text.includes('Amount due: 1 USD (actual payment)'), true)
     assert.equal(text.includes('$1'), false)
@@ -741,7 +765,7 @@ describe('wallet payment clarity', () => {
       />
     )
     assert.equal(
-      document.body.textContent?.includes('Credit 6.8 (Platform); pay 1 USD'),
+      document.body.textContent?.includes('Credit 6.8; pay 1 USD'),
       true
     )
     assert.equal(document.body.textContent?.includes('$1'), false)
@@ -785,7 +809,12 @@ describe('wallet payment clarity', () => {
         '[aria-label="Preset amount: 6.8 (Platform). Actual payment: 6.8 CNY. Original payment: 6.8 CNY. Platform discount 0%"]'
       )
     )
-    assert.equal(text.includes('6.8 (Platform)'), true)
+    assert.equal(
+      rendered.container
+        .querySelector('button[aria-pressed] [data-slot="wallet-credit-value"]')
+        ?.textContent?.trim(),
+      '6.8'
+    )
     assert.equal(text.includes('Estimated payment: 6.8 CNY'), true)
     assert.equal(text.includes('Amount due: 6.8 CNY (actual payment)'), true)
     assert.equal(text.includes('6.8 CNY / 6.8 (Platform)'), true)
@@ -820,7 +849,9 @@ describe('wallet payment clarity', () => {
     )
     assert.ok(noDiscountPreset)
     assert.equal(
-      noDiscountPreset?.textContent?.includes('100 (Platform)'),
+      noDiscountPreset
+        ?.querySelector('[data-slot="wallet-credit-value"]')
+        ?.textContent?.includes('100'),
       true
     )
     assert.equal(
@@ -895,7 +926,12 @@ describe('wallet payment clarity', () => {
     )
 
     const text = rendered.container.textContent ?? ''
-    assert.equal(text.includes('100 (Platform)'), true)
+    assert.equal(
+      rendered.container
+        .querySelector('button[aria-pressed] [data-slot="wallet-credit-value"]')
+        ?.textContent?.includes('100'),
+      true
+    )
     assert.equal(
       text.includes(
         'Selected method: Alipay · Estimated payment: 80 CNY (original 100 CNY)'
@@ -995,7 +1031,7 @@ describe('wallet payment clarity', () => {
       ]
         .map((addon) => addon.textContent)
         .slice(0, 2),
-      ['(Platform)']
+      ['?']
     )
     assert.equal(
       rendered.container.textContent?.includes(
@@ -1078,7 +1114,7 @@ describe('wallet payment clarity', () => {
     )
 
     assert.equal(
-      document.body.textContent?.includes('Credit 1 (Platform); pay 0.56 LDC'),
+      document.body.textContent?.includes('Credit 1; pay 0.56 LDC'),
       true
     )
     await unmount(confirmation)
@@ -1120,13 +1156,10 @@ describe('wallet payment clarity', () => {
       ...rendered.container.querySelectorAll('button'),
     ].find((button) => button.textContent?.includes('LINUX DO Credit'))
     assert.equal(methodButton?.disabled, true)
-    assert.equal(
-      methodButton?.textContent?.includes('Maximum: 20 (Platform)'),
-      true
-    )
+    assert.equal(methodButton?.textContent?.includes('Maximum: 20'), true)
     assert.equal(
       methodButton?.getAttribute('title'),
-      'Maximum platform credit per payment: 20 (Platform)'
+      'Maximum platform credit per payment: 20'
     )
 
     await unmount(rendered)
@@ -1177,10 +1210,7 @@ describe('wallet payment clarity', () => {
         await act(async () => button.click())
         assert.equal(selected, true)
       } else {
-        assert.equal(
-          button.title,
-          'Maximum platform credit per payment: 17 (Platform)'
-        )
+        assert.equal(button.title, 'Maximum platform credit per payment: 17')
       }
       await unmount(rendered)
     }
@@ -1279,7 +1309,8 @@ describe('wallet payment clarity', () => {
     assert.equal(pageText.includes('Destination'), true)
     assert.equal(pageText.includes('Balance credited'), true)
     assert.equal(pageText.includes('You top up'), true)
-    assert.equal(pageText.includes('1 (Platform)'), true)
+    assert.equal(pageText.includes('1?'), true)
+    assert.equal(pageText.includes('(Platform)'), false)
     assert.equal(pageText.includes('$'), false)
     assert.equal(pageText.includes('0.15 USD'), true)
     assert.equal(pageText.includes('Alipay'), true)
@@ -1342,13 +1373,21 @@ describe('wallet payment clarity', () => {
       cards.every((card) => card.scrollWidth <= card.clientWidth),
       true
     )
-    assert.equal(rendered.container.textContent?.includes('100 (平台)'), true)
+    assert.equal(
+      cards.some((card) =>
+        card
+          .querySelector('[data-slot="wallet-credit-value"]')
+          ?.textContent?.trim()
+          .startsWith('100')
+      ),
+      true
+    )
     assert.equal(rendered.container.textContent?.includes('$'), false)
     assert.equal(
       rendered.container.textContent?.includes(
         '卡片中的金额是平台到账金额，实际支付金额和优惠会根据所选支付方式计算。'
       ),
-      true
+      false
     )
     assert.equal(
       rendered.container.textContent?.includes(
@@ -1358,7 +1397,12 @@ describe('wallet payment clarity', () => {
     )
     assert.equal(
       cards
-        .find((card) => card.textContent?.includes('100 (平台)'))
+        .find((card) =>
+          card
+            .querySelector('[data-slot="wallet-credit-value"]')
+            ?.textContent?.trim()
+            .startsWith('100')
+        )
         ?.getAttribute('aria-pressed'),
       'false'
     )

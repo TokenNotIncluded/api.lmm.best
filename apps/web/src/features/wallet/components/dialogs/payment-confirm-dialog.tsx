@@ -45,12 +45,14 @@ import {
   isWaffoPancakePayment,
 } from '../../lib'
 import { discountCodeSavings } from '../../lib/discount-state'
+import { visiblePlatformCredit } from '../../lib/platform-credit-display'
 import {
   formatSettlementQuote,
   parseSettlementQuote,
   type SettlementQuote,
 } from '../../lib/settlement-quote'
 import type { PaymentMethod } from '../../types'
+import { PlatformCreditAmount } from '../platform-credit-help'
 
 interface PaymentConfirmDialogProps {
   open: boolean
@@ -151,7 +153,9 @@ export function PaymentConfirmDialog({
               {t('Balance credited')}
             </span>
             <span className='text-lg font-semibold'>
-              {formatPlatformCreditBalance(topupAmount)}
+              <PlatformCreditAmount
+                value={formatPlatformCreditBalance(topupAmount)}
+              />
             </span>
           </div>
 
@@ -221,7 +225,10 @@ export function PaymentConfirmDialog({
           {(settlementUnit || quote) && !calculating && hasPaymentAmount && (
             <div className='bg-muted/50 rounded-lg border p-3 text-sm'>
               {t('Credit {{amount}}; pay {{payment}}', {
-                amount: formatPlatformCreditBalance(topupAmount),
+                amount: visiblePlatformCredit(
+                  formatPlatformCreditBalance(topupAmount),
+                  t('Platform')
+                ),
                 payment: formatSelectedPaymentAmount(effectivePaymentAmount),
               })}
             </div>

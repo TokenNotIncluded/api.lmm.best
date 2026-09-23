@@ -34,6 +34,10 @@ import {
   type WaffoPancakeCheckoutRegion,
 } from '@/lib/waffo-pancake-checkout'
 import { useAuthStore } from '@/stores/auth-store'
+import {
+  DEFAULT_CURRENCY_CONFIG,
+  useSystemConfigStore,
+} from '@/stores/system-config-store'
 
 import { isApiSuccess, validateDiscountCode } from './api'
 import { AffiliateRewardsCard } from './components/affiliate-rewards-card'
@@ -57,6 +61,7 @@ import {
   useWaffoPancakePayment,
 } from './hooks'
 import { useCheckoutScope } from './hooks/use-checkout-scope'
+import { useTopupCloudSuccess } from './hooks/use-topup-cloud-success'
 import {
   getDefaultPaymentType,
   getTopupAvailability,
@@ -108,6 +113,13 @@ function WalletCheckout(props: WalletProps) {
   const user = authUser as UserWalletData | null
   const userLoading = authUser === null
   const localPreview = isLocalPreview()
+  const configuredQuotaPerUnit = useSystemConfigStore(
+    (state) => state.config.currency.quotaPerUnit
+  )
+  const quotaPerUnit =
+    Number.isFinite(configuredQuotaPerUnit) && configuredQuotaPerUnit > 0
+      ? configuredQuotaPerUnit
+      : DEFAULT_CURRENCY_CONFIG.quotaPerUnit
   const developerAccessGranted = !localPreview && isConsoleActivated(authUser)
   const [enteredTopupAmount, setTopupAmount] = useState<number | null>(null)
   const [selectedPreset, setSelectedPreset] = useState<number | null>(null)
@@ -158,6 +170,18 @@ function WalletCheckout(props: WalletProps) {
   >(null)
   const [paymentFeedback, setPaymentFeedback] =
     useState<PaymentFeedback | null>(null)
+  const {
+    success: cloudSuccess,
+    prefetchBaseline: prefetchTopupBaseline,
+    prepare: prepareTopupCloud,
+    activate: activateTopupCloud,
+    cancel: cancelTopupCloud,
+  } = useTopupCloudSuccess({
+    userId: user?.id ?? null,
+    quotaPerUnit,
+    refreshUser,
+    disabled: localPreview,
+  })
   const paymentInputRevisionRef = useRef(0)
   const quoteDebounceRef = useRef<number | null>(null)
   const confirmedQuoteRevisionRef = useRef<number | null>(null)
@@ -165,6 +189,18 @@ function WalletCheckout(props: WalletProps) {
     (DiscountValidationContext & { code: string }) | null
   >(null)
   const { status } = useStatus()
+  useEffect(() => {
+    if (confirmDialogOpen || creemDialogOpen) {
+      void prefetchTopupBaseline()
+    }
+  }, [confirmDialogOpen, creemDialogOpen, prefetchTopupBaseline])
+  useEffect(() => {
+    if (!cloudSuccess) return
+    setPaymentFeedback({
+      tone: 'success',
+      message: t('Order completed successfully'),
+    })
+  }, [cloudSuccess, t])
   const {
     topupInfo,
     presetAmounts,
@@ -727,6 +763,7 @@ function WalletCheckout(props: WalletProps) {
     }
 
     const revision = paymentInputRevisionRef.current
+    prepareTopupCloud(user?.quota ?? 0, topupAmount)
     try {
       const success = await dispatchSelectedPayment(
         selectedPaymentMethod,
@@ -747,6 +784,7 @@ function WalletCheckout(props: WalletProps) {
       if (!isCurrent() || revision !== paymentInputRevisionRef.current) return
 
       if (success) {
+        activateTopupCloud()
         setPaymentFeedback({
           tone: 'success',
           message: t('Payment page opened'),
@@ -754,12 +792,14 @@ function WalletCheckout(props: WalletProps) {
         setConfirmDialogOpen(false)
         await refreshAfterPaymentLaunch()
       } else {
+        cancelTopupCloud()
         setPaymentFeedback({
           tone: 'destructive',
           message: t('Payment request failed'),
         })
       }
     } catch (error) {
+      cancelTopupCloud()
       if (!isCurrent() || revision !== paymentInputRevisionRef.current) return
       if (isSettlementQuoteChanged(error)) {
         resetPendingPayment()
@@ -893,9 +933,14 @@ function WalletCheckout(props: WalletProps) {
     if (!selectedCreemProduct) return
 
     setPaymentFeedback({ tone: 'default', message: t('Submitting...') })
+    prepareTopupCloud(
+      user?.quota ?? 0,
+      selectedCreemProduct.quota / quotaPerUnit
+    )
 
     const success = await processCreemPayment(selectedCreemProduct.productId)
     if (success) {
+      activateTopupCloud()
       setPaymentFeedback({
         tone: 'success',
         message: t('Payment page opened'),
@@ -904,6 +949,7 @@ function WalletCheckout(props: WalletProps) {
       setSelectedCreemProduct(null)
       await refreshAfterPaymentLaunch()
     } else {
+      cancelTopupCloud()
       setPaymentFeedback({
         tone: 'destructive',
         message: t('Payment request failed'),
@@ -944,7 +990,11 @@ function WalletCheckout(props: WalletProps) {
               </Alert>
             ) : null}
             {developerAccessGranted ? (
-              <WalletStatsCard user={user} loading={userLoading} />
+              <WalletStatsCard
+                user={user}
+                loading={userLoading}
+                success={cloudSuccess}
+              />
             ) : null}
 
             <div

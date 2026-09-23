@@ -24,7 +24,7 @@ import type React from 'react'
 
 import type { AuthUser } from '@/stores/auth-store'
 
-import type { AmountRequest, TopupInfo } from './types'
+import type { AmountRequest, TopupInfo, TopupRecord } from './types'
 
 const domWindow = new Window({
   url: 'https://console.example.test/wallet?discount_code=SAVE',
@@ -129,6 +129,7 @@ afterEach(async () => {
   api.get = originalGet
   api.post = originalPost
   useAuthStore.getState().auth.reset('complete')
+  window.sessionStorage.removeItem('wallet-pending-topup-cloud')
   window.history.replaceState({}, '', '/wallet?discount_code=SAVE')
 })
 after(() => domWindow.close())
@@ -217,7 +218,7 @@ test('late discount validation cannot quote an old amount into a new checkout', 
   )
   const confirmation = document.querySelector('[role="alertdialog"]')
   assert.ok(confirmation)
-  assert.ok(confirmation.textContent?.includes('100 (Platform)'))
+  assert.ok(confirmation.textContent?.includes('100?'))
   assert.ok(confirmation.textContent?.includes('90 CNY'))
   queryClient.clear()
 })
@@ -227,6 +228,9 @@ async function renderWallet(
   options: {
     topupInfo?: Partial<TopupInfo>
     setting?: AuthUser['setting']
+    quota?: number
+    selfQuota?: number
+    topupRecords?: TopupRecord[]
   } = {}
 ) {
   const user = {
@@ -234,8 +238,10 @@ async function renderWallet(
     username: 'checkout-user',
     role: 1,
     developer_access_granted: activated,
+    quota: options.quota ?? 0,
     setting: options.setting,
   }
+  const refreshedUser = { ...user, quota: options.selfQuota ?? user.quota }
   useAuthStore.getState().auth.setUser(user)
   api.get = (async (url) => ({
     data: {
@@ -259,10 +265,15 @@ async function renderWallet(
               ...options.topupInfo,
             }
           : url === '/api/user/self'
-            ? user
-            : url === '/api/user/aff'
-              ? ''
-              : [],
+            ? refreshedUser
+            : url.startsWith('/api/user/topup/self?')
+              ? {
+                  items: options.topupRecords ?? [],
+                  total: options.topupRecords?.length ?? 0,
+                }
+              : url === '/api/user/aff'
+                ? ''
+                : [],
     },
   })) as typeof api.get
   const queryClient = new QueryClient({
@@ -275,6 +286,49 @@ async function renderWallet(
   )
   return { container, queryClient }
 }
+
+test('confirmed top-up grows the balance cloud only after the server reports success', async () => {
+  window.history.replaceState({}, '', '/wallet')
+  const launchedAt = Date.now() - 1_000
+  window.sessionStorage.setItem(
+    'wallet-pending-topup-cloud',
+    JSON.stringify({
+      userId: 7,
+      launchedAt,
+      expiresAt: launchedAt + 900_000,
+      baselineSuccessId: 10,
+      beforeQuota: 5_000_000,
+      expectedCredit: 10,
+    })
+  )
+  const { container, queryClient } = await renderWallet(true, {
+    quota: 5_000_000,
+    selfQuota: 10_000_000,
+    topupRecords: [
+      {
+        id: 11,
+        user_id: 7,
+        amount: 10,
+        money: 10,
+        trade_no: 'confirmed-order',
+        payment_method: 'waffo_pancake',
+        create_time: Math.floor(launchedAt / 1000),
+        complete_time: Math.floor(launchedAt / 1000) + 1,
+        status: 'success',
+      },
+    ],
+  })
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  })
+  const cloud = container.querySelector(
+    '[data-testid="wallet-token-cloud-balance"]'
+  )
+  assert.equal(cloud?.getAttribute('data-success'), 'true')
+  assert.ok(cloud?.querySelectorAll('.wallet-token-cloud-added').length)
+  assert.ok(container.textContent?.includes('Order completed successfully'))
+  queryClient.clear()
+})
 
 type ValidationResult = {
   data: {
@@ -611,7 +665,7 @@ for (const currency of ['CNY', 'USD'] as const) {
     await act(async () => paymentButton().click())
     const dialog = document.querySelector('[role="alertdialog"]')
     assert.ok(dialog?.textContent?.includes(`63.0700 ${currency}`))
-    assert.ok(dialog?.textContent?.includes('10 (Platform)'))
+    assert.ok(dialog?.textContent?.includes('10?'))
     await act(async () => confirmButton().click())
     assert.deepEqual(requests.at(-1), {
       url: '/api/user/waffo-pancake/pay',
@@ -754,7 +808,7 @@ for (const currency of ['CNY', 'USD'] as const) {
     const text =
       document.querySelector('[role="alertdialog"]')?.textContent ?? ''
     assert.ok(text.includes(`12.3400 ${currency}`))
-    assert.ok(text.includes('100 (Platform)'))
+    assert.ok(text.includes('100?'))
     assert.equal(text.includes('999'), false)
     assert.equal(confirmButton().disabled, false)
   })
