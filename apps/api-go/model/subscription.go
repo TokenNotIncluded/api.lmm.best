@@ -1947,6 +1947,13 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 }
 
 func preConsumeUserSubscription(db *gorm.DB, requestId string, userId int, modelName string, quotaType int, amount int64) (*SubscriptionPreConsumeResult, error) {
+	return preConsumeUserSubscriptionWithPolicy(db, requestId, userId, modelName, quotaType, amount, false)
+}
+
+// Managed subscription-first billing can reserve the remaining grant when its
+// conservative estimate is larger. Settlement then charges the actual excess
+// to the wallet under the existing overflow policy.
+func preConsumeUserSubscriptionWithPolicy(db *gorm.DB, requestId string, userId int, modelName string, quotaType int, amount int64, allowPartial bool) (*SubscriptionPreConsumeResult, error) {
 	if userId <= 0 {
 		return nil, errors.New("invalid userId")
 	}
@@ -1992,6 +1999,14 @@ func preConsumeUserSubscription(db *gorm.DB, requestId string, userId int, model
 		if len(subs) == 0 {
 			return ErrNoActiveSubscription
 		}
+		partialAllowed := allowPartial
+		for _, sub := range subs {
+			partialAllowed = partialAllowed && sub.AllowWalletOverflow
+		}
+		var selected *UserSubscription
+		var partial *UserSubscription
+		var partialAmount int64
+		reserved := amount
 		for _, candidate := range subs {
 			sub := candidate
 			plan, err := getSubscriptionPlanByIdTx(tx, sub.PlanId)
@@ -2008,43 +2023,57 @@ func preConsumeUserSubscription(db *gorm.DB, requestId string, userId int, model
 			if sub.AmountTotal > 0 {
 				remain := sub.AmountTotal - usedBefore
 				if remain < amount {
+					if partialAllowed && remain > partialAmount {
+						partial = &sub
+						partialAmount = remain
+					}
 					continue
 				}
 			}
-			record := &SubscriptionPreConsumeRecord{
-				RequestId:          requestId,
-				UserId:             userId,
-				UserSubscriptionId: sub.Id,
-				PreConsumed:        amount,
-				Status:             "consumed",
-			}
-			if err := tx.Create(record).Error; err != nil {
-				var dup SubscriptionPreConsumeRecord
-				if err2 := tx.Where("request_id = ?", requestId).First(&dup).Error; err2 == nil {
-					if dup.Status == "refunded" {
-						return errors.New("subscription pre-consume already refunded")
-					}
-					returnValue.UserSubscriptionId = sub.Id
-					returnValue.PreConsumed = dup.PreConsumed
-					returnValue.AmountTotal = sub.AmountTotal
-					returnValue.AmountUsedBefore = sub.AmountUsed
-					returnValue.AmountUsedAfter = sub.AmountUsed
-					return nil
-				}
-				return err
-			}
-			sub.AmountUsed += amount
-			if err := tx.Save(&sub).Error; err != nil {
-				return err
-			}
-			returnValue.UserSubscriptionId = sub.Id
-			returnValue.PreConsumed = amount
-			returnValue.AmountTotal = sub.AmountTotal
-			returnValue.AmountUsedBefore = usedBefore
-			returnValue.AmountUsedAfter = sub.AmountUsed
-			return nil
+			selected = &sub
+			break
 		}
-		return fmt.Errorf("%w, need=%d", ErrSubscriptionQuotaInsufficient, amount)
+		if selected == nil && partial != nil {
+			selected = partial
+			reserved = partialAmount
+		}
+		if selected == nil {
+			return fmt.Errorf("%w, need=%d", ErrSubscriptionQuotaInsufficient, amount)
+		}
+		sub := *selected
+		usedBefore := sub.AmountUsed
+		record := &SubscriptionPreConsumeRecord{
+			RequestId:          requestId,
+			UserId:             userId,
+			UserSubscriptionId: sub.Id,
+			PreConsumed:        reserved,
+			Status:             "consumed",
+		}
+		if err := tx.Create(record).Error; err != nil {
+			var dup SubscriptionPreConsumeRecord
+			if err2 := tx.Where("request_id = ?", requestId).First(&dup).Error; err2 == nil {
+				if dup.Status == "refunded" {
+					return errors.New("subscription pre-consume already refunded")
+				}
+				returnValue.UserSubscriptionId = sub.Id
+				returnValue.PreConsumed = dup.PreConsumed
+				returnValue.AmountTotal = sub.AmountTotal
+				returnValue.AmountUsedBefore = sub.AmountUsed
+				returnValue.AmountUsedAfter = sub.AmountUsed
+				return nil
+			}
+			return err
+		}
+		sub.AmountUsed += reserved
+		if err := tx.Save(&sub).Error; err != nil {
+			return err
+		}
+		returnValue.UserSubscriptionId = sub.Id
+		returnValue.PreConsumed = reserved
+		returnValue.AmountTotal = sub.AmountTotal
+		returnValue.AmountUsedBefore = usedBefore
+		returnValue.AmountUsedAfter = sub.AmountUsed
+		return nil
 	})
 	if err != nil {
 		return nil, err

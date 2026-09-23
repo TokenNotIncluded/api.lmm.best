@@ -149,13 +149,14 @@ func TestSubscriptionBillingReserveRefundAndReplay(t *testing.T) {
 	require.Nil(t, apiErr)
 	require.NoError(t, session.Reserve(90000))
 	require.NoError(t, session.Reserve(90000))
-	require.Error(t, session.Reserve(110000))
-	assertSubscriptionBillingBalances(t, db, info, 90000, 0, 90000)
+	require.NoError(t, session.Reserve(110000))
+	require.NoError(t, session.Reserve(110000))
+	assertSubscriptionBillingBalances(t, db, info, 100000, 0, 100000)
 	copyInfo := *info
 	replayed, apiErr := NewBillingSession(c, &copyInfo, 60000)
 	require.Nil(t, apiErr)
-	require.Equal(t, 90000, replayed.GetPreConsumedQuota())
-	assertSubscriptionBillingBalances(t, db, info, 90000, 0, 90000)
+	require.Equal(t, 100000, replayed.GetPreConsumedQuota())
+	assertSubscriptionBillingBalances(t, db, info, 100000, 0, 100000)
 	session.Refund(c)
 	replayed.Refund(c)
 	require.NoError(t, model.RefundSubscriptionPreConsume(info.RequestId))
@@ -165,8 +166,9 @@ func TestSubscriptionBillingReserveRefundAndReplay(t *testing.T) {
 	require.NotNil(t, apiErr)
 }
 
-func TestSubscriptionBillingPreconsumeFallback(t *testing.T) {
+func TestSubscriptionBillingPreconsumeFallbackAfterGrantExhausted(t *testing.T) {
 	db, info, c := subscriptionBillingFixture(t, 100, true, "subscription_first")
+	require.NoError(t, db.Model(&model.UserSubscription{}).Where("user_id = ?", info.UserId).Update("amount_used", 100).Error)
 	session, apiErr := NewBillingSession(c, info, 60000)
 	require.Nil(t, apiErr)
 	require.Equal(t, BillingSourceWallet, session.funding.Source())
@@ -176,6 +178,67 @@ func TestSubscriptionBillingPreconsumeFallback(t *testing.T) {
 	var count int64
 	require.NoError(t, db.Model(&model.SubscriptionPreConsumeRecord{}).Count(&count).Error)
 	require.Zero(t, count)
+}
+
+func TestSubscriptionBillingPreconsumeKeepsRemainingGrant(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		actual      int
+		sub, wallet int
+	}{
+		{"settles_within_grant", 80, 80, 0},
+		{"settles_excess_to_wallet", 160, 100, 60},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, info, c := subscriptionBillingFixture(t, 100, true, "subscription_first")
+			session, apiErr := NewBillingSession(c, info, 60000)
+			require.Nil(t, apiErr)
+			require.Equal(t, BillingSourceSubscription, session.funding.Source())
+			require.Equal(t, 100, session.GetPreConsumedQuota())
+			// Routing refresh must not turn the partial grant into a failed request.
+			require.NoError(t, session.Reserve(60000))
+			assertSubscriptionBillingBalances(t, db, info, 100, 0, 100)
+			require.NoError(t, session.Settle(tc.actual))
+			assertSubscriptionBillingBalances(t, db, info, int64(tc.sub), tc.wallet, tc.actual)
+			require.EqualValues(t, tc.wallet, session.SubscriptionSettlement().WalletQuota)
+		})
+	}
+}
+
+func TestSubscriptionBillingPartialPreconsumeChoosesLargerGrant(t *testing.T) {
+	db, info, c := subscriptionBillingFixture(t, 100, true, "subscription_first")
+	var original model.UserSubscription
+	require.NoError(t, db.Where("user_id = ?", info.UserId).First(&original).Error)
+	soon := model.UserSubscription{UserId: info.UserId, PlanId: original.PlanId, AmountTotal: 1, Status: "active", StartTime: time.Now().Unix() - 10, EndTime: time.Now().Unix() + 1800, AllowWalletOverflow: true}
+	require.NoError(t, db.Create(&soon).Error)
+	session, apiErr := NewBillingSession(c, info, 60000)
+	require.Nil(t, apiErr)
+	require.Equal(t, original.Id, info.SubscriptionId)
+	require.Equal(t, 100, session.GetPreConsumedQuota())
+	require.NoError(t, session.Settle(80))
+	assertSubscriptionBillingBalances(t, db, info, 80, 0, 80)
+	require.NoError(t, db.First(&soon, soon.Id).Error)
+	require.Zero(t, soon.AmountUsed)
+}
+
+func TestSubscriptionBillingPartialPreconsumeHonorsStrictPolicy(t *testing.T) {
+	for _, tc := range []struct {
+		name, preference string
+		allow            bool
+	}{
+		{"subscription_only", "subscription_only", true},
+		{"no_wallet_overflow", "subscription_first", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, info, c := subscriptionBillingFixture(t, 100, tc.allow, tc.preference)
+			session, apiErr := NewBillingSession(c, info, 60000)
+			require.Nil(t, session)
+			require.NotNil(t, apiErr)
+			var count int64
+			require.NoError(t, db.Model(&model.SubscriptionPreConsumeRecord{}).Count(&count).Error)
+			require.Zero(t, count)
+		})
+	}
 }
 
 func TestSubscriptionBillingReserveTokenFailureRollsBack(t *testing.T) {

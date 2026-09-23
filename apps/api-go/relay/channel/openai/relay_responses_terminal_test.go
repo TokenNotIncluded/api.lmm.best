@@ -82,7 +82,11 @@ func TestResponsesZeroUsageDoesNotSuppressObservedOutput(t *testing.T) {
 				usage, apiErr, _, info := runResponsesTerminalTest(t, strings.NewReader(body), false)
 				require.Nil(t, apiErr)
 				require.Positive(t, usage.CompletionTokens)
-				require.Equal(t, 12, usage.PromptTokens)
+				if ending == "" {
+					require.Zero(t, usage.PromptTokens, "an interrupted stream cannot prove its input usage")
+				} else {
+					require.Equal(t, 12, usage.PromptTokens)
+				}
 				require.Equal(t, usage.PromptTokens+usage.CompletionTokens, usage.TotalTokens)
 				require.Equal(t, ending == "", info.StreamStatus.HasErrors())
 			})
@@ -256,7 +260,7 @@ func TestResponsesPartialOutputUsageFallback(t *testing.T) {
 		u, e, w, _ := runResponsesTerminalTest(t, strings.NewReader(body), false)
 		require.Nil(t, e)
 		require.Positive(t, u.CompletionTokens)
-		require.Equal(t, 12, u.PromptTokens)
+		require.Zero(t, u.PromptTokens, "partial output does not justify charging the full request-side input estimate")
 		require.Equal(t, u.PromptTokens+u.CompletionTokens, u.TotalTokens)
 		require.Equal(t, 1, strings.Count(w.Body.String(), "event: response.failed"))
 	}

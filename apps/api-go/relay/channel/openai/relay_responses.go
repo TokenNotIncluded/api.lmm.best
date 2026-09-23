@@ -79,6 +79,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	imageCounter := &relaycommon.ImageGenerationCallCounter{}
 	imageCommitted := false
 	terminal := false
+	successfulTerminal := false
 	hasUsage := false
 	downstreamWriteFailed := false
 	var lastResponse *dto.OpenAIResponsesResponse
@@ -128,9 +129,11 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		switch streamResponse.Type {
 		case "response.completed", "response.done":
 			terminal = true
+			successfulTerminal = true
 			if streamResponse.Response != nil {
 				failed := relaycommon.IsNonBillableResponsesStatus(streamResponse.Response.Status)
 				if failed {
+					successfulTerminal = false
 					info.StreamStatus.RecordError("upstream Responses terminal failure")
 				}
 				if !imageCommitted {
@@ -203,10 +206,10 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		}
 	}
 
-	if !hasUsage && usage.PromptTokens == 0 && usage.CompletionTokens != 0 {
-		// response.created alone proves acceptance, not consumed input. Only
-		// estimate prompt usage after observed output; otherwise leave unknown
-		// usage at zero rather than inventing consumption from request size.
+	if !hasUsage && usage.PromptTokens == 0 && usage.CompletionTokens != 0 && successfulTerminal && !downstreamWriteFailed && c.Request.Context().Err() == nil {
+		// Partial output proves some output was generated, but an interrupted
+		// stream gives no reliable input usage. The request-side token estimate
+		// can include opaque replay payloads and must not become a final debit.
 		usage.PromptTokens = info.GetEstimatePromptTokens()
 	}
 
