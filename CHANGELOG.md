@@ -13,6 +13,11 @@ authenticated users then see it once after their next login.
 
 <!-- Add user-facing or operational changes here before the next release. -->
 
+- Gemini tool conversion preserves full JSON Schema constraints through
+  `parametersJsonSchema` when the legacy subset would discard them, including
+  tuple items, constrained empty objects and deep schemas. Compatible schemas
+  retain the existing normalized `parameters` representation.
+
 - Chat-to-Responses streams create a new reasoning or ordinary-message output
   item when content resumes after a closed segment, preserving each segment's
   ID, position, text, and closing status in the final response. Aggregate usage

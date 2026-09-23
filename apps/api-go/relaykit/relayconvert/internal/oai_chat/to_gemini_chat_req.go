@@ -167,7 +167,7 @@ func OpenAIChatRequestToGeminiGenerateContent(c context.Context, textRequest dto
 	}
 
 	if textRequest.Tools != nil {
-		functions := make([]dto.FunctionRequest, 0, len(textRequest.Tools))
+		functions := make([]dto.GeminiFunctionDeclaration, 0, len(textRequest.Tools))
 		googleSearch := false
 		codeExecution := false
 		urlContext := false
@@ -184,15 +184,9 @@ func OpenAIChatRequestToGeminiGenerateContent(c context.Context, textRequest dto
 				urlContext = true
 				continue
 			}
-			if tool.Function.Parameters != nil {
-				if params, ok := tool.Function.Parameters.(map[string]interface{}); ok {
-					if props, hasProps := params["properties"].(map[string]interface{}); hasProps && len(props) == 0 {
-						tool.Function.Parameters = nil
-					}
-				}
-			}
-			tool.Function.Parameters = sharedgemini.CleanFunctionParameters(tool.Function.Parameters)
-			functions = append(functions, tool.Function)
+			cleaned, full := sharedgemini.PreserveFunctionParameters(tool.Function.Parameters)
+			tool.Function.Parameters = cleaned
+			functions = append(functions, dto.GeminiFunctionDeclaration{FunctionRequest: tool.Function, ParametersJsonSchema: full})
 		}
 		geminiTools := geminiRequest.GetTools()
 		if codeExecution {

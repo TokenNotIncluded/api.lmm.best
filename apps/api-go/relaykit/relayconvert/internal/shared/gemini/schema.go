@@ -37,6 +37,93 @@ func CleanFunctionParameters(params interface{}) interface{} {
 	return cleanGeminiFunctionParametersWithDepth(params, 0)
 }
 
+// PreserveFunctionParameters selects Gemini's OpenAPI subset or the full
+// parametersJsonSchema field when cleaning would discard a valid constraint.
+func PreserveFunctionParameters(params interface{}) (cleaned interface{}, full interface{}) {
+	if containsUnsupportedSchema(params, 0) {
+		return nil, params
+	}
+	// Preserve the established omission only for a genuinely empty object.
+	if schema, ok := params.(map[string]interface{}); ok && schema["type"] == "object" {
+		if props, ok := schema["properties"].(map[string]interface{}); ok && len(props) == 0 {
+			empty := true
+			for key := range schema {
+				switch key {
+				case "type", "properties", "title", "description":
+				default:
+					empty = false
+				}
+			}
+			if empty {
+				return nil, nil
+			}
+		}
+	}
+	return CleanFunctionParameters(params), nil
+}
+
+func containsUnsupportedSchema(value interface{}, depth int) bool {
+	if depth >= geminiFunctionSchemaMaxDepth {
+		// Do not claim an uninspected subtree is safe.
+		return value != nil
+	}
+	switch v := value.(type) {
+	case map[string]interface{}:
+		for key, child := range v {
+			if _, ok := geminiOpenAPISchemaAllowedFields[key]; !ok {
+				return true
+			}
+			switch key {
+			case "properties":
+				if props, ok := child.(map[string]interface{}); ok {
+					for _, property := range props {
+						if containsUnsupportedSchema(property, depth+1) {
+							return true
+						}
+					}
+				}
+			case "items":
+				// Tuple arrays cannot be reduced to their first element.
+				if _, tuple := child.([]interface{}); tuple {
+					return true
+				}
+				if containsUnsupportedSchema(child, depth+1) {
+					return true
+				}
+			case "anyOf":
+				if containsUnsupportedSchema(child, depth+1) {
+					return true
+				}
+			case "type":
+				if typ, ok := child.(string); ok && typ == "null" {
+					return true
+				}
+				if types, ok := child.([]interface{}); ok {
+					nonNull := 0
+					for _, typ := range types {
+						if typ != "null" {
+							nonNull++
+						}
+					}
+					if nonNull != 1 {
+						return true
+					}
+				}
+				// enum/default/example are data, not schema nodes.
+			}
+		}
+	case []interface{}:
+		for _, child := range v {
+			if containsUnsupportedSchema(child, depth+1) {
+				return true
+			}
+		}
+	case bool:
+		return true // Boolean schemas require the full JSON Schema field.
+	}
+	return false
+}
+
 func cleanGeminiFunctionParametersWithDepth(params interface{}, depth int) interface{} {
 	if params == nil {
 		return nil
