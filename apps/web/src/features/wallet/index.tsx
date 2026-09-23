@@ -928,7 +928,7 @@ function WalletCheckout(props: WalletProps) {
       <SectionPageLayout>
         <SectionPageLayout.Title>{t('Wallet')}</SectionPageLayout.Title>
         <SectionPageLayout.Content>
-          <div className='wallet-editorial mx-auto flex w-full max-w-7xl flex-col gap-4 sm:gap-5'>
+          <div className='wallet-editorial mx-auto flex w-full max-w-5xl flex-col gap-4 sm:gap-5'>
             {paymentFeedback ? (
               <Alert
                 variant={
@@ -944,12 +944,7 @@ function WalletCheckout(props: WalletProps) {
               </Alert>
             ) : null}
             {developerAccessGranted ? (
-              <>
-                <WalletStatsCard user={user} loading={userLoading} />
-                <ConsoleDisclosure id='trust-level' title={t('Trust level')}>
-                  <TrustLevelPanel user={user} loading={userLoading} />
-                </ConsoleDisclosure>
-              </>
+              <WalletStatsCard user={user} loading={userLoading} />
             ) : null}
 
             <div
@@ -1043,6 +1038,12 @@ function WalletCheckout(props: WalletProps) {
                   neutralMode={!developerAccessGranted}
                 />
               </div>
+
+              {developerAccessGranted ? (
+                <ConsoleDisclosure id='trust-level' title={t('Trust level')}>
+                  <TrustLevelPanel user={user} loading={userLoading} />
+                </ConsoleDisclosure>
+              ) : null}
 
               {developerAccessGranted ? (
                 <ConsoleDisclosure

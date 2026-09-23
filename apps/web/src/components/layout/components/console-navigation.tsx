@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 */
 import { Link, useLocation } from '@tanstack/react-router'
-import { ChevronRight, Ellipsis, Search } from 'lucide-react'
+import { ChevronRight, ChevronUp, Ellipsis, Search } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -156,17 +156,26 @@ export function ConsoleSidebarFooter({ groups }: { groups: NavGroupProps[] }) {
       )
 
   return (
-    <SidebarFooter className='border-sidebar-border/60 gap-2 border-t p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]'>
+    <SidebarFooter className='border-sidebar-border/60 gap-1.5 border-t p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]'>
       {links.length > 0 && (
         <SidebarGroup className='p-0'>
           <SidebarMenu>
             <SidebarMenuItem>
               <DropdownMenu modal={false}>
                 <DropdownMenuTrigger
-                  render={<SidebarMenuButton tooltip={t('More')} />}
+                  render={
+                    <SidebarMenuButton
+                      tooltip={t('More')}
+                      className='border-sidebar-border/70 bg-sidebar-accent/20 h-9 rounded-lg border'
+                    />
+                  }
                 >
                   <Ellipsis aria-hidden='true' />
                   <span>{t('More')}</span>
+                  <ChevronUp
+                    className='text-muted-foreground ms-auto size-3.5 group-data-[collapsible=icon]:hidden'
+                    aria-hidden='true'
+                  />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
                   side='top'
@@ -199,11 +208,10 @@ export function ConsoleSidebarFooter({ groups }: { groups: NavGroupProps[] }) {
           </SidebarMenu>
         </SidebarGroup>
       )}
-      <div className='flex items-center justify-between gap-2 px-1 group-data-[collapsible=icon]:hidden'>
-        <span className='text-muted-foreground text-xs'>{t('Settings')}</span>
-        <div className='flex items-center gap-1'>
+      <div className='border-sidebar-border/70 bg-sidebar-accent/20 flex min-w-0 items-center gap-0.5 rounded-lg border p-0.5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:border-0 group-data-[collapsible=icon]:bg-transparent'>
+        <ConfigDrawer sidebarAction />
+        <div className='border-sidebar-border/70 shrink-0 border-l ps-0.5 group-data-[collapsible=icon]:hidden'>
           <LanguageSwitcher />
-          <ConfigDrawer />
         </div>
       </div>
     </SidebarFooter>

@@ -18,7 +18,13 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { Radio as RadioPrimitive } from '@base-ui/react/radio'
 import { RadioGroup as Radio } from '@base-ui/react/radio-group'
-import { CircleCheck, Palette, RotateCcw } from 'lucide-react'
+import {
+  ChevronRight,
+  CircleCheck,
+  Palette,
+  RotateCcw,
+  Settings2,
+} from 'lucide-react'
 import type { SVGProps } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -66,7 +72,11 @@ import { useSidebar } from './ui/sidebar'
 
 const Item = RadioPrimitive.Root
 
-export function ConfigDrawer() {
+export function ConfigDrawer({
+  sidebarAction = false,
+}: {
+  sidebarAction?: boolean
+}) {
   const { t } = useTranslation()
   const { setOpen } = useSidebar()
   const { resetDir } = useDirection()
@@ -87,15 +97,32 @@ export function ConfigDrawer() {
       <SheetTrigger
         render={
           <Button
-            size='icon'
+            size={sidebarAction ? 'default' : 'icon'}
             variant='ghost'
             aria-label={t('Open theme settings')}
             aria-describedby='config-drawer-description'
-            className='max-md:hidden'
+            className={cn(
+              sidebarAction
+                ? 'h-9 min-w-0 flex-1 justify-start gap-2 rounded-md px-2 text-sm font-medium group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:justify-center'
+                : 'max-md:hidden'
+            )}
           />
         }
       >
-        <Palette className='size-[1.2rem]' aria-hidden='true' />
+        {sidebarAction ? (
+          <>
+            <Settings2 className='size-4 shrink-0' aria-hidden='true' />
+            <span className='truncate group-data-[collapsible=icon]:hidden'>
+              {t('Settings')}
+            </span>
+            <ChevronRight
+              className='text-muted-foreground ms-auto size-3.5 group-data-[collapsible=icon]:hidden'
+              aria-hidden='true'
+            />
+          </>
+        ) : (
+          <Palette className='size-[1.2rem]' aria-hidden='true' />
+        )}
       </SheetTrigger>
       <SheetContent className={sideDrawerContentClassName('sm:max-w-md')}>
         <SheetHeader className={sideDrawerHeaderClassName()}>
