@@ -30,7 +30,6 @@ import {
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { PublicLayout } from '@/components/layout'
 import { Button } from '@/components/ui/button'
 import { getAssistantAvailableModels } from '@/features/assistant/api'
 import {
@@ -41,6 +40,7 @@ import {
   AssistantSetupTool,
   type ClientTab,
 } from '@/features/assistant/assistant-setup-tool'
+import { ForgePublicShell } from '@/features/forge/forge-public-shell'
 import { readSetupPreferences } from '@/features/onboarding/setup-preferences'
 import { useStatus } from '@/hooks/use-status'
 import {
@@ -385,14 +385,14 @@ curl ${rootUrl}/v1/chat/completions \
   -d '{"model":"your-model-id","messages":[{"role":"user","content":"Hello"}]}'`
 
   return (
-    <PublicLayout showMainContainer={false}>
-      <main className='dark:bg-background bg-[#faf9f6]'>
-        <div className='mx-auto max-w-6xl px-5 pt-16 pb-20 sm:px-8 sm:pt-24 lg:px-10 lg:pb-28'>
+    <ForgePublicShell>
+      <main>
+        <div className='mx-auto max-w-6xl px-5 pt-12 pb-20 sm:px-8 sm:pt-16 lg:px-10 lg:pb-28'>
           <header className='max-w-3xl'>
             <p className='text-muted-foreground text-xs font-semibold tracking-[0.18em]'>
               {copy.eyebrow}
             </p>
-            <h1 className='mt-5 text-4xl leading-[1.2] font-semibold tracking-tight text-balance sm:text-5xl lg:text-6xl'>
+            <h1 className='mt-5 font-serif text-5xl leading-[1.08] font-normal tracking-tight text-balance sm:text-6xl lg:text-7xl'>
               {copy.title}
             </h1>
             <p className='text-muted-foreground mt-6 max-w-2xl text-base leading-8'>
@@ -716,6 +716,6 @@ curl ${rootUrl}/v1/chat/completions \
           </div>
         </div>
       </main>
-    </PublicLayout>
+    </ForgePublicShell>
   )
 }

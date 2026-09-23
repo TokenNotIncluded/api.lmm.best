@@ -18,7 +18,7 @@ The fixture data deliberately includes empty lists, unconfigured services, and a
 
 Install the repository's locked dependencies and Playwright Chromium. Start the development-only persona entry with `LMM_ENABLE_PERSONA_DEBUG=1 bun run dev --port 4174` from `apps/web`.
 
-Set `CONSOLE_REVIEW_OUTPUT` to an isolated output directory, optionally set `PLAYWRIGHT_MODULE` to an installed Playwright module path, and run `node scripts/console-interaction-review.mjs` followed by `node scripts/console-page-review.mjs`.
+Set `CONSOLE_REVIEW_OUTPUT` to an isolated output directory. If Playwright or its bundled browser is unavailable, set `PLAYWRIGHT_MODULE` to an installed Playwright module path and `PLAYWRIGHT_CHROME_EXECUTABLE` to an installed Chrome binary. Run `node scripts/console-interaction-review.mjs` followed by `node scripts/console-page-review.mjs`.
 
 The target is fixed to `http://127.0.0.1:4174`. Requests to external origins are blocked; unexpected backend requests fail the review. `console_review=1` selects the explicit read-only fixture catalog in the development entry. The catalog permits GET reads and the exact POST `/api/pricing/runtime` batch query; all purchase/payment/reset/refund mutations remain blocked. Production builds use `main.tsx`, not `debug-main.tsx`.
 
