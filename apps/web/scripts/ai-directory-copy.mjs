@@ -38,6 +38,7 @@ const rows = [
   ['Short summary', '简短介绍', '簡短介紹', 'Résumé court', '短い紹介文', 'Краткое описание', 'Tóm tắt ngắn'],
   ['Expanded description', '展开后的详细介绍', '展開後的詳細介紹', 'Description détaillée', '詳しい説明', 'Подробное описание', 'Mô tả chi tiết'],
   ['Check the highlighted website.', '请检查标记的网站。', '請檢查標記的網站。', 'Vérifiez le site signalé.', '表示されたサイトを確認してください。', 'Проверьте отмеченный сайт.', 'Kiểm tra trang web được đánh dấu.'],
+  ['Unable to load current navigation settings. Try again.', '无法读取当前导航设置，请重试。', '無法讀取目前的導覽設定，請重試。', 'Impossible de lire les réglages de navigation actuels. Réessayez.', '現在のナビゲーション設定を読み込めません。再試行してください。', 'Не удалось загрузить текущие настройки навигации. Повторите попытку.', 'Không thể tải cài đặt điều hướng hiện tại. Hãy thử lại.'],
   ['Enter a website name (up to 80 characters).', '请输入网站名称（最多 80 个字符）。', '請輸入網站名稱（最多 80 個字元）。', 'Saisissez un nom de site (80 caractères maximum).', 'サイト名を入力してください（80文字以内）。', 'Введите название сайта (до 80 символов).', 'Nhập tên trang web (tối đa 80 ký tự).'],
   ['Enter a valid HTTP or HTTPS website address.', '请输入有效的 HTTP 或 HTTPS 网站地址。', '請輸入有效的 HTTP 或 HTTPS 網站網址。', 'Saisissez une adresse HTTP ou HTTPS valide.', '有効なHTTPまたはHTTPSのURLを入力してください。', 'Введите корректный адрес HTTP или HTTPS.', 'Nhập địa chỉ HTTP hoặc HTTPS hợp lệ.'],
   ['The summary or description is too long.', '简短介绍或详细介绍过长。', '簡短介紹或詳細介紹過長。', 'Le résumé ou la description est trop long.', '紹介文または説明が長すぎます。', 'Краткое или подробное описание слишком длинное.', 'Tóm tắt hoặc mô tả quá dài.'],

@@ -19,6 +19,7 @@ import {
   type AIDirectoryLink,
 } from '@/features/ai-directory/api'
 
+import { getSystemOptions } from '../api'
 import { FormNavigationGuard } from '../components/form-navigation-guard'
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
@@ -121,12 +122,16 @@ export function AIDirectorySection({ initialValue }: { initialValue: string }) {
     if (next.length > 60) return
     let existing: Record<string, unknown> = {}
     try {
-      const parsed: unknown = JSON.parse(initialValue)
+      const response = await getSystemOptions()
+      if (!response.success) throw new Error('Unable to read current settings')
+      const currentValue = response.data.find((item) => item.key === 'HeaderNavModules')?.value ?? initialValue
+      const parsed: unknown = currentValue.trim() ? JSON.parse(currentValue) : {}
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
         existing = parsed as Record<string, unknown>
       }
     } catch {
-      // An empty or malformed legacy value is repaired on save.
+      toast.error(t('Unable to load current navigation settings. Try again.'))
+      return
     }
     await updateOption.mutateAsync({
       key: 'HeaderNavModules',
@@ -184,7 +189,7 @@ export function AIDirectorySection({ initialValue }: { initialValue: string }) {
                 <span className='block truncate text-sm font-semibold'>{link.name || t('New website')}</span>
                 <span className='text-muted-foreground block truncate text-xs'>{link.url}</span>
               </button>
-              {!link.enabled && <span className='text-muted-foreground text-xs'>{t('Hidden')}</span>}
+              {!link.enabled && <span className='text-muted-foreground text-xs'>{t('Hidden from directory')}</span>}
               <Button type='button' variant='ghost' size='icon-sm' disabled={index === 0} onClick={() => moveLink(index, -1)} aria-label={t('Move {{name}} up', { name: link.name || t('New website') })}>
                 <ArrowUp />
               </Button>

@@ -76,6 +76,22 @@ export function parseDirectoryLinks(value: string): AIDirectoryLink[] | null {
       return null
     }
     if (parsed.length > 60) return null
+    const ids = new Set<string>()
+    for (const item of parsed as AIDirectoryLink[]) {
+      if (
+        !/^[a-zA-Z0-9_-]{1,64}$/.test(item.id) ||
+        ids.has(item.id) ||
+        !item.name.trim() ||
+        item.name.length > 80 ||
+        item.summary.length > 180 ||
+        item.description.length > 1200 ||
+        !AI_DIRECTORY_CATEGORIES.includes(item.category) ||
+        !safeDirectoryUrl(item.url)
+      ) {
+        return null
+      }
+      ids.add(item.id)
+    }
     return parsed as AIDirectoryLink[]
   } catch {
     return null

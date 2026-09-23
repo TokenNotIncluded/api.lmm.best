@@ -57,8 +57,9 @@ export function AutomaticApiKeyActions() {
       !rootUserID ||
       !capabilitiesReady ||
       status?.assistant?.enabled === false
-    )
+    ) {
       return
+    }
     let active = true
     setRuntimeKeyState('pending')
     void ensureAssistantRuntimeApiKey()
