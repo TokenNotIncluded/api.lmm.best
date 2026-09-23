@@ -230,6 +230,7 @@ export function useUsersColumns(): ColumnDef<User>[] {
               <StatusBadge
                 label={t(statusConfig.labelKey)}
                 variant={statusConfig.variant}
+                icon={statusConfig.icon}
                 copyable={false}
               />
             </TooltipTrigger>

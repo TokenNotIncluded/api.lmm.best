@@ -25,7 +25,6 @@ import {
   getAssistantPreConversationPresets,
   sendAssistantMessage,
 } from '@/features/assistant/api'
-import { requestAssistantOpen } from '@/features/assistant/assistant-events'
 import {
   hasAssistantMessageSubstantialMeaning,
   redactAssistantMessageForRequest,
@@ -62,7 +61,9 @@ const PreviousTurn = memo(function PreviousTurn({ turn }: { turn: CloudTurn }) {
 export function L0CloudConversation({
   cloudRef,
   active = true,
+  onRequestAccess,
 }: {
+  onRequestAccess?: () => void
   active?: boolean
   cloudRef: RefObject<HTMLDivElement | null>
 }) {
@@ -395,9 +396,9 @@ export function L0CloudConversation({
               <button
                 className='l0-next-action'
                 type='button'
-                onClick={() => requestAssistantOpen(undefined, state.question)}
+                onClick={onRequestAccess}
               >
-                {copy.continueAction} ↗
+                {t('Apply for access')}
               </button>
             )}
           </article>

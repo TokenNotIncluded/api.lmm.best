@@ -22,6 +22,15 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 
 import { ErrorPageFrame } from './error-page-frame'
+import { SignalTuner } from './signal-tuner'
+
+/** Public pages a lost visitor most likely meant to open. */
+const RESCUE_LINKS = [
+  { to: '/', label: 'Home' },
+  { to: '/pricing', label: 'Models and pricing' },
+  { to: '/guide', label: 'Guide' },
+  { to: '/challenges', label: 'Challenges' },
+] as const
 
 export function NotFoundError() {
   const { t } = useTranslation()
@@ -30,27 +39,41 @@ export function NotFoundError() {
   return (
     <ErrorPageFrame
       status='404'
-      title={t('Oops! Page Not Found!')}
-      description={
-        <>
-          {t("It seems like the page you're looking for")} <br />
-          {t('does not exist or might have been removed.')}
-        </>
-      }
+      title={t('This page slipped through the grid.')}
+      description={t('Nothing lives at this address.')}
       actions={
         <>
           <Button
+            size='lg'
+            className='error-editorial-action error-editorial-action-primary'
+            onClick={() => navigate({ to: '/' })}
+          >
+            {t('Back to Home')}
+          </Button>
+          <Button
             variant='outline'
-            className='rounded-sm'
+            className='error-editorial-action error-editorial-action-secondary'
             onClick={() => history.go(-1)}
           >
             {t('Go Back')}
           </Button>
-          <Button className='rounded-sm' onClick={() => navigate({ to: '/' })}>
-            {t('Back to Home')}
-          </Button>
         </>
       }
+      note={
+        <span className='flex flex-wrap gap-x-4 gap-y-2'>
+          {RESCUE_LINKS.map((link) => (
+            <button
+              key={link.to}
+              type='button'
+              className='underline underline-offset-4 hover:no-underline'
+              onClick={() => navigate({ to: link.to })}
+            >
+              {t(link.label)}
+            </button>
+          ))}
+        </span>
+      }
+      play={<SignalTuner />}
     />
   )
 }

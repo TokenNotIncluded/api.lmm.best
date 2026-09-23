@@ -34,17 +34,21 @@ export function RepositoryLink({
       : new Intl.NumberFormat(toIntlLocale(i18n.resolvedLanguage)).format(
           stars.data
         )
+  const loading = stars.isPending
   return (
     <a
       href={repositoryUrl(kind)}
       target='_blank'
       rel='noopener noreferrer'
       className={cn(
-        'inline-flex min-h-10 max-w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-current/20 px-3 py-2 text-sm transition-colors hover:bg-current/5 focus-visible:outline-2 focus-visible:outline-offset-4',
+        'group inline-flex min-h-10 max-w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-current/20 px-3 py-2 text-sm transition-colors hover:bg-current/5 focus-visible:outline-2 focus-visible:outline-offset-4',
         className
       )}
     >
-      <Code2 className='size-4 shrink-0' aria-hidden='true' />
+      <Code2
+        className='size-4 shrink-0 transition-transform group-hover:-translate-y-0.5 motion-reduce:transform-none'
+        aria-hidden='true'
+      />
       <span>{t('View source on GitHub')}</span>
       <span
         className='inline-flex items-center gap-1.5 border-l border-current/20 pl-3 tabular-nums'
@@ -54,18 +58,27 @@ export function RepositoryLink({
             : t('GitHub stars')
         }
       >
-        <Star className='size-3.5' aria-hidden='true' />
+        <Star
+          className='size-3.5 shrink-0'
+          aria-hidden='true'
+          fill={stars.data === undefined ? 'none' : 'currentColor'}
+        />
         <span
+          className={cn(
+            'min-w-6 text-right',
+            loading &&
+              'bg-current/10 motion-safe:animate-pulse h-3 w-8 rounded-sm'
+          )}
           aria-label={
             stars.data === undefined
               ? t('Star count unavailable')
               : `${count} ${t('GitHub stars')}`
           }
         >
-          {count}
+          {loading ? '' : count}
         </span>
       </span>
-      <ArrowUpRight className='size-3.5' aria-hidden='true' />
+      <ArrowUpRight className='size-3.5 shrink-0' aria-hidden='true' />
     </a>
   )
 }

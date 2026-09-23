@@ -119,7 +119,11 @@ export function useTodoFeed() {
         : markTodoRead(operation.item),
   })
 
-  const runRead = async (operation: ReadOperation) => {
+  /**
+   * Returns whether the receipt was actually accepted, so callers can reward a
+   * real confirmation instead of an optimistic click.
+   */
+  const runRead = async (operation: ReadOperation): Promise<boolean> => {
     const key = operation.kind === 'all' ? 'all' : operation.item.id
     if (
       !isCurrentSession() ||
@@ -127,21 +131,23 @@ export function useTodoFeed() {
       inFlight.current.has(key) ||
       (operation.kind === 'all' && inFlight.current.size > 0)
     ) {
-      return
+      return false
     }
     inFlight.current.add(key)
     setPendingReads(new Set(inFlight.current))
     try {
       await readMutation.mutateAsync(operation)
-      if (!isCurrentSession()) return
+      if (!isCurrentSession()) return false
       setFailedRead((previous) => {
         const previousKey = previous?.kind === 'all' ? 'all' : previous?.item.id
         return operation.kind === 'all' || previousKey === key ? null : previous
       })
       // Include the navigation badge and all cached categories, as before.
       await queryClient.invalidateQueries({ queryKey: ['todos'], exact: false })
+      return true
     } catch {
       if (isCurrentSession()) setFailedRead(operation)
+      return false
     } finally {
       inFlight.current.delete(key)
       if (isCurrentSession()) setPendingReads(new Set(inFlight.current))
@@ -158,10 +164,9 @@ export function useTodoFeed() {
     selectCategory: (category: TodoCategory) => setView({ category, page: 1 }),
     selectPage: (page: number) =>
       setView((previous) => ({ ...previous, page })),
-    markRead: (item: TodoItem) => {
-      if (!item.read) void runRead({ kind: 'item', item })
-    },
-    markAllRead: () => void runRead({ kind: 'all' }),
+    markRead: (item: TodoItem): Promise<boolean> =>
+      item.read ? Promise.resolve(false) : runRead({ kind: 'item', item }),
+    markAllRead: (): Promise<boolean> => runRead({ kind: 'all' }),
     retryRead: () => {
       if (failedRead) void runRead(failedRead)
     },

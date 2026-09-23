@@ -38,6 +38,7 @@ import { cn } from '@/lib/utils'
 
 import { API_KEY_STATUSES } from '../constants'
 import { buildApiKeyGroupOptions, isAssistantRuntimeKey } from '../lib'
+import { getQuotaProgressColor, getQuotaUsage } from '../lib/quota-usage'
 import type { ApiKey, ApiKeyCreationMode } from '../types'
 import { ApiKeyCreationSourceBadge } from './api-key-creation-source'
 import type { ApiKeyGroupOption } from './api-key-group-combobox'
@@ -51,12 +52,6 @@ import {
   UnlimitedQuotaBadge,
 } from './api-keys-cells'
 import { DataTableRowActions } from './data-table-row-actions'
-
-function getQuotaProgressColor(percentage: number): string {
-  if (percentage <= 10) return 'console-status-progress-danger'
-  if (percentage <= 30) return 'console-status-progress-warning'
-  return 'console-status-progress-success'
-}
 
 function useGroupOptions(): {
   options: ApiKeyGroupOption[]
@@ -187,10 +182,8 @@ export function useApiKeysColumns(
           return <UnlimitedQuotaBadge used={apiKey.used_quota} />
         }
 
-        const used = apiKey.used_quota
-        const remaining = apiKey.remain_quota
-        const total = used + remaining
-        const percentage = total > 0 ? (remaining / total) * 100 : 0
+        const { used, remaining, total, remainingPercent } =
+          getQuotaUsage(apiKey)
 
         return (
           <Tooltip>
@@ -204,8 +197,8 @@ export function useApiKeysColumns(
                 </span>
               </div>
               <Progress
-                value={percentage}
-                className={cn('h-1.5', getQuotaProgressColor(percentage))}
+                value={remainingPercent}
+                className={cn('h-1.5', getQuotaProgressColor(remainingPercent))}
               />
             </TooltipTrigger>
             <TooltipContent>
@@ -215,7 +208,7 @@ export function useApiKeysColumns(
                 </div>
                 <div>
                   {t('Remaining:')} {formatQuota(remaining)} (
-                  {percentage.toFixed(1)}%)
+                  {remainingPercent.toFixed(1)}%)
                 </div>
                 <div>
                   {t('Total:')} {formatQuota(total)}

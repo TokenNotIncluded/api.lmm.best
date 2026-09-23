@@ -22,6 +22,7 @@ Copyright (C) 2026 LIghtJUNction
 import { BOARD_SIZES } from '@/features/auth/components/signal-game'
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
 import type { ModelContextTool } from '@/features/webmcp'
+import { requireSignedIn } from '@/features/webmcp/tool-kit'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { getLeaderboard, getMyRecords } from './api'
@@ -257,7 +258,7 @@ export function signalGameTools(): ModelContextTool[] {
       name: 'lmm_signal_submit',
       title: 'Submit a Signal path result',
       description:
-        'Upload one completed local result for the currently signed-in human account. Never accepts an arbitrary account owner. Set publish=true only when the user asked to publish a challenge score to the public leaderboard; practice records are private. Optional email is stored privately and note is public when published. Refuses while signed out; ask the human to sign in manually and preserve their local result.',
+        'Upload one completed local result for the currently signed-in human account. Requires confirm: true. Never accepts an arbitrary account owner. Set publish=true only when the user asked to publish a challenge score to the public leaderboard; practice records are private. Optional email is stored privately and note is public when published. Refuses while signed out; ask the human to sign in manually and preserve their local result.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -265,13 +266,18 @@ export function signalGameTools(): ModelContextTool[] {
           publish: { type: 'boolean' },
           email: { type: 'string', maxLength: 254 },
           note: { type: 'string', maxLength: 160 },
+          confirm: { type: 'boolean' },
         },
-        required: ['record_id', 'publish'],
+        required: ['record_id', 'publish', 'confirm'],
         additionalProperties: false,
       },
-      annotations: { consequentialHint: true },
+      annotations: { consequentialHint: true, untrustedContentHint: true },
       execute: async (input, { signal }) => {
         ready(signal)
+        if (input.confirm !== true) {
+          throw new Error('Set confirm: true to upload this result.')
+        }
+        requireSignedIn()
         if (
           typeof input.publish !== 'boolean' ||
           (input.email !== undefined && typeof input.email !== 'string') ||

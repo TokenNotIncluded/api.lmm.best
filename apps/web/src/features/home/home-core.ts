@@ -285,6 +285,8 @@ export const CYCLE = 6.4
 /** Offset so a motionless frame shows the input and the computed closest match. */
 const STILL = 0.77 * CYCLE
 export const CYCLE_START = -STILL
+/** The chosen match is fully visible; no pretend training runs after this point. */
+export const RESPONSE_END = CYCLE_START + CYCLE * 0.59
 
 export function trainingClock(time: number) {
   const cycle = (time + STILL) / CYCLE
@@ -512,18 +514,18 @@ export function createTrainingScene(
     const forwardFade = 1 - 0.75 * ramp(0.58, 0.68, clock.t)
     const mismatch = Math.max(0, 1 - s.act[net.layers[4][s.predicted]])
 
-    // Token cloud: a slow orbit of vocabulary around the network.
-    for (const [index, token] of net.cloud.entries()) {
-      const angle = token.angle + time * 0.035
+    // Quiet vocabulary behind the interactive cloud; no unrelated orbit.
+    for (const token of net.cloud.slice(0, 8)) {
+      const angle = token.angle
       sink.token(
         point(
           PIVOT.x + Math.cos(angle) * token.radius * 1.15,
-          token.y + Math.sin(time * 0.3 + token.phase) * 0.12,
+          token.y,
           -0.8 + Math.sin(angle) * token.radius * 0.8
         ),
         token.text,
         token.color,
-        token.alpha * (index % 9 === clock.sample % 9 ? 1.4 : 1),
+        token.alpha * 0.28,
         token.size
       )
     }
@@ -947,7 +949,7 @@ export type Camera = {
 
 /** Scroll orbits the camera around the network; the pointer adds a small parallax. */
 export function createCamera(
-  time: number,
+  _time: number,
   pointer: { x: number; y: number },
   progress: number,
   width: number,
@@ -957,10 +959,8 @@ export function createCamera(
   const narrow = width < 650
   const centered = layout === 'center'
   const orbit = ramp(0.06, 0.5, progress) - ramp(0.6, 0.98, progress)
-  const ry =
-    -0.5 + orbit * 0.78 + pointer.x * 0.24 + Math.sin(time * 0.09) * 0.05
-  const rx =
-    0.2 + orbit * 0.12 + pointer.y * 0.12 + Math.sin(time * 0.07) * 0.02
+  const ry = -0.5 + orbit * 0.78 + pointer.x * 0.24
+  const rx = 0.2 + orbit * 0.12 + pointer.y * 0.12
   const [sy, cy, sx, cx] = [
     Math.sin(ry),
     Math.cos(ry),

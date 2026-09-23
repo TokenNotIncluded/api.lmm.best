@@ -102,21 +102,23 @@ export function createTokenCloud(
 
   return {
     measure(frame: DOMRect, protectedElements: HTMLElement[]) {
-      width = Math.max(1, frame.width)
-      height = Math.max(1, frame.height)
+      const local = layer.getBoundingClientRect()
+      const bounds = local.width > 0 && local.height > 0 ? local : frame
+      width = Math.max(1, bounds.width)
+      height = Math.max(1, bounds.height)
       exclusions = protectedElements
         .filter((element) => element.getAttribute('aria-hidden') !== 'true')
         .map((element) => {
           const box = element.getBoundingClientRect()
           return {
-            left: box.left - frame.left - 22,
-            top: box.top - frame.top - 18,
-            right: box.right - frame.left + 22,
-            bottom: box.bottom - frame.top + 18,
+            left: box.left - bounds.left - 22,
+            top: box.top - bounds.top - 18,
+            right: box.right - bounds.left + 22,
+            bottom: box.bottom - bounds.top + 18,
           }
         })
     },
-    draw(time: number, cursor: Cursor, moving: boolean) {
+    draw(_time: number, cursor: Cursor, moving: boolean) {
       if (!active) return
       const count = width < 680 ? 10 : particles.length
       for (const [index, particle] of particles.entries()) {
@@ -125,11 +127,8 @@ export function createTokenCloud(
           particle.node.inert = true
           continue
         }
-        const clock = moving ? time : 0
-        const x =
-          particle.x * width + Math.sin(clock * 0.24 + particle.phase) * 6
-        const y =
-          particle.y * height + Math.cos(clock * 0.2 + particle.phase) * 5
+        const x = particle.x * width
+        const y = particle.y * height
         const force = particle.interactive
           ? { x: 0, y: 0, strength: 0 }
           : tokenRepulsion(x, y, moving ? cursor : null, particle.phase)
@@ -158,7 +157,7 @@ export function createTokenCloud(
           : particle.interactive
             ? '0.78'
             : String(0.13 + particle.depth * 0.1 + force.strength * 0.12)
-        particle.node.style.transform = `translate3d(${px.toFixed(2)}px,${py.toFixed(2)}px,0) translate(-50%,-50%) rotate(${(Math.sin(particle.phase) * 9 + particle.spin).toFixed(2)}deg)`
+        particle.node.style.transform = `translate3d(${px.toFixed(2)}px,${py.toFixed(2)}px,0) translate(-50%,-50%) rotate(${particle.spin.toFixed(2)}deg)`
       }
     },
     dispose() {

@@ -1,0 +1,149 @@
+/*
+Copyright (C) 2026 LIghtJUNction
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+*/
+.legal-progress {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 40;
+  height: 2px;
+  background: transparent;
+  pointer-events: none;
+}
+.legal-progress span {
+  display: block;
+  height: 100%;
+  background: var(--primary);
+  transform-origin: left center;
+  transform: scaleX(0);
+  transition: transform 120ms linear;
+}
+.legal-layout {
+  display: grid;
+  gap: 3.5rem;
+  margin-inline: auto;
+  max-width: 72rem;
+  padding: 6rem 1.25rem 6rem;
+}
+@media (min-width: 768px) {
+  .legal-layout {
+    padding-inline: 2rem;
+  }
+}
+@media (min-width: 1024px) {
+  .legal-layout {
+    grid-template-columns: minmax(0, 1fr) 15rem;
+    gap: 4rem;
+  }
+}
+.legal-article {
+  min-width: 0;
+  max-width: 44rem;
+  /* Long-form legal text reads better slightly looser than UI copy. */
+  font-size: 1rem;
+  line-height: 1.75;
+}
+.legal-title {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 3rem);
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  font-weight: 600;
+}
+.legal-meta {
+  margin: 0.75rem 0 0;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+}
+.legal-section {
+  scroll-margin-top: 6rem;
+}
+.legal-section + .legal-section {
+  margin-top: 2.75rem;
+}
+.legal-h1,
+.legal-h2,
+.legal-h3 {
+  margin: 0 0 0.75rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+.legal-h1 {
+  font-size: 1.75rem;
+}
+.legal-h2 {
+  font-size: 1.375rem;
+}
+.legal-h3 {
+  font-size: 1.0625rem;
+  color: var(--muted-foreground);
+}
+.legal-article :is(p, li) {
+  overflow-wrap: break-word;
+}
+.legal-article a {
+  text-underline-offset: 3px;
+}
+
+.legal-toc {
+  display: none;
+}
+@media (min-width: 1024px) {
+  .legal-toc {
+    display: block;
+    position: sticky;
+    top: 5.5rem;
+    max-height: calc(100svh - 8rem);
+    overflow-y: auto;
+    border-left: 1px solid var(--border);
+    padding-left: 1.25rem;
+    font-size: 0.8125rem;
+  }
+}
+.legal-toc-title {
+  margin: 0 0 0.75rem;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.legal-toc ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.55rem;
+}
+.legal-toc li[data-level='2'] {
+  padding-left: 0.85rem;
+}
+.legal-toc li[data-level='3'] {
+  padding-left: 1.7rem;
+  font-size: 0.75rem;
+}
+.legal-toc a {
+  display: block;
+  color: var(--muted-foreground);
+  line-height: 1.45;
+  text-decoration: none;
+  transition: color 150ms ease;
+}
+.legal-toc a:hover {
+  color: var(--foreground);
+}
+.legal-toc a:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 0.25rem;
+}
+/* Markdown headings inside a section body must not duplicate the anchors. */
+.legal-section h2,
+.legal-section h3 {
+  margin-top: 2rem;
+}

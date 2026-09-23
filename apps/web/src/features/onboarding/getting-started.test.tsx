@@ -270,7 +270,7 @@ describe('getting started access boundaries', () => {
     }
     await unmountPage(l1)
   })
-  test('opens the same assistant for an access application', async () => {
+  test('opens the application in the current page without opening the assistant', async () => {
     const opened: Array<string | undefined> = []
     const messages: Array<string | undefined> = []
     const unsubscribe = subscribeToAssistantOpen((request) => {
@@ -278,12 +278,35 @@ describe('getting started access boundaries', () => {
       messages.push(request.message)
     })
     const page = await renderPage()
+    const applicationReason = page.container.querySelector<HTMLTextAreaElement>(
+      '#access-request-reason'
+    )
+    assert.ok(applicationReason)
+    let scrolledToApplication = false
+    applicationReason.scrollIntoView = () => {
+      scrolledToApplication = true
+    }
     await act(async () => {
-      button(page, 'Start with AI assistant').click()
+      button(page, 'Apply for access').click()
       await flushEffects()
     })
-    assert.deepEqual(opened, ['onboarding'])
-    assert.deepEqual(messages, [undefined])
+    assert.deepEqual(opened, [])
+    assert.deepEqual(messages, [])
+    assert.equal(scrolledToApplication, true)
+    assert.equal(document.activeElement?.id, applicationReason.id)
+    assert.equal(
+      page.container.querySelector<HTMLElement>('#l0-panel-access')?.hidden,
+      false
+    )
+    assert.equal(
+      page.container.querySelector<HTMLDetailsElement>(
+        '[data-testid="l0-account-details"]'
+      )?.open,
+      true
+    )
+    assert.ok(
+      page.container.querySelector('form textarea#access-request-reason')
+    )
     for (const text of [
       'What can I do while access is under review?',
       'Which option is the best value?',
@@ -294,6 +317,60 @@ describe('getting started access boundaries', () => {
     assert.ok(page.container.querySelector('input#l0-question'))
     await unmountPage(page)
     unsubscribe()
+  })
+  test('submits the inline application through the existing confirmed API flow', async () => {
+    const page = await renderPage()
+    const posts: unknown[] = []
+    api.post = (async (url, input) => {
+      assert.equal(url, '/api/user/developer-access/request')
+      posts.push(input)
+      return {
+        data: {
+          success: true,
+          data: {
+            id: 33,
+            status: 'pending',
+            reason: 'Build a private API client',
+            ai_recommendation: '',
+            admin_note: '',
+            created_at: 1,
+            reviewed_at: 0,
+          },
+        },
+      }
+    }) as typeof api.post
+    try {
+      await act(async () => button(page, 'Apply for access').click())
+      const input = page.container.querySelector<HTMLTextAreaElement>(
+        '#access-request-reason'
+      )
+      assert.ok(input)
+      assert.equal(posts.length, 0)
+      const setValue = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype,
+        'value'
+      )?.set
+      assert.ok(setValue)
+      await act(async () => {
+        setValue.call(input, 'Build a private API client')
+        input.dispatchEvent(new window.Event('input', { bubbles: true }))
+      })
+      await act(async () => {
+        button(page, 'Confirm and submit application').click()
+        await flushEffects()
+      })
+      await act(flushEffects)
+      assert.deepEqual(posts, [
+        { reason: 'Build a private API client', confirmed: true },
+      ])
+      assert.equal(
+        page.container.querySelector('.l0-rail-headline')?.textContent,
+        'Awaiting review'
+      )
+      assert.equal(consumeQueuedAssistantRequest(), undefined)
+    } finally {
+      await unmountPage(page)
+    }
   })
   test('keeps pending review visible without forcing the assistant open', async () => {
     const opened: Array<string | undefined> = []
@@ -384,17 +461,16 @@ describe('getting started access boundaries', () => {
     assert.ok(page.gets.includes('/api/user/self'))
     await unmountPage(page)
   })
-  test('routes a direct L1 application through the single assistant surface', async () => {
+  test('keeps the direct application form inside the access panel', async () => {
     const page = await renderPage(false, undefined, null, { id: 9904 })
-    assert.equal(
-      page.container.querySelector('[data-testid="l0-direct-access-request"]'),
-      null
+    assert.ok(
+      page.container.querySelector('[data-testid="l0-direct-access-request"]')
     )
-    assert.equal(page.container.querySelector('textarea'), null)
-    button(page, 'Start with AI assistant')
+    assert.ok(page.container.querySelector('textarea#access-request-reason'))
+    button(page, 'Apply for access')
     await unmountPage(page)
   })
-  test('shows administrator feedback and lets a rejected user revise with AI', async () => {
+  test('shows administrator feedback and lets a rejected user revise inline', async () => {
     const opened: Array<string | undefined> = []
     const unsubscribe = subscribeToAssistantOpen((request) =>
       opened.push(request.preset)
@@ -423,15 +499,24 @@ describe('getting started access boundaries', () => {
       button(page, 'Revise').click()
       await flushEffects()
     })
-    assert.equal(opened.at(-1), 'onboarding')
+    assert.deepEqual(opened, [])
+    assert.equal(
+      page.container.querySelector<HTMLElement>('#l0-panel-access')?.hidden,
+      false
+    )
+    assert.equal(
+      page.container.querySelector<HTMLTextAreaElement>(
+        'textarea#access-request-reason'
+      )?.value,
+      'Need access.'
+    )
     await unmountPage(page)
     unsubscribe()
   })
   test('lets L0 browse and fund the account before approval', async () => {
     const page = await renderPage(true)
     assert.equal(page.container.querySelector('a[href="/wallet"]'), null)
-    await act(async () => button(page, 'Plans & top-ups').click())
-    assert.equal(consumeQueuedAssistantRequest()?.preset, 'plan')
+    assert.equal(consumeQueuedAssistantRequest(), undefined)
     await act(async () => button(page, 'Explore').click())
     for (const [label, path] of [
       ['Tools', '/tool-market'],

@@ -89,7 +89,10 @@ function fixture() {
     Object.defineProperty(globalThis, key, { configurable: true, value })
   }
   document.body.innerHTML = `<main>
-    <section data-cinema><div data-cinema-inner><div data-token-cloud aria-hidden="true"></div><canvas data-film></canvas></div></section>
+    <section data-cinema><div data-cinema-inner><div data-token-cloud aria-hidden="true"></div><canvas data-film></canvas><input data-home-token-field value="api" />
+      <section data-cinema-panel="0"></section><section data-cinema-panel="1"></section>
+      <ol><li data-cinema-step><button data-cinema-jump="0">Home</button></li><li data-cinema-step><button data-cinema-jump="1">API</button></li></ol>
+    </div></section>
     <button data-motion-toggle><span data-play-label>Play</span><span data-pause-label>Pause</span></button>
     <section data-story>
       <div data-story-step></div><div data-story-step></div><div data-story-step></div>
@@ -151,7 +154,11 @@ test('motion uses the feature-tested window observers and releases all owned wor
     page.visible(true)
     page.tick()
     assert.equal(page.root.dataset.motion, 'playing')
-    assert.equal(page.frames.size, 1)
+    assert.equal(
+      page.frames.size,
+      0,
+      'idle artwork does not run an animation loop'
+    )
     page.stop()
     assert.equal(page.root.querySelectorAll('[data-token-particle]').length, 0)
     assert.equal(page.disconnected, 2)
@@ -159,6 +166,62 @@ test('motion uses the feature-tested window observers and releases all owned wor
     assert.equal(page.root.dataset.motion, undefined)
     page.reduce(true)
     assert.equal(page.frames.size, 0)
+  } finally {
+    page.close()
+  }
+})
+
+test('typing causes one bounded response and stops once the result is visible', () => {
+  const page = fixture()
+  try {
+    page.mount()
+    page.visible(true)
+    page.tick()
+    const input = page.root.querySelector<HTMLInputElement>(
+      '[data-home-token-field]'
+    )
+    assert.ok(input)
+    input.value = 'gpt'
+    input.dispatchEvent(new page.view.Event('input') as unknown as Event)
+    page.tick(200)
+    assert.equal(page.frames.size, 1)
+    for (let now = 300; now <= 1200; now += 100) page.tick(now)
+    assert.equal(page.frames.size, 0, 'a completed response stays still')
+    page.reduce(true)
+    page.tick(1300)
+    input.value = 'api'
+    input.dispatchEvent(new page.view.Event('input') as unknown as Event)
+    page.tick(1400)
+    assert.equal(
+      page.frames.size,
+      0,
+      'reduced motion updates the result without replaying'
+    )
+  } finally {
+    page.close()
+  }
+})
+
+test('scene controls open a chapter without scrolling and preserve keyboard access', () => {
+  const page = fixture()
+  try {
+    page.mount()
+    page.tick()
+    const button = page.root.querySelector<HTMLButtonElement>(
+      '[data-cinema-jump="1"]'
+    )
+    assert.ok(button)
+    button.click()
+    page.tick(200)
+    assert.equal(button.getAttribute('aria-pressed'), 'true')
+    assert.equal(
+      page.root.querySelector<HTMLElement>('[data-cinema-panel="1"]')?.inert,
+      false
+    )
+    assert.equal(
+      page.root.querySelector<HTMLElement>('[data-cinema-panel="0"]')?.inert,
+      true
+    )
   } finally {
     page.close()
   }

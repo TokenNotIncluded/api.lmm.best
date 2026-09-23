@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { TFunction } from 'i18next'
+import { CircleCheck, CircleSlash, TicketCheck } from 'lucide-react'
 
 import type { StatusBadgeProps } from '@/components/status-badge'
 
@@ -34,10 +35,11 @@ export const REDEMPTION_STATUS_VALUES = Object.values(REDEMPTION_STATUS).map(
   (value) => String(value)
 ) as `${number}`[]
 
-// labelKey values are i18n keys; use t(config.labelKey) in components
+// labelKey values are i18n keys; use t(config.labelKey) in components.
+// `icon` carries the status meaning so it is never encoded by color alone.
 export const REDEMPTION_STATUSES: Record<
   number,
-  Pick<StatusBadgeProps, 'variant'> & {
+  Pick<StatusBadgeProps, 'variant' | 'icon'> & {
     labelKey: string
     value: number
   }
@@ -46,18 +48,24 @@ export const REDEMPTION_STATUSES: Record<
     labelKey: 'Unused',
     variant: 'success',
     value: REDEMPTION_STATUS.ENABLED,
+    icon: CircleCheck,
   },
   [REDEMPTION_STATUS.DISABLED]: {
     labelKey: 'Disabled',
     variant: 'neutral',
     value: REDEMPTION_STATUS.DISABLED,
+    icon: CircleSlash,
   },
   [REDEMPTION_STATUS.USED]: {
     labelKey: 'Used',
     variant: 'neutral',
     value: REDEMPTION_STATUS.USED,
+    icon: TicketCheck,
   },
 } as const
+
+/** Expired is a derived (non-DB) status; kept beside the real ones for parity. */
+export const REDEMPTION_EXPIRED_STATUS_ICON = CircleSlash
 
 // Virtual status filter value for expired redemption codes
 // Note: "Expired" is not a real DB status, it's computed from expired_time

@@ -11,6 +11,8 @@ import { after, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 
+import type { AuthUser } from '@/stores/auth-store'
+
 const dom = new Window({ url: 'https://console.example.test/' })
 for (const key of [
   'window',
@@ -100,6 +102,121 @@ after(() => {
   dom.close()
 })
 
+test('L0 keeps top-up reachable from the default chat scene and links it to checkout', async () => {
+  // The regression this guards: the only recharge entry used to live inside the
+  // access tab, so an L0 user landing on the default chat scene never saw one.
+  const user: AuthUser = {
+    id: 708,
+    username: 'l0-persistent-topup',
+    role: 1,
+    developer_access_granted: false,
+    onboarding: {
+      activation_complete: false,
+      credential_complete: false,
+      first_request_complete: false,
+      stage: 'activate' as const,
+      paid_activation_enabled: true,
+      paid_activation_min_amount: 5,
+    },
+    trust_level_info: {
+      level: 0,
+      automatic_level: 0,
+      override_level: null,
+      paid_amount: 2,
+      discount_ratio: 1,
+      discount_percent: 0,
+      inactivity_decay_steps: 0,
+      decay_period_days: 0,
+      overridden: false,
+    },
+  }
+  api.get = (async () => ({
+    data: { success: true, data: {} },
+  })) as typeof api.get
+  useAuthStore.getState().auth.setUser(user)
+  const rootRoute = createRootRoute({ component: Outlet })
+  const welcome = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/getting-started',
+    component: () => (
+      <L0Welcome user={user}>
+        <p>Pending application details</p>
+      </L0Welcome>
+    ),
+  })
+  const wallet = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/wallet',
+    component: () => <p>Checkout</p>,
+  })
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([welcome, wallet]),
+    history: createMemoryHistory({ initialEntries: ['/getting-started'] }),
+  })
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  try {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <I18nextProvider i18n={i18n}>
+            <RouterProvider router={router} />
+          </I18nextProvider>
+        </QueryClientProvider>
+      )
+      await flush()
+    })
+    await act(flush)
+    // Default scene is chat and the access panel is still hidden.
+    const chat = container.querySelector<HTMLElement>('#l0-panel-chat')
+    const access = container.querySelector<HTMLElement>('#l0-panel-access')
+    assert.ok(chat)
+    assert.ok(access)
+    assert.equal(chat.hidden, false)
+    assert.equal(access.hidden, true)
+    // Both the persistent topbar button and the first-screen rail action exist.
+    const topbar = container.querySelector<HTMLButtonElement>(
+      '[data-testid="l0-topbar-topup"]'
+    )
+    const direct = container.querySelector<HTMLButtonElement>(
+      '[data-testid="l0-topup-direct"]'
+    )
+    assert.ok(topbar)
+    assert.ok(direct)
+    assert.equal(topbar.disabled, false)
+    assert.equal(direct.disabled, false)
+    // The rail lives outside every tabpanel, so it renders in any scene.
+    assert.equal(chat.contains(direct), false)
+    assert.equal(
+      container.querySelector('.l0-rail-headline')?.textContent,
+      'Apply for access'
+    )
+    assert.match(
+      container.querySelector('.l0-rail-meta')?.textContent ?? '',
+      /Top up \$3\.00 for instant approval/
+    )
+    assert.ok(direct.classList.contains('l0-rail-action--ghost'))
+    assert.equal(container.querySelector('.l0-ring'), null)
+    assert.ok(
+      container.querySelector('[data-testid="l0-paid-progress"]')?.textContent
+    )
+    await act(async () => {
+      direct.click()
+      await flush()
+    })
+    assert.equal(router.state.location.pathname, '/wallet')
+  } finally {
+    await act(async () => root.unmount())
+    queryClient.clear()
+    container.remove()
+    api.get = originalGet
+  }
+})
+
 test('L0 stage preserves mounted chat, keyboard navigation, disclosures, status and direct checkout', async () => {
   const user = {
     id: 707,
@@ -180,6 +297,10 @@ test('L0 stage preserves mounted chat, keyboard navigation, disclosures, status 
     assert.equal(panel('access').hidden, true)
     assert.equal(tab('chat').tabIndex, 0)
     assert.equal(tab('explore').tabIndex, -1)
+    assert.equal(
+      container.querySelector('.l0-rail-headline')?.textContent,
+      'Awaiting review'
+    )
     const composer = container.querySelector('.l0-composer')
     await act(async () => {
       tab('explore').click()
@@ -238,13 +359,16 @@ test('L0 stage preserves mounted chat, keyboard navigation, disclosures, status 
       await flush()
     })
     assert.equal(panel('access').hidden, false)
-    assert.equal(document.activeElement, tab('access'))
+    assert.ok(
+      document.activeElement ===
+        container.querySelector('[data-testid="l0-account-details"] > summary')
+    )
     assert.deepEqual(opened, [])
     const details = container.querySelector<HTMLDetailsElement>(
       '[data-testid="l0-account-details"]'
     )
     assert.ok(details)
-    assert.equal(details.open, false)
+    assert.equal(details.open, true)
     assert.match(details.querySelector('summary')?.textContent ?? '', /Pending/)
     assert.match(details.textContent ?? '', /Pending application details/)
     assert.equal(accessReads, 0)

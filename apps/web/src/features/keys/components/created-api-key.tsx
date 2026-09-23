@@ -1,5 +1,6 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
-import { useState } from 'react'
+import { Check, Copy, Eye, EyeOff, Loader2 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -11,9 +12,12 @@ import {
   SheetTitle,
   SheetDescription,
 } from '@/components/ui/sheet'
+import { copyToClipboard } from '@/lib/copy-to-clipboard'
+import { cn } from '@/lib/utils'
 
 import { deleteApiKey } from '../api'
 import { CCSwitchDialog } from './dialogs/cc-switch-dialog'
+import { KeyCreatedBurst, KeyCreatedBurstStyles } from './key-created-burst'
 
 export type CreatedApiKeySecret = { id: number; name: string; key: string }
 
@@ -33,7 +37,45 @@ export function CreatedApiKey({
   const [revokeConfirm, setRevokeConfirm] = useState(false)
   const [pending, setPending] = useState(false)
   const [result, setResult] = useState('')
+  // Copy is a small state machine so the button can confirm itself without
+  // shifting the layout; the burst replays once per successful copy.
+  const [copyState, setCopyState] = useState<'idle' | 'copying' | 'copied'>(
+    'idle'
+  )
+  const [burst, setBurst] = useState<number | null>(null)
+  const [saved, setSaved] = useState(false)
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
   const key = `sk-${secret.key}`
+
+  useEffect(
+    () => () => {
+      clearTimeout(copyTimerRef.current)
+      clearTimeout(savedTimerRef.current)
+    },
+    []
+  )
+
+  const copy = async () => {
+    setCopyState('copying')
+    const ok = await copyToClipboard(key)
+    clearTimeout(copyTimerRef.current)
+    if (ok) {
+      setCopyState('copied')
+      setBurst(Date.now())
+      setResult('Copied')
+      copyTimerRef.current = setTimeout(() => setCopyState('idle'), 1800)
+    } else {
+      setCopyState('idle')
+      setResult('Failed to copy to clipboard')
+    }
+  }
+
+  const confirmSaved = () => {
+    setSaved(true)
+    clearTimeout(savedTimerRef.current)
+    savedTimerRef.current = setTimeout(() => setSaved(false), 2600)
+  }
   const check = async () => {
     setPending(true)
     setResult('')
@@ -73,6 +115,7 @@ export function CreatedApiKey({
   }
   return (
     <>
+      <KeyCreatedBurstStyles />
       <Sheet
         open
         onOpenChange={(open) => {
@@ -90,32 +133,59 @@ export function CreatedApiKey({
           </SheetHeader>
           <div className='space-y-4 p-4'>
             <p className='text-sm font-medium'>{secret.name}</p>
-            <Input
-              aria-label={t('API Key')}
-              type={revealed ? 'text' : 'password'}
-              value={key}
-              readOnly
-              autoComplete='off'
-            />
+            <div className='relative'>
+              <Input
+                aria-label={t('API Key')}
+                type={revealed ? 'text' : 'password'}
+                value={key}
+                readOnly
+                autoComplete='off'
+                className='font-mono'
+              />
+              <KeyCreatedBurst burstKey={burst} onDone={() => setBurst(null)} />
+            </div>
+            <div className='bg-warning/10 text-warning flex items-start gap-2 rounded-md px-3 py-2 text-xs'>
+              <EyeOff className='mt-px size-3.5 shrink-0' aria-hidden='true' />
+              <span>
+                {t('Copy it now — this is the only time it is shown.')}
+              </span>
+            </div>
             <div className='flex flex-wrap gap-2'>
               <Button
                 type='button'
                 variant='outline'
+                aria-label={t(revealed ? 'Hide API key' : 'Show API key')}
                 onClick={() => setRevealed(!revealed)}
               >
+                {revealed ? (
+                  <EyeOff className='h-4 w-4' aria-hidden='true' />
+                ) : (
+                  <Eye className='h-4 w-4' aria-hidden='true' />
+                )}
                 {t(revealed ? 'Hide' : 'Show')}
               </Button>
               <Button
                 type='button'
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(key)
-                    setResult('Copied')
-                  } catch {
-                    setResult('Failed to copy to clipboard')
-                  }
-                }}
+                className={cn(
+                  'min-w-32 transition-colors',
+                  copyState === 'copied' && 'console-status-success'
+                )}
+                disabled={copyState === 'copying'}
+                onClick={() => void copy()}
               >
+                {copyState === 'copying' ? (
+                  <Loader2
+                    className='h-4 w-4 animate-spin'
+                    aria-hidden='true'
+                  />
+                ) : copyState === 'copied' ? (
+                  <Check
+                    className='console-status-success-icon h-4 w-4'
+                    aria-hidden='true'
+                  />
+                ) : (
+                  <Copy className='h-4 w-4' aria-hidden='true' />
+                )}
                 {t('Copy Key')}
               </Button>
               <Button
@@ -185,7 +255,20 @@ export function CreatedApiKey({
                 {t(result)}
               </p>
             )}
-            <Button type='button' variant='outline' onClick={onClose}>
+            <Button
+              type='button'
+              variant={saved ? 'default' : 'outline'}
+              className={cn(
+                'transition-colors',
+                saved && 'console-status-success'
+              )}
+              onClick={() => {
+                // Reassurance for a one-time secret: the button itself
+                // acknowledges the click before the sheet closes.
+                confirmSaved()
+                onClose()
+              }}
+            >
               {t('I saved the key, close')}
             </Button>
           </div>

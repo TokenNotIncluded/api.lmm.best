@@ -40,6 +40,9 @@ import { useAuthStore } from '@/stores/auth-store'
 import { AppHeader } from './app-header'
 import { AppSidebar } from './app-sidebar'
 import { ConsoleLocation } from './console-navigation'
+import { QuickSwitchProvider } from './quick-switch-provider'
+import { ShellBridgeRegistrar } from './shell-bridge-registrar'
+import { ShortcutCheatsheetDialog } from './shortcut-cheatsheet-dialog'
 
 type AuthenticatedLayoutProps = {
   children?: React.ReactNode
@@ -60,45 +63,52 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
       <LayoutProvider>
         <ModelPlazaProvider>
           <SearchProvider>
-            <SidebarProvider
-              defaultOpen={defaultOpen}
-              className='console-editorial h-dvh min-h-0 flex-col overflow-hidden'
-            >
-              <SkipToMain />
-              <div className='flex min-h-0 w-full min-w-0 flex-1 basis-0 flex-col flex-nowrap md:flex-row'>
-                {focusedOnboarding ? null : <AppSidebar />}
-                <SidebarInset className='min-h-0 min-w-0 flex-1 overflow-hidden'>
-                  <AppHeader
-                    showTopNav={false}
-                    showSidebarTrigger={!focusedOnboarding}
-                    showBrand={focusedOnboarding}
-                    showLanguageSwitcher={focusedOnboarding}
-                    showConfigDrawer={focusedOnboarding}
-                    leftContent={
-                      focusedOnboarding ? undefined : <ConsoleLocation />
-                    }
-                  />
-                  <div className='flex min-h-0 min-w-0 flex-1'>
-                    <div
-                      className={cn(
-                        '@container/content flex flex-col',
-                        'min-h-0 min-w-0 flex-1 basis-0 overflow-hidden',
-                        assistantPage
-                          ? 'pb-0'
-                          : 'pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-16 xl:pb-0'
+            <QuickSwitchProvider>
+              <SidebarProvider
+                defaultOpen={defaultOpen}
+                className='console-editorial h-dvh min-h-0 flex-col overflow-hidden'
+              >
+                <SkipToMain />
+                <div className='flex min-h-0 w-full min-w-0 flex-1 basis-0 flex-col flex-nowrap md:flex-row'>
+                  {focusedOnboarding ? null : <AppSidebar />}
+                  <SidebarInset className='min-h-0 min-w-0 flex-1 overflow-hidden'>
+                    <AppHeader
+                      showTopNav={false}
+                      showSidebarTrigger={!focusedOnboarding}
+                      showBrand={focusedOnboarding}
+                      showLanguageSwitcher={focusedOnboarding}
+                      showConfigDrawer={focusedOnboarding}
+                      showAssistant={!focusedOnboarding}
+                      leftContent={
+                        focusedOnboarding ? undefined : <ConsoleLocation />
+                      }
+                    />
+                    <div className='flex min-h-0 min-w-0 flex-1'>
+                      <div
+                        className={cn(
+                          '@container/content flex flex-col',
+                          'min-h-0 min-w-0 flex-1 basis-0 overflow-hidden',
+                          assistantPage
+                            ? 'pb-0'
+                            : 'pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-16 xl:pb-0'
+                        )}
+                      >
+                        {props.children ?? <AnimatedOutlet />}
+                      </div>
+                      {!focusedOnboarding && (
+                        <AssistantLauncher hideMobileLauncher={assistantPage} />
                       )}
-                    >
-                      {props.children ?? <AnimatedOutlet />}
                     </div>
-                    <AssistantLauncher hideMobileLauncher={assistantPage} />
-                  </div>
-                </SidebarInset>
-              </div>
-              <AccessRestrictionNotice className='shrink-0' />
-              <ReleaseNoteDialog />
-              <CommandMenu />
-              <ModelPlazaPanel />
-            </SidebarProvider>
+                  </SidebarInset>
+                </div>
+                <AccessRestrictionNotice className='shrink-0' />
+                <ReleaseNoteDialog />
+                <CommandMenu />
+                <ShortcutCheatsheetDialog />
+                <ShellBridgeRegistrar />
+                <ModelPlazaPanel />
+              </SidebarProvider>
+            </QuickSwitchProvider>
           </SearchProvider>
         </ModelPlazaProvider>
       </LayoutProvider>

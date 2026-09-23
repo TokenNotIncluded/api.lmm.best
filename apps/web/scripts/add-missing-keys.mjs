@@ -30,6 +30,7 @@ import { assistantToolCopy } from './assistant-tool-copy.mjs'
 import { drawingMcpExtraCopy } from './drawing-mcp-extra-copy.mjs'
 import { drawingWalletCopy } from './drawing-wallet-copy.mjs'
 import { dshGuideCopy } from './dsh-guide-copy.mjs'
+import { forgeRefreshCopy } from './forge-refresh-copy.mjs'
 import { homeEditorialCopy } from './home-editorial-copy.mjs'
 import { homeTokenCopy } from './home-token-copy.mjs'
 import { passkeyCopy } from './passkey-copy.mjs'
@@ -11860,7 +11861,9 @@ async function main() {
   const fixedGroupOnly = process.argv.includes('--only-fixed-group')
   const operationsFinishOnly = process.argv.includes('--only-operations-finish')
   const passkeyOnly = process.argv.includes('--only-passkey')
+  const forgeRefreshOnly = process.argv.includes('--only-forge-refresh')
   const scoped =
+    forgeRefreshOnly ||
     passkeyOnly ||
     operationsFinishOnly ||
     fixedGroupOnly ||
@@ -11936,7 +11939,11 @@ async function main() {
                                           : assistantToolOnly
                                             ? assistantToolCopy
                                             : newKeys
-  const selectedEntries = passkeyOnly ? passkeyCopy : entries
+  const selectedEntries = forgeRefreshOnly
+    ? forgeRefreshCopy
+    : passkeyOnly
+      ? passkeyCopy
+      : entries
   let totalAdded = 0
   for (const [locale, baseTranslations] of Object.entries(selectedEntries)) {
     const translations = scoped
@@ -11956,6 +11963,7 @@ async function main() {
           ...remoteControlCopy[locale],
           ...waitCompanionCopy[locale],
           ...scriptsCopy[locale],
+          ...forgeRefreshCopy[locale],
         }
     const filePath = path.join(LOCALES_DIR, `${locale}.json`)
     const json = JSON.parse(await fs.readFile(filePath, 'utf8'))

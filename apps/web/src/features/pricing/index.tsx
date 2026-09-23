@@ -16,10 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { Link } from '@tanstack/react-router'
+import { ArrowRight, Wallet } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { Button } from '@/components/ui/button'
 import { ForgePublicShell } from '@/features/forge/forge-public-shell'
+import { usePurchaseEntry } from '@/features/forge/use-purchase-entry'
 
 import {
   EmptyState,
@@ -28,6 +32,7 @@ import {
   PricingToolbar,
   SearchBar,
   ModelDetailsDrawer,
+  VendorIconWall,
   VendorModelSections,
 } from './components'
 import { EXCLUDED_GROUPS, VIEW_MODES } from './constants'
@@ -45,6 +50,7 @@ const PAGE_SIZE = 48
  */
 export function Pricing() {
   const { t } = useTranslation()
+  const funding = usePurchaseEntry()
   const [selectedModelName, setSelectedModelName] = useState<string | null>(
     null
   )
@@ -202,14 +208,37 @@ export function Pricing() {
         <div className='mx-auto w-full max-w-7xl px-5 pb-20 md:px-10'>
           {/* Centered page title, gpt.ge-style. */}
           <div className='border-foreground/20 mb-8 border-b pt-12 pb-8 sm:pt-16'>
-            <h1 className='font-serif text-5xl leading-[1.05] font-normal tracking-tight sm:text-6xl'>
-              {t('Models and pricing')}
-            </h1>
-            <p className='text-muted-foreground mt-4 max-w-2xl text-base leading-7'>
-              {t('This site currently has {{count}} models enabled', {
-                count: models?.length || 0,
-              })}
-            </p>
+            <div className='flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between'>
+              <div className='min-w-0'>
+                <h1 className='font-serif text-5xl leading-[1.05] font-normal tracking-tight sm:text-6xl'>
+                  {t('Models and pricing')}
+                </h1>
+                <p className='text-muted-foreground mt-4 max-w-2xl text-base leading-7'>
+                  {t('This site currently has {{count}} models enabled', {
+                    count: models?.length || 0,
+                  })}
+                </p>
+              </div>
+              {/* The single most-asked question on this page: how do I pay? */}
+              <Button
+                size='lg'
+                className='h-auto min-h-12 w-full shrink-0 px-6 py-3 text-base sm:w-auto'
+                render={
+                  <Link
+                    to={funding.to}
+                    search={
+                      funding.to === '/sign-in'
+                        ? { redirect: '/wallet' }
+                        : undefined
+                    }
+                  />
+                }
+              >
+                <Wallet className='size-4' aria-hidden='true' />
+                {t(funding.label)}
+                <ArrowRight className='size-4' aria-hidden='true' />
+              </Button>
+            </div>
           </div>
 
           {/* Sticky translucent filter bar: search + compact toolbar. */}
@@ -262,6 +291,16 @@ export function Pricing() {
               />
             </div>
           </div>
+
+          <VendorIconWall
+            vendors={vendors || []}
+            models={models || []}
+            activeVendor={vendorFilter}
+            onVendorChange={(next) => {
+              setVendorFilter(next)
+              setVisibleCount(PAGE_SIZE)
+            }}
+          />
 
           <main className='min-w-0'>{renderPricingContent()}</main>
         </div>

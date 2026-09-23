@@ -59,91 +59,134 @@ License, or (at your option) any later version.
   gap: 12px;
   min-width: 0;
 }
-.l0-account-status {
+.l0-topup-compact {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 44px;
+  padding: 0 15px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--l0-ink) 16%, var(--l0-line));
+  color: var(--l0-ink);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition:
+    background 180ms,
+    transform 200ms var(--l0-ease);
+}
+.l0-topup-compact svg {
+  width: 15px;
+  height: 15px;
+  stroke-width: 2;
+}
+.l0-topup-compact:hover {
+  background: var(--l0-soft);
+  transform: translateY(-1px);
+}
+.l0-topup-compact:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .l0-topup-compact,
+  .l0-topup-compact:hover {
+    transition: none;
+    transform: none;
+  }
+}
+.l0-rail {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 44px;
-  font-size: 12px;
-  color: var(--l0-muted);
-}
-.l0-account-status svg {
-  width: 12px;
-  height: 12px;
-}
-.l0-status-dot {
-  width: 5px;
-  height: 5px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background: currentColor;
-}
-.l0-account-status:is([data-status='error'], [data-status='rejected']) {
-  color: var(--destructive);
-}
-.l0-help-menu {
-  position: relative;
-  flex-shrink: 0;
-}
-.l0-help-menu > summary {
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  font:
-    13px/1 ui-monospace,
-    monospace;
-  color: var(--l0-muted);
-  list-style: none;
-  border-radius: 50%;
-}
-.l0-help-menu > summary:hover,
-.l0-help-menu[open] > summary {
-  background: var(--l0-soft);
-}
-.l0-help-content {
-  position: absolute;
-  top: calc(100% + 8px);
-  inset-inline-end: 0;
-  z-index: 10;
-  width: min(280px, calc(100vw - 48px));
+  gap: 14px;
+  width: min(100%, 760px);
+  margin: 4px 0 2px;
+  padding: 12px 14px 12px 16px;
   border: 1px solid var(--l0-line);
-  border-radius: 18px;
-  padding: 10px;
-  background: var(--background);
-  box-shadow: 0 16px 44px color-mix(in srgb, var(--l0-ink) 10%, transparent);
-  animation: l0-panel-in 220ms var(--l0-ease);
+  border-radius: 20px;
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--l0-ink) 3%, var(--background)),
+    var(--background) 44%
+  );
 }
-.l0-help-content button {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 44px;
-  width: 100%;
-  border-radius: 10px;
-  padding: 10px 12px;
-  font-size: 13px;
-}
-.l0-help-content button:hover {
-  background: var(--l0-soft);
-}
-.l0-help-content p {
-  border-top: 1px solid var(--l0-line);
-  margin: 8px 0 0;
-  padding: 12px;
-  color: var(--l0-muted);
-  font-size: 12px;
-  line-height: 1.7;
-}
-.l0-stage {
+.l0-rail-body {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
+  gap: 3px;
+}
+.l0-rail-headline {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 550;
+  line-height: 1.35;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+.l0-rail-meta {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--l0-muted);
+  font-variant-numeric: tabular-nums;
+}
+.l0-rail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.l0-rail-action {
+  display: inline-flex;
   align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 999px;
+  background: var(--l0-ink);
+  color: var(--background);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: 0 10px 24px -14px var(--l0-ink);
+  transition:
+    transform 200ms var(--l0-ease),
+    box-shadow 200ms var(--l0-ease);
+}
+.l0-rail-action:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 26px -12px var(--l0-ink);
+}
+.l0-rail-action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.l0-rail-action:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+.l0-rail-action--ghost {
+  background: transparent;
+  color: var(--l0-ink);
+  border: 1px solid var(--l0-line);
+  box-shadow: none;
+}
+.l0-rail-action--ghost:hover:not(:disabled) {
+  background: var(--l0-soft);
+  box-shadow: none;
+}
+.l0-cloud-wrap {
+  position: relative;
+  width: 100%;
+  display: flex;
+  justify-content: center;
 }
 .l0-cloud {
   position: relative;
   width: min(100%, 760px);
-  height: clamp(210px, 30svh, 290px);
+  height: clamp(150px, 21svh, 210px);
   isolation: isolate;
   color: var(--l0-ink);
 }
@@ -223,8 +266,8 @@ License, or (at your option) any later version.
   padding-top: 4px;
 }
 .l0-composer h2 {
-  margin: 0 0 30px;
-  font-size: clamp(28px, 3vw, 38px);
+  margin: 0 0 22px;
+  font-size: clamp(26px, 2.6vw, 34px);
   line-height: 1.4;
   font-weight: 450;
   letter-spacing: -0.055em;
@@ -718,16 +761,40 @@ License, or (at your option) any later version.
     max-width: 220px;
     font-size: 11px;
   }
+  .l0-topup-compact {
+    min-height: 44px;
+    padding-inline: 12px;
+  }
+  /* Review status leads; direct top-up remains a secondary action. */
+  .l0-rail {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px 12px;
+    margin-top: 2px;
+    padding: 12px;
+    border-radius: 18px;
+  }
+  .l0-rail-actions {
+    margin-top: 2px;
+  }
+  .l0-rail-action {
+    justify-content: center;
+    min-width: 0;
+    white-space: normal;
+  }
+  .l0-rail-headline {
+    font-size: 15px;
+  }
   .l0-cloud {
-    height: 216px;
+    height: 148px;
   }
   .l0-cloud .l0-cloud-toggle {
     inset-inline-end: 0;
     bottom: 10px;
   }
   .l0-composer h2 {
-    font-size: 29px;
-    margin-bottom: 24px;
+    font-size: 27px;
+    margin-bottom: 18px;
   }
   .l0-input-row {
     padding: 8px 8px 8px 16px;

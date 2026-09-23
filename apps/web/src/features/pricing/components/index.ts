@@ -30,3 +30,5 @@ export {
 } from './model-details'
 export { PricingTable } from './pricing-table'
 export { ModelPlazaPanel } from './model-plaza-panel'
+export { VendorIconWall } from './vendor-icon-wall'
+export { RequestEstimator } from './request-estimator'

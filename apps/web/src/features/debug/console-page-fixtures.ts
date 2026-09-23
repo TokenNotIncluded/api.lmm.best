@@ -35,17 +35,29 @@ const reads: Record<string, unknown> = {
   },
   '/api/user/company-billing-profile': null,
   '/api/user/topup/info': {
-    enable_online_topup: false,
+    enable_online_topup: true,
     enable_stripe_topup: false,
     enable_creem_topup: false,
     enable_waffo_topup: false,
-    pay_methods: [],
+    pay_methods: [
+      {
+        name: 'Alipay · local preview',
+        type: 'alipay',
+        min_topup: 1,
+        settlement_currency: 'USD',
+        platform_units_per_usd: 1,
+        settlement_units_per_usd: 1,
+        settlement_units_per_platform_unit: 1,
+      },
+    ],
     amount_options: [10, 50, 100, 200],
     min_topup: 1,
     stripe_min_topup: 1,
     discount: {},
+    topup_group_ratio: 1,
+    payment_compliance_confirmed: true,
     developer_access_granted: true,
-    payment_available: false,
+    payment_available: true,
   },
   '/api/user/aff': 'local-preview-referral',
   '/api/user/2fa/status': {
@@ -380,6 +392,18 @@ export function consolePageFixture(
     }
   }
   if (['/api/data/self', '/api/data', '/api/data/users'].includes(path)) {
+    const bound = (key: string, fallback: number) => {
+      const params: unknown = config.params
+      const value =
+        (params instanceof URLSearchParams
+          ? params.get(key)
+          : params && typeof params === 'object'
+            ? (params as Record<string, unknown>)[key]
+            : undefined) ?? url.searchParams.get(key)
+      return value === null || value === undefined ? fallback : Number(value)
+    }
+    const start = bound('start_timestamp', Number.NEGATIVE_INFINITY)
+    const end = bound('end_timestamp', Number.POSITIVE_INFINITY)
     return {
       success: true,
       data: Array.from({ length: 7 }, (_, index) => ({
@@ -391,7 +415,7 @@ export function consolePageFixture(
         token_used: 2400 + index * 380,
         count: 8 + index * 2,
         quota: 3000 + index * 80,
-      })),
+      })).filter((row) => row.created_at >= start && row.created_at <= end),
     }
   }
   if (['/api/data/flow/self', '/api/data/flow'].includes(path)) {

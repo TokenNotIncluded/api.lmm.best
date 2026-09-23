@@ -13,6 +13,11 @@ export type DrawingMetadata = {
   model: string
   group: string
   createdAt: number
+  // Sampling options are optional: records written before these were captured
+  // simply read back as undefined, and the gallery hides what it does not know.
+  size?: string
+  quality?: string
+  count?: string
 }
 
 export type StoredDrawing = DrawingMetadata & {

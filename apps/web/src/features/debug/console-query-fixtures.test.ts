@@ -44,9 +44,55 @@ test('only the named local read queries are handled; every mutation stays blocke
     '/api/subscription/root/reset/preview',
     '/api/hero-sms/sms/orders',
     '/api/user/topup',
+    '/api/user/pay',
+    '/api/user/stripe/pay',
+    '/api/user/waffo/pay',
+    '/api/user/waffo-pancake/pay',
+    '/api/subscription/balance/pay',
     '/api/subscription/root/reset-targets',
     'https://example.invalid/api/pricing/runtime',
   ]) {
     await assert.rejects(wrapped(config(url, 'post')), /unmocked/, url)
   }
+})
+
+test('the local quote reads the entered amount and refuses invalid or remote quote requests', async () => {
+  const wrapped = withConsoleQueryFixtures(async () => {
+    throw new Error('blocked')
+  })
+  for (const body of [
+    { amount: 25, payment_method: 'alipay' },
+    JSON.stringify({
+      amount: 12.5,
+      payment_method: 'alipay',
+      discount_code: '',
+    }),
+  ]) {
+    const request = config('/api/user/amount', 'post')
+    request.data = body
+    const response = await wrapped(request)
+    assert.equal(response.status, 200)
+    assert.deepEqual(response.data, {
+      success: true,
+      data: typeof body === 'string' ? '12.50' : '25.00',
+      settlement_currency: 'USD',
+    })
+  }
+  for (const body of [
+    { amount: 0 },
+    { amount: -1 },
+    { amount: Number.POSITIVE_INFINITY },
+    { amount: 10, payment_method: 'stripe' },
+    { amount: 10, discount_code: 'NOT-A-PREVIEW-CODE' },
+    { amount: 10, create_order: true },
+    '{broken-json',
+  ]) {
+    const request = config('/api/user/amount', 'post')
+    request.data = body
+    await assert.rejects(wrapped(request), /blocked/)
+  }
+  const remote = config('https://example.invalid/api/user/amount', 'post')
+  remote.data = { amount: 10, payment_method: 'alipay' }
+  await assert.rejects(wrapped(remote), /blocked/)
+  await assert.rejects(wrapped(config('/api/user/amount', 'get')), /blocked/)
 })

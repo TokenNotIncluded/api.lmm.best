@@ -16,7 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Shield, User, Users } from 'lucide-react'
+import {
+  CircleCheck,
+  CircleSlash,
+  Shield,
+  Trash2,
+  User,
+  Users,
+} from 'lucide-react'
 
 import type { User as UserType } from './types'
 
@@ -38,21 +45,25 @@ export const USER_STATUS = {
   DELETED: -1,
 } as const
 
+// `icon` carries the status meaning, so status is never encoded by color alone.
 export const USER_STATUSES = {
   [USER_STATUS.ENABLED]: {
     labelKey: 'Enabled',
     variant: 'success' as const,
     value: USER_STATUS.ENABLED,
+    icon: CircleCheck,
   },
   [USER_STATUS.DISABLED]: {
     labelKey: 'Disabled',
     variant: 'neutral' as const,
     value: USER_STATUS.DISABLED,
+    icon: CircleSlash,
   },
   [USER_STATUS.DELETED]: {
     labelKey: 'Deleted',
     variant: 'danger' as const,
     value: USER_STATUS.DELETED,
+    icon: Trash2,
   },
 } as const
 

@@ -17,11 +17,18 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { Table } from '@tanstack/react-table'
+import { Copy } from 'lucide-react'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { CopyButton } from '@/components/copy-button'
 import { DataTableBulkActions as BulkActionsToolbar } from '@/components/data-table'
+import { Button } from '@/components/ui/button'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 
 import type { Redemption } from '../types'
 
@@ -34,6 +41,7 @@ export function DataTableBulkActions<TData>({
 }: DataTableBulkActionsProps<TData>) {
   const { t } = useTranslation()
   const selectedRows = table.getSelectedRowModel().rows
+  const { copiedText, copyToClipboard } = useCopyToClipboard({ notify: false })
 
   const contentToCopy = useMemo(() => {
     const selectedCodes = selectedRows.map((row) => {
@@ -43,17 +51,31 @@ export function DataTableBulkActions<TData>({
     return selectedCodes.join('\n')
   }, [selectedRows])
 
+  const copied = copiedText === contentToCopy
+
   return (
     <BulkActionsToolbar table={table} entityName={t('redemption code')}>
-      <CopyButton
-        value={contentToCopy}
-        variant='outline'
-        size='icon'
-        className='size-8'
-        tooltip={t('Copy selected codes')}
-        successTooltip={t('Codes copied!')}
-        aria-label={t('Copy selected codes')}
-      />
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant='outline'
+              size='sm'
+              onClick={() => copyToClipboard(contentToCopy)}
+              className='h-8 min-h-8 gap-1.5 px-2.5'
+              aria-label={t('Copy selected codes')}
+            />
+          }
+        >
+          <Copy className='size-3.5' />
+          <span className='hidden text-xs sm:inline'>
+            {copied ? t('Codes copied!') : t('Copy selected codes')}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>
+          <p>{copied ? t('Codes copied!') : t('Copy selected codes')}</p>
+        </TooltipContent>
+      </Tooltip>
     </BulkActionsToolbar>
   )
 }

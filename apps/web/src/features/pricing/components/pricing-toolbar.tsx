@@ -288,12 +288,7 @@ export function PricingToolbar(props: PricingToolbarProps) {
         <AlertDescription>
           <p>
             {t(
-              'Unfiltered prices are starting prices. Choose a group to see its rate; Auto follows your configured group order.'
-            )}
-          </p>
-          <p>
-            {t(
-              'Base prices exclude usage discounts. USD estimates also exclude payment discounts and fees; checkout confirms the payable amount.'
+              'No group selected shows starting prices. Checkout confirms the final amount.'
             )}
           </p>
         </AlertDescription>

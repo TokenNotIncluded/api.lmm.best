@@ -41,12 +41,14 @@ import {
 } from '@/components/ui/drawer'
 import {
   Empty,
+  EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty'
 import { Input } from '@/components/ui/input'
+import { Kbd } from '@/components/ui/kbd'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -83,6 +85,8 @@ import {
 import { DRAWING_HISTORY_BYTES, DRAWING_HISTORY_LIMIT } from './history-storage'
 import { drawingSource, type GeneratedDrawing } from './image-bytes'
 import { buildDrawingMcpConfig } from './mcp-config'
+import { PromptIdeaButton } from './prompt-idea-button'
+import { applyPromptIdea } from './prompt-inspiration'
 import { useDrawingHistory } from './use-drawing-history'
 import { getDrawingWebDenial, resolveDrawingWebAccess } from './web-access'
 
@@ -237,6 +241,7 @@ function DrawingWorkbench({ userId }: { userId: number }) {
   const [drawingMcpDefaultModel, setDrawingMcpDefaultModel] = useState('')
   const drawingMcpSettingsInitializedRef = useRef(false)
   const referenceInputRef = useRef<HTMLInputElement>(null)
+  const promptInputRef = useRef<HTMLTextAreaElement>(null)
   const previewUrlsRef = useRef(new Set<string>())
 
   // Save prompt draft automatically
@@ -518,6 +523,11 @@ function DrawingWorkbench({ userId }: { userId: number }) {
     pricingQuery.data?.usable_group?.[selectedGroup]?.desc
   const accessGranted = accessQuery.data?.developer_access_granted === true
   const hasPrompt = prompt.trim().length > 0
+  const submitShortcutLabel =
+    typeof navigator !== 'undefined' &&
+    /mac|iphone|ipad/i.test(navigator.userAgent)
+      ? '⌘↵'
+      : 'Ctrl+↵'
   const configurationReady = Boolean(selectedGroup && selectedModel)
   const drawingMcpEndpoint =
     typeof window === 'undefined'
@@ -695,6 +705,9 @@ function DrawingWorkbench({ userId }: { userId: number }) {
       model: selectedModel,
       group: selectedGroup,
       createdAt: Date.now(),
+      size: selectedSize,
+      quality: selectedQuality,
+      count,
     }
     const taskId = crypto.randomUUID()
     registerActiveDrawingTask({
@@ -865,6 +878,28 @@ function DrawingWorkbench({ userId }: { userId: number }) {
       }
     }
   }
+
+  // Keyboard: ⌘/Ctrl+Enter submits. The listener is registered once and reads
+  // the live handler through a ref, so it never needs to be torn down between
+  // renders. generate() re-checks every precondition, so a stale call is safe.
+  // ⌘/Ctrl+I belongs to PromptIdeaButton, which owns the roll it triggers.
+  const generateRef = useRef(generate)
+  generateRef.current = generate
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.repeat) return
+      if (event.defaultPrevented) return
+      if (event.key.toLowerCase() !== 'enter') return
+      const target = event.target as HTMLElement | null
+      if (target?.closest('[data-slot="drawing-inspector"], [role="dialog"]')) {
+        return
+      }
+      event.preventDefault()
+      void generateRef.current()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   const ensureDrawingKey = async () => {
     if (keyPending || !accessGranted || !isCurrentUser()) return
@@ -1402,6 +1437,25 @@ function DrawingWorkbench({ userId }: { userId: number }) {
                         )}
                   </EmptyDescription>
                 </EmptyHeader>
+                {hasPrompt ? null : (
+                  <EmptyContent>
+                    <Button
+                      type='button'
+                      size='sm'
+                      data-testid='drawing-empty-cta'
+                      className='border-white/15 bg-white/10 text-white hover:bg-white/20 hover:text-white'
+                      onClick={() => promptInputRef.current?.focus()}
+                    >
+                      <HugeiconsIcon
+                        icon={SparklesIcon}
+                        data-icon='inline-start'
+                        strokeWidth={2}
+                        aria-hidden='true'
+                      />
+                      {t('Write your first prompt')}
+                    </Button>
+                  </EmptyContent>
+                )}
               </Empty>
             )}
           </div>
@@ -1415,11 +1469,30 @@ function DrawingWorkbench({ userId }: { userId: number }) {
                 <Label htmlFor='drawing-prompt-input' className='text-white/85'>
                   {t('Prompt')}
                 </Label>
-                <span className='text-xs text-white/60 tabular-nums'>
-                  {prompt.length}/2000
-                </span>
+                <div className='flex items-center gap-3'>
+                  {hasPrompt ? (
+                    <button
+                      type='button'
+                      disabled={generating}
+                      className='rounded-sm text-xs text-white/60 underline-offset-2 transition-colors hover:text-white/90 hover:underline focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:outline-none'
+                      onClick={() => setPrompt('')}
+                    >
+                      {t('Clear')}
+                    </button>
+                  ) : null}
+                  <span className='text-xs text-white/60 tabular-nums'>
+                    {prompt.length}/2000
+                  </span>
+                  <span className='hidden items-center gap-1 text-xs text-white/45 md:flex'>
+                    {t('to generate')}
+                    <Kbd className='bg-white/10 text-white/70'>
+                      {submitShortcutLabel}
+                    </Kbd>
+                  </span>
+                </div>
               </div>
               <Textarea
+                ref={promptInputRef}
                 id='drawing-prompt-input'
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
@@ -1540,12 +1613,12 @@ function DrawingWorkbench({ userId }: { userId: number }) {
               ) : null}
 
               <div className='mt-3 flex flex-col gap-3 border-t border-white/10 pt-3 sm:flex-row sm:items-center sm:justify-between'>
-                <div className='flex min-w-0 items-center gap-3'>
+                <div className='flex min-w-0 flex-1 items-center gap-2 sm:gap-3'>
                   <Button
                     type='button'
                     variant='outline'
                     size='sm'
-                    className='border-white/15 bg-white/5 text-white hover:bg-white/10 hover:text-white'
+                    className='shrink-0 border-white/15 bg-white/5 text-white hover:bg-white/10 hover:text-white'
                     disabled={
                       generating || referenceImages.length >= maxReferenceImages
                     }
@@ -1557,9 +1630,19 @@ function DrawingWorkbench({ userId }: { userId: number }) {
                       strokeWidth={2}
                       aria-hidden='true'
                     />
-                    {t('Add reference images')}
+                    <span className='hidden sm:inline'>
+                      {t('Add reference images')}
+                    </span>
+                    <span className='sm:hidden'>{t('Reference')}</span>
                   </Button>
-                  <span className='hidden truncate text-xs text-white/65 md:block'>
+                  <PromptIdeaButton
+                    prompt={prompt}
+                    disabled={generating}
+                    onApply={(idea) =>
+                      setPrompt((current) => applyPromptIdea(current, idea))
+                    }
+                  />
+                  <span className='hidden min-w-0 truncate text-xs text-white/65 lg:block'>
                     {referenceImages.length > 0
                       ? t(
                           'Reference images switch this request to image editing.'

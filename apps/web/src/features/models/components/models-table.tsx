@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
+import { Boxes } from 'lucide-react'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -195,9 +196,12 @@ export function ModelsTable() {
       isLoading={isLoading}
       isFetching={isFetching}
       emptyTitle={t('No Models Found')}
-      emptyDescription={t(
-        'No models available. Create your first model to get started.'
-      )}
+      emptyDescription={
+        shouldSearch
+          ? t('No models match the current filters.')
+          : t('No models available. Create your first model to get started.')
+      }
+      emptyIcon={<Boxes />}
       skeletonKeyPrefix='model-skeleton'
       applyHeaderSize
       toolbarProps={{

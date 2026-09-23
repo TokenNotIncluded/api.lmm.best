@@ -79,6 +79,12 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false)
   const [subscriptionsDialogOpen, setSubscriptionsDialogOpen] = useState(false)
   const [resetOnboardingOpen, setResetOnboardingOpen] = useState(false)
+  // `manageUser` applies access-control changes immediately, so every such
+  // menu item routes through a confirmation that states who is affected and
+  // what changes. Previously these fired on a single click.
+  const [statusConfirmOpen, setStatusConfirmOpen] = useState(false)
+  const [promoteConfirmOpen, setPromoteConfirmOpen] = useState(false)
+  const [demoteConfirmOpen, setDemoteConfirmOpen] = useState(false)
 
   const handleEdit = () => {
     setCurrentRow(user)
@@ -172,7 +178,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         contentClassName='w-48'
       >
         {isDisabled ? (
-          <DropdownMenuItem onClick={() => handleManage('enable')}>
+          <DropdownMenuItem onClick={() => setStatusConfirmOpen(true)}>
             {t('Enable')}
             <DropdownMenuShortcut>
               <Power size={16} />
@@ -180,7 +186,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           </DropdownMenuItem>
         ) : (
           <DropdownMenuItem
-            onClick={() => handleManage('disable')}
+            onClick={() => setStatusConfirmOpen(true)}
             disabled={isRoot}
           >
             {t('Disable')}
@@ -202,7 +208,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         )}
 
         {isAdmin && !isRoot && (
-          <DropdownMenuItem onClick={() => handleManage('demote')}>
+          <DropdownMenuItem onClick={() => setDemoteConfirmOpen(true)}>
             {t('Demote')}
             <DropdownMenuShortcut>
               <ArrowDown size={16} />
@@ -211,7 +217,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         )}
 
         {!isAdmin && (
-          <DropdownMenuItem onClick={() => handleManage('promote')}>
+          <DropdownMenuItem onClick={() => setPromoteConfirmOpen(true)}>
             {t('Promote')}
             <DropdownMenuShortcut>
               <ArrowUp size={16} />
@@ -329,6 +335,63 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         )}
         confirmText={t('Reset 2FA')}
         handleConfirm={handleResetTwoFA}
+      />
+
+      <ConfirmDialog
+        open={statusConfirmOpen}
+        onOpenChange={setStatusConfirmOpen}
+        destructive={!isDisabled}
+        title={
+          isDisabled ? t('Enable this account?') : t('Disable this account?')
+        }
+        desc={
+          isDisabled
+            ? t(
+                'Enable {{username}}? They will regain access to the console and their remaining quota immediately.',
+                { username: user.username }
+              )
+            : t(
+                'Disable {{username}}? Their API keys stop authenticating and new requests fail immediately. Existing quota and history are kept.',
+                { username: user.username }
+              )
+        }
+        confirmText={isDisabled ? t('Enable') : t('Disable')}
+        handleConfirm={() => {
+          void handleManage(isDisabled ? 'enable' : 'disable').finally(() =>
+            setStatusConfirmOpen(false)
+          )
+        }}
+      />
+
+      <ConfirmDialog
+        open={promoteConfirmOpen}
+        onOpenChange={setPromoteConfirmOpen}
+        title={t('Promote to administrator?')}
+        desc={t(
+          'Promote {{username}} to administrator? Administrators can view every user, change quotas, and manage site-wide settings.',
+          { username: user.username }
+        )}
+        confirmText={t('Promote')}
+        handleConfirm={() => {
+          void handleManage('promote').finally(() =>
+            setPromoteConfirmOpen(false)
+          )
+        }}
+      />
+
+      <ConfirmDialog
+        open={demoteConfirmOpen}
+        onOpenChange={setDemoteConfirmOpen}
+        destructive
+        title={t('Remove administrator access?')}
+        desc={t(
+          'Demote {{username}} to a regular user? They lose access to the admin console and all administrator-only settings immediately.',
+          { username: user.username }
+        )}
+        confirmText={t('Demote')}
+        handleConfirm={() => {
+          void handleManage('demote').finally(() => setDemoteConfirmOpen(false))
+        }}
       />
 
       <ConfirmDialog

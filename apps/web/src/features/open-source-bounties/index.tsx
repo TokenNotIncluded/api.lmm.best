@@ -394,6 +394,7 @@ export function OpenSourceBounties({
   const [ownerRatingScore, setOwnerRatingScore] = useState(5)
   const [ownerRatingComment, setOwnerRatingComment] = useState('')
   const [showArchivedOwned, setShowArchivedOwned] = useState(false)
+  const [view, setView] = useState('browse')
 
   const bountyQuery = useQuery({
     queryKey: BOUNTY_QUERY_KEYS[0],
@@ -890,9 +891,19 @@ export function OpenSourceBounties({
                 <div className='flex flex-col gap-3'>
                   <p>
                     {t(
-                      'Publishing deducts the gross listing total from your balance. The public administrator-configured platform fee is credited to the super administrator account and helps fund AI customer-service token costs; the remainder becomes contributor escrow. Publishers and contributors settle directly; administrators intervene only in disputes.'
+                      'Publishing deducts the gross total from your balance. After the platform fee, the rest is held in escrow for the contributor who fixes it.'
                     )}
                   </p>
+                  <details className='text-sm'>
+                    <summary className='text-muted-foreground cursor-pointer'>
+                      {t('How the money moves')}
+                    </summary>
+                    <p className='text-muted-foreground mt-1.5'>
+                      {t(
+                        'The platform fee is credited to the super administrator account and funds AI customer-service token costs. Publishers and contributors settle directly; administrators intervene only in disputes.'
+                      )}
+                    </p>
+                  </details>
                   <div className='flex flex-wrap items-center gap-2'>
                     <Badge variant='secondary'>
                       {t('Public platform fee: {{rate}}%', {
@@ -922,7 +933,7 @@ export function OpenSourceBounties({
           </CardStaggerItem>
 
           <CardStaggerItem>
-            <Tabs defaultValue='browse' className='min-w-0'>
+            <Tabs value={view} onValueChange={setView} className='min-w-0'>
               <TabsList
                 aria-label={t('Open-source bounties')}
                 className='grid w-full grid-cols-2 gap-1 p-1 group-data-horizontal/tabs:!h-auto sm:grid-cols-3 lg:flex lg:w-full lg:max-w-full lg:flex-nowrap lg:justify-center'
@@ -1119,6 +1130,14 @@ export function OpenSourceBounties({
                         )}
                       </EmptyDescription>
                     </EmptyHeader>
+                    <EmptyContent>
+                      <Button
+                        variant='outline'
+                        onClick={() => setView('browse')}
+                      >
+                        {t('Browse the board')}
+                      </Button>
+                    </EmptyContent>
                   </Empty>
                 ) : (
                   <div className='grid gap-4 lg:grid-cols-2'>

@@ -645,9 +645,7 @@ function PolicyPanel({
             {t('Violation charges')}
           </h3>
           <p className='text-muted-foreground mt-2 text-sm leading-6'>
-            {t(
-              'Only fee rules returned by the live server policy are shown. If no schedule is published, this page intentionally shows no amount.'
-            )}
+            {t('Only fees published by the live server policy are shown.')}
           </p>
         </div>
         <ViolationFees fees={policy.violation_fees ?? []} />
@@ -692,7 +690,7 @@ export function SecurityContent() {
             </h1>
             <p className='text-muted-foreground max-w-3xl text-base leading-7 md:text-lg'>
               {t(
-                'Understand how requests are screened, what happens when risk is detected, and how public charge rules are published.'
+                'How requests are screened, and what happens when risk is found.'
               )}
             </p>
           </div>
@@ -702,9 +700,7 @@ export function SecurityContent() {
           <ShieldCheck />
           <AlertTitle>{t('Public safety summary')}</AlertTitle>
           <AlertDescription>
-            {t(
-              "This page publishes the platform's current safety boundaries and transparent handling principles. Live metrics and charge schedules come from the server policy endpoint."
-            )}
+            {t('Live metrics and charge schedules come from the server.')}
           </AlertDescription>
         </Alert>
 
@@ -746,9 +742,7 @@ export function SecurityContent() {
               {t('Risk detection overview')}
             </h2>
             <p className='text-muted-foreground mt-2 max-w-2xl text-sm leading-6'>
-              {t(
-                'Live detection totals are shown only when the public statistics endpoint is available.'
-              )}
+              {t('Totals appear when the public statistics endpoint responds.')}
             </p>
           </div>
           <StatsPanel stats={stats} isLoading={statsQuery.isLoading} />
@@ -769,9 +763,7 @@ export function SecurityContent() {
               {t('Safety policy')}
             </h2>
             <p className='text-muted-foreground mt-2 max-w-3xl text-sm leading-6'>
-              {t(
-                'Risk categories and rule summaries below are read from the public server policy. The active server policy and applicable law take precedence.'
-              )}
+              {t('Read from the public server policy, which takes precedence.')}
             </p>
           </div>
 

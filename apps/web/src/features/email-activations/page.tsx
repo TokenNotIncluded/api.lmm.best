@@ -829,42 +829,32 @@ export function EmailActivationsPage() {
     </Tabs>
   )
 
-  if (activationKind === 'sms') {
-    return (
-      <SectionPageLayout>
-        <SectionPageLayout.Title>
-          {t('Temporary activations')}
-        </SectionPageLayout.Title>
-        <SectionPageLayout.Content>
-          {activationTabs}
-          <HeroSmsSmsActivationPanel />
-        </SectionPageLayout.Content>
-      </SectionPageLayout>
-    )
-  }
-
   return (
     <SectionPageLayout>
       <SectionPageLayout.Title>
         {t('Temporary activations')}
       </SectionPageLayout.Title>
-      <SectionPageLayout.Actions>
-        <Button
-          variant='outline'
-          onClick={() => void invalidateHeroSmsQueries()}
-          disabled={productsQuery.isFetching || activationsQuery.isFetching}
-        >
-          <HugeiconsIcon
-            icon={ReloadIcon}
-            data-icon='inline-start'
-            strokeWidth={2}
-          />
-          <span>{t('Refresh')}</span>
-        </Button>
-      </SectionPageLayout.Actions>
+      {activationKind !== 'sms' && (
+        <SectionPageLayout.Actions>
+          <Button
+            variant='outline'
+            onClick={() => void invalidateHeroSmsQueries()}
+            disabled={productsQuery.isFetching || activationsQuery.isFetching}
+          >
+            <HugeiconsIcon
+              icon={ReloadIcon}
+              data-icon='inline-start'
+              strokeWidth={2}
+            />
+            <span>{t('Refresh')}</span>
+          </Button>
+        </SectionPageLayout.Actions>
+      )}
       <SectionPageLayout.Content>
         {activationTabs}
-        {hasHardError ? (
+        {activationKind === 'sms' ? (
+          <HeroSmsSmsActivationPanel />
+        ) : hasHardError ? (
           <ErrorState
             title={t('Unable to load HeroSMS email activations')}
             description={t(

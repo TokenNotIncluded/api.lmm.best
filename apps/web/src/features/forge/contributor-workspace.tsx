@@ -16,13 +16,19 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
 import {
-  ArrowRight01Icon,
+  ArrowDown01Icon,
+  CheckmarkCircle01Icon,
+  GitPullRequestIcon,
   ShieldCheck,
   Wallet01Icon,
 } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { Link } from '@tanstack/react-router'
+import type { ComponentProps } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
@@ -30,6 +36,31 @@ import { Button } from '@/components/ui/button'
 
 import { AcceptedChallengeList } from './accepted-challenge-list'
 import { ChallengeList } from './challenge-list'
+
+type IconType = ComponentProps<typeof HugeiconsIcon>['icon']
+
+function Step(props: { icon: IconType; step: string; label: string }) {
+  return (
+    <li className='border-border/60 bg-card hover:border-primary/40 flex items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors duration-200 motion-reduce:transition-none'>
+      <span className='bg-primary/10 text-primary flex size-7 shrink-0 items-center justify-center rounded-md'>
+        <HugeiconsIcon
+          icon={props.icon}
+          strokeWidth={2}
+          aria-hidden='true'
+          className='size-4'
+        />
+      </span>
+      <span className='min-w-0'>
+        <span className='text-muted-foreground block text-[10px] font-semibold tracking-wide uppercase'>
+          {props.step}
+        </span>
+        <span className='block truncate text-sm font-medium'>
+          {props.label}
+        </span>
+      </span>
+    </li>
+  )
+}
 
 export function ContributorWorkspace() {
   const { t } = useTranslation()
@@ -51,51 +82,90 @@ export function ContributorWorkspace() {
         </Button>
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
-        <div className='border-foreground/25 bg-background text-foreground mx-auto max-w-6xl overflow-hidden border'>
-          <section className='border-foreground bg-accent grid gap-8 border-b px-6 py-9 md:grid-cols-[1fr_280px] md:px-10 md:py-12'>
-            <div>
-              <p className='mb-4 text-xs font-bold uppercase'>
-                {t('Delivery workspace')}
-              </p>
-              <h1 className='mb-4 max-w-2xl font-serif text-4xl leading-tight font-normal md:text-5xl'>
-                {t('Choose funded work and make progress visible.')}
-              </h1>
-              <p className='max-w-2xl text-sm leading-6 md:text-base'>
+        <div className='mx-auto w-full max-w-6xl space-y-8'>
+          <section className='border-border/60 bg-card grid gap-6 rounded-xl border p-4 shadow-sm sm:p-6 md:grid-cols-[minmax(0,1fr)_300px]'>
+            <div className='min-w-0'>
+              <h2 className='text-xl font-semibold tracking-tight sm:text-2xl'>
+                {t('Pick funded work and show your trail.')}
+              </h2>
+              <p className='text-muted-foreground mt-2 max-w-2xl text-sm leading-6'>
                 {t(
-                  'Accept a challenge, link the issue and pull request, then follow review and settlement in one evidence trail.'
+                  'Accept a challenge, link the issue and pull request, then follow review and payout in one timeline.'
                 )}
               </p>
+              <ol className='mt-5 grid gap-2 sm:grid-cols-3'>
+                <Step
+                  icon={CheckmarkCircle01Icon}
+                  step={t('Step 1')}
+                  label={t('Accept open work')}
+                />
+                <Step
+                  icon={GitPullRequestIcon}
+                  step={t('Step 2')}
+                  label={t('Submit evidence')}
+                />
+                <Step
+                  icon={Wallet01Icon}
+                  step={t('Step 3')}
+                  label={t('Get paid to balance')}
+                />
+              </ol>
+              <div className='mt-5 flex flex-wrap gap-2'>
+                <Button
+                  type='button'
+                  onClick={() =>
+                    document.getElementById('open-work')?.scrollIntoView({
+                      // The global reduced-motion rule only zeroes transition
+                      // duration, so the scroll behaviour is chosen explicitly.
+                      behavior: window.matchMedia(
+                        '(prefers-reduced-motion: reduce)'
+                      ).matches
+                        ? 'auto'
+                        : 'smooth',
+                      block: 'start',
+                    })
+                  }
+                >
+                  {t('Browse open work')}
+                  <HugeiconsIcon
+                    icon={ArrowDown01Icon}
+                    data-icon='inline-end'
+                    strokeWidth={2}
+                    aria-hidden='true'
+                  />
+                </Button>
+              </div>
             </div>
-            <div className='border-foreground/40 flex flex-col justify-end border-t pt-5 md:border-t-0 md:border-l md:pt-0 md:pl-7'>
-              <HugeiconsIcon
-                icon={ShieldCheck}
-                className='mb-5 size-7'
-                strokeWidth={2}
-                aria-hidden='true'
-              />
-              <p className='mb-5 text-sm leading-6'>
+            <aside className='border-border/60 bg-muted/20 min-w-0 rounded-lg border p-4'>
+              <div className='flex items-center gap-2'>
+                <HugeiconsIcon
+                  icon={ShieldCheck}
+                  strokeWidth={2}
+                  aria-hidden='true'
+                  className='text-primary size-5 shrink-0'
+                />
+                <h3 className='font-medium'>{t('Build trust')}</h3>
+              </div>
+              <p className='text-muted-foreground mt-2 text-sm leading-6'>
                 {t(
-                  'Build account trust to unlock more workspace tools and better rates.'
+                  'Finished deliveries raise your rating. Higher trust unlocks better-paying work.'
                 )}
               </p>
               <Button
-                className='bg-foreground text-background hover:bg-foreground/85 w-full rounded-sm'
+                variant='outline'
+                size='sm'
+                className='mt-3 w-full'
                 render={<Link to='/wallet' />}
               >
                 {t('View trust level')}
-                <HugeiconsIcon
-                  icon={ArrowRight01Icon}
-                  data-icon='inline-end'
-                  strokeWidth={2}
-                  aria-hidden='true'
-                />
               </Button>
-            </div>
+            </aside>
           </section>
-          <div className='px-6 py-9 md:px-10 md:py-12'>
+
+          <div id='open-work' className='scroll-mt-4'>
             <ChallengeList limit={12} />
-            <AcceptedChallengeList />
           </div>
+          <AcceptedChallengeList />
         </div>
       </SectionPageLayout.Content>
     </SectionPageLayout>

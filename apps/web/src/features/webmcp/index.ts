@@ -38,31 +38,32 @@ import { signalGameTools } from '@/features/signal-game/webmcp'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
-type ToolExecuteOptions = { signal: AbortSignal }
-export type ModelContextTool = {
-  name: string
-  title?: string
-  description: string
-  inputSchema: Record<string, unknown>
-  annotations?: {
-    readOnlyHint?: boolean
-    consequentialHint?: boolean
-    untrustedContentHint?: boolean
-  }
-  execute: (
-    input: Record<string, unknown>,
-    options: ToolExecuteOptions
-  ) => Promise<unknown>
-}
+import { accountTools } from './areas/account'
+import { adminTools } from './areas/admin'
+import { authOnboardingTools } from './areas/auth-onboarding'
+import { publicSiteTools } from './areas/public-site'
+import { publicToolsTools } from './areas/public-tools'
+import { settingsShellTools } from './areas/settings-shell'
+import { workbenchTools } from './areas/workbench'
+import { readPageOutline } from './page-outline'
+import {
+  EMPTY_INPUT_SCHEMA,
+  ensureNotAborted,
+  ensureObject,
+  requireAdmin,
+  requireSignedIn,
+  type ModelContextTool,
+  type WebMcpRouter,
+  type WebMcpToolFactory,
+} from './tool-kit'
+
+export type { ModelContextTool } from './tool-kit'
+
 type ModelContext = {
   registerTool: (
     tool: ModelContextTool,
     options?: { signal?: AbortSignal }
   ) => void | Promise<void>
-}
-type WebMcpRouter = {
-  navigate: (options: { to: string }) => Promise<unknown>
-  subscribe: (event: 'onResolved', listener: () => void) => () => void
 }
 
 declare global {
@@ -71,31 +72,132 @@ declare global {
   }
 }
 
-const NAVIGABLE_PATHS = {
-  '/': '/',
-  '/pricing': '/pricing',
-  '/guide': '/guide',
-  '/developers': '/developers',
-  '/scripts': '/scripts',
-  '/webmcp': '/webmcp',
-  '/games/signal': '/games/signal',
-  '/dashboard/overview': '/dashboard/overview',
-  '/wallet': '/wallet',
-  '/temporary-activations': '/temporary-activations',
+const AREA_TOOL_FACTORIES: readonly WebMcpToolFactory[] = [
+  publicSiteTools,
+  publicToolsTools,
+  authOnboardingTools,
+  accountTools,
+  workbenchTools,
+  adminTools,
+  settingsShellTools,
+]
+
+/** Every static page an agent may open, with a short purpose for discovery. */
+export const SITE_PAGES = {
+  '/': 'Home',
+  '/pricing': 'Public model prices and access plans',
+  '/rankings': 'Model usage rankings',
+  '/status': 'Service and channel status',
+  '/guide': 'Getting started guide',
+  '/developers': 'Developer documentation and API examples',
+  '/scripts': 'Public installer scripts',
+  '/security': 'Security policy and disclosure',
+  '/about': 'About LMM',
+  '/webmcp': 'WebMCP tools for browser agents',
+  '/games/signal': 'Signal puzzle game and leaderboard',
+  '/challenges': 'Open challenges',
+  '/privacy-policy': 'Privacy policy',
+  '/terms-of-service': 'Terms of service',
+  '/user-agreement': 'User agreement',
+  '/sign-in': 'Sign in',
+  '/sign-up': 'Create an account',
+  '/forgot-password': 'Reset a forgotten password',
+  '/getting-started': 'Account onboarding',
+  '/dashboard': 'Account dashboard overview',
+  '/dashboard/overview': 'Account dashboard overview',
+  '/wallet': 'Wallet balance and top-up',
+  '/subscriptions': 'Subscription plans',
+  '/usage-logs': 'API usage logs',
+  '/profile': 'Profile and security settings',
+  '/profile/share': 'Share account usage by model',
+  '/keys': 'API keys',
+  '/models': 'Available models',
+  '/models/metadata': 'Model records',
+  '/models/deployments': 'Model deployments',
+  '/playground': 'Model playground chat',
+  '/drawing': 'Image generation',
+  '/tool-market': 'Tool market',
+  '/todos': 'Personal to-do list',
+  '/workspace': 'Workspace',
+  '/remote-control': 'Remote control sessions',
+  '/support': 'Support tickets',
+  '/temporary-activations': 'Temporary access activations',
+  '/ai-directory': 'AI product directory',
+  '/red-packets': 'Red packets',
+  '/public-relay': 'Public relay',
+  '/open-source-bounties': 'Open source bounties',
+  '/channels': 'Admin: upstream channels',
+  '/users': 'Admin: users',
+  '/redemption-codes': 'Admin: redemption codes',
+  '/discount-codes': 'Admin: discount codes',
+  '/email-activations': 'Admin: email activations',
+  '/chat-management': 'Admin: chat presets',
+  '/company': 'Admin: company profile',
+  '/operations/sources': 'Admin: acquisition sources',
+  '/system-info': 'Admin: system information',
+  '/system-settings': 'Admin: system settings',
+  '/system-settings/auth': 'Admin: authentication settings',
+  '/system-settings/billing': 'Admin: billing settings',
+  '/system-settings/content': 'Admin: content settings',
+  '/system-settings/models': 'Admin: model settings',
+  '/system-settings/operations': 'Admin: operations settings',
+  '/system-settings/security': 'Admin: security settings',
+  '/system-settings/site': 'Admin: site settings',
+  '/subscriptions/reset': 'Subscription reset options',
+  '/usage-logs/common': 'API usage logs',
+  '/usage-logs/drawing': 'Drawing usage logs',
+  '/usage-logs/task': 'Task usage logs',
+  '/setup': 'Initial site setup',
+  '/401': 'Sign-in required',
+  '/403': 'Access denied',
+  '/404': 'Page not found',
+  '/500': 'Server error',
+  '/503': 'Maintenance',
 } as const
 
-function ensureObject(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new TypeError('Tool input must be an object')
+const PUBLIC_PATHS = new Set([
+  '/',
+  '/pricing',
+  '/rankings',
+  '/status',
+  '/guide',
+  '/developers',
+  '/scripts',
+  '/security',
+  '/about',
+  '/webmcp',
+  '/games/signal',
+  '/challenges',
+  '/privacy-policy',
+  '/terms-of-service',
+  '/user-agreement',
+  '/sign-in',
+  '/sign-up',
+  '/forgot-password',
+  '/setup',
+  '/401',
+  '/403',
+  '/404',
+  '/500',
+  '/503',
+])
+
+function requireNavigationAccess(path: keyof typeof SITE_PAGES) {
+  if (PUBLIC_PATHS.has(path)) return
+  if (
+    SITE_PAGES[path].startsWith('Admin:') ||
+    path === '/models' ||
+    path.startsWith('/models/')
+  ) {
+    requireAdmin()
+    return
   }
-  return value as Record<string, unknown>
+  requireSignedIn()
 }
 
-function ensureNotAborted(signal: AbortSignal) {
-  if (signal.aborted) {
-    throw signal.reason ?? new DOMException('Aborted', 'AbortError')
-  }
-}
+const NAVIGABLE_PATHS = Object.fromEntries(
+  Object.keys(SITE_PAGES).map((path) => [path, path])
+) as { [K in keyof typeof SITE_PAGES]: K }
 
 function safeAccountStatus() {
   const user = useAuthStore.getState().auth.user
@@ -109,7 +211,7 @@ function safeAccountStatus() {
   }
 }
 
-function toolsFor(router: WebMcpRouter): ModelContextTool[] {
+function coreTools(router: WebMcpRouter): ModelContextTool[] {
   return [
     ...signalGameTools(),
     {
@@ -138,10 +240,40 @@ function toolsFor(router: WebMcpRouter): ModelContextTool[] {
       },
     },
     {
+      name: 'lmm_site_map',
+      title: 'List LMM pages',
+      description:
+        'List every page lmm_navigate can open, with a short purpose. Admin pages require an administrator account.',
+      inputSchema: EMPTY_INPUT_SCHEMA,
+      annotations: { readOnlyHint: true },
+      execute: async (_input, options) => {
+        ensureNotAborted(options.signal)
+        return {
+          current_path: window.location.pathname,
+          pages: Object.entries(SITE_PAGES).map(([path, purpose]) => ({
+            path,
+            purpose,
+          })),
+        }
+      },
+    },
+    {
+      name: 'lmm_page_outline',
+      title: 'Read the current page outline',
+      description:
+        'Read the current page title, headings, and visible buttons, links, and tabs. Works on every page; use it to orient before acting.',
+      inputSchema: EMPTY_INPUT_SCHEMA,
+      annotations: { readOnlyHint: true, untrustedContentHint: true },
+      execute: async (_input, options) => {
+        ensureNotAborted(options.signal)
+        return readPageOutline(SITE_PAGES)
+      },
+    },
+    {
       name: 'lmm_navigate',
       title: 'Open an LMM page',
       description:
-        'Navigate the current tab to one of the listed public or account pages.',
+        'Navigate the current tab to one of the listed public or account pages. Call lmm_site_map for descriptions.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -157,6 +289,7 @@ function toolsFor(router: WebMcpRouter): ModelContextTool[] {
           throw new TypeError('Unknown navigation path')
         }
         ensureNotAborted(options.signal)
+        requireNavigationAccess(path as keyof typeof SITE_PAGES)
         await router.navigate({
           to: NAVIGABLE_PATHS[path as keyof typeof NAVIGABLE_PATHS],
         })
@@ -301,23 +434,48 @@ function toolsFor(router: WebMcpRouter): ModelContextTool[] {
   ]
 }
 
-export const WEBMCP_TOOL_DESCRIPTIONS = [
-  ['lmm_signal_state', 'Read the game board and current round'],
-  ['lmm_signal_start', 'Start a game as an identified AI participant'],
-  ['lmm_signal_rotate', 'Rotate game tiles in bounded batches'],
-  ['lmm_signal_hint', 'Use a hint in practice mode only'],
-  ['lmm_signal_records', 'Read game records and the leaderboard'],
-  [
-    'lmm_signal_submit',
-    'Submit a completed result using the signed-in account',
-  ],
-  ['lmm_site_info', 'Site information and public page links'],
-  ['lmm_navigate', 'Navigate to supported LMM pages'],
-  ['lmm_model_prices', 'Public model prices and billing units'],
-  ['lmm_account_status', 'Current sign-in and access status'],
-  ['lmm_public_scripts', 'Public script names and download links'],
-  ['lmm_source_repositories', 'Project repositories and GitHub stars'],
-] as const
+function toolsFor(router: WebMcpRouter): ModelContextTool[] {
+  const seen = new Set<string>()
+  const tools: ModelContextTool[] = []
+  const add = (list: ModelContextTool[]) => {
+    for (const tool of list) {
+      if (seen.has(tool.name)) {
+        throw new Error(`Duplicate WebMCP tool: ${tool.name}`)
+      }
+      seen.add(tool.name)
+      tools.push(tool)
+    }
+  }
+  add(coreTools(router))
+  for (const factory of AREA_TOOL_FACTORIES) {
+    add(factory({ router }))
+  }
+  return tools
+}
+
+export type WebMcpToolSummary = {
+  name: string
+  title: string
+  description: string
+  readOnly: boolean
+  consequential: boolean
+}
+
+const IDLE_ROUTER: WebMcpRouter = {
+  navigate: async () => undefined,
+  subscribe: () => () => undefined,
+}
+
+/** Describe every registered tool for the /webmcp catalogue page. */
+export function listWebMcpTools(): WebMcpToolSummary[] {
+  return toolsFor(IDLE_ROUTER).map((tool) => ({
+    name: tool.name,
+    title: tool.title ?? tool.name,
+    description: tool.description,
+    readOnly: tool.annotations?.readOnlyHint === true,
+    consequential: tool.annotations?.consequentialHint === true,
+  }))
+}
 
 export function getWebMcpContext(): ModelContext | null {
   try {
@@ -338,7 +496,14 @@ export function installWebMcp(router: WebMcpRouter): () => void {
   const register = () => {
     controller = new AbortController()
     const signal = controller.signal
-    for (const tool of toolsFor(router)) {
+    let tools: ModelContextTool[]
+    try {
+      tools = toolsFor(router)
+    } catch {
+      // A malformed optional integration must never block the application.
+      return
+    }
+    for (const tool of tools) {
       try {
         void Promise.resolve(modelContext.registerTool(tool, { signal })).catch(
           () => undefined

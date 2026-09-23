@@ -176,9 +176,12 @@ export function AIDirectory() {
             <div>
               <h2>{t('Explore AI websites')}</h2>
               <p>
-                {t(
-                  'A curated starting point for the AI tools you use every day.'
-                )}
+                {t('{{count}} curated websites, grouped by what they do.', {
+                  count: Object.values(categoryCounts).reduce(
+                    (sum, value) => sum + value,
+                    0
+                  ),
+                })}
               </p>
             </div>
             <div className='ai-directory-intro-symbol' aria-hidden='true'>

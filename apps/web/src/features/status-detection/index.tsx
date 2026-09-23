@@ -246,13 +246,24 @@ function GroupStatusCard(props: {
               statusSurfaceClass(level)
             )}
           >
-            <Icon
-              className={cn(
-                'size-3.5 shrink-0',
-                getSuccessRateTextClass(props.group.successRate)
-              )}
-              aria-hidden='true'
-            />
+            <span className='relative grid shrink-0 place-items-center'>
+              {level === 'excellent' || level === 'good' ? (
+                <span
+                  aria-hidden='true'
+                  className={cn(
+                    'motion-safe:animate-ping absolute inline-flex size-4 rounded-full opacity-60',
+                    getSuccessRateDotClass(props.group.successRate)
+                  )}
+                />
+              ) : null}
+              <Icon
+                className={cn(
+                  'relative size-3.5 shrink-0',
+                  getSuccessRateTextClass(props.group.successRate)
+                )}
+                aria-hidden='true'
+              />
+            </span>
             <span className='text-foreground truncate font-medium'>
               {statusLabel(t, level)}
             </span>

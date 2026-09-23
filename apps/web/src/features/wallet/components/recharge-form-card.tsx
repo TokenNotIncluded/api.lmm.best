@@ -587,22 +587,9 @@ export function RechargeFormCard({
                   <FieldGroup>
                     <Field>
                       <div className='flex items-center gap-1'>
-                        <FieldLabel>
-                          {neutralMode
-                            ? t('Current account balance')
-                            : t('Platform credit')}
-                        </FieldLabel>
+                        <FieldLabel>{t('Platform credit')}</FieldLabel>
                         <PlatformCreditHelp />
                       </div>
-                      <FieldDescription>
-                        {neutralMode
-                          ? t(
-                              'Funds are added to your current account after payment.'
-                            )
-                          : t(
-                              'Credits are added to your current signed-in account for API usage.'
-                            )}
-                      </FieldDescription>
                       <div className='grid grid-cols-2 gap-2 lg:grid-cols-3'>
                         {presetAmounts.map((preset) => {
                           const discount =
@@ -775,15 +762,11 @@ export function RechargeFormCard({
                 <FieldGroup>
                   <Field>
                     <FieldLabel htmlFor='topup-amount'>
-                      {neutralMode
-                        ? t('Current account balance')
-                        : t('Custom platform credit')}
+                      {t('Custom platform credit')}
                     </FieldLabel>
                     <FieldDescription id='topup-amount-description'>
                       {neutralMode
-                        ? t(
-                            'Funds are added to your current account after payment.'
-                          )
+                        ? t('Payment adds credit to this account.')
                         : t(
                             'Destination: current signed-in account · API usage balance'
                           )}
@@ -923,7 +906,7 @@ export function RechargeFormCard({
                             </Badge>
                           )}
                       </div>
-                      <div className='grid grid-cols-[minmax(0,1fr)_auto] gap-2'>
+                      <div className='grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]'>
                         <Input
                           id='discount-code'
                           value={discountCode}
@@ -934,13 +917,13 @@ export function RechargeFormCard({
                           readOnly={discountCodeFromUrl}
                           aria-readonly={discountCodeFromUrl}
                           className={cn(
-                            'h-9 min-w-0 uppercase',
+                            'h-11 min-w-0 text-base uppercase sm:h-9 sm:text-sm',
                             discountCodeFromUrl && 'bg-muted font-mono'
                           )}
                           autoComplete='off'
                           maxLength={64}
                         />
-                        <div className='flex items-center gap-1.5'>
+                        <div className='flex flex-wrap items-center justify-end gap-1.5'>
                           {onRemoveDiscount &&
                             (discountPercent !== null ||
                               (!discountCodeFromUrl &&
@@ -950,7 +933,7 @@ export function RechargeFormCard({
                                 onClick={onRemoveDiscount}
                                 disabled={discountApplying}
                                 variant='ghost'
-                                className='text-muted-foreground hover:text-foreground h-9 px-2.5'
+                                className='text-muted-foreground hover:text-foreground min-h-11 px-2.5 sm:min-h-9'
                               >
                                 {t('Remove')}
                               </Button>
@@ -963,7 +946,7 @@ export function RechargeFormCard({
                               !discountCode.trim()
                             }
                             variant='outline'
-                            className='h-9 px-4'
+                            className='min-h-11 px-4 sm:min-h-9'
                           >
                             {discountApplying && (
                               <HugeiconsIcon

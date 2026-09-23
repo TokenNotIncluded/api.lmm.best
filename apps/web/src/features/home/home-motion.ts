@@ -16,7 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { CYCLE_START, createCamera, INPUT, projectPoint } from './home-core'
+import {
+  CYCLE_START,
+  RESPONSE_END,
+  createCamera,
+  INPUT,
+  projectPoint,
+} from './home-core'
 import { createCanvasCore } from './home-core-canvas'
 import { createWebGLCore, filmLayout, type CoreFilm } from './home-core-webgl'
 import { mountHomeGravity } from './home-gravity'
@@ -62,6 +68,10 @@ export function mountHomeMotion(root: HTMLElement) {
   const inner = root.querySelector<HTMLElement>('[data-cinema-inner]')
   const canvas = root.querySelector<HTMLCanvasElement>('[data-film]')
   if (!cinema || !inner || !canvas) return () => {}
+  const visual = root.querySelector<HTMLElement>('[data-home-visual]') ?? inner
+  const tokenField = root.querySelector<HTMLInputElement>(
+    '[data-home-token-field]'
+  )
   let draw = createFilm(canvas)
   const inputZone = root.querySelector<HTMLElement>('[data-token-input]')
   const result = root.querySelector<HTMLOutputElement>('[data-token-result]')
@@ -112,6 +122,7 @@ export function mountHomeMotion(root: HTMLElement) {
     if (chosen) chosen.textContent = token
     if (predicted) predicted.textContent = match
     if (result) result.hidden = false
+    if (tokenField && tokenField.value !== token) tokenField.value = token
     root
       .querySelectorAll<HTMLElement>('[data-token-option]')
       .forEach((option) =>
@@ -155,6 +166,18 @@ export function mountHomeMotion(root: HTMLElement) {
     const token = event.dataTransfer?.getData('text/plain')
     if (token && allowedTokens.has(token)) selectToken(token)
   }
+  const typeToken = () => {
+    const token = tokenField?.value.trim().slice(0, 20)
+    if (token) selectToken(token)
+  }
+  const replayToken = (event: KeyboardEvent) => {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      typeToken()
+    }
+  }
+  tokenField?.addEventListener('input', typeToken)
+  tokenField?.addEventListener('keydown', replayToken)
   inputZone?.addEventListener('dragover', dragOver)
   inputZone?.addEventListener('dragleave', dragLeave)
   inputZone?.addEventListener('drop', drop)
@@ -163,6 +186,8 @@ export function mountHomeMotion(root: HTMLElement) {
     inputZone?.removeEventListener('dragleave', dragLeave)
     inputZone?.removeEventListener('drop', drop)
     inputZone?.removeAttribute('data-drag-over')
+    tokenField?.removeEventListener('input', typeToken)
+    tokenField?.removeEventListener('keydown', replayToken)
   }
   const scenePanels = [
     ...root.querySelectorAll<HTMLElement>('[data-cinema-panel]'),
@@ -179,9 +204,9 @@ export function mountHomeMotion(root: HTMLElement) {
     typeof window.IntersectionObserver !== 'function' ||
     typeof window.ResizeObserver !== 'function'
   ) {
-    refreshSelection = () => draw?.(0, { x: 0, y: 0 }, 0)
-    draw?.(0, { x: 0, y: 0 }, 0)
-    placeInput(0, { x: 0, y: 0 }, 0)
+    refreshSelection = () => draw?.(RESPONSE_END, { x: 0, y: 0 }, 0)
+    draw?.(RESPONSE_END, { x: 0, y: 0 }, 0)
+    placeInput(RESPONSE_END, { x: 0, y: 0 }, 0)
     tokens?.measure(inner.getBoundingClientRect(), [
       ...scenePanels,
       ...(inputZone ? [inputZone] : []),
@@ -208,13 +233,15 @@ export function mountHomeMotion(root: HTMLElement) {
   let disposed = false
   let frame: number | null = null
   let lastTime = 0
-  let clock = 0
+  let clock = RESPONSE_END
+  let responding = false
   let dirty = true
   let target = { x: 0, y: 0 }
   let pointer = { x: 0, y: 0 }
   let tokenPointer: { x: number; y: number } | null = null
   let measured = true
   let sceneProgress = 0
+  let manualChapter: number | null = null
 
   const updateControls = () => {
     root.dataset.motion = !draw
@@ -244,7 +271,8 @@ export function mountHomeMotion(root: HTMLElement) {
     }
   }
   refreshSelection = () => {
-    clock = CYCLE_START
+    clock = reduced.matches || paused ? RESPONSE_END : CYCLE_START
+    responding = !reduced.matches && !paused
     lastTime = 0
     dirty = true
     schedule()
@@ -254,14 +282,17 @@ export function mountHomeMotion(root: HTMLElement) {
     const frameRect = inner.getBoundingClientRect()
     const stickyTop = Number.parseFloat(window.getComputedStyle(inner).top) || 0
     const animated = !!draw && !reduced.matches && window.innerHeight > 600
-    sceneProgress = animated
-      ? cinemaPosition(
-          cinemaRect.top,
-          cinemaRect.height,
-          frameRect.height,
-          stickyTop
-        )
-      : 0
+    sceneProgress =
+      manualChapter !== null && animated
+        ? manualChapter / Math.max(1, scenePanels.length - 1)
+        : animated
+          ? cinemaPosition(
+              cinemaRect.top,
+              cinemaRect.height,
+              frameRect.height,
+              stickyTop
+            )
+          : 0
     layout = filmLayout(canvas)
     placeInput(animated ? clock : 0, pointer, sceneProgress)
     inner.style.setProperty('--scene-progress', String(sceneProgress))
@@ -271,10 +302,11 @@ export function mountHomeMotion(root: HTMLElement) {
     const chapter =
       focused >= 0
         ? focused
-        : Math.min(
+        : (manualChapter ??
+          Math.min(
             scenePanels.length - 1,
             Math.floor(sceneProgress * scenePanels.length)
-          )
+          ))
     inner.dataset.chapter = String(chapter)
     scenePanels.forEach((panel, index) => {
       const active = !animated || index === chapter
@@ -282,15 +314,19 @@ export function mountHomeMotion(root: HTMLElement) {
       panel.setAttribute('aria-hidden', String(!active))
       panel.inert = !active
     })
-    sceneSteps.forEach((step, index) =>
+    sceneSteps.forEach((step, index) => {
       step.toggleAttribute('data-active', index === chapter)
-    )
+      step
+        .querySelector('button')
+        ?.setAttribute('aria-pressed', String(index === chapter))
+    })
     tokens?.measure(frameRect, [
       ...scenePanels,
       ...sceneSteps,
       ...(inputZone ? [inputZone] : []),
       ...(toggle ? [toggle] : []),
       ...root.querySelectorAll<HTMLElement>('.lmm-simulation-info'),
+      ...root.querySelectorAll<HTMLElement>('.lmm-token-control'),
     ])
     if (story) {
       const rect = story.getBoundingClientRect()
@@ -349,8 +385,14 @@ export function mountHomeMotion(root: HTMLElement) {
       draw &&
       (dirty || (animate && visible && now - lastTime >= 1000 / 30))
     ) {
-      if (lastTime && animate) clock += Math.min((now - lastTime) / 1000, 0.1)
-      const time = reduced.matches ? 0 : clock
+      if (lastTime && animate && responding) {
+        clock = Math.min(
+          RESPONSE_END,
+          clock + Math.min((now - lastTime) / 1000, 0.1) * 8
+        )
+        if (clock >= RESPONSE_END) responding = false
+      }
+      const time = reduced.matches ? RESPONSE_END : clock
       draw(time, pointer, sceneProgress)
       placeInput(time, pointer, sceneProgress)
       tokens?.draw(clock, tokenPointer, animate)
@@ -360,7 +402,9 @@ export function mountHomeMotion(root: HTMLElement) {
       tokens?.draw(0, null, false)
       dirty = false
     }
-    if (draw && animate && visible) schedule()
+    const pointerMoving =
+      Math.abs(pointer.x - target.x) + Math.abs(pointer.y - target.y) > 0.001
+    if (draw && animate && visible && (responding || pointerMoving)) schedule()
   }
   const update = () => {
     dirty = true
@@ -388,26 +432,33 @@ export function mountHomeMotion(root: HTMLElement) {
     ) {
       return
     }
+    if (!visual.contains(event.target as Node)) return
     target = pointerPosition(
       event.clientX,
       event.clientY,
-      cinema.getBoundingClientRect()
+      visual.getBoundingClientRect()
     )
-    const frame = inner.getBoundingClientRect()
+    const frame = visual.getBoundingClientRect()
     tokenPointer = {
       x: event.clientX - frame.left,
       y: event.clientY - frame.top,
     }
+    dirty = true
     schedule()
   }
   const leave = () => {
     target = { x: 0, y: 0 }
     tokenPointer = null
+    dirty = true
     schedule()
   }
   const preferences = () => {
     target = { x: 0, y: 0 }
     tokenPointer = null
+    if (reduced.matches) {
+      clock = RESPONSE_END
+      responding = false
+    }
 
     dirty = true
 
@@ -455,8 +506,28 @@ export function mountHomeMotion(root: HTMLElement) {
   cinema.addEventListener('pointermove', move, { passive: true })
   cinema.addEventListener('pointerleave', leave)
   toggle?.addEventListener('click', toggleMotion)
+  const sceneButtons = [
+    ...root.querySelectorAll<HTMLButtonElement>('[data-cinema-jump]'),
+  ]
+  const jumpScene = (event: Event) => {
+    const index = Number(
+      (event.currentTarget as HTMLElement).dataset.cinemaJump
+    )
+    if (Number.isInteger(index) && index >= 0 && index < scenePanels.length) {
+      manualChapter = index
+      update()
+    }
+  }
+  sceneButtons.forEach((button) => button.addEventListener('click', jumpScene))
+  const scrollScene = () => {
+    manualChapter = null
+    update()
+  }
   // Capture also observes a scrollable parent without taking over native scrolling.
-  document.addEventListener('scroll', update, { passive: true, capture: true })
+  document.addEventListener('scroll', scrollScene, {
+    passive: true,
+    capture: true,
+  })
   window.addEventListener('resize', resize, { passive: true })
   document.addEventListener('visibilitychange', visibility)
   root.addEventListener('focusin', update)
@@ -479,7 +550,10 @@ export function mountHomeMotion(root: HTMLElement) {
     cinema.removeEventListener('pointermove', move)
     cinema.removeEventListener('pointerleave', leave)
     toggle?.removeEventListener('click', toggleMotion)
-    document.removeEventListener('scroll', update, true)
+    sceneButtons.forEach((button) =>
+      button.removeEventListener('click', jumpScene)
+    )
+    document.removeEventListener('scroll', scrollScene, true)
     window.removeEventListener('resize', resize)
     document.removeEventListener('visibilitychange', visibility)
     root.removeEventListener('focusin', update)

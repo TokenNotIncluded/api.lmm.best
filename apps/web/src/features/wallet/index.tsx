@@ -989,14 +989,6 @@ function WalletCheckout(props: WalletProps) {
                 <AlertDescription>{paymentFeedback.message}</AlertDescription>
               </Alert>
             ) : null}
-            {developerAccessGranted ? (
-              <WalletStatsCard
-                user={user}
-                loading={userLoading}
-                success={cloudSuccess}
-              />
-            ) : null}
-
             <div
               className={
                 developerAccessGranted && showSubscriptionPanel
@@ -1088,6 +1080,14 @@ function WalletCheckout(props: WalletProps) {
                   neutralMode={!developerAccessGranted}
                 />
               </div>
+
+              {developerAccessGranted ? (
+                <WalletStatsCard
+                  user={user}
+                  loading={userLoading}
+                  success={cloudSuccess}
+                />
+              ) : null}
 
               {developerAccessGranted ? (
                 <ConsoleDisclosure id='trust-level' title={t('Trust level')}>

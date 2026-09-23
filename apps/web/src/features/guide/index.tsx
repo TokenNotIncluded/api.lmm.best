@@ -53,20 +53,18 @@ const COPY = {
   zh: {
     eyebrow: '新手指南',
     title: '第一次使用，从这里开始。',
-    intro:
-      '选好设备和软件，跟着步骤完成连接。下载安装可以先看；需要账号帮助时，让 AI 助手陪你继续。',
+    intro: '选设备，跟步骤，连上就能用。',
     start: '选择我的客户端',
     assistant: '让 AI 一步步带我配置',
-    manualIntro:
-      '选好设备和软件，跟着步骤完成连接。下载安装可以先看，账号和访问权限问题也可以联系支持。',
+    manualIntro: '选设备，跟步骤，连上就能用。卡住了找支持。',
+    sectionsTitle: '本页内容',
+    sections: ['选择客户端', '发第一条消息', '常见报错', '账号与支持'],
     contactSupport: '联系支持',
     requestManualAccess: '联系支持申请访问',
     supportTitle: '需要人工帮助？',
-    supportBody:
-      '访问申请或配置遇到问题时，可通过下方邮箱联系支持。说明账号、设备与具体问题，记得隐藏密钥。',
+    supportBody: '带上账号、设备和问题描述，发邮件即可。记得隐藏密钥。',
     supportTicket: '提交支持工单',
-    manualTroubleBody:
-      '保留错误码、客户端名称和请求 ID。点开相应问题查看处理方法；仍未解决时，可以联系支持。',
+    manualTroubleBody: '点开对应错误码查看处理方式，仍不解决就联系支持。',
     guestAssistant: '登录，让 AI 带我配置',
     stages: [
       '选择软件',
@@ -76,11 +74,9 @@ const COPY = {
       '开始第一次对话',
     ],
     setupTitle: '从你正在使用的设备开始',
-    setupBody:
-      '选择下面的设备和软件，查看官方安装入口与配置步骤。已有软件的用户可以直接查看连接配置。',
+    setupBody: '选出设备和软件，拿到官方下载入口与配置步骤。',
     accountTitle: '准备好你的账号',
-    accountBody:
-      '访问权限通过后，就可以创建专用密钥，把 LMM 连接到自己的软件。',
+    accountBody: '访问权限通过后，创建专用密钥即可连接 LMM。',
     accountSteps: ['获得 API 访问权限', '创建一把 API 密钥', '完成第一次请求'],
     complete: '已完成',
     pending: '待完成',
@@ -94,20 +90,16 @@ const COPY = {
     setupQuestion:
       '我第一次使用 LMM。请先问我使用的设备、软件和用途，再带我从官方下载、安装、申请访问、创建密钥、配置地址与模型，到发出第一条消息。每一步请说明点击哪里以及成功的标志。',
     securityTitle: '密钥只填进你信任的客户端',
-    securityBody:
-      '聊天、截图和问题反馈中请遮住 API Key。若已泄露，到密钥页面撤销并重新创建；排查问题时提供请求 ID 即可。',
-    modelsError:
-      '暂时无法加载可用模型。你可以继续查看安装步骤，配置前请重试获取准确的模型 ID。',
+    securityBody: '泄露了？到密钥页面撤销重建，排查时只需给请求 ID。',
+    modelsError: '模型列表暂时加载不了，先看安装步骤，配置前重试一次。',
     retry: '重新加载模型',
     firstTitle: '发一条消息，确认连接成功',
-    firstBody:
-      '保存配置后，新建对话，选择当前账号可用的模型，发送下面这句话。收到回复后，可到用量记录确认请求与消耗。',
+    firstBody: '保存配置，新建对话，发送下面这句话，等一个回复。',
     firstMessage: '你好，请用一句话介绍你能帮助我做什么。',
     usage: '查看用量记录',
     modelList: '查看模型与价格',
     troubleTitle: '卡在某一步？先看这里。',
-    troubleBody:
-      '保留错误码、客户端名称和请求 ID。点开相应问题，或把具体情况交给助手继续排查。',
+    troubleBody: '点开对应错误码，或把详情交给助手继续排查。',
     troubles: [
       {
         code: '401',
@@ -143,20 +135,26 @@ const COPY = {
   en: {
     eyebrow: 'Getting started',
     title: 'Your first connection starts here.',
-    intro:
-      'Choose your device and app, then follow the steps to connect. Browse installation instructions now, and continue with the AI assistant whenever you need help.',
+    intro: 'Pick a device, follow the steps, and you are connected.',
     start: 'Choose my client',
     assistant: 'Guide me with AI',
     manualIntro:
-      'Choose your device and app, then follow the setup steps. Browse installation instructions now, and contact support for help with your account or access.',
+      'Pick a device, follow the steps, and you are connected. Stuck? Contact support.',
+    sectionsTitle: 'On this page',
+    sections: [
+      'Choose a client',
+      'Send your first message',
+      'Common errors',
+      'Account and support',
+    ],
     contactSupport: 'Contact support',
     requestManualAccess: 'Contact support for access',
     supportTitle: 'Need help from a person?',
     supportBody:
-      'For access requests or setup issues, contact the support email below. Include your account, device and issue, with your API key hidden.',
+      'Email support with your account, device and issue. Hide your API key.',
     supportTicket: 'Open a support ticket',
     manualTroubleBody:
-      'Keep the error code, app name and request ID handy. Open the matching issue below for steps, or contact support if you are still stuck.',
+      'Open the matching error code below, or contact support if still stuck.',
     guestAssistant: 'Sign in for AI guidance',
     stages: [
       'Choose an app',
@@ -167,10 +165,10 @@ const COPY = {
     ],
     setupTitle: 'Start with the device you use',
     setupBody:
-      'Choose your device and app below for official downloads and setup instructions. Already installed? Continue to the connection settings.',
+      'Pick your device and app for official downloads and setup steps.',
     accountTitle: 'Prepare your account',
     accountBody:
-      'Once API access is approved, create a dedicated key to connect LMM to your app.',
+      'Once access is approved, create a key to connect LMM to your app.',
     accountSteps: [
       'Get API access',
       'Create an API key',
@@ -189,19 +187,19 @@ const COPY = {
       'I am new to LMM. First ask which device and app I use and what I want to do, then guide me through the official download, installation, access request, key creation, base URL and model configuration, and my first message. Explain where to click and how to verify each step.',
     securityTitle: 'Enter keys only in trusted clients',
     securityBody:
-      'Hide API keys in chats, screenshots and support requests. Revoke and replace a leaked key from API Keys. Share the request ID when troubleshooting.',
+      'Leaked a key? Revoke it in API Keys. Share the request ID, never the key.',
     modelsError:
-      'Available models could not be loaded. You can keep reading installation steps; retry before configuring an exact model ID.',
+      'Models did not load. Keep reading the steps, then retry before configuring.',
     retry: 'Reload models',
     firstTitle: 'Send a message to check your connection',
     firstBody:
-      'Save your settings, start a new conversation, select an available model for your account, and send the message below. After receiving a reply, check Usage Logs for the request and its cost.',
+      'Save your settings, start a new conversation, and send the message below.',
     firstMessage: 'Hello! Tell me in one sentence what you can help me with.',
     usage: 'Open usage logs',
     modelList: 'Explore models and pricing',
     troubleTitle: 'Stuck on a step? Start here.',
     troubleBody:
-      'Keep the error code, app name and request ID handy. Open the matching issue below, or continue troubleshooting with the assistant.',
+      'Open the matching error code, or hand the details to the assistant.',
     troubles: [
       {
         code: '401',
@@ -235,6 +233,17 @@ const COPY = {
     copyFailed: 'Copy failed. Select the content and copy it manually.',
   },
 }
+
+/**
+ * Jump targets for the sticky contents list, in reading order. Kept next to
+ * COPY so a renamed section cannot drift out of sync with its anchor.
+ */
+const GUIDE_SECTION_IDS = [
+  'client-setup',
+  'guide-first-message',
+  'guide-troubleshooting',
+  'guide-support',
+] as const
 
 function GuideCode({
   label,
@@ -493,7 +502,11 @@ curl ${rootUrl}/v1/chat/completions \
                 ) : null}
               </section>
 
-              <section aria-labelledby='first-message-title'>
+              <section
+                id='guide-first-message'
+                className='scroll-mt-24'
+                aria-labelledby='first-message-title'
+              >
                 <h2
                   id='first-message-title'
                   className='text-2xl font-semibold tracking-tight'
@@ -524,7 +537,11 @@ curl ${rootUrl}/v1/chat/completions \
                 </div>
               </section>
 
-              <section aria-labelledby='troubleshooting-title'>
+              <section
+                id='guide-troubleshooting'
+                className='scroll-mt-24'
+                aria-labelledby='troubleshooting-title'
+              >
                 <h2
                   id='troubleshooting-title'
                   className='text-2xl font-semibold tracking-tight'
@@ -610,6 +627,32 @@ curl ${rootUrl}/v1/chat/completions \
             </div>
 
             <aside className='space-y-7 lg:sticky lg:top-24'>
+              <nav
+                aria-label={copy.sectionsTitle}
+                className='border-border/70 border-t pt-5'
+              >
+                <h2 className='text-xs font-semibold tracking-[0.16em] uppercase'>
+                  {copy.sectionsTitle}
+                </h2>
+                <ol className='mt-4 space-y-2.5 text-sm'>
+                  {GUIDE_SECTION_IDS.map((id, index) => (
+                    <li key={id}>
+                      <a
+                        href={`#${id}`}
+                        className='focus-visible:outline-ring inline-flex min-h-6 items-baseline gap-2.5 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2'
+                      >
+                        <span
+                          className='text-muted-foreground font-mono text-xs'
+                          aria-hidden='true'
+                        >
+                          {String(index + 1).padStart(2, '0')}
+                        </span>
+                        <span>{copy.sections[index]}</span>
+                      </a>
+                    </li>
+                  ))}
+                </ol>
+              </nav>
               <section className='bg-background rounded-2xl border p-6'>
                 <h2 className='text-base font-semibold'>{copy.accountTitle}</h2>
                 <p className='text-muted-foreground mt-3 text-sm leading-7'>

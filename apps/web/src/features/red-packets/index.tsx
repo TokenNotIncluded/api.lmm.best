@@ -21,7 +21,14 @@ Copyright (C) 2026 LIghtJUNction
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { TFunction } from 'i18next'
-import { Copy, Gift, ImagePlus, Plus, Sparkles } from 'lucide-react'
+import {
+  Copy,
+  ExternalLink,
+  Gift,
+  ImagePlus,
+  Plus,
+  Sparkles,
+} from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -373,22 +380,46 @@ export function RedPackets() {
             <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-3'>
               {packets.map((packet) => {
                 const shareUrl = `${window.location.origin}/red-packet/${packet.slug}`
+                const claimed =
+                  packet.total_items > 0
+                    ? 1 - packet.remaining_items / packet.total_items
+                    : 0
+                const now = Math.floor(Date.now() / 1000)
+                const status = !packet.enabled
+                  ? t('Paused')
+                  : packet.end_at > 0 && packet.end_at < now
+                    ? t('Ended')
+                    : packet.start_at > now
+                      ? t('Scheduled')
+                      : t('Live')
+                const isLive = status === t('Live')
                 return (
                   <div
                     key={packet.id}
-                    className='bg-card overflow-hidden rounded-xl border'
+                    className='bg-card group hover:border-primary/40 overflow-hidden rounded-xl border transition-colors'
                   >
-                    {packet.cover_image ? (
-                      <img
-                        src={packet.cover_image}
-                        alt=''
-                        className='aspect-[3/1] w-full object-cover'
-                      />
-                    ) : (
-                      <div className='from-primary/15 to-muted flex aspect-[3/1] items-center justify-center bg-gradient-to-br'>
-                        <Gift className='text-muted-foreground size-8' />
-                      </div>
-                    )}
+                    <div className='relative'>
+                      {packet.cover_image ? (
+                        <img
+                          src={packet.cover_image}
+                          alt=''
+                          className='aspect-[3/1] w-full object-cover transition-transform duration-300 group-hover:scale-[1.02] motion-reduce:transform-none'
+                        />
+                      ) : (
+                        <div className='from-primary/15 to-muted flex aspect-[3/1] items-center justify-center bg-gradient-to-br'>
+                          <Gift className='text-muted-foreground size-8' />
+                        </div>
+                      )}
+                      <span
+                        className={
+                          isLive
+                            ? 'bg-background/90 text-primary absolute top-2 right-2 rounded-full px-2 py-0.5 text-[10px] font-medium'
+                            : 'bg-background/90 text-muted-foreground absolute top-2 right-2 rounded-full px-2 py-0.5 text-[10px] font-medium'
+                        }
+                      >
+                        {status}
+                      </span>
+                    </div>
                     <div className='space-y-3 p-4'>
                       <div>
                         <div className='font-medium'>{packet.title}</div>
@@ -397,15 +428,33 @@ export function RedPackets() {
                           {t('remaining')} · {packet.claim_count} {t('claims')}
                         </div>
                       </div>
+                      <div
+                        className='bg-muted h-1.5 overflow-hidden rounded-full'
+                        role='progressbar'
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={Math.round(claimed * 100)}
+                        aria-label={t('{{percent}}% claimed', {
+                          percent: Math.round(claimed * 100),
+                        })}
+                      >
+                        <span
+                          className='bg-primary block h-full rounded-full transition-[width] duration-300 motion-reduce:transition-none'
+                          style={{ width: `${Math.round(claimed * 100)}%` }}
+                        />
+                      </div>
                       <div className='flex gap-2'>
                         <Input
                           value={shareUrl}
                           readOnly
                           className='h-8 text-xs'
+                          aria-label={t('Share link')}
                         />
                         <Button
                           size='sm'
                           variant='outline'
+                          aria-label={t('Copy share link')}
+                          title={t('Copy share link')}
                           onClick={async () => {
                             await navigator.clipboard?.writeText(shareUrl)
                             toast.success(t('Copied to clipboard'))
@@ -413,14 +462,34 @@ export function RedPackets() {
                         >
                           <Copy className='size-4' />
                         </Button>
+                        <Button
+                          size='sm'
+                          variant='outline'
+                          aria-label={t('Open claim page')}
+                          title={t('Open claim page')}
+                          render={
+                            <a
+                              href={`/red-packet/${packet.slug}`}
+                              target='_blank'
+                              rel='noopener noreferrer'
+                            />
+                          }
+                        >
+                          <ExternalLink className='size-4' />
+                        </Button>
                       </div>
                     </div>
                   </div>
                 )
               })}
               {!packetsQuery.isLoading && packets.length === 0 ? (
-                <div className='text-muted-foreground rounded-xl border border-dashed p-8 text-sm md:col-span-2 xl:col-span-3'>
-                  {t('No red packets yet.')}
+                <div className='text-muted-foreground flex flex-col items-center gap-3 rounded-xl border border-dashed p-8 text-center text-sm md:col-span-2 xl:col-span-3'>
+                  <Gift className='size-7 opacity-60' aria-hidden='true' />
+                  <p>{t('No red packets yet.')}</p>
+                  <Button type='button' size='sm' onClick={() => setOpen(true)}>
+                    <Plus className='mr-2 size-4' />
+                    {t('Create the first one')}
+                  </Button>
                 </div>
               ) : null}
             </div>

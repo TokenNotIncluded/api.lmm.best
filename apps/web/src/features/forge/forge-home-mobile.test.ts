@@ -22,8 +22,14 @@ const motion = readFileSync(
 
 test('homepage exposes a keyboard-accessible interactive explore console', () => {
   assert.match(source, /lmm-explore-console/)
-  assert.match(source, /aria-current={activeExplore === id/)
-  assert.match(source, /onFocus=\{\(\) => setActiveExplore\(id\)\}/)
+  assert.match(
+    source,
+    /aria-current=\{\s*activeExplore === (?:id|destination\.id)/
+  )
+  assert.match(
+    source,
+    /onFocus=\{\(\) => setActiveExplore\((?:id|destination\.id)\)\}/
+  )
   assert.match(css, /\.lmm-explore-console/)
   assert.match(css, /@media \(max-width: 680px\)/)
 })
@@ -37,7 +43,9 @@ test('homepage does not load optional GPU ornament runtimes or announce a rotati
 })
 
 test('the homepage owns and cleans up its progressive motion enhancement', () => {
-  assert.match(source, /return mountHomeMotion\(rootRef\.current\)/)
+  assert.match(source, /import\('@\/features\/home\/home-motion'\)/)
+  assert.match(source, /release = mountHomeMotion\(root\)/)
+  assert.match(source, /disposed = true\s+release\(\)/)
   assert.doesNotMatch(source, /addEventListener\(['"]scroll/)
 })
 
@@ -59,11 +67,11 @@ test('reduced motion disables animation, transitions and transformed surfaces', 
 test('scroll motion retains passive listeners, cancellation and observer cleanup', () => {
   assert.match(
     motion,
-    /document\.addEventListener\('scroll', update, \{ passive: true, capture: true \}\)/
+    /document\.addEventListener\('scroll', scrollScene, \{\s*passive: true,?\s*capture: true,?\s*\}\)/
   )
   assert.match(
     motion,
-    /document\.removeEventListener\('scroll', update, true\)/
+    /document\.removeEventListener\('scroll', scrollScene, true\)/
   )
   assert.match(motion, /cancelAnimationFrame\(frame\)/)
   assert.match(motion, /observer\.disconnect\(\)/)
@@ -75,7 +83,7 @@ test('section progress drives the current scene and story styles', () => {
   assert.match(motion, /setProperty\('--story-progress',/)
   assert.match(
     motion,
-    /const time = reduced\.matches \? 0 : clock\s+draw\(time, pointer, sceneProgress\)/
+    /const time = reduced\.matches \? RESPONSE_END : clock\s+draw\(time, pointer, sceneProgress\)/
   )
   assert.match(css, /var\(--story-progress\)/)
 })

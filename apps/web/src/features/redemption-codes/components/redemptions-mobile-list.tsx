@@ -17,27 +17,34 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { Table as TanstackTable } from '@tanstack/react-table'
-import { Database } from 'lucide-react'
+import { CalendarClock, Database, Plus } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { DISABLED_ROW_MOBILE } from '@/components/data-table'
 import { MaskedValueDisplay } from '@/components/masked-value-display'
 import { StatusBadge } from '@/components/status-badge'
+import { Button } from '@/components/ui/button'
 import {
   Empty,
+  EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
-import { formatQuota } from '@/lib/format'
+import { formatQuota, formatTimestampToDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
-import { REDEMPTION_STATUS, REDEMPTION_STATUSES } from '../constants'
+import {
+  REDEMPTION_EXPIRED_STATUS_ICON,
+  REDEMPTION_STATUS,
+  REDEMPTION_STATUSES,
+} from '../constants'
 import { isRedemptionExpired } from '../lib'
 import type { Redemption } from '../types'
 import { DataTableRowActions } from './data-table-row-actions'
+import { useRedemptions } from './redemptions-provider'
 
 const MOBILE_SKELETON_KEYS = [
   'redemption-mobile-skeleton-1',
@@ -73,17 +80,19 @@ function RedemptionsMobileSkeleton() {
 interface RedemptionsMobileListProps {
   table: TanstackTable<Redemption>
   isLoading: boolean
+  isFetching?: boolean
 }
 
 export function RedemptionsMobileList(props: RedemptionsMobileListProps) {
   const { t } = useTranslation()
+  const { setOpen } = useRedemptions()
   const rows = props.table.getRowModel().rows
 
   if (props.isLoading) return <RedemptionsMobileSkeleton />
 
   if (!rows.length) {
     return (
-      <div className='rounded-lg border p-8'>
+      <div className='rounded-lg border p-6'>
         <Empty className='border-none p-0'>
           <EmptyHeader>
             <EmptyMedia variant='icon'>
@@ -96,13 +105,27 @@ export function RedemptionsMobileList(props: RedemptionsMobileListProps) {
               )}
             </EmptyDescription>
           </EmptyHeader>
+          <EmptyContent>
+            <Button
+              className='h-11 w-full gap-2 sm:h-9 sm:w-auto'
+              onClick={() => setOpen('create')}
+            >
+              <Plus className='size-4' />
+              {t('Create Code')}
+            </Button>
+          </EmptyContent>
         </Empty>
       </div>
     )
   }
 
   return (
-    <div className='divide-border overflow-hidden rounded-lg border'>
+    <div
+      className={cn(
+        'divide-border overflow-hidden rounded-lg border',
+        props.isFetching && 'pointer-events-none opacity-60'
+      )}
+    >
       {rows.map((row) => {
         const redemption = row.original
         const expired = isRedemptionExpired(
@@ -111,15 +134,16 @@ export function RedemptionsMobileList(props: RedemptionsMobileListProps) {
         )
         const statusConfig = REDEMPTION_STATUSES[redemption.status]
         const maskedKey = `${redemption.key.slice(0, 8)}******${redemption.key.slice(-8)}`
+        const inactive =
+          expired || redemption.status !== REDEMPTION_STATUS.ENABLED
 
         return (
           <div
             key={row.id}
+            aria-disabled={inactive || undefined}
             className={cn(
               'bg-card space-y-2.5 border-b px-3 py-2.5 last:border-b-0',
-              expired || redemption.status !== REDEMPTION_STATUS.ENABLED
-                ? DISABLED_ROW_MOBILE
-                : undefined
+              inactive ? DISABLED_ROW_MOBILE : undefined
             )}
           >
             <div className='flex items-start justify-between gap-3'>
@@ -135,6 +159,7 @@ export function RedemptionsMobileList(props: RedemptionsMobileListProps) {
                 <StatusBadge
                   label={t('Expired')}
                   variant='warning'
+                  icon={REDEMPTION_EXPIRED_STATUS_ICON}
                   copyable={false}
                 />
               ) : (
@@ -142,6 +167,7 @@ export function RedemptionsMobileList(props: RedemptionsMobileListProps) {
                   <StatusBadge
                     label={t(statusConfig.labelKey)}
                     variant={statusConfig.variant}
+                    icon={statusConfig.icon}
                     copyable={false}
                   />
                 )
@@ -167,6 +193,26 @@ export function RedemptionsMobileList(props: RedemptionsMobileListProps) {
                 {formatQuota(redemption.quota)}
               </span>
             </div>
+
+            {redemption.expired_time > 0 && (
+              <div className='text-muted-foreground flex items-center justify-between gap-2 text-xs'>
+                <span className='inline-flex items-center gap-1.5'>
+                  <CalendarClock
+                    className='size-3.5 shrink-0'
+                    aria-hidden='true'
+                  />
+                  {t('Expires')}
+                </span>
+                <span
+                  className={cn(
+                    'font-mono tabular-nums',
+                    expired && 'text-destructive'
+                  )}
+                >
+                  {formatTimestampToDate(redemption.expired_time)}
+                </span>
+              </div>
+            )}
           </div>
         )
       })}

@@ -27,6 +27,7 @@ import { REPOSITORIES, repositoryUrl } from '@/features/repositories/api'
 import { RepositoryLink } from '@/features/repositories/repository-link'
 import { SettingsSection } from '@/features/system-settings/components/settings-section'
 import { api } from '@/lib/api'
+import { cn } from '@/lib/utils'
 
 type Platform = 'linux' | 'macos' | 'windows'
 type ScriptMeta = {
@@ -70,6 +71,16 @@ function commandFor(name: string, platform: Platform) {
   const shell = name.toLowerCase().endsWith('.zsh') ? 'zsh' : 'bash'
   return `curl -fsSL "${url}" | ${shell}`
 }
+/** Best-effort guess at the visitor's platform, so the right tab is
+ * pre-selected instead of making them find it. */
+function detectPlatform(): Platform {
+  if (typeof navigator === 'undefined') return 'linux'
+  const ua = navigator.userAgent
+  if (/Windows/i.test(ua)) return 'windows'
+  if (/Mac OS X|Macintosh/i.test(ua)) return 'macos'
+  return 'linux'
+}
+
 function useScriptList() {
   return useQuery({
     queryKey: ['public-scripts'],
@@ -153,8 +164,17 @@ export function PublicScriptsPanel({
   const { t } = useTranslation()
   const scripts = useScriptList()
   const [copied, setCopied] = useState<string | null>(null)
-  const menus = ['menu.sh', 'menu.ps1'].flatMap(
-    (name) => scripts.data?.filter((script) => script.name === name) ?? []
+  const [picked, setPicked] = useState<Platform | null>(null)
+  const detected = useMemo(detectPlatform, [])
+  const platform: Platform = picked ?? detected
+  const menus = [
+    platform === 'windows' ? 'menu.ps1' : 'menu.sh',
+    ...(scripts.data ?? [])
+      .map((script) => script.name)
+      .filter((name) => name !== 'menu.sh' && name !== 'menu.ps1'),
+  ].flatMap(
+    (name) =>
+      scripts.data?.filter((script) => script.name === name).slice(0, 1) ?? []
   )
   const copyCommand = async (name: string, platform: Platform) => {
     try {
@@ -181,23 +201,45 @@ export function PublicScriptsPanel({
   return (
     <div className={fullPage ? 'space-y-3' : 'space-y-2'}>
       {fullPage && (
-        <div className='mb-5 flex items-end justify-between gap-3'>
-          <p className='text-muted-foreground text-sm'>
-            {t(
-              'Browse maintained setup scripts and copy the command for your system.'
-            )}
-          </p>
-          <a
-            href='/scripts'
-            className='text-primary inline-flex items-center gap-1 text-sm hover:underline'
-          >
-            {t('Open public script page')}{' '}
-            <ExternalLink className='size-3.5' aria-hidden='true' />
-          </a>
-        </div>
+        <p className='text-muted-foreground mb-4 text-sm'>
+          {t('Pick your system, then copy one command.')}
+        </p>
       )}
-      {menus.map((script) => {
-        const platform = script.name.endsWith('.ps1') ? 'windows' : 'linux'
+      <div
+        className='flex flex-wrap items-center gap-1.5'
+        role='group'
+        aria-label={t('Your system')}
+      >
+        {(
+          [
+            ['linux', t('Linux')],
+            ['macos', t('macOS')],
+            ['windows', t('Windows')],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type='button'
+            aria-pressed={platform === value}
+            onClick={() => setPicked(value)}
+            className={cn(
+              'min-h-11 rounded-lg border px-3.5 text-sm font-medium transition-colors',
+              platform === value
+                ? 'border-primary/50 bg-primary/10 text-foreground'
+                : 'border-border/70 text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+            )}
+          >
+            {label}
+            {value === detected && picked === null && (
+              <span className='text-muted-foreground/70 ml-1.5 text-[10px] font-normal'>
+                {t('detected')}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {menus.map((script, index) => {
         const id = `${script.name}:${platform}`
         return (
           <section
@@ -206,14 +248,15 @@ export function PublicScriptsPanel({
           >
             <div className='flex items-center justify-between gap-3'>
               <h2 className='font-medium'>
-                {platform === 'windows'
-                  ? 'Windows · PowerShell'
-                  : 'Linux / macOS · Bash'}
+                {index === 0
+                  ? t('Start here')
+                  : platform === 'windows'
+                    ? 'Windows · PowerShell'
+                    : 'Linux / macOS · Bash'}
               </h2>
               <Button
                 type='button'
-                size='sm'
-                variant='outline'
+                variant={index === 0 ? 'default' : 'outline'}
                 onClick={() => void copyCommand(script.name, platform)}
               >
                 {copied === id ? (
@@ -221,10 +264,13 @@ export function PublicScriptsPanel({
                 ) : (
                   <Copy className='me-2 size-4' />
                 )}
-                {t('Copy')}
+                {copied === id ? t('Copied') : t('Copy command')}
               </Button>
             </div>
-            <pre className='bg-muted overflow-x-auto rounded-lg p-3 text-sm break-all whitespace-pre-wrap'>
+            <pre
+              className='bg-muted overflow-x-auto rounded-lg p-3 text-sm break-all whitespace-pre-wrap'
+              tabIndex={0}
+            >
               <code>{commandFor(script.name, platform)}</code>
             </pre>
             <a

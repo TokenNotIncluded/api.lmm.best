@@ -18,8 +18,13 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  Activity,
   AlertTriangle,
+  CheckCircle2,
+  Cpu,
+  HardDrive,
   Loader2,
+  MemoryStick,
   RefreshCw,
   ServerCog,
   Trash2,
@@ -29,9 +34,11 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { EmptyState } from '@/components/empty-state'
 import { ErrorState } from '@/components/error-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { IconBadge, type IconBadgeTone } from '@/components/ui/icon-badge'
 import {
   Popover,
   PopoverContent,
@@ -133,7 +140,7 @@ function getInstanceDisplayName(instance: SystemInstance) {
     : getPhysicalNodeName(instance)
 }
 
-function formatPercent(value?: number) {
+function formatPercent(value?: number | null) {
   if (typeof value !== 'number' || Number.isNaN(value)) return '-'
   return `${new Intl.NumberFormat(undefined, {
     maximumFractionDigits: 1,
@@ -161,6 +168,147 @@ function ringColorClass(percent: number | null) {
   if (percent >= 90) return 'console-status-danger'
   if (percent >= 70) return 'console-status-warning-icon'
   return 'console-status-success'
+}
+
+function percentTone(percent: number | null): IconBadgeTone {
+  if (percent === null) return 'neutral'
+  if (percent >= 90) return 'destructive'
+  if (percent >= 70) return 'warning'
+  return 'success'
+}
+
+/**
+ * Mean of the reported percentages, ignoring instances that report nothing for
+ * the metric. Returns `null` when no instance reports it, so the fleet summary
+ * can say "unknown" instead of pretending the fleet sits at 0%.
+ */
+function averagePercent(values: Array<number | undefined | null>) {
+  const reported = values.filter(
+    (value): value is number =>
+      typeof value === 'number' && !Number.isNaN(value)
+  )
+  if (reported.length === 0) return null
+  return reported.reduce((sum, value) => sum + value, 0) / reported.length
+}
+
+function aggregateStoragePercent(instances: SystemInstance[]) {
+  let used = 0
+  let total = 0
+  for (const instance of instances) {
+    const storage = instance.info?.resources?.storage
+    if (!storage) continue
+    if (typeof storage.used_bytes === 'number') used += storage.used_bytes
+    if (typeof storage.total_bytes === 'number') total += storage.total_bytes
+  }
+  if (total <= 0) return null
+  return (used / total) * 100
+}
+
+type FleetStats = {
+  online: number
+  stale: number
+  cpuPercent: number | null
+  memoryPercent: number | null
+  storagePercent: number | null
+  reportedMemory: number
+  reportedCpu: number
+}
+
+function summarizeFleet(instances: SystemInstance[]): FleetStats {
+  const cpuValues = instances.map((i) => i.info?.resources?.cpu?.usage_percent)
+  const memoryValues = instances.map(
+    (i) => i.info?.resources?.memory?.usage_percent
+  )
+  return {
+    online: instances.filter((i) => i.status === 'online').length,
+    stale: instances.filter((i) => i.status === 'stale').length,
+    cpuPercent: averagePercent(cpuValues),
+    memoryPercent: averagePercent(memoryValues),
+    storagePercent: aggregateStoragePercent(instances),
+    reportedCpu: cpuValues.filter((v) => typeof v === 'number').length,
+    reportedMemory: memoryValues.filter((v) => typeof v === 'number').length,
+  }
+}
+
+type FleetStatTileProps = {
+  icon: ReactNode
+  tone: IconBadgeTone
+  label: string
+  value: string
+  hint?: string
+}
+
+/**
+ * A single read-only fleet figure. Values are `tabular-nums` and never animate —
+ * uptime and load numbers must stay put while the panel polls.
+ */
+function FleetStatTile(props: FleetStatTileProps) {
+  return (
+    <div className='bg-card flex items-center gap-3 px-3 py-2.5 sm:px-4'>
+      <IconBadge tone={props.tone} size='md'>
+        {props.icon}
+      </IconBadge>
+      <div className='min-w-0'>
+        <div className='text-muted-foreground text-[11px] font-medium tracking-wide uppercase'>
+          {props.label}
+        </div>
+        <div className='font-mono text-lg leading-tight font-semibold tabular-nums'>
+          {props.value}
+        </div>
+        {props.hint ? (
+          <div className='text-muted-foreground truncate text-[11px]'>
+            {props.hint}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function FleetStatRow(props: { stats: FleetStats }) {
+  const { t } = useTranslation()
+  const { stats } = props
+
+  return (
+    <dl
+      className='border-border/70 bg-border/40 grid grid-cols-2 gap-px border-b sm:grid-cols-3 lg:grid-cols-5'
+      aria-label={t('Fleet summary')}
+    >
+      <FleetStatTile
+        icon={<CheckCircle2 aria-hidden='true' />}
+        tone={stats.online > 0 ? 'success' : 'neutral'}
+        label={t('Online')}
+        value={String(stats.online)}
+        hint={t('{{count}} stale', { count: stats.stale })}
+      />
+      <FleetStatTile
+        icon={<Activity aria-hidden='true' />}
+        tone={percentTone(stats.cpuPercent)}
+        label={t('Average CPU')}
+        value={formatPercent(stats.cpuPercent)}
+        hint={t('{{count}} reporting', { count: stats.reportedCpu })}
+      />
+      <FleetStatTile
+        icon={<MemoryStick aria-hidden='true' />}
+        tone={percentTone(stats.memoryPercent)}
+        label={t('Average memory')}
+        value={formatPercent(stats.memoryPercent)}
+        hint={t('{{count}} reporting', { count: stats.reportedMemory })}
+      />
+      <FleetStatTile
+        icon={<HardDrive aria-hidden='true' />}
+        tone={percentTone(stats.storagePercent)}
+        label={t('Total storage used')}
+        value={formatPercent(stats.storagePercent)}
+      />
+      <FleetStatTile
+        icon={<Cpu aria-hidden='true' />}
+        tone='neutral'
+        label={t('Instances')}
+        value={String(stats.online + stats.stale)}
+      />
+    </dl>
+  )
 }
 
 type RingProgressProps = {
@@ -205,10 +353,7 @@ function RingProgress(props: RingProgressProps) {
         stroke='currentColor'
         strokeDasharray={circumference}
         strokeDashoffset={offset}
-        className={cn(
-          'transition-[stroke-dashoffset] duration-500',
-          ringColorClass(props.percent)
-        )}
+        className={ringColorClass(props.percent)}
       />
     </svg>
   )
@@ -254,280 +399,410 @@ type SystemInstancesTableProps = {
   onDeleteStaleInstance: (instance: SystemInstance) => void
 }
 
+/** Icon + text status chip. Colour alone never carries the state. */
+function InstanceStatusBadge(props: { status: SystemInstanceStatus }) {
+  const { t } = useTranslation()
+
+  return (
+    <Badge
+      variant='secondary'
+      className={cn('gap-1.5', STATUS_CLASS_NAME[props.status])}
+    >
+      <span
+        className={cn(
+          'size-1.5 rounded-full',
+          STATUS_DOT_CLASS_NAME[props.status]
+        )}
+        aria-hidden='true'
+      />
+      {t(props.status)}
+    </Badge>
+  )
+}
+
+function InstanceRoleBadge(props: { instance: SystemInstance }) {
+  const { t } = useTranslation()
+
+  return (
+    <TooltipProvider delay={100}>
+      <Tooltip>
+        <TooltipTrigger
+          className='inline-flex shrink-0 rounded-full focus-visible:ring-2 focus-visible:outline-none'
+          aria-label={t('Node role')}
+        >
+          <Badge variant='outline'>{roleLabel(props.instance)}</Badge>
+        </TooltipTrigger>
+        <TooltipContent>{t(roleDescriptionKey(props.instance))}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
+
+/** Name, slot, hostname and the "set NODE_NAME" hint. Shared by table + cards. */
+function InstanceIdentity(props: { instance: SystemInstance }) {
+  const { t } = useTranslation()
+  const instance = props.instance
+  const reporterId = getReporterId(instance)
+  const instanceSlot = getInstanceSlot(instance)
+  const shouldConfigure =
+    instance.info?.node?.should_configure_manually === true && !instanceSlot
+
+  return (
+    <div className='flex min-w-0 items-start gap-2'>
+      <span
+        className={cn(
+          'mt-1.5 size-2 shrink-0 rounded-full',
+          STATUS_DOT_CLASS_NAME[instance.status]
+        )}
+        aria-hidden='true'
+      />
+      <div className='min-w-0'>
+        <div className='flex min-w-0 items-center gap-1.5'>
+          <span className='truncate text-sm font-medium'>
+            {getPhysicalNodeName(instance)}
+          </span>
+          {instanceSlot && (
+            <Badge
+              variant='outline'
+              className='shrink-0 font-mono text-[10px]'
+              aria-label={`${t('Runtime')}: ${instanceSlot}`}
+            >
+              {instanceSlot}
+            </Badge>
+          )}
+          {shouldConfigure && (
+            <Popover>
+              <PopoverTrigger
+                className='inline-flex shrink-0 rounded-full focus-visible:ring-2 focus-visible:outline-none'
+                aria-label={t('Configure NODE_NAME')}
+              >
+                <Badge
+                  variant='outline'
+                  className='console-status-warning-badge'
+                >
+                  <AlertTriangle className='size-3' aria-hidden='true' />
+                </Badge>
+              </PopoverTrigger>
+              <PopoverContent align='start' className='w-80'>
+                <PopoverHeader>
+                  <PopoverTitle>{t('Configure NODE_NAME')}</PopoverTitle>
+                  <PopoverDescription>
+                    {t(
+                      'This instance is using an automatic hostname. Set NODE_NAME to a stable unique value for multi-instance management.'
+                    )}
+                  </PopoverDescription>
+                </PopoverHeader>
+                <div className='space-y-2 text-xs'>
+                  <div>
+                    <div className='mb-1 font-medium'>{t('Example')}</div>
+                    <code className='bg-muted block rounded-md px-2 py-1.5 font-mono text-[11px] break-all'>
+                      NODE_NAME=lmm-forge-app-1
+                    </code>
+                  </div>
+                  <p className='text-muted-foreground'>
+                    {t(
+                      'Use a different stable value for each instance, then restart the service.'
+                    )}
+                  </p>
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
+        </div>
+        <div className='text-muted-foreground truncate font-mono text-[11px]'>
+          {instance.info?.host?.hostname || '-'}
+        </div>
+        {instanceSlot && (
+          <div
+            className='text-muted-foreground/80 truncate font-mono text-[10px]'
+            title={reporterId}
+          >
+            {reporterId}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function StorageCell(props: { instance: SystemInstance }) {
+  const { t } = useTranslation()
+  const storage = props.instance.info?.resources?.storage
+
+  return (
+    <ResourceCell
+      value={storage?.used_percent}
+      tooltip={
+        storage ? (
+          <div className='space-y-1 text-xs'>
+            <div className='grid grid-cols-[auto_1fr] gap-x-3 gap-y-1'>
+              <span className='text-muted-foreground'>{t('Used')}</span>
+              <span className='font-mono'>
+                {formatBytes(storage.used_bytes)}
+              </span>
+              <span className='text-muted-foreground'>{t('Free')}</span>
+              <span className='font-mono'>
+                {formatBytes(storage.free_bytes)}
+              </span>
+              <span className='text-muted-foreground'>{t('Total')}</span>
+              <span className='font-mono'>
+                {formatBytes(storage.total_bytes)}
+              </span>
+            </div>
+          </div>
+        ) : undefined
+      }
+    />
+  )
+}
+
+/**
+ * Destructive row action. Kept as a real text button at `h-9` so the touch
+ * target stays usable on phones, where the icon-only variant was too small.
+ */
+function DeleteStaleInstanceButton(props: {
+  instance: SystemInstance
+  isDeletingThisInstance: boolean
+  isDeletingInstance: boolean
+  onDeleteStaleInstance: (instance: SystemInstance) => void
+  className?: string
+}) {
+  const { t } = useTranslation()
+
+  if (props.instance.status !== 'stale') {
+    return <span className='text-muted-foreground text-xs'>-</span>
+  }
+
+  return (
+    <Button
+      type='button'
+      variant='destructive'
+      size='sm'
+      onClick={() => props.onDeleteStaleInstance(props.instance)}
+      disabled={props.isDeletingInstance || props.isDeletingThisInstance}
+      aria-label={t('Delete stale instance')}
+      className={cn('min-h-9', props.className)}
+    >
+      {props.isDeletingThisInstance ? (
+        <Loader2
+          data-icon='inline-start'
+          className='size-3.5 animate-spin'
+          aria-hidden='true'
+        />
+      ) : (
+        <Trash2
+          data-icon='inline-start'
+          className='size-3.5'
+          aria-hidden='true'
+        />
+      )}
+      {t('Delete')}
+    </Button>
+  )
+}
+
 function SystemInstancesList(props: SystemInstancesTableProps) {
   const { t, i18n } = useTranslation()
 
   return (
-    <div className='overflow-x-auto rounded-md border'>
-      <Table className='min-w-[1230px]'>
-        <TableHeader>
-          <TableRow className='bg-muted/40 hover:bg-muted/40'>
-            <TableHead className='h-9 min-w-[240px] px-4 text-xs'>
-              {t('Instances')}
-            </TableHead>
-            <TableHead className='h-9 w-[110px] text-xs'>
-              {t('Status')}
-            </TableHead>
-            <TableHead className='h-9 w-[100px] text-xs'>{t('Role')}</TableHead>
-            <TableHead className='h-9 w-[96px] text-xs'>{t('CPU')}</TableHead>
-            <TableHead className='h-9 w-[96px] text-xs'>
-              {t('Memory')}
-            </TableHead>
-            <TableHead className='h-9 w-[96px] text-xs'>
-              {t('Storage')}
-            </TableHead>
-            <TableHead className='h-9 w-[100px] text-xs'>
-              {t('Version')}
-            </TableHead>
-            <TableHead className='h-9 w-[140px] text-xs'>
-              {t('Runtime')}
-            </TableHead>
-            <TableHead className='h-9 w-[170px] text-xs'>
-              {t('Started')}
-            </TableHead>
-            <TableHead className='h-9 w-[170px] text-xs'>
-              {t('Last Seen')}
-            </TableHead>
-            <TableHead className='h-9 w-[90px] pr-4 text-right text-xs'>
-              {t('Actions')}
-            </TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {props.instances.map((instance) => {
-            const reporterId = getReporterId(instance)
-            const instanceSlot = getInstanceSlot(instance)
-            const shouldConfigure =
-              instance.info?.node?.should_configure_manually === true &&
-              !instanceSlot
-            const resources = instance.info?.resources
-            const storage = resources?.storage
-            const isDeletingThisInstance =
-              props.isDeletingInstance &&
-              props.deletingReporterId === reporterId
-            return (
-              <TableRow key={reporterId} className='hover:bg-muted/30'>
-                <TableCell className='px-4 py-2.5 align-middle'>
-                  <div className='flex min-w-0 items-center gap-2'>
-                    <span
-                      className={cn(
-                        'size-2 shrink-0 rounded-full',
-                        STATUS_DOT_CLASS_NAME[instance.status]
-                      )}
-                      aria-hidden='true'
-                    />
-                    <div className='min-w-0'>
-                      <div className='flex min-w-0 items-center gap-1.5'>
-                        <span className='truncate text-sm font-medium'>
-                          {getPhysicalNodeName(instance)}
-                        </span>
-                        {instanceSlot && (
-                          <Badge
-                            variant='outline'
-                            className='shrink-0 font-mono text-[10px]'
-                            aria-label={`${t('Runtime')}: ${instanceSlot}`}
-                          >
-                            {instanceSlot}
-                          </Badge>
-                        )}
-                        {shouldConfigure && (
-                          <Popover>
-                            <PopoverTrigger
-                              className='inline-flex shrink-0 rounded-full focus-visible:ring-2 focus-visible:outline-none'
-                              aria-label={t('Configure NODE_NAME')}
-                            >
-                              <Badge
-                                variant='outline'
-                                className='console-status-warning-badge'
-                              >
-                                <AlertTriangle
-                                  className='size-3'
-                                  aria-hidden='true'
-                                />
-                              </Badge>
-                            </PopoverTrigger>
-                            <PopoverContent align='start' className='w-80'>
-                              <PopoverHeader>
-                                <PopoverTitle>
-                                  {t('Configure NODE_NAME')}
-                                </PopoverTitle>
-                                <PopoverDescription>
-                                  {t(
-                                    'This instance is using an automatic hostname. Set NODE_NAME to a stable unique value for multi-instance management.'
-                                  )}
-                                </PopoverDescription>
-                              </PopoverHeader>
-                              <div className='space-y-2 text-xs'>
-                                <div>
-                                  <div className='mb-1 font-medium'>
-                                    {t('Example')}
-                                  </div>
-                                  <code className='bg-muted block rounded-md px-2 py-1.5 font-mono text-[11px] break-all'>
-                                    NODE_NAME=lmm-forge-app-1
-                                  </code>
-                                </div>
-                                <p className='text-muted-foreground'>
-                                  {t(
-                                    'Use a different stable value for each instance, then restart the service.'
-                                  )}
-                                </p>
-                              </div>
-                            </PopoverContent>
-                          </Popover>
-                        )}
-                      </div>
-                      <div className='text-muted-foreground truncate font-mono text-[11px]'>
-                        {instance.info?.host?.hostname || '-'}
-                      </div>
-                      {instanceSlot && (
-                        <div
-                          className='text-muted-foreground/80 truncate font-mono text-[10px]'
-                          title={reporterId}
-                        >
-                          {reporterId}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </TableCell>
-                <TableCell className='py-2.5 align-middle'>
-                  <Badge
-                    variant='secondary'
-                    className={cn(
-                      'gap-1.5',
-                      STATUS_CLASS_NAME[instance.status]
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        'size-1.5 rounded-full',
-                        STATUS_DOT_CLASS_NAME[instance.status]
-                      )}
-                      aria-hidden='true'
-                    />
-                    {t(instance.status)}
-                  </Badge>
-                </TableCell>
-                <TableCell className='py-2.5 align-middle'>
-                  <TooltipProvider delay={100}>
-                    <Tooltip>
-                      <TooltipTrigger
-                        className='inline-flex shrink-0 rounded-full focus-visible:ring-2 focus-visible:outline-none'
-                        aria-label={t('Node role')}
-                      >
-                        <Badge variant='outline'>{roleLabel(instance)}</Badge>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {t(roleDescriptionKey(instance))}
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                </TableCell>
-                <TableCell className='py-2.5 align-middle'>
-                  <ResourceCell value={resources?.cpu?.usage_percent} />
-                </TableCell>
-                <TableCell className='py-2.5 align-middle'>
-                  <ResourceCell value={resources?.memory?.usage_percent} />
-                </TableCell>
-                <TableCell className='py-2.5 align-middle'>
-                  <ResourceCell
-                    value={storage?.used_percent}
-                    tooltip={
-                      storage ? (
-                        <div className='space-y-1 text-xs'>
-                          <div className='grid grid-cols-[auto_1fr] gap-x-3 gap-y-1'>
-                            <span className='text-muted-foreground'>
-                              {t('Used')}
-                            </span>
-                            <span className='font-mono'>
-                              {formatBytes(storage.used_bytes)}
-                            </span>
-                            <span className='text-muted-foreground'>
-                              {t('Free')}
-                            </span>
-                            <span className='font-mono'>
-                              {formatBytes(storage.free_bytes)}
-                            </span>
-                            <span className='text-muted-foreground'>
-                              {t('Total')}
-                            </span>
-                            <span className='font-mono'>
-                              {formatBytes(storage.total_bytes)}
-                            </span>
-                          </div>
-                        </div>
-                      ) : undefined
-                    }
-                  />
-                </TableCell>
-                <TableCell className='py-2.5 align-middle'>
-                  <div className='truncate font-mono text-xs'>
+    <>
+      {/* Phones: one card per instance, no horizontal scrolling. */}
+      <ul className='space-y-3 sm:hidden'>
+        {props.instances.map((instance) => {
+          const reporterId = getReporterId(instance)
+          const resources = instance.info?.resources
+          const isDeletingThisInstance =
+            props.isDeletingInstance && props.deletingReporterId === reporterId
+
+          return (
+            <li
+              key={reporterId}
+              className='bg-card rounded-lg border p-3 shadow-none'
+            >
+              <div className='flex items-start justify-between gap-2'>
+                <InstanceIdentity instance={instance} />
+                <InstanceStatusBadge status={instance.status} />
+              </div>
+
+              <dl className='mt-3 grid grid-cols-2 gap-x-3 gap-y-2.5 text-xs'>
+                <div className='flex flex-col gap-1'>
+                  <dt className='text-muted-foreground'>{t('Role')}</dt>
+                  <dd>
+                    <InstanceRoleBadge instance={instance} />
+                  </dd>
+                </div>
+                <div className='flex flex-col gap-1'>
+                  <dt className='text-muted-foreground'>{t('CPU')}</dt>
+                  <dd>
+                    <ResourceCell value={resources?.cpu?.usage_percent} />
+                  </dd>
+                </div>
+                <div className='flex flex-col gap-1'>
+                  <dt className='text-muted-foreground'>{t('Memory')}</dt>
+                  <dd>
+                    <ResourceCell value={resources?.memory?.usage_percent} />
+                  </dd>
+                </div>
+                <div className='flex flex-col gap-1'>
+                  <dt className='text-muted-foreground'>{t('Storage')}</dt>
+                  <dd>
+                    <StorageCell instance={instance} />
+                  </dd>
+                </div>
+                <div className='flex flex-col gap-1'>
+                  <dt className='text-muted-foreground'>{t('Version')}</dt>
+                  <dd className='truncate font-mono'>
                     {instance.info?.runtime?.version || '-'}
-                  </div>
-                </TableCell>
-                <TableCell className='py-2.5 align-middle'>
-                  <div className='truncate font-mono text-xs'>
+                  </dd>
+                </div>
+                <div className='flex flex-col gap-1'>
+                  <dt className='text-muted-foreground'>{t('Runtime')}</dt>
+                  <dd className='truncate font-mono'>
                     {runtimeLabel(instance)}
-                  </div>
-                </TableCell>
-                <TableCell className='text-muted-foreground py-2.5 align-middle text-xs whitespace-nowrap'>
-                  {formatTimestampToDate(instance.started_at)}
-                </TableCell>
-                <TableCell
-                  className='text-muted-foreground py-2.5 align-middle text-xs whitespace-nowrap'
-                  title={formatTimestampToDate(instance.last_seen_at)}
-                >
-                  {formatTimestampRelative(
-                    instance.last_seen_at,
-                    'seconds',
-                    toIntlLocale(i18n.language)
-                  )}
-                </TableCell>
-                <TableCell className='py-2.5 pr-4 text-right align-middle'>
-                  {instance.status === 'stale' ? (
-                    <TooltipProvider delay={100}>
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <Button
-                              type='button'
-                              variant='destructive'
-                              size='icon-xs'
-                              onClick={() =>
-                                props.onDeleteStaleInstance(instance)
-                              }
-                              disabled={
-                                props.isDeletingInstance ||
-                                isDeletingThisInstance
-                              }
-                              aria-label={t('Delete stale instance')}
-                            >
-                              {isDeletingThisInstance ? (
-                                <Loader2
-                                  className='size-3 animate-spin'
-                                  aria-hidden='true'
-                                />
-                              ) : (
-                                <Trash2 className='size-3' aria-hidden='true' />
-                              )}
-                            </Button>
-                          }
-                        />
-                        <TooltipContent>
-                          {t('Delete stale instance')}
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  ) : (
-                    <span className='text-muted-foreground text-xs'>-</span>
-                  )}
-                </TableCell>
-              </TableRow>
-            )
-          })}
-        </TableBody>
-      </Table>
-    </div>
+                  </dd>
+                </div>
+                <div className='col-span-2 flex flex-col gap-1'>
+                  <dt className='text-muted-foreground'>{t('Started')}</dt>
+                  <dd className='whitespace-nowrap'>
+                    {formatTimestampToDate(instance.started_at)}
+                  </dd>
+                </div>
+                <div className='col-span-2 flex flex-col gap-1'>
+                  <dt className='text-muted-foreground'>{t('Last Seen')}</dt>
+                  <dd
+                    className='whitespace-nowrap'
+                    title={formatTimestampToDate(instance.last_seen_at)}
+                  >
+                    {formatTimestampRelative(
+                      instance.last_seen_at,
+                      'seconds',
+                      toIntlLocale(i18n.language)
+                    )}
+                  </dd>
+                </div>
+              </dl>
+
+              {instance.status === 'stale' ? (
+                <div className='mt-3'>
+                  <DeleteStaleInstanceButton
+                    instance={instance}
+                    isDeletingThisInstance={isDeletingThisInstance}
+                    isDeletingInstance={props.isDeletingInstance}
+                    onDeleteStaleInstance={props.onDeleteStaleInstance}
+                    className='w-full'
+                  />
+                </div>
+              ) : null}
+            </li>
+          )
+        })}
+      </ul>
+
+      {/* Tablet and up: the comparison table. */}
+      <div className='hidden overflow-x-auto rounded-md border sm:block'>
+        <Table className='min-w-[1230px]'>
+          <TableHeader>
+            <TableRow className='bg-muted/40 hover:bg-muted/40'>
+              <TableHead className='h-9 min-w-[240px] px-4 text-xs'>
+                {t('Instances')}
+              </TableHead>
+              <TableHead className='h-9 w-[110px] text-xs'>
+                {t('Status')}
+              </TableHead>
+              <TableHead className='h-9 w-[100px] text-xs'>
+                {t('Role')}
+              </TableHead>
+              <TableHead className='h-9 w-[96px] text-xs'>{t('CPU')}</TableHead>
+              <TableHead className='h-9 w-[96px] text-xs'>
+                {t('Memory')}
+              </TableHead>
+              <TableHead className='h-9 w-[96px] text-xs'>
+                {t('Storage')}
+              </TableHead>
+              <TableHead className='h-9 w-[100px] text-xs'>
+                {t('Version')}
+              </TableHead>
+              <TableHead className='h-9 w-[140px] text-xs'>
+                {t('Runtime')}
+              </TableHead>
+              <TableHead className='h-9 w-[170px] text-xs'>
+                {t('Started')}
+              </TableHead>
+              <TableHead className='h-9 w-[170px] text-xs'>
+                {t('Last Seen')}
+              </TableHead>
+              <TableHead className='h-9 w-[90px] pr-4 text-right text-xs'>
+                {t('Actions')}
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {props.instances.map((instance) => {
+              const reporterId = getReporterId(instance)
+              const resources = instance.info?.resources
+              const isDeletingThisInstance =
+                props.isDeletingInstance &&
+                props.deletingReporterId === reporterId
+              return (
+                <TableRow key={reporterId} className='hover:bg-muted/30'>
+                  <TableCell className='px-4 py-2.5 align-middle'>
+                    <InstanceIdentity instance={instance} />
+                  </TableCell>
+                  <TableCell className='py-2.5 align-middle'>
+                    <InstanceStatusBadge status={instance.status} />
+                  </TableCell>
+                  <TableCell className='py-2.5 align-middle'>
+                    <InstanceRoleBadge instance={instance} />
+                  </TableCell>
+                  <TableCell className='py-2.5 align-middle'>
+                    <ResourceCell value={resources?.cpu?.usage_percent} />
+                  </TableCell>
+                  <TableCell className='py-2.5 align-middle'>
+                    <ResourceCell value={resources?.memory?.usage_percent} />
+                  </TableCell>
+                  <TableCell className='py-2.5 align-middle'>
+                    <StorageCell instance={instance} />
+                  </TableCell>
+                  <TableCell className='py-2.5 align-middle'>
+                    <div className='truncate font-mono text-xs'>
+                      {instance.info?.runtime?.version || '-'}
+                    </div>
+                  </TableCell>
+                  <TableCell className='py-2.5 align-middle'>
+                    <div className='truncate font-mono text-xs'>
+                      {runtimeLabel(instance)}
+                    </div>
+                  </TableCell>
+                  <TableCell className='text-muted-foreground py-2.5 align-middle text-xs whitespace-nowrap'>
+                    {formatTimestampToDate(instance.started_at)}
+                  </TableCell>
+                  <TableCell
+                    className='text-muted-foreground py-2.5 align-middle text-xs whitespace-nowrap'
+                    title={formatTimestampToDate(instance.last_seen_at)}
+                  >
+                    {formatTimestampRelative(
+                      instance.last_seen_at,
+                      'seconds',
+                      toIntlLocale(i18n.language)
+                    )}
+                  </TableCell>
+                  <TableCell className='py-2.5 pr-4 text-right align-middle'>
+                    <div className='flex justify-end'>
+                      <DeleteStaleInstanceButton
+                        instance={instance}
+                        isDeletingThisInstance={isDeletingThisInstance}
+                        isDeletingInstance={props.isDeletingInstance}
+                        onDeleteStaleInstance={props.onDeleteStaleInstance}
+                      />
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )
+            })}
+          </TableBody>
+        </Table>
+      </div>
+    </>
   )
 }
 
@@ -560,6 +835,7 @@ export function SystemInstancesPanel() {
   const hasStaleInstances = staleInstances.length > 0
   const loading = instancesQuery.isLoading
   const refreshing = instancesQuery.isFetching && !instancesQuery.isLoading
+  const fleetStats = summarizeFleet(instances)
 
   const invalidateInstances = async () => {
     await queryClient.invalidateQueries({
@@ -643,17 +919,29 @@ export function SystemInstancesPanel() {
     )
   } else if (instances.length === 0) {
     instancesContent = (
-      <div className='px-4 py-10 text-center sm:px-5'>
-        <div className='bg-muted mx-auto mb-3 flex size-10 items-center justify-center rounded-lg'>
-          <ServerCog
-            className='text-muted-foreground size-5'
-            aria-hidden='true'
-          />
-        </div>
-        <p className='text-muted-foreground text-sm'>
-          {t('No instances have reported yet.')}
-        </p>
-      </div>
+      <EmptyState
+        icon={ServerCog}
+        title={t('No instances have reported yet.')}
+        description={t(
+          'Start the service on a node and it will appear here within a minute.'
+        )}
+        action={
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            onClick={() => void instancesQuery.refetch()}
+            disabled={instancesQuery.isFetching}
+          >
+            <RefreshCw
+              data-icon='inline-start'
+              className={cn('size-3.5', refreshing && 'animate-spin')}
+              aria-hidden='true'
+            />
+            {t('Check again')}
+          </Button>
+        }
+      />
     )
   } else {
     instancesContent = (
@@ -739,7 +1027,12 @@ export function SystemInstancesPanel() {
           </div>
         </div>
 
-        <div aria-busy={instancesQuery.isFetching}>{instancesContent}</div>
+        <div aria-busy={instancesQuery.isFetching}>
+          {!loading && !instancesQuery.isError && instances.length > 0 ? (
+            <FleetStatRow stats={fleetStats} />
+          ) : null}
+          {instancesContent}
+        </div>
       </section>
 
       <ConfirmDialog

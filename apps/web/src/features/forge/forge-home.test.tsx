@@ -772,7 +772,7 @@ describe('Primary next step follows account access', () => {
       rendered.container
         .querySelector('.lmm-intro-actions a')
         ?.textContent?.trim(),
-      'Sign in to get started'
+      'Sign in'
     )
     await unmountHome(rendered)
   })
@@ -807,7 +807,7 @@ describe('Primary next step follows account access', () => {
       '.lmm-intro-actions a'
     )
     assert.ok(purchase)
-    assert.equal(purchase.textContent?.trim(), 'Request API access')
+    assert.equal(purchase.textContent?.trim(), 'Request access')
     await act(async () => {
       purchase.click()
       await flushEffects()

@@ -16,14 +16,27 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { ArrowUpRight, Lightbulb, RotateCcw, Shuffle } from 'lucide-react'
-import { useEffect, useId, useMemo, useState } from 'react'
+import {
+  ArrowUpRight,
+  Lightbulb,
+  RotateCcw,
+  Shuffle,
+  Volume2,
+  VolumeX,
+} from 'lucide-react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { HUMAN } from '@/features/signal-game/api'
 import { SignalBoard } from '@/features/signal-game/board'
+import { SignalGameFeedback } from '@/features/signal-game/feedback'
 import { formatGameTime } from '@/features/signal-game/format'
+import {
+  playCue,
+  setSoundEnabled,
+  soundEnabled,
+} from '@/features/signal-game/sound'
 import {
   rotateSignalTile,
   startSignalGame,
@@ -74,7 +87,9 @@ export function AuthArtPanel() {
     state = useSignalGame(),
     [size, setSize] = useState(state.circuit.size),
     [advanced, setAdvanced] = useState(state.circuit.size > 12),
-    [error, setError] = useState(false)
+    [error, setError] = useState(false),
+    [sound, setSound] = useState(soundEnabled),
+    [usedHint, setUsedHint] = useState(false)
   useEffect(() => {
     setSize(state.circuit.size)
     setAdvanced(state.circuit.size > 12)
@@ -83,11 +98,28 @@ export function AuthArtPanel() {
       () => traceCircuit(state.tiles, state.circuit.size),
       [state.tiles, state.circuit.size]
     ),
-    powered = useMemo(() => new Set(trace.path), [trace.path])
+    powered = useMemo(() => new Set(trace.path), [trace.path]),
+    poweredCount = trace.path.length,
+    previousPower = useRef(poweredCount),
+    previousWon = useRef(false)
+  useEffect(() => {
+    if (poweredCount > previousPower.current && !trace.won) playCue('power')
+    previousPower.current = poweredCount
+  }, [poweredCount, trace.won])
+  useEffect(() => {
+    if (trace.won && !previousWon.current) playCue('win')
+    previousWon.current = trace.won
+  }, [trace.won])
+  useEffect(() => {
+    setUsedHint(false)
+    previousPower.current = 0
+  }, [state.roundId])
   const turn = (index: number) => {
+    if (index === -1) setUsedHint(true)
     try {
       rotateSignalTile(index)
       setError(false)
+      playCue('turn')
     } catch {
       setError(true)
     }
@@ -188,6 +220,13 @@ export function AuthArtPanel() {
           {state.participant.model_id}
         </p>
       )}
+      <SignalGameFeedback
+        powered={poweredCount}
+        moves={state.actions.length}
+        won={trace.won}
+        rounds={state.rounds}
+        usedHint={usedHint}
+      />
       <div className='relative'>
         <SignalBoard
           size={state.circuit.size}
@@ -252,6 +291,25 @@ export function AuthArtPanel() {
           title={t('Restart circuit')}
         >
           <RotateCcw className='size-4' aria-hidden='true' />
+        </Button>
+        <Button
+          type='button'
+          variant='ghost'
+          aria-pressed={sound}
+          aria-label={sound ? t('Sound on') : t('Sound off')}
+          title={sound ? t('Sound on') : t('Sound off')}
+          onClick={() => {
+            const next = !sound
+            setSoundEnabled(next)
+            setSound(next)
+            if (next) playCue('combo')
+          }}
+        >
+          {sound ? (
+            <Volume2 className='size-4' aria-hidden='true' />
+          ) : (
+            <VolumeX className='size-4' aria-hidden='true' />
+          )}
         </Button>
       </div>
       {(error || state.serviceError) && (

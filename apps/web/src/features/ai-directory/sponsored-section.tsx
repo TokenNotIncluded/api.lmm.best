@@ -465,11 +465,7 @@ export function SponsoredDirectorySection() {
       <div className='ai-sponsored-heading'>
         <div>
           <h2 id='ai-sponsored-heading'>{t('Sponsored websites')}</h2>
-          <p>
-            {t(
-              'Paid placements are labeled and ranked by bid. Curated links appear below.'
-            )}
-          </p>
+          <p>{t('Paid placements are labeled and ranked by bid.')}</p>
         </div>
         <Button type='button' size='sm' onClick={() => setOpen(true)}>
           <Plus data-icon='inline-start' />

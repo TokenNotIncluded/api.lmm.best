@@ -11,10 +11,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowDown,
   ArrowUp,
+  Check,
+  Copy,
   ExternalLink,
   Flag,
   MessageSquare,
   Plus,
+  ServerOff,
   ShieldCheck,
   Star,
 } from 'lucide-react'
@@ -40,6 +43,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@/components/ui/empty'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
@@ -52,6 +63,7 @@ import {
   getSystemOptions,
   updateSystemOption,
 } from '@/features/system-settings/api'
+import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { getUserGroups } from '@/lib/api'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
@@ -110,6 +122,18 @@ const sortLabels = {
   models: 'Most models',
 } as const
 
+const relayStatusTone: Record<PublicRelay['status'], string> = {
+  approved: 'border-success/40 bg-success/10 text-success',
+  pending: 'border-warning/40 bg-warning/10 text-warning',
+  rejected: 'border-destructive/40 bg-destructive/10 text-destructive',
+}
+
+const statusLabels: Record<PublicRelay['status'], string> = {
+  approved: 'Approved',
+  pending: 'Pending review',
+  rejected: 'Rejected',
+}
+
 function PublicRelayLoadError(props: {
   onRetry: () => void | Promise<unknown>
 }) {
@@ -130,6 +154,32 @@ function PublicRelayLoadError(props: {
         </Button>
       </AlertAction>
     </Alert>
+  )
+}
+
+function PublicRelayEmpty(props: {
+  title: string
+  description: string
+  action?: { label: string; onClick: () => void }
+}) {
+  return (
+    <Empty className='border-border/70 my-2 border'>
+      <EmptyHeader>
+        <EmptyMedia variant='icon'>
+          <ServerOff aria-hidden='true' />
+        </EmptyMedia>
+        <EmptyTitle className='text-base'>{props.title}</EmptyTitle>
+        <EmptyDescription>{props.description}</EmptyDescription>
+      </EmptyHeader>
+      {props.action ? (
+        <EmptyContent>
+          <Button type='button' size='sm' onClick={props.action.onClick}>
+            <Plus className='size-4' />
+            {props.action.label}
+          </Button>
+        </EmptyContent>
+      ) : null}
+    </Empty>
   )
 }
 
@@ -160,6 +210,10 @@ export function PublicRelay() {
   const [activeTab, setActiveTab] = useState('all')
   const [routingDisabled, setRoutingDisabled] = useState<number[]>([])
   const [routingOrder, setRoutingOrder] = useState<number[]>([])
+  const { copiedText, copyToClipboard } = useCopyToClipboard({
+    notify: false,
+    resetAfterMs: 1600,
+  })
 
   const configQuery = useQuery({
     queryKey: ['public-relays', 'config'],
@@ -351,31 +405,56 @@ export function PublicRelay() {
   const renderRelay = (item: PublicRelay, mine = false) => (
     <article
       key={item.id}
-      className='grid gap-3 py-5 sm:grid-cols-[1fr_auto] sm:gap-8'
+      className='border-border/70 hover:border-border grid gap-3 border-t py-5 transition-colors duration-200 motion-reduce:transition-none sm:grid-cols-[1fr_auto] sm:gap-8'
     >
       <div className='min-w-0 space-y-2'>
         <div className='flex flex-wrap items-center gap-x-3 gap-y-1'>
-          <h3 className='font-medium'>{item.name}</h3>
-          <span className='text-muted-foreground text-xs'>{item.group}</span>
+          <h3 className='text-base font-medium'>{item.name}</h3>
+          {mine ? (
+            <span
+              className={`rounded-md border px-1.5 py-0.5 text-xs font-medium ${relayStatusTone[item.status]}`}
+            >
+              {t(statusLabels[item.status])}
+            </span>
+          ) : null}
+          <span className='bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-xs'>
+            {item.group}
+          </span>
           <span className='text-muted-foreground text-xs'>
             {formatDate(item.created_at)}
           </span>
         </div>
-        <a
-          className='text-primary inline-flex max-w-full items-center gap-1 truncate text-sm hover:underline'
-          href={item.base_url}
-          target='_blank'
-          rel='noreferrer'
-        >
-          <span className='truncate'>{item.base_url}</span>
-          <ExternalLink className='size-3.5 shrink-0' />
-        </a>
+        <div className='flex min-w-0 items-center gap-1'>
+          <a
+            className='text-primary inline-flex min-w-0 items-center gap-1 truncate text-sm hover:underline'
+            href={item.base_url}
+            target='_blank'
+            rel='noreferrer'
+          >
+            <span className='truncate'>{item.base_url}</span>
+            <ExternalLink className='size-3.5 shrink-0' />
+          </a>
+          <Button
+            type='button'
+            variant='ghost'
+            size='icon-xs'
+            aria-label={t('Copy endpoint URL')}
+            title={t('Copy endpoint URL')}
+            onClick={() => void copyToClipboard(item.base_url)}
+          >
+            {copiedText === item.base_url ? (
+              <Check className='text-success size-3.5' />
+            ) : (
+              <Copy className='size-3.5' />
+            )}
+          </Button>
+        </div>
         <p className='text-muted-foreground text-sm'>
           {item.description || t('No description')}
         </p>
         <div className='text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-2 text-xs'>
           <span className='inline-flex items-center gap-1'>
-            <Star className='size-3.5' />
+            <Star className='text-warning size-3.5' />
             {ratingLabel(item.rating_average)} ({item.rating_count ?? 0})
           </span>
           <span>
@@ -383,9 +462,6 @@ export function PublicRelay() {
           </span>
           {mine ? (
             <>
-              <span>
-                {t('Status')}: {item.status}
-              </span>
               <span>
                 {t('Tips')}: ${item.tip_quota_usd?.toFixed(2) ?? '0.00'}
               </span>
@@ -434,7 +510,7 @@ export function PublicRelay() {
             onClick={() => setReviewTarget(item)}
           >
             <MessageSquare className='size-4' />
-            {t('Review')}
+            {t('Rate & comment')}
           </Button>
           <Button
             variant='ghost'
@@ -528,11 +604,9 @@ export function PublicRelay() {
                   {configQuery.data?.group ?? 'FREE'}
                 </strong>
               </span>
-              <span>
-                {t('Every submission is reviewed before it is listed.')}
-              </span>
-              <span>
-                {t('The contributor account email is shown publicly.')}
+              <span className='inline-flex items-center gap-1.5'>
+                <ShieldCheck className='size-3.5 shrink-0' aria-hidden='true' />
+                {t('Reviewed before listing. Contributor email is public.')}
               </span>
             </div>
             {isRoot ? (
@@ -636,9 +710,16 @@ export function PublicRelay() {
                     </div>
                   ))
                 ) : (
-                  <p className='text-muted-foreground py-12 text-center'>
-                    {t('No linked public channels yet.')}
-                  </p>
+                  <PublicRelayEmpty
+                    title={t('No channels to route yet')}
+                    description={t(
+                      'Approved shared channels appear here. Add one to control which pool serves your requests.'
+                    )}
+                    action={{
+                      label: t('Share a channel'),
+                      onClick: () => setSubmitOpen(true),
+                    }}
+                  />
                 )}
               </TabsContent>
               <TabsContent value='all' className='mt-3'>
@@ -647,6 +728,7 @@ export function PublicRelay() {
                     <Button
                       key={mode}
                       size='sm'
+                      aria-pressed={sortMode === mode}
                       variant={sortMode === mode ? 'secondary' : 'ghost'}
                       onClick={() => setSortMode(mode)}
                     >
@@ -659,9 +741,16 @@ export function PublicRelay() {
                 ) : sortedAllItems.length ? (
                   sortedAllItems.map((item) => renderRelay(item))
                 ) : (
-                  <p className='text-muted-foreground py-12 text-center'>
-                    {t('No approved channels yet.')}
-                  </p>
+                  <PublicRelayEmpty
+                    title={t('No approved channels yet')}
+                    description={t(
+                      'Once an administrator approves a shared channel it shows up here with its rating and models.'
+                    )}
+                    action={{
+                      label: t('Share a channel'),
+                      onClick: () => setSubmitOpen(true),
+                    }}
+                  />
                 )}
               </TabsContent>
               <TabsContent value='mine' className='mt-3'>
@@ -670,9 +759,16 @@ export function PublicRelay() {
                 ) : mineItems.length ? (
                   mineItems.map((item) => renderRelay(item, true))
                 ) : (
-                  <p className='text-muted-foreground py-12 text-center'>
-                    {t('You have not uploaded a channel yet.')}
-                  </p>
+                  <PublicRelayEmpty
+                    title={t('You have not uploaded a channel yet')}
+                    description={t(
+                      'Share an endpoint you are allowed to redistribute. Submissions are reviewed before they go live.'
+                    )}
+                    action={{
+                      label: t('Share a channel'),
+                      onClick: () => setSubmitOpen(true),
+                    }}
+                  />
                 )}
               </TabsContent>
               {isAdmin ? (
@@ -917,7 +1013,7 @@ export function PublicRelay() {
                   type='button'
                   className={
                     value <= reviewRating
-                      ? 'text-yellow-500'
+                      ? 'text-warning'
                       : 'text-muted-foreground'
                   }
                   onClick={() => setReviewRating(value)}
@@ -941,7 +1037,7 @@ export function PublicRelay() {
                     className='border-border/70 border-t py-2 text-sm'
                   >
                     <div className='flex items-center gap-2'>
-                      <span className='text-yellow-500'>
+                      <span className='text-warning'>
                         {'★'.repeat(review.rating)}
                       </span>
                       <span className='text-muted-foreground text-xs'>

@@ -23,11 +23,13 @@ import { ArrowLeft01Icon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
+import { useReducedMotion } from 'motion/react'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { CopyButton } from '@/components/copy-button'
+import { ErrorState } from '@/components/error-state'
 import { SectionPageLayout } from '@/components/layout'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -41,6 +43,8 @@ import {
   enableProfileShare,
   getProfileShareState,
 } from './api'
+import { ModelUsageReport } from './components/model-usage-report'
+import { useProfile } from './hooks'
 import { PROFILE_SHARE_URL } from './lib/share-card'
 
 type BadgeTheme = 'paper' | 'dark' | 'transparent'
@@ -164,7 +168,9 @@ function clampNumber(
 
 export function ProfileSharePage() {
   const { t, i18n } = useTranslation()
+  const reduceMotion = useReducedMotion()
   const queryClient = useQueryClient()
+  const { profile } = useProfile()
   const [options, setOptions] = useState<BadgeOptions>(INITIAL_OPTIONS)
   const [previewURL, setPreviewURL] = useState('')
   const [previewFailed, setPreviewFailed] = useState(false)
@@ -199,9 +205,13 @@ export function ProfileSharePage() {
   const badgeURL = useMemo(
     () =>
       shareQuery.data?.url
-        ? buildBadgeURL(shareQuery.data.url, options, badgeLanguage)
+        ? buildBadgeURL(
+            shareQuery.data.url,
+            reduceMotion ? { ...options, animation: 'none' } : options,
+            badgeLanguage
+          )
         : '',
-    [badgeLanguage, options, shareQuery.data?.url]
+    [badgeLanguage, options, reduceMotion, shareQuery.data?.url]
   )
 
   useEffect(() => {
@@ -246,7 +256,7 @@ export function ProfileSharePage() {
               <HugeiconsIcon icon={ArrowLeft01Icon} strokeWidth={2} />
               {t('Profile')}
             </Link>
-            <h1 className='text-foreground text-2xl font-semibold tracking-tight sm:text-3xl'>
+            <h1 className='text-foreground text-lg font-semibold tracking-tight'>
               {t('Show your token usage anywhere')}
             </h1>
             <p className='text-muted-foreground max-w-2xl text-sm leading-relaxed'>
@@ -256,21 +266,16 @@ export function ProfileSharePage() {
             </p>
           </div>
 
+          <ModelUsageReport accountCreatedTime={profile?.created_time} />
+
           {shareQuery.isPending ? (
             <Skeleton className='h-28 w-full rounded-2xl' />
           ) : shareQuery.isError ? (
-            <div className='border-destructive/30 rounded-xl border p-5'>
-              <p className='text-destructive text-sm'>
-                {t('Could not load badge settings.')}
-              </p>
-              <Button
-                variant='outline'
-                className='mt-3'
-                onClick={() => void shareQuery.refetch()}
-              >
-                {t('Retry')}
-              </Button>
-            </div>
+            <ErrorState
+              title={t('Could not load badge settings.')}
+              description={t('Check your connection and try again.')}
+              onRetry={() => void shareQuery.refetch()}
+            />
           ) : (
             <div className='border-border/70 bg-card/40 flex flex-col gap-4 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5'>
               <div className='space-y-1'>

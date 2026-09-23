@@ -41,7 +41,6 @@ import { PI_INSTALL_LATEST_COMMAND } from '@/features/guide/provider-install-com
 import { codeForTab, type CodeTab } from '@/features/home/home-code-examples'
 import { CodePreview } from '@/features/home/home-code-preview'
 import { HomeLanding } from '@/features/home/home-landing'
-import { mountHomeMotion } from '@/features/home/home-motion'
 import type { ConnectionMethod } from '@/features/onboarding/next-step'
 import { useAccountNextStep } from '@/features/onboarding/use-account-next-step'
 import { PublicScriptsPanel } from '@/features/scripts/scripts-panel'
@@ -71,6 +70,40 @@ const HOME_SETUP_PROMPTS = [
     label: 'Fix a connection issue',
     prompt:
       'My AI app cannot connect. Ask which app I use and what error I see, then walk me through one check at a time. Remind me to hide API keys and personal details in screenshots.',
+  },
+] as const
+
+/** One source of truth for the explore console: nav row plus preview panel. */
+const EXPLORE_DESTINATIONS = [
+  {
+    id: 'market',
+    href: '/tool-market',
+    label: 'Tool market',
+    description: 'Browse, publish, authorize and run tools.',
+  },
+  {
+    id: 'pricing',
+    href: '/pricing',
+    label: 'Models and pricing',
+    description: 'Compare model capabilities and account pricing.',
+  },
+  {
+    id: 'challenges',
+    href: '/challenges',
+    label: 'Open-source bounties',
+    description: 'Find focused work with funded reward slots.',
+  },
+  {
+    id: 'scripts',
+    href: '/scripts',
+    label: 'Public scripts',
+    description: 'Use the reviewed installation and setup scripts.',
+  },
+  {
+    id: 'security',
+    href: '/security',
+    label: 'Security',
+    description: 'Review account and platform security controls.',
   },
 ] as const
 
@@ -105,6 +138,18 @@ export function ForgeHome() {
   const [connectionMethod, setConnectionMethod] =
     useState<ConnectionMethod>('oauth')
   const { nextStep } = useAccountNextStep(connectionMethod)
+  const actionLabel =
+    {
+      'Sign in to get started': t('Sign in'),
+      'View access request status': t('View progress'),
+      'Revise access request': t('Edit request'),
+      'Request API access': t('Request access'),
+      'Check API access status': t('Check access'),
+      'Open dashboard': t('Open console'),
+      'Choose your client': t('Choose a client'),
+      'Create your first API key': t('Create API key'),
+      'Continue client setup': t('Continue setup'),
+    }[nextStep.label] ?? t(nextStep.label)
   const user = useAuthStore((state) => state.auth.user)
   const { status } = useStatus()
   const securityLink = useTopNavLinks().find(
@@ -140,7 +185,22 @@ export function ForgeHome() {
     assistantEnabled && message.length === 0 && !messageFocused
   )
   useEffect(() => {
-    if (rootRef.current) return mountHomeMotion(rootRef.current)
+    const root = rootRef.current
+    if (!root) return
+    let disposed = false
+    let release = () => {}
+    root.dataset.motion = 'loading'
+    void import('@/features/home/home-motion')
+      .then(({ mountHomeMotion }) => {
+        if (!disposed) release = mountHomeMotion(root)
+      })
+      .catch(() => {
+        if (!disposed) root.dataset.motion = 'static'
+      })
+    return () => {
+      disposed = true
+      release()
+    }
   }, [presetLanguage, connectionMethod])
 
   const startAssistant = (prompt: string) => {
@@ -188,17 +248,23 @@ export function ForgeHome() {
               />
             }
           >
-            {t(nextStep.label)}
+            {actionLabel}
             <ArrowRight data-icon='inline-end' />
           </Button>
         }
         pricingAction={
           <Link to='/pricing' className='lmm-text-link'>
-            {isConsoleActivated(user)
-              ? t('View model pricing')
-              : t('Pricing and access')}
+            {t('View pricing')}
             <ArrowRight aria-hidden='true' />
           </Link>
+        }
+        topUpAction={
+          user ? (
+            <Link to='/wallet' className='lmm-text-link lmm-topup-link'>
+              {t('Top up')}
+              <ArrowRight aria-hidden='true' />
+            </Link>
+          ) : null
         }
         code={
           <CodePreview
@@ -229,6 +295,11 @@ export function ForgeHome() {
                   animatedPlaceholder || t('Describe what you need...')
                 }
                 maxLength={4000}
+                disabled={!assistantEnabled}
+                aria-invalid={messageInvalid}
+                aria-describedby={
+                  messageInvalid ? 'forge-home-message-error' : undefined
+                }
               />
               <InputGroupAddon align='inline-end'>
                 <InputGroupButton
@@ -241,6 +312,7 @@ export function ForgeHome() {
                     !message.trim() || messageInvalid || !assistantEnabled
                   }
                 >
+                  {t('Ask')}
                   <ArrowRight
                     className='forge-home-submit-icon size-4'
                     aria-hidden='true'
@@ -248,6 +320,23 @@ export function ForgeHome() {
                 </InputGroupButton>
               </InputGroupAddon>
             </InputGroup>
+            {messageInvalid && (
+              <p
+                id='forge-home-message-error'
+                className='text-destructive mt-2 text-sm'
+                role='alert'
+              >
+                {t('Describe your question in words.')}
+              </p>
+            )}
+            {!assistantEnabled && (
+              <p className='text-muted-foreground mt-3 text-sm'>
+                {t('Assistant is unavailable. Open the guide to continue.')}{' '}
+                <Link to='/guide' className='underline underline-offset-4'>
+                  {t('Open guide')}
+                </Link>
+              </p>
+            )}
             {assistantEnabled && (
               <div className='forge-home-assistant-prompts'>
                 {HOME_SETUP_PROMPTS.map((preset) => (
@@ -268,7 +357,7 @@ export function ForgeHome() {
           <>
             <p className='lmm-pi-description'>
               {t(
-                'Install the LMM Pi plugin, sign in with OAuth, and choose a model in Pi. Access uses your account and normal model pricing.'
+                'Install the plugin, sign in, pick a model. No API key to paste.'
               )}
             </p>
             <div className='lmm-pi-command'>
@@ -291,106 +380,55 @@ export function ForgeHome() {
             </a>
             <p className='lmm-webmcp-note'>
               <strong>{t('WebMCP tools for compatible browsers')}</strong>{' '}
-              {t(
-                'Browser agents can read site information, model prices, and account status or open pages; the normal UI remains available when WebMCP is unsupported.'
-              )}
+              {t('Let your browser agent read prices and open pages.')}
             </p>
           </>
         }
         explore={
           <div className='lmm-explore-console'>
             <nav className='lmm-destinations' aria-label={t('Explore LMM')}>
-              {[
-                [
-                  'market',
-                  '/tool-market',
-                  'Tool market',
-                  'Browse, publish, authorize and run tools.',
-                ],
-                [
-                  'pricing',
-                  '/pricing',
-                  'Models and pricing',
-                  'Compare model capabilities and account pricing.',
-                ],
-                [
-                  'challenges',
-                  '/challenges',
-                  'Open-source bounties',
-                  'Find focused work with funded reward slots.',
-                ],
-                [
-                  'scripts',
-                  '/scripts',
-                  'Public scripts',
-                  'Use the reviewed installation and setup scripts.',
-                ],
-                ...(securityLink
-                  ? [
-                      [
-                        'security',
-                        securityLink.requiresAuth ? '/sign-in' : '/security',
-                        'Security',
-                        'Review account and platform security controls.',
-                      ],
-                    ]
-                  : []),
-              ].map(([id, href, label]) => (
-                <a
-                  key={id}
-                  href={
-                    id === 'security' && securityLink?.requiresAuth
-                      ? '/sign-in?redirect=%2Fsecurity'
-                      : href
-                  }
-                  aria-current={activeExplore === id ? 'page' : undefined}
-                  onMouseEnter={() => setActiveExplore(id)}
-                  onFocus={() => setActiveExplore(id)}
-                  onClick={() => setActiveExplore(id)}
-                >
-                  <span>
-                    <small>{t('Explore')}</small>
-                    <strong>{t(label)}</strong>
-                  </span>
-                  <ArrowRight aria-hidden='true' />
-                </a>
-              ))}
+              {EXPLORE_DESTINATIONS.filter(
+                (destination) => destination.id !== 'security' || securityLink
+              ).map((destination) => {
+                const requiresAuth =
+                  destination.id === 'security' && securityLink?.requiresAuth
+                return (
+                  <a
+                    key={destination.id}
+                    href={
+                      requiresAuth
+                        ? '/sign-in?redirect=%2Fsecurity'
+                        : destination.href
+                    }
+                    aria-current={
+                      activeExplore === destination.id ? 'page' : undefined
+                    }
+                    onMouseEnter={() => setActiveExplore(destination.id)}
+                    onFocus={() => setActiveExplore(destination.id)}
+                    onClick={() => setActiveExplore(destination.id)}
+                  >
+                    <span>
+                      <strong>{t(destination.label)}</strong>
+                    </span>
+                    <ArrowRight aria-hidden='true' />
+                  </a>
+                )
+              })}
             </nav>
             <div className='lmm-explore-preview' aria-live='polite'>
               {(() => {
-                const descriptions: Record<string, string> = {
-                  market: 'Browse, publish, authorize and run tools.',
-                  pricing: 'Compare model capabilities and account pricing.',
-                  challenges: 'Find focused work with funded reward slots.',
-                  scripts: 'Use the reviewed installation and setup scripts.',
-                  security: 'Review account and platform security controls.',
-                }
-                const labels: Record<string, string> = {
-                  market: 'Tool market',
-                  pricing: 'Models and pricing',
-                  challenges: 'Open-source bounties',
-                  scripts: 'Public scripts',
-                  security: 'Security',
-                }
+                const index = Math.max(
+                  0,
+                  EXPLORE_DESTINATIONS.findIndex(
+                    (destination) => destination.id === activeExplore
+                  )
+                )
+                const active =
+                  EXPLORE_DESTINATIONS[index] ?? EXPLORE_DESTINATIONS[0]
                 return (
                   <>
-                    <span className='lmm-explore-preview-index'>
-                      0
-                      {Math.max(
-                        1,
-                        [
-                          'market',
-                          'pricing',
-                          'challenges',
-                          'scripts',
-                          'security',
-                        ].indexOf(activeExplore) + 1
-                      )}
-                    </span>
-                    <strong>{t(labels[activeExplore] ?? labels.market)}</strong>
-                    <p>
-                      {t(descriptions[activeExplore] ?? descriptions.market)}
-                    </p>
+                    <strong>{t(active.label)}</strong>
+                    <p>{t(active.description)}</p>
                   </>
                 )
               })()}

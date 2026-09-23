@@ -3,6 +3,18 @@ Copyright (C) 2026 LIghtJUNction
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  CheckCircle2,
+  ChevronRight,
+  CircleDashed,
+  CircleX,
+  Clock,
+  PackageSearch,
+  PackageX,
+  PauseCircle,
+  Store,
+  XCircle,
+} from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -10,6 +22,14 @@ import { SectionPageLayout } from '@/components/layout/components/section-page-l
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@/components/ui/empty'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
@@ -32,6 +52,59 @@ import { marketStatus, marketPermissionList } from './copy'
 import { creditAmount } from './money'
 import { ServiceEditor } from './service-editor'
 import { CallDialog, CallResult, GrantDialog } from './tool-actions'
+
+/** A small icon paired with the status text, so state reads at a glance. */
+function MarketStatusIcon({ value }: { value: string }) {
+  switch (value) {
+    case 'published':
+    case 'settled':
+    case 'succeeded':
+    case 'released':
+      return (
+        <CheckCircle2
+          aria-hidden='true'
+          className='text-success size-3.5 shrink-0'
+        />
+      )
+    case 'pending':
+    case 'reserved':
+    case 'held':
+    case 'running':
+      return (
+        <Clock aria-hidden='true' className='text-warning size-3.5 shrink-0' />
+      )
+    case 'paused':
+    case 'suspended':
+      return (
+        <PauseCircle
+          aria-hidden='true'
+          className='text-muted-foreground size-3.5 shrink-0'
+        />
+      )
+    case 'rejected':
+    case 'failed':
+      return (
+        <XCircle
+          aria-hidden='true'
+          className='text-destructive size-3.5 shrink-0'
+        />
+      )
+    case 'cancelled':
+      return (
+        <CircleX
+          aria-hidden='true'
+          className='text-muted-foreground size-3.5 shrink-0'
+        />
+      )
+    default:
+      return (
+        <CircleDashed
+          aria-hidden='true'
+          className='text-muted-foreground size-3.5 shrink-0'
+        />
+      )
+  }
+}
 
 export function ToolMarket() {
   const { t } = useTranslation()
@@ -121,17 +194,23 @@ export function ToolMarket() {
   }
   const current = detail.data
   const accessReady = installs.isSuccess && grants.isSuccess
+  const openPublisher = () => {
+    setSelected(null)
+    setEditor(true)
+  }
   const browse = (items: MarketSummary[]) => (
     <div className='divide-border divide-y'>
       {items.map((item) => (
         <button
           type='button'
           key={item.id}
-          className='hover:bg-muted/60 focus-visible:ring-ring flex w-full items-start justify-between gap-4 rounded-sm px-2 py-5 text-left outline-none focus-visible:ring-2'
+          className='hover:bg-muted/40 focus-visible:ring-ring group flex w-full flex-col items-start justify-between gap-3 rounded-sm px-2 py-5 text-left transition-colors outline-none focus-visible:ring-2 motion-safe:active:scale-[0.995] sm:flex-row sm:gap-4'
           onClick={() => setSelected({ id: item.id, mode: 'published' })}
         >
           <span className='min-w-0'>
-            <strong className='block break-words'>{item.name}</strong>
+            <strong className='block break-words group-hover:underline'>
+              {item.name}
+            </strong>
             <span className='text-muted-foreground mt-1 line-clamp-2 block max-w-3xl text-sm'>
               {item.description}
             </span>
@@ -139,9 +218,17 @@ export function ToolMarket() {
               {t('Provider account {{id}}', { id: item.owner_id })}
             </span>
           </span>
-          <Badge variant='outline'>
-            {item.execution_type === 'remote' ? 'Remote MCP' : 'Serverless MCP'}
-          </Badge>
+          <span className='flex shrink-0 items-center gap-2'>
+            <Badge variant='outline'>
+              {item.execution_type === 'remote'
+                ? 'Remote MCP'
+                : 'Serverless MCP'}
+            </Badge>
+            <ChevronRight
+              aria-hidden='true'
+              className='text-muted-foreground size-4 transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none'
+            />
+          </span>
         </button>
       ))}
     </div>
@@ -154,10 +241,8 @@ export function ToolMarket() {
           {t('Connect MCP')}
         </Button>
         <Button
-          onClick={() => {
-            setSelected(null)
-            setEditor(true)
-          }}
+          variant={selected || editor ? 'outline' : 'default'}
+          onClick={openPublisher}
         >
           {t('Publish a tool')}
         </Button>
@@ -256,6 +341,7 @@ export function ToolMarket() {
                           </p>
                         </div>
                         <Badge variant='secondary'>
+                          <MarketStatusIcon value={current.version.status} />
                           {marketStatus(current.version.status, t)}
                         </Badge>
                       </div>
@@ -619,16 +705,41 @@ export function ToolMarket() {
                       </p>
                     )}
                     {catalog.data?.length === 0 && (
-                      <div className='py-12 text-center'>
-                        <h3 className='font-medium'>
-                          {t('No published tools found')}
-                        </h3>
-                        <p className='text-muted-foreground mt-2 text-sm'>
-                          {t(
-                            'Try another search, or publish a Remote MCP service for review.'
-                          )}
-                        </p>
-                      </div>
+                      <Empty className='px-3 py-10'>
+                        <EmptyHeader>
+                          <EmptyMedia variant='icon'>
+                            {search ? (
+                              <PackageSearch aria-hidden='true' />
+                            ) : (
+                              <PackageX aria-hidden='true' />
+                            )}
+                          </EmptyMedia>
+                          <EmptyTitle>
+                            {t('No published tools found')}
+                          </EmptyTitle>
+                          <EmptyDescription>
+                            {t(
+                              'Try another search, or publish a Remote MCP service for review.'
+                            )}
+                          </EmptyDescription>
+                        </EmptyHeader>
+                        <EmptyContent>
+                          <Button
+                            variant='outline'
+                            onClick={
+                              search
+                                ? () => {
+                                    setSearch('')
+                                    setSearchInput('')
+                                    setOffset(0)
+                                  }
+                                : openPublisher
+                            }
+                          >
+                            {search ? t('Clear filters') : t('Publish a tool')}
+                          </Button>
+                        </EmptyContent>
+                      </Empty>
                     )}
                     {catalog.data && browse(catalog.data)}
                     <div className='flex justify-end gap-2'>
@@ -657,12 +768,39 @@ export function ToolMarket() {
                   <TabsContent value='mine' className='space-y-4 pt-4'>
                     {mine.isPending && <p>{t('Loading…')}</p>}
                     {mine.isError && (
-                      <p role='alert'>{t('Could not load tools.')}</p>
+                      <div
+                        role='alert'
+                        className='flex flex-wrap items-center gap-2 text-sm'
+                      >
+                        <XCircle
+                          aria-hidden='true'
+                          className='text-destructive size-4'
+                        />
+                        <p>{t('Could not load tools.')}</p>
+                        <Button
+                          variant='outline'
+                          onClick={() => void mine.refetch()}
+                        >
+                          {t('Retry')}
+                        </Button>
+                      </div>
                     )}
                     {mine.data?.length === 0 && (
-                      <p className='text-muted-foreground py-8'>
-                        {t('You have not published any services yet.')}
-                      </p>
+                      <Empty className='px-3 py-10'>
+                        <EmptyHeader>
+                          <EmptyMedia variant='icon'>
+                            <Store aria-hidden='true' />
+                          </EmptyMedia>
+                          <EmptyTitle>
+                            {t('You have not published any services yet.')}
+                          </EmptyTitle>
+                        </EmptyHeader>
+                        <EmptyContent>
+                          <Button variant='outline' onClick={openPublisher}>
+                            {t('Publish a tool')}
+                          </Button>
+                        </EmptyContent>
+                      </Empty>
                     )}
                     {mine.data?.map((item) => (
                       <div
@@ -673,7 +811,8 @@ export function ToolMarket() {
                           <p className='font-medium break-all'>
                             {item.name || item.id}
                           </p>
-                          <p className='text-muted-foreground text-sm'>
+                          <p className='text-muted-foreground flex items-center gap-1.5 text-sm'>
+                            <MarketStatusIcon value={item.status} />
                             {marketStatus(item.status, t)}
                           </p>
                         </div>
@@ -767,7 +906,8 @@ export function ToolMarket() {
                           <p className='text-muted-foreground break-all'>
                             {item.id}
                           </p>
-                          <p>
+                          <p className='flex flex-wrap items-center gap-1 tabular-nums'>
+                            <MarketStatusIcon value={item.execution_status} />
                             {marketStatus(item.execution_status, t)} /{' '}
                             {marketStatus(item.settlement_status, t)} ·{' '}
                             {item.settlement_status === 'held'
@@ -821,7 +961,22 @@ export function ToolMarket() {
                   {(user?.role ?? 0) >= 10 && (
                     <TabsContent value='review' className='space-y-6 pt-4'>
                       {reviews.isError && (
-                        <p role='alert'>{t('Could not load tools.')}</p>
+                        <div
+                          role='alert'
+                          className='flex flex-wrap items-center gap-2 text-sm'
+                        >
+                          <XCircle
+                            aria-hidden='true'
+                            className='text-destructive size-4'
+                          />
+                          <p>{t('Could not load tools.')}</p>
+                          <Button
+                            variant='outline'
+                            onClick={() => void reviews.refetch()}
+                          >
+                            {t('Retry')}
+                          </Button>
+                        </div>
                       )}
                       {reviews.data?.length === 0 && (
                         <p className='text-muted-foreground'>

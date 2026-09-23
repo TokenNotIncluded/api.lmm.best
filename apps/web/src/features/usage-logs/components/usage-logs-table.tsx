@@ -17,16 +17,17 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
-import { getRouteApi } from '@tanstack/react-router'
+import { getRouteApi, Link } from '@tanstack/react-router'
 import type { ColumnDef } from '@tanstack/react-table'
 import { useTranslation } from 'react-i18next'
-import { toast } from 'sonner'
 
 import {
   DataTablePage,
   DataTableRow,
   useDataTable,
 } from '@/components/data-table'
+import { ErrorState } from '@/components/error-state'
+import { Button } from '@/components/ui/button'
 import { useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 import { cn } from '@/lib/utils'
@@ -116,7 +117,7 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
     ],
   })
 
-  const { data, isLoading, isFetching } = useQuery({
+  const { data, isLoading, isFetching, isError, refetch } = useQuery({
     queryKey: [
       'logs',
       logCategory,
@@ -138,8 +139,7 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
       })
 
       if (!result?.success) {
-        toast.error(result?.message || t('Failed to load logs'))
-        return DEFAULT_LOGS_DATA
+        throw new Error(result?.message || t('Failed to load logs'))
       }
 
       return result.data || DEFAULT_LOGS_DATA
@@ -176,6 +176,18 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
 
   const isCommon = logCategory === 'common'
 
+  if (isError) {
+    return (
+      <ErrorState
+        title={t('Failed to load logs')}
+        description={t(
+          'Check your connection and retry without losing filters.'
+        )}
+        onRetry={() => void refetch()}
+      />
+    )
+  }
+
   return (
     <DataTablePage
       table={table}
@@ -186,6 +198,11 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
       emptyDescription={t(
         'No usage logs available. Logs will appear here once API calls are made.'
       )}
+      emptyAction={
+        <Button variant='outline' render={<Link to='/playground' />}>
+          {t('Open the playground')}
+        </Button>
+      }
       skeletonKeyPrefix='usage-log-skeleton'
       applyHeaderSize
       tableClassName={cn(
