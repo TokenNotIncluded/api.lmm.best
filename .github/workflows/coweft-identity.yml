@@ -1,7 +1,5 @@
 name: CoWeft identity boundary
 on:
-  push:
-    branches: ['feat/coweft-oidc']
   pull_request:
     paths: ['apps/api-go/oidcprovider/**','apps/api-go/service/oidc_provider.go','apps/api-go/router/oidc_provider.go','apps/api-go/router/oauth_server.go','.github/workflows/coweft-identity.yml']
 permissions:

@@ -9,6 +9,13 @@ GitHub Actions 负责构建、测试、签名和发布产物；后端服务器�
 | `release-go.yml` | 手动触发 Go 签名发布，不连接服务器 |
 | `release-web.yml` | 手动触发 Web 签名发布，不连接服务器 |
 | `deploy-web-frontend.yml` | Web 签名发布成功后自动发布到两台生产 origin，仅限前端 |
+| `billing-safety.yml` | Go `service`/`model` 改动时运行计费安全回归 |
+| `standalone-deployment-tests.yml` | 部署脚本改动时运行 systemd 部署测试 |
+| `lmm.yml` | `apps/lmm` CLI 与 OAuth 改动时运行 |
+| `codewhale-lmm-provider.yml`、`coweft-identity.yml` | Codewhale provider 与 OIDC 身份边界的 PR 检查 |
+| `console-page-review.yml`、`console-navigation-review.yml`、`settings-design-review.yml`、`ui-foundation-review.yml` | 前端页面、导航、设置和 UI 基础组件的 PR 视觉/交互检查 |
+
+以上辅助工作流只按路径触发，不持有服务器凭据，也不属于发布门禁。
 
 PR 描述和格式检查已移除，PR 仍执行与代码改动相关的测试。
 
