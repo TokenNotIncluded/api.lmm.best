@@ -151,8 +151,13 @@ export function parseDirectoryLinks(value: string): AIDirectoryLink[] | null {
   if (!value.trim()) return DEFAULT_AI_DIRECTORY_LINKS
   try {
     const container: unknown = JSON.parse(value)
-    if (!container || typeof container !== 'object' || Array.isArray(container))
+    if (
+      !container ||
+      typeof container !== 'object' ||
+      Array.isArray(container)
+    ) {
       return null
+    }
     const parsed = (container as Record<string, unknown>).aiDirectoryLinks
     if (parsed === undefined) return DEFAULT_AI_DIRECTORY_LINKS
     if (!Array.isArray(parsed)) return null
