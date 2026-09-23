@@ -38,7 +38,7 @@ func (runtime *productionRuntime) trackedRefundWriter(ctx context.Context, manif
 	}
 	matched := false
 	for _, rollback := range []bool{true, false} {
-		if runtime.verifyTransitionInstalled(ctx, manifest.Go, rollback, true) == nil && runtime.verifyTransitionCLI(manifest.Go, rollback) == nil {
+		if runtime.verifyTransitionInstalled(ctx, manifest.Go, rollback, true) == nil && runtime.verifyTransitionCLI(ctx, manifest.Go, rollback) == nil {
 			matched = true
 			break
 		}

@@ -141,7 +141,7 @@ func (runtime *productionRuntime) closeBillingAdmission(ctx context.Context, wor
 		}
 		verified := false
 		for _, old := range []bool{false, true} {
-			if runtime.verifyTransitionInstalled(ctx, manifest.Go, old, true) == nil && runtime.verifyTransitionCLI(manifest.Go, old) == nil {
+			if runtime.verifyTransitionInstalled(ctx, manifest.Go, old, true) == nil && runtime.verifyTransitionCLI(ctx, manifest.Go, old) == nil {
 				verified = true
 				break
 			}
