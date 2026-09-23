@@ -116,6 +116,9 @@ func TestSubscriptionBillingPartialPreconsumeConcurrentPostgres(t *testing.T) {
 	var sub UserSubscription
 	require.NoError(t, db.First(&sub, 9101).Error)
 	require.EqualValues(t, 100000, sub.AmountUsed)
+	var user User
+	require.NoError(t, db.First(&user, 9001).Error)
+	require.Equal(t, 950000, user.Quota)
 	var token Token
 	require.NoError(t, db.First(&token, 9002).Error)
 	require.Equal(t, 60000, token.UsedQuota)
@@ -123,6 +126,8 @@ func TestSubscriptionBillingPartialPreconsumeConcurrentPostgres(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.First(&sub, 9101).Error)
 	require.EqualValues(t, 98000, sub.AmountUsed)
+	require.NoError(t, db.First(&user, 9001).Error)
+	require.Equal(t, 1000000, user.Quota)
 }
 
 func TestSubscriptionBillingUserLockPostgres(t *testing.T) {
@@ -184,9 +189,52 @@ func TestSubscriptionBillingPartialPreconsumeFailureIsAtomic(t *testing.T) {
 	var sub UserSubscription
 	require.NoError(t, db.First(&sub, 9101).Error)
 	require.EqualValues(t, 99900, sub.AmountUsed)
+	var user User
+	require.NoError(t, db.First(&user, 9001).Error)
+	require.Equal(t, 1000000, user.Quota)
 	var records int64
 	require.NoError(t, db.Model(&SubscriptionPreConsumeRecord{}).Count(&records).Error)
 	require.Zero(t, records)
+}
+
+func TestSubscriptionBillingPartialPreconsumeRequiresWalletBudget(t *testing.T) {
+	db := subscriptionBillingModelFixture(t, false)
+	require.NoError(t, db.Model(&UserSubscription{}).Where("id = ?", 9101).Update("amount_used", 99900).Error)
+	require.NoError(t, db.Model(&User{}).Where("id = ?", 9001).Update("quota", 0).Error)
+	_, err := PreConsumeSubscriptionBilling("partial-no-wallet", 9001, 9002, "model", 60000, true)
+	require.ErrorIs(t, err, ErrSubscriptionBillingWalletQuota)
+	var sub UserSubscription
+	require.NoError(t, db.First(&sub, 9101).Error)
+	require.EqualValues(t, 99900, sub.AmountUsed)
+	var token Token
+	require.NoError(t, db.First(&token, 9002).Error)
+	require.Zero(t, token.UsedQuota)
+	var records int64
+	require.NoError(t, db.Model(&SubscriptionPreConsumeRecord{}).Count(&records).Error)
+	require.Zero(t, records)
+}
+
+func TestSubscriptionBillingPartialReserveRequiresAdditionalWalletBudget(t *testing.T) {
+	db := subscriptionBillingModelFixture(t, false)
+	require.NoError(t, db.Model(&UserSubscription{}).Where("id = ?", 9101).Update("amount_used", 99900).Error)
+	require.NoError(t, db.Model(&User{}).Where("id = ?", 9001).Update("quota", 59900).Error)
+	_, err := PreConsumeSubscriptionBilling("partial-wallet-grow", 9001, 9002, "model", 60000, true)
+	require.NoError(t, err)
+	_, err = ReserveSubscriptionBilling("partial-wallet-grow", 9001, 70000)
+	require.ErrorIs(t, err, ErrSubscriptionBillingWalletQuota)
+	var user User
+	require.NoError(t, db.First(&user, 9001).Error)
+	require.Zero(t, user.Quota)
+	var token Token
+	require.NoError(t, db.First(&token, 9002).Error)
+	require.Equal(t, 60000, token.UsedQuota)
+	var record SubscriptionPreConsumeRecord
+	require.NoError(t, db.Where("request_id = ?", "partial-wallet-grow").First(&record).Error)
+	require.EqualValues(t, 100, record.PreConsumed)
+	require.EqualValues(t, 59900, record.WalletConsumed)
+	require.NoError(t, RefundSubscriptionBilling("partial-wallet-grow", 9001))
+	require.NoError(t, db.First(&user, 9001).Error)
+	require.Equal(t, 59900, user.Quota)
 }
 
 func TestSubscriptionBillingPartialPreconsumeRespectsOtherStrictGrant(t *testing.T) {

@@ -151,13 +151,13 @@ func TestSubscriptionBillingReserveRefundAndReplay(t *testing.T) {
 	require.NoError(t, session.Reserve(90000))
 	require.NoError(t, session.Reserve(110000))
 	require.NoError(t, session.Reserve(110000))
-	assertSubscriptionBillingBalances(t, db, info, 100000, 0, 110000)
+	assertSubscriptionBillingBalances(t, db, info, 100000, 10000, 110000)
 	copyInfo := *info
 	replayed, apiErr := NewBillingSession(c, &copyInfo, 60000)
 	require.Nil(t, apiErr)
 	require.Equal(t, 100000, replayed.GetPreConsumedQuota())
 	require.Equal(t, 110000, replayed.tokenConsumed)
-	assertSubscriptionBillingBalances(t, db, info, 100000, 0, 110000)
+	assertSubscriptionBillingBalances(t, db, info, 100000, 10000, 110000)
 	session.Refund(c)
 	replayed.Refund(c)
 	require.NoError(t, model.RefundSubscriptionPreConsume(info.RequestId))
@@ -200,9 +200,15 @@ func TestSubscriptionBillingPreconsumeKeepsRemainingGrant(t *testing.T) {
 			// Routing refresh must not turn the partial grant into a failed request.
 			require.NoError(t, session.Reserve(60000))
 			require.NoError(t, session.Reserve(70000))
-			assertSubscriptionBillingBalances(t, db, info, 100, 0, 70000)
+			assertSubscriptionBillingBalances(t, db, info, 100, 69900, 70000)
+			cached, err := model.GetUserCache(info.UserId)
+			require.NoError(t, err)
+			require.Equal(t, 1000000-69900, cached.Quota)
 			require.NoError(t, session.Settle(tc.actual))
 			assertSubscriptionBillingBalances(t, db, info, int64(tc.sub), tc.wallet, tc.actual)
+			cached, err = model.GetUserCache(info.UserId)
+			require.NoError(t, err)
+			require.Equal(t, 1000000-tc.wallet, cached.Quota)
 			require.EqualValues(t, tc.wallet, session.SubscriptionSettlement().WalletQuota)
 		})
 	}
@@ -242,6 +248,21 @@ func TestSubscriptionBillingPartialPreconsumeHonorsStrictPolicy(t *testing.T) {
 			require.Zero(t, count)
 		})
 	}
+}
+
+func TestSubscriptionBillingPartialPreconsumeDoesNotAdmitEmptyWallet(t *testing.T) {
+	db, info, c := subscriptionBillingFixture(t, 100, true, "subscription_first")
+	require.NoError(t, db.Model(&model.User{}).Where("id = ?", info.UserId).Update("quota", 0).Error)
+	session, apiErr := NewBillingSession(c, info, 60000)
+	require.Nil(t, session)
+	require.NotNil(t, apiErr)
+	require.ErrorIs(t, apiErr.Err, model.ErrSubscriptionBillingWalletQuota)
+	var sub model.UserSubscription
+	require.NoError(t, db.Where("user_id = ?", info.UserId).First(&sub).Error)
+	require.Zero(t, sub.AmountUsed)
+	var count int64
+	require.NoError(t, db.Model(&model.SubscriptionPreConsumeRecord{}).Count(&count).Error)
+	require.Zero(t, count)
 }
 
 func TestSubscriptionBillingReserveTokenFailureRollsBack(t *testing.T) {

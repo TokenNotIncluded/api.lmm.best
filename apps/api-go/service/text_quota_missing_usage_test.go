@@ -74,6 +74,43 @@ func TestPostTextConsumeQuotaMissingUsageKeepsPreConsumedQuota(t *testing.T) {
 	require.EqualValues(t, 60000, channel.UsedQuota)
 }
 
+func TestPostTextConsumeQuotaMissingUsageKeepsEstimateAfterPartialReserve(t *testing.T) {
+	db, info, c := subscriptionBillingFixture(t, 100, true, "subscription_first")
+	require.NoError(t, db.AutoMigrate(&model.Log{}, &model.Channel{}))
+	previousLogDB, previousLogEnabled := model.LOG_DB, common.LogConsumeEnabled
+	model.LOG_DB, common.LogConsumeEnabled = db, true
+	t.Cleanup(func() { model.LOG_DB, common.LogConsumeEnabled = previousLogDB, previousLogEnabled })
+	channel := model.Channel{Name: "partial-missing-usage"}
+	require.NoError(t, db.Create(&channel).Error)
+	info.ChannelMeta = &relaycommon.ChannelMeta{ChannelId: channel.Id}
+	info.StartTime = time.Now()
+	info.OriginModelName = "partial-missing-usage"
+	info.PriceData = hosttypes.PriceData{
+		QuotaToPreConsume: 60000,
+		ModelRatio:        1,
+		CompletionRatio:   1,
+		GroupRatioInfo:    hosttypes.GroupRatioInfo{GroupRatio: 1},
+	}
+	session, apiErr := NewBillingSession(c, info, 60000)
+	require.Nil(t, apiErr)
+	info.Billing = session
+	info.SubscriptionAmountTotal = 0
+	require.Equal(t, 100, info.FinalPreConsumedQuota)
+	assertSubscriptionBillingBalances(t, db, info, 100, 59900, 60000)
+
+	PostTextConsumeQuota(c, info, &dto.Usage{}, nil)
+	assertSubscriptionBillingBalances(t, db, info, 100, 59900, 60000)
+	var log model.Log
+	require.NoError(t, db.Where("type = ?", model.LogTypeConsume).First(&log).Error)
+	require.Equal(t, 60000, log.Quota)
+	var other map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(log.Other), &other))
+	require.EqualValues(t, 60000, other["usage_estimate_cap"])
+	billing := other["billing_settlement"].(map[string]interface{})
+	require.EqualValues(t, 60000, billing["charged_quota"])
+	require.EqualValues(t, 59900, billing["wallet_quota"])
+}
+
 // A transport acceptance frame is not a successful completion. Preserve the
 // successful-request fallback above, but never infer usage for an interrupted
 // stream whose handler returned no upstream or locally counted consumption.
