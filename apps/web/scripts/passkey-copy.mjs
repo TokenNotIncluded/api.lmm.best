@@ -1,3 +1,4 @@
+/* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
 export const passkeyCopy = {
   en: {
     'Add Passkey': 'Add Passkey',
