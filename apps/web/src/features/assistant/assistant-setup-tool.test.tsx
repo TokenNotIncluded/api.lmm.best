@@ -245,10 +245,19 @@ describe('AssistantSetupTool', () => {
     })
     assert.match(
       container.textContent ?? '',
-      /dsh plugin --profile web add @tokennotincluded\/dsh-lmm-provider@latest/
+      /dsh plugin --profile web add "\$\(npm view @tokennotincluded\/dsh-lmm-provider@latest dist\.tarball --prefer-online\)"/
     )
     assert.throws(() => findButton('Create API key'))
     assert.equal(container.querySelector('select[aria-label="Model ID"]'), null)
+
+    await act(async () => {
+      findButton('Windows').click()
+      await flushEffects()
+    })
+    assert.match(
+      container.textContent ?? '',
+      /dsh\.cmd plugin --profile web add "\$\(npm\.cmd view @tokennotincluded\/dsh-lmm-provider@latest dist\.tarball --prefer-online\)"/
+    )
 
     await act(async () => root.unmount())
   })

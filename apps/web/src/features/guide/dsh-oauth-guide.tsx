@@ -24,9 +24,10 @@ import {
   DSH_DOWNLOAD_LATEST_COMMAND,
   DSH_PACKAGE_LATEST,
   DSH_WEB_INSTALL_LATEST_COMMAND,
+  DSH_WEB_INSTALL_LATEST_WINDOWS_COMMAND,
 } from './provider-install-commands'
 
-export function DshOAuthGuide() {
+export function DshOAuthGuide({ windows = false }: { windows?: boolean }) {
   const { t } = useTranslation()
 
   return (
@@ -68,7 +69,11 @@ export function DshOAuthGuide() {
           )}
         </p>
         <InstallCommand
-          value={DSH_WEB_INSTALL_LATEST_COMMAND}
+          value={
+            windows
+              ? DSH_WEB_INSTALL_LATEST_WINDOWS_COMMAND
+              : DSH_WEB_INSTALL_LATEST_COMMAND
+          }
           copyLabel={t('Copy DSH Web install command')}
         />
       </div>

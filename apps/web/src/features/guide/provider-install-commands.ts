@@ -18,10 +18,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 Copyright (C) 2026 LIghtJUNction
 */
 export const PI_INSTALL_LATEST_COMMAND =
-  'npm exec --yes --package=@tokennotincluded/pi-lmm-provider@latest -- lmm-pi-provider npm:@tokennotincluded/pi-lmm-provider@latest'
+  'npm exec --yes --prefer-online --package=@tokennotincluded/pi-lmm-provider@latest -- lmm-pi-provider npm:@tokennotincluded/pi-lmm-provider@latest'
 
 export const DSH_PACKAGE_LATEST = '@tokennotincluded/dsh-lmm-provider@latest'
 
-export const DSH_WEB_INSTALL_LATEST_COMMAND = `dsh plugin --profile web add ${DSH_PACKAGE_LATEST} --ignore-scripts`
+export const DSH_WEB_INSTALL_LATEST_COMMAND =
+  'dsh plugin --profile web add "$(npm view @tokennotincluded/dsh-lmm-provider@latest dist.tarball --prefer-online)" --ignore-scripts'
+
+export const DSH_WEB_INSTALL_LATEST_WINDOWS_COMMAND =
+  'dsh.cmd plugin --profile web add "$(npm.cmd view @tokennotincluded/dsh-lmm-provider@latest dist.tarball --prefer-online)" --ignore-scripts'
 
 export const DSH_DOWNLOAD_LATEST_COMMAND = `npm pack ${DSH_PACKAGE_LATEST}`

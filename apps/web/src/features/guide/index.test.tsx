@@ -244,7 +244,7 @@ describe('Guide when the AI assistant is disabled', () => {
     )
     assert.match(
       container.textContent ?? '',
-      /dsh plugin --profile web add @tokennotincluded\/dsh-lmm-provider@latest/
+      /dsh plugin --profile web add "\$\(npm view @tokennotincluded\/dsh-lmm-provider@latest dist\.tarball --prefer-online\)"/
     )
     assert.match(
       container.textContent ?? '',

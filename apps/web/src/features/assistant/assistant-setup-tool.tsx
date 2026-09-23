@@ -543,7 +543,7 @@ export function AssistantSetupTool(props: {
                 <PiOAuthGuide />
               </TabsContent>
               <TabsContent value='dsh' className='mt-5'>
-                <DshOAuthGuide />
+                <DshOAuthGuide windows={platform === 'windows'} />
               </TabsContent>
               <TabsContent value='astrbot' className='mt-5 grid gap-5'>
                 <p className='text-sm leading-7'>
