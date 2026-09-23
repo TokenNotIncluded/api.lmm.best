@@ -173,11 +173,11 @@ function ApiKeysMobileList({
               )}
             </div>
 
-            <div className='flex min-w-0 items-center justify-between gap-2'>
-              <div className='min-w-0 flex-1 [&_button:first-child]:max-w-full [&_button:first-child]:truncate [&_button:first-child]:px-0'>
+            <div className='flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1'>
+              <div className='min-w-40 flex-1 [&_button]:min-h-11 [&_button:first-child]:max-w-full [&_button:first-child]:truncate [&_button:first-child]:px-0 [&_button:last-child]:min-w-11'>
                 <ApiKeyCell apiKey={apiKey} />
               </div>
-              <div className='[&_button]:min-h-11 [&_button]:min-w-11'>
+              <div className='ml-auto [&>div]:ml-0 [&_button]:min-h-11 [&_button]:min-w-11'>
                 <DataTableRowActions row={row} />
               </div>
             </div>
@@ -353,6 +353,8 @@ export function ApiKeysTable({
       }
       skeletonKeyPrefix='api-keys-skeleton'
       applyHeaderSize
+      fixedHeight={false}
+      paginationInFooter={false}
       toolbarProps={{
         searchPlaceholder: t('Filter by name...'),
         additionalSearch: (
