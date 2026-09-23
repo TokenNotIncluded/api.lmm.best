@@ -1,0 +1,208 @@
+/* Public legal documents share the Forge paper and ink world without relying
+ * on the React app or backend. The documents remain readable during outages. */
+:root {
+  color-scheme: light;
+  --paper: #faf9f5;
+  --ink: #141413;
+  --surface: #f0eee6;
+  --muted: #5e5a52;
+  --line: #cdc9be;
+  --clay: #a44f36;
+}
+
+* {
+  box-sizing: border-box;
+}
+html {
+  scroll-behavior: smooth;
+}
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font:
+    16px/1.65 'Public Sans',
+    system-ui,
+    -apple-system,
+    sans-serif;
+}
+a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--clay);
+  text-underline-offset: 0.24em;
+}
+a:hover {
+  color: var(--clay);
+}
+a:focus-visible {
+  outline: 2px solid var(--clay);
+  outline-offset: 4px;
+}
+::selection {
+  background: var(--clay);
+  color: var(--paper);
+}
+
+.hero {
+  border-bottom: 1px solid var(--line);
+  padding: 1.75rem 1.25rem 3.5rem;
+}
+.wrap {
+  width: min(100%, 72rem);
+  margin-inline: auto;
+}
+.brand {
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+.brand span {
+  color: var(--muted);
+  font-weight: 400;
+}
+.crumb {
+  margin-top: 4rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.hero h1 {
+  margin: 1rem 0;
+  font:
+    400 clamp(3rem, 7vw, 5.5rem)/1.04 Georgia,
+    'Noto Serif CJK SC',
+    serif;
+  letter-spacing: -0.03em;
+}
+.hero p {
+  max-width: 65ch;
+  margin: 0;
+  color: var(--muted);
+  font-size: 1.05rem;
+}
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 1.5rem;
+  margin-top: 2.5rem;
+}
+.pills a {
+  font-size: 0.9rem;
+}
+
+.sheet {
+  width: min(100%, 72rem);
+  margin-inline: auto;
+  padding: 3.5rem 1.25rem 6rem;
+}
+.meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 2rem;
+  margin: 0 0 3rem;
+  border-top: 1px solid var(--line);
+}
+.meta div {
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.9rem;
+}
+.meta b {
+  display: block;
+  margin-bottom: 0.25rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+.note {
+  margin: 0 0 3.5rem;
+  padding: 1.25rem 1.5rem;
+  border-block: 1px solid var(--line);
+  background: var(--surface);
+}
+h2 {
+  margin: 3.5rem 0 1.1rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--line);
+  font:
+    400 clamp(1.75rem, 4vw, 2.6rem)/1.14 Georgia,
+    'Noto Serif CJK SC',
+    serif;
+  letter-spacing: -0.025em;
+}
+h2 small {
+  display: block;
+  margin-top: 0.4rem;
+  color: var(--muted);
+  font:
+    400 0.85rem/1.5 'Public Sans',
+    system-ui,
+    sans-serif;
+  letter-spacing: 0;
+}
+p,
+li {
+  max-width: 75ch;
+  font-size: 1rem;
+  line-height: 1.78;
+}
+ul {
+  padding-left: 1.4rem;
+}
+li + li {
+  margin-top: 0.7rem;
+}
+.en {
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 2rem;
+  margin-top: 4rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.foot nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+}
+
+@media (max-width: 600px) {
+  .hero {
+    padding: 1.25rem 1.25rem 2.75rem;
+  }
+  .crumb {
+    margin-top: 2.5rem;
+  }
+  .sheet {
+    padding-block: 2.5rem 4rem;
+  }
+  .meta {
+    grid-template-columns: 1fr;
+  }
+  .note {
+    padding: 1.1rem 1.25rem;
+  }
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --paper: #141413;
+    --ink: #faf9f5;
+    --surface: #24231f;
+    --muted: #cdc6b9;
+    --line: #4b493f;
+    --clay: #e58a68;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}

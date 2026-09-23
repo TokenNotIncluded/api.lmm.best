@@ -99,6 +99,9 @@ jobs:
           tar -tzf "lmm-api-web-${VERSION}.tar.gz" > archive-contents.txt
           grep -qx 'dist/index.html' archive-contents.txt
           grep -qx 'REVISION' archive-contents.txt
+          grep -qx 'dist/legal/terms.html' archive-contents.txt
+          grep -qx 'dist/legal/privacy.html' archive-contents.txt
+          grep -qx 'dist/legal/forge-legal.css' archive-contents.txt
 
       - name: Install restricted deploy key
         env:

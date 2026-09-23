@@ -124,6 +124,10 @@ jobs:
           grep -Fq '/usr/bin/lmm-api-deploy frontend package-activate --package-version "$1"' "$hook"
           [[ ! -e deploy ]]
           [[ ! -e packaging/aur/lmm-api-web-bin/lmm-api-web-activate ]]
+          for legal_page in terms privacy; do
+            [[ -s "apps/web/dist/legal/${legal_page}.html" ]]
+          done
+          [[ -s apps/web/dist/legal/forge-legal.css ]]
 
       - name: Package immutable web artifact
         env:

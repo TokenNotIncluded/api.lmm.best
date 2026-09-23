@@ -29,6 +29,13 @@ Revoking `LMM_WEB_DEPLOY_SSH_KEY` and removing its `authorized_keys` line on
 both hosts disables automatic frontend deployment without touching anything
 else.
 
+The web archive also carries the static `/terms` and `/privacy` legal pages
+and their shared stylesheet. Nginx reads them through
+`/srv/lmm-api-frontend/current/legal/` so both origins switch the same copy
+with the frontend release. Preserve these aliases on manually configured hosts;
+these pages remain available when the backend is down.
+
+
 - [Native transaction and acceptance](production-release-transaction.md)
 - [Manual systemd deployment](manual-systemd-deployment.md)
 - [Workflow responsibilities](ci-workflow-layout.md)
