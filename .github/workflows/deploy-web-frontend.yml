@@ -56,11 +56,14 @@ jobs:
             # tag name for that case, but it is not guaranteed across dispatch
             # styles, so resolve the release from the run's immutable commit
             # instead and require exactly one match.
-            mapfile -t matches < <(
-              gh release list --repo "$GITHUB_REPOSITORY" \
-                --limit 50 --json tagName,targetCommitish \
-                --jq ".[] | select(.targetCommitish == \"$RUN_HEAD_SHA\") | .tagName"
-            )
+            [[ "$RUN_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+            # `gh release list --json` does not expose targetCommitish. The
+            # REST release record does, and pagination covers older releases.
+            gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+              --paginate \
+              --jq ".[] | select(.draft == false and .target_commitish == \"$RUN_HEAD_SHA\" and (.tag_name | startswith(\"web-v\"))) | .tag_name" \
+              > release-matches.txt
+            mapfile -t matches < release-matches.txt
             [[ ${#matches[@]} -eq 1 ]] || {
               echo "expected exactly one release for ${RUN_HEAD_SHA}, found ${#matches[@]}" >&2
               exit 1

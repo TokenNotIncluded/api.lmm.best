@@ -43,6 +43,9 @@ test('frontend deployment is restricted to a signed web release on both origins'
   assert.match(deploy, /environment: production/);
   assert.match(deploy, /LMM_WEB_DEPLOY_SSH_KEY/);
   assert.match(deploy, /LMM_WEB_DEPLOY_KNOWN_HOSTS/);
+  assert.ok(deploy.includes('gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100"'));
+  assert.ok(deploy.includes('.target_commitish'));
+  assert.ok(!deploy.includes('gh release list --repo'));
   assert.match(deploy, /gh release download/);
   assert.match(deploy, /sha256sum --check/);
   assert.match(deploy, /publish \"ArchDmit/);
