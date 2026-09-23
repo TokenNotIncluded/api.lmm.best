@@ -31,6 +31,11 @@ const (
 type passkeyFinishRequest struct {
 	FlowToken  string          `json:"flow_token"`
 	Credential json.RawMessage `json:"credential"`
+}
+
+type passkeyRegisterFinishRequest struct {
+	FlowToken  string          `json:"flow_token"`
+	Credential json.RawMessage `json:"credential"`
 	Name       string          `json:"name"`
 }
 
@@ -40,6 +45,17 @@ type passkeyVerifyBeginRequest struct {
 
 func parsePasskeyFinishRequest(c *gin.Context) (*passkeyFinishRequest, error) {
 	var request passkeyFinishRequest
+	if err := common.DecodeJson(c.Request.Body, &request); err != nil {
+		return nil, err
+	}
+	if request.FlowToken == "" || len(request.Credential) == 0 {
+		return nil, errors.New("Passkey 流程参数不完整")
+	}
+	return &request, nil
+}
+
+func parsePasskeyRegisterFinishRequest(c *gin.Context) (*passkeyRegisterFinishRequest, error) {
+	var request passkeyRegisterFinishRequest
 	if err := common.DecodeJson(c.Request.Body, &request); err != nil {
 		return nil, err
 	}
@@ -145,7 +161,7 @@ func PasskeyRegisterFinish(c *gin.Context) {
 		return
 	}
 
-	request, err := parsePasskeyFinishRequest(c)
+	request, err := parsePasskeyRegisterFinishRequest(c)
 	if err != nil {
 		common.ApiError(c, err)
 		return
