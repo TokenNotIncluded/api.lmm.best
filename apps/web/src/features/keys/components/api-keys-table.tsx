@@ -177,7 +177,7 @@ function ApiKeysMobileList({
               <div className='min-w-40 flex-1 [&_button]:min-h-11 [&_button:first-child]:max-w-full [&_button:first-child]:truncate [&_button:first-child]:px-0 [&_button:last-child]:min-w-11'>
                 <ApiKeyCell apiKey={apiKey} />
               </div>
-              <div className='ml-auto [&>div]:ml-0 [&_button]:min-h-11 [&_button]:min-w-11'>
+              <div className='ml-auto [&_button]:min-h-11 [&_button]:min-w-11 [&>div]:ml-0'>
                 <DataTableRowActions row={row} />
               </div>
             </div>
