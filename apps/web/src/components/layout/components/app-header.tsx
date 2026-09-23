@@ -100,7 +100,7 @@ export function AppHeader({
         <div className='mx-auto hidden min-w-0 flex-1 justify-center px-4 lg:flex'>
           <TopNav
             links={links}
-            className='max-h-11 min-w-0 [scrollbar-width:none] overflow-x-auto p-1 whitespace-nowrap [&::-webkit-scrollbar]:hidden'
+            className='max-h-11 min-w-0 overflow-x-auto p-1 whitespace-nowrap [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'
             aria-label={t('Header navigation')}
           />
         </div>

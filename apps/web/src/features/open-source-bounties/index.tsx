@@ -846,7 +846,7 @@ export function OpenSourceBounties({
 
   return (
     <Main>
-      <div className='min-h-0 flex-1 [scrollbar-gutter:stable] overflow-x-hidden overflow-y-auto px-3 py-3 sm:px-4 sm:py-6'>
+      <div className='min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-3 [scrollbar-gutter:stable] sm:px-4 sm:py-6'>
         <CardStaggerContainer className='mx-auto flex w-full max-w-7xl flex-col gap-4 [overflow-wrap:anywhere] sm:gap-6'>
           <CardStaggerItem>
             <div className='flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between'>
