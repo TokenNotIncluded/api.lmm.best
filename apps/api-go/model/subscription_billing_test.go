@@ -290,6 +290,64 @@ func TestSubscriptionBillingPartialWalletAdmissionConcurrentPostgres(t *testing.
 	require.Equal(t, 100000, user.Quota)
 }
 
+func TestWalletReserveHonorsPendingSubscriptionBudget(t *testing.T) {
+	db := subscriptionBillingModelFixture(t, false)
+	require.NoError(t, db.Model(&UserSubscription{}).Where("id = ?", 9101).Update("amount_used", 99900).Error)
+	require.NoError(t, db.Model(&User{}).Where("id = ?", 9001).Update("quota", 100000).Error)
+	_, err := PreConsumeSubscriptionBilling("wallet-pending", 9001, 9002, "model", 60000, true)
+	require.NoError(t, err)
+	reserved, err := TryReserveUserQuotaWithMinimum(9001, 50000, 0)
+	require.NoError(t, err)
+	require.False(t, reserved)
+	reserved, err = TryReserveUserQuotaWithMinimum(9001, 40000, 0)
+	require.NoError(t, err)
+	require.True(t, reserved)
+	_, err = SettleSubscriptionBilling("wallet-pending", 9001, 60000)
+	require.NoError(t, err)
+	var user User
+	require.NoError(t, db.First(&user, 9001).Error)
+	require.Equal(t, 100, user.Quota)
+}
+
+func TestWalletReserveRacesPartialSubscriptionAdmissionPostgres(t *testing.T) {
+	db := subscriptionBillingModelFixture(t, true)
+	require.NoError(t, db.Model(&UserSubscription{}).Where("id = ?", 9101).Update("amount_used", 99900).Error)
+	require.NoError(t, db.Model(&User{}).Where("id = ?", 9001).Update("quota", 100000).Error)
+	start := make(chan struct{})
+	type outcome struct {
+		accepted bool
+		err      error
+	}
+	results := make(chan outcome, 2)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		<-start
+		_, err := PreConsumeSubscriptionBilling("wallet-race-sub", 9001, 9002, "model", 60000, true)
+		results <- outcome{accepted: err == nil, err: err}
+	}()
+	go func() {
+		defer wg.Done()
+		<-start
+		accepted, err := TryReserveUserQuotaWithMinimum(9001, 50000, 0)
+		results <- outcome{accepted: accepted, err: err}
+	}()
+	close(start)
+	wg.Wait()
+	close(results)
+	accepted := 0
+	for result := range results {
+		if result.err != nil {
+			require.ErrorIs(t, result.err, ErrSubscriptionBillingWalletQuota)
+		}
+		if result.accepted {
+			accepted++
+		}
+	}
+	require.Equal(t, 1, accepted)
+}
+
 func TestSubscriptionBillingPartialPreconsumeRespectsOtherStrictGrant(t *testing.T) {
 	db := subscriptionBillingModelFixture(t, false)
 	require.NoError(t, db.Model(&UserSubscription{}).Where("id = ?", 9101).Update("amount_used", 99900).Error)

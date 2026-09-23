@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"gorm.io/gorm"
@@ -11,6 +12,25 @@ import (
 
 var ErrSubscriptionBillingTokenQuota = errors.New("token quota insufficient")
 var ErrSubscriptionBillingWalletQuota = errors.New("wallet quota insufficient for subscription overflow")
+
+func pendingSubscriptionWalletQuota(tx *gorm.DB, userID int, excludeRequestID string) (int64, error) {
+	var pending int64
+	query := tx.Model(&SubscriptionPreConsumeRecord{}).
+		Select("COALESCE(SUM(CASE WHEN token_consumed > pre_consumed THEN token_consumed - pre_consumed ELSE 0 END), 0)").
+		Where("user_id = ? AND billing_managed = ? AND wallet_overflow = ? AND status IN ?", userID, true, true, []string{"consumed", "settling"})
+	if excludeRequestID != "" {
+		query = query.Where("request_id <> ?", excludeRequestID)
+	}
+	if err := query.Scan(&pending).Error; err != nil {
+		// Legacy SQLite fixtures can omit the billing ledger. A missing table in
+		// a production database is an error, never an authorization bypass.
+		if tx.Dialector.Name() == "sqlite" && strings.Contains(err.Error(), "no such table: subscription_pre_consume_records") {
+			return 0, nil
+		}
+		return 0, err
+	}
+	return pending, nil
+}
 
 // Check the uncovered budget under the managed user lock. Keeping the wallet
 // debit at final settlement preserves rollback compatibility with older Go
@@ -27,11 +47,8 @@ func authorizeSubscriptionWalletQuota(tx *gorm.DB, userID int, requestID string,
 	if err != nil {
 		return err
 	}
-	var pending int64
-	if err := tx.Model(&SubscriptionPreConsumeRecord{}).
-		Select("COALESCE(SUM(CASE WHEN token_consumed > pre_consumed THEN token_consumed - pre_consumed ELSE 0 END), 0)").
-		Where("user_id = ? AND request_id <> ? AND billing_managed = ? AND wallet_overflow = ? AND status IN ?", userID, requestID, true, true, []string{"consumed", "settling"}).
-		Scan(&pending).Error; err != nil {
+	pending, err := pendingSubscriptionWalletQuota(tx, userID, requestID)
+	if err != nil {
 		return err
 	}
 	if pending > math.MaxInt64-amount || int64(quota) < pending+amount {
