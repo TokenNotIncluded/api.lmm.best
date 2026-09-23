@@ -170,7 +170,8 @@ For commercial licensing, please contact support@quantumnous.com
   border-radius: 1rem;
   border: 1px solid #141c36;
   background:
-    radial-gradient(circle, #16204266 1px, transparent 1.4px) 0 0 / 1.5rem 1.5rem,
+    radial-gradient(circle, #16204266 1px, transparent 1.4px) 0 0 / 1.5rem
+      1.5rem,
     radial-gradient(ellipse 60% 70% at 28% 50%, #0c1531 0%, transparent 70%),
     radial-gradient(ellipse 40% 50% at 88% 12%, #2a0f2a55 0%, transparent 70%),
     var(--home-stage-ground);
@@ -1492,7 +1493,9 @@ For commercial licensing, please contact support@quantumnous.com
 .lmm-cinema .lmm-intro-actions [data-slot='button'] {
   background: var(--home-stage-ink);
   color: var(--home-stage-ground);
-  box-shadow: 0 0 0 1px #ffffff14, 0 0.6rem 2rem #3a7bff33;
+  box-shadow:
+    0 0 0 1px #ffffff14,
+    0 0.6rem 2rem #3a7bff33;
 }
 .lmm-cinema .lmm-intro-actions [data-slot='button']:hover {
   background: var(--home-stage-cyan);

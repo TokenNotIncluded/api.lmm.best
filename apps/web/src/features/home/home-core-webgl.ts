@@ -133,7 +133,14 @@ const TEXT_FRAGMENT = `${PRECISION}
 
 const FONT_PX = 22
 const ATLAS = { width: 1024, height: 256, line: 30 }
-type Glyph = { u0: number; v0: number; u1: number; v1: number; w: number; h: number }
+type Glyph = {
+  u0: number
+  v0: number
+  u1: number
+  v1: number
+  w: number
+  h: number
+}
 
 function createAtlas() {
   const canvas = document.createElement('canvas')
@@ -170,7 +177,9 @@ function createAtlas() {
 /** Stacked (static) layouts centre the network; see --film-layout in forge-home.css. */
 export function filmLayout(canvas: HTMLCanvasElement): 'side' | 'center' {
   try {
-    const value = window.getComputedStyle(canvas).getPropertyValue('--film-layout')
+    const value = window
+      .getComputedStyle(canvas)
+      .getPropertyValue('--film-layout')
     return value.trim() === 'center' ? 'center' : 'side'
   } catch {
     return 'side'
@@ -259,13 +268,19 @@ export function createWebGLCore(canvas: HTMLCanvasElement): CoreFilm | null {
     }
     let offset = 0
     const layout = attributes.map(([name, size]) => {
-      const entry = { location: gl.getAttribLocation(program, name), size, offset }
+      const entry = {
+        location: gl.getAttribLocation(program, name),
+        size,
+        offset,
+      }
       offset += size
       return entry
     })
     const uniforms = new Map<string, WebGLUniformLocation | null>()
     const uniform = (name: string) => {
-      if (!uniforms.has(name)) uniforms.set(name, gl.getUniformLocation(program, name))
+      if (!uniforms.has(name)) {
+        uniforms.set(name, gl.getUniformLocation(program, name))
+      }
       return uniforms.get(name) ?? null
     }
     return { program, layout, stride: offset, uniform }
@@ -300,7 +315,14 @@ export function createWebGLCore(canvas: HTMLCanvasElement): CoreFilm | null {
     if (atlas && texture) {
       textures.push(texture)
       gl.bindTexture(gl.TEXTURE_2D, texture)
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, atlas.canvas)
+      gl.texImage2D(
+        gl.TEXTURE_2D,
+        0,
+        gl.RGBA,
+        gl.RGBA,
+        gl.UNSIGNED_BYTE,
+        atlas.canvas
+      )
       for (const [key, value] of [
         [gl.TEXTURE_MIN_FILTER, gl.LINEAR],
         [gl.TEXTURE_MAG_FILTER, gl.LINEAR],
@@ -310,9 +332,9 @@ export function createWebGLCore(canvas: HTMLCanvasElement): CoreFilm | null {
         gl.texParameteri(gl.TEXTURE_2D, key, value)
       }
     }
-    const pointRange = gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE) as
-      | Float32Array
-      | null
+    const pointRange = gl.getParameter(
+      gl.ALIASED_POINT_SIZE_RANGE
+    ) as Float32Array | null
     const maxPoint = pointRange?.[1] ?? 64
     const scene = createTrainingScene()
 
@@ -322,7 +344,15 @@ export function createWebGLCore(canvas: HTMLCanvasElement): CoreFilm | null {
       dots = batch(),
       glowDots = batch(),
       labels = batch()
-    type Sprite = [p: CorePoint, color: Rgb, alpha: number, size: number, shape: number, fill: number, depth: number]
+    type Sprite = [
+      p: CorePoint,
+      color: Rgb,
+      alpha: number,
+      size: number,
+      shape: number,
+      fill: number,
+      depth: number,
+    ]
     let pending: Sprite[] = []
     let camera: Camera | null = null
     const rgba = (color: Rgb, alpha: number) => [
@@ -340,7 +370,19 @@ export function createWebGLCore(canvas: HTMLCanvasElement): CoreFilm | null {
       dash: number
     ) => {
       for (const [t, side] of QUAD) {
-        write(target, [a.x, a.y, a.z, b.x, b.y, b.z, t, side, ...color, width, dash])
+        write(target, [
+          a.x,
+          a.y,
+          a.z,
+          b.x,
+          b.y,
+          b.z,
+          t,
+          side,
+          ...color,
+          width,
+          dash,
+        ])
       }
     }
     const glyph = (
@@ -385,10 +427,26 @@ export function createWebGLCore(canvas: HTMLCanvasElement): CoreFilm | null {
       sprite(p, color, alpha, size, shape, fill = 0, glow = false) {
         if (alpha <= 0.01) return
         if (glow) {
-          write(glowDots, [p.x, p.y, p.z, ...rgba(color, alpha), size, shape, fill])
+          write(glowDots, [
+            p.x,
+            p.y,
+            p.z,
+            ...rgba(color, alpha),
+            size,
+            shape,
+            fill,
+          ])
           return
         }
-        pending.push([p, color, alpha, size, shape, fill, camera ? projectPoint(camera, p).depth : 0])
+        pending.push([
+          p,
+          color,
+          alpha,
+          size,
+          shape,
+          fill,
+          camera ? projectPoint(camera, p).depth : 0,
+        ])
       },
     }
 
@@ -430,11 +488,22 @@ export function createWebGLCore(canvas: HTMLCanvasElement): CoreFilm | null {
       gl.uniform4fv(program.uniform('uQuiet'), camera.quiet)
       gl.blendFunc(gl.ONE, additive ? gl.ONE : gl.ONE_MINUS_SRC_ALPHA)
       gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
-      gl.bufferData(gl.ARRAY_BUFFER, data.data.subarray(0, data.length), gl.STREAM_DRAW)
+      gl.bufferData(
+        gl.ARRAY_BUFFER,
+        data.data.subarray(0, data.length),
+        gl.STREAM_DRAW
+      )
       for (const entry of program.layout) {
         if (entry.location < 0) continue
         gl.enableVertexAttribArray(entry.location)
-        gl.vertexAttribPointer(entry.location, entry.size, gl.FLOAT, false, program.stride * 4, entry.offset * 4)
+        gl.vertexAttribPointer(
+          entry.location,
+          entry.size,
+          gl.FLOAT,
+          false,
+          program.stride * 4,
+          entry.offset * 4
+        )
       }
       gl.drawArrays(mode, 0, data.length / program.stride)
       for (const entry of program.layout) {

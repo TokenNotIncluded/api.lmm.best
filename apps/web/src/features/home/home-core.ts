@@ -76,7 +76,13 @@ export type ShapeId = (typeof Shape)[keyof typeof Shape]
 
 /** Renderers receive primitives in world space; `glow` primitives blend additively. */
 export interface SceneSink {
-  token(p: CorePoint, text: string, color: Rgb, alpha: number, size: number): void
+  token(
+    p: CorePoint,
+    text: string,
+    color: Rgb,
+    alpha: number,
+    size: number
+  ): void
   segment(
     a: CorePoint,
     b: CorePoint,
@@ -192,7 +198,11 @@ export function createNetwork(): Network {
     neurons.push({
       id: neurons.length,
       layer: 4,
-      position: point(OUTPUT_X, ((VOCABULARY.length - 1) / 2 - row) * OUTPUT_DY, 0),
+      position: point(
+        OUTPUT_X,
+        ((VOCABULARY.length - 1) / 2 - row) * OUTPUT_DY,
+        0
+      ),
     })
   })
   layers.push(output)
@@ -205,7 +215,8 @@ export function createNetwork(): Network {
     const fan = g === 3 ? 3 : 4
     for (const from of source) {
       for (let k = 0; k < fan; k++) {
-        const to = target[Math.floor(hash(from * 97 + k * 131 + g) * target.length)]
+        const to =
+          target[Math.floor(hash(from * 97 + k * 131 + g) * target.length)]
         if (synapses.some((s) => s.from === from && s.to === to)) continue
         synapses.push({ from, to, weight: hash(from * 57 + to * 11) * 2 - 1 })
       }
@@ -326,7 +337,9 @@ export function rasterizeToken(text: string, cols: number, rows: number) {
     ctx.textBaseline = 'middle'
     ctx.fillText(text, cols / 2, rows / 2 + 1)
     const data = ctx.getImageData(0, 0, cols, rows).data
-    for (let i = 0; i < bitmap.length; i++) bitmap[i] = data[i * 4 + 3] > 128 ? 1 : 0
+    for (let i = 0; i < bitmap.length; i++) {
+      bitmap[i] = data[i * 4 + 3] > 128 ? 1 : 0
+    }
   } catch {
     // Decorative input only.
   }
@@ -408,7 +421,17 @@ function createSample(net: Network, sample: number, raster: Raster): Sample {
     const h = hash(sample * 7 + i * 3)
     if (near && h > 0.45) saliency[i] = (h - 0.45) / 0.55
   }
-  return { target, predicted, act, grad, bitmap, saliency, taps, forward, backward }
+  return {
+    target,
+    predicted,
+    act,
+    grad,
+    bitmap,
+    saliency,
+    taps,
+    forward,
+    backward,
+  }
 }
 
 /** Builds each training frame: token intake, forward pass, prediction and backpropagation. */
@@ -489,23 +512,43 @@ export function createTrainingScene(
       const shown = on && col / INPUT.cols < clock.reveal * 1.05
       const heat = s.saliency[i] * backIntoInput
       if (shown) {
-        sink.sprite(p, mix(PALETTE.ink, PALETTE.pink, heat * 0.5), live, INPUT.cell, Shape.pixel)
+        sink.sprite(
+          p,
+          mix(PALETTE.ink, PALETTE.pink, heat * 0.5),
+          live,
+          INPUT.cell,
+          Shape.pixel
+        )
       } else if (heat > 0.05) {
-        sink.sprite(p, mix(PALETTE.crimson, PALETTE.pink, heat), heat * live, INPUT.cell, Shape.pixel)
+        sink.sprite(
+          p,
+          mix(PALETTE.crimson, PALETTE.pink, heat),
+          heat * live,
+          INPUT.cell,
+          Shape.pixel
+        )
       } else {
         sink.sprite(p, PALETTE.lattice, 0.4, INPUT.cell * 0.36, Shape.pixel)
       }
     })
     if (clock.reveal > 0 && clock.reveal < 1) {
       const x = INPUT.x - half.w + clock.reveal * half.w * 2
-      sink.segment(point(x, -half.h, 0.01), point(x, half.h, 0.01), PALETTE.cyan, 0.9, 2, true)
+      sink.segment(
+        point(x, -half.h, 0.01),
+        point(x, half.h, 0.01),
+        PALETTE.cyan,
+        0.9,
+        2,
+        true
+      )
     }
 
     // Weight lattice: twinkles pink while its gap is being updated.
     for (const dot of net.lattice) {
       const updating =
         clock.backward <= dot.gap + 1 && clock.backward >= dot.gap - 0.4
-      const flicker = updating && hash(dot.seed + Math.floor(time * 14) * 977) > 0.78
+      const flicker =
+        updating && hash(dot.seed + Math.floor(time * 14) * 977) > 0.78
       sink.sprite(
         dot.position,
         flicker ? PALETTE.pink : PALETTE.lattice,
@@ -518,32 +561,72 @@ export function createTrainingScene(
     // Idle wiring.
     for (let g = 1; g <= 3; g++) {
       for (const synapse of net.gaps[g]) {
-        sink.segment(neuron(synapse.from), neuron(synapse.to), PALETTE.wire, 0.55, 1)
+        sink.segment(
+          neuron(synapse.from),
+          neuron(synapse.to),
+          PALETTE.wire,
+          0.55,
+          1
+        )
       }
     }
 
     // Forward pass: edges grow from each active source behind the wave front.
-    const forwardEdge = (a: CorePoint, b: CorePoint, gap: number, weight: number, strength: number) => {
+    const forwardEdge = (
+      a: CorePoint,
+      b: CorePoint,
+      gap: number,
+      weight: number,
+      strength: number
+    ) => {
       const u = clamp(clock.forward - gap)
       if (u <= 0) return
-      const tail = clock.forward >= gap + 1 ? Math.exp(-(clock.forward - gap - 1) * 2.2) : 1
+      const tail =
+        clock.forward >= gap + 1
+          ? Math.exp(-(clock.forward - gap - 1) * 2.2)
+          : 1
       const alpha = tail * (0.45 + 0.55 * strength) * live * forwardFade
       if (alpha < 0.02) return
       const head = lerp(a, b, u)
       const color = mix(PALETTE.blue, PALETTE.cyan, Math.abs(weight))
-      sink.segment(a, head, color, alpha, Math.abs(weight) > 0.6 ? 2.6 : 1.8, true)
-      if (u < 1) sink.sprite(head, PALETTE.cyan, 0.95 * live, 0.2, Shape.glow, 1, true)
+      sink.segment(
+        a,
+        head,
+        color,
+        alpha,
+        Math.abs(weight) > 0.6 ? 2.6 : 1.8,
+        true
+      )
+      if (u < 1) {
+        sink.sprite(head, PALETTE.cyan, 0.95 * live, 0.2, Shape.glow, 1, true)
+      }
     }
-    const backwardEdge = (a: CorePoint, b: CorePoint, gap: number, sign: number, strength: number) => {
+    const backwardEdge = (
+      a: CorePoint,
+      b: CorePoint,
+      gap: number,
+      sign: number,
+      strength: number
+    ) => {
       // Travels from b (the later layer) back towards a.
       const u = clamp(gap + 1 - clock.backward)
       if (u <= 0) return
-      const tail = clock.backward <= gap ? Math.exp(-(gap - clock.backward) * 2) : 1
+      const tail =
+        clock.backward <= gap ? Math.exp(-(gap - clock.backward) * 2) : 1
       const alpha = tail * (0.5 + 0.5 * strength) * live
       if (alpha < 0.02) return
       const head = lerp(b, a, u)
-      sink.segment(b, head, sign > 0 ? PALETTE.pink : PALETTE.cyan, alpha, strength > 0.6 ? 2.6 : 1.8, true)
-      if (u < 1) sink.sprite(head, PALETTE.pink, 0.95 * live, 0.2, Shape.glow, 1, true)
+      sink.segment(
+        b,
+        head,
+        sign > 0 ? PALETTE.pink : PALETTE.cyan,
+        alpha,
+        strength > 0.6 ? 2.6 : 1.8,
+        true
+      )
+      if (u < 1) {
+        sink.sprite(head, PALETTE.pink, 0.95 * live, 0.2, Shape.glow, 1, true)
+      }
     }
     for (const [pixel, target] of s.taps) {
       forwardEdge(net.pixels[pixel], neuron(target), 0, 0.5, 0.6)
@@ -551,11 +634,23 @@ export function createTrainingScene(
     }
     for (let g = 1; g <= 3; g++) {
       for (const synapse of s.forward[g]) {
-        forwardEdge(neuron(synapse.from), neuron(synapse.to), g, synapse.weight, s.act[synapse.from])
+        forwardEdge(
+          neuron(synapse.from),
+          neuron(synapse.to),
+          g,
+          synapse.weight,
+          s.act[synapse.from]
+        )
       }
       for (const synapse of s.backward[g]) {
         const value = s.grad[synapse.to] * synapse.weight
-        backwardEdge(neuron(synapse.from), neuron(synapse.to), g, value, Math.abs(value))
+        backwardEdge(
+          neuron(synapse.from),
+          neuron(synapse.to),
+          g,
+          value,
+          Math.abs(value)
+        )
       }
     }
     // Sampling squares on the tapped input pixels.
@@ -563,10 +658,22 @@ export function createTrainingScene(
     const blaming = ramp(1.2, 0.6, clock.backward) * live
     for (const [pixel] of s.taps) {
       if (tapping > 0.01) {
-        sink.sprite(net.pixels[pixel], PALETTE.cyan, tapping * live, INPUT.cell * 2.2, Shape.frame)
+        sink.sprite(
+          net.pixels[pixel],
+          PALETTE.cyan,
+          tapping * live,
+          INPUT.cell * 2.2,
+          Shape.frame
+        )
       }
       if (blaming > 0.01) {
-        sink.sprite(net.pixels[pixel], PALETTE.pink, blaming, INPUT.cell * 2.2, Shape.frame)
+        sink.sprite(
+          net.pixels[pixel],
+          PALETTE.pink,
+          blaming,
+          INPUT.cell * 2.2,
+          Shape.frame
+        )
       }
     }
 
@@ -574,15 +681,42 @@ export function createTrainingScene(
     for (const n of net.neurons) {
       const d = n.layer
       const reach = ramp(d - 0.25, d + 0.05, clock.forward)
-      const flash = Math.max(0, 1 - Math.abs(clock.forward - d) * 3.5) * (s.act[n.id] > 0 ? 1 : 0)
-      const f = Math.min(1, s.act[n.id] * reach * forwardFade + flash * 0.4) * live
-      const b = Math.abs(s.grad[n.id]) * ramp(d + 0.3, d - 0.05, clock.backward) * live
-      let color = mix(PALETTE.idle, mix(PALETTE.blue, PALETTE.cyan, flash), Math.min(1, f * 1.6))
-      color = mix(color, mix(PALETTE.crimson, PALETTE.pink, b), Math.min(1, b * 1.8))
+      const flash =
+        Math.max(0, 1 - Math.abs(clock.forward - d) * 3.5) *
+        (s.act[n.id] > 0 ? 1 : 0)
+      const f =
+        Math.min(1, s.act[n.id] * reach * forwardFade + flash * 0.4) * live
+      const b =
+        Math.abs(s.grad[n.id]) * ramp(d + 0.3, d - 0.05, clock.backward) * live
+      let color = mix(
+        PALETTE.idle,
+        mix(PALETTE.blue, PALETTE.cyan, flash),
+        Math.min(1, f * 1.6)
+      )
+      color = mix(
+        color,
+        mix(PALETTE.crimson, PALETTE.pink, b),
+        Math.min(1, b * 1.8)
+      )
       const size = d === 4 ? 0.24 : 0.28
-      sink.sprite(n.position, color, 0.95, size, Shape.neuron, Math.max(f * (1 - b), b * 0.85))
+      sink.sprite(
+        n.position,
+        color,
+        0.95,
+        size,
+        Shape.neuron,
+        Math.max(f * (1 - b), b * 0.85)
+      )
       if (f > 0.55 && b < 0.2) {
-        sink.sprite(n.position, PALETTE.blue, f * 0.35, size * 2.2, Shape.glow, 1, true)
+        sink.sprite(
+          n.position,
+          PALETTE.blue,
+          f * 0.35,
+          size * 2.2,
+          Shape.glow,
+          1,
+          true
+        )
       }
     }
 
@@ -613,9 +747,27 @@ export function createTrainingScene(
         const u = clamp(5 - clock.backward)
         if (u > 0) {
           const head = lerp(LOSS, p, u)
-          const tail = clock.backward <= 4 ? Math.exp(-(4 - clock.backward) * 2) : 1
-          sink.segment(LOSS, head, g > 0 ? PALETTE.pink : PALETTE.cyan, tail * Math.abs(g) * live, 2, true)
-          if (u < 1) sink.sprite(head, PALETTE.pink, 0.95 * live, 0.2, Shape.glow, 1, true)
+          const tail =
+            clock.backward <= 4 ? Math.exp(-(4 - clock.backward) * 2) : 1
+          sink.segment(
+            LOSS,
+            head,
+            g > 0 ? PALETTE.pink : PALETTE.cyan,
+            tail * Math.abs(g) * live,
+            2,
+            true
+          )
+          if (u < 1) {
+            sink.sprite(
+              head,
+              PALETTE.pink,
+              0.95 * live,
+              0.2,
+              Shape.glow,
+              1,
+              true
+            )
+          }
         }
       }
     })
@@ -624,15 +776,33 @@ export function createTrainingScene(
     const correct = s.predicted === s.target
     const verdict = correct ? PALETTE.cyan : PALETTE.pink
     const box = [
-      point(PREDICTION.x - PREDICTION.w / 2, PREDICTION.y - PREDICTION.h / 2, 0),
-      point(PREDICTION.x + PREDICTION.w / 2, PREDICTION.y - PREDICTION.h / 2, 0),
-      point(PREDICTION.x + PREDICTION.w / 2, PREDICTION.y + PREDICTION.h / 2, 0),
-      point(PREDICTION.x - PREDICTION.w / 2, PREDICTION.y + PREDICTION.h / 2, 0),
+      point(
+        PREDICTION.x - PREDICTION.w / 2,
+        PREDICTION.y - PREDICTION.h / 2,
+        0
+      ),
+      point(
+        PREDICTION.x + PREDICTION.w / 2,
+        PREDICTION.y - PREDICTION.h / 2,
+        0
+      ),
+      point(
+        PREDICTION.x + PREDICTION.w / 2,
+        PREDICTION.y + PREDICTION.h / 2,
+        0
+      ),
+      point(
+        PREDICTION.x - PREDICTION.w / 2,
+        PREDICTION.y + PREDICTION.h / 2,
+        0
+      ),
     ]
     const shown = clock.predict * live
     box.forEach((corner, i) => {
       sink.segment(corner, box[(i + 1) % 4], PALETTE.idle, 0.9, 1.5)
-      if (shown > 0.01) sink.segment(corner, box[(i + 1) % 4], verdict, shown * 0.8, 1.5, true)
+      if (shown > 0.01) {
+        sink.segment(corner, box[(i + 1) % 4], verdict, shown * 0.8, 1.5, true)
+      }
     })
     if (shown > 0.01) {
       sink.segment(
@@ -643,13 +813,38 @@ export function createTrainingScene(
         1.5,
         true
       )
-      sink.label(point(PREDICTION.x, PREDICTION.y, 0.02), VOCABULARY[s.predicted], verdict, shown, 0.34, 0.5)
+      sink.label(
+        point(PREDICTION.x, PREDICTION.y, 0.02),
+        VOCABULARY[s.predicted],
+        verdict,
+        shown,
+        0.34,
+        0.5
+      )
     }
-    const loss = clock.backward <= 5.2 ? Math.exp(-Math.abs(clock.backward - 4.6) * 1.4) : 0
+    const loss =
+      clock.backward <= 5.2
+        ? Math.exp(-Math.abs(clock.backward - 4.6) * 1.4)
+        : 0
     const severity = correct ? 0.45 : 1
-    sink.sprite(LOSS, mix(PALETTE.crimson, PALETTE.pink, loss), 0.95, 0.3, Shape.diamond, 0.35 + loss * severity * 0.65)
+    sink.sprite(
+      LOSS,
+      mix(PALETTE.crimson, PALETTE.pink, loss),
+      0.95,
+      0.3,
+      Shape.diamond,
+      0.35 + loss * severity * 0.65
+    )
     if (loss > 0.05) {
-      sink.sprite(LOSS, PALETTE.pink, loss * severity * 0.55 * live, 0.9, Shape.glow, 1, true)
+      sink.sprite(
+        LOSS,
+        PALETTE.pink,
+        loss * severity * 0.55 * live,
+        0.9,
+        Shape.glow,
+        1,
+        true
+      )
     }
   }
 }
@@ -681,22 +876,40 @@ export function createCamera(
   const narrow = width < 650
   const centered = layout === 'center'
   const orbit = ramp(0.06, 0.5, progress) - ramp(0.6, 0.98, progress)
-  const ry = -0.5 + orbit * 0.78 + pointer.x * 0.24 + Math.sin(time * 0.09) * 0.05
-  const rx = 0.2 + orbit * 0.12 + pointer.y * 0.12 + Math.sin(time * 0.07) * 0.02
-  const [sy, cy, sx, cx] = [Math.sin(ry), Math.cos(ry), Math.sin(rx), Math.cos(rx)]
+  const ry =
+    -0.5 + orbit * 0.78 + pointer.x * 0.24 + Math.sin(time * 0.09) * 0.05
+  const rx =
+    0.2 + orbit * 0.12 + pointer.y * 0.12 + Math.sin(time * 0.07) * 0.02
+  const [sy, cy, sx, cx] = [
+    Math.sin(ry),
+    Math.cos(ry),
+    Math.sin(rx),
+    Math.cos(rx),
+  ]
   // Columns are the rotated basis vectors: yaw around Y, then pitch around X.
   const rotation = new Float32Array([
-    cy, sx * sy, -cx * sy,
-    0, cx, sx,
-    sy, -sx * cy, cx * cy,
+    cy,
+    sx * sy,
+    -cx * sy,
+    0,
+    cx,
+    sx,
+    sy,
+    -sx * cy,
+    cx * cy,
   ])
   const zoom = narrow ? 1 - orbit * 0.1 : 1
   const unit = centered
     ? Math.min(width * 0.1, height * 0.16)
-    : Math.min(width * (narrow ? 0.108 : 0.058), height * (narrow ? 0.07 : 0.118))
+    : Math.min(
+        width * (narrow ? 0.108 : 0.058),
+        height * (narrow ? 0.07 : 0.118)
+      )
   return {
     rotation,
-    cx: width * (centered ? 0.5 : narrow ? 0.5 + orbit * 0.03 : 0.285 + orbit * 0.035),
+    cx:
+      width *
+      (centered ? 0.5 : narrow ? 0.5 + orbit * 0.03 : 0.285 + orbit * 0.035),
     cy: height * (centered ? 0.5 : narrow ? 0.27 : 0.53),
     unit: unit * zoom,
     distance: 12,

@@ -21,7 +21,9 @@ import { cinemaPosition } from './home-motion'
 
 const glyph = (text: string, cols: number, rows: number) => {
   const bitmap = new Uint8Array(cols * rows)
-  for (let i = 0; i < bitmap.length; i++) bitmap[i] = (i + text.length) % 3 === 0 ? 1 : 0
+  for (let i = 0; i < bitmap.length; i++) {
+    bitmap[i] = (i + text.length) % 3 === 0 ? 1 : 0
+  }
   return bitmap
 }
 
@@ -108,7 +110,10 @@ test('the camera keeps the network on screen through the scroll orbit', () => {
         { x: PREDICTION.x + PREDICTION.w / 2, y: PREDICTION.y, z: 0 },
         LOSS,
       ]
-      for (const p of [...net.neurons.map((neuron) => neuron.position), ...landmarks]) {
+      for (const p of [
+        ...net.neurons.map((neuron) => neuron.position),
+        ...landmarks,
+      ]) {
         const q = projectPoint(camera, p)
         assert.ok(q.x > 0 && q.x < w && q.y > 0 && q.y < h)
       }
