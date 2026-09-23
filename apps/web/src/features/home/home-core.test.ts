@@ -2,30 +2,118 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { createCoreMesh, transformCorePoint } from './home-core'
+import {
+  createCamera,
+  createNetwork,
+  createTrainingScene,
+  CYCLE,
+  INPUT,
+  LOSS,
+  PALETTE,
+  PREDICTION,
+  projectPoint,
+  SCENE_TEXT,
+  trainingClock,
+  type CorePoint,
+  type SceneSink,
+} from './home-core'
 import { cinemaPosition } from './home-motion'
 
-test('the abstract Transformer remains finite across the entire reversible scroll sequence', () => {
-  const mesh = createCoreMesh()
-  assert.ok(mesh.length > 5000 && mesh.length < 16000)
-  for (const progress of [0, 0.2, 0.4, 0.6, 0.8, 1]) {
-    for (const face of mesh) {
-      for (const point of face.points) {
-        const transformed = transformCorePoint(point, face, progress)
-        for (const value of Object.values(transformed)) {
-          assert.ok(Number.isFinite(value) && Math.abs(value) < 5)
-        }
+const glyph = (text: string, cols: number, rows: number) => {
+  const bitmap = new Uint8Array(cols * rows)
+  for (let i = 0; i < bitmap.length; i++) bitmap[i] = (i + text.length) % 3 === 0 ? 1 : 0
+  return bitmap
+}
+
+function record(time: number) {
+  const net = createNetwork()
+  const scene = createTrainingScene(net, glyph)
+  const points: CorePoint[] = []
+  const colors: (readonly number[])[] = []
+  const text: string[] = []
+  const sink: SceneSink = {
+    token: (p, value) => (points.push(p), text.push(value)),
+    label: (p, value) => (points.push(p), text.push(value)),
+    segment: (a, b, color, alpha) => {
+      points.push(a, b)
+      if (alpha > 0.3) colors.push(color)
+    },
+    sprite: (p, color, alpha) => {
+      points.push(p)
+      if (alpha > 0.3) colors.push(color)
+    },
+  }
+  scene(sink, time)
+  return { net, points, colors, text }
+}
+
+test('the network has an input bitmap, three hidden grids and one output per token', () => {
+  const net = createNetwork()
+  assert.equal(net.layers.length, 5)
+  assert.equal(net.layers[4].length, 10)
+  for (const layer of net.layers.slice(1, 4)) assert.equal(layer.length, 36)
+  for (let g = 1; g <= 3; g++) {
+    assert.ok(net.gaps[g].length > 60)
+    for (const synapse of net.gaps[g]) {
+      assert.ok(net.layers[g].includes(synapse.from))
+      assert.ok(net.layers[g + 1].includes(synapse.to))
+    }
+  }
+})
+
+test('each training cycle runs forward before it propagates gradients backward', () => {
+  const offset = trainingClock(0).t * CYCLE
+  const at = (t: number) => trainingClock(t * CYCLE - offset)
+  assert.equal(at(0.1).forward, 0)
+  assert.equal(at(0.35).backward, Number.POSITIVE_INFINITY)
+  assert.equal(at(0.55).forward, 4)
+  assert.equal(at(0.55).backward, Number.POSITIVE_INFINITY)
+  assert.ok(at(0.75).backward < 4 && at(0.75).backward > 0)
+  assert.ok(at(0.95).backward < 0)
+  // A motionless frame shows gradients flowing through the hidden layers.
+  assert.ok(trainingClock(0).backward > 1 && trainingClock(0).backward < 3.5)
+})
+
+test('every emitted frame stays finite, uses known text and shows both passes', () => {
+  let forwardSeen = false
+  let backwardSeen = false
+  for (let frame = 0; frame < 48; frame++) {
+    const { points, colors, text } = record((frame / 48) * CYCLE * 2)
+    for (const p of points) {
+      assert.ok([p.x, p.y, p.z].every(Number.isFinite))
+      assert.ok(Math.abs(p.x) < 10 && Math.abs(p.y) < 10 && Math.abs(p.z) < 10)
+    }
+    for (const value of text) assert.ok(SCENE_TEXT.includes(value), value)
+    forwardSeen ||= colors.includes(PALETTE.cyan)
+    backwardSeen ||= colors.includes(PALETTE.pink)
+  }
+  assert.ok(forwardSeen && backwardSeen)
+})
+
+test('the camera keeps the network on screen through the scroll orbit', () => {
+  const net = createNetwork()
+  for (const [w, h] of [
+    [1440, 900],
+    [390, 844],
+  ]) {
+    for (const progress of [0, 0.3, 0.5, 0.8, 1]) {
+      const camera = createCamera(0, { x: 0, y: 0 }, progress, w, h)
+      const input = {
+        w: (INPUT.cols * INPUT.cell) / 2 + 0.06,
+        h: (INPUT.rows * INPUT.cell) / 2 + 0.06,
+      }
+      const landmarks: CorePoint[] = [
+        { x: INPUT.x - input.w, y: -input.h, z: 0 },
+        { x: INPUT.x - input.w, y: input.h, z: 0 },
+        { x: PREDICTION.x + PREDICTION.w / 2, y: PREDICTION.y, z: 0 },
+        LOSS,
+      ]
+      for (const p of [...net.neurons.map((neuron) => neuron.position), ...landmarks]) {
+        const q = projectPoint(camera, p)
+        assert.ok(q.x > 0 && q.x < w && q.y > 0 && q.y < h)
       }
     }
   }
-  const tensor = mesh.find((face) => Math.abs(face.points[0].z) > 0.3)
-  assert.ok(tensor)
-  const assembled = transformCorePoint(tensor.points[0], tensor, 0)
-  const expanded = transformCorePoint(tensor.points[0], tensor, 0.55)
-  assert.ok(Math.abs(expanded.z - assembled.z) > 0.5)
-  const closed = transformCorePoint(tensor.points[0], tensor, 1)
-  assert.equal(closed.x, assembled.x)
-  assert.equal(closed.z, assembled.z)
 })
 
 test('scroll progress spans the pinned runway, not the whole section height', () => {

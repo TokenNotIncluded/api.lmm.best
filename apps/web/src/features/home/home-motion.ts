@@ -16,12 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import {
-  createCoreMesh,
-  createSignalPaths,
-  transformCorePoint,
-  type CorePoint,
-} from './home-core'
+import { createCanvasCore } from './home-core-canvas'
 import { createWebGLCore, type CoreFilm } from './home-core-webgl'
 import { createTokenCloud } from './home-token-cloud'
 
@@ -45,8 +40,6 @@ export function storyPosition(top: number, height: number, viewport: number) {
   return unit((viewport * 0.5 - top) / Math.max(height, 1))
 }
 
-type Point = CorePoint
-
 export function cinemaPosition(
   top: number,
   height: number,
@@ -56,204 +49,9 @@ export function cinemaPosition(
   return unit((stickyTop - top) / Math.max(height - frameHeight, 1))
 }
 
-/** A conceptual Transformer architecture: matrices, attention branches and residual paths. */
+/** A small network reading tokens: forward pass, prediction, then backpropagation. */
 function createFilm(canvas: HTMLCanvasElement): CoreFilm | null {
-  const accelerated = createWebGLCore(canvas)
-  if (accelerated) return accelerated
-  const ctx = canvas.getContext('2d', { alpha: false })
-  if (!ctx) return null
-  const mesh = createCoreMesh()
-  const signalPaths = createSignalPaths()
-  let width = 0
-  let height = 0
-  let pixelRatio = 0
-  return (
-    time: number,
-    pointer: { x: number; y: number },
-    progress: number
-  ) => {
-    const w = canvas.clientWidth
-    const h = canvas.clientHeight
-    if (!w || !h) return
-    const ratio = Math.min(window.devicePixelRatio || 1, 1.25, 1440 / w)
-    if (w !== width || h !== height || ratio !== pixelRatio) {
-      pixelRatio = ratio
-      width = w
-      height = h
-      canvas.width = Math.round(w * ratio)
-      canvas.height = Math.round(h * ratio)
-      ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
-    }
-    const backdrop = ctx.createLinearGradient(0, h, w, 0)
-    backdrop.addColorStop(0, '#f3f0e9')
-    backdrop.addColorStop(0.55, '#f3f0e9')
-    backdrop.addColorStop(1, '#e8e4dc')
-    ctx.fillStyle = backdrop
-    ctx.fillRect(0, 0, w, h)
-    const glow = ctx.createRadialGradient(
-      w * 0.43,
-      h * 0.4,
-      0,
-      w * 0.43,
-      h * 0.4,
-      h * 0.8
-    )
-    glow.addColorStop(0, '#ffffff33')
-    glow.addColorStop(1, '#ffffff00')
-    ctx.fillStyle = glow
-    ctx.fillRect(0, 0, w, h)
-    const narrow = w < 650
-    const cx = w * (narrow ? 0.5 : 0.255)
-    const cy = h * (narrow ? 0.255 : 0.49)
-    const scale = Math.min(
-      w * (narrow ? 0.105 : 0.1),
-      h * (narrow ? 0.15 : 0.095)
-    )
-    const ry =
-      -0.48 +
-      Math.sin(time * 0.2) * 0.16 +
-      pointer.x * 0.27 +
-      Math.sin(progress * Math.PI * 2) * 0.42
-    const rx =
-      -0.28 +
-      Math.cos(time * 0.16) * 0.035 +
-      pointer.y * 0.12 -
-      Math.sin(progress * Math.PI) * 0.28
-    const rz = -0.16 + Math.sin(time * 0.12) * 0.025 + progress * 0.22
-    const [sx, cxr, sy, cyr, sz, czr] = [
-      Math.sin(rx),
-      Math.cos(rx),
-      Math.sin(ry),
-      Math.cos(ry),
-      Math.sin(rz),
-      Math.cos(rz),
-    ]
-    const rotate = (p: Point): Point => {
-      const x = p.x * cyr + p.z * sy
-      const z = -p.x * sy + p.z * cyr
-      const y = p.y * cxr - z * sx
-      return { x: x * czr - y * sz, y: x * sz + y * czr, z: p.y * sx + z * cxr }
-    }
-    const shadow = ctx.createRadialGradient(
-      cx,
-      h * 0.88,
-      0,
-      cx,
-      h * 0.88,
-      scale * 2.5
-    )
-    shadow.addColorStop(0, '#020b0999')
-    shadow.addColorStop(1, '#020b0900')
-    ctx.save()
-    ctx.translate(0, h * 0.72)
-    ctx.scale(1, 0.18)
-    ctx.fillStyle = shadow
-    ctx.fillRect(0, -h * 3, w, h * 6)
-    ctx.restore()
-    const project = (p: Point) => {
-      const perspective = 7 / (7 - p.z)
-      return {
-        x: cx + p.x * scale * perspective,
-        y: cy - p.y * scale * perspective,
-        perspective,
-      }
-    }
-    // Fine attention routes stay behind the solid ribbons; no opaque full-screen effects.
-    const paths = signalPaths.map((path) => ({
-      color: path.color,
-      points: path.points.map((p) =>
-        rotate(transformCorePoint(p, { layer: 0, hinge: 0 }, progress))
-      ),
-    }))
-    ctx.lineWidth = narrow ? 0.7 : 0.85
-    for (const path of paths) {
-      ctx.strokeStyle = `rgba(${path.color.join(',')},0.28)`
-      ctx.beginPath()
-      path.points.forEach((p, i) => {
-        const q = project(p)
-        if (i === 0) ctx.moveTo(q.x, q.y)
-        else ctx.lineTo(q.x, q.y)
-      })
-      ctx.stroke()
-    }
-    const transformed = mesh
-      .map((face) => {
-        const points = face.points.map((p) =>
-          rotate(transformCorePoint(p, face, progress))
-        )
-        return {
-          ...face,
-          points,
-          normal: (() => {
-            const a = points[0],
-              b = points[1],
-              c = points[2]
-            const u = { x: b.x - a.x, y: b.y - a.y, z: b.z - a.z },
-              v = { x: c.x - a.x, y: c.y - a.y, z: c.z - a.z }
-            const n = {
-              x: u.y * v.z - u.z * v.y,
-              y: u.z * v.x - u.x * v.z,
-              z: u.x * v.y - u.y * v.x,
-            }
-            const length = Math.hypot(n.x, n.y, n.z) || 1
-            return { x: n.x / length, y: n.y / length, z: n.z / length }
-          })(),
-          z: points.reduce((sum, p) => sum + p.z, 0) / points.length,
-        }
-      })
-      .sort((a, b) => a.z - b.z)
-    for (const face of transformed) {
-      const n = face.normal
-      const diffuse = Math.max(0, -n.x * 0.4 + n.y * 0.5 + n.z * 0.7)
-      const specular = Math.pow(
-        Math.max(0, -n.x * 0.22 + n.y * 0.28 + n.z * 0.93),
-        22
-      )
-      const luminance = 0.38 + diffuse * 0.74
-      const c = (base: number, shine: number) =>
-        Math.round(Math.min(255, base * luminance + specular * shine))
-      ctx.fillStyle = `rgb(${c(face.color[0], 64 * face.shine)} ${c(face.color[1], 88 * face.shine)} ${c(face.color[2], 64 * face.shine)})`
-      ctx.beginPath()
-      face.points.forEach((p, i) => {
-        const perspective = 7 / (7 - p.z)
-        const x = cx + p.x * scale * perspective
-        const y = cy - p.y * scale * perspective
-        if (i === 0) ctx.moveTo(x, y)
-        else ctx.lineTo(x, y)
-      })
-      ctx.closePath()
-      ctx.fill()
-      ctx.strokeStyle = ctx.fillStyle
-      ctx.lineWidth = 0.6
-      ctx.stroke()
-    }
-    // A bounded set of pulses makes input/attention/output continuity legible.
-    paths.forEach((path, index) => {
-      for (let pulse = 0; pulse < 2; pulse++) {
-        const t =
-          (time * 0.14 + index * 0.071 + pulse * 0.5 + progress * 0.8) % 1
-        const cursor = t * (path.points.length - 1)
-        const a = path.points[Math.floor(cursor)]
-        const b =
-          path.points[Math.min(path.points.length - 1, Math.floor(cursor) + 1)]
-        const fraction = cursor % 1
-        const q = project({
-          x: a.x + (b.x - a.x) * fraction,
-          y: a.y + (b.y - a.y) * fraction,
-          z: a.z + (b.z - a.z) * fraction,
-        })
-        ctx.fillStyle = `rgba(${path.color.join(',')},0.12)`
-        ctx.beginPath()
-        ctx.arc(q.x, q.y, 5 * q.perspective, 0, Math.PI * 2)
-        ctx.fill()
-        ctx.fillStyle = '#fff0d3'
-        ctx.beginPath()
-        ctx.arc(q.x, q.y, 1.45 * q.perspective, 0, Math.PI * 2)
-        ctx.fill()
-      }
-    })
-    canvas.parentElement?.setAttribute('data-rendered', '')
-  }
+  return createWebGLCore(canvas) ?? createCanvasCore(canvas)
 }
 
 /** A single owned animation lifecycle, shared by the page and its browser tests. */

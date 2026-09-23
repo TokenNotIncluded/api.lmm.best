@@ -57,7 +57,13 @@ export function createTokenCloud(layer: HTMLElement | null) {
     node.textContent = text
     node.dataset.tokenParticle = ''
     node.dataset.tint =
-      index % 5 === 0 ? 'clay' : index % 3 === 0 ? 'sage' : 'ink'
+      index % 5 === 0
+        ? 'pink'
+        : index % 3 === 0
+          ? 'cyan'
+          : index % 4 === 1
+            ? 'blue'
+            : 'ink'
     const depth = 0.6 + ((index * 7) % 9) / 15
     node.style.fontSize = `${11 + depth * 5}px`
     layer.append(node)
