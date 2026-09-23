@@ -228,7 +228,7 @@ describe('Guide when the AI assistant is disabled', () => {
 
     assert.match(
       container.textContent ?? '',
-      /pi install git:github.com\/TokenNotIncluded\/pi-lmm-provider/
+      /lmm-pi-provider npm:@tokennotincluded\/pi-lmm-provider@0\.1\.0-alpha\.2/
     )
     assert.ok(
       container.querySelector(
