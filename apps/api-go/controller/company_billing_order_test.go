@@ -127,4 +127,14 @@ func TestWaffoPancakeLateSettlementPolicyRejectsTerminalStates(t *testing.T) {
 	require.False(t, waffoPancakeRejectsLateSettlement(common.TopUpStatusSuccess))
 	require.True(t, waffoPancakeRejectsLateSettlement(common.TopUpStatusFailed))
 	require.True(t, waffoPancakeRejectsLateSettlement(common.TopUpStatusExpired))
+	require.False(t, waffoPancakeWalletRejectsLateSettlement(&model.TopUp{
+		PaymentProvider:   model.PaymentProviderWaffoPancake,
+		Status:            common.TopUpStatusFailed,
+		FailureReasonCode: string(model.PaymentOrderFailureCheckoutTimeout),
+	}))
+	require.True(t, waffoPancakeWalletRejectsLateSettlement(&model.TopUp{
+		PaymentProvider:   model.PaymentProviderWaffoPancake,
+		Status:            common.TopUpStatusFailed,
+		FailureReasonCode: string(model.PaymentOrderFailureCompanyBillingRules),
+	}))
 }
