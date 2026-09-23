@@ -26,7 +26,7 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 
 const PI_INSTALL_COMMAND =
-  'pi install git:github.com/TokenNotIncluded/pi-lmm-provider'
+  'npm exec --yes --package=@tokennotincluded/pi-lmm-provider@0.1.0-alpha.2 -- lmm-pi-provider npm:@tokennotincluded/pi-lmm-provider@0.1.0-alpha.2'
 
 export function PiOAuthGuide() {
   const { t } = useTranslation()
