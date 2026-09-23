@@ -228,12 +228,31 @@ describe('Guide when the AI assistant is disabled', () => {
 
     assert.match(
       container.textContent ?? '',
-      /lmm-pi-provider npm:@tokennotincluded\/pi-lmm-provider@0\.1\.0-alpha\.2/
+      /lmm-pi-provider npm:@tokennotincluded\/pi-lmm-provider@latest/
     )
     assert.ok(
       container.querySelector(
         '#pi-oauth a[href*="npmjs.com/package/@earendil-works/pi-coding-agent"]'
       )
+    )
+
+    await click(findButton(container, 'DSH Desktop (OAuth)'))
+    assert.ok(container.querySelector('#dsh-oauth'))
+    assert.match(
+      container.textContent ?? '',
+      /@tokennotincluded\/dsh-lmm-provider@latest/
+    )
+    assert.match(
+      container.textContent ?? '',
+      /dsh plugin --profile web add @tokennotincluded\/dsh-lmm-provider@latest/
+    )
+    assert.match(
+      container.textContent ?? '',
+      /npm pack @tokennotincluded\/dsh-lmm-provider@latest/
+    )
+    assert.doesNotMatch(
+      container.textContent ?? '',
+      /Create a key and import|Create an API key/
     )
 
     await click(findButton(container, 'Cherry Studio'))

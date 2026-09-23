@@ -305,7 +305,7 @@ export function Guide() {
   const [selectedClient, setSelectedClient] = useState<ClientTab>(
     () => readSetupPreferences()?.client ?? 'cherry-studio'
   )
-  const oauth = selectedClient === 'pi'
+  const oauth = selectedClient === 'pi' || selectedClient === 'dsh'
   const completedSteps = oauth
     ? [onboarding.activationComplete, onboarding.firstRequestComplete]
     : [
@@ -320,7 +320,7 @@ export function Guide() {
   const stages = oauth
     ? [
         t('Choose your client'),
-        t('Install Pi'),
+        selectedClient === 'pi' ? t('Install Pi') : t('Install DSH plugin'),
         t('Sign in with OAuth'),
         t('Choose a model'),
         t('Send first request'),

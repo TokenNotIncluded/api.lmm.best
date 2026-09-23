@@ -234,7 +234,18 @@ describe('AssistantSetupTool', () => {
     })
     assert.match(
       container.textContent ?? '',
-      /lmm-pi-provider npm:@tokennotincluded\/pi-lmm-provider@0\.1\.0-alpha\.2/
+      /lmm-pi-provider npm:@tokennotincluded\/pi-lmm-provider@latest/
+    )
+    assert.throws(() => findButton('Create API key'))
+    assert.equal(container.querySelector('select[aria-label="Model ID"]'), null)
+
+    await act(async () => {
+      findButton('DSH Desktop (OAuth)').click()
+      await flushEffects()
+    })
+    assert.match(
+      container.textContent ?? '',
+      /dsh plugin --profile web add @tokennotincluded\/dsh-lmm-provider@latest/
     )
     assert.throws(() => findButton('Create API key'))
     assert.equal(container.querySelector('select[aria-label="Model ID"]'), null)
