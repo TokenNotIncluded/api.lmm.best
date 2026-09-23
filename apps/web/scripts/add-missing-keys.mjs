@@ -22,6 +22,7 @@ Copyright (C) 2026 LIghtJUNction
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
+import { acquisitionCopy as acquisitionLinkCopy } from './acquisition-copy.mjs'
 import { apiKeySourceCopy } from './api-key-source-copy.mjs'
 import { assistantSettingsCopy } from './assistant-settings-copy.mjs'
 import { assistantToolCopy } from './assistant-tool-copy.mjs'
@@ -30,6 +31,7 @@ import { drawingWalletCopy } from './drawing-wallet-copy.mjs'
 import { dshGuideCopy } from './dsh-guide-copy.mjs'
 import { homeEditorialCopy } from './home-editorial-copy.mjs'
 import { paymentPricingCopy } from './payment-pricing-copy.mjs'
+import { passkeyCopy } from './passkey-copy.mjs'
 import { piGuideCopy } from './pi-guide-copy.mjs'
 import { piOAuthCopy } from './pi-oauth-copy.mjs'
 import { profileShareCopy } from './profile-share-copy.mjs'
@@ -11854,7 +11856,9 @@ async function main() {
   const keyFollowthroughOnly = process.argv.includes('--only-key-followthrough')
   const fixedGroupOnly = process.argv.includes('--only-fixed-group')
   const operationsFinishOnly = process.argv.includes('--only-operations-finish')
+  const passkeyOnly = process.argv.includes('--only-passkey')
   const scoped =
+    passkeyOnly ||
     operationsFinishOnly ||
     fixedGroupOnly ||
     keyFollowthroughOnly ||
@@ -11874,8 +11878,10 @@ async function main() {
     homeOnly ||
     waitOnly ||
     assistantToolOnly
-  const entries = operationsFinishOnly
-    ? operationsFinishCopy
+  const entries = passkeyOnly
+    ? passkeyCopy
+    : operationsFinishOnly
+      ? operationsFinishCopy
     : fixedGroupOnly
       ? fixedGroupCopy
       : keyFollowthroughOnly
@@ -12882,6 +12888,10 @@ for (const [locale, values] of Object.entries(integrationGameLocaleKeys)) {
 }
 
 for (const [locale, values] of Object.entries(profileShareCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(acquisitionLinkCopy)) {
   Object.assign(newKeys[locale], values)
 }
 

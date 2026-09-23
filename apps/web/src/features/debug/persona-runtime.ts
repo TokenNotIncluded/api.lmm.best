@@ -64,6 +64,7 @@ const DEBUG_EVENT = 'lmm:persona-debug-change'
 const BLOCKED_DEBUG_REQUEST = 'PERSONA_DEBUG_UNMOCKED_REQUEST'
 const now = Math.floor(Date.now() / 1000)
 const debugAnnouncementReads = new Set<string>()
+const debugAssistantRuntimeKeys = new Set<DebugPersonaId>()
 
 function trustLevel(level: number): TrustLevelInfo {
   return {
@@ -959,16 +960,65 @@ const debugAdapter: AxiosAdapter = async (config) => {
       envelope({ groups: [activeUser().group || 'default'], max_count: 5 })
     )
   }
+  if (method === 'POST' && path === '/api/assistant/runtime-key') {
+    if (activeUser().role < ROLE.SUPER_ADMIN) {
+      return response(
+        config,
+        { success: false, message: 'Root account required' },
+        403
+      )
+    }
+    const created = !debugAssistantRuntimeKeys.has(state.activePersona)
+    debugAssistantRuntimeKeys.add(state.activePersona)
+    return response(
+      config,
+      envelope({
+        id: 8002,
+        name: 'AI assistant runtime',
+        group: 'default',
+        created,
+      })
+    )
+  }
   if (method === 'GET' && path === '/api/token/') {
     const developerAccessGranted =
       activeUser().developer_access_granted === true
+    const runtimeKeys =
+      url.searchParams.get('creation_mode') === 'automatic' &&
+      debugAssistantRuntimeKeys.has(state.activePersona)
+        ? [
+            {
+              id: 8002,
+              name: 'AI assistant runtime',
+              key: 'a1b2**********c3d4',
+              one_time_reveal: true,
+              status: 1,
+              remain_quota: 0,
+              used_quota: 0,
+              unlimited_quota: true,
+              expired_time: -1,
+              created_time: now,
+              accessed_time: now,
+              group: 'default',
+              model_limits_enabled: false,
+              model_limits: '',
+              allow_ips: '',
+              creation_source: 'assistant_runtime',
+            },
+          ]
+        : []
     return response(
       config,
       !developerAccessGranted
         ? { success: false, message: 'Developer access required' }
         : {
             success: true,
-            data: { items: [], total: 0, page: 1, page_size: 10 },
+            data: {
+              items: runtimeKeys,
+              total: runtimeKeys.length,
+              page: 1,
+              page_size: 10,
+            },
           },
       !developerAccessGranted ? 403 : 200
     )

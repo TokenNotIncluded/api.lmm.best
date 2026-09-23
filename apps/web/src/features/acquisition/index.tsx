@@ -20,15 +20,12 @@ For commercial licensing, please contact support@quantumnous.com
 Copyright (C) 2026 LIghtJUNction
 */
 import { useQuery } from '@tanstack/react-query'
-import { QRCodeSVG } from 'qrcode.react'
 import { type FormEvent, useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { CopyButton } from '@/components/copy-button'
 import { SectionPageLayout } from '@/components/layout'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { hasPermission } from '@/lib/admin-permissions'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
@@ -38,7 +35,6 @@ import {
   type ActivityState,
   type ActivitySummary,
 } from './activity-panel'
-import { AcquisitionCostComparison } from './cost-comparison'
 import { AcquisitionFunnelPanel } from './funnel-panel'
 /*
 Copyright (C) 2023-2026 QuantumNous
@@ -58,22 +54,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { AcquisitionLinkPreview } from './link-preview'
+import { PromotionLinks } from './promotion-links'
 import { customAcquisitionRange, presetAcquisitionRange } from './report-range'
 import { sourceSummaryCSV } from './summary-export'
 import { SourceUsers } from './user-sources'
 import { AcquisitionVisitorPanel } from './visitor-panel'
 
-type LinkRecord = {
-  id: string
-  name: string
-  source: string
-  medium: string
-  campaign: string
-  content: string
-  target: string
-  archived: boolean
-}
 type Report = {
   from: number
   to: number
@@ -104,25 +90,11 @@ async function read<T>(path: string): Promise<T> {
   if (!res.data.success) throw new Error(res.data.message)
   return res.data.data
 }
-function promotionURL(link: LinkRecord) {
-  const url = new URL(link.target, window.location.origin)
-  url.searchParams.set('lmm_source', link.id)
-  for (const [key, value] of Object.entries({
-    utm_source: link.source,
-    utm_medium: link.medium,
-    utm_campaign: link.campaign,
-    utm_content: link.content,
-  })) {
-    if (value) url.searchParams.set(key, value)
-  }
-  return url.href
-}
 export function Acquisition() {
   const { t } = useTranslation()
   const canWrite = useAuthStore((state) =>
     hasPermission(state.auth.user, 'acquisition', 'write')
   )
-  const [page, setPage] = useState(1)
   const canReadDetails = useAuthStore((state) =>
     hasPermission(state.auth.user, 'acquisition', 'details')
   )
@@ -137,23 +109,6 @@ export function Acquisition() {
   const rangeId = useId()
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
-  const [qr, setQR] = useState('')
-  const [form, setForm] = useState({
-    name: '',
-    source: '',
-    medium: '',
-    campaign: '',
-    content: '',
-    target: '/',
-  })
-  const links = useQuery({
-    queryKey: ['acquisition-links', page],
-    queryFn: () =>
-      read<{ items: LinkRecord[]; total: number }>(
-        `/api/admin/acquisition/links?page=${page}`
-      ),
-    retry: false,
-  })
   const report = useQuery({
     queryKey: ['acquisition-report', range.from, range.to],
     refetchInterval: 60_000,
@@ -196,34 +151,6 @@ export function Acquisition() {
       setSaving(false)
     }
   }
-  const save = async (event: FormEvent) => {
-    event.preventDefault()
-    setSaving(true)
-    setError('')
-    try {
-      const res = await api.post('/api/admin/acquisition/links', form)
-      if (!res.data.success) throw new Error(res.data.message)
-      await links.refetch()
-      setForm({ ...form, name: '' })
-    } catch {
-      setError(t('Unable to save promotion link'))
-    } finally {
-      setSaving(false)
-    }
-  }
-  const updateLink = async (link: LinkRecord) => {
-    setError('')
-    try {
-      const res = await api.post('/api/admin/acquisition/links', {
-        ...link,
-        archived: link.archived,
-      })
-      if (!res.data.success) throw new Error()
-      await links.refetch()
-    } catch {
-      setError(t('Unable to save promotion link'))
-    }
-  }
   const registrations = report.data?.channels.reduce(
     (sum, row) => sum + row.registrations,
     0
@@ -236,12 +163,18 @@ export function Acquisition() {
     <SectionPageLayout>
       <SectionPageLayout.Title>{t('User acquisition')}</SectionPageLayout.Title>
       <SectionPageLayout.Content>
-        <div className='mx-auto max-w-6xl space-y-8 pb-8'>
-          <p className='text-muted-foreground text-sm'>
-            {t(
-              'Registration-cohort attribution. Payments are observed through the report update time, grouped by currency. Attribution does not prove causation. API activity has its own processing watermark below.'
-            )}
-          </p>
+        <div className='mx-auto max-w-6xl space-y-6 pb-8'>
+          <PromotionLinks canWrite={canWrite} />
+          <div className='space-y-1'>
+            <h2 className='text-lg font-semibold'>
+              {t('Registration and payments')}
+            </h2>
+            <p className='text-muted-foreground text-sm'>
+              {t(
+                'Registration-cohort attribution. Payments are observed through the report update time, grouped by currency. Attribution does not prove causation. API activity has its own processing watermark below.'
+              )}
+            </p>
+          </div>
           <div className='flex flex-wrap gap-2'>
             {([0, 7, 30] as const).map((value) => (
               <Button
@@ -492,8 +425,8 @@ export function Acquisition() {
               )}
             </div>
           )}
-          <section className='space-y-4'>
-            {canWrite && report.data && (
+          {canWrite && report.data && (
+            <section className='border-t pt-6'>
               <form
                 onSubmit={(event) => void saveLookback(event)}
                 className='flex flex-wrap items-end gap-3'
@@ -518,173 +451,14 @@ export function Acquisition() {
                     'Changing the default does not rewrite existing source attributions.'
                   )}
                 </p>
+                {error && (
+                  <p role='alert' className='text-destructive w-full text-sm'>
+                    {error}
+                  </p>
+                )}
               </form>
-            )}
-            <h2 className='text-lg font-semibold'>{t('Promotion links')}</h2>
-            <p className='text-muted-foreground text-sm'>
-              {t(
-                'Each link keeps a stable identity. Create a new link for a different campaign; renaming or archiving does not rewrite past attribution.'
-              )}
-            </p>
-            {canWrite && (
-              <form
-                onSubmit={(event) => void save(event)}
-                className='grid gap-3 sm:grid-cols-2'
-              >
-                {(
-                  ['name', 'source', 'medium', 'campaign', 'content'] as const
-                ).map((field, index) => (
-                  <label key={field} className='space-y-1 text-sm'>
-                    <span>
-                      {t(
-                        [
-                          'Display name',
-                          'Source platform',
-                          'Promotion method',
-                          'Campaign',
-                          'Content label',
-                        ][index] ?? 'Content label'
-                      )}
-                    </span>
-                    <Input
-                      required={field === 'name' || field === 'source'}
-                      maxLength={80}
-                      value={form[field]}
-                      onChange={(event) =>
-                        setForm({ ...form, [field]: event.target.value })
-                      }
-                    />
-                  </label>
-                ))}
-                <label className='space-y-1 text-sm'>
-                  <span>{t('Target page')}</span>
-                  <NativeSelect
-                    className='border-input h-9 w-full rounded-md border bg-transparent px-3'
-                    value={form.target}
-                    onChange={(event) =>
-                      setForm({ ...form, target: event.target.value })
-                    }
-                  >
-                    {['/', '/guide', '/pricing', '/challenges', '/sign-up'].map(
-                      (path) => (
-                        <NativeSelectOption key={path} value={path}>
-                          {path}
-                        </NativeSelectOption>
-                      )
-                    )}
-                  </NativeSelect>
-                </label>
-                <Button disabled={saving} type='submit'>
-                  {t('Create promotion link')}
-                </Button>
-              </form>
-            )}
-            {error && <p role='alert'>{error}</p>}
-            <div className='flex items-center gap-3'>
-              <Button
-                variant='outline'
-                disabled={page === 1}
-                onClick={() => setPage(page - 1)}
-              >
-                {t('Previous')}
-              </Button>
-              <span>
-                {t('Page')} {page}
-              </span>
-              <Button
-                variant='outline'
-                disabled={!links.data || page * 100 >= links.data.total}
-                onClick={() => setPage(page + 1)}
-              >
-                {t('Next')}
-              </Button>
-            </div>
-            {links.isError ? (
-              <Button onClick={() => void links.refetch()}>{t('Retry')}</Button>
-            ) : links.isPending ? (
-              <p>{t('Loading')}</p>
-            ) : links.data.items.length === 0 ? (
-              <p>{t('No promotion links yet.')}</p>
-            ) : (
-              <ul className='divide-y'>
-                {links.data.items.map((link) => (
-                  <li
-                    key={link.id}
-                    className='flex flex-wrap items-center justify-between gap-3 py-4'
-                  >
-                    <div>
-                      <p className='font-medium'>
-                        {link.name} {link.archived && `(${t('Archived')})`}
-                      </p>
-                      <p className='text-muted-foreground text-sm'>
-                        {link.source} / {link.campaign}
-                      </p>
-                    </div>
-                    <div className='flex flex-wrap gap-2'>
-                      <CopyButton value={promotionURL(link)} />
-                      <Button
-                        variant='outline'
-                        onClick={() => setQR(qr === link.id ? '' : link.id)}
-                      >
-                        {t('QR code')}
-                      </Button>
-                      <AcquisitionLinkPreview id={link.id} />
-                      <AcquisitionCostComparison
-                        id={link.id}
-                        canWrite={canWrite}
-                      />
-                      {canWrite && (
-                        <Button
-                          variant='ghost'
-                          onClick={() =>
-                            void updateLink({
-                              ...link,
-                              archived: !link.archived,
-                            })
-                          }
-                        >
-                          {t(link.archived ? 'Restore' : 'Archive')}
-                        </Button>
-                      )}
-                    </div>
-                    {canWrite && (
-                      <details className='w-full text-sm'>
-                        <summary className='cursor-pointer'>
-                          {t('Rename')}
-                        </summary>
-                        <form
-                          className='mt-2 flex gap-2'
-                          onSubmit={(event) => {
-                            event.preventDefault()
-                            const name = new FormData(event.currentTarget).get(
-                              'name'
-                            )
-                            if (typeof name === 'string') {
-                              void updateLink({ ...link, name })
-                            }
-                          }}
-                        >
-                          <Input
-                            name='name'
-                            required
-                            maxLength={80}
-                            defaultValue={link.name}
-                            aria-label={t('Display name')}
-                          />
-                          <Button type='submit'>{t('Save')}</Button>
-                        </form>
-                      </details>
-                    )}
-                    {qr === link.id && (
-                      <div className='w-full'>
-                        <QRCodeSVG value={promotionURL(link)} size={160} />
-                      </div>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
+            </section>
+          )}
         </div>
       </SectionPageLayout.Content>
     </SectionPageLayout>

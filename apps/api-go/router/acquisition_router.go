@@ -22,6 +22,7 @@ func setAcquisitionRouter(parent *assistantRouterGroup) {
 	admin.PUT("/cost", middleware.RequirePermission(authz.AcquisitionWrite), controller.SaveAcquisitionCost)
 	admin.GET("/links", middleware.RequirePermission(authz.AcquisitionRead), controller.ListAcquisitionLinks)
 	admin.POST("/links", middleware.RequirePermission(authz.AcquisitionWrite), controller.SaveAcquisitionLink)
+	admin.DELETE("/links/:id", middleware.RequirePermission(authz.AcquisitionWrite), controller.DeleteAcquisitionLink)
 	admin.POST("/activity/rebuild", middleware.RequirePermission(authz.AcquisitionWrite), controller.RebuildAcquisitionActivity)
 	admin.GET("/users/export", middleware.RequirePermission(authz.AcquisitionDetails), middleware.RequirePermission(authz.AcquisitionExport), controller.ExportAcquisitionUsers)
 	admin.GET("/users/:id/corrections", middleware.RequirePermission(authz.AcquisitionDetails), controller.GetAcquisitionCorrections)

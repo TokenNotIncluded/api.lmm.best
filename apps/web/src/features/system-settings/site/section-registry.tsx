@@ -42,6 +42,10 @@ const SidebarModulesSection = lazyNamedSection(
   () => import('../maintenance/sidebar-modules-section'),
   'SidebarModulesSection'
 )
+const AIDirectorySection = lazyNamedSection(
+  () => import('./ai-directory-section'),
+  'AIDirectorySection'
+)
 
 const SITE_SECTIONS = [
   {
@@ -102,6 +106,13 @@ const SITE_SECTIONS = [
         />
       )
     },
+  },
+  {
+    id: 'ai-directory',
+    titleKey: 'AI directory',
+    build: (settings: SiteSettings) => (
+      <AIDirectorySection initialValue={settings.HeaderNavModules} />
+    ),
   },
 ] as const
 

@@ -62,7 +62,7 @@ func ResolveRedPacketCoverToken(userID int, group string, groupAllowed func(stri
 		}
 		// Check token count limit
 		var count int64
-		if err := tx.Model(&Token{}).Where("user_id = ? AND oauth_managed = ?", userID, false).Count(&count).Error; err != nil {
+		if err := tx.Model(&Token{}).Where("user_id = ? AND oauth_managed = ? AND (creation_source IS NULL OR creation_source <> ?)", userID, false, TokenCreationSourceAssistantRuntime).Count(&count).Error; err != nil {
 			return err
 		}
 		if count >= int64(operation_setting.GetMaxUserTokens()) {

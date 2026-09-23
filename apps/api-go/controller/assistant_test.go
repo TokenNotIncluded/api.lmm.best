@@ -27,6 +27,8 @@ func withAssistantSettings(t *testing.T, enabled bool, modelID string) {
 	t.Helper()
 	original := setting.GetAssistantSettings()
 	originalBillingLoader := loadAssistantBillingUser
+	originalRuntimeTokenLoader := ensureAssistantRuntimeToken
+	originalRuntimeTokenTouch := touchAssistantRuntimeToken
 	originalRouteResolver := assistantConfiguredRouteResolver
 	setting.SetAssistantEnabled(enabled)
 	require.NoError(t, setting.UpdateAssistantModel(modelID))
@@ -42,11 +44,20 @@ func withAssistantSettings(t *testing.T, enabled bool, modelID string) {
 			Group:    "default",
 		}, nil
 	}
+	ensureAssistantRuntimeToken = func(userID int, group string) (*model.Token, bool, error) {
+		return &model.Token{
+			Id: 888, UserId: userID, Key: "assistant-runtime-test",
+			Name: "AI assistant runtime", Group: group, UnlimitedQuota: true,
+		}, false, nil
+	}
+	touchAssistantRuntimeToken = func(int, int) error { return nil }
 	t.Cleanup(func() {
 		setting.SetAssistantEnabled(original.Enabled)
 		_ = setting.UpdateAssistantModel(original.Model)
 		_ = setting.UpdateAssistantReasoningEffort(original.ReasoningEffort)
 		loadAssistantBillingUser = originalBillingLoader
+		ensureAssistantRuntimeToken = originalRuntimeTokenLoader
+		touchAssistantRuntimeToken = originalRuntimeTokenTouch
 		assistantConfiguredRouteResolver = originalRouteResolver
 	})
 }

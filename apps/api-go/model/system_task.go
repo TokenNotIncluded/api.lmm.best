@@ -28,6 +28,7 @@ const (
 	SystemTaskTypeAssistantRetention = "assistant_retention"
 	SystemTaskTypeAssistantPresets   = "assistant_pre_conversation_presets"
 	SystemTaskTypeAssistantReview    = "assistant_review"
+	SystemTaskTypeWaffoTopUpExpiry   = "waffo_topup_expiry"
 )
 
 var (

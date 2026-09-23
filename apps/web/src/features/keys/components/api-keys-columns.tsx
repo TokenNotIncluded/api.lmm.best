@@ -37,7 +37,7 @@ import { formatQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import { API_KEY_STATUSES } from '../constants'
-import { buildApiKeyGroupOptions } from '../lib'
+import { buildApiKeyGroupOptions, isAssistantRuntimeKey } from '../lib'
 import type { ApiKey, ApiKeyCreationMode } from '../types'
 import { ApiKeyCreationSourceBadge } from './api-key-creation-source'
 import type { ApiKeyGroupOption } from './api-key-group-combobox'
@@ -112,6 +112,7 @@ export function useApiKeysColumns(
         <Checkbox
           checked={row.getIsSelected()}
           onCheckedChange={(value) => row.toggleSelected(!!value)}
+          disabled={!row.getCanSelect()}
           aria-label={t('Select row')}
           className='translate-y-[2px]'
         />
@@ -175,6 +176,13 @@ export function useApiKeysColumns(
       header: t('Quota'),
       cell: ({ row }) => {
         const apiKey = row.original
+        if (isAssistantRuntimeKey(apiKey)) {
+          return (
+            <span className='text-muted-foreground text-xs'>
+              {t('Billed to super administrator wallet')}
+            </span>
+          )
+        }
         if (apiKey.unlimited_quota) {
           return <UnlimitedQuotaBadge used={apiKey.used_quota} />
         }
@@ -223,7 +231,14 @@ export function useApiKeysColumns(
       id: 'used_quota',
       accessorKey: 'used_quota',
       header: t('Used quota'),
-      cell: ({ row }) => <ApiKeyUsedQuota used={row.original.used_quota} />,
+      cell: ({ row }) =>
+        isAssistantRuntimeKey(row.original) ? (
+          <span className='text-muted-foreground text-xs'>
+            {t('Tracked in assistant funding')}
+          </span>
+        ) : (
+          <ApiKeyUsedQuota used={row.original.used_quota} />
+        ),
       size: 140,
     },
     {
@@ -333,7 +348,10 @@ export function useApiKeysColumns(
     {
       id: 'actions',
       header: () => t('Actions'),
-      cell: ({ row }) => <DataTableRowActions row={row} />,
+      cell: ({ row }) =>
+        isAssistantRuntimeKey(row.original) ? null : (
+          <DataTableRowActions row={row} />
+        ),
       meta: { pinned: 'right' as const },
     },
   ]

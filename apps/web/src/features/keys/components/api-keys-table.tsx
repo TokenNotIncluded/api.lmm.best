@@ -52,6 +52,7 @@ import {
   API_KEY_STATUSES,
   ERROR_MESSAGES,
 } from '../constants'
+import { isAssistantRuntimeKey } from '../lib'
 import type { ApiKey, ApiKeyCreationMode } from '../types'
 import { ApiKeyCreationSourceBadge } from './api-key-creation-source'
 import {
@@ -128,7 +129,7 @@ function ApiKeysMobileList({
             <EmptyDescription>
               {creationMode === 'automatic'
                 ? t(
-                    'Keys created by Drawing MCP, Assistant, and other connected tools appear here.'
+                    'Keys created for site features appear here. Keys created with the assistant appear after your confirmation.'
                   )
                 : t(
                     'No API keys available. Create your first API key to get started.'
@@ -177,14 +178,20 @@ function ApiKeysMobileList({
               <div className='min-w-40 flex-1 [&_button]:min-h-11 [&_button:first-child]:max-w-full [&_button:first-child]:truncate [&_button:first-child]:px-0 [&_button:last-child]:min-w-11'>
                 <ApiKeyCell apiKey={apiKey} />
               </div>
-              <div className='ml-auto [&_button]:min-h-11 [&_button]:min-w-11 [&>div]:ml-0'>
-                <DataTableRowActions row={row} />
-              </div>
+              {isAssistantRuntimeKey(apiKey) ? null : (
+                <div className='ml-auto [&_button]:min-h-11 [&_button]:min-w-11 [&>div]:ml-0'>
+                  <DataTableRowActions row={row} />
+                </div>
+              )}
             </div>
 
             <div className='flex items-center justify-between gap-2 text-xs'>
               <span className='text-muted-foreground'>{t('Quota')}</span>
-              {apiKey.unlimited_quota ? (
+              {isAssistantRuntimeKey(apiKey) ? (
+                <span className='text-muted-foreground text-right'>
+                  {t('Billed to super administrator wallet')}
+                </span>
+              ) : apiKey.unlimited_quota ? (
                 <UnlimitedQuotaBadge used={apiKey.used_quota} />
               ) : (
                 <span className='font-medium tabular-nums'>
@@ -198,7 +205,13 @@ function ApiKeysMobileList({
             </div>
             <div className='flex items-center justify-between gap-2 text-xs'>
               <span className='text-muted-foreground'>{t('Used quota')}</span>
-              <ApiKeyUsedQuota used={apiKey.used_quota} />
+              {isAssistantRuntimeKey(apiKey) ? (
+                <span className='text-muted-foreground text-right'>
+                  {t('Tracked in assistant funding')}
+                </span>
+              ) : (
+                <ApiKeyUsedQuota used={apiKey.used_quota} />
+              )}
             </div>
             {creationMode === 'automatic' ? (
               <div className='flex items-center justify-between gap-2 text-xs'>
@@ -317,7 +330,7 @@ export function ApiKeysTable({
   const { table } = useDataTable({
     data: apiKeys,
     columns,
-    enableRowSelection: true,
+    enableRowSelection: (row) => !isAssistantRuntimeKey(row.original),
     columnFilters,
     columnVisibilityStorageKey: API_KEYS_COLUMN_VISIBILITY_STORAGE_KEY,
     globalFilter,
@@ -345,7 +358,7 @@ export function ApiKeysTable({
       emptyDescription={
         creationMode === 'automatic'
           ? t(
-              'Keys created by Drawing MCP, Assistant, and other connected tools appear here.'
+              'Keys created for site features appear here. Keys created with the assistant appear after your confirmation.'
             )
           : t(
               'No API keys available. Create your first API key to get started.'

@@ -39,6 +39,7 @@ type TopUp struct {
 	ProviderEventId       *string `json:"provider_event_id,omitempty" gorm:"type:varchar(255);uniqueIndex:idx_topup_provider_event,priority:2"`
 	ProviderTransactionId *string `json:"provider_transaction_id,omitempty" gorm:"type:varchar(255);uniqueIndex:idx_topup_provider_transaction,priority:2"`
 	FailureReasonCode     string  `json:"failure_reason_code,omitempty" gorm:"type:varchar(64);not null;default:''"`
+	PaymentCheckedAt      int64   `json:"-" gorm:"not null;default:0"`
 	CreateTime            int64   `json:"create_time"`
 	CompleteTime          int64   `json:"complete_time"`
 	Status                string  `json:"status"`
@@ -58,13 +59,15 @@ const (
 	PaymentOrderFailureCompanyBillingRequiredFields PaymentOrderFailureReason = "company_billing_required_fields"
 	PaymentOrderFailureCompanyBillingPreview        PaymentOrderFailureReason = "company_billing_preview_unavailable"
 	PaymentOrderFailureCompanyBillingRules          PaymentOrderFailureReason = "company_billing_rules_invalid"
+	PaymentOrderFailureCheckoutTimeout              PaymentOrderFailureReason = "checkout_timeout"
 )
 
 func (reason PaymentOrderFailureReason) valid() bool {
 	switch reason {
 	case PaymentOrderFailureCompanyBillingRequiredFields,
 		PaymentOrderFailureCompanyBillingPreview,
-		PaymentOrderFailureCompanyBillingRules:
+		PaymentOrderFailureCompanyBillingRules,
+		PaymentOrderFailureCheckoutTimeout:
 		return true
 	default:
 		return false
@@ -396,7 +399,10 @@ func completeExternalTopUpOnDB(db *gorm.DB, settlement ExternalTopUpSettlement) 
 				}
 				return nil
 			}
-			if completed.Status != common.TopUpStatusPending {
+			lateTimedOutWaffoPayment := completed.PaymentProvider == PaymentProviderWaffoPancake &&
+				completed.Status == common.TopUpStatusFailed &&
+				completed.FailureReasonCode == string(PaymentOrderFailureCheckoutTimeout)
+			if completed.Status != common.TopUpStatusPending && !lateTimedOutWaffoPayment {
 				return ErrTopUpStatusInvalid
 			}
 			if completed.PaymentProvider == PaymentProviderCreem && strings.TrimSpace(completed.SettlementCurrency) == "" {
@@ -441,12 +447,18 @@ func completeExternalTopUpOnDB(db *gorm.DB, settlement ExternalTopUpSettlement) 
 				"complete_time":           completeTime,
 				"status":                  common.TopUpStatusSuccess,
 			}
+			if lateTimedOutWaffoPayment {
+				updates["failure_reason_code"] = ""
+			}
 			if settlement.PaymentMethod != "" {
 				updates["payment_method"] = settlement.PaymentMethod
 			}
 			result := tx.Model(&TopUp{}).
-				Where("id = ? AND status = ?", completed.Id, common.TopUpStatusPending).
-				Updates(updates)
+				Where("id = ? AND status = ?", completed.Id, completed.Status)
+			if lateTimedOutWaffoPayment {
+				result = result.Where("failure_reason_code = ?", string(PaymentOrderFailureCheckoutTimeout))
+			}
+			result = result.Updates(updates)
 			if result.Error != nil {
 				return result.Error
 			}
@@ -464,6 +476,9 @@ func completeExternalTopUpOnDB(db *gorm.DB, settlement ExternalTopUpSettlement) 
 			completed.ProviderTransactionId = optionalEvidence(settlement.ProviderTransactionId)
 			completed.CompleteTime = completeTime
 			completed.Status = common.TopUpStatusSuccess
+			if lateTimedOutWaffoPayment {
+				completed.FailureReasonCode = ""
+			}
 			if settlement.PaymentMethod != "" {
 				completed.PaymentMethod = settlement.PaymentMethod
 			}

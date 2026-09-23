@@ -29,7 +29,8 @@ export type HeaderNavModulesConfig = {
   security: HeaderNavAccessConfig
   docs: boolean
   about: boolean
-  [key: string]: boolean | HeaderNavAccessConfig
+  aiDirectoryLinks?: unknown[]
+  [key: string]: boolean | HeaderNavAccessConfig | unknown[] | undefined
 }
 
 export type SidebarSectionConfig = {
@@ -155,6 +156,10 @@ export function parseHeaderNavModules(
     }
 
     Object.entries(parsed).forEach(([key, raw]) => {
+      if (key === 'aiDirectoryLinks' && Array.isArray(raw)) {
+        result.aiDirectoryLinks = raw
+        return
+      }
       if (key === 'pricing') {
         result.pricing = parseAccessModule(raw, base.pricing)
         return

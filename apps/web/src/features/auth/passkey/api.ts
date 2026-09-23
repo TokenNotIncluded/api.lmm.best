@@ -52,6 +52,7 @@ export async function beginPasskeyRegistration(
 export async function finishPasskeyRegistration(
   flowToken: string,
   payload: Record<string, unknown>,
+  name: string,
   proofToken?: string
 ): Promise<ApiResponse> {
   const res = await api.post<ApiResponse>(
@@ -59,14 +60,18 @@ export async function finishPasskeyRegistration(
     {
       flow_token: flowToken,
       credential: payload,
+      name,
     },
     { headers: proofHeaders(proofToken), acceptAuthRotation: true }
   )
   return res.data
 }
 
-export async function deletePasskey(proofToken?: string): Promise<ApiResponse> {
-  const res = await api.delete<ApiResponse>('/api/user/passkey', {
+export async function deletePasskey(
+  id: number,
+  proofToken?: string
+): Promise<ApiResponse> {
+  const res = await api.delete<ApiResponse>(`/api/user/passkey/${id}`, {
     headers: proofHeaders(proofToken),
     acceptAuthRotation: true,
   })

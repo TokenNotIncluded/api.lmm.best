@@ -28,6 +28,7 @@ import {
   Compass,
   CreditCard,
   FileText,
+  Globe2,
   Gift as GiftIcon,
   Image as ImageIcon,
   Key,
@@ -192,6 +193,7 @@ export function useSidebarData(): SidebarData {
         id: 'forge',
         title: t('Ecosystem'),
         items: [
+          { title: t('AI directory'), url: '/ai-directory', icon: Globe2 },
           {
             title: t('Open-source bounties'),
             url: '/open-source-bounties',

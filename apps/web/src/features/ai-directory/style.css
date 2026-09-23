@@ -1,0 +1,291 @@
+/* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
+.ai-directory-shell {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 0 3rem;
+}
+
+.ai-directory-intro {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 184px;
+  overflow: hidden;
+  padding: clamp(1.5rem, 4vw, 3rem);
+  border-radius: 20px;
+  background: color-mix(in oklch, var(--primary) 8%, var(--card));
+}
+
+.ai-directory-intro::after {
+  position: absolute;
+  right: -5rem;
+  bottom: -9rem;
+  width: 23rem;
+  height: 23rem;
+  border: 1px solid color-mix(in oklch, var(--primary) 18%, transparent);
+  border-radius: 50%;
+  content: '';
+  pointer-events: none;
+}
+
+.ai-directory-intro h2 {
+  position: relative;
+  z-index: 1;
+  max-width: 22ch;
+  font-size: clamp(1.75rem, 3vw, 2.5rem);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+}
+
+.ai-directory-intro p {
+  position: relative;
+  z-index: 1;
+  max-width: 55ch;
+  margin-top: 0.9rem;
+  color: var(--muted-foreground);
+  line-height: 1.6;
+}
+
+.ai-directory-intro-symbol {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: clamp(5rem, 12vw, 8rem);
+  height: clamp(5rem, 12vw, 8rem);
+  flex: none;
+  place-items: center;
+  border: 1px solid color-mix(in oklch, var(--primary) 25%, transparent);
+  border-radius: 50%;
+  color: var(--primary);
+  transform: rotate(-16deg);
+}
+
+.ai-directory-intro-symbol svg {
+  width: 57%;
+  height: 57%;
+}
+
+.ai-directory-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem 1.5rem;
+  margin-top: 1.5rem;
+}
+
+.ai-directory-search {
+  display: flex;
+  width: min(100%, 21rem);
+  align-items: center;
+  gap: 0.65rem;
+  padding-left: 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--muted-foreground);
+  background: var(--card);
+}
+
+.ai-directory-search:focus-within {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 20%, transparent);
+}
+
+.ai-directory-search input {
+  height: 2.7rem;
+  padding-left: 0;
+  border: 0;
+  border-radius: 0 12px 12px 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.ai-directory-search input:focus-visible {
+  box-shadow: none;
+}
+
+.ai-directory-filters {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.ai-directory-filters button {
+  min-height: 2.3rem;
+  padding: 0.45rem 0.8rem;
+  border-radius: 9px;
+  color: var(--muted-foreground);
+  font-size: 0.84rem;
+  font-weight: 600;
+  transition: background-color 150ms, color 150ms;
+  cursor: pointer;
+}
+
+.ai-directory-filters button:hover {
+  color: var(--foreground);
+  background: var(--muted);
+}
+
+.ai-directory-filters button[aria-pressed='true'] {
+  color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 11%, var(--background));
+}
+
+.ai-directory-filters button:focus-visible,
+.ai-directory-visit:focus-visible,
+.ai-directory-details summary:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+
+.ai-directory-groups {
+  display: grid;
+  gap: 2.25rem;
+  margin-top: 2.25rem;
+}
+
+.ai-directory-group-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin-bottom: 0.9rem;
+}
+
+.ai-directory-group-heading h2 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+
+.ai-directory-group-heading span {
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.ai-directory-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.ai-directory-item {
+  min-width: 0;
+  padding: 1.2rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--card);
+  transition: border-color 170ms, background-color 170ms, transform 170ms;
+}
+
+.ai-directory-item:hover {
+  border-color: color-mix(in oklch, var(--primary) 35%, var(--border));
+  background: color-mix(in oklch, var(--primary) 2%, var(--card));
+  transform: translateY(-2px);
+}
+
+.ai-directory-item-top {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.ai-directory-mark {
+  display: grid;
+  width: 2.8rem;
+  height: 2.8rem;
+  flex: none;
+  place-items: center;
+  border-radius: 11px;
+  color: var(--foreground);
+  background: var(--muted);
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.ai-directory-name {
+  overflow: hidden;
+  font-size: 1rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-directory-domain {
+  display: block;
+  overflow: hidden;
+  margin-top: 0.14rem;
+  color: var(--muted-foreground);
+  font-size: 0.77rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-directory-visit {
+  display: grid;
+  width: 2.35rem;
+  height: 2.35rem;
+  flex: none;
+  place-items: center;
+  border-radius: 9px;
+  color: var(--muted-foreground);
+  transition: background-color 150ms, color 150ms;
+}
+
+.ai-directory-visit:hover {
+  color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 10%, var(--background));
+}
+
+.ai-directory-summary {
+  margin: 0.9rem 0 0;
+  color: var(--foreground);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.ai-directory-details {
+  margin-top: 0.9rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+.ai-directory-details summary {
+  width: fit-content;
+  color: var(--primary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  list-style-position: inside;
+  cursor: pointer;
+}
+
+.ai-directory-details p {
+  max-width: 65ch;
+  margin-top: 0.7rem;
+  color: var(--muted-foreground);
+  font-size: 0.83rem;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.ai-directory-state {
+  padding: 4rem 1rem;
+  color: var(--muted-foreground);
+  text-align: center;
+}
+
+@media (max-width: 760px) {
+  .ai-directory-intro-symbol { display: none; }
+  .ai-directory-grid { grid-template-columns: 1fr; }
+  .ai-directory-search { width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-directory-item,
+  .ai-directory-filters button,
+  .ai-directory-visit { transition: none; }
+  .ai-directory-item:hover { transform: none; }
+}

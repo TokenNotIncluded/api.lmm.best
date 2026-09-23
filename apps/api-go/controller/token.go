@@ -216,6 +216,10 @@ func GetTokenKey(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if token.CreationSource == model.TokenCreationSourceAssistantRuntime {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "code": "TOKEN_INTERNAL_ONLY", "message": "This assistant runtime key cannot be revealed or used for API calls."})
+		return
+	}
 	if token.OneTimeReveal {
 		c.JSON(http.StatusForbidden, gin.H{"success": false, "code": "TOKEN_KEY_SHOWN_ONCE", "message": "This key was shown only at creation. Use your saved copy or revoke it and create a replacement."})
 		return

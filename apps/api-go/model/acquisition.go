@@ -34,6 +34,7 @@ type AcquisitionLink struct {
 	Target    string `json:"target" gorm:"type:varchar(80)"`
 	Archived  bool   `json:"archived"`
 	CreatedAt int64  `json:"created_at" gorm:"index"`
+	DeletedAt int64  `json:"deleted_at,omitempty" gorm:"not null;default:0;index"`
 }
 type AcquisitionVisitor struct {
 	ID        string `json:"-" gorm:"type:varchar(64);primaryKey"`
@@ -194,7 +195,7 @@ func SaveAcquisitionLink(ctx context.Context, input AcquisitionLink) (Acquisitio
 	if input.ID != "" {
 		// Attribution dimensions and target are immutable. Rename/archive only.
 		var old AcquisitionLink
-		if err := db.First(&old, "id = ?", input.ID).Error; err != nil {
+		if err := db.Where("deleted_at = 0").First(&old, "id = ?", input.ID).Error; err != nil {
 			return input, err
 		}
 		if err := db.Model(&old).Updates(map[string]any{"name": input.Name, "archived": input.Archived}).Error; err != nil {

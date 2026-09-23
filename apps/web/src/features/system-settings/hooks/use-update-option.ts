@@ -90,6 +90,11 @@ async function invalidateOptionQueries(
       queryClient.invalidateQueries({ queryKey: ['assistant-status'] })
     )
   }
+  if (changedKeys.includes('HeaderNavModules')) {
+    refreshes.push(
+      queryClient.invalidateQueries({ queryKey: ['ai-directory'] })
+    )
+  }
   if (changedKeys.includes('AssistantPreConversationPresets')) {
     refreshes.push(
       queryClient.invalidateQueries({

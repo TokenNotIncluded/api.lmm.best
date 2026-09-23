@@ -55,8 +55,12 @@ export function ApiKeys() {
               </TabsTrigger>
             </TabsList>
             <TabsContent value={creationMode} className='pt-3'>
-              {creationMode === 'automatic' ? <AutomaticApiKeyActions /> : null}
               <ApiKeysTable creationMode={creationMode} />
+              {creationMode === 'automatic' ? (
+                <div className='mt-5'>
+                  <AutomaticApiKeyActions />
+                </div>
+              ) : null}
             </TabsContent>
           </Tabs>
         </SectionPageLayout.Content>
