@@ -621,13 +621,14 @@ func (runtime *productionReleaseRuntime) verifySignedPackageLayout(ctx context.C
 		if path == signedRoot || entry.IsDir() {
 			return nil
 		}
-		info, err := entry.Info()
-		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() == 0 || info.Mode().Perm()&0o022 != 0 {
-			return fmt.Errorf("signed release contains an unsafe payload: %s", path)
-		}
 		relative, err := filepath.Rel(signedRoot, path)
 		if err != nil || relative == "." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 			return errors.New("signed release payload escaped its root")
+		}
+		info, err := entry.Info()
+		emptyAgentMarker := packageName == productionWebPackageName && relative == filepath.Join("dist", "AGENTS.md")
+		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || (info.Size() == 0 && !emptyAgentMarker) || info.Mode().Perm()&0o022 != 0 {
+			return fmt.Errorf("signed release contains an unsafe payload: %s", path)
 		}
 		packageRelative, ignored, err := signedPackageMember(packageName, packageVersion, relative)
 		if err != nil {
@@ -706,7 +707,8 @@ func (runtime *productionReleaseRuntime) verifySignedPackageLayout(ctx context.C
 			}
 			return fmt.Errorf("package contains an unexpected symlink: %s", relative)
 		}
-		if !info.Mode().IsRegular() || info.Size() == 0 || info.Mode().Perm()&0o022 != 0 || archiveHeader.Type != "file" || archiveHeader.Mode != uint64(info.Mode().Perm()) {
+		emptyAgentMarker := packageName == productionWebPackageName && relative == filepath.Join("usr", "share", "lmm-api-web", "frontend-dist", "AGENTS.md")
+		if !info.Mode().IsRegular() || (info.Size() == 0 && !emptyAgentMarker) || info.Mode().Perm()&0o022 != 0 || archiveHeader.Type != "file" || archiveHeader.Mode != uint64(info.Mode().Perm()) {
 			return fmt.Errorf("package contains an unsafe payload: %s", relative)
 		}
 		packageFiles[relative] = path
@@ -1164,6 +1166,8 @@ func signedPackageMember(packageName, packageVersion, relative string) (packageR
 	case relative == "OAUTH_MANAGED_TOKEN_CAPABILITY":
 		return "usr/share/doc/" + packageName + "/" + relative, false, nil
 	case relative == "REFUND_TASK_DRAIN_CAPABILITY":
+		return "usr/share/doc/" + packageName + "/" + relative, false, nil
+	case relative == "MANAGED_BILLING_SETTLEMENT_CAPABILITY":
 		return "usr/share/doc/" + packageName + "/" + relative, false, nil
 	case packageVersion == "0.1.69-1" && relative == "CLI_TRANSITION_PHASE":
 		return "usr/share/doc/" + packageName + "/CLI_TRANSITION_PHASE", false, nil
