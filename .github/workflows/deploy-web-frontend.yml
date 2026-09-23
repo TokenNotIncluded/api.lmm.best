@@ -86,10 +86,23 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p deploy
-          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
-            --dir deploy \
-            --pattern "lmm-api-web-${VERSION}.tar.gz" \
-            --pattern "lmm-api-web-${VERSION}.tar.gz.sha256"
+          for attempt in 1 2 3 4 5 6; do
+            rm -f "deploy/lmm-api-web-${VERSION}.tar.gz" \
+              "deploy/lmm-api-web-${VERSION}.tar.gz.sha256"
+            if gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+              --dir deploy \
+              --pattern "lmm-api-web-${VERSION}.tar.gz" \
+              --pattern "lmm-api-web-${VERSION}.tar.gz.sha256" && \
+              [[ -s "deploy/lmm-api-web-${VERSION}.tar.gz" && \
+                 -s "deploy/lmm-api-web-${VERSION}.tar.gz.sha256" ]]; then
+              break
+            fi
+            if (( attempt == 6 )); then
+              echo "signed web release assets are unavailable" >&2
+              exit 1
+            fi
+            sleep 6
+          done
           cd deploy
           sha256sum --check "lmm-api-web-${VERSION}.tar.gz.sha256"
           [[ -s "lmm-api-web-${VERSION}.tar.gz" ]]

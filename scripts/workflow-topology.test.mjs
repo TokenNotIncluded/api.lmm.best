@@ -46,6 +46,11 @@ test('frontend deployment is restricted to a signed web release on both origins'
   assert.ok(deploy.includes('gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100"'));
   assert.ok(deploy.includes('.target_commitish'));
   assert.ok(!deploy.includes('gh release list --repo'));
+  const release = workflow('release-web');
+  assert.match(release, /Preserve signed web package for recovery/);
+  assert.match(release, /gh release upload/);
+  assert.match(release, /stable_checks == 2/);
+  assert.match(deploy, /for attempt in 1 2 3 4 5 6/);
   assert.match(deploy, /gh release download/);
   assert.match(deploy, /sha256sum --check/);
   assert.match(deploy, /publish \"ArchDmit/);

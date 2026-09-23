@@ -171,6 +171,14 @@ jobs:
             --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
             "$archive"
 
+      - name: Preserve signed web package for recovery
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: signed-web-${{ github.ref_name }}
+          path: release-web/*
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Publish immutable web release
         env:
           CONTRACT_REVISION: ${{ steps.identity.outputs.contract_revision }}
@@ -198,13 +206,22 @@ jobs:
             'Independent production web frontend release.' \
             "$RELEASE_REVISION" "$CONTRACT_REVISION" > "$notes"
 
-          verify_release() {
-            local readback=$1 asset name local_digest published_digest published_list
-            [[ $(jq -r '.tagName' <<<"$readback") == "$RELEASE_TAG" ]] || return 1
-            [[ $(jq -r '.targetCommitish' <<<"$readback") == "$RELEASE_REVISION" ]] || return 1
+          read_release() {
+            gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}"
+          }
+
+          # Return 0 only for the exact signed asset set, 2 for a release with
+          # no assets, and 1 for any metadata or partial-asset mismatch.
+          release_state() {
+            local readback=$1 asset name local_digest published_digest published_list count
+            [[ $(jq -r '.tag_name' <<<"$readback") == "$RELEASE_TAG" ]] || return 1
+            [[ $(jq -r '.target_commitish' <<<"$readback") == "$RELEASE_REVISION" ]] || return 1
             [[ $(jq -r '.name' <<<"$readback") == "LMM web $RELEASE_TAG" ]] || return 1
             [[ $(jq -r '.body' <<<"$readback") == "$(<"$notes")" ]] || return 1
-            [[ $(jq -r '.isDraft, .isPrerelease' <<<"$readback") == $'false\nfalse' ]] || return 1
+            [[ $(jq -r '.draft, .prerelease' <<<"$readback") == $'false\nfalse' ]] || return 1
+            count=$(jq -er '.assets | length' <<<"$readback") || return 1
+            if (( count == 0 )); then return 2; fi
+            [[ $count -eq ${#expected_names[@]} ]] || return 1
             published_list=$(jq -er '.assets | map(.name) | sort | .[]' <<<"$readback") || return 1
             mapfile -t published_names <<<"$published_list"
             [[ "${published_names[*]}" == "${expected_names[*]}" ]] || return 1
@@ -217,20 +234,52 @@ jobs:
             done
           }
 
-          if readback=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
-            --json tagName,targetCommitish,name,body,isDraft,isPrerelease,assets 2>/dev/null); then
-            verify_release "$readback" || {
-              echo "Release $RELEASE_TAG exists but differs; immutable releases cannot be edited or overwritten." >&2
+          if ! readback=$(read_release 2>/dev/null); then
+            # Create metadata first. A separate upload keeps the signed package
+            # recoverable if the release API drops an initial attachment batch.
+            gh release create "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" --verify-tag \
+              --target "$RELEASE_REVISION" --title "LMM web $RELEASE_TAG" \
+              --notes-file "$notes" --latest=false
+            readback=$(read_release)
+          fi
+
+          if release_state "$readback"; then
+            echo "Release $RELEASE_TAG already has the exact signed asset set."
+          else
+            state=$?
+            [[ $state -eq 2 ]] || {
+              echo "Release $RELEASE_TAG differs or has partial assets; refusing to overwrite it." >&2
               exit 1
             }
-            echo "Release $RELEASE_TAG already exists and exactly matches the immutable contract."
-            exit 0
+            gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY"
           fi
-          gh release create "$RELEASE_TAG" "${assets[@]}" \
-            --repo "$GITHUB_REPOSITORY" --verify-tag \
-            --target "$RELEASE_REVISION" --title "LMM web $RELEASE_TAG" \
-            --notes-file "$notes" --latest=false
 
-          readback=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
-            --json tagName,targetCommitish,name,body,isDraft,isPrerelease,assets)
-          verify_release "$readback"
+          # Verify through the REST API after the upload has had time to settle.
+          # A vanished empty batch can be retried with the same signed files;
+          # partial or changed assets are never clobbered.
+          stable_checks=0
+          repairs=0
+          for round in 1 2 3 4 5 6; do
+            sleep 10
+            readback=$(read_release)
+            if release_state "$readback"; then
+              stable_checks=$((stable_checks + 1))
+              if (( stable_checks == 2 )); then
+                echo "Signed web release $RELEASE_TAG remained available across two REST checks."
+                exit 0
+              fi
+              continue
+            fi
+            state=$?
+            [[ $state -eq 2 && $repairs -lt 2 ]] || {
+              echo "Release $RELEASE_TAG lost or changed its signed assets; refusing publication." >&2
+              exit 1
+            }
+            stable_checks=0
+            repairs=$((repairs + 1))
+            echo "Release $RELEASE_TAG has no assets; retrying signed upload ($repairs/2)."
+            gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY"
+          done
+          echo "Release $RELEASE_TAG did not retain its signed assets." >&2
+          exit 1
