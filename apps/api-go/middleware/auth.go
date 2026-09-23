@@ -334,6 +334,9 @@ func AuthenticatedDashboardUser(c *gin.Context) (*model.UserBase, bool) {
 
 func preActivationRouteAllowed(method string, path string) bool {
 	path = strings.TrimSuffix(path, "/")
+	if method == http.MethodGet && strings.HasPrefix(path, "/api/share/profile/") {
+		return true
+	}
 	if publicSubscriptionCallbackRoute(method, path) {
 		return true
 	}

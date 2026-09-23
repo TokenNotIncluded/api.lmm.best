@@ -64,6 +64,7 @@ import { Route as AuthenticatedOpenSourceBountiesIndexRouteImport } from './rout
 import { Route as AuthenticatedOperationsSourcesRouteImport } from './routes/_authenticated/operations/sources'
 import { Route as AuthenticatedPlaygroundIndexRouteImport } from './routes/_authenticated/playground/index'
 import { Route as AuthenticatedProfileIndexRouteImport } from './routes/_authenticated/profile/index'
+import { Route as AuthenticatedProfileShareRouteImport } from './routes/_authenticated/profile/share'
 import { Route as AuthenticatedPublicRelayIndexRouteImport } from './routes/_authenticated/public-relay/index'
 import { Route as AuthenticatedRedPacketsIndexRouteImport } from './routes/_authenticated/red-packets/index'
 import { Route as AuthenticatedRedemptionCodesIndexRouteImport } from './routes/_authenticated/redemption-codes/index'
@@ -388,6 +389,12 @@ const AuthenticatedProfileIndexRoute =
     path: '/profile/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedProfileShareRoute =
+  AuthenticatedProfileShareRouteImport.update({
+    id: '/profile/share',
+    path: '/profile/share',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedPublicRelayIndexRoute =
   AuthenticatedPublicRelayIndexRouteImport.update({
     id: '/public-relay/',
@@ -624,6 +631,7 @@ export interface FileRoutesByFullPath {
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
   '/operations/sources': typeof AuthenticatedOperationsSourcesRoute
+  '/profile/share': typeof AuthenticatedProfileShareRoute
   '/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/channels/': typeof AuthenticatedChannelsIndexRoute
@@ -711,6 +719,7 @@ export interface FileRoutesByTo {
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
   '/operations/sources': typeof AuthenticatedOperationsSourcesRoute
+  '/profile/share': typeof AuthenticatedProfileShareRoute
   '/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/channels': typeof AuthenticatedChannelsIndexRoute
@@ -802,6 +811,7 @@ export interface FileRoutesById {
   '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/_authenticated/models/$section': typeof AuthenticatedModelsSectionRoute
   '/_authenticated/operations/sources': typeof AuthenticatedOperationsSourcesRoute
+  '/_authenticated/profile/share': typeof AuthenticatedProfileShareRoute
   '/_authenticated/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
   '/_authenticated/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/_authenticated/channels/': typeof AuthenticatedChannelsIndexRoute
@@ -892,6 +902,7 @@ export interface FileRouteTypes {
     | '/errors/$error'
     | '/models/$section'
     | '/operations/sources'
+    | '/profile/share'
     | '/subscriptions/reset'
     | '/usage-logs/$section'
     | '/channels/'
@@ -979,6 +990,7 @@ export interface FileRouteTypes {
     | '/errors/$error'
     | '/models/$section'
     | '/operations/sources'
+    | '/profile/share'
     | '/subscriptions/reset'
     | '/usage-logs/$section'
     | '/channels'
@@ -1069,6 +1081,7 @@ export interface FileRouteTypes {
     | '/_authenticated/errors/$error'
     | '/_authenticated/models/$section'
     | '/_authenticated/operations/sources'
+    | '/_authenticated/profile/share'
     | '/_authenticated/subscriptions/reset'
     | '/_authenticated/usage-logs/$section'
     | '/_authenticated/channels/'
@@ -1535,6 +1548,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedProfileIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/profile/share': {
+      id: '/_authenticated/profile/share'
+      path: '/profile/share'
+      fullPath: '/profile/share'
+      preLoaderRoute: typeof AuthenticatedProfileShareRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/public-relay/': {
       id: '/_authenticated/public-relay/'
       path: '/public-relay'
@@ -1862,6 +1882,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedErrorsErrorRoute: typeof AuthenticatedErrorsErrorRoute
   AuthenticatedModelsSectionRoute: typeof AuthenticatedModelsSectionRoute
   AuthenticatedOperationsSourcesRoute: typeof AuthenticatedOperationsSourcesRoute
+  AuthenticatedProfileShareRoute: typeof AuthenticatedProfileShareRoute
   AuthenticatedSubscriptionsResetRoute: typeof AuthenticatedSubscriptionsResetRoute
   AuthenticatedUsageLogsSectionRoute: typeof AuthenticatedUsageLogsSectionRoute
   AuthenticatedChannelsIndexRoute: typeof AuthenticatedChannelsIndexRoute
@@ -1902,6 +1923,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedErrorsErrorRoute: AuthenticatedErrorsErrorRoute,
   AuthenticatedModelsSectionRoute: AuthenticatedModelsSectionRoute,
   AuthenticatedOperationsSourcesRoute: AuthenticatedOperationsSourcesRoute,
+  AuthenticatedProfileShareRoute: AuthenticatedProfileShareRoute,
   AuthenticatedSubscriptionsResetRoute: AuthenticatedSubscriptionsResetRoute,
   AuthenticatedUsageLogsSectionRoute: AuthenticatedUsageLogsSectionRoute,
   AuthenticatedChannelsIndexRoute: AuthenticatedChannelsIndexRoute,

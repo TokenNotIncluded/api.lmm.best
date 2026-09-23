@@ -28,6 +28,11 @@ const modelNames = ['gpt-5-mini', 'claude-sonnet']
 // reach the persona adapter and fail closed; no payment or administrative write
 // is added here. Activated only by console_review=1 in the development entry.
 const reads: Record<string, unknown> = {
+  '/api/user/self/profile-share': {
+    enabled: true,
+    token: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    url: 'https://api.lmm.best/api/share/profile/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.svg',
+  },
   '/api/user/company-billing-profile': null,
   '/api/user/topup/info': {
     enable_online_topup: false,

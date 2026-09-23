@@ -56,3 +56,22 @@ func TestApiRouterRegistersSelfOnboardingTodoRoutes(t *testing.T) {
 		require.True(t, routes[expected], expected)
 	}
 }
+
+func TestApiRouterRegistersPublicProfileShareAndOwnerControls(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	SetApiRouter(engine)
+
+	routes := make(map[string]bool)
+	for _, route := range engine.Routes() {
+		routes[route.Method+" "+route.Path] = true
+	}
+	for _, expected := range []string{
+		"GET /api/share/profile/:token",
+		"GET /api/user/self/profile-share",
+		"POST /api/user/self/profile-share",
+		"DELETE /api/user/self/profile-share",
+	} {
+		require.True(t, routes[expected], expected)
+	}
+}

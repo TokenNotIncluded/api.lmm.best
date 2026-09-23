@@ -32,6 +32,7 @@ import { homeEditorialCopy } from './home-editorial-copy.mjs'
 import { paymentPricingCopy } from './payment-pricing-copy.mjs'
 import { piGuideCopy } from './pi-guide-copy.mjs'
 import { piOAuthCopy } from './pi-oauth-copy.mjs'
+import { profileShareCopy } from './profile-share-copy.mjs'
 import { remoteControlCopy } from './remote-control-copy.mjs'
 import { toolMarketCopy } from './tool-market-copy.mjs'
 import { waitCompanionCopy } from './wait-companion-copy.mjs'
@@ -12877,6 +12878,10 @@ const integrationGameLocaleKeys = {
   },
 }
 for (const [locale, values] of Object.entries(integrationGameLocaleKeys)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(profileShareCopy)) {
   Object.assign(newKeys[locale], values)
 }
 
