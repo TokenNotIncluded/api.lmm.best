@@ -604,7 +604,7 @@ func RequestWaffoPancakePay(c *gin.Context) {
 		return
 	}
 
-	expiresInSeconds := 45 * 60
+	expiresInSeconds := service.WaffoPancakeCheckoutExpirySeconds
 	session, err := service.CreateWaffoPancakeCheckoutSession(c.Request.Context(), &service.WaffoPancakeCreateSessionParams{
 		ProductID:     productID,
 		Currency:      currency,
@@ -918,7 +918,7 @@ func handleVerifiedWaffoPancakeWebhook(c *gin.Context, event *service.WaffoPanca
 		return
 	}
 	topUp := model.GetTopUpByTradeNo(tradeNo)
-	if topUp != nil && waffoPancakeRejectsLateSettlement(topUp.Status) {
+	if topUp != nil && waffoPancakeWalletRejectsLateSettlement(topUp) {
 		logger.LogWarn(c.Request.Context(), fmt.Sprintf("Waffo Pancake 充值迟到事件被终态拒绝 trade_no=%s status=%s reason_code=%s event_id=%s", tradeNo, topUp.Status, topUp.FailureReasonCode, event.ID))
 		c.String(http.StatusOK, "OK")
 		return
@@ -943,12 +943,13 @@ func handleVerifiedWaffoPancakeWebhook(c *gin.Context, event *service.WaffoPanca
 		c.String(http.StatusInternalServerError, "retry")
 		return
 	}
-	if waffoPancakeRejectsLateSettlement(topUp.Status) {
+	if waffoPancakeWalletRejectsLateSettlement(topUp) {
 		logger.LogWarn(c.Request.Context(), fmt.Sprintf("Waffo Pancake 充值迟到事件在加锁后被终态拒绝 trade_no=%s status=%s reason_code=%s event_id=%s", tradeNo, topUp.Status, topUp.FailureReasonCode, event.ID))
 		c.String(http.StatusOK, "OK")
 		return
 	}
-	wasPending := topUp.Status == common.TopUpStatusPending
+	wasPending := topUp.Status == common.TopUpStatusPending ||
+		(topUp.Status == common.TopUpStatusFailed && topUp.FailureReasonCode == string(model.PaymentOrderFailureCheckoutTimeout))
 
 	settledAmountMicros, err := monetaryStringToMicros(event.Data.Amount)
 	if err != nil {
@@ -973,7 +974,7 @@ func handleVerifiedWaffoPancakeWebhook(c *gin.Context, event *service.WaffoPanca
 	if err != nil {
 		if errors.Is(err, model.ErrTopUpStatusInvalid) {
 			current := model.GetTopUpByTradeNo(tradeNo)
-			if current != nil && waffoPancakeRejectsLateSettlement(current.Status) {
+			if current != nil && waffoPancakeWalletRejectsLateSettlement(current) {
 				logger.LogWarn(c.Request.Context(), fmt.Sprintf("Waffo Pancake 充值迟到结算在 CAS 后被终态拒绝 trade_no=%s status=%s reason_code=%s event_id=%s", tradeNo, current.Status, current.FailureReasonCode, event.ID))
 				c.String(http.StatusOK, "OK")
 				return
