@@ -59,6 +59,29 @@ test('token glyphs are procedurally generated instead of a fixed vocabulary', ()
   assert.ok(glyphs.some((glyph) => /[a-z]/.test(glyph)))
   assert.ok(glyphs.some((glyph) => /\d/.test(glyph)))
   assert.ok(glyphs.some((glyph) => /[^a-z\d]/.test(glyph)))
+  assert.equal(glyphs.some((glyph) => glyph.includes('
+
+test('runtime seeds are valid unsigned integers', () => {
+  const seed = createWalletTokenSeed()
+  assert.ok(Number.isInteger(seed))
+  assert.ok(seed > 0)
+  assert.ok(seed <= 0xffffffff)
+})
+
+test('the cloud is made of readable token glyphs rather than points', () => {
+  const markup = renderToStaticMarkup(
+    createElement(WalletTokenCloud, { amount: 100 })
+  )
+  const glyphs = Array.from(
+    markup.matchAll(/<text[^>]*>([^<]+)<\/text>/g),
+    (match) => match[1]
+  )
+
+  assert.ok(glyphs.length > 20)
+  assert.ok(new Set(glyphs).size >= 8)
+  assert.doesNotMatch(markup, /<circle/)
+})
+)), false)
 })
 
 test('runtime seeds are valid unsigned integers', () => {
