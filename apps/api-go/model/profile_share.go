@@ -73,7 +73,7 @@ func GetProfileShareOwner(token string) (*User, error) {
 		return nil, err
 	}
 	var user User
-	if err := DB.Select("id", "username", "display_name", "role", "status", "request_count").
+	if err := DB.Select("id", "username", "display_name", "email", "role", "status", "request_count").
 		Where("id = ? AND status = ?", share.UserID, common.UserStatusEnabled).
 		Take(&user).Error; err != nil {
 		return nil, err
