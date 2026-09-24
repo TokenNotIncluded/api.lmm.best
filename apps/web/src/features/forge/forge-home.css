@@ -281,8 +281,7 @@ For commercial licensing, please contact support@quantumnous.com
   font-weight: 700;
   line-height: 1;
   white-space: nowrap;
-  text-shadow: 0 0 1.2rem
-    color-mix(in oklch, currentColor 20%, transparent);
+  text-shadow: 0 0 1.2rem color-mix(in oklch, currentColor 20%, transparent);
   transition: opacity 180ms ease-out;
 }
 .lmm-token-cloud > button[data-token-option] {
