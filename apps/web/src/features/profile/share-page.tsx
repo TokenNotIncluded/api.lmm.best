@@ -43,7 +43,10 @@ import {
   enableProfileShare,
   getProfileShareState,
 } from './api'
-import { ModelUsageReport } from './components/model-usage-report'
+import {
+  ModelUsageReport,
+  type ModelUsageCopySnapshot,
+} from './components/model-usage-report'
 import { useProfile } from './hooks'
 import { PROFILE_SHARE_URL } from './lib/share-card'
 
@@ -101,6 +104,127 @@ const BADGE_PALETTES: Record<BadgeTheme, BadgeColors> = {
     muted: '#6c746d',
     border: '#d9ded5',
   },
+}
+
+interface BadgeStylePreset {
+  name: string
+  theme: BadgeTheme
+  animation: BadgeAnimation
+  font: BadgeFont
+  radius: number
+  colors: BadgeColors
+}
+
+const BADGE_STYLE_PRESETS: BadgeStylePreset[] = [
+  {
+    name: 'Graphite',
+    theme: 'dark',
+    animation: 'wave',
+    font: 'sans',
+    radius: 20,
+    colors: BADGE_PALETTES.dark,
+  },
+  {
+    name: 'Paper',
+    theme: 'paper',
+    animation: 'none',
+    font: 'serif',
+    radius: 16,
+    colors: BADGE_PALETTES.paper,
+  },
+  {
+    name: 'Terminal',
+    theme: 'dark',
+    animation: 'pulse',
+    font: 'mono',
+    radius: 14,
+    colors: {
+      bg: '#0d1117',
+      fg: '#e6edf3',
+      accent: '#3fb950',
+      muted: '#8b949e',
+      border: '#30363d',
+    },
+  },
+  {
+    name: 'Ocean',
+    theme: 'dark',
+    animation: 'wave',
+    font: 'sans',
+    radius: 28,
+    colors: {
+      bg: '#0b1320',
+      fg: '#eaf3ff',
+      accent: '#6fb7ff',
+      muted: '#8ea3b8',
+      border: '#26384c',
+    },
+  },
+  {
+    name: 'Mint',
+    theme: 'paper',
+    animation: 'pulse',
+    font: 'sans',
+    radius: 28,
+    colors: {
+      bg: '#f1f8f4',
+      fg: '#163228',
+      accent: '#2f8f6b',
+      muted: '#6a7f75',
+      border: '#c9ddd2',
+    },
+  },
+  {
+    name: 'Ember',
+    theme: 'dark',
+    animation: 'pulse',
+    font: 'serif',
+    radius: 24,
+    colors: {
+      bg: '#211713',
+      fg: '#fff2e9',
+      accent: '#ff8a5b',
+      muted: '#c0a399',
+      border: '#4b342c',
+    },
+  },
+  {
+    name: 'Violet',
+    theme: 'dark',
+    animation: 'wave',
+    font: 'sans',
+    radius: 30,
+    colors: {
+      bg: '#181524',
+      fg: '#f3efff',
+      accent: '#a78bfa',
+      muted: '#aaa0c2',
+      border: '#3b3451',
+    },
+  },
+  {
+    name: 'Clear',
+    theme: 'transparent',
+    animation: 'none',
+    font: 'sans',
+    radius: 24,
+    colors: BADGE_PALETTES.transparent,
+  },
+]
+
+function isPresetActive(
+  options: BadgeOptions,
+  preset: BadgeStylePreset
+): boolean {
+  return (
+    options.theme === preset.theme &&
+    options.animation === preset.animation &&
+    options.font === preset.font &&
+    options.radius === preset.radius &&
+    Object.entries(preset.colors).every(
+      ([key, value]) => options.colors[key as keyof BadgeColors] === value
+    )
+  )
 }
 
 const INITIAL_OPTIONS: BadgeOptions = {
@@ -172,6 +296,8 @@ export function ProfileSharePage() {
   const queryClient = useQueryClient()
   const { profile } = useProfile()
   const [options, setOptions] = useState<BadgeOptions>(INITIAL_OPTIONS)
+  const [usageSnapshot, setUsageSnapshot] =
+    useState<ModelUsageCopySnapshot | null>(null)
   const [previewURL, setPreviewURL] = useState('')
   const [previewFailed, setPreviewFailed] = useState(false)
   const shareQuery = useQuery({
@@ -226,9 +352,12 @@ export function ProfileSharePage() {
     return () => window.clearTimeout(timeout)
   }, [badgeURL])
 
-  const readmeCode = badgeURL
+  const badgeReadmeCode = badgeURL
     ? `[![LMM Best token usage](${badgeURL})](${PROFILE_SHARE_URL})`
     : ''
+  const readmeCode = [badgeReadmeCode, usageSnapshot?.markdown]
+    .filter(Boolean)
+    .join('\n\n')
   const htmlCode = badgeURL
     ? `<a href="${PROFILE_SHARE_URL}" target="_blank" rel="noopener noreferrer"><img src="${badgeURL.replaceAll('&', '&amp;')}" alt="LMM Best token usage" width="${options.width}" height="${options.height}"></a>`
     : ''
@@ -266,7 +395,10 @@ export function ProfileSharePage() {
             </p>
           </div>
 
-          <ModelUsageReport accountCreatedTime={profile?.created_time} />
+          <ModelUsageReport
+            accountCreatedTime={profile?.created_time}
+            onCopySnapshotChange={setUsageSnapshot}
+          />
 
           {shareQuery.isPending ? (
             <Skeleton className='h-28 w-full rounded-2xl' />
@@ -322,6 +454,53 @@ export function ProfileSharePage() {
                 <p className='text-muted-foreground mt-1 text-sm'>
                   {t('Every option becomes part of your SVG URL.')}
                 </p>
+              </div>
+
+              <div className='border-border/70 space-y-3 border-b pb-5'>
+                <Label>{t('Theme')}</Label>
+                <div className='grid grid-cols-2 gap-2 sm:grid-cols-4'>
+                  {BADGE_STYLE_PRESETS.map((preset) => {
+                    const active = isPresetActive(options, preset)
+                    return (
+                      <button
+                        key={preset.name}
+                        type='button'
+                        aria-pressed={active}
+                        onClick={() =>
+                          setOptions((previous) => ({
+                            ...previous,
+                            theme: preset.theme,
+                            animation: preset.animation,
+                            font: preset.font,
+                            radius: preset.radius,
+                            colors: { ...preset.colors },
+                          }))
+                        }
+                        className={`border-border/70 hover:border-foreground/30 focus-visible:ring-ring/30 flex min-h-16 items-center gap-3 rounded-xl border px-3 py-2 text-left transition-colors focus-visible:ring-3 focus-visible:outline-none ${active ? 'border-foreground/40 bg-muted/60' : 'bg-card/40'}`}
+                      >
+                        <span
+                          aria-hidden='true'
+                          className='relative size-8 shrink-0 overflow-hidden rounded-lg border'
+                          style={{
+                            backgroundColor:
+                              preset.theme === 'transparent'
+                                ? 'transparent'
+                                : preset.colors.bg,
+                            borderColor: preset.colors.border,
+                          }}
+                        >
+                          <span
+                            className='absolute inset-x-1 bottom-1 h-1.5 rounded-full'
+                            style={{ backgroundColor: preset.colors.accent }}
+                          />
+                        </span>
+                        <span className='min-w-0 text-xs font-medium'>
+                          {preset.name}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
 
               <div className='grid gap-4 sm:grid-cols-2'>
