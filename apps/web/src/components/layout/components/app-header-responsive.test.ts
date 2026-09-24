@@ -62,10 +62,6 @@ describe('authenticated header responsive navigation', () => {
     assert.match(balanceBadgeSource, /\{t\('Balance'\)\}/)
     assert.match(balanceBadgeSource, /visiblePlatformCredit/)
     assert.match(balanceBadgeSource, /<sup aria-hidden='true'>\?<\/sup>/)
-    assert.match(
-      balanceBadgeSource,
-      /Platform credit is your usage balance\./
-    )
+    assert.match(balanceBadgeSource, /Platform credit is your usage balance\./)
   })
-
 })

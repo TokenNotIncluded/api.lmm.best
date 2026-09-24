@@ -28,7 +28,7 @@ export const Route = createFileRoute('/challenges/')({
 function ChallengesPage() {
   return (
     <ForgePublicShell>
-      <main className='mx-auto max-w-7xl px-5 pt-32 pb-24 md:px-10'>
+      <main className='mx-auto max-w-7xl px-5 pt-12 pb-20 md:px-10 md:pt-16'>
         <ChallengeList />
       </main>
     </ForgePublicShell>

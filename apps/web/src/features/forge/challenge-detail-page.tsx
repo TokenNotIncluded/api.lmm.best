@@ -128,7 +128,7 @@ export function ChallengeDetailPage(props: ChallengeDetailPageProps) {
   if (query.isLoading) {
     return (
       <ForgePublicShell>
-        <main className='mx-auto flex max-w-6xl flex-col gap-5 px-5 pt-32 pb-24 md:px-10'>
+        <main className='mx-auto flex max-w-6xl flex-col gap-5 px-5 pt-12 pb-20 md:px-10 md:pt-16'>
           <Skeleton className='h-12 w-2/3' />
           <Skeleton className='h-48 w-full' />
         </main>
@@ -139,7 +139,7 @@ export function ChallengeDetailPage(props: ChallengeDetailPageProps) {
   if (query.isError) {
     return (
       <ForgePublicShell>
-        <main className='mx-auto max-w-4xl px-5 pt-32 pb-24 md:px-10'>
+        <main className='mx-auto max-w-4xl px-5 pt-12 pb-20 md:px-10 md:pt-16'>
           <h1 className='mb-4 font-serif text-4xl'>
             {t('Challenge temporarily unavailable')}
           </h1>
@@ -171,7 +171,7 @@ export function ChallengeDetailPage(props: ChallengeDetailPageProps) {
   if (!detail) {
     return (
       <ForgePublicShell>
-        <main className='mx-auto max-w-4xl px-5 pt-32 pb-24 md:px-10'>
+        <main className='mx-auto max-w-4xl px-5 pt-12 pb-20 md:px-10 md:pt-16'>
           <h1 className='mb-4 font-serif text-4xl'>
             {t('Challenge not found')}
           </h1>

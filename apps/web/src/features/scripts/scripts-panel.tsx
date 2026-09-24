@@ -190,6 +190,27 @@ export function PublicScriptsPanel({
       toast.error(t('Unable to copy command'))
     }
   }
+  if (scripts.isError) {
+    if (!fullPage) return null
+    return (
+      <div
+        role='alert'
+        className='border-destructive/40 text-destructive border border-dashed p-8 text-sm'
+      >
+        <div className='flex flex-wrap items-center justify-between gap-3'>
+          <span>{t('Unable to load scripts')}</span>
+          <Button
+            type='button'
+            size='sm'
+            variant='outline'
+            onClick={() => void scripts.refetch()}
+          >
+            {t('Retry')}
+          </Button>
+        </div>
+      </div>
+    )
+  }
   if (!scripts.data?.length) {
     if (!fullPage) return null
     return (
@@ -297,23 +318,17 @@ export function PublicScriptsPanel({
 export function PublicScriptsPage() {
   const { t } = useTranslation()
   return (
-    <main className='min-h-screen px-4 py-10 sm:px-8 sm:py-16'>
-      <div className='mx-auto w-full max-w-4xl'>
-        <div className='mb-8 flex items-start justify-between gap-4'>
-          <div>
-            <p className='text-muted-foreground text-xs font-medium tracking-[0.16em] uppercase'>
-              LMM Forge
-            </p>
-            <h1 className='mt-2 text-3xl font-semibold tracking-tight'>
-              {t('Public scripts')}
-            </h1>
-          </div>
-          <a
-            href='/'
-            className='text-muted-foreground hover:text-foreground text-sm'
-          >
-            {t('Back to home')}
-          </a>
+    <main className='min-h-screen px-5 pt-12 pb-20 md:px-10 md:pt-16'>
+      <div className='mx-auto w-full max-w-5xl'>
+        <div className='mb-8'>
+          <h1 className='text-3xl font-semibold tracking-tight'>
+            {t('Public scripts')}
+          </h1>
+          <p className='text-muted-foreground mt-2 max-w-2xl text-sm'>
+            {t(
+              'Browse maintained setup scripts and copy the command for your system.'
+            )}
+          </p>
         </div>
         <div className='mb-8 flex flex-wrap items-center justify-between gap-4 border-y py-5'>
           <div>
