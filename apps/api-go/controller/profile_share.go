@@ -80,6 +80,11 @@ func GetPublicProfileShareSVG(c *gin.Context) {
 	}
 	var svg string
 	if options.Layout == "profile" {
+		avatarURL := options.AvatarURL
+		if avatarURL == "" {
+			avatarURL = profileShareGravatarURL(owner.Email)
+		}
+		options.AvatarDataURI = profileShareAvatarDataURI(c.Request.Context(), avatarURL)
 		endDay := time.Now().UTC().Truncate(24 * time.Hour).Unix()
 		startDay := endDay - 370*86400
 		rows, queryErr := model.GetProfileShareYearDays(owner.Id, startDay, endDay)
@@ -98,7 +103,7 @@ func GetPublicProfileShareSVG(c *gin.Context) {
 	}
 	c.Header("Cache-Control", "no-store")
 	c.Header("X-Content-Type-Options", "nosniff")
-	c.Header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
+	c.Header("Content-Security-Policy", "default-src 'none'; img-src data:; style-src 'unsafe-inline'")
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Data(http.StatusOK, "image/svg+xml; charset=utf-8", []byte(svg))
 }
