@@ -22,6 +22,11 @@ func TestProfileShareSVGOptionsRejectInjectionAndRenderActualUsage(t *testing.T)
 	require.Error(t, err)
 	_, err = parseProfileShareSVGOptions(url.Values{"title": {"hello\nworld"}})
 	require.Error(t, err)
+	_, err = parseProfileShareSVGOptions(url.Values{"avatar": {"http://example.com/avatar.png"}})
+	require.Error(t, err)
+	avatarOptions, err := parseProfileShareSVGOptions(url.Values{"avatar": {"https://cdn.example.com/avatar.png?size=256"}})
+	require.NoError(t, err)
+	require.Equal(t, "https://cdn.example.com/avatar.png?size=256", avatarOptions.AvatarURL)
 
 	options, err := parseProfileShareSVGOptions(url.Values{
 		"title":     {`<script>alert("x")</script>`},
@@ -80,6 +85,12 @@ func TestProfileSharePublicSVGRequiresOptInAndCanBeRevoked(t *testing.T) {
 }
 
 func TestProfileShareOverviewSVGUsesRealYearDataAndEscapesCustomText(t *testing.T) {
+	require.Equal(
+		t,
+		"https://gravatar.com/avatar/973dfe463ec85785f5f95af5ba3906eedb2d931c24e69824a89ea65dba4e813b?d=404&r=g&s=256",
+		profileShareGravatarURL(" Test@Example.com "),
+	)
+
 	start := int64(100 * 86400)
 	rows := []model.ProfileShareDay{
 		{Day: start + 368*86400, Tokens: 7_700_000_000},
@@ -95,11 +106,14 @@ func TestProfileShareOverviewSVGUsesRealYearDataAndEscapesCustomText(t *testing.
 		"lang": {"zh"}, "title": {`<script>alert(1)</script>`},
 	})
 	require.NoError(t, err)
+	options.AvatarDataURI = "data:image/png;base64,aGVsbG8="
 	owner := &model.User{Username: "light", DisplayName: "lightjunction", RequestCount: 87_000}
 	svg := renderProfileShareProfileSVG(options, owner, rows, start)
 	require.Contains(t, svg, "83.4亿")
 	require.Contains(t, svg, "8.7万")
 	require.Contains(t, svg, "https://api.lmm.best")
+	require.Contains(t, svg, "<image ")
+	require.Contains(t, svg, "data:image/png;base64,aGVsbG8=")
 	require.Contains(t, svg, "&lt;script&gt;")
 	require.NotContains(t, svg, "<script>")
 	var parsed struct{}
