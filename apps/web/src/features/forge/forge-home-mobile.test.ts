@@ -14,6 +14,14 @@ const source = readFileSync(
   new URL('./forge-home.tsx', import.meta.url),
   'utf8'
 )
+const landingSource = readFileSync(
+  new URL('../home/home-landing.tsx', import.meta.url),
+  'utf8'
+)
+const providerCommands = readFileSync(
+  new URL('../guide/provider-install-commands.ts', import.meta.url),
+  'utf8'
+)
 const css = readFileSync(new URL('./forge-home.css', import.meta.url), 'utf8')
 const motion = readFileSync(
   new URL('../home/home-motion.ts', import.meta.url),
@@ -103,4 +111,15 @@ test('paused and reduced-motion states keep the code surface static', () => {
   )
   assert.match(motion, /matchMedia\('\(prefers-reduced-motion: reduce\)'\)/)
   assert.match(motion, /const animate = !reduced\.matches && !paused/)
+})
+
+test('homepage removes the manual word field and presents all OAuth client options', () => {
+  assert.doesNotMatch(landingSource, /Type a word\. See what connects\./)
+  assert.doesNotMatch(landingSource, /data-home-token-field/)
+  assert.match(source, /<strong>Pi<\/strong>/)
+  assert.match(source, /<strong>DSH<\/strong>/)
+  assert.match(source, /<strong>Codewhale<\/strong>/)
+  assert.match(source, /DSH_WEB_INSTALL_PORTABLE_COMMAND/)
+  assert.match(providerCommands, /dsh plugin --profile web add/)
+  assert.match(providerCommands, /codewhale-lmm-provider\.git/)
 })
