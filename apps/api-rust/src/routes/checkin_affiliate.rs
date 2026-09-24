@@ -36,6 +36,7 @@ const DEFAULT_QUOTA_PER_UNIT: i64 = 500_000;
 const DEFAULT_CHECKIN_MIN_QUOTA: i64 = 1_000;
 const DEFAULT_CHECKIN_MAX_QUOTA: i64 = 10_000;
 const LOG_TYPE_SYSTEM: i64 = 4;
+const MAX_WALLET_QUOTA: i64 = (1_i64 << 53) - 1;
 
 #[async_trait]
 pub trait Clock: Send + Sync {
@@ -222,7 +223,12 @@ pub fn read_router(state: CheckinAffiliateState) -> Router {
 }
 
 fn checkin_read_routes() -> Router<CheckinAffiliateState> {
-    Router::new().route("/api/user/checkin", get(checkin_status))
+    Router::new()
+        .route("/api/user/checkin", get(checkin_status))
+        .route(
+            "/api/user/self/aff/rewards",
+            get(referral_reward_history),
+        )
 }
 
 #[derive(Serialize)]
@@ -477,6 +483,187 @@ fn month(now: i64, timezone: FixedOffset) -> String {
         .with_timezone(&timezone)
         .format("%Y-%m")
         .to_string()
+}
+
+
+#[derive(Default, Deserialize)]
+struct ReferralHistoryQuery {
+    before: Option<String>,
+}
+
+#[derive(Serialize)]
+struct ReferralLedgerEntry {
+    id: i64,
+    reward_id: i64,
+    kind: String,
+    quota: i64,
+    reason: String,
+    created_at: i64,
+}
+
+#[derive(Debug, PartialEq, Serialize)]
+struct ReferralPolicy {
+    reward_quota: i64,
+    min_top_up_quota: i64,
+    max_reward_quota: i64,
+    penalty_percent: i64,
+    max_penalty_quota: i64,
+}
+
+fn referral_cursor(raw: Option<&str>) -> Result<i64, ()> {
+    match raw {
+        None | Some("") => Ok(0),
+        Some(value) => value
+            .parse::<i64>()
+            .ok()
+            .filter(|value| *value > 0)
+            .ok_or(()),
+    }
+}
+
+fn referral_option(
+    options: &BTreeMap<String, String>,
+    key: &str,
+    default: i64,
+    max: i64,
+) -> i64 {
+    options
+        .get(key)
+        .and_then(|value| value.trim().parse::<i64>().ok())
+        .filter(|value| *value >= 0 && *value <= max)
+        .unwrap_or(default)
+}
+
+fn referral_policy_from_options(options: &BTreeMap<String, String>) -> ReferralPolicy {
+    ReferralPolicy {
+        reward_quota: referral_option(options, "QuotaForInviter", 0, MAX_WALLET_QUOTA),
+        min_top_up_quota: referral_option(
+            options,
+            "ReferralMinTopUpQuota",
+            0,
+            MAX_WALLET_QUOTA,
+        ),
+        max_reward_quota: referral_option(
+            options,
+            "ReferralMaxRewardQuota",
+            0,
+            MAX_WALLET_QUOTA,
+        ),
+        penalty_percent: referral_option(options, "ReferralPenaltyPercent", 20, 100),
+        max_penalty_quota: referral_option(
+            options,
+            "ReferralMaxPenaltyQuota",
+            0,
+            MAX_WALLET_QUOTA,
+        ),
+    }
+}
+
+async fn referral_policy(pg: &PgPool) -> Result<ReferralPolicy, ()> {
+    let rows: Vec<(String, String)> =
+        sqlx::query_as("SELECT key, value FROM options WHERE key = ANY($1)")
+            .bind([
+                "QuotaForInviter",
+                "ReferralMinTopUpQuota",
+                "ReferralMaxRewardQuota",
+                "ReferralPenaltyPercent",
+                "ReferralMaxPenaltyQuota",
+            ])
+            .fetch_all(pg)
+            .await
+            .map_err(|_| ())?;
+    Ok(referral_policy_from_options(&rows.into_iter().collect()))
+}
+
+async fn referral_reward_history(
+    State(state): State<CheckinAffiliateState>,
+    headers: HeaderMap,
+    Query(query): Query<ReferralHistoryQuery>,
+) -> Response {
+    let actor = match user(&state, &headers).await {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let before = match referral_cursor(query.before.as_deref()) {
+        Ok(value) => value,
+        Err(()) => return fail("referral operation conflicts with an earlier request"),
+    };
+
+    let rows = if before > 0 {
+        sqlx::query(
+            r#"SELECT id::bigint AS id, reward_id::bigint AS reward_id, kind,
+                      quota::bigint AS quota, reason, created_at::bigint AS created_at
+               FROM referral_ledger_entries
+               WHERE user_id = $1 AND id < $2
+               ORDER BY id DESC
+               LIMIT 51"#,
+        )
+        .bind(actor.id)
+        .bind(before)
+        .fetch_all(&state.pg)
+        .await
+    } else {
+        sqlx::query(
+            r#"SELECT id::bigint AS id, reward_id::bigint AS reward_id, kind,
+                      quota::bigint AS quota, reason, created_at::bigint AS created_at
+               FROM referral_ledger_entries
+               WHERE user_id = $1
+               ORDER BY id DESC
+               LIMIT 51"#,
+        )
+        .bind(actor.id)
+        .fetch_all(&state.pg)
+        .await
+    };
+    let rows = match rows {
+        Ok(value) => value,
+        Err(_) => return fail("系统错误"),
+    };
+
+    let mut entries: Vec<ReferralLedgerEntry> = rows
+        .into_iter()
+        .map(|row| ReferralLedgerEntry {
+            id: row.get("id"),
+            reward_id: row.get("reward_id"),
+            kind: row.get("kind"),
+            quota: row.get("quota"),
+            reason: row.get("reason"),
+            created_at: row.get("created_at"),
+        })
+        .collect();
+    let next_cursor = if entries.len() > 50 {
+        entries.truncate(50);
+        entries.last().map_or(0, |entry| entry.id)
+    } else {
+        0
+    };
+
+    let aff_quota = match sqlx::query_scalar::<_, i64>(
+        "SELECT COALESCE(aff_quota, 0)::bigint FROM users WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(actor.id)
+    .fetch_optional(&state.pg)
+    .await
+    {
+        Ok(Some(value)) => value,
+        Ok(None) | Err(_) => return fail("系统错误"),
+    };
+    let policy = match referral_policy(&state.pg).await {
+        Ok(value) => value,
+        Err(()) => return fail("系统错误"),
+    };
+
+    Json(json!({
+        "success": true,
+        "data": {
+            "entries": entries,
+            "next_cursor": next_cursor,
+            "available_quota": aff_quota.max(0),
+            "debt_quota": aff_quota.saturating_neg().max(0),
+            "policy": policy,
+        }
+    }))
+    .into_response()
 }
 
 async fn checkin_status(
@@ -939,6 +1126,7 @@ mod tests {
     {
         for (method, uri) in [
             ("GET", "/api/user/checkin"),
+            ("GET", "/api/user/self/aff/rewards"),
             ("POST", "/api/user/checkin"),
             ("POST", "/api/user/aff/invite"),
             ("POST", "/api/user/aff_transfer"),
@@ -1079,6 +1267,40 @@ mod tests {
             json!({"success": true, "data": {"enabled": true}})
         );
         Ok(())
+    }
+
+    #[test]
+    fn referral_cursor_matches_go_empty_and_positive_rules() {
+        assert_eq!(referral_cursor(None), Ok(0));
+        assert_eq!(referral_cursor(Some("")), Ok(0));
+        assert_eq!(referral_cursor(Some("42")), Ok(42));
+        for invalid in ["0", "-1", "abc", " 42"] {
+            assert_eq!(referral_cursor(Some(invalid)), Err(()), "{invalid}");
+        }
+    }
+
+    #[test]
+    fn referral_policy_matches_go_defaults_and_validation() {
+        let options = BTreeMap::from([
+            ("QuotaForInviter".to_owned(), "500000".to_owned()),
+            ("ReferralMinTopUpQuota".to_owned(), "200000".to_owned()),
+            ("ReferralMaxRewardQuota".to_owned(), "-1".to_owned()),
+            ("ReferralPenaltyPercent".to_owned(), "101".to_owned()),
+            (
+                "ReferralMaxPenaltyQuota".to_owned(),
+                MAX_WALLET_QUOTA.to_string(),
+            ),
+        ]);
+        assert_eq!(
+            referral_policy_from_options(&options),
+            ReferralPolicy {
+                reward_quota: 500_000,
+                min_top_up_quota: 200_000,
+                max_reward_quota: 0,
+                penalty_percent: 20,
+                max_penalty_quota: MAX_WALLET_QUOTA,
+            }
+        );
     }
 
     #[test]
