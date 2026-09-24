@@ -515,7 +515,7 @@ export function createTrainingScene(
     const mismatch = Math.max(0, 1 - s.act[net.layers[4][s.predicted]])
 
     // Quiet vocabulary behind the interactive cloud; no unrelated orbit.
-    for (const token of net.cloud.slice(0, 8)) {
+    for (const token of net.cloud.slice(0, 12)) {
       const angle = token.angle
       sink.token(
         point(
@@ -525,7 +525,7 @@ export function createTrainingScene(
         ),
         token.text,
         token.color,
-        token.alpha * 0.28,
+        token.alpha * 0.38,
         token.size
       )
     }
@@ -959,8 +959,8 @@ export function createCamera(
   const narrow = width < 650
   const centered = layout === 'center'
   const orbit = ramp(0.06, 0.5, progress) - ramp(0.6, 0.98, progress)
-  const ry = -0.5 + orbit * 0.78 + pointer.x * 0.24
-  const rx = 0.2 + orbit * 0.12 + pointer.y * 0.12
+  const ry = -0.5 + orbit * 0.92 + pointer.x * 0.32
+  const rx = 0.2 + orbit * 0.16 + pointer.y * 0.18
   const [sy, cy, sx, cx] = [
     Math.sin(ry),
     Math.cos(ry),
@@ -994,7 +994,7 @@ export function createCamera(
     cy: height * (centered ? 0.5 : narrow ? 0.27 : 0.53),
     unit: unit * zoom,
     distance: 12,
-    expand: 1 + orbit * 1.5,
+    expand: 1 + orbit * 1.8,
     quiet: centered
       ? [-1e4, -1e4, -1e4, -1e4]
       : narrow
