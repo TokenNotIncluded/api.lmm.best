@@ -1060,9 +1060,11 @@ export function AssistantSetupTool(props: {
               onClick={() =>
                 props.onAskQuestion?.(
                   t(
-                    oauthClient
-                      ? 'I am setting up {{client}} on {{platform}}. Please check the supported version, help me install the LMM plugin, sign in with OAuth, choose a model, and send a first test. Never ask for my API key.'
-                      : 'I am setting up {{client}} on {{platform}}. Please walk me through downloading it, entering the connection settings, and sending a first test. Ask which step I am on, and never ask for my API key.',
+                    clientTab === 'codewhale'
+                      ? 'I am setting up Codewhale on {{platform}}. Please help me install Codewhale and the codewhale-lmm companion adapter, sign in with OAuth, list the account-scoped model IDs, and start the first model with codewhale-lmm run. Never ask for my API key.'
+                      : oauthClient
+                        ? 'I am setting up {{client}} on {{platform}}. Please check the supported version, help me install the LMM plugin, sign in with OAuth, choose a model, and send a first test. Never ask for my API key.'
+                        : 'I am setting up {{client}} on {{platform}}. Please walk me through downloading it, entering the connection settings, and sending a first test. Ask which step I am on, and never ask for my API key.',
                     {
                       client: clientNames[clientTab],
                       platform: PLATFORM_LABELS[platform],
