@@ -46,8 +46,11 @@ function randomPunctuation(random: RandomSource) {
   const length = bucket === 0 ? 15 : bucket === 1 ? 7 : bucket === 2 ? 6 : 4
   let value = String.fromCharCode(start + randomInt(random, length))
   // Decorative wallet tokens must not resemble a settlement currency symbol.
-  while (value === '
-
+  while (value.charCodeAt(0) === 36) {
+    value = String.fromCharCode(start + randomInt(random, length))
+  }
+  return value
+}
 function randomSequence(
   random: RandomSource,
   length: number,
