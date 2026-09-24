@@ -21,6 +21,7 @@ const PLATFORMS = ['windows', 'macos', 'linux', 'android', 'ios'] as const
 const CLIENTS = [
   'pi',
   'dsh',
+  'codewhale',
   'astrbot',
   'openai-sdk',
   'anthropic-sdk',
