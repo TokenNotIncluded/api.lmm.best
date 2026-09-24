@@ -141,7 +141,8 @@ export function createTokenCloud(
           particle.dx = particle.dy = particle.spin = 0
         }
         const driftX = moving
-          ? Math.sin(time * 0.52 + particle.phase) * (2.5 + particle.depth * 4.5)
+          ? Math.sin(time * 0.52 + particle.phase) *
+            (2.5 + particle.depth * 4.5)
           : 0
         const driftY = moving
           ? Math.cos(time * 0.39 + particle.phase * 1.17) *
