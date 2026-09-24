@@ -59,6 +59,10 @@ test('token glyphs are procedurally generated instead of a fixed vocabulary', ()
   assert.ok(glyphs.some((glyph) => /[a-z]/.test(glyph)))
   assert.ok(glyphs.some((glyph) => /\d/.test(glyph)))
   assert.ok(glyphs.some((glyph) => /[^a-z\d]/.test(glyph)))
+  assert.equal(
+    glyphs.some((glyph) => glyph.includes(String.fromCharCode(36))),
+    false
+  )
 })
 
 test('runtime seeds are valid unsigned integers', () => {

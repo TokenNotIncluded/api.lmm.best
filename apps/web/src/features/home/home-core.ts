@@ -515,7 +515,7 @@ export function createTrainingScene(
     const mismatch = Math.max(0, 1 - s.act[net.layers[4][s.predicted]])
 
     // Quiet vocabulary behind the interactive cloud; no unrelated orbit.
-    for (const token of net.cloud.slice(0, 8)) {
+    for (const token of net.cloud.slice(0, 12)) {
       const angle = token.angle
       sink.token(
         point(
@@ -525,7 +525,7 @@ export function createTrainingScene(
         ),
         token.text,
         token.color,
-        token.alpha * 0.28,
+        token.alpha * 0.38,
         token.size
       )
     }
@@ -552,14 +552,12 @@ export function createTrainingScene(
       w: (INPUT.cols * INPUT.cell) / 2 + 0.06,
       h: (INPUT.rows * INPUT.cell) / 2 + 0.06,
     }
-    const corners = [
-      point(INPUT.x - half.w, -half.h, 0),
-      point(INPUT.x + half.w, -half.h, 0),
-      point(INPUT.x + half.w, half.h, 0),
-      point(INPUT.x - half.w, half.h, 0),
-    ]
-    corners.forEach((corner, i) =>
-      sink.segment(corner, corners[(i + 1) % 4], palette.idle, 0.9, 1.5)
+    sink.segment(
+      point(INPUT.x - half.w * 0.68, half.h + 0.1, 0),
+      point(INPUT.x + half.w * 0.68, half.h + 0.1, 0),
+      palette.idle,
+      0.42,
+      1
     )
     const backIntoInput = ramp(0.9, -0.1, clock.backward)
     s.bitmap.forEach((on, i) => {
@@ -848,45 +846,17 @@ export function createTrainingScene(
       }
     })
 
-    // Prediction box and loss diamond.
+    // Prediction lands as typography rather than another framed UI card.
     const correct = s.predicted === s.target
     const verdict = correct ? palette.highlight : palette.feedback
-    const box = [
-      point(
-        PREDICTION.x - PREDICTION.w / 2,
-        PREDICTION.y - PREDICTION.h / 2,
-        0
-      ),
-      point(
-        PREDICTION.x + PREDICTION.w / 2,
-        PREDICTION.y - PREDICTION.h / 2,
-        0
-      ),
-      point(
-        PREDICTION.x + PREDICTION.w / 2,
-        PREDICTION.y + PREDICTION.h / 2,
-        0
-      ),
-      point(
-        PREDICTION.x - PREDICTION.w / 2,
-        PREDICTION.y + PREDICTION.h / 2,
-        0
-      ),
-    ]
     const shown = clock.predict * live
-    box.forEach((corner, i) => {
-      sink.segment(corner, box[(i + 1) % 4], palette.idle, 0.9, 1.5)
-      if (shown > 0.01) {
-        sink.segment(corner, box[(i + 1) % 4], verdict, shown * 0.8, 1.5, true)
-      }
-    })
     if (shown > 0.01) {
       sink.segment(
         barEnd(s.predicted, s.act[net.layers[4][s.predicted]]),
         point(PREDICTION.x - PREDICTION.w / 2, PREDICTION.y, 0),
         verdict,
-        shown * 0.6,
-        1.5,
+        shown * 0.46,
+        1.25,
         true
       )
       sink.label(
@@ -896,6 +866,21 @@ export function createTrainingScene(
         shown,
         0.34,
         0.5
+      )
+      sink.segment(
+        point(
+          PREDICTION.x - PREDICTION.w * 0.32,
+          PREDICTION.y - PREDICTION.h * 0.42,
+          0
+        ),
+        point(
+          PREDICTION.x + PREDICTION.w * 0.32,
+          PREDICTION.y - PREDICTION.h * 0.42,
+          0
+        ),
+        verdict,
+        shown * 0.5,
+        1
       )
     }
     const loss =
@@ -959,8 +944,8 @@ export function createCamera(
   const narrow = width < 650
   const centered = layout === 'center'
   const orbit = ramp(0.06, 0.5, progress) - ramp(0.6, 0.98, progress)
-  const ry = -0.5 + orbit * 0.78 + pointer.x * 0.24
-  const rx = 0.2 + orbit * 0.12 + pointer.y * 0.12
+  const ry = -0.5 + orbit * 0.92 + pointer.x * 0.32
+  const rx = 0.2 + orbit * 0.16 + pointer.y * 0.18
   const [sy, cy, sx, cx] = [
     Math.sin(ry),
     Math.cos(ry),
@@ -994,7 +979,7 @@ export function createCamera(
     cy: height * (centered ? 0.5 : narrow ? 0.27 : 0.53),
     unit: unit * zoom,
     distance: 12,
-    expand: 1 + orbit * 1.5,
+    expand: 1 + orbit * 1.8,
     quiet: centered
       ? [-1e4, -1e4, -1e4, -1e4]
       : narrow

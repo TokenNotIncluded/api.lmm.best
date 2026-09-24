@@ -118,7 +118,7 @@ export function createTokenCloud(
           }
         })
     },
-    draw(_time: number, cursor: Cursor, moving: boolean) {
+    draw(time: number, cursor: Cursor, moving: boolean) {
       if (!active) return
       const count = width < 680 ? 10 : particles.length
       for (const [index, particle] of particles.entries()) {
@@ -140,8 +140,16 @@ export function createTokenCloud(
         } else {
           particle.dx = particle.dy = particle.spin = 0
         }
-        const px = x + particle.dx
-        const py = y + particle.dy
+        const driftX = moving
+          ? Math.sin(time * 0.52 + particle.phase) *
+            (2.5 + particle.depth * 4.5)
+          : 0
+        const driftY = moving
+          ? Math.cos(time * 0.39 + particle.phase * 1.17) *
+            (1.8 + particle.depth * 3.2)
+          : 0
+        const px = x + particle.dx + driftX
+        const py = y + particle.dy + driftY
         const padding = particle.text.length * 5 + 8
         const obscuresText =
           exclusions.some(
@@ -155,8 +163,8 @@ export function createTokenCloud(
         particle.node.style.opacity = obscuresText
           ? '0'
           : particle.interactive
-            ? '0.78'
-            : String(0.13 + particle.depth * 0.1 + force.strength * 0.12)
+            ? '0.88'
+            : String(0.18 + particle.depth * 0.15 + force.strength * 0.16)
         particle.node.style.transform = `translate3d(${px.toFixed(2)}px,${py.toFixed(2)}px,0) translate(-50%,-50%) rotate(${particle.spin.toFixed(2)}deg)`
       }
     },
