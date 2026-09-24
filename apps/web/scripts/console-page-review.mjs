@@ -24,8 +24,8 @@ const output = process.env.CONSOLE_REVIEW_OUTPUT
 if (!output) throw new Error('CONSOLE_REVIEW_OUTPUT is required')
 await mkdir(output, { recursive: true })
 const userRoutes = [
-  '/',
   '/temporary-activations',
+  '/',
   '/dashboard/overview',
   '/dashboard/models',
   '/dashboard/flow',
@@ -89,8 +89,8 @@ for (const category of [
   }
 }
 const mobileRoutes = [
-  '/',
   '/temporary-activations',
+  '/',
   '/profile',
   '/wallet',
   '/keys',
