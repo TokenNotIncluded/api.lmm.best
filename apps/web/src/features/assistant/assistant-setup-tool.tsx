@@ -242,12 +242,15 @@ export function AssistantSetupTool(props: {
     codex: 'Codex',
     'openai-compatible': t('OpenAI-compatible clients'),
   }
-  const clients: ClientTab[] = mobile
-    ? ['chatbox', 'chatgpt']
-    : [
-        'pi',
-        'dsh',
-        'codewhale',
+  const clients: ClientTab[] =
+    platform === 'android'
+      ? ['codewhale', 'chatbox', 'chatgpt']
+      : mobile
+        ? ['chatbox', 'chatgpt']
+        : [
+            'pi',
+            'dsh',
+            'codewhale',
         'claude-code',
         'codex',
         'cc-switch',
@@ -542,6 +545,13 @@ export function AssistantSetupTool(props: {
               </TabsContent>
             ))}
 
+          <TabsContent value='codewhale' className='mt-5'>
+            <CodewhaleOAuthGuide
+              android={platform === 'android'}
+              windows={platform === 'windows'}
+            />
+          </TabsContent>
+
           {!mobile ? (
             <>
               <TabsContent value='pi' className='mt-5'>
@@ -549,9 +559,6 @@ export function AssistantSetupTool(props: {
               </TabsContent>
               <TabsContent value='dsh' className='mt-5'>
                 <DshOAuthGuide windows={platform === 'windows'} />
-              </TabsContent>
-              <TabsContent value='codewhale' className='mt-5'>
-                <CodewhaleOAuthGuide windows={platform === 'windows'} />
               </TabsContent>
               <TabsContent value='astrbot' className='mt-5 grid gap-5'>
                 <p className='text-sm leading-7'>
