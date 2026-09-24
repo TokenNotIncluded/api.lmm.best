@@ -170,11 +170,13 @@ test('L0 renders the wallet header and no sidebar assistant even when a previous
     })
     await act(flush)
     assert.ok(container.querySelector('[data-testid="l0-inline-content"]'))
-    const wallet = container.querySelector<HTMLAnchorElement>(
+    const balanceBadge = container.querySelector<HTMLElement>(
       '[data-testid="account-balance-badge"]'
     )
+    const wallet =
+      balanceBadge?.querySelector<HTMLAnchorElement>('a[href="/wallet"]')
     assert.equal(wallet?.getAttribute('href'), '/wallet')
-    assert.match(wallet?.textContent ?? '', /Top up/)
+    assert.match(balanceBadge?.textContent ?? '', /Top up/)
     assert.equal(container.querySelector('[data-sidebar="trigger"]'), null)
     assert.equal(
       container.querySelector('button[aria-label="Open AI assistant"]'),
