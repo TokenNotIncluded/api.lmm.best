@@ -410,7 +410,7 @@ func TestAddLimitedTokenEnforcesJavaScriptSafeQuota(t *testing.T) {
 	common.QuotaPerUnit = math.MaxFloat64
 	t.Cleanup(func() { common.QuotaPerUnit = oldQuotaPerUnit })
 
-	user := model.User{Username: "limited-token-wallet", Status: common.UserStatusEnabled}
+	user := model.User{Username: "limited-token-wallet", Status: common.UserStatusEnabled, Group: "default"}
 	if err := db.Create(&user).Error; err != nil {
 		t.Fatalf("failed to create user: %v", err)
 	}
