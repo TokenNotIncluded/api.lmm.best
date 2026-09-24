@@ -554,7 +554,9 @@ export function ApiKeysMutateDrawer({
                 <div
                   className={cn(
                     'flex items-center justify-between gap-3 text-sm font-medium',
-                    !isUpdate && !selectedGroup && 'text-destructive font-semibold'
+                    !isUpdate &&
+                      !selectedGroup &&
+                      'text-destructive font-semibold'
                   )}
                 >
                   <span>{t('Group')}</span>
