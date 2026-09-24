@@ -66,7 +66,10 @@ test('wallet token glyphs never look like a dollar-denominated credit label', ()
     const glyphs = createWalletTokenLayout(240, seed).map(
       (token) => token.glyph
     )
-    assert.equal(glyphs.some((glyph) => glyph.includes('$')), false)
+    assert.equal(
+      glyphs.some((glyph) => glyph.includes('$')),
+      false
+    )
   }
 })
 
