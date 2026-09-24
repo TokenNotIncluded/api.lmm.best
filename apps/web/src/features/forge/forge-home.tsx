@@ -39,7 +39,7 @@ import {
 import { getAssistantPromptValidation } from '@/features/assistant/assistant-prompt-validation'
 import {
   CODEWHALE_INSTALL_COMMAND,
-  DSH_WEB_INSTALL_LATEST_COMMAND,
+  DSH_WEB_INSTALL_PORTABLE_COMMAND,
   PI_INSTALL_LATEST_COMMAND,
 } from '@/features/guide/provider-install-commands'
 import { codeForTab, type CodeTab } from '@/features/home/home-code-examples'
@@ -398,13 +398,13 @@ export function ForgeHome() {
               </div>
               <p className='lmm-pi-description'>{t('Install DSH plugin')}</p>
               <div className='lmm-pi-command'>
-                <code>{DSH_WEB_INSTALL_LATEST_COMMAND}</code>
+                <code>{DSH_WEB_INSTALL_PORTABLE_COMMAND}</code>
                 <Button
                   type='button'
                   variant='outline'
                   size='sm'
                   onClick={() =>
-                    void dshCopy.copy(DSH_WEB_INSTALL_LATEST_COMMAND)
+                    void dshCopy.copy(DSH_WEB_INSTALL_PORTABLE_COMMAND)
                   }
                   aria-label={`${t('Copy')} DSH`}
                 >
@@ -422,7 +422,7 @@ export function ForgeHome() {
             <section className='lmm-provider-item'>
               <div className='lmm-provider-heading'>
                 <strong>Codewhale</strong>
-                <span>OAuth companion</span>
+                <span>Companion adapter</span>
               </div>
               <p className='lmm-pi-description'>
                 {t('Client install required')} · OAuth
