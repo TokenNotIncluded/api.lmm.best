@@ -1,0 +1,1592 @@
+{
+  "fr": [
+    {
+      "key": "[{\"name\":\"支付宝\",\"type\":\"alipay\",\"color\":\"#1677FF\"}]",
+      "en": "[{\"name\":\"Alipay\",\"type\":\"alipay\",\"color\":\"#1677FF\"}]",
+      "value": "[{\"name\":\"Alipay\",\"type\":\"alipay\",\"color\":\"#1677FF\"}]",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "[{\"name\":\"支付宝\",\"type\":\"alipay\",\"icon\":\"SiAlipay\"}]",
+      "en": "[{\"name\":\"支付宝\",\"type\":\"alipay\",\"icon\":\"SiAlipay\"}]",
+      "value": "[{\"name\":\"支付宝\",\"type\":\"alipay\",\"icon\":\"SiAlipay\"}]",
+      "reasons": [
+        "same-as-english",
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "{\"original-model\": \"replacement-model\"}",
+      "en": "{\"original-model\": \"replacement-model\"}",
+      "value": "{\"original-model\": \"replacement-model\"}",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "{{count}} codes",
+      "en": "{{count}} codes",
+      "value": "{{count}} codes",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "{{count}} incidents",
+      "en": "{{count}} incidents",
+      "value": "{{count}} incidents",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "{{method}} {{route}}",
+      "en": "{{method}} {{route}}",
+      "value": "{{method}} {{route}}",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "#1 App",
+      "en": "#1 App",
+      "value": "#1 App",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "A record here confirms an in-site alert, not delivery of an email. Raw cross-account conversations, IP addresses and email addresses are not shown.",
+      "en": "这里的回执表示站内告警已入库，不代表邮件已发送。不展示跨账号聊天原文、IP 或邮箱。",
+      "value": "这里的回执表示站内告警已入库，不代表邮件已发送。不展示跨账号聊天原文、IP 或邮箱。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Access & safety",
+      "en": "Access & safety",
+      "value": "Access & safety",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Access and welcome rewards are on hold. You can keep asking questions or request human support.",
+      "en": "开通和新用户奖励暂缓，你仍可以继续咨询或转人工说明情况。",
+      "value": "开通和新用户奖励暂缓，你仍可以继续咨询或转人工说明情况。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Account access is paused",
+      "en": "账号访问已暂停",
+      "value": "账号访问已暂停",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Account could not be restored. Check its current state.",
+      "en": "未能恢复账号，请核对当前账号状态。",
+      "value": "未能恢复账号，请核对当前账号状态。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Account restored",
+      "en": "账号已恢复",
+      "value": "账号已恢复",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Allow evidence-gated L0 suspensions",
+      "en": "允许基于充分证据停用 L0 账号",
+      "value": "允许基于充分证据停用 L0 账号",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "An administrator can review the recorded action. A pause is not a judgment about your writing style.",
+      "en": "管理员可以复核执行记录。这不是仅凭说话风格作出的判断。",
+      "value": "管理员可以复核执行记录。这不是仅凭说话风格作出的判断。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Brand & address",
+      "en": "Brand & address",
+      "value": "Brand & address",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Checking registration status",
+      "en": "正在读取核验状态",
+      "value": "正在读取核验状态",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Choose existing codes, set the draw rule, then share one link instead of publishing every code.",
+      "en": "Choose existing codes, set the draw rule, then share one link instead of publishing every code.",
+      "value": "Choose existing codes, set the draw rule, then share one link instead of publishing every code.",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Continue with the assistant",
+      "en": "继续与客服对话",
+      "value": "继续与客服对话",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "end_conversation",
+      "en": "终止对话",
+      "value": "终止对话",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "example.com&#10;blocked-site.com",
+      "en": "example.com&#10;blocked-site.com",
+      "value": "example.com&#10;blocked-site.com",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "example.com&#10;company.com",
+      "en": "example.com&#10;company.com",
+      "value": "example.com&#10;company.com",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Home page, about and footer",
+      "en": "Home page, about and footer",
+      "value": "Home page, about and footer",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "How verification works",
+      "en": "核验会检查什么",
+      "value": "核验会检查什么",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Keep chatting or retry. Access has not been granted by this message.",
+      "en": "可以继续咨询或重新读取状态。此提示不代表已获得权限。",
+      "value": "可以继续咨询或重新读取状态。此提示不代表已获得权限。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "L1 access is active",
+      "en": "L1 已开通",
+      "value": "L1 已开通",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Latest",
+      "en": "最新记录",
+      "value": "最新记录",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Loading recorded actions…",
+      "en": "正在读取执行记录…",
+      "value": "正在读取执行记录…",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Maximum automatic suspensions per UTC day",
+      "en": "每日自动停用上限（UTC）",
+      "value": "每日自动停用上限（UTC）",
+      "reasons": [
+        "same-as-english",
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Minimum {{amount}}",
+      "en": "Minimum {{amount}}",
+      "value": "Minimum {{amount}}",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Model & response",
+      "en": "Model & response",
+      "value": "Model & response",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "name@example.com",
+      "en": "name@example.com",
+      "value": "name@example.com",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "No recorded registration alerts in this page.",
+      "en": "本页暂无注册风险记录。",
+      "value": "本页暂无注册风险记录。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "noreply@example.com",
+      "en": "noreply@example.com",
+      "value": "noreply@example.com",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "notify",
+      "en": "风险告警",
+      "value": "风险告警",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Older records",
+      "en": "更早记录",
+      "value": "更早记录",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Position {{position}}",
+      "en": "Position {{position}}",
+      "value": "Position {{position}}",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Quota ({{currency}})",
+      "en": "Quota ({{currency}})",
+      "value": "Quota ({{currency}})",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Reference image {{index}}",
+      "en": "Image {{index}}",
+      "value": "Image {{index}}",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Refresh registration status",
+      "en": "刷新核验状态",
+      "value": "刷新核验状态",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Registration needs another check",
+      "en": "注册信息需要进一步核验",
+      "value": "注册信息需要进一步核验",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Registration protection",
+      "en": "注册与奖励保护",
+      "value": "注册与奖励保护",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Registration risk inbox",
+      "en": "注册风险收件箱",
+      "value": "注册风险收件箱",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Registration status is unavailable",
+      "en": "暂时无法读取核验状态",
+      "value": "暂时无法读取核验状态",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Registration verification",
+      "en": "注册核验",
+      "value": "注册核验",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "released",
+      "en": "管理员恢复",
+      "value": "管理员恢复",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Restore this account after reviewing the recorded evidence?",
+      "en": "确认已复核证据并恢复此账号？",
+      "value": "确认已复核证据并恢复此账号？",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Review and restore account",
+      "en": "复核并恢复账号",
+      "value": "复核并恢复账号",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Routing, streaming and response length",
+      "en": "Routing, streaming and response length",
+      "value": "Routing, streaming and response length",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Search & skills",
+      "en": "Search & skills",
+      "value": "Search & skills",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Search providers, tools and playbooks",
+      "en": "Search providers, tools and playbooks",
+      "value": "Search providers, tools and playbooks",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Server evidence and policy version",
+      "en": "后端证据与策略版本",
+      "value": "后端证据与策略版本",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "socks5://user:pass@host:port",
+      "en": "socks5://user:pass@host:port",
+      "value": "socks5://user:pass@host:port",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "suspend",
+      "en": "自动停用",
+      "value": "自动停用",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Suspension requires a matching multi-message campaign, linked network peers and a consumed reward identity together. The cap applies across all server instances. Disabling suspension still preserves verification holds and alerts. These settings take effect only after saving.",
+      "en": "自动停用必须同时命中多轮对话模板集群、同网络关联账号和已领取奖励的身份。上限在所有服务实例间共享；关闭自动停用后，仍保留暂缓发放与风险告警。设置需保存后生效。",
+      "value": "自动停用必须同时命中多轮对话模板集群、同网络关联账号和已领取奖励的身份。上限在所有服务实例间共享；关闭自动停用后，仍保留暂缓发放与风险告警。设置需保存后生效。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Tell us what you need",
+      "en": "说说你需要什么",
+      "value": "说说你需要什么",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "The assistant can complete access verification during this conversation. No recommendation letter is required.",
+      "en": "客服可在对话中完成资格核验，无需提交推荐信。",
+      "value": "客服可在对话中完成资格核验，无需提交推荐信。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "The built-in assistant handles L0 verification using server-checked tools. No separate review model or recommendation-letter queue is required.",
+      "en": "内置客服通过后端校验的工具处理 L0 核验，不再需要独立审核模型或逐封审核推荐信。",
+      "value": "内置客服通过后端校验的工具处理 L0 核验，不再需要独立审核模型或逐封审核推荐信。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Tool calls, timeouts and caching",
+      "en": "Tool calls, timeouts and caching",
+      "value": "Tool calls, timeouts and caching",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Top {{count}}",
+      "en": "Top {{count}}",
+      "value": "Top {{count}}",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Type *",
+      "en": "Type *",
+      "value": "Type *",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Unable to load risk inbox",
+      "en": "无法读取风险收件箱",
+      "value": "无法读取风险收件箱",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "variable) *",
+      "en": "variable) *",
+      "value": "variable) *",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "We compare de-identified registration and conversation patterns to prevent duplicate rewards. Other users never receive your conversation text. QQ email, a random nickname, typos, changing topics or using AI are not sufficient reasons to suspend an account.",
+      "en": "为防止重复领取奖励，我们会对注册信息和对话片段建立去标识关联索引，不向其他用户提供你的聊天原文。QQ 邮箱、随机昵称、错字、切换话题或使用 AI，本身都不足以封禁账号。",
+      "value": "为防止重复领取奖励，我们会对注册信息和对话片段建立去标识关联索引，不向其他用户提供你的聊天原文。QQ 邮箱、随机昵称、错字、切换话题或使用 AI，本身都不足以封禁账号。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "You can continue setting up your client.",
+      "en": "可以继续配置客户端了。",
+      "value": "可以继续配置客户端了。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    }
+  ],
+  "ja": [
+    {
+      "key": "[{\"name\":\"支付宝\",\"type\":\"alipay\",\"color\":\"#1677FF\"}]",
+      "en": "[{\"name\":\"Alipay\",\"type\":\"alipay\",\"color\":\"#1677FF\"}]",
+      "value": "[{\"name\":\"Alipay\",\"type\":\"alipay\",\"color\":\"#1677FF\"}]",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "[{\"name\":\"支付宝\",\"type\":\"alipay\",\"icon\":\"SiAlipay\"}]",
+      "en": "[{\"name\":\"支付宝\",\"type\":\"alipay\",\"icon\":\"SiAlipay\"}]",
+      "value": "[{\"name\":\"支付宝\",\"type\":\"alipay\",\"icon\":\"SiAlipay\"}]",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "{\"original-model\": \"replacement-model\"}",
+      "en": "{\"original-model\": \"replacement-model\"}",
+      "value": "{\"original-model\": \"replacement-model\"}",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "{{method}} {{route}}",
+      "en": "{{method}} {{route}}",
+      "value": "{{method}} {{route}}",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Access & safety",
+      "en": "Access & safety",
+      "value": "Access & safety",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Brand & address",
+      "en": "Brand & address",
+      "value": "Brand & address",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Choose existing codes, set the draw rule, then share one link instead of publishing every code.",
+      "en": "Choose existing codes, set the draw rule, then share one link instead of publishing every code.",
+      "value": "Choose existing codes, set the draw rule, then share one link instead of publishing every code.",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Home page, about and footer",
+      "en": "Home page, about and footer",
+      "value": "Home page, about and footer",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting.",
+      "en": "Manual order is preserved until you use Optimize. This changes the global order for every user, but runtime assignment still filters each user's visible groups. Optimize uses base cost multipliers by default; selecting a user group applies its exact special cost overrides before sorting.",
+      "value": "最適化するまで手動順序を保持します。最適化では基本コスト倍率を使い、ユーザーグループを選ぶと特殊コスト上書きを適用して並べ替えます。",
+      "reasons": [
+        "possible-truncation"
+      ]
+    },
+    {
+      "key": "Maximum automatic suspensions per UTC day",
+      "en": "每日自动停用上限（UTC）",
+      "value": "每日自动停用上限（UTC）",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Model & response",
+      "en": "Model & response",
+      "value": "Model & response",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "name@example.com",
+      "en": "name@example.com",
+      "value": "name@example.com",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "noreply@example.com",
+      "en": "noreply@example.com",
+      "value": "noreply@example.com",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Open a red packet for the signed-in account",
+      "en": "Open a red packet for the signed-in account",
+      "value": "ギフトを受け取る",
+      "reasons": [
+        "possible-truncation"
+      ]
+    },
+    {
+      "key": "Read the developer endpoints and snippets",
+      "en": "Read the developer endpoints and snippets",
+      "value": "APIと例を確認",
+      "reasons": [
+        "possible-truncation"
+      ]
+    },
+    {
+      "key": "Routing, streaming and response length",
+      "en": "Routing, streaming and response length",
+      "value": "Routing, streaming and response length",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Search & skills",
+      "en": "Search & skills",
+      "value": "Search & skills",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Search providers, tools and playbooks",
+      "en": "Search providers, tools and playbooks",
+      "value": "Search providers, tools and playbooks",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "socks5://user:pass@host:port",
+      "en": "socks5://user:pass@host:port",
+      "value": "socks5://user:pass@host:port",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Tool calls, timeouts and caching",
+      "en": "Tool calls, timeouts and caching",
+      "value": "Tool calls, timeouts and caching",
+      "reasons": [
+        "same-as-english"
+      ]
+    }
+  ],
+  "ru": [
+    {
+      "key": "[{\"name\":\"支付宝\",\"type\":\"alipay\",\"color\":\"#1677FF\"}]",
+      "en": "[{\"name\":\"Alipay\",\"type\":\"alipay\",\"color\":\"#1677FF\"}]",
+      "value": "[{\"name\":\"Alipay\",\"type\":\"alipay\",\"color\":\"#1677FF\"}]",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "[{\"name\":\"支付宝\",\"type\":\"alipay\",\"icon\":\"SiAlipay\"}]",
+      "en": "[{\"name\":\"支付宝\",\"type\":\"alipay\",\"icon\":\"SiAlipay\"}]",
+      "value": "[{\"name\":\"支付宝\",\"type\":\"alipay\",\"icon\":\"SiAlipay\"}]",
+      "reasons": [
+        "same-as-english",
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "{\"original-model\": \"replacement-model\"}",
+      "en": "{\"original-model\": \"replacement-model\"}",
+      "value": "{\"original-model\": \"replacement-model\"}",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "{{method}} {{route}}",
+      "en": "{{method}} {{route}}",
+      "value": "{{method}} {{route}}",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "A brief description in your own words is enough to start. There is no difficult puzzle or application letter.",
+      "en": "用自己的话简单说一下用途即可开始，不需要做难题或写申请信。",
+      "value": "用自己的话简单说一下用途即可开始，不需要做难题或写申请信。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "A record here confirms an in-site alert, not delivery of an email. Raw cross-account conversations, IP addresses and email addresses are not shown.",
+      "en": "这里的回执表示站内告警已入库，不代表邮件已发送。不展示跨账号聊天原文、IP 或邮箱。",
+      "value": "这里的回执表示站内告警已入库，不代表邮件已发送。不展示跨账号聊天原文、IP 或邮箱。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Access & safety",
+      "en": "Access & safety",
+      "value": "Access & safety",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Access and welcome rewards are on hold. You can keep asking questions or request human support.",
+      "en": "开通和新用户奖励暂缓，你仍可以继续咨询或转人工说明情况。",
+      "value": "开通和新用户奖励暂缓，你仍可以继续咨询或转人工说明情况。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Account access is paused",
+      "en": "账号访问已暂停",
+      "value": "账号访问已暂停",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Account could not be restored. Check its current state.",
+      "en": "未能恢复账号，请核对当前账号状态。",
+      "value": "未能恢复账号，请核对当前账号状态。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Account restored",
+      "en": "账号已恢复",
+      "value": "账号已恢复",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Allow evidence-gated L0 suspensions",
+      "en": "允许基于充分证据停用 L0 账号",
+      "value": "允许基于充分证据停用 L0 账号",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "An administrator can review the recorded action. A pause is not a judgment about your writing style.",
+      "en": "管理员可以复核执行记录。这不是仅凭说话风格作出的判断。",
+      "value": "管理员可以复核执行记录。这不是仅凭说话风格作出的判断。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Brand & address",
+      "en": "Brand & address",
+      "value": "Brand & address",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Checking registration status",
+      "en": "正在读取核验状态",
+      "value": "正在读取核验状态",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Choose existing codes, set the draw rule, then share one link instead of publishing every code.",
+      "en": "Choose existing codes, set the draw rule, then share one link instead of publishing every code.",
+      "value": "Choose existing codes, set the draw rule, then share one link instead of publishing every code.",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Continue with the assistant",
+      "en": "继续与客服对话",
+      "value": "继续与客服对话",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "end_conversation",
+      "en": "终止对话",
+      "value": "终止对话",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "example.com&#10;blocked-site.com",
+      "en": "example.com&#10;blocked-site.com",
+      "value": "example.com&#10;blocked-site.com",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "example.com&#10;company.com",
+      "en": "example.com&#10;company.com",
+      "value": "example.com&#10;company.com",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Home page, about and footer",
+      "en": "Home page, about and footer",
+      "value": "Home page, about and footer",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "How verification works",
+      "en": "核验会检查什么",
+      "value": "核验会检查什么",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Keep chatting or retry. Access has not been granted by this message.",
+      "en": "可以继续咨询或重新读取状态。此提示不代表已获得权限。",
+      "value": "可以继续咨询或重新读取状态。此提示不代表已获得权限。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "L1 access is active",
+      "en": "L1 已开通",
+      "value": "L1 已开通",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Latest",
+      "en": "最新记录",
+      "value": "最新记录",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Loading recorded actions…",
+      "en": "正在读取执行记录…",
+      "value": "正在读取执行记录…",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Maximum automatic suspensions per UTC day",
+      "en": "每日自动停用上限（UTC）",
+      "value": "每日自动停用上限（UTC）",
+      "reasons": [
+        "same-as-english",
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Model & response",
+      "en": "Model & response",
+      "value": "Model & response",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "name@example.com",
+      "en": "name@example.com",
+      "value": "name@example.com",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "No recorded registration alerts in this page.",
+      "en": "本页暂无注册风险记录。",
+      "value": "本页暂无注册风险记录。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "noreply@example.com",
+      "en": "noreply@example.com",
+      "value": "noreply@example.com",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "notify",
+      "en": "风险告警",
+      "value": "风险告警",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Older records",
+      "en": "更早记录",
+      "value": "更早记录",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Refresh registration status",
+      "en": "刷新核验状态",
+      "value": "刷新核验状态",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Registration needs another check",
+      "en": "注册信息需要进一步核验",
+      "value": "注册信息需要进一步核验",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Registration protection",
+      "en": "注册与奖励保护",
+      "value": "注册与奖励保护",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Registration risk inbox",
+      "en": "注册风险收件箱",
+      "value": "注册风险收件箱",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Registration status is unavailable",
+      "en": "暂时无法读取核验状态",
+      "value": "暂时无法读取核验状态",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Registration verification",
+      "en": "注册核验",
+      "value": "注册核验",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "released",
+      "en": "管理员恢复",
+      "value": "管理员恢复",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Restore this account after reviewing the recorded evidence?",
+      "en": "确认已复核证据并恢复此账号？",
+      "value": "确认已复核证据并恢复此账号？",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Review and restore account",
+      "en": "复核并恢复账号",
+      "value": "复核并恢复账号",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Routing, streaming and response length",
+      "en": "Routing, streaming and response length",
+      "value": "Routing, streaming and response length",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Search & skills",
+      "en": "Search & skills",
+      "value": "Search & skills",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Search providers, tools and playbooks",
+      "en": "Search providers, tools and playbooks",
+      "value": "Search providers, tools and playbooks",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Server evidence and policy version",
+      "en": "后端证据与策略版本",
+      "value": "后端证据与策略版本",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "socks5://user:pass@host:port",
+      "en": "socks5://user:pass@host:port",
+      "value": "socks5://user:pass@host:port",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "suspend",
+      "en": "自动停用",
+      "value": "自动停用",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Suspension requires a matching multi-message campaign, linked network peers and a consumed reward identity together. The cap applies across all server instances. Disabling suspension still preserves verification holds and alerts. These settings take effect only after saving.",
+      "en": "自动停用必须同时命中多轮对话模板集群、同网络关联账号和已领取奖励的身份。上限在所有服务实例间共享；关闭自动停用后，仍保留暂缓发放与风险告警。设置需保存后生效。",
+      "value": "自动停用必须同时命中多轮对话模板集群、同网络关联账号和已领取奖励的身份。上限在所有服务实例间共享；关闭自动停用后，仍保留暂缓发放与风险告警。设置需保存后生效。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Tell us what you need",
+      "en": "说说你需要什么",
+      "value": "说说你需要什么",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "The assistant can complete access verification during this conversation. No recommendation letter is required.",
+      "en": "客服可在对话中完成资格核验，无需提交推荐信。",
+      "value": "客服可在对话中完成资格核验，无需提交推荐信。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "The built-in assistant handles L0 verification using server-checked tools. No separate review model or recommendation-letter queue is required.",
+      "en": "内置客服通过后端校验的工具处理 L0 核验，不再需要独立审核模型或逐封审核推荐信。",
+      "value": "内置客服通过后端校验的工具处理 L0 核验，不再需要独立审核模型或逐封审核推荐信。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Tool calls, timeouts and caching",
+      "en": "Tool calls, timeouts and caching",
+      "value": "Tool calls, timeouts and caching",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Unable to load risk inbox",
+      "en": "无法读取风险收件箱",
+      "value": "无法读取风险收件箱",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "We compare de-identified registration and conversation patterns to prevent duplicate rewards. Other users never receive your conversation text. QQ email, a random nickname, typos, changing topics or using AI are not sufficient reasons to suspend an account.",
+      "en": "为防止重复领取奖励，我们会对注册信息和对话片段建立去标识关联索引，不向其他用户提供你的聊天原文。QQ 邮箱、随机昵称、错字、切换话题或使用 AI，本身都不足以封禁账号。",
+      "value": "为防止重复领取奖励，我们会对注册信息和对话片段建立去标识关联索引，不向其他用户提供你的聊天原文。QQ 邮箱、随机昵称、错字、切换话题或使用 AI，本身都不足以封禁账号。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "You can continue setting up your client.",
+      "en": "可以继续配置客户端了。",
+      "value": "可以继续配置客户端了。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    }
+  ],
+  "vi": [
+    {
+      "key": "[{\"name\":\"支付宝\",\"type\":\"alipay\",\"color\":\"#1677FF\"}]",
+      "en": "[{\"name\":\"Alipay\",\"type\":\"alipay\",\"color\":\"#1677FF\"}]",
+      "value": "[{\"name\":\"Alipay\",\"type\":\"alipay\",\"color\":\"#1677FF\"}]",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "[{\"name\":\"支付宝\",\"type\":\"alipay\",\"icon\":\"SiAlipay\"}]",
+      "en": "[{\"name\":\"支付宝\",\"type\":\"alipay\",\"icon\":\"SiAlipay\"}]",
+      "value": "[{\"name\":\"支付宝\",\"type\":\"alipay\",\"icon\":\"SiAlipay\"}]",
+      "reasons": [
+        "same-as-english",
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "{\"original-model\": \"replacement-model\"}",
+      "en": "{\"original-model\": \"replacement-model\"}",
+      "value": "{\"original-model\": \"replacement-model\"}",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "{{method}} {{route}}",
+      "en": "{{method}} {{route}}",
+      "value": "{{method}} {{route}}",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "A brief description in your own words is enough to start. There is no difficult puzzle or application letter.",
+      "en": "用自己的话简单说一下用途即可开始，不需要做难题或写申请信。",
+      "value": "用自己的话简单说一下用途即可开始，不需要做难题或写申请信。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "A record here confirms an in-site alert, not delivery of an email. Raw cross-account conversations, IP addresses and email addresses are not shown.",
+      "en": "这里的回执表示站内告警已入库，不代表邮件已发送。不展示跨账号聊天原文、IP 或邮箱。",
+      "value": "这里的回执表示站内告警已入库，不代表邮件已发送。不展示跨账号聊天原文、IP 或邮箱。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Access & safety",
+      "en": "Access & safety",
+      "value": "Access & safety",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Access and welcome rewards are on hold. You can keep asking questions or request human support.",
+      "en": "开通和新用户奖励暂缓，你仍可以继续咨询或转人工说明情况。",
+      "value": "开通和新用户奖励暂缓，你仍可以继续咨询或转人工说明情况。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Account access is paused",
+      "en": "账号访问已暂停",
+      "value": "账号访问已暂停",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Account could not be restored. Check its current state.",
+      "en": "未能恢复账号，请核对当前账号状态。",
+      "value": "未能恢复账号，请核对当前账号状态。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Account restored",
+      "en": "账号已恢复",
+      "value": "账号已恢复",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Allow evidence-gated L0 suspensions",
+      "en": "允许基于充分证据停用 L0 账号",
+      "value": "允许基于充分证据停用 L0 账号",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "An administrator can review the recorded action. A pause is not a judgment about your writing style.",
+      "en": "管理员可以复核执行记录。这不是仅凭说话风格作出的判断。",
+      "value": "管理员可以复核执行记录。这不是仅凭说话风格作出的判断。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Brand & address",
+      "en": "Brand & address",
+      "value": "Brand & address",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Checking registration status",
+      "en": "正在读取核验状态",
+      "value": "正在读取核验状态",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Choose existing codes, set the draw rule, then share one link instead of publishing every code.",
+      "en": "Choose existing codes, set the draw rule, then share one link instead of publishing every code.",
+      "value": "Choose existing codes, set the draw rule, then share one link instead of publishing every code.",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Continue with the assistant",
+      "en": "继续与客服对话",
+      "value": "继续与客服对话",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "end_conversation",
+      "en": "终止对话",
+      "value": "终止对话",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Home page, about and footer",
+      "en": "Home page, about and footer",
+      "value": "Home page, about and footer",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "How verification works",
+      "en": "核验会检查什么",
+      "value": "核验会检查什么",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Keep chatting or retry. Access has not been granted by this message.",
+      "en": "可以继续咨询或重新读取状态。此提示不代表已获得权限。",
+      "value": "可以继续咨询或重新读取状态。此提示不代表已获得权限。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "L1 access is active",
+      "en": "L1 已开通",
+      "value": "L1 已开通",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Latest",
+      "en": "最新记录",
+      "value": "最新记录",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Loading recorded actions…",
+      "en": "正在读取执行记录…",
+      "value": "正在读取执行记录…",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Maximum automatic suspensions per UTC day",
+      "en": "每日自动停用上限（UTC）",
+      "value": "每日自动停用上限（UTC）",
+      "reasons": [
+        "same-as-english",
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Model & response",
+      "en": "Model & response",
+      "value": "Model & response",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "name@example.com",
+      "en": "name@example.com",
+      "value": "name@example.com",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "No recorded registration alerts in this page.",
+      "en": "本页暂无注册风险记录。",
+      "value": "本页暂无注册风险记录。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "noreply@example.com",
+      "en": "noreply@example.com",
+      "value": "noreply@example.com",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "notify",
+      "en": "风险告警",
+      "value": "风险告警",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Older records",
+      "en": "更早记录",
+      "value": "更早记录",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Open a red packet for the signed-in account",
+      "en": "Open a red packet for the signed-in account",
+      "value": "Nhận lì xì",
+      "reasons": [
+        "possible-truncation"
+      ]
+    },
+    {
+      "key": "Refresh registration status",
+      "en": "刷新核验状态",
+      "value": "刷新核验状态",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Registration needs another check",
+      "en": "注册信息需要进一步核验",
+      "value": "注册信息需要进一步核验",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Registration protection",
+      "en": "注册与奖励保护",
+      "value": "注册与奖励保护",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Registration risk inbox",
+      "en": "注册风险收件箱",
+      "value": "注册风险收件箱",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Registration status is unavailable",
+      "en": "暂时无法读取核验状态",
+      "value": "暂时无法读取核验状态",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Registration verification",
+      "en": "注册核验",
+      "value": "注册核验",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "released",
+      "en": "管理员恢复",
+      "value": "管理员恢复",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Restore this account after reviewing the recorded evidence?",
+      "en": "确认已复核证据并恢复此账号？",
+      "value": "确认已复核证据并恢复此账号？",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Review and restore account",
+      "en": "复核并恢复账号",
+      "value": "复核并恢复账号",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Routing, streaming and response length",
+      "en": "Routing, streaming and response length",
+      "value": "Routing, streaming and response length",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Search & skills",
+      "en": "Search & skills",
+      "value": "Search & skills",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Search providers, tools and playbooks",
+      "en": "Search providers, tools and playbooks",
+      "value": "Search providers, tools and playbooks",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Server evidence and policy version",
+      "en": "后端证据与策略版本",
+      "value": "后端证据与策略版本",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "socks5://user:pass@host:port",
+      "en": "socks5://user:pass@host:port",
+      "value": "socks5://user:pass@host:port",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "suspend",
+      "en": "自动停用",
+      "value": "自动停用",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Suspension requires a matching multi-message campaign, linked network peers and a consumed reward identity together. The cap applies across all server instances. Disabling suspension still preserves verification holds and alerts. These settings take effect only after saving.",
+      "en": "自动停用必须同时命中多轮对话模板集群、同网络关联账号和已领取奖励的身份。上限在所有服务实例间共享；关闭自动停用后，仍保留暂缓发放与风险告警。设置需保存后生效。",
+      "value": "自动停用必须同时命中多轮对话模板集群、同网络关联账号和已领取奖励的身份。上限在所有服务实例间共享；关闭自动停用后，仍保留暂缓发放与风险告警。设置需保存后生效。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Tell us what you need",
+      "en": "说说你需要什么",
+      "value": "说说你需要什么",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "The assistant can complete access verification during this conversation. No recommendation letter is required.",
+      "en": "客服可在对话中完成资格核验，无需提交推荐信。",
+      "value": "客服可在对话中完成资格核验，无需提交推荐信。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "The built-in assistant handles L0 verification using server-checked tools. No separate review model or recommendation-letter queue is required.",
+      "en": "内置客服通过后端校验的工具处理 L0 核验，不再需要独立审核模型或逐封审核推荐信。",
+      "value": "内置客服通过后端校验的工具处理 L0 核验，不再需要独立审核模型或逐封审核推荐信。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "Tool calls, timeouts and caching",
+      "en": "Tool calls, timeouts and caching",
+      "value": "Tool calls, timeouts and caching",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Top {{count}}",
+      "en": "Top {{count}}",
+      "value": "Top {{count}}",
+      "reasons": [
+        "same-as-english"
+      ]
+    },
+    {
+      "key": "Unable to load risk inbox",
+      "en": "无法读取风险收件箱",
+      "value": "无法读取风险收件箱",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "We compare de-identified registration and conversation patterns to prevent duplicate rewards. Other users never receive your conversation text. QQ email, a random nickname, typos, changing topics or using AI are not sufficient reasons to suspend an account.",
+      "en": "为防止重复领取奖励，我们会对注册信息和对话片段建立去标识关联索引，不向其他用户提供你的聊天原文。QQ 邮箱、随机昵称、错字、切换话题或使用 AI，本身都不足以封禁账号。",
+      "value": "为防止重复领取奖励，我们会对注册信息和对话片段建立去标识关联索引，不向其他用户提供你的聊天原文。QQ 邮箱、随机昵称、错字、切换话题或使用 AI，本身都不足以封禁账号。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    },
+    {
+      "key": "You can continue setting up your client.",
+      "en": "可以继续配置客户端了。",
+      "value": "可以继续配置客户端了。",
+      "reasons": [
+        "cjk-leak"
+      ]
+    }
+  ]
+}
