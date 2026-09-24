@@ -76,6 +76,7 @@ interface BadgeOptions {
   height: number
   radius: number
   requests: boolean
+  avatar: string
   title: string
   label: string
   footer: string
@@ -238,10 +239,22 @@ const INITIAL_OPTIONS: BadgeOptions = {
   height: 865,
   radius: 0,
   requests: true,
+  avatar: '',
   title: '',
   label: '',
   footer: '',
   colors: BADGE_PALETTES.dark,
+}
+
+function normalizeBadgeAvatarURL(value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) return ''
+  try {
+    const avatarURL = new URL(trimmed)
+    return avatarURL.protocol === 'https:' ? avatarURL.toString() : ''
+  } catch {
+    return ''
+  }
 }
 
 function buildBadgeURL(
@@ -273,6 +286,12 @@ function buildBadgeURL(
   for (const key of ['title', 'label', 'footer'] as const) {
     if (options[key].trim()) {
       url.searchParams.set(key, options[key].trim())
+    }
+  }
+  if (options.layout === 'profile') {
+    const avatarURL = normalizeBadgeAvatarURL(options.avatar)
+    if (avatarURL) {
+      url.searchParams.set('avatar', avatarURL)
     }
   }
   return url.toString()
@@ -371,6 +390,9 @@ export function ProfileSharePage() {
       ...previous,
       colors: { ...previous.colors, [key]: value },
     }))
+  const avatarURLInvalid =
+    options.layout === 'profile' &&
+    Boolean(options.avatar.trim() && !normalizeBadgeAvatarURL(options.avatar))
 
   return (
     <SectionPageLayout>
@@ -736,6 +758,34 @@ export function ProfileSharePage() {
                     ))}
                 </div>
               </div>
+
+              {options.layout === 'profile' ? (
+                <div className='border-border/70 space-y-2 border-t pt-5'>
+                  <Label htmlFor='badge-avatar'>{t('Avatar URL')}</Label>
+                  <Input
+                    id='badge-avatar'
+                    type='url'
+                    value={options.avatar}
+                    maxLength={512}
+                    aria-invalid={avatarURLInvalid}
+                    placeholder={t('Leave blank to use Gravatar')}
+                    onChange={(event) =>
+                      updateOption('avatar', event.target.value)
+                    }
+                  />
+                  <p
+                    className={
+                      avatarURLInvalid
+                        ? 'text-destructive text-xs'
+                        : 'text-muted-foreground text-xs'
+                    }
+                  >
+                    {avatarURLInvalid
+                      ? t('Use a valid HTTPS image URL.')
+                      : t('Leave blank to use Gravatar')}
+                  </p>
+                </div>
+              ) : null}
 
               <div className='border-border/70 space-y-4 border-t pt-5'>
                 <h3 className='font-medium'>{t('Custom text')}</h3>
