@@ -95,6 +95,11 @@ License, or (at your option) any later version.
     transform: none;
   }
 }
+.l0-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
 .l0-rail {
   display: flex;
   align-items: center;
