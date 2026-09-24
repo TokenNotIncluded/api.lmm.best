@@ -6,10 +6,6 @@
       "value": "\"default\": \"us-central1\", \"claude-3-5-sonnet-20240620\": \"europe-west1\""
     },
     {
-      "key": "claims",
-      "value": "claims"
-    },
-    {
       "key": "DSH Web CLI",
       "value": "DSH Web CLI"
     },
@@ -34,10 +30,6 @@
     {
       "key": "\"default\": \"us-central1\", \"claude-3-5-sonnet-20240620\": \"europe-west1\"",
       "value": "\"default\": \"us-central1\", \"claude-3-5-sonnet-20240620\": \"europe-west1\""
-    },
-    {
-      "key": "claims",
-      "value": "claims"
     },
     {
       "key": "DSH Desktop (OAuth)",
