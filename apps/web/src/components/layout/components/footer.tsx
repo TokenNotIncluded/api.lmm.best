@@ -341,6 +341,14 @@ export function Footer(props: FooterProps) {
                   >
                     {t('Rankings')}
                   </Link>
+                  <a
+                    className='text-muted-foreground hover:text-primary block transition-colors duration-150'
+                    href='https://msg.lmm.best/rules'
+                    target='_blank'
+                    rel='noopener noreferrer'
+                  >
+                    msg.lmm.best / rules
+                  </a>
                 </div>
               </div>
               <div className='space-y-4 text-sm'>
