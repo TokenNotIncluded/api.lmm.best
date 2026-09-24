@@ -90,10 +90,7 @@ const MODEL_OPTIONS: Readonly<
   },
 }
 
-function sortModels(
-  models: string[],
-  preferred: readonly string[]
-): string[] {
+function sortModels(models: string[], preferred: readonly string[]): string[] {
   const rank = new Map(preferred.map((name, index) => [name, index]))
   return models.sort((left, right) => {
     const leftRank = rank.get(left) ?? Number.MAX_SAFE_INTEGER
