@@ -29,3 +29,20 @@ export const DSH_WEB_INSTALL_LATEST_WINDOWS_COMMAND =
   'dsh.cmd plugin --profile web add "$(npm.cmd view @tokennotincluded/dsh-lmm-provider@latest dist.tarball --prefer-online)" --ignore-scripts'
 
 export const DSH_DOWNLOAD_LATEST_COMMAND = `npm pack ${DSH_PACKAGE_LATEST}`
+
+export const CODEWHALE_UNIX_INSTALL_COMMAND =
+  'curl -fsSL https://codewhale.net/install.sh | sh'
+
+export const CODEWHALE_NPM_INSTALL_COMMAND =
+  'npm install -g codewhale@latest'
+
+export const CODEWHALE_CLONE_COMMAND =
+  'git clone https://github.com/TokenNotIncluded/codewhale-lmm-provider.git'
+
+export const CODEWHALE_ADAPTER_INSTALL_COMMAND =
+  'cd codewhale-lmm-provider && npm install --global .'
+
+export const CODEWHALE_LOGIN_COMMAND = 'codewhale-lmm login'
+export const CODEWHALE_MODELS_COMMAND = 'codewhale-lmm models'
+export const CODEWHALE_RUN_COMMAND =
+  "codewhale-lmm run --model '<FULL_MODEL_ID>'"

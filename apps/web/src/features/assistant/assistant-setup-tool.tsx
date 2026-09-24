@@ -39,6 +39,7 @@ import {
 } from '@/components/ui/card'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { CodewhaleOAuthGuide } from '@/features/guide/codewhale-oauth-guide'
 import { DshOAuthGuide } from '@/features/guide/dsh-oauth-guide'
 import { PiOAuthGuide } from '@/features/guide/pi-oauth-guide'
 import {
@@ -96,6 +97,7 @@ const PLATFORM_LABELS: Record<AssistantSetupPlatform, string> = {
 export type ClientTab =
   | 'pi'
   | 'dsh'
+  | 'codewhale'
   | 'astrbot'
   | 'openai-sdk'
   | 'anthropic-sdk'
@@ -222,10 +224,12 @@ export function AssistantSetupTool(props: {
     ? selectGuideModel(eligibleModels, selectedModel)
     : ''
   const modelValue = model || '<MODEL_ID>'
-  const oauthClient = clientTab === 'pi' || clientTab === 'dsh'
+  const oauthClient =
+    clientTab === 'pi' || clientTab === 'dsh' || clientTab === 'codewhale'
   const clientNames: Record<ClientTab, string> = {
     pi: 'Pi (OAuth)',
     dsh: t('DSH Desktop (OAuth)'),
+    codewhale: 'Codewhale (OAuth)',
     astrbot: 'AstrBot',
     'openai-sdk': 'OpenAI SDK',
     'anthropic-sdk': 'Anthropic SDK',
@@ -238,23 +242,27 @@ export function AssistantSetupTool(props: {
     codex: 'Codex',
     'openai-compatible': t('OpenAI-compatible clients'),
   }
-  const clients: ClientTab[] = mobile
-    ? ['chatbox', 'chatgpt']
-    : [
-        'pi',
-        'dsh',
-        'claude-code',
-        'codex',
-        'cc-switch',
-        'astrbot',
-        'openai-sdk',
-        'anthropic-sdk',
-        'cherry-studio',
-        'chatbox',
-        'claude-desktop',
-        'chatgpt',
-        'openai-compatible',
-      ]
+  const clients: ClientTab[] =
+    platform === 'android'
+      ? ['codewhale', 'chatbox', 'chatgpt']
+      : mobile
+        ? ['chatbox', 'chatgpt']
+        : [
+            'pi',
+            'dsh',
+            'codewhale',
+            'claude-code',
+            'codex',
+            'cc-switch',
+            'astrbot',
+            'openai-sdk',
+            'anthropic-sdk',
+            'cherry-studio',
+            'chatbox',
+            'claude-desktop',
+            'chatgpt',
+            'openai-compatible',
+          ]
   const ccSwitchInstall = getCCSwitchInstallGuide(desktopPlatform)
 
   const connectionValues = (root = false) =>
@@ -536,6 +544,13 @@ export function AssistantSetupTool(props: {
                 </div>
               </TabsContent>
             ))}
+
+          <TabsContent value='codewhale' className='mt-5'>
+            <CodewhaleOAuthGuide
+              android={platform === 'android'}
+              windows={platform === 'windows'}
+            />
+          </TabsContent>
 
           {!mobile ? (
             <>
@@ -1045,9 +1060,11 @@ export function AssistantSetupTool(props: {
               onClick={() =>
                 props.onAskQuestion?.(
                   t(
-                    oauthClient
-                      ? 'I am setting up {{client}} on {{platform}}. Please check the supported version, help me install the LMM plugin, sign in with OAuth, choose a model, and send a first test. Never ask for my API key.'
-                      : 'I am setting up {{client}} on {{platform}}. Please walk me through downloading it, entering the connection settings, and sending a first test. Ask which step I am on, and never ask for my API key.',
+                    clientTab === 'codewhale'
+                      ? 'I am setting up Codewhale on {{platform}}. Please help me install Codewhale and the codewhale-lmm companion adapter, sign in with OAuth, list the account-scoped model IDs, and start the first model with codewhale-lmm run. Never ask for my API key.'
+                      : oauthClient
+                        ? 'I am setting up {{client}} on {{platform}}. Please check the supported version, help me install the LMM plugin, sign in with OAuth, choose a model, and send a first test. Never ask for my API key.'
+                        : 'I am setting up {{client}} on {{platform}}. Please walk me through downloading it, entering the connection settings, and sending a first test. Ask which step I am on, and never ask for my API key.',
                     {
                       client: clientNames[clientTab],
                       platform: PLATFORM_LABELS[platform],

@@ -29,6 +29,7 @@ import { assistantSettingsCopy } from './assistant-settings-copy.mjs'
 import { assistantToolCopy } from './assistant-tool-copy.mjs'
 import { drawingMcpExtraCopy } from './drawing-mcp-extra-copy.mjs'
 import { drawingWalletCopy } from './drawing-wallet-copy.mjs'
+import { codewhaleGuideCopy } from './codewhale-guide-copy.mjs'
 import { dshGuideCopy } from './dsh-guide-copy.mjs'
 import { forgeRefreshCopy } from './forge-refresh-copy.mjs'
 import { homeEditorialCopy } from './home-editorial-copy.mjs'
@@ -11960,6 +11961,7 @@ async function main() {
           ...drawingMcpExtraCopy[locale],
           ...piGuideCopy[locale],
           ...dshGuideCopy[locale],
+          ...codewhaleGuideCopy[locale],
           ...remoteControlCopy[locale],
           ...waitCompanionCopy[locale],
           ...scriptsCopy[locale],
