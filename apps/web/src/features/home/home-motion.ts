@@ -372,17 +372,29 @@ export function mountHomeMotion(root: HTMLElement) {
     if (measured) readLayout()
     const animate = !reduced.matches && !paused
     if (animate) {
-      pointer.x += (target.x - pointer.x) * 0.14
-      pointer.y += (target.y - pointer.y) * 0.14
+      pointer.x += (target.x - pointer.x) * 0.11
+      pointer.y += (target.y - pointer.y) * 0.11
     } else pointer = { x: 0, y: 0 }
-    inner.style.setProperty('--pointer-x', `${pointer.x * 12}px`)
-    inner.style.setProperty('--pointer-y', `${pointer.y * 8}px`)
-    inner.style.setProperty('--rotate-x', `${-pointer.y * 3}deg`)
-    inner.style.setProperty('--rotate-y', `${pointer.x * 4}deg`)
+    const ambientActive =
+      animate &&
+      visible &&
+      fine.matches &&
+      window.innerWidth >= 720 &&
+      !responding
+    const cameraPointer = ambientActive
+      ? {
+          x: pointer.x + Math.sin(now / 3600) * 0.045,
+          y: pointer.y + Math.cos(now / 4700) * 0.032,
+        }
+      : pointer
+    inner.style.setProperty('--pointer-x', `${cameraPointer.x * 18}px`)
+    inner.style.setProperty('--pointer-y', `${cameraPointer.y * 12}px`)
+    inner.style.setProperty('--rotate-x', `${-cameraPointer.y * 4}deg`)
+    inner.style.setProperty('--rotate-y', `${cameraPointer.x * 6}deg`)
     // Film is capped at 30fps; a hidden tab/offscreen scene owns no running loop.
     if (
       draw &&
-      (dirty || (animate && visible && now - lastTime >= 1000 / 30))
+      (dirty || (animate && visible && now - lastTime >= 1000 / 24))
     ) {
       if (lastTime && animate && responding) {
         clock = Math.min(
@@ -392,9 +404,9 @@ export function mountHomeMotion(root: HTMLElement) {
         if (clock >= RESPONSE_END) responding = false
       }
       const time = reduced.matches ? RESPONSE_END : clock
-      draw(time, pointer, sceneProgress)
-      placeInput(time, pointer, sceneProgress)
-      tokens?.draw(clock, tokenPointer, animate)
+      draw(time, cameraPointer, sceneProgress)
+      placeInput(time, cameraPointer, sceneProgress)
+      tokens?.draw(now / 1000, tokenPointer, animate)
       lastTime = now
       dirty = false
     } else if (!draw && dirty) {
@@ -403,7 +415,14 @@ export function mountHomeMotion(root: HTMLElement) {
     }
     const pointerMoving =
       Math.abs(pointer.x - target.x) + Math.abs(pointer.y - target.y) > 0.001
-    if (draw && animate && visible && (responding || pointerMoving)) schedule()
+    if (
+      draw &&
+      animate &&
+      visible &&
+      (responding || pointerMoving || ambientActive)
+    ) {
+      schedule()
+    }
   }
   const update = () => {
     dirty = true
