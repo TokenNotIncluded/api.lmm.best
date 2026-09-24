@@ -441,6 +441,29 @@ func TestAddLimitedTokenEnforcesJavaScriptSafeQuota(t *testing.T) {
 	}
 }
 
+func TestAddTokenRequiresExplicitGroup(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	user := model.User{Username: "missing-group-owner", Status: common.UserStatusEnabled, Group: "default"}
+	require.NoError(t, db.Create(&user).Error)
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Set("id", user.Id)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/token/", strings.NewReader(`{"name":"missing-group","expired_time":-1,"unlimited_quota":true}`))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+	ctx.Request.Header.Set("Accept-Language", "zh-CN")
+
+	AddToken(ctx)
+
+	response := decodeAPIResponse(t, recorder)
+	require.False(t, response.Success)
+	require.Equal(t, "创建 API Key 前请选择一个分组", response.Message)
+
+	var count int64
+	require.NoError(t, db.Model(&model.Token{}).Where("user_id = ?", user.Id).Count(&count).Error)
+	require.Zero(t, count)
+}
+
 func TestAddTokenCannotForgeAutomaticCreationSource(t *testing.T) {
 	db := setupTokenControllerTestDB(t)
 	user := model.User{Username: "manual-source-owner", Status: common.UserStatusEnabled, Group: "default"}
