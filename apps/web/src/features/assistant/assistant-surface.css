@@ -36,9 +36,11 @@ the Free Software Foundation, either version 3 of the License, or
 }
 
 .assistant-start-shell {
-  justify-content: center;
+  flex: 0 0 auto;
+  justify-content: flex-start;
   width: 100%;
-  padding-block: clamp(14px, 3svh, 38px) 28px;
+  margin-bottom: auto;
+  padding-block: 0 28px;
 }
 
 .assistant-start-intro {
@@ -53,10 +55,18 @@ the Free Software Foundation, either version 3 of the License, or
 .assistant-token-cloud {
   position: relative;
   isolation: isolate;
+  align-self: center;
+  flex: 0 0 auto;
   width: min(100%, 440px);
   height: clamp(164px, 23svh, 226px);
-  margin-bottom: 4px;
+  margin: auto auto 4px;
   color: var(--foreground);
+  transform-origin: 50% 50%;
+  transition:
+    width 260ms cubic-bezier(.2,.7,.2,1),
+    height 260ms cubic-bezier(.2,.7,.2,1),
+    margin 260ms cubic-bezier(.2,.7,.2,1),
+    opacity 180ms ease-out;
 }
 
 .assistant-token-cloud canvas,
@@ -368,11 +378,124 @@ the Free Software Foundation, either version 3 of the License, or
   }
 }
 
+.assistant-token-cloud[data-compact='true'] {
+  position: sticky;
+  top: -10px;
+  z-index: 4;
+  width: min(100%, 330px);
+  height: clamp(76px, 11svh, 98px);
+  margin: -8px auto -10px;
+}
+
+.assistant-token-cloud[data-compact='true'] .assistant-token-cloud-toggle {
+  right: 4px;
+  bottom: 2px;
+  width: 32px;
+  height: 32px;
+}
+
+.assistant-token-cloud[data-active='true'] canvas,
+.assistant-token-cloud[data-active='true'] .assistant-token-cloud-fallback {
+  animation: assistant-cloud-breathe 1.8s ease-in-out infinite;
+}
+
+.assistant-user-flow [data-l0-source],
+.assistant-flow-response [data-l0-arrival] {
+  white-space: pre-wrap;
+}
+
+.assistant-thinking-flow {
+  display: flex;
+  min-height: 24px;
+  align-items: center;
+  gap: 9px;
+  max-width: 100%;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.assistant-thinking-tokens {
+  position: relative;
+  width: 32px;
+  height: 18px;
+  flex: none;
+}
+
+.assistant-thinking-tokens i {
+  position: absolute;
+  top: 8px;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.28;
+  animation: assistant-thinking-token 1.3s cubic-bezier(.2,.7,.25,1) infinite;
+}
+
+.assistant-thinking-tokens i:nth-child(1) {
+  left: 1px;
+}
+
+.assistant-thinking-tokens i:nth-child(2) {
+  left: 12px;
+  animation-delay: 160ms;
+}
+
+.assistant-thinking-tokens i:nth-child(3) {
+  left: 23px;
+  animation-delay: 320ms;
+}
+
+@keyframes assistant-cloud-breathe {
+  0%,
+  100% {
+    transform: scale(0.985);
+    opacity: 0.84;
+  }
+
+  50% {
+    transform: scale(1.018);
+    opacity: 1;
+  }
+}
+
+@keyframes assistant-thinking-token {
+  0%,
+  100% {
+    transform: translateY(3px) scale(0.78);
+    opacity: 0.22;
+  }
+
+  45% {
+    transform: translateY(-5px) scale(1.18);
+    opacity: 0.9;
+  }
+}
+
+@media (max-height: 720px) {
+  .assistant-token-cloud:not([data-compact='true']) {
+    margin-top: 0;
+  }
+
+  .assistant-start-shell {
+    margin-bottom: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .assistant-token-cloud,
   .assistant-token-cloud-toggle,
   .assistant-token-cloud canvas,
+  .assistant-token-cloud-fallback,
   .assistant-start-action,
   .assistant-preset-disclosure summary svg {
     transition: none;
+    animation: none;
+  }
+
+  .assistant-thinking-tokens i {
+    animation: none;
+    opacity: 0.55;
   }
 }
