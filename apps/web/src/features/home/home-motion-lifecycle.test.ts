@@ -156,8 +156,14 @@ test('motion uses the feature-tested window observers and releases all owned wor
     assert.equal(page.root.dataset.motion, 'playing')
     assert.equal(
       page.frames.size,
+      1,
+      'visible desktop artwork keeps one bounded ambient frame scheduled'
+    )
+    page.visible(false)
+    assert.equal(
+      page.frames.size,
       0,
-      'idle artwork does not run an animation loop'
+      'offscreen artwork releases the ambient animation frame'
     )
     page.stop()
     assert.equal(page.root.querySelectorAll('[data-token-particle]').length, 0)
