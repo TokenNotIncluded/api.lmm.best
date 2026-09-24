@@ -173,9 +173,8 @@ test('L0 renders the wallet header and no sidebar assistant even when a previous
     const wallet = container.querySelector<HTMLElement>(
       '[data-testid="account-balance-badge"]'
     )
-    const walletLinks = wallet?.querySelectorAll<HTMLAnchorElement>(
-      'a[href="/wallet"]'
-    )
+    const walletLinks =
+      wallet?.querySelectorAll<HTMLAnchorElement>('a[href="/wallet"]')
     assert.equal(walletLinks?.length, 2)
     assert.match(wallet?.textContent ?? '', /Top up/)
     assert.equal(container.querySelector('[data-sidebar="trigger"]'), null)
