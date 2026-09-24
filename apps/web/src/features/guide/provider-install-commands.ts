@@ -22,6 +22,9 @@ export const PI_INSTALL_LATEST_COMMAND =
 
 export const DSH_PACKAGE_LATEST = '@tokennotincluded/dsh-lmm-provider@latest'
 
+export const DSH_WEB_INSTALL_PORTABLE_COMMAND =
+  `dsh plugin --profile web add ${DSH_PACKAGE_LATEST}`
+
 export const DSH_WEB_INSTALL_LATEST_COMMAND =
   'dsh plugin --profile web add "$(npm view @tokennotincluded/dsh-lmm-provider@latest dist.tarball --prefer-online)" --ignore-scripts'
 
@@ -29,3 +32,6 @@ export const DSH_WEB_INSTALL_LATEST_WINDOWS_COMMAND =
   'dsh.cmd plugin --profile web add "$(npm.cmd view @tokennotincluded/dsh-lmm-provider@latest dist.tarball --prefer-online)" --ignore-scripts'
 
 export const DSH_DOWNLOAD_LATEST_COMMAND = `npm pack ${DSH_PACKAGE_LATEST}`
+
+export const CODEWHALE_INSTALL_COMMAND =
+  'git clone https://github.com/TokenNotIncluded/codewhale-lmm-provider.git && cd codewhale-lmm-provider && npm install --global .'
