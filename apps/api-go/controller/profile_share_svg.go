@@ -25,6 +25,7 @@ type profileShareSVGOptions struct {
 	Theme, Font, Animation, Lang                  string
 	Background, Foreground, Accent, Muted, Border string
 	Title, Label, Footer, RequestLabel            string
+	AvatarURL, AvatarDataURI                       string
 	ShowRequests                                  bool
 	CustomTitle, CustomLabel, CustomFooter        bool
 }
@@ -80,10 +81,25 @@ func profileShareInteger(query url.Values, key string, fallback, min, max int) (
 	return number, nil
 }
 
+func profileShareAvatarURL(query url.Values) (string, error) {
+	value := strings.TrimSpace(query.Get("avatar"))
+	if value == "" {
+		return "", nil
+	}
+	if utf8.RuneCountInString(value) > 512 {
+		return "", errors.New("avatar URL is too long")
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.Hostname() == "" || parsed.User != nil || parsed.Fragment != "" {
+		return "", errors.New("invalid avatar URL")
+	}
+	return parsed.String(), nil
+}
+
 func parseProfileShareSVGOptions(query url.Values) (profileShareSVGOptions, error) {
 	for key := range query {
 		switch key {
-		case "layout", "width", "height", "radius", "period", "format", "theme", "font", "animation", "bg", "fg", "accent", "muted", "border", "title", "label", "footer", "requests", "lang":
+		case "layout", "width", "height", "radius", "period", "format", "theme", "font", "animation", "bg", "fg", "accent", "muted", "border", "title", "label", "footer", "avatar", "requests", "lang":
 		default:
 			return profileShareSVGOptions{}, fmt.Errorf("unknown option %s", key)
 		}
@@ -172,6 +188,9 @@ func parseProfileShareSVGOptions(query url.Values) (profileShareSVGOptions, erro
 			return profileShareSVGOptions{}, errors.New("invalid requests")
 		}
 		options.ShowRequests = value == "1"
+	}
+	if options.AvatarURL, err = profileShareAvatarURL(query); err != nil {
+		return profileShareSVGOptions{}, err
 	}
 	for _, field := range []struct {
 		key    string
