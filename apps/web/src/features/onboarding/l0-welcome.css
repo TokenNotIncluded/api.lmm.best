@@ -59,6 +59,82 @@ License, or (at your option) any later version.
   gap: 12px;
   min-width: 0;
 }
+.l0-account-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  font-size: 12px;
+  color: var(--l0-muted);
+}
+.l0-account-status svg {
+  width: 12px;
+  height: 12px;
+}
+.l0-status-dot {
+  width: 5px;
+  height: 5px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: currentColor;
+}
+.l0-account-status:is([data-status='error'], [data-status='rejected']) {
+  color: var(--destructive);
+}
+.l0-help-menu {
+  position: relative;
+  flex-shrink: 0;
+}
+.l0-help-menu > summary {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  font:
+    13px/1 ui-monospace,
+    monospace;
+  color: var(--l0-muted);
+  list-style: none;
+  border-radius: 50%;
+}
+.l0-help-menu > summary:hover,
+.l0-help-menu[open] > summary {
+  background: var(--l0-soft);
+}
+.l0-help-content {
+  position: absolute;
+  top: calc(100% + 8px);
+  inset-inline-end: 0;
+  z-index: 10;
+  width: min(280px, calc(100vw - 48px));
+  border: 1px solid var(--l0-line);
+  border-radius: 18px;
+  padding: 10px;
+  background: var(--background);
+  box-shadow: 0 16px 44px color-mix(in srgb, var(--l0-ink) 10%, transparent);
+  animation: l0-panel-in 220ms var(--l0-ease);
+}
+.l0-help-content button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+  width: 100%;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+.l0-help-content button:hover {
+  background: var(--l0-soft);
+}
+.l0-help-content p {
+  border-top: 1px solid var(--l0-line);
+  margin: 8px 0 0;
+  padding: 12px;
+  color: var(--l0-muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
 .l0-topup-compact {
   display: inline-flex;
   align-items: center;
