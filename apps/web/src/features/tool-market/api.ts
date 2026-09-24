@@ -4,6 +4,12 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 */
 import { api } from '@/lib/api'
 
+import {
+  collectMarketPages,
+  connectionTokenInput,
+  type ConnectionPermissions,
+} from './connection-utils'
+
 export type MarketConfig = {
   enabled: boolean
   fee_bps: number
@@ -129,12 +135,48 @@ export type Budget = {
   spent_quota: number
   reserved_quota: number
 }
-type Envelope<T> = { success: boolean; data: T; message?: string }
+export type ClientDisconnect = {
+  client_id: string
+  tokens_revoked: number
+  grants_revoked: number
+  tools_unloaded: number
+}
+export class MarketAPIError extends Error {
+  readonly code: string
+
+  constructor(code: string) {
+    super(code)
+    this.code = code
+    this.name = 'MarketAPIError'
+  }
+}
+type Envelope<T> = {
+  success: boolean
+  data: T
+  code?: string
+  message?: string
+}
 const base = '/api/tool-market'
 async function unwrap<T>(request: Promise<{ data: Envelope<T> }>): Promise<T> {
-  const { data } = await request
-  if (!data.success) throw new Error(data.message || 'Request failed')
-  return data.data
+  try {
+    const { data } = await request
+    if (!data.success)
+      throw new MarketAPIError(data.code || 'TOOL_MARKET_UNAVAILABLE')
+    return data.data
+  } catch (error) {
+    if (error instanceof MarketAPIError) throw error
+    // Preserve a bounded API error code, never server exception text or URLs.
+    if (error && typeof error === 'object' && 'response' in error) {
+      const response = error.response as
+        | { data?: { code?: unknown } }
+        | undefined
+      const code = response?.data?.code
+      if (typeof code === 'string' && /^TOOL_MARKET_[A-Z_]{1,64}$/.test(code)) {
+        throw new MarketAPIError(code)
+      }
+    }
+    throw error
+  }
 }
 export const marketAPI = {
   config: () => unwrap<MarketConfig>(api.get(`${base}/config`)),
@@ -146,8 +188,15 @@ export const marketAPI = {
     unwrap<MarketDetail>(
       api.get(`${base}/services/${id}${mode === 'published' ? '' : `/${mode}`}`)
     ),
-  mine: <T>(kind: string) =>
-    unwrap<T[]>(api.get(`${base}/mine/${kind}`, { params: { limit: 100 } })),
+  mine: <T>(kind: string, signal?: AbortSignal) =>
+    collectMarketPages<T>((offset, limit) =>
+      unwrap<T[]>(
+        api.get(`${base}/mine/${encodeURIComponent(kind)}`, {
+          params: { offset, limit },
+          signal,
+        })
+      )
+    ),
   inspect: (endpoint: string) =>
     unwrap<ToolInput[]>(api.post(`${base}/inspect`, { endpoint })),
   save: (id: string | undefined, input: DraftInput) =>
@@ -192,16 +241,15 @@ export const marketAPI = {
     unwrap<MarketCall[]>(api.get(`${base}/calls`, { params: { limit: 100 } })),
   income: () =>
     unwrap<Income[]>(api.get(`${base}/income`, { params: { limit: 100 } })),
-  token: (client_id: string) =>
+  token: (clientID: string, permissions?: ConnectionPermissions) =>
     unwrap<{ token: string; record: MarketToken }>(
-      api.post(`${base}/tokens`, {
-        client_id,
-        can_invoke: true,
-        can_manage: true,
-        expires_at: Math.floor(Date.now() / 1000) + 7 * 86400,
-      })
+      api.post(`${base}/tokens`, connectionTokenInput(clientID, permissions))
     ),
   revokeToken: (id: string) => unwrap<null>(api.delete(`${base}/tokens/${id}`)),
+  disconnectClient: (clientID: string) =>
+    unwrap<ClientDisconnect>(
+      api.post(`${base}/clients/disconnect`, { client_id: clientID })
+    ),
   budget: (input: { scope: string; scope_id: string; limit_quota: number }) =>
     unwrap<null>(api.put(`${base}/budgets`, input)),
   configure: (
