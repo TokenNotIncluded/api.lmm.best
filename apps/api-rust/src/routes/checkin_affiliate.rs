@@ -225,10 +225,7 @@ pub fn read_router(state: CheckinAffiliateState) -> Router {
 fn checkin_read_routes() -> Router<CheckinAffiliateState> {
     Router::new()
         .route("/api/user/checkin", get(checkin_status))
-        .route(
-            "/api/user/self/aff/rewards",
-            get(referral_reward_history),
-        )
+        .route("/api/user/self/aff/rewards", get(referral_reward_history))
 }
 
 #[derive(Serialize)]
@@ -485,7 +482,6 @@ fn month(now: i64, timezone: FixedOffset) -> String {
         .to_string()
 }
 
-
 #[derive(Default, Deserialize)]
 struct ReferralHistoryQuery {
     before: Option<String>,
@@ -521,12 +517,7 @@ fn referral_cursor(raw: Option<&str>) -> Result<i64, ()> {
     }
 }
 
-fn referral_option(
-    options: &BTreeMap<String, String>,
-    key: &str,
-    default: i64,
-    max: i64,
-) -> i64 {
+fn referral_option(options: &BTreeMap<String, String>, key: &str, default: i64, max: i64) -> i64 {
     options
         .get(key)
         .and_then(|value| value.trim().parse::<i64>().ok())
@@ -537,25 +528,10 @@ fn referral_option(
 fn referral_policy_from_options(options: &BTreeMap<String, String>) -> ReferralPolicy {
     ReferralPolicy {
         reward_quota: referral_option(options, "QuotaForInviter", 0, MAX_WALLET_QUOTA),
-        min_top_up_quota: referral_option(
-            options,
-            "ReferralMinTopUpQuota",
-            0,
-            MAX_WALLET_QUOTA,
-        ),
-        max_reward_quota: referral_option(
-            options,
-            "ReferralMaxRewardQuota",
-            0,
-            MAX_WALLET_QUOTA,
-        ),
+        min_top_up_quota: referral_option(options, "ReferralMinTopUpQuota", 0, MAX_WALLET_QUOTA),
+        max_reward_quota: referral_option(options, "ReferralMaxRewardQuota", 0, MAX_WALLET_QUOTA),
         penalty_percent: referral_option(options, "ReferralPenaltyPercent", 20, 100),
-        max_penalty_quota: referral_option(
-            options,
-            "ReferralMaxPenaltyQuota",
-            0,
-            MAX_WALLET_QUOTA,
-        ),
+        max_penalty_quota: referral_option(options, "ReferralMaxPenaltyQuota", 0, MAX_WALLET_QUOTA),
     }
 }
 
