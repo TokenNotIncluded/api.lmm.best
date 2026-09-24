@@ -21,7 +21,9 @@ const keys = [
   "Useful commands",
   "The current preview supports LMM catalog entries declared as openai-completions. Responses-only and Anthropic Messages-only models are not supported by this adapter yet.",
   "Codewhale LMM adapter source and full documentation",
-  "Install Codewhale adapter"
+  "Install Codewhale adapter",
+  "On Android / Termux, Codewhale support is preview. Use the Android arm64 package path; do not install the Linux arm64 archive.",
+  "I am setting up Codewhale on {{platform}}. Please help me install Codewhale and the codewhale-lmm companion adapter, sign in with OAuth, list the account-scoped model IDs, and start the first model with codewhale-lmm run. Never ask for my API key."
 ]
 
 const values = {
@@ -47,7 +49,9 @@ const values = {
     "Useful commands",
     "The current preview supports LMM catalog entries declared as openai-completions. Responses-only and Anthropic Messages-only models are not supported by this adapter yet.",
     "Codewhale LMM adapter source and full documentation",
-    "Install Codewhale adapter"
+    "Install Codewhale adapter",
+    "On Android / Termux, Codewhale support is preview. Use the Android arm64 package path; do not install the Linux arm64 archive.",
+    "I am setting up Codewhale on {{platform}}. Please help me install Codewhale and the codewhale-lmm companion adapter, sign in with OAuth, list the account-scoped model IDs, and start the first model with codewhale-lmm run. Never ask for my API key."
   ],
   "zh": [
     "Codewhale OAuth · 无需 API 密钥",
@@ -71,7 +75,9 @@ const values = {
     "常用命令",
     "当前预览版支持 LMM 目录中声明为 openai-completions 的模型；暂不支持 Responses-only 和 Anthropic Messages-only 模型。",
     "Codewhale LMM 适配器源码与完整说明",
-    "安装 Codewhale 适配器"
+    "安装 Codewhale 适配器",
+    "Android / Termux 上的 Codewhale 目前仍是预览支持。请使用 Android arm64 安装路径，不要安装 Linux arm64 压缩包。",
+    "我正在 {{platform}} 上配置 Codewhale。请帮我安装 Codewhale 和 codewhale-lmm 伴随适配器，通过 OAuth 登录，列出当前账户可用的模型 ID，并用 codewhale-lmm run 启动第一个模型。不要向我索取 API Key。"
   ],
   "zh-TW": [
     "Codewhale OAuth · 無需 API 金鑰",
@@ -95,7 +101,9 @@ const values = {
     "常用命令",
     "目前預覽版支援 LMM 目錄中宣告為 openai-completions 的模型；暫不支援 Responses-only 與 Anthropic Messages-only 模型。",
     "Codewhale LMM 配接器原始碼與完整說明",
-    "安裝 Codewhale 配接器"
+    "安裝 Codewhale 配接器",
+    "Android / Termux 上的 Codewhale 目前仍是預覽支援。請使用 Android arm64 安裝路徑，不要安裝 Linux arm64 壓縮包。",
+    "我正在 {{platform}} 上設定 Codewhale。請協助我安裝 Codewhale 與 codewhale-lmm 伴隨配接器，透過 OAuth 登入，列出目前帳戶可用的模型 ID，並用 codewhale-lmm run 啟動第一個模型。不要向我索取 API Key。"
   ],
   "fr": [
     "OAuth avec Codewhale · sans clé API",
@@ -119,7 +127,9 @@ const values = {
     "Commandes utiles",
     "La préversion actuelle prend en charge les entrées du catalogue LMM déclarées openai-completions. Les modèles Responses-only et Anthropic Messages-only ne sont pas encore pris en charge.",
     "Code source et documentation complète de l’adaptateur Codewhale LMM",
-    "Installer l’adaptateur Codewhale"
+    "Installer l’adaptateur Codewhale",
+    "Sur Android / Termux, la prise en charge de Codewhale est encore en préversion. Utilisez le paquet Android arm64 et n’installez pas l’archive Linux arm64.",
+    "Je configure Codewhale sur {{platform}}. Aidez-moi à installer Codewhale et l’adaptateur compagnon codewhale-lmm, à me connecter avec OAuth, à lister les identifiants de modèles accessibles au compte, puis à lancer le premier modèle avec codewhale-lmm run. Ne me demandez jamais ma clé API."
   ],
   "ja": [
     "Codewhale の OAuth · API キー不要",
@@ -143,7 +153,9 @@ const values = {
     "便利なコマンド",
     "現在のプレビュー版は、LMM カタログで openai-completions と宣言されたモデルに対応しています。Responses-only と Anthropic Messages-only はまだ未対応です。",
     "Codewhale LMM アダプターのソースと完全なドキュメント",
-    "Codewhale アダプターをインストール"
+    "Codewhale アダプターをインストール",
+    "Android / Termux の Codewhale 対応は現在プレビューです。Android arm64 向けの導入手順を使用し、Linux arm64 アーカイブはインストールしないでください。",
+    "{{platform}} で Codewhale を設定しています。Codewhale と codewhale-lmm コンパニオンアダプターのインストール、OAuth ログイン、アカウントで利用できるモデル ID の一覧表示、codewhale-lmm run で最初のモデルを起動するところまで案内してください。API キーは尋ねないでください。"
   ],
   "ru": [
     "OAuth с Codewhale · без API-ключа",
@@ -167,7 +179,9 @@ const values = {
     "Полезные команды",
     "Текущая предварительная версия поддерживает записи каталога LMM, объявленные как openai-completions. Модели Responses-only и Anthropic Messages-only пока не поддерживаются.",
     "Исходный код и полная документация адаптера Codewhale LMM",
-    "Установить адаптер Codewhale"
+    "Установить адаптер Codewhale",
+    "Поддержка Codewhale на Android / Termux пока предварительная. Используйте путь установки для Android arm64 и не устанавливайте архив Linux arm64.",
+    "Я настраиваю Codewhale на {{platform}}. Помогите установить Codewhale и сопутствующий адаптер codewhale-lmm, войти через OAuth, вывести доступные аккаунту идентификаторы моделей и запустить первую модель через codewhale-lmm run. Не запрашивайте мой API-ключ."
   ],
   "vi": [
     "OAuth với Codewhale · không cần API key",
@@ -191,7 +205,9 @@ const values = {
     "Lệnh hữu ích",
     "Bản xem trước hiện tại hỗ trợ các mục trong catalog LMM được khai báo là openai-completions. Các model Responses-only và Anthropic Messages-only hiện chưa được hỗ trợ.",
     "Mã nguồn và tài liệu đầy đủ của bộ điều hợp Codewhale LMM",
-    "Cài bộ điều hợp Codewhale"
+    "Cài bộ điều hợp Codewhale",
+    "Codewhale trên Android / Termux hiện vẫn ở trạng thái xem trước. Hãy dùng gói Android arm64 và không cài gói lưu trữ Linux arm64.",
+    "Tôi đang thiết lập Codewhale trên {{platform}}. Hãy giúp tôi cài Codewhale và bộ điều hợp đồng hành codewhale-lmm, đăng nhập bằng OAuth, liệt kê các ID model của tài khoản và chạy model đầu tiên bằng codewhale-lmm run. Đừng bao giờ hỏi API key của tôi."
   ]
 }
 
