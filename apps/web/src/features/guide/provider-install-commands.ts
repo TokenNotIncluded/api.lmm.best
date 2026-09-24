@@ -33,6 +33,9 @@ export const DSH_DOWNLOAD_LATEST_COMMAND = `npm pack ${DSH_PACKAGE_LATEST}`
 export const CODEWHALE_UNIX_INSTALL_COMMAND =
   'curl -fsSL https://codewhale.net/install.sh | sh'
 
+export const CODEWHALE_NPM_INSTALL_COMMAND =
+  'npm install -g codewhale@latest'
+
 export const CODEWHALE_CLONE_COMMAND =
   'git clone https://github.com/TokenNotIncluded/codewhale-lmm-provider.git'
 
