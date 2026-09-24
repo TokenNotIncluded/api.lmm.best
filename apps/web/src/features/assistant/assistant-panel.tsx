@@ -44,7 +44,13 @@ import {
   Wrench,
 } from 'lucide-react'
 import { nanoid } from 'nanoid'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -53,7 +59,6 @@ import {
   ConversationContent,
   ConversationScrollButton,
 } from '@/components/ai-elements/conversation'
-import { Loader } from '@/components/ai-elements/loader'
 import { Message, MessageContent } from '@/components/ai-elements/message'
 import {
   PromptInput,
@@ -83,6 +88,13 @@ import {
 } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
 import { WaitCompanion } from '@/components/wait-companion'
+import { L0_ARRIVAL_DURATION } from '@/features/onboarding/l0-flight-path'
+import {
+  mountL0TextFlow,
+  visualTokens,
+  visualTokenTail,
+  type L0TextFlow,
+} from '@/features/onboarding/l0-text-flow'
 import {
   createL0Tokens,
   mountL0TokenCloud,
@@ -221,6 +233,7 @@ type ConversationEntry = {
   error?: boolean
   notice?: boolean
   streaming?: boolean
+  animateToCloud?: boolean
   interrupted?: boolean
   retry?: {
     message: string
@@ -270,12 +283,24 @@ const assistantCloudFallback = createL0Tokens(390).filter(
   (_, index) => index % 3 === 0
 )
 
-function AssistantTokenCloud() {
+function AssistantTokenCloud(props: {
+  cloudRef?: { current: HTMLDivElement | null }
+  compact?: boolean
+  active?: boolean
+}) {
   const { t } = useTranslation()
-  const cloudRef = useRef<HTMLDivElement>(null)
+  const localCloudRef = useRef<HTMLDivElement>(null)
+
+  const setCloudRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      localCloudRef.current = node
+      if (props.cloudRef) props.cloudRef.current = node
+    },
+    [props.cloudRef]
+  )
 
   useEffect(() => {
-    const root = cloudRef.current
+    const root = localCloudRef.current
     if (root) return mountL0TokenCloud(root)
   }, [])
 
@@ -285,7 +310,9 @@ function AssistantTokenCloud() {
       data-testid='assistant-token-cloud'
       data-cloud-scene='chat'
       data-cloud-contrast='strong'
-      ref={cloudRef}
+      data-compact={props.compact ? 'true' : undefined}
+      data-active={props.active ? 'true' : undefined}
+      ref={setCloudRef}
     >
       <svg
         className='assistant-token-cloud-fallback'
@@ -320,6 +347,118 @@ function AssistantTokenCloud() {
   )
 }
 
+function AssistantUserFlowMessage(props: {
+  entry: ConversationEntry
+  flow: { current: L0TextFlow | null }
+  animatedIds: Set<string>
+}) {
+  const sourceRef = useRef<HTMLParagraphElement>(null)
+  const shouldAnimate =
+    props.entry.animateToCloud && !props.animatedIds.has(props.entry.id)
+  const tokens = shouldAnimate ? visualTokens(props.entry.content) : []
+
+  useLayoutEffect(() => {
+    const source = sourceRef.current
+    if (!source || !shouldAnimate) return
+    props.animatedIds.add(props.entry.id)
+    props.flow.current?.sentence(source)
+  }, [props.animatedIds, props.entry.id, props.flow, shouldAnimate])
+
+  if (!shouldAnimate) {
+    return (
+      <p className='break-words whitespace-pre-wrap'>{props.entry.content}</p>
+    )
+  }
+
+  return (
+    <p
+      ref={sourceRef}
+      className='assistant-user-flow break-words whitespace-pre-wrap'
+    >
+      {tokens.map((token) => (
+        <span key={token.index} data-l0-source>
+          {token.text}
+        </span>
+      ))}
+    </p>
+  )
+}
+
+function AssistantFlowResponse(props: {
+  entry: ConversationEntry
+  flow: { current: L0TextFlow | null }
+}) {
+  const answerRef = useRef<HTMLDivElement>(null)
+  const [formatted, setFormatted] = useState(!props.entry.streaming)
+  const tail = visualTokenTail(props.entry.content)
+  const prefix = props.entry.content.slice(0, tail[0]?.index ?? 0)
+
+  useLayoutEffect(() => {
+    if (formatted || !props.entry.streaming || !answerRef.current) return
+    props.flow.current?.receive(answerRef.current, true)
+  }, [formatted, props.entry.content, props.entry.streaming, props.flow])
+
+  useEffect(() => {
+    if (props.entry.streaming) {
+      setFormatted(false)
+      return
+    }
+    if (formatted) return
+    const timer = window.setTimeout(() => {
+      props.flow.current?.clearResponses()
+      setFormatted(true)
+    }, L0_ARRIVAL_DURATION + 40)
+    return () => window.clearTimeout(timer)
+  }, [formatted, props.entry.streaming, props.flow])
+
+  if (formatted) {
+    return (
+      <Response
+        className='max-w-full leading-7 break-words [&_pre]:max-w-full [&_pre]:overflow-x-auto'
+        final
+      >
+        {props.entry.content}
+      </Response>
+    )
+  }
+
+  return (
+    <div
+      ref={answerRef}
+      className='assistant-flow-response max-w-full leading-7 break-words whitespace-pre-wrap'
+      aria-live='off'
+    >
+      {prefix}
+      {tail.map((token) => (
+        <span key={token.index} data-l0-arrival>
+          {token.text}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function AssistantThinkingIndicator(props: { step: number }) {
+  const { t } = useTranslation()
+  return (
+    <div
+      className='assistant-thinking-flow'
+      data-testid='assistant-thinking-flow'
+      aria-live='polite'
+    >
+      <span className='assistant-thinking-tokens' aria-hidden='true'>
+        <i />
+        <i />
+        <i />
+      </span>
+      <span>
+        {t('Assistant is thinking...')}
+        {props.step > 0 ? ` · ${props.step}` : ''}
+      </span>
+    </div>
+  )
+}
+
 function AssistantModernWelcome(props: {
   description: string
   restricted: boolean
@@ -331,7 +470,6 @@ function AssistantModernWelcome(props: {
       className='assistant-start-intro'
       data-testid='assistant-modern-welcome'
     >
-      <AssistantTokenCloud />
       <h2>
         {props.restricted
           ? t('What would you like to do?')
@@ -1161,6 +1299,9 @@ function AssistantPanelSession(props: AssistantPanelProps) {
   const openedTargetRef = useRef<AssistantPresetId | undefined>(undefined)
   const activeToolRegionRef = useRef<HTMLDivElement | null>(null)
   const latestAssistantMessageRef = useRef<HTMLDivElement | null>(null)
+  const assistantCloudRef = useRef<HTMLDivElement | null>(null)
+  const assistantTextFlowRef = useRef<L0TextFlow | null>(null)
+  const animatedQuestionIdsRef = useRef<Set<string>>(new Set())
   const statusQuery = useQuery({
     queryKey: ['assistant-status', authUser?.id, authSessionId],
     queryFn: getAssistantStatus,
@@ -1221,6 +1362,23 @@ function AssistantPanelSession(props: AssistantPanelProps) {
   })
   const accountToolActive = activeTool !== null
   const historyVisible = historyView !== null
+
+  useLayoutEffect(() => {
+    const root = assistantCloudRef.current
+    if (!panelVisible || historyVisible || !root) return
+    const mounted = mountL0TextFlow(root)
+    assistantTextFlowRef.current = mounted
+    return () => {
+      if (assistantTextFlowRef.current === mounted) {
+        assistantTextFlowRef.current = null
+      }
+      mounted.dispose()
+    }
+  }, [conversationResetRevision, historyVisible, panelVisible])
+
+  useEffect(() => {
+    animatedQuestionIdsRef.current.clear()
+  }, [conversationResetRevision])
 
   const openAssistantTool = useCallback((tool: AssistantTool) => {
     setActiveTool(tool)
@@ -1930,7 +2088,12 @@ function AssistantPanelSession(props: AssistantPanelProps) {
       ...current.map((entry) =>
         entry.retry ? { ...entry, retry: undefined } : entry
       ),
-      { id: nanoid(), role: 'user', content: safeMessage.content },
+      {
+        id: nanoid(),
+        role: 'user',
+        content: safeMessage.content,
+        animateToCloud: true,
+      },
       ...(safeMessage.redacted
         ? [
             {
@@ -2142,6 +2305,11 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                 mode === 'page' ? 'mx-auto w-full max-w-3xl' : 'max-w-full'
               )}
             >
+              <AssistantTokenCloud
+                cloudRef={assistantCloudRef}
+                compact={entries.length > 0}
+                active={sending}
+              />
               {entries.length === 0 ? (
                 <div
                   className={cn(
@@ -2202,12 +2370,16 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                           </p>
                         ) : null}
                         {entry.role === 'assistant' ? (
-                          <Response
-                            className='max-w-full leading-7 break-words [&_pre]:max-w-full [&_pre]:overflow-x-auto'
-                            final={!entry.streaming}
-                          >
-                            {entry.content}
-                          </Response>
+                          <AssistantFlowResponse
+                            entry={entry}
+                            flow={assistantTextFlowRef}
+                          />
+                        ) : entry.role === 'user' ? (
+                          <AssistantUserFlowMessage
+                            entry={entry}
+                            flow={assistantTextFlowRef}
+                            animatedIds={animatedQuestionIdsRef.current}
+                          />
                         ) : (
                           <p className='break-words whitespace-pre-wrap'>
                             {entry.content}
@@ -2268,14 +2440,9 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                     <Message from='assistant'>
                       <MessageContent
                         variant='flat'
-                        className='text-muted-foreground flex-row items-center gap-2'
-                        aria-live='polite'
+                        className='text-muted-foreground'
                       >
-                        <Loader size={14} />
-                        <span>
-                          {t('Assistant is thinking...')}
-                          {agentStep > 0 ? ` · ${agentStep}` : ''}
-                        </span>
+                        <AssistantThinkingIndicator step={agentStep} />
                       </MessageContent>
                     </Message>
                   ) : null}
