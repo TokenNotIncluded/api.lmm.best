@@ -92,11 +92,14 @@ export function ModelUsageReport({
   }, [models, resolvedTheme, t])
   const formatValue = (value: number) =>
     hideNumbers ? '••••' : formatNumber(value, locale)
-  const formatShare = (value: number) =>
-    new Intl.NumberFormat(locale, {
-      style: 'percent',
-      maximumFractionDigits: 1,
-    }).format(value)
+  const shareFormatter = useMemo(
+    () =>
+      new Intl.NumberFormat(locale, {
+        style: 'percent',
+        maximumFractionDigits: 1,
+      }),
+    [locale]
+  )
   const dateFormat = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' })
   const loading = query.isPending && !query.data
   const failed = !query.data && query.isError
@@ -110,7 +113,7 @@ export function ModelUsageReport({
       hideNumbers ? '••••' : String(formatLogQuota(value))
     const rows = models.map(
       (model) =>
-        `| ${escapeMarkdownCell(model.modelName === 'unknown' ? t('Unknown model') : model.modelName)} | ${displayNumber(model.tokens)} | ${displayNumber(model.requests)} | ${displayQuota(model.quota)} | ${formatShare(model.share)} |`
+        `| ${escapeMarkdownCell(model.modelName === 'unknown' ? t('Unknown model') : model.modelName)} | ${displayNumber(model.tokens)} | ${displayNumber(model.requests)} | ${displayQuota(model.quota)} | ${shareFormatter.format(model.share)} |`
     )
 
     return [
@@ -128,7 +131,7 @@ export function ModelUsageReport({
     ].join('\n')
   }, [
     failed,
-    formatShare,
+    shareFormatter,
     hideNumbers,
     loading,
     locale,
@@ -295,7 +298,7 @@ export function ModelUsageReport({
                             : model.modelName}
                         </span>
                         <span className='text-muted-foreground shrink-0 text-xs tabular-nums'>
-                          {formatShare(model.share)}
+                          {shareFormatter.format(model.share)}
                         </span>
                       </span>
                       <span className='grid grid-cols-3 gap-2 text-xs tabular-nums'>
