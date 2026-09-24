@@ -42,6 +42,7 @@ type ChallengeListProps = {
   hideWhenUnavailable?: boolean
   heading?: string
   description?: string
+  console?: boolean
 }
 
 function repositoryName(url: string): string {
@@ -109,7 +110,13 @@ export function ChallengeList(props: ChallengeListProps) {
         </div>
       )}
 
-      <div className='border-foreground border-t-2'>
+      <div
+        className={cn(
+          props.console
+            ? 'border-border border-t'
+            : 'border-foreground border-t-2'
+        )}
+      >
         {loading &&
           Array.from({ length: Math.min(limit, 3) }, (_, index) => (
             <div
@@ -157,7 +164,12 @@ export function ChallengeList(props: ChallengeListProps) {
             className='border-border group hover:bg-muted focus-visible:bg-muted grid min-h-24 grid-cols-[minmax(0,1fr)_auto] items-center gap-5 border-b py-4 transition-colors focus-visible:outline-none md:grid-cols-[minmax(280px,1fr)_150px_190px_28px] md:px-3'
           >
             <div className='min-w-0'>
-              <h3 className='mb-1 truncate font-serif text-lg font-medium'>
+              <h3
+                className={cn(
+                  'mb-1 truncate text-lg font-medium',
+                  !props.console && 'font-serif'
+                )}
+              >
                 {challenge.title}
               </h3>
               <p className='text-muted-foreground truncate text-xs'>

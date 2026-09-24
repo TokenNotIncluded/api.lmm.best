@@ -17,20 +17,36 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { createFileRoute } from '@tanstack/react-router'
+import { useTranslation } from 'react-i18next'
 
+import { SectionPageLayout } from '@/components/layout'
 import { ChallengeList } from '@/features/forge/challenge-list'
-import { ForgePublicShell } from '@/features/forge/forge-public-shell'
+import { EcosystemRouteShell } from '@/features/forge/ecosystem-route-shell'
 
 export const Route = createFileRoute('/challenges/')({
   component: ChallengesPage,
 })
 
 function ChallengesPage() {
+  const { t } = useTranslation()
+
   return (
-    <ForgePublicShell>
-      <main className='mx-auto max-w-7xl px-5 pt-12 pb-20 md:px-10 md:pt-16'>
-        <ChallengeList />
-      </main>
-    </ForgePublicShell>
+    <EcosystemRouteShell
+      console={
+        <SectionPageLayout>
+          <SectionPageLayout.Title>{t('Challenges')}</SectionPageLayout.Title>
+          <SectionPageLayout.Content>
+            <div className='mx-auto w-full max-w-5xl'>
+              <ChallengeList showHeading={false} console />
+            </div>
+          </SectionPageLayout.Content>
+        </SectionPageLayout>
+      }
+      public={
+        <main className='mx-auto max-w-7xl px-5 pt-12 pb-20 md:px-10 md:pt-16'>
+          <ChallengeList />
+        </main>
+      }
+    />
   )
 }
