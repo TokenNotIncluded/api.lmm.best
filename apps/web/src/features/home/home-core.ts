@@ -846,45 +846,17 @@ export function createTrainingScene(
       }
     })
 
-    // Prediction box and loss diamond.
+    // Prediction lands as typography rather than another framed UI card.
     const correct = s.predicted === s.target
     const verdict = correct ? palette.highlight : palette.feedback
-    const box = [
-      point(
-        PREDICTION.x - PREDICTION.w / 2,
-        PREDICTION.y - PREDICTION.h / 2,
-        0
-      ),
-      point(
-        PREDICTION.x + PREDICTION.w / 2,
-        PREDICTION.y - PREDICTION.h / 2,
-        0
-      ),
-      point(
-        PREDICTION.x + PREDICTION.w / 2,
-        PREDICTION.y + PREDICTION.h / 2,
-        0
-      ),
-      point(
-        PREDICTION.x - PREDICTION.w / 2,
-        PREDICTION.y + PREDICTION.h / 2,
-        0
-      ),
-    ]
     const shown = clock.predict * live
-    box.forEach((corner, i) => {
-      sink.segment(corner, box[(i + 1) % 4], palette.idle, 0.9, 1.5)
-      if (shown > 0.01) {
-        sink.segment(corner, box[(i + 1) % 4], verdict, shown * 0.8, 1.5, true)
-      }
-    })
     if (shown > 0.01) {
       sink.segment(
         barEnd(s.predicted, s.act[net.layers[4][s.predicted]]),
         point(PREDICTION.x - PREDICTION.w / 2, PREDICTION.y, 0),
         verdict,
-        shown * 0.6,
-        1.5,
+        shown * 0.46,
+        1.25,
         true
       )
       sink.label(
@@ -894,6 +866,21 @@ export function createTrainingScene(
         shown,
         0.34,
         0.5
+      )
+      sink.segment(
+        point(
+          PREDICTION.x - PREDICTION.w * 0.32,
+          PREDICTION.y - PREDICTION.h * 0.42,
+          0
+        ),
+        point(
+          PREDICTION.x + PREDICTION.w * 0.32,
+          PREDICTION.y - PREDICTION.h * 0.42,
+          0
+        ),
+        verdict,
+        shown * 0.5,
+        1
       )
     }
     const loss =
