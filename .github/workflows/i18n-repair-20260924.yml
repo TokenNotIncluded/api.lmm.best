@@ -1,0 +1,215 @@
+name: Temporary i18n quality repair
+
+on:
+  push:
+    branches:
+      - fix/i18n-quality-20260924
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repair branch
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: fix/i18n-quality-20260924
+
+      - name: Apply translation repairs
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs')
+          const path = require('node:path')
+
+          const localeDir = path.resolve('apps/web/src/i18n/locales')
+          const corrections = {
+            fr: {
+              'Client model matching': 'Correspondance du modèle client',
+              'Client model matching help': 'Aide sur la correspondance du modèle client',
+              'Routes with the same incoming path are split by client model rules. Unmatched requests use the final fallback.':
+                'Les routes ayant le même chemin entrant sont réparties selon les règles du modèle client. Les requêtes sans correspondance utilisent la dernière route de secours.',
+              'Rules match the original model value from the client request body.':
+                'Les règles correspondent à la valeur d’origine du champ model dans le corps de la requête client.',
+              'A brief description in your own words is enough to start. There is no difficult puzzle or application letter.':
+                'Une brève description avec vos propres mots suffit pour commencer. Il n’y a ni test compliqué ni lettre de candidature à rédiger.',
+            },
+            ja: {
+              '{"original-model": "replacement-model"}': '{"original-model": "replacement-model"}',
+              'API info added. Click "Save Settings" to apply.':
+                'API情報を追加しました。「設定を保存」をクリックして適用してください。',
+              'API info deleted. Click "Save Settings" to apply.':
+                'API情報を削除しました。「設定を保存」をクリックして適用してください。',
+              'API info updated. Click "Save Settings" to apply.':
+                'API情報を更新しました。「設定を保存」をクリックして適用してください。',
+              'Group added. Click "Save Settings" to apply.':
+                'グループを追加しました。「設定を保存」をクリックして適用してください。',
+              'Group deleted. Click "Save Settings" to apply.':
+                'グループを削除しました。「設定を保存」をクリックして適用してください。',
+              'Group updated. Click "Save Settings" to apply.':
+                'グループを更新しました。「設定を保存」をクリックして適用してください。',
+              'Failed to parse JSON file: {{name}}':
+                'JSONファイルの解析に失敗しました：{{name}}',
+              'Model pull failed: {{msg}}':
+                'モデルの取得に失敗しました：{{msg}}',
+              'Parsed {{count}} service account file(s)':
+                'サービスアカウントファイルを{{count}}件解析しました',
+              'Client model': 'クライアントモデル',
+              'Client model matching': 'クライアントモデルの照合',
+              'Client model matching help': 'クライアントモデル照合のヘルプ',
+              'Routes with the same incoming path are split by client model rules. Unmatched requests use the final fallback.':
+                '同じ受信パスのルートは、クライアントモデルのルールに基づいて振り分けられます。一致しないリクエストは最後のフォールバックを使用します。',
+              'confirm that I bear legal responsibility arising from deployment':
+                'デプロイに起因する法的責任を負うことを確認します',
+              "It seems like the page you're looking for":
+                'お探しのページは存在しないか、移動または削除された可能性があります',
+            },
+            ru: {
+              'Client model matching': 'Сопоставление модели клиента',
+              'Client model matching help': 'Справка по сопоставлению модели клиента',
+              'Routes with the same incoming path are split by client model rules. Unmatched requests use the final fallback.':
+                'Маршруты с одинаковым входящим путем разделяются по правилам модели клиента. Запросы без совпадения используют последний резервный маршрут.',
+            },
+            vi: {
+              'The effective domain for Passkey registration. Must match the current domain or be its parent domain.':
+                'Tên miền hiệu lực dùng để đăng ký Passkey. Phải trùng với tên miền hiện tại hoặc là tên miền cha của nó.',
+              '`, and `-nothinking` suffixes while routing to the correct Gemini variant.':
+                '`, và hậu tố `-nothinking` trong khi định tuyến đến đúng biến thể Gemini.',
+              'When enabled, prompts are scanned before reaching upstream models.':
+                'Khi bật, prompt được quét trước khi gửi tới các mô hình thượng nguồn.',
+              'I understand that disabling 2FA will remove all protection and backup codes':
+                'Tôi hiểu rằng việc tắt 2FA sẽ xóa toàn bộ lớp bảo vệ và mã dự phòng',
+              'Select models (empty for allow all)':
+                'Chọn mô hình (để trống để cho phép tất cả)',
+              'Minimum LinuxDO trust level required':
+                'Yêu cầu cấp độ tin cậy LinuxDO tối thiểu',
+              'Announcement added. Click "Save Settings" to apply.':
+                'Đã thêm thông báo. Nhấp "Lưu Cài đặt" để áp dụng.',
+              'Announcement deleted. Click "Save Settings" to apply.':
+                'Đã xóa thông báo. Nhấp "Lưu Cài đặt" để áp dụng.',
+              'Announcement updated. Click "Save Settings" to apply.':
+                'Đã cập nhật thông báo. Nhấp "Lưu Cài đặt" để áp dụng.',
+              'Client model': 'Mô hình phía máy khách',
+              'Client model matching': 'Đối sánh mô hình phía máy khách',
+              'Client model matching help': 'Trợ giúp đối sánh mô hình phía máy khách',
+              'Routes with the same incoming path are split by client model rules. Unmatched requests use the final fallback.':
+                'Các tuyến có cùng đường dẫn đầu vào được phân nhánh theo quy tắc mô hình phía máy khách. Yêu cầu không khớp sẽ dùng tuyến dự phòng cuối cùng.',
+              '{{n}} model(s) selected': 'Đã chọn {{n}} mô hình',
+              'A curated model catalog': 'Danh mục mô hình được tuyển chọn',
+              'Available models loaded': 'Đã tải các mô hình khả dụng',
+              'Choose a model, send a compatible request, and see exactly how access and usage are managed.':
+                'Chọn mô hình, gửi yêu cầu tương thích và xem chính xác cách quản lý quyền truy cập và mức sử dụng.',
+              'Choose the model and group before you spend.':
+                'Chọn mô hình và nhóm trước khi phát sinh chi phí.',
+              'Compare live model pricing': 'So sánh giá mô hình hiện tại',
+              'Enabled models': 'Mô hình đã bật',
+              'Get model list': 'Lấy danh sách mô hình',
+              'Image model': 'Mô hình hình ảnh',
+              'Live models and pricing': 'Mô hình và giá theo thời gian thực',
+              'Loading model list...': 'Đang tải danh sách mô hình…',
+              'Manage models': 'Quản lý mô hình',
+              'Model deleted successfully': 'Đã xóa mô hình thành công',
+              'Model disabled successfully': 'Đã tắt mô hình thành công',
+              'Model enabled successfully': 'Đã bật mô hình thành công',
+              'Model fixed pricing': 'Mô hình giá cố định',
+              'Model pricing loaded': 'Đã tải giá mô hình',
+              'Model regex cannot be empty': 'Biểu thức chính quy của mô hình không được để trống',
+              'Models exposed by this channel': 'Các mô hình được kênh này cung cấp',
+              'No image-capable model and routing group is currently available.':
+                'Hiện không có mô hình hỗ trợ hình ảnh và nhóm định tuyến khả dụng.',
+              'Open model pricing': 'Mở bảng giá mô hình',
+              'Read available models': 'Đọc các mô hình khả dụng',
+              'Read model pricing': 'Đọc giá mô hình',
+              'Reference model cost (USD / 1M tokens)':
+                'Chi phí tham chiếu của mô hình (USD / 1 triệu token)',
+              'Replacement Model': 'Mô hình thay thế',
+              'Review model': 'Mô hình đánh giá',
+              'Sync this model with official upstream':
+                'Đồng bộ mô hình này với nguồn chính thức',
+              'Tool / function declarations the model may call':
+                'Khai báo công cụ / hàm mà mô hình có thể gọi',
+              'Track model calls, latency, and spend without guesswork.':
+                'Theo dõi lượt gọi mô hình, độ trễ và chi phí mà không cần phỏng đoán.',
+            },
+          }
+
+          for (const [locale, values] of Object.entries(corrections)) {
+            const file = path.join(localeDir, `${locale}.json`)
+            const json = JSON.parse(fs.readFileSync(file, 'utf8'))
+            let changed = 0
+            for (const [key, value] of Object.entries(values)) {
+              if (!(key in json.translation)) {
+                console.log(`${locale}: key not present, skipped: ${key}`)
+                continue
+              }
+              if (json.translation[key] !== value) {
+                json.translation[key] = value
+                changed++
+              }
+            }
+            json.translation = Object.fromEntries(
+              Object.entries(json.translation).sort(([a], [b]) => a.localeCompare(b))
+            )
+            fs.writeFileSync(file, JSON.stringify(json, null, 2) + '\n')
+            console.log(`${locale}: ${changed} repairs applied`)
+          }
+          NODE
+
+      - name: Normalize locale files
+        working-directory: apps/web
+        run: node scripts/sync-i18n.mjs
+
+      - name: Write diagnostics
+        shell: bash
+        run: |
+          mkdir -p .tmp
+          node <<'NODE'
+          const fs = require('node:fs')
+          const path = require('node:path')
+          const dir = path.resolve('apps/web/src/i18n/locales')
+          const locales = ['en', 'fr', 'ja', 'ru', 'vi']
+          const data = Object.fromEntries(locales.map((locale) => [
+            locale,
+            JSON.parse(fs.readFileSync(path.join(dir, `${locale}.json`), 'utf8')).translation,
+          ]))
+          const placeholders = (s) =>
+            [...String(s).matchAll(/\{\{\s*([^{}]+?)\s*\}\}/g)].map((m) => m[1].trim()).sort()
+          const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b)
+          const literal = /^(?:https?:\/\/|\/|[A-Z0-9_.:/ -]+$)|(?:OpenAI|Claude|Gemini|GitHub|Stripe|Cloudflare|DeepSeek|Linux|macOS|SSL|TLS|API|OAuth|OIDC|JSON|HTTP|URL|TTFT|Top P|Waffo|WeChat|Vertex|ChatGPT|Baidu|Uptime|CC Switch)/i
+          const report = {}
+
+          for (const locale of ['fr', 'ja', 'ru', 'vi']) {
+            const issues = []
+            for (const [key, enValueRaw] of Object.entries(data.en)) {
+              const enValue = String(enValueRaw ?? '')
+              const value = String(data[locale][key] ?? '')
+              const reasons = []
+              if (!equal(placeholders(enValue), placeholders(value))) reasons.push('placeholder-mismatch')
+              if (/__\s*PH_\d+\s*__/i.test(value)) reasons.push('machine-placeholder')
+              if (value === enValue && enValue.length >= 6 && /[A-Za-z]{3,}/.test(enValue) && !literal.test(enValue)) reasons.push('same-as-english')
+              if (locale !== 'ja' && /[\u3040-\u30ff\u3400-\u9fff]/.test(value)) reasons.push('cjk-leak')
+              if (enValue.length >= 40 && value.length / enValue.length < 0.24) reasons.push('possible-truncation')
+              if (reasons.length) issues.push({ key, en: enValue, value, reasons })
+            }
+            report[locale] = issues
+          }
+          fs.writeFileSync('.tmp/i18n-diagnostics.json', JSON.stringify(report, null, 2) + '\n')
+          NODE
+
+      - name: Commit generated locale repairs
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/web/src/i18n/locales .tmp/i18n-diagnostics.json
+          if git diff --cached --quiet; then
+            echo "No generated i18n changes"
+            exit 0
+          fi
+          git commit -m "fix(i18n): repair non-English translations [i18n-repair-applied]"
+          git push
