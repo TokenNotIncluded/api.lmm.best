@@ -216,7 +216,7 @@ For commercial licensing, please contact support@quantumnous.com
 }
 .lmm-visual .lmm-film {
   --film-layout: center;
-  height: calc(100% - 5.5rem);
+  height: 100%;
 }
 .lmm-token-cloud {
   position: absolute;
@@ -1849,15 +1849,6 @@ For commercial licensing, please contact support@quantumnous.com
     border-right: 0;
     border-bottom: 1px solid var(--home-rule);
   }
-  .lmm-token-control {
-    bottom: 0.75rem;
-    left: 1.25rem;
-    right: 1.25rem;
-    font-size: 0.72rem;
-  }
-  .lmm-token-control input {
-    flex-basis: 5rem;
-  }
 }
 @media (max-height: 600px), (prefers-reduced-motion: reduce) {
   .lmm-home[data-motion] .lmm-visual {
@@ -1867,6 +1858,6 @@ For commercial licensing, please contact support@quantumnous.com
     border-bottom: 1px solid var(--home-rule);
   }
   .lmm-home[data-motion] .lmm-visual .lmm-film {
-    height: calc(100% - 5.5rem);
+    height: 100%;
   }
 }
