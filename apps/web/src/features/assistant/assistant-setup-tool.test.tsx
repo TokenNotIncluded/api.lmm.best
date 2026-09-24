@@ -419,9 +419,21 @@ test('mobile walkthrough exposes official Chatbox steps and keeps desktop comman
     )
   )
   await act(async () => {
+    findButton('Codewhale (OAuth)').click()
+    await flushEffects()
+  })
+  assert.match(container.textContent ?? '', /npm install -g codewhale@latest/)
+  assert.match(
+    container.textContent ?? '',
+    /Android \/ Termux, Codewhale support is preview/
+  )
+  assert.match(container.textContent ?? '', /codewhale-lmm login/)
+  assert.throws(() => findButton('Create API key'))
+  await act(async () => {
     findButton('iOS / iPadOS').click()
     await flushEffects()
   })
+  assert.throws(() => findButton('Codewhale (OAuth)'))
   assert.match(container.textContent ?? '', /App Store link/)
   await act(async () => {
     findButton('Walk me through this').click()
