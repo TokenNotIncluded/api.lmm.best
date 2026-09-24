@@ -1734,6 +1734,15 @@ For commercial licensing, please contact support@quantumnous.com
     top: 45%;
     transform: none;
   }
+  .lmm-home:is(
+      [data-motion='loading'],
+      [data-motion='playing'],
+      [data-motion='paused']
+    )
+    .lmm-scene-panel[data-active] {
+    transform: none;
+    filter: none;
+  }
   .lmm-scene-panel h2,
   .lmm-scene-panel.lmm-intro h1 {
     font-size: clamp(1.9rem, 8vw, 2.75rem);
@@ -1821,6 +1830,10 @@ For commercial licensing, please contact support@quantumnous.com
     opacity: 1;
     visibility: visible;
     pointer-events: auto;
+  }
+  .lmm-home[data-motion] .lmm-scene-panel[data-active] {
+    transform: none;
+    filter: none;
   }
   .lmm-core-steps,
   .lmm-cinema-caption {
