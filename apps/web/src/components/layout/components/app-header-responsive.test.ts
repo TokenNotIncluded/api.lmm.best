@@ -34,6 +34,10 @@ const languageSwitcherSource = readFileSync(
   new URL('../../language-switcher.tsx', import.meta.url),
   'utf8'
 )
+const balanceBadgeSource = readFileSync(
+  new URL('./account-balance-badge.tsx', import.meta.url),
+  'utf8'
+)
 
 describe('authenticated header responsive navigation', () => {
   test('keeps the dynamic navigation available below the desktop breakpoint', () => {
@@ -54,4 +58,14 @@ describe('authenticated header responsive navigation', () => {
     assert.match(languageSwitcherSource, /className='h-11 w-11[\s\S]*sm:h-8/)
     assert.match(languageSwitcherSource, /className='min-h-11 sm:min-h-8'/)
   })
+  test('shows a plain balance label with an accessible platform-credit help tooltip', () => {
+    assert.match(balanceBadgeSource, /\{t\('Balance'\)\}/)
+    assert.match(balanceBadgeSource, /visiblePlatformCredit/)
+    assert.match(balanceBadgeSource, /<sup aria-hidden='true'>\?<\/sup>/)
+    assert.match(
+      balanceBadgeSource,
+      /Platform credit is your usage balance\./
+    )
+  })
+
 })
