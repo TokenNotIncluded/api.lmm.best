@@ -552,14 +552,12 @@ export function createTrainingScene(
       w: (INPUT.cols * INPUT.cell) / 2 + 0.06,
       h: (INPUT.rows * INPUT.cell) / 2 + 0.06,
     }
-    const corners = [
-      point(INPUT.x - half.w, -half.h, 0),
-      point(INPUT.x + half.w, -half.h, 0),
-      point(INPUT.x + half.w, half.h, 0),
-      point(INPUT.x - half.w, half.h, 0),
-    ]
-    corners.forEach((corner, i) =>
-      sink.segment(corner, corners[(i + 1) % 4], palette.idle, 0.9, 1.5)
+    sink.segment(
+      point(INPUT.x - half.w * 0.68, half.h + 0.1, 0),
+      point(INPUT.x + half.w * 0.68, half.h + 0.1, 0),
+      palette.idle,
+      0.42,
+      1
     )
     const backIntoInput = ramp(0.9, -0.1, clock.backward)
     s.bitmap.forEach((on, i) => {
