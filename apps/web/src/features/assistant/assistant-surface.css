@@ -449,12 +449,10 @@ the Free Software Foundation, either version 3 of the License, or
 @keyframes assistant-cloud-breathe {
   0%,
   100% {
-    transform: scale(0.985);
     opacity: 0.84;
   }
 
   50% {
-    transform: scale(1.018);
     opacity: 1;
   }
 }
