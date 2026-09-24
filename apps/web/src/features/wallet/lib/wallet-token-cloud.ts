@@ -49,7 +49,9 @@ function randomPunctuation(random: RandomSource) {
 
   // Wallet clouds are decorative code-like fragments. Never generate "$":
   // it can be mistaken for a fiat-currency label beside platform credits.
-  return String.fromCharCode(bucket === 0 && codePoint >= 36 ? codePoint + 1 : codePoint)
+  return String.fromCharCode(
+    bucket === 0 && codePoint >= 36 ? codePoint + 1 : codePoint
+  )
 }
 
 function randomSequence(
