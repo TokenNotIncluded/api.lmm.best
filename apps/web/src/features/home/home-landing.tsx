@@ -32,7 +32,7 @@ type HomeLandingProps = {
   pricingAction: ReactNode
   topUpAction?: ReactNode
   assistant: ReactNode
-  pi: ReactNode
+  oauthClients: ReactNode
   code: ReactNode
   explore: ReactNode
   scripts: ReactNode
@@ -141,7 +141,7 @@ export function HomeLanding({
   pricingAction,
   topUpAction,
   assistant,
-  pi,
+  oauthClients,
   code,
   explore,
   scripts,
@@ -188,18 +188,6 @@ export function HomeLanding({
               <summary aria-label={t('About this visualization')}>?</summary>
               <p>{t('Local word matching. No model requests.')}</p>
             </details>
-            <label className='lmm-token-control'>
-              <span>{t('Type a word. See what connects.')}</span>
-              <input
-                type='text'
-                defaultValue='api'
-                maxLength={20}
-                autoComplete='off'
-                spellCheck={false}
-                aria-label={t('Try a word')}
-                data-home-token-field
-              />
-            </label>
           </div>
           <span className='sr-only' id='lmm-gravity-instruction'>
             {t('Drag this title into the input, or press Enter.')}
@@ -400,7 +388,7 @@ export function HomeLanding({
             aria-pressed={connectionMethod === 'oauth'}
             onClick={() => onConnectionMethodChange('oauth')}
           >
-            {t('Pi / LMM OAuth')}
+            LMM OAuth
           </Button>
           <Button
             variant={connectionMethod === 'api-key' ? 'default' : 'outline'}
@@ -497,10 +485,8 @@ export function HomeLanding({
             </div>
           ) : (
             <div className='lmm-story-preview'>
-              <h3 className='mb-4 text-xl font-semibold'>
-                {t('Connect with Pi')}
-              </h3>
-              {pi}
+              <h3 className='mb-4 text-xl font-semibold'>LMM OAuth</h3>
+              {oauthClients}
             </div>
           )}
         </div>
