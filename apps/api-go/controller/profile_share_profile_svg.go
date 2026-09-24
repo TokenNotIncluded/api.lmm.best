@@ -1,14 +1,20 @@
 package controller
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"html"
+	"io"
 	"math"
+	"net/http"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/LIghtJUNction/api.lmm.best/model"
+	"github.com/LIghtJUNction/api.lmm.best/service"
 )
 
 type profileShareProfileLabels struct {
@@ -107,6 +113,57 @@ func profileShareProfileRole(role int, labels profileShareProfileLabels) string 
 	return labels.Member
 }
 
+const profileShareAvatarMaxBytes = 512 << 10
+
+func profileShareGravatarURL(email string) string {
+	normalized := strings.ToLower(strings.TrimSpace(email))
+	if normalized == "" {
+		return ""
+	}
+	hash := sha256.Sum256([]byte(normalized))
+	return fmt.Sprintf("https://gravatar.com/avatar/%x?d=404&r=g&s=256", hash)
+}
+
+func profileShareAvatarDataURI(ctx context.Context, rawURL string) string {
+	if rawURL == "" {
+		return ""
+	}
+	if err := service.ValidateSSRFProtectedFetchURL(rawURL); err != nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return ""
+	}
+	request.Header.Set("Accept", "image/png,image/jpeg,image/gif,image/webp;q=0.9,*/*;q=0.1")
+	response, err := service.GetSSRFProtectedHTTPClient().Do(request)
+	if err != nil {
+		return ""
+	}
+	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return ""
+	}
+
+	body, err := io.ReadAll(io.LimitReader(response.Body, profileShareAvatarMaxBytes+1))
+	if err != nil || len(body) == 0 || len(body) > profileShareAvatarMaxBytes {
+		return ""
+	}
+	contentType := strings.ToLower(strings.TrimSpace(strings.Split(response.Header.Get("Content-Type"), ";")[0]))
+	if contentType == "" || contentType == "application/octet-stream" {
+		contentType = http.DetectContentType(body)
+	}
+	switch contentType {
+	case "image/png", "image/jpeg", "image/gif", "image/webp":
+	default:
+		return ""
+	}
+	return "data:" + contentType + ";base64," + base64.StdEncoding.EncodeToString(body)
+}
+
 func profileShareProfileFontSize(value string) int {
 	length := utf8.RuneCountInString(value)
 	if length > 13 {
@@ -190,7 +247,12 @@ func renderProfileShareProfileSVG(
 	}
 	fmt.Fprintf(&svg, `<rect width="1200" height="865" rx="%d" fill="%s"/>`, options.Radius, options.Background)
 	fmt.Fprintf(&svg, `<g font-family="%s">`, fontFamily)
+	svg.WriteString(`<defs><clipPath id="profile-avatar-clip"><circle cx="600" cy="136" r="70"/></clipPath></defs>`)
 	fmt.Fprintf(&svg, `<circle cx="600" cy="136" r="70" fill="%s"/><text x="600" y="157" text-anchor="middle" font-size="64" font-weight="600" fill="%s">%s</text>`, options.Accent, options.Background, html.EscapeString(first))
+	if options.AvatarDataURI != "" {
+		fmt.Fprintf(&svg, `<image x="530" y="66" width="140" height="140" href="%s" preserveAspectRatio="xMidYMid slice" clip-path="url(#profile-avatar-clip)"/>`, html.EscapeString(options.AvatarDataURI))
+	}
+	fmt.Fprintf(&svg, `<circle cx="600" cy="136" r="70" fill="none" stroke="%s" stroke-width="2"/>`, options.Border)
 	fmt.Fprintf(&svg, `<text x="600" y="283" text-anchor="middle" font-size="%d" font-weight="500" fill="%s">%s</text>`, nameFontSize, options.Foreground, html.EscapeString(name))
 	fmt.Fprintf(&svg, `<text x="585" y="332" text-anchor="end" font-size="22" fill="%s">@%s</text>`, options.Muted, html.EscapeString(owner.Username))
 	fmt.Fprintf(&svg, `<rect x="604" y="307" width="190" height="36" rx="18" fill="none" stroke="%s"/><text x="699" y="331" text-anchor="middle" font-size="18" fill="%s">%s</text>`, options.Border, options.Muted, html.EscapeString(role))
