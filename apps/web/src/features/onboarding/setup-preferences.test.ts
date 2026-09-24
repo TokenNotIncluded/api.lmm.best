@@ -46,6 +46,7 @@ test('setup preferences survive navigation without storing account or key data',
     for (const client of [
       'pi',
       'dsh',
+      'codewhale',
       'astrbot',
       'openai-sdk',
       'anthropic-sdk',
