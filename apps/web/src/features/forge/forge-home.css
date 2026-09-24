@@ -594,11 +594,7 @@ For commercial licensing, please contact support@quantumnous.com
   bottom: 0.3rem;
   width: 2.5rem;
   height: 1px;
-  background: color-mix(
-    in oklch,
-    var(--home-stage-forward) 48%,
-    transparent
-  );
+  background: color-mix(in oklch, var(--home-stage-forward) 48%, transparent);
   opacity: 0.22;
   transform: translateX(-50%) scaleX(0.72);
   transition:
