@@ -62,11 +62,10 @@ the Free Software Foundation, either version 3 of the License, or
   margin: auto auto 4px;
   color: var(--foreground);
   transform-origin: 50% 50%;
-  transition:
-    width 260ms cubic-bezier(.2,.7,.2,1),
-    height 260ms cubic-bezier(.2,.7,.2,1),
-    margin 260ms cubic-bezier(.2,.7,.2,1),
-    opacity 180ms ease-out;
+  /* Flight endpoints are measured from the live cloud bounds. Keep geometry
+   * stable within a frame so the first submitted tokens land in the cloud
+   * instead of chasing a resizing target. */
+  transition: opacity 180ms ease-out;
 }
 
 .assistant-token-cloud canvas,
