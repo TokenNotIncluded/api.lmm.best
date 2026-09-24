@@ -8,9 +8,10 @@ License, or (at your option) any later version.
 */
 import { Link } from '@tanstack/react-router'
 import { ChartNoAxesCombined, RefreshCw } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { CopyButton } from '@/components/copy-button'
 import { EmptyState } from '@/components/empty-state'
 import { ErrorState } from '@/components/error-state'
 import { Button } from '@/components/ui/button'
@@ -34,12 +35,23 @@ const RANGE_LABELS: Record<ModelUsageRangeKey, string> = {
 const SEGMENT_COLORS = ['series', 'good', 'warning', 'unknown', 'text']
 const MAX_RING_SEGMENTS = 7
 
+export interface ModelUsageCopySnapshot {
+  markdown: string
+  rangeKey: ModelUsageRangeKey
+}
+
 interface ModelUsageReportProps {
   accountCreatedTime?: number
+  onCopySnapshotChange?: (snapshot: ModelUsageCopySnapshot | null) => void
+}
+
+function escapeMarkdownCell(value: string): string {
+  return value.replaceAll('|', '\\|').replace(/[\r\n]+/g, ' ')
 }
 
 export function ModelUsageReport({
   accountCreatedTime,
+  onCopySnapshotChange,
 }: ModelUsageReportProps) {
   const { t, i18n } = useTranslation()
   const { resolvedTheme } = useTheme()
@@ -88,6 +100,52 @@ export function ModelUsageReport({
   const dateFormat = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' })
   const loading = query.isPending && !query.data
   const failed = !query.data && query.isError
+  const rangeLabel = `${dateFormat.format(new Date(query.range.start_timestamp * 1000))} – ${dateFormat.format(new Date(query.range.end_timestamp * 1000))}`
+  const copyMarkdown = useMemo(() => {
+    if (loading || failed || models.length === 0) return ''
+
+    const displayNumber = (value: number) =>
+      hideNumbers ? '••••' : formatNumber(value, locale)
+    const displayQuota = (value: number) =>
+      hideNumbers ? '••••' : String(formatLogQuota(value))
+    const rows = models.map(
+      (model) =>
+        `| ${escapeMarkdownCell(model.modelName === 'unknown' ? t('Unknown model') : model.modelName)} | ${displayNumber(model.tokens)} | ${displayNumber(model.requests)} | ${displayQuota(model.quota)} | ${formatShare(model.share)} |`
+    )
+
+    return [
+      `### ${t('Model by model')}`,
+      `_${rangeLabel}_`,
+      '',
+      `- **${t('Total tokens')}**: ${displayNumber(totals.tokens)}`,
+      `- **${t('Total requests')}**: ${displayNumber(totals.requests)}`,
+      `- **${t('Total Usage')}**: ${displayQuota(totals.quota)}`,
+      `- **${t('Models used')}**: ${formatNumber(totals.modelCount, locale)}`,
+      '',
+      `| ${t('Model')} | ${t('Tokens')} | ${t('Requests')} | ${t('Total Usage')} | ${t('Share')} |`,
+      '| --- | ---: | ---: | ---: | ---: |',
+      ...rows,
+    ].join('\n')
+  }, [
+    failed,
+    formatShare,
+    hideNumbers,
+    loading,
+    locale,
+    models,
+    rangeLabel,
+    t,
+    totals.modelCount,
+    totals.quota,
+    totals.requests,
+    totals.tokens,
+  ])
+
+  useEffect(() => {
+    onCopySnapshotChange?.(
+      copyMarkdown ? { markdown: copyMarkdown, rangeKey } : null
+    )
+  }, [copyMarkdown, onCopySnapshotChange, rangeKey])
 
   return (
     <section
@@ -104,30 +162,42 @@ export function ModelUsageReport({
             {t('Model by model')}
           </h2>
           <p className='text-muted-foreground mt-1 text-xs tabular-nums'>
-            {dateFormat.format(new Date(query.range.start_timestamp * 1000))} –{' '}
-            {dateFormat.format(new Date(query.range.end_timestamp * 1000))}
+            {rangeLabel}
           </p>
         </div>
-        <div
-          className='flex flex-wrap gap-1'
-          role='group'
-          aria-label={t('Time range')}
-        >
-          {RANGE_KEYS.map((key) => (
-            <Button
-              key={key}
+        <div className='flex flex-wrap items-center justify-end gap-2'>
+          <div
+            className='flex flex-wrap gap-1'
+            role='group'
+            aria-label={t('Time range')}
+          >
+            {RANGE_KEYS.map((key) => (
+              <Button
+                key={key}
+                size='sm'
+                className='min-h-11 sm:min-h-8'
+                variant={rangeKey === key ? 'secondary' : 'ghost'}
+                aria-pressed={rangeKey === key}
+                onClick={() => {
+                  setRangeKey(key)
+                  setActiveIndex(null)
+                }}
+              >
+                {t(RANGE_LABELS[key])}
+              </Button>
+            ))}
+          </div>
+          {copyMarkdown ? (
+            <CopyButton
+              value={copyMarkdown}
+              variant='outline'
               size='sm'
               className='min-h-11 sm:min-h-8'
-              variant={rangeKey === key ? 'secondary' : 'ghost'}
-              aria-pressed={rangeKey === key}
-              onClick={() => {
-                setRangeKey(key)
-                setActiveIndex(null)
-              }}
+              aria-label={`${t('Copy')} ${t('Statistics')}`}
             >
-              {t(RANGE_LABELS[key])}
-            </Button>
-          ))}
+              {t('Copy')} · {t('Statistics')}
+            </CopyButton>
+          ) : null}
         </div>
       </div>
       {loading ? (
