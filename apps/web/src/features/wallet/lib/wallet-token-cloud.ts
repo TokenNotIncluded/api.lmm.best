@@ -9,40 +9,162 @@ License, or (at your option) any later version.
 
 export const MAX_BALANCE_PARTICLES = 1_200
 export const MAX_PRESET_PARTICLES = 42
-export const TOKEN_GLYPHS = [
-  'token',
-  '{}',
-  '01',
-  '[]',
-  '</>',
-  '::',
-  '()',
-  'ctx',
-  '+',
-  '/',
-] as const
 
-/** Stable seeded scatter: a growing balance reveals tokens without reshuffling old ones. */
-export function createWalletTokenLayout(count = MAX_BALANCE_PARTICLES) {
-  let seed = 0x7150c10d
-  const random = () => {
-    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0
-    return seed / 4294967296
+type RandomSource = () => number
+
+export type WalletTokenPoint = {
+  x: number
+  y: number
+  depth: number
+  glyph: string
+}
+
+function createSeededRandom(seed: number): RandomSource {
+  let state = (Number.isFinite(seed) ? seed : 0) >>> 0
+  if (state === 0) state = 0x9e3779b9
+  return () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0
+    return state / 4294967296
   }
-  const centers = [
-    [-0.42, -0.05],
-    [0.02, 0.12],
-    [0.42, -0.1],
-  ] as const
-  return Array.from({ length: count }, () => {
-    const center = centers[Math.floor(random() * centers.length)]
-    const angle = random() * Math.PI * 2
-    const radius = Math.sqrt(random()) * (0.74 + random() * 0.26)
+}
+
+function randomInt(random: RandomSource, maxExclusive: number) {
+  return Math.floor(random() * maxExclusive)
+}
+
+function randomLetter(random: RandomSource) {
+  return String.fromCharCode(97 + randomInt(random, 26))
+}
+
+function randomDigit(random: RandomSource) {
+  return String.fromCharCode(48 + randomInt(random, 10))
+}
+
+function randomPunctuation(random: RandomSource) {
+  const bucket = randomInt(random, 4)
+  const start = bucket === 0 ? 33 : bucket === 1 ? 58 : bucket === 2 ? 91 : 123
+  const length = bucket === 0 ? 15 : bucket === 1 ? 7 : bucket === 2 ? 6 : 4
+  return String.fromCharCode(start + randomInt(random, length))
+}
+
+function randomSequence(
+  random: RandomSource,
+  length: number,
+  next: (random: RandomSource) => string
+) {
+  let value = ''
+  for (let index = 0; index < length; index += 1) value += next(random)
+  return value
+}
+
+/**
+ * Build short code-like fragments procedurally instead of selecting from a
+ * fixed vocabulary. This keeps each cloud visually distinct without shipping
+ * a repeated hard-coded token list.
+ */
+function createWalletTokenGlyph(random: RandomSource) {
+  const kind = randomInt(random, 6)
+  if (kind === 0) {
+    return randomSequence(random, 2 + randomInt(random, 4), randomLetter)
+  }
+  if (kind === 1) {
+    return `${randomLetter(random)}${randomSequence(
+      random,
+      1 + randomInt(random, 3),
+      randomDigit
+    )}`
+  }
+  if (kind === 2) {
+    return randomSequence(random, 1 + randomInt(random, 3), randomDigit)
+  }
+  if (kind === 3) {
+    return randomSequence(random, 1 + randomInt(random, 2), randomPunctuation)
+  }
+  if (kind === 4) {
+    return `${randomPunctuation(random)}${randomSequence(
+      random,
+      1 + randomInt(random, 3),
+      randomLetter
+    )}`
+  }
+  return `${randomSequence(
+    random,
+    1 + randomInt(random, 3),
+    randomLetter
+  )}${randomPunctuation(random)}`
+}
+
+/**
+ * A fresh seed per mounted cloud makes separate cards and page visits look
+ * different. Layout generation stays seeded so rerenders do not reshuffle.
+ */
+export function createWalletTokenSeed() {
+  const values = new Uint32Array(1)
+  const cryptoSource = globalThis.crypto
+  if (cryptoSource?.getRandomValues) {
+    cryptoSource.getRandomValues(values)
+    if (values[0] !== 0) return values[0]
+  }
+  const fallback =
+    ((Date.now() >>> 0) ^ Math.floor(Math.random() * 4294967296)) >>> 0
+  return fallback || 0x9e3779b9
+}
+
+/**
+ * Seeded procedural scatter. Lobe placement, glyphs and particle placement all
+ * come from the supplied seed, while a growing balance still reveals existing
+ * particles in the same order instead of scrambling the cloud.
+ */
+export function createWalletTokenLayout(
+  count = MAX_BALANCE_PARTICLES,
+  seed = createWalletTokenSeed()
+): WalletTokenPoint[] {
+  const random = createSeededRandom(seed)
+  const safeCount = Math.max(0, Math.floor(Number.isFinite(count) ? count : 0))
+  const lobeCount = 2 + randomInt(random, 4)
+  const phase = random() * Math.PI * 2
+  const centers = Array.from({ length: lobeCount }, (_, index) => {
+    const angle =
+      phase +
+      (index / lobeCount) * Math.PI * 2 +
+      (random() - 0.5) * (Math.PI / lobeCount)
+    const radius = 0.08 + random() * 0.28
     return {
-      x: Math.max(-1, Math.min(1, center[0] + Math.cos(angle) * radius * 0.52)),
-      y: Math.max(-1, Math.min(1, center[1] + Math.sin(angle) * radius * 0.75)),
-      depth: random(),
-      glyph: TOKEN_GLYPHS[Math.floor(random() * TOKEN_GLYPHS.length)],
+      x: Math.cos(angle) * radius,
+      y: Math.sin(angle) * radius * (0.45 + random() * 0.25),
+      spreadX: 0.34 + random() * 0.24,
+      spreadY: 0.42 + random() * 0.3,
+    }
+  })
+
+  return Array.from({ length: safeCount }, () => {
+    const center = centers[randomInt(random, centers.length)]
+    const angle = random() * Math.PI * 2
+    const radius = Math.sqrt(random())
+    const jitterX = (random() - 0.5) * 0.1
+    const jitterY = (random() - 0.5) * 0.12
+    const depth = Math.max(
+      0,
+      Math.min(1, 0.22 + (1 - radius * 0.58) * 0.72 + (random() - 0.5) * 0.24)
+    )
+
+    return {
+      x: Math.max(
+        -1,
+        Math.min(
+          1,
+          center.x + Math.cos(angle) * radius * center.spreadX + jitterX
+        )
+      ),
+      y: Math.max(
+        -1,
+        Math.min(
+          1,
+          center.y + Math.sin(angle) * radius * center.spreadY + jitterY
+        )
+      ),
+      depth,
+      glyph: createWalletTokenGlyph(random),
     }
   })
 }
