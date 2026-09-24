@@ -1,0 +1,92 @@
+name: Temporary i18n untranslated audit
+
+on:
+  push:
+    branches:
+      - fix/i18n-quality-20260924
+
+permissions:
+  contents: write
+
+jobs:
+  audit:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: fix/i18n-quality-20260924
+
+      - name: Generate untranslated detail report
+        shell: bash
+        run: |
+          mkdir -p .tmp
+          node <<'NODE'
+          const fs = require('node:fs')
+          const path = require('node:path')
+          const dir = path.resolve('apps/web/src/i18n/locales')
+          const locales = ['fr', 'ja', 'ru', 'vi']
+          const en = JSON.parse(fs.readFileSync(path.join(dir, 'en.json'), 'utf8')).translation
+
+          const brandAndLiteralKeys = new Set([
+            'AI Proxy','AIGC2D','Alipay','Anthropic','API URL','API2GPT',
+            'AccessKey / SecretAccessKey','AZURE_OPENAI_ENDPOINT *','Baidu V2',
+            'CC Switch','ChatGPT','ChatGPT Subscription (Codex)','Claude',
+            'Client ID','Client Secret','Cloudflare','Cohere','DeepSeek','Discord',
+            'DoubaoVideo','FastGPT','Gemini','Gemini Image 4K','GitHub','Jimeng',
+            'LingYiWanWu','LinuxDO','MjProxy','MjProxyPlus','MiniMax','Mistral',
+            'MokaAI','Moonshot','OAuth Client Secret','OhMyGPT','Ollama','OpenAI',
+            'OpenHuman','OpenAIMax','OpenRouter','Pancake','Passkey','Perplexity',
+            'Quota:','Replicate','SiliconFlow','SMS','Stripe','Submodel','SunoAPI',
+            'Telegram','Tencent','TTFT P50','TTFT P95','TTFT P99','Uptime Kuma',
+            'Uptime Kuma URL','Vertex AI','VolcEngine','Waffo Pancake Dashboard',
+            'Waffo Pancake MoR','WeChat','WeChat Pay','WhatsApp','Webhook URL',
+            'Webhook URL:','Well-Known URL','Worker URL','Xinference','Xunfei','Zhipu V4',
+            'edit_this','my-status','price_xxx','whsec_xxx'
+          ])
+
+          function isLiteral(s) {
+            return brandAndLiteralKeys.has(s) ||
+              /^https?:\/\//.test(s) ||
+              /^\/[\w/-]+/.test(s) ||
+              /^[\w.-]+@[\w.-]+$/.test(s) ||
+              /^smtp\./i.test(s) ||
+              /^socks5:/i.test(s) ||
+              s.startsWith('org-') ||
+              /^gpt-/i.test(s) ||
+              s.startsWith('checkout.') ||
+              s.startsWith('footer.') ||
+              /^[A-Z0-9_ *./:-]+$/.test(s) ||
+              s.startsWith('{') ||
+              s.startsWith('[') ||
+              s.includes('&#10;')
+          }
+
+          const report = {}
+          for (const locale of locales) {
+            const target = JSON.parse(fs.readFileSync(path.join(dir, `${locale}.json`), 'utf8')).translation
+            const matches = []
+            for (const [key, enValueRaw] of Object.entries(en)) {
+              const enValue = String(enValueRaw ?? '')
+              const value = String(target[key] ?? '')
+              if (value !== enValue) continue
+              const s = enValue.trim()
+              if (isLiteral(s) || s.length < 6 || !/[A-Za-z]{3,}/.test(s)) continue
+              if ((locale === 'fr' || locale === 'vi') && !/\b(the|and|or|to|with|please)\b/i.test(s)) continue
+              matches.push({ key, value })
+            }
+            report[locale] = matches
+          }
+
+          fs.writeFileSync('.tmp/untranslated-report.json', JSON.stringify(report, null, 2) + '\n')
+          NODE
+
+      - name: Commit report
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .tmp/untranslated-report.json
+          git commit -m "chore(i18n): generate untranslated audit report"
+          git push
