@@ -63,7 +63,9 @@ test('token glyphs are procedurally generated instead of a fixed vocabulary', ()
 
 test('wallet token glyphs never look like a dollar-denominated credit label', () => {
   for (let seed = 1; seed <= 64; seed += 1) {
-    const glyphs = createWalletTokenLayout(240, seed).map((token) => token.glyph)
+    const glyphs = createWalletTokenLayout(240, seed).map(
+      (token) => token.glyph
+    )
     assert.equal(glyphs.some((glyph) => glyph.includes('$')), false)
   }
 })
