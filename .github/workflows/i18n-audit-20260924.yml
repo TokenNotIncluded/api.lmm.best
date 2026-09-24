@@ -18,6 +18,42 @@ jobs:
         with:
           ref: fix/i18n-quality-20260924
 
+      - name: Apply remaining translations
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs')
+          const path = require('node:path')
+          const localeDir = path.resolve('apps/web/src/i18n/locales')
+          const corrections = JSON.parse(
+            fs.readFileSync('.tmp/i18n-round2-corrections.json', 'utf8')
+          )
+
+          for (const [locale, values] of Object.entries(corrections)) {
+            const file = path.join(localeDir, `${locale}.json`)
+            const doc = JSON.parse(fs.readFileSync(file, 'utf8'))
+            let changed = 0
+            for (const [key, value] of Object.entries(values)) {
+              if (!(key in doc.translation)) {
+                throw new Error(`${locale}: missing key ${JSON.stringify(key)}`)
+              }
+              if (doc.translation[key] !== value) {
+                doc.translation[key] = value
+                changed++
+              }
+            }
+            doc.translation = Object.fromEntries(
+              Object.entries(doc.translation).sort(([a], [b]) => a.localeCompare(b))
+            )
+            fs.writeFileSync(file, JSON.stringify(doc, null, 2) + '\n')
+            console.log(`${locale}: ${changed} remaining translations applied`)
+          }
+          NODE
+
+      - name: Normalize locale files
+        working-directory: apps/web
+        run: node scripts/sync-i18n.mjs
+
       - name: Generate untranslated detail report
         shell: bash
         run: |
@@ -87,6 +123,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .tmp/untranslated-report.json
-          git commit -m "chore(i18n): generate untranslated audit report"
+          git add apps/web/src/i18n/locales .tmp/untranslated-report.json
+          git commit -m "fix(i18n): translate remaining non-English UI copy"
           git push
