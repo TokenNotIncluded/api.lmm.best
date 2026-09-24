@@ -56,6 +56,13 @@ test('setup preferences survive navigation without storing account or key data',
     }
     stored = '{broken'
     assert.equal(readSetupPreferences(), null)
+    saveSetupPreferences({ platform: 'android', client: 'codewhale' })
+    assert.deepEqual(readSetupPreferences(), {
+      platform: 'android',
+      client: 'codewhale',
+    })
+    stored = JSON.stringify({ platform: 'ios', client: 'codewhale' })
+    assert.equal(readSetupPreferences(), null)
     stored = JSON.stringify({ platform: 'ios', client: 'claude-code' })
     assert.equal(readSetupPreferences(), null)
   } finally {
