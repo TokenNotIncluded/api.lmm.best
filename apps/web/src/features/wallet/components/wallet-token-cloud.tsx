@@ -19,7 +19,6 @@ import {
 
 import './wallet-token-cloud.css'
 
-
 export type WalletCloudSuccess = {
   orderId: number
   beforeCredits: number
@@ -35,9 +34,9 @@ function tokenPoint(
   const point = tokens[index]
   const mini = variant === 'preset'
   const extent = walletCloudExtent(amount, variant)
-  // Longer glyphs (e.g. "token") are scaled down a touch so they occupy
+  // Longer generated fragments are scaled down a touch so they occupy
   // roughly the same visual weight as short symbol glyphs, keeping the
-  // cloud's rhythm even instead of a few wide words dominating it.
+  // cloud's rhythm even instead of a few wide fragments dominating it.
   const glyphTrim = point.glyph.length > 2 ? 0.82 : 1
   return {
     x: (mini ? 45 : 210) + point.x * (mini ? 35 : 170) * extent,
