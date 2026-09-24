@@ -399,7 +399,7 @@ function AssistantFlowResponse(props: {
   const prefix = props.entry.content.slice(0, tail[0]?.index ?? 0)
 
   useLayoutEffect(() => {
-    if (formatted || !props.entry.streaming || !answerRef.current) return
+    if (formatted || !answerRef.current) return
     props.flow.current?.receive(answerRef.current, true)
   }, [formatted, props.entry.content, props.entry.streaming, props.flow])
 
@@ -1743,6 +1743,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
               window.cancelAnimationFrame(streamFrame)
               streamFrame = null
             }
+            assistantTextFlowRef.current?.clearResponses()
             streamedContent = ''
             renderStreamedContent()
           },
@@ -1987,6 +1988,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
           tool: 'handoff',
         }
       }
+      assistantTextFlowRef.current?.clearResponses()
       const errorEntry: ConversationEntry = {
         id: nanoid(),
         role: 'assistant',
@@ -2089,6 +2091,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
             ? `[Human technical support] ${entry.content}`
             : entry.content,
       }))
+    assistantTextFlowRef.current?.clear()
     setEntries((current) => [
       ...current.map((entry) =>
         entry.retry ? { ...entry, retry: undefined } : entry
