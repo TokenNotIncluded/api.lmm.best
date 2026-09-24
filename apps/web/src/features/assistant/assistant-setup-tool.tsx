@@ -251,18 +251,18 @@ export function AssistantSetupTool(props: {
             'pi',
             'dsh',
             'codewhale',
-        'claude-code',
-        'codex',
-        'cc-switch',
-        'astrbot',
-        'openai-sdk',
-        'anthropic-sdk',
-        'cherry-studio',
-        'chatbox',
-        'claude-desktop',
-        'chatgpt',
-        'openai-compatible',
-      ]
+            'claude-code',
+            'codex',
+            'cc-switch',
+            'astrbot',
+            'openai-sdk',
+            'anthropic-sdk',
+            'cherry-studio',
+            'chatbox',
+            'claude-desktop',
+            'chatgpt',
+            'openai-compatible',
+          ]
   const ccSwitchInstall = getCCSwitchInstallGuide(desktopPlatform)
 
   const connectionValues = (root = false) =>
