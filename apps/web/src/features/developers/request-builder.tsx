@@ -258,13 +258,9 @@ export function RequestBuilder() {
         </pre>
       </div>
       <p className='text-muted-foreground text-xs leading-relaxed'>
-        {pricingQuery.isError
-          ? t(
-              'Your prompt is never sent. The live model catalog is unavailable, so fallback models are shown.'
-            )
-          : t(
-              'Your prompt is never sent. Model choices come from the live public catalog.'
-            )}
+        {t(
+          'Nothing is sent. Copy the request into your own client and use your own key.'
+        )}
       </p>
     </div>
   )
