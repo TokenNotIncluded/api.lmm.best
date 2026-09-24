@@ -287,7 +287,7 @@ export function ApiKeysMutateDrawer({
   const formTarget =
     isUpdate && currentRow ? `update:${currentRow.id}` : 'create'
   const isFormInitialized = initializedTarget === formTarget
-  const selectedGroup = form.watch('group')
+  const selectedGroup = form.watch('group')?.trim() || ''
   const selectedGroupWarning = groups.find(
     (item) =>
       item.value.toLowerCase() === (selectedGroup || '').trim().toLowerCase()
@@ -304,18 +304,19 @@ export function ApiKeysMutateDrawer({
     if (groups.length === 0) return
     const currentGroup = selectedGroup
     if (currentGroup && !groups.some((g) => g.value === currentGroup)) {
-      const fallback =
-        groups.find((g) => g.value === 'default')?.value ??
-        groups[0]?.value ??
-        ''
-      form.setValue('group', fallback)
+      const fallback = isUpdate
+        ? (groups.find((g) => g.value === 'default')?.value ??
+          groups[0]?.value ??
+          '')
+        : ''
+      form.setValue('group', fallback, { shouldValidate: true })
       if (currentGroup === 'auto') {
         form.setValue('auto_groups', [])
         form.setValue('auto_groups_mode', 'inherit')
         form.setValue('cross_group_retry', false)
       }
     }
-  }, [groups, form, selectedGroup])
+  }, [groups, form, isUpdate, selectedGroup])
 
   useEffect(() => {
     setWarningConfirmations(0)
@@ -419,7 +420,11 @@ export function ApiKeysMutateDrawer({
     await saveApiKey(data, warningConfirmations)
   }
 
-  const onInvalid: SubmitErrorHandler<ApiKeyFormValues> = () => {
+  const onInvalid: SubmitErrorHandler<ApiKeyFormValues> = (errors) => {
+    if (errors.group) {
+      toast.error(t('Select a group'))
+      return
+    }
     toast.error(t('Please fix the highlighted fields before saving'))
   }
 
@@ -538,11 +543,33 @@ export function ApiKeysMutateDrawer({
                 )}
               />
 
-              <details className='space-y-3' open={isUpdate}>
-                <summary className='cursor-pointer text-sm font-medium'>
-                  {t('Group')}: {selectedGroup || t('Select a group')}
-                </summary>
-                <div className='space-y-4 pt-2'>
+              <div
+                className={cn(
+                  'space-y-4 rounded-xl border p-4',
+                  !isUpdate && !selectedGroup
+                    ? 'border-destructive/70 bg-destructive/10 ring-destructive/15 ring-4'
+                    : 'border-border/70 bg-muted/20'
+                )}
+              >
+                <div
+                  className={cn(
+                    'flex items-center justify-between gap-3 text-sm font-medium',
+                    !isUpdate && !selectedGroup && 'text-destructive font-semibold'
+                  )}
+                >
+                  <span>{t('Group')}</span>
+                  <span>{selectedGroup || t('Select a group')}</span>
+                </div>
+                {!isUpdate && !selectedGroup && (
+                  <p
+                    role='alert'
+                    aria-live='assertive'
+                    className='text-destructive text-base font-semibold'
+                  >
+                    {t('Select a group')}
+                  </p>
+                )}
+                <div className='space-y-4'>
                   <FormField
                     control={form.control}
                     name='group'
@@ -678,7 +705,7 @@ export function ApiKeysMutateDrawer({
                     />
                   )}
                 </div>
-              </details>
+              </div>
 
               <FormField
                 control={form.control}
@@ -929,10 +956,21 @@ export function ApiKeysMutateDrawer({
           <Button
             type='button'
             onClick={form.handleSubmit(onSubmit, onInvalid)}
-            disabled={!isFormInitialized || isSubmitting || creationUncertain}
+            disabled={
+              !isFormInitialized ||
+              isSubmitting ||
+              creationUncertain ||
+              (!isUpdate && !selectedGroup)
+            }
             className='w-full sm:w-auto'
           >
-            {isSubmitting ? t('Saving...') : t('Save changes')}
+            {isSubmitting
+              ? t('Saving...')
+              : !isUpdate && !selectedGroup
+                ? t('Select a group')
+                : isUpdate
+                  ? t('Save changes')
+                  : t('Create API Key')}
           </Button>
         </SheetFooter>
         <AlertDialog
