@@ -25,6 +25,7 @@ import {
   CODEWHALE_CLONE_COMMAND,
   CODEWHALE_LOGIN_COMMAND,
   CODEWHALE_MODELS_COMMAND,
+  CODEWHALE_NPM_INSTALL_COMMAND,
   CODEWHALE_RUN_COMMAND,
   CODEWHALE_UNIX_INSTALL_COMMAND,
 } from './provider-install-commands'
@@ -36,8 +37,10 @@ const CODEWHALE_PROVIDER =
   'https://github.com/TokenNotIncluded/codewhale-lmm-provider'
 
 export function CodewhaleOAuthGuide({
+  android = false,
   windows = false,
 }: {
+  android?: boolean
   windows?: boolean
 }) {
   const { t } = useTranslation()
@@ -63,7 +66,19 @@ export function CodewhaleOAuthGuide({
 
       <div className='space-y-2'>
         <h3 className='text-sm font-semibold'>{t('1. Install Codewhale')}</h3>
-        {windows ? (
+        {android ? (
+          <>
+            <InstallCommand
+              value={CODEWHALE_NPM_INSTALL_COMMAND}
+              copyLabel={t('Copy Codewhale install command')}
+            />
+            <p className='text-muted-foreground text-sm leading-6'>
+              {t(
+                'On Android / Termux, Codewhale support is preview. Use the Android arm64 package path; do not install the Linux arm64 archive.'
+              )}
+            </p>
+          </>
+        ) : windows ? (
           <p className='text-muted-foreground text-sm leading-6'>
             {t(
               'On Windows, install Codewhale from the official GitHub Releases page, then confirm that codewhale runs in your terminal.'
