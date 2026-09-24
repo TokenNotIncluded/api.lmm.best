@@ -37,7 +37,11 @@ import {
   localizeAssistantPreConversationPresets,
 } from '@/features/assistant/assistant-prompt-presets'
 import { getAssistantPromptValidation } from '@/features/assistant/assistant-prompt-validation'
-import { PI_INSTALL_LATEST_COMMAND } from '@/features/guide/provider-install-commands'
+import {
+  CODEWHALE_INSTALL_COMMAND,
+  DSH_WEB_INSTALL_LATEST_COMMAND,
+  PI_INSTALL_LATEST_COMMAND,
+} from '@/features/guide/provider-install-commands'
 import { codeForTab, type CodeTab } from '@/features/home/home-code-examples'
 import { CodePreview } from '@/features/home/home-code-preview'
 import { HomeLanding } from '@/features/home/home-landing'
@@ -161,6 +165,8 @@ export function ForgeHome() {
   const [codeTab, setCodeTab] = useState<CodeTab>('Chat')
   const [activeExplore, setActiveExplore] = useState('market')
   const piCopy = useCopyFeedback()
+  const dshCopy = useCopyFeedback()
+  const codewhaleCopy = useCopyFeedback()
   const codeCopy = useCopyFeedback()
   const assistantEnabled = status?.assistant?.enabled !== false
   const messageInvalid = getAssistantPromptValidation(message).invalid
@@ -353,36 +359,106 @@ export function ForgeHome() {
             )}
           </form>
         }
-        pi={
-          <>
-            <p className='lmm-pi-description'>
-              {t(
-                'Install the plugin, sign in, pick a model. No API key to paste.'
-              )}
-            </p>
-            <div className='lmm-pi-command'>
-              <code>{PI_INSTALL_LATEST_COMMAND}</code>
-              <Button
-                type='button'
-                variant='outline'
-                size='sm'
-                onClick={() => void piCopy.copy(PI_INSTALL_LATEST_COMMAND)}
-                aria-label={t('Copy Pi install command')}
+        oauthClients={
+          <div className='lmm-provider-list'>
+            <section className='lmm-provider-item'>
+              <div className='lmm-provider-heading'>
+                <strong>Pi</strong>
+                <span>OAuth 2.0 / PKCE</span>
+              </div>
+              <p className='lmm-pi-description'>
+                {t(
+                  'Install the plugin, sign in, pick a model. No API key to paste.'
+                )}
+              </p>
+              <div className='lmm-pi-command'>
+                <code>{PI_INSTALL_LATEST_COMMAND}</code>
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='sm'
+                  onClick={() => void piCopy.copy(PI_INSTALL_LATEST_COMMAND)}
+                  aria-label={t('Copy Pi install command')}
+                >
+                  <span aria-live='polite'>
+                    {piCopy.copied ? t('Copied') : t('Copy')}
+                  </span>
+                </Button>
+              </div>
+              <a href='/guide#client-setup' className='lmm-text-link'>
+                {t('Read the Pi OAuth setup steps')}
+                <ArrowRight aria-hidden='true' />
+              </a>
+            </section>
+
+            <section className='lmm-provider-item'>
+              <div className='lmm-provider-heading'>
+                <strong>DSH</strong>
+                <span>OAuth 2.0 / PKCE</span>
+              </div>
+              <p className='lmm-pi-description'>{t('Install DSH plugin')}</p>
+              <div className='lmm-pi-command'>
+                <code>{DSH_WEB_INSTALL_LATEST_COMMAND}</code>
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='sm'
+                  onClick={() =>
+                    void dshCopy.copy(DSH_WEB_INSTALL_LATEST_COMMAND)
+                  }
+                  aria-label={`${t('Copy')} DSH`}
+                >
+                  <span aria-live='polite'>
+                    {dshCopy.copied ? t('Copied') : t('Copy')}
+                  </span>
+                </Button>
+              </div>
+              <a href='/guide#client-setup' className='lmm-text-link'>
+                {t('Open guide')}
+                <ArrowRight aria-hidden='true' />
+              </a>
+            </section>
+
+            <section className='lmm-provider-item'>
+              <div className='lmm-provider-heading'>
+                <strong>Codewhale</strong>
+                <span>OAuth companion</span>
+              </div>
+              <p className='lmm-pi-description'>
+                {t('Client install required')} · OAuth
+              </p>
+              <div className='lmm-pi-command'>
+                <code>{CODEWHALE_INSTALL_COMMAND}</code>
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='sm'
+                  onClick={() =>
+                    void codewhaleCopy.copy(CODEWHALE_INSTALL_COMMAND)
+                  }
+                  aria-label={`${t('Copy')} Codewhale`}
+                >
+                  <span aria-live='polite'>
+                    {codewhaleCopy.copied ? t('Copied') : t('Copy')}
+                  </span>
+                </Button>
+              </div>
+              <a
+                href='https://github.com/TokenNotIncluded/codewhale-lmm-provider'
+                target='_blank'
+                rel='noreferrer'
+                className='lmm-text-link'
               >
-                <span aria-live='polite'>
-                  {piCopy.copied ? t('Copied') : t('Copy')}
-                </span>
-              </Button>
-            </div>
-            <a href='/guide#client-setup' className='lmm-text-link'>
-              {t('Read the Pi OAuth setup steps')}
-              <ArrowRight aria-hidden='true' />
-            </a>
+                Codewhale
+                <ArrowRight aria-hidden='true' />
+              </a>
+            </section>
+
             <p className='lmm-webmcp-note'>
               <strong>{t('WebMCP tools for compatible browsers')}</strong>{' '}
               {t('Let your browser agent read prices and open pages.')}
             </p>
-          </>
+          </div>
         }
         explore={
           <div className='lmm-explore-console'>
