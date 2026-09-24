@@ -6,18 +6,19 @@ it under the terms of the GNU Affero General Public License as
 published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 
 import {
   MAX_BALANCE_PARTICLES,
+  MAX_PRESET_PARTICLES,
   createWalletTokenLayout,
+  createWalletTokenSeed,
   walletCloudExtent,
   walletCloudParticleCount,
 } from '../lib/wallet-token-cloud'
 
 import './wallet-token-cloud.css'
 
-const TOKENS = createWalletTokenLayout()
 
 export type WalletCloudSuccess = {
   orderId: number
@@ -26,11 +27,12 @@ export type WalletCloudSuccess = {
 }
 
 function tokenPoint(
+  tokens: ReturnType<typeof createWalletTokenLayout>,
   index: number,
   variant: 'balance' | 'preset',
   amount: number
 ) {
-  const point = TOKENS[index]
+  const point = tokens[index]
   const mini = variant === 'preset'
   const extent = walletCloudExtent(amount, variant)
   // Longer glyphs (e.g. "token") are scaled down a touch so they occupy
@@ -60,6 +62,15 @@ export function WalletTokenCloud({
   const [compact, setCompact] = useState(false)
   const [activeSuccess, setActiveSuccess] = useState<WalletCloudSuccess | null>(
     null
+  )
+  const [layoutSeed] = useState(createWalletTokenSeed)
+  const tokens = useMemo(
+    () =>
+      createWalletTokenLayout(
+        variant === 'preset' ? MAX_PRESET_PARTICLES : MAX_BALANCE_PARTICLES,
+        layoutSeed
+      ),
+    [layoutSeed, variant]
   )
 
   useEffect(() => {
@@ -125,7 +136,7 @@ export function WalletTokenCloud({
       frame = null
       let moving = false
       for (const [index, node] of nodes.entries()) {
-        const point = tokenPoint(index, variant, after)
+        const point = tokenPoint(tokens, index, variant, after)
         const offset = offsets[index]
         const dx = point.x - pointer.x
         const dy = point.y - pointer.y
@@ -192,7 +203,7 @@ export function WalletTokenCloud({
       target.removeEventListener('pointerleave', leave)
       target.removeEventListener('pointercancel', leave)
     }
-  }, [after, baseCount, mini, variant])
+  }, [after, baseCount, mini, tokens, variant])
 
   return (
     <div
@@ -207,8 +218,8 @@ export function WalletTokenCloud({
         viewBox={mini ? '0 0 90 50' : '0 0 420 160'}
         preserveAspectRatio='none'
       >
-        {TOKENS.slice(0, baseCount).map((_, index) => {
-          const point = tokenPoint(index, variant, after)
+        {tokens.slice(0, baseCount).map((_, index) => {
+          const point = tokenPoint(tokens, index, variant, after)
           return (
             <text
               key={`base-${index}`}
@@ -225,8 +236,8 @@ export function WalletTokenCloud({
           )
         })}
         {activeSuccess &&
-          TOKENS.slice(baseCount, totalCount).map((_, offset) => {
-            const point = tokenPoint(baseCount + offset, variant, after)
+          tokens.slice(baseCount, totalCount).map((_, offset) => {
+            const point = tokenPoint(tokens, baseCount + offset, variant, after)
             return (
               <text
                 key={`added-${activeSuccess.orderId}-${offset}`}
@@ -245,7 +256,8 @@ export function WalletTokenCloud({
         {activeSuccess &&
           Array.from({ length: burstCount }, (_, offset) => {
             const point = tokenPoint(
-              Math.min(MAX_BALANCE_PARTICLES - 1, baseCount + offset),
+              tokens,
+              Math.min(tokens.length - 1, baseCount + offset),
               variant,
               after
             )
