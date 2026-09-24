@@ -430,6 +430,11 @@ test('mobile walkthrough exposes official Chatbox steps and keeps desktop comman
   assert.match(container.textContent ?? '', /codewhale-lmm login/)
   assert.throws(() => findButton('Create API key'))
   await act(async () => {
+    findButton('Walk me through this').click()
+  })
+  assert.match(question, /codewhale-lmm companion adapter/)
+  assert.match(question, /codewhale-lmm run/)
+  await act(async () => {
     findButton('iOS / iPadOS').click()
     await flushEffects()
   })
