@@ -43,8 +43,15 @@ function randomDigit(random: RandomSource) {
 function randomPunctuation(random: RandomSource) {
   const bucket = randomInt(random, 4)
   const start = bucket === 0 ? 33 : bucket === 1 ? 58 : bucket === 2 ? 91 : 123
-  const length = bucket === 0 ? 15 : bucket === 1 ? 7 : bucket === 2 ? 6 : 4
-  return String.fromCharCode(start + randomInt(random, length))
+  const length = bucket === 0 ? 14 : bucket === 1 ? 7 : bucket === 2 ? 6 : 4
+  const offset = randomInt(random, length)
+  const codePoint = start + offset
+
+  // Wallet clouds are decorative code-like fragments. Never generate "$":
+  // it can be mistaken for a fiat-currency label beside platform credits.
+  return String.fromCharCode(
+    bucket === 0 && codePoint >= 36 ? codePoint + 1 : codePoint
+  )
 }
 
 function randomSequence(
