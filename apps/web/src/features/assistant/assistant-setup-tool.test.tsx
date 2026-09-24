@@ -259,6 +259,28 @@ describe('AssistantSetupTool', () => {
       /dsh\.cmd plugin --profile web add "\$\(npm\.cmd view @tokennotincluded\/dsh-lmm-provider@latest dist\.tarball --prefer-online\)"/
     )
 
+    await act(async () => {
+      findButton('Codewhale (OAuth)').click()
+      await flushEffects()
+    })
+    assert.ok(container.querySelector('#codewhale-oauth'))
+    assert.match(
+      container.textContent ?? '',
+      /git clone https:\/\/github\.com\/TokenNotIncluded\/codewhale-lmm-provider\.git/
+    )
+    assert.match(container.textContent ?? '', /codewhale-lmm login/)
+    assert.match(container.textContent ?? '', /codewhale-lmm models/)
+    assert.match(
+      container.textContent ?? '',
+      /codewhale-lmm run --model '<FULL_MODEL_ID>'/
+    )
+    assert.match(
+      container.textContent ?? '',
+      /install Codewhale from the official GitHub Releases page/
+    )
+    assert.throws(() => findButton('Create API key'))
+    assert.equal(container.querySelector('select[aria-label="Model ID"]'), null)
+
     await act(async () => root.unmount())
   })
 
