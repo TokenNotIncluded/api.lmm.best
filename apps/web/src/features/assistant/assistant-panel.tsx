@@ -353,18 +353,23 @@ function AssistantUserFlowMessage(props: {
   animatedIds: Set<string>
 }) {
   const sourceRef = useRef<HTMLParagraphElement>(null)
-  const shouldAnimate =
-    props.entry.animateToCloud && !props.animatedIds.has(props.entry.id)
-  const tokens = shouldAnimate ? visualTokens(props.entry.content) : []
+  const hasFlowSource = props.entry.animateToCloud === true
+  const tokens = hasFlowSource ? visualTokens(props.entry.content) : []
 
   useLayoutEffect(() => {
     const source = sourceRef.current
-    if (!source || !shouldAnimate) return
+    if (
+      !source ||
+      !hasFlowSource ||
+      props.animatedIds.has(props.entry.id)
+    ) {
+      return
+    }
     props.animatedIds.add(props.entry.id)
     props.flow.current?.sentence(source)
-  }, [props.animatedIds, props.entry.id, props.flow, shouldAnimate])
+  }, [hasFlowSource, props.animatedIds, props.entry.id, props.flow])
 
-  if (!shouldAnimate) {
+  if (!hasFlowSource) {
     return (
       <p className='break-words whitespace-pre-wrap'>{props.entry.content}</p>
     )
