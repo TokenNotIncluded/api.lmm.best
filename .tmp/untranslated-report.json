@@ -1,154 +1,17 @@
 {
-  "fr": [
-    {
-      "key": "Agreements and privacy policy",
-      "value": "Agreements and privacy policy"
-    },
-    {
-      "key": "Anonymous metrics and review frequency",
-      "value": "Anonymous metrics and review frequency"
-    },
-    {
-      "key": "Create and copy link",
-      "value": "Create and copy link"
-    },
-    {
-      "key": "Describe the cover you want",
-      "value": "Describe the cover you want"
-    },
-    {
-      "key": "Distribute redemption and discount codes fairly through a shareable draw link.",
-      "value": "Distribute redemption and discount codes fairly through a shareable draw link."
-    },
-    {
-      "key": "Failed to create red packet",
-      "value": "Failed to create red packet"
-    },
-    {
-      "key": "Generate with AI",
-      "value": "Generate with AI"
-    },
-    {
-      "key": "Go to a settings section",
-      "value": "Go to a settings section"
-    },
-    {
-      "key": "Personality and instructions",
-      "value": "Personality and instructions"
-    },
-    {
-      "key": "Please choose an image file",
-      "value": "Please choose an image file"
-    },
-    {
-      "key": "Please enter a title",
-      "value": "Please enter a title"
-    },
-    {
-      "key": "Red packet created and share link copied",
-      "value": "Red packet created and share link copied"
-    },
-    {
-      "key": "Registration protection and L1 review",
-      "value": "Registration protection and L1 review"
-    },
-    {
-      "key": "Retention periods and cleanup",
-      "value": "Retention periods and cleanup"
-    },
-    {
-      "key": "Select at least one redemption or discount code",
-      "value": "Select at least one redemption or discount code"
-    },
-    {
-      "key": "The essentials visitors see",
-      "value": "The essentials visitors see"
-    },
-    {
-      "key": "Unable to load settings",
-      "value": "Unable to load settings"
-    },
-    {
-      "key": "Unable to read image",
-      "value": "Unable to read image"
-    }
-  ],
+  "fr": [],
   "ja": [
     {
       "key": "\"default\": \"us-central1\", \"claude-3-5-sonnet-20240620\": \"europe-west1\"",
       "value": "\"default\": \"us-central1\", \"claude-3-5-sonnet-20240620\": \"europe-west1\""
     },
     {
-      "key": "Agreements and privacy policy",
-      "value": "Agreements and privacy policy"
-    },
-    {
-      "key": "Anonymous metrics and review frequency",
-      "value": "Anonymous metrics and review frequency"
-    },
-    {
-      "key": "Brand preview",
-      "value": "Brand preview"
-    },
-    {
       "key": "claims",
       "value": "claims"
     },
     {
-      "key": "Cover generated",
-      "value": "Cover generated"
-    },
-    {
-      "key": "Cover image must be smaller than 3 MB",
-      "value": "Cover image must be smaller than 3 MB"
-    },
-    {
-      "key": "Create and copy link",
-      "value": "Create and copy link"
-    },
-    {
-      "key": "Create red packet",
-      "value": "Create red packet"
-    },
-    {
-      "key": "Describe the cover you want",
-      "value": "Describe the cover you want"
-    },
-    {
-      "key": "Distribute redemption and discount codes fairly through a shareable draw link.",
-      "value": "Distribute redemption and discount codes fairly through a shareable draw link."
-    },
-    {
-      "key": "Draw rule",
-      "value": "Draw rule"
-    },
-    {
       "key": "DSH Web CLI",
       "value": "DSH Web CLI"
-    },
-    {
-      "key": "Ends at",
-      "value": "Ends at"
-    },
-    {
-      "key": "English versions",
-      "value": "English versions"
-    },
-    {
-      "key": "Failed to create red packet",
-      "value": "Failed to create red packet"
-    },
-    {
-      "key": "Generate with AI",
-      "value": "Generate with AI"
-    },
-    {
-      "key": "Go to a settings section",
-      "value": "Go to a settings section"
-    },
-    {
-      "key": "Legal documents",
-      "value": "Legal documents"
     },
     {
       "key": "Linux / macOS",
@@ -159,112 +22,12 @@
       "value": "LMM API &lt;noreply@example.com&gt;"
     },
     {
-      "key": "No available codes",
-      "value": "No available codes"
-    },
-    {
-      "key": "No red packets yet.",
-      "value": "No red packets yet."
-    },
-    {
-      "key": "No settings found",
-      "value": "No settings found"
-    },
-    {
-      "key": "Page content",
-      "value": "Page content"
-    },
-    {
-      "key": "Per-user draws",
-      "value": "Per-user draws"
-    },
-    {
-      "key": "Personality and instructions",
-      "value": "Personality and instructions"
-    },
-    {
       "key": "Pi / LMM OAuth",
       "value": "Pi / LMM OAuth"
     },
     {
-      "key": "Please choose an image file",
-      "value": "Please choose an image file"
-    },
-    {
-      "key": "Please enter a title",
-      "value": "Please enter a title"
-    },
-    {
-      "key": "Questions shown before a conversation",
-      "value": "Questions shown before a conversation"
-    },
-    {
-      "key": "Red packet created and share link copied",
-      "value": "Red packet created and share link copied"
-    },
-    {
-      "key": "Red Packets",
-      "value": "Red Packets"
-    },
-    {
-      "key": "Registration protection and L1 review",
-      "value": "Registration protection and L1 review"
-    },
-    {
-      "key": "Retention periods and cleanup",
-      "value": "Retention periods and cleanup"
-    },
-    {
-      "key": "Rewards",
-      "value": "Rewards"
-    },
-    {
-      "key": "Search settings",
-      "value": "Search settings"
-    },
-    {
-      "key": "Select at least one redemption or discount code",
-      "value": "Select at least one redemption or discount code"
-    },
-    {
-      "key": "Sequence",
-      "value": "Sequence"
-    },
-    {
-      "key": "Starts at",
-      "value": "Starts at"
-    },
-    {
-      "key": "The essentials visitors see",
-      "value": "The essentials visitors see"
-    },
-    {
-      "key": "Translations",
-      "value": "Translations"
-    },
-    {
-      "key": "Unable to load settings",
-      "value": "Unable to load settings"
-    },
-    {
-      "key": "Unable to read image",
-      "value": "Unable to read image"
-    },
-    {
-      "key": "Upload image",
-      "value": "Upload image"
-    },
-    {
-      "key": "Weighted random",
-      "value": "Weighted random"
-    },
-    {
       "key": "Windows",
       "value": "Windows"
-    },
-    {
-      "key": "Your settings have not been changed. Try again.",
-      "value": "Your settings have not been changed. Try again."
     }
   ],
   "ru": [
@@ -273,76 +36,12 @@
       "value": "\"default\": \"us-central1\", \"claude-3-5-sonnet-20240620\": \"europe-west1\""
     },
     {
-      "key": "Agreements and privacy policy",
-      "value": "Agreements and privacy policy"
-    },
-    {
-      "key": "Anonymous metrics and review frequency",
-      "value": "Anonymous metrics and review frequency"
-    },
-    {
-      "key": "Brand preview",
-      "value": "Brand preview"
-    },
-    {
       "key": "claims",
       "value": "claims"
     },
     {
-      "key": "Cover generated",
-      "value": "Cover generated"
-    },
-    {
-      "key": "Cover image must be smaller than 3 MB",
-      "value": "Cover image must be smaller than 3 MB"
-    },
-    {
-      "key": "Create and copy link",
-      "value": "Create and copy link"
-    },
-    {
-      "key": "Create red packet",
-      "value": "Create red packet"
-    },
-    {
-      "key": "Describe the cover you want",
-      "value": "Describe the cover you want"
-    },
-    {
-      "key": "Distribute redemption and discount codes fairly through a shareable draw link.",
-      "value": "Distribute redemption and discount codes fairly through a shareable draw link."
-    },
-    {
-      "key": "Draw rule",
-      "value": "Draw rule"
-    },
-    {
       "key": "DSH Desktop (OAuth)",
       "value": "DSH Desktop (OAuth)"
-    },
-    {
-      "key": "Ends at",
-      "value": "Ends at"
-    },
-    {
-      "key": "English versions",
-      "value": "English versions"
-    },
-    {
-      "key": "Failed to create red packet",
-      "value": "Failed to create red packet"
-    },
-    {
-      "key": "Generate with AI",
-      "value": "Generate with AI"
-    },
-    {
-      "key": "Go to a settings section",
-      "value": "Go to a settings section"
-    },
-    {
-      "key": "Legal documents",
-      "value": "Legal documents"
     },
     {
       "key": "Linux / macOS",
@@ -353,186 +52,13 @@
       "value": "LMM API &lt;noreply@example.com&gt;"
     },
     {
-      "key": "No available codes",
-      "value": "No available codes"
-    },
-    {
-      "key": "No red packets yet.",
-      "value": "No red packets yet."
-    },
-    {
-      "key": "No settings found",
-      "value": "No settings found"
-    },
-    {
-      "key": "Page content",
-      "value": "Page content"
-    },
-    {
-      "key": "Per-user draws",
-      "value": "Per-user draws"
-    },
-    {
-      "key": "Personality and instructions",
-      "value": "Personality and instructions"
-    },
-    {
       "key": "Pi / LMM OAuth",
       "value": "Pi / LMM OAuth"
     },
     {
-      "key": "Please choose an image file",
-      "value": "Please choose an image file"
-    },
-    {
-      "key": "Please enter a title",
-      "value": "Please enter a title"
-    },
-    {
-      "key": "Questions shown before a conversation",
-      "value": "Questions shown before a conversation"
-    },
-    {
-      "key": "Red packet created and share link copied",
-      "value": "Red packet created and share link copied"
-    },
-    {
-      "key": "Red Packets",
-      "value": "Red Packets"
-    },
-    {
-      "key": "Registration protection and L1 review",
-      "value": "Registration protection and L1 review"
-    },
-    {
-      "key": "Retention periods and cleanup",
-      "value": "Retention periods and cleanup"
-    },
-    {
-      "key": "Rewards",
-      "value": "Rewards"
-    },
-    {
-      "key": "Search settings",
-      "value": "Search settings"
-    },
-    {
-      "key": "Select at least one redemption or discount code",
-      "value": "Select at least one redemption or discount code"
-    },
-    {
-      "key": "Sequence",
-      "value": "Sequence"
-    },
-    {
-      "key": "Starts at",
-      "value": "Starts at"
-    },
-    {
-      "key": "The essentials visitors see",
-      "value": "The essentials visitors see"
-    },
-    {
-      "key": "Translations",
-      "value": "Translations"
-    },
-    {
-      "key": "Unable to load settings",
-      "value": "Unable to load settings"
-    },
-    {
-      "key": "Unable to read image",
-      "value": "Unable to read image"
-    },
-    {
-      "key": "Upload image",
-      "value": "Upload image"
-    },
-    {
-      "key": "Weighted random",
-      "value": "Weighted random"
-    },
-    {
       "key": "Windows",
       "value": "Windows"
-    },
-    {
-      "key": "Your settings have not been changed. Try again.",
-      "value": "Your settings have not been changed. Try again."
     }
   ],
-  "vi": [
-    {
-      "key": "Agreements and privacy policy",
-      "value": "Agreements and privacy policy"
-    },
-    {
-      "key": "Anonymous metrics and review frequency",
-      "value": "Anonymous metrics and review frequency"
-    },
-    {
-      "key": "Create and copy link",
-      "value": "Create and copy link"
-    },
-    {
-      "key": "Describe the cover you want",
-      "value": "Describe the cover you want"
-    },
-    {
-      "key": "Distribute redemption and discount codes fairly through a shareable draw link.",
-      "value": "Distribute redemption and discount codes fairly through a shareable draw link."
-    },
-    {
-      "key": "Failed to create red packet",
-      "value": "Failed to create red packet"
-    },
-    {
-      "key": "Generate with AI",
-      "value": "Generate with AI"
-    },
-    {
-      "key": "Go to a settings section",
-      "value": "Go to a settings section"
-    },
-    {
-      "key": "Personality and instructions",
-      "value": "Personality and instructions"
-    },
-    {
-      "key": "Please choose an image file",
-      "value": "Please choose an image file"
-    },
-    {
-      "key": "Please enter a title",
-      "value": "Please enter a title"
-    },
-    {
-      "key": "Red packet created and share link copied",
-      "value": "Red packet created and share link copied"
-    },
-    {
-      "key": "Registration protection and L1 review",
-      "value": "Registration protection and L1 review"
-    },
-    {
-      "key": "Retention periods and cleanup",
-      "value": "Retention periods and cleanup"
-    },
-    {
-      "key": "Select at least one redemption or discount code",
-      "value": "Select at least one redemption or discount code"
-    },
-    {
-      "key": "The essentials visitors see",
-      "value": "The essentials visitors see"
-    },
-    {
-      "key": "Unable to load settings",
-      "value": "Unable to load settings"
-    },
-    {
-      "key": "Unable to read image",
-      "value": "Unable to read image"
-    }
-  ]
+  "vi": []
 }
