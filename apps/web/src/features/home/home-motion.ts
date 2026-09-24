@@ -326,7 +326,6 @@ export function mountHomeMotion(root: HTMLElement) {
       ...(inputZone ? [inputZone] : []),
       ...(toggle ? [toggle] : []),
       ...root.querySelectorAll<HTMLElement>('.lmm-simulation-info'),
-      ...root.querySelectorAll<HTMLElement>('.lmm-token-control'),
     ])
     if (story) {
       const rect = story.getBoundingClientRect()
