@@ -14,6 +14,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 
 import {
   createWalletTokenLayout,
+  createWalletTokenSeed,
   walletCloudExtent,
   walletCloudParticleCount,
 } from '../lib/wallet-token-cloud'
@@ -38,18 +39,45 @@ test('invalid balances cannot produce particles', () => {
   assert.equal(walletCloudParticleCount(-1, 'preset'), 0)
 })
 
-test('token placement is varied but stable across renders', () => {
-  const first = createWalletTokenLayout(80)
-  assert.deepEqual(first, createWalletTokenLayout(80))
+test('token placement is varied, seedable and stable within one cloud', () => {
+  const first = createWalletTokenLayout(80, 0x12345678)
+  const repeated = createWalletTokenLayout(80, 0x12345678)
+  const different = createWalletTokenLayout(80, 0x87654321)
+
+  assert.deepEqual(first, repeated)
+  assert.notDeepEqual(first, different)
   assert.ok(new Set(first.map((token) => `${token.x},${token.y}`)).size > 75)
-  assert.ok(new Set(first.map((token) => token.glyph)).size >= 6)
+  assert.ok(new Set(first.map((token) => token.glyph)).size >= 20)
+})
+
+test('token glyphs are procedurally generated instead of a fixed vocabulary', () => {
+  const tokens = createWalletTokenLayout(240, 0x51a7c10d)
+  const glyphs = tokens.map((token) => token.glyph)
+  const uniqueGlyphs = new Set(glyphs)
+
+  assert.ok(uniqueGlyphs.size >= 60)
+  assert.ok(glyphs.some((glyph) => /[a-z]/.test(glyph)))
+  assert.ok(glyphs.some((glyph) => /\d/.test(glyph)))
+  assert.ok(glyphs.some((glyph) => /[^a-z\d]/.test(glyph)))
+})
+
+test('runtime seeds are valid unsigned integers', () => {
+  const seed = createWalletTokenSeed()
+  assert.ok(Number.isInteger(seed))
+  assert.ok(seed > 0)
+  assert.ok(seed <= 0xffffffff)
 })
 
 test('the cloud is made of readable token glyphs rather than points', () => {
   const markup = renderToStaticMarkup(
     createElement(WalletTokenCloud, { amount: 100 })
   )
-  assert.match(markup, /<text[^>]*>token<\/text>/)
-  assert.match(markup, /<text[^>]*>\{\}<\/text>/)
+  const glyphs = Array.from(
+    markup.matchAll(/<text[^>]*>([^<]+)<\/text>/g),
+    (match) => match[1]
+  )
+
+  assert.ok(glyphs.length > 20)
+  assert.ok(new Set(glyphs).size >= 8)
   assert.doesNotMatch(markup, /<circle/)
 })
