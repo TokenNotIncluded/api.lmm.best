@@ -431,7 +431,6 @@ function AssistantFlowResponse(props: {
     <div
       ref={answerRef}
       className='assistant-flow-response max-w-full leading-7 break-words whitespace-pre-wrap'
-      aria-live='off'
     >
       {prefix}
       {tail.map((token) => (
