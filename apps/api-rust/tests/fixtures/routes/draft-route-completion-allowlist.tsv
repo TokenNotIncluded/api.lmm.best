@@ -202,6 +202,7 @@ POST	/api/user/developer-access/request	compatibility	apps/api-rust/src/routes/d
 POST	/api/user/discount-code/validate	compatibility	apps/api-rust/src/routes/discount_code.rs	application route intentionally outside the frozen legacy route inventory
 GET	/api/user/gift	compatibility	apps/api-rust/src/routes/gifts.rs	application route intentionally outside the frozen legacy route inventory
 POST	/api/user/gift/:id/claim	compatibility	apps/api-rust/src/routes/gifts.rs	application route intentionally outside the frozen legacy route inventory
+GET	/api/user/self/aff/rewards	compatibility	apps/api-rust/src/routes/checkin_affiliate.rs	authenticated referral reward ledger added after the frozen legacy route inventory
 GET	/api/user/self/onboarding/todo	compatibility	apps/api-rust/src/routes/unified_todo.rs	application route intentionally outside the frozen legacy route inventory
 PATCH	/api/user/self/onboarding/todo	compatibility	apps/api-rust/src/routes/unified_todo.rs	application route intentionally outside the frozen legacy route inventory
 POST	/api/user/violation-fee-appeals	compatibility	apps/api-rust/src/routes/security_admin.rs	application route intentionally outside the frozen legacy route inventory
