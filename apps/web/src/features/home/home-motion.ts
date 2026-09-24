@@ -391,7 +391,7 @@ export function mountHomeMotion(root: HTMLElement) {
     inner.style.setProperty('--pointer-y', `${cameraPointer.y * 12}px`)
     inner.style.setProperty('--rotate-x', `${-cameraPointer.y * 4}deg`)
     inner.style.setProperty('--rotate-y', `${cameraPointer.x * 6}deg`)
-    // Film is capped at 30fps; a hidden tab/offscreen scene owns no running loop.
+    // Film is capped at 24fps; a hidden tab/offscreen scene owns no running loop.
     if (
       draw &&
       (dirty || (animate && visible && now - lastTime >= 1000 / 24))
