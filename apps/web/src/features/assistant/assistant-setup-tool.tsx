@@ -39,6 +39,7 @@ import {
 } from '@/components/ui/card'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { CodewhaleOAuthGuide } from '@/features/guide/codewhale-oauth-guide'
 import { DshOAuthGuide } from '@/features/guide/dsh-oauth-guide'
 import { PiOAuthGuide } from '@/features/guide/pi-oauth-guide'
 import {
@@ -96,6 +97,7 @@ const PLATFORM_LABELS: Record<AssistantSetupPlatform, string> = {
 export type ClientTab =
   | 'pi'
   | 'dsh'
+  | 'codewhale'
   | 'astrbot'
   | 'openai-sdk'
   | 'anthropic-sdk'
@@ -222,10 +224,12 @@ export function AssistantSetupTool(props: {
     ? selectGuideModel(eligibleModels, selectedModel)
     : ''
   const modelValue = model || '<MODEL_ID>'
-  const oauthClient = clientTab === 'pi' || clientTab === 'dsh'
+  const oauthClient =
+    clientTab === 'pi' || clientTab === 'dsh' || clientTab === 'codewhale'
   const clientNames: Record<ClientTab, string> = {
     pi: 'Pi (OAuth)',
     dsh: t('DSH Desktop (OAuth)'),
+    codewhale: 'Codewhale (OAuth)',
     astrbot: 'AstrBot',
     'openai-sdk': 'OpenAI SDK',
     'anthropic-sdk': 'Anthropic SDK',
@@ -243,6 +247,7 @@ export function AssistantSetupTool(props: {
     : [
         'pi',
         'dsh',
+        'codewhale',
         'claude-code',
         'codex',
         'cc-switch',
@@ -544,6 +549,9 @@ export function AssistantSetupTool(props: {
               </TabsContent>
               <TabsContent value='dsh' className='mt-5'>
                 <DshOAuthGuide windows={platform === 'windows'} />
+              </TabsContent>
+              <TabsContent value='codewhale' className='mt-5'>
+                <CodewhaleOAuthGuide windows={platform === 'windows'} />
               </TabsContent>
               <TabsContent value='astrbot' className='mt-5 grid gap-5'>
                 <p className='text-sm leading-7'>
