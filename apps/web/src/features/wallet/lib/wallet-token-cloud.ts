@@ -51,6 +51,7 @@ function randomPunctuation(random: RandomSource) {
   }
   return value
 }
+
 function randomSequence(
   random: RandomSource,
   length: number,
