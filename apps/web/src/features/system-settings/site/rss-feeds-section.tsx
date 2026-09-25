@@ -48,7 +48,10 @@ function validateFeeds(feeds: RSSFeedConfig[]): Record<string, string> {
 export function RSSFeedsSection({ initialValue }: { initialValue: string }) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
-  const initialFeeds = useMemo(() => parseRSSFeeds(initialValue), [initialValue])
+  const initialFeeds = useMemo(
+    () => parseRSSFeeds(initialValue),
+    [initialValue]
+  )
   const [feeds, setFeeds] = useState<RSSFeedConfig[]>(initialFeeds ?? [])
   const [activeID, setActiveID] = useState<string | null>(null)
   const [errors, setErrors] = useState<Record<string, string>>({})
