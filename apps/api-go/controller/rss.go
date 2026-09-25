@@ -24,14 +24,14 @@ import (
 )
 
 const (
-	rssMaxFeedBytes      = 2 << 20
-	rssMaxItemsPerFeed   = 50
-	rssFetchConcurrency  = 6
-	rssFeedTimeout       = 6 * time.Second
-	rssOverallTimeout    = 10 * time.Second
-	rssSuccessCacheTTL   = 3 * time.Minute
-	rssFailureCacheTTL   = time.Minute
-	rssSummaryRuneLimit  = 600
+	rssMaxFeedBytes     = 2 << 20
+	rssMaxItemsPerFeed  = 50
+	rssFetchConcurrency = 6
+	rssFeedTimeout      = 6 * time.Second
+	rssOverallTimeout   = 10 * time.Second
+	rssSuccessCacheTTL  = 3 * time.Minute
+	rssFailureCacheTTL  = time.Minute
+	rssSummaryRuneLimit = 600
 )
 
 type rssItem struct {
