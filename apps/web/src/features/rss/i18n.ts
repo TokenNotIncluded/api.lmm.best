@@ -44,7 +44,8 @@ export const rssTranslations = {
     'Manage feeds': '管理订阅源',
     'Search articles': '搜索文章',
     'All feeds': '全部订阅',
-    '{{feeds}} feeds · {{articles}} articles': '{{feeds}} 个订阅 · {{articles}} 篇文章',
+    '{{feeds}} feeds · {{articles}} articles':
+      '{{feeds}} 个订阅 · {{articles}} 篇文章',
     'Loading articles...': '正在加载文章...',
     'Unable to load RSS feeds': '无法加载 RSS 订阅',
     'Try loading the feeds again.': '请重试加载订阅。',
@@ -76,7 +77,8 @@ export const rssTranslations = {
     'Manage feeds': '管理訂閱來源',
     'Search articles': '搜尋文章',
     'All feeds': '全部訂閱',
-    '{{feeds}} feeds · {{articles}} articles': '{{feeds}} 個訂閱 · {{articles}} 篇文章',
+    '{{feeds}} feeds · {{articles}} articles':
+      '{{feeds}} 個訂閱 · {{articles}} 篇文章',
     'Loading articles...': '正在載入文章...',
     'Unable to load RSS feeds': '無法載入 RSS 訂閱',
     'Try loading the feeds again.': '請重試載入訂閱。',
@@ -108,14 +110,18 @@ export const rssTranslations = {
     'Manage feeds': 'Gérer les flux',
     'Search articles': 'Rechercher des articles',
     'All feeds': 'Tous les flux',
-    '{{feeds}} feeds · {{articles}} articles': '{{feeds}} flux · {{articles}} articles',
+    '{{feeds}} feeds · {{articles}} articles':
+      '{{feeds}} flux · {{articles}} articles',
     'Loading articles...': 'Chargement des articles...',
     'Unable to load RSS feeds': 'Impossible de charger les flux RSS',
     'Try loading the feeds again.': 'Réessayez de charger les flux.',
-    'No RSS feeds are configured yet.': 'Aucun flux RSS n’est encore configuré.',
-    'No articles match your filters.': 'Aucun article ne correspond aux filtres.',
+    'No RSS feeds are configured yet.':
+      'Aucun flux RSS n’est encore configuré.',
+    'No articles match your filters.':
+      'Aucun article ne correspond aux filtres.',
     'Clear filters': 'Effacer les filtres',
-    'Some feeds could not be refreshed.': 'Certains flux n’ont pas pu être actualisés.',
+    'Some feeds could not be refreshed.':
+      'Certains flux n’ont pas pu être actualisés.',
     'Configure the RSS and Atom sources shown in the reader. Changes are shared with all users.':
       'Configurez les sources RSS et Atom du lecteur. Les modifications s’appliquent à tous les utilisateurs.',
     'Add feed': 'Ajouter un flux',
@@ -132,7 +138,8 @@ export const rssTranslations = {
       'Saisissez un nom de flux (80 caractères maximum).',
     'Enter a valid HTTP or HTTPS feed URL.':
       'Saisissez une URL de flux HTTP ou HTTPS valide.',
-    'This feed URL is already configured.': 'Cette URL de flux est déjà configurée.',
+    'This feed URL is already configured.':
+      'Cette URL de flux est déjà configurée.',
     'Check the highlighted feed.': 'Vérifiez le flux signalé.',
     'Move {{name}} up': 'Monter {{name}}',
     'Move {{name}} down': 'Descendre {{name}}',
@@ -142,7 +149,8 @@ export const rssTranslations = {
     'Manage feeds': 'フィードを管理',
     'Search articles': '記事を検索',
     'All feeds': 'すべてのフィード',
-    '{{feeds}} feeds · {{articles}} articles': '{{feeds}} フィード · {{articles}} 記事',
+    '{{feeds}} feeds · {{articles}} articles':
+      '{{feeds}} フィード · {{articles}} 記事',
     'Loading articles...': '記事を読み込み中...',
     'Unable to load RSS feeds': 'RSS フィードを読み込めません',
     'Try loading the feeds again.': 'フィードをもう一度読み込んでください。',
@@ -163,7 +171,8 @@ export const rssTranslations = {
     'Disabled feeds stay saved but are not fetched.':
       '無効にしたフィードは保存されますが、取得されません。',
     'Enter a feed name (up to 80 characters).': 'フィード名を入力してください（80文字以内）。',
-    'Enter a valid HTTP or HTTPS feed URL.': '有効な HTTP または HTTPS のフィード URL を入力してください。',
+    'Enter a valid HTTP or HTTPS feed URL.':
+      '有効な HTTP または HTTPS のフィード URL を入力してください。',
     'This feed URL is already configured.': 'このフィード URL はすでに設定されています。',
     'Check the highlighted feed.': '強調表示されたフィードを確認してください。',
     'Move {{name}} up': '{{name}} を上へ移動',
@@ -174,14 +183,16 @@ export const rssTranslations = {
     'Manage feeds': 'Управление лентами',
     'Search articles': 'Поиск статей',
     'All feeds': 'Все ленты',
-    '{{feeds}} feeds · {{articles}} articles': '{{feeds}} лент · {{articles}} статей',
+    '{{feeds}} feeds · {{articles}} articles':
+      '{{feeds}} лент · {{articles}} статей',
     'Loading articles...': 'Загрузка статей...',
     'Unable to load RSS feeds': 'Не удалось загрузить RSS-ленты',
     'Try loading the feeds again.': 'Попробуйте загрузить ленты снова.',
     'No RSS feeds are configured yet.': 'RSS-ленты пока не настроены.',
     'No articles match your filters.': 'Нет статей, соответствующих фильтрам.',
     'Clear filters': 'Сбросить фильтры',
-    'Some feeds could not be refreshed.': 'Некоторые ленты не удалось обновить.',
+    'Some feeds could not be refreshed.':
+      'Некоторые ленты не удалось обновить.',
     'Configure the RSS and Atom sources shown in the reader. Changes are shared with all users.':
       'Настройте источники RSS и Atom для страницы чтения. Изменения применяются ко всем пользователям.',
     'Add feed': 'Добавить ленту',
@@ -208,7 +219,8 @@ export const rssTranslations = {
     'Manage feeds': 'Quản lý nguồn tin',
     'Search articles': 'Tìm bài viết',
     'All feeds': 'Tất cả nguồn tin',
-    '{{feeds}} feeds · {{articles}} articles': '{{feeds}} nguồn · {{articles}} bài viết',
+    '{{feeds}} feeds · {{articles}} articles':
+      '{{feeds}} nguồn · {{articles}} bài viết',
     'Loading articles...': 'Đang tải bài viết...',
     'Unable to load RSS feeds': 'Không thể tải nguồn RSS',
     'Try loading the feeds again.': 'Hãy thử tải lại các nguồn tin.',
@@ -228,8 +240,10 @@ export const rssTranslations = {
     'Fetch this feed': 'Tải nguồn này',
     'Disabled feeds stay saved but are not fetched.':
       'Nguồn bị tắt vẫn được lưu nhưng sẽ không được tải.',
-    'Enter a feed name (up to 80 characters).': 'Nhập tên nguồn (tối đa 80 ký tự).',
-    'Enter a valid HTTP or HTTPS feed URL.': 'Nhập URL nguồn HTTP hoặc HTTPS hợp lệ.',
+    'Enter a feed name (up to 80 characters).':
+      'Nhập tên nguồn (tối đa 80 ký tự).',
+    'Enter a valid HTTP or HTTPS feed URL.':
+      'Nhập URL nguồn HTTP hoặc HTTPS hợp lệ.',
     'This feed URL is already configured.': 'URL nguồn này đã được cấu hình.',
     'Check the highlighted feed.': 'Kiểm tra nguồn được đánh dấu.',
     'Move {{name}} up': 'Di chuyển {{name}} lên',
