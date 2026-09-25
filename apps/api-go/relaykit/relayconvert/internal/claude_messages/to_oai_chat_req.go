@@ -249,12 +249,29 @@ func ClaudeMessagesRequestToOpenAIChat(claudeRequest dto.ClaudeRequest, info con
 					}
 					mediaMessages = append(mediaMessages, message)
 				case "image":
-					imageData := fmt.Sprintf("data:%s;base64,%s", mediaMsg.Source.MediaType, mediaMsg.Source.Data)
-					mediaMessage := dto.MediaContent{
-						Type:     "image_url",
-						ImageUrl: &dto.MessageImageUrl{Url: imageData},
+					if imageURL := claudeSourceURL(mediaMsg.Source); imageURL != "" {
+						mediaMessages = append(mediaMessages, dto.MediaContent{
+							Type:     dto.ContentTypeImageURL,
+							ImageUrl: &dto.MessageImageUrl{Url: imageURL},
+						})
 					}
-					mediaMessages = append(mediaMessages, mediaMessage)
+				case "document":
+					if mediaMsg.Source == nil {
+						continue
+					}
+					switch mediaMsg.Source.Type {
+					case "text":
+						if text := kitutil.Interface2String(mediaMsg.Source.Data); text != "" {
+							mediaMessages = append(mediaMessages, dto.MediaContent{Type: dto.ContentTypeText, Text: text})
+						}
+					case "base64":
+						if fileData := claudeSourceURL(mediaMsg.Source); fileData != "" {
+							mediaMessages = append(mediaMessages, dto.MediaContent{
+								Type: dto.ContentTypeFile,
+								File: &dto.MessageFile{FileData: fileData},
+							})
+						}
+					}
 				case "tool_use":
 					toolCall := dto.ToolCallRequest{
 						ID:   mediaMsg.Id,
