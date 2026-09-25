@@ -17,11 +17,11 @@ func TestValidateRSSFeeds(t *testing.T) {
 	require.NoError(t, ValidateRSSFeeds(""))
 
 	for name, value := range map[string]string{
-		"object":       `{"feeds":[]}`,
-		"null":         `null`,
-		"credentials":  `[{"id":"x","name":"X","url":"https://user:pass@example.com/feed","enabled":true}]`,
-		"scheme":       `[{"id":"x","name":"X","url":"file:///tmp/feed","enabled":true}]`,
-		"duplicate id": `[{"id":"x","name":"A","url":"https://a.example/feed","enabled":true},{"id":"x","name":"B","url":"https://b.example/feed","enabled":true}]`,
+		"object":        `{"feeds":[]}`,
+		"null":          `null`,
+		"credentials":   `[{"id":"x","name":"X","url":"https://user:pass@example.com/feed","enabled":true}]`,
+		"scheme":        `[{"id":"x","name":"X","url":"file:///tmp/feed","enabled":true}]`,
+		"duplicate id":  `[{"id":"x","name":"A","url":"https://a.example/feed","enabled":true},{"id":"x","name":"B","url":"https://b.example/feed","enabled":true}]`,
 		"duplicate url": `[{"id":"a","name":"A","url":"https://a.example/feed","enabled":true},{"id":"b","name":"B","url":"https://a.example/feed","enabled":true}]`,
 		"missing field": `[{"id":"x","name":"X","url":"https://example.com/feed"}]`,
 	} {
