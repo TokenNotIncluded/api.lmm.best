@@ -25,13 +25,19 @@
           /(?:^|;\s*)vite-ui-theme=(dark|light|system)(?:;|$)/
         )
         const savedTheme = match?.[1]
+        const systemTheme = window.matchMedia(
+          '(prefers-color-scheme: dark)'
+        ).matches
+          ? 'dark'
+          : 'light'
         const theme =
-          savedTheme === 'light' ||
-          (savedTheme === 'system' &&
-            !window.matchMedia('(prefers-color-scheme: dark)').matches)
-            ? 'light'
-            : 'dark'
+          savedTheme === 'dark' || savedTheme === 'light'
+            ? savedTheme
+            : savedTheme === 'system'
+              ? systemTheme
+              : 'light'
         document.documentElement.classList.add(theme)
+        document.documentElement.style.colorScheme = theme
         document
           .querySelector("meta[name='theme-color']")
           ?.setAttribute('content', theme === 'dark' ? '#020817' : '#fff')
