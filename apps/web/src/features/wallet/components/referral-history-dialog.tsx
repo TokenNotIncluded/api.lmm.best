@@ -34,11 +34,19 @@ type Entry = {
   reason: string
   created_at: number
 }
+type ReferralPolicy = {
+  reward_quota: number
+  min_top_up_quota: number
+  max_reward_quota: number
+  penalty_percent: number
+  max_penalty_quota: number
+}
 type History = {
   entries: Entry[]
   next_cursor: number
   debt_quota: number
   available_quota: number
+  policy?: ReferralPolicy
 }
 const kinds: Record<string, string> = {
   reward: 'First top-up reward',
@@ -124,6 +132,9 @@ export function ReferralHistoryDialog() {
       description={t(
         'Only the first real paid top-up earns a reward. Confirmed abuse or a full refund can revoke it. Future rewards repay any reward debt first; purchased balance is not deducted.'
       )}
+      contentClassName='sm:max-w-3xl'
+      bodyClassName='space-y-4'
+      footerClassName='border-border/60 border-t bg-muted/20'
       trigger={
         <Button variant='ghost' size='sm'>
           {t('Reward history')}
@@ -152,45 +163,114 @@ export function ReferralHistoryDialog() {
         </>
       }
     >
-      {!!history?.debt_quota && (
-        <p className='mb-4 text-sm'>
-          {t('Reward debt')}: {formatQuota(history.debt_quota)}
-        </p>
-      )}
-      {error && (
-        <p role='alert' className='text-destructive text-sm'>
-          {error}
-        </p>
-      )}
-      {history && history.entries.length === 0 && (
-        <p className='text-muted-foreground py-6 text-sm'>
-          {t('No referral reward entries yet')}
-        </p>
-      )}
-      <div className='divide-y'>
-        {history?.entries.map((entry) => (
-          <div
-            key={entry.id}
-            className='flex items-start justify-between gap-4 py-3 text-sm'
-          >
-            <div className='min-w-0'>
-              <p>{t(kinds[entry.kind] ?? entry.kind)}</p>
-              <p className='text-muted-foreground text-xs'>
-                {t(reasons[entry.reason] ?? entry.reason)} ·{' '}
-                {formatTimestamp(entry.created_at)} · #{entry.reward_id}
+      {history && (
+        <div
+          className={
+            history.policy
+              ? 'grid grid-cols-1 gap-2 sm:grid-cols-3'
+              : 'grid grid-cols-1 gap-2 sm:grid-cols-2'
+          }
+        >
+          <div className='border-border/70 bg-muted/25 rounded-2xl border px-4 py-3'>
+            <p className='text-muted-foreground text-xs font-medium tracking-wide uppercase'>
+              {t('Available Rewards')}
+            </p>
+            <p className='mt-1 text-xl font-semibold tabular-nums'>
+              {formatQuota(history.available_quota)}
+            </p>
+          </div>
+          <div className='border-border/70 bg-muted/25 rounded-2xl border px-4 py-3'>
+            <p className='text-muted-foreground text-xs font-medium tracking-wide uppercase'>
+              {t('Reward debt')}
+            </p>
+            <p
+              className={
+                history.debt_quota > 0
+                  ? 'text-destructive mt-1 text-xl font-semibold tabular-nums'
+                  : 'mt-1 text-xl font-semibold tabular-nums'
+              }
+            >
+              {formatQuota(history.debt_quota)}
+            </p>
+          </div>
+          {history.policy && (
+            <div className='border-border/70 bg-muted/25 rounded-2xl border px-4 py-3'>
+              <p className='text-muted-foreground text-xs font-medium tracking-wide uppercase'>
+                {t('First top-up reward')}
+              </p>
+              <p className='mt-1 text-xl font-semibold tabular-nums'>
+                {formatQuota(history.policy.reward_quota)}
               </p>
             </div>
-            <span className='shrink-0 tabular-nums'>
-              {entry.quota > 0 ? '+' : ''}
-              {formatQuota(entry.quota)}
+          )}
+        </div>
+      )}
+
+      {error && (
+        <div
+          role='alert'
+          className='border-destructive/30 bg-destructive/5 text-destructive rounded-2xl border px-4 py-3 text-sm'
+        >
+          {error}
+        </div>
+      )}
+
+      {history && history.entries.length === 0 && (
+        <div className='border-border/70 bg-muted/15 rounded-3xl border border-dashed px-5 py-10 text-center'>
+          <p className='text-muted-foreground text-sm'>
+            {t('No referral reward entries yet')}
+          </p>
+        </div>
+      )}
+
+      {history && history.entries.length > 0 && (
+        <div className='space-y-2'>
+          {history.entries.map((entry) => (
+            <div
+              key={entry.id}
+              className='border-border/70 bg-background hover:bg-muted/20 flex items-start justify-between gap-4 rounded-2xl border px-4 py-3.5 text-sm transition-colors'
+            >
+              <div className='min-w-0'>
+                <div className='flex flex-wrap items-center gap-2'>
+                  <p className='font-medium'>
+                    {t(kinds[entry.kind] ?? entry.kind)}
+                  </p>
+                  <span className='border-border/70 bg-muted/40 text-muted-foreground rounded-full border px-2 py-0.5 text-[11px] tabular-nums'>
+                    #{entry.reward_id}
+                  </span>
+                </div>
+                <p className='text-muted-foreground mt-1 text-xs leading-5'>
+                  {t(reasons[entry.reason] ?? entry.reason)} ·{' '}
+                  {formatTimestamp(entry.created_at)}
+                </p>
+              </div>
+              <span
+                className={
+                  entry.quota < 0
+                    ? 'text-destructive shrink-0 font-medium tabular-nums'
+                    : 'shrink-0 font-medium tabular-nums'
+                }
+              >
+                {entry.quota > 0 ? '+' : ''}
+                {formatQuota(entry.quota)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {loading && (
+        <div
+          role='status'
+          className='border-border/60 bg-muted/15 rounded-2xl border px-4 py-3'
+        >
+          <div className='flex items-center gap-3'>
+            <span className='bg-foreground/45 size-1.5 animate-pulse rounded-full' />
+            <span className='text-muted-foreground text-sm'>
+              {t('Loading...')}
             </span>
           </div>
-        ))}
-      </div>
-      {loading && (
-        <p role='status' className='text-muted-foreground py-4 text-sm'>
-          {t('Loading...')}
-        </p>
+        </div>
       )}
     </Dialog>
   )
