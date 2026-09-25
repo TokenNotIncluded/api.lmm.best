@@ -73,10 +73,7 @@ export function RSSReader() {
   )
 
   useEffect(() => {
-    if (
-      feedFilter !== 'all' &&
-      !feeds.some((feed) => feed.id === feedFilter)
-    ) {
+    if (feedFilter !== 'all' && !feeds.some((feed) => feed.id === feedFilter)) {
       setFeedFilter('all')
     }
   }, [feedFilter, feeds])
