@@ -16,6 +16,7 @@ const (
 	SubscriptionBillingRecoveryPending      = "pending"
 	SubscriptionBillingRecoveryManual       = "manual"
 	SubscriptionBillingRecoveryMaxAttempts  = 8
+	SubscriptionBillingRecoveryWindow       = 7 * 24 * time.Hour
 	subscriptionBillingRecoveryRetrySeconds = 60
 )
 
@@ -26,8 +27,10 @@ func ListSubscriptionBillingRecoveryCandidates(ctx context.Context, limit int, r
 		return nil, nil
 	}
 	var records []SubscriptionPreConsumeRecord
-	cutoff := common.GetTimestamp() - int64(retryAfter.Seconds())
-	err := DB.WithContext(ctx).Where("billing_managed = ? AND status = ? AND COALESCE(recovery_state, '') <> ? AND request_id <> '' AND user_id > 0 AND actual_quota >= 0 AND recovery_attempts < ? AND (recovery_last_attempt_at = 0 OR recovery_last_attempt_at <= ?)", true, "settling", SubscriptionBillingRecoveryManual, SubscriptionBillingRecoveryMaxAttempts, cutoff).Order("updated_at asc, id asc").Limit(limit).Find(&records).Error
+	now := common.GetTimestamp()
+	cutoff := now - int64(retryAfter.Seconds())
+	windowStart := now - int64(SubscriptionBillingRecoveryWindow.Seconds())
+	err := DB.WithContext(ctx).Where("billing_managed = ? AND status = ? AND COALESCE(recovery_state, '') <> ? AND request_id <> '' AND user_id > 0 AND actual_quota >= 0 AND created_at >= ? AND recovery_attempts < ? AND (recovery_last_attempt_at = 0 OR recovery_last_attempt_at <= ?)", true, "settling", SubscriptionBillingRecoveryManual, windowStart, SubscriptionBillingRecoveryMaxAttempts, cutoff).Order("updated_at asc, id asc").Limit(limit).Find(&records).Error
 	return records, err
 }
 
@@ -38,6 +41,11 @@ func MarkSubscriptionBillingRecoveryAttempt(ctx context.Context, id int) error {
 		return res.Error
 	}
 	if res.RowsAffected != 1 {
+		// A crashed worker can leave the row in recovering after its final
+		// attempt. Make that terminal state explicit for manual reconciliation.
+		if err := DB.WithContext(ctx).Model(&SubscriptionPreConsumeRecord{}).Where("id = ? AND billing_managed = ? AND status = ? AND recovery_attempts >= ?", id, true, "settling", SubscriptionBillingRecoveryMaxAttempts).Updates(map[string]interface{}{"recovery_state": SubscriptionBillingRecoveryManual}).Error; err != nil {
+			return err
+		}
 		return errors.New("subscription billing recovery already claimed")
 	}
 	return nil
