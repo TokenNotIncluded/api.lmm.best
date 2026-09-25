@@ -323,6 +323,9 @@ func validateOptionValue(key string, value string) error {
 	if key == AIDirectoryLinksOptionKey {
 		return ValidateAIDirectoryLinks(value)
 	}
+	if key == RSSFeedsOptionKey {
+		return ValidateRSSFeeds(value)
+	}
 	if err := validateReferralOption(key, value); err != nil {
 		return err
 	}
