@@ -40,7 +40,7 @@ const en = {
 
 export const rssTranslations = {
   en,
-  zh: {
+  zhCN: {
     'Manage feeds': '管理订阅源',
     'Search articles': '搜索文章',
     'All feeds': '全部订阅',
@@ -72,7 +72,7 @@ export const rssTranslations = {
     'Move {{name}} down': '下移 {{name}}',
     'Remove {{name}}': '删除 {{name}}',
   },
-  'zh-TW': {
+  zhTW: {
     'Manage feeds': '管理訂閱來源',
     'Search articles': '搜尋文章',
     'All feeds': '全部訂閱',
