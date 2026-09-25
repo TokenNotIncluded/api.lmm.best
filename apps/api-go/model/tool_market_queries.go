@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"strings"
+	"unicode/utf8"
 
 	"gorm.io/gorm"
 )
@@ -34,7 +35,10 @@ func marketVisibleQuery(userID int) *gorm.DB {
 }
 
 func ListToolMarket(userID int, search, executionType string, offset, limit int) ([]ToolMarketListItem, error) {
-	if userID < 0 || len(search) > 120 || offset < 0 || offset > 10000 || limit < 1 || limit > 100 {
+	search = strings.TrimSpace(search)
+	// The UI accepts 120 characters, not 120 UTF-8 bytes. Keep non-ASCII
+	// searches usable without relaxing pagination or accepting malformed text.
+	if userID < 0 || !utf8.ValidString(search) || utf8.RuneCountInString(search) > 120 || offset < 0 || offset > 10000 || limit < 1 || limit > 100 {
 		return nil, ErrToolMarketInput
 	}
 	q := marketVisibleQuery(userID)
@@ -44,7 +48,7 @@ func ListToolMarket(userID int, search, executionType string, offset, limit int)
 		}
 		q = q.Where("v.execution_type = ?", executionType)
 	}
-	if search = strings.TrimSpace(search); search != "" {
+	if search != "" {
 		// Treat wildcard characters literally, not as a way to bypass filtering.
 		search = strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(strings.ToLower(search))
 		q = q.Where("LOWER(v.name) LIKE ? ESCAPE '!' OR LOWER(v.description) LIKE ? ESCAPE '!'", "%"+search+"%", "%"+search+"%")
