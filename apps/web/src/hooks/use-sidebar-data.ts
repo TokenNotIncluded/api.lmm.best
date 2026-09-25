@@ -41,6 +41,7 @@ import {
   MonitorCog,
   PhoneCall,
   Radio,
+  Rss,
   RotateCcw,
   Server,
   ServerCog,
@@ -194,6 +195,7 @@ export function useSidebarData(): SidebarData {
         title: t('Ecosystem'),
         items: [
           { title: t('AI directory'), url: '/ai-directory', icon: Globe2 },
+          { title: 'RSS', url: '/rss', icon: Rss },
           {
             title: t('Open-source bounties'),
             url: '/open-source-bounties',
