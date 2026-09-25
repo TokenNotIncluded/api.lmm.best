@@ -270,6 +270,7 @@
   "GetPublicSecurityStats": {"body_schema":null,"contract_status":"derived","path_schema":{"properties":{},"type":"object"},"query_schema":{"properties":{"end_timestamp":{"type":"string"},"start_timestamp":{"type":"string"}},"type":"object"}},
   "GetQuotaDatesByUser": {"body_schema":null,"contract_status":"derived","path_schema":{"properties":{},"type":"object"},"query_schema":{"properties":{"end_timestamp":{"type":"string"},"start_timestamp":{"type":"string"}},"type":"object"}},
   "GetQuotaQuery": {"body_schema":null,"contract_status":"derived","path_schema":{"properties":{},"type":"object"},"query_schema":{"properties":{},"type":"object"}},
+  "GetRSS": {"body_schema":null,"contract_status":"derived","path_schema":{"properties":{},"type":"object"},"query_schema":{"properties":{},"type":"object"}},
   "GetRankings": {"body_schema":null,"contract_status":"derived","path_schema":{"properties":{},"type":"object"},"query_schema":{"properties":{"period":{"default":"week","type":"string"}},"type":"object"}},
   "GetRatioConfig": {"body_schema":null,"contract_status":"derived","path_schema":{"properties":{},"type":"object"},"query_schema":{"properties":{},"type":"object"}},
   "GetRedPacket": {"body_schema":null,"contract_status":"derived","path_schema":{"properties":{"slug":{"type":"string"}},"required":["slug"],"type":"object"},"query_schema":{"properties":{},"type":"object"}},
