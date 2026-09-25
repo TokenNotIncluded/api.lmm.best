@@ -20,6 +20,7 @@ import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { SectionPageLayout } from '@/components/layout/components/section-page-layout'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -347,6 +348,40 @@ export function PublicScriptsPage() {
         <PublicScriptsPanel fullPage />
       </div>
     </main>
+  )
+}
+
+export function ConsoleScriptsPage() {
+  const { t } = useTranslation()
+
+  return (
+    <SectionPageLayout>
+      <SectionPageLayout.Title>{t('Scripts')}</SectionPageLayout.Title>
+      <SectionPageLayout.Actions>
+        <RepositoryLink kind='scripts' />
+      </SectionPageLayout.Actions>
+      <SectionPageLayout.Content>
+        <div className='mx-auto w-full max-w-5xl space-y-6'>
+          <p className='text-muted-foreground max-w-2xl text-sm'>
+            {t(
+              'Browse maintained setup scripts and copy the command for your system.'
+            )}
+          </p>
+          <div className='border-border/70 border-y py-4'>
+            <p className='text-sm font-medium'>{t('Script repository')}</p>
+            <a
+              className='text-muted-foreground mt-1 block text-sm break-all underline underline-offset-4'
+              href={repositoryUrl('scripts')}
+              target='_blank'
+              rel='noopener noreferrer'
+            >
+              {REPOSITORIES.scripts}
+            </a>
+          </div>
+          <PublicScriptsPanel fullPage />
+        </div>
+      </SectionPageLayout.Content>
+    </SectionPageLayout>
   )
 }
 
