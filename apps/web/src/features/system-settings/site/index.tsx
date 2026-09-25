@@ -39,6 +39,7 @@ const defaultSiteSettings: SiteSettings = {
   HeaderNavModules: '',
   SidebarModulesAdmin: '',
   AIDirectoryLinks: '',
+  RSSFeeds: '',
 }
 
 export function SiteSettings() {
