@@ -123,6 +123,7 @@ export const SITE_PAGES = {
   '/support': 'Support tickets',
   '/temporary-activations': 'Temporary access activations',
   '/ai-directory': 'AI product directory',
+  '/rss': 'RSS and Atom reader',
   '/red-packets': 'Red packets',
   '/public-relay': 'Public relay',
   '/open-source-bounties': 'Open source bounties',
