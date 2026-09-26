@@ -93,6 +93,7 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.POST("/setup", anonymousRequestBodyLimit, controller.PostSetup)
 		apiRouter.GET("/livez", controller.GetLiveness)
 		apiRouter.GET("/status", controller.GetStatus)
+		apiRouter.GET("/rss", middleware.UserAuth(), middleware.DisableCache(), controller.GetRSS)
 		apiRouter.GET("/ai-directory", controller.GetAIDirectory)
 		apiRouter.GET("/ai-directory/ads", controller.ListAIDirectoryAds)
 		apiRouter.GET("/ai-directory/ads/quote", middleware.UserAuth(), controller.QuoteAIDirectoryAd)

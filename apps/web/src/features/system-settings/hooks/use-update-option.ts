@@ -95,6 +95,9 @@ async function invalidateOptionQueries(
       queryClient.invalidateQueries({ queryKey: ['ai-directory'] })
     )
   }
+  if (changedKeys.includes('RSSFeeds')) {
+    refreshes.push(queryClient.invalidateQueries({ queryKey: ['rss'] }))
+  }
   if (changedKeys.includes('AssistantPreConversationPresets')) {
     refreshes.push(
       queryClient.invalidateQueries({
