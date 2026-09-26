@@ -19,7 +19,22 @@ export function segmentMovingText(text: string, language: string) {
   const graphemes = available
     ? new Intl.Segmenter(locale, { granularity: 'grapheme' })
     : null
-  return words.map((word) => ({
+  // Closing punctuation travels with its word, so inline-block animation
+  // never leaves a Chinese full stop or comma stranded at the next line.
+  const wrappingWords: string[] = []
+  for (const word of words) {
+    const previous = wrappingWords.at(-1)
+    if (
+      previous &&
+      !/^\s+$/u.test(previous) &&
+      /^[\p{Pe}\p{Pf},.!?;:，。！？；：、…]+$/u.test(word)
+    ) {
+      wrappingWords[wrappingWords.length - 1] += word
+    } else {
+      wrappingWords.push(word)
+    }
+  }
+  return wrappingWords.map((word) => ({
     word,
     whitespace: /^\s+$/u.test(word),
     letters: graphemes

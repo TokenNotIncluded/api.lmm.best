@@ -1051,12 +1051,22 @@ For commercial licensing, please contact support@quantumnous.com
 }
 .lmm-home .forge-home-input:focus-within {
   border-bottom-color: var(--foreground);
-  outline: 2px solid var(--ring);
-  outline-offset: 5px;
+  outline: 0;
+  box-shadow: 0 1px 0 var(--foreground);
 }
 .lmm-home .forge-home-input input {
   font-size: 1rem;
   min-width: 0;
+  padding-inline: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+/* The shared input's focus is represented by the group's visible underline,
+   rather than a second rectangular ring inside the composer. */
+.lmm-home .forge-home-input input:focus-visible {
+  outline: 0;
+  box-shadow: none;
 }
 .lmm-home .forge-home-assistant-prompts {
   display: grid;

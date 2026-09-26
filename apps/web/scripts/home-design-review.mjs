@@ -38,7 +38,9 @@ try {
   ]) {
     const context = await browser.newContext({
       viewport: { width, height },
-      locale: language === 'en' ? 'en-US' : 'zh-CN',
+      locale: { en: 'en-US', zhCN: 'zh-CN', fr: 'fr-FR', ru: 'ru-RU' }[
+        language
+      ],
       reducedMotion: motion,
       serviceWorkers: 'block',
     })
@@ -83,6 +85,18 @@ try {
         assert.match(
           await page.locator('#lmm-home-title').textContent(),
           /AI models/
+        )
+      }
+      if (language === 'fr') {
+        assert.match(
+          await page.locator('#lmm-home-title').textContent(),
+          /modèles IA/
+        )
+      }
+      if (language === 'ru') {
+        assert.match(
+          await page.locator('#lmm-home-title').textContent(),
+          /Модели ИИ/
         )
       }
       await page.screenshot({ path: `${output}/${name}.png` })
@@ -259,6 +273,38 @@ try {
       if (assistantEnabled) {
         const input = page.locator('#forge-home-message')
         await input.fill('Help me connect an AI app')
+        const focus = await input.evaluate((element) => {
+          const control = getComputedStyle(element)
+          const group = getComputedStyle(element.closest('.forge-home-input'))
+          return {
+            inputOutline: control.outlineWidth,
+            inputBorder: control.borderTopWidth,
+            groupOutline: group.outlineWidth,
+            groupBorder: group.borderTopWidth,
+            underline: group.boxShadow,
+          }
+        })
+        assert.equal(
+          focus.inputOutline,
+          '0px',
+          `${name}: nested input focus box`
+        )
+        assert.equal(focus.inputBorder, '0px', `${name}: boxed input returned`)
+        assert.equal(
+          focus.groupOutline,
+          '0px',
+          `${name}: framed composer focus`
+        )
+        assert.equal(
+          focus.groupBorder,
+          '0px',
+          `${name}: framed composer returned`
+        )
+        assert.notEqual(
+          focus.underline,
+          'none',
+          `${name}: missing visible focus indicator`
+        )
         assert.equal(
           await page
             .locator('.forge-home-input button[type="submit"]')
@@ -277,7 +323,7 @@ try {
       }
       if (['desktop', 'mobile'].includes(name)) {
         await page
-          .locator('#connect')
+          .locator('.lmm-connect')
           .screenshot({ path: `${output}/${name}-connect.png` })
         const choices = page.locator('.lmm-connection-method button')
         assert.equal(await choices.count(), 2)

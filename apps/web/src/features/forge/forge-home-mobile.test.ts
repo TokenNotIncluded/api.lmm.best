@@ -150,3 +150,16 @@ test('connection controls use one accessible segmented group without new ornamen
     /\.lmm-(?:request-sample|sample-head|pi-art|cinema-caption)/
   )
 })
+
+test('the assistant keeps one visible underline instead of nested focus boxes', () => {
+  const focus = css.match(
+    /\.lmm-home \.forge-home-input:focus-within \{([\s\S]*?)\n\}/
+  )?.[1]
+  assert.ok(focus)
+  assert.match(focus, /outline: 0;/)
+  assert.match(focus, /box-shadow: 0 1px 0 var\(--foreground\);/)
+  assert.match(
+    css,
+    /\.lmm-home \.forge-home-input input:focus-visible \{\s*outline: 0;/
+  )
+})
