@@ -560,7 +560,8 @@ async fn current_go_retry_freezes_model_rates_and_reads_tools_and_units_at_settl
                     sleep(Duration::from_millis(2)).await;
                 }
             })
-            .await?;
+            .await
+            .map_err(|_| std::io::Error::other(format!("{name}: first provider call timed out")))?;
             assert_eq!(
                 fixture.wallet_state().await?,
                 case["reserved"],
@@ -572,7 +573,8 @@ async fn current_go_retry_freezes_model_rates_and_reads_tools_and_units_at_settl
                     sleep(Duration::from_millis(2)).await;
                 }
             })
-            .await?;
+            .await
+            .map_err(|_| std::io::Error::other(format!("{name}: retry provider call timed out")))?;
             assert_eq!(
                 fixture.wallet_state().await?,
                 case["retried"],

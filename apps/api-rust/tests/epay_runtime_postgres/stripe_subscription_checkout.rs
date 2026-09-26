@@ -39,12 +39,14 @@ impl TopupAuthorizer for Limit {
     }
 }
 
+type RecurringSessionCall = (BTreeMap<String, String>, bool, String);
+
 #[derive(Clone)]
 struct RecurringProvider {
     pg: PgPool,
     input: Value,
     price_calls: Arc<AtomicUsize>,
-    calls: Arc<Mutex<Vec<(BTreeMap<String, String>, bool, String)>>>,
+    calls: Arc<Mutex<Vec<RecurringSessionCall>>>,
 }
 async fn recurring_price(
     State(provider): State<RecurringProvider>,
