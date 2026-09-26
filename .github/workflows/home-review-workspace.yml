@@ -1,0 +1,26 @@
+name: Temporary homepage review workspace
+
+on:
+  push:
+    branches: [codex/home-polish-20260927]
+    paths: [.github/workflows/home-review-workspace.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - name: Export tracked source for isolated review
+        run: git archive --format=tar.gz --output=home-review-source.tar.gz HEAD
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: home-review-source
+          path: home-review-source.tar.gz
+          retention-days: 1
+          if-no-files-found: error
