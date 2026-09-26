@@ -198,6 +198,7 @@ func (*StripeAdaptor) RequestPay(c *gin.Context, req *StripePayRequest) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "success",
 		"data": gin.H{
+			"trade_no": referenceId,
 			"pay_link": payLink,
 		},
 	})

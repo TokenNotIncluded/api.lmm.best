@@ -172,10 +172,10 @@ function WalletCheckout(props: WalletProps) {
     useState<PaymentFeedback | null>(null)
   const {
     success: cloudSuccess,
-    prefetchBaseline: prefetchTopupBaseline,
     prepare: prepareTopupCloud,
     activate: activateTopupCloud,
     cancel: cancelTopupCloud,
+    acknowledge: acknowledgeTopupCloud,
   } = useTopupCloudSuccess({
     userId: user?.id ?? null,
     quotaPerUnit,
@@ -189,11 +189,6 @@ function WalletCheckout(props: WalletProps) {
     (DiscountValidationContext & { code: string }) | null
   >(null)
   const { status } = useStatus()
-  useEffect(() => {
-    if (confirmDialogOpen || creemDialogOpen) {
-      void prefetchTopupBaseline()
-    }
-  }, [confirmDialogOpen, creemDialogOpen, prefetchTopupBaseline])
   useEffect(() => {
     if (!cloudSuccess) return
     setPaymentFeedback({
@@ -996,6 +991,15 @@ function WalletCheckout(props: WalletProps) {
                   : 'grid gap-4'
               }
             >
+              {developerAccessGranted ? (
+                <WalletStatsCard
+                  user={user}
+                  loading={userLoading}
+                  success={cloudSuccess}
+                  onSuccessComplete={acknowledgeTopupCloud}
+                />
+              ) : null}
+
               <div id='wallet-add-funds' className='scroll-mt-4'>
                 <RechargeFormCard
                   topupInfo={topupInfo}
@@ -1080,14 +1084,6 @@ function WalletCheckout(props: WalletProps) {
                   neutralMode={!developerAccessGranted}
                 />
               </div>
-
-              {developerAccessGranted ? (
-                <WalletStatsCard
-                  user={user}
-                  loading={userLoading}
-                  success={cloudSuccess}
-                />
-              ) : null}
 
               {developerAccessGranted ? (
                 <ConsoleDisclosure id='trust-level' title={t('Trust level')}>

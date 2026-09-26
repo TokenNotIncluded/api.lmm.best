@@ -19,7 +19,7 @@ func EnsureRedPacketSchemaAtStartup() error {
 		name    string
 		columns []string
 	}{
-		{&RedPacket{}, "red_packets", []string{"id", "slug", "title", "description", "cover_image", "cover_prompt", "draw_mode", "per_user_limit", "start_at", "end_at", "enabled", "created_by", "created_at", "updated_at"}},
+		{&RedPacket{}, "red_packets", []string{"id", "slug", "title", "description", "cover_image", "cover_prompt", "draw_mode", "per_user_limit", "start_at", "end_at", "enabled", "created_by", "created_at", "updated_at", "deleted_at"}},
 		{&RedPacketItem{}, "red_packet_items", []string{"id", "packet_id", "item_type", "source_id", "weight", "claimed_by", "claimed_at", "created_at"}},
 		{&RedPacketClaim{}, "red_packet_claims", []string{"id", "packet_id", "user_id", "claim_index", "item_id", "item_type", "source_id", "created_at"}},
 	}

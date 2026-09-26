@@ -15,55 +15,57 @@ import {
   type PendingTopupCloud,
 } from './topup-cloud-success'
 
-const launchedAt = 1_800_000_000_000
 const pending: PendingTopupCloud = {
   userId: 7,
-  launchedAt,
-  expiresAt: launchedAt + 900_000,
-  baselineSuccessId: 10,
+  launchedAt: 1_800_000_000_000,
+  expiresAt: 1_800_086_400_000,
   beforeQuota: 5_000_000,
   expectedCredit: 10,
+  attemptId: 'attempt',
+  tradeNo: 'my-order',
+}
+const record: TopupRecord = {
+  id: 13,
+  user_id: 7,
+  amount: 10,
+  money: 10,
+  trade_no: 'my-order',
+  payment_method: 'waffo_pancake',
+  create_time: pending.launchedAt / 1000,
+  complete_time: pending.launchedAt / 1000 + 1200,
+  status: 'success',
 }
 
-function record(
-  id: number,
-  status: TopupRecord['status'],
-  createTime = launchedAt / 1000
-): TopupRecord {
-  return {
-    id,
-    user_id: 7,
-    amount: 10,
-    money: 10,
-    trade_no: `order-${id}`,
-    payment_method: 'waffo_pancake',
-    create_time: createTime,
-    complete_time: createTime + 2,
-    status,
+test('only the exact server order and account can confirm checkout', () => {
+  assert.equal(findConfirmedTopup([record], pending), record)
+  for (const patch of [
+    { trade_no: 'other-order' },
+    { trade_no: 'other-order', amount: 200, id: 2000 },
+    { user_id: 8 },
+    { status: 'pending' as const },
+    { status: 'expired' as const },
+    { status: 'failed' as const },
+  ]) {
+    assert.equal(
+      findConfirmedTopup([{ ...record, ...patch }], pending),
+      undefined
+    )
   }
-}
-
-test('a pending or expired checkout never starts the token success animation', () => {
   assert.equal(
-    findConfirmedTopup(
-      [record(12, 'pending'), record(11, 'expired'), record(10, 'success')],
-      pending
-    ),
+    findConfirmedTopup([record], {
+      ...pending,
+      tradeNo: undefined,
+      baselineSuccessId: 10,
+    }),
     undefined
   )
 })
 
-test('a newly confirmed top-up starts the animation exactly for that order', () => {
-  const success = record(13, 'success')
-  assert.equal(findConfirmedTopup([success], pending), success)
-})
-
-test('a recent pre-existing success is rejected without a baseline ID', () => {
+test('late confirmation and changing list positions do not change order identity', () => {
+  const other = { ...record, id: 500, trade_no: 'other-order', amount: 200 }
+  assert.equal(findConfirmedTopup([other, record], pending), record)
   assert.equal(
-    findConfirmedTopup([record(13, 'success', launchedAt / 1000 - 10)], {
-      ...pending,
-      baselineSuccessId: 0,
-    }),
-    undefined
+    findConfirmedTopup([record], { ...pending, launchedAt: Date.now() }),
+    record
   )
 })
