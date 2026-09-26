@@ -13,7 +13,15 @@ await mkdir(output, { recursive: true })
 const browser = await chromium.launch({ headless: true })
 const results = []
 try {
-  for (const [name, width, height, theme, motion, language] of [
+  for (const [
+    name,
+    width,
+    height,
+    theme,
+    motion,
+    language,
+    assistantEnabled,
+  ] of [
     ['desktop', 1440, 1000, 'light', 'no-preference', 'zhCN'],
     ['mobile', 390, 844, 'light', 'no-preference', 'zhCN'],
     ['compact', 320, 740, 'light', 'no-preference', 'zhCN'],
@@ -21,6 +29,12 @@ try {
     ['english', 390, 844, 'light', 'no-preference', 'en'],
     ['dark', 1440, 1000, 'dark', 'no-preference', 'zhCN'],
     ['reduced', 390, 844, 'light', 'reduce', 'zhCN'],
+    ['laptop', 1280, 720, 'light', 'no-preference', 'en'],
+    ['landscape', 844, 390, 'light', 'no-preference', 'en'],
+    ['short-phone', 390, 667, 'light', 'no-preference', 'zhCN'],
+    ['french', 390, 844, 'light', 'no-preference', 'fr'],
+    ['russian', 390, 844, 'light', 'no-preference', 'ru'],
+    ['assistant-enabled', 390, 844, 'light', 'no-preference', 'zhCN', true],
   ]) {
     const context = await browser.newContext({
       viewport: { width, height },
@@ -48,7 +62,7 @@ try {
         data = {
           system_name: 'LMM',
           register_enabled: true,
-          assistant: { enabled: false },
+          assistant: { enabled: !!assistantEnabled },
           backend_capabilities: { bounty_public_read: false },
         }
       }
@@ -90,6 +104,8 @@ try {
           title: box('#lmm-home-title'),
           visual: box('[data-home-visual]'),
           controls: box('.lmm-core-steps'),
+          stage: box('[data-cinema-inner]'),
+          runway: box('[data-cinema]'),
           activePanel: box('[data-cinema-panel][data-active]'),
           stageBorder: getComputedStyle(
             document.querySelector('[data-cinema-inner]')
@@ -122,7 +138,19 @@ try {
         '0px',
         `${name}: boxed token input returned`
       )
-      if (motion === 'no-preference') {
+      const cinematic =
+        motion === 'no-preference' &&
+        height > 600 &&
+        (width > 680 || height > 700)
+      if (cinematic) {
+        assert.ok(
+          metrics.runway.height <= Math.max(height * 2, 1536),
+          `${name}: excessive scroll runway`
+        )
+        assert.ok(
+          metrics.controls.y + metrics.controls.height <= height,
+          `${name}: navigation below the fold`
+        )
         for (const button of metrics.buttons) {
           assert.ok(
             button.width >= 44 && button.height >= 44,
@@ -178,12 +206,89 @@ try {
             ?.hasAttribute('data-active')
         )
         await page.screenshot({ path: `${output}/${name}-api.png` })
-        await page.locator('[data-cinema-jump="0"]').click()
+        for (const chapter of [2, 3, 4, 0]) {
+          await page.locator(`[data-cinema-jump="${chapter}"]`).click()
+          await page.waitForFunction(
+            (index) =>
+              document
+                .querySelector(`[data-cinema-panel="${index}"]`)
+                ?.hasAttribute('data-active'),
+            chapter
+          )
+          await page.waitForTimeout(500)
+          const bounds = await page.evaluate(() => {
+            const panel = document
+              .querySelector('[data-cinema-panel][data-active]')
+              .getBoundingClientRect()
+            const controls = document
+              .querySelector('.lmm-core-steps')
+              .getBoundingClientRect()
+            const stage = document
+              .querySelector('[data-cinema-inner]')
+              .getBoundingClientRect()
+            return {
+              top: panel.top,
+              bottom: panel.bottom,
+              controlTop: controls.top,
+              stageTop: stage.top,
+            }
+          })
+          assert.ok(
+            bounds.bottom < bounds.controlTop,
+            `${name}: chapter ${chapter} covers navigation`
+          )
+          assert.ok(
+            bounds.top >= bounds.stageTop,
+            `${name}: chapter ${chapter} clips above stage`
+          )
+        }
+      } else {
+        const panels = await page
+          .locator('[data-cinema-panel]')
+          .evaluateAll((elements) =>
+            elements.map((panel) => ({
+              inert: panel.inert,
+              visible: getComputedStyle(panel).visibility,
+            }))
+          )
+        assert.ok(
+          panels.every((panel) => !panel.inert && panel.visible === 'visible'),
+          `${name}: static story must keep every chapter accessible`
+        )
       }
-      if (['desktop', 'mobile', 'dark'].includes(name)) {
+      if (assistantEnabled) {
+        const input = page.locator('#forge-home-message')
+        await input.fill('Help me connect an AI app')
+        assert.equal(
+          await page
+            .locator('.forge-home-input button[type="submit"]')
+            .isDisabled(),
+          false
+        )
+        assert.equal(
+          await page.evaluate(() => document.documentElement.scrollWidth),
+          width
+        )
+      }
+      if (['desktop', 'mobile', 'dark', 'assistant-enabled'].includes(name)) {
         await page
           .locator('.lmm-assistant-section')
           .screenshot({ path: `${output}/${name}-assistant.png` })
+      }
+      if (['desktop', 'mobile'].includes(name)) {
+        await page
+          .locator('#connect')
+          .screenshot({ path: `${output}/${name}-connect.png` })
+        const choices = page.locator('.lmm-connection-method button')
+        assert.equal(await choices.count(), 2)
+        await choices.nth(1).click()
+        assert.equal(await choices.nth(1).getAttribute('aria-pressed'), 'true')
+        assert.equal(
+          await page.evaluate(() => document.documentElement.scrollWidth),
+          width
+        )
+        await choices.nth(0).click()
+        assert.equal(await choices.nth(0).getAttribute('aria-pressed'), 'true')
       }
       assert.deepEqual(errors, [], `${name}: interaction exceptions`)
       results.push({ name, width, height, theme, language, ...metrics, errors })
