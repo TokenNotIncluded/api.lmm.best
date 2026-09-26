@@ -598,7 +598,7 @@ return 1
 
     async fn create(&self, user_id: i64, input: TokenInput) -> Result<(), TokenError> {
         let settings = self.token_settings().await;
-        validate_input(&input, settings.max_quota())?;
+        validate_create_input(&input, settings.max_quota())?;
         let auto_groups_raw = if input.group == "auto" {
             self.encode_auto_groups(user_id, &input.auto_groups).await?
         } else {
@@ -1260,6 +1260,7 @@ enum TokenMessage {
     InvalidParams,
     BatchTooMany,
     NameTooLong,
+    GroupRequired,
     QuotaNegative,
     QuotaExceeds(i64),
     ExpiredCannotEnable,
@@ -1280,6 +1281,15 @@ impl TokenMessage {
             (Self::NameTooLong, TokenLocale::En) => "Token name is too long".to_owned(),
             (Self::NameTooLong, TokenLocale::ZhCn) => "令牌名称过长".to_owned(),
             (Self::NameTooLong, TokenLocale::ZhTw) => "令牌名稱過長".to_owned(),
+            (Self::GroupRequired, TokenLocale::En) => {
+                "Select a group before creating an API key".to_owned()
+            }
+            (Self::GroupRequired, TokenLocale::ZhCn) => {
+                "创建 API Key 前请选择一个分组".to_owned()
+            }
+            (Self::GroupRequired, TokenLocale::ZhTw) => {
+                "建立 API Key 前請選擇一個群組".to_owned()
+            }
             (Self::QuotaNegative, TokenLocale::En) => "Quota value cannot be negative".to_owned(),
             (Self::QuotaNegative, TokenLocale::ZhCn) => "额度值不能为负数".to_owned(),
             (Self::QuotaNegative, TokenLocale::ZhTw) => "額度值不能為負數".to_owned(),
@@ -2307,6 +2317,13 @@ impl TokenSettings {
 fn legacy_create_expired_time(expired_time: Option<i64>) -> i64 {
     expired_time.filter(|value| *value != 0).unwrap_or(-1)
 }
+fn validate_create_input(input: &TokenInput, max_quota: i64) -> Result<(), TokenError> {
+    if input.group.trim().is_empty() {
+        return Err(TokenError::localized(TokenMessage::GroupRequired));
+    }
+    validate_input(input, max_quota)
+}
+
 fn validate_input(input: &TokenInput, max_quota: i64) -> Result<(), TokenError> {
     if input.name.len() > MAX_TOKEN_NAME_BYTES {
         return Err(TokenError::localized(TokenMessage::NameTooLong));
@@ -2483,6 +2500,24 @@ mod tests {
             }),
             Some(PrincipalAuthError::InvalidUserInfo)
         );
+    }
+
+    #[test]
+    fn create_validation_requires_an_explicit_group() -> TestResult {
+        let missing: TokenInput = serde_json::from_str(
+            r#"{"name":"missing-group","expired_time":-1,"unlimited_quota":true}"#,
+        )?;
+        let error = require_token_error(
+            validate_create_input(&missing, i64::MAX),
+            "missing group must fail",
+        )?;
+        assert_eq!(error.message, "创建 API Key 前请选择一个分组");
+
+        let selected: TokenInput = serde_json::from_str(
+            r#"{"name":"selected-group","expired_time":-1,"unlimited_quota":true,"group":"default"}"#,
+        )?;
+        validate_create_input(&selected, i64::MAX)?;
+        Ok(())
     }
 
     #[test]

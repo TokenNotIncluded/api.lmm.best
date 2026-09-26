@@ -36,6 +36,7 @@ auth.insufficient_privilege: "无权进行此操作，权限不足"
 
 # Token messages
 token.name_too_long: "令牌名称过长"
+token.group_required: "创建 API Key 前请选择一个分组"
 token.quota_negative: "额度值不能为负数"
 token.quota_exceed_max: "额度值超出有效范围，最大值为 {{.Max}}"
 token.generate_failed: "生成令牌失败"
