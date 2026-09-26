@@ -255,6 +255,16 @@ func TestTryTieredSettle_PositiveShortRequestKeepsOneQuotaMinimum(t *testing.T) 
 	}
 }
 
+func TestTryTieredSettle_ExplicitZeroPriceStaysFree(t *testing.T) {
+	info := makeRelayInfo(`tier("default", p * 0)`, 1.0, 1000, 0)
+
+	ok, quota, result := TryTieredSettle(info, billingexpr.TokenParams{P: 1})
+	require.True(t, ok)
+	require.NotNil(t, result)
+	require.Zero(t, result.ActualQuotaBeforeGroup)
+	require.Zero(t, quota)
+}
+
 func TestTryTieredSettle_HugeTokens(t *testing.T) {
 	info := makeRelayInfo(flatExpr, 1.0, 10000000, 5000000)
 
