@@ -1,6 +1,9 @@
 package controller
 
 import (
+	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"regexp"
 	"strings"
@@ -20,9 +23,10 @@ func profileShareSelfResponse(c *gin.Context, share *model.ProfileShare) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"enabled": true,
-			"token":   share.Token,
-			"url":     profileShareDestination + "/api/share/profile/" + share.Token + ".svg",
+			"enabled":             true,
+			"model_usage_enabled": share.ModelUsageEnabled,
+			"token":               share.Token,
+			"url":                 profileShareDestination + "/api/share/profile/" + share.Token + ".svg",
 		},
 	})
 }
@@ -37,7 +41,23 @@ func GetSelfProfileShare(c *gin.Context) {
 }
 
 func EnableSelfProfileShare(c *gin.Context) {
+	var request struct {
+		ModelUsageEnabled *bool `json:"model_usage_enabled"`
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(c.Writer, c.Request.Body, 1024))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid profile sharing settings"})
+		return
+	}
+	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid profile sharing settings"})
+		return
+	}
 	share, err := model.EnableProfileShare(c.GetInt("id"))
+	if err == nil && request.ModelUsageEnabled != nil {
+		share, err = model.SetProfileShareModelUsage(share, *request.ModelUsageEnabled)
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Unable to enable profile sharing"})
 		return
@@ -54,6 +74,7 @@ func DisableSelfProfileShare(c *gin.Context) {
 }
 
 func GetPublicProfileShareSVG(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
 	pathToken := c.Param("token")
 	if !strings.HasSuffix(pathToken, ".svg") {
 		c.Status(http.StatusNotFound)
@@ -68,7 +89,15 @@ func GetPublicProfileShareSVG(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "SVG options are too long"})
 		return
 	}
-	options, err := parseProfileShareSVGOptions(c.Request.URL.Query())
+	query := c.Request.URL.Query()
+	var options profileShareSVGOptions
+	var top int
+	var err error
+	if query.Get("layout") == "models" {
+		options, top, err = parseProfileShareModelsSVGOptions(query)
+	} else {
+		options, err = parseProfileShareSVGOptions(query)
+	}
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
 		return
@@ -79,7 +108,21 @@ func GetPublicProfileShareSVG(c *gin.Context) {
 		return
 	}
 	var svg string
-	if options.Layout == "profile" {
+	if options.Layout == "models" {
+		share, shareErr := model.GetProfileShare(owner.Id)
+		if shareErr != nil || share == nil || share.Token != token || !share.ModelUsageEnabled {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		now := time.Now()
+		start := profileSharePeriodStart(options.Period, now)
+		usage, queryErr := model.GetProfileShareModelUsage(owner.Id, start, now.Unix(), top)
+		if queryErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Unable to load usage"})
+			return
+		}
+		svg = renderProfileShareModelsSVG(options, usage, start, now.Unix())
+	} else if options.Layout == "profile" {
 		endDay := time.Now().UTC().Truncate(24 * time.Hour).Unix()
 		startDay := endDay - 370*86400
 		rows, queryErr := model.GetProfileShareYearDays(owner.Id, startDay, endDay)
@@ -96,7 +139,6 @@ func GetPublicProfileShareSVG(c *gin.Context) {
 		}
 		svg = renderProfileShareSVG(options, usage)
 	}
-	c.Header("Cache-Control", "no-store")
 	c.Header("X-Content-Type-Options", "nosniff")
 	c.Header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
 	c.Header("Access-Control-Allow-Origin", "*")

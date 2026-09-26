@@ -65,6 +65,20 @@ const BLOCKED_DEBUG_REQUEST = 'PERSONA_DEBUG_UNMOCKED_REQUEST'
 const now = Math.floor(Date.now() / 1000)
 const debugAnnouncementReads = new Set<string>()
 const debugAssistantRuntimeKeys = new Set<DebugPersonaId>()
+type DebugProfileShare = {
+  enabled: boolean
+  modelUsageEnabled: boolean
+}
+const debugProfileShares = new Map<DebugPersonaId, DebugProfileShare>()
+const debugProfileShareToken = 'a'.repeat(48)
+
+function activeDebugProfileShare(): DebugProfileShare {
+  const existing = debugProfileShares.get(state.activePersona)
+  if (existing) return existing
+  const created = { enabled: true, modelUsageEnabled: false }
+  debugProfileShares.set(state.activePersona, created)
+  return created
+}
 
 function trustLevel(level: number): TrustLevelInfo {
   return {
@@ -926,6 +940,36 @@ const debugAdapter: AxiosAdapter = async (config) => {
   }
   if (method === 'GET' && path === '/api/user/self') {
     return response(config, envelope(activeUser()))
+  }
+  if (
+    path === '/api/user/self/profile-share' &&
+    ['GET', 'POST', 'DELETE'].includes(method)
+  ) {
+    const share = activeDebugProfileShare()
+    if (method === 'POST') {
+      const data =
+        typeof config.data === 'string' ? JSON.parse(config.data) : config.data
+      share.enabled = true
+      if (typeof data?.model_usage_enabled === 'boolean') {
+        share.modelUsageEnabled = data.model_usage_enabled
+      }
+    } else if (method === 'DELETE') {
+      share.enabled = false
+      share.modelUsageEnabled = false
+    }
+    return response(
+      config,
+      envelope(
+        share.enabled
+          ? {
+              enabled: true,
+              model_usage_enabled: share.modelUsageEnabled,
+              token: debugProfileShareToken,
+              url: `${window.location.origin}/api/share/profile/${debugProfileShareToken}.svg`,
+            }
+          : { enabled: false }
+      )
+    )
   }
   if (method === 'GET' && path === '/api/notice') {
     return response(config, envelope(''))
