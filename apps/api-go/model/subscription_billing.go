@@ -1,14 +1,74 @@
 package model
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"gorm.io/gorm"
 )
+
+const (
+	SubscriptionBillingRecoveryPending      = "pending"
+	SubscriptionBillingRecoveryManual       = "manual"
+	SubscriptionBillingRecoveryMaxAttempts  = 8
+	SubscriptionBillingRecoveryWindow       = 7 * 24 * time.Hour
+	subscriptionBillingRecoveryRetrySeconds = 60
+)
+
+// ListSubscriptionBillingRecoveryCandidates returns a bounded snapshot. Only
+// managed records are eligible; legacy/non-managed rows are never touched.
+func ListSubscriptionBillingRecoveryCandidates(ctx context.Context, limit int, retryAfter time.Duration) ([]SubscriptionPreConsumeRecord, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	var records []SubscriptionPreConsumeRecord
+	now := common.GetTimestamp()
+	cutoff := now - int64(retryAfter.Seconds())
+	windowStart := now - int64(SubscriptionBillingRecoveryWindow.Seconds())
+	err := DB.WithContext(ctx).Where("billing_managed = ? AND status = ? AND COALESCE(recovery_state, '') <> ? AND request_id <> '' AND user_id > 0 AND actual_quota >= 0 AND created_at >= ? AND recovery_attempts < ? AND (recovery_last_attempt_at = 0 OR recovery_last_attempt_at <= ?)", true, "settling", SubscriptionBillingRecoveryManual, windowStart, SubscriptionBillingRecoveryMaxAttempts, cutoff).Order("updated_at asc, id asc").Limit(limit).Find(&records).Error
+	return records, err
+}
+
+func MarkSubscriptionBillingRecoveryAttempt(ctx context.Context, id int) error {
+	now := common.GetTimestamp()
+	res := DB.WithContext(ctx).Model(&SubscriptionPreConsumeRecord{}).Where("id = ? AND billing_managed = ? AND status = ? AND recovery_attempts < ? AND (recovery_last_attempt_at = 0 OR recovery_last_attempt_at <= ?)", id, true, "settling", SubscriptionBillingRecoveryMaxAttempts, now-int64(subscriptionBillingRecoveryRetrySeconds)).Updates(map[string]interface{}{"recovery_attempts": gorm.Expr("recovery_attempts + 1"), "recovery_last_attempt_at": now, "recovery_last_error": "", "recovery_state": "recovering"})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected != 1 {
+		// A crashed worker can leave the row in recovering after its final
+		// attempt. Make that terminal state explicit for manual reconciliation.
+		if err := DB.WithContext(ctx).Model(&SubscriptionPreConsumeRecord{}).Where("id = ? AND billing_managed = ? AND status = ? AND recovery_attempts >= ?", id, true, "settling", SubscriptionBillingRecoveryMaxAttempts).Updates(map[string]interface{}{"recovery_state": SubscriptionBillingRecoveryManual}).Error; err != nil {
+			return err
+		}
+		return errors.New("subscription billing recovery already claimed")
+	}
+	return nil
+}
+
+func MarkSubscriptionBillingRecoveryFailure(ctx context.Context, id int, err error, manual bool) error {
+	message := "recovery failed"
+	if err != nil {
+		message = err.Error()
+		if len(message) > 2048 {
+			message = message[:2048]
+		}
+	}
+	state := SubscriptionBillingRecoveryPending
+	if manual {
+		state = SubscriptionBillingRecoveryManual
+	}
+	return DB.WithContext(ctx).Model(&SubscriptionPreConsumeRecord{}).Where("id = ? AND status = ?", id, "settling").Updates(map[string]interface{}{"recovery_last_error": message, "recovery_state": state}).Error
+}
+
+func MarkSubscriptionBillingRecoverySuccess(ctx context.Context, id int) error {
+	return DB.WithContext(ctx).Model(&SubscriptionPreConsumeRecord{}).Where("id = ? AND status = ?", id, "settled").Updates(map[string]interface{}{"recovery_state": "", "recovery_last_error": ""}).Error
+}
 
 var ErrSubscriptionBillingTokenQuota = errors.New("token quota insufficient")
 var ErrSubscriptionBillingWalletQuota = errors.New("wallet quota insufficient for subscription overflow")
@@ -209,11 +269,11 @@ func PreConsumeSubscriptionBilling(requestID string, userID, tokenID int, modelN
 	return result, nil
 }
 
-func mutateSubscriptionBilling(requestID string, userID int, fn func(*gorm.DB, *SubscriptionPreConsumeRecord) (int64, string, error)) (*SubscriptionBillingResult, error) {
+func mutateSubscriptionBillingContext(ctx context.Context, requestID string, userID int, fn func(*gorm.DB, *SubscriptionPreConsumeRecord) (int64, string, error)) (*SubscriptionBillingResult, error) {
 	var record SubscriptionPreConsumeRecord
 	var walletDelta int64
 	var tokenKey string
-	err := DB.Transaction(func(tx *gorm.DB) error {
+	err := DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := lockSubscriptionBillingUser(tx, userID); err != nil {
 			return err
 		}
@@ -232,6 +292,10 @@ func mutateSubscriptionBilling(requestID string, userID int, fn func(*gorm.DB, *
 	}
 	syncSubscriptionBillingCache(userID, walletDelta, tokenKey)
 	return subscriptionBillingResult(&record), nil
+}
+
+func mutateSubscriptionBilling(requestID string, userID int, fn func(*gorm.DB, *SubscriptionPreConsumeRecord) (int64, string, error)) (*SubscriptionBillingResult, error) {
+	return mutateSubscriptionBillingContext(context.Background(), requestID, userID, fn)
 }
 
 func ReserveSubscriptionBilling(requestID string, userID int, target int64) (*SubscriptionBillingResult, error) {
@@ -306,12 +370,16 @@ func ReserveSubscriptionBilling(requestID string, userID int, target int64) (*Su
 }
 
 func SettleSubscriptionBilling(requestID string, userID int, actual int64) (*SubscriptionBillingResult, error) {
+	return SettleSubscriptionBillingContext(context.Background(), requestID, userID, actual)
+}
+
+func SettleSubscriptionBillingContext(ctx context.Context, requestID string, userID int, actual int64) (*SubscriptionBillingResult, error) {
 	if actual < 0 {
 		return nil, errors.New("negative actual quota")
 	}
 	// Persist the cost fact before trying to debit. On failure this record
 	// remains settling, blocks refunds, and retains the exact retry amount.
-	intent, err := mutateSubscriptionBilling(requestID, userID, func(tx *gorm.DB, r *SubscriptionPreConsumeRecord) (int64, string, error) {
+	intent, err := mutateSubscriptionBillingContext(ctx, requestID, userID, func(tx *gorm.DB, r *SubscriptionPreConsumeRecord) (int64, string, error) {
 		if r.Status == "settled" || r.Status == "settling" {
 			if r.ActualQuota != actual {
 				return 0, "", errors.New("subscription settlement amount mismatch")
@@ -327,7 +395,7 @@ func SettleSubscriptionBilling(requestID string, userID int, actual int64) (*Sub
 	if err != nil {
 		return nil, err
 	}
-	result, err := mutateSubscriptionBilling(requestID, userID, func(tx *gorm.DB, r *SubscriptionPreConsumeRecord) (int64, string, error) {
+	result, err := mutateSubscriptionBillingContext(ctx, requestID, userID, func(tx *gorm.DB, r *SubscriptionPreConsumeRecord) (int64, string, error) {
 		if r.Status == "settled" {
 			return 0, "", nil
 		}

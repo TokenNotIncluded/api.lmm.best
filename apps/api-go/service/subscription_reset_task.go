@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,9 +17,12 @@ import (
 )
 
 const (
-	subscriptionResetTickInterval = 1 * time.Minute
-	subscriptionResetBatchSize    = 300
-	subscriptionCleanupInterval   = 30 * time.Minute
+	subscriptionResetTickInterval         = 1 * time.Minute
+	subscriptionResetBatchSize            = 300
+	subscriptionCleanupInterval           = 30 * time.Minute
+	subscriptionBillingRecoveryRetryAfter = 1 * time.Minute
+	subscriptionBillingRecoveryTimeout    = 15 * time.Second
+	subscriptionBillingRecoveryBatchSize  = 50
 )
 
 var (
@@ -93,6 +97,7 @@ func runSubscriptionQuotaResetOnceContext(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
 	}
+	runSubscriptionBillingRecoveryOnceContext(ctx)
 
 	totalReset := 0
 	totalExpired := 0
@@ -134,5 +139,33 @@ func runSubscriptionQuotaResetOnceContext(ctx context.Context) {
 	}
 	if common.DebugEnabled && (totalReset > 0 || totalExpired > 0) {
 		logger.LogDebug(ctx, "subscription maintenance: reset_count=%d, expired_count=%d", totalReset, totalExpired)
+	}
+}
+
+func runSubscriptionBillingRecoveryOnceContext(ctx context.Context) {
+	records, err := model.ListSubscriptionBillingRecoveryCandidates(ctx, subscriptionBillingRecoveryBatchSize, subscriptionBillingRecoveryRetryAfter)
+	if err != nil {
+		logger.LogWarn(ctx, fmt.Sprintf("subscription billing recovery scan failed: %v", err))
+		return
+	}
+	for _, record := range records {
+		if ctx.Err() != nil {
+			return
+		}
+		if err := model.MarkSubscriptionBillingRecoveryAttempt(ctx, record.Id); err != nil {
+			logger.LogWarn(ctx, fmt.Sprintf("subscription billing recovery claim failed: id=%d err=%v", record.Id, err))
+			continue
+		}
+		attemptCtx, cancel := context.WithTimeout(ctx, subscriptionBillingRecoveryTimeout)
+		_, settleErr := model.SettleSubscriptionBillingContext(attemptCtx, record.RequestId, record.UserId, record.ActualQuota)
+		cancel()
+		if settleErr != nil {
+			manual := record.RecoveryAttempts+1 >= model.SubscriptionBillingRecoveryMaxAttempts || strings.Contains(settleErr.Error(), "mismatch") || strings.Contains(settleErr.Error(), "period changed")
+			_ = model.MarkSubscriptionBillingRecoveryFailure(ctx, record.Id, settleErr, manual)
+			logger.LogWarn(ctx, fmt.Sprintf("subscription billing recovery failed: id=%d request_id=%s manual=%t err=%v", record.Id, record.RequestId, manual, settleErr))
+			continue
+		}
+		_ = model.MarkSubscriptionBillingRecoverySuccess(ctx, record.Id)
+		logger.LogInfo(ctx, fmt.Sprintf("subscription billing recovery settled: id=%d request_id=%s", record.Id, record.RequestId))
 	}
 }

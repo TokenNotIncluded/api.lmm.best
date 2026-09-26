@@ -17,8 +17,12 @@ after successful settlement. Database error details are restricted to
 that settlement was not completed.
 
 The log is a snapshot, not a live reconciliation record. Operators can query
-`model.GetSubscriptionBillingResult(requestID, userID)` and retry only
-`model.SettleSubscriptionBilling(requestID, userID, originalActualQuota)`.
+`model.GetSubscriptionBillingResult(requestID, userID)`. The subscription
+maintenance leader also retries eligible managed `settling` records with the
+original request ID and persisted actual quota. Retries are bounded, delayed,
+and recorded on the ledger; malformed records, amount or period mismatches,
+and exhausted attempts are marked for manual reconciliation. The worker never
+resends an upstream request, writes usage again, or refunds a settling record.
 Do not rerun PostTextConsumeQuota, which would duplicate usage statistics/logs,
 or resend the model request. Repeated settlement of the same amount is
 idempotent; changing that amount is rejected. `unrecorded` means the session
@@ -36,9 +40,11 @@ submission is not evidence that full settlement succeeded. Enabling mixed
 funding for tasks requires persisting both funding amounts in task bookkeeping
 and updating task refunds/recalculation first.
 
-No new table is introduced. The seven added SubscriptionPreConsumeRecord columns
-are billing_managed, token_id, token_consumed, wallet_overflow, actual_quota,
-wallet_consumed and reserved_version. UserSubscription.quota_version increments
+No new table is introduced. SubscriptionPreConsumeRecord includes the managed
+ledger fields billing_managed, token_id, token_consumed, wallet_overflow,
+actual_quota, wallet_consumed and reserved_version, plus recovery audit fields
+recovery_attempts, recovery_last_attempt_at, recovery_last_error and
+recovery_state. UserSubscription.quota_version increments
 on scheduled, manual, batch/voucher resets and paid renewals. Reserve across a
 version change is rejected. Old-period negative settlement/refund adjusts the
 token but does not subtract from the new period's subscription usage. Positive

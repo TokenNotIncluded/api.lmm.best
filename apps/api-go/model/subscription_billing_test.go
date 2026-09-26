@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -33,6 +34,53 @@ func subscriptionBillingModelFixture(t *testing.T, postgres bool) *gorm.DB {
 	require.NoError(t, db.Create(&SubscriptionPlan{Id: 9003, Title: "billing", DurationUnit: SubscriptionDurationDay, DurationValue: 1, QuotaResetPeriod: SubscriptionResetNever}).Error)
 	require.NoError(t, db.Create(&UserSubscription{Id: 9101, UserId: 9001, PlanId: 9003, AmountTotal: 100000, Status: "active", EndTime: time.Now().Unix() + 3600, AllowWalletOverflow: true}).Error)
 	return db
+}
+
+func TestSubscriptionBillingRecoveryCandidatesAreBoundedAndManaged(t *testing.T) {
+	db := subscriptionBillingModelFixture(t, false)
+	now := common.GetTimestamp()
+	records := []SubscriptionPreConsumeRecord{
+		{RequestId: "recoverable", UserId: 9001, UserSubscriptionId: 9101, BillingManaged: true, ActualQuota: 100, Status: "settling", UpdatedAt: now - 120},
+		{RequestId: "legacy", UserId: 9001, UserSubscriptionId: 9101, BillingManaged: false, ActualQuota: 100, Status: "settling", UpdatedAt: now - 120},
+		{RequestId: "manual", UserId: 9001, UserSubscriptionId: 9101, BillingManaged: true, ActualQuota: 100, Status: "settling", RecoveryState: SubscriptionBillingRecoveryManual, UpdatedAt: now - 120},
+	}
+	for i := range records {
+		require.NoError(t, db.Create(&records[i]).Error)
+	}
+	candidates, err := ListSubscriptionBillingRecoveryCandidates(context.Background(), 1, time.Minute)
+	require.NoError(t, err)
+	require.Len(t, candidates, 1)
+	require.Equal(t, "recoverable", candidates[0].RequestId)
+	require.NoError(t, MarkSubscriptionBillingRecoveryAttempt(context.Background(), candidates[0].Id))
+	var updated SubscriptionPreConsumeRecord
+	require.NoError(t, db.First(&updated, candidates[0].Id).Error)
+	require.Equal(t, 1, updated.RecoveryAttempts)
+	require.Equal(t, "recovering", updated.RecoveryState)
+}
+
+func TestSubscriptionBillingRecoveryCandidatesExcludeExpiredRecords(t *testing.T) {
+	db := subscriptionBillingModelFixture(t, false)
+	record := SubscriptionPreConsumeRecord{RequestId: "expired-recovery", UserId: 9001, UserSubscriptionId: 9101, BillingManaged: true, ActualQuota: 100, Status: "settling"}
+	require.NoError(t, db.Create(&record).Error)
+	require.NoError(t, db.Model(&record).UpdateColumn("created_at", common.GetTimestamp()-int64(SubscriptionBillingRecoveryWindow.Seconds())-1).Error)
+
+	candidates, err := ListSubscriptionBillingRecoveryCandidates(context.Background(), 10, time.Minute)
+	require.NoError(t, err)
+	require.Empty(t, candidates, "records past the recovery window should not be retried automatically")
+}
+
+func TestSubscriptionBillingRecoveryClaimIsSingleUseAndExhaustionIsManual(t *testing.T) {
+	db := subscriptionBillingModelFixture(t, false)
+	record := SubscriptionPreConsumeRecord{RequestId: "claim-once", UserId: 9001, UserSubscriptionId: 9101, BillingManaged: true, ActualQuota: 100, Status: "settling"}
+	require.NoError(t, db.Create(&record).Error)
+	require.NoError(t, MarkSubscriptionBillingRecoveryAttempt(context.Background(), record.Id))
+	require.Error(t, MarkSubscriptionBillingRecoveryAttempt(context.Background(), record.Id))
+
+	require.NoError(t, db.Model(&record).Updates(map[string]interface{}{"recovery_attempts": SubscriptionBillingRecoveryMaxAttempts, "recovery_state": "recovering"}).Error)
+	require.Error(t, MarkSubscriptionBillingRecoveryAttempt(context.Background(), record.Id))
+	var got SubscriptionPreConsumeRecord
+	require.NoError(t, db.First(&got, record.Id).Error)
+	require.Equal(t, SubscriptionBillingRecoveryManual, got.RecoveryState)
 }
 
 func TestSubscriptionBillingConcurrentPostgres(t *testing.T) {
