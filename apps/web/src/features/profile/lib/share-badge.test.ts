@@ -10,22 +10,46 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import {
-  BADGE_STYLE_PRESETS, INITIAL_OPTIONS, badgeLanguage, buildBadgeURL,
-  buildBadgeEmbedCode, changeBadgeLayout, canShareBadge,
+  BADGE_STYLE_PRESETS,
+  INITIAL_OPTIONS,
+  badgeLanguage,
+  buildBadgeURL,
+  buildBadgeEmbedCode,
+  changeBadgeLayout,
+  canShareBadge,
 } from './share-badge'
 
 test('model sharing is separate from an existing profile URL', () => {
   assert.equal(canShareBadge({ enabled: true }, 'models'), false)
   assert.equal(canShareBadge({ enabled: true }, 'profile'), true)
-  assert.equal(canShareBadge({ enabled: true, model_usage_enabled: true }, 'models'), true)
-  assert.equal(canShareBadge({ enabled: false, model_usage_enabled: true }, 'models'), false)
+  assert.equal(
+    canShareBadge({ enabled: true, model_usage_enabled: true }, 'models'),
+    true
+  )
+  assert.equal(
+    canShareBadge({ enabled: false, model_usage_enabled: true }, 'models'),
+    false
+  )
   assert.equal(canShareBadge(undefined, 'models'), false)
 })
 
 test('all appearance presets round-trip into model SVG URLs', () => {
   for (const preset of BADGE_STYLE_PRESETS) {
-    const options = { ...INITIAL_OPTIONS, ...preset, top: 9, period: '7d' as const, title: 'A & B <title>', requests: false }
-    const url = new URL(buildBadgeURL('https://api.lmm.best/api/share/profile/example.svg?obsolete=1#old', options, 'zhCN'))
+    const options = {
+      ...INITIAL_OPTIONS,
+      ...preset,
+      top: 9,
+      period: '7d' as const,
+      title: 'A & B <title>',
+      requests: false,
+    }
+    const url = new URL(
+      buildBadgeURL(
+        'https://api.lmm.best/api/share/profile/example.svg?obsolete=1#old',
+        options,
+        'zhCN'
+      )
+    )
     assert.equal(url.searchParams.get('layout'), 'models')
     assert.equal(url.searchParams.get('period'), '7d')
     assert.equal(url.searchParams.get('top'), '9')
@@ -49,7 +73,9 @@ test('legacy layouts never receive model-only parameters or invalid periods', ()
   const badge = changeBadgeLayout(INITIAL_OPTIONS, 'badge')
   assert.equal(badge.height, 240)
   for (const options of [profile, badge]) {
-    const url = new URL(buildBadgeURL('https://api.lmm.best/example.svg', options, 'en'))
+    const url = new URL(
+      buildBadgeURL('https://api.lmm.best/example.svg', options, 'en')
+    )
     assert.equal(url.searchParams.has('top'), false)
   }
   const model = changeBadgeLayout({ ...badge, period: 'all' }, 'models')
@@ -58,19 +84,40 @@ test('legacy layouts never receive model-only parameters or invalid periods', ()
 })
 
 test('SVG language maps interface and browser locale aliases', () => {
-  for (const [input, expected] of [['zhCN','zh'],['zh-CN','zh'],['zhTW','zh-TW'],['zh-Hant','zh-TW'],['ja-JP','ja'],['fr-FR','fr'],['unsupported','en']]) {
+  for (const [input, expected] of [
+    ['zhCN', 'zh'],
+    ['zh-CN', 'zh'],
+    ['zhTW', 'zh-TW'],
+    ['zh-Hant', 'zh-TW'],
+    ['ja-JP', 'ja'],
+    ['fr-FR', 'fr'],
+    ['unsupported', 'en'],
+  ]) {
     assert.equal(badgeLanguage(input), expected)
   }
 })
 
 test('copy embeds only the chosen live image, never a stale statistics snapshot', () => {
-  const url = buildBadgeURL('https://api.lmm.best/example.svg', INITIAL_OPTIONS, 'en')
+  const url = buildBadgeURL(
+    'https://api.lmm.best/example.svg',
+    INITIAL_OPTIONS,
+    'en'
+  )
   const code = buildBadgeEmbedCode(url, INITIAL_OPTIONS)
-  assert.equal(code.markdown, `[![LMM Best model usage](${url})](https://api.lmm.best)`)
+  assert.equal(
+    code.markdown,
+    `[![LMM Best model usage](${url})](https://api.lmm.best)`
+  )
   assert.ok(code.html.includes('&amp;'))
   assert.ok(code.html.includes('width="1200" height="900"'))
   assert.ok(!code.markdown.includes('###'))
-  const unsafe = buildBadgeEmbedCode('https://example.test/?x="<>&', INITIAL_OPTIONS)
+  const unsafe = buildBadgeEmbedCode(
+    'https://example.test/?x="<>&',
+    INITIAL_OPTIONS
+  )
   assert.ok(unsafe.html.includes('&quot;&lt;&gt;&amp;'))
-  assert.deepEqual(buildBadgeEmbedCode('', INITIAL_OPTIONS), { markdown: '', html: '' })
+  assert.deepEqual(buildBadgeEmbedCode('', INITIAL_OPTIONS), {
+    markdown: '',
+    html: '',
+  })
 })
