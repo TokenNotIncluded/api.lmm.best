@@ -42,6 +42,8 @@ export interface ModelUsageCopySnapshot {
 
 interface ModelUsageReportProps {
   accountCreatedTime?: number
+  rangeKey?: ModelUsageRangeKey
+  onRangeKeyChange?: (range: ModelUsageRangeKey) => void
   onCopySnapshotChange?: (snapshot: ModelUsageCopySnapshot | null) => void
 }
 
@@ -51,12 +53,15 @@ function escapeMarkdownCell(value: string): string {
 
 export function ModelUsageReport({
   accountCreatedTime,
+  rangeKey: controlledRange,
+  onRangeKeyChange,
   onCopySnapshotChange,
 }: ModelUsageReportProps) {
   const { t, i18n } = useTranslation()
   const { resolvedTheme } = useTheme()
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language) ?? 'en'
-  const [rangeKey, setRangeKey] = useState<ModelUsageRangeKey>('30d')
+  const [localRange, setLocalRange] = useState<ModelUsageRangeKey>('30d')
+  const rangeKey = controlledRange ?? localRange
   const [activeIndex, setActiveIndex] = useState<number | null>(null)
   const [hideNumbers, setHideNumbers] = useState(false)
   const query = useModelUsage(rangeKey, accountCreatedTime)
@@ -75,7 +80,6 @@ export function ModelUsageReport({
         key: model.modelName,
         label:
           model.modelName === 'unknown' ? t('Unknown model') : model.modelName,
-        // Every slice uses the same metric, including free requests.
         value: model.share,
         color: `var(--forge-chart-${SEGMENT_COLORS[index % SEGMENT_COLORS.length]}-${resolvedTheme === 'dark' ? 'dark' : 'light'})`,
       }))
@@ -106,7 +110,6 @@ export function ModelUsageReport({
   const rangeLabel = `${dateFormat.format(new Date(query.range.start_timestamp * 1000))} – ${dateFormat.format(new Date(query.range.end_timestamp * 1000))}`
   const copyMarkdown = useMemo(() => {
     if (loading || failed || models.length === 0) return ''
-
     const displayNumber = (value: number) =>
       hideNumbers ? '••••' : formatNumber(value, locale)
     const displayQuota = (value: number) =>
@@ -115,7 +118,6 @@ export function ModelUsageReport({
       (model) =>
         `| ${escapeMarkdownCell(model.modelName === 'unknown' ? t('Unknown model') : model.modelName)} | ${displayNumber(model.tokens)} | ${displayNumber(model.requests)} | ${displayQuota(model.quota)} | ${shareFormatter.format(model.share)} |`
     )
-
     return [
       `### ${t('Model by model')}`,
       `_${rangeLabel}_`,
@@ -129,140 +131,53 @@ export function ModelUsageReport({
       '| --- | ---: | ---: | ---: | ---: |',
       ...rows,
     ].join('\n')
-  }, [
-    failed,
-    shareFormatter,
-    hideNumbers,
-    loading,
-    locale,
-    models,
-    rangeLabel,
-    t,
-    totals.modelCount,
-    totals.quota,
-    totals.requests,
-    totals.tokens,
-  ])
-
+  }, [failed, shareFormatter, hideNumbers, loading, locale, models, rangeLabel, t, totals.modelCount, totals.quota, totals.requests, totals.tokens])
   useEffect(() => {
-    onCopySnapshotChange?.(
-      copyMarkdown ? { markdown: copyMarkdown, rangeKey } : null
-    )
+    onCopySnapshotChange?.(copyMarkdown ? { markdown: copyMarkdown, rangeKey } : null)
   }, [copyMarkdown, onCopySnapshotChange, rangeKey])
 
   return (
-    <section
-      className='space-y-4 border-b pb-6'
-      aria-labelledby='model-usage-heading'
-      data-testid='model-usage-report'
-    >
+    <section className='space-y-4 border-b pb-6' aria-labelledby='model-usage-heading' data-testid='model-usage-report'>
       <div className='flex flex-wrap items-start justify-between gap-3'>
         <div className='min-w-0'>
-          <h2
-            id='model-usage-heading'
-            className='text-base font-semibold tracking-tight'
-          >
-            {t('Model by model')}
-          </h2>
-          <p className='text-muted-foreground mt-1 text-xs tabular-nums'>
-            {rangeLabel}
-          </p>
+          <h2 id='model-usage-heading' className='text-base font-semibold tracking-tight'>{t('Model by model')}</h2>
+          <p className='text-muted-foreground mt-1 text-xs tabular-nums'>{rangeLabel}</p>
         </div>
         <div className='flex flex-wrap items-center justify-end gap-2'>
-          <div
-            className='flex flex-wrap gap-1'
-            role='group'
-            aria-label={t('Time range')}
-          >
+          <div className='flex flex-wrap gap-1' role='group' aria-label={t('Time range')}>
             {RANGE_KEYS.map((key) => (
-              <Button
-                key={key}
-                size='sm'
-                className='min-h-11 sm:min-h-8'
-                variant={rangeKey === key ? 'secondary' : 'ghost'}
-                aria-pressed={rangeKey === key}
-                onClick={() => {
-                  setRangeKey(key)
-                  setActiveIndex(null)
-                }}
-              >
-                {t(RANGE_LABELS[key])}
-              </Button>
+              <Button key={key} size='sm' className='min-h-11 sm:min-h-8' variant={rangeKey === key ? 'secondary' : 'ghost'} aria-pressed={rangeKey === key}
+                onClick={() => { setLocalRange(key); onRangeKeyChange?.(key); setActiveIndex(null) }}>{t(RANGE_LABELS[key])}</Button>
             ))}
           </div>
           {copyMarkdown ? (
-            <CopyButton
-              value={copyMarkdown}
-              variant='outline'
-              size='sm'
-              className='min-h-11 sm:min-h-8'
-              aria-label={`${t('Copy')} ${t('Statistics')}`}
-            >
-              {t('Copy')} · {t('Statistics')}
-            </CopyButton>
+            <CopyButton value={copyMarkdown} variant='outline' size='sm' className='min-h-11 sm:min-h-8' aria-label={`${t('Copy')} ${t('Statistics')}`}>{t('Copy')} · {t('Statistics')}</CopyButton>
           ) : null}
         </div>
       </div>
       {loading ? (
         <div className='grid gap-5 sm:grid-cols-[15rem_minmax(0,1fr)]'>
           <Skeleton className='mx-auto size-52 rounded-full' />
-          <div className='space-y-3'>
-            {Array.from({ length: 4 }, (_, index) => (
-              <Skeleton key={index} className='h-11 w-full' />
-            ))}
-          </div>
+          <div className='space-y-3'>{Array.from({ length: 4 }, (_, index) => <Skeleton key={index} className='h-11 w-full' />)}</div>
         </div>
       ) : failed ? (
-        <ErrorState
-          title={t('Could not load your model breakdown.')}
-          description={t('Check your connection and try again.')}
-          onRetry={() => void query.refetch()}
-        />
+        <ErrorState title={t('Could not load your model breakdown.')} description={t('Check your connection and try again.')} onRetry={() => void query.refetch()} />
       ) : models.length === 0 ? (
-        <EmptyState
-          icon={ChartNoAxesCombined}
-          title={t('No usage in this range yet')}
-          description={t('Send one request and your model mix shows up here.')}
-          action={
-            <Button variant='outline' render={<Link to='/playground' />}>
-              {t('Open the playground')}
-            </Button>
-          }
-        />
+        <EmptyState icon={ChartNoAxesCombined} title={t('No usage in this range yet')} description={t('Send one request and your model mix shows up here.')}
+          action={<Button variant='outline' render={<Link to='/playground' />}>{t('Open the playground')}</Button>} />
       ) : (
         <>
-          {query.isError && (
-            <ErrorState
-              className='min-h-0'
-              title={t('Could not refresh usage. Showing the last result.')}
-              onRetry={() => void query.refetch()}
-            />
-          )}
+          {query.isError && <ErrorState className='min-h-0' title={t('Could not refresh usage. Showing the last result.')} onRetry={() => void query.refetch()} />}
           <div className='grid items-center gap-4 sm:grid-cols-[15rem_minmax(0,1fr)]'>
-            <ModelUsageDonut
-              segments={segments}
-              centerValue={formatValue(totals.tokens)}
-              centerLabel={t('Total tokens')}
-              activeIndex={activeIndex}
-              onActiveIndexChange={setActiveIndex}
-              label={shareLabel}
-            />
+            <ModelUsageDonut segments={segments} centerValue={formatValue(totals.tokens)} centerLabel={t('Total tokens')} activeIndex={activeIndex} onActiveIndexChange={setActiveIndex} label={shareLabel} />
             <dl className='grid grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-1 xl:grid-cols-2'>
               {[
                 [t('Total tokens'), formatValue(totals.tokens)],
                 [t('Total requests'), formatValue(totals.requests)],
-                [
-                  t('Total Usage'),
-                  hideNumbers ? '••••' : formatLogQuota(totals.quota),
-                ],
+                [t('Total Usage'), hideNumbers ? '••••' : formatLogQuota(totals.quota)],
                 [t('Models used'), formatNumber(totals.modelCount, locale)],
               ].map(([label, value]) => (
-                <div key={label} className='min-w-0'>
-                  <dt className='text-muted-foreground text-xs'>{label}</dt>
-                  <dd className='mt-1 text-base font-semibold break-words tabular-nums'>
-                    {value}
-                  </dd>
-                </div>
+                <div key={label} className='min-w-0'><dt className='text-muted-foreground text-xs'>{label}</dt><dd className='mt-1 text-base font-semibold break-words tabular-nums'>{value}</dd></div>
               ))}
             </dl>
           </div>
@@ -270,56 +185,20 @@ export function ModelUsageReport({
             <p className='text-muted-foreground text-xs'>{shareLabel}</p>
             <ol className='divide-y border-y'>
               {models.map((model, index) => {
-                const segmentIndex =
-                  index < MAX_RING_SEGMENTS ? index : MAX_RING_SEGMENTS
+                const segmentIndex = index < MAX_RING_SEGMENTS ? index : MAX_RING_SEGMENTS
                 return (
                   <li key={model.modelName}>
-                    <button
-                      type='button'
-                      className={cn(
-                        'hover:bg-muted/50 focus-visible:ring-ring flex w-full min-w-0 flex-col gap-2 px-2 py-3 text-left transition-colors focus-visible:ring-2 focus-visible:outline-none sm:gap-1',
-                        activeIndex === segmentIndex && 'bg-muted/50'
-                      )}
-                      onPointerEnter={() => setActiveIndex(segmentIndex)}
-                      onPointerLeave={() => setActiveIndex(null)}
-                      onFocus={() => setActiveIndex(segmentIndex)}
-                      onBlur={() => setActiveIndex(null)}
-                      onClick={() =>
-                        setActiveIndex(
-                          activeIndex === segmentIndex ? null : segmentIndex
-                        )
-                      }
-                      aria-pressed={activeIndex === segmentIndex}
-                    >
+                    <button type='button' className={cn('hover:bg-muted/50 focus-visible:ring-ring flex w-full min-w-0 flex-col gap-2 px-2 py-3 text-left transition-colors focus-visible:ring-2 focus-visible:outline-none sm:gap-1', activeIndex === segmentIndex && 'bg-muted/50')}
+                      onPointerEnter={() => setActiveIndex(segmentIndex)} onPointerLeave={() => setActiveIndex(null)} onFocus={() => setActiveIndex(segmentIndex)} onBlur={() => setActiveIndex(null)}
+                      onClick={() => setActiveIndex(activeIndex === segmentIndex ? null : segmentIndex)} aria-pressed={activeIndex === segmentIndex}>
                       <span className='flex min-w-0 items-start justify-between gap-3'>
-                        <span className='min-w-0 text-sm font-medium break-all'>
-                          {model.modelName === 'unknown'
-                            ? t('Unknown model')
-                            : model.modelName}
-                        </span>
-                        <span className='text-muted-foreground shrink-0 text-xs tabular-nums'>
-                          {shareFormatter.format(model.share)}
-                        </span>
+                        <span className='min-w-0 text-sm font-medium break-all'>{model.modelName === 'unknown' ? t('Unknown model') : model.modelName}</span>
+                        <span className='text-muted-foreground shrink-0 text-xs tabular-nums'>{shareFormatter.format(model.share)}</span>
                       </span>
                       <span className='grid grid-cols-3 gap-2 text-xs tabular-nums'>
-                        <span className='min-w-0 break-words'>
-                          <span className='text-muted-foreground block'>
-                            {t('Tokens')}
-                          </span>
-                          {formatValue(model.tokens)}
-                        </span>
-                        <span className='min-w-0 break-words'>
-                          <span className='text-muted-foreground block'>
-                            {t('Requests')}
-                          </span>
-                          {formatValue(model.requests)}
-                        </span>
-                        <span className='min-w-0 text-right break-words'>
-                          <span className='text-muted-foreground block'>
-                            {t('Total Usage')}
-                          </span>
-                          {hideNumbers ? '••••' : formatLogQuota(model.quota)}
-                        </span>
+                        <span className='min-w-0 break-words'><span className='text-muted-foreground block'>{t('Tokens')}</span>{formatValue(model.tokens)}</span>
+                        <span className='min-w-0 break-words'><span className='text-muted-foreground block'>{t('Requests')}</span>{formatValue(model.requests)}</span>
+                        <span className='min-w-0 text-right break-words'><span className='text-muted-foreground block'>{t('Total Usage')}</span>{hideNumbers ? '••••' : formatLogQuota(model.quota)}</span>
                       </span>
                     </button>
                   </li>
@@ -328,25 +207,9 @@ export function ModelUsageReport({
             </ol>
           </div>
           <div className='flex flex-wrap items-center justify-between gap-3'>
-            <label className='flex min-h-11 items-center gap-3 text-sm'>
-              <Switch checked={hideNumbers} onCheckedChange={setHideNumbers} />
-              {t('Hide the exact numbers')}
-            </label>
-            <Button
-              variant='ghost'
-              size='sm'
-              className='min-h-11'
-              disabled={query.isFetching}
-              onClick={() => void query.refetch()}
-            >
-              <RefreshCw
-                className={cn(
-                  'size-4',
-                  query.isFetching && 'animate-spin motion-reduce:animate-none'
-                )}
-                aria-hidden='true'
-              />
-              {t('Refresh')}
+            <label className='flex min-h-11 items-center gap-3 text-sm'><Switch checked={hideNumbers} onCheckedChange={setHideNumbers} />{t('Hide the exact numbers')}</label>
+            <Button variant='ghost' size='sm' className='min-h-11' disabled={query.isFetching} onClick={() => void query.refetch()}>
+              <RefreshCw className={cn('size-4', query.isFetching && 'animate-spin motion-reduce:animate-none')} aria-hidden='true' />{t('Refresh')}
             </Button>
           </div>
         </>

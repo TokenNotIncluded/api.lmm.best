@@ -21,7 +21,7 @@ import { afterEach, describe, test } from 'node:test'
 
 import { api } from '@/lib/api'
 
-import { getProfileUsageWindow, performCheckin } from './api'
+import { getProfileUsageWindow, performCheckin, enableProfileShare } from './api'
 
 const originalGet = api.get
 const originalPost = api.post
@@ -82,4 +82,16 @@ describe('profile check-in API', () => {
       config: { skipBusinessError: true },
     })
   })
+})
+
+test('model-share consent sends explicit booleans and preserves body-less enable', async () => {
+  const bodies: unknown[] = []
+  api.post = (async (_url, body) => {
+    bodies.push(body)
+    return { data: { success: true, data: { enabled: true, model_usage_enabled: body?.model_usage_enabled ?? false } } }
+  }) as typeof api.post
+  await enableProfileShare()
+  assert.equal((await enableProfileShare(true)).model_usage_enabled, true)
+  assert.equal((await enableProfileShare(false)).model_usage_enabled, false)
+  assert.deepEqual(bodies, [undefined, { model_usage_enabled: true }, { model_usage_enabled: false }])
 })

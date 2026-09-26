@@ -63,7 +63,7 @@ func TestProfileShareModelsRender(t *testing.T) {
 		require.NotContains(t, svg, "\x00")
 		require.Contains(t, svg, "40.0%")
 		require.Contains(t, svg, "10.0%")
-		require.Contains(t, svg, ">1000</text>")
+		require.Contains(t, svg, ">"+profileShareModelText(profileShareFormatNumber(usage.Tokens, options.Format, language))+"</text>")
 		require.Contains(t, svg, profileShareModelLanguages[language].Other)
 		require.Contains(t, svg, "prefers-reduced-motion")
 		var parsed struct{}
