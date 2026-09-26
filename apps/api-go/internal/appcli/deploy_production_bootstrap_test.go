@@ -5,17 +5,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
 type bootstrapRunner struct {
-	plan                                       productionReleasePlan
-	help, response, badEntry, wrongTransaction string
-	helpError, createError, exists             bool
-	completedBeforeError                       bool
-	creates                                    []string
+	plan                                               productionReleasePlan
+	capabilities, response, badEntry, wrongTransaction string
+	capabilitiesError, createError, exists             bool
+	completedBeforeError                               bool
+	creates                                            []string
+	capabilityProbes, helpProbes                       int
 }
 
 func (r *bootstrapRunner) Run(_ context.Context, command productionCommand) ([]byte, error) {
@@ -70,10 +72,15 @@ func (r *bootstrapRunner) Run(_ context.Context, command productionCommand) ([]b
 		}
 	case productionOperatorBinary:
 		if len(a) == 2 && a[1] == "help" {
-			if r.helpError {
-				return nil, errors.New("SSH disconnected during help")
+			r.helpProbes++
+			return nil, errors.New("bootstrap must not inspect human-readable help")
+		}
+		if len(a) == 3 && a[1] == "operator" && a[2] == "capabilities" {
+			r.capabilityProbes++
+			if r.capabilitiesError {
+				return nil, errors.New("SSH disconnected during capabilities")
 			}
-			return []byte(r.help), nil
+			return []byte(r.capabilities), nil
 		}
 		if len(a) == 7 && a[2] == "production" && a[3] == "workspace" && a[4] == "create" && a[6] == r.plan.DeploymentID {
 			r.creates = append(r.creates, a[1])
@@ -93,50 +100,103 @@ func bootstrapFixture(t *testing.T) (*productionReleaseRuntime, *bootstrapRunner
 	t.Helper()
 	plan := productionReleasePlan{TargetAlias: productionTargetAlias, DeploymentID: "bootstrap-test"}
 	plan.GoRollback.PayloadSHA256 = strings.Repeat("a", 64)
+	plan.GoRollback.Name = productionAURPackageName
+	plan.GoRollback.Version = "0.2.59-1"
+	plan.GoRollback.ReleaseTag = "go-v0.2.59"
+	plan.GoRollback.GitRevision = productionBootstrapReleaseProtocols["go-v0.2.59"].revision
 	paths := defaultProductionPaths()
 	response, err := json.Marshal(productionWorkspaceResult{DeploymentID: plan.DeploymentID, Workspace: filepath.Join(paths.WorkRoot, plan.DeploymentID), Transaction: paths.TransactionLock, TransactionSet: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner := &bootstrapRunner{plan: plan, help: "Usage:\n  /usr/bin/lmm-api-deploy build|frontend|production ...\n", response: string(response)}
+	runner := &bootstrapRunner{plan: plan, capabilities: `{"format":1,"workspace_create":"operator"}` + "\n", response: string(response)}
 	return &productionReleaseRuntime{runner: runner}, runner
 }
 
+func setFutureBootstrapPackage(plan *productionReleasePlan) {
+	plan.GoRollback.Version = "0.2.60-1"
+	plan.GoRollback.ReleaseTag = "go-v0.2.60"
+	plan.GoRollback.GitRevision = strings.Repeat("b", 40)
+}
+
 func TestBootstrapSelectsVerifiedCurrentOrLegacyNativeCLI(t *testing.T) {
-	for _, protocol := range []string{"operator", "deploy"} {
-		t.Run(protocol, func(t *testing.T) {
+	for tag, release := range productionBootstrapReleaseProtocols {
+		t.Run(tag, func(t *testing.T) {
 			runtime, runner := bootstrapFixture(t)
-			if protocol == "deploy" {
-				runner.help = "Usage:\n  lmm-api deploy production plan [signed candidate and rollback inputs]\n"
-			}
+			runner.plan.GoRollback.Version = strings.TrimPrefix(tag, "go-v") + "-1"
+			runner.plan.GoRollback.ReleaseTag = tag
+			runner.plan.GoRollback.GitRevision = release.revision
 			result, err := runtime.bootstrapRemoteWorkspace(context.Background(), runner.plan)
-			if err != nil || !result.TransactionSet || len(runner.creates) != 1 || runner.creates[0] != protocol {
+			if err != nil || !result.TransactionSet || len(runner.creates) != 1 || runner.creates[0] != release.protocol || runner.capabilityProbes != 0 || runner.helpProbes != 0 {
 				t.Fatalf("result=%+v creates=%v err=%v", result, runner.creates, err)
 			}
 		})
 	}
 }
 
-func TestBootstrapRejectsInvalidProviderOrHelpBeforeMutation(t *testing.T) {
-	for _, name := range []string{"unknown help", "ambiguous help", "transport", "unsafe provider", "missing digest"} {
+func TestBootstrapUsesReadOnlyCapabilityForFutureRelease(t *testing.T) {
+	runtime, runner := bootstrapFixture(t)
+	setFutureBootstrapPackage(&runner.plan)
+	result, err := runtime.bootstrapRemoteWorkspace(context.Background(), runner.plan)
+	if err != nil || !result.TransactionSet || len(runner.creates) != 1 || runner.creates[0] != "operator" || runner.capabilityProbes != 1 || runner.helpProbes != 0 {
+		t.Fatalf("result=%+v creates=%v probes=%d err=%v", result, runner.creates, runner.capabilityProbes, err)
+	}
+}
+
+func TestBootstrapRejectsInvalidProviderOrCapabilitiesBeforeMutation(t *testing.T) {
+	for _, name := range []string{"unknown capability", "ambiguous capability", "missing capability", "extra capability", "trailing capability", "oversized capability", "transport", "unsupported revision", "invalid metadata", "unsafe provider", "missing digest"} {
 		t.Run(name, func(t *testing.T) {
 			runtime, runner := bootstrapFixture(t)
 			switch name {
-			case "unknown help":
-				runner.help = "Usage: something else"
-			case "ambiguous help":
-				runner.help += "lmm-api deploy production plan [signed candidate and rollback inputs]\n"
+			case "unknown capability":
+				setFutureBootstrapPackage(&runner.plan)
+				runner.capabilities = `{"format":2,"workspace_create":"operator"}`
+			case "ambiguous capability":
+				setFutureBootstrapPackage(&runner.plan)
+				runner.capabilities = `{"format":1,"workspace_create":"deploy","workspace_create":"operator"}`
+			case "missing capability":
+				setFutureBootstrapPackage(&runner.plan)
+				runner.capabilities = `{"format":1}`
+			case "extra capability":
+				setFutureBootstrapPackage(&runner.plan)
+				runner.capabilities = `{"format":1,"workspace_create":"operator","unknown":true}`
+			case "trailing capability":
+				setFutureBootstrapPackage(&runner.plan)
+				runner.capabilities = `{"format":1,"workspace_create":"operator"} {}`
+			case "oversized capability":
+				setFutureBootstrapPackage(&runner.plan)
+				runner.capabilities = strings.Repeat(" ", 4097)
 			case "transport":
-				runner.helpError = true
+				setFutureBootstrapPackage(&runner.plan)
+				runner.capabilitiesError = true
+			case "unsupported revision":
+				runner.plan.GoRollback.GitRevision = strings.Repeat("b", 40)
+			case "invalid metadata":
+				runner.plan.GoRollback.ReleaseTag = "go-v0.2.58"
 			case "unsafe provider":
 				runner.badEntry = "/usr/bin/" + backendGoName
 			case "missing digest":
 				runner.plan.GoRollback.PayloadSHA256 = ""
 			}
-			if _, err := runtime.bootstrapRemoteWorkspace(context.Background(), runner.plan); err == nil || len(runner.creates) != 0 {
-				t.Fatalf("creates=%v err=%v", runner.creates, err)
+			if _, err := runtime.bootstrapRemoteWorkspace(context.Background(), runner.plan); err == nil || len(runner.creates) != 0 || runner.helpProbes != 0 {
+				t.Fatalf("creates=%v help=%d err=%v", runner.creates, runner.helpProbes, err)
 			}
 		})
+	}
+}
+
+func TestProductionBootstrapCapabilitiesAreReadOnlyAndMachineReadable(t *testing.T) {
+	var output, stderr strings.Builder
+	result := Dispatch([]string{"operator", "capabilities"}, "test", &output, &stderr)
+	if result.Mode != ModeExit || result.ExitCode != ExitOK || stderr.Len() != 0 {
+		t.Fatalf("result=%+v stderr=%q", result, stderr.String())
+	}
+	protocol, err := parseProductionBootstrapCapabilities([]byte(output.String()))
+	if err != nil || protocol != "operator" {
+		t.Fatalf("output=%q protocol=%q err=%v", output.String(), protocol, err)
+	}
+	if result := Dispatch([]string{"operator", "capabilities", "unexpected"}, "test", io.Discard, io.Discard); result.ExitCode != ExitUsage {
+		t.Fatalf("unexpected args result=%+v", result)
 	}
 }
 
