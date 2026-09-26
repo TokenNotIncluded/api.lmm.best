@@ -21,7 +21,9 @@ The log is a snapshot, not a live reconciliation record. Operators can query
 maintenance leader also retries eligible managed `settling` records with the
 original request ID and persisted actual quota. Retries are bounded, delayed,
 and recorded on the ledger; malformed records, amount or period mismatches,
-and exhausted attempts are marked for manual reconciliation. The worker never
+exhausted attempts, and records older than seven days are marked for manual
+reconciliation. A crashed worker's final claim is marked on the next scan.
+The worker never
 resends an upstream request, writes usage again, or refunds a settling record.
 Do not rerun PostTextConsumeQuota, which would duplicate usage statistics/logs,
 or resend the model request. Repeated settlement of the same amount is

@@ -143,6 +143,14 @@ func runSubscriptionQuotaResetOnceContext(ctx context.Context) {
 }
 
 func runSubscriptionBillingRecoveryOnceContext(ctx context.Context) {
+	terminal, err := model.MarkTerminalSubscriptionBillingRecoveryRecords(ctx, subscriptionBillingRecoveryBatchSize)
+	if err != nil {
+		logger.LogWarn(ctx, fmt.Sprintf("subscription billing recovery terminal scan failed: %v", err))
+		return
+	}
+	if terminal > 0 {
+		logger.LogWarn(ctx, fmt.Sprintf("subscription billing recovery needs manual reconciliation: count=%d", terminal))
+	}
 	records, err := model.ListSubscriptionBillingRecoveryCandidates(ctx, subscriptionBillingRecoveryBatchSize, subscriptionBillingRecoveryRetryAfter)
 	if err != nil {
 		logger.LogWarn(ctx, fmt.Sprintf("subscription billing recovery scan failed: %v", err))

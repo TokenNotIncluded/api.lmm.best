@@ -20,6 +20,30 @@ const (
 	subscriptionBillingRecoveryRetrySeconds = 60
 )
 
+// MarkTerminalSubscriptionBillingRecoveryRecords makes records that cannot be
+// retried visible for manual reconciliation, including a worker that crashed
+// after claiming its last attempt. Keep the scan bounded on each leader tick.
+func MarkTerminalSubscriptionBillingRecoveryRecords(ctx context.Context, limit int) (int64, error) {
+	if limit <= 0 {
+		return 0, nil
+	}
+	windowStart := common.GetTimestamp() - int64(SubscriptionBillingRecoveryWindow.Seconds())
+	terminal := "(created_at < ? OR recovery_attempts >= ? OR request_id = '' OR user_id <= 0 OR actual_quota < 0)"
+	var ids []int
+	err := DB.WithContext(ctx).Model(&SubscriptionPreConsumeRecord{}).
+		Where("billing_managed = ? AND status = ? AND COALESCE(recovery_state, '') <> ?", true, "settling", SubscriptionBillingRecoveryManual).
+		Where(terminal, windowStart, SubscriptionBillingRecoveryMaxAttempts).
+		Order("updated_at asc, id asc").Limit(limit).Pluck("id", &ids).Error
+	if err != nil || len(ids) == 0 {
+		return 0, err
+	}
+	res := DB.WithContext(ctx).Model(&SubscriptionPreConsumeRecord{}).
+		Where("id IN ? AND billing_managed = ? AND status = ? AND COALESCE(recovery_state, '') <> ?", ids, true, "settling", SubscriptionBillingRecoveryManual).
+		Where(terminal, windowStart, SubscriptionBillingRecoveryMaxAttempts).
+		Update("recovery_state", SubscriptionBillingRecoveryManual)
+	return res.RowsAffected, res.Error
+}
+
 // ListSubscriptionBillingRecoveryCandidates returns a bounded snapshot. Only
 // managed records are eligible; legacy/non-managed rows are never touched.
 func ListSubscriptionBillingRecoveryCandidates(ctx context.Context, limit int, retryAfter time.Duration) ([]SubscriptionPreConsumeRecord, error) {
@@ -36,16 +60,12 @@ func ListSubscriptionBillingRecoveryCandidates(ctx context.Context, limit int, r
 
 func MarkSubscriptionBillingRecoveryAttempt(ctx context.Context, id int) error {
 	now := common.GetTimestamp()
-	res := DB.WithContext(ctx).Model(&SubscriptionPreConsumeRecord{}).Where("id = ? AND billing_managed = ? AND status = ? AND recovery_attempts < ? AND (recovery_last_attempt_at = 0 OR recovery_last_attempt_at <= ?)", id, true, "settling", SubscriptionBillingRecoveryMaxAttempts, now-int64(subscriptionBillingRecoveryRetrySeconds)).Updates(map[string]interface{}{"recovery_attempts": gorm.Expr("recovery_attempts + 1"), "recovery_last_attempt_at": now, "recovery_last_error": "", "recovery_state": "recovering"})
+	windowStart := now - int64(SubscriptionBillingRecoveryWindow.Seconds())
+	res := DB.WithContext(ctx).Model(&SubscriptionPreConsumeRecord{}).Where("id = ? AND billing_managed = ? AND status = ? AND COALESCE(recovery_state, '') <> ? AND request_id <> '' AND user_id > 0 AND actual_quota >= 0 AND created_at >= ? AND recovery_attempts < ? AND (recovery_last_attempt_at = 0 OR recovery_last_attempt_at <= ?)", id, true, "settling", SubscriptionBillingRecoveryManual, windowStart, SubscriptionBillingRecoveryMaxAttempts, now-int64(subscriptionBillingRecoveryRetrySeconds)).Updates(map[string]interface{}{"recovery_attempts": gorm.Expr("recovery_attempts + 1"), "recovery_last_attempt_at": now, "recovery_last_error": "", "recovery_state": "recovering"})
 	if res.Error != nil {
 		return res.Error
 	}
 	if res.RowsAffected != 1 {
-		// A crashed worker can leave the row in recovering after its final
-		// attempt. Make that terminal state explicit for manual reconciliation.
-		if err := DB.WithContext(ctx).Model(&SubscriptionPreConsumeRecord{}).Where("id = ? AND billing_managed = ? AND status = ? AND recovery_attempts >= ?", id, true, "settling", SubscriptionBillingRecoveryMaxAttempts).Updates(map[string]interface{}{"recovery_state": SubscriptionBillingRecoveryManual}).Error; err != nil {
-			return err
-		}
 		return errors.New("subscription billing recovery already claimed")
 	}
 	return nil
