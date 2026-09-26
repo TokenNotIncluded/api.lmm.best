@@ -396,6 +396,7 @@ func RequestWaffoPay(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "success",
 		"data": gin.H{
+			"trade_no":    merchantOrderId,
 			"payment_url": paymentUrl,
 			"order_id":    merchantOrderId,
 		},

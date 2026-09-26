@@ -3715,7 +3715,7 @@
     "footer.columns.related.links.midjourney": "MjProxy",
     "footer.columns.related.title": "相关项目",
     "footer.defaultCopyright": "版权所有。",
-    "footer.new\u0061pi.projectAttributionSuffix": "版权所有，由项目贡献者设计与开发。",
+    "footer.newapi.projectAttributionSuffix": "版权所有，由项目贡献者设计与开发。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "对于 2025 年 5 月 10 日之后添加的渠道，在部署时无需从模型名称中移除 \".\"",
     "For dsh web in a terminal, run this command. It installs only into the web profile.": "在终端运行 dsh web 时使用此命令。它只会安装到 web 配置中。",
     "For example, a reliable OpenAI-compatible endpoint": "例如：稳定的 OpenAI 兼容接口",
@@ -9996,6 +9996,13 @@
     "Zhipu V4": "智谱 V4",
     "Zoom": "缩放",
     "Zoom in": "放大",
-    "Zoom out": "缩小"
+    "Zoom out": "缩小",
+    "Fully claimed": "已领完",
+    "Delete red packet": "删除红包",
+    "Red packet deleted": "红包已删除",
+    "Failed to delete red packet": "删除红包失败",
+    "Remove this red packet from the list and stop new claims. Claim history and already received rewards are kept.": "将此红包从列表移除并停止新的领取。领取记录和已经收到的奖励会保留。",
+    "A newer interface is available. Refresh after finishing any payment.": "界面有新版本，请完成当前支付后再刷新。",
+    "Refresh page": "刷新页面"
   }
 }

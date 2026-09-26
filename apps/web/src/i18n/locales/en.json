@@ -3715,7 +3715,7 @@
     "footer.columns.related.links.midjourney": "MjProxy",
     "footer.columns.related.title": "Related Projects",
     "footer.defaultCopyright": "All rights reserved.",
-    "footer.new\u0061pi.projectAttributionSuffix": "All rights reserved. Designed and developed by the project contributors.",
+    "footer.newapi.projectAttributionSuffix": "All rights reserved. Designed and developed by the project contributors.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment",
     "For dsh web in a terminal, run this command. It installs only into the web profile.": "For dsh web in a terminal, run this command. It installs only into the web profile.",
     "For example, a reliable OpenAI-compatible endpoint": "For example, a reliable OpenAI-compatible endpoint",
@@ -9996,6 +9996,13 @@
     "Zhipu V4": "Zhipu V4",
     "Zoom": "Zoom",
     "Zoom in": "Zoom in",
-    "Zoom out": "Zoom out"
+    "Zoom out": "Zoom out",
+    "Fully claimed": "Fully claimed",
+    "Delete red packet": "Delete red packet",
+    "Red packet deleted": "Red packet deleted",
+    "Failed to delete red packet": "Failed to delete red packet",
+    "Remove this red packet from the list and stop new claims. Claim history and already received rewards are kept.": "Remove this red packet from the list and stop new claims. Claim history and already received rewards are kept.",
+    "A newer interface is available. Refresh after finishing any payment.": "A newer interface is available. Refresh after finishing any payment.",
+    "Refresh page": "Refresh page"
   }
 }

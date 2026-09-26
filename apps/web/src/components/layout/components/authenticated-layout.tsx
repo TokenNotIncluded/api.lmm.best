@@ -22,6 +22,7 @@ import '@/styles/console-pages.css'
 
 import { AccessRestrictionNotice } from '@/components/access-restriction-notice'
 import { CommandMenu } from '@/components/command-menu'
+import { FrontendUpdateNotice } from '@/components/frontend-update-notice'
 import { AnimatedOutlet } from '@/components/page-transition'
 import { SkipToMain } from '@/components/skip-to-main'
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
@@ -83,6 +84,7 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
                         focusedOnboarding ? undefined : <ConsoleLocation />
                       }
                     />
+                    <FrontendUpdateNotice />
                     <div className='flex min-h-0 min-w-0 flex-1'>
                       <div
                         className={cn(

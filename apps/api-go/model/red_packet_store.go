@@ -33,8 +33,14 @@ func CreateRedPacket(packet *RedPacket, inputs []RedPacketItemInput) error {
 }
 
 func GetRedPacketBySlug(slug string) (*RedPacket, error) {
+	return getRedPacketBySlug(DB, slug)
+}
+
+// Only read-only history views may include a deleted packet. Claim and inventory
+// mutations keep GORM's default scope so a tombstone can never be claimed again.
+func getRedPacketBySlug(db *gorm.DB, slug string) (*RedPacket, error) {
 	var packet RedPacket
-	if err := DB.Where("slug = ?", strings.TrimSpace(slug)).First(&packet).Error; err != nil {
+	if err := db.Where("slug = ?", strings.TrimSpace(slug)).First(&packet).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrRedPacketNotFound
 		}
@@ -55,13 +61,19 @@ func redPacketCounts(db *gorm.DB, packetID int) (total, remaining, claims int64,
 }
 
 func GetRedPacketPublic(slug string) (*RedPacketPublicView, error) {
-	packet, err := GetRedPacketBySlug(slug)
+	packet, err := getRedPacketBySlug(DB.Unscoped(), slug)
 	if err != nil {
 		return nil, err
 	}
 	total, remaining, claims, err := redPacketCounts(DB, packet.Id)
 	if err != nil {
 		return nil, err
+	}
+	// Keep the original share URL usable for recipients to retrieve their rewards,
+	// but never advertise a deleted packet as claimable.
+	if packet.DeletedAt.Valid {
+		packet.Enabled = false
+		remaining = 0
 	}
 	return &RedPacketPublicView{
 		Slug:           packet.Slug,
@@ -139,16 +151,37 @@ func DeleteRedPacket(packetID int) error {
 			}
 			return err
 		}
-		var claimed int64
+		var claimed, claims, remaining int64
 		if err := tx.Model(&RedPacketItem{}).Where("packet_id = ? AND claimed_by <> 0", packetID).Count(&claimed).Error; err != nil {
 			return err
 		}
-		if claimed > 0 {
-			return errors.New("已有领取记录的红包不可删除，请停用以保留审计记录")
-		}
-		if err := tx.Where("packet_id = ?", packetID).Delete(&RedPacketItem{}).Error; err != nil {
+		if err := tx.Model(&RedPacketClaim{}).Where("packet_id = ?", packetID).Count(&claims).Error; err != nil {
 			return err
 		}
-		return tx.Delete(&RedPacket{}, packetID).Error
+		if err := tx.Model(&RedPacketItem{}).Where("packet_id = ? AND claimed_by = 0", packetID).Count(&remaining).Error; err != nil {
+			return err
+		}
+		hasHistory := claimed > 0 || claims > 0
+		expired := packet.EndAt > 0 && common.GetTimestamp() >= packet.EndAt
+		if hasHistory && packet.Enabled && !expired && remaining > 0 {
+			return errors.New("已有领取记录且仍在进行的红包不可删除，请先停用")
+		}
+		// Release unused inventory bindings, not the underlying redemption/discount
+		// codes. Claimed bindings and their uniqueness constraints remain intact.
+		if err := tx.Where("packet_id = ? AND claimed_by = 0", packetID).
+			Where("id NOT IN (?)", tx.Model(&RedPacketClaim{}).Select("item_id").Where("packet_id = ?", packetID)).
+			Delete(&RedPacketItem{}).Error; err != nil {
+			return err
+		}
+		if hasHistory {
+			// Disabled also protects read paths that do not know about tombstones.
+			if err := tx.Model(&packet).Updates(map[string]interface{}{
+				"enabled": false, "updated_at": common.GetTimestamp(),
+			}).Error; err != nil {
+				return err
+			}
+			return tx.Delete(&packet).Error // Soft-delete: keep packet and claim audit.
+		}
+		return tx.Unscoped().Delete(&packet).Error
 	})
 }

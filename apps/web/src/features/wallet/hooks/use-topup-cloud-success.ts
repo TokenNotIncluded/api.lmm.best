@@ -14,48 +14,19 @@ import { getUserBillingHistory, isApiSuccess } from '../api'
 import type { WalletCloudSuccess } from '../components/wallet-token-cloud'
 import { getTopupRecordPlatformAmount } from '../lib/payment'
 import {
+  TOPUP_CLOUD_EVENT,
+  topupCloudStorageKey,
+  readPendingTopups,
+  prepareTopup,
+  forgetTopup,
+} from '../lib/topup-cloud-storage'
+import {
   findConfirmedTopup,
   type PendingTopupCloud,
 } from '../lib/topup-cloud-success'
 
-const STORAGE_KEY = 'wallet-pending-topup-cloud'
-const WATCH_DURATION_MS = 15 * 60 * 1000
 const POLL_INTERVAL_MS = 5_000
-
-function readPending(userId: number | null): PendingTopupCloud | null {
-  if (userId === null) return null
-  try {
-    const raw = window.sessionStorage.getItem(STORAGE_KEY)
-    if (!raw) return null
-    const value = JSON.parse(raw) as PendingTopupCloud
-    if (
-      value.userId !== userId ||
-      !Number.isFinite(value.launchedAt) ||
-      !Number.isFinite(value.expiresAt) ||
-      !Number.isFinite(value.beforeQuota) ||
-      !Number.isFinite(value.baselineSuccessId) ||
-      !Number.isFinite(value.expectedCredit) ||
-      value.expiresAt <= Date.now()
-    ) {
-      return null
-    }
-    return value
-  } catch {
-    return null
-  }
-}
-
-function writePending(pending: PendingTopupCloud | null) {
-  try {
-    if (pending) {
-      window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(pending))
-    } else {
-      window.sessionStorage.removeItem(STORAGE_KEY)
-    }
-  } catch {
-    // Browser storage can be unavailable; polling still works in this tab.
-  }
-}
+const ACTIVE_WATCH_MS = 15 * 60 * 1000
 
 export function useTopupCloudSuccess({
   userId,
@@ -68,120 +39,155 @@ export function useTopupCloudSuccess({
   refreshUser: () => Promise<AuthUser | null>
   disabled: boolean
 }) {
-  const [pending, setPending] = useState<PendingTopupCloud | null>(null)
+  const [pending, setPending] = useState<PendingTopupCloud[]>([])
   const [success, setSuccess] = useState<WalletCloudSuccess | null>(null)
   const preparedRef = useRef<PendingTopupCloud | null>(null)
-  const baselineSuccessIdRef = useRef(0)
+  const confirmedRef = useRef<PendingTopupCloud | null>(null)
+
+  const sync = useCallback(() => {
+    const entries = disabled || userId === null ? [] : readPendingTopups(userId)
+    setPending((previous) =>
+      JSON.stringify(previous) === JSON.stringify(entries) ? previous : entries
+    )
+    const confirmed = confirmedRef.current
+    if (
+      confirmed &&
+      !entries.some((entry) => entry.attemptId === confirmed.attemptId)
+    ) {
+      confirmedRef.current = null
+      setSuccess(null)
+    }
+  }, [disabled, userId])
 
   useEffect(() => {
+    preparedRef.current = null
+    confirmedRef.current = null
     setSuccess(null)
-    baselineSuccessIdRef.current = 0
-    if (disabled) {
-      setPending(null)
-      return
+    sync()
+    const onStorage = (event: StorageEvent) => {
+      if (
+        event.key === null ||
+        (userId !== null && event.key === topupCloudStorageKey(userId))
+      ) {
+        sync()
+      }
     }
-    const restored = readPending(userId)
-    preparedRef.current = restored
-    setPending(restored)
-  }, [disabled, userId])
-
-  const prefetchBaseline = useCallback(async () => {
-    if (disabled || userId === null) return
-    try {
-      const response = await getUserBillingHistory(1, 20)
-      if (!isApiSuccess(response) || !response.data) return
-      if (useAuthStore.getState().auth.user?.id !== userId) return
-      baselineSuccessIdRef.current = Math.max(
-        baselineSuccessIdRef.current,
-        ...(response.data.items ?? [])
-          .filter((record) => record.status === 'success')
-          .map((record) => record.id)
-      )
-    } catch {
-      // The checkout can still proceed; the launch timestamp remains a guard.
+    window.addEventListener(TOPUP_CLOUD_EVENT, sync)
+    window.addEventListener('storage', onStorage)
+    window.addEventListener('focus', sync)
+    return () => {
+      window.removeEventListener(TOPUP_CLOUD_EVENT, sync)
+      window.removeEventListener('storage', onStorage)
+      window.removeEventListener('focus', sync)
     }
-  }, [disabled, userId])
+  }, [sync, userId])
 
   const prepare = useCallback(
     (beforeQuota: number, expectedCredit: number) => {
-      if (disabled || userId === null) return
-      const launchedAt = Date.now()
-      const intent: PendingTopupCloud = {
-        userId,
-        launchedAt,
-        expiresAt: launchedAt + WATCH_DURATION_MS,
-        baselineSuccessId: baselineSuccessIdRef.current,
-        beforeQuota,
-        expectedCredit,
+      if (!disabled && userId !== null) {
+        preparedRef.current = prepareTopup(userId, beforeQuota, expectedCredit)
       }
-      preparedRef.current = intent
-      writePending(intent)
     },
     [disabled, userId]
   )
 
-  const activate = useCallback(() => {
-    const intent = preparedRef.current ?? readPending(userId)
-    if (intent && !disabled) setPending(intent)
-  }, [disabled, userId])
-
   const cancel = useCallback(() => {
+    if (preparedRef.current) forgetTopup(preparedRef.current)
     preparedRef.current = null
-    setPending(null)
-    writePending(null)
   }, [])
 
+  const acknowledge = useCallback(
+    (orderId: number) => {
+      if (success?.orderId !== orderId || !confirmedRef.current) return
+      // Only consume after the cloud has actually been shown. A reload or route
+      // change before that point will recheck the same server order, not lose it.
+      forgetTopup(confirmedRef.current)
+      confirmedRef.current = null
+      setSuccess(null)
+    },
+    [success]
+  )
+
   useEffect(() => {
-    if (!pending || disabled || pending.userId !== userId) return
+    if (
+      disabled ||
+      userId === null ||
+      success ||
+      !pending.some((entry) => entry.tradeNo)
+    ) {
+      return
+    }
     let cancelled = false
     let inFlight = false
-
+    let watchUntil = Date.now() + ACTIVE_WATCH_MS
     const poll = async () => {
-      if (cancelled || inFlight || document.visibilityState !== 'visible') {
-        return
-      }
-      if (Date.now() >= pending.expiresAt) {
-        cancel()
+      if (
+        cancelled ||
+        inFlight ||
+        document.visibilityState !== 'visible' ||
+        Date.now() > watchUntil
+      ) {
         return
       }
       inFlight = true
       try {
-        const response = await getUserBillingHistory(1, 20)
-        if (cancelled || !isApiSuccess(response) || !response.data) {
+        for (const intent of pending) {
+          if (intent.userId !== userId || !intent.tradeNo) continue
+          if (Date.now() >= intent.expiresAt) {
+            forgetTopup(intent)
+            continue
+          }
+          // Keyword query avoids losing an older order behind the first 20 rows.
+          const response = await getUserBillingHistory(1, 20, intent.tradeNo)
+          if (cancelled || useAuthStore.getState().auth.user?.id !== userId) {
+            return
+          }
+          if (
+            response.success === false ||
+            !isApiSuccess(response) ||
+            !response.data
+          ) {
+            continue
+          }
+          const record = findConfirmedTopup(response.data.items ?? [], intent)
+          if (!record) continue
+          const freshUser = await refreshUser()
+          if (
+            cancelled ||
+            !freshUser ||
+            freshUser.id !== userId ||
+            useAuthStore.getState().auth.user?.id !== userId
+          ) {
+            return
+          }
+          if (
+            !readPendingTopups(userId).some(
+              (entry) => entry.attemptId === intent.attemptId
+            )
+          ) {
+            continue
+          }
+          const credited = getTopupRecordPlatformAmount(record)
+          if (!Number.isFinite(credited) || credited <= 0) continue
+          confirmedRef.current = intent
+          setSuccess({
+            orderId: record.id,
+            beforeCredits: Math.max(0, intent.beforeQuota / quotaPerUnit),
+            creditedCredits: credited,
+          })
           return
         }
-        const record = findConfirmedTopup(response.data.items ?? [], pending)
-        if (!record) return
-        const freshUser = await refreshUser()
-        if (
-          cancelled ||
-          !freshUser ||
-          freshUser.id !== pending.userId ||
-          useAuthStore.getState().auth.user?.id !== pending.userId
-        ) {
-          return
-        }
-        const creditedCredits = getTopupRecordPlatformAmount(record)
-        const credited =
-          Number.isFinite(creditedCredits) && creditedCredits > 0
-            ? creditedCredits
-            : pending.expectedCredit
-        if (credited <= 0) return
-        setSuccess({
-          orderId: record.id,
-          beforeCredits: Math.max(0, pending.beforeQuota / quotaPerUnit),
-          creditedCredits: credited,
-        })
-        cancel()
       } catch {
-        // A transient read failure never turns an unconfirmed order into success.
+        // Transient read failures cannot turn an unconfirmed payment into success.
       } finally {
         inFlight = false
       }
     }
-
     const onVisible = () => {
-      if (document.visibilityState === 'visible') void poll()
+      if (document.visibilityState === 'visible') {
+        watchUntil = Date.now() + ACTIVE_WATCH_MS
+        void poll()
+      }
     }
     void poll()
     const interval = window.setInterval(() => void poll(), POLL_INTERVAL_MS)
@@ -193,7 +199,7 @@ export function useTopupCloudSuccess({
       window.removeEventListener('focus', onVisible)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [cancel, disabled, pending, quotaPerUnit, refreshUser, userId])
+  }, [disabled, pending, quotaPerUnit, refreshUser, success, userId])
 
-  return { success, prefetchBaseline, prepare, activate, cancel }
+  return { success, prepare, activate: sync, cancel, acknowledge }
 }
