@@ -43,6 +43,19 @@ try {
         return route.fulfill({ contentType: 'image/svg+xml', body })
       }
       if (url.origin !== origin) return route.abort('blockedbyclient')
+      if (url.pathname === '/api/status') {
+        return route.fulfill({
+          json: {
+            success: true,
+            data: {
+              system_name: 'LMM Best',
+              logo: '/logo.png',
+              assistant: { enabled: false },
+              announcements_enabled: false,
+            },
+          },
+        })
+      }
       if (!url.pathname.startsWith('/api/')) return route.continue()
       requests.push(`${request.method()} ${url.pathname}`)
       errors.push(`NETWORK: ${request.method()} ${url.pathname}`)

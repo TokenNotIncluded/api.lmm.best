@@ -66,7 +66,7 @@ jobs:
         env:
           PLAYWRIGHT_MODULE: ${{ runner.temp }}/share-browser/node_modules/playwright/index.mjs
         run: |
-          bun run dev --port 4174 > "$PROFILE_SHARE_REVIEW_OUTPUT/dev.log" 2>&1 &
+          LMM_ENABLE_PERSONA_DEBUG=1 bun run dev --port 4174 > "$PROFILE_SHARE_REVIEW_OUTPUT/dev.log" 2>&1 &
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT
           ready=0
