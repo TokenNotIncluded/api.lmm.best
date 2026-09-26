@@ -58,113 +58,122 @@ try {
     const page = await context.newPage()
     const errors = []
     page.on('pageerror', (error) => errors.push(error.message))
-    await page.goto(origin, { waitUntil: 'networkidle' })
-    await page.locator('#lmm-home-title').waitFor()
-    await page.waitForFunction(
-      () => document.querySelector('.lmm-home')?.dataset.motion !== 'loading'
-    )
-    await page.waitForTimeout(1200)
-    await page.screenshot({ path: `${output}/${name}.png` })
-    const metrics = await page.evaluate(() => {
-      const box = (selector) => {
-        const rect = document.querySelector(selector)?.getBoundingClientRect()
-        return (
-          rect && {
-            x: rect.x,
-            y: rect.y,
-            width: rect.width,
-            height: rect.height,
-          }
-        )
-      }
-      return {
-        scrollWidth: document.documentElement.scrollWidth,
-        motion: document.querySelector('.lmm-home')?.dataset.motion,
-        title: box('#lmm-home-title'),
-        visual: box('[data-home-visual]'),
-        controls: box('.lmm-core-steps'),
-        activePanel: box('[data-cinema-panel][data-active]'),
-        stageBorder: getComputedStyle(
-          document.querySelector('[data-cinema-inner]')
-        ).borderTopWidth,
-        inputBorder: getComputedStyle(
-          document.querySelector('[data-token-input]')
-        ).borderTopWidth,
-        buttons: Array.from(
-          document.querySelectorAll('[data-cinema-jump]')
-        ).map((button) => ({
-          text: button.textContent,
-          width: button.getBoundingClientRect().width,
-          height: button.getBoundingClientRect().height,
-          unobstructed: (() => {
-            const rect = button.getBoundingClientRect()
-            const target = document.elementFromPoint(
-              rect.x + rect.width / 2,
-              rect.y + rect.height / 2
-            )
-            return target === button || button.contains(target)
-          })(),
-        })),
-      }
-    })
-    assert.equal(metrics.scrollWidth, width, `${name}: horizontal overflow`)
-    assert.deepEqual(errors, [], `${name}: browser exceptions`)
-    assert.equal(metrics.stageBorder, '0px', `${name}: framed stage returned`)
-    assert.equal(
-      metrics.inputBorder,
-      '0px',
-      `${name}: boxed token input returned`
-    )
-    if (motion === 'no-preference') {
-      for (const button of metrics.buttons) {
-        assert.ok(
-          button.width >= 44 && button.height >= 44,
-          `${name}: undersized navigation target`
-        )
-        assert.ok(
-          button.unobstructed,
-          `${name}: navigation covered by a widget`
-        )
-      }
-      assert.ok(
-        metrics.activePanel.y + metrics.activePanel.height < metrics.controls.y,
-        `${name}: navigation overlaps content`
+    try {
+      await page.goto(origin, { waitUntil: 'networkidle' })
+      await page.locator('#lmm-home-title').waitFor()
+      await page.waitForFunction(
+        () => document.querySelector('.lmm-home')?.dataset.motion !== 'loading'
       )
-      const toggle = page.locator('[data-motion-toggle]')
-      await toggle.click()
-      assert.equal(await toggle.getAttribute('aria-pressed'), 'true')
-      // Pause before selecting a particle: continuously moving tokens never
-      // satisfy Playwright's stable-element auto-wait.
-      const token = page.locator('[data-token-option]').first()
-      const selected = await token.getAttribute('data-token-option')
-      await token.click()
+      await page.waitForTimeout(1200)
+      await page.screenshot({ path: `${output}/${name}.png` })
+      const metrics = await page.evaluate(() => {
+        const box = (selector) => {
+          const rect = document.querySelector(selector)?.getBoundingClientRect()
+          return (
+            rect && {
+              x: rect.x,
+              y: rect.y,
+              width: rect.width,
+              height: rect.height,
+            }
+          )
+        }
+        return {
+          scrollWidth: document.documentElement.scrollWidth,
+          motion: document.querySelector('.lmm-home')?.dataset.motion,
+          title: box('#lmm-home-title'),
+          visual: box('[data-home-visual]'),
+          controls: box('.lmm-core-steps'),
+          activePanel: box('[data-cinema-panel][data-active]'),
+          stageBorder: getComputedStyle(
+            document.querySelector('[data-cinema-inner]')
+          ).borderTopWidth,
+          inputBorder: getComputedStyle(
+            document.querySelector('[data-token-input]')
+          ).borderTopWidth,
+          buttons: Array.from(
+            document.querySelectorAll('[data-cinema-jump]')
+          ).map((button) => ({
+            text: button.textContent,
+            width: button.getBoundingClientRect().width,
+            height: button.getBoundingClientRect().height,
+            unobstructed: (() => {
+              const rect = button.getBoundingClientRect()
+              const target = document.elementFromPoint(
+                rect.x + rect.width / 2,
+                rect.y + rect.height / 2
+              )
+              return target === button || button.contains(target)
+            })(),
+          })),
+        }
+      })
+      assert.equal(metrics.scrollWidth, width, `${name}: horizontal overflow`)
+      assert.deepEqual(errors, [], `${name}: browser exceptions`)
+      assert.equal(metrics.stageBorder, '0px', `${name}: framed stage returned`)
       assert.equal(
-        await page.locator('[data-token-input]').inputValue(),
-        selected
+        metrics.inputBorder,
+        '0px',
+        `${name}: boxed token input returned`
       )
-      assert.ok(await page.locator('[data-predicted-token]').textContent())
-      await toggle.click()
-      assert.equal(await toggle.getAttribute('aria-pressed'), 'false')
-      await page.locator('[data-cinema-jump="1"]').click()
-      await page.waitForFunction(() =>
-        document
-          .querySelector('[data-cinema-panel="1"]')
-          ?.hasAttribute('data-active')
-      )
-      await page.screenshot({ path: `${output}/${name}-api.png` })
-      await page.locator('[data-cinema-jump="0"]').click()
+      if (motion === 'no-preference') {
+        for (const button of metrics.buttons) {
+          assert.ok(
+            button.width >= 44 && button.height >= 44,
+            `${name}: undersized navigation target`
+          )
+          assert.ok(
+            button.unobstructed,
+            `${name}: navigation covered by a widget`
+          )
+        }
+        assert.ok(
+          metrics.activePanel.y + metrics.activePanel.height <
+            metrics.controls.y,
+          `${name}: navigation overlaps content`
+        )
+        const toggle = page.locator('[data-motion-toggle]')
+        await toggle.click()
+        assert.equal(await toggle.getAttribute('aria-pressed'), 'true')
+        // Pause before selecting a particle: continuously moving tokens never
+        // satisfy Playwright's stable-element auto-wait.
+        const token = page.locator('[data-token-option]').first()
+        const selected = await token.getAttribute('data-token-option')
+        await token.click()
+        assert.equal(
+          await page.locator('[data-selected-token]').textContent(),
+          selected
+        )
+        assert.ok(await page.locator('[data-predicted-token]').textContent())
+        await toggle.click()
+        assert.equal(await toggle.getAttribute('aria-pressed'), 'false')
+        await page.locator('[data-cinema-jump="1"]').click()
+        await page.waitForFunction(() =>
+          document
+            .querySelector('[data-cinema-panel="1"]')
+            ?.hasAttribute('data-active')
+        )
+        await page.screenshot({ path: `${output}/${name}-api.png` })
+        await page.locator('[data-cinema-jump="0"]').click()
+      }
+      if (['desktop', 'mobile', 'dark'].includes(name)) {
+        await page
+          .locator('.lmm-assistant-section')
+          .screenshot({ path: `${output}/${name}-assistant.png` })
+      }
+      assert.deepEqual(errors, [], `${name}: interaction exceptions`)
+      results.push({ name, width, height, theme, language, ...metrics, errors })
+    } catch (error) {
+      results.push({ name, failure: String(error), errors })
+      await page.screenshot({ path: `${output}/${name}-failure.png` })
+    } finally {
+      await context.close()
     }
-    if (['desktop', 'mobile', 'dark'].includes(name)) {
-      await page
-        .locator('.lmm-assistant-section')
-        .screenshot({ path: `${output}/${name}-assistant.png` })
-    }
-    assert.deepEqual(errors, [], `${name}: interaction exceptions`)
-    results.push({ name, width, height, theme, language, ...metrics, errors })
-    await context.close()
   }
   await writeFile(`${output}/results.json`, JSON.stringify(results, null, 2))
-  console.log(JSON.stringify({ result: 'PASS', results }))
+  const failures = results.filter((result) => result.failure)
+  console.log(JSON.stringify({ results }))
+  assert.deepEqual(failures, [], 'Homepage browser review failed')
 } finally {
   await browser.close()
 }
