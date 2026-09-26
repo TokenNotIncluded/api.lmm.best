@@ -65,7 +65,12 @@ try {
     page.setDefaultTimeout(30000)
     page.on('pageerror', (error) => errors.push(String(error)))
     page.on('console', (message) => {
-      if (message.type() === 'error') errors.push(message.text())
+      if (
+        message.type() === 'error' &&
+        !message.text().includes('ERR_BLOCKED_BY_CLIENT')
+      ) {
+        errors.push(message.text())
+      }
     })
     try {
       await page.goto(
