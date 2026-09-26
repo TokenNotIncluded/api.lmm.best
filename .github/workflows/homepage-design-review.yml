@@ -3,6 +3,12 @@ name: Homepage design review
 on:
   push:
     branches: [codex/homepage-polish-20260926]
+  pull_request:
+    paths:
+      - 'apps/web/src/features/home/**'
+      - 'apps/web/src/features/forge/forge-home*'
+      - 'apps/web/scripts/home-design-review.mjs'
+      - '.github/workflows/homepage-design-review.yml'
 
 permissions:
   contents: read
@@ -13,7 +19,7 @@ concurrency:
 
 jobs:
   browser-review:
-    name: Build inspectable homepage
+    name: Homepage browser layout and motion
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -27,17 +33,35 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Build production frontend
         run: bun run --filter @lmm/web build
-      - name: Package review inputs
+      - name: Install isolated browser tools
+        run: |
+          npm install --prefix "$RUNNER_TEMP/home-browser" --no-package-lock --ignore-scripts playwright@1.56.1
+          node "$RUNNER_TEMP/home-browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Review responsive layout and motion
+        working-directory: apps/web
         shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/home-review
+          bun run preview --host 127.0.0.1 --port 4175 >artifacts/home-review/server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:4175/ >/dev/null; then break; fi
+            sleep 1
+          done
+          PLAYWRIGHT_MODULE="$RUNNER_TEMP/home-browser/node_modules/playwright/index.mjs" node scripts/home-design-review.mjs
+      - name: Preserve screenshots and review revision
+        if: always()
         run: |
           mkdir -p review
           git rev-parse HEAD > review/revision.txt
-          tar -czf review/web-dist.tar.gz -C apps/web dist
+          cp -r apps/web/artifacts/home-review review/ || true
           git archive --format=tar.gz --output=review/source.tar.gz HEAD
-          find node_modules -path '*oxfmt*' -type f -print0 | tar --null -T - -czf review/formatter.tar.gz
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
         with:
-          name: homepage-review-build
+          name: homepage-browser-review
           path: review/
-          retention-days: 3
+          retention-days: 7
           if-no-files-found: error
