@@ -24,7 +24,7 @@ try {
   ]) {
     const context = await browser.newContext({
       viewport: { width, height },
-      locale: 'zh-CN',
+      locale: language === 'en' ? 'en-US' : 'zh-CN',
       reducedMotion: motion,
       serviceWorkers: 'block',
     })
@@ -65,6 +65,12 @@ try {
         () => document.querySelector('.lmm-home')?.dataset.motion !== 'loading'
       )
       await page.waitForTimeout(1200)
+      if (language === 'en') {
+        assert.match(
+          await page.locator('#lmm-home-title').textContent(),
+          /AI models/
+        )
+      }
       await page.screenshot({ path: `${output}/${name}.png` })
       const metrics = await page.evaluate(() => {
         const box = (selector) => {
@@ -137,7 +143,8 @@ try {
         assert.equal(await toggle.getAttribute('aria-pressed'), 'true')
         // Pause before selecting a particle: continuously moving tokens never
         // satisfy Playwright's stable-element auto-wait.
-        const token = page.locator('[data-token-option]').first()
+        // Tokens hidden behind protected text are intentionally inert.
+        const token = page.locator('[data-token-option]:not([inert])').first()
         const selected = await token.getAttribute('data-token-option')
         await token.click()
         assert.equal(
