@@ -31,6 +31,7 @@ import (
 const (
 	channelUpstreamModelUpdateTaskDefaultIntervalMinutes  = 30
 	channelUpstreamModelUpdateTaskBatchSize               = 100
+	channelUpstreamModelUpdateFetchTimeoutSeconds         = 120
 	channelUpstreamModelUpdateMinCheckIntervalSeconds     = 300
 	channelUpstreamModelUpdateNotifySuppressWindowSeconds = 86400
 	channelUpstreamModelUpdateNotifyMaxChannelDetails     = 8
@@ -259,6 +260,23 @@ func getUpstreamModelUpdateMinCheckIntervalSeconds() int64 {
 		return channelUpstreamModelUpdateMinCheckIntervalSeconds
 	}
 	return interval
+}
+
+// A task lease has no execution deadline. Give each scheduled check a deadline
+// so context-aware providers such as Ollama cannot hold the scan indefinitely.
+func newChannelUpstreamModelUpdateFetchContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	seconds := common.GetEnvOrDefault(
+		"CHANNEL_UPSTREAM_MODEL_UPDATE_FETCH_TIMEOUT_SECONDS",
+		channelUpstreamModelUpdateFetchTimeoutSeconds,
+	)
+	// Reject non-positive values and values that overflow time.Duration.
+	if seconds < 1 || int64(seconds) > int64((1<<63-1)/time.Second) {
+		seconds = channelUpstreamModelUpdateFetchTimeoutSeconds
+	}
+	return context.WithTimeout(ctx, time.Duration(seconds)*time.Second)
 }
 
 func parseOpenAIModelIDs(body []byte) ([]string, error) {
@@ -745,7 +763,9 @@ scanLoop:
 			}
 
 			checkedChannels++
-			modelsChanged, autoAdded, err := checkAndPersistChannelUpstreamModelUpdates(ctx, channel, &settings, force, allowAutoApply)
+			fetchCtx, cancel := newChannelUpstreamModelUpdateFetchContext(ctx)
+			modelsChanged, autoAdded, err := checkAndPersistChannelUpstreamModelUpdates(fetchCtx, channel, &settings, force, allowAutoApply)
+			cancel()
 			if err != nil {
 				failedChannels++
 				failedChannelIDs = append(failedChannelIDs, channel.Id)
