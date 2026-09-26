@@ -1,0 +1,30 @@
+name: Homepage design review
+
+on:
+  push:
+    branches: [codex/homepage-polish-20260926]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: homepage-review-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source:
+    name: Capture review source
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Archive tracked source only
+        run: git archive --format=tar.gz --output=homepage-source.tar.gz HEAD
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: homepage-review-source
+          path: homepage-source.tar.gz
+          retention-days: 3
+          if-no-files-found: error
