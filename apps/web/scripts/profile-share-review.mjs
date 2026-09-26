@@ -79,7 +79,8 @@ try {
       requests.push(`${request.method()} ${url.pathname}`)
       let data
       if (url.pathname === '/api/user/auth/refresh') data = bundle
-      else if (url.pathname === '/api/status')
+      else if (url.pathname === '/api/setup') data = { status: true }
+      else if (url.pathname === '/api/status') {
         data = {
           system_name: 'LMM Best',
           quota_per_unit: 500000,
@@ -89,7 +90,7 @@ try {
           announcements_enabled: false,
           checkin_enabled: false,
         }
-      else if (url.pathname === '/api/user/self') data = user
+      } else if (url.pathname === '/api/user/self') data = user
       else if (url.pathname === '/api/user/self/profile-share') {
         if (request.method() === 'POST') {
           const body = request.postDataJSON()

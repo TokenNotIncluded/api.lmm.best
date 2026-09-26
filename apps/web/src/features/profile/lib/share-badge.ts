@@ -239,13 +239,16 @@ export function buildBadgeURL(
     radius: options.radius,
     requests: options.requests ? '1' : '0',
     lang: badgeLanguage(language),
-  }))
+  })) {
     url.searchParams.set(key, String(value))
-  if (options.layout === 'models')
+  }
+  if (options.layout === 'models') {
     url.searchParams.set('top', String(options.top))
+  }
   for (const [key, value] of Object.entries(options.colors)) {
-    if (key !== 'bg' || options.theme !== 'transparent')
+    if (key !== 'bg' || options.theme !== 'transparent') {
       url.searchParams.set(key, value)
+    }
   }
   for (const key of ['title', 'label', 'footer'] as const) {
     if (options[key].trim()) url.searchParams.set(key, options[key].trim())
