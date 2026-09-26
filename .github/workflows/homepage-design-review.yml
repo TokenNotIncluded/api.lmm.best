@@ -51,7 +51,7 @@ jobs:
           bun run preview --host 127.0.0.1 --port 4175 >artifacts/home-review/server.log 2>&1 &
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT
-          for attempt in $(seq 1 60); do
+          for ((attempt = 1; attempt <= 60; attempt++)); do
             if curl --fail --silent http://127.0.0.1:4175/ >/dev/null; then break; fi
             sleep 1
           done

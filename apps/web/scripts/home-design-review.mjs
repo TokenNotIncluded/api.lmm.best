@@ -44,13 +44,14 @@ try {
       }
       let data = []
       if (url.pathname === '/api/setup') data = { status: true }
-      if (url.pathname === '/api/status')
+      if (url.pathname === '/api/status') {
         data = {
           system_name: 'LMM',
           register_enabled: true,
           assistant: { enabled: false },
           backend_capabilities: { bounty_public_read: false },
         }
+      }
       if (url.pathname === '/api/notice') data = ''
       return route.fulfill({ json: { success: true, data } })
     })
@@ -129,11 +130,19 @@ try {
         metrics.activePanel.y + metrics.activePanel.height < metrics.controls.y,
         `${name}: navigation overlaps content`
       )
-      await page.locator('[data-token-option]').first().click()
-      assert.ok(await page.locator('[data-predicted-token]').textContent())
       const toggle = page.locator('[data-motion-toggle]')
       await toggle.click()
       assert.equal(await toggle.getAttribute('aria-pressed'), 'true')
+      // Pause before selecting a particle: continuously moving tokens never
+      // satisfy Playwright's stable-element auto-wait.
+      const token = page.locator('[data-token-option]').first()
+      const selected = await token.getAttribute('data-token-option')
+      await token.click()
+      assert.equal(
+        await page.locator('[data-token-input]').inputValue(),
+        selected
+      )
+      assert.ok(await page.locator('[data-predicted-token]').textContent())
       await toggle.click()
       assert.equal(await toggle.getAttribute('aria-pressed'), 'false')
       await page.locator('[data-cinema-jump="1"]').click()
@@ -150,6 +159,7 @@ try {
         .locator('.lmm-assistant-section')
         .screenshot({ path: `${output}/${name}-assistant.png` })
     }
+    assert.deepEqual(errors, [], `${name}: interaction exceptions`)
     results.push({ name, width, height, theme, language, ...metrics, errors })
     await context.close()
   }
