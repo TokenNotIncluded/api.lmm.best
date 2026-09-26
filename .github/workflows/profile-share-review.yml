@@ -22,7 +22,7 @@ jobs:
     timeout-minutes: 25
     env:
       GOMAXPROCS: "2"
-      PROFILE_SHARE_REVIEW_OUTPUT: ${{ github.workspace }}/.profile-share-review
+      PROFILE_SHARE_REVIEW_OUTPUT: ${{ github.workspace }}/profile-share-review
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -42,8 +42,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: profile-share-format
-          path: .profile-share-review
+          path: profile-share-review
           retention-days: 7
+          if-no-files-found: error
       - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
         with:
           go-version-file: apps/api-go/go.mod
@@ -80,6 +81,6 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: profile-share-review
-          path: .profile-share-review
+          path: profile-share-review
           retention-days: 7
           if-no-files-found: error
