@@ -204,7 +204,7 @@ run_token_cache() {
 run_relay_settlement() (
   for variable in LMM_TEST_DATABASE_URL LMM_AUTH_TEST_VALKEY_URL; do require_loopback_url "$variable"; done
   export LMM_API_TOKEN_TEST_VALKEY_URL="${LMM_API_TOKEN_TEST_VALKEY_URL:-$LMM_AUTH_TEST_VALKEY_URL}"
-  for variable in LMM_API_TOKEN_TEST_VALKEY_URL; do require_loopback_url "$variable"; done
+  require_loopback_url LMM_API_TOKEN_TEST_VALKEY_URL
   require_api_ignored_test_count relay_openai_settlement_pg 33
   runtime=$(mktemp -d "${TMPDIR:-/tmp}/lmm-current-go-funding.XXXXXX")
   trap 'rm -rf -- "$runtime"' EXIT
