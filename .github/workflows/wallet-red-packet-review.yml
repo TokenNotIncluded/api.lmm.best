@@ -26,7 +26,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/wallet-source"
           git rev-parse HEAD > "$RUNNER_TEMP/wallet-source/revision.txt"
           git archive --format=tar.gz -o "$RUNNER_TEMP/wallet-source/source.tar.gz" HEAD
-          tar -czf "$RUNNER_TEMP/wallet-source/dependencies.tar.gz" node_modules apps/web/node_modules
+          tar -czf "$RUNNER_TEMP/wallet-source/dependencies.tar.gz" node_modules
           cp "$(command -v bun)" "$RUNNER_TEMP/wallet-source/bun"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
