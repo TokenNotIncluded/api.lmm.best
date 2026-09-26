@@ -25,6 +25,8 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { refreshCurrentAccount } from '@/features/onboarding/use-auth-user-refresh'
 import { useDebounce } from '@/hooks/use-debounce'
+import { isConsoleActivated } from '@/lib/console-activation'
+import { useAuthStore } from '@/stores/auth-store'
 
 import {
   createDirectoryAd,
@@ -445,6 +447,9 @@ function AdvertisementDialog({
 
 export function SponsoredDirectorySection() {
   const { t } = useTranslation()
+  const auth = useAuthStore((state) => state.auth)
+  const isSignedIn = Boolean(auth.user && auth.accessToken)
+  const canPromote = isSignedIn && isConsoleActivated(auth.user)
   const [open, setOpen] = useState(false)
   const adsQuery = useInfiniteQuery({
     queryKey: ['ai-directory-ads'],
@@ -467,10 +472,26 @@ export function SponsoredDirectorySection() {
           <h2 id='ai-sponsored-heading'>{t('Sponsored websites')}</h2>
           <p>{t('Paid placements are labeled and ranked by bid.')}</p>
         </div>
-        <Button type='button' size='sm' onClick={() => setOpen(true)}>
-          <Plus data-icon='inline-start' />
-          {t('Promote your website')}
-        </Button>
+        {canPromote ? (
+          <Button type='button' size='sm' onClick={() => setOpen(true)}>
+            <Plus data-icon='inline-start' />
+            {t('Promote your website')}
+          </Button>
+        ) : (
+          <Button
+            size='sm'
+            render={
+              isSignedIn ? (
+                <Link to='/getting-started' />
+              ) : (
+                <Link to='/sign-in' search={{ redirect: '/ai-directory' }} />
+              )
+            }
+          >
+            <Plus data-icon='inline-start' />
+            {t('Promote your website')}
+          </Button>
+        )}
       </div>
       {adsQuery.isPending && (
         <p className='ai-sponsored-empty'>{t('Loading advertisements...')}</p>
@@ -507,7 +528,9 @@ export function SponsoredDirectorySection() {
           {t('Load more advertisements')}
         </Button>
       )}
-      <AdvertisementDialog open={open} onOpenChange={setOpen} />
+      {canPromote && (
+        <AdvertisementDialog open={open} onOpenChange={setOpen} />
+      )}
     </section>
   )
 }

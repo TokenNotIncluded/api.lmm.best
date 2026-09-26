@@ -1,6 +1,8 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
 import { api } from '@/lib/api'
 
+import { getPublicDirectory } from './public-api'
+
 export type DirectoryAd = {
   id: number
   name: string
@@ -61,12 +63,7 @@ export function listDirectoryAds(offset = 0) {
     items: DirectoryAd[]
     has_more: boolean
     next_offset: number
-  }>(
-    api.get(`/api/ai-directory/ads?offset=${offset}`, {
-      skipErrorHandler: true,
-      skipBusinessError: true,
-    })
-  )
+  }>(getPublicDirectory(`/api/ai-directory/ads?offset=${offset}`))
 }
 
 export function quoteDirectoryAd(bidCents: number) {

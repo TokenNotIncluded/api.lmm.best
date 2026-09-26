@@ -1,5 +1,5 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
-import { api } from '@/lib/api'
+import { getPublicDirectory } from './public-api'
 
 export const AI_DIRECTORY_CATEGORIES = [
   'chat',
@@ -232,7 +232,7 @@ export function parseDirectoryLinks(value: string): AIDirectoryLink[] | null {
 }
 
 export async function getAIDirectory(): Promise<AIDirectoryLink[]> {
-  const response = await api.get<{
+  const response = await getPublicDirectory<{
     success: boolean
     data: { links: AIDirectoryLink[] | null }
   }>('/api/ai-directory')
