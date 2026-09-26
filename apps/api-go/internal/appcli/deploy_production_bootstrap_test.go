@@ -114,8 +114,8 @@ func bootstrapFixture(t *testing.T) (*productionReleaseRuntime, *bootstrapRunner
 }
 
 func setFutureBootstrapPackage(plan *productionReleasePlan) {
-	plan.GoRollback.Version = "0.2.60-1"
-	plan.GoRollback.ReleaseTag = "go-v0.2.60"
+	plan.GoRollback.Version = "9.9.9-1"
+	plan.GoRollback.ReleaseTag = "go-v9.9.9"
 	plan.GoRollback.GitRevision = strings.Repeat("b", 40)
 }
 
