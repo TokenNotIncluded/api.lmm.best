@@ -17,10 +17,8 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
-use hmac::{Hmac, Mac};
 use serde::Serialize;
 use serde_json::Value;
-use sha2::Sha256;
 use sqlx::{PgPool, Row};
 use thiserror::Error;
 
@@ -776,10 +774,13 @@ impl PgModelsService {
     }
 
     async fn token_by_key(&self, key: &str) -> Result<CachedToken, ModelsError> {
+        if key.starts_with("oauth_managed_") {
+            return Err(invalid_token());
+        }
         if let Some(token) = self.cache_token(key).await {
             return Ok(token);
         }
-        let row = sqlx::query(r#"SELECT id, user_id, name, created_time, accessed_time, status::INT4 AS status, expired_time, remain_quota, unlimited_quota, model_limits_enabled, model_limits, allow_ips, used_quota, "group", cross_group_retry FROM tokens WHERE key = $1 AND deleted_at IS NULL"#)
+        let row = sqlx::query(r#"SELECT id, user_id, name, created_time, accessed_time, status::INT4 AS status, expired_time, remain_quota, unlimited_quota, model_limits_enabled, model_limits, allow_ips, used_quota, "group", cross_group_retry, (to_jsonb(tokens)->>'oauth_managed')::BOOLEAN AS oauth_managed, to_jsonb(tokens)->>'creation_source' AS creation_source, (to_jsonb(tokens)->>'one_time_reveal')::BOOLEAN AS one_time_reveal FROM tokens WHERE key = $1 AND deleted_at IS NULL AND COALESCE((to_jsonb(tokens)->>'oauth_managed')::BOOLEAN,FALSE)=FALSE AND COALESCE(to_jsonb(tokens)->>'creation_source','')<>'assistant_runtime'"#)
             .bind(key).fetch_optional(&self.pg).await.map_err(|_| database_error())?.ok_or_else(invalid_token)?;
         let token = token_from_row(&row)?;
         self.store_token(key, &row).await;
@@ -814,7 +815,7 @@ impl PgModelsService {
 
     async fn cache_token(&self, key: &str) -> Option<CachedToken> {
         let mut connection = self.connection().await?;
-        let values: Vec<Option<String>> = redis::cmd("HMGET")
+        let mut values: Vec<Option<String>> = redis::cmd("HMGET")
             .arg(self.token_key(key)?)
             .arg("UserId")
             .arg("Status")
@@ -825,9 +826,19 @@ impl PgModelsService {
             .arg("ModelLimits")
             .arg("AllowIps")
             .arg("Group")
+            .arg("OAuthManaged")
+            .arg("CreationSource")
             .query_async(&mut connection)
             .await
             .ok()?;
+        if values.len() != 11 || values[10].as_deref() == Some("assistant_runtime") {
+            return None;
+        }
+        match values[9].as_deref() {
+            None | Some("false" | "0" | "") => {}
+            _ => return None,
+        }
+        values.truncate(9);
         let value = complete(values, 9)?;
         Some(CachedToken {
             user_id: value[0].parse().ok()?,
@@ -958,13 +969,25 @@ impl PgModelsService {
         ];
         // A reader must observe either the previous complete hash or this one;
         // HSET followed by EXPIRE leaks partially-populated credentials.
-        let script = redis::Script::new(
-            "redis.call('HSET', KEYS[1], unpack(ARGV, 2)); redis.call('EXPIRE', KEYS[1], ARGV[1]); return 1",
-        );
+        let script = redis::Script::new(crate::routes::api_token::LEGACY_TOKEN_CACHE_INIT);
+        let fence = key.replacen("token:", "token:fence:", 1);
         let mut invocation = script.key(key);
+        invocation.key(fence);
         invocation.arg(self.cache_ttl.as_secs());
         for (field, value) in fields {
             invocation.arg(field).arg(value);
+        }
+        // Old frozen schemas have no flags; keep their historical hash shape.
+        // Current Go hashes carry these flags so another reader cannot treat a
+        // system-only credential as a public API key on a cache hit.
+        if let Ok(Some(managed)) = row.try_get::<Option<bool>, _>("oauth_managed") {
+            invocation.arg("OAuthManaged").arg(managed);
+            invocation
+                .arg("CreationSource")
+                .arg(row_value::<Option<String>>(row, "creation_source").unwrap_or_default());
+            invocation
+                .arg("OneTimeReveal")
+                .arg(row_value::<Option<bool>>(row, "one_time_reveal").unwrap_or(false));
         }
         let _: Result<i64, _> = invocation.invoke_async(&mut connection).await;
     }
@@ -994,14 +1017,7 @@ impl PgModelsService {
 
     fn token_key(&self, token: &str) -> Option<String> {
         self.valkey.as_ref()?;
-        let mut mac = Hmac::<Sha256>::new_from_slice(self.crypto_secret.as_bytes()).ok()?;
-        mac.update(token.as_bytes());
-        let digest = mac.finalize().into_bytes();
-        let hash = digest
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>();
-        Some(format!("token:{hash}"))
+        crate::routes::api_token::legacy_token_cache_key(&self.crypto_secret, token)
     }
 }
 
@@ -2255,3 +2271,7 @@ mod tests {
         (router, captured)
     }
 }
+
+#[cfg(test)]
+#[path = "models_cache_pg_tests.rs"]
+mod cache_pg_tests;

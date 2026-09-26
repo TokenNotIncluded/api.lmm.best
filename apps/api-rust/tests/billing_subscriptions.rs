@@ -647,6 +647,10 @@ async fn subscription_maintenance_expires_resets_and_cleans() {
         .execute(&pool)
         .await
         .expect("pre-consume fixture");
+    for status in ["consumed", "settling", "settled", "refunded"] {
+        sqlx::query("INSERT INTO subscription_pre_consume_records(request_id,user_id,user_subscription_id,pre_consumed,billing_managed,status,created_at,updated_at) VALUES($1,8,12,10,TRUE,$1,$2,$2)")
+            .bind(status).bind(current-8*24*60*60).execute(&pool).await.unwrap();
+    }
     redis::cmd("SET")
         .arg("user:7")
         .arg("stale")
@@ -673,12 +677,29 @@ async fn subscription_maintenance_expires_resets_and_cleans() {
     .expect("reset subscription");
     assert_eq!(reset.0, 0);
     assert!(reset.1 > 0 && reset.2 > current);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT quota_version FROM user_subscriptions WHERE id=12")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        1
+    );
     let remaining_records: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM subscription_pre_consume_records")
             .fetch_one(&pool)
             .await
             .expect("pre-consume count");
-    assert_eq!(remaining_records, 1);
+    assert_eq!(remaining_records, 5);
+    let managed: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM subscription_pre_consume_records WHERE billing_managed",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        managed, 4,
+        "managed billing evidence survives legacy cleanup in every lifecycle state"
+    );
     assert_eq!(exists(&mut cache, "user:7").await, 0);
 }
 
@@ -744,9 +765,9 @@ async fn reset_schema(pool: &PgPool) {
         .execute(pool).await.expect("users schema");
     sqlx::query("CREATE TABLE subscription_plans (id BIGINT PRIMARY KEY, title TEXT NOT NULL, subtitle TEXT, price_amount NUMERIC NOT NULL, currency TEXT, duration_unit TEXT, duration_value BIGINT, custom_seconds BIGINT, enabled BOOLEAN NOT NULL, sort_order BIGINT, allow_balance_pay BOOLEAN, allow_wallet_overflow BOOLEAN, stripe_price_id TEXT, creem_product_id TEXT, waffo_pancake_product_id TEXT, waffo_pancake_product_type TEXT NOT NULL DEFAULT 'subscription', max_purchase_per_user BIGINT, total_amount BIGINT NOT NULL, upgrade_group TEXT, downgrade_group TEXT, quota_reset_period TEXT, quota_reset_custom_seconds BIGINT, created_at BIGINT, updated_at BIGINT, archived_at BIGINT NOT NULL DEFAULT 0)")
         .execute(pool).await.expect("plans schema");
-    sqlx::query("CREATE TABLE user_subscriptions (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL, plan_id BIGINT NOT NULL, amount_total BIGINT NOT NULL CHECK (amount_total > 0), amount_used BIGINT NOT NULL, start_time BIGINT NOT NULL, end_time BIGINT NOT NULL, status TEXT NOT NULL, source TEXT NOT NULL, last_reset_time BIGINT NOT NULL, next_reset_time BIGINT NOT NULL, upgrade_group TEXT NOT NULL, prev_user_group TEXT NOT NULL, downgrade_group TEXT NOT NULL, allow_wallet_overflow BOOLEAN NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL)")
+    sqlx::query("CREATE TABLE user_subscriptions (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL, plan_id BIGINT NOT NULL, amount_total BIGINT NOT NULL CHECK (amount_total > 0), amount_used BIGINT NOT NULL, quota_version BIGINT NOT NULL DEFAULT 0, start_time BIGINT NOT NULL, end_time BIGINT NOT NULL, status TEXT NOT NULL, source TEXT NOT NULL, last_reset_time BIGINT NOT NULL, next_reset_time BIGINT NOT NULL, upgrade_group TEXT NOT NULL, prev_user_group TEXT NOT NULL, downgrade_group TEXT NOT NULL, allow_wallet_overflow BOOLEAN NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL)")
         .execute(pool).await.expect("subscriptions schema");
-    sqlx::query("CREATE TABLE subscription_pre_consume_records (id BIGSERIAL PRIMARY KEY, request_id TEXT NOT NULL, user_id BIGINT NOT NULL, user_subscription_id BIGINT NOT NULL, pre_consumed BIGINT NOT NULL, status TEXT NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL)")
+    sqlx::query("CREATE TABLE subscription_pre_consume_records (id BIGSERIAL PRIMARY KEY, request_id TEXT NOT NULL, user_id BIGINT NOT NULL, user_subscription_id BIGINT NOT NULL, pre_consumed BIGINT NOT NULL, billing_managed BOOLEAN NOT NULL DEFAULT FALSE, status TEXT NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL)")
         .execute(pool).await.expect("pre-consume schema");
     sqlx::query(
         "CREATE TABLE subscription_orders (id BIGSERIAL PRIMARY KEY, plan_id BIGINT NOT NULL, status TEXT, complete_time BIGINT, provider_subscription_state TEXT NOT NULL DEFAULT '')",

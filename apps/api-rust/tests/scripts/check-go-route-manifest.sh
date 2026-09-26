@@ -223,7 +223,6 @@ shell_report="$(awk -F '\t' \
     load_routes(normal_routes, "normal")
     representative["POST" SUBSEP "/api/subscription/stripe/pay"] = "DisabledCheckoutProvider"
     representative["POST" SUBSEP "/api/user/creem/pay"] = "DisabledStripeCreemGateway"
-    representative["POST" SUBSEP "/api/user/pay"] = "DisabledTopupRepository+DisabledEpayGateway"
     representative["POST" SUBSEP "/api/user/waffo/pay"] = "DisabledTopUpGateway"
     representative["POST" SUBSEP "/pg/chat/completions"] = "FailClosedRelayCompatService"
     representative["POST" SUBSEP "/v1/video/generations"] = "FailClosedRelayVideoService"
@@ -275,8 +274,8 @@ shell_report="$(awk -F '\t' \
         failures++
       }
     }
-    if (count != 31) {
-      print "mounted fail-closed shell ledger contains " count " routes; expected 31" > "/dev/stderr"
+    if (count != 26) {
+      print "mounted fail-closed shell ledger contains " count " routes; expected 26" > "/dev/stderr"
       failures++
     }
     if (failures) exit 1
@@ -284,6 +283,11 @@ shell_report="$(awk -F '\t' \
   }
 ' "${fail_closed_shells}")"
 IFS=$'\t' read -r shell_count frozen_shell_count current_only_shell_count <<<"${shell_report}"
+
+# ePay is no longer a shell: require the concrete, cache-aware ordinary-listener
+# composition as well as the three implementation/mount ledger entries. The
+# PostgreSQL/current-Go fixture gate remains separate behavioral evidence.
+python3 "${repo_root}/apps/api-rust/tests/scripts/check-epay-runtime-wiring.py"
 
 echo "verified immutable legacy Go route baseline: ${route_count} routes (${actual_hash})"
 echo "current Go route inventory: ${current_route_count} identities"

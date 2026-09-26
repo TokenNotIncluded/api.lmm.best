@@ -51,7 +51,6 @@ GET	/api/discount-code/:id	compatibility	apps/api-rust/src/routes/discount_code.
 POST	/api/discount-code/batch	compatibility	apps/api-rust/src/routes/discount_code.rs	application route intentionally outside the frozen legacy route inventory
 DELETE	/api/discount-code/exhausted	compatibility	apps/api-rust/src/routes/discount_code.rs	application route intentionally outside the frozen legacy route inventory
 GET	/api/discount-code/search	compatibility	apps/api-rust/src/routes/discount_code.rs	application route intentionally outside the frozen legacy route inventory
-GET	/api/extra-probe	test	apps/api-rust/src/http.rs	cfg(test) extra-surface listener-boundary fixture
 GET	/api/finance/entries	compatibility	apps/api-rust/src/routes/finance.rs	application route intentionally outside the frozen legacy route inventory
 POST	/api/finance/entries	compatibility	apps/api-rust/src/routes/finance.rs	application route intentionally outside the frozen legacy route inventory
 POST	/api/finance/entries/:entry_id/reverse	compatibility	apps/api-rust/src/routes/finance.rs	application route intentionally outside the frozen legacy route inventory
@@ -176,11 +175,9 @@ POST	/api/subscription/root/reset/preview	compatibility	apps/api-rust/src/routes
 GET	/api/subscription/self/reset-vouchers	compatibility	apps/api-rust/src/routes/billing_subscriptions/reset.rs	reset voucher API introduced after the frozen legacy route inventory
 POST	/api/subscription/self/reset-vouchers/:id/redeem	compatibility	apps/api-rust/src/routes/billing_subscriptions/reset.rs	idempotent reset voucher redemption introduced after the frozen legacy route inventory
 GET	/api/task	compatibility	apps/api-rust/src/routes/control_admin.rs	trailing-slash compatibility redirect outside the frozen Go registration
-GET	/api/test-public-rate-limit/:name	test	apps/api-rust/src/http.rs	cfg(test) public rate-limit boundary fixture
 GET	/api/todos	compatibility	apps/api-rust/src/routes/unified_todo.rs	application route intentionally outside the frozen legacy route inventory
 POST	/api/todos/read	compatibility	apps/api-rust/src/routes/unified_todo.rs	application route intentionally outside the frozen legacy route inventory
 GET	/api/token/auto-groups	compatibility	apps/api-rust/src/routes/api_token.rs	application route intentionally outside the frozen legacy route inventory
-OPTIONS	/api/usage/token/	test	apps/api-rust/src/http.rs	cfg(test) CORS preflight fixture for the token-usage boundary
 GET	/api/user/:id/assistant-memories	compatibility	apps/api-rust/src/routes/user_assistant_admin.rs	application route intentionally outside the frozen legacy route inventory
 POST	/api/user/:id/assistant-memories	compatibility	apps/api-rust/src/routes/user_assistant_admin.rs	application route intentionally outside the frozen legacy route inventory
 DELETE	/api/user/:id/assistant-memories/:memoryId	compatibility	apps/api-rust/src/routes/user_assistant_admin.rs	application route intentionally outside the frozen legacy route inventory
@@ -208,12 +205,7 @@ PATCH	/api/user/self/onboarding/todo	compatibility	apps/api-rust/src/routes/unif
 POST	/api/user/violation-fee-appeals	compatibility	apps/api-rust/src/routes/security_admin.rs	application route intentionally outside the frozen legacy route inventory
 GET	/api/user/violation-fees	compatibility	apps/api-rust/src/routes/security_admin.rs	application route intentionally outside the frozen legacy route inventory
 POST	/api/verify/email	compatibility	apps/api-rust/src/routes/verify_email.rs	application route intentionally outside the frozen legacy route inventory
-GET	/incomplete-document	fixture	apps/api-rust/src/routes/control_admin.rs	cfg(test) OAuth discovery validation fixture
-GET	/invalid-json-document	fixture	apps/api-rust/src/routes/control_admin.rs	cfg(test) OAuth discovery validation fixture
 GET	/livez	health	apps/api-rust/src/http.rs	production liveness probe outside the frozen Go API inventory
-POST	/livez	test	apps/api-rust/src/http.rs	cfg(test) complementary-method routing fixture
-GET	/loopback-redirect-document	fixture	apps/api-rust/src/routes/control_admin.rs	cfg(test) OAuth discovery redirect fixture
-GET	/loopback-redirect-start	fixture	apps/api-rust/src/routes/control_admin.rs	cfg(test) OAuth discovery redirect fixture
 CONNECT	/mcp	compatibility	apps/api-rust/src/routes/mcp.rs	application route intentionally outside the frozen legacy route inventory
 DELETE	/mcp	compatibility	apps/api-rust/src/routes/mcp.rs	application route intentionally outside the frozen legacy route inventory
 GET	/mcp	compatibility	apps/api-rust/src/routes/mcp.rs	application route intentionally outside the frozen legacy route inventory
@@ -250,11 +242,28 @@ PATCH	/mcp/drawing/	compatibility	apps/api-rust/src/routes/mcp.rs	application ro
 POST	/mcp/drawing/	compatibility	apps/api-rust/src/routes/mcp.rs	application route intentionally outside the frozen legacy route inventory
 PUT	/mcp/drawing/	compatibility	apps/api-rust/src/routes/mcp.rs	application route intentionally outside the frozen legacy route inventory
 TRACE	/mcp/drawing/	compatibility	apps/api-rust/src/routes/mcp.rs	application route intentionally outside the frozen legacy route inventory
-GET	/oversized-document	fixture	apps/api-rust/src/routes/control_admin.rs	cfg(test) OAuth discovery response-limit fixture
 POST	/pg/images/edits	compatibility	apps/api-rust/src/routes/relay_compat.rs	application route intentionally outside the frozen legacy route inventory
 POST	/pg/images/generations	compatibility	apps/api-rust/src/routes/relay_compat.rs	application route intentionally outside the frozen legacy route inventory
-GET	/private-redirect-start	fixture	apps/api-rust/src/routes/control_admin.rs	cfg(test) OAuth discovery SSRF fixture
 GET	/readyz	health	apps/api-rust/src/http.rs	production readiness probe outside the frozen Go API inventory
-POST	/token	fixture	apps/api-rust/src/routes/identity_federation.rs	cfg(test) loopback OAuth token endpoint fixture
-GET	/user	fixture	apps/api-rust/src/routes/identity_federation.rs	cfg(test) loopback OAuth user endpoint fixture
 GET	/v1/responses	compatibility	apps/api-rust/src/routes/responses_websocket.rs	WebSocket-compatible Responses route outside the frozen HTTP route inventory
+GET	/api/user/:id/announcements	compatibility	apps/api-rust/src/routes/mandatory_announcements.rs	current Go ordered mandatory announcement status and acknowledgement routes
+GET	/api/user/self/announcements	compatibility	apps/api-rust/src/routes/mandatory_announcements.rs	current Go ordered mandatory announcement status and acknowledgement routes
+POST	/api/user/self/announcements/read	compatibility	apps/api-rust/src/routes/mandatory_announcements.rs	current Go ordered mandatory announcement status and acknowledgement routes
+GET	/scripts/:name	compatibility	apps/api-rust/src/routes/scripts.rs	current Go script listing download and root-owned file mutation routes
+GET	/api/scripts	compatibility	apps/api-rust/src/routes/scripts.rs	current Go script listing download and root-owned file mutation routes
+GET	/api/scripts/:name/raw	compatibility	apps/api-rust/src/routes/scripts.rs	current Go script listing download and root-owned file mutation routes
+GET	/api/scripts/:name	compatibility	apps/api-rust/src/routes/scripts.rs	current Go script listing download and root-owned file mutation routes
+PUT	/api/scripts/:name	compatibility	apps/api-rust/src/routes/scripts.rs	current Go script listing download and root-owned file mutation routes
+DELETE	/api/scripts/:name	compatibility	apps/api-rust/src/routes/scripts.rs	current Go script listing download and root-owned file mutation routes
+PUT	/api/user/sessions/settings	compatibility	apps/api-rust/src/routes/identity_security.rs	current Go browser-session weekly automatic logout preference
+GET	/api/scripts/repository	compatibility	apps/api-rust/src/routes/scripts.rs	current Go root-owned script repository configuration and pull routes
+PUT	/api/scripts/repository	compatibility	apps/api-rust/src/routes/scripts.rs	current Go root-owned script repository configuration and pull routes
+POST	/api/scripts/repository/pull	compatibility	apps/api-rust/src/routes/scripts.rs	current Go root-owned script repository configuration and pull routes
+GET	/api/ai-directory	compatibility	apps/api-rust/src/routes/ai_directory.rs	current Go AI directory and wallet funded advertisement routes
+GET	/api/ai-directory/ads	compatibility	apps/api-rust/src/routes/ai_directory.rs	current Go AI directory and wallet funded advertisement routes
+POST	/api/ai-directory/ads	compatibility	apps/api-rust/src/routes/ai_directory.rs	current Go AI directory and wallet funded advertisement routes
+GET	/api/ai-directory/ads/quote	compatibility	apps/api-rust/src/routes/ai_directory.rs	current Go AI directory and wallet funded advertisement routes
+GET	/api/ai-directory/ads/mine	compatibility	apps/api-rust/src/routes/ai_directory.rs	current Go AI directory and wallet funded advertisement routes
+POST	/api/ai-directory/ads/:id/hide	compatibility	apps/api-rust/src/routes/ai_directory.rs	current Go AI directory and wallet funded advertisement routes
+GET	/v1/usage	compatibility	apps/api-rust/src/routes/token_queries.rs	current Go persisted read-only token quota query
+GET	/v1/pricing	compatibility	apps/api-rust/src/routes/token_queries.rs	current Go token scoped configured model pricing

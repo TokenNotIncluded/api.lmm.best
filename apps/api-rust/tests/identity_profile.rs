@@ -34,6 +34,18 @@ impl ProfileIdentityResolver for VerifiedPrincipal {
 
 struct InternalPrincipal;
 
+struct TrustedProfilePrincipal(bool);
+
+#[async_trait]
+impl ProfileIdentityResolver for TrustedProfilePrincipal {
+    async fn principal(&self, headers: &HeaderMap) -> Result<ProfileIdentity, ProfileAuthError> {
+        VerifiedPrincipal.principal(headers).await
+    }
+    async fn may_manage_ip_bypass(&self, _: ProfileIdentity, _: &HeaderMap) -> bool {
+        self.0
+    }
+}
+
 #[async_trait]
 impl ProfileIdentityResolver for InternalPrincipal {
     async fn principal(&self, _: &HeaderMap) -> Result<ProfileIdentity, ProfileAuthError> {
@@ -323,6 +335,40 @@ async fn profile_setting_null_body_keeps_gin_zero_value_validation() {
 }
 
 #[tokio::test]
+async fn settings_declared_limit_rejects_before_polling_body_but_after_authentication() {
+    for (authorization, status) in [
+        ("Bearer listener-verified", StatusCode::PAYLOAD_TOO_LARGE),
+        ("Bearer forged", StatusCode::UNAUTHORIZED),
+    ] {
+        let body = Body::from_stream(futures_util::stream::pending::<
+            Result<axum::body::Bytes, std::io::Error>,
+        >());
+        let response = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            app().oneshot(
+                Request::put("/api/user/setting")
+                    .header("authorization", authorization)
+                    .header("content-length", "16385")
+                    .body(body)
+                    .unwrap(),
+            ),
+        )
+        .await
+        .expect("body must not be polled")
+        .unwrap();
+        assert_eq!(response.status(), status);
+        if status == StatusCode::PAYLOAD_TOO_LARGE {
+            assert!(
+                axum::body::to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .unwrap()
+                    .is_empty()
+            );
+        }
+    }
+}
+
+#[tokio::test]
 async fn authenticated_profile_handler_errors_preserve_auth_version() {
     let response = app()
         .oneshot(
@@ -554,7 +600,7 @@ async fn profile_preference_write_updates_postgres_and_refreshes_valkey_user_cac
         .execute(&pool)
         .await
         .expect("create users");
-    sqlx::query("INSERT INTO users (id, setting, username, display_name, password, role, auth_version) VALUES (7, '{}', 'oracle', 'Oracle', 'unused', 1, 1)")
+    sqlx::query("INSERT INTO users (id, setting, username, display_name, password, role, auth_version) VALUES (7, '{\"session_auto_logout\":false}', 'oracle', 'Oracle', 'unused', 1, 1)")
         .execute(&pool)
         .await
         .expect("seed user");
@@ -610,18 +656,31 @@ async fn profile_preference_write_updates_postgres_and_refreshes_valkey_user_cac
         serde_json::from_str::<Value>(&setting).expect("setting JSON")["language"],
         "en"
     );
-    let cached_setting: String = redis::cmd("HGET")
+    let cached_setting: Option<String> = redis::cmd("HGET")
         .arg("user:7")
         .arg("Setting")
         .query_async(&mut cache)
         .await
         .expect("cache setting");
-    assert_eq!(
-        serde_json::from_str::<Value>(&cached_setting).expect("cached setting JSON")["language"],
-        "en"
+    assert!(
+        cached_setting.is_none(),
+        "current Go invalidates the user cache after locale changes"
     );
+    // Simulate the next reader filling the cache before a notification write.
+    redis::cmd("HSET")
+        .arg("user:7")
+        .arg("AuthVersion")
+        .arg(1)
+        .arg("CacheSchema")
+        .arg(2)
+        .arg("Setting")
+        .arg(&setting)
+        .query_async::<()>(&mut cache)
+        .await
+        .expect("refill cache");
 
     let response = application
+        .clone()
         .oneshot(
             Request::put("/api/user/setting")
                 .header("authorization", "Bearer listener-verified")
@@ -641,6 +700,59 @@ async fn profile_preference_write_updates_postgres_and_refreshes_valkey_user_cac
     let setting: Value = serde_json::from_str(&setting).expect("setting JSON");
     assert_eq!(setting["notify_type"], "email");
     assert_eq!(setting["notification_email"], "ada@example.test");
+    assert_eq!(setting["session_auto_logout"], false);
+    let cached: Option<String> = redis::cmd("HGET")
+        .arg("user:7")
+        .arg("Setting")
+        .query_async(&mut cache)
+        .await
+        .expect("notification cache");
+    assert!(
+        cached.is_none(),
+        "current Go notification writes invalidate cached preferences"
+    );
+    assert_eq!(setting["language"], "en");
+
+    // A concurrent change to the session preference must be observed after
+    // the notification writer acquires the user's row lock.
+    let mut preference_tx = pool.begin().await.expect("preference transaction");
+    sqlx::query("UPDATE users SET setting = '{\"session_auto_logout\":true}' WHERE id=7")
+        .execute(&mut *preference_tx)
+        .await
+        .expect("lock session preference");
+    let mut writer = tokio::spawn(
+        application.oneshot(
+            Request::put("/api/user/setting")
+                .header("authorization", "Bearer listener-verified")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"notify_type":"email","quota_warning_threshold":42}"#,
+                ))
+                .expect("concurrent notification request"),
+        ),
+    );
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(50), &mut writer)
+            .await
+            .is_err()
+    );
+    preference_tx
+        .commit()
+        .await
+        .expect("commit session preference");
+    let response = tokio::time::timeout(std::time::Duration::from_secs(5), writer)
+        .await
+        .expect("notification unblocked")
+        .expect("writer task")
+        .expect("notification response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let stored: String = sqlx::query_scalar("SELECT setting FROM users WHERE id=7")
+        .fetch_one(&pool)
+        .await
+        .expect("concurrent stored preferences");
+    let stored: Value = serde_json::from_str(&stored).expect("stored JSON");
+    assert_eq!(stored["session_auto_logout"], true);
+    assert_eq!(stored["quota_warning_threshold"], 42);
 }
 
 #[tokio::test]
@@ -689,6 +801,17 @@ async fn profile_write_keeps_postgres_authoritative_when_valkey_is_unavailable()
         .expect("response");
 
     assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        body["success"], false,
+        "Go reports invalidation failure after committing the setting"
+    );
+    assert_eq!(body["message"], "Update failed");
     let setting: String = sqlx::query_scalar("SELECT setting FROM users WHERE id = 7")
         .fetch_one(&pool)
         .await
@@ -697,4 +820,138 @@ async fn profile_write_keeps_postgres_authoritative_when_valkey_is_unavailable()
         serde_json::from_str::<Value>(&setting).expect("setting JSON")["language"],
         "zh-CN"
     );
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL and Valkey via LMM_IDENTITY_TEST_DATABASE_URL and LMM_IDENTITY_TEST_VALKEY_URL"]
+async fn privacy_preferences_and_sidebar_shapes_follow_verified_trust_and_preserve_locale() {
+    let url = env::var("LMM_IDENTITY_TEST_DATABASE_URL").expect("isolated PostgreSQL");
+    let admin = sqlx::PgPool::connect(&url).await.unwrap();
+    let schema = format!("profile_preferences_{}", uuid::Uuid::new_v4().simple());
+    sqlx::query(&format!("CREATE SCHEMA {schema}"))
+        .execute(&admin)
+        .await
+        .unwrap();
+    let pool = PgPoolOptions::new()
+        .max_connections(3)
+        .after_connect({
+            let schema = schema.clone();
+            move |connection, _| {
+                let command = format!("SET search_path TO {schema}");
+                Box::pin(async move {
+                    sqlx::query(&command).execute(connection).await?;
+                    Ok(())
+                })
+            }
+        })
+        .connect(&url)
+        .await
+        .unwrap();
+    sqlx::raw_sql("CREATE TABLE users(id BIGINT PRIMARY KEY,setting TEXT,deleted_at TIMESTAMPTZ,auth_version BIGINT); INSERT INTO users VALUES(7,'{\"language\":\"zh\",\"settlement_currency\":\"CNY\",\"session_auto_logout\":false,\"usage_leaderboard_visibility\":\"public\"}',NULL,1)")
+        .execute(&pool).await.unwrap();
+    let cache =
+        redis::Client::open(env::var("LMM_IDENTITY_TEST_VALKEY_URL").expect("isolated Valkey"))
+            .unwrap();
+    let application = |trusted| {
+        router(
+            ProfileState::new(pool.clone(), cache.clone())
+                .with_identity_resolver(Arc::new(TrustedProfilePrincipal(trusted))),
+        )
+    };
+    let request = |path: &str, body: Value| {
+        Request::put(path)
+            .header("authorization", "Bearer listener-verified")
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    };
+    let change = serde_json::json!({"notify_type":"email","quota_warning_threshold":42,
+        "usage_leaderboard_visibility":" HIDDEN ","allow_key_bypass_ip_policy":true,"trust_level":99});
+    let response = application(false)
+        .oneshot(request("/api/user/setting", change.clone()))
+        .await
+        .unwrap();
+    let body: Value = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(body["success"], true);
+    let stored: String = sqlx::query_scalar("SELECT setting FROM users WHERE id=7")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let stored: Value = serde_json::from_str(&stored).unwrap();
+    assert_eq!(stored["usage_leaderboard_visibility"], "hidden");
+    assert!(
+        stored.get("allow_key_bypass_ip_policy").is_none(),
+        "body trust claims cannot grant the L1 capability"
+    );
+    assert_eq!(stored["language"], "zh");
+    assert_eq!(stored["settlement_currency"], "CNY");
+    assert_eq!(stored["session_auto_logout"], false);
+    application(true)
+        .oneshot(request("/api/user/setting", change))
+        .await
+        .unwrap();
+    let before: String = sqlx::query_scalar("SELECT setting FROM users WHERE id=7")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&before).unwrap()["allow_key_bypass_ip_policy"],
+        true
+    );
+    for sidebar in [
+        Value::Null,
+        serde_json::json!(false),
+        serde_json::json!(r#"{"preferences":{"default_route":"//outside.test"}}"#),
+    ] {
+        let response = application(true)
+            .oneshot(request(
+                "/api/user/self",
+                serde_json::json!({"sidebar_modules":sidebar}),
+            ))
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(
+            &axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(body["success"], false);
+        let after: String = sqlx::query_scalar("SELECT setting FROM users WHERE id=7")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            after, before,
+            "rejected sidebar writes must leave all preferences unchanged"
+        );
+    }
+    let sidebar = r#"{"modules":{},"preferences":{"density":"compact","hidden":[]}}"#;
+    let response = application(true).oneshot(request("/api/user/self", serde_json::json!({"sidebar_modules":sidebar,"language":"en","settlement_currency":"USD"}))).await.unwrap();
+    let body: Value = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(body["success"], true);
+    let stored: String = sqlx::query_scalar("SELECT setting FROM users WHERE id=7")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let stored: Value = serde_json::from_str(&stored).unwrap();
+    assert_eq!(stored["sidebar_modules"], sidebar);
+    assert_eq!(stored["language"], "zh");
+    assert_eq!(stored["settlement_currency"], "CNY");
+    assert_eq!(stored["allow_key_bypass_ip_policy"], true);
+    pool.close().await;
+    sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
+        .execute(&admin)
+        .await
+        .unwrap();
 }
