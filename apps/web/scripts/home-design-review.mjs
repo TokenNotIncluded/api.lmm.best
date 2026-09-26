@@ -141,12 +141,29 @@ try {
         const toggle = page.locator('[data-motion-toggle]')
         await toggle.click()
         assert.equal(await toggle.getAttribute('aria-pressed'), 'true')
-        // Pause before selecting a particle: continuously moving tokens never
-        // satisfy Playwright's stable-element auto-wait.
-        // Tokens hidden behind protected text are intentionally inert.
-        const token = page.locator('[data-token-option]:not([inert])').first()
-        const selected = await token.getAttribute('data-token-option')
-        await token.click()
+        // Let the paused frame update positions and protected-text exclusions.
+        await page.evaluate(
+          () =>
+            new Promise((resolve) =>
+              requestAnimationFrame(() => requestAnimationFrame(resolve))
+            )
+        )
+        const selected = await page
+          .locator('[data-token-option]')
+          .evaluateAll((tokens) => {
+            const token = tokens.find((candidate) => {
+              if (candidate.inert) return false
+              const rect = candidate.getBoundingClientRect()
+              const target = document.elementFromPoint(
+                rect.x + rect.width / 2,
+                rect.y + rect.height / 2
+              )
+              return target === candidate || candidate.contains(target)
+            })
+            return token?.getAttribute('data-token-option')
+          })
+        assert.ok(selected, `${name}: no selectable cloud token`)
+        await page.getByRole('button', { name: selected, exact: true }).click()
         assert.equal(
           await page.locator('[data-selected-token]').textContent(),
           selected
