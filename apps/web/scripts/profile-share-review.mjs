@@ -11,37 +11,6 @@ await mkdir(output, { recursive: true })
 const browser = await chromium.launch({ headless: true })
 const report = []
 const now = Math.floor(Date.now() / 1000)
-const user = {
-  id: 1,
-  username: 'preview',
-  display_name: 'Preview account',
-  role: 1,
-  status: 1,
-  group: 'default',
-  quota: 50000000,
-  used_quota: 500000,
-  request_count: 100,
-  created_time: now - 90 * 86400,
-  developer_access_granted: true,
-  setting: {},
-  permissions: { console_activated_at: now - 86400 },
-}
-const bundle = {
-  access_token: 'local-review-only',
-  token_type: 'Bearer',
-  access_expires_at: now + 3600,
-  user,
-  session: {
-    sid: 'local-review',
-    current: true,
-    login_method: 'test',
-    ip: '127.0.0.1',
-    user_agent: 'Playwright',
-    created_at: now,
-    last_active_at: now,
-    expires_at: now + 3600,
-  },
-}
 try {
   for (const width of [1440, 390]) {
     const context = await browser.newContext({
@@ -59,13 +28,12 @@ try {
       localStorage.setItem('lmm:source-consent:v2', 'no')
     })
     let modelsEnabled = false
-    const writes = [],
-      errors = [],
+    const errors = [],
       requests = []
     await context.route('**/*', async (route) => {
-      const request = route.request(),
-        url = new URL(request.url())
-      // The public SVG origin is intercepted; no production traffic is sent.
+      const request = route.request()
+      const url = new URL(request.url())
+      // Public SVG images are rendered by Go fixtures generated in this job.
       if (url.pathname.startsWith('/api/share/profile/')) {
         const theme = url.searchParams.get('theme') ?? 'dark'
         const body = await readFile(
@@ -77,53 +45,21 @@ try {
       if (url.origin !== origin) return route.abort('blockedbyclient')
       if (!url.pathname.startsWith('/api/')) return route.continue()
       requests.push(`${request.method()} ${url.pathname}`)
-      let data
-      if (url.pathname === '/api/user/auth/refresh') data = bundle
-      else if (url.pathname === '/api/setup') data = { status: true }
-      else if (url.pathname === '/api/status') {
-        data = {
-          system_name: 'LMM Best',
-          quota_per_unit: 500000,
-          display_in_currency: true,
-          currency: 'USD',
-          assistant: { enabled: false },
-          announcements_enabled: false,
-          checkin_enabled: false,
-        }
-      } else if (url.pathname === '/api/user/self') data = user
-      else if (url.pathname === '/api/user/self/profile-share') {
-        if (request.method() === 'POST') {
-          const body = request.postDataJSON()
-          writes.push(body)
-          modelsEnabled = body.model_usage_enabled
-        }
-        data = {
-          enabled: true,
-          model_usage_enabled: modelsEnabled,
-          token: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-          url: `${origin}/api/share/profile/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.svg`,
-        }
-      } else if (url.pathname === '/api/data/self') {
-        data = [
-          {
-            model_name: 'model-a',
-            created_at: now - 3600,
-            token_used: 42000,
-            count: 10,
-            quota: 5000,
-          },
-        ]
-      } else if (request.method() !== 'GET') {
-        errors.push(`Unexpected mutation: ${request.method()} ${url.pathname}`)
-        return route.abort('blockedbyclient')
-      } else data = []
-      return route.fulfill({ json: { success: true, data } })
+      errors.push(`NETWORK: ${request.method()} ${url.pathname}`)
+      return route.abort('blockedbyclient')
     })
     const page = await context.newPage()
     page.setDefaultTimeout(30000)
     page.on('pageerror', (error) => errors.push(String(error)))
+    page.on('console', (message) => {
+      if (message.type() === 'error') errors.push(message.text())
+    })
     try {
-      await page.goto(`${origin}/profile/share`, { timeout: 90000 })
+      await page.goto(
+        `${origin}/profile/share?debug_persona=l1&console_review=1`,
+        { waitUntil: 'domcontentloaded', timeout: 90000 }
+      )
+      await page.getByTestId('persona-debug-trigger').waitFor()
       await page.locator('#badge-layout').waitFor()
       assert.equal(await page.locator('#badge-layout').inputValue(), 'models')
       assert.equal(
@@ -143,7 +79,6 @@ try {
             image.naturalWidth > 0
         )
       )
-      assert.deepEqual(writes, [{ model_usage_enabled: true }])
       assert.equal(
         await page.locator('#badge-period option[value="all"]').count(),
         0
@@ -228,7 +163,7 @@ try {
       }))
       assert.ok(dimensions.scroll <= dimensions.viewport + 1)
       assert.deepEqual(errors, [])
-      report.push({ width, dimensions, writes, requests, errors })
+      report.push({ width, dimensions, requests, errors })
     } catch (error) {
       await page.screenshot({
         path: path.join(output, `failure-${width}.png`),
@@ -236,7 +171,7 @@ try {
       })
       await writeFile(
         path.join(output, `failure-${width}.txt`),
-        `${error}\n${await page.locator('body').innerText()}\n${JSON.stringify({ errors, requests, writes })}`
+        `${error}\n${await page.locator('body').innerText()}\n${JSON.stringify({ errors, requests })}`
       )
       throw error
     } finally {
