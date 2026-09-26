@@ -177,9 +177,14 @@ correctness. Historical intent-log absence is not required for these writers.
 The controller supports the signed Go 0.2.52 `deploy` bootstrap and the current
 private `operator` protocol. Before creating a workspace it verifies the
 installed one-hop provider link, root ownership, safe mode and exact frozen
-rollback payload hash, then selects the entry point from a read-only help call.
-Unknown or ambiguous help fails before workspace creation. The public entry
-point remains `/usr/bin/lmm-api-deploy`.
+rollback payload hash. For signed Go 0.2.52 through 0.2.61 releases, it selects
+the entry point from the exact release tag and Git revision in the already
+verified package metadata. An unfamiliar release must provide the read-only
+`/usr/bin/lmm-api operator capabilities` command. Its JSON format 1 response is
+`{"format":1,"workspace_create":"operator"}`. The controller rejects missing,
+oversized, malformed, duplicate, or unknown capability fields before creating
+a workspace. Human-readable help is not a capability contract. The public
+deployment entry point remains `/usr/bin/lmm-api-deploy`.
 
 An SSH error after workspace creation is not permission to invoke a second
 command spelling. The controller can recover the response only from the exact

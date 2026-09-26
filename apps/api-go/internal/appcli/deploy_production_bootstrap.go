@@ -1,10 +1,12 @@
 package appcli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -12,7 +14,7 @@ import (
 )
 
 // Bootstrap is the only operation that must run before the candidate operator
-// has been staged. Select the installed, package-bound protocol through help;
+// has been staged. Select the installed, package-bound protocol without help;
 // never retry a mutating command using a different spelling after an SSH error.
 func (runtime *productionReleaseRuntime) bootstrapRemoteWorkspace(ctx context.Context, plan productionReleasePlan) (productionWorkspaceResult, error) {
 	if !productionIDPattern.MatchString(plan.DeploymentID) {
@@ -24,11 +26,7 @@ func (runtime *productionReleaseRuntime) bootstrapRemoteWorkspace(ctx context.Co
 	if err := runtime.verifyRemoteProviderEntrypoint(ctx, plan.TargetAlias, productionOperatorBinary, provider, plan.GoRollback.PayloadSHA256); err != nil {
 		return productionWorkspaceResult{}, fmt.Errorf("verify installed rollback provider before bootstrap: %w", err)
 	}
-	help, err := runtime.ssh(ctx, plan.TargetAlias, 30*time.Second, productionOperatorBinary, "help")
-	if err != nil {
-		return productionWorkspaceResult{}, fmt.Errorf("inspect installed deployment protocol: %w", err)
-	}
-	protocol, err := productionBootstrapProtocol(string(help))
+	protocol, err := runtime.productionBootstrapProtocol(ctx, plan.TargetAlias, plan.GoRollback)
 	if err != nil {
 		return productionWorkspaceResult{}, err
 	}
@@ -58,24 +56,100 @@ func (runtime *productionReleaseRuntime) bootstrapRemoteWorkspace(ctx context.Co
 	return workspace, nil
 }
 
-func productionBootstrapProtocol(help string) (string, error) {
-	if len(help) > 32<<10 {
-		return "", errors.New("installed deployment help is oversized")
+// These revisions are the immutable go-v0.2.52 through go-v0.2.61 release
+// commits. Their signed release metadata is checked before bootstrap, and the
+// installed provider is checked against that package's payload digest above.
+// 0.2.52 exposes deploy; 0.2.53 and later expose operator. Older binaries do
+// not have the read-only capabilities command, so only these exact identities
+// may use the compatibility path.
+var productionBootstrapReleaseProtocols = map[string]struct {
+	revision string
+	protocol string
+}{
+	"go-v0.2.52": {"6d38798659035152e0b98ef23622fae3dfdfc0fe", "deploy"},
+	"go-v0.2.53": {"09009b7382690aada64adf8b825e5b675a59ca47", "operator"},
+	"go-v0.2.54": {"d6a2dbbc7f23d983ae17515cb4663b34377a0b70", "operator"},
+	"go-v0.2.55": {"ae5bf90d7bf3cc97a8a1cb5d3a69ffec4b592267", "operator"},
+	"go-v0.2.56": {"fd80de4d2ea718687cf6f14718129a200f2d6a04", "operator"},
+	"go-v0.2.57": {"a3aa2e6c7eda5aef9f02b3ef6d206c571d711038", "operator"},
+	"go-v0.2.58": {"9b08cb689518a85257c27e95d2dfff241043d40e", "operator"},
+	"go-v0.2.59": {"46b2bfe1953a217ab6013833e7b81a71c5410470", "operator"},
+	"go-v0.2.60": {"6c9e4dae914a99a91420548ea17945af2bc0a135", "operator"},
+	"go-v0.2.61": {"afddecb3951e6dc189c37fa02eea3debe013c0af", "operator"},
+}
+
+type productionBootstrapCapabilities struct {
+	Format          int    `json:"format"`
+	WorkspaceCreate string `json:"workspace_create"`
+}
+
+// Future operators publish this read-only machine contract. The compatibility
+// table above is needed only for signed releases that predate the command.
+func runProductionBootstrapCapabilities(args []string, stdout, stderr io.Writer) int {
+	if len(args) != 0 {
+		_, _ = fmt.Fprintln(stderr, "capabilities does not accept arguments")
+		return ExitUsage
 	}
-	current, legacy := false, false
-	for _, line := range strings.Split(help, "\n") {
-		switch strings.TrimSpace(line) {
-		case "/usr/bin/lmm-api-deploy build|frontend|production ...":
-			current = true
-		case "lmm-api deploy production plan [signed candidate and rollback inputs]":
-			legacy = true
+	if err := json.NewEncoder(stdout).Encode(productionBootstrapCapabilities{Format: 1, WorkspaceCreate: "operator"}); err != nil {
+		return ExitError
+	}
+	return ExitOK
+}
+
+func (runtime *productionReleaseRuntime) productionBootstrapProtocol(ctx context.Context, alias string, pkg productionReleasePackagePlan) (string, error) {
+	version, err := packageReleaseVersion(pkg.Version)
+	if err != nil || pkg.Name != productionAURPackageName || pkg.ReleaseTag != "go-v"+version || !productionRevisionPattern.MatchString(pkg.GitRevision) {
+		return "", errors.New("installed deployment package identity is invalid")
+	}
+	if known, ok := productionBootstrapReleaseProtocols[pkg.ReleaseTag]; ok {
+		if pkg.GitRevision != known.revision {
+			return "", errors.New("installed deployment release revision is unsupported")
+		}
+		return known.protocol, nil
+	}
+	output, err := runtime.ssh(ctx, alias, 30*time.Second, productionOperatorBinary, "operator", "capabilities")
+	if err != nil {
+		return "", fmt.Errorf("inspect installed deployment capabilities: %w", err)
+	}
+	return parseProductionBootstrapCapabilities(output)
+}
+
+func parseProductionBootstrapCapabilities(output []byte) (string, error) {
+	if len(output) == 0 || len(output) > 4096 {
+		return "", errors.New("installed deployment capabilities are empty or oversized")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(output))
+	start, err := decoder.Token()
+	if err != nil || start != json.Delim('{') {
+		return "", errors.New("installed deployment capabilities are invalid JSON")
+	}
+	var capabilities productionBootstrapCapabilities
+	seen := make(map[string]bool, 2)
+	for decoder.More() {
+		key, err := decoder.Token()
+		field, ok := key.(string)
+		if err != nil || !ok || seen[field] {
+			return "", errors.New("installed deployment capabilities are ambiguous")
+		}
+		seen[field] = true
+		switch field {
+		case "format":
+			err = decoder.Decode(&capabilities.Format)
+		case "workspace_create":
+			err = decoder.Decode(&capabilities.WorkspaceCreate)
+		default:
+			return "", errors.New("installed deployment capabilities contain an unsupported field")
+		}
+		if err != nil {
+			return "", errors.New("installed deployment capabilities contain an invalid value")
 		}
 	}
-	if current == legacy {
-		return "", errors.New("installed deployment protocol is unsupported or ambiguous")
+	end, err := decoder.Token()
+	if err != nil || end != json.Delim('}') {
+		return "", errors.New("installed deployment capabilities are incomplete")
 	}
-	if legacy {
-		return "deploy", nil
+	if _, err := decoder.Token(); err != io.EOF || len(seen) != 2 || capabilities.Format != 1 || capabilities.WorkspaceCreate != "operator" {
+		return "", errors.New("installed deployment protocol is unsupported or ambiguous")
 	}
 	return "operator", nil
 }
