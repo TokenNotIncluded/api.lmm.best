@@ -13,12 +13,14 @@ await mkdir(output, { recursive: true })
 const browser = await chromium.launch({ headless: true })
 const results = []
 try {
-  for (const [name, width, height, theme, motion] of [
-    ['desktop', 1440, 1000, 'light', 'no-preference'],
-    ['mobile', 390, 844, 'light', 'no-preference'],
-    ['compact', 320, 740, 'light', 'no-preference'],
-    ['dark', 1440, 1000, 'dark', 'no-preference'],
-    ['reduced', 390, 844, 'light', 'reduce'],
+  for (const [name, width, height, theme, motion, language] of [
+    ['desktop', 1440, 1000, 'light', 'no-preference', 'zhCN'],
+    ['mobile', 390, 844, 'light', 'no-preference', 'zhCN'],
+    ['compact', 320, 740, 'light', 'no-preference', 'zhCN'],
+    ['tablet', 768, 1024, 'light', 'no-preference', 'zhCN'],
+    ['english', 390, 844, 'light', 'no-preference', 'en'],
+    ['dark', 1440, 1000, 'dark', 'no-preference', 'zhCN'],
+    ['reduced', 390, 844, 'light', 'reduce', 'zhCN'],
   ]) {
     const context = await browser.newContext({
       viewport: { width, height },
@@ -29,10 +31,10 @@ try {
     await context.addCookies([
       { name: 'vite-ui-theme', value: theme, url: origin },
     ])
-    await context.addInitScript(() => {
-      localStorage.setItem('i18nextLng', 'zhCN')
+    await context.addInitScript((lang) => {
+      localStorage.setItem('i18nextLng', lang)
       localStorage.setItem('lmm:source-consent:v2', 'no')
-    })
+    }, language)
     await context.route('**/*', (route) => {
       const url = new URL(route.request().url())
       if (url.origin !== origin) return route.abort('blockedbyclient')
@@ -80,18 +82,55 @@ try {
         title: box('#lmm-home-title'),
         visual: box('[data-home-visual]'),
         controls: box('.lmm-core-steps'),
+        activePanel: box('[data-cinema-panel][data-active]'),
+        stageBorder: getComputedStyle(
+          document.querySelector('[data-cinema-inner]')
+        ).borderTopWidth,
+        inputBorder: getComputedStyle(
+          document.querySelector('[data-token-input]')
+        ).borderTopWidth,
         buttons: Array.from(
           document.querySelectorAll('[data-cinema-jump]')
         ).map((button) => ({
           text: button.textContent,
           width: button.getBoundingClientRect().width,
           height: button.getBoundingClientRect().height,
+          unobstructed: (() => {
+            const rect = button.getBoundingClientRect()
+            const target = document.elementFromPoint(
+              rect.x + rect.width / 2,
+              rect.y + rect.height / 2
+            )
+            return target === button || button.contains(target)
+          })(),
         })),
       }
     })
     assert.equal(metrics.scrollWidth, width, `${name}: horizontal overflow`)
     assert.deepEqual(errors, [], `${name}: browser exceptions`)
+    assert.equal(metrics.stageBorder, '0px', `${name}: framed stage returned`)
+    assert.equal(
+      metrics.inputBorder,
+      '0px',
+      `${name}: boxed token input returned`
+    )
     if (motion === 'no-preference') {
+      for (const button of metrics.buttons) {
+        assert.ok(
+          button.width >= 44 && button.height >= 44,
+          `${name}: undersized navigation target`
+        )
+        assert.ok(
+          button.unobstructed,
+          `${name}: navigation covered by a widget`
+        )
+      }
+      assert.ok(
+        metrics.activePanel.y + metrics.activePanel.height < metrics.controls.y,
+        `${name}: navigation overlaps content`
+      )
+      await page.locator('[data-token-option]').first().click()
+      assert.ok(await page.locator('[data-predicted-token]').textContent())
       const toggle = page.locator('[data-motion-toggle]')
       await toggle.click()
       assert.equal(await toggle.getAttribute('aria-pressed'), 'true')
@@ -106,7 +145,12 @@ try {
       await page.screenshot({ path: `${output}/${name}-api.png` })
       await page.locator('[data-cinema-jump="0"]').click()
     }
-    results.push({ name, width, height, theme, ...metrics, errors })
+    if (['desktop', 'mobile', 'dark'].includes(name)) {
+      await page
+        .locator('.lmm-assistant-section')
+        .screenshot({ path: `${output}/${name}-assistant.png` })
+    }
+    results.push({ name, width, height, theme, language, ...metrics, errors })
     await context.close()
   }
   await writeFile(`${output}/results.json`, JSON.stringify(results, null, 2))

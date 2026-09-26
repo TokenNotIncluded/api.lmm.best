@@ -2,7 +2,12 @@ name: Homepage design review
 
 on:
   push:
-    branches: [codex/homepage-polish-20260926]
+    branches: [main]
+    paths:
+      - 'apps/web/src/features/home/**'
+      - 'apps/web/src/features/forge/forge-home*'
+      - 'apps/web/scripts/home-design-review.mjs'
+      - '.github/workflows/homepage-design-review.yml'
   pull_request:
     paths:
       - 'apps/web/src/features/home/**'
@@ -54,14 +59,12 @@ jobs:
       - name: Preserve screenshots and review revision
         if: always()
         run: |
-          mkdir -p review
-          git rev-parse HEAD > review/revision.txt
-          cp -r apps/web/artifacts/home-review review/ || true
-          git archive --format=tar.gz --output=review/source.tar.gz HEAD
+          mkdir -p apps/web/artifacts/home-review
+          git rev-parse HEAD > apps/web/artifacts/home-review/revision.txt
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: homepage-browser-review
-          path: review/
+          path: apps/web/artifacts/home-review/
           retention-days: 7
           if-no-files-found: error
