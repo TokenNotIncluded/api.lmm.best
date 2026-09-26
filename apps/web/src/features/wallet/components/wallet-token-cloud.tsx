@@ -52,12 +52,62 @@ export function WalletTokenCloud({
   amount,
   variant = 'balance',
   success,
+  onSuccessComplete,
 }: {
   amount: number
   variant?: 'balance' | 'preset'
   success?: WalletCloudSuccess | null
+  onSuccessComplete?: (orderId: number) => void
 }) {
   const svgRef = useRef<SVGSVGElement>(null)
+  const cloudRef = useRef<HTMLDivElement>(null)
+  const [visible, setVisible] = useState(false)
+  const playedRef = useRef<number | null>(null)
+  const onCompleteRef = useRef(onSuccessComplete)
+  useEffect(() => {
+    onCompleteRef.current = onSuccessComplete
+  }, [onSuccessComplete])
+  useEffect(() => {
+    if (variant !== 'balance') return
+    const element = cloudRef.current
+    if (!element) return
+    let intersects = false
+    const sync = () =>
+      setVisible(intersects && document.visibilityState === 'visible')
+    const observer =
+      typeof IntersectionObserver === 'function'
+        ? new IntersectionObserver(
+            ([entry]) => {
+              intersects =
+                entry.isIntersecting && entry.intersectionRatio >= 0.25
+              sync()
+            },
+            { threshold: [0, 0.25] }
+          )
+        : null
+    const fallback = () => {
+      const rect = element.getBoundingClientRect()
+      intersects =
+        rect.bottom > 0 &&
+        rect.top < window.innerHeight &&
+        rect.right > 0 &&
+        rect.left < window.innerWidth
+      sync()
+    }
+    observer?.observe(element)
+    if (!observer) {
+      fallback()
+      window.addEventListener('scroll', fallback, true)
+      window.addEventListener('resize', fallback)
+    }
+    document.addEventListener('visibilitychange', sync)
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('scroll', fallback, true)
+      window.removeEventListener('resize', fallback)
+      document.removeEventListener('visibilitychange', sync)
+    }
+  }, [variant])
   const [compact, setCompact] = useState(false)
   const [activeSuccess, setActiveSuccess] = useState<WalletCloudSuccess | null>(
     null
@@ -82,20 +132,34 @@ export function WalletTokenCloud({
   }, [variant])
 
   useEffect(() => {
-    if (variant !== 'balance' || !success) return
-    setActiveSuccess(success)
-    const timeout = window.setTimeout(() => {
-      setActiveSuccess((current) =>
-        current?.orderId === success.orderId ? null : current
-      )
-    }, 3000)
+    if (
+      variant !== 'balance' ||
+      !success ||
+      !visible ||
+      playedRef.current === success.orderId
+    ) {
+      setActiveSuccess(null)
+      return
+    }
+    const reduced = window.matchMedia(
+      '(prefers-reduced-motion: reduce)'
+    ).matches
+    setActiveSuccess(reduced ? null : success)
+    const timeout = window.setTimeout(
+      () => {
+        playedRef.current = success.orderId
+        setActiveSuccess(null)
+        onCompleteRef.current?.(success.orderId)
+      },
+      reduced ? 0 : 3000
+    )
     return () => window.clearTimeout(timeout)
-  }, [success, variant])
+  }, [success, variant, visible])
 
-  const before = activeSuccess?.beforeCredits ?? amount
-  const after = activeSuccess
-    ? Math.max(amount, before + activeSuccess.creditedCredits)
-    : amount
+  const after = Math.max(0, amount)
+  const before = activeSuccess
+    ? Math.min(after, Math.max(0, activeSuccess.beforeCredits))
+    : after
   const densityFactor = compact && variant === 'balance' ? 0.58 : 1
   const baseCount = Math.round(
     walletCloudParticleCount(before, variant) * densityFactor
@@ -206,6 +270,7 @@ export function WalletTokenCloud({
 
   return (
     <div
+      ref={cloudRef}
       className={`wallet-token-cloud wallet-token-cloud--${variant}`}
       data-success={activeSuccess ? 'true' : undefined}
       data-testid={`wallet-token-cloud-${variant}`}

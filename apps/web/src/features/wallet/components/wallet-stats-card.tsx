@@ -40,6 +40,7 @@ interface WalletStatsCardProps {
   user: UserWalletData | null
   loading?: boolean
   success?: WalletCloudSuccess | null
+  onSuccessComplete?: (orderId: number) => void
 }
 
 export function WalletStatsCard(props: WalletStatsCardProps) {
@@ -124,7 +125,11 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
           )}
         >
           {index === 0 && (
-            <WalletTokenCloud amount={balanceCredits} success={props.success} />
+            <WalletTokenCloud
+              amount={balanceCredits}
+              success={props.success}
+              onSuccessComplete={props.onSuccessComplete}
+            />
           )}
           <div className='pointer-events-none relative z-10 flex items-center gap-2'>
             <IconBadge tone={item.tone} size='stat'>
