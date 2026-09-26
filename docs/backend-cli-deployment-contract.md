@@ -177,7 +177,7 @@ correctness. Historical intent-log absence is not required for these writers.
 The controller supports the signed Go 0.2.52 `deploy` bootstrap and the current
 private `operator` protocol. Before creating a workspace it verifies the
 installed one-hop provider link, root ownership, safe mode and exact frozen
-rollback payload hash. For signed Go 0.2.52 through 0.2.61 releases, it selects
+rollback payload hash. For signed Go 0.2.52 through 0.2.62 releases, it selects
 the entry point from the exact release tag and Git revision in the already
 verified package metadata. An unfamiliar release must provide the read-only
 `/usr/bin/lmm-api operator capabilities` command. Its JSON format 1 response is

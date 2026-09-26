@@ -56,7 +56,7 @@ func (runtime *productionReleaseRuntime) bootstrapRemoteWorkspace(ctx context.Co
 	return workspace, nil
 }
 
-// These revisions are the immutable go-v0.2.52 through go-v0.2.61 release
+// These revisions are the immutable go-v0.2.52 through go-v0.2.62 release
 // commits. Their signed release metadata is checked before bootstrap, and the
 // installed provider is checked against that package's payload digest above.
 // 0.2.52 exposes deploy; 0.2.53 and later expose operator. Older binaries do
@@ -76,6 +76,7 @@ var productionBootstrapReleaseProtocols = map[string]struct {
 	"go-v0.2.59": {"46b2bfe1953a217ab6013833e7b81a71c5410470", "operator"},
 	"go-v0.2.60": {"6c9e4dae914a99a91420548ea17945af2bc0a135", "operator"},
 	"go-v0.2.61": {"afddecb3951e6dc189c37fa02eea3debe013c0af", "operator"},
+	"go-v0.2.62": {"4b64392ee0b241ac738ed0635ba662716c5b9ea8", "operator"},
 }
 
 type productionBootstrapCapabilities struct {
