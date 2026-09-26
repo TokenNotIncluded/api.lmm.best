@@ -281,7 +281,11 @@ export function mountHomeMotion(root: HTMLElement) {
     const cinemaRect = cinema.getBoundingClientRect()
     const frameRect = inner.getBoundingClientRect()
     const stickyTop = Number.parseFloat(window.getComputedStyle(inner).top) || 0
-    const animated = !!draw && !reduced.matches && window.innerHeight > 600
+    const animated =
+      !!draw &&
+      !reduced.matches &&
+      window.innerHeight > 600 &&
+      (window.innerWidth > 680 || window.innerHeight > 700)
     sceneProgress =
       manualChapter !== null && animated
         ? manualChapter / Math.max(1, scenePanels.length - 1)

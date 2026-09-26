@@ -21,3 +21,22 @@ test('descriptions keep their text and grapheme boundaries across scripts', () =
   const accent = segmentMovingText('e\u0301', 'fr')
   assert.deepEqual(accent[0].letters, ['e\u0301'])
 })
+
+test('animated words keep closing punctuation off the start of a wrapped line', () => {
+  for (const [language, text] of [
+    ['zhCN', '共用一个 API。选好模型，接入应用。'],
+    ['ja', 'モデルを選ぶ。接続する。'],
+    ['en', 'Choose a model. Start here!'],
+    ['fr', 'Choisissez un modèle.'],
+    ['ru', 'Выберите модель.'],
+  ]) {
+    const parts = segmentMovingText(text, language)
+    assert.equal(parts.map((part) => part.word).join(''), text)
+    assert.equal(parts.map((part) => part.letters.join('')).join(''), text)
+    assert.ok(
+      parts.every(
+        (part) => !/^[\p{Pe}\p{Pf},.!?;:，。！？；：、…]+$/u.test(part.word)
+      )
+    )
+  }
+})
