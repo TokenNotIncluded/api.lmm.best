@@ -31,7 +31,10 @@ test('the public layout and guard use the same exact path boundary', () => {
     new URL('../routes/_authenticated/route.tsx', import.meta.url),
     'utf8'
   )
-  assert.match(route, /if \(isPublicDirectoryPath\(location.pathname\)\) return/)
+  assert.match(
+    route,
+    /if \(isPublicDirectoryPath\(location.pathname\)\) return/
+  )
   assert.match(route, /if \(isPublicDirectoryPath\(pathname\)\)/)
   assert.match(route, /<ForgePublicShell>/)
   assert.match(route, /if \(!auth.user \|\| !auth.accessToken\)/)

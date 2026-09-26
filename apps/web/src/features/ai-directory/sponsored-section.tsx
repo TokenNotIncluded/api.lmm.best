@@ -528,9 +528,7 @@ export function SponsoredDirectorySection() {
           {t('Load more advertisements')}
         </Button>
       )}
-      {canPromote && (
-        <AdvertisementDialog open={open} onOpenChange={setOpen} />
-      )}
+      {canPromote && <AdvertisementDialog open={open} onOpenChange={setOpen} />}
     </section>
   )
 }

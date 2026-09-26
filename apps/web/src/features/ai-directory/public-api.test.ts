@@ -72,7 +72,10 @@ test('guests cannot mount the payment dialog and sign-in returns to the director
     new URL('./sponsored-section.tsx', import.meta.url),
     'utf8'
   )
-  assert.match(source, /canPromote && \(\s*<AdvertisementDialog/)
+  assert.match(source, /canPromote && (?:\(\s*)?<AdvertisementDialog/)
   assert.match(source, /isSignedIn && isConsoleActivated\(auth.user\)/)
-  assert.match(source, /to='\/sign-in' search=\{\{ redirect: '\/ai-directory' \}\}/)
+  assert.match(
+    source,
+    /to='\/sign-in' search=\{\{ redirect: '\/ai-directory' \}\}/
+  )
 })
