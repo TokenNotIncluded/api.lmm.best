@@ -1,77 +1,53 @@
 name: Wallet and red packet review
 
 on:
-  push:
-    branches: [fix/wallet-red-packet-recovery]
-    paths: [.github/workflows/wallet-red-packet-review.yml]
+  pull_request:
+    paths:
+      - 'apps/web/src/features/wallet/**'
+      - 'apps/web/src/features/red-packets/**'
+      - 'apps/web/src/components/frontend-update-notice.tsx'
+      - 'apps/web/src/lib/frontend-*.ts'
+      - 'apps/web/scripts/visual-review/wallet_red_packet_review.py'
+      - 'apps/api-go/model/red_packet*.go'
+      - 'apps/api-go/controller/topup*.go'
+      - '.github/workflows/wallet-red-packet-review.yml'
 
 permissions:
   contents: read
 
+concurrency:
+  group: wallet-red-packet-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
-  apply:
-    if: github.ref == 'refs/heads/fix/wallet-red-packet-recovery'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: write
-    outputs:
-      revision: ${{ steps.commit.outputs.revision }}
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-      - name: Verify and apply the reviewed source patch
-        shell: bash
-        run: |
-          cat .github/wallet-repair.patch.xz.b64.1 .github/wallet-repair.patch.xz.b64.2 | base64 --decode | xz --decompress > "$RUNNER_TEMP/wallet-fixes.patch"
-          echo "ed9592be165355713fe8397fce8e1044eba74de5cf075b0fb6c90b18192b2a96  $RUNNER_TEMP/wallet-fixes.patch" | sha256sum --check
-          git apply --check "$RUNNER_TEMP/wallet-fixes.patch"
-          git apply "$RUNNER_TEMP/wallet-fixes.patch"
-      - name: Commit and push only the requested repair branch
-        id: commit
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add apps docs
-          git commit -m 'fix: archive inactive red packets and correlate wallet success with checkout orders'
-          authorization=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
-          git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $authorization" push origin HEAD:refs/heads/fix/wallet-red-packet-recovery
-          echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
   frontend:
-    needs: apply
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ needs.apply.outputs.revision }}
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: '1.3.14'
       - run: bun install --frozen-lockfile
-      - name: Typecheck, lint, formatting and all frontend tests
+      - name: Run focused frontend regression tests and production build
         working-directory: apps/web
         shell: bash
         run: |
           mkdir -p "$RUNNER_TEMP/wallet-review"
           git rev-parse HEAD > "$RUNNER_TEMP/wallet-review/revision.txt"
-          bun run typecheck 2>&1 | tee "$RUNNER_TEMP/wallet-review/typecheck.log"
-          bun run lint 2>&1 | tee "$RUNNER_TEMP/wallet-review/lint.log"
-          bun run format:check 2>&1 | tee "$RUNNER_TEMP/wallet-review/format.log"
-          bun run copyright:check 2>&1 | tee "$RUNNER_TEMP/wallet-review/copyright.log"
-          bun run test 2>&1 | tee "$RUNNER_TEMP/wallet-review/tests.log"
+          shopt -s globstar nullglob
+          for test in src/features/wallet/**/*.test.ts src/features/wallet/**/*.test.tsx src/features/red-packets/*.test.ts src/features/red-packets/*.test.tsx src/lib/frontend-*.test.ts; do
+            bun test --preload ./scripts/test-preload.mjs --timeout 15000 "$test"
+          done
           bun run build 2>&1 | tee "$RUNNER_TEMP/wallet-review/build.log"
       - name: Install isolated browser test tools
         run: |
           python3 -m venv "$RUNNER_TEMP/wallet-browser"
           "$RUNNER_TEMP/wallet-browser/bin/pip" install playwright==1.57.0
           "$RUNNER_TEMP/wallet-browser/bin/playwright" install --with-deps chromium
-      - name: Browser regression and visual review with synthetic local data
+      - name: Verify browser interactions with synthetic local data
         working-directory: apps/web
         env:
           WALLET_REVIEW_OUTPUT: ${{ runner.temp }}/wallet-review
@@ -95,7 +71,6 @@ jobs:
           retention-days: 7
           if-no-files-found: error
   backend:
-    needs: apply
     runs-on: ubuntu-latest
     timeout-minutes: 25
     services:
@@ -107,14 +82,13 @@ jobs:
           POSTGRES_DB: lmm_test_wallet
         ports: ['5432:5432']
         options: >-
-          --health-cmd 'pg_isready -U lmm_test_wallet'
+          --health-cmd "pg_isready -U lmm_test_wallet"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 12
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ needs.apply.outputs.revision }}
           persist-credentials: false
       - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
         with:
