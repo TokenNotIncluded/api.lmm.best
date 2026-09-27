@@ -199,6 +199,17 @@ func TryTieredSettle(relayInfo *relaycommon.RelayInfo, params billingexpr.TokenP
 	noteQuotaClamp(relayInfo, tr.Clamp)
 
 	quota = tr.ActualQuotaAfterGroup
+	quota = enforceTieredMinimumQuota(quota, &tr, snap.GroupRatio)
 
 	return true, quota, &tr
+}
+
+// enforceTieredMinimumQuota keeps a successful, positive-price tiered request
+// from becoming free solely because quota rounding discarded a sub-quota unit.
+// Free groups and zero/failed settlements intentionally retain their zero value.
+func enforceTieredMinimumQuota(quota int, result *billingexpr.TieredResult, groupRatio float64) int {
+	if quota == 0 && result != nil && result.ActualQuotaBeforeGroup > 0 && groupRatio > 0 {
+		return 1
+	}
+	return quota
 }

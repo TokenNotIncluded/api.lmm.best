@@ -48,6 +48,8 @@ func RunDeploy(args []string, stdout, stderr io.Writer) int {
 		return runFrontendDeploy(args[1:], stdout, stderr)
 	case "contract":
 		return runDeployContract(args[1:], stdout, stderr)
+	case "capabilities":
+		return runProductionBootstrapCapabilities(args[1:], stdout, stderr)
 	case "production":
 		return runProductionDeploy(args[1:], stdout, stderr)
 	case "help", "--help", "-h":
@@ -67,6 +69,7 @@ func writeDeployUsage(output io.Writer) {
   %s frontend rollback [--release ID] [--root DIR] [--keep N]
   %s frontend package-activate --package-version VERSION [--root DIR] [--source DIR] [--revision-file FILE] [--keep N]
   %s contract route print|generate|verify [REVISION_FILE]
+  %s capabilities               Read-only JSON bootstrap protocol contract
   %s production harden [--env-file FILE] [--drop-in-dir DIR]
   %s production edge-policy install|verify [--asset-root DIR] [--backup-dir DIR]
   %s production plan --repo DIR --workspace DIR --deployment-id ID \
@@ -81,7 +84,7 @@ func writeDeployUsage(output io.Writer) {
 Backups are optional for Go-only, Web-only, and combined releases.
 Selected backups are imported and decrypted only on the controller; only signed verification receipts reach production.
 Target-only recovery commands are listed by the production command's usage.
-`, DeployProgramName, DeployProgramName, DeployProgramName, DeployProgramName, DeployProgramName, DeployProgramName, DeployProgramName, DeployProgramName, DeployProgramName)
+`, DeployProgramName, DeployProgramName, DeployProgramName, DeployProgramName, DeployProgramName, DeployProgramName, DeployProgramName, DeployProgramName, DeployProgramName, DeployProgramName)
 }
 
 func runFrontendDeploy(args []string, stdout, stderr io.Writer) int {

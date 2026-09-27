@@ -17,7 +17,7 @@ use axum::{
     extract::{DefaultBodyLimit, Request, State},
     http::{HeaderMap, HeaderValue, StatusCode, Uri, header},
     response::{IntoResponse, Response},
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
 };
 use bcrypt::{DEFAULT_COST, hash};
 use chrono::{DateTime, SecondsFormat, Utc};
@@ -323,6 +323,7 @@ pub enum SecurityOperation {
     SendPasswordReset,
     PasskeyStatus,
     ListSessions,
+    UpdateSessionSettings,
     SendEmailVerification,
     VerifyTwoFactorLogin,
     PasskeyLoginBegin,
@@ -939,6 +940,7 @@ impl SecurityProvider for PgValkeySecurityProvider {
         match call.operation {
             SecurityOperation::PasskeyStatus => self.passkey_status(Self::actor(&call)?).await,
             SecurityOperation::ListSessions => self.list_sessions(Self::actor(&call)?).await,
+            SecurityOperation::UpdateSessionSettings => Err(SecurityError::Unavailable),
             SecurityOperation::DeleteSession => {
                 // Go publishes a session-specific deny fence and clears the
                 // matching refresh cookie. The candidate has neither boundary.
@@ -1064,6 +1066,8 @@ pub struct IdentitySecurityState {
     /// Legacy `passkey.enabled` setting, when supplied by the listener.
     /// `None` keeps the candidate router's provider-driven test behavior.
     passkey_enabled: Option<bool>,
+    session_authority: Option<Arc<dyn DashboardAuth>>,
+    session_cookie_secure: bool,
 }
 
 impl IdentitySecurityState {
@@ -1078,6 +1082,8 @@ impl IdentitySecurityState {
             authorizer,
             registration_security: None,
             passkey_enabled: None,
+            session_authority: None,
+            session_cookie_secure: true,
         }
     }
 
@@ -1085,6 +1091,18 @@ impl IdentitySecurityState {
     #[must_use]
     pub fn with_passkey_enabled(mut self, enabled: bool) -> Self {
         self.passkey_enabled = Some(enabled);
+        self
+    }
+
+    /// Uses the same durable session/cache authority as login and refresh.
+    #[must_use]
+    pub fn with_session_authority(
+        mut self,
+        auth: Arc<dyn DashboardAuth>,
+        cookie_secure: bool,
+    ) -> Self {
+        self.session_authority = Some(auth);
+        self.session_cookie_secure = cookie_secure;
         self
     }
 
@@ -1128,6 +1146,7 @@ pub fn router(state: IdentitySecurityState) -> Router {
         .route("/api/authz/catalog", get(authz_catalog))
         .route("/api/reset_password", get(send_password_reset))
         .route("/api/user/sessions", get(list_sessions))
+        .route("/api/user/sessions/settings", put(update_session_settings))
         .route("/api/verification", get(send_email_verification))
         .route("/api/user/login/2fa", post(verify_two_factor_login))
         .route("/api/user/passkey/login/begin", post(passkey_login_begin))
@@ -1228,9 +1247,21 @@ fn success(data: Value) -> Response {
 }
 
 fn operation_success(operation: SecurityOperation, data: Value) -> Response {
-    if operation == SecurityOperation::Register {
+    if matches!(
+        operation,
+        SecurityOperation::Register | SecurityOperation::UpdateSessionSettings
+    ) {
         return legacy_json_content_type(
             Json(json!({"success": true, "message": ""})).into_response(),
+        );
+    }
+    if operation == SecurityOperation::ListSessions && data.get("sessions").is_some() {
+        return legacy_json_content_type(
+            Json(json!({
+                "success": true, "message": "", "data": data["sessions"],
+                "session_auto_logout": data["session_auto_logout"],
+            }))
+            .into_response(),
         );
     }
     if operation == SecurityOperation::AdminResetPasskey {
@@ -1308,9 +1339,9 @@ async fn authenticated_browser_session(
     let actor = authenticated_user(state, headers).await?;
     match actor.session_id.as_deref() {
         Some(session_id) if !session_id.trim().is_empty() => Ok(actor),
-        _ => Err(with_auth_version(
+        _ => Err(with_no_store(with_auth_version(
             SecurityError::SessionRequired.response(LegacyLocale::from_headers(headers)),
-        )),
+        ))),
     }
 }
 
@@ -1438,6 +1469,19 @@ async fn execute(
     locale: LegacyLocale,
 ) -> Response {
     let authenticated = actor.is_some();
+    if let (Some(authority), Some(actor)) = (&state.session_authority, &actor)
+        && matches!(
+            operation,
+            SecurityOperation::ListSessions
+                | SecurityOperation::UpdateSessionSettings
+                | SecurityOperation::DeleteSession
+                | SecurityOperation::RevokeOtherSessions
+        )
+    {
+        return with_auth_version(
+            execute_session(authority.as_ref(), operation, actor, &input).await,
+        );
+    }
     // Gin binds `Verify2FARequest` before entering the legacy handler.  Its
     // required `code` field therefore turns an empty object into the legacy
     // HTTP-200 parameter-error envelope, even though the durable 2FA
@@ -1494,6 +1538,86 @@ async fn execute(
         with_auth_version(response)
     } else {
         response
+    }
+}
+
+async fn execute_session(
+    authority: &dyn DashboardAuth,
+    operation: SecurityOperation,
+    actor: &SecurityActor,
+    input: &Value,
+) -> Response {
+    let Some(current_sid) = actor.session_id.as_deref().filter(|sid| !sid.is_empty()) else {
+        return failure(
+            StatusCode::FORBIDDEN,
+            "a dashboard login session is required",
+            Some("AUTH_SESSION_REQUIRED"),
+        );
+    };
+    let result = match operation {
+        SecurityOperation::ListSessions => authority
+            .list_login_sessions(actor.user_id, current_sid)
+            .await
+            .map(|inventory| json!(inventory)),
+        SecurityOperation::UpdateSessionSettings => {
+            let Some(enabled) = input.get("session_auto_logout").and_then(Value::as_bool) else {
+                return failure(
+                    StatusCode::BAD_REQUEST,
+                    "session_auto_logout must be a boolean",
+                    None,
+                );
+            };
+            authority
+                .set_session_auto_logout(actor.user_id, enabled)
+                .await
+                .map(|()| Value::Null)
+        }
+        SecurityOperation::DeleteSession => {
+            let sid = input
+                .get("sid")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim();
+            if sid.is_empty() {
+                return failure(
+                    StatusCode::BAD_REQUEST,
+                    "session id is required",
+                    Some("AUTH_SESSION_ID_REQUIRED"),
+                );
+            }
+            match authority.revoke_login_session(actor.user_id, sid).await {
+                Ok(true) => Ok(json!({"revoked_sid":sid,"current":sid==current_sid})),
+                Ok(false) => {
+                    return failure(
+                        StatusCode::NOT_FOUND,
+                        "session not found",
+                        Some("AUTH_SESSION_NOT_FOUND"),
+                    );
+                }
+                Err(error) => Err(error),
+            }
+        }
+        SecurityOperation::RevokeOtherSessions => authority
+            .revoke_other_login_sessions(actor.user_id, current_sid)
+            .await
+            .map(|count| json!({"revoked_count":count})),
+        _ => return SecurityError::Unavailable.response(LegacyLocale::En),
+    };
+    match result {
+        Ok(data) => operation_success(operation, data),
+        Err(error) => {
+            let (status, code) = match error.kind {
+                AuthErrorKind::Unauthorized => (StatusCode::UNAUTHORIZED, "AUTH_UNAUTHORIZED"),
+                AuthErrorKind::TokenExpired => (StatusCode::UNAUTHORIZED, "AUTH_TOKEN_EXPIRED"),
+                AuthErrorKind::SessionRevoked => (StatusCode::UNAUTHORIZED, "AUTH_SESSION_REVOKED"),
+                _ => (StatusCode::INTERNAL_SERVER_ERROR, "AUTH_INTERNAL_ERROR"),
+            };
+            failure(
+                status,
+                status.canonical_reason().unwrap_or("Internal Server Error"),
+                Some(code),
+            )
+        }
     }
 }
 
@@ -1597,6 +1721,118 @@ async fn list_sessions(State(state): State<IdentitySecurityState>, request: Requ
         .await,
     )
 }
+
+async fn update_session_settings(
+    State(state): State<IdentitySecurityState>,
+    request: Request,
+) -> Response {
+    let locale = LegacyLocale::from_headers(request.headers());
+    let actor = match authenticated_user(&state, request.headers()).await {
+        Ok(actor) => actor,
+        Err(response) => return response,
+    };
+    let client_ip = request
+        .extensions()
+        .get::<ClientIpKey>()
+        .map(|key| key.0.as_str())
+        .unwrap_or_default();
+    match state.authorizer.check_critical_rate_limit(client_ip).await {
+        Ok(CriticalRateLimitOutcome::Allowed) => {}
+        Ok(CriticalRateLimitOutcome::Rejected {
+            retry_after_seconds,
+        }) => {
+            return with_auth_version(legacy_empty_response(
+                StatusCode::TOO_MANY_REQUESTS,
+                Some(retry_after_seconds),
+            ));
+        }
+        Err(error) => return with_auth_version(error.response(locale)),
+    }
+    if request
+        .headers()
+        .get(header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+        .is_some_and(|length| length > 16 * 1024)
+    {
+        return with_no_store(with_auth_version(legacy_empty_response(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            None,
+        )));
+    }
+    if actor
+        .session_id
+        .as_deref()
+        .is_none_or(|sid| sid.trim().is_empty())
+    {
+        return with_no_store(with_auth_version(
+            SecurityError::SessionRequired.response(locale),
+        ));
+    }
+    let invalid = || {
+        with_no_store(with_auth_version(failure(
+            StatusCode::BAD_REQUEST,
+            "session_auto_logout must be a boolean",
+            None,
+        )))
+    };
+    let bytes = match to_bytes(request.into_body(), 16 * 1024).await {
+        Ok(bytes) => bytes,
+        Err(_) => return invalid(),
+    };
+    let decoded = Option::<SessionSettingsInput>::deserialize(
+        &mut serde_json::Deserializer::from_slice(&bytes),
+    );
+    let enabled = match decoded {
+        Ok(Some(SessionSettingsInput {
+            session_auto_logout: Some(enabled),
+        })) => enabled,
+        _ => return invalid(),
+    };
+    with_no_store(
+        execute(
+            &state,
+            SecurityOperation::UpdateSessionSettings,
+            Some(actor),
+            json!({"session_auto_logout":enabled}),
+            locale,
+        )
+        .await,
+    )
+}
+#[derive(Default)]
+struct SessionSettingsInput {
+    session_auto_logout: Option<bool>,
+}
+
+impl<'de> Deserialize<'de> for SessionSettingsInput {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct SettingsVisitor;
+        impl<'de> serde::de::Visitor<'de> for SettingsVisitor {
+            type Value = SessionSettingsInput;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a session settings object")
+            }
+            fn visit_map<M: serde::de::MapAccess<'de>>(
+                self,
+                mut map: M,
+            ) -> Result<Self::Value, M::Error> {
+                let mut input = SessionSettingsInput::default();
+                while let Some(key) = map.next_key::<String>()? {
+                    if key.eq_ignore_ascii_case("session_auto_logout") {
+                        // Go's *bool field is reset to nil by a later null.
+                        input.session_auto_logout = map.next_value::<Option<bool>>()?;
+                    } else {
+                        let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                    }
+                }
+                Ok(input)
+            }
+        }
+        deserializer.deserialize_map(SettingsVisitor)
+    }
+}
+
 async fn delete_passkey(State(state): State<IdentitySecurityState>, request: Request) -> Response {
     let locale = LegacyLocale::from_headers(request.headers());
     let actor = match authenticated_browser_session(&state, request.headers()).await {
@@ -1620,11 +1856,30 @@ async fn delete_session(State(state): State<IdentitySecurityState>, request: Req
         Ok(actor) => actor,
         Err(response) => return response,
     };
-    let input = match single_path_after_auth(request.uri(), "/api/user/sessions/", "sid") {
-        Ok(input) => input,
-        Err(error) => return with_no_store(with_auth_version(error.response(locale))),
-    };
-    with_no_store(
+    let raw_sid = request
+        .uri()
+        .path()
+        .strip_prefix("/api/user/sessions/")
+        .unwrap_or_default();
+    // Decode the path segment like Gin; '+' is literal in a path, not a space.
+    let encoded = format!("sid={}", raw_sid.replace('+', "%2B").replace('&', "%26"));
+    let sid = form_urlencoded::parse(encoded.as_bytes())
+        .next()
+        .map(|(_, value)| value.trim().to_owned())
+        .unwrap_or_default();
+    if sid.is_empty() {
+        return with_no_store(with_auth_version(failure(
+            StatusCode::BAD_REQUEST,
+            "session id is required",
+            Some("AUTH_SESSION_ID_REQUIRED"),
+        )));
+    }
+    let input = json!({"sid":sid});
+    let clear_cookie =
+        crate::auth::refresh_cookie_session_id(request.headers()).is_some_and(|sid| {
+            Some(sid.as_str()) == input.get("sid").and_then(Value::as_str).map(str::trim)
+        });
+    let response = with_no_store(
         execute(
             &state,
             SecurityOperation::DeleteSession,
@@ -1633,7 +1888,12 @@ async fn delete_session(State(state): State<IdentitySecurityState>, request: Req
             locale,
         )
         .await,
-    )
+    );
+    if clear_cookie && state.session_authority.is_some() && response.status().is_success() {
+        crate::auth::with_clear_cookie(response, state.session_cookie_secure)
+    } else {
+        response
+    }
 }
 async fn send_password_reset(
     State(state): State<IdentitySecurityState>,

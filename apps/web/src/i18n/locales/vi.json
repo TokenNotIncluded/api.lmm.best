@@ -3715,7 +3715,7 @@
     "footer.columns.related.links.midjourney": "MjProxy",
     "footer.columns.related.title": "Các Dự Án Liên Quan",
     "footer.defaultCopyright": "Bản quyền được bảo lưu.",
-    "footer.new\u0061pi.projectAttributionSuffix": "Bản quyền được bảo lưu. Được thiết kế và phát triển bởi các cộng tác viên dự án.",
+    "footer.newapi.projectAttributionSuffix": "Bản quyền được bảo lưu. Được thiết kế và phát triển bởi các cộng tác viên dự án.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "Đối với các kênh được thêm sau ngày 10 tháng 5 năm 2025, không cần loại bỏ \".\" khỏi tên mô hình trong quá trình triển khai",
     "For dsh web in a terminal, run this command. It installs only into the web profile.": "Nếu chạy dsh web trong terminal, hãy dùng lệnh này. Plugin chỉ được cài vào hồ sơ web.",
     "For example, a reliable OpenAI-compatible endpoint": "Ví dụ: một endpoint tương thích OpenAI đáng tin cậy",
@@ -9996,6 +9996,13 @@
     "Zhipu V4": "Zhipu V4",
     "Zoom": "Thu phóng",
     "Zoom in": "Phóng to",
-    "Zoom out": "Thu nhỏ"
+    "Zoom out": "Thu nhỏ",
+    "Fully claimed": "Đã nhận hết",
+    "Delete red packet": "Xóa lì xì",
+    "Red packet deleted": "Đã xóa lì xì",
+    "Failed to delete red packet": "Không thể xóa lì xì",
+    "Remove this red packet from the list and stop new claims. Claim history and already received rewards are kept.": "Xóa lì xì này khỏi danh sách và ngừng lượt nhận mới. Lịch sử nhận và phần thưởng đã nhận sẽ được giữ lại.",
+    "A newer interface is available. Refresh after finishing any payment.": "Đã có phiên bản giao diện mới. Hãy tải lại trang sau khi hoàn tất thanh toán.",
+    "Refresh page": "Tải lại trang"
   }
 }

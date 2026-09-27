@@ -516,6 +516,68 @@ mod tests {
     }
 
     #[test]
+    fn security_proof_rejects_changed_session_identity() -> TestResult {
+        let codec = LegacyTokenCodec::new(SecretString::from(
+            "0123456789abcdef-SESSION-SECRET!".to_owned(),
+        ))?;
+        let original = identity();
+        let (token, _) =
+            codec.issue_security_proof(&original, "email", &["channel.key.read".to_owned()])?;
+
+        let mut changed_identities = Vec::new();
+        let mut different_user = original.clone();
+        different_user.user_id += 1;
+        changed_identities.push(different_user);
+        let mut different_session = original.clone();
+        different_session.session_id = uuid::Uuid::new_v4().to_string();
+        changed_identities.push(different_session);
+        let mut new_auth_version = original.clone();
+        new_auth_version.user_auth_version += 1;
+        changed_identities.push(new_auth_version);
+        let mut new_session_version = original.clone();
+        new_session_version.session_version += 1;
+        changed_identities.push(new_session_version);
+
+        for changed in changed_identities {
+            let error = codec
+                .verify_security_proof(
+                    &SecretString::from(token.clone()),
+                    &changed,
+                    "channel.key.read",
+                    &["email".to_owned()],
+                )
+                .err()
+                .ok_or_else(|| std::io::Error::other("stale proof was accepted"))?;
+            assert_eq!(error.kind, AuthErrorKind::Unauthorized);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn access_and_security_proof_tokens_cannot_be_interchanged() -> TestResult {
+        let codec = LegacyTokenCodec::new(SecretString::from(
+            "0123456789abcdef-SESSION-SECRET!".to_owned(),
+        ))?;
+        let identity = identity();
+        let (access_token, _) = codec.issue(&identity)?;
+        let (proof_token, _) =
+            codec.issue_security_proof(&identity, "email", &["channel.key.read".to_owned()])?;
+
+        assert!(
+            codec
+                .verify_security_proof(
+                    &SecretString::from(access_token),
+                    &identity,
+                    "channel.key.read",
+                    &["email".to_owned()],
+                )
+                .is_err()
+        );
+        assert!(codec.parse(&SecretString::from(proof_token)).is_err());
+        Ok(())
+    }
+
+    #[test]
     fn dashboard_jwt_candidates_never_be_reclassified_as_opaque_credentials() -> TestResult {
         let codec = LegacyTokenCodec::new(SecretString::from(
             "0123456789abcdef-SESSION-SECRET!".to_owned(),

@@ -21,18 +21,12 @@ Copyright (C) 2026 LIghtJUNction
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { TFunction } from 'i18next'
-import {
-  Copy,
-  ExternalLink,
-  Gift,
-  ImagePlus,
-  Plus,
-  Sparkles,
-} from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { Gift, ImagePlus, Plus, Sparkles } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { SectionPageLayout } from '@/components/layout'
 import { Button } from '@/components/ui/button'
 import {
@@ -53,8 +47,10 @@ import type { Redemption } from '@/features/redemption-codes/types'
 import { api } from '@/lib/api'
 import { formatQuota } from '@/lib/format'
 
-import { createRedPacket, listRedPackets } from './api'
+import { createRedPacket, deleteRedPacket, listRedPackets } from './api'
+import { RedPacketCard } from './red-packet-card'
 import type {
+  RedPacket,
   RedPacketDrawMode,
   RedPacketItemInput,
   RedPacketItemType,
@@ -184,6 +180,8 @@ export function RedPackets() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
+  const [deleting, setDeleting] = useState<RedPacket | null>(null)
+  const deletePendingRef = useRef(false)
   const [form, setForm] = useState<FormState>(emptyForm)
   const [selected, setSelected] = useState<Record<string, number>>({})
   const [generatingCover, setGeneratingCover] = useState(false)
@@ -223,6 +221,7 @@ export function RedPackets() {
   const packetsQuery = useQuery({
     queryKey: ['red-packets', 'admin'],
     queryFn: listRedPackets,
+    refetchOnWindowFocus: true,
   })
   const redemptionsQuery = useQuery({
     queryKey: ['red-packets', 'redemptions'],
@@ -278,6 +277,26 @@ export function RedPackets() {
           ? error.message
           : t('Failed to create red packet')
       )
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const response = await deleteRedPacket(id)
+      if (!response.success) {
+        throw new Error(response.message || t('Failed to delete red packet'))
+      }
+    },
+    onSuccess: async () => {
+      setDeleting(null)
+      toast.success(t('Red packet deleted'))
+      await queryClient.invalidateQueries({ queryKey: ['red-packets'] })
+    },
+    onError: (error) => {
+      toast.error(error.message || t('Failed to delete red packet'))
+    },
+    onSettled: () => {
+      deletePendingRef.current = false
     },
   })
 
@@ -378,110 +397,13 @@ export function RedPackets() {
               )}
             </p>
             <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-3'>
-              {packets.map((packet) => {
-                const shareUrl = `${window.location.origin}/red-packet/${packet.slug}`
-                const claimed =
-                  packet.total_items > 0
-                    ? 1 - packet.remaining_items / packet.total_items
-                    : 0
-                const now = Math.floor(Date.now() / 1000)
-                const status = !packet.enabled
-                  ? t('Paused')
-                  : packet.end_at > 0 && packet.end_at < now
-                    ? t('Ended')
-                    : packet.start_at > now
-                      ? t('Scheduled')
-                      : t('Live')
-                const isLive = status === t('Live')
-                return (
-                  <div
-                    key={packet.id}
-                    className='bg-card group hover:border-primary/40 overflow-hidden rounded-xl border transition-colors'
-                  >
-                    <div className='relative'>
-                      {packet.cover_image ? (
-                        <img
-                          src={packet.cover_image}
-                          alt=''
-                          className='aspect-[3/1] w-full object-cover transition-transform duration-300 group-hover:scale-[1.02] motion-reduce:transform-none'
-                        />
-                      ) : (
-                        <div className='from-primary/15 to-muted flex aspect-[3/1] items-center justify-center bg-gradient-to-br'>
-                          <Gift className='text-muted-foreground size-8' />
-                        </div>
-                      )}
-                      <span
-                        className={
-                          isLive
-                            ? 'bg-background/90 text-primary absolute top-2 right-2 rounded-full px-2 py-0.5 text-[10px] font-medium'
-                            : 'bg-background/90 text-muted-foreground absolute top-2 right-2 rounded-full px-2 py-0.5 text-[10px] font-medium'
-                        }
-                      >
-                        {status}
-                      </span>
-                    </div>
-                    <div className='space-y-3 p-4'>
-                      <div>
-                        <div className='font-medium'>{packet.title}</div>
-                        <div className='text-muted-foreground mt-1 text-xs'>
-                          {packet.remaining_items}/{packet.total_items}{' '}
-                          {t('remaining')} · {packet.claim_count} {t('claims')}
-                        </div>
-                      </div>
-                      <div
-                        className='bg-muted h-1.5 overflow-hidden rounded-full'
-                        role='progressbar'
-                        aria-valuemin={0}
-                        aria-valuemax={100}
-                        aria-valuenow={Math.round(claimed * 100)}
-                        aria-label={t('{{percent}}% claimed', {
-                          percent: Math.round(claimed * 100),
-                        })}
-                      >
-                        <span
-                          className='bg-primary block h-full rounded-full transition-[width] duration-300 motion-reduce:transition-none'
-                          style={{ width: `${Math.round(claimed * 100)}%` }}
-                        />
-                      </div>
-                      <div className='flex gap-2'>
-                        <Input
-                          value={shareUrl}
-                          readOnly
-                          className='h-8 text-xs'
-                          aria-label={t('Share link')}
-                        />
-                        <Button
-                          size='sm'
-                          variant='outline'
-                          aria-label={t('Copy share link')}
-                          title={t('Copy share link')}
-                          onClick={async () => {
-                            await navigator.clipboard?.writeText(shareUrl)
-                            toast.success(t('Copied to clipboard'))
-                          }}
-                        >
-                          <Copy className='size-4' />
-                        </Button>
-                        <Button
-                          size='sm'
-                          variant='outline'
-                          aria-label={t('Open claim page')}
-                          title={t('Open claim page')}
-                          render={
-                            <a
-                              href={`/red-packet/${packet.slug}`}
-                              target='_blank'
-                              rel='noopener noreferrer'
-                            />
-                          }
-                        >
-                          <ExternalLink className='size-4' />
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
+              {packets.map((packet) => (
+                <RedPacketCard
+                  key={packet.id}
+                  packet={packet}
+                  onDelete={() => setDeleting(packet)}
+                />
+              ))}
               {!packetsQuery.isLoading && packets.length === 0 ? (
                 <div className='text-muted-foreground flex flex-col items-center gap-3 rounded-xl border border-dashed p-8 text-center text-sm md:col-span-2 xl:col-span-3'>
                   <Gift className='size-7 opacity-60' aria-hidden='true' />
@@ -496,6 +418,35 @@ export function RedPackets() {
           </div>
         </SectionPageLayout.Content>
       </SectionPageLayout>
+
+      <ConfirmDialog
+        open={deleting !== null}
+        onOpenChange={(next) => {
+          if (!next && !deletePendingRef.current) setDeleting(null)
+        }}
+        title={t('Delete red packet')}
+        desc={
+          <>
+            <span className='text-foreground font-medium break-words'>
+              {deleting?.title}
+            </span>
+            <p className='mt-2'>
+              {t(
+                'Remove this red packet from the list and stop new claims. Claim history and already received rewards are kept.'
+              )}
+            </p>
+          </>
+        }
+        confirmText={t('Delete')}
+        destructive
+        isLoading={deleteMutation.isPending}
+        handleConfirm={() => {
+          if (deleting && !deletePendingRef.current) {
+            deletePendingRef.current = true
+            deleteMutation.mutate(deleting.id)
+          }
+        }}
+      />
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className='max-h-[90vh] overflow-y-auto sm:max-w-3xl'>

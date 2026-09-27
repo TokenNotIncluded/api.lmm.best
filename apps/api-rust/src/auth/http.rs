@@ -878,13 +878,18 @@ fn bundle_response(bundle: AuthBundle, cookie_secure: bool) -> Response {
     response
 }
 
-fn with_clear_cookie(mut response: Response, secure: bool) -> Response {
+pub(crate) fn with_clear_cookie(mut response: Response, secure: bool) -> Response {
     disable_cache(&mut response, false);
     let cookie = clear_cookie(secure);
     if let Ok(value) = HeaderValue::from_str(&cookie) {
         response.headers_mut().append(header::SET_COOKIE, value);
     }
     response
+}
+
+pub(crate) fn refresh_cookie_session_id(headers: &HeaderMap) -> Option<String> {
+    let raw = cookie(headers, REFRESH_COOKIE_NAME)?;
+    super::token::split_refresh_token(&SecretString::from(raw)).map(|(sid, _)| sid)
 }
 
 fn refresh_cookie(token: &str, expires_at: i64, secure: bool) -> String {

@@ -35,15 +35,16 @@ test('backend and release workflows do not have server access', () => {
   assert.match(workflow('server-release-qualification'), /qualify-go-migration-startup.sh/);
 });
 
-test('frontend deployment is restricted to a signed web release on both origins', () => {
+test('manual frontend deployment is restricted to a signed web release on both origins', () => {
   const deploy = workflow('deploy-web-frontend');
-  assert.match(deploy, /workflows: \[\"LMM web release\"\]/);
-  assert.match(deploy, /types: \[completed\]/);
-  assert.match(deploy, /github\.event\.workflow_run\.conclusion == 'success'/);
+  const triggers = deploy.split('\non:\n')[1]?.split('\npermissions:\n')[0];
+  assert.ok(triggers, 'frontend deploy workflow has an event block');
+  assert.deepEqual([...triggers.matchAll(/^  ([\w-]+):/gm)].map((match) => match[1]), ['workflow_dispatch']);
+  assert.doesNotMatch(deploy, /github\.event\.workflow_run/);
   assert.match(deploy, /environment: production/);
   assert.match(deploy, /LMM_WEB_DEPLOY_SSH_KEY/);
   assert.match(deploy, /LMM_WEB_DEPLOY_KNOWN_HOSTS/);
-  assert.ok(deploy.includes('gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100"'));
+  assert.ok(deploy.includes('INPUT_TAG: ${{ inputs.release_tag }}'));
   assert.ok(deploy.includes('.target_commitish'));
   assert.ok(!deploy.includes('gh release list --repo'));
   const release = workflow('release-web');

@@ -755,6 +755,84 @@ async fn billing_provider_payments_router_mounts_provider_checkout_without_balan
     assert_eq!(balance.status(), StatusCode::NOT_FOUND);
 }
 
+#[tokio::test]
+async fn billing_provider_payments_without_stripe_router_composes_with_native_webhook() {
+    use lmm_api_rs::auth::CriticalRateLimitOutcome;
+    use lmm_api_rs::routes::epay::{TopupAuthorizer, TopupError};
+    use lmm_api_rs::routes::stripe_creem::{
+        stripe_provider::StripeApiClient,
+        stripe_wallet::{StripeWalletState, webhook_router},
+    };
+
+    struct UnusedAuth;
+    #[async_trait]
+    impl TopupAuthorizer for UnusedAuth {
+        async fn user_id(&self, _: &axum::http::HeaderMap) -> Result<i64, TopupError> {
+            panic!("method routing must not execute authentication")
+        }
+
+        async fn check_critical_rate_limit(
+            &self,
+            _: &str,
+        ) -> Result<CriticalRateLimitOutcome, TopupError> {
+            panic!("method routing must not execute a limiter")
+        }
+    }
+
+    let repo = Arc::new(MemoryRepo {
+        completions: Mutex::new(Vec::new()),
+        failures: Mutex::new(Vec::new()),
+    });
+    let providers = billing_provider_payments_without_stripe_router(billing_state(
+        repo,
+        Arc::new(MutableCompliance(AtomicBool::new(true))),
+        Arc::new(AllowUser),
+    ));
+    let missing = providers
+        .clone()
+        .oneshot(
+            Request::post("/api/stripe/webhook")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+
+    let pg = sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
+        .expect("lazy pool");
+    let valkey = redis::Client::open("redis://127.0.0.1:1/").expect("lazy Valkey client");
+    let native = StripeWalletState::new(
+        pg,
+        valkey,
+        Arc::new(UnusedAuth),
+        StripeApiClient::new().expect("provider client"),
+    );
+    let app = providers.merge(webhook_router(native));
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/api/stripe/webhook")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+
+    let checkout = app
+        .oneshot(
+            Request::post("/api/subscription/stripe/pay")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"plan_id":1}"#))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(checkout.status(), StatusCode::OK);
+}
+
 async fn mock_checkout(Json(payload): Json<serde_json::Value>) -> Json<serde_json::Value> {
     let trade_no = payload["trade_no"].as_str().unwrap_or_default();
     let provider = payload["provider"].as_str().unwrap_or_default();

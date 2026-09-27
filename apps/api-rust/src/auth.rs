@@ -3,6 +3,7 @@
 mod http;
 mod postgres;
 mod token;
+mod trust;
 
 use async_trait::async_trait;
 use secrecy::SecretString;
@@ -15,9 +16,11 @@ pub use http::{
     anonymous_registration_surface, auth_router, turnstile_failure_response,
     turnstile_missing_response,
 };
+pub(crate) use http::{refresh_cookie_session_id, with_clear_cookie};
 pub(crate) use postgres::dashboard_self_user_facts_in_transaction;
 pub use postgres::{AuthConfig, PgValkeyDashboardAuth};
 pub(crate) use token::dashboard_token_candidate;
+pub(crate) use trust::{PaymentSnapshot, payment_options, payment_snapshot};
 
 pub const REFRESH_COOKIE_NAME: &str = "new_api_refresh";
 pub const ACCESS_TOKEN_TTL_SECONDS: i64 = 15 * 60;
@@ -74,6 +77,13 @@ pub struct LoginSessionView {
     pub created_at: i64,
     pub last_active_at: i64,
     pub expires_at: i64,
+}
+
+/// Current Go session inventory plus the account's weekly logout preference.
+#[derive(Clone, Debug, Serialize)]
+pub struct LoginSessionInventory {
+    pub sessions: Vec<LoginSessionView>,
+    pub session_auto_logout: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -208,6 +218,7 @@ pub(crate) struct DashboardSelfUserFacts {
     pub trust_level_override: Option<i64>,
     pub paid_amount: f64,
     pub paid_activation_complete: bool,
+    pub console_activated: bool,
     pub local_acceptance: bool,
     pub activity_anchor: i64,
     pub last_api_activity_at: i64,
@@ -346,7 +357,7 @@ pub(crate) fn dashboard_developer_access_granted(role: i64, facts: DashboardSelf
     if let Some(level) = facts.trust_level_override {
         return (1..=4).contains(&level);
     }
-    facts.paid_activation_complete || facts.local_acceptance
+    facts.paid_activation_complete || facts.console_activated || facts.local_acceptance
 }
 
 fn onboarding_stage(
@@ -365,7 +376,7 @@ fn onboarding_stage(
     }
 }
 
-fn evaluate_trust_level(role: i64, facts: DashboardSelfUserFacts) -> TrustLevelInfo {
+pub(crate) fn evaluate_trust_level(role: i64, facts: DashboardSelfUserFacts) -> TrustLevelInfo {
     if role >= 100 {
         return administrator_trust_level(6);
     }
@@ -373,7 +384,7 @@ fn evaluate_trust_level(role: i64, facts: DashboardSelfUserFacts) -> TrustLevelI
         return administrator_trust_level(5);
     }
 
-    let automatic_level = if !facts.paid_activation_complete {
+    let automatic_level = if !facts.paid_activation_complete && !facts.console_activated {
         0
     } else if facts.paid_amount >= TRUST_LEVEL_THRESHOLDS[4] {
         4
@@ -855,6 +866,38 @@ pub trait DashboardAuth: Send + Sync {
         _access_token: SecretString,
     ) -> Result<DashboardSessionContext, AuthError> {
         Err(AuthError::new(AuthErrorKind::Unauthorized))
+    }
+
+    /// Lists only current-auth-version sessions after weekly-age cleanup.
+    async fn list_login_sessions(
+        &self,
+        _user_id: i64,
+        _current_sid: &str,
+    ) -> Result<LoginSessionInventory, AuthError> {
+        Err(AuthError::new(AuthErrorKind::Internal))
+    }
+
+    /// Changes one preference under the user row lock and optionally revokes old sessions.
+    async fn set_session_auto_logout(
+        &self,
+        _user_id: i64,
+        _enabled: bool,
+    ) -> Result<(), AuthError> {
+        Err(AuthError::new(AuthErrorKind::Internal))
+    }
+
+    /// Revokes one owned session through the shared cache deny fence.
+    async fn revoke_login_session(&self, _user_id: i64, _sid: &str) -> Result<bool, AuthError> {
+        Err(AuthError::new(AuthErrorKind::Internal))
+    }
+
+    /// Revokes every active session except the caller's current browser session.
+    async fn revoke_other_login_sessions(
+        &self,
+        _user_id: i64,
+        _current_sid: &str,
+    ) -> Result<i64, AuthError> {
+        Err(AuthError::new(AuthErrorKind::Internal))
     }
 
     /// Issues a Go-compatible security proof for an already authenticated
