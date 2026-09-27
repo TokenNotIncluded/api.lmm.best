@@ -141,6 +141,7 @@ export type SystemTaskListResponse = {
 }
 
 export type SiteSettings = {
+  AIDirectoryLinks: string
   Notice: string
   SystemName: string
   Logo: string

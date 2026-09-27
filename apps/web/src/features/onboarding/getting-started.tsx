@@ -32,9 +32,9 @@ import {
   getOnboardingState,
   isConsoleActivated,
 } from '@/lib/console-activation'
-import { formatDateTimeObject } from '@/lib/time'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { AccessRequestDetails } from './access-request-details'
 import { AccountStatus } from './account-status'
 import { L0Welcome } from './l0-welcome'
 import { useAccountNextStep } from './use-account-next-step'
@@ -89,10 +89,6 @@ export function GettingStarted() {
   }
 
   if (!onboarding.activationComplete) {
-    let assistantAction = t('Start with AI assistant')
-    if (accessRequest?.status === 'pending') assistantAction = t('Continue')
-    if (accessRequest?.status === 'rejected') assistantAction = t('Revise')
-
     return (
       <SectionPageLayout>
         <SectionPageLayout.Title>
@@ -111,117 +107,17 @@ export function GettingStarted() {
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
           <L0Welcome user={user}>
-            <div className='grid gap-3 text-sm leading-6'>
-              {request.isError ? (
-                <div role='alert' className='space-y-2'>
-                  <p>{t('Unable to load access status')}</p>
-                  <Button
-                    variant='outline'
-                    disabled={request.isFetching}
-                    onClick={() => void request.refetch()}
-                  >
-                    {t('Reload account status')}
-                  </Button>
-                </div>
-              ) : !requestLoaded ? (
-                <p role='status' className='text-muted-foreground'>
-                  {t('Loading')}
-                </p>
-              ) : null}
-              {accessRequest ? (
-                <dl className='space-y-3'>
-                  <div>
-                    <dt className='text-muted-foreground'>{t('Created At')}</dt>
-                    <dd>
-                      {formatDateTimeObject(
-                        new Date(accessRequest.created_at * 1000)
-                      )}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className='text-muted-foreground'>{t('Reason')}</dt>
-                    <dd className='break-words whitespace-pre-wrap'>
-                      {accessRequest.reason}
-                    </dd>
-                  </div>
-                  {accessRequest.ai_recommendation ? (
-                    <div>
-                      <dt className='text-muted-foreground'>
-                        {t('AI recommendation')}
-                      </dt>
-                      <dd className='break-words whitespace-pre-wrap'>
-                        {accessRequest.ai_recommendation}
-                      </dd>
-                    </div>
-                  ) : null}
-                  {accessRequest.admin_note &&
-                  accessRequest.status !== 'rejected' ? (
-                    <div>
-                      <dt className='text-muted-foreground'>
-                        {t('Administrator note')}
-                      </dt>
-                      <dd className='break-words whitespace-pre-wrap'>
-                        {accessRequest.admin_note}
-                      </dd>
-                    </div>
-                  ) : null}
-                </dl>
-              ) : null}
-              {accessRequest?.status === 'pending' ? (
-                <div className='grid gap-1' data-testid='l0-pending-request'>
-                  <p className='font-medium'>
-                    {accessRequest.ai_recommendation
-                      ? t('AI recommendation submitted')
-                      : t('Access request submitted')}
-                  </p>
-                  <p className='text-muted-foreground text-xs'>
-                    {t('Pending review')}
-                  </p>
-                </div>
-              ) : null}
-              {accessRequest?.status === 'rejected' ? (
-                <div className='grid gap-1'>
-                  <p className='text-destructive font-medium'>
-                    {t('Access request rejected')}
-                  </p>
-                  {accessRequest.admin_note ? (
-                    <p className='text-muted-foreground whitespace-pre-wrap'>
-                      {accessRequest.admin_note}
-                    </p>
-                  ) : null}
-                </div>
-              ) : null}
-              {accessRequest?.status === 'approved' ? (
-                <div className='grid gap-1'>
-                  <p className='font-medium'>{t('Access request approved')}</p>
-                  <p className='text-muted-foreground'>
-                    {t(
-                      'Your developer access is active. Continue setup to create a key and connect your client.'
-                    )}
-                  </p>
-                </div>
-              ) : null}
-              {requestLoaded && accessRequest?.status === 'approved' ? (
-                <Button
-                  type='button'
-                  size='sm'
-                  className='w-fit'
-                  onClick={() => void continueAfterApproval()}
-                >
-                  {t('Continue setup')}
-                </Button>
-              ) : (
-                <Button
-                  type='button'
-                  variant='link'
-                  size='sm'
-                  className='w-fit px-0'
-                  onClick={() => requestAssistantOpen('onboarding')}
-                >
-                  {assistantAction}
-                </Button>
-              )}
-            </div>
+            <AccessRequestDetails inline />
+            {requestLoaded && accessRequest?.status === 'approved' && (
+              <Button
+                type='button'
+                size='sm'
+                className='mt-3 w-fit'
+                onClick={() => void continueAfterApproval()}
+              >
+                {t('Continue setup')}
+              </Button>
+            )}
           </L0Welcome>
         </SectionPageLayout.Content>
       </SectionPageLayout>

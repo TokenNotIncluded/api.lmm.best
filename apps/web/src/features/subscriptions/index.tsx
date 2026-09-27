@@ -11,10 +11,7 @@ import { Info, RotateCcw } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { Header, Main } from '@/components/layout'
-import { ProfileDropdown } from '@/components/profile-dropdown'
-import { Search } from '@/components/search'
-import { ThemeSwitch } from '@/components/theme-switch'
+import { SectionPageLayout } from '@/components/layout'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -35,23 +32,9 @@ export function Subscriptions() {
 
   return (
     <SubscriptionsProvider>
-      <Header>
-        <Search />
-        <div className='ms-auto flex items-center gap-4'>
-          <ThemeSwitch />
-          <ProfileDropdown />
-        </div>
-      </Header>
-      <Main>
-        <div className='mb-4 flex flex-wrap items-start justify-between gap-3'>
-          <div>
-            <h2 className='text-2xl font-bold tracking-tight'>
-              {t('Subscriptions')}
-            </h2>
-            <p className='text-muted-foreground'>
-              {t('Manage subscription plans and customer entitlements')}
-            </p>
-          </div>
+      <SectionPageLayout>
+        <SectionPageLayout.Title>{t('Subscriptions')}</SectionPageLayout.Title>
+        <SectionPageLayout.Actions>
           <div className='flex flex-wrap items-center gap-2'>
             {isRoot && (
               <Button
@@ -65,35 +48,36 @@ export function Subscriptions() {
             )}
             {tab === 'plans' && <SubscriptionsPrimaryButtons />}
           </div>
-        </div>
+        </SectionPageLayout.Actions>
+        <SectionPageLayout.Content>
+          <Alert variant='default' className='mb-4 hidden px-3 py-2 sm:flex'>
+            <Info className='h-4 w-4' />
+            <AlertDescription className='text-xs'>
+              {t(
+                'Subscription plan operations are permission-sensitive and financially impactful. Review records before making changes.'
+              )}
+            </AlertDescription>
+          </Alert>
 
-        <Alert variant='default' className='mb-4 hidden px-3 py-2 sm:flex'>
-          <Info className='h-4 w-4' />
-          <AlertDescription className='text-xs'>
-            {t(
-              'Subscription plan operations are permission-sensitive and financially impactful. Review records before making changes.'
-            )}
-          </AlertDescription>
-        </Alert>
-
-        <Tabs
-          value={tab}
-          onValueChange={(value) => setTab(value as typeof tab)}
-        >
-          <TabsList>
-            <TabsTrigger value='plans'>{t('Plans')}</TabsTrigger>
-            <TabsTrigger value='records'>
-              {t('Subscription records')}
-            </TabsTrigger>
-          </TabsList>
-          <TabsContent value='plans' className='mt-4'>
-            <SubscriptionsTable />
-          </TabsContent>
-          <TabsContent value='records' className='mt-4'>
-            <SubscriptionRecords />
-          </TabsContent>
-        </Tabs>
-      </Main>
+          <Tabs
+            value={tab}
+            onValueChange={(value) => setTab(value as typeof tab)}
+          >
+            <TabsList>
+              <TabsTrigger value='plans'>{t('Plans')}</TabsTrigger>
+              <TabsTrigger value='records'>
+                {t('Subscription records')}
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value='plans' className='mt-4'>
+              <SubscriptionsTable />
+            </TabsContent>
+            <TabsContent value='records' className='mt-4'>
+              <SubscriptionRecords />
+            </TabsContent>
+          </Tabs>
+        </SectionPageLayout.Content>
+      </SectionPageLayout>
 
       <SubscriptionsDialogs />
     </SubscriptionsProvider>

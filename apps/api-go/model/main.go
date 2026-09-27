@@ -335,7 +335,7 @@ func InitLogDB(session *StartupMigrationSession) (err error) {
 func mainMigrationModels() []interface{} {
 	return append([]interface{}{
 		&RatioNotification{}, &RatioDelivery{},
-		&Channel{}, &Token{}, &UserRankingRevision{}, &User{}, &UserSession{}, &AuthFlow{}, &ExternalIdentityClaim{},
+		&Channel{}, &Token{}, &UserRankingRevision{}, &User{}, &ProfileShare{}, &UserSession{}, &AuthFlow{}, &ExternalIdentityClaim{},
 		&PasskeyCredential{}, &Option{}, &Redemption{}, &Ability{}, &Log{}, &Midjourney{},
 		&DiscountCode{}, &DiscountCodeReservation{},
 		&RedPacket{}, &RedPacketItem{}, &RedPacketClaim{}, &SignalGameRecord{}, &SignalGameAttempt{},
@@ -357,12 +357,15 @@ func mainMigrationModels() []interface{} {
 		&FinanceLedgerEntry{}, &FinancePaymentMethod{},
 		&HeroSMSEmailOrder{}, &HeroSMSEmailActivation{}, &HeroSMSEmailQuotaLedger{}, &HeroSMSSMSOrder{}, &HeroSMSSMSQuotaLedger{}, &HeroSMSProviderPurchaseLease{},
 		&ReleaseNote{}, &ReleaseNoteRead{}, &AnnouncementRead{}, &AcquisitionLink{}, &AcquisitionVisitor{}, &AcquisitionVisit{}, &AcquisitionAccount{}, &AcquisitionConfig{}, &AcquisitionAttributionPolicy{}, &AcquisitionFirstPayment{}, &AcquisitionActivity{}, &AcquisitionActivityState{}, &AcquisitionConsent{}, &AcquisitionSelfReport{}, &AcquisitionCost{}, &AcquisitionCorrection{}, &AcquisitionCorrectionHead{}, &AcquisitionActivityGap{}, &UnifiedTodoRead{}, &L1OnboardingTodo{},
-		&PublicRelayContribution{}, &PublicRelayReport{}, &PublicRelayTip{}, &PublicRelayReview{}, &PublicRelayPreference{},
+		&PublicRelayContribution{}, &PublicRelayReport{}, &PublicRelayTip{}, &PublicRelayReview{}, &PublicRelayPreference{}, &AIDirectoryAd{},
 	}, toolMarketModels()...)
 }
 
 func migrateDB() error {
 	backfillConsoleActivation := ConsoleActivationNeedsLegacyBackfill()
+	if err := migratePasskeyCredentialUserIndex(); err != nil {
+		return err
+	}
 	// Migrate price_amount column from float/double to decimal for existing tables
 	migrateSubscriptionPlanPriceAmount()
 	// Migrate model_limits column from varchar to text for existing tables
@@ -456,6 +459,9 @@ func migrateLegacySubscriptionPlanCurrencies() error {
 }
 
 func migrateDBFast() error {
+	if err := migratePasskeyCredentialUserIndex(); err != nil {
+		return err
+	}
 	backfillConsoleActivation := ConsoleActivationNeedsLegacyBackfill()
 
 	var wg sync.WaitGroup
@@ -468,6 +474,7 @@ func migrateDBFast() error {
 		{&Token{}, "Token"},
 		{&UserRankingRevision{}, "UserRankingRevision"},
 		{&User{}, "User"},
+		{&ProfileShare{}, "ProfileShare"},
 		{&UserSession{}, "UserSession"},
 		{&AuthFlow{}, "AuthFlow"},
 		{&ExternalIdentityClaim{}, "ExternalIdentityClaim"},
@@ -588,6 +595,7 @@ func migrateDBFast() error {
 		{&PublicRelayTip{}, "PublicRelayTip"},
 		{&PublicRelayReview{}, "PublicRelayReview"},
 		{&PublicRelayPreference{}, "PublicRelayPreference"},
+		{&AIDirectoryAd{}, "AIDirectoryAd"},
 	}
 	// 动态计算migration数量，确保errChan缓冲区足够大
 	for _, marketModel := range toolMarketModels() {

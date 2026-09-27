@@ -60,7 +60,6 @@ import { CopyButton } from '@/components/copy-button'
 import { StaticDataTable } from '@/components/data-table'
 import { sideDrawerContentClassName } from '@/components/drawer-layout'
 import { GroupBadge } from '@/components/group-badge'
-import { PublicLayout } from '@/components/layout/components/public-layout'
 import { Button } from '@/components/ui/button'
 import {
   Sheet,
@@ -71,6 +70,7 @@ import {
 } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { ForgePublicShell } from '@/features/forge/forge-public-shell'
 import { getPerfMetrics } from '@/features/performance-metrics/api'
 import {
   formatLatency,
@@ -1180,6 +1180,16 @@ export interface ModelDetailsContentProps {
   showRechargePrice?: boolean
 }
 
+function ModelDetailsPublicShell({ children }: { children: React.ReactNode }) {
+  return (
+    <ForgePublicShell>
+      <main className='mx-auto w-full max-w-7xl px-5 pt-12 pb-20 md:px-10 md:pt-16'>
+        {children}
+      </main>
+    </ForgePublicShell>
+  )
+}
+
 export function ModelDetailsContent(props: ModelDetailsContentProps) {
   const { t } = useTranslation()
   const showRechargePrice = props.showRechargePrice ?? false
@@ -1328,7 +1338,7 @@ export function ModelDetails() {
 
   if (isLoading) {
     return (
-      <PublicLayout>
+      <ModelDetailsPublicShell>
         <div className='mx-auto max-w-5xl px-4 sm:px-6'>
           <Skeleton className='mb-4 h-5 w-16' />
           <div className='space-y-2'>
@@ -1347,7 +1357,7 @@ export function ModelDetails() {
             ))}
           </div>
         </div>
-      </PublicLayout>
+      </ModelDetailsPublicShell>
     )
   }
 
@@ -1357,7 +1367,7 @@ export function ModelDetails() {
         isAxiosError(error) ? error.response?.status : undefined
       ) === 'access'
     return (
-      <PublicLayout>
+      <ModelDetailsPublicShell>
         <div className='mx-auto max-w-2xl space-y-3 px-4'>
           <h2 className='text-base font-semibold'>
             {accessDenied
@@ -1372,13 +1382,13 @@ export function ModelDetails() {
             <Button onClick={() => void refetch()}>{t('Retry')}</Button>
           )}
         </div>
-      </PublicLayout>
+      </ModelDetailsPublicShell>
     )
   }
 
   if (!model) {
     return (
-      <PublicLayout>
+      <ModelDetailsPublicShell>
         <div className='mx-auto max-w-2xl px-4 text-center sm:px-6'>
           <h2 className='mb-1 text-base font-semibold'>
             {t('Model is not in this catalog')}
@@ -1405,12 +1415,12 @@ export function ModelDetails() {
             {t('Back to Models')}
           </Button>
         </div>
-      </PublicLayout>
+      </ModelDetailsPublicShell>
     )
   }
 
   return (
-    <PublicLayout>
+    <ModelDetailsPublicShell>
       <div className='mx-auto max-w-5xl px-4 sm:px-6'>
         <Button
           variant='ghost'
@@ -1439,6 +1449,6 @@ export function ModelDetails() {
           }
         />
       </div>
-    </PublicLayout>
+    </ModelDetailsPublicShell>
   )
 }

@@ -19,27 +19,13 @@ For commercial licensing, please contact support@quantumnous.com
 /*
 Copyright (C) 2026 LIghtJUNction
 */
-import { Check, Copy } from 'lucide-react'
-import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { Button } from '@/components/ui/button'
-
-const PI_INSTALL_COMMAND =
-  'pi install git:github.com/TokenNotIncluded/pi-lmm-provider'
+import { InstallCommand } from './install-command'
+import { PI_INSTALL_LATEST_COMMAND } from './provider-install-commands'
 
 export function PiOAuthGuide() {
   const { t } = useTranslation()
-  const [copied, setCopied] = useState(false)
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(PI_INSTALL_COMMAND)
-      setCopied(true)
-      window.setTimeout(() => setCopied(false), 1400)
-    } catch {
-      setCopied(false)
-    }
-  }
   return (
     <section id='pi-oauth' className='scroll-mt-24 space-y-4 border-y py-6'>
       <div>
@@ -55,25 +41,15 @@ export function PiOAuthGuide() {
           )}
         </p>
       </div>
-      <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
-        <code className='bg-muted min-w-0 flex-1 overflow-x-auto rounded px-3 py-2 text-xs'>
-          {PI_INSTALL_COMMAND}
-        </code>
-        <Button
-          type='button'
-          variant='outline'
-          size='sm'
-          onClick={() => void copy()}
-          className='shrink-0'
-        >
-          {copied ? (
-            <Check data-icon='inline-start' />
-          ) : (
-            <Copy data-icon='inline-start' />
-          )}
-          {copied ? t('Copied') : t('Copy')}
-        </Button>
-      </div>
+      <InstallCommand
+        value={PI_INSTALL_LATEST_COMMAND}
+        copyLabel={t('Copy Pi install command')}
+      />
+      <p className='text-muted-foreground text-sm leading-6'>
+        {t(
+          'This command uses the current npm release and removes other Pi plugin sources only after installation succeeds.'
+        )}
+      </p>
       <p className='text-muted-foreground text-sm leading-7'>
         {t(
           'After installing, use /login in Pi and choose LMM, then select a model with /model. /lmm-prices is optional for checking current prices; /lmm-revoke is an optional server authorization reset.'

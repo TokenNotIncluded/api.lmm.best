@@ -18,6 +18,11 @@ authenticated users then see it once after their next login.
   tuple items, constrained empty objects and deep schemas. Compatible schemas
   retain the existing normalized `parameters` representation.
 
+- The homepage now follows the selected interface language, including saved
+  Chinese preferences and runtime language changes, instead of forcing English.
+- Pricing cards and table rows show complete model names with wrapping instead
+  of ellipses. Card actions sit below the name so they no longer squeeze it.
+
 - Chat-to-Responses streams create a new reasoning or ordinary-message output
   item when content resumes after a closed segment, preserving each segment's
   ID, position, text, and closing status in the final response. Aggregate usage
@@ -40,6 +45,10 @@ authenticated users then see it once after their next login.
 
 - Ollama model discovery, pull, streaming pull, deletion, and version checks now
   honor the channel's configured proxy and HTTP transport settings.
+- Scheduled Ollama model discovery now cancels a channel's fetch after 120
+  seconds by default, including responses that stall after headers.
+  Set `CHANNEL_UPSTREAM_MODEL_UPDATE_FETCH_TIMEOUT_SECONDS` to a positive number
+  to adjust the deadline. Interactive checks still follow their request context.
 
 - OpenRouter price previews omit the entire model when the derived output
   ratio overflows, avoiding a partial input-only quote.

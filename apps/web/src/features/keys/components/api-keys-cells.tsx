@@ -38,6 +38,7 @@ import {
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
 import { formatQuota } from '@/lib/format'
 
+import { isAssistantRuntimeKey } from '../lib'
 import type { ApiKey } from '../types'
 import { useApiKeys } from './api-keys-provider'
 
@@ -168,6 +169,19 @@ export function ApiKeyCell({ apiKey }: { apiKey: ApiKey }) {
   } else if (isCopied) {
     copyIcon = <Check className='console-status-success-icon size-3.5' />
     copyTooltip = t('Copied!')
+  }
+
+  if (isAssistantRuntimeKey(apiKey)) {
+    return (
+      <div className='space-y-1'>
+        <code className='text-xs'>{`sk-${apiKey.key}`}</code>
+        <p className='text-muted-foreground text-xs'>
+          {t(
+            'Internal assistant key; it cannot be copied or used for API calls.'
+          )}
+        </p>
+      </div>
+    )
   }
 
   if (apiKey.one_time_reveal) {

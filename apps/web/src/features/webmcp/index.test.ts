@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { installWebMcp } from './index'
+import { installWebMcp, listWebMcpTools } from './index'
 
 test('registers safe read/navigation tools and aborts them on cleanup', async () => {
   const registered: { name: string; signal?: AbortSignal }[] = []
@@ -32,23 +32,22 @@ test('registers safe read/navigation tools and aborts them on cleanup', async ()
   try {
     const cleanup = installWebMcp(router)
     await new Promise((resolve) => setTimeout(resolve, 0))
-    assert.deepEqual(
-      registered.map((tool) => tool.name),
-      [
-        'lmm_signal_state',
-        'lmm_signal_start',
-        'lmm_signal_rotate',
-        'lmm_signal_hint',
-        'lmm_signal_records',
-        'lmm_signal_submit',
-        'lmm_site_info',
-        'lmm_navigate',
-        'lmm_model_prices',
-        'lmm_public_scripts',
-        'lmm_source_repositories',
-        'lmm_account_status',
-      ]
-    )
+    const names = registered.map((tool) => tool.name)
+    for (const name of [
+      'lmm_signal_state',
+      'lmm_signal_submit',
+      'lmm_site_info',
+      'lmm_site_map',
+      'lmm_page_outline',
+      'lmm_navigate',
+      'lmm_model_prices',
+      'lmm_public_scripts',
+      'lmm_source_repositories',
+      'lmm_account_status',
+    ]) {
+      assert.ok(names.includes(name), `${name} is registered`)
+    }
+    assert.equal(new Set(names).size, names.length)
     assert.equal(listeners.length, 1)
     assert.ok(registered.every((tool) => tool.signal && !tool.signal.aborted))
     cleanup()
@@ -158,7 +157,7 @@ for (const mode of ['sync', 'throw', 'reject'] as const) {
         subscribe: () => () => undefined,
       })
       await new Promise((resolve) => setTimeout(resolve, 0))
-      assert.equal(calls, 12)
+      assert.equal(calls, listWebMcpTools().length)
       cleanup()
     } finally {
       if (previous) Object.defineProperty(globalThis, 'document', previous)

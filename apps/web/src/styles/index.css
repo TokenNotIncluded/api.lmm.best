@@ -45,7 +45,7 @@ For commercial licensing, please contact support@quantumnous.com
     padding-bottom: max(2.5rem, env(safe-area-inset-bottom));
   }
 
-  @media (max-width: 639px) {
+  @media (max-width: 1359px) {
     .public-header-mobile-actions button {
       min-height: 2.75rem;
       min-width: 2.75rem;

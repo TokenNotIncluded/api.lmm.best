@@ -202,9 +202,9 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         'hover:bg-muted/20'
       )}
     >
-      {/* Header: icon + name + price + actions */}
-      <div className='flex items-start justify-between gap-2.5 sm:gap-3'>
-        <div className='flex min-w-0 items-start gap-2.5 sm:gap-3'>
+      {/* Keep the full model identifier clear of the action buttons. */}
+      <div className='flex flex-col gap-2.5 sm:gap-3'>
+        <div className='flex w-full min-w-0 items-start gap-2.5 sm:gap-3'>
           <div className='bg-muted/40 flex size-9 shrink-0 items-center justify-center rounded-lg sm:size-10 sm:rounded-xl'>
             {modelIcon || (
               <span className='text-muted-foreground text-sm font-bold'>
@@ -212,8 +212,8 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
               </span>
             )}
           </div>
-          <div className='min-w-0'>
-            <h3 className='text-foreground truncate font-mono text-[15px] leading-tight font-bold'>
+          <div className='min-w-0 flex-1'>
+            <h3 className='text-foreground font-mono text-[15px] leading-tight font-bold wrap-anywhere whitespace-normal'>
               {props.model.model_name}
             </h3>
             <div className='mt-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm sm:mt-1 sm:gap-x-3'>
@@ -222,7 +222,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
           </div>
         </div>
 
-        <div className='flex shrink-0 items-center gap-1.5'>
+        <div className='flex shrink-0 items-center gap-1.5 self-end'>
           <button
             type='button'
             onClick={props.onClick}

@@ -158,7 +158,7 @@ async fn maintenance_once_at(
     let cleaned = if cleanup {
         let cutoff = current.saturating_sub(7 * 24 * 60 * 60);
         let pre_consume =
-            sqlx::query("DELETE FROM subscription_pre_consume_records WHERE updated_at < $1")
+            sqlx::query("DELETE FROM subscription_pre_consume_records WHERE updated_at < $1 AND billing_managed=FALSE")
                 .bind(cutoff)
                 .execute(pg)
                 .await?
@@ -320,6 +320,29 @@ async fn reset_due_subscriptions(
     Ok(reset_count)
 }
 
+/// Called after the relay has locked its payer and selected subscription in
+/// the same transaction. It must not acquire another pool connection.
+pub(crate) async fn reset_subscription_for_relay(
+    tx: &mut Transaction<'_, Postgres>,
+    subscription_id: i64,
+    current: i64,
+) -> Result<(), sqlx::Error> {
+    let row = sqlx::query(&format!("{SUB_SELECT} WHERE id=$1 FOR UPDATE"))
+        .bind(subscription_id)
+        .fetch_one(&mut **tx)
+        .await?;
+    let subscription = subscription_from_row(&row)?;
+    if subscription.status != "active" || subscription.end_time <= current {
+        return Ok(());
+    }
+    let row = sqlx::query(&format!("{PLAN_SELECT} WHERE id=$1"))
+        .bind(subscription.plan_id)
+        .fetch_one(&mut **tx)
+        .await?;
+    let plan = plan_from_row(&row)?;
+    maybe_reset_subscription(tx, &subscription, &plan, current).await
+}
+
 async fn maybe_reset_subscription(
     tx: &mut Transaction<'_, Postgres>,
     subscription: &Subscription,
@@ -362,7 +385,7 @@ async fn maybe_reset_subscription(
         return Ok(());
     }
     sqlx::query(
-        "UPDATE user_subscriptions SET amount_used=0,last_reset_time=$2,next_reset_time=$3,updated_at=$4 WHERE id=$1",
+        "UPDATE user_subscriptions SET amount_used=0,quota_version=quota_version+1,last_reset_time=$2,next_reset_time=$3,updated_at=$4 WHERE id=$1",
     )
     .bind(subscription.id)
     .bind(base)
@@ -696,7 +719,7 @@ pub(crate) async fn payment_compliance_confirmed(pg: &PgPool) -> Result<bool, sq
             }))
 }
 
-fn compliance_message(headers: &HeaderMap) -> &'static str {
+pub(crate) fn compliance_message(headers: &HeaderMap) -> &'static str {
     let locale = headers
         .get(header::ACCEPT_LANGUAGE)
         .and_then(|value| value.to_str().ok())
@@ -751,7 +774,7 @@ async fn authorize_admin_id(
     Ok(())
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Default, Serialize)]
 struct Plan {
     id: i64,
     title: String,
@@ -779,6 +802,44 @@ struct Plan {
     archived_at: i64,
     created_at: i64,
     updated_at: i64,
+}
+
+/// Payment callbacks use a purchased plan snapshot, but share the same
+/// calendar/timezone implementation as dashboard subscriptions and resets.
+pub(crate) fn provider_subscription_schedule(
+    snapshot: &Value,
+    start: i64,
+    supplied_end: Option<i64>,
+) -> Result<(i64, i64), &'static str> {
+    let string = |key| {
+        snapshot
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned()
+    };
+    let integer = |key| snapshot.get(key).and_then(Value::as_i64).unwrap_or(0);
+    let plan = Plan {
+        duration_unit: string("duration_unit"),
+        duration_value: integer("duration_value"),
+        custom_seconds: integer("custom_seconds"),
+        quota_reset_period: string("quota_reset_period").trim().to_owned(),
+        quota_reset_custom_seconds: integer("quota_reset_custom_seconds"),
+        ..Default::default()
+    };
+    let end = match supplied_end {
+        Some(end) => end,
+        None => {
+            if plan.duration_unit != "custom" && plan.duration_value <= 0 {
+                return Err("无效的订阅周期");
+            }
+            if plan.duration_unit == "custom" && plan.custom_seconds <= 0 {
+                return Err("无效的订阅周期");
+            }
+            end_time(start, &plan)?
+        }
+    };
+    Ok((end, next_reset(start, end, &plan)))
 }
 
 /// Match Go's `encoding/json` spelling for integral `float64` values while

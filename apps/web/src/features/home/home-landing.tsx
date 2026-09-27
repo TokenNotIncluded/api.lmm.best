@@ -22,13 +22,17 @@ import { Button } from '@/components/ui/button'
 import type { ConnectionMethod } from '@/features/onboarding/next-step'
 import { RepositoryLink } from '@/features/repositories/repository-link'
 
+import { segmentMovingText } from './home-text-segmentation'
+
 type HomeLandingProps = {
   rootRef: Ref<HTMLElement>
   t: (key: string) => string
+  language: string
   primaryAction: ReactNode
   pricingAction: ReactNode
+  topUpAction?: ReactNode
   assistant: ReactNode
-  pi: ReactNode
+  oauthClients: ReactNode
   code: ReactNode
   explore: ReactNode
   scripts: ReactNode
@@ -85,14 +89,59 @@ const OAUTH_STEPS = [
   ],
 ] as const
 
+function movingText(text: string, language: string) {
+  let index = 0
+  return segmentMovingText(text, language).map((part, wordIndex) =>
+    part.whitespace ? (
+      part.word
+    ) : (
+      <span
+        className='lmm-moving-word'
+        key={`${wordIndex}-${part.word}`}
+        aria-hidden='true'
+      >
+        {part.letters.map((letter, letterIndex) => (
+          <span
+            className='lmm-moving-letter'
+            data-gravity-glyph
+            data-gravity-index={index++}
+            key={`${letterIndex}-${letter}`}
+          >
+            {letter}
+          </span>
+        ))}
+      </span>
+    )
+  )
+}
+
+function GravityDescription({
+  text,
+  language,
+  className,
+}: {
+  text: string
+  language: string
+  className?: string
+}) {
+  return (
+    <p className={className} data-gravity-description>
+      {movingText(text, language)}
+      <span className='sr-only'>{text}</span>
+    </p>
+  )
+}
+
 /** Presentation only. Account state and actions stay in ForgeHome. */
 export function HomeLanding({
   rootRef,
   t,
+  language,
   primaryAction,
   pricingAction,
+  topUpAction,
   assistant,
-  pi,
+  oauthClients,
   code,
   explore,
   scripts,
@@ -100,120 +149,189 @@ export function HomeLanding({
   connectionMethod,
   onConnectionMethodChange,
 }: HomeLandingProps) {
-  const headline = t('Make room for your next idea.')
+  const headline = t('AI models. One connection.')
   const steps = connectionMethod === 'oauth' ? OAUTH_STEPS : STEPS
   return (
-    <main className='lmm-home' ref={rootRef}>
+    <main className='lmm-home' ref={rootRef} data-motion='loading'>
       <section
         className='lmm-cinema'
         data-cinema
         aria-label={t('One endpoint')}
       >
         <div className='lmm-cinema-inner' data-cinema-inner>
-          <div
-            className='lmm-token-cloud'
-            data-token-cloud
-            aria-hidden='true'
-          />
+          <div className='lmm-visual' data-home-visual>
+            <div
+              className='lmm-token-cloud'
+              data-token-cloud
+              role='group'
+              aria-label={t('Tokens to try')}
+            />
+            <canvas className='lmm-film' data-film aria-hidden='true' />
+            <div
+              className='lmm-token-input'
+              data-token-input
+              role='region'
+              aria-label={t('Token input')}
+            >
+              <output
+                className='lmm-token-result'
+                data-token-result
+                aria-label={t('Closest match')}
+                hidden
+              >
+                <span className='sr-only' data-selected-token />
+                <span aria-hidden='true'>→</span>
+                <strong data-predicted-token />
+              </output>
+            </div>
+            <details className='lmm-simulation-info'>
+              <summary aria-label={t('About this visualization')}>?</summary>
+              <p>{t('Local word matching. No model requests.')}</p>
+            </details>
+          </div>
+          <span className='sr-only' id='lmm-gravity-instruction'>
+            {t('Drag this title into the input, or press Enter.')}
+          </span>
           <section
             className='lmm-intro lmm-scene-panel'
             data-cinema-panel='0'
             data-active
             aria-labelledby='lmm-home-title'
           >
-            <h1 id='lmm-home-title'>
+            <h1
+              id='lmm-home-title'
+              data-gravity-title
+              tabIndex={0}
+              aria-describedby='lmm-gravity-instruction'
+            >
               {headline.split(/(?<=[，,])\s*/u).map((phrase) => (
                 <span className='lmm-title-phrase' key={phrase}>
                   {phrase}
                 </span>
               ))}
             </h1>
-            <p className='lmm-intro-description'>
-              {t(
-                'Choose your client to get started. Available models and account pricing are shown after access approval.'
+            <GravityDescription
+              className='lmm-intro-description'
+              language={language}
+              text={t(
+                'Chat, images, and audio through one API. Compare prices, then connect your app.'
               )}
-            </p>
+            />
             <div className='lmm-intro-actions'>
               {primaryAction}
+              {topUpAction}
               {pricingAction}
-              <RepositoryLink kind='project' className='lmm-home-repository' />
             </div>
-            <p className='lmm-access-note'>
-              {t(
-                'Developer access requires approval. Payment does not unlock access.'
-              )}
-            </p>
+            <ul className='lmm-access-note'>
+              <li>{t('Pay for what you use.')}</li>
+              <li>{t('No manual API key required in Pi.')}</li>
+            </ul>
           </section>
 
-          <canvas className='lmm-film' data-film aria-hidden='true' />
           <section className='lmm-scene-panel' data-cinema-panel='1'>
-            <h2>{t('One endpoint')}</h2>
-            <p>
-              {t(
-                'Chat, reasoning, vision, and audio models behind one endpoint.'
+            <h2
+              data-gravity-title
+              tabIndex={0}
+              aria-describedby='lmm-gravity-instruction'
+            >
+              {t('One API. Your choice of models.')}
+            </h2>
+            <GravityDescription
+              language={language}
+              text={t(
+                'Chat, reasoning, vision, and audio behind one base URL.'
               )}
-            </p>
+            />
             <div className='lmm-core-protocols'>
               <code>/v1/chat/completions</code>
               <code>/v1/messages</code>
               <span>Gemini</span>
             </div>
             <a className='lmm-core-link' href='/guide'>
-              {t('Guide')} <Arrow />
+              {t('Open guide')} <Arrow />
             </a>
           </section>
           <section className='lmm-scene-panel' data-cinema-panel='2'>
-            <h2>{t('OAuth2 with Pi · no API key')}</h2>
-            <p>
-              {t(
-                'Install the LMM Pi plugin, sign in with OAuth, and choose a model in Pi. Access uses your account and normal model pricing.'
+            <h2
+              data-gravity-title
+              tabIndex={0}
+              aria-describedby='lmm-gravity-instruction'
+            >
+              {t('Connect with Pi')}
+            </h2>
+            <GravityDescription
+              language={language}
+              text={t(
+                'Install the plugin, sign in, pick a model. No API key to paste.'
               )}
-            </p>
+            />
             <div className='lmm-core-protocols'>
               <span>Pi</span>
               <span>OAuth 2.0 / PKCE</span>
             </div>
             <a className='lmm-core-link' href='/guide'>
-              {t('Read the Pi OAuth setup steps')} <Arrow />
+              {t('Open guide')} <Arrow />
             </a>
           </section>
           <section className='lmm-scene-panel' data-cinema-panel='3'>
-            <h2>{t('WebMCP tools for compatible browsers')}</h2>
-            <p>
-              {t(
-                'Browser agents can read site information, model prices, and account status or open pages; the normal UI remains available when WebMCP is unsupported.'
-              )}
-            </p>
+            <h2
+              data-gravity-title
+              tabIndex={0}
+              aria-describedby='lmm-gravity-instruction'
+            >
+              {t('Give your browser a hand')}
+            </h2>
+            <GravityDescription
+              language={language}
+              text={t('Let your browser agent read prices and open pages.')}
+            />
             <div className='lmm-core-protocols'>
               <code>lmm_model_prices</code>
               <code>lmm_account_status</code>
             </div>
             <a className='lmm-core-link' href='/webmcp'>
-              {t('WebMCP documentation')} <Arrow />
+              {t('Explore WebMCP')} <Arrow />
             </a>
           </section>
           <section className='lmm-scene-panel' data-cinema-panel='4'>
-            <h2>{t('Model prices')}</h2>
-            <p>
-              {t(
-                'Choose your client to get started. Available models and account pricing are shown after access approval.'
+            <h2
+              data-gravity-title
+              tabIndex={0}
+              aria-describedby='lmm-gravity-instruction'
+            >
+              {t('See the price before you start')}
+            </h2>
+            <GravityDescription
+              language={language}
+              text={t(
+                'Pay per use. Prices are public before you spend anything.'
               )}
-            </p>
+            />
             <div className='lmm-core-protocols'>
-              <code>GET /v1/pricing</code>
+              <code>GET /api/pricing</code>
             </div>
             <a className='lmm-core-link' href='/pricing'>
-              {t('Pricing')} <Arrow />
+              {t('View pricing')} <Arrow />
             </a>
           </section>
-          <ol className='lmm-core-steps' aria-label={t('Guide')}>
-            <li data-cinema-step data-active>
-              {t('Home')}
-            </li>
-            <li data-cinema-step>{t('API Endpoints')}</li>
-            <li data-cinema-step>{t('OAuth')}</li>
-            <li data-cinema-step>WebMCP</li>
-            <li data-cinema-step>{t('Pricing')}</li>
+          <ol className='lmm-core-steps' aria-label={t('Explore LMM')}>
+            {['Home', 'API', 'OAuth', 'WebMCP', 'Pricing'].map(
+              (label, index) => (
+                <li
+                  key={label}
+                  data-cinema-step
+                  data-active={index === 0 || undefined}
+                >
+                  <button
+                    type='button'
+                    data-cinema-jump={index}
+                    aria-pressed={index === 0}
+                  >
+                    {t(label)}
+                  </button>
+                </li>
+              )
+            )}
           </ol>
           <a className='lmm-core-continue' href='#lmm-connect-title'>
             {t('Continue')} <Arrow />
@@ -254,17 +372,14 @@ export function HomeLanding({
         aria-labelledby='lmm-connect-title'
       >
         <div className='lmm-section-intro'>
-          <p className='lmm-eyebrow'>01 / {t('Guide')}</p>
-          <h2 id='lmm-connect-title'>
-            {t('From download to your first conversation')}
-          </h2>
+          <h2 id='lmm-connect-title'>{t('Connect in three steps')}</h2>
           <a className='lmm-text-link' href='/guide'>
             {t('Read the guide')}
             <Arrow />
           </a>
         </div>
         <div
-          className='flex flex-wrap gap-3 py-5'
+          className='lmm-connection-method'
           role='group'
           aria-label={t('Connection method')}
         >
@@ -273,7 +388,7 @@ export function HomeLanding({
             aria-pressed={connectionMethod === 'oauth'}
             onClick={() => onConnectionMethodChange('oauth')}
           >
-            {t('Pi / LMM OAuth')}
+            LMM OAuth
           </Button>
           <Button
             variant={connectionMethod === 'api-key' ? 'default' : 'outline'}
@@ -298,10 +413,6 @@ export function HomeLanding({
                 <div>
                   <h3>{t(title)}</h3>
                   <p>{t(description)}</p>
-                  <a className='lmm-text-link' href='/guide'>
-                    {t('Read the guide')}
-                    <Arrow />
-                  </a>
                 </div>
               </article>
             ))}
@@ -326,7 +437,6 @@ export function HomeLanding({
                   className='lmm-story-panel lmm-model-panel'
                   data-story-panel='0'
                 >
-                  <p className='lmm-panel-eyebrow'>{t('Models and pricing')}</p>
                   <h3>{t('API Endpoints')}</h3>
                   <div className='lmm-protocol-row'>
                     <span>C</span>
@@ -350,20 +460,15 @@ export function HomeLanding({
                     <Arrow diagonal />
                   </div>
                   <p className='lmm-panel-note'>
-                    {t(
-                      'Find official downloads and instructions for your device.'
-                    )}
+                    {t('Point your client at this base URL.')}
                   </p>
                 </div>
                 <div
                   className='lmm-story-panel lmm-endpoint-panel'
                   data-story-panel='1'
                 >
-                  <p className='lmm-panel-eyebrow'>
-                    {t('Connect your API key')}
-                  </p>
                   <span className='lmm-endpoint-mark' aria-hidden='true'>
-                    ↗
+                    <Arrow diagonal />
                   </span>
                   <h3>{t('One endpoint')}</h3>
                   <code>api.lmm.best</code>
@@ -380,10 +485,8 @@ export function HomeLanding({
             </div>
           ) : (
             <div className='lmm-story-preview'>
-              <h3 className='mb-4 text-xl font-semibold'>
-                {t('Use Pi without manually creating an API key')}
-              </h3>
-              {pi}
+              <h3 className='mb-4 text-xl font-semibold'>LMM OAuth</h3>
+              {oauthClients}
             </div>
           )}
         </div>
@@ -394,10 +497,9 @@ export function HomeLanding({
         aria-labelledby='lmm-assistant-title'
       >
         <div>
-          <p className='lmm-eyebrow'>03 / {t('Guide')}</p>
-          <h2 id='lmm-assistant-title'>{t('Tell us what you want to do')}</h2>
+          <h2 id='lmm-assistant-title'>{t('Need a hand connecting?')}</h2>
           <p className='lmm-assistant-description'>
-            {t('New here? Start with the setup guide')}
+            {t('Ask about models, clients, or connection errors.')}
           </p>
         </div>
         <div className='lmm-assistant-surface'>{assistant}</div>
@@ -408,8 +510,7 @@ export function HomeLanding({
         aria-labelledby='lmm-explore-title'
       >
         <div className='lmm-section-intro'>
-          <p className='lmm-eyebrow'>04 / LMM</p>
-          <h2 id='lmm-explore-title'>{t('Make room for your next idea.')}</h2>
+          <h2 id='lmm-explore-title'>{t('Explore LMM')}</h2>
         </div>
         <div className='lmm-destinations'>{explore}</div>
       </section>
@@ -434,7 +535,7 @@ export function HomeLanding({
       </section>
       <footer className='lmm-home-footer'>
         <div>
-          <span>api.lmm.best</span>
+          <RepositoryLink kind='project' className='lmm-home-repository' />
           <a className='lmm-text-link' href='/guide'>
             {t('Read the guide')}
             <Arrow />

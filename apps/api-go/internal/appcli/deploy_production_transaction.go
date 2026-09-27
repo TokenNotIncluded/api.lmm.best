@@ -358,7 +358,7 @@ func (runtime *productionRuntime) verifyManifestInstalled(ctx context.Context, m
 	if err := runtime.verifyTransitionInstalled(ctx, manifest.Go, rollback, true); err != nil {
 		return err
 	}
-	if err := runtime.verifyTransitionCLI(manifest.Go, rollback); err != nil {
+	if err := runtime.verifyTransitionCLI(ctx, manifest.Go, rollback); err != nil {
 		return err
 	}
 	return runtime.verifyTransitionInstalled(ctx, manifest.Web, rollback, false)
@@ -381,8 +381,18 @@ func (runtime *productionRuntime) validateLegacyDeployPackageForProviderMigratio
 		installedLegacy = name
 	}
 	if installedLegacy == "" {
-		if _, err := os.Lstat(runtime.paths.LegacyDeployBinary); err == nil || !errors.Is(err, os.ErrNotExist) {
-			return "", errors.New("unowned legacy deployment CLI remains before provider migration")
+		if _, err := os.Lstat(runtime.paths.LegacyDeployBinary); errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
+		installedName, installedIdentity, err := runtime.installedGoPackage(ctx)
+		if err != nil {
+			return "", fmt.Errorf("unowned legacy deployment CLI remains before provider migration: %w", err)
+		}
+		if err := runtime.verifyInstalledGoPackage(ctx, installedName, installedIdentity); err != nil {
+			return "", fmt.Errorf("unowned legacy deployment CLI remains before provider migration: %w", err)
+		}
+		if err := runtime.verifyPackageOwnedDeployEntrypoint(ctx, installedIdentity); err != nil {
+			return "", fmt.Errorf("unowned legacy deployment CLI remains before provider migration: %w", err)
 		}
 		return "", nil
 	}
@@ -438,7 +448,7 @@ func (runtime *productionRuntime) removeLegacyDeployPackageForProviderMigration(
 	return nil
 }
 
-func (runtime *productionRuntime) verifyTransitionCLI(transition productionPackageTransition, rollback bool) error {
+func (runtime *productionRuntime) verifyTransitionCLI(ctx context.Context, transition productionPackageTransition, rollback bool) error {
 	name, identity := transition.CandidatePackageName, transition.CandidateIdentity
 	if rollback {
 		name, identity = transition.RollbackPackageName, transition.RollbackIdentity
@@ -478,8 +488,29 @@ func (runtime *productionRuntime) verifyTransitionCLI(transition productionPacka
 	if err != nil || target != expectedTarget {
 		return errors.New("canonical backend link does not select the expected provider")
 	}
-	if _, err := os.Lstat(runtime.paths.LegacyDeployBinary); err == nil || !errors.Is(err, os.ErrNotExist) {
-		return errors.New("legacy deployment CLI remains installed")
+	// Older providers did not include this entrypoint. The caller's package
+	// integrity check proves whether absence is expected; newer providers own it.
+	_, err = os.Lstat(runtime.paths.LegacyDeployBinary)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return runtime.verifyPackageOwnedDeployEntrypoint(ctx, identity)
+}
+
+func (runtime *productionRuntime) verifyPackageOwnedDeployEntrypoint(ctx context.Context, identity string) error {
+	deployPath := runtime.paths.LegacyDeployBinary
+	deploy, err := os.Lstat(deployPath)
+	if err != nil || deploy.Mode()&os.ModeSymlink != 0 || !deploy.Mode().IsRegular() ||
+		deploy.Mode().Perm()&0o100 == 0 || deploy.Mode().Perm()&0o022 != 0 {
+		return errors.New("deployment entrypoint is unsafe")
+	}
+	owner, links, ok := deploymentFileOwnership(deploy)
+	if !ok || owner != runtime.requiredOwnerUID || links != 1 {
+		return errors.New("deployment entrypoint ownership or link count is unsafe")
+	}
+	ownership, err := runtime.runner.Run(ctx, productionCommand{Name: commandPacman, Args: []string{"-Qo", deployPath}, Env: append(os.Environ(), "LC_ALL=C")})
+	if err != nil || strings.TrimSpace(string(ownership)) != deployPath+" is owned by "+identity {
+		return errors.New("deployment entrypoint is not owned by the expected backend package")
 	}
 	return nil
 }
@@ -901,7 +932,7 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		if err := runtime.selectInstalledProvider(ctx, manifest.NewProviderTarget); err != nil {
 			return productionStatus{}, err
 		}
-		if err := runtime.verifyTransitionCLI(manifest.Go, false); err != nil {
+		if err := runtime.verifyTransitionCLI(ctx, manifest.Go, false); err != nil {
 			return productionStatus{}, err
 		}
 		installedVersion, err := runVerifiedBinary(ctx, runtime.runner, runtime.paths.InstalledBinary, []string{"version"}, nil, "", productionCommandTimeout, false)
@@ -1233,7 +1264,7 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 				return fail(err)
 			}
 		}
-		if err := runtime.verifyTransitionCLI(manifest.Go, true); err != nil {
+		if err := runtime.verifyTransitionCLI(ctx, manifest.Go, true); err != nil {
 			return fail(err)
 		}
 		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"enable", "--now", runtime.paths.Service}}); err != nil {

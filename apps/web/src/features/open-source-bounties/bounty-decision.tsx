@@ -16,13 +16,41 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
 import { useTranslation } from 'react-i18next'
 
 import { toIntlLocale } from '@/i18n/languages'
 import { formatQuota } from '@/lib/format'
+import { cn } from '@/lib/utils'
 
 import { bountyAvailableSlots } from './timeline'
 import type { BountyProject } from './types'
+
+function Fact({
+  label,
+  value,
+  emphasis = false,
+}: {
+  label: string
+  value: React.ReactNode
+  emphasis?: boolean
+}) {
+  return (
+    <div className='border-border/60 bg-background rounded-lg border px-3 py-2'>
+      <dt className='text-muted-foreground text-xs'>{label}</dt>
+      <dd
+        className={cn(
+          'mt-0.5 text-sm tabular-nums',
+          emphasis ? 'font-semibold' : 'font-medium'
+        )}
+      >
+        {value}
+      </dd>
+    </div>
+  )
+}
 
 export function BountyDecision({
   project,
@@ -32,52 +60,50 @@ export function BountyDecision({
   compact?: boolean
 }) {
   const { t, i18n } = useTranslation()
+  const reputation =
+    project.owner_rating_count > 0
+      ? `${project.owner_rating_average.toFixed(1)} / 5 (${project.owner_rating_count})`
+      : t('No ratings yet')
+  const updated =
+    project.updated_at > 0
+      ? new Date(project.updated_at * 1000).toLocaleDateString(
+          toIntlLocale(i18n.resolvedLanguage || i18n.language)
+        )
+      : t('Unknown')
+
   return (
     <div className='space-y-3 text-xs leading-5'>
-      <dl className='grid grid-cols-2 gap-x-4 gap-y-2'>
-        <div>
-          <dt className='text-muted-foreground'>{t('Available slots')}</dt>
-          <dd>
-            {bountyAvailableSlots(project)} / {project.reward_slots}
-          </dd>
-        </div>
-        <div>
-          <dt className='text-muted-foreground'>{t('Reserved slots')}</dt>
-          <dd>{project.active_challenge_count}</dd>
-        </div>
-        <div>
-          <dt className='text-muted-foreground'>{t('Publisher reputation')}</dt>
-          <dd>
-            {project.owner_rating_count > 0
-              ? `${project.owner_rating_average.toFixed(1)} / 5 (${project.owner_rating_count})`
-              : t('No ratings yet')}
-          </dd>
-        </div>
-        <div>
-          <dt className='text-muted-foreground'>{t('Updated')}</dt>
-          <dd>
-            {project.updated_at > 0
-              ? new Date(project.updated_at * 1000).toLocaleDateString(
-                  toIntlLocale(i18n.resolvedLanguage || i18n.language)
-                )
-              : t('Unknown')}
-          </dd>
-        </div>
+      <dl className='grid grid-cols-2 gap-2'>
+        <Fact
+          label={t('Available slots')}
+          value={`${bountyAvailableSlots(project)} / ${project.reward_slots}`}
+          emphasis
+        />
+        <Fact
+          label={t('Reserved slots')}
+          value={project.active_challenge_count}
+        />
+        <Fact label={t('Publisher reputation')} value={reputation} />
+        <Fact label={t('Updated')} value={updated} />
       </dl>
       {project.accepted_challenge_count !== undefined &&
         project.submitted_challenge_count !== undefined && (
           <p>
             {t('Active deliveries')}:{' '}
-            {project.accepted_challenge_count +
-              project.submitted_challenge_count}
+            <strong className='font-medium tabular-nums'>
+              {project.accepted_challenge_count +
+                project.submitted_challenge_count}
+            </strong>
           </p>
         )}
-      <p>{t('Evidence: Issue or PR; follow the acceptance rules.')}</p>
-      <p className='font-medium'>
-        {t('Rewards are credited to your API account balance.')}
-      </p>
+      <div className='border-border/60 bg-muted/20 space-y-1.5 rounded-lg border px-3 py-2'>
+        <p>{t('Evidence: Issue or PR; follow the acceptance rules.')}</p>
+        <p className='font-medium'>
+          {t('Rewards are credited to your API account balance.')}
+        </p>
+      </div>
       {!compact && (
-        <>
+        <div className='space-y-1.5'>
           <p>
             {t('Reviewed by the publisher: {{name}}', {
               name: project.owner_username,
@@ -93,7 +119,7 @@ export function BountyDecision({
               'If rejected, open a dispute within 7 days. A platform administrator reviews the evidence.'
             )}
           </p>
-        </>
+        </div>
       )}
     </div>
   )

@@ -23,6 +23,8 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronRight,
+  CircleCheck,
+  CirclePause,
   ListOrdered,
   ShieldCheck,
   Shuffle,
@@ -64,6 +66,7 @@ import {
   getBalanceVariant,
   getChannelTypeIcon,
   getChannelTypeLabel,
+  getChannelStatusIcon,
   getResponseTimeConfig,
   isMultiKeyChannel,
   parseModelsList,
@@ -902,6 +905,7 @@ export function useChannelsColumns(
             if (hasEnabled) {
               return (
                 <StatusBadge
+                  icon={CircleCheck}
                   label={`Active (${childrenCount})`}
                   variant='success'
                   size='sm'
@@ -912,6 +916,7 @@ export function useChannelsColumns(
             } else {
               return (
                 <StatusBadge
+                  icon={CirclePause}
                   label={`Inactive (${childrenCount})`}
                   variant='neutral'
                   size='sm'
@@ -939,6 +944,8 @@ export function useChannelsColumns(
               ? `${t(config.label)} (${enabledCount}/${keySize})`
               : t(config.label)
 
+          const StatusIcon = getChannelStatusIcon(status)
+
           // Auto-disabled: show reason and time tooltip
           if (status === 3) {
             let statusReason = ''
@@ -963,6 +970,7 @@ export function useChannelsColumns(
                   <Tooltip>
                     <TooltipTrigger render={<span />}>
                       <StatusBadge
+                        icon={StatusIcon}
                         label={label}
                         variant={config.variant}
                         size='sm'
@@ -991,6 +999,7 @@ export function useChannelsColumns(
 
           return (
             <StatusBadge
+              icon={StatusIcon}
               label={label}
               variant={config.variant}
               size='sm'

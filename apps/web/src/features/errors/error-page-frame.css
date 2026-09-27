@@ -158,6 +158,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
   margin-top: 1.875rem;
 }
 
+/* A small playable easter egg for dead ends; quiet, below the real actions. */
+.error-editorial-play {
+  margin-top: 2.25rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--error-rule, var(--border));
+}
+
 .error-editorial-action {
   min-height: 2.5rem;
   border: 1px solid var(--error-ink) !important;

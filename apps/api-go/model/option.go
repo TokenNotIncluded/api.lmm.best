@@ -284,14 +284,22 @@ func loadOptionsFromDatabase() {
 		return
 	}
 	l1Values := setting.DefaultAssistantL1AutoReviewSettings().OptionValues()
+	advancedSecurityValues := currentAdvancedSecurityOptionValues()
 	for _, option := range options {
 		if setting.IsAssistantL1AutoReviewOption(option.Key) {
 			l1Values[option.Key] = option.Value
 			continue
 		}
+		if isAdvancedSecurityOptionKey(option.Key) {
+			advancedSecurityValues[option.Key] = option.Value
+			continue
+		}
 		if err := updateOptionMap(option.Key, option.Value); err != nil {
 			common.SysLog("failed to update option map: " + err.Error())
 		}
+	}
+	if err := applyAdvancedSecurityOptionValues(advancedSecurityValues); err != nil {
+		common.SysLog("failed to update advanced security settings: " + err.Error())
 	}
 	if err := applyAssistantL1AutoReviewOptionMap(l1Values); err != nil {
 		common.SysLog("failed to update L1 automatic review settings: " + err.Error())
@@ -320,6 +328,9 @@ func SyncOptionsContext(ctx context.Context, frequency int) {
 }
 
 func validateOptionValue(key string, value string) error {
+	if key == AIDirectoryLinksOptionKey {
+		return ValidateAIDirectoryLinks(value)
+	}
 	if err := validateReferralOption(key, value); err != nil {
 		return err
 	}

@@ -39,6 +39,7 @@ import { cn } from '@/lib/utils'
 
 import { defaultTopNavLinks } from '../config/top-nav.config'
 import type { TopNavLink } from '../types'
+import { AccountBalanceBadge } from './account-balance-badge'
 import { Header } from './header'
 import { SystemBrand } from './system-brand'
 import { TopNav } from './top-nav'
@@ -55,6 +56,9 @@ type AppHeaderProps = {
   /** The console puts the brand and low-frequency preferences in its sidebar. */
   showBrand?: boolean
   showLanguageSwitcher?: boolean
+  /** Persistent account balance and wallet entry. */
+  showBalanceBadge?: boolean
+  showAssistant?: boolean
 }
 
 export function AppHeader({
@@ -68,6 +72,8 @@ export function AppHeader({
   showProfileDropdown = true,
   showBrand = true,
   showLanguageSwitcher = true,
+  showBalanceBadge = true,
+  showAssistant = true,
 }: AppHeaderProps) {
   const dynamicLinks = useTopNavLinks()
   const links = dynamicLinks.length > 0 ? dynamicLinks : navLinks
@@ -112,7 +118,7 @@ export function AppHeader({
               <TopNav links={links} aria-label={t('Header navigation')} />
             </div>
           )}
-          {assistantEnabled && (
+          {assistantEnabled && showAssistant && (
             <Button
               variant='ghost'
               size='icon'
@@ -149,6 +155,7 @@ export function AppHeader({
               loading={notifications.loading}
             />
           )}
+          {showBalanceBadge && <AccountBalanceBadge />}
           {showLanguageSwitcher && <LanguageSwitcher />}
           {showConfigDrawer && <ConfigDrawer />}
           {showProfileDropdown && <ProfileDropdown />}

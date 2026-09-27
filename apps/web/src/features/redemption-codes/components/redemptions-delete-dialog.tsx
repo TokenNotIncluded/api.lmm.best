@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { TriangleAlert } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -30,27 +31,36 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { Spinner } from '@/components/ui/spinner'
 
 import { deleteRedemption } from '../api'
-import { SUCCESS_MESSAGES } from '../constants'
+import { ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
 import { useRedemptions } from './redemptions-provider'
 
 export function RedemptionsDeleteDialog() {
   const { t } = useTranslation()
   const { open, setOpen, currentRow, triggerRefresh } = useRedemptions()
   const [isDeleting, setIsDeleting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const handleDelete = async () => {
     if (!currentRow) return
 
     setIsDeleting(true)
+    setError(null)
     try {
       const result = await deleteRedemption(currentRow.id)
       if (result.success) {
         toast.success(t(SUCCESS_MESSAGES.REDEMPTION_DELETED))
         setOpen(null)
         triggerRefresh()
+        return
       }
+      // Surface the failure in the dialog instead of silently closing: a
+      // swallowed error leaves the operator thinking the code was deleted.
+      setError(result.message || t(ERROR_MESSAGES.DELETE_FAILED))
+    } catch {
+      setError(t(ERROR_MESSAGES.UNEXPECTED))
     } finally {
       setIsDeleting(false)
     }
@@ -59,7 +69,12 @@ export function RedemptionsDeleteDialog() {
   return (
     <AlertDialog
       open={open === 'delete'}
-      onOpenChange={(open) => !open && setOpen(null)}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
+          setError(null)
+          setOpen(null)
+        }
+      }}
     >
       <AlertDialogContent>
         <AlertDialogHeader>
@@ -70,6 +85,20 @@ export function RedemptionsDeleteDialog() {
             {t('. This action cannot be undone.')}
           </AlertDialogDescription>
         </AlertDialogHeader>
+
+        {error && (
+          <div
+            role='alert'
+            className='border-destructive/30 bg-destructive/5 text-destructive flex items-start gap-2 rounded-lg border p-2.5 text-sm'
+          >
+            <TriangleAlert
+              className='mt-0.5 size-4 shrink-0'
+              aria-hidden='true'
+            />
+            <span className='min-w-0'>{error}</span>
+          </div>
+        )}
+
         <AlertDialogFooter>
           <AlertDialogCancel disabled={isDeleting}>
             {t('Cancel')}
@@ -79,7 +108,12 @@ export function RedemptionsDeleteDialog() {
             disabled={isDeleting}
             variant='destructive'
           >
-            {isDeleting ? t('Deleting...') : t('Delete')}
+            {isDeleting && <Spinner className='size-4' />}
+            {isDeleting
+              ? t('Deleting...')
+              : error
+                ? t('Try again')
+                : t('Delete')}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

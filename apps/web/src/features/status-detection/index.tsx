@@ -32,7 +32,6 @@ import {
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { PublicLayout } from '@/components/layout'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -45,6 +44,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
+import { ForgePublicShell } from '@/features/forge/forge-public-shell'
 import {
   formatLatency,
   formatThroughput,
@@ -246,13 +246,24 @@ function GroupStatusCard(props: {
               statusSurfaceClass(level)
             )}
           >
-            <Icon
-              className={cn(
-                'size-3.5 shrink-0',
-                getSuccessRateTextClass(props.group.successRate)
-              )}
-              aria-hidden='true'
-            />
+            <span className='relative grid shrink-0 place-items-center'>
+              {level === 'excellent' || level === 'good' ? (
+                <span
+                  aria-hidden='true'
+                  className={cn(
+                    'motion-safe:animate-ping absolute inline-flex size-4 rounded-full opacity-60',
+                    getSuccessRateDotClass(props.group.successRate)
+                  )}
+                />
+              ) : null}
+              <Icon
+                className={cn(
+                  'relative size-3.5 shrink-0',
+                  getSuccessRateTextClass(props.group.successRate)
+                )}
+                aria-hidden='true'
+              />
+            </span>
             <span className='text-foreground truncate font-medium'>
               {statusLabel(t, level)}
             </span>
@@ -425,15 +436,12 @@ export function StatusDetection() {
     Date.now() - latestTimestampMs > 6 * 60 * 60 * 1_000
 
   return (
-    <PublicLayout
-      showMainContainer={false}
-      headerProps={{ className: 'forge-public-header' }}
-    >
+    <ForgePublicShell>
       <main className='min-h-svh'>
-        <div className='mx-auto w-full max-w-[1280px] space-y-6 px-3 pt-4 pb-14 sm:px-6 sm:pt-8 xl:px-8'>
+        <div className='mx-auto w-full max-w-7xl space-y-8 px-5 pt-12 pb-20 md:px-10 md:pt-16'>
           <div className='flex flex-wrap items-end justify-between gap-3'>
             <div className='min-w-0'>
-              <h1 className='text-foreground text-2xl font-semibold tracking-normal'>
+              <h1 className='font-serif text-5xl leading-[1.05] font-normal tracking-tight sm:text-6xl'>
                 {t('Status detection')}
               </h1>
               <p className='text-muted-foreground mt-1 text-sm'>
@@ -459,7 +467,7 @@ export function StatusDetection() {
             </Button>
           </div>
 
-          <div className='border-border/70 bg-card grid gap-3 rounded-lg border p-3 sm:grid-cols-4'>
+          <div className='border-foreground/20 grid gap-3 border-y py-4 sm:grid-cols-4'>
             <Select
               value={String(search.hours)}
               onValueChange={(value) => value && updateSearch('hours', value)}
@@ -733,6 +741,6 @@ export function StatusDetection() {
           )}
         </div>
       </main>
-    </PublicLayout>
+    </ForgePublicShell>
   )
 }

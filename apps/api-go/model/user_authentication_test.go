@@ -347,7 +347,7 @@ func TestSecurityFactorMutationsAdvanceUserAuthVersion(t *testing.T) {
 	assertUserAuthVersion(t, user.Id, 4)
 
 	credential := &PasskeyCredential{UserID: user.Id, CredentialID: "credential-id", PublicKey: "public-key"}
-	require.NoError(t, UpsertPasskeyCredentialWithAuthVersion(credential))
+	require.NoError(t, CreatePasskeyCredentialWithAuthVersion(credential))
 	assertUserAuthVersion(t, user.Id, 5)
 	require.NoError(t, DeletePasskeyByUserIDWithAuthVersion(user.Id))
 	assertUserAuthVersion(t, user.Id, 6)

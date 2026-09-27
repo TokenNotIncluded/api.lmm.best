@@ -1424,7 +1424,7 @@ func insertAssistantTokenAndCreateSecureCardTx(tx *gorm.DB, token *Token, ownerU
 	}
 	if maxUserTokens > 0 {
 		var count int64
-		if err := tx.Model(&Token{}).Where("user_id = ?", ownerUserID).Count(&count).Error; err != nil {
+		if err := tx.Model(&Token{}).Where("user_id = ? AND (creation_source IS NULL OR creation_source <> ?)", ownerUserID, TokenCreationSourceAssistantRuntime).Count(&count).Error; err != nil {
 			return nil, err
 		}
 		if count >= int64(maxUserTokens) {

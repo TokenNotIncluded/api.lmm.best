@@ -15,7 +15,7 @@ func applyAcquisitionLink(db *gorm.DB, id string, visit *AcquisitionVisit) error
 		return nil
 	}
 	var link AcquisitionLink
-	err := db.First(&link, "id = ?", id).Error
+	err := db.Where("deleted_at = 0").First(&link, "id = ?", id).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil
 	}
@@ -53,7 +53,7 @@ func PreviewAcquisitionLink(ctx context.Context, id string) (AcquisitionLinkPrev
 	}
 	db := DB.WithContext(ctx)
 	var link AcquisitionLink
-	if err := db.First(&link, "id = ?", id).Error; err != nil {
+	if err := db.Where("deleted_at = 0").First(&link, "id = ?", id).Error; err != nil {
 		return result, err
 	}
 	if AcquisitionTarget(link.Target) == "" {

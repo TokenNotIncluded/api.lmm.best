@@ -360,6 +360,7 @@ function buildSectionDefs(t: (key: string) => string): SectionDef[] {
   ]
   ecosystem.title = t('Ecosystem')
   ecosystem.modules.push(
+    module('/ai-directory', 'AI directory'),
     module('/tool-market', 'Tool market'),
     module('/scripts', 'Scripts')
   )
@@ -410,6 +411,7 @@ const DEFAULT_ROUTES: DefaultRouteDef[] = [
     title: 'Channel marketplace',
     requiresConsole: true,
   },
+  { route: '/ai-directory', title: 'AI directory', requiresConsole: true },
   { route: '/challenges', title: 'Challenges', requiresConsole: true },
   { route: '/rankings', title: 'Rankings', requiresConsole: true },
   { route: '/usage-logs/common', title: 'Usage Logs', requiresConsole: true },

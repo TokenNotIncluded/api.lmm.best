@@ -162,7 +162,7 @@ impl PgHarness {
             "CREATE TABLE options (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
             "CREATE TABLE users (id BIGINT PRIMARY KEY, username TEXT NOT NULL, email TEXT, \"group\" TEXT NOT NULL, setting TEXT NOT NULL DEFAULT '{}', deleted_at TIMESTAMPTZ)",
             "CREATE TABLE subscription_plans (id BIGINT PRIMARY KEY, title TEXT NOT NULL, price_amount NUMERIC NOT NULL DEFAULT 1, enabled BOOLEAN NOT NULL DEFAULT TRUE, total_amount BIGINT NOT NULL DEFAULT 100, duration_unit TEXT NOT NULL DEFAULT 'day', duration_value BIGINT NOT NULL DEFAULT 1, upgrade_group TEXT NOT NULL DEFAULT '', downgrade_group TEXT NOT NULL DEFAULT '', archived_at BIGINT NOT NULL DEFAULT 0)",
-            "CREATE TABLE user_subscriptions (id BIGINT PRIMARY KEY, user_id BIGINT NOT NULL, plan_id BIGINT NOT NULL, amount_total BIGINT NOT NULL, amount_used BIGINT NOT NULL, start_time BIGINT NOT NULL, end_time BIGINT NOT NULL, status TEXT NOT NULL, source TEXT NOT NULL, last_reset_time BIGINT NOT NULL DEFAULT 0, next_reset_time BIGINT NOT NULL DEFAULT 0, upgrade_group TEXT NOT NULL DEFAULT '', prev_user_group TEXT NOT NULL DEFAULT '', downgrade_group TEXT NOT NULL DEFAULT '', allow_wallet_overflow BOOLEAN NOT NULL DEFAULT TRUE, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL)",
+            "CREATE TABLE user_subscriptions (id BIGINT PRIMARY KEY, user_id BIGINT NOT NULL, plan_id BIGINT NOT NULL, amount_total BIGINT NOT NULL, amount_used BIGINT NOT NULL, quota_version BIGINT NOT NULL DEFAULT 0, start_time BIGINT NOT NULL, end_time BIGINT NOT NULL, status TEXT NOT NULL, source TEXT NOT NULL, last_reset_time BIGINT NOT NULL DEFAULT 0, next_reset_time BIGINT NOT NULL DEFAULT 0, upgrade_group TEXT NOT NULL DEFAULT '', prev_user_group TEXT NOT NULL DEFAULT '', downgrade_group TEXT NOT NULL DEFAULT '', allow_wallet_overflow BOOLEAN NOT NULL DEFAULT TRUE, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL)",
             "CREATE TABLE subscription_reset_vouchers (id BIGINT PRIMARY KEY, user_id BIGINT NOT NULL, plan_id BIGINT NOT NULL, operation_id VARCHAR(64) NOT NULL, status VARCHAR(16) NOT NULL DEFAULT 'available', expires_at BIGINT NOT NULL, redeemed_at BIGINT NOT NULL DEFAULT 0, created_by BIGINT NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL)",
             "CREATE TABLE subscription_reset_events (id BIGSERIAL PRIMARY KEY, operation_id VARCHAR(64) NOT NULL, user_id BIGINT NOT NULL, plan_id BIGINT NOT NULL, mode VARCHAR(24) NOT NULL, actor_user_id BIGINT NOT NULL, voucher_id BIGINT NOT NULL DEFAULT 0, reset_count BIGINT NOT NULL DEFAULT 0, restored_quota BIGINT NOT NULL DEFAULT 0, voucher_expiry BIGINT NOT NULL DEFAULT 0, created_at BIGINT NOT NULL, UNIQUE(operation_id,user_id,plan_id,mode))",
             "CREATE TABLE subscription_reset_previews (token VARCHAR(64) PRIMARY KEY, actor_user_id BIGINT NOT NULL, mode VARCHAR(16) NOT NULL, targets_json TEXT NOT NULL, payload_hash VARCHAR(64) NOT NULL, target_count BIGINT NOT NULL, active_subscriptions BIGINT NOT NULL, quota_to_restore BIGINT NOT NULL, voucher_expires_at BIGINT NOT NULL DEFAULT 0, expires_at BIGINT NOT NULL, consumed_at BIGINT NOT NULL DEFAULT 0, operation_id VARCHAR(64) NOT NULL DEFAULT '', created_at BIGINT NOT NULL)",
@@ -363,6 +363,43 @@ async fn reset_execute_idempotent_replay_does_not_duplicate_durable_audit() -> T
     .fetch_one(&harness.pool)
     .await?;
     assert_eq!(state, (0, 1, 1, 1, "203.0.113.7".to_owned()));
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT quota_version FROM user_subscriptions WHERE id=11")
+            .fetch_one(&harness.pool)
+            .await?,
+        1,
+        "a replayed reset must not advance the funding generation twice"
+    );
+    harness.cleanup().await
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL 18; run this test binary with --test-threads=1"]
+async fn voucher_redemption_advances_the_subscription_funding_generation_once() -> TestResult {
+    let harness = PgHarness::new().await?;
+    seed_active_subscription(&harness.pool, 7, 3, 11, 61).await?;
+    let now = database_timestamp(&harness.pool).await?;
+    sqlx::query("INSERT INTO subscription_reset_vouchers (id,user_id,plan_id,operation_id,status,expires_at,created_by,created_at,updated_at) VALUES (21,7,3,'version-reset','available',$1+3600,1,$1,$1)")
+        .bind(now).execute(&harness.pool).await?;
+    let app = harness.app();
+    for _ in 0..2 {
+        let _ = response_json(
+            request(
+                app.clone(),
+                Method::POST,
+                "/api/subscription/self/reset-vouchers/21/redeem",
+                "user",
+                None,
+            )
+            .await?,
+        )
+        .await?;
+    }
+    let state: (i64, i64) =
+        sqlx::query_as("SELECT amount_used,quota_version FROM user_subscriptions WHERE id=11")
+            .fetch_one(&harness.pool)
+            .await?;
+    assert_eq!(state, (0, 1));
     harness.cleanup().await
 }
 

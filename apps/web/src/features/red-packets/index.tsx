@@ -21,11 +21,12 @@ Copyright (C) 2026 LIghtJUNction
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { TFunction } from 'i18next'
-import { Copy, Gift, ImagePlus, Plus, Sparkles } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { Gift, ImagePlus, Plus, Sparkles } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { SectionPageLayout } from '@/components/layout'
 import { Button } from '@/components/ui/button'
 import {
@@ -46,8 +47,10 @@ import type { Redemption } from '@/features/redemption-codes/types'
 import { api } from '@/lib/api'
 import { formatQuota } from '@/lib/format'
 
-import { createRedPacket, listRedPackets } from './api'
+import { createRedPacket, deleteRedPacket, listRedPackets } from './api'
+import { RedPacketCard } from './red-packet-card'
 import type {
+  RedPacket,
   RedPacketDrawMode,
   RedPacketItemInput,
   RedPacketItemType,
@@ -177,6 +180,8 @@ export function RedPackets() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
+  const [deleting, setDeleting] = useState<RedPacket | null>(null)
+  const deletePendingRef = useRef(false)
   const [form, setForm] = useState<FormState>(emptyForm)
   const [selected, setSelected] = useState<Record<string, number>>({})
   const [generatingCover, setGeneratingCover] = useState(false)
@@ -216,6 +221,7 @@ export function RedPackets() {
   const packetsQuery = useQuery({
     queryKey: ['red-packets', 'admin'],
     queryFn: listRedPackets,
+    refetchOnWindowFocus: true,
   })
   const redemptionsQuery = useQuery({
     queryKey: ['red-packets', 'redemptions'],
@@ -271,6 +277,26 @@ export function RedPackets() {
           ? error.message
           : t('Failed to create red packet')
       )
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const response = await deleteRedPacket(id)
+      if (!response.success) {
+        throw new Error(response.message || t('Failed to delete red packet'))
+      }
+    },
+    onSuccess: async () => {
+      setDeleting(null)
+      toast.success(t('Red packet deleted'))
+      await queryClient.invalidateQueries({ queryKey: ['red-packets'] })
+    },
+    onError: (error) => {
+      toast.error(error.message || t('Failed to delete red packet'))
+    },
+    onSettled: () => {
+      deletePendingRef.current = false
     },
   })
 
@@ -371,62 +397,56 @@ export function RedPackets() {
               )}
             </p>
             <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-3'>
-              {packets.map((packet) => {
-                const shareUrl = `${window.location.origin}/red-packet/${packet.slug}`
-                return (
-                  <div
-                    key={packet.id}
-                    className='bg-card overflow-hidden rounded-xl border'
-                  >
-                    {packet.cover_image ? (
-                      <img
-                        src={packet.cover_image}
-                        alt=''
-                        className='aspect-[3/1] w-full object-cover'
-                      />
-                    ) : (
-                      <div className='from-primary/15 to-muted flex aspect-[3/1] items-center justify-center bg-gradient-to-br'>
-                        <Gift className='text-muted-foreground size-8' />
-                      </div>
-                    )}
-                    <div className='space-y-3 p-4'>
-                      <div>
-                        <div className='font-medium'>{packet.title}</div>
-                        <div className='text-muted-foreground mt-1 text-xs'>
-                          {packet.remaining_items}/{packet.total_items}{' '}
-                          {t('remaining')} · {packet.claim_count} {t('claims')}
-                        </div>
-                      </div>
-                      <div className='flex gap-2'>
-                        <Input
-                          value={shareUrl}
-                          readOnly
-                          className='h-8 text-xs'
-                        />
-                        <Button
-                          size='sm'
-                          variant='outline'
-                          onClick={async () => {
-                            await navigator.clipboard?.writeText(shareUrl)
-                            toast.success(t('Copied to clipboard'))
-                          }}
-                        >
-                          <Copy className='size-4' />
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
+              {packets.map((packet) => (
+                <RedPacketCard
+                  key={packet.id}
+                  packet={packet}
+                  onDelete={() => setDeleting(packet)}
+                />
+              ))}
               {!packetsQuery.isLoading && packets.length === 0 ? (
-                <div className='text-muted-foreground rounded-xl border border-dashed p-8 text-sm md:col-span-2 xl:col-span-3'>
-                  {t('No red packets yet.')}
+                <div className='text-muted-foreground flex flex-col items-center gap-3 rounded-xl border border-dashed p-8 text-center text-sm md:col-span-2 xl:col-span-3'>
+                  <Gift className='size-7 opacity-60' aria-hidden='true' />
+                  <p>{t('No red packets yet.')}</p>
+                  <Button type='button' size='sm' onClick={() => setOpen(true)}>
+                    <Plus className='mr-2 size-4' />
+                    {t('Create the first one')}
+                  </Button>
                 </div>
               ) : null}
             </div>
           </div>
         </SectionPageLayout.Content>
       </SectionPageLayout>
+
+      <ConfirmDialog
+        open={deleting !== null}
+        onOpenChange={(next) => {
+          if (!next && !deletePendingRef.current) setDeleting(null)
+        }}
+        title={t('Delete red packet')}
+        desc={
+          <>
+            <span className='text-foreground font-medium break-words'>
+              {deleting?.title}
+            </span>
+            <p className='mt-2'>
+              {t(
+                'Remove this red packet from the list and stop new claims. Claim history and already received rewards are kept.'
+              )}
+            </p>
+          </>
+        }
+        confirmText={t('Delete')}
+        destructive
+        isLoading={deleteMutation.isPending}
+        handleConfirm={() => {
+          if (deleting && !deletePendingRef.current) {
+            deletePendingRef.current = true
+            deleteMutation.mutate(deleting.id)
+          }
+        }}
+      />
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className='max-h-[90vh] overflow-y-auto sm:max-w-3xl'>

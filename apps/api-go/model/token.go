@@ -12,11 +12,12 @@ import (
 )
 
 const (
-	TokenCreationSourceManual         = "manual"
-	TokenCreationSourceSystem         = "system"
-	TokenCreationSourceDrawingMCP     = "drawing_mcp"
-	TokenCreationSourceAssistant      = "assistant"
-	TokenCreationSourceRedPacketCover = "red_packet_cover"
+	TokenCreationSourceManual           = "manual"
+	TokenCreationSourceSystem           = "system"
+	TokenCreationSourceDrawingMCP       = "drawing_mcp"
+	TokenCreationSourceAssistant        = "assistant"
+	TokenCreationSourceAssistantRuntime = "assistant_runtime"
+	TokenCreationSourceRedPacketCover   = "red_packet_cover"
 
 	TokenCreationModeManual    = "manual"
 	TokenCreationModeAutomatic = "automatic"
@@ -338,13 +339,13 @@ func GetTokenByKey(key string, fromDB bool) (token *Token, err error) {
 	if !fromDB && common.RedisEnabled {
 		// Try Redis first
 		token, err := cacheGetTokenByKey(key)
-		if err == nil && !token.OAuthManaged {
+		if err == nil && !token.OAuthManaged && token.CreationSource != TokenCreationSourceAssistantRuntime {
 			return token, nil
 		}
 		// Don't return error - fall through to DB
 	}
 	token = &Token{}
-	if err = DB.Where(clause.Eq{Column: "key", Value: key}).Where("oauth_managed = ?", false).First(token).Error; err != nil {
+	if err = DB.Where(clause.Eq{Column: "key", Value: key}).Where("oauth_managed = ? AND (creation_source IS NULL OR creation_source <> ?)", false, TokenCreationSourceAssistantRuntime).First(token).Error; err != nil {
 		return nil, err
 	}
 	if common.RedisEnabled {
@@ -365,6 +366,9 @@ func (token *Token) Insert() error {
 
 // Update Make sure your token's fields is completed, because this will update non-zero values
 func (token *Token) Update() (err error) {
+	if token.CreationSource == TokenCreationSourceAssistantRuntime {
+		return ErrAssistantRuntimeTokenManaged
+	}
 	// 写库前失效缓存并设置 fence，防止并发读者把过期快照重新写回缓存。
 	if cacheErr := invalidateTokenCacheForMutation(token.Key); cacheErr != nil {
 		common.SysLog("failed to invalidate token cache before update: " + cacheErr.Error())
@@ -374,6 +378,9 @@ func (token *Token) Update() (err error) {
 }
 
 func (token *Token) SelectUpdate() (err error) {
+	if token.CreationSource == TokenCreationSourceAssistantRuntime {
+		return ErrAssistantRuntimeTokenManaged
+	}
 	if cacheErr := invalidateTokenCacheForMutation(token.Key); cacheErr != nil {
 		common.SysLog("failed to invalidate token cache before status update: " + cacheErr.Error())
 	}
@@ -383,6 +390,9 @@ func (token *Token) SelectUpdate() (err error) {
 }
 
 func (token *Token) Delete() (err error) {
+	if token.CreationSource == TokenCreationSourceAssistantRuntime {
+		return ErrAssistantRuntimeTokenManaged
+	}
 	if cacheErr := invalidateTokenCacheForMutation(token.Key); cacheErr != nil {
 		common.SysLog("failed to invalidate token cache before delete: " + cacheErr.Error())
 	}
@@ -428,6 +438,9 @@ func DeleteTokenById(id int, userId int) (err error) {
 	err = DB.Where(token).Where("oauth_managed = ?", false).First(&token).Error
 	if err != nil {
 		return err
+	}
+	if token.CreationSource == TokenCreationSourceAssistantRuntime {
+		return ErrAssistantRuntimeTokenManaged
 	}
 	return token.Delete()
 }
@@ -482,7 +495,11 @@ func decreaseTokenQuota(id int, quota int) (err error) {
 
 // CountUserTokens returns total number of tokens for the given user, used for pagination
 func CountUserTokens(userId int) (int64, error) {
-	return CountUserTokensByCreationMode(userId, "")
+	var total int64
+	err := DB.Model(&Token{}).
+		Where("user_id = ? AND oauth_managed = ? AND (creation_source IS NULL OR creation_source <> ?)", userId, false, TokenCreationSourceAssistantRuntime).
+		Count(&total).Error
+	return total, err
 }
 
 func CountUserTokensByCreationMode(userId int, creationMode string) (int64, error) {
@@ -510,6 +527,12 @@ func BatchDeleteTokens(ids []int, userId int) (int, error) {
 	if err := tx.Where("user_id = ? AND id IN (?) AND oauth_managed = ?", userId, ids, false).Find(&tokens).Error; err != nil {
 		tx.Rollback()
 		return 0, err
+	}
+	for _, token := range tokens {
+		if token.CreationSource == TokenCreationSourceAssistantRuntime {
+			tx.Rollback()
+			return 0, ErrAssistantRuntimeTokenManaged
+		}
 	}
 	if err := invalidateTokensCache(tokens); err != nil {
 		common.SysLog("failed to invalidate token cache before batch delete: " + err.Error())

@@ -132,4 +132,72 @@ describe('profile passkey capability visibility', () => {
     await act(async () => root.unmount())
     container.remove()
   })
+
+  test('lists each Passkey and offers another registration', async () => {
+    api.get = (async (url) => {
+      if (url !== '/api/user/passkey') {
+        throw new Error(`Unexpected request: ${url}`)
+      }
+      return {
+        data: {
+          success: true,
+          data: {
+            enabled: true,
+            last_used_at: null,
+            credentials: [
+              {
+                id: 11,
+                name: 'Laptop',
+                created_at: '2026-09-22T10:00:00Z',
+                last_used_at: null,
+                backup_eligible: false,
+                backup_state: false,
+              },
+              {
+                id: 12,
+                name: 'Phone',
+                created_at: '2026-09-23T10:00:00Z',
+                last_used_at: null,
+                backup_eligible: true,
+                backup_state: true,
+              },
+            ],
+          },
+        },
+      }
+    }) as typeof api.get
+
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+    await act(async () => {
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <ProfilePasskeyCapability
+            capabilitiesReady
+            passkeyLogin
+            loading={false}
+          />
+        </I18nextProvider>
+      )
+      await flushEffects()
+    })
+
+    assert.match(container.textContent ?? '', /Add Passkey/)
+    assert.match(container.textContent ?? '', /Laptop/)
+    assert.match(container.textContent ?? '', /Phone/)
+    assert.ok(container.querySelector('button[aria-label="Remove Laptop"]'))
+    const removePhone = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Remove Phone"]'
+    )
+    assert.ok(removePhone)
+    await act(async () => removePhone.click())
+    assert.match(
+      document.body.textContent ?? '',
+      /Phone: This Passkey will stop working for sign-in/
+    )
+
+    await act(async () => root.unmount())
+    container.remove()
+  })
 })

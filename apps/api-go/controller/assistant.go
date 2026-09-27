@@ -69,6 +69,9 @@ var loadAssistantBillingUser = func() (*model.User, error) {
 	return &user, nil
 }
 
+var ensureAssistantRuntimeToken = model.EnsureAssistantRuntimeToken
+var touchAssistantRuntimeToken = model.TouchAssistantRuntimeToken
+
 var errAssistantConversationTooLong = errors.New("assistant conversation is too long")
 
 const assistantSystemPromptTemplate = `You are the built-in customer assistant for LMM, an AI API service.
@@ -1032,13 +1035,12 @@ func AssistantChat(c *gin.Context) {
 	}
 	common.SetContextKey(c, constant.ContextKeyUsingGroup, usingGroup)
 	c.Set(assistantActorGroupKey, usingGroup)
-	tempToken := &model.Token{
-		UserId:         userId,
-		Name:           "system-assistant",
-		Group:          usingGroup,
-		UnlimitedQuota: true,
+	runtimeToken, _, err := ensureAssistantRuntimeToken(userId, usingGroup)
+	if err != nil {
+		writeAssistantError(c, http.StatusServiceUnavailable, "ASSISTANT_RUNTIME_KEY_UNAVAILABLE", errors.New("assistant runtime key is unavailable"))
+		return
 	}
-	if err := middleware.SetupContextForToken(c, tempToken); err != nil {
+	if err := middleware.SetupContextForToken(c, runtimeToken); err != nil {
 		writeAssistantError(c, http.StatusInternalServerError, "ASSISTANT_CONTEXT_FAILED", errors.New("failed to prepare assistant context"))
 		return
 	}
@@ -1047,6 +1049,9 @@ func AssistantChat(c *gin.Context) {
 	if !ok || len(conversationMessages) == 0 {
 		writeAssistantError(c, http.StatusInternalServerError, "ASSISTANT_CONTEXT_FAILED", errors.New("assistant conversation is unavailable"))
 		return
+	}
+	if err := touchAssistantRuntimeToken(userId, runtimeToken.Id); err != nil {
+		common.SysLog("failed to update assistant runtime key last use: " + err.Error())
 	}
 	if assistantWantsStream(c) {
 		session := newAssistantStreamSession(c.Writer)

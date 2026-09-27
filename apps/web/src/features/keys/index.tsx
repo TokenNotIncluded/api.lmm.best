@@ -35,7 +35,7 @@ export function ApiKeys() {
   const [creationMode, setCreationMode] = useState<ApiKeyCreationMode>('manual')
   return (
     <ApiKeysProvider>
-      <SectionPageLayout fixedContent>
+      <SectionPageLayout>
         <SectionPageLayout.Title>{t('API Keys')}</SectionPageLayout.Title>
         <SectionPageLayout.Actions>
           {creationMode === 'manual' ? <ApiKeysPrimaryButtons /> : null}
@@ -55,8 +55,12 @@ export function ApiKeys() {
               </TabsTrigger>
             </TabsList>
             <TabsContent value={creationMode} className='pt-3'>
-              {creationMode === 'automatic' ? <AutomaticApiKeyActions /> : null}
               <ApiKeysTable creationMode={creationMode} />
+              {creationMode === 'automatic' ? (
+                <div className='mt-5'>
+                  <AutomaticApiKeyActions />
+                </div>
+              ) : null}
             </TabsContent>
           </Tabs>
         </SectionPageLayout.Content>

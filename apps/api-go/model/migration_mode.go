@@ -478,6 +478,15 @@ func verifyPostgresMigrationPostconditions(db *gorm.DB, schema string) error {
 	if legacyIndex {
 		return errors.New("legacy open-source bounty participant index is still present")
 	}
+	if err := db.Raw(`SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_indexes AS indexes
+		WHERE indexes.schemaname OPERATOR(pg_catalog.=) ?
+		  AND indexes.indexname OPERATOR(pg_catalog.=) ?)`, schema, legacyPasskeyUserUniqueIndex).
+		Scan(&legacyIndex).Error; err != nil {
+		return err
+	}
+	if legacyIndex {
+		return errors.New("legacy one-passkey-per-user index is still present")
+	}
 	checks := []struct {
 		name  string
 		query string

@@ -28,19 +28,36 @@ const modelNames = ['gpt-5-mini', 'claude-sonnet']
 // reach the persona adapter and fail closed; no payment or administrative write
 // is added here. Activated only by console_review=1 in the development entry.
 const reads: Record<string, unknown> = {
+  '/api/user/self/profile-share': {
+    enabled: true,
+    token: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    url: 'https://api.lmm.best/api/share/profile/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.svg',
+  },
   '/api/user/company-billing-profile': null,
   '/api/user/topup/info': {
-    enable_online_topup: false,
+    enable_online_topup: true,
     enable_stripe_topup: false,
     enable_creem_topup: false,
     enable_waffo_topup: false,
-    pay_methods: [],
+    pay_methods: [
+      {
+        name: 'Alipay · local preview',
+        type: 'alipay',
+        min_topup: 1,
+        settlement_currency: 'USD',
+        platform_units_per_usd: 1,
+        settlement_units_per_usd: 1,
+        settlement_units_per_platform_unit: 1,
+      },
+    ],
     amount_options: [10, 50, 100, 200],
     min_topup: 1,
     stripe_min_topup: 1,
     discount: {},
+    topup_group_ratio: 1,
+    payment_compliance_confirmed: true,
     developer_access_granted: true,
-    payment_available: false,
+    payment_available: true,
   },
   '/api/user/aff': 'local-preview-referral',
   '/api/user/2fa/status': {
@@ -214,6 +231,9 @@ const reads: Record<string, unknown> = {
     { key: 'SystemName', value: 'LMM Best' },
     { key: 'QuotaPerUnit', value: '500000' },
   ],
+  '/api/ai-directory/ads': { items: [], has_more: false, next_offset: 0 },
+  '/api/ai-directory/ads/mine': { items: [] },
+  '/api/ai-directory': { links: null },
 }
 
 export function consolePageFixture(
@@ -224,6 +244,66 @@ export function consolePageFixture(
   if (url.origin !== window.location.origin) return undefined
   const user = useAuthStore.getState().auth.user
   const path = url.pathname
+  if (
+    path === '/api/ai-directory/ads' &&
+    new URLSearchParams(window.location.search).get('ads_preview') === '1'
+  ) {
+    const now = Math.floor(Date.now() / 1000)
+    return {
+      success: true,
+      data: {
+        items: [
+          {
+            id: 1,
+            name: 'Example Studio',
+            url: 'https://example.com',
+            summary: 'A sample promoted creative workspace.',
+            description: 'Synthetic preview placement for layout review.',
+            bid_cents: 500,
+            charged_quota: 2500000,
+            status: 'active',
+            paid_at: now - 60,
+            expires_at: now + 30 * 86400,
+            hidden_at: 0,
+            refunded_at: 0,
+          },
+          {
+            id: 2,
+            name: 'Research Notes',
+            url: 'https://example.org',
+            summary: 'A sample promoted research resource.',
+            description: '',
+            bid_cents: 150,
+            charged_quota: 750000,
+            status: 'active',
+            paid_at: now - 30,
+            expires_at: now + 30 * 86400,
+            hidden_at: 0,
+            refunded_at: 0,
+          },
+        ],
+        has_more: false,
+        next_offset: 2,
+      },
+    }
+  }
+  if (path === '/api/ai-directory/ads/quote') {
+    const bidCents = Number(url.searchParams.get('bid_cents'))
+    if (!Number.isInteger(bidCents) || bidCents < 100 || bidCents > 1_000_000) {
+      return undefined
+    }
+    return {
+      success: true,
+      data: {
+        bid_cents: bidCents,
+        quota: bidCents * 5000,
+        currency: 'USD',
+        duration_days: 30,
+        min_bid_cents: 100,
+        max_bid_cents: 1_000_000,
+      },
+    }
+  }
   if (path === '/api/todos') {
     const category = url.searchParams.get('category') || 'all'
     return {
@@ -312,6 +392,18 @@ export function consolePageFixture(
     }
   }
   if (['/api/data/self', '/api/data', '/api/data/users'].includes(path)) {
+    const bound = (key: string, fallback: number) => {
+      const params: unknown = config.params
+      const value =
+        (params instanceof URLSearchParams
+          ? params.get(key)
+          : params && typeof params === 'object'
+            ? (params as Record<string, unknown>)[key]
+            : undefined) ?? url.searchParams.get(key)
+      return value === null || value === undefined ? fallback : Number(value)
+    }
+    const start = bound('start_timestamp', Number.NEGATIVE_INFINITY)
+    const end = bound('end_timestamp', Number.POSITIVE_INFINITY)
     return {
       success: true,
       data: Array.from({ length: 7 }, (_, index) => ({
@@ -323,7 +415,7 @@ export function consolePageFixture(
         token_used: 2400 + index * 380,
         count: 8 + index * 2,
         quota: 3000 + index * 80,
-      })),
+      })).filter((row) => row.created_at >= start && row.created_at <= end),
     }
   }
   if (['/api/data/flow/self', '/api/data/flow'].includes(path)) {

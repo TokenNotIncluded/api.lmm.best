@@ -16,13 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useNavigate, useRouter } from '@tanstack/react-router'
+import { useNavigate } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 import { ErrorPageFrame } from './error-page-frame'
+import { SignalTuner } from './signal-tuner'
 
 const FEEDBACK_URL = 'https://github.com/TokenNotIncluded/api.lmm.best/issues'
 
@@ -46,15 +47,8 @@ export function GeneralError({
 }: GeneralErrorProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { history } = useRouter()
   const status = getHttpStatus(error)
   const isRateLimited = status === 429
-  const title = isRateLimited
-    ? t('Too many requests')
-    : `${t('Oops! Something went wrong')} ${`:')`}`
-  const description = isRateLimited
-    ? t('Please wait a moment before trying again.')
-    : t('Please try again later.')
 
   return (
     <div className={cn('min-h-svh w-full', className)}>
@@ -62,26 +56,35 @@ export function GeneralError({
         status={status ?? 500}
         showStatus={!minimal}
         artSrc='/error-recovery-oat.png'
-        title={title}
+        title={
+          isRateLimited
+            ? t('Too many requests. Give it a beat.')
+            : t('The request fell over.')
+        }
         description={
-          <>
-            {t('We apologize for the inconvenience.')} <br /> {description}
-          </>
+          isRateLimited
+            ? t('Slow down for a second, then send it again.')
+            : t('Reload the page to try again.')
         }
         note={
-          !minimal
-            ? t('If this keeps happening, please report it on GitHub Issues.')
-            : undefined
+          !minimal ? t('Still broken? Report it on GitHub Issues.') : undefined
         }
         actions={
           !minimal ? (
             <>
               <Button
-                variant='outline'
+                size='lg'
                 className='error-editorial-action error-editorial-action-primary'
-                onClick={() => history.go(-1)}
+                onClick={() => window.location.reload()}
               >
-                {t('Go Back')}
+                {t('Retry')}
+              </Button>
+              <Button
+                variant='outline'
+                className='error-editorial-action error-editorial-action-secondary'
+                onClick={() => navigate({ to: '/' })}
+              >
+                {t('Back to Home')}
               </Button>
               <Button
                 variant='outline'
@@ -96,16 +99,10 @@ export function GeneralError({
               >
                 {t('Report an issue')}
               </Button>
-              <Button
-                variant='outline'
-                className='error-editorial-action error-editorial-action-secondary'
-                onClick={() => navigate({ to: '/' })}
-              >
-                {t('Back to Home')}
-              </Button>
             </>
           ) : undefined
         }
+        play={!minimal ? <SignalTuner /> : undefined}
       />
     </div>
   )

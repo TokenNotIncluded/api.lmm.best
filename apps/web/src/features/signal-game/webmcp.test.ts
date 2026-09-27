@@ -70,6 +70,13 @@ test('WebMCP requires AI identity and round ownership, bounds batches, and never
         { record_id: 'missing', publish: true },
         options
       ),
+      /confirm: true/
+    )
+    await assert.rejects(
+      get('lmm_signal_submit').execute(
+        { record_id: 'missing', publish: true, confirm: true },
+        options
+      ),
       /Sign in/
     )
     assert.equal(

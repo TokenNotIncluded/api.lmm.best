@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
+import { Plus } from 'lucide-react'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -28,6 +29,7 @@ import {
   DataTablePage,
   useDataTable,
 } from '@/components/data-table'
+import { Button } from '@/components/ui/button'
 import { useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 
@@ -41,6 +43,7 @@ import { isRedemptionExpired } from '../lib'
 import type { Redemption } from '../types'
 import { DataTableBulkActions } from './data-table-bulk-actions'
 import { useRedemptionsColumns } from './redemptions-columns'
+import { RedemptionsMobileBulkBar } from './redemptions-mobile-bulk-bar'
 import { RedemptionsMobileList } from './redemptions-mobile-list'
 import { useRedemptions } from './redemptions-provider'
 
@@ -56,7 +59,7 @@ function isDisabledRedemptionRow(redemption: Redemption) {
 export function RedemptionsTable() {
   const { t } = useTranslation()
   const columns = useRedemptionsColumns()
-  const { refreshTrigger } = useRedemptions()
+  const { refreshTrigger, setOpen } = useRedemptions()
   const isMobile = useMediaQuery('(max-width: 640px)')
 
   const {
@@ -169,6 +172,12 @@ export function RedemptionsTable() {
       )}
       skeletonKeyPrefix='redemptions-skeleton'
       applyHeaderSize
+      emptyAction={
+        <Button className='h-11 gap-2 sm:h-9' onClick={() => setOpen('create')}>
+          <Plus className='size-4' />
+          {t('Create Code')}
+        </Button>
+      }
       toolbarProps={{
         searchPlaceholder: t('Filter by name or ID...'),
         filters: [
@@ -180,7 +189,18 @@ export function RedemptionsTable() {
           },
         ],
       }}
-      mobile={<RedemptionsMobileList table={table} isLoading={isLoading} />}
+      mobile={
+        <>
+          <RedemptionsMobileList
+            table={table}
+            isLoading={isLoading}
+            isFetching={isFetching && !isLoading}
+          />
+          {/* DataTablePage gates the shared bulk-actions toolbar behind
+              !showMobile, so mobile selection needs its own bar. */}
+          <RedemptionsMobileBulkBar table={table} />
+        </>
+      }
       getRowClassName={(row, { isMobile }) => {
         if (!isDisabledRedemptionRow(row.original)) return undefined
         return isMobile ? DISABLED_ROW_MOBILE : DISABLED_ROW_DESKTOP

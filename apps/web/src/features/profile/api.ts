@@ -64,6 +64,42 @@ export async function getProfileUsageWindow(
   return res.data.data ?? []
 }
 
+export interface ProfileShareState {
+  enabled: boolean
+  token?: string
+  url?: string
+}
+
+export async function getProfileShareState(): Promise<ProfileShareState> {
+  const res = await api.get<ApiResponse<ProfileShareState>>(
+    '/api/user/self/profile-share'
+  )
+  if (!res.data.success || !res.data.data) {
+    throw new Error(res.data.message || 'Unable to load profile sharing')
+  }
+  return res.data.data
+}
+
+export async function enableProfileShare(): Promise<ProfileShareState> {
+  const res = await api.post<ApiResponse<ProfileShareState>>(
+    '/api/user/self/profile-share'
+  )
+  if (!res.data.success || !res.data.data) {
+    throw new Error(res.data.message || 'Unable to enable profile sharing')
+  }
+  return res.data.data
+}
+
+export async function disableProfileShare(): Promise<ProfileShareState> {
+  const res = await api.delete<ApiResponse<ProfileShareState>>(
+    '/api/user/self/profile-share'
+  )
+  if (!res.data.success || !res.data.data) {
+    throw new Error(res.data.message || 'Unable to disable profile sharing')
+  }
+  return res.data.data
+}
+
 /**
  * Update user profile
  */

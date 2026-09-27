@@ -96,3 +96,63 @@ test('assistant model reads are explicit, cloned fixtures and never authorize wr
     undefined
   )
 })
+
+test('wallet review exposes a local Alipay form with explicit USD units but no payment writes', async () => {
+  const response = consolePageFixture(config('/api/user/topup/info')) as {
+    data: {
+      enable_online_topup: boolean
+      payment_available: boolean
+      pay_methods: Array<Record<string, unknown>>
+    }
+  }
+  assert.equal(response.data.enable_online_topup, true)
+  assert.equal(response.data.payment_available, true)
+  assert.equal(response.data.pay_methods[0]?.type, 'alipay')
+  assert.equal(response.data.pay_methods[0]?.settlement_currency, 'USD')
+  assert.equal(response.data.pay_methods[0]?.platform_units_per_usd, 1)
+  assert.equal(response.data.pay_methods[0]?.settlement_units_per_usd, 1)
+  const wrapped = withConsolePageFixtures(async () => {
+    throw new Error('blocked')
+  })
+  for (const path of [
+    '/api/user/topup',
+    '/api/user/pay',
+    '/api/user/stripe/pay',
+    '/api/subscription/balance/pay',
+  ]) {
+    await assert.rejects(wrapped(config(path, 'post')), /blocked/, path)
+  }
+})
+
+test('usage review windows filter timestamps without duplicating model totals', () => {
+  const stamp = 1790035200
+  const first = config(
+    `/api/data/self?start_timestamp=${stamp - 30 * 86400}&end_timestamp=${stamp - 3 * 86400}`
+  )
+  const second = config('/api/data/self')
+  second.params = {
+    start_timestamp: stamp - 3 * 86400 + 1,
+    end_timestamp: stamp,
+  }
+  type UsageRow = {
+    model_name: string
+    token_used: number
+    count: number
+    quota: number
+    created_at: number
+  }
+  const rows = [first, second].flatMap(
+    (request) => (consolePageFixture(request) as { data: UsageRow[] }).data
+  )
+  assert.equal(rows.length, 7)
+  assert.equal(new Set(rows.map((row) => row.created_at)).size, 7)
+  assert.equal(
+    rows.reduce((total, row) => total + row.token_used, 0),
+    24780
+  )
+  assert.equal(
+    rows.reduce((total, row) => total + row.count, 0),
+    98
+  )
+  assert.ok(rows.every((row) => row.model_name && row.quota > 0))
+})

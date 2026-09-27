@@ -16,14 +16,14 @@ function job(source, id) {
   return found;
 }
 
-test('workflows build and publish without server access', () => {
+test('backend and release workflows do not have server access', () => {
   const files = readdirSync(new URL('.github/workflows/', root))
     .filter((name) => /\.ya?ml$/.test(name));
   for (const name of ['ci.yml', 'release-go.yml', 'release-web.yml', 'server-release-qualification.yml']) {
     assert.ok(files.includes(name), `missing workflow: ${name}`);
   }
   assert.ok(!files.includes('server-ops.yml'));
-  for (const file of files) {
+  for (const file of files.filter((name) => name !== 'deploy-web-frontend.yml')) {
     const source = read(`.github/workflows/${file}`);
     assert.doesNotMatch(source, /PRODUCTION_SSH|production-auto-deploy|deploy-production|server-ops|inputs\.deploy/);
     assert.doesNotMatch(source, /environment:\s*production/);
@@ -33,6 +33,35 @@ test('workflows build and publish without server access', () => {
     assert.throws(() => read(path), /ENOENT/);
   }
   assert.match(workflow('server-release-qualification'), /qualify-go-migration-startup.sh/);
+});
+
+test('manual frontend deployment is restricted to a signed web release on both origins', () => {
+  const deploy = workflow('deploy-web-frontend');
+  const triggers = deploy.split('\non:\n')[1]?.split('\npermissions:\n')[0];
+  assert.ok(triggers, 'frontend deploy workflow has an event block');
+  assert.deepEqual([...triggers.matchAll(/^  ([\w-]+):/gm)].map((match) => match[1]), ['workflow_dispatch']);
+  assert.doesNotMatch(deploy, /github\.event\.workflow_run/);
+  assert.match(deploy, /environment: production/);
+  assert.match(deploy, /LMM_WEB_DEPLOY_SSH_KEY/);
+  assert.match(deploy, /LMM_WEB_DEPLOY_KNOWN_HOSTS/);
+  assert.ok(deploy.includes('INPUT_TAG: ${{ inputs.release_tag }}'));
+  assert.ok(deploy.includes('.target_commitish'));
+  assert.ok(!deploy.includes('gh release list --repo'));
+  const release = workflow('release-web');
+  assert.match(release, /Preserve signed web package for recovery/);
+  assert.match(release, /gh release upload/);
+  assert.match(release, /stable_checks == 2/);
+  assert.match(deploy, /for attempt in 1 2 3 4 5 6/);
+  assert.ok(deploy.includes('/releases/download/${RELEASE_TAG}'));
+  assert.match(deploy, /cosign verify-blob/);
+  assert.match(deploy, /certificate-oidc-issuer/);
+  assert.match(deploy, /revision=\$\(tar -xzOf/);
+  assert.match(deploy, /\[\[ "\$target" == "\$revision" \]\]/);
+  assert.doesNotMatch(deploy, /gh release download/);
+  assert.match(deploy, /sha256sum --check/);
+  assert.match(deploy, /publish \"ArchDmit/);
+  assert.match(deploy, /publish \"DmitUbuntu/);
+  assert.doesNotMatch(deploy, /release-go\.yml|production-release-transaction\.py|lmm-api-deploy\s|operator\s+plan/);
 });
 
 test('CI keeps every original quality gate and the translation check name', () => {

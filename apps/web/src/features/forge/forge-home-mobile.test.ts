@@ -14,6 +14,14 @@ const source = readFileSync(
   new URL('./forge-home.tsx', import.meta.url),
   'utf8'
 )
+const landingSource = readFileSync(
+  new URL('../home/home-landing.tsx', import.meta.url),
+  'utf8'
+)
+const providerCommands = readFileSync(
+  new URL('../guide/provider-install-commands.ts', import.meta.url),
+  'utf8'
+)
 const css = readFileSync(new URL('./forge-home.css', import.meta.url), 'utf8')
 const motion = readFileSync(
   new URL('../home/home-motion.ts', import.meta.url),
@@ -22,8 +30,14 @@ const motion = readFileSync(
 
 test('homepage exposes a keyboard-accessible interactive explore console', () => {
   assert.match(source, /lmm-explore-console/)
-  assert.match(source, /aria-current={activeExplore === id/)
-  assert.match(source, /onFocus=\{\(\) => setActiveExplore\(id\)\}/)
+  assert.match(
+    source,
+    /aria-current=\{\s*activeExplore === (?:id|destination\.id)/
+  )
+  assert.match(
+    source,
+    /onFocus=\{\(\) => setActiveExplore\((?:id|destination\.id)\)\}/
+  )
   assert.match(css, /\.lmm-explore-console/)
   assert.match(css, /@media \(max-width: 680px\)/)
 })
@@ -37,7 +51,9 @@ test('homepage does not load optional GPU ornament runtimes or announce a rotati
 })
 
 test('the homepage owns and cleans up its progressive motion enhancement', () => {
-  assert.match(source, /return mountHomeMotion\(rootRef\.current\)/)
+  assert.match(source, /import\('@\/features\/home\/home-motion'\)/)
+  assert.match(source, /release = mountHomeMotion\(root\)/)
+  assert.match(source, /disposed = true\s+release\(\)/)
   assert.doesNotMatch(source, /addEventListener\(['"]scroll/)
 })
 
@@ -59,11 +75,11 @@ test('reduced motion disables animation, transitions and transformed surfaces', 
 test('scroll motion retains passive listeners, cancellation and observer cleanup', () => {
   assert.match(
     motion,
-    /document\.addEventListener\('scroll', update, \{ passive: true, capture: true \}\)/
+    /document\.addEventListener\('scroll', scrollScene, \{\s*passive: true,?\s*capture: true,?\s*\}\)/
   )
   assert.match(
     motion,
-    /document\.removeEventListener\('scroll', update, true\)/
+    /document\.removeEventListener\('scroll', scrollScene, true\)/
   )
   assert.match(motion, /cancelAnimationFrame\(frame\)/)
   assert.match(motion, /observer\.disconnect\(\)/)
@@ -75,7 +91,7 @@ test('section progress drives the current scene and story styles', () => {
   assert.match(motion, /setProperty\('--story-progress',/)
   assert.match(
     motion,
-    /draw\(reduced\.matches \? 0 : clock, pointer, sceneProgress\)/
+    /const time = reduced\.matches \? RESPONSE_END : clock\s+draw\(time, cameraPointer, sceneProgress\)/
   )
   assert.match(css, /var\(--story-progress\)/)
 })
@@ -95,4 +111,55 @@ test('paused and reduced-motion states keep the code surface static', () => {
   )
   assert.match(motion, /matchMedia\('\(prefers-reduced-motion: reduce\)'\)/)
   assert.match(motion, /const animate = !reduced\.matches && !paused/)
+})
+
+test('homepage removes the manual word field and presents all OAuth client options', () => {
+  assert.doesNotMatch(landingSource, /Type a word\. See what connects\./)
+  assert.doesNotMatch(landingSource, /data-home-token-field/)
+  assert.match(source, /<strong>Pi<\/strong>/)
+  assert.match(source, /<strong>DSH<\/strong>/)
+  assert.match(source, /<strong>Codewhale<\/strong>/)
+  assert.match(source, /DSH_WEB_INSTALL_PORTABLE_COMMAND/)
+  assert.match(providerCommands, /dsh plugin --profile web add/)
+  assert.match(providerCommands, /codewhale-lmm-provider\.git/)
+})
+
+test('homepage reserves separate grid rows for copy and navigation', () => {
+  assert.match(css, /grid-template-rows: minmax\(0, 1fr\) auto;/)
+  assert.match(css, /grid-template-rows: minmax\(0, 1fr\) auto auto;/)
+  assert.match(css, /\.lmm-core-steps \{\s*grid-area: 2 \/ 2;/)
+  assert.match(css, /grid-area: 3 \/ 1;/)
+  assert.doesNotMatch(css, /(?:340svh|160rem|120rem)/)
+})
+
+test('short phones expose the complete static story instead of clipped controls', () => {
+  assert.match(css, /\(max-width: 680px\) and \(max-height: 700px\)/)
+  assert.match(
+    motion,
+    /window\.innerWidth > 680 \|\| window\.innerHeight > 700/
+  )
+})
+
+test('connection controls use one accessible segmented group without new ornament dependencies', () => {
+  assert.match(landingSource, /className='lmm-connection-method'/)
+  assert.match(landingSource, /aria-pressed=\{connectionMethod === 'oauth'\}/)
+  assert.match(landingSource, /aria-pressed=\{connectionMethod === 'api-key'\}/)
+  assert.match(css, /\.lmm-connection-method \[aria-pressed='true'\]/)
+  assert.doesNotMatch(
+    css,
+    /\.lmm-(?:request-sample|sample-head|pi-art|cinema-caption)/
+  )
+})
+
+test('the assistant keeps one visible underline instead of nested focus boxes', () => {
+  const focus = css.match(
+    /\.lmm-home \.forge-home-input:focus-within \{([\s\S]*?)\n\}/
+  )?.[1]
+  assert.ok(focus)
+  assert.match(focus, /outline: 0;/)
+  assert.match(focus, /box-shadow: 0 1px 0 var\(--foreground\);/)
+  assert.match(
+    css,
+    /\.lmm-home \.forge-home-input input:focus-visible \{\s*outline: 0;/
+  )
 })

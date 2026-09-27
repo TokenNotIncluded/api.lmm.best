@@ -1,278 +1,1007 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
 export type CorePoint = { x: number; y: number; z: number }
-export type CoreFace = {
-  points: CorePoint[]
-  normal: CorePoint
-  color: readonly [number, number, number]
-  layer: number
-  hinge: number
-  shine: number
+export type Rgb = readonly [number, number, number]
+
+/** Forge theme roles used by the canvas when no stylesheet is available. */
+export const PALETTE = {
+  /** Matches the stage background; hollow neurons are filled with it to hide wires. */
+  ground: [240, 238, 230],
+  wire: [139, 136, 127],
+  idle: [139, 136, 127],
+  lattice: [139, 136, 127],
+  muted: [94, 90, 82],
+  forward: [217, 119, 87],
+  highlight: [20, 20, 19],
+  feedback: [120, 140, 93],
+  feedbackDeep: [164, 79, 54],
+  ink: [20, 20, 19],
+} satisfies Record<string, Rgb>
+export type CorePalette = { [K in keyof typeof PALETTE]: Rgb }
+
+/** Output vocabulary. The network "reads" a rasterized token and predicts which one it is. */
+export const VOCABULARY = [
+  'api',
+  'λ',
+  '{}',
+  'lmm',
+  'gpt',
+  '</>',
+  '∑',
+  'tok',
+  'ai',
+  '42',
+] as const
+
+const CLOUD_WORDS = [
+  'token',
+  'embed',
+  'attention',
+  'softmax',
+  'logits',
+  '∇loss',
+  'ReLU',
+  'W·x+b',
+  'context',
+  'next',
+  '0.82',
+  '-0.31',
+  '{ }',
+  '[ ]',
+  '::',
+  '01',
+  '∂L/∂w',
+  'grad',
+  'batch',
+  'epoch',
+  'lr=3e-4',
+  'GELU',
+  'KV',
+  'Q·K',
+  'prompt',
+  '↗',
+] as const
+
+/** Every string a renderer may be asked to draw, so it can prepare a glyph atlas once. */
+export const SCENE_TEXT: readonly string[] = [
+  ...new Set<string>([...VOCABULARY, ...CLOUD_WORDS]),
+]
+
+export const Shape = {
+  neuron: 0,
+  pixel: 1,
+  frame: 2,
+  diamond: 3,
+  glow: 4,
+} as const
+export type ShapeId = (typeof Shape)[keyof typeof Shape]
+
+/** Renderers receive primitives in world space; `glow` primitives blend additively. */
+export interface SceneSink {
+  token(
+    p: CorePoint,
+    text: string,
+    color: Rgb,
+    alpha: number,
+    size: number
+  ): void
+  segment(
+    a: CorePoint,
+    b: CorePoint,
+    color: Rgb,
+    alpha: number,
+    width: number,
+    glow?: boolean,
+    dash?: number
+  ): void
+  sprite(
+    p: CorePoint,
+    color: Rgb,
+    alpha: number,
+    size: number,
+    shape: ShapeId,
+    fill?: number,
+    glow?: boolean
+  ): void
+  label(
+    p: CorePoint,
+    text: string,
+    color: Rgb,
+    alpha: number,
+    size: number,
+    align?: number
+  ): void
 }
-export type SignalPath = { points: CorePoint[]; color: CoreFace['color'] }
-const graphite = [87, 87, 88] as const
-const sage = [123, 140, 120] as const
-const clay = [184, 117, 78] as const
-const ivory = [204, 197, 183] as const
-const ink = [106, 107, 101] as const
+
+export type Neuron = { id: number; layer: number; position: CorePoint }
+export type Synapse = { from: number; to: number; weight: number }
+type CloudToken = {
+  text: string
+  radius: number
+  angle: number
+  y: number
+  color: Rgb
+  alpha: number
+  size: number
+  phase: number
+}
+export type Network = {
+  neurons: Neuron[]
+  /** layers[0] is the input bitmap; 1–3 are hidden grids and 4 is the output column. */
+  layers: number[][]
+  /** gaps[g] joins layer g to g + 1 (g = 1…3). */
+  gaps: Synapse[][]
+  pixels: CorePoint[]
+  lattice: { position: CorePoint; gap: number; seed: number }[]
+  cloud: CloudToken[]
+}
+
+export const INPUT = { x: -3.4, cols: 28, rows: 16, cell: 0.062 } as const
+const HIDDEN_X = [-1.62, -0.26, 1.1]
+const OUTPUT_X = 2.42
+const HIDDEN = { rows: 9, cols: 4, dy: 0.34, dz: 0.44 }
+const OUTPUT_DY = 0.29
+const BAR_X = OUTPUT_X + 0.52
+const BAR_LENGTH = 0.44
+export const PREDICTION = { x: 3.92, y: 0.36, w: 0.72, h: 0.6 } as const
+export const LOSS = { x: 3.92, y: -0.98, z: 0 } as const
+export const PIVOT: CorePoint = { x: 0.26, y: 0, z: 0 }
+
 const point = (x: number, y: number, z: number): CorePoint => ({ x, y, z })
-const layers = [-1.95, 0, 1.95]
-const heads = [-0.99, -0.33, 0.33, 0.99]
-const smooth = (a: number, b: number, p: number) => {
-  const t = Math.min(1, Math.max(0, (p - a) / (b - a)))
+const lerp = (a: CorePoint, b: CorePoint, t: number): CorePoint => ({
+  x: a.x + (b.x - a.x) * t,
+  y: a.y + (b.y - a.y) * t,
+  z: a.z + (b.z - a.z) * t,
+})
+const mix = (a: Rgb, b: Rgb, t: number): Rgb => [
+  a[0] + (b[0] - a[0]) * t,
+  a[1] + (b[1] - a[1]) * t,
+  a[2] + (b[2] - a[2]) * t,
+]
+const clamp = (value: number) => Math.min(1, Math.max(0, value))
+/** Smoothstep that also runs downhill when a > b. */
+export const ramp = (a: number, b: number, value: number) => {
+  const t = clamp((value - a) / (b - a))
   return t * t * (3 - 2 * t)
 }
-export function coreExpansion(progress: number) {
-  return smooth(0.04, 0.38, progress) * (1 - smooth(0.76, 1, progress))
+export function hash(n: number) {
+  let x = Math.imul(n ^ 0x9e3779b9, 0x85ebca6b)
+  x ^= x >>> 13
+  x = Math.imul(x, 0xc2b2ae35)
+  x ^= x >>> 16
+  return (x >>> 0) / 4294967296
 }
 
-/** A reduced, illustrative decoder stack. Cell values are visual texture, not claimed model weights. */
-export function createCoreMesh(): CoreFace[] {
-  const faces: CoreFace[] = []
-  const box = (
-    x: number,
-    y: number,
-    z: number,
-    w: number,
-    h: number,
-    d: number,
-    color: CoreFace['color'],
-    layer = 0
-  ) => {
-    const a = x - w / 2,
-      b = x + w / 2,
-      c = y - h / 2,
-      e = y + h / 2,
-      f = z - d / 2,
-      g = z + d / 2
-    const sides: [CorePoint[], CorePoint][] = [
-      [
-        [point(a, c, g), point(b, c, g), point(b, e, g), point(a, e, g)],
-        point(0, 0, 1),
-      ],
-      [
-        [point(b, c, f), point(a, c, f), point(a, e, f), point(b, e, f)],
-        point(0, 0, -1),
-      ],
-      [
-        [point(a, c, f), point(a, c, g), point(a, e, g), point(a, e, f)],
-        point(-1, 0, 0),
-      ],
-      [
-        [point(b, c, g), point(b, c, f), point(b, e, f), point(b, e, g)],
-        point(1, 0, 0),
-      ],
-      [
-        [point(a, e, g), point(b, e, g), point(b, e, f), point(a, e, f)],
-        point(0, 1, 0),
-      ],
-      [
-        [point(a, c, f), point(b, c, f), point(b, c, g), point(a, c, g)],
-        point(0, -1, 0),
-      ],
-    ]
-    for (const [points, normal] of sides) {
-      faces.push({ points, normal, color, layer, hinge: 0, shine: 0.15 })
+export function createNetwork(palette: CorePalette = PALETTE): Network {
+  const neurons: Neuron[] = []
+  const layers: number[][] = [[]]
+  for (const x of HIDDEN_X) {
+    const layer: number[] = []
+    // Back columns first, so the default camera paints near neurons last.
+    for (let col = 0; col < HIDDEN.cols; col++) {
+      for (let row = 0; row < HIDDEN.rows; row++) {
+        layer.push(neurons.length)
+        neurons.push({
+          id: neurons.length,
+          layer: layers.length,
+          position: point(
+            x,
+            ((HIDDEN.rows - 1) / 2 - row) * HIDDEN.dy,
+            (col - (HIDDEN.cols - 1) / 2) * HIDDEN.dz
+          ),
+        })
+      }
+    }
+    layers.push(layer)
+  }
+  const output: number[] = []
+  VOCABULARY.forEach((_, row) => {
+    output.push(neurons.length)
+    neurons.push({
+      id: neurons.length,
+      layer: 4,
+      position: point(
+        OUTPUT_X,
+        ((VOCABULARY.length - 1) / 2 - row) * OUTPUT_DY,
+        0
+      ),
+    })
+  })
+  layers.push(output)
+
+  const gaps: Synapse[][] = [[]]
+  for (let g = 1; g <= 3; g++) {
+    const source = layers[g],
+      target = layers[g + 1]
+    const synapses: Synapse[] = []
+    const fan = g === 3 ? 3 : 4
+    for (const from of source) {
+      for (let k = 0; k < fan; k++) {
+        const to =
+          target[Math.floor(hash(from * 97 + k * 131 + g) * target.length)]
+        if (synapses.some((s) => s.from === from && s.to === to)) continue
+        synapses.push({ from, to, weight: hash(from * 57 + to * 11) * 2 - 1 })
+      }
+    }
+    gaps.push(synapses)
+  }
+
+  const pixels: CorePoint[] = []
+  for (let row = 0; row < INPUT.rows; row++) {
+    for (let col = 0; col < INPUT.cols; col++) {
+      pixels.push(
+        point(
+          INPUT.x + (col - (INPUT.cols - 1) / 2) * INPUT.cell,
+          ((INPUT.rows - 1) / 2 - row) * INPUT.cell,
+          0
+        )
+      )
     }
   }
-  const matrix = (
-    x: number,
-    y: number,
-    z: number,
-    cols: number,
-    rows: number,
-    step: number,
-    color: CoreFace['color'],
-    layer: number,
-    depth = 0.032
-  ) => {
-    // Individual cells, recessed backing and a narrow continuous frame remain visible when enlarged.
-    box(
-      x,
-      y,
-      z - depth * 0.75,
-      cols * step + 0.026,
-      rows * step + 0.026,
-      0.018,
-      ivory,
-      layer
+
+  // A dotted weight lattice between layers, like a matrix seen edge-on.
+  const lattice: Network['lattice'] = []
+  const columns = [...HIDDEN_X, OUTPUT_X]
+  for (let g = 1; g <= 3; g++) {
+    const x = (columns[g - 1] + columns[g]) / 2
+    for (let row = 0; row < 15; row++) {
+      for (let col = 0; col < 6; col++) {
+        lattice.push({
+          position: point(x, (7 - row) * 0.19, (col - 2.5) * 0.26),
+          gap: g,
+          seed: lattice.length,
+        })
+      }
+    }
+  }
+
+  const tints: Rgb[] = [
+    palette.muted,
+    palette.muted,
+    palette.muted,
+    palette.forward,
+    palette.highlight,
+    palette.feedback,
+  ]
+  const cloud: CloudToken[] = []
+  const words = SCENE_TEXT
+  // Enough to cover every scene word once; more reads as noise behind the copy.
+  for (let i = 0; i < 40; i++) {
+    const h = hash(i * 7919)
+    cloud.push({
+      text: words[i % words.length],
+      radius: 4.2 + hash(i * 31) * 3.2,
+      angle: i * 2.39996,
+      y: (hash(i * 53) - 0.5) * 6.4,
+      color: tints[Math.floor(h * tints.length)],
+      alpha: 0.18 + hash(i * 17) * 0.28,
+      size: 0.13 + hash(i * 13) * 0.1,
+      phase: hash(i * 71) * Math.PI * 2,
+    })
+  }
+  return { neurons, layers, gaps, pixels, lattice, cloud }
+}
+
+export const CYCLE = 6.4
+/** Offset so a motionless frame shows the input and the computed closest match. */
+const STILL = 0.77 * CYCLE
+export const CYCLE_START = -STILL
+/** The chosen match is fully visible; no pretend training runs after this point. */
+export const RESPONSE_END = CYCLE_START + CYCLE * 0.59
+
+export function trainingClock(time: number) {
+  const cycle = (time + STILL) / CYCLE
+  const sample = Math.floor(cycle)
+  const t = cycle - sample
+  return {
+    sample,
+    t,
+    intake: ramp(0, 0.1, t),
+    reveal: ramp(0.05, 0.17, t),
+    /** Forward wave front: 0 = input bitmap … 4 = output column. */
+    forward: ramp(0.18, 0.52, t) * 4,
+    predict: ramp(0.51, 0.58, t),
+    /** Backward wave front: 5 = loss … 0 = input. Infinity before it starts. */
+    backward: t < 0.6 ? Number.POSITIVE_INFINITY : 5 - ramp(0.6, 0.9, t) * 5.4,
+    fade: ramp(0.92, 1, t),
+  }
+}
+
+type Sample = {
+  target: number
+  predicted: number
+  act: Float32Array
+  grad: Float32Array
+  bitmap: Uint8Array
+  saliency: Float32Array
+  taps: [pixel: number, neuron: number][]
+  forward: Synapse[][]
+  backward: Synapse[][]
+}
+
+type Raster = (text: string, cols: number, rows: number) => Uint8Array
+
+/** Threshold a token into the input bitmap. Returns an empty bitmap without a 2D canvas. */
+export function rasterizeToken(text: string, cols: number, rows: number) {
+  const bitmap = new Uint8Array(cols * rows)
+  try {
+    const canvas = document.createElement('canvas')
+    canvas.width = cols
+    canvas.height = rows
+    const ctx = canvas.getContext('2d')
+    if (!ctx || typeof ctx.fillText !== 'function') return bitmap
+    let size = 15
+    const font = () =>
+      `600 ${size}px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`
+    ctx.font = font()
+    while (size > 7 && ctx.measureText(text).width > cols - 2) {
+      size -= 1
+      ctx.font = font()
+    }
+    ctx.fillStyle = '#fff'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(text, cols / 2, rows / 2 + 1)
+    const data = ctx.getImageData(0, 0, cols, rows).data
+    for (let i = 0; i < bitmap.length; i++) {
+      bitmap[i] = data[i * 4 + 3] > 128 ? 1 : 0
+    }
+  } catch {
+    // A missing 2D context leaves a blank but safe input.
+  }
+  return bitmap
+}
+
+function hiddenFeatures(net: Network, bitmap: Uint8Array) {
+  const act = new Float32Array(net.neurons.length)
+  // The first grid reads real 7 × ~2 pixel regions of the supplied glyph.
+  for (let col = 0; col < HIDDEN.cols; col++) {
+    for (let row = 0; row < HIDDEN.rows; row++) {
+      const x0 = Math.floor((col * INPUT.cols) / HIDDEN.cols)
+      const x1 = Math.floor(((col + 1) * INPUT.cols) / HIDDEN.cols)
+      const y0 = Math.floor((row * INPUT.rows) / HIDDEN.rows)
+      const y1 = Math.floor(((row + 1) * INPUT.rows) / HIDDEN.rows)
+      let lit = 0
+      for (let y = y0; y < y1; y++) {
+        for (let x = x0; x < x1; x++) lit += bitmap[y * INPUT.cols + x] || 0
+      }
+      act[net.layers[1][col * HIDDEN.rows + row]] = Math.min(
+        1,
+        (lit / Math.max(1, (x1 - x0) * (y1 - y0))) * 2.5
+      )
+    }
+  }
+  // Later grids combine those measured regions through fixed connections.
+  for (let layer = 2; layer <= 3; layer++) {
+    for (const id of net.layers[layer]) {
+      let sum = 0
+      let weight = 0
+      for (const edge of net.gaps[layer - 1]) {
+        if (edge.to !== id) continue
+        const amount = Math.abs(edge.weight)
+        sum += act[edge.from] * amount
+        weight += amount
+      }
+      act[id] = weight ? Math.min(1, (sum / weight) * 1.2) : 0
+    }
+  }
+  return act
+}
+
+function similarity(a: ArrayLike<number>, b: ArrayLike<number>) {
+  let dot = 0
+  let aa = 0
+  let bb = 0
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i]
+    aa += a[i] * a[i]
+    bb += b[i] * b[i]
+  }
+  return aa && bb ? dot / Math.sqrt(aa * bb) : 0
+}
+
+function prefixSimilarity(input: string, candidate: string) {
+  const a = input.toLowerCase()
+  const b = candidate.toLowerCase()
+  let shared = 0
+  while (shared < a.length && shared < b.length && a[shared] === b[shared]) {
+    shared++
+  }
+  return shared / Math.max(a.length, b.length, 1)
+}
+
+function createSample(
+  net: Network,
+  text: string,
+  raster: Raster,
+  templates: { bitmap: Uint8Array; act: Float32Array }[]
+): Sample {
+  const bitmap = raster(text, INPUT.cols, INPUT.rows)
+  const act = hiddenFeatures(net, bitmap)
+  const last = net.layers[3]
+  const hidden = last.map((id) => act[id])
+  const scores = templates.map((template, row) => {
+    const reference = last.map((id) => template.act[id])
+    const visual =
+      0.55 * similarity(hidden, reference) +
+      0.45 * similarity(bitmap, template.bitmap)
+    // A longer picked token can still match a familiar short prefix, e.g. token → tok.
+    return 0.55 * visual + 0.45 * prefixSimilarity(text, VOCABULARY[row])
+  })
+  const predicted = scores.indexOf(Math.max(...scores))
+  const target = VOCABULARY.findIndex((value) => value === text)
+  const grad = new Float32Array(net.neurons.length)
+  VOCABULARY.forEach((_, row) => {
+    const id = net.layers[4][row]
+    act[id] = scores[row]
+    grad[id] = row === predicted ? 1 - scores[row] : 0
+  })
+  // Feedback reflects the actual difference from the closest prepared glyph.
+  for (const id of net.layers[3]) {
+    grad[id] = act[id] - templates[predicted].act[id]
+  }
+  for (let layer = 2; layer >= 1; layer--) {
+    for (const edge of net.gaps[layer]) {
+      grad[edge.from] += grad[edge.to] * edge.weight * 0.25
+    }
+  }
+  const strongest = (synapses: Synapse[], score: (s: Synapse) => number) =>
+    synapses
+      .map((s) => [s, score(s)] as const)
+      .filter(([, value]) => value > 0.02)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 22)
+      .map(([s]) => s)
+  const forward = net.gaps.map((gap) =>
+    strongest(gap, (s) => act[s.from] * (0.4 + Math.abs(s.weight)))
+  )
+  const backward = net.gaps.map((gap) =>
+    strongest(gap, (s) => Math.abs(grad[s.to] * s.weight) * (act[s.from] + 0.3))
+  )
+  const lit = [...bitmap.keys()].filter((i) => bitmap[i])
+  const taps: Sample['taps'] = []
+  for (let i = 0; i < Math.min(12, lit.length); i++) {
+    const pixel = lit[Math.floor((i * lit.length) / Math.min(12, lit.length))]
+    const col = Math.min(
+      HIDDEN.cols - 1,
+      Math.floor((pixel % INPUT.cols) / (INPUT.cols / HIDDEN.cols))
     )
-    for (let row = 0; row < rows; row++) {
-      for (let col = 0; col < cols; col++) {
-        const shade =
-          0.8 + ((row * 7 + col * 11 + Math.round((layer + 2) * 9)) % 9) * 0.038
-        const tint = color.map((c) => Math.min(255, Math.round(c * shade))) as [
-          number,
-          number,
-          number,
-        ]
-        box(
-          x + (col - (cols - 1) / 2) * step,
-          y + (row - (rows - 1) / 2) * step,
-          z,
-          step * 0.89,
-          step * 0.89,
-          depth,
-          tint,
-          layer
+    const row = Math.min(
+      HIDDEN.rows - 1,
+      Math.floor(Math.floor(pixel / INPUT.cols) / (INPUT.rows / HIDDEN.rows))
+    )
+    taps.push([pixel, net.layers[1][col * HIDDEN.rows + row]])
+  }
+  // The highlighted pixels are the actual mismatch with the closest template.
+  const saliency = new Float32Array(bitmap.length)
+  for (let i = 0; i < bitmap.length; i++) {
+    saliency[i] = Math.abs(bitmap[i] - templates[predicted].bitmap[i])
+  }
+  return {
+    target,
+    predicted,
+    act,
+    grad,
+    bitmap,
+    saliency,
+    taps,
+    forward,
+    backward,
+  }
+}
+
+/** Draws a fixed feature comparison for the token that the visitor supplied. */
+export function createTrainingScene(
+  net: Network = createNetwork(),
+  raster: Raster = rasterizeToken,
+  palette: CorePalette = PALETTE
+) {
+  const templates = VOCABULARY.map((text) => {
+    const bitmap = raster(text, INPUT.cols, INPUT.rows)
+    return { bitmap, act: hiddenFeatures(net, bitmap) }
+  })
+  let selected = 'api'
+  let cached: Sample | null = null
+  const sampleFor = () =>
+    (cached ??= createSample(net, selected, raster, templates))
+  const neuron = (id: number) => net.neurons[id].position
+  const barEnd = (row: number, value: number) =>
+    point(BAR_X + 0.05 + value * BAR_LENGTH, neuron(net.layers[4][row]).y, 0)
+
+  const render = (sink: SceneSink, time: number) => {
+    const clock = trainingClock(time)
+    const s = sampleFor()
+    const live = 1 - clock.fade
+    const forwardFade = 1 - 0.75 * ramp(0.58, 0.68, clock.t)
+    const mismatch = Math.max(0, 1 - s.act[net.layers[4][s.predicted]])
+
+    // Quiet vocabulary behind the interactive cloud; no unrelated orbit.
+    for (const token of net.cloud.slice(0, 12)) {
+      const angle = token.angle
+      sink.token(
+        point(
+          PIVOT.x + Math.cos(angle) * token.radius * 1.15,
+          token.y,
+          -0.8 + Math.sin(angle) * token.radius * 0.8
+        ),
+        token.text,
+        token.color,
+        token.alpha * 0.38,
+        token.size
+      )
+    }
+    // The sample's token leaves the cloud and lands on the input bitmap.
+    if (clock.reveal < 1) {
+      const start = point(
+        -5.6 + hash(clock.sample) * 2,
+        2.4 + hash(clock.sample * 3) * 1.2,
+        -2.6
+      )
+      const landing = point(INPUT.x, 0, 0.05)
+      const e = clock.intake
+      sink.token(
+        lerp(start, landing, e * e * (3 - 2 * e)),
+        selected,
+        palette.highlight,
+        (0.35 + e * 0.65) * (1 - clock.reveal),
+        0.2 + e * 0.46
+      )
+    }
+
+    // Input bitmap, its frame and the scan line that "draws" it.
+    const half = {
+      w: (INPUT.cols * INPUT.cell) / 2 + 0.06,
+      h: (INPUT.rows * INPUT.cell) / 2 + 0.06,
+    }
+    sink.segment(
+      point(INPUT.x - half.w * 0.68, half.h + 0.1, 0),
+      point(INPUT.x + half.w * 0.68, half.h + 0.1, 0),
+      palette.idle,
+      0.42,
+      1
+    )
+    const backIntoInput = ramp(0.9, -0.1, clock.backward)
+    s.bitmap.forEach((on, i) => {
+      const p = net.pixels[i]
+      const col = i % INPUT.cols
+      const shown = on && col / INPUT.cols < clock.reveal * 1.05
+      const heat = s.saliency[i] * backIntoInput
+      if (shown) {
+        sink.sprite(
+          p,
+          mix(palette.ink, palette.feedback, heat * 0.5),
+          live,
+          INPUT.cell,
+          Shape.pixel
+        )
+      } else if (heat > 0.05) {
+        sink.sprite(
+          p,
+          mix(palette.feedbackDeep, palette.feedback, heat),
+          heat * live,
+          INPUT.cell,
+          Shape.pixel
+        )
+      } else {
+        sink.sprite(p, palette.lattice, 0.4, INPUT.cell * 0.36, Shape.pixel)
+      }
+    })
+    if (clock.reveal > 0 && clock.reveal < 1) {
+      const x = INPUT.x - half.w + clock.reveal * half.w * 2
+      sink.segment(
+        point(x, -half.h, 0.01),
+        point(x, half.h, 0.01),
+        palette.highlight,
+        0.9,
+        2,
+        true
+      )
+    }
+
+    // Weight lattice: twinkles pink while its gap is being updated.
+    for (const dot of net.lattice) {
+      const updating =
+        clock.backward <= dot.gap + 1 && clock.backward >= dot.gap - 0.4
+      const flicker =
+        mismatch > 0.01 &&
+        updating &&
+        hash(dot.seed + Math.floor(time * 14) * 977) > 0.78
+      sink.sprite(
+        dot.position,
+        flicker ? palette.feedback : palette.lattice,
+        flicker ? 0.9 * live : 0.42,
+        0.034,
+        Shape.pixel
+      )
+    }
+
+    // Idle wiring.
+    for (let g = 1; g <= 3; g++) {
+      for (const synapse of net.gaps[g]) {
+        sink.segment(
+          neuron(synapse.from),
+          neuron(synapse.to),
+          palette.wire,
+          0.38,
+          1
         )
       }
     }
-  }
-  for (const base of layers) {
-    // Layer normalization is a row of scalar cells below each attention block.
-    matrix(0, base - 0.69, 0, 16, 1, 0.125, sage, base)
-    for (let head = 0; head < heads.length; head++) {
-      const x = heads[head]
-      // Three distinct Q/K/V projections recede in depth for each head.
-      for (let qkv = 0; qkv < 3; qkv++) {
-        matrix(
-          x,
-          base - 0.33,
-          -0.38 + qkv * 0.24,
-          4,
-          3,
-          0.115,
-          qkv === 1 ? sage : graphite,
-          base,
-          0.04
+
+    // Forward pass: edges grow from each active source behind the wave front.
+    const forwardEdge = (
+      a: CorePoint,
+      b: CorePoint,
+      gap: number,
+      weight: number,
+      strength: number
+    ) => {
+      const u = clamp(clock.forward - gap)
+      if (u <= 0) return
+      const tail =
+        clock.forward >= gap + 1
+          ? Math.exp(-(clock.forward - gap - 1) * 2.2)
+          : 1
+      const alpha = tail * (0.45 + 0.55 * strength) * live * forwardFade
+      if (alpha < 0.02) return
+      const head = lerp(a, b, u)
+      const color = mix(palette.forward, palette.highlight, Math.abs(weight))
+      sink.segment(
+        a,
+        head,
+        color,
+        alpha,
+        Math.abs(weight) > 0.6 ? 2.6 : 1.8,
+        true
+      )
+      if (u < 1) {
+        sink.sprite(
+          head,
+          palette.highlight,
+          0.95 * live,
+          0.2,
+          Shape.glow,
+          1,
+          true
         )
       }
-      // Causal attention matrix: lower triangle, with the mask retained as pale cells.
-      for (let row = 0; row < 4; row++) {
-        for (let col = 0; col < 4; col++) {
-          box(
-            x + (col - 1.5) * 0.105,
-            base + 0.12 + (row - 1.5) * 0.105,
-            0.16,
-            0.094,
-            0.094,
-            0.035,
-            col <= row ? graphite : ivory,
-            base
+    }
+    const backwardEdge = (
+      a: CorePoint,
+      b: CorePoint,
+      gap: number,
+      sign: number,
+      strength: number
+    ) => {
+      // Travels from b (the later layer) back towards a.
+      const u = clamp(gap + 1 - clock.backward)
+      if (u <= 0) return
+      const tail =
+        clock.backward <= gap ? Math.exp(-(gap - clock.backward) * 2) : 1
+      const alpha = tail * (0.5 + 0.5 * strength) * live
+      if (alpha < 0.02) return
+      const head = lerp(b, a, u)
+      sink.segment(
+        b,
+        head,
+        sign > 0 ? palette.feedback : palette.highlight,
+        alpha,
+        strength > 0.6 ? 2.6 : 1.8,
+        true
+      )
+      if (u < 1) {
+        sink.sprite(
+          head,
+          palette.feedback,
+          0.95 * live,
+          0.2,
+          Shape.glow,
+          1,
+          true
+        )
+      }
+    }
+    for (const [pixel, target] of s.taps) {
+      forwardEdge(net.pixels[pixel], neuron(target), 0, 0.5, 0.6)
+      if (s.saliency[pixel]) {
+        backwardEdge(net.pixels[pixel], neuron(target), 0, 1, 0.5)
+      }
+    }
+    for (let g = 1; g <= 3; g++) {
+      for (const synapse of s.forward[g]) {
+        forwardEdge(
+          neuron(synapse.from),
+          neuron(synapse.to),
+          g,
+          synapse.weight,
+          s.act[synapse.from]
+        )
+      }
+      for (const synapse of s.backward[g]) {
+        const value = s.grad[synapse.to] * synapse.weight
+        backwardEdge(
+          neuron(synapse.from),
+          neuron(synapse.to),
+          g,
+          value,
+          Math.abs(value)
+        )
+      }
+    }
+    // Sampling squares on the tapped input pixels.
+    const tapping = ramp(-0.2, 0.1, clock.forward) * ramp(1.6, 1, clock.forward)
+    const blaming = ramp(1.2, 0.6, clock.backward) * live
+    for (const [pixel] of s.taps) {
+      if (tapping > 0.01) {
+        sink.sprite(
+          net.pixels[pixel],
+          palette.highlight,
+          tapping * live,
+          INPUT.cell * 2.2,
+          Shape.frame
+        )
+      }
+      if (blaming > 0.01) {
+        sink.sprite(
+          net.pixels[pixel],
+          palette.feedback,
+          blaming,
+          INPUT.cell * 2.2,
+          Shape.frame
+        )
+      }
+    }
+
+    // Neurons: hollow when idle, filled by activations, then by gradients.
+    for (const n of net.neurons) {
+      const d = n.layer
+      const reach = ramp(d - 0.25, d + 0.05, clock.forward)
+      const flash =
+        Math.max(0, 1 - Math.abs(clock.forward - d) * 3.5) *
+        (s.act[n.id] > 0 ? 1 : 0)
+      const f =
+        Math.min(1, s.act[n.id] * reach * forwardFade + flash * 0.4) * live
+      const b =
+        Math.abs(s.grad[n.id]) * ramp(d + 0.3, d - 0.05, clock.backward) * live
+      let color = mix(
+        palette.idle,
+        mix(palette.forward, palette.highlight, flash),
+        Math.min(1, f * 1.6)
+      )
+      color = mix(
+        color,
+        mix(palette.feedbackDeep, palette.feedback, b),
+        Math.min(1, b * 1.8)
+      )
+      const size = d === 4 ? 0.24 : 0.28
+      sink.sprite(
+        n.position,
+        color,
+        0.95,
+        size,
+        Shape.neuron,
+        Math.max(f * (1 - b), b * 0.85)
+      )
+      if (f > 0.55 && b < 0.2) {
+        sink.sprite(
+          n.position,
+          palette.forward,
+          f * 0.35,
+          size * 2.2,
+          Shape.glow,
+          1,
+          true
+        )
+      }
+    }
+
+    // Output column: labels, logit bars, dashed routes to the loss.
+    VOCABULARY.forEach((text, row) => {
+      const id = net.layers[4][row]
+      const p = neuron(id)
+      const chosen = row === s.predicted
+      const value = s.act[id] * clock.predict * live
+      sink.label(
+        point(OUTPUT_X + 0.16, p.y, 0),
+        text,
+        chosen && clock.predict > 0.5 ? palette.ink : palette.muted,
+        chosen ? 0.6 + 0.4 * clock.predict : 0.75,
+        0.15
+      )
+      sink.segment(
+        point(BAR_X, p.y, 0),
+        barEnd(row, value),
+        chosen ? palette.highlight : palette.forward,
+        0.45 + value * 0.55,
+        3,
+        chosen
+      )
+      sink.segment(barEnd(row, 0), LOSS, palette.wire, 0.7, 1, false, 3)
+      const g = s.grad[id]
+      if (g) {
+        const u = clamp(5 - clock.backward)
+        if (u > 0) {
+          const head = lerp(LOSS, p, u)
+          const tail =
+            clock.backward <= 4 ? Math.exp(-(4 - clock.backward) * 2) : 1
+          sink.segment(
+            LOSS,
+            head,
+            g > 0 ? palette.feedback : palette.highlight,
+            tail * Math.abs(g) * live,
+            2,
+            true
           )
+          if (u < 1) {
+            sink.sprite(
+              head,
+              palette.feedback,
+              0.95 * live,
+              0.2,
+              Shape.glow,
+              1,
+              true
+            )
+          }
         }
       }
-      box(x, base + 0.38, 0.16, 0.47, 0.035, 0.09, sage, base)
+    })
+
+    // Prediction lands as typography rather than another framed UI card.
+    const correct = s.predicted === s.target
+    const verdict = correct ? palette.highlight : palette.feedback
+    const shown = clock.predict * live
+    if (shown > 0.01) {
+      sink.segment(
+        barEnd(s.predicted, s.act[net.layers[4][s.predicted]]),
+        point(PREDICTION.x - PREDICTION.w / 2, PREDICTION.y, 0),
+        verdict,
+        shown * 0.46,
+        1.25,
+        true
+      )
+      sink.label(
+        point(PREDICTION.x, PREDICTION.y, 0.02),
+        VOCABULARY[s.predicted],
+        verdict,
+        shown,
+        0.34,
+        0.5
+      )
+      sink.segment(
+        point(
+          PREDICTION.x - PREDICTION.w * 0.32,
+          PREDICTION.y - PREDICTION.h * 0.42,
+          0
+        ),
+        point(
+          PREDICTION.x + PREDICTION.w * 0.32,
+          PREDICTION.y - PREDICTION.h * 0.42,
+          0
+        ),
+        verdict,
+        shown * 0.5,
+        1
+      )
     }
-    matrix(0, base + 0.57, 0.08, 16, 2, 0.125, graphite, base)
-    // Feed-forward expansion and contraction: two dense rectangular tensors, not decorative loops.
-    matrix(0, base + 0.91, -0.04, 20, 3, 0.112, graphite, base)
-    matrix(0, base + 0.91, 0.22, 20, 3, 0.112, sage, base)
-    box(1.46, base + 0.08, 0.05, 0.028, 1.52, 0.028, clay, base)
-    box(0.76, base - 0.67, 0.05, 1.42, 0.028, 0.028, clay, base)
-    box(0.76, base + 0.82, 0.05, 1.42, 0.028, 0.028, clay, base)
-    // Add nodes and small junction contacts on the residual rail.
-    for (const y of [base - 0.67, base + 0.82]) {
-      box(1.46, y, 0.05, 0.082, 0.082, 0.082, clay, base)
+    const loss =
+      clock.backward <= 5.2
+        ? Math.exp(-Math.abs(clock.backward - 4.6) * 1.4) * mismatch
+        : 0
+    const severity = mismatch
+    sink.sprite(
+      LOSS,
+      mix(palette.feedbackDeep, palette.feedback, loss),
+      0.95,
+      0.3,
+      Shape.diamond,
+      0.35 + loss * severity * 0.65
+    )
+    if (loss > 0.05) {
+      sink.sprite(
+        LOSS,
+        palette.feedback,
+        loss * severity * 0.55 * live,
+        0.9,
+        Shape.glow,
+        1,
+        true
+      )
     }
   }
-  // Token embeddings and the output projection cap the full stack.
-  matrix(0, -3.08, 0, 16, 3, 0.125, graphite, -3.08)
-  matrix(0, 3.28, 0, 16, 2, 0.125, graphite, 3.28)
-  for (let i = 0; i < 8; i++) {
-    box(
-      (i - 3.5) * 0.22,
-      -3.38,
-      0,
-      0.16,
-      0.08,
-      0.07,
-      i % 3 === 0 ? clay : ivory,
-      -3.08
-    )
-    box(
-      (i - 3.5) * 0.22,
-      3.52,
-      0,
-      0.13,
-      0.065,
-      0.065,
-      i === 5 ? clay : ivory,
-      3.52
-    )
-  }
-  return faces
+  return Object.assign(render, {
+    setToken(text: string) {
+      selected = text
+      cached = null
+      return VOCABULARY[sampleFor().predicted]
+    },
+  })
 }
 
-/** Orthogonal data routes and per-head fan-outs preserve recognizable architectural relationships. */
-export function createSignalPaths(): SignalPath[] {
-  const paths: SignalPath[] = []
-  const add = (points: CorePoint[], color: CoreFace['color'] = ink) =>
-    paths.push({ points, color })
-  for (const base of layers) {
-    for (const x of heads) {
-      for (let channel = 0; channel < 3; channel++) {
-        const z = -0.38 + channel * 0.24
-        add([
-          point(x, base - 0.69, 0),
-          point(x, base - 0.55, 0),
-          point(x, base - 0.55, z),
-          point(x, base - 0.33, z),
-          point(x, base - 0.09, z),
-          point(x, base - 0.09, 0.16),
-          point(x, base + 0.12, 0.16),
-        ])
-      }
-      for (let col = 0; col < 4; col++) {
-        const a = x + (col - 1.5) * 0.105
-        add([
-          point(a, base + 0.33, 0.16),
-          point(a, base + 0.42, 0.16),
-          point(a * 0.7, base + 0.48, 0.08),
-          point(a * 0.7, base + 0.57, 0.08),
-        ])
-      }
-    }
-    for (let i = 0; i < 12; i++) {
-      const x = (i - 5.5) * 0.15
-      add([
-        point(x, base + 0.69, 0.08),
-        point(x, base + 0.72, 0.08),
-        point(x * 1.2, base + 0.75, -0.04),
-        point(x * 1.2, base + 0.91, -0.04),
-        point(x * 1.2, base + 1.1, 0.22),
-      ])
-    }
-    add(
-      [
-        point(0, base - 0.69, 0.05),
-        point(1.46, base - 0.69, 0.05),
-        point(1.46, base + 0.82, 0.05),
-        point(0, base + 0.82, 0.05),
-      ],
-      clay
-    )
-  }
-  for (let i = 0; i < 8; i++) {
-    const x = (i - 3.5) * 0.22
-    add([point(x, -3.38, 0), point(x, -3.08, 0), point(x, -2.64, 0)])
-    for (const base of [-1.95, 0]) {
-      add([
-        point(x, base + 1.1, 0.22),
-        point(x, base + 1.22, 0.22),
-        point(x, base + 1.22, 0),
-        point(x, base + 1.26, 0),
-      ])
-    }
-    add([
-      point(x, 3.06, 0.22),
-      point(x, 3.15, 0.22),
-      point(x, 3.15, 0),
-      point(x, 3.52, 0),
-    ])
-  }
-  return paths
+export type TrainingScene = ReturnType<typeof createTrainingScene>
+
+export type Camera = {
+  /** Column-major 3×3 rotation, ready for uniformMatrix3fv. */
+  rotation: Float32Array
+  /** CSS-pixel projection centre and world-unit size. */
+  cx: number
+  cy: number
+  unit: number
+  distance: number
+  expand: number
+  /** CSS-pixel rectangle behind the chapter copy, where cloud tokens recede. */
+  quiet: readonly [number, number, number, number]
 }
 
-export function transformCorePoint(
-  p: CorePoint,
-  _face: Pick<CoreFace, 'layer' | 'hinge'>,
-  progress: number
-): CorePoint {
-  const spread = coreExpansion(progress)
+/** Scroll orbits the camera around the network; the pointer adds a small parallax. */
+export function createCamera(
+  _time: number,
+  pointer: { x: number; y: number },
+  progress: number,
+  width: number,
+  height: number,
+  layout: 'side' | 'center' = 'side'
+): Camera {
+  const narrow = width < 650
+  const centered = layout === 'center'
+  const orbit = ramp(0.06, 0.5, progress) - ramp(0.6, 0.98, progress)
+  const ry = -0.5 + orbit * 0.92 + pointer.x * 0.32
+  const rx = 0.2 + orbit * 0.16 + pointer.y * 0.18
+  const [sy, cy, sx, cx] = [
+    Math.sin(ry),
+    Math.cos(ry),
+    Math.sin(rx),
+    Math.cos(rx),
+  ]
+  // Columns are the rotated basis vectors: yaw around Y, then pitch around X.
+  const rotation = new Float32Array([
+    cy,
+    sx * sy,
+    -cx * sy,
+    0,
+    cx,
+    sx,
+    sy,
+    -sx * cy,
+    cx * cy,
+  ])
+  const zoom = narrow ? 1 - orbit * 0.1 : 1
+  const unit = centered
+    ? Math.min(width * 0.1, height * 0.16)
+    : Math.min(
+        width * (narrow ? 0.108 : 0.058),
+        height * (narrow ? 0.07 : 0.118)
+      )
   return {
-    x: p.x * (1 + spread * 0.12),
-    y: p.y * (1 + spread * 0.12),
-    z: p.z * (1 + spread * 2.8),
+    rotation,
+    cx:
+      width *
+      (centered ? 0.5 : narrow ? 0.5 + orbit * 0.03 : 0.285 + orbit * 0.035),
+    cy: height * (centered ? 0.5 : narrow ? 0.27 : 0.53),
+    unit: unit * zoom,
+    distance: 12,
+    expand: 1 + orbit * 1.8,
+    quiet: centered
+      ? [-1e4, -1e4, -1e4, -1e4]
+      : narrow
+        ? [0, height * 0.44, width, height]
+        : [width * 0.53, 0, width, height],
+  }
+}
+
+/** Projects a world point to CSS pixels; `scale` is the perspective factor. */
+export function projectPoint(camera: Camera, p: CorePoint) {
+  const m = camera.rotation
+  const x = p.x - PIVOT.x,
+    y = p.y - PIVOT.y,
+    z = p.z * camera.expand - PIVOT.z
+  const rx = m[0] * x + m[3] * y + m[6] * z
+  const ry = m[1] * x + m[4] * y + m[7] * z
+  const rz = m[2] * x + m[5] * y + m[8] * z
+  const scale = camera.distance / Math.max(camera.distance - rz, 0.5)
+  return {
+    x: camera.cx + rx * camera.unit * scale,
+    y: camera.cy - ry * camera.unit * scale,
+    depth: rz,
+    scale,
   }
 }

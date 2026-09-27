@@ -16,41 +16,51 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useNavigate, useRouter } from '@tanstack/react-router'
+import { useNavigate } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { ErrorPageFrame } from './error-page-frame'
+import { SignalTuner } from './signal-tuner'
 
 export function UnauthorisedError() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { history } = useRouter()
+  const user = useAuthStore((state) => state.auth.user)
+
   return (
     <ErrorPageFrame
       status='401'
-      title={t('Unauthorized Access')}
-      description={
-        <>
-          {t('Please log in with the appropriate credentials')} <br />
-          {t('to access this resource.')}
-        </>
+      title={t('You are not signed in for this one.')}
+      description={t('This page needs an account before it answers.')}
+      note={
+        user
+          ? t('Your session may have expired. Sign in again to continue.')
+          : t('Signing in takes a moment and skips this screen entirely.')
       }
       actions={
         <>
           <Button
-            variant='outline'
-            className='rounded-sm'
-            onClick={() => history.go(-1)}
+            size='lg'
+            className='error-editorial-action error-editorial-action-primary'
+            onClick={() =>
+              navigate({ to: '/sign-in', search: { redirect: '/' } })
+            }
           >
-            {t('Go Back')}
+            {t('Sign in to get started')}
           </Button>
-          <Button className='rounded-sm' onClick={() => navigate({ to: '/' })}>
+          <Button
+            variant='outline'
+            className='error-editorial-action error-editorial-action-secondary'
+            onClick={() => navigate({ to: '/' })}
+          >
             {t('Back to Home')}
           </Button>
         </>
       }
+      play={<SignalTuner />}
     />
   )
 }

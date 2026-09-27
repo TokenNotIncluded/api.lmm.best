@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -41,6 +42,105 @@ func TestParsePasskeyFinishRequestDoesNotRewriteRequestBody(t *testing.T) {
 	assert.JSONEq(t, `{"id":"credential-1"}`, string(parsed.Credential))
 	assert.Same(t, body, context.Request.Body)
 	assert.Equal(t, int64(len(bodyText)), context.Request.ContentLength)
+}
+
+func TestPasskeyStatusAndBeginFlowsIncludeEveryCredential(t *testing.T) {
+	db := setupUserOnboardingTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.AuthFlow{}, &model.PasskeyCredential{}, &model.TwoFA{}))
+	previousType := common.MainDatabaseType()
+	previousSecret := common.SessionSecret
+	settings := system_setting.GetPasskeySettings()
+	previousSettings := *settings
+	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
+	common.SessionSecret = "passkey-multiple-controller-test-secret"
+	*settings = system_setting.PasskeySettings{
+		Enabled: true, RPID: "example.com", Origins: "https://example.com", UserVerification: "preferred",
+	}
+	t.Cleanup(func() {
+		common.SetMainDatabaseType(previousType)
+		common.SessionSecret = previousSecret
+		*settings = previousSettings
+	})
+
+	user := &model.User{
+		Username: "multiple-passkey-user", Password: "password-placeholder", AffCode: "multiple-passkey-user",
+		Role: common.RoleCommonUser, Status: common.UserStatusEnabled, AuthVersion: 1,
+	}
+	require.NoError(t, db.Create(user).Error)
+	for _, item := range []struct{ name, id string }{{"Laptop", "laptop-credential"}, {"Phone", "phone-credential"}} {
+		require.NoError(t, db.Create(&model.PasskeyCredential{
+			UserID: user.Id, Name: item.name, CredentialID: base64.StdEncoding.EncodeToString([]byte(item.id)),
+			PublicKey: base64.StdEncoding.EncodeToString([]byte("public-key")),
+		}).Error)
+	}
+	identity := service.AuthIdentity{UserID: user.Id, SessionID: "multiple-passkey-session", UserAuthVersion: 1, SessionVersion: 1}
+	contextFor := func(method, path, body string) (*gin.Context, *httptest.ResponseRecorder) {
+		request := httptest.NewRequest(method, "https://example.com"+path, strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		context, _ := gin.CreateTestContext(response)
+		context.Request = request
+		context.Set("id", identity.UserID)
+		context.Set("session_id", identity.SessionID)
+		context.Set("auth_version", identity.UserAuthVersion)
+		context.Set("session_version", identity.SessionVersion)
+		return context, response
+	}
+
+	statusContext, statusResponse := contextFor(http.MethodGet, "/api/user/passkey", "")
+	PasskeyStatus(statusContext)
+	var statusBody struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Enabled     bool `json:"enabled"`
+			Credentials []struct {
+				ID   int    `json:"id"`
+				Name string `json:"name"`
+			} `json:"credentials"`
+		} `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(statusResponse.Body.Bytes(), &statusBody))
+	assert.True(t, statusBody.Success, statusResponse.Body.String())
+	assert.True(t, statusBody.Data.Enabled)
+	require.Len(t, statusBody.Data.Credentials, 2)
+	assert.Equal(t, []string{"Laptop", "Phone"}, []string{statusBody.Data.Credentials[0].Name, statusBody.Data.Credentials[1].Name})
+	assert.NotContains(t, statusResponse.Body.String(), "public_key")
+	assert.NotContains(t, statusResponse.Body.String(), "credential_id")
+
+	proof, _, err := service.IssueSecurityProof(identity, secureVerificationMethodPasskey, []string{securityProofScopePasskeyRegister})
+	require.NoError(t, err)
+	registerContext, registerResponse := contextFor(http.MethodPost, "/api/user/passkey/register/begin", "{}")
+	registerContext.Request.Header.Set("X-Security-Proof", proof)
+	PasskeyRegisterBegin(registerContext)
+	var registerBody struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Options struct {
+				Response struct {
+					ExcludeCredentials []interface{} `json:"excludeCredentials"`
+				} `json:"publicKey"`
+			} `json:"options"`
+		} `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(registerResponse.Body.Bytes(), &registerBody))
+	assert.True(t, registerBody.Success, registerResponse.Body.String())
+	assert.Len(t, registerBody.Data.Options.Response.ExcludeCredentials, 2)
+
+	verifyContext, verifyResponse := contextFor(http.MethodPost, "/api/user/passkey/verify/begin", `{"scope":"channel.key.read"}`)
+	PasskeyVerifyBegin(verifyContext)
+	var verifyBody struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Options struct {
+				Response struct {
+					AllowCredentials []interface{} `json:"allowCredentials"`
+				} `json:"publicKey"`
+			} `json:"options"`
+		} `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(verifyResponse.Body.Bytes(), &verifyBody))
+	assert.True(t, verifyBody.Success, verifyResponse.Body.String())
+	assert.Len(t, verifyBody.Data.Options.Response.AllowCredentials, 2)
 }
 
 func TestPasskeyRegisterFinishRejectsMissingOrWrongProofWithoutConsumingFlow(t *testing.T) {

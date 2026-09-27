@@ -21,6 +21,8 @@ type WaffoPancakePriceSnapshot struct {
 	TaxCategory string
 }
 
+const WaffoPancakeCheckoutExpirySeconds = 45 * 60
+
 // WaffoPancake checkout regions are deliberately a closed set.  The Waffo
 // API has no `region` request field: the China market is selected by sending a
 // fixed CN billing detail, while global checkout leaves billingDetail omitted.

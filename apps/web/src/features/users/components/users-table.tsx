@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
 import type { OnChangeFn, SortingState } from '@tanstack/react-table'
+import { SearchX, UserPlus } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -29,6 +30,7 @@ import {
   DataTablePage,
   useDataTable,
 } from '@/components/data-table'
+import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { useMediaQuery } from '@/hooks'
@@ -44,6 +46,7 @@ import {
 import type { User, UserSortBy } from '../types'
 import { DataTableBulkActions } from './data-table-bulk-actions'
 import { useUsersColumns } from './users-columns'
+import { UsersMobileBulkBar } from './users-mobile-bulk-bar'
 import { UsersMobileList } from './users-mobile-list'
 import { useUsers } from './users-provider'
 
@@ -68,13 +71,12 @@ function isDisabledUserRow(user: User) {
 export function UsersTable() {
   const { t } = useTranslation()
   const columns = useUsersColumns()
-  const { refreshTrigger } = useUsers()
+  const { refreshTrigger, setOpen, setCurrentRow } = useUsers()
   const isMobile = useMediaQuery('(max-width: 640px)')
   const [sorting, setSorting] = useState<SortingState>([])
   const search = route.useSearch()
   const navigate = route.useNavigate()
   const l0Only = search.l0Only
-
   const {
     globalFilter,
     onGlobalFilterChange,
@@ -235,16 +237,70 @@ export function UsersTable() {
       )}
       skeletonKeyPrefix='users-skeleton'
       applyHeaderSize
+      emptyIcon={<SearchX className='size-6' />}
+      emptyAction={
+        <div className='flex flex-wrap items-center justify-center gap-2'>
+          <Button
+            variant='outline'
+            className='h-11 gap-2 sm:h-9'
+            onClick={() => {
+              onGlobalFilterChange?.('')
+              onColumnFiltersChange?.([])
+            }}
+          >
+            {t('Clear filters')}
+          </Button>
+          <Button
+            className='h-11 gap-2 sm:h-9'
+            onClick={() => {
+              setCurrentRow(null)
+              setOpen('create')
+            }}
+          >
+            <UserPlus className='size-4' />
+            {t('Add User')}
+          </Button>
+        </div>
+      }
       mobile={
-        <UsersMobileList
-          table={table}
-          isLoading={isLoading}
-          isFetching={isFetching && !isLoading}
-          emptyTitle={t('No Users Found')}
-          emptyDescription={t(
-            'No users available. Try adjusting your search or filters.'
-          )}
-        />
+        <>
+          <UsersMobileList
+            table={table}
+            isLoading={isLoading}
+            isFetching={isFetching && !isLoading}
+            emptyTitle={t('No Users Found')}
+            emptyDescription={t(
+              'No users available. Try adjusting your search or filters.'
+            )}
+            emptyAction={
+              <div className='flex w-full flex-col gap-2'>
+                <Button
+                  className='h-11 w-full gap-2'
+                  onClick={() => {
+                    setCurrentRow(null)
+                    setOpen('create')
+                  }}
+                >
+                  <UserPlus className='size-4' />
+                  {t('Add User')}
+                </Button>
+                <Button
+                  variant='outline'
+                  className='h-11 w-full'
+                  onClick={() => {
+                    onGlobalFilterChange?.('')
+                    onColumnFiltersChange?.([])
+                  }}
+                >
+                  {t('Clear filters')}
+                </Button>
+              </div>
+            }
+          />
+          {/* DataTablePage gates the shared bulk-actions toolbar behind
+              !showMobile, so mobile selection needs its own bar. */}
+          <UsersMobileBulkBar table={table} />
+        </>
       }
       toolbarProps={{
         searchPlaceholder: t('Filter by username, name or email...'),

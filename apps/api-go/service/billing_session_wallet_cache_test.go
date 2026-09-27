@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
@@ -13,6 +14,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/types"
 	"github.com/alicebob/miniredis/v2"
+	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/go-redis/redis/v8"
@@ -37,6 +39,12 @@ func setupBillingSessionWalletCacheTest(t *testing.T) *gorm.DB {
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}))
 
 	t.Cleanup(func() {
+		// PostTextConsumeQuota queues performance samples that still read the
+		// Redis globals. Workers stop only after their queued tasks complete;
+		// wait before closing the client or restoring any fixture globals.
+		require.Eventually(t, func() bool {
+			return gopool.WorkerCount() == 0
+		}, 5*time.Second, time.Millisecond, "billing fixture async tasks must finish before teardown")
 		_ = common.RDB.Close()
 		common.RDB = previousRedis
 		common.RedisEnabled = previousRedisEnabled
@@ -260,4 +268,38 @@ func TestNewBillingSessionIgnoresStaleLowWalletCache(t *testing.T) {
 	var stored model.User
 	require.NoError(t, db.First(&stored, user.Id).Error)
 	require.Equal(t, 90, stored.Quota)
+}
+
+func TestBillingSessionWalletCacheFixtureWaitsForAsyncTasks(t *testing.T) {
+	type redisSnapshot struct {
+		client  *redis.Client
+		enabled bool
+	}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	result := make(chan redisSnapshot, 1)
+	var fixtureRedis *redis.Client
+
+	t.Run("fixture", func(t *testing.T) {
+		setupBillingSessionWalletCacheTest(t)
+		fixtureRedis = common.RDB
+		gopool.Go(func() {
+			close(started)
+			<-release
+			result <- redisSnapshot{client: common.RDB, enabled: common.RedisEnabled}
+		})
+		<-started
+		// Cleanup runs in reverse registration order. Keep the task blocked
+		// until teardown starts, then let the fixture wait for its completion
+		// before restoring the Redis globals it still reads.
+		t.Cleanup(func() { close(release) })
+	})
+
+	select {
+	case snapshot := <-result:
+		require.Same(t, fixtureRedis, snapshot.client)
+		require.True(t, snapshot.enabled, "the fixture must remain active until its async task finishes")
+	case <-time.After(5 * time.Second):
+		t.Fatal("fixture task did not finish during cleanup")
+	}
 }
