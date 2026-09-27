@@ -28,7 +28,9 @@ const SOURCE_LABELS: Record<string, string> = {
   system: 'System',
   legacy: 'Legacy',
   drawing_mcp: 'Drawing MCP',
-  assistant: 'Assistant',
+  assistant: 'Created with assistant',
+  assistant_runtime: 'AI assistant runtime',
+  red_packet_cover: 'Red packet cover',
 }
 
 export function ApiKeyCreationSourceBadge({ apiKey }: { apiKey: ApiKey }) {

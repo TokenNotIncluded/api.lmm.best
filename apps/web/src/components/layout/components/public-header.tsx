@@ -188,6 +188,15 @@ export function PublicHeader(props: PublicHeaderProps) {
   }, [mobileOpen, pathname])
 
   useEffect(() => {
+    const desktop = window.matchMedia('(min-width: 1360px)')
+    const closeAtDesktop = () => {
+      if (desktop.matches) closeMobileMenu()
+    }
+    desktop.addEventListener('change', closeAtDesktop)
+    return () => desktop.removeEventListener('change', closeAtDesktop)
+  }, [closeMobileMenu])
+
+  useEffect(() => {
     const previousOverflow = document.body.style.overflow
     if (mobileOpen) document.body.style.overflow = 'hidden'
     return () => {
@@ -354,7 +363,7 @@ export function PublicHeader(props: PublicHeaderProps) {
             </Link>
 
             {/* Desktop nav */}
-            <div className='hidden items-center gap-0.5 sm:flex'>
+            <div className='hidden items-center gap-0.5 min-[1360px]:flex'>
               {links.map((link) => {
                 const isActive = pathname === link.href
                 if (link.external) {
@@ -432,7 +441,7 @@ export function PublicHeader(props: PublicHeaderProps) {
             </div>
 
             {/* Mobile: compact actions + hamburger */}
-            <div className='public-header-mobile-actions flex items-center gap-2 sm:hidden'>
+            <div className='public-header-mobile-actions flex items-center gap-2 min-[1360px]:hidden'>
               {showThemeSwitch && <ThemeSwitch />}
               {showAuthButtons && !loading && isAuthenticated && (
                 <ProfileDropdown />
@@ -478,7 +487,7 @@ export function PublicHeader(props: PublicHeaderProps) {
       {/* Mobile full-screen overlay */}
       <div
         className={cn(
-          'fixed inset-0 z-40 transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] sm:pointer-events-none sm:hidden',
+          'fixed inset-0 z-40 transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] min-[1360px]:pointer-events-none min-[1360px]:hidden',
           editorialHeader
             ? 'forge-public-mobile-overlay'
             : 'bg-background text-foreground',
@@ -494,7 +503,7 @@ export function PublicHeader(props: PublicHeaderProps) {
           aria-modal='true'
           aria-label={t('Header navigation')}
           aria-hidden={!mobileOpen}
-          className='public-mobile-navigation flex h-full flex-col justify-between px-8 pt-[calc(5rem+env(safe-area-inset-top))] pb-[max(2.5rem,env(safe-area-inset-bottom))]'
+          className='public-mobile-navigation flex h-full flex-col justify-between gap-8 overflow-y-auto px-8 pt-[calc(5rem+env(safe-area-inset-top))] pb-[max(2.5rem,env(safe-area-inset-bottom))]'
         >
           <nav
             aria-label={t('Header navigation')}

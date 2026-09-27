@@ -7,8 +7,14 @@ published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
 import { useNavigate } from '@tanstack/react-router'
-import { ChevronLeft, ChevronRight, Inbox, RefreshCw } from 'lucide-react'
-import { useState } from 'react'
+import {
+  ArrowDownUp,
+  ChevronLeft,
+  ChevronRight,
+  Inbox,
+  RefreshCw,
+} from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -17,6 +23,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import type { TodoItem } from './api'
 import { HumanSupportDialog } from './human-support-dialog'
+import { TodoBurst } from './todo-burst'
 import {
   TODO_CATEGORY_LABELS,
   todoPageCount,
@@ -29,6 +36,12 @@ import {
   todoItemCanOpen,
   todoSecurityReviewDestination,
 } from './todo-navigation'
+import {
+  applyTodoOrder,
+  mergeTodoOrder,
+  readTodoOrder,
+  writeTodoOrder,
+} from './todo-order'
 import { useTodoFeed } from './use-todo-feed'
 
 export function UnifiedTodoList() {
@@ -47,8 +60,15 @@ function UnifiedTodoListContent() {
   const navigate = useNavigate()
   const feed = useTodoFeed()
   const { query, view, isAdmin } = feed
+  const user = useAuthStore((state) => state.auth.user)
   const [supportItem, setSupportItem] = useState<TodoItem | null>(null)
   const [navigationFailed, setNavigationFailed] = useState(false)
+  // Ordering is a per-browser view preference; the feed itself stays read-only.
+  const [order, setOrder] = useState<string[]>(() => readTodoOrder(user?.id))
+  const [sortable, setSortable] = useState(false)
+  const [dragging, setDragging] = useState<string | null>(null)
+  const [celebration, setCelebration] = useState(0)
+  const dragSource = useRef<string | null>(null)
   const categories = query.data?.categories ?? []
   const visibleCategories = visibleTodoCategories(
     categories,
@@ -61,6 +81,20 @@ function UnifiedTodoListContent() {
       : categories.find((item) => item.key === view.category)?.total
   const pages = todoPageCount(total ?? 0, query.data?.page_size ?? 50)
   const loadingRows = query.isLoading || query.isPlaceholderData
+  const items = query.data?.items
+  const displayItems = useMemo(
+    () => (items ? applyTodoOrder(items, order) : []),
+    [items, order]
+  )
+  const canSort = displayItems.length > 1
+
+  // Reordering is scoped to the visible page, so a category switch starts over.
+  const categoryKey = `${view.category}:${view.page}`
+  useEffect(() => {
+    setSortable(false)
+    setDragging(null)
+    dragSource.current = null
+  }, [categoryKey])
 
   const navigateToItem = async (item: TodoItem) => {
     const securityDestination = todoSecurityReviewDestination(item)
@@ -101,7 +135,9 @@ function UnifiedTodoListContent() {
   const openItem = (item: TodoItem) => {
     if (!feed.isCurrentSession()) return
     // Read receipts are best-effort metadata; they must not gate the task.
-    feed.markRead(item)
+    void feed.markRead(item).then((marked) => {
+      if (marked && feed.isCurrentSession()) setCelebration((n) => n + 1)
+    })
     if (!todoItemCanOpen(item, isAdmin)) return
     setNavigationFailed(false)
     if (item.category === 'human_support') {
@@ -111,6 +147,56 @@ function UnifiedTodoListContent() {
     void navigateToItem(item).catch(() => {
       if (feed.isCurrentSession()) setNavigationFailed(true)
     })
+  }
+
+  /**
+   * Clears the unread dot without navigating anywhere. Returns the receipt state
+   * so the row can celebrate a real confirmation rather than an optimistic click.
+   */
+  const markReadOnly = (item: TodoItem) =>
+    feed.markRead(item).then((marked) => {
+      if (marked && feed.isCurrentSession()) setCelebration((n) => n + 1)
+      return marked
+    })
+
+  const markAllRead = () => {
+    void feed.markAllRead().then((marked) => {
+      if (marked && feed.isCurrentSession()) setCelebration((n) => n + 1)
+    })
+  }
+
+  const commitOrder = (ids: string[]) => {
+    const merged = mergeTodoOrder(ids, order)
+    setOrder(merged)
+    writeTodoOrder(user?.id, merged)
+  }
+
+  const moveItem = (sourceId: string, targetId: string) => {
+    if (sourceId === targetId) return
+    const ids = displayItems.map((item) => item.id)
+    const from = ids.indexOf(sourceId)
+    const to = ids.indexOf(targetId)
+    if (from < 0 || to < 0) return
+    const next = [...ids]
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved)
+    commitOrder(next)
+  }
+
+  const nudgeItem = (item: TodoItem, direction: -1 | 1) => {
+    const ids = displayItems.map((entry) => entry.id)
+    const from = ids.indexOf(item.id)
+    const to = from + direction
+    if (from < 0 || to < 0 || to >= ids.length) return
+    const next = [...ids]
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved)
+    commitOrder(next)
+  }
+
+  const resetOrder = () => {
+    setOrder([])
+    writeTodoOrder(user?.id, [])
   }
 
   return (
@@ -163,19 +249,51 @@ function UnifiedTodoListContent() {
           <span className='text-muted-foreground text-xs tabular-nums'>
             {t('Total')}: {total ?? '—'}
           </span>
+          {sortable ? (
+            <span className='text-muted-foreground text-xs'>
+              {t('Saved in this browser')}
+            </span>
+          ) : null}
         </div>
         <div className='flex items-center gap-2'>
-          {(query.data?.total_unread_count ?? 0) > 0 ? (
+          {canSort ? (
             <Button
               type='button'
-              variant='outline'
+              variant={sortable ? 'secondary' : 'ghost'}
               size='sm'
               className='min-h-11'
-              disabled={feed.pendingReads.size > 0}
-              onClick={feed.markAllRead}
+              aria-pressed={sortable}
+              onClick={() => setSortable((value) => !value)}
             >
-              {t('Mark all as read')}
+              <ArrowDownUp aria-hidden='true' className='size-4' />
+              {sortable ? t('Done sorting') : t('Sort list')}
             </Button>
+          ) : null}
+          {order.length && !sortable ? (
+            <Button
+              type='button'
+              variant='ghost'
+              size='sm'
+              className='min-h-11'
+              onClick={resetOrder}
+            >
+              {t('Reset order')}
+            </Button>
+          ) : null}
+          {(query.data?.total_unread_count ?? 0) > 0 ? (
+            <div className='relative'>
+              <Button
+                type='button'
+                variant='outline'
+                size='sm'
+                className='min-h-11'
+                disabled={feed.pendingReads.size > 0}
+                onClick={markAllRead}
+              >
+                {t('Mark all as read')}
+              </Button>
+              <TodoBurst burstKey={celebration || null} />
+            </div>
           ) : null}
           <Button
             type='button'
@@ -251,9 +369,9 @@ function UnifiedTodoListContent() {
               </div>
             ))}
           </div>
-        ) : query.data?.items.length ? (
+        ) : displayItems.length ? (
           <ul className='m-0 list-none p-0'>
-            {query.data.items.map((item) => (
+            {displayItems.map((item, index) => (
               <TodoListRow
                 key={item.id}
                 item={item}
@@ -262,20 +380,57 @@ function UnifiedTodoListContent() {
                   feed.pendingReads.has(item.id) || feed.pendingReads.has('all')
                 }
                 onOpen={openItem}
+                onMarkRead={markReadOnly}
+                position={{ index, count: displayItems.length }}
+                onMove={nudgeItem}
+                isDragging={dragging === item.id}
+                drag={{
+                  draggable: sortable,
+                  onDragStart: (
+                    event: DragEvent<HTMLElement>,
+                    row: TodoItem
+                  ) => {
+                    event.dataTransfer.effectAllowed = 'move'
+                    dragSource.current = row.id
+                    setDragging(row.id)
+                  },
+                  onDragOver: (event: DragEvent<HTMLElement>) => {
+                    event.preventDefault()
+                    event.dataTransfer.dropEffect = 'move'
+                  },
+                  onDrop: (event: DragEvent<HTMLElement>, row: TodoItem) => {
+                    event.preventDefault()
+                    const source = dragSource.current
+                    if (source) moveItem(source, row.id)
+                    dragSource.current = null
+                    setDragging(null)
+                  },
+                  onDragEnd: () => {
+                    dragSource.current = null
+                    setDragging(null)
+                  },
+                }}
               />
             ))}
           </ul>
         ) : !query.isError ? (
           <div className='px-6 py-16 text-center'>
-            <Inbox
+            <span
               aria-hidden='true'
-              className='text-muted-foreground mx-auto mb-4 size-7'
-            />
+              className='bg-muted/60 relative mx-auto mb-5 flex size-16 items-center justify-center rounded-2xl'
+            >
+              <Inbox className='text-muted-foreground size-7' />
+              <span className='bg-success/70 absolute -top-1 -right-1 size-3 rounded-full' />
+              <span className='bg-primary/60 absolute -bottom-1 -left-1 size-2 rounded-full' />
+            </span>
             <p className='text-sm font-medium'>{t('No pending to-dos')}</p>
             <p className='text-muted-foreground mx-auto mt-2 max-w-sm text-sm leading-6'>
               {t(
                 'Submitted challenge work and account requests will appear here.'
               )}
+            </p>
+            <p className='text-muted-foreground mx-auto mt-2 max-w-sm text-xs leading-5'>
+              {t('New reviews and account requests appear here.')}
             </p>
           </div>
         ) : null}

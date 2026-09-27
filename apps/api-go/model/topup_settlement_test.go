@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -115,6 +116,64 @@ func TestCompleteExternalTopUpAtomicallyPersistsEvidenceAndCreditsQuota(t *testi
 	require.NoError(t, db.First(&reloadedUser, user.Id).Error)
 	assert.Equal(t, 100+1_234, reloadedUser.Quota)
 	assert.Equal(t, settlement.StripeCustomer, reloadedUser.StripeCustomer)
+}
+
+// TestCompleteExternalTopUpAutomaticallyPromotesL0ToL1 exercises the real
+// settlement entry point (not just the trust-level evaluation helpers) to
+// confirm that an L0 account which completes a genuine real-money top-up is
+// promoted to L1 in the same instant its credit becomes visible, without any
+// separate write to a stored level. Trust level is derived from settled
+// TopUp rows, so the promotion is inherently atomic with the credit and
+// naturally idempotent on a retried webhook.
+func TestCompleteExternalTopUpAutomaticallyPromotesL0ToL1(t *testing.T) {
+	settings := operation_setting.GetDeveloperAccessSetting()
+	oldSettings := *settings
+	oldLocal := LocalAcceptanceDeveloperAccessEnabled()
+	t.Cleanup(func() {
+		*settings = oldSettings
+		SetLocalAcceptanceDeveloperAccess(oldLocal)
+	})
+	// The fixture's fixed $12.34 settlement is far smaller than the wallet's
+	// quota-per-dollar ratio would suggest once converted back to credited
+	// USD, so pin an activation policy that only requires any positive real
+	// recharge -- the exact behavior under the "any real recharge" install
+	// default, decoupled from whatever dollar minimum an operator configures.
+	settings.PaidActivationEnabled, settings.PaidActivationMinAmount = true, 0
+	SetLocalAcceptanceDeveloperAccess(false)
+
+	db := setupExternalTopUpSettlementDB(t, 1)
+	user, _, settlement := createSettlementFixture(t, db, "l0-to-l1")
+
+	before, err := GetTrustLevelInfoForUser(&user)
+	require.NoError(t, err)
+	assert.Equal(t, TrustLevelMinUser, before.Level, "a fresh account with no qualifying payment starts at L0")
+
+	completed, err := CompleteExternalTopUp(settlement)
+	require.NoError(t, err)
+	require.Equal(t, common.TopUpStatusSuccess, completed.Status)
+
+	var reloadedUser User
+	require.NoError(t, db.First(&reloadedUser, user.Id).Error)
+	assert.Nil(t, reloadedUser.TrustLevelOverride, "promotion is a derived fact, never a persisted override")
+
+	snapshot, err := GetFreshUserAccessSnapshot(&reloadedUser)
+	require.NoError(t, err)
+	assert.Equal(t, TrustLevelMinUser+1, snapshot.TrustLevel.Level, "a settled real-money top-up automatically promotes L0 to L1")
+	assert.True(t, snapshot.DeveloperAccess.Granted)
+	assert.True(t, snapshot.PaidActivationComplete)
+
+	// A retried webhook for the same evidence must not credit quota twice or
+	// otherwise change the resulting trust level.
+	_, err = CompleteExternalTopUp(settlement)
+	require.NoError(t, err)
+	InvalidatePaidTopUpAggregate(reloadedUser.Id)
+	snapshotAgain, err := GetFreshUserAccessSnapshot(&reloadedUser)
+	require.NoError(t, err)
+	assert.Equal(t, TrustLevelMinUser+1, snapshotAgain.TrustLevel.Level)
+
+	var quotaAfterRetry User
+	require.NoError(t, db.First(&quotaAfterRetry, user.Id).Error)
+	assert.Equal(t, reloadedUser.Quota, quotaAfterRetry.Quota, "idempotent retry must not double-credit quota")
 }
 
 func TestCompleteExternalTopUpRejectsWalletQuotaOverflow(t *testing.T) {

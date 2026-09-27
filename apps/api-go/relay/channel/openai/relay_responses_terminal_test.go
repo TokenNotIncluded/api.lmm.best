@@ -122,6 +122,15 @@ func (w *responsesFailedWriter) Write([]byte) (int, error) {
 	return 0, io.ErrClosedPipe
 }
 
+type responsesTerminalFailedWriter struct{ *httptest.ResponseRecorder }
+
+func (w *responsesTerminalFailedWriter) Write(data []byte) (int, error) {
+	if strings.Contains(string(data), "event: response.completed") {
+		return 0, io.ErrClosedPipe
+	}
+	return w.ResponseRecorder.Write(data)
+}
+
 func TestResponsesDownstreamWriteFailureDoesNotAppendTerminal(t *testing.T) {
 	oldTimeout := constant.StreamingTimeout
 	constant.StreamingTimeout = 5
@@ -134,6 +143,24 @@ func TestResponsesDownstreamWriteFailureDoesNotAppendTerminal(t *testing.T) {
 	_, e := OaiResponsesStreamHandler(c, info, &http.Response{Body: io.NopCloser(strings.NewReader(body))})
 	require.Nil(t, e)
 	require.Equal(t, 1, w.writes)
+	require.True(t, info.StreamStatus.HasErrors())
+}
+
+func TestResponsesSuccessfulTerminalBillsInputAfterDownstreamWriteFailure(t *testing.T) {
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 5
+	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+	w := &responsesTerminalFailedWriter{ResponseRecorder: httptest.NewRecorder()}
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "gpt-4o"}, DisablePing: true}
+	info.SetEstimatePromptTokens(12345)
+	body := "data: {\"type\":\"response.output_text.delta\",\"delta\":\"partial output\"}\n\n" +
+		"data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n"
+	usage, apiErr := OaiResponsesStreamHandler(c, info, &http.Response{Body: io.NopCloser(strings.NewReader(body))})
+	require.Nil(t, apiErr)
+	require.Equal(t, 12345, usage.PromptTokens)
+	require.Positive(t, usage.CompletionTokens)
 	require.True(t, info.StreamStatus.HasErrors())
 }
 
@@ -259,6 +286,30 @@ func TestResponsesPartialOutputUsageFallback(t *testing.T) {
 		require.Equal(t, 12, u.PromptTokens)
 		require.Equal(t, u.PromptTokens+u.CompletionTokens, u.TotalTokens)
 		require.Equal(t, 1, strings.Count(w.Body.String(), "event: response.failed"))
+	}
+}
+
+func TestResponsesPartialOutputBoundsLocalInputEstimate(t *testing.T) {
+	for _, tc := range []struct{ estimate, want int }{
+		{50000, 50000},
+		{2000000, maxUnverifiedResponsesInputTokens},
+	} {
+		t.Run(fmt.Sprintf("estimate_%d", tc.estimate), func(t *testing.T) {
+			oldTimeout := constant.StreamingTimeout
+			constant.StreamingTimeout = 5
+			t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+			info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "gpt-4o"}, DisablePing: true}
+			info.SetEstimatePromptTokens(tc.estimate)
+			body := "data: {\"type\":\"response.output_text.delta\",\"delta\":\"observed output\"}\n\n"
+			usage, apiErr := OaiResponsesStreamHandler(c, info, &http.Response{Body: io.NopCloser(strings.NewReader(body))})
+			require.Nil(t, apiErr)
+			require.Equal(t, tc.want, usage.PromptTokens)
+			require.Positive(t, usage.CompletionTokens)
+			require.True(t, info.StreamStatus.HasErrors())
+		})
 	}
 }
 

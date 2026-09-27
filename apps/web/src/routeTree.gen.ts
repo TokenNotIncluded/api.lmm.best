@@ -46,6 +46,7 @@ import { Route as SetupIndexRouteImport } from './routes/setup/index'
 import { Route as StatusIndexRouteImport } from './routes/status/index'
 import { Route as WebmcpIndexRouteImport } from './routes/webmcp/index'
 import { Route as authUserResetRouteImport } from './routes/(auth)/user/reset'
+import { Route as AuthenticatedAiDirectoryIndexRouteImport } from './routes/_authenticated/ai-directory/index'
 import { Route as AuthenticatedChannelsIndexRouteImport } from './routes/_authenticated/channels/index'
 import { Route as AuthenticatedChatManagementIndexRouteImport } from './routes/_authenticated/chat-management/index'
 import { Route as AuthenticatedChatChatIdRouteImport } from './routes/_authenticated/chat/$chatId'
@@ -64,6 +65,7 @@ import { Route as AuthenticatedOpenSourceBountiesIndexRouteImport } from './rout
 import { Route as AuthenticatedOperationsSourcesRouteImport } from './routes/_authenticated/operations/sources'
 import { Route as AuthenticatedPlaygroundIndexRouteImport } from './routes/_authenticated/playground/index'
 import { Route as AuthenticatedProfileIndexRouteImport } from './routes/_authenticated/profile/index'
+import { Route as AuthenticatedProfileShareRouteImport } from './routes/_authenticated/profile/share'
 import { Route as AuthenticatedPublicRelayIndexRouteImport } from './routes/_authenticated/public-relay/index'
 import { Route as AuthenticatedRedPacketsIndexRouteImport } from './routes/_authenticated/red-packets/index'
 import { Route as AuthenticatedRedemptionCodesIndexRouteImport } from './routes/_authenticated/redemption-codes/index'
@@ -282,6 +284,12 @@ const authUserResetRoute = authUserResetRouteImport.update({
   path: '/user/reset',
   getParentRoute: () => authRouteRoute,
 } as any)
+const AuthenticatedAiDirectoryIndexRoute =
+  AuthenticatedAiDirectoryIndexRouteImport.update({
+    id: '/ai-directory/',
+    path: '/ai-directory/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedChannelsIndexRoute =
   AuthenticatedChannelsIndexRouteImport.update({
     id: '/channels/',
@@ -386,6 +394,12 @@ const AuthenticatedProfileIndexRoute =
   AuthenticatedProfileIndexRouteImport.update({
     id: '/profile/',
     path: '/profile/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedProfileShareRoute =
+  AuthenticatedProfileShareRouteImport.update({
+    id: '/profile/share',
+    path: '/profile/share',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedPublicRelayIndexRoute =
@@ -624,8 +638,10 @@ export interface FileRoutesByFullPath {
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
   '/operations/sources': typeof AuthenticatedOperationsSourcesRoute
+  '/profile/share': typeof AuthenticatedProfileShareRoute
   '/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
+  '/ai-directory/': typeof AuthenticatedAiDirectoryIndexRoute
   '/channels/': typeof AuthenticatedChannelsIndexRoute
   '/chat-management/': typeof AuthenticatedChatManagementIndexRoute
   '/company/': typeof AuthenticatedCompanyIndexRoute
@@ -711,8 +727,10 @@ export interface FileRoutesByTo {
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
   '/operations/sources': typeof AuthenticatedOperationsSourcesRoute
+  '/profile/share': typeof AuthenticatedProfileShareRoute
   '/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
+  '/ai-directory': typeof AuthenticatedAiDirectoryIndexRoute
   '/channels': typeof AuthenticatedChannelsIndexRoute
   '/chat-management': typeof AuthenticatedChatManagementIndexRoute
   '/company': typeof AuthenticatedCompanyIndexRoute
@@ -802,8 +820,10 @@ export interface FileRoutesById {
   '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/_authenticated/models/$section': typeof AuthenticatedModelsSectionRoute
   '/_authenticated/operations/sources': typeof AuthenticatedOperationsSourcesRoute
+  '/_authenticated/profile/share': typeof AuthenticatedProfileShareRoute
   '/_authenticated/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
   '/_authenticated/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
+  '/_authenticated/ai-directory/': typeof AuthenticatedAiDirectoryIndexRoute
   '/_authenticated/channels/': typeof AuthenticatedChannelsIndexRoute
   '/_authenticated/chat-management/': typeof AuthenticatedChatManagementIndexRoute
   '/_authenticated/company/': typeof AuthenticatedCompanyIndexRoute
@@ -892,8 +912,10 @@ export interface FileRouteTypes {
     | '/errors/$error'
     | '/models/$section'
     | '/operations/sources'
+    | '/profile/share'
     | '/subscriptions/reset'
     | '/usage-logs/$section'
+    | '/ai-directory/'
     | '/channels/'
     | '/chat-management/'
     | '/company/'
@@ -979,8 +1001,10 @@ export interface FileRouteTypes {
     | '/errors/$error'
     | '/models/$section'
     | '/operations/sources'
+    | '/profile/share'
     | '/subscriptions/reset'
     | '/usage-logs/$section'
+    | '/ai-directory'
     | '/channels'
     | '/chat-management'
     | '/company'
@@ -1069,8 +1093,10 @@ export interface FileRouteTypes {
     | '/_authenticated/errors/$error'
     | '/_authenticated/models/$section'
     | '/_authenticated/operations/sources'
+    | '/_authenticated/profile/share'
     | '/_authenticated/subscriptions/reset'
     | '/_authenticated/usage-logs/$section'
+    | '/_authenticated/ai-directory/'
     | '/_authenticated/channels/'
     | '/_authenticated/chat-management/'
     | '/_authenticated/company/'
@@ -1409,6 +1435,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof authUserResetRouteImport
       parentRoute: typeof authRouteRoute
     }
+    '/_authenticated/ai-directory/': {
+      id: '/_authenticated/ai-directory/'
+      path: '/ai-directory'
+      fullPath: '/ai-directory/'
+      preLoaderRoute: typeof AuthenticatedAiDirectoryIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/channels/': {
       id: '/_authenticated/channels/'
       path: '/channels'
@@ -1533,6 +1566,13 @@ declare module '@tanstack/react-router' {
       path: '/profile'
       fullPath: '/profile/'
       preLoaderRoute: typeof AuthenticatedProfileIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/profile/share': {
+      id: '/_authenticated/profile/share'
+      path: '/profile/share'
+      fullPath: '/profile/share'
+      preLoaderRoute: typeof AuthenticatedProfileShareRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/public-relay/': {
@@ -1862,8 +1902,10 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedErrorsErrorRoute: typeof AuthenticatedErrorsErrorRoute
   AuthenticatedModelsSectionRoute: typeof AuthenticatedModelsSectionRoute
   AuthenticatedOperationsSourcesRoute: typeof AuthenticatedOperationsSourcesRoute
+  AuthenticatedProfileShareRoute: typeof AuthenticatedProfileShareRoute
   AuthenticatedSubscriptionsResetRoute: typeof AuthenticatedSubscriptionsResetRoute
   AuthenticatedUsageLogsSectionRoute: typeof AuthenticatedUsageLogsSectionRoute
+  AuthenticatedAiDirectoryIndexRoute: typeof AuthenticatedAiDirectoryIndexRoute
   AuthenticatedChannelsIndexRoute: typeof AuthenticatedChannelsIndexRoute
   AuthenticatedChatManagementIndexRoute: typeof AuthenticatedChatManagementIndexRoute
   AuthenticatedCompanyIndexRoute: typeof AuthenticatedCompanyIndexRoute
@@ -1902,8 +1944,10 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedErrorsErrorRoute: AuthenticatedErrorsErrorRoute,
   AuthenticatedModelsSectionRoute: AuthenticatedModelsSectionRoute,
   AuthenticatedOperationsSourcesRoute: AuthenticatedOperationsSourcesRoute,
+  AuthenticatedProfileShareRoute: AuthenticatedProfileShareRoute,
   AuthenticatedSubscriptionsResetRoute: AuthenticatedSubscriptionsResetRoute,
   AuthenticatedUsageLogsSectionRoute: AuthenticatedUsageLogsSectionRoute,
+  AuthenticatedAiDirectoryIndexRoute: AuthenticatedAiDirectoryIndexRoute,
   AuthenticatedChannelsIndexRoute: AuthenticatedChannelsIndexRoute,
   AuthenticatedChatManagementIndexRoute: AuthenticatedChatManagementIndexRoute,
   AuthenticatedCompanyIndexRoute: AuthenticatedCompanyIndexRoute,

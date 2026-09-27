@@ -13,15 +13,20 @@ authenticated users then see it once after their next login.
 
 <!-- Add user-facing or operational changes here before the next release. -->
 
-- Chat-to-Responses streams report interrupted upstream responses as failures
-  instead of fabricated completions, preserving partial output and existing
-  usage accounting. Clean EOF after a recognized finish reason remains valid;
-  cancellation and downstream write failures do not append terminal events.
+- The homepage now follows the selected interface language, including saved
+  Chinese preferences and runtime language changes, instead of forcing English.
+- Pricing cards and table rows show complete model names with wrapping instead
+  of ellipses. Card actions sit below the name so they no longer squeeze it.
 
 - Chat-to-Responses streams create a new reasoning or ordinary-message output
   item when content resumes after a closed segment, preserving each segment's
   ID, position, text, and closing status in the final response. Aggregate usage
   text and upstream usage accounting remain unchanged.
+
+- Chat-to-Responses streams report interrupted upstream responses as failures
+  instead of fabricated completions, preserving partial output and existing
+  usage accounting. Clean EOF after a recognized finish reason remains valid;
+  cancellation and downstream write failures do not append terminal events.
 
 - The bounty board now shows a recoverable query error instead of an empty
   project list when loading fails. Retry refreshes only the list, while cached
@@ -40,6 +45,10 @@ authenticated users then see it once after their next login.
 
 - Ollama model discovery, pull, streaming pull, deletion, and version checks now
   honor the channel's configured proxy and HTTP transport settings.
+- Scheduled Ollama model discovery now cancels a channel's fetch after 120
+  seconds by default, including responses that stall after headers.
+  Set `CHANNEL_UPSTREAM_MODEL_UPDATE_FETCH_TIMEOUT_SECONDS` to a positive number
+  to adjust the deadline. Interactive checks still follow their request context.
 
 - OpenRouter price previews omit the entire model when the derived output
   ratio overflows, avoiding a partial input-only quote.

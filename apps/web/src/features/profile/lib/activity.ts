@@ -24,8 +24,10 @@ export type ProfileActivityView = 'daily' | 'weekly' | 'cumulative'
 
 export interface ProfileUsageRow {
   created_at: number
+  model_name?: string
   count?: number
   token_used?: number
+  quota?: number
 }
 
 export interface ProfileUsageQueryRange {

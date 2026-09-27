@@ -48,6 +48,7 @@ type fakeProductionRunner struct {
 	migrationFailure, rollbackMigrationFailure, failTimerEnable bool
 	invalidCandidateEdgePolicy, alteredCandidatePackage         bool
 	legacyDeployInstalled, alteredLegacyDeployPackage           bool
+	unownedDeployBinary                                         bool
 	legacyDeployBinary                                          string
 	sudoFailure, restartOnEnable, restartOnWebInstall           bool
 	restartOnRequestAfterBaseline, restartBaselineRead          bool
@@ -389,6 +390,9 @@ func (runner *fakeProductionRunner) pacman(args []string) ([]byte, error) {
 		}
 		return []byte(args[1] + ": 42 total files, 0 altered files\n"), nil
 	case "-Qo":
+		if runner.unownedDeployBinary && args[1] == runner.legacyDeployBinary {
+			return nil, errors.New("deployment entrypoint has no package owner")
+		}
 		if runner.legacyDeployInstalled && args[1] == runner.legacyDeployBinary {
 			return []byte(args[1] + " is owned by lmm-api-deploy-bin 0.1.51-1\n"), nil
 		}
@@ -658,6 +662,9 @@ func newProductionFixture(t *testing.T) productionFixture {
 	if err := os.Symlink(filepath.Base(paths.LegacyGoBinary), paths.InstalledBinary); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(paths.LegacyDeployBinary, []byte("#!/bin/sh\nexec /usr/bin/lmm-api operator \"$@\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(paths.GoRevisionFile, []byte(oldRevision+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -730,6 +737,62 @@ func newProductionFixture(t *testing.T) productionFixture {
 	}
 	options := productionTransactionOptions{Action: "apply", Workspace: workspaceRoot, OperatorUser: productionOperatorUser, GoPackage: goCandidate, GoPackageSHA256: mustHashFile(t, goCandidate), GoRollbackPackage: goRollback, GoRollbackSHA256: mustHashFile(t, goRollback), WebPackage: webCandidate, WebPackageSHA256: mustHashFile(t, webCandidate), WebRollbackPackage: webRollback, WebRollbackSHA256: mustHashFile(t, webRollback), GoChanged: true, WebChanged: true, ProbeBinary: probeProvider, ProbeBinarySHA256: mustHashFile(t, probeProvider), OperatorBinary: probeProvider, OperatorBinarySHA256: mustHashFile(t, probeProvider), ExpectedVersion: newVersion, BackupDir: backupDir, WithBackups: true, ObservationWindow: 2 * time.Minute}
 	return productionFixture{runtime: runtime, runner: runner, workspace: workspace, options: options, environment: environment, clock: &clockValue}
+}
+
+func TestVerifyTransitionCLIRequiresOwnedDeploymentEntrypoint(t *testing.T) {
+	newCase := func(t *testing.T) (productionFixture, productionPackageTransition, string) {
+		t.Helper()
+		fixture := newProductionFixture(t)
+		transition := productionPackageTransition{
+			RollbackPackageName: productionAURPackageName,
+			RollbackIdentity:    productionAURPackageName + " " + fixture.runner.installedGoVersion + "-1",
+		}
+		return fixture, transition, fixture.runtime.paths.LegacyDeployBinary
+	}
+	t.Run("package-owned", func(t *testing.T) {
+		fixture, transition, _ := newCase(t)
+		if err := fixture.runtime.verifyTransitionCLI(context.Background(), transition, true); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("separately-owned", func(t *testing.T) {
+		fixture, transition, path := newCase(t)
+		fixture.runner.legacyDeployInstalled = true
+		fixture.runner.legacyDeployBinary = path
+		if err := fixture.runtime.verifyTransitionCLI(context.Background(), transition, true); err == nil || !strings.Contains(err.Error(), "not owned") {
+			t.Fatalf("error=%v", err)
+		}
+	})
+	t.Run("writable", func(t *testing.T) {
+		fixture, transition, path := newCase(t)
+		if err := os.Chmod(path, 0o775); err != nil {
+			t.Fatal(err)
+		}
+		if err := fixture.runtime.verifyTransitionCLI(context.Background(), transition, true); err == nil || !strings.Contains(err.Error(), "unsafe") {
+			t.Fatalf("error=%v", err)
+		}
+	})
+	t.Run("symlink", func(t *testing.T) {
+		fixture, transition, path := newCase(t)
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink("lmm-api-go", path); err != nil {
+			t.Fatal(err)
+		}
+		if err := fixture.runtime.verifyTransitionCLI(context.Background(), transition, true); err == nil || !strings.Contains(err.Error(), "unsafe") {
+			t.Fatalf("error=%v", err)
+		}
+	})
+	t.Run("hardlink", func(t *testing.T) {
+		fixture, transition, path := newCase(t)
+		if err := os.Link(path, path+".extra"); err != nil {
+			t.Fatal(err)
+		}
+		if err := fixture.runtime.verifyTransitionCLI(context.Background(), transition, true); err == nil || !strings.Contains(err.Error(), "link count") {
+			t.Fatalf("error=%v", err)
+		}
+	})
 }
 
 func writeTestBackupSet(root string, environment []byte) error {
@@ -1771,7 +1834,8 @@ func TestRemoveLegacyDeployPackageForProviderMigrationIsExactAndFailClosed(t *te
 		}
 	})
 	t.Run("unowned-binary", func(t *testing.T) {
-		runtime, _, _ := newRuntime(t, "0.1.69", false, false)
+		runtime, runner, _ := newRuntime(t, "0.1.69", false, false)
+		runner.unownedDeployBinary = true
 		if err := runtime.removeLegacyDeployPackageForProviderMigration(context.Background(), candidate); err == nil || !strings.Contains(err.Error(), "unowned") {
 			t.Fatalf("unexpected error: %v", err)
 		}

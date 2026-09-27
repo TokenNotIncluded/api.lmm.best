@@ -32,16 +32,19 @@ import {
   submitDeveloperAccessRequest,
 } from './api'
 
-export function AccessRequestDetails() {
+export function AccessRequestDetails({ inline = false }: { inline?: boolean }) {
   const { t } = useTranslation()
   const user = useAuthStore((state) => state.auth.user)
   const client = useQueryClient()
   const [editing, setEditing] = useState(false)
-  const [reason, setReason] = useState('')
+  const [reason, setReason] = useState<string | null>(null)
   const queryKey = developerAccessRequestQueryKey(user?.id ?? 0)
   const query = useQuery({
     queryKey,
-    queryFn: getDeveloperAccessRequest,
+    queryFn: async () => {
+      const request = await getDeveloperAccessRequest()
+      return request ? { ...request } : null
+    },
     enabled: !!user,
     staleTime: 15_000,
     retry: false,
@@ -62,6 +65,7 @@ export function AccessRequestDetails() {
     onSuccess: (request, input) => {
       client.setQueryData(developerAccessRequestQueryKey(input.userId), request)
       setEditing(false)
+      setReason(null)
     },
   })
   if (!user) return null
@@ -86,12 +90,31 @@ export function AccessRequestDetails() {
   }
   const canEdit =
     user.developer_access_granted !== true && request?.status !== 'approved'
-  const reasonLength = Array.from(reason.trim()).length
+  const draft = reason ?? request?.reason ?? ''
+  const reasonLength = Array.from(draft.trim()).length
+  const showForm =
+    canEdit && (editing || (inline && request?.status !== 'pending'))
+  const Container = inline ? 'section' : 'details'
   return (
-    <details className='space-y-3 text-sm' open={editing || undefined}>
-      <summary className='cursor-pointer'>
-        {t('View access request status')}
-      </summary>
+    <Container
+      className='space-y-3 text-sm'
+      {...(!inline ? { open: editing || undefined } : {})}
+      data-testid={inline ? 'l0-direct-access-request' : undefined}
+    >
+      {!inline && (
+        <summary className='cursor-pointer'>
+          {t('View access request status')}
+        </summary>
+      )}
+      {inline && request?.status === 'pending' && (
+        <p data-testid='l0-pending-request'>
+          {t(
+            request.ai_recommendation
+              ? 'AI recommendation submitted'
+              : 'Access request submitted'
+          )}
+        </p>
+      )}
       {request ? (
         <dl className='space-y-3'>
           <div>
@@ -150,7 +173,7 @@ export function AccessRequestDetails() {
       ) : (
         <p>{t('Not requested')}</p>
       )}
-      {canEdit && !editing && (
+      {canEdit && !showForm && (
         <Button
           type='button'
           variant='outline'
@@ -163,17 +186,38 @@ export function AccessRequestDetails() {
           {t(request ? 'Revise access request' : 'Request API access')}
         </Button>
       )}
-      {canEdit && editing && (
-        <div className='space-y-3'>
+      {showForm && (
+        <form
+          className='space-y-3'
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (mutation.isPending || reasonLength < 5 || reasonLength > 2000) {
+              return
+            }
+            mutation.mutate({
+              userId: user.id,
+              reason: draft.trim(),
+              recommendation: request?.ai_recommendation,
+            })
+          }}
+        >
           <Label htmlFor='access-request-reason'>{t('Reason')}</Label>
           <Textarea
             id='access-request-reason'
-            value={reason}
+            value={draft}
             onChange={(event) => setReason(event.target.value)}
             disabled={mutation.isPending}
             rows={5}
+            className='text-base sm:text-sm'
+            aria-describedby='access-request-reason-help'
+            aria-invalid={
+              reason !== null && (reasonLength < 5 || reasonLength > 2000)
+            }
           />
-          <p className='text-muted-foreground text-xs'>
+          <p
+            id='access-request-reason-help'
+            className='text-muted-foreground text-xs'
+          >
             {t(
               'Describe your intended API use in 5–2000 characters. Do not include credentials.'
             )}
@@ -194,31 +238,26 @@ export function AccessRequestDetails() {
           )}
           <div className='flex flex-wrap gap-2'>
             <Button
-              type='button'
+              type='submit'
               disabled={
                 mutation.isPending || reasonLength < 5 || reasonLength > 2000
-              }
-              onClick={() =>
-                mutation.mutate({
-                  userId: user.id,
-                  reason: reason.trim(),
-                  recommendation: request?.ai_recommendation,
-                })
               }
             >
               {t('Confirm and submit application')}
             </Button>
-            <Button
-              type='button'
-              variant='ghost'
-              disabled={mutation.isPending}
-              onClick={() => setEditing(false)}
-            >
-              {t('Cancel')}
-            </Button>
+            {editing && (
+              <Button
+                type='button'
+                variant='ghost'
+                disabled={mutation.isPending}
+                onClick={() => setEditing(false)}
+              >
+                {t('Cancel')}
+              </Button>
+            )}
           </div>
-        </div>
+        </form>
       )}
-    </details>
+    </Container>
   )
 }

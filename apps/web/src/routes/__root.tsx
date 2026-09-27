@@ -160,6 +160,7 @@ let setupStatusChecked = getSetupStatusFromCache()
 
 const NON_BLOCKING_PUBLIC_PATHS = [
   '/',
+  '/ai-directory',
   '/challenges',
   '/pricing',
   '/developers',

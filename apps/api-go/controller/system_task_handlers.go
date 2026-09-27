@@ -25,6 +25,36 @@ func RegisterScheduledSystemTasks() {
 	service.RegisterSystemTaskHandler(asyncTaskPollHandler{})
 	service.RegisterSystemTaskHandler(heroSMSEmailReconciliationHandler{})
 	service.RegisterSystemTaskHandler(heroSMSSMSReconciliationHandler{})
+	service.RegisterSystemTaskHandler(waffoPancakeTopUpExpiryHandler{})
+}
+
+type waffoPancakeTopUpExpiryHandler struct{}
+
+func (waffoPancakeTopUpExpiryHandler) Type() string { return model.SystemTaskTypeWaffoTopUpExpiry }
+
+func (waffoPancakeTopUpExpiryHandler) Enabled() bool {
+	if !service.WaffoPancakeTopUpExpiryEnabled() {
+		return false
+	}
+	due, err := service.WaffoPancakeTopUpExpiryDue(context.Background(), time.Now())
+	if err != nil {
+		common.SysError("Waffo Pancake top-up expiry scan failed: " + err.Error())
+		return false
+	}
+	return due
+}
+
+func (waffoPancakeTopUpExpiryHandler) Interval() time.Duration { return time.Minute }
+
+func (waffoPancakeTopUpExpiryHandler) NewPayload() any { return nil }
+
+func (waffoPancakeTopUpExpiryHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
+	summary, err := service.ReconcileExpiredWaffoPancakeTopUps(ctx)
+	if err != nil {
+		finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusFailed, summary, err)
+		return
+	}
+	finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusSucceeded, summary, nil)
 }
 
 // channelTestHandler runs the scheduled "test all channels" job. Enablement and

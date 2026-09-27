@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type { AxiosAdapter } from 'axios'
 
-// Some read-only batch queries use POST to carry a list of model names. Keep
+// Some read-only queries use POST for model lists or a local payment quote. Keep
 // these exact paths separate from the general GET fixtures; no purchase,
 // payment, reset, refund, or administrative mutation is permitted.
 export function withConsoleQueryFixtures(fallback: AxiosAdapter): AxiosAdapter {
@@ -30,6 +30,41 @@ export function withConsoleQueryFixtures(fallback: AxiosAdapter): AxiosAdapter {
     let data: unknown
     if (method === 'POST' && url.pathname === '/api/pricing/runtime') {
       data = { success: true, data: {} }
+    } else if (method === 'POST' && url.pathname === '/api/user/amount') {
+      let body: unknown = config.data
+      if (typeof body === 'string') {
+        try {
+          body = JSON.parse(body)
+        } catch {
+          return fallback(config)
+        }
+      }
+      if (!body || typeof body !== 'object' || Array.isArray(body)) {
+        return fallback(config)
+      }
+      const request = body as Record<string, unknown>
+      const amount = request.amount
+      if (
+        typeof amount !== 'number' ||
+        !Number.isFinite(amount) ||
+        amount < 1 ||
+        amount > 1_000_000 ||
+        (request.payment_method !== undefined &&
+          request.payment_method !== 'alipay') ||
+        (request.discount_code !== undefined && request.discount_code !== '') ||
+        Object.keys(request).some(
+          (key) => !['amount', 'payment_method', 'discount_code'].includes(key)
+        )
+      ) {
+        return fallback(config)
+      }
+      // The review method uses a fixed 1:1 USD unit. This only reads a quote;
+      // /pay, /topup and every other mutation still use the blocking adapter.
+      data = {
+        success: true,
+        data: amount.toFixed(2),
+        settlement_currency: 'USD',
+      }
     } else if (
       method === 'GET' &&
       url.pathname === '/api/subscription/root/reset-targets'

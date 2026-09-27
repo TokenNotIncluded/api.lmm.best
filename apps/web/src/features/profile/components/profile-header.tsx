@@ -16,10 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useMemo } from 'react'
+import { Share01Icon } from '@hugeicons/core-free-icons'
+import { HugeiconsIcon } from '@hugeicons/react'
+import { Link } from '@tanstack/react-router'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Badge } from '@/components/ui/badge'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { UserAvatar } from '@/components/user-avatar'
 import { formatCompactNumber, formatNumber } from '@/lib/format'
@@ -35,6 +39,7 @@ import {
 } from '../lib/activity'
 import type { UserProfile } from '../types'
 import { ProfileActivity } from './profile-activity'
+import { ProfileShareDialog } from './profile-share-dialog'
 
 interface ProfileHeaderProps {
   profile: UserProfile | null
@@ -116,6 +121,7 @@ function ProfileOverviewSkeleton({ days }: { days: ProfileDailyUsage[] }) {
 
 export function ProfileHeader({ profile, loading }: ProfileHeaderProps) {
   const { t, i18n } = useTranslation()
+  const [shareOpen, setShareOpen] = useState(false)
   const activityQuery = useProfileActivity(
     profile?.created_time,
     Boolean(profile) && !loading
@@ -197,7 +203,28 @@ export function ProfileHeader({ profile, loading }: ProfileHeaderProps) {
             {roleLabel}
           </Badge>
         </div>
+        <div className='mt-6 flex flex-wrap items-center justify-center gap-2'>
+          <Button variant='outline' onClick={() => setShareOpen(true)}>
+            <HugeiconsIcon icon={Share01Icon} strokeWidth={2} />
+            {t('Share profile')}
+          </Button>
+          <Link
+            to='/profile/share'
+            className={buttonVariants({ variant: 'ghost' })}
+          >
+            {t('Create GitHub badge')}
+          </Link>
+        </div>
       </div>
+
+      <ProfileShareDialog
+        open={shareOpen}
+        onOpenChange={setShareOpen}
+        profile={profile}
+        days={days}
+        summary={summary}
+        activityAvailable={Boolean(activityQuery.data)}
+      />
 
       <div className='mt-10 sm:mt-12'>
         <ProfileStatRail stats={stats} />

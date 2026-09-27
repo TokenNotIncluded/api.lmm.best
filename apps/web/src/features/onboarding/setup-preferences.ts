@@ -20,6 +20,7 @@ const STORAGE_KEY = 'lmm:setup-preferences:v1'
 const PLATFORMS = ['windows', 'macos', 'linux', 'android', 'ios'] as const
 const CLIENTS = [
   'pi',
+  'dsh',
   'astrbot',
   'openai-sdk',
   'anthropic-sdk',

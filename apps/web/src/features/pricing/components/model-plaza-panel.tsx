@@ -84,7 +84,7 @@ function ModelRow({
           )}
         </span>
         <span className='min-w-0 flex-1'>
-          <span className='text-foreground block truncate text-sm font-semibold'>
+          <span className='text-foreground block text-sm font-semibold [overflow-wrap:anywhere]'>
             {model.model_name}
           </span>
           <span className='text-muted-foreground block truncate text-xs'>

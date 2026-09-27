@@ -212,6 +212,65 @@
   border-radius: 0.5rem;
   overscroll-behavior: contain;
 }
+
+/* Playability furniture: a progress meter, earned badges and short praise
+   toasts. All of it is decorative — the accessible state lives in the status
+   line above, so these can vanish on narrow screens without losing meaning. */
+.signal-game-feedback {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+.signal-game-meter {
+  height: 0.35rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--muted-foreground) 22%, transparent);
+}
+.signal-game-meter-fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--signal-color);
+  transition: transform 300ms ease-out;
+}
+.signal-game-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  min-height: 1.5rem;
+}
+.signal-game-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted-foreground);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+}
+.signal-game-badge.is-earned {
+  border-color: color-mix(in oklch, var(--signal-color) 45%, var(--border));
+  background: color-mix(in oklch, var(--signal-color) 12%, transparent);
+  color: var(--signal-color);
+}
+.signal-game-badge-slot {
+  min-height: 1.35rem;
+}
+.signal-game-toast {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--signal-color);
+}
+@media (prefers-reduced-motion: reduce) {
+  .signal-game-meter-fill {
+    transition: none;
+  }
+}
 .signal-game-canvas {
   position: sticky;
   top: 0;

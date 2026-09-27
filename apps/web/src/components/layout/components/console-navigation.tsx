@@ -16,7 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 */
 import { Link, useLocation } from '@tanstack/react-router'
-import { ChevronRight, Ellipsis, Search } from 'lucide-react'
+import {
+  ChevronRight,
+  ChevronUp,
+  CoinsIcon,
+  Ellipsis,
+  PlusIcon,
+  Search,
+} from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -44,6 +51,8 @@ import {
 import { useSearch } from '@/context/search-provider'
 import { useSidebarView } from '@/hooks/use-sidebar-view'
 import { useTopNavLinks } from '@/hooks/use-top-nav-links'
+import { formatQuota } from '@/lib/format'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { defaultTopNavLinks } from '../config/top-nav.config'
 import {
@@ -144,6 +153,46 @@ export function ConsoleNavSection({ group }: { group: NavGroupProps }) {
   )
 }
 
+/**
+ * Persistent balance + top-up entry for the sidebar footer.
+ *
+ * The header badge is the primary entry; this mirrors it at the end of the
+ * navigation rail so the affordance survives a collapsed, icon-only sidebar
+ * (where the tooltip carries the same text).
+ */
+export function ConsoleBalanceEntry() {
+  const { t } = useTranslation()
+  const { setOpenMobile } = useSidebar()
+  const quota = useAuthStore((state) => state.auth.user?.quota ?? 0)
+  const balance = formatQuota(Math.max(0, quota))
+
+  return (
+    <SidebarMenu>
+      <SidebarMenuItem>
+        <SidebarMenuButton
+          tooltip={`${t('Balance')}: ${balance} · ${t('Top up')}`}
+          className='border-sidebar-border/70 bg-sidebar-accent/20 h-9 rounded-lg border'
+          onClick={() => setOpenMobile(false)}
+          render={<Link to='/wallet' />}
+        >
+          <CoinsIcon aria-hidden='true' />
+          <span className='min-w-0 flex-1 truncate'>
+            {t('Balance')}
+            <span className='text-muted-foreground ms-1 tabular-nums'>
+              {balance}
+            </span>
+          </span>
+          <PlusIcon
+            aria-hidden='true'
+            className='text-muted-foreground size-3.5 shrink-0'
+          />
+          <span className='sr-only'>{t('Top up')}</span>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    </SidebarMenu>
+  )
+}
+
 export function ConsoleSidebarFooter({ groups }: { groups: NavGroupProps[] }) {
   const { t } = useTranslation()
   const { setOpenMobile } = useSidebar()
@@ -156,17 +205,29 @@ export function ConsoleSidebarFooter({ groups }: { groups: NavGroupProps[] }) {
       )
 
   return (
-    <SidebarFooter className='border-sidebar-border/60 gap-2 border-t p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]'>
+    <SidebarFooter className='border-sidebar-border/60 gap-1.5 border-t p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]'>
+      {groups.some((group) => group.id === 'onboarding') ? null : (
+        <ConsoleBalanceEntry />
+      )}
       {links.length > 0 && (
         <SidebarGroup className='p-0'>
           <SidebarMenu>
             <SidebarMenuItem>
               <DropdownMenu modal={false}>
                 <DropdownMenuTrigger
-                  render={<SidebarMenuButton tooltip={t('More')} />}
+                  render={
+                    <SidebarMenuButton
+                      tooltip={t('More')}
+                      className='border-sidebar-border/70 bg-sidebar-accent/20 h-9 rounded-lg border'
+                    />
+                  }
                 >
                   <Ellipsis aria-hidden='true' />
                   <span>{t('More')}</span>
+                  <ChevronUp
+                    className='text-muted-foreground ms-auto size-3.5 group-data-[collapsible=icon]:hidden'
+                    aria-hidden='true'
+                  />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
                   side='top'
@@ -199,11 +260,10 @@ export function ConsoleSidebarFooter({ groups }: { groups: NavGroupProps[] }) {
           </SidebarMenu>
         </SidebarGroup>
       )}
-      <div className='flex items-center justify-between gap-2 px-1 group-data-[collapsible=icon]:hidden'>
-        <span className='text-muted-foreground text-xs'>{t('Settings')}</span>
-        <div className='flex items-center gap-1'>
+      <div className='border-sidebar-border/70 bg-sidebar-accent/20 flex min-w-0 items-center gap-0.5 rounded-lg border p-0.5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:border-0 group-data-[collapsible=icon]:bg-transparent'>
+        <ConfigDrawer sidebarAction />
+        <div className='border-sidebar-border/70 shrink-0 border-l ps-0.5 group-data-[collapsible=icon]:hidden'>
           <LanguageSwitcher />
-          <ConfigDrawer />
         </div>
       </div>
     </SidebarFooter>

@@ -1,0 +1,84 @@
+/*
+Copyright (C) 2026 LIghtJUNction
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+*/
+.signal-tuner {
+  width: 100%;
+  max-width: 18rem;
+  display: grid;
+  gap: 0.7rem;
+}
+.signal-tuner-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.signal-tuner-label {
+  margin: 0;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.signal-tuner-score {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+.signal-tuner-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.3rem;
+}
+.signal-tuner-cell {
+  aspect-ratio: 1;
+  min-height: 2.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.3rem;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease;
+}
+.signal-tuner-cell:hover {
+  border-color: var(--muted-foreground);
+}
+.signal-tuner-cell[data-lit] {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+.signal-tuner-cell:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.signal-tuner-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.signal-tuner-hint,
+.signal-tuner-done {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+.signal-tuner-done {
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .signal-tuner-cell {
+    transition: none;
+  }
+}

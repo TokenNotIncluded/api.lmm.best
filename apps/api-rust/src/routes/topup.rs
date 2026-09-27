@@ -1102,7 +1102,7 @@ async fn format_topup_quota(pool: &PgPool, quota: i64) -> String {
     format_quota(pool, quota, false).await
 }
 
-async fn format_quota(pool: &PgPool, quota: i64, include_unit: bool) -> String {
+pub(super) async fn format_quota(pool: &PgPool, quota: i64, include_unit: bool) -> String {
     let options = read_options(pool).await.unwrap_or_default();
     let quota_per_unit = options
         .get("QuotaPerUnit")
@@ -1187,14 +1187,14 @@ fn caller_ip(context: Option<Extension<RequestContext>>) -> String {
         .unwrap_or_default()
 }
 
-fn node_name() -> String {
+pub(super) fn node_name() -> String {
     std::env::var("NODE_NAME")
         .or_else(|_| std::env::var("HOSTNAME"))
         .or_else(|_| std::fs::read_to_string("/etc/hostname").map(|value| value.trim().to_owned()))
         .unwrap_or_default()
 }
 
-fn server_ip() -> String {
+pub(super) fn server_ip() -> String {
     if let Ok(value) = std::env::var("LMM_SERVER_IP")
         && !value.trim().is_empty()
     {
@@ -1210,7 +1210,7 @@ fn server_ip() -> String {
         .unwrap_or_default()
 }
 
-fn service_version() -> String {
+pub(super) fn service_version() -> String {
     std::env::var("VERSION").unwrap_or_else(|_| "v0.0.0".to_owned())
 }
 

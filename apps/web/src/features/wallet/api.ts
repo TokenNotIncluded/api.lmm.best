@@ -17,7 +17,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
+import { useAuthStore } from '@/stores/auth-store'
 
+import { bindTopupOrder, capturePreparedTopup } from './lib/topup-cloud-storage'
 import type {
   RedemptionRequest,
   PaymentRequest,
@@ -45,6 +47,22 @@ import type {
   WaffoPancakePaymentResponse,
   DiscountCodeResponse,
 } from './types'
+
+// Capture the initiating account/intent before awaiting and bind the server order
+// before a payment hook can redirect the browser away from this document.
+async function checkoutRequest<T>(request: () => Promise<T>): Promise<T> {
+  const auth = useAuthStore.getState().auth
+  const intent = capturePreparedTopup(auth.user?.id)
+  const result = await request()
+  const current = useAuthStore.getState().auth
+  if (
+    current.user?.id === auth.user?.id &&
+    current.session?.sid === auth.session?.sid
+  ) {
+    bindTopupOrder(intent, result)
+  }
+  return result
+}
 
 // ============================================================================
 // Wallet API Functions
@@ -139,15 +157,17 @@ export async function calculateWaffoAmount(
 export async function requestPayment(
   request: PaymentRequest
 ): Promise<PaymentResponse> {
-  const res = await api.post('/api/user/pay', request, {
-    skipBusinessError: true,
-  } as Record<string, unknown>)
-  const legacyUrl = Reflect.get(res, 'url')
-  return {
-    ...res.data,
-    url:
-      res.data.url || (typeof legacyUrl === 'string' ? legacyUrl : undefined),
-  }
+  return checkoutRequest(async () => {
+    const res = await api.post('/api/user/pay', request, {
+      skipBusinessError: true,
+    } as Record<string, unknown>)
+    const legacyUrl = Reflect.get(res, 'url')
+    return {
+      ...res.data,
+      url:
+        res.data.url || (typeof legacyUrl === 'string' ? legacyUrl : undefined),
+    }
+  })
 }
 
 /**
@@ -156,10 +176,12 @@ export async function requestPayment(
 export async function requestStripePayment(
   request: PaymentRequest
 ): Promise<StripePaymentResponse> {
-  const res = await api.post('/api/user/stripe/pay', request, {
-    skipBusinessError: true,
-  } as Record<string, unknown>)
-  return res.data
+  return checkoutRequest(async () => {
+    const res = await api.post('/api/user/stripe/pay', request, {
+      skipBusinessError: true,
+    } as Record<string, unknown>)
+    return res.data
+  })
 }
 
 /**
@@ -168,10 +190,12 @@ export async function requestStripePayment(
 export async function requestCreemPayment(
   request: CreemPaymentRequest
 ): Promise<CreemPaymentResponse> {
-  const res = await api.post('/api/user/creem/pay', request, {
-    skipBusinessError: true,
-  } as Record<string, unknown>)
-  return res.data
+  return checkoutRequest(async () => {
+    const res = await api.post('/api/user/creem/pay', request, {
+      skipBusinessError: true,
+    } as Record<string, unknown>)
+    return res.data
+  })
 }
 
 /**
@@ -180,10 +204,12 @@ export async function requestCreemPayment(
 export async function requestWaffoPayment(
   request: WaffoPaymentRequest
 ): Promise<WaffoPaymentResponse> {
-  const res = await api.post('/api/user/waffo/pay', request, {
-    skipBusinessError: true,
-  } as Record<string, unknown>)
-  return res.data
+  return checkoutRequest(async () => {
+    const res = await api.post('/api/user/waffo/pay', request, {
+      skipBusinessError: true,
+    } as Record<string, unknown>)
+    return res.data
+  })
 }
 
 /**
@@ -204,10 +230,12 @@ export async function calculateWaffoPancakeAmount(
 export async function requestWaffoPancakePayment(
   request: WaffoPancakePaymentRequest
 ): Promise<WaffoPancakePaymentResponse> {
-  const res = await api.post('/api/user/waffo-pancake/pay', request, {
-    skipBusinessError: true,
-  } as Record<string, unknown>)
-  return res.data
+  return checkoutRequest(async () => {
+    const res = await api.post('/api/user/waffo-pancake/pay', request, {
+      skipBusinessError: true,
+    } as Record<string, unknown>)
+    return res.data
+  })
 }
 
 /**

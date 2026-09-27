@@ -104,6 +104,7 @@ export function mountL0TokenCloud(root: HTMLElement): () => void {
   let color = ''
   let bounds = canvas.getBoundingClientRect()
   let tokens = createL0Tokens(bounds.width)
+  const opacityScale = root.dataset.cloudContrast === 'strong' ? 1.8 : 1
   const pointer = { x: 0, y: 0, strength: 0, active: false, pressed: false }
   const canAnimate = () =>
     !disposed && visible && !doc.hidden && !paused && !reduced.matches
@@ -133,15 +134,24 @@ export function mountL0TokenCloud(root: HTMLElement): () => void {
       const pull = (pointer.pressed ? -0.75 : 0.18) * pointer.strength
       x += dx * influence * pull
       y += dy * influence * pull
-      ctx.globalAlpha = (0.14 + p.depth * p.depth * 0.74) * token.softness
-      if (token.glyph && p.y > -0.05 && landingPoints.length < 24) {
+      const isGlyph = token.glyph !== ''
+      // Glyphs read as the foreground "content" layer; plain dots recede
+      // as ambient dust so depth carries typographic weight, not just size.
+      ctx.globalAlpha = Math.min(
+        1,
+        (0.12 + p.depth * p.depth * 0.72) *
+          token.softness *
+          opacityScale *
+          (isGlyph ? 1 : 0.6)
+      )
+      if (isGlyph && p.y > -0.05 && landingPoints.length < 24) {
         landingPoints.push({ x: x / width, y: y / height })
       }
-      if (token.glyph) {
-        ctx.font = `${9 + Math.round(p.depth * 3)}px ui-monospace, monospace`
+      if (isGlyph) {
+        ctx.font = `${10 + Math.round(p.depth * 4)}px ui-monospace, monospace`
         ctx.fillText(token.glyph, x, y)
       } else {
-        const size = 0.65 + p.depth * 0.8
+        const size = 0.7 + p.depth * 0.95
         ctx.fillRect(x, y, size, size)
       }
     }

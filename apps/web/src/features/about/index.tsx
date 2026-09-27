@@ -17,10 +17,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
-import { Construction } from 'lucide-react'
+import { Link } from '@tanstack/react-router'
+import { ArrowRight, Construction } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { RichContent } from '@/components/rich-content'
+import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { isHttpUrl, isLikelyHtml } from '@/lib/content-format'
@@ -28,48 +30,74 @@ import { isHttpUrl, isLikelyHtml } from '@/lib/content-format'
 import { ForgePublicShell } from '../forge/forge-public-shell'
 import { getAboutContent } from './api'
 
+const ABOUT_FACTS = [
+  ['AGPL-3.0', 'Open source, no lock-in'],
+  ['1', 'Endpoint, every model'],
+  ['L1', 'Unlocked by your first top-up'],
+] as const
+
 function EmptyAboutState() {
   const { t } = useTranslation()
   const { systemName } = useSystemConfig()
 
   return (
-    <main className='mx-auto max-w-7xl px-5 pt-32 pb-24 md:px-10 md:pt-40'>
-      <div className='grid gap-12 md:grid-cols-[minmax(0,0.9fr)_minmax(18rem,0.7fr)] md:items-end'>
-        <div>
-          <p className='mb-5 flex items-center gap-2 text-xs font-bold uppercase'>
-            <span className='bg-foreground size-2 rounded-full' />
-            {t('About')} · {systemName}
-          </p>
-          <h1 className='max-w-3xl font-serif text-5xl leading-[1.02] font-normal md:text-7xl'>
-            {t('Open-source work, made accountable.')}
-          </h1>
-          <p className='text-muted-foreground mt-7 max-w-2xl text-base leading-7 md:text-lg'>
-            {t(
-              'The administrator has not configured any about content yet. You can set it in the settings page, supporting HTML or URL.'
-            )}
-          </p>
-        </div>
-        <div className='border-foreground border-t-2 pt-5 text-sm leading-6'>
-          <div className='mb-8 flex items-center gap-3'>
-            <Construction className='size-8' aria-hidden='true' />
-            <span className='font-serif text-2xl'>{t('A clear space')}</span>
+    <main className='mx-auto max-w-5xl px-5 pt-32 pb-24 md:px-10 md:pt-40'>
+      <p className='mb-5 flex items-center gap-2 text-xs font-bold uppercase'>
+        <span className='bg-foreground size-2 rounded-full' />
+        {t('About')} · {systemName}
+      </p>
+      <h1 className='max-w-3xl font-serif text-5xl leading-[1.02] font-normal md:text-7xl'>
+        {t('Open-source work, made accountable.')}
+      </h1>
+
+      <dl className='mt-12 grid gap-8 border-y py-8 sm:grid-cols-3'>
+        {ABOUT_FACTS.map(([value, label]) => (
+          <div key={label}>
+            <dt className='text-3xl font-semibold tracking-tight'>{value}</dt>
+            <dd className='text-muted-foreground mt-2 text-sm leading-6'>
+              {t(label)}
+            </dd>
           </div>
-          <p className='text-muted-foreground mb-5'>
-            {t('Open-source bounty collaboration')}
-          </p>
-          <p className='text-muted-foreground'>
-            {t('This project must be used in compliance with the')}{' '}
-            <a
-              href='https://github.com/TokenNotIncluded/api.lmm.best/blob/main/LICENSE'
-              target='_blank'
-              rel='noopener noreferrer'
-              className='border-foreground text-foreground border-b hover:opacity-70'
-            >
-              {t('AGPL v3.0 License')}
-            </a>
-            .
-          </p>
-        </div>
+        ))}
+      </dl>
+
+      <div className='mt-10 flex flex-wrap items-center gap-x-6 gap-y-4'>
+        <Button
+          size='lg'
+          render={
+            <Link to='/sign-in' search={{ redirect: '/getting-started' }} />
+          }
+        >
+          {t('Sign in to get started')}
+          <ArrowRight data-icon='inline-end' />
+        </Button>
+        <Link
+          to='/guide'
+          className='text-sm font-medium underline underline-offset-4'
+        >
+          {t('Read the guide')}
+        </Link>
+        <Link
+          to='/challenges'
+          className='text-sm font-medium underline underline-offset-4'
+        >
+          {t('Browse challenges')}
+        </Link>
+      </div>
+
+      <div className='border-foreground mt-14 flex items-start gap-3 border-t-2 pt-5 text-sm leading-6'>
+        <Construction className='mt-0.5 size-5 shrink-0' aria-hidden='true' />
+        <p className='text-muted-foreground'>
+          {t('The administrator has not published an about page yet.')}{' '}
+          <a
+            href='https://github.com/TokenNotIncluded/api.lmm.best/blob/main/LICENSE'
+            target='_blank'
+            rel='noopener noreferrer'
+            className='border-foreground text-foreground border-b hover:opacity-70'
+          >
+            {t('AGPL v3.0 License')}
+          </a>
+        </p>
       </div>
     </main>
   )

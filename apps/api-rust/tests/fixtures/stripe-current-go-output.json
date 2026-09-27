@@ -1,0 +1,56 @@
+{
+  "amount": 14,
+  "callback_statuses": [
+    400,
+    200,
+    200
+  ],
+  "checkout_fields": {
+    "allow_promotion_codes": "true",
+    "cancel_url": "https://console.example/wallet",
+    "client_reference_id": "\u003corder\u003e",
+    "customer_creation": "always",
+    "customer_email": "payer@example.com",
+    "line_items[0][price_data][currency]": "usd",
+    "line_items[0][price_data][product]": "prod_fixture",
+    "line_items[0][price_data][unit_amount]": "100",
+    "line_items[0][quantity]": "1",
+    "mode": "payment",
+    "success_url": "https://console.example/usage-logs"
+  },
+  "credited_quota": 7300000,
+  "currency": "USD",
+  "expected_amount_micros": 1000000,
+  "final_wallet": 0,
+  "inviter_aff_quota": 0,
+  "partial_wallet": 5018750,
+  "payer_email": "payer@example.com",
+  "persisted_before_checkout": true,
+  "platform_amount_micros": 14600000,
+  "refund_ledger_count": 2,
+  "refund_logs": 2,
+  "refund_statuses": [
+    200,
+    200,
+    200
+  ],
+  "refunded_amount_micros": 800000,
+  "refunded_quota": 7300000,
+  "request": {
+    "amount": 14.6,
+    "payment_method": "stripe"
+  },
+  "response": {
+    "data": {
+      "pay_link": "https://checkout.stripe.test/cs_fixture",
+      "trade_no": "<order>"
+    },
+    "message": "success"
+  },
+  "settled_amount_micros": 800000,
+  "signature_header": "t=1700000000,v1=733adf6c4264129120b154d6d7bb49d3fb70d88917ad551b06ab8499c3355dd2",
+  "signature_payload": "{\"id\":\"evt_fixed\",\"type\":\"checkout.session.completed\",\"data\":{\"object\":{\"id\":\"cs_fixed\"}}}",
+  "stripe_customer": "cus_fixture",
+  "topup_logs": 2,
+  "wallet_after_payment": 7300000
+}

@@ -38,6 +38,7 @@ const defaultSiteSettings: SiteSettings = {
   'legal.privacy_policy_en': '',
   HeaderNavModules: '',
   SidebarModulesAdmin: '',
+  AIDirectoryLinks: '',
 }
 
 export function SiteSettings() {

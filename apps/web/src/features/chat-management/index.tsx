@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { ArrowLeft01Icon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { MessagesSquare } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { EmptyState } from '@/components/empty-state'
@@ -42,12 +42,19 @@ import {
  * other console pages: fixed header, and two independently scrolling panes —
  * the conversation list on the left, the selected transcript on the right.
  * Narrow screens keep the single-pane master/detail swap with a back
- * affordance.
+ * affordance. Selecting a conversation moves focus into the transcript pane
+ * (useful for keyboard and screen-reader users on the mobile single-pane
+ * layout), and Escape returns to the list, mirroring the visible back button.
  */
 export function ChatManagement() {
   const { t } = useTranslation()
   const [selected, setSelected] =
     useState<AssistantConversationHistoryItem | null>(null)
+  const backButtonRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    if (selected) backButtonRef.current?.focus()
+  }, [selected])
 
   return (
     <SectionPageLayout fixedContent>
@@ -75,10 +82,17 @@ export function ChatManagement() {
               'min-h-0 min-w-0 overflow-y-auto border-t pt-6 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-6',
               !selected && 'hidden lg:block'
             )}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape' && selected) {
+                event.stopPropagation()
+                setSelected(null)
+              }
+            }}
           >
             {selected ? (
               <div className='grid gap-4'>
                 <Button
+                  ref={backButtonRef}
                   type='button'
                   variant='ghost'
                   size='sm'

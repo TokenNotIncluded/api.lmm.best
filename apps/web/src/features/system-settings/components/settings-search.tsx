@@ -24,7 +24,6 @@ import { ArrowUpRight, ChevronRight, Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { SYSTEM_SETTINGS_VIEW } from '@/components/layout/config/system-settings.config'
 import { Button } from '@/components/ui/button'
 import {
   Command,
@@ -36,24 +35,21 @@ import {
   CommandList,
 } from '@/components/ui/command'
 
+import {
+  buildSettingsSearchIndex,
+  countSettingsEntries,
+  searchSettings,
+} from '../utils/settings-search-index'
+
 function useSettingsNavigation() {
   const { t } = useTranslation()
   const pathname = useLocation({ select: (location) => location.pathname })
-  const groups = useMemo(
-    () =>
-      SYSTEM_SETTINGS_VIEW.getNavGroups(t).flatMap((group) =>
-        group.items.flatMap((item) =>
-          'items' in item && item.items
-            ? [{ title: item.title, icon: item.icon, items: item.items }]
-            : []
-        )
-      ),
-    [t]
+  const search = useLocation({ select: (location) => location.searchStr })
+  const index = useMemo(() => buildSettingsSearchIndex(t), [t])
+  const current = index.find((group) =>
+    group.entries.some((entry) => entry.url === `${pathname}${search}`)
   )
-  const current = groups.find((group) =>
-    group.items.some((item) => item.url === pathname)
-  )
-  return { groups, current, pathname }
+  return { index, current, pathname, search }
 }
 
 export function SettingsBreadcrumb() {
@@ -65,7 +61,7 @@ export function SettingsBreadcrumb() {
       {current && (
         <>
           <ChevronRight className='size-3' aria-hidden='true' />
-          <span>{current.title}</span>
+          <span>{current.section}</span>
         </>
       )}
     </div>
@@ -75,8 +71,13 @@ export function SettingsBreadcrumb() {
 export function SettingsSearch() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { groups, pathname } = useSettingsNavigation()
+  const { index, pathname, search } = useSettingsNavigation()
   const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const results = useMemo(() => searchSettings(index, query), [index, query])
+  const activeUrl = `${pathname}${search}`
+  const total = countSettingsEntries(index)
+
   return (
     <>
       <Button
@@ -90,35 +91,52 @@ export function SettingsSearch() {
       </Button>
       <CommandDialog
         open={open}
-        onOpenChange={setOpen}
+        onOpenChange={(next) => {
+          setOpen(next)
+          if (!next) setQuery('')
+        }}
         className='top-[12dvh] sm:top-[15dvh]'
         title={t('Search settings')}
         description={t('Go to a settings section')}
       >
-        <Command>
-          <CommandInput placeholder={t('Search settings')} />
+        {/*
+          Filtering is owned by the index (titles, admin section, alternate
+          terms and URL slug) so `shouldFilter` stays off and the ranking the
+          user sees is the one `searchSettings` computed.
+        */}
+        <Command shouldFilter={false}>
+          <CommandInput
+            value={query}
+            onValueChange={setQuery}
+            placeholder={t('Search settings')}
+          />
           <CommandList className='max-h-[min(65dvh,28rem)]'>
             <CommandEmpty>{t('No settings found')}</CommandEmpty>
-            {groups.map((group) => (
-              <CommandGroup key={group.title} heading={group.title}>
-                {group.items.map((item) => (
+            {results.map((group) => (
+              <CommandGroup key={group.section} heading={group.group}>
+                {group.entries.map((entry) => (
                   <CommandItem
-                    key={item.url}
-                    value={`${group.title} ${item.title} ${item.url}`}
+                    key={entry.url}
+                    value={`${group.group} ${entry.section} ${entry.url}`}
                     onSelect={() => {
                       setOpen(false)
-                      void navigate({ to: item.url })
+                      setQuery('')
+                      void navigate({
+                        to: entry.url.split('?')[0],
+                        search: entry.url.includes('?')
+                          ? Object.fromEntries(
+                              new URLSearchParams(entry.url.split('?')[1])
+                            )
+                          : undefined,
+                      })
                     }}
                     className='gap-3 py-3'
-                    aria-current={pathname === item.url ? 'page' : undefined}
+                    aria-current={activeUrl === entry.url ? 'page' : undefined}
                   >
-                    {group.icon && (
-                      <group.icon
-                        className='text-muted-foreground size-4'
-                        aria-hidden='true'
-                      />
-                    )}
-                    <span className='flex-1'>{item.title}</span>
+                    <span className='flex-1'>{entry.section}</span>
+                    <span className='text-muted-foreground text-xs'>
+                      {group.group}
+                    </span>
                     <ArrowUpRight
                       className='text-muted-foreground size-3.5'
                       aria-hidden='true'
@@ -128,6 +146,11 @@ export function SettingsSearch() {
               </CommandGroup>
             ))}
           </CommandList>
+          <div className='text-muted-foreground border-border/70 border-t px-3 py-2 text-xs'>
+            {t('{{count}} sections', {
+              count: query.trim() ? countSettingsEntries(results) : total,
+            })}
+          </div>
         </Command>
       </CommandDialog>
     </>

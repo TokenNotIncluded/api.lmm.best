@@ -16,10 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { Link } from '@tanstack/react-router'
+import { ArrowRight, Wallet } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { PublicLayout } from '@/components/layout'
+import { Button } from '@/components/ui/button'
+import { ForgePublicShell } from '@/features/forge/forge-public-shell'
+import { usePurchaseEntry } from '@/features/forge/use-purchase-entry'
 
 import {
   EmptyState,
@@ -28,6 +32,7 @@ import {
   PricingToolbar,
   SearchBar,
   ModelDetailsDrawer,
+  VendorIconWall,
   VendorModelSections,
 } from './components'
 import { EXCLUDED_GROUPS, VIEW_MODES } from './constants'
@@ -45,6 +50,7 @@ const PAGE_SIZE = 48
  */
 export function Pricing() {
   const { t } = useTranslation()
+  const funding = usePurchaseEntry()
   const [selectedModelName, setSelectedModelName] = useState<string | null>(
     null
   )
@@ -160,7 +166,7 @@ export function Pricing() {
               <button
                 type='button'
                 onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}
-                className='border-border/60 bg-card/50 hover:bg-muted/70 h-11 rounded-full border px-8 text-sm font-medium transition-colors'
+                className='border-foreground/25 hover:bg-muted/70 h-11 rounded-none border px-8 text-sm font-medium transition-colors'
               >
                 {t('Load more')}
               </button>
@@ -186,35 +192,58 @@ export function Pricing() {
 
   if (isLoading) {
     return (
-      <PublicLayout showMainContainer={false}>
-        <div className='min-h-svh pt-16'>
-          <div className='mx-auto w-full max-w-[110rem] px-4 pb-10 sm:px-6 xl:px-8'>
+      <ForgePublicShell>
+        <div className='min-h-svh'>
+          <div className='mx-auto w-full max-w-7xl px-5 pt-12 pb-10 md:px-10'>
             <LoadingSkeleton viewMode={viewMode} />
           </div>
         </div>
-      </PublicLayout>
+      </ForgePublicShell>
     )
   }
 
   return (
-    <PublicLayout showMainContainer={false}>
-      <div className='min-h-svh pt-16'>
-        <div className='mx-auto w-full max-w-[110rem] px-4 pb-16 sm:px-6 xl:px-8'>
+    <ForgePublicShell>
+      <div className='min-h-svh'>
+        <div className='mx-auto w-full max-w-7xl px-5 pb-20 md:px-10'>
           {/* Centered page title, gpt.ge-style. */}
-          <div className='mb-3 pt-10 text-center sm:pt-14'>
-            <h1 className='text-foreground text-3xl font-bold sm:text-4xl'>
-              {t('Models and pricing')}
-            </h1>
-            <p className='text-muted-foreground mt-3 text-sm sm:text-base'>
-              {t('This site currently has {{count}} models enabled', {
-                count: models?.length || 0,
-              })}
-            </p>
+          <div className='border-foreground/20 mb-8 border-b pt-12 pb-8 sm:pt-16'>
+            <div className='flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between'>
+              <div className='min-w-0'>
+                <h1 className='font-serif text-5xl leading-[1.05] font-normal tracking-tight sm:text-6xl'>
+                  {t('Models and pricing')}
+                </h1>
+                <p className='text-muted-foreground mt-4 max-w-2xl text-base leading-7'>
+                  {t('This site currently has {{count}} models enabled', {
+                    count: models?.length || 0,
+                  })}
+                </p>
+              </div>
+              {/* The single most-asked question on this page: how do I pay? */}
+              <Button
+                size='lg'
+                className='h-auto min-h-12 w-full shrink-0 px-6 py-3 text-base sm:w-auto'
+                render={
+                  <Link
+                    to={funding.to}
+                    search={
+                      funding.to === '/sign-in'
+                        ? { redirect: '/wallet' }
+                        : undefined
+                    }
+                  />
+                }
+              >
+                <Wallet className='size-4' aria-hidden='true' />
+                {t(funding.label)}
+                <ArrowRight className='size-4' aria-hidden='true' />
+              </Button>
+            </div>
           </div>
 
           {/* Sticky translucent filter bar: search + compact toolbar. */}
-          <div className='bg-background/80 sticky top-16 z-40 -mx-4 mb-8 border-y py-2 backdrop-blur-2xl sm:-mx-6 xl:-mx-8'>
-            <div className='flex flex-col gap-2 px-4 sm:px-6 xl:px-8'>
+          <div className='bg-background border-foreground/20 sticky top-16 z-40 -mx-5 mb-8 border-b py-3 md:-mx-10'>
+            <div className='flex flex-col gap-2 px-5 md:px-10'>
               <SearchBar
                 value={searchInput}
                 onChange={setSearchInput}
@@ -263,6 +292,16 @@ export function Pricing() {
             </div>
           </div>
 
+          <VendorIconWall
+            vendors={vendors || []}
+            models={models || []}
+            activeVendor={vendorFilter}
+            onVendorChange={(next) => {
+              setVendorFilter(next)
+              setVisibleCount(PAGE_SIZE)
+            }}
+          />
+
           <main className='min-w-0'>{renderPricingContent()}</main>
         </div>
 
@@ -289,6 +328,6 @@ export function Pricing() {
           />
         )}
       </div>
-    </PublicLayout>
+    </ForgePublicShell>
   )
 }

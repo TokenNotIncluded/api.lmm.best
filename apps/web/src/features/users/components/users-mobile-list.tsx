@@ -25,6 +25,7 @@ import { StatusBadge } from '@/components/status-badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   Empty,
+  EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
@@ -54,6 +55,8 @@ type UsersMobileListProps = {
   isFetching?: boolean
   emptyTitle: string
   emptyDescription: string
+  /** Next-step actions offered when the list has no rows. */
+  emptyAction?: React.ReactNode
 }
 
 function MobileListSkeleton() {
@@ -111,6 +114,7 @@ function getStatusBadge(user: User, t: (key: string) => string) {
     <StatusBadge
       label={t(statusConfig.labelKey)}
       variant={statusConfig.variant}
+      icon={statusConfig.icon}
       copyable={false}
     />
   )
@@ -280,6 +284,7 @@ export function UsersMobileList({
   isFetching = false,
   emptyTitle,
   emptyDescription,
+  emptyAction,
 }: UsersMobileListProps) {
   const rows = table.getRowModel().rows
 
@@ -296,6 +301,7 @@ export function UsersMobileList({
             <EmptyTitle>{emptyTitle}</EmptyTitle>
             <EmptyDescription>{emptyDescription}</EmptyDescription>
           </EmptyHeader>
+          {emptyAction ? <EmptyContent>{emptyAction}</EmptyContent> : null}
         </Empty>
       </div>
     )

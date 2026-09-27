@@ -25,6 +25,52 @@ export function parseLocale(source, filename) {
   return document.translation
 }
 
+function translationPlaceholders(value) {
+  return [...String(value).matchAll(/\{\{\s*([^{}]+?)\s*\}\}/g)]
+    .map((match) => match[1].trim())
+    .sort()
+}
+
+export function findTranslationQualityFailures(before, after) {
+  const failures = []
+
+  for (const locale of locales) {
+    if (locale === 'en') continue
+
+    for (const [key, englishValue] of Object.entries(after.en)) {
+      const translatedValue = after[locale][key]
+      if (!isTranslation(englishValue) || !isTranslation(translatedValue)) {
+        continue
+      }
+
+      const isNewKey = !Object.hasOwn(before.en, key)
+      const englishChanged =
+        Object.hasOwn(before.en, key) && before.en[key] !== englishValue
+      const translationChanged =
+        !Object.hasOwn(before[locale], key) ||
+        before[locale][key] !== translatedValue
+
+      if (!isNewKey && !englishChanged && !translationChanged) continue
+
+      const expected = translationPlaceholders(englishValue)
+      const actual = translationPlaceholders(translatedValue)
+      if (JSON.stringify(expected) !== JSON.stringify(actual)) {
+        failures.push(
+          `${locale}.json: placeholder mismatch: ${JSON.stringify(key)} expected ${JSON.stringify(expected)} got ${JSON.stringify(actual)}`
+        )
+      }
+
+      if (/__\s*PH_\d+\s*__/i.test(translatedValue)) {
+        failures.push(
+          `${locale}.json: leaked machine-translation placeholder: ${JSON.stringify(key)}`
+        )
+      }
+    }
+  }
+
+  return failures
+}
+
 export function findRegressions(before, after) {
   const failures = []
   for (const locale of locales) {
@@ -37,7 +83,7 @@ export function findRegressions(before, after) {
       }
     }
   }
-  return failures
+  return [...failures, ...findTranslationQualityFailures(before, after)]
 }
 
 export function checkRepository({ cwd = process.cwd(), base = 'HEAD', mergeBase = false } = {}) {
@@ -68,7 +114,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
       console.error(`i18n regression check failed (${failures.length}):\n${failures.join('\n')}`)
       process.exitCode = 1
     } else {
-      console.log('i18n regression check passed: no newly missing or emptied translations.')
+      console.log('i18n regression check passed: no missing, emptied, or structurally broken translations.')
     }
   } catch (error) {
     console.error(`i18n check could not run: ${error.message}`)

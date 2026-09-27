@@ -1,0 +1,476 @@
+{
+  "quotes": [
+    {
+      "bid_cents": 99,
+      "error": "advertisement bid must be between $1 and $10,000",
+      "quota": 0,
+      "unit": "1000.1"
+    },
+    {
+      "bid_cents": 100,
+      "error": "",
+      "quota": 1001,
+      "unit": "1000.1"
+    },
+    {
+      "bid_cents": 125,
+      "error": "",
+      "quota": 1251,
+      "unit": "1000.1"
+    },
+    {
+      "bid_cents": 1000000,
+      "error": "",
+      "quota": 10001000,
+      "unit": "1000.1"
+    },
+    {
+      "bid_cents": 1000001,
+      "error": "advertisement bid must be between $1 and $10,000",
+      "quota": 0,
+      "unit": "1000.1"
+    },
+    {
+      "bid_cents": 99,
+      "error": "advertisement bid must be between $1 and $10,000",
+      "quota": 0,
+      "unit": "500000"
+    },
+    {
+      "bid_cents": 100,
+      "error": "",
+      "quota": 500000,
+      "unit": "500000"
+    },
+    {
+      "bid_cents": 125,
+      "error": "",
+      "quota": 625000,
+      "unit": "500000"
+    },
+    {
+      "bid_cents": 1000000,
+      "error": "",
+      "quota": 5000000000,
+      "unit": "500000"
+    },
+    {
+      "bid_cents": 1000001,
+      "error": "advertisement bid must be between $1 and $10,000",
+      "quota": 0,
+      "unit": "500000"
+    },
+    {
+      "bid_cents": 99,
+      "error": "advertisement bid must be between $1 and $10,000",
+      "quota": 0,
+      "unit": "0.00000000000000001"
+    },
+    {
+      "bid_cents": 100,
+      "error": "wallet quota would exceed the safe range",
+      "quota": 0,
+      "unit": "0.00000000000000001"
+    },
+    {
+      "bid_cents": 125,
+      "error": "wallet quota would exceed the safe range",
+      "quota": 0,
+      "unit": "0.00000000000000001"
+    },
+    {
+      "bid_cents": 1000000,
+      "error": "",
+      "quota": 1,
+      "unit": "0.00000000000000001"
+    },
+    {
+      "bid_cents": 1000001,
+      "error": "advertisement bid must be between $1 and $10,000",
+      "quota": 0,
+      "unit": "0.00000000000000001"
+    },
+    {
+      "bid_cents": 99,
+      "error": "advertisement bid must be between $1 and $10,000",
+      "quota": 0,
+      "unit": "0.00000000000000005"
+    },
+    {
+      "bid_cents": 100,
+      "error": "",
+      "quota": 1,
+      "unit": "0.00000000000000005"
+    },
+    {
+      "bid_cents": 125,
+      "error": "",
+      "quota": 1,
+      "unit": "0.00000000000000005"
+    },
+    {
+      "bid_cents": 1000000,
+      "error": "",
+      "quota": 1,
+      "unit": "0.00000000000000005"
+    },
+    {
+      "bid_cents": 1000001,
+      "error": "advertisement bid must be between $1 and $10,000",
+      "quota": 0,
+      "unit": "0.00000000000000005"
+    },
+    {
+      "bid_cents": 99,
+      "error": "advertisement bid must be between $1 and $10,000",
+      "quota": 0,
+      "unit": "0.0000000000000001"
+    },
+    {
+      "bid_cents": 100,
+      "error": "",
+      "quota": 1,
+      "unit": "0.0000000000000001"
+    },
+    {
+      "bid_cents": 125,
+      "error": "",
+      "quota": 1,
+      "unit": "0.0000000000000001"
+    },
+    {
+      "bid_cents": 1000000,
+      "error": "",
+      "quota": 1,
+      "unit": "0.0000000000000001"
+    },
+    {
+      "bid_cents": 1000001,
+      "error": "advertisement bid must be between $1 and $10,000",
+      "quota": 0,
+      "unit": "0.0000000000000001"
+    },
+    {
+      "bid_cents": 99,
+      "error": "advertisement bid must be between $1 and $10,000",
+      "quota": 0,
+      "unit": "1e-30"
+    },
+    {
+      "bid_cents": 100,
+      "error": "wallet quota would exceed the safe range",
+      "quota": 0,
+      "unit": "1e-30"
+    },
+    {
+      "bid_cents": 125,
+      "error": "wallet quota would exceed the safe range",
+      "quota": 0,
+      "unit": "1e-30"
+    },
+    {
+      "bid_cents": 1000000,
+      "error": "wallet quota would exceed the safe range",
+      "quota": 0,
+      "unit": "1e-30"
+    },
+    {
+      "bid_cents": 1000001,
+      "error": "advertisement bid must be between $1 and $10,000",
+      "quota": 0,
+      "unit": "1e-30"
+    },
+    {
+      "bid_cents": 99,
+      "error": "advertisement bid must be between $1 and $10,000",
+      "quota": 0,
+      "unit": "0"
+    },
+    {
+      "bid_cents": 100,
+      "error": "wallet quota would exceed the safe range",
+      "quota": 0,
+      "unit": "0"
+    },
+    {
+      "bid_cents": 125,
+      "error": "wallet quota would exceed the safe range",
+      "quota": 0,
+      "unit": "0"
+    },
+    {
+      "bid_cents": 1000000,
+      "error": "wallet quota would exceed the safe range",
+      "quota": 0,
+      "unit": "0"
+    },
+    {
+      "bid_cents": 1000001,
+      "error": "advertisement bid must be between $1 and $10,000",
+      "quota": 0,
+      "unit": "0"
+    },
+    {
+      "bid_cents": 99,
+      "error": "advertisement bid must be between $1 and $10,000",
+      "quota": 0,
+      "unit": "-1"
+    },
+    {
+      "bid_cents": 100,
+      "error": "wallet quota would exceed the safe range",
+      "quota": 0,
+      "unit": "-1"
+    },
+    {
+      "bid_cents": 125,
+      "error": "wallet quota would exceed the safe range",
+      "quota": 0,
+      "unit": "-1"
+    },
+    {
+      "bid_cents": 1000000,
+      "error": "wallet quota would exceed the safe range",
+      "quota": 0,
+      "unit": "-1"
+    },
+    {
+      "bid_cents": 1000001,
+      "error": "advertisement bid must be between $1 and $10,000",
+      "quota": 0,
+      "unit": "-1"
+    },
+    {
+      "bid_cents": 99,
+      "error": "advertisement bid must be between $1 and $10,000",
+      "quota": 0,
+      "unit": "NaN"
+    },
+    {
+      "bid_cents": 100,
+      "error": "wallet quota would exceed the safe range",
+      "quota": 0,
+      "unit": "NaN"
+    },
+    {
+      "bid_cents": 125,
+      "error": "wallet quota would exceed the safe range",
+      "quota": 0,
+      "unit": "NaN"
+    },
+    {
+      "bid_cents": 1000000,
+      "error": "wallet quota would exceed the safe range",
+      "quota": 0,
+      "unit": "NaN"
+    },
+    {
+      "bid_cents": 1000001,
+      "error": "advertisement bid must be between $1 and $10,000",
+      "quota": 0,
+      "unit": "NaN"
+    },
+    {
+      "bid_cents": 99,
+      "error": "advertisement bid must be between $1 and $10,000",
+      "quota": 0,
+      "unit": "+Inf"
+    },
+    {
+      "bid_cents": 100,
+      "error": "wallet quota would exceed the safe range",
+      "quota": 0,
+      "unit": "+Inf"
+    },
+    {
+      "bid_cents": 125,
+      "error": "wallet quota would exceed the safe range",
+      "quota": 0,
+      "unit": "+Inf"
+    },
+    {
+      "bid_cents": 1000000,
+      "error": "wallet quota would exceed the safe range",
+      "quota": 0,
+      "unit": "+Inf"
+    },
+    {
+      "bid_cents": 1000001,
+      "error": "advertisement bid must be between $1 and $10,000",
+      "quota": 0,
+      "unit": "+Inf"
+    },
+    {
+      "bid_cents": 99,
+      "error": "advertisement bid must be between $1 and $10,000",
+      "quota": 0,
+      "unit": "9007199254740991"
+    },
+    {
+      "bid_cents": 100,
+      "error": "",
+      "quota": 9007199254740991,
+      "unit": "9007199254740991"
+    },
+    {
+      "bid_cents": 125,
+      "error": "wallet quota would exceed the safe range",
+      "quota": 0,
+      "unit": "9007199254740991"
+    },
+    {
+      "bid_cents": 1000000,
+      "error": "wallet quota would exceed the safe range",
+      "quota": 0,
+      "unit": "9007199254740991"
+    },
+    {
+      "bid_cents": 1000001,
+      "error": "advertisement bid must be between $1 and $10,000",
+      "quota": 0,
+      "unit": "9007199254740991"
+    },
+    {
+      "bid_cents": 99,
+      "error": "advertisement bid must be between $1 and $10,000",
+      "quota": 0,
+      "unit": "9007199254740992"
+    },
+    {
+      "bid_cents": 100,
+      "error": "wallet quota would exceed the safe range",
+      "quota": 0,
+      "unit": "9007199254740992"
+    },
+    {
+      "bid_cents": 125,
+      "error": "wallet quota would exceed the safe range",
+      "quota": 0,
+      "unit": "9007199254740992"
+    },
+    {
+      "bid_cents": 1000000,
+      "error": "wallet quota would exceed the safe range",
+      "quota": 0,
+      "unit": "9007199254740992"
+    },
+    {
+      "bid_cents": 1000001,
+      "error": "advertisement bid must be between $1 and $10,000",
+      "quota": 0,
+      "unit": "9007199254740992"
+    }
+  ],
+  "urls": [
+    {
+      "error": "",
+      "input": "https://example.com",
+      "normalized": "https://example.com"
+    },
+    {
+      "error": "",
+      "input": " https://Example.COM ",
+      "normalized": "https://Example.COM"
+    },
+    {
+      "error": "",
+      "input": "HTTPS://Example.com",
+      "normalized": "https://Example.com"
+    },
+    {
+      "error": "",
+      "input": "https://example.com/中文?a=中文#中文",
+      "normalized": "https://example.com/%E4%B8%AD%E6%96%87?a=中文#%E4%B8%AD%E6%96%87"
+    },
+    {
+      "error": "",
+      "input": "https://例子.com/路径",
+      "normalized": "https://%E4%BE%8B%E5%AD%90.com/%E8%B7%AF%E5%BE%84"
+    },
+    {
+      "error": "",
+      "input": "https://example.com/a[b]",
+      "normalized": "https://example.com/a[b]"
+    },
+    {
+      "error": "",
+      "input": "https://example.com/a\\b",
+      "normalized": "https://example.com/a%5Cb"
+    },
+    {
+      "error": "",
+      "input": "https://example.com:99999",
+      "normalized": "https://example.com:99999"
+    },
+    {
+      "error": "invalid advertisement details",
+      "input": "https://example.com/%zz",
+      "normalized": ""
+    },
+    {
+      "error": "",
+      "input": "https://127.1",
+      "normalized": "https://127.1"
+    },
+    {
+      "error": "invalid advertisement details",
+      "input": "https://127.0.0.1",
+      "normalized": ""
+    },
+    {
+      "error": "invalid advertisement details",
+      "input": "https://10.1.2.3",
+      "normalized": ""
+    },
+    {
+      "error": "invalid advertisement details",
+      "input": "https://0.0.0.0",
+      "normalized": ""
+    },
+    {
+      "error": "invalid advertisement details",
+      "input": "https://169.254.1.2",
+      "normalized": ""
+    },
+    {
+      "error": "invalid advertisement details",
+      "input": "https://localhost",
+      "normalized": ""
+    },
+    {
+      "error": "invalid advertisement details",
+      "input": "https://host.local",
+      "normalized": ""
+    },
+    {
+      "error": "",
+      "input": "https://[::ffff:8.8.8.8]/",
+      "normalized": "https://[::ffff:8.8.8.8]/"
+    },
+    {
+      "error": "invalid advertisement details",
+      "input": "https://[::ffff:127.0.0.1]/",
+      "normalized": ""
+    },
+    {
+      "error": "invalid advertisement details",
+      "input": "https://user:pass@example.com",
+      "normalized": ""
+    },
+    {
+      "error": "invalid advertisement details",
+      "input": "https://@example.com",
+      "normalized": ""
+    },
+    {
+      "error": "invalid advertisement details",
+      "input": "http://example.com",
+      "normalized": ""
+    },
+    {
+      "error": "",
+      "input": "https://example.com?#",
+      "normalized": "https://example.com?"
+    }
+  ]
+}

@@ -12,6 +12,7 @@ import {
   PRICING_EXAMPLE,
   PRICING_PROMPT,
 } from './integration-prompts'
+import { RequestBuilder } from './request-builder'
 
 export function IntegrationPrompt({
   prompt,
@@ -41,7 +42,7 @@ export function IntegrationPrompt({
       </Button>
       <p className='text-muted-foreground text-sm leading-relaxed'>
         {t(
-          'Prompts contain technical instructions in English and no credentials.'
+          'Prompts contain technical instructions in English, never credentials.'
         )}
       </p>
       {failed && (
@@ -97,22 +98,37 @@ export function DevelopersPage() {
       <h1 className='text-4xl font-semibold tracking-tight sm:text-5xl'>
         {t('Developers')}
       </h1>
-      <p className='mt-5 max-w-2xl text-xl leading-relaxed'>
-        {t('Connect LMM to your project.')}
+      <p className='mt-4 max-w-2xl text-xl leading-snug text-balance'>
+        {t('One base URL. Any client.')}
       </p>
       <p className='text-muted-foreground mt-3 max-w-2xl leading-relaxed'>
-        {t(
-          'Model pricing and OAuth, with prompts you can hand to your coding assistant.'
-        )}
+        {t('Build a request below, then copy it into your project.')}
       </p>
       <nav
         aria-label={t('Integration guide')}
         className='mt-8 flex flex-wrap gap-x-6 gap-y-3 text-sm underline underline-offset-4'
       >
+        <a href='#request-builder'>{t('Request builder')}</a>
         <a href='#pricing-api'>{t('Pricing API')}</a>
         <a href='#oauth-integration'>{t('OAuth integration')}</a>
         <a href='/webmcp'>WebMCP</a>
       </nav>
+
+      <section
+        id='request-builder'
+        aria-labelledby='request-builder-title'
+        className='mt-12 scroll-mt-24 border-t pt-9'
+      >
+        <h2 id='request-builder-title' className='text-2xl font-semibold'>
+          {t('Request builder')}
+        </h2>
+        <p className='text-muted-foreground mt-3 max-w-prose leading-relaxed'>
+          {t(
+            'Pick a protocol and language. The snippet updates as you type and is never sent.'
+          )}
+        </p>
+        <RequestBuilder />
+      </section>
 
       <section
         id='pricing-api'
@@ -125,9 +141,7 @@ export function DevelopersPage() {
         <div className='mt-4 grid gap-8 lg:grid-cols-[minmax(0,1fr)_19rem] lg:gap-14'>
           <div className='order-2 min-w-0 lg:order-1'>
             <p className='text-muted-foreground mt-3 max-w-prose leading-relaxed'>
-              {t(
-                'Public prices follow the site visibility settings. Account-specific prices require an authorized catalog request.'
-              )}
+              {t('Public prices follow the site visibility settings.')}
             </p>
             <dl className='mt-5 divide-y border-y'>
               <Endpoint
@@ -142,9 +156,7 @@ export function DevelopersPage() {
               />
             </dl>
             <p className='mt-5 text-sm leading-relaxed'>
-              {t(
-                'Keep price units and billing modes intact. Missing prices are unknown, not zero.'
-              )}
+              {t('Missing prices are unknown, not zero.')}
             </p>
             <h3 className='mt-6 text-sm font-semibold'>
               {t('Fetch pricing from your backend.')}
@@ -187,13 +199,11 @@ export function DevelopersPage() {
               {t('Registered native clients')}
             </h3>
             <p className='text-muted-foreground mt-2 leading-relaxed'>
-              {t(
-                'OAuth uses Authorization Code with PKCE (S256). Register your client and callback before integration.'
-              )}
+              {t('Authorization Code with PKCE (S256).')}
             </p>
             <p className='mt-4 rounded-xl border p-4 text-sm leading-relaxed'>
               {t(
-                'Website sign-in through OpenID Connect is not available yet. There is no userinfo endpoint, ID token, or public client registration endpoint.'
+                'No OpenID Connect sign-in yet: no userinfo endpoint, ID token, or public client registration.'
               )}
             </p>
             <dl className='mt-5 divide-y border-y'>
@@ -223,7 +233,7 @@ export function DevelopersPage() {
             </h3>
             <p className='text-muted-foreground mt-2 text-sm leading-relaxed'>
               {t(
-                'Client ID and allowed scope profile must come from the server registry. Do not reuse another application’s client ID.'
+                'Client ID and scope profile must come from the server registry. Never reuse another application’s client ID.'
               )}
             </p>
             <div className='mt-5 flex flex-wrap gap-x-6 gap-y-3 text-sm underline underline-offset-4'>

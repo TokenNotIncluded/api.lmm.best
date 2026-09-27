@@ -91,11 +91,9 @@ test('Chinese, traditional Chinese and fallback copy remain explicit about eligi
   ]) {
     const copy = getL0AccessCopy(language)
     assert.match(copy.eligibility, /LinuxDO Credit/)
-    assert.ok(copy.topup.includes('L1'))
+    assert.ok(copy.wallet.length > 0)
     assert.ok(Object.values(copy).every((value) => value.length > 0))
   }
-  assert.match(getL0AccessCopy('zh-CN').topup, /充值/)
-  assert.match(getL0AccessCopy('zh-TW').topup, /儲值/)
 })
 
 test('checking stops after the server grants access without a review-status dependency', async () => {

@@ -27,6 +27,8 @@ type ErrorPageFrameProps = {
   note?: React.ReactNode
   showStatus?: boolean
   artSrc?: string
+  /** A small playable distraction shown under the copy instead of dead air. */
+  play?: React.ReactNode
 }
 
 export function ErrorPageFrame(props: ErrorPageFrameProps) {
@@ -40,7 +42,6 @@ export function ErrorPageFrame(props: ErrorPageFrameProps) {
               <LmmBrandMark className='size-7' title={systemName} />
               <span>{systemName}</span>
             </div>
-            <p className='error-editorial-kicker'>System note</p>
             {props.showStatus !== false && (
               <p
                 className='error-editorial-status'
@@ -54,6 +55,9 @@ export function ErrorPageFrame(props: ErrorPageFrameProps) {
             {props.note && <p className='error-editorial-note'>{props.note}</p>}
             {props.actions && (
               <div className='error-editorial-actions'>{props.actions}</div>
+            )}
+            {props.play && (
+              <div className='error-editorial-play'>{props.play}</div>
             )}
           </section>
 

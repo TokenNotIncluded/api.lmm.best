@@ -32,10 +32,13 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import {
   ArrowUpRight,
+  ChevronDown,
   Download,
   History,
   KeyRound,
   MessageCircle,
+  Pause,
+  Play,
   Plus,
   Square,
   Wrench,
@@ -80,11 +83,18 @@ import {
 } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
 import { WaitCompanion } from '@/components/wait-companion'
+import {
+  createL0Tokens,
+  mountL0TokenCloud,
+  projectL0Token,
+} from '@/features/onboarding/l0-token-cloud'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { getSelf } from '@/lib/api'
 import { isConsoleActivated } from '@/lib/console-activation'
 import { cn } from '@/lib/utils'
 import { useAuthStore, type AuthUser } from '@/stores/auth-store'
+
+import './assistant-surface.css'
 
 import {
   assistantRunFailureDetails,
@@ -256,6 +266,60 @@ function getBaseUrl(): string {
   return `${window.location.origin}/v1`
 }
 
+const assistantCloudFallback = createL0Tokens(390).filter(
+  (_, index) => index % 3 === 0
+)
+
+function AssistantTokenCloud() {
+  const { t } = useTranslation()
+  const cloudRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const root = cloudRef.current
+    if (root) return mountL0TokenCloud(root)
+  }, [])
+
+  return (
+    <div
+      className='assistant-token-cloud'
+      data-testid='assistant-token-cloud'
+      data-cloud-scene='chat'
+      data-cloud-contrast='strong'
+      ref={cloudRef}
+    >
+      <svg
+        className='assistant-token-cloud-fallback'
+        viewBox='0 0 400 220'
+        aria-hidden='true'
+      >
+        {assistantCloudFallback.map((token, index) => {
+          const point = projectL0Token(token, 0)
+          return (
+            <circle
+              key={index}
+              cx={200 + point.x * 114}
+              cy={110 + point.y * 114}
+              r={0.6 + point.depth * 0.8}
+              opacity={Math.min(1, (0.14 + point.depth * 0.72) * 1.8)}
+            />
+          )
+        })}
+      </svg>
+      <canvas aria-hidden='true' />
+      <button
+        type='button'
+        className='assistant-token-cloud-toggle'
+        data-cloud-pause
+        aria-label={`${t('Pause')} / ${t('Continue')}`}
+        aria-pressed='false'
+      >
+        <Pause className='assistant-token-cloud-pause' aria-hidden='true' />
+        <Play className='assistant-token-cloud-play' aria-hidden='true' />
+      </button>
+    </div>
+  )
+}
+
 function AssistantModernWelcome(props: {
   description: string
   restricted: boolean
@@ -264,17 +328,16 @@ function AssistantModernWelcome(props: {
 
   return (
     <div
-      className='mx-auto flex w-full max-w-2xl flex-col items-center justify-center gap-4 px-2 pt-10 pb-7 text-center sm:px-5 sm:pt-16 sm:pb-9'
+      className='assistant-start-intro'
       data-testid='assistant-modern-welcome'
     >
-      <h2 className='text-2xl leading-snug font-semibold tracking-tight text-balance sm:text-3xl'>
+      <AssistantTokenCloud />
+      <h2>
         {props.restricted
           ? t('What would you like to do?')
           : t('How can I help?')}
       </h2>
-      <p className='text-muted-foreground max-w-xl text-sm leading-7'>
-        {props.description}
-      </p>
+      <p>{props.description}</p>
     </div>
   )
 }
@@ -316,7 +379,7 @@ function AssistantGettingStartedActions(props: {
 
   return (
     <div
-      className='mx-auto mb-8 grid w-full max-w-xl gap-3 px-1 sm:px-4'
+      className='assistant-start-actions'
       aria-label={t('Getting started')}
       data-testid='assistant-getting-started-actions'
     >
@@ -326,20 +389,17 @@ function AssistantGettingStartedActions(props: {
           type='button'
           disabled={props.disabled}
           onClick={open}
-          className='border-border/70 bg-background text-foreground hover:bg-muted focus-visible:ring-ring flex min-h-20 items-center gap-3 rounded-xl border px-4 py-4 text-start transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 sm:gap-4 sm:px-5'
+          className='assistant-start-action'
         >
-          <Icon
-            className='text-muted-foreground size-5 shrink-0'
-            aria-hidden='true'
-          />
-          <span className='min-w-0 flex-1'>
-            <span className='block text-sm font-medium'>{title}</span>
-            <span className='text-muted-foreground mt-1 block text-xs leading-5'>
+          <Icon className='assistant-start-action-icon' aria-hidden='true' />
+          <span className='assistant-start-action-copy'>
+            <span className='assistant-start-action-title'>{title}</span>
+            <span className='assistant-start-action-description'>
               {description}
             </span>
           </span>
           <ArrowUpRight
-            className='text-muted-foreground size-4 shrink-0'
+            className='assistant-start-action-arrow'
             aria-hidden='true'
           />
         </button>
@@ -678,7 +738,7 @@ function AssistantPresetPrompts(props: {
           type='button'
           variant='ghost'
           size='sm'
-          className='bg-muted/40 h-auto min-h-8 max-w-full shrink-0 rounded-full px-3 text-left whitespace-normal'
+          className='assistant-preset-token h-auto min-h-8 max-w-full shrink-0 rounded-full px-3 text-left whitespace-normal'
           onClick={() => {
             setInput(preset.prompt)
             props.onSelect(preset)
@@ -873,11 +933,15 @@ function AssistantPanelHeader(props: {
   // history + fullscreen on the left, close on the right. No dividers.
   if (props.mode === 'mobile') {
     return (
-      <SheetHeader className='flex-row items-center gap-0.5 px-2 py-2 sm:px-3'>
+      <SheetHeader className='assistant-surface-header flex-row items-center gap-0.5 px-3 py-2 sm:px-4'>
         <SheetTitle className='sr-only'>{t('AI assistant')}</SheetTitle>
         <SheetDescription className='sr-only'>
           {props.description}
         </SheetDescription>
+        <span className='assistant-surface-wordmark' aria-hidden='true'>
+          LMM<span>/</span>AI
+        </span>
+        <div className='ms-auto' />
         <Button
           type='button'
           variant='ghost'
@@ -892,7 +956,6 @@ function AssistantPanelHeader(props: {
           <History aria-hidden='true' />
         </Button>
         {supportActions}
-        <div className='ms-auto' />
         <Button
           type='button'
           variant='ghost'
@@ -914,7 +977,10 @@ function AssistantPanelHeader(props: {
 
   if (props.mode === 'page') {
     return (
-      <header className='assistant-modern-header flex min-w-0 shrink-0 items-center gap-0.5 px-3 py-2 sm:px-4'>
+      <header className='assistant-modern-header assistant-surface-header flex min-w-0 shrink-0 items-center gap-0.5 px-3 py-2 sm:px-4'>
+        <span className='assistant-surface-wordmark' aria-hidden='true'>
+          LMM<span>/</span>AI
+        </span>
         <Button
           type='button'
           variant='ghost'
@@ -938,7 +1004,10 @@ function AssistantPanelHeader(props: {
 
   // Desktop rail header
   return (
-    <header className='flex min-w-0 shrink-0 items-center gap-0.5 px-2 py-2 sm:px-3'>
+    <header className='assistant-surface-header flex min-w-0 shrink-0 items-center gap-0.5 px-3 py-2 sm:px-4'>
+      <span className='assistant-surface-wordmark' aria-hidden='true'>
+        LMM<span>/</span>AI
+      </span>
       <Button
         type='button'
         variant='ghost'
@@ -1965,6 +2034,29 @@ function AssistantPanelSession(props: AssistantPanelProps) {
     notifyCopyResult(copied)
   }
 
+  const visibleStarterPresets =
+    accountAccessConfirmed &&
+    !entries.some((entry) => entry.role === 'user') &&
+    !preConversationPresetsQuery.isPending
+      ? filterAssistantPreConversationPresets(
+          preConversationPresetsQuery.data?.presets,
+          authUser
+        )
+      : []
+  const starterPrompts =
+    visibleStarterPresets.length > 0 ? (
+      <AssistantPresetPrompts
+        user={authUser}
+        presets={visibleStarterPresets}
+        onSelect={(preset) => {
+          setSelectedPreConversationPresetId(preset.id)
+          void recordAssistantPreConversationPresetClick(preset.id).catch(
+            () => undefined
+          )
+        }}
+      />
+    ) : null
+
   const panelContent = (
     <>
       <AssistantPanelHeader
@@ -2040,7 +2132,10 @@ function AssistantPanelSession(props: AssistantPanelProps) {
               }}
             />
           ) : null}
-          <Conversation className={cn('min-h-0 min-w-0 flex-1', 'bg-muted/20')}>
+          <Conversation
+            className={cn('min-h-0 min-w-0 flex-1', 'bg-muted/20')}
+            initial={entries.length === 0 ? false : 'smooth'}
+          >
             <ConversationContent
               className={cn(
                 'flex min-h-full min-w-0 flex-col gap-5 overflow-x-hidden px-4 py-5 sm:px-6',
@@ -2064,7 +2159,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                     />
                   ) : null}
                   <div
-                    className='flex min-h-0 flex-1 flex-col'
+                    className='assistant-start-shell flex min-h-0 flex-1 flex-col'
                     data-testid='assistant-l0-welcome'
                   >
                     <AssistantModernWelcome
@@ -2219,6 +2314,9 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                           onKeyCreated={() => {
                             setAutoConfirmKeyToken(null)
                             setKeyCreationAction(null)
+                            void queryClient.invalidateQueries({
+                              queryKey: ['keys'],
+                            })
                             if (authUser) {
                               void queryClient.invalidateQueries({
                                 queryKey: [
@@ -2360,7 +2458,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                 </>
               )}
             </ConversationContent>
-            <ConversationScrollButton />
+            {entries.length > 0 ? <ConversationScrollButton /> : null}
           </Conversation>
 
           <WaitCompanion
@@ -2439,23 +2537,17 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                   initialMessage={props.initialMessage}
                   initialMessageRevision={props.initialMessageRevision}
                 />
-                {accountAccessConfirmed &&
-                !entries.some((entry) => entry.role === 'user') ? (
-                  <AssistantPresetPrompts
-                    user={authUser}
-                    presets={
-                      preConversationPresetsQuery.isPending
-                        ? []
-                        : preConversationPresetsQuery.data?.presets
-                    }
-                    onSelect={(preset) => {
-                      setSelectedPreConversationPresetId(preset.id)
-                      void recordAssistantPreConversationPresetClick(
-                        preset.id
-                      ).catch(() => undefined)
-                    }}
-                  />
-                ) : null}
+                {mode === 'rail' && starterPrompts ? (
+                  <details className='assistant-preset-disclosure'>
+                    <summary>
+                      {t('Choose a topic or write a message.')}
+                      <ChevronDown aria-hidden='true' />
+                    </summary>
+                    {starterPrompts}
+                  </details>
+                ) : (
+                  starterPrompts
+                )}
                 {authUser ? (
                   <AssistantSupportControls
                     request={support.request}
@@ -2535,7 +2627,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
     return (
       <section
         id='ai-assistant-panel'
-        className='bg-background flex min-h-0 min-w-0 flex-1'
+        className='assistant-surface bg-background flex min-h-0 min-w-0 flex-1'
         data-layout='modern'
         aria-label={t('AI assistant')}
       >
@@ -2554,7 +2646,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
           role='dialog'
           aria-modal='true'
           aria-label={t('AI assistant')}
-          className='bg-background fixed inset-0 z-50 flex min-h-0 flex-col'
+          className='assistant-surface bg-background fixed inset-0 z-50 flex min-h-0 flex-col'
           data-layout='modern'
         >
           {panelContent}
@@ -2567,7 +2659,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
     return (
       <aside
         id='ai-assistant-panel'
-        className='bg-card flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border shadow-sm'
+        className='assistant-surface bg-card flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border shadow-sm'
         data-layout='modern'
         aria-label={t('AI assistant')}
       >
@@ -2585,11 +2677,11 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         className={sideDrawerContentClassName(
           cn(
             // Mobile: edge-to-edge fullscreen.
-            'inset-0 h-dvh max-h-dvh min-h-0 w-screen max-w-none min-w-0 rounded-none overscroll-contain',
+            'inset-0 h-dvh max-h-dvh min-h-0 w-screen max-w-none min-w-0 rounded-none overscroll-contain data-[side=right]:w-screen',
             // sm+: floating right-side dialog aligned with the shell's
             // rounded-card language (radius follows the theme token).
-            'sm:inset-y-2 sm:right-2 sm:left-auto sm:h-auto sm:w-[min(32rem,calc(100vw-1rem))] sm:max-w-none sm:rounded-xl sm:border sm:shadow-lg',
-            'bg-background'
+            'sm:inset-y-2 sm:right-2 sm:left-auto sm:h-auto sm:w-[min(32rem,calc(100vw-1rem))] sm:max-w-none sm:rounded-xl sm:border sm:shadow-lg sm:data-[side=right]:w-[min(32rem,calc(100vw-1rem))]',
+            'assistant-surface bg-background'
           )
         )}
         data-layout='modern'

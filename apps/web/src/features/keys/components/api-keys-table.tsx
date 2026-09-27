@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
 import type { Table as TanstackTable } from '@tanstack/react-table'
-import { Database } from 'lucide-react'
+import { KeyRound, Plus } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -32,6 +32,7 @@ import {
   useDataTable,
 } from '@/components/data-table'
 import { StatusBadge } from '@/components/status-badge'
+import { Button } from '@/components/ui/button'
 import {
   Empty,
   EmptyDescription,
@@ -40,6 +41,7 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty'
 import { Input } from '@/components/ui/input'
+import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 import { formatQuota } from '@/lib/format'
@@ -52,6 +54,8 @@ import {
   API_KEY_STATUSES,
   ERROR_MESSAGES,
 } from '../constants'
+import { isAssistantRuntimeKey } from '../lib'
+import { getQuotaProgressColor, getQuotaUsage } from '../lib/quota-usage'
 import type { ApiKey, ApiKeyCreationMode } from '../types'
 import { ApiKeyCreationSourceBadge } from './api-key-creation-source'
 import {
@@ -108,33 +112,45 @@ function ApiKeysMobileList({
   creationMode: ApiKeyCreationMode
 }) {
   const { t } = useTranslation()
+  const { setOpen } = useApiKeys()
   const rows = table.getRowModel().rows
 
   if (isLoading) return <ApiKeysMobileSkeleton />
 
   if (!rows.length) {
+    const isAutomatic = creationMode === 'automatic'
     return (
       <div className='rounded-lg border p-8'>
         <Empty className='border-none p-0'>
           <EmptyHeader>
             <EmptyMedia variant='icon'>
-              <Database className='size-6' />
+              <KeyRound className='size-6' />
             </EmptyMedia>
             <EmptyTitle>
-              {creationMode === 'automatic'
+              {isAutomatic
                 ? t('No automatically created API keys')
                 : t('No API Keys Found')}
             </EmptyTitle>
             <EmptyDescription>
-              {creationMode === 'automatic'
+              {isAutomatic
                 ? t(
-                    'Keys created by Drawing MCP, Assistant, and other connected tools appear here.'
+                    'Keys created for site features appear here. Keys created with the assistant appear after your confirmation.'
                   )
                 : t(
                     'No API keys available. Create your first API key to get started.'
                   )}
             </EmptyDescription>
           </EmptyHeader>
+          {isAutomatic ? null : (
+            <Button
+              size='sm'
+              className='min-h-11'
+              onClick={() => setOpen('create')}
+            >
+              <Plus className='h-4 w-4' />
+              {t('Create API Key')}
+            </Button>
+          )}
         </Empty>
       </div>
     )
@@ -145,7 +161,7 @@ function ApiKeysMobileList({
       {rows.map((row) => {
         const apiKey = row.original
         const statusConfig = API_KEY_STATUSES[apiKey.status]
-        const total = apiKey.used_quota + apiKey.remain_quota
+        const { total, remainingPercent } = getQuotaUsage(apiKey)
 
         return (
           <div
@@ -173,18 +189,24 @@ function ApiKeysMobileList({
               )}
             </div>
 
-            <div className='flex min-w-0 items-center justify-between gap-2'>
-              <div className='min-w-0 flex-1 [&_button:first-child]:max-w-full [&_button:first-child]:truncate [&_button:first-child]:px-0'>
+            <div className='flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1'>
+              <div className='min-w-40 flex-1 [&_button]:min-h-11 [&_button:first-child]:max-w-full [&_button:first-child]:truncate [&_button:first-child]:px-0 [&_button:last-child]:min-w-11'>
                 <ApiKeyCell apiKey={apiKey} />
               </div>
-              <div className='[&_button]:min-h-11 [&_button]:min-w-11'>
-                <DataTableRowActions row={row} />
-              </div>
+              {isAssistantRuntimeKey(apiKey) ? null : (
+                <div className='ml-auto [&_button]:min-h-11 [&_button]:min-w-11 [&>div]:ml-0'>
+                  <DataTableRowActions row={row} />
+                </div>
+              )}
             </div>
 
             <div className='flex items-center justify-between gap-2 text-xs'>
               <span className='text-muted-foreground'>{t('Quota')}</span>
-              {apiKey.unlimited_quota ? (
+              {isAssistantRuntimeKey(apiKey) ? (
+                <span className='text-muted-foreground text-right'>
+                  {t('Billed to super administrator wallet')}
+                </span>
+              ) : apiKey.unlimited_quota ? (
                 <UnlimitedQuotaBadge used={apiKey.used_quota} />
               ) : (
                 <span className='font-medium tabular-nums'>
@@ -196,9 +218,24 @@ function ApiKeysMobileList({
                 </span>
               )}
             </div>
+            {isAssistantRuntimeKey(apiKey) ||
+            apiKey.unlimited_quota ||
+            total <= 0 ? null : (
+              <Progress
+                value={remainingPercent}
+                aria-label={t('Remaining quota')}
+                className={cn('h-1.5', getQuotaProgressColor(remainingPercent))}
+              />
+            )}
             <div className='flex items-center justify-between gap-2 text-xs'>
               <span className='text-muted-foreground'>{t('Used quota')}</span>
-              <ApiKeyUsedQuota used={apiKey.used_quota} />
+              {isAssistantRuntimeKey(apiKey) ? (
+                <span className='text-muted-foreground text-right'>
+                  {t('Tracked in assistant funding')}
+                </span>
+              ) : (
+                <ApiKeyUsedQuota used={apiKey.used_quota} />
+              )}
             </div>
             {creationMode === 'automatic' ? (
               <div className='flex items-center justify-between gap-2 text-xs'>
@@ -221,7 +258,7 @@ export function ApiKeysTable({
   creationMode: ApiKeyCreationMode
 }) {
   const { t } = useTranslation()
-  const { refreshTrigger } = useApiKeys()
+  const { refreshTrigger, setOpen } = useApiKeys()
   const [now, setNow] = useState(() => Date.now())
   const columns = useApiKeysColumns(now, creationMode)
 
@@ -317,7 +354,7 @@ export function ApiKeysTable({
   const { table } = useDataTable({
     data: apiKeys,
     columns,
-    enableRowSelection: true,
+    enableRowSelection: (row) => !isAssistantRuntimeKey(row.original),
     columnFilters,
     columnVisibilityStorageKey: API_KEYS_COLUMN_VISIBILITY_STORAGE_KEY,
     globalFilter,
@@ -330,6 +367,10 @@ export function ApiKeysTable({
     totalCount: data?.total || 0,
     ensurePageInRange,
   })
+
+  // An empty list is only a "you have nothing yet" state when no filter is
+  // narrowing it; otherwise the right next step is to clear the filter.
+  const showCreateCta = creationMode === 'manual' && !shouldSearch
 
   return (
     <DataTablePage
@@ -345,14 +386,27 @@ export function ApiKeysTable({
       emptyDescription={
         creationMode === 'automatic'
           ? t(
-              'Keys created by Drawing MCP, Assistant, and other connected tools appear here.'
+              'Keys created for site features appear here. Keys created with the assistant appear after your confirmation.'
             )
-          : t(
-              'No API keys available. Create your first API key to get started.'
-            )
+          : shouldSearch
+            ? t('No API keys match the current filters.')
+            : t(
+                'No API keys available. Create your first API key to get started.'
+              )
+      }
+      emptyIcon={creationMode === 'manual' ? <KeyRound /> : undefined}
+      emptyAction={
+        showCreateCta ? (
+          <Button size='sm' onClick={() => setOpen('create')}>
+            <Plus className='h-4 w-4' />
+            {t('Create API Key')}
+          </Button>
+        ) : undefined
       }
       skeletonKeyPrefix='api-keys-skeleton'
       applyHeaderSize
+      fixedHeight={false}
+      paginationInFooter={false}
       toolbarProps={{
         searchPlaceholder: t('Filter by name...'),
         additionalSearch: (

@@ -16,9 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-/*
-Copyright (C) 2026 LIghtJUNction
-*/
 import {
   ArrowRight01Icon,
   CircleDotIcon,
@@ -32,24 +29,6 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { listBounties } from '@/features/open-source-bounties/api'
-/*
-Copyright (C) 2023-2026 QuantumNous
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as
-published by the Free Software Foundation, either version 3 of the
-License, or (at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-GNU Affero General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License
-along with this program. If not, see <https://www.gnu.org/licenses/>.
-
-For commercial licensing, please contact support@quantumnous.com
-*/
 import { BountyDecision } from '@/features/open-source-bounties/bounty-decision'
 import { useStatus } from '@/hooks/use-status'
 import { getBackendCapabilities } from '@/lib/backend-capabilities'
@@ -63,6 +42,7 @@ type ChallengeListProps = {
   hideWhenUnavailable?: boolean
   heading?: string
   description?: string
+  console?: boolean
 }
 
 function repositoryName(url: string): string {
@@ -130,7 +110,13 @@ export function ChallengeList(props: ChallengeListProps) {
         </div>
       )}
 
-      <div className='border-foreground border-t-2'>
+      <div
+        className={cn(
+          props.console
+            ? 'border-border border-t'
+            : 'border-foreground border-t-2'
+        )}
+      >
         {loading &&
           Array.from({ length: Math.min(limit, 3) }, (_, index) => (
             <div
@@ -178,7 +164,12 @@ export function ChallengeList(props: ChallengeListProps) {
             className='border-border group hover:bg-muted focus-visible:bg-muted grid min-h-24 grid-cols-[minmax(0,1fr)_auto] items-center gap-5 border-b py-4 transition-colors focus-visible:outline-none md:grid-cols-[minmax(280px,1fr)_150px_190px_28px] md:px-3'
           >
             <div className='min-w-0'>
-              <h3 className='mb-1 truncate font-serif text-lg font-medium'>
+              <h3
+                className={cn(
+                  'mb-1 truncate text-lg font-medium',
+                  !props.console && 'font-serif'
+                )}
+              >
                 {challenge.title}
               </h3>
               <p className='text-muted-foreground truncate text-xs'>

@@ -108,13 +108,16 @@ func TestRedPacketDeleteCannotEraseConcurrentClaimPostgres(t *testing.T) {
 	}
 	select {
 	case err := <-deleteResult:
-		require.ErrorContains(t, err, "已有领取记录", "delete must reject the committed concurrent claim")
+		require.NoError(t, err, "an exhausted packet is archived after the claim commits")
 	case <-ctx.Done():
 		t.Fatal("delete did not finish")
 	}
 	for _, table := range []any{&RedPacket{}, &RedPacketItem{}, &RedPacketClaim{}} {
 		var count int64
-		require.NoError(t, db.Model(table).Count(&count).Error)
+		require.NoError(t, db.Unscoped().Model(table).Count(&count).Error)
 		require.EqualValues(t, 1, count, fmt.Sprintf("%T audit row must survive", table))
 	}
+	var active int64
+	require.NoError(t, db.Model(&RedPacket{}).Count(&active).Error)
+	require.Zero(t, active, "the archived packet disappears from active queries")
 }
