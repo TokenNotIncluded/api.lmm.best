@@ -12,6 +12,8 @@
 
 pub mod access_ip;
 pub mod account_action;
+/// Acquisition route candidate; listener ownership remains with the Go API.
+pub mod acquisition;
 pub mod admin_catalog;
 pub mod ai_directory;
 pub mod api_token;

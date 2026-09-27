@@ -1640,6 +1640,7 @@ dependencies = [
  "pkcs1",
  "rand 0.9.5",
  "redis",
+ "regex",
  "reqwest",
  "ring",
  "rust_decimal",
