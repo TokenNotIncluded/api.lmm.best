@@ -43,273 +43,58 @@ import {
   enableProfileShare,
   getProfileShareState,
 } from './api'
-import {
-  ModelUsageReport,
-  type ModelUsageCopySnapshot,
-} from './components/model-usage-report'
+import { ModelUsageReport } from './components/model-usage-report'
 import { useProfile } from './hooks'
-import { PROFILE_SHARE_URL } from './lib/share-card'
-
-type BadgeTheme = 'paper' | 'dark' | 'transparent'
-type BadgeLayout = 'profile' | 'badge'
-type BadgePeriod = '7d' | '30d' | '365d' | 'all'
-type BadgeAnimation = 'wave' | 'pulse' | 'none'
-type BadgeFont = 'sans' | 'mono' | 'serif'
-type BadgeFormat = 'compact' | 'full'
-
-interface BadgeColors {
-  bg: string
-  fg: string
-  accent: string
-  muted: string
-  border: string
-}
-
-interface BadgeOptions {
-  layout: BadgeLayout
-  theme: BadgeTheme
-  period: BadgePeriod
-  animation: BadgeAnimation
-  font: BadgeFont
-  format: BadgeFormat
-  width: number
-  height: number
-  radius: number
-  requests: boolean
-  title: string
-  label: string
-  footer: string
-  colors: BadgeColors
-}
-
-const BADGE_PALETTES: Record<BadgeTheme, BadgeColors> = {
-  paper: {
-    bg: '#faf9f5',
-    fg: '#17231f',
-    accent: '#d97757',
-    muted: '#6c746d',
-    border: '#d9ded5',
-  },
-  dark: {
-    bg: '#202020',
-    fg: '#f3f3f3',
-    accent: '#dedede',
-    muted: '#aaa9a8',
-    border: '#363636',
-  },
-  transparent: {
-    bg: '#faf9f5',
-    fg: '#17231f',
-    accent: '#d97757',
-    muted: '#6c746d',
-    border: '#d9ded5',
-  },
-}
-
-interface BadgeStylePreset {
-  name: string
-  theme: BadgeTheme
-  animation: BadgeAnimation
-  font: BadgeFont
-  radius: number
-  colors: BadgeColors
-}
-
-const BADGE_STYLE_PRESETS: BadgeStylePreset[] = [
-  {
-    name: 'Graphite',
-    theme: 'dark',
-    animation: 'wave',
-    font: 'sans',
-    radius: 20,
-    colors: BADGE_PALETTES.dark,
-  },
-  {
-    name: 'Paper',
-    theme: 'paper',
-    animation: 'none',
-    font: 'serif',
-    radius: 16,
-    colors: BADGE_PALETTES.paper,
-  },
-  {
-    name: 'Terminal',
-    theme: 'dark',
-    animation: 'pulse',
-    font: 'mono',
-    radius: 14,
-    colors: {
-      bg: '#0d1117',
-      fg: '#e6edf3',
-      accent: '#3fb950',
-      muted: '#8b949e',
-      border: '#30363d',
-    },
-  },
-  {
-    name: 'Ocean',
-    theme: 'dark',
-    animation: 'wave',
-    font: 'sans',
-    radius: 28,
-    colors: {
-      bg: '#0b1320',
-      fg: '#eaf3ff',
-      accent: '#6fb7ff',
-      muted: '#8ea3b8',
-      border: '#26384c',
-    },
-  },
-  {
-    name: 'Mint',
-    theme: 'paper',
-    animation: 'pulse',
-    font: 'sans',
-    radius: 28,
-    colors: {
-      bg: '#f1f8f4',
-      fg: '#163228',
-      accent: '#2f8f6b',
-      muted: '#6a7f75',
-      border: '#c9ddd2',
-    },
-  },
-  {
-    name: 'Ember',
-    theme: 'dark',
-    animation: 'pulse',
-    font: 'serif',
-    radius: 24,
-    colors: {
-      bg: '#211713',
-      fg: '#fff2e9',
-      accent: '#ff8a5b',
-      muted: '#c0a399',
-      border: '#4b342c',
-    },
-  },
-  {
-    name: 'Violet',
-    theme: 'dark',
-    animation: 'wave',
-    font: 'sans',
-    radius: 30,
-    colors: {
-      bg: '#181524',
-      fg: '#f3efff',
-      accent: '#a78bfa',
-      muted: '#aaa0c2',
-      border: '#3b3451',
-    },
-  },
-  {
-    name: 'Clear',
-    theme: 'transparent',
-    animation: 'none',
-    font: 'sans',
-    radius: 24,
-    colors: BADGE_PALETTES.transparent,
-  },
-]
-
-function isPresetActive(
-  options: BadgeOptions,
-  preset: BadgeStylePreset
-): boolean {
-  return (
-    options.theme === preset.theme &&
-    options.animation === preset.animation &&
-    options.font === preset.font &&
-    options.radius === preset.radius &&
-    Object.entries(preset.colors).every(
-      ([key, value]) => options.colors[key as keyof BadgeColors] === value
-    )
-  )
-}
-
-const INITIAL_OPTIONS: BadgeOptions = {
-  layout: 'profile',
-  theme: 'dark',
-  period: '365d',
-  animation: 'wave',
-  font: 'sans',
-  format: 'compact',
-  width: 1200,
-  height: 865,
-  radius: 0,
-  requests: true,
-  title: '',
-  label: '',
-  footer: '',
-  colors: BADGE_PALETTES.dark,
-}
-
-function buildBadgeURL(
-  baseURL: string,
-  options: BadgeOptions,
-  language: string
-): string {
-  const url = new URL(baseURL)
-  for (const [key, value] of Object.entries({
-    layout: options.layout,
-    theme: options.theme,
-    period: options.period,
-    animation: options.animation,
-    font: options.font,
-    format: options.format,
-    width: options.width,
-    height: options.height,
-    radius: options.radius,
-    requests: options.requests ? '1' : '0',
-    lang: language,
-  })) {
-    url.searchParams.set(key, String(value))
-  }
-  for (const [key, value] of Object.entries(options.colors)) {
-    if (key !== 'bg' || options.theme !== 'transparent') {
-      url.searchParams.set(key, value)
-    }
-  }
-  for (const key of ['title', 'label', 'footer'] as const) {
-    if (options[key].trim()) {
-      url.searchParams.set(key, options[key].trim())
-    }
-  }
-  return url.toString()
-}
-
-function clampNumber(
-  value: string,
-  fallback: number,
-  min: number,
-  max: number
-) {
-  const number = Number(value)
-  return Number.isFinite(number)
-    ? Math.min(max, Math.max(min, Math.round(number)))
-    : fallback
-}
+import type { ModelUsageRangeKey } from './lib/model-usage'
+import {
+  BADGE_PALETTES,
+  BADGE_STYLE_PRESETS,
+  INITIAL_OPTIONS,
+  buildBadgeURL,
+  buildBadgeEmbedCode,
+  canShareBadge,
+  changeBadgeLayout,
+  clampNumber,
+  isPresetActive,
+  type BadgeOptions,
+  type BadgeColors,
+  type BadgeLayout,
+  type BadgeTheme,
+  type BadgePeriod,
+  type BadgeAnimation,
+  type BadgeFont,
+  type BadgeFormat,
+} from './lib/share-badge'
+import { registerProfileShareTranslations } from './share-i18n'
 
 export function ProfileSharePage() {
   const { t, i18n } = useTranslation()
+  registerProfileShareTranslations(i18n)
   const reduceMotion = useReducedMotion()
   const queryClient = useQueryClient()
   const { profile } = useProfile()
   const [options, setOptions] = useState<BadgeOptions>(INITIAL_OPTIONS)
-  const [usageSnapshot, setUsageSnapshot] =
-    useState<ModelUsageCopySnapshot | null>(null)
+  const [showStatistics, setShowStatistics] = useState(false)
+  const [reportRange, setReportRange] = useState<ModelUsageRangeKey>('30d')
   const [previewURL, setPreviewURL] = useState('')
-  const [previewFailed, setPreviewFailed] = useState(false)
+  const [failedURL, setFailedURL] = useState('')
+  const [previewAttempt, setPreviewAttempt] = useState(0)
   const shareQuery = useQuery({
     queryKey: ['profile-share'],
     queryFn: getProfileShareState,
     retry: 1,
   })
   const enableMutation = useMutation({
-    mutationFn: enableProfileShare,
-    onSuccess: (data) => {
+    mutationFn: (modelUsage?: boolean) => enableProfileShare(modelUsage),
+    onSuccess: (data, modelUsage) => {
       queryClient.setQueryData(['profile-share'], data)
-      toast.success(t('Public SVG badge enabled'))
+      toast.success(
+        t(
+          modelUsage === false
+            ? 'Public SVG badge disabled'
+            : 'Public SVG badge enabled'
+        )
+      )
     },
     onError: () => toast.error(t('Could not enable the public badge')),
   })
@@ -321,47 +106,52 @@ export function ProfileSharePage() {
     },
     onError: () => toast.error(t('Could not disable the public badge')),
   })
-
-  const resolvedLanguage = i18n.resolvedLanguage || i18n.language
-  const badgeLanguage = ['en', 'zh', 'zh-TW', 'fr', 'ja', 'ru', 'vi'].includes(
-    resolvedLanguage
-  )
-    ? resolvedLanguage
-    : 'en'
+  const publicEnabled = canShareBadge(shareQuery.data, options.layout)
   const badgeURL = useMemo(
     () =>
-      shareQuery.data?.url
+      publicEnabled && shareQuery.data?.url
         ? buildBadgeURL(
             shareQuery.data.url,
             reduceMotion ? { ...options, animation: 'none' } : options,
-            badgeLanguage
+            i18n.resolvedLanguage || i18n.language
           )
         : '',
-    [badgeLanguage, options, reduceMotion, shareQuery.data?.url]
+    [
+      publicEnabled,
+      options,
+      reduceMotion,
+      shareQuery.data?.url,
+      i18n.resolvedLanguage,
+      i18n.language,
+    ]
   )
-
   useEffect(() => {
     if (!badgeURL) {
       setPreviewURL('')
       return
     }
     const timeout = window.setTimeout(() => {
-      setPreviewFailed(false)
+      setFailedURL('')
       setPreviewURL(badgeURL)
     }, 400)
     return () => window.clearTimeout(timeout)
   }, [badgeURL])
 
-  const badgeReadmeCode = badgeURL
-    ? `[![LMM Best token usage](${badgeURL})](${PROFILE_SHARE_URL})`
-    : ''
-  const readmeCode = [badgeReadmeCode, usageSnapshot?.markdown]
-    .filter(Boolean)
-    .join('\n\n')
-  const htmlCode = badgeURL
-    ? `<a href="${PROFILE_SHARE_URL}" target="_blank" rel="noopener noreferrer"><img src="${badgeURL.replaceAll('&', '&amp;')}" alt="LMM Best token usage" width="${options.width}" height="${options.height}"></a>`
-    : ''
-
+  const { markdown: readmeCode, html: htmlCode } = buildBadgeEmbedCode(
+    badgeURL,
+    options
+  )
+  const changeLayout = (layout: BadgeLayout) =>
+    setOptions((previous) => ({
+      ...changeBadgeLayout(previous, layout),
+      ...(layout === 'models' ? { period: reportRange } : {}),
+    }))
+  const changeReportRange = (period: ModelUsageRangeKey) => {
+    setReportRange(period)
+    setOptions((previous) =>
+      previous.layout === 'models' ? { ...previous, period } : previous
+    )
+  }
   const updateOption = <K extends keyof BadgeOptions>(
     key: K,
     value: BadgeOptions[K]
@@ -394,12 +184,6 @@ export function ProfileSharePage() {
               )}
             </p>
           </div>
-
-          <ModelUsageReport
-            accountCreatedTime={profile?.created_time}
-            onCopySnapshotChange={setUsageSnapshot}
-          />
-
           {shareQuery.isPending ? (
             <Skeleton className='h-28 w-full rounded-2xl' />
           ) : shareQuery.isError ? (
@@ -412,39 +196,54 @@ export function ProfileSharePage() {
             <div className='border-border/70 bg-card/40 flex flex-col gap-4 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5'>
               <div className='space-y-1'>
                 <h2 className='font-medium'>
-                  {shareQuery.data?.enabled
+                  {publicEnabled
                     ? t('Your public badge is on')
                     : t('Your public badge is off')}
                 </h2>
-                <p className='text-muted-foreground text-sm leading-relaxed'>
-                  {shareQuery.data?.enabled
+                <p className='text-muted-foreground max-w-2xl text-sm leading-relaxed'>
+                  {options.layout === 'models'
                     ? t(
-                        'Anyone with the image URL can see the usage figures you choose to show.'
+                        'Model names, tokens, requests and platform spend become public. Appearance options do not restrict access.'
                       )
                     : t(
                         'Turn it on to create a public image URL. You can turn it off at any time.'
                       )}
                 </p>
               </div>
-              {shareQuery.data?.enabled ? (
+              {options.layout === 'models' ? (
+                <Button
+                  variant={publicEnabled ? 'outline' : 'default'}
+                  disabled={
+                    enableMutation.isPending || disableMutation.isPending
+                  }
+                  onClick={() => void enableMutation.mutate(!publicEnabled)}
+                >
+                  {publicEnabled
+                    ? t('Turn off model sharing')
+                    : t('Turn on model sharing')}
+                </Button>
+              ) : shareQuery.data?.enabled ? (
                 <Button
                   variant='outline'
-                  disabled={disableMutation.isPending}
+                  disabled={
+                    disableMutation.isPending || enableMutation.isPending
+                  }
                   onClick={() => void disableMutation.mutate()}
                 >
                   {t('Turn off public badge')}
                 </Button>
               ) : (
                 <Button
-                  disabled={enableMutation.isPending}
-                  onClick={() => void enableMutation.mutate()}
+                  disabled={
+                    enableMutation.isPending || disableMutation.isPending
+                  }
+                  onClick={() => void enableMutation.mutate(undefined)}
                 >
                   {t('Turn on public badge')}
                 </Button>
               )}
             </div>
           )}
-
           <div className='grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.12fr)]'>
             <section className='border-border/70 space-y-6 rounded-2xl border p-4 sm:p-6'>
               <div>
@@ -455,7 +254,6 @@ export function ProfileSharePage() {
                   {t('Every option becomes part of your SVG URL.')}
                 </p>
               </div>
-
               <div className='border-border/70 space-y-3 border-b pb-5'>
                 <Label>{t('Theme')}</Label>
                 <div className='grid grid-cols-2 gap-2 sm:grid-cols-4'>
@@ -502,7 +300,6 @@ export function ProfileSharePage() {
                   })}
                 </div>
               </div>
-
               <div className='grid gap-4 sm:grid-cols-2'>
                 <div className='space-y-2'>
                   <Label htmlFor='badge-layout'>{t('Layout')}</Label>
@@ -510,18 +307,13 @@ export function ProfileSharePage() {
                     id='badge-layout'
                     className='w-full'
                     value={options.layout}
-                    onChange={(event) => {
-                      const layout = event.target.value as BadgeLayout
-                      setOptions((previous) => ({
-                        ...previous,
-                        layout,
-                        period: layout === 'profile' ? '365d' : '30d',
-                        width: layout === 'profile' ? 1200 : 800,
-                        height: layout === 'profile' ? 865 : 240,
-                        radius: layout === 'profile' ? 0 : 24,
-                      }))
-                    }}
+                    onChange={(event) =>
+                      changeLayout(event.target.value as BadgeLayout)
+                    }
                   >
+                    <NativeSelectOption value='models'>
+                      {t('Model by model')}
+                    </NativeSelectOption>
                     <NativeSelectOption value='profile'>
                       {t('Profile overview')}
                     </NativeSelectOption>
@@ -556,7 +348,7 @@ export function ProfileSharePage() {
                     </NativeSelectOption>
                   </NativeSelect>
                 </div>
-                {options.layout === 'badge' ? (
+                {options.layout !== 'profile' ? (
                   <div className='space-y-2'>
                     <Label htmlFor='badge-period'>{t('Usage period')}</Label>
                     <NativeSelect
@@ -564,10 +356,14 @@ export function ProfileSharePage() {
                       className='w-full'
                       value={options.period}
                       onChange={(event) =>
-                        updateOption(
-                          'period',
-                          event.target.value as BadgePeriod
-                        )
+                        options.layout === 'models'
+                          ? changeReportRange(
+                              event.target.value as ModelUsageRangeKey
+                            )
+                          : updateOption(
+                              'period',
+                              event.target.value as BadgePeriod
+                            )
                       }
                     >
                       <NativeSelectOption value='7d'>
@@ -579,10 +375,34 @@ export function ProfileSharePage() {
                       <NativeSelectOption value='365d'>
                         {t('Last 365 days')}
                       </NativeSelectOption>
-                      <NativeSelectOption value='all'>
-                        {t('All time')}
-                      </NativeSelectOption>
+                      {options.layout === 'badge' ? (
+                        <NativeSelectOption value='all'>
+                          {t('All time')}
+                        </NativeSelectOption>
+                      ) : null}
                     </NativeSelect>
+                  </div>
+                ) : null}
+                {options.layout === 'models' ? (
+                  <div className='space-y-2'>
+                    <Label htmlFor='badge-top'>{t('Models to display')}</Label>
+                    <NativeSelect
+                      id='badge-top'
+                      className='w-full'
+                      value={options.top}
+                      onChange={(event) =>
+                        updateOption('top', Number(event.target.value))
+                      }
+                    >
+                      {[3, 6, 9, 12].map((count) => (
+                        <NativeSelectOption key={count} value={count}>
+                          {count}
+                        </NativeSelectOption>
+                      ))}
+                    </NativeSelect>
+                    <p className='text-muted-foreground text-xs'>
+                      {t('Remaining models are grouped together.')}
+                    </p>
                   </div>
                 ) : null}
                 <div className='space-y-2'>
@@ -661,7 +481,6 @@ export function ProfileSharePage() {
                   />
                 </div>
               </div>
-
               <div className='border-border/70 grid gap-4 border-t pt-5 sm:grid-cols-3'>
                 {(
                   [
@@ -673,7 +492,7 @@ export function ProfileSharePage() {
                   <div key={key} className='space-y-2'>
                     <Label htmlFor={`badge-${key}`}>{label}</Label>
                     <Input
-                      key={`${options.layout}-${key}`}
+                      key={`${options.layout}-${key}-${options[key]}`}
                       id={`badge-${key}`}
                       type='number'
                       min={min}
@@ -696,7 +515,6 @@ export function ProfileSharePage() {
                   </div>
                 ))}
               </div>
-
               <div className='border-border/70 space-y-4 border-t pt-5'>
                 <h3 className='font-medium'>{t('Colors')}</h3>
                 <div className='grid gap-3 sm:grid-cols-2'>
@@ -736,7 +554,6 @@ export function ProfileSharePage() {
                     ))}
                 </div>
               </div>
-
               <div className='border-border/70 space-y-4 border-t pt-5'>
                 <h3 className='font-medium'>{t('Custom text')}</h3>
                 {(
@@ -767,23 +584,31 @@ export function ProfileSharePage() {
                 ))}
               </div>
             </section>
-
             <section className='space-y-5 lg:sticky lg:top-4'>
               <div className='border-border/70 space-y-4 rounded-2xl border p-4 sm:p-6'>
                 <h2 className='text-lg font-medium'>{t('Live SVG preview')}</h2>
-                {previewURL && shareQuery.data?.enabled ? (
-                  previewFailed ? (
-                    <p role='alert' className='text-destructive text-sm'>
-                      {t('Preview failed. Check the settings and try again.')}
-                    </p>
+                {badgeURL ? (
+                  previewURL !== badgeURL ? (
+                    <Skeleton className='h-80 w-full rounded-xl' />
+                  ) : failedURL === previewURL ? (
+                    <ErrorState
+                      title={t(
+                        'Preview failed. Check the settings and try again.'
+                      )}
+                      onRetry={() => {
+                        setFailedURL('')
+                        setPreviewAttempt((value) => value + 1)
+                      }}
+                    />
                   ) : (
                     <>
                       <img
+                        key={`${previewURL}-${previewAttempt}`}
                         src={previewURL}
                         alt={t('Preview of your token usage badge')}
                         width={options.width}
                         height={options.height}
-                        onError={() => setPreviewFailed(true)}
+                        onError={() => setFailedURL(previewURL)}
                         className='h-auto w-full'
                       />
                       <a
@@ -802,14 +627,17 @@ export function ProfileSharePage() {
                   )
                 ) : (
                   <div className='bg-muted/50 text-muted-foreground flex min-h-48 items-center justify-center rounded-xl px-6 text-center text-sm'>
-                    {t('Turn on the public badge to preview your real usage.')}
+                    {options.layout === 'models'
+                      ? t('Turn on model sharing to preview your real usage.')
+                      : t(
+                          'Turn on the public badge to preview your real usage.'
+                        )}
                   </div>
                 )}
                 <p className='text-muted-foreground text-xs leading-relaxed'>
                   {t('Usage updates periodically. GitHub may cache the image.')}
                 </p>
               </div>
-
               {badgeURL ? (
                 <div className='border-border/70 space-y-5 rounded-2xl border p-4 sm:p-6'>
                   <div>
@@ -853,6 +681,23 @@ export function ProfileSharePage() {
               ) : null}
             </section>
           </div>
+          <details
+            className='border-border/70 rounded-2xl border p-4 sm:p-6'
+            onToggle={(event) => setShowStatistics(event.currentTarget.open)}
+          >
+            <summary className='cursor-pointer text-sm font-medium'>
+              {t('View full model statistics')}
+            </summary>
+            {showStatistics ? (
+              <div className='pt-5'>
+                <ModelUsageReport
+                  accountCreatedTime={profile?.created_time}
+                  rangeKey={reportRange}
+                  onRangeKeyChange={changeReportRange}
+                />
+              </div>
+            ) : null}
+          </details>
         </div>
       </SectionPageLayout.Content>
     </SectionPageLayout>

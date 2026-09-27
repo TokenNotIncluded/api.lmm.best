@@ -17,6 +17,8 @@ type ProfileShare struct {
 	UserID    int    `json:"-" gorm:"primaryKey;autoIncrement:false"`
 	Token     string `json:"token" gorm:"size:48;not null;uniqueIndex"`
 	CreatedAt int64  `json:"created_at" gorm:"not null"`
+	// Existing profile URLs must not silently publish model names or spending.
+	ModelUsageEnabled bool `json:"model_usage_enabled" gorm:"not null;default:false"`
 }
 
 func (ProfileShare) TableName() string { return "profile_shares" }
