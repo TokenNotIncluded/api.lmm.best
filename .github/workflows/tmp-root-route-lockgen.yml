@@ -1,0 +1,33 @@
+name: Temporary root-route lock generator
+
+on:
+  push:
+    branches:
+      - 'tmp/root-route-lockgen-20260928'
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - name: Set up Rust 1.91
+        run: |
+          rustup toolchain install 1.91.0 --profile minimal
+          rustup default 1.91.0
+      - name: Regenerate and verify acceptance lock
+        run: |
+          set -euo pipefail
+          manifest=apps/api-rust/tests/root-route-acceptance/Cargo.toml
+          lock=apps/api-rust/tests/root-route-acceptance/Cargo.lock
+          cargo generate-lockfile --manifest-path "$manifest"
+          cargo fetch --locked --manifest-path "$manifest"
+          echo BEGIN_LOCK_BASE64
+          base64 -w0 "$lock"
+          echo
+          echo END_LOCK_BASE64
