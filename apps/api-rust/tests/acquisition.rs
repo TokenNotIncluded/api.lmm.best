@@ -58,7 +58,11 @@ async fn protected_acquisition_routes_reject_missing_dashboard_auth_before_stora
             .await
             .expect("route response");
 
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{method} {path}");
+        assert_eq!(
+            response.status(),
+            StatusCode::UNAUTHORIZED,
+            "{method} {path}"
+        );
     }
 }
 
