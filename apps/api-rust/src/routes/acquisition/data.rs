@@ -196,15 +196,13 @@ fn referrer_host(raw: &str) -> String {
             return String::new();
         };
         &authority[1..end]
-    } else {
-        if let Some((host, port)) = authority.rsplit_once(':') {
-            if !port.bytes().all(|b| b.is_ascii_digit()) {
-                return String::new();
-            }
-            host
-        } else {
-            authority
+    } else if let Some((host, port)) = authority.rsplit_once(':') {
+        if !port.bytes().all(|b| b.is_ascii_digit()) {
+            return String::new();
         }
+        host
+    } else {
+        authority
     };
     if host.bytes().any(|b| b == b'%' || b == b'\\') {
         return String::new();
@@ -251,13 +249,13 @@ pub fn normalize(input: &Input, own_hosts: &[&str], now: i64) -> Result<Visit, &
             continue;
         }
         let (key, value) = part.split_once('=').unwrap_or((part, ""));
-        if let (Ok(key), Ok(_)) = (unescape(key, true), unescape(value, true)) {
-            if matches!(
+        if let (Ok(key), Ok(_)) = (unescape(key, true), unescape(value, true))
+            && matches!(
                 key.as_str(),
                 "code" | "state" | "session_id" | "payment_intent" | "trade_no" | "redirect_status"
-            ) {
-                return Err(INVALID);
-            }
+            )
+        {
+            return Err(INVALID);
         }
     }
     let mut host = referrer_host(input.text("referrer"));
