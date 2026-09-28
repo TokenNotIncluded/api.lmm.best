@@ -1,0 +1,53 @@
+name: Temporary web release operator 0.1.98 final
+
+on:
+  push:
+    branches:
+      - 'tmp/web-release-operator-0.1.98-final'
+
+permissions:
+  actions: write
+  contents: write
+  checks: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      RELEASE_SHA: 178b506f260cbbae175daee3062a68fd35447cd8
+      RELEASE_TAG: web-v0.1.98
+      GITHUB_TOKEN: ${{ github.token }}
+      LMM_CHECK_MAX_ATTEMPTS: "120"
+      LMM_CHECK_WAIT_SECONDS: "20"
+    steps:
+      - name: Checkout operator source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify release revision is on main
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
+          git merge-base --is-ancestor "$RELEASE_SHA" refs/remotes/origin/main
+      - name: Require production release gates
+        run: bash scripts/verify-release-commit-checks.sh "$RELEASE_SHA"
+      - name: Create immutable web tag and dispatch signed release
+        run: |
+          set -euo pipefail
+          api="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}"
+          auth=(-H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28")
+          code=$(curl -sS -o "$RUNNER_TEMP/tag.json" -w '%{http_code}' "${auth[@]}" "$api/git/ref/tags/$RELEASE_TAG")
+          if [[ "$code" == 200 ]]; then
+            [[ "$(jq -r '.object.sha' "$RUNNER_TEMP/tag.json")" == "$RELEASE_SHA" ]]
+          elif [[ "$code" == 404 ]]; then
+            payload=$(jq -cn --arg ref "refs/tags/$RELEASE_TAG" --arg sha "$RELEASE_SHA" '{ref:$ref,sha:$sha}')
+            curl --fail --silent --show-error -X POST "${auth[@]}" -d "$payload" "$api/git/refs" >/dev/null
+          else
+            cat "$RUNNER_TEMP/tag.json" >&2
+            exit 1
+          fi
+          payload=$(jq -cn --arg ref "$RELEASE_TAG" '{ref:$ref}')
+          curl --fail --silent --show-error -X POST "${auth[@]}" -d "$payload" "$api/actions/workflows/release-web.yml/dispatches"
+          echo "dispatched $RELEASE_TAG at $RELEASE_SHA"
