@@ -109,9 +109,8 @@ moduleMock.module('sonner', () => ({
 
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
-const { QueryClient, QueryClientProvider, notifyManager } = await import(
-  '@tanstack/react-query'
-)
+const { QueryClient, QueryClientProvider, notifyManager } =
+  await import('@tanstack/react-query')
 const { useForm } = await import('react-hook-form')
 const { useGroupRatioSettings } = await import('../use-group-ratio-settings')
 notifyManager.setScheduler(queueMicrotask)
@@ -190,7 +189,7 @@ afterEach(async () => {
 })
 after(() => domWindow.close())
 
-test('parent rerenders with equal defaults do not erase the draft', async () => {
+test('equal defaults on rerender do not erase the draft', async () => {
   await edit(2)
   await render({ ...baseline })
   assert.equal(JSON.parse(form.getValues('GroupRatio')).default, 2)

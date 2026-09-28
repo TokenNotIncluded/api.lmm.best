@@ -60,7 +60,8 @@ export function mergeGroupRatioDraft(
   const normalizedDraft = normalizeGroupRatioValues(draft)
   const normalizedBaseline = normalizeGroupRatioValues(baseline)
   const result = formatGroupRatioValues(incoming)
-  for (const key of Object.keys(result) as Array<keyof GroupRatioOptionValues>) {
+  const keys = Object.keys(result) as Array<keyof GroupRatioOptionValues>
+  for (const key of keys) {
     if (normalizedDraft[key] !== normalizedBaseline[key]) {
       Object.assign(result, { [key]: draft[key] })
     }
