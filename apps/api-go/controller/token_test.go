@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/i18n"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -442,6 +443,7 @@ func TestAddLimitedTokenEnforcesJavaScriptSafeQuota(t *testing.T) {
 }
 
 func TestAddTokenRequiresExplicitGroup(t *testing.T) {
+	require.NoError(t, i18n.Init())
 	db := setupTokenControllerTestDB(t)
 	user := model.User{Username: "missing-group-owner", Status: common.UserStatusEnabled, Group: "default"}
 	require.NoError(t, db.Create(&user).Error)

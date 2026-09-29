@@ -318,7 +318,7 @@ async fn mixed_case_deleted_at_create_update_preserves_active_rows_and_rejects_i
     )
     .await;
     assert_eq!(created_null["success"], true);
-    assert_active_token_row(&pool, 1, "mixed-null-create", 1, -1).await;
+    assert_active_token_row(&pool, 1, "mixed-null-create", 1, -1, "default").await;
 
     let created_valid = body(
         call_raw(
@@ -332,7 +332,7 @@ async fn mixed_case_deleted_at_create_update_preserves_active_rows_and_rejects_i
     )
     .await;
     assert_eq!(created_valid["success"], true);
-    assert_active_token_row(&pool, 2, "mixed-valid-create", 1, -1).await;
+    assert_active_token_row(&pool, 2, "mixed-valid-create", 1, -1, "default").await;
 
     let before_invalid_create: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM tokens WHERE deleted_at IS NULL")
@@ -385,7 +385,7 @@ async fn mixed_case_deleted_at_create_update_preserves_active_rows_and_rejects_i
     )
     .await;
     assert_eq!(updated_null["success"], true);
-    assert_active_token_row(&pool, 1, "mixed-null-update", 1, 0).await;
+    assert_active_token_row(&pool, 1, "mixed-null-update", 1, 0, "").await;
 
     let updated_valid = body(
         call_raw(
@@ -399,7 +399,7 @@ async fn mixed_case_deleted_at_create_update_preserves_active_rows_and_rejects_i
     )
     .await;
     assert_eq!(updated_valid["success"], true);
-    assert_active_token_row(&pool, 1, "mixed-valid-update", 1, 0).await;
+    assert_active_token_row(&pool, 1, "mixed-valid-update", 1, 0, "").await;
 
     let before_invalid_update = token_row(&pool, 1).await;
     let invalid_update = body(
@@ -531,7 +531,7 @@ async fn create_missing_and_explicit_zero_fields_use_go_model_defaults() {
     )
     .await;
     assert_eq!(created["success"], true);
-    assert_active_token_row(&pool, 1, "create-default", 1, -1).await;
+    assert_active_token_row(&pool, 1, "create-default", 1, -1, "default").await;
 
     let explicit_zero = body(
         call(
@@ -545,7 +545,7 @@ async fn create_missing_and_explicit_zero_fields_use_go_model_defaults() {
     )
     .await;
     assert_eq!(explicit_zero["success"], true);
-    assert_active_token_row(&pool, 2, "create-explicit-zero", 1, -1).await;
+    assert_active_token_row(&pool, 2, "create-explicit-zero", 1, -1, "default").await;
 }
 
 #[tokio::test]
@@ -669,7 +669,9 @@ async fn api_token_body_parsing_does_not_require_content_type_or_json_media_type
         let response = router()
             .oneshot(
                 builder
-                    .body(Body::from(r#"{"name":"content-type-agnostic","group":"default"}"#))
+                    .body(Body::from(
+                        r#"{"name":"content-type-agnostic","group":"default"}"#,
+                    ))
                     .expect("request"),
             )
             .await
@@ -1697,6 +1699,7 @@ async fn assert_active_token_row(
     name: &str,
     status: i64,
     expired_time: i64,
+    group: &str,
 ) {
     let row = token_row(pool, id).await;
     assert_eq!(row.0, name);
@@ -1707,7 +1710,7 @@ async fn assert_active_token_row(
     assert!(!row.5);
     assert_eq!(row.6, "");
     assert_eq!(row.7, "");
-    assert_eq!(row.8, "");
+    assert_eq!(row.8, group);
     assert!(!row.9);
     assert_eq!(row.10, None);
 }
