@@ -38,6 +38,9 @@ use uuid::Uuid;
 
 use crate::config::TrustedProxyPolicy;
 
+mod request_lifecycle;
+use request_lifecycle::RequestLifecycle;
+
 const REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-request-id");
 const REAL_IP_HEADER: HeaderName = HeaderName::from_static("x-real-ip");
 const LEGACY_REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-oneapi-request-id");
@@ -664,21 +667,47 @@ async fn request_boundary(
     next: Next,
 ) -> Response {
     if boundary.runtime.is_draining() {
-        return error_response(
+        let client = canonical_client_ip_with_key(&request, &boundary.trusted_proxies);
+        let lifecycle = RequestLifecycle::new(
+            None,
+            "unknown".into(),
+            request.method().clone(),
+            request.uri(),
+            request
+                .extensions()
+                .get::<axum::extract::MatchedPath>()
+                .map(axum::extract::MatchedPath::as_str),
+            client.map(|(_, key)| key).unwrap_or_default(),
+        );
+        return lifecycle.response(error_response(
             StatusCode::SERVICE_UNAVAILABLE,
             "draining",
             "server is draining; retry the replacement slot",
             "unknown",
-        );
+        ));
     }
     boundary.runtime.inflight.fetch_add(1, Ordering::AcqRel);
-    let _guard = InflightGuard(boundary.runtime);
+    let guard = InflightGuard(boundary.runtime);
     request.headers_mut().remove(&REQUEST_ID_HEADER);
     let request_id = Uuid::new_v4().to_string();
     request
         .extensions_mut()
         .insert(ServerRequestId(request_id.clone()));
     let client = canonical_client_ip_with_key(&request, &boundary.trusted_proxies);
+    let lifecycle = RequestLifecycle::new(
+        Some(guard),
+        request_id.clone(),
+        request.method().clone(),
+        request.uri(),
+        request
+            .extensions()
+            .get::<axum::extract::MatchedPath>()
+            .map(axum::extract::MatchedPath::as_str),
+        client
+            .as_ref()
+            .map(|(_, key)| key.clone())
+            .unwrap_or_default(),
+    );
     request.extensions_mut().insert(RequestContext {
         client_ip: client.as_ref().map(|(ip, _)| *ip),
         request_id: request_id.clone(),
@@ -720,7 +749,7 @@ async fn request_boundary(
     {
         response.headers_mut().insert(LEGACY_VERSION_HEADER, value);
     }
-    response
+    lifecycle.response(response)
 }
 
 fn preserves_legacy_non_json_error(path: &str) -> bool {
@@ -2982,6 +3011,95 @@ mod tests {
         let completed = tokio::time::timeout(std::time::Duration::from_secs(1), held).await??;
         assert_eq!(completed.status(), StatusCode::NO_CONTENT);
         assert_eq!(runtime.inflight(), 0, "drain has no remaining requests");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn real_tcp_drain_keeps_streams_counted_until_eof_or_client_disconnect() -> TestResult {
+        use axum::body::Bytes;
+        use std::time::Duration;
+        use tokio::sync::{Mutex as AsyncMutex, mpsc, oneshot};
+
+        for cancel in [false, true] {
+            let runtime = RuntimeState::default();
+            let (sender, receiver) = mpsc::channel::<Result<Bytes, std::io::Error>>(4);
+            let receiver = Arc::new(AsyncMutex::new(Some(receiver)));
+            let extra = Router::new().route(
+                "/v1/lifecycle-stream",
+                get(move || {
+                    let receiver = receiver.clone();
+                    async move {
+                        let receiver = receiver.lock().await.take().expect("single stream");
+                        let stream =
+                            futures_util::stream::unfold(receiver, |mut receiver| async move {
+                                receiver.recv().await.map(|item| (item, receiver))
+                            });
+                        (
+                            [(header::CONTENT_TYPE, "text/event-stream")],
+                            Body::from_stream(stream),
+                        )
+                    }
+                }),
+            );
+            let mut application_state = state(None)?;
+            application_state.runtime = runtime.clone();
+            let app = router_with_api_token_and_extra(
+                application_state,
+                auth_state(),
+                models_state(),
+                None,
+                Some(extra),
+            );
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+            let address = listener.local_addr()?;
+            let (stop, stopped) = oneshot::channel();
+            let mut server = tokio::spawn(async move {
+                axum::serve(
+                    listener,
+                    app.into_make_service_with_connect_info::<SocketAddr>(),
+                )
+                .with_graceful_shutdown(async {
+                    let _ = stopped.await;
+                })
+                .await
+            });
+            sender
+                .send(Ok(Bytes::from_static(b"data: first\n\n")))
+                .await?;
+            let client = reqwest::Client::builder().no_proxy().build()?;
+            let mut response = client
+                .get(format!("http://{address}/v1/lifecycle-stream"))
+                .send()
+                .await?;
+            assert_eq!(
+                response.chunk().await?.as_deref(),
+                Some(b"data: first\n\n".as_slice())
+            );
+            assert_eq!(
+                runtime.inflight(),
+                1,
+                "headers and first chunk are not completion"
+            );
+            runtime.begin_drain();
+            let _ = stop.send(());
+            assert!(
+                tokio::time::timeout(Duration::from_millis(20), &mut server)
+                    .await
+                    .is_err()
+            );
+            if cancel {
+                drop(response);
+                tokio::time::timeout(Duration::from_secs(2), sender.closed()).await?;
+            } else {
+                sender
+                    .send(Ok(Bytes::from_static(b"data: [DONE]\n\n")))
+                    .await?;
+                drop(sender);
+                assert_eq!(response.bytes().await?.as_ref(), b"data: [DONE]\n\n");
+            }
+            tokio::time::timeout(Duration::from_secs(2), &mut server).await???;
+            assert_eq!(runtime.inflight(), 0);
+        }
         Ok(())
     }
 

@@ -43,7 +43,12 @@ cd /path/to/api.lmm.best
 Both candidate packages must carry the expected
 `API_ROUTE_CONTRACT_REVISION`, and the production deployment controller rejects
 mixed candidates or rollback pairs whose contract revisions differ. The
-contract revision is a compatibility assertion, not a shared product version.
+contract revision checks route shape, not business behavior. A signed Web
+release does not deploy automatically: independent Web updates require an
+operator to check both active Go backends before manually dispatching the
+frontend-only workflow. Changes requiring a new Go backend use the native
+combined transaction until an explicit paired/independent compatibility gate
+exists.
 
 ## Rust boundary
 

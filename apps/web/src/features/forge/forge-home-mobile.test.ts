@@ -91,7 +91,7 @@ test('section progress drives the current scene and story styles', () => {
   assert.match(motion, /setProperty\('--story-progress',/)
   assert.match(
     motion,
-    /const time = reduced\.matches \? RESPONSE_END : clock\s+draw\(time, pointer, sceneProgress\)/
+    /const time = reduced\.matches \? RESPONSE_END : clock\s+draw\(time, cameraPointer, sceneProgress\)/
   )
   assert.match(css, /var\(--story-progress\)/)
 })
@@ -122,4 +122,44 @@ test('homepage removes the manual word field and presents all OAuth client optio
   assert.match(source, /DSH_WEB_INSTALL_PORTABLE_COMMAND/)
   assert.match(providerCommands, /dsh plugin --profile web add/)
   assert.match(providerCommands, /codewhale-lmm-provider\.git/)
+})
+
+test('homepage reserves separate grid rows for copy and navigation', () => {
+  assert.match(css, /grid-template-rows: minmax\(0, 1fr\) auto;/)
+  assert.match(css, /grid-template-rows: minmax\(0, 1fr\) auto auto;/)
+  assert.match(css, /\.lmm-core-steps \{\s*grid-area: 2 \/ 2;/)
+  assert.match(css, /grid-area: 3 \/ 1;/)
+  assert.doesNotMatch(css, /(?:340svh|160rem|120rem)/)
+})
+
+test('short phones expose the complete static story instead of clipped controls', () => {
+  assert.match(css, /\(max-width: 680px\) and \(max-height: 700px\)/)
+  assert.match(
+    motion,
+    /window\.innerWidth > 680 \|\| window\.innerHeight > 700/
+  )
+})
+
+test('connection controls use one accessible segmented group without new ornament dependencies', () => {
+  assert.match(landingSource, /className='lmm-connection-method'/)
+  assert.match(landingSource, /aria-pressed=\{connectionMethod === 'oauth'\}/)
+  assert.match(landingSource, /aria-pressed=\{connectionMethod === 'api-key'\}/)
+  assert.match(css, /\.lmm-connection-method \[aria-pressed='true'\]/)
+  assert.doesNotMatch(
+    css,
+    /\.lmm-(?:request-sample|sample-head|pi-art|cinema-caption)/
+  )
+})
+
+test('the assistant keeps one visible underline instead of nested focus boxes', () => {
+  const focus = css.match(
+    /\.lmm-home \.forge-home-input:focus-within \{([\s\S]*?)\n\}/
+  )?.[1]
+  assert.ok(focus)
+  assert.match(focus, /outline: 0;/)
+  assert.match(focus, /box-shadow: 0 1px 0 var\(--foreground\);/)
+  assert.match(
+    css,
+    /\.lmm-home \.forge-home-input input:focus-visible \{\s*outline: 0;/
+  )
 })

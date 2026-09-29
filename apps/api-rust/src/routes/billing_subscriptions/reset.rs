@@ -1078,7 +1078,7 @@ async fn execute(
         if preview.mode == "hard" {
             for frozen in &target.subscriptions {
                 let changed = sqlx::query(
-                    "UPDATE user_subscriptions SET amount_used=0 WHERE id=$1 AND user_id=$2 AND plan_id=$3 AND status=$4 AND end_time=$5 AND end_time>$6 AND amount_used=$7 AND COALESCE(updated_at,0)=$8",
+                    "UPDATE user_subscriptions SET amount_used=0,quota_version=quota_version+1 WHERE id=$1 AND user_id=$2 AND plan_id=$3 AND status=$4 AND end_time=$5 AND end_time>$6 AND amount_used=$7 AND COALESCE(updated_at,0)=$8",
                 )
                 .bind(frozen.id)
                 .bind(frozen.user_id)
@@ -1348,10 +1348,12 @@ async fn redeem(
             ));
         }
         restored_quota = checked_reset_add(restored_quota, amount_used)?;
-        sqlx::query("UPDATE user_subscriptions SET amount_used=0 WHERE id=$1")
-            .bind(row.try_get::<i64, _>("id")?)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            "UPDATE user_subscriptions SET amount_used=0,quota_version=quota_version+1 WHERE id=$1",
+        )
+        .bind(row.try_get::<i64, _>("id")?)
+        .execute(&mut *tx)
+        .await?;
     }
     sqlx::query(
         "INSERT INTO subscription_reset_events (operation_id,user_id,plan_id,mode,actor_user_id,voucher_id,reset_count,restored_quota,voucher_expiry,created_at) VALUES ($1,$2,$3,'voucher_redeem',$2,$4,$5,$6,0,$7)",

@@ -40,6 +40,10 @@ authenticated users then see it once after their next login.
 
 - Ollama model discovery, pull, streaming pull, deletion, and version checks now
   honor the channel's configured proxy and HTTP transport settings.
+- Scheduled Ollama model discovery now cancels a channel's fetch after 120
+  seconds by default, including responses that stall after headers.
+  Set `CHANNEL_UPSTREAM_MODEL_UPDATE_FETCH_TIMEOUT_SECONDS` to a positive number
+  to adjust the deadline. Interactive checks still follow their request context.
 
 - OpenRouter price previews omit the entire model when the derived output
   ratio overflows, avoiding a partial input-only quote.

@@ -379,7 +379,7 @@ export function HomeLanding({
           </a>
         </div>
         <div
-          className='flex flex-wrap gap-3 py-5'
+          className='lmm-connection-method'
           role='group'
           aria-label={t('Connection method')}
         >

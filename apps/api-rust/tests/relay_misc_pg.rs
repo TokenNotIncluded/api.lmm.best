@@ -174,6 +174,44 @@ async fn fixed_price_embedding_settles_atomically_and_provider_failure_rolls_bac
         Duration::from_secs(3),
     ))));
 
+    sqlx::query("ALTER TABLE tokens ADD COLUMN oauth_managed BOOLEAN NOT NULL DEFAULT FALSE,ADD COLUMN creation_source TEXT NOT NULL DEFAULT ''")
+        .execute(&pool).await.unwrap();
+    for (managed, source) in [(true, "manual"), (false, "assistant_runtime")] {
+        sqlx::query("UPDATE tokens SET oauth_managed=$1,creation_source=$2 WHERE id=73")
+            .bind(managed)
+            .bind(source)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let response = call(
+            &app,
+            "Bearer sk-relayprobe",
+            r#"{"model":"gpt-test","input":"must-not-forward"}"#,
+            "internal-key",
+        )
+        .await;
+        // The shared auth check rejects with 401; an already cached auth
+        // decision can reach the scoped token lookup, which conceals it as
+        // 404. Neither path may contact the provider or touch accounting.
+        assert!(
+            matches!(
+                response.status(),
+                StatusCode::UNAUTHORIZED | StatusCode::NOT_FOUND
+            ),
+            "unexpected internal-token response: {}",
+            response.status()
+        );
+        assert_eq!(provider.attempts.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            accounting_snapshot(&pool).await,
+            (1000, 0, 0, 1000, 0, 0, 0)
+        );
+    }
+    sqlx::query("UPDATE tokens SET oauth_managed=FALSE,creation_source='' WHERE id=73")
+        .execute(&pool)
+        .await
+        .unwrap();
+
     let success = call(
         &app,
         "Bearer sk-relayprobe",
@@ -348,10 +386,8 @@ async fn fixed_price_embedding_settles_atomically_and_provider_failure_rolls_bac
         .execute(&pool)
         .await
         .expect("enable insufficient wallet fixture");
-    sqlx::query("UPDATE options SET value='{\"gpt-test\":0.000004}' WHERE key='ModelPrice'")
-        .execute(&pool)
-        .await
-        .expect("raise fixture pre-consume quota");
+    // Keep the fractional 0.97 quota price: Go still authorizes a minimum
+    // non-free prepayment of one before permitting this provider request.
     let insufficient_wallet = call(
         &app,
         "Bearer sk-relayprobe",
@@ -500,6 +536,117 @@ fn header_text(headers: &HeaderMap, name: impl axum::http::header::AsHeaderName)
         .get(name)
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned)
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL; set LMM_RELAY_MISC_TEST_DATABASE_URL and LMM_RELAY_MISC_TEST_ALLOW_SCHEMA_RESET=1"]
+async fn embedding_free_policy_and_tiny_paid_admission_match_current_go_vectors() {
+    let raw = std::env::var("LMM_RELAY_PRICE_GO_VECTORS")
+        .ok()
+        .map(|path| std::fs::read_to_string(path).unwrap())
+        .unwrap_or_else(|| {
+            include_str!("behavior-oracle/fixtures/relay-price-lifecycle.json").to_owned()
+        });
+    let cases: Vec<Value> = serde_json::from_str(&raw).unwrap();
+    assert_eq!(cases.len(), 32);
+    let pool = PgPoolOptions::new()
+        .max_connections(4)
+        .connect(&integration_database_url())
+        .await
+        .unwrap();
+    let mut covered = 0;
+    for case in cases.into_iter().filter(|case| {
+        let name = case["name"].as_str().unwrap();
+        name.starts_with("fixed-zero") || name.starts_with("tiny-fixed")
+    }) {
+        covered += 1;
+        reset_schema(&pool).await;
+        let calls = Arc::new(AtomicUsize::new(0));
+        let observer = Arc::clone(&calls);
+        let refund = case["refund"].as_bool().unwrap();
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let provider = tokio::spawn(
+            axum::serve(
+                listener,
+                Router::new().route(
+                    "/v1/embeddings",
+                    post(move || {
+                        let calls = Arc::clone(&observer);
+                        async move {
+                            calls.fetch_add(1, Ordering::SeqCst);
+                            Response::builder()
+                                .status(if refund {
+                                    StatusCode::BAD_GATEWAY
+                                } else {
+                                    StatusCode::OK
+                                })
+                                .header(header::CONTENT_TYPE, "application/json")
+                                .body(Body::from(if refund { ERROR_BODY } else { SUCCESS_BODY }))
+                                .unwrap()
+                        }
+                    }),
+                ),
+            )
+            .into_future(),
+        );
+        seed(&pool, &format!("http://{address}")).await;
+        sqlx::query("UPDATE users SET quota=$1,trust_level_override=1 WHERE id=42")
+            .bind(case["wallet"].as_i64().unwrap())
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE tokens SET remain_quota=1000000 WHERE id=73")
+            .execute(&pool)
+            .await
+            .unwrap();
+        for (key, value) in case["options"].as_object().unwrap() {
+            sqlx::query("INSERT INTO options(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value")
+                .bind(key).bind(value.as_str().unwrap().replace("priced-model","gpt-test")).execute(&pool).await.unwrap();
+        }
+        let app = routes(RelayMiscHttpState::new(Arc::new(PgRelayMiscService::new(
+            pool.clone(),
+            Arc::new(PgModelsService::new(pool.clone())),
+            lmm_api_rs::relay_http::RelayHttpClient::new(Default::default()).unwrap(),
+            Duration::from_secs(2),
+        ))));
+        let name = case["name"].as_str().unwrap();
+        let response = call(
+            &app,
+            "Bearer sk-relayprobe",
+            r#"{"model":"gpt-test","input":"hello"}"#,
+            name,
+        )
+        .await;
+        let admitted = case["status"] == 200;
+        assert_eq!(
+            response.status().as_u16(),
+            if !admitted {
+                403
+            } else if refund {
+                502
+            } else {
+                200
+            },
+            "{name}"
+        );
+        response_body(response).await;
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            usize::from(admitted),
+            "{name} provider calls"
+        );
+        let (wallet,token,used):(i64,i64,i64)=sqlx::query_as("SELECT u.quota,t.remain_quota,t.used_quota FROM users u JOIN tokens t ON t.user_id=u.id WHERE u.id=42 AND t.id=73")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(
+            json!({"wallet":wallet,"token":token,"used":used}),
+            case["settled"],
+            "{name}"
+        );
+        provider.abort();
+    }
+    assert_eq!(covered, 12);
+    pool.close().await;
 }
 
 async fn call(app: &Router, authorization: &str, body: &'static str, request_id: &str) -> Response {
@@ -669,11 +816,13 @@ async fn seed(pool: &PgPool, provider_url: &str) {
     .execute(pool)
     .await
     .expect("relay user fixture");
+    // Current Go trusts credited quota. Legacy Stripe amount is display USD,
+    // so $100 is amount=100 and credited_quota=100*500000, not amount=50000000.
     sqlx::query(
         r#"INSERT INTO top_ups
            (id,user_id,amount,credited_quota,settled_amount_micros,money,payment_method,
             payment_provider,create_time,complete_time,status)
-           VALUES (1,42,50000000,0,0,100,'stripe','stripe',
+           VALUES (1,42,100,50000000,0,100,'stripe','stripe',
                    EXTRACT(EPOCH FROM CURRENT_TIMESTAMP)::BIGINT,
                    EXTRACT(EPOCH FROM CURRENT_TIMESTAMP)::BIGINT,'success')"#,
     )

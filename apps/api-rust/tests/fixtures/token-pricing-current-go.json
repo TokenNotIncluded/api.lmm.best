@@ -1,0 +1,720 @@
+{
+  "cases": [
+    {
+      "discount": 0.97,
+      "entries": [
+        {
+          "model": "claude-3-5-sonnet",
+          "group": "default",
+          "currency": "USD",
+          "billing_mode": "per_token",
+          "unit": "million_tokens",
+          "group_ratio": 0.97,
+          "trust_discount_ratio": 0.97,
+          "model_ratio": 2,
+          "completion_ratio": 5,
+          "cache_ratio": 0.1,
+          "create_cache_ratio": 1.25,
+          "input_price": 3.88,
+          "output_price": 19.4
+        },
+        {
+          "model": "gpt-4-gizmo-demo",
+          "group": "default",
+          "currency": "USD",
+          "billing_mode": "per_token",
+          "unit": "million_tokens",
+          "group_ratio": 0.97,
+          "trust_discount_ratio": 0.97,
+          "model_ratio": 1,
+          "completion_ratio": 2,
+          "cache_ratio": 1,
+          "create_cache_ratio": 1.25,
+          "input_price": 1.94,
+          "output_price": 3.88
+        },
+        {
+          "model": "gpt-4o",
+          "group": "default",
+          "currency": "USD",
+          "billing_mode": "per_token",
+          "unit": "million_tokens",
+          "group_ratio": 0.97,
+          "trust_discount_ratio": 0.97,
+          "model_ratio": 1.25,
+          "completion_ratio": 3,
+          "cache_ratio": 0.5,
+          "create_cache_ratio": 1.25,
+          "input_price": 2.425,
+          "output_price": 7.2749999999999995
+        },
+        {
+          "model": "image",
+          "group": "default",
+          "currency": "USD",
+          "billing_mode": "per_request",
+          "unit": "request",
+          "group_ratio": 0.97,
+          "trust_discount_ratio": 0.97,
+          "request_price": 0.0388
+        },
+        {
+          "model": "tier",
+          "group": "default",
+          "currency": "USD",
+          "billing_mode": "tiered_expr",
+          "unit": "expression",
+          "group_ratio": 0.97,
+          "trust_discount_ratio": 0.97,
+          "billing_expression": "p * 2 + c * 4"
+        },
+        {
+          "model": "vendor/claude-3-5-sonnet",
+          "group": "default",
+          "currency": "USD",
+          "billing_mode": "per_token",
+          "unit": "million_tokens",
+          "group_ratio": 0.97,
+          "trust_discount_ratio": 0.97,
+          "model_ratio": 2,
+          "completion_ratio": 7,
+          "cache_ratio": 1,
+          "create_cache_ratio": 1.25,
+          "input_price": 3.88,
+          "output_price": 27.16
+        },
+        {
+          "model": "zero",
+          "group": "default",
+          "currency": "USD",
+          "billing_mode": "per_token",
+          "unit": "million_tokens",
+          "group_ratio": 0.97,
+          "trust_discount_ratio": 0.97,
+          "completion_ratio": 1,
+          "cache_ratio": 1,
+          "create_cache_ratio": 1.25,
+          "input_price": 0,
+          "output_price": 0
+        }
+      ],
+      "groups": [
+        "default"
+      ],
+      "limited": false,
+      "limits": null,
+      "name": "default-discount",
+      "requested": "",
+      "user_group": "default"
+    },
+    {
+      "discount": 0.94,
+      "entries": [
+        {
+          "model": "claude-3-5-sonnet",
+          "group": "default",
+          "currency": "USD",
+          "billing_mode": "per_token",
+          "unit": "million_tokens",
+          "group_ratio": 0.47,
+          "trust_discount_ratio": 0.94,
+          "model_ratio": 2,
+          "completion_ratio": 5,
+          "cache_ratio": 0.1,
+          "create_cache_ratio": 1.25,
+          "input_price": 1.88,
+          "output_price": 9.399999999999999
+        },
+        {
+          "model": "gpt-4-gizmo-demo",
+          "group": "default",
+          "currency": "USD",
+          "billing_mode": "per_token",
+          "unit": "million_tokens",
+          "group_ratio": 0.47,
+          "trust_discount_ratio": 0.94,
+          "model_ratio": 1,
+          "completion_ratio": 2,
+          "cache_ratio": 1,
+          "create_cache_ratio": 1.25,
+          "input_price": 0.94,
+          "output_price": 1.88
+        },
+        {
+          "model": "gpt-4o",
+          "group": "default",
+          "currency": "USD",
+          "billing_mode": "per_token",
+          "unit": "million_tokens",
+          "group_ratio": 0.47,
+          "trust_discount_ratio": 0.94,
+          "model_ratio": 1.25,
+          "completion_ratio": 3,
+          "cache_ratio": 0.5,
+          "create_cache_ratio": 1.25,
+          "input_price": 1.1749999999999998,
+          "output_price": 3.5249999999999995
+        },
+        {
+          "model": "image",
+          "group": "default",
+          "currency": "USD",
+          "billing_mode": "per_request",
+          "unit": "request",
+          "group_ratio": 0.47,
+          "trust_discount_ratio": 0.94,
+          "request_price": 0.0188
+        },
+        {
+          "model": "tier",
+          "group": "default",
+          "currency": "USD",
+          "billing_mode": "tiered_expr",
+          "unit": "expression",
+          "group_ratio": 0.47,
+          "trust_discount_ratio": 0.94,
+          "billing_expression": "p * 2 + c * 4"
+        },
+        {
+          "model": "vendor/claude-3-5-sonnet",
+          "group": "default",
+          "currency": "USD",
+          "billing_mode": "per_token",
+          "unit": "million_tokens",
+          "group_ratio": 0.47,
+          "trust_discount_ratio": 0.94,
+          "model_ratio": 2,
+          "completion_ratio": 7,
+          "cache_ratio": 1,
+          "create_cache_ratio": 1.25,
+          "input_price": 1.88,
+          "output_price": 13.16
+        },
+        {
+          "model": "zero",
+          "group": "default",
+          "currency": "USD",
+          "billing_mode": "per_token",
+          "unit": "million_tokens",
+          "group_ratio": 0.47,
+          "trust_discount_ratio": 0.94,
+          "completion_ratio": 1,
+          "cache_ratio": 1,
+          "create_cache_ratio": 1.25,
+          "input_price": 0,
+          "output_price": 0
+        }
+      ],
+      "groups": [
+        "default"
+      ],
+      "limited": false,
+      "limits": null,
+      "name": "group-override",
+      "requested": "",
+      "user_group": "vip"
+    },
+    {
+      "discount": 1,
+      "entries": [
+        {
+          "model": "claude-3-5-sonnet",
+          "group": "default",
+          "currency": "USD",
+          "billing_mode": "per_token",
+          "unit": "million_tokens",
+          "group_ratio": 1,
+          "trust_discount_ratio": 1,
+          "model_ratio": 2,
+          "completion_ratio": 5,
+          "cache_ratio": 0.1,
+          "create_cache_ratio": 1.25,
+          "input_price": 4,
+          "output_price": 20
+        },
+        {
+          "model": "claude-3-5-sonnet",
+          "group": "private",
+          "currency": "USD",
+          "billing_mode": "per_token",
+          "unit": "million_tokens",
+          "group_ratio": 3,
+          "trust_discount_ratio": 1,
+          "model_ratio": 2,
+          "completion_ratio": 5,
+          "cache_ratio": 0.1,
+          "create_cache_ratio": 1.25,
+          "input_price": 12,
+          "output_price": 60
+        },
+        {
+          "model": "gpt-4-gizmo-demo",
+          "group": "default",
+          "currency": "USD",
+          "billing_mode": "per_token",
+          "unit": "million_tokens",
+          "group_ratio": 1,
+          "trust_discount_ratio": 1,
+          "model_ratio": 1,
+          "completion_ratio": 2,
+          "cache_ratio": 1,
+          "create_cache_ratio": 1.25,
+          "input_price": 2,
+          "output_price": 4
+        },
+        {
+          "model": "gpt-4-gizmo-demo",
+          "group": "private",
+          "currency": "USD",
+          "billing_mode": "per_token",
+          "unit": "million_tokens",
+          "group_ratio": 3,
+          "trust_discount_ratio": 1,
+          "model_ratio": 1,
+          "completion_ratio": 2,
+          "cache_ratio": 1,
+          "create_cache_ratio": 1.25,
+          "input_price": 6,
+          "output_price": 12
+        },
+        {
+          "model": "gpt-4o",
+          "group": "default",
+          "currency": "USD",
+          "billing_mode": "per_token",
+          "unit": "million_tokens",
+          "group_ratio": 1,
+          "trust_discount_ratio": 1,
+          "model_ratio": 1.25,
+          "completion_ratio": 3,
+          "cache_ratio": 0.5,
+          "create_cache_ratio": 1.25,
+          "input_price": 2.5,
+          "output_price": 7.5
+        },
+        {
+          "model": "gpt-4o",
+          "group": "private",
+          "currency": "USD",
+          "billing_mode": "per_token",
+          "unit": "million_tokens",
+          "group_ratio": 3,
+          "trust_discount_ratio": 1,
+          "model_ratio": 1.25,
+          "completion_ratio": 3,
+          "cache_ratio": 0.5,
+          "create_cache_ratio": 1.25,
+          "input_price": 7.5,
+          "output_price": 22.5
+        },
+        {
+          "model": "image",
+          "group": "default",
+          "currency": "USD",
+          "billing_mode": "per_request",
+          "unit": "request",
+          "group_ratio": 1,
+          "trust_discount_ratio": 1,
+          "request_price": 0.04
+        },
+        {
+          "model": "image",
+          "group": "private",
+          "currency": "USD",
+          "billing_mode": "per_request",
+          "unit": "request",
+          "group_ratio": 3,
+          "trust_discount_ratio": 1,
+          "request_price": 0.12
+        },
+        {
+          "model": "secret",
+          "group": "private",
+          "currency": "USD",
+          "billing_mode": "per_token",
+          "unit": "million_tokens",
+          "group_ratio": 3,
+          "trust_discount_ratio": 1,
+          "model_ratio": 2,
+          "completion_ratio": 1,
+          "cache_ratio": 1,
+          "create_cache_ratio": 1.25,
+          "input_price": 12,
+          "output_price": 12
+        },
+        {
+          "model": "tier",
+          "group": "default",
+          "currency": "USD",
+          "billing_mode": "tiered_expr",
+          "unit": "expression",
+          "group_ratio": 1,
+          "trust_discount_ratio": 1,
+          "billing_expression": "p * 2 + c * 4"
+        },
+        {
+          "model": "tier",
+          "group": "private",
+          "currency": "USD",
+          "billing_mode": "tiered_expr",
+          "unit": "expression",
+          "group_ratio": 3,
+          "trust_discount_ratio": 1,
+          "billing_expression": "p * 2 + c * 4"
+        },
+        {
+          "model": "vendor/claude-3-5-sonnet",
+          "group": "default",
+          "currency": "USD",
+          "billing_mode": "per_token",
+          "unit": "million_tokens",
+          "group_ratio": 1,
+          "trust_discount_ratio": 1,
+          "model_ratio": 2,
+          "completion_ratio": 7,
+          "cache_ratio": 1,
+          "create_cache_ratio": 1.25,
+          "input_price": 4,
+          "output_price": 28
+        },
+        {
+          "model": "vendor/claude-3-5-sonnet",
+          "group": "private",
+          "currency": "USD",
+          "billing_mode": "per_token",
+          "unit": "million_tokens",
+          "group_ratio": 3,
+          "trust_discount_ratio": 1,
+          "model_ratio": 2,
+          "completion_ratio": 7,
+          "cache_ratio": 1,
+          "create_cache_ratio": 1.25,
+          "input_price": 12,
+          "output_price": 84
+        },
+        {
+          "model": "zero",
+          "group": "default",
+          "currency": "USD",
+          "billing_mode": "per_token",
+          "unit": "million_tokens",
+          "group_ratio": 1,
+          "trust_discount_ratio": 1,
+          "completion_ratio": 1,
+          "cache_ratio": 1,
+          "create_cache_ratio": 1.25,
+          "input_price": 0,
+          "output_price": 0
+        },
+        {
+          "model": "zero",
+          "group": "private",
+          "currency": "USD",
+          "billing_mode": "per_token",
+          "unit": "million_tokens",
+          "group_ratio": 3,
+          "trust_discount_ratio": 1,
+          "completion_ratio": 1,
+          "cache_ratio": 1,
+          "create_cache_ratio": 1.25,
+          "input_price": 0,
+          "output_price": 0
+        }
+      ],
+      "groups": [
+        "default",
+        "private"
+      ],
+      "limited": false,
+      "limits": null,
+      "name": "two-groups",
+      "requested": "",
+      "user_group": "default"
+    },
+    {
+      "discount": 1,
+      "entries": [
+        {
+          "model": "gpt-4o",
+          "group": "default",
+          "currency": "USD",
+          "billing_mode": "per_token",
+          "unit": "million_tokens",
+          "group_ratio": 1,
+          "trust_discount_ratio": 1,
+          "model_ratio": 1.25,
+          "completion_ratio": 3,
+          "cache_ratio": 0.5,
+          "create_cache_ratio": 1.25,
+          "input_price": 2.5,
+          "output_price": 7.5
+        }
+      ],
+      "groups": [
+        "default"
+      ],
+      "limited": true,
+      "limits": {
+        "gpt-4o": true
+      },
+      "name": "model-limit",
+      "requested": "",
+      "user_group": "default"
+    },
+    {
+      "discount": 1,
+      "entries": [
+        {
+          "model": "gpt-4-gizmo-demo",
+          "group": "default",
+          "currency": "USD",
+          "billing_mode": "per_token",
+          "unit": "million_tokens",
+          "group_ratio": 1,
+          "trust_discount_ratio": 1,
+          "model_ratio": 1,
+          "completion_ratio": 2,
+          "cache_ratio": 1,
+          "create_cache_ratio": 1.25,
+          "input_price": 2,
+          "output_price": 4
+        }
+      ],
+      "groups": [
+        "default"
+      ],
+      "limited": true,
+      "limits": {
+        "gpt-4-gizmo-*": true
+      },
+      "name": "wildcard-limit",
+      "requested": "",
+      "user_group": "default"
+    },
+    {
+      "discount": 0.97,
+      "entries": [
+        {
+          "model": "tier",
+          "group": "default",
+          "currency": "USD",
+          "billing_mode": "tiered_expr",
+          "unit": "expression",
+          "group_ratio": 0.485,
+          "trust_discount_ratio": 0.97,
+          "billing_expression": "p * 2 + c * 4"
+        }
+      ],
+      "groups": [
+        "default"
+      ],
+      "limited": false,
+      "limits": null,
+      "name": "expression",
+      "requested": "tier",
+      "user_group": "vip"
+    }
+  ],
+  "catalog": [
+    {
+      "model_name": "gpt-4o",
+      "quota_type": 0,
+      "model_ratio": 0,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 0,
+      "enable_groups": [
+        "default",
+        "private"
+      ],
+      "supported_endpoint_types": null
+    },
+    {
+      "model_name": "image",
+      "quota_type": 0,
+      "model_ratio": 0,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 0,
+      "enable_groups": [
+        "default",
+        "private"
+      ],
+      "supported_endpoint_types": null
+    },
+    {
+      "model_name": "tier",
+      "quota_type": 0,
+      "model_ratio": 0,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 0,
+      "enable_groups": [
+        "default",
+        "private"
+      ],
+      "supported_endpoint_types": null
+    },
+    {
+      "model_name": "missing-expr",
+      "quota_type": 0,
+      "model_ratio": 0,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 0,
+      "enable_groups": [
+        "default",
+        "private"
+      ],
+      "supported_endpoint_types": null
+    },
+    {
+      "model_name": "zero",
+      "quota_type": 0,
+      "model_ratio": 0,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 0,
+      "enable_groups": [
+        "default",
+        "private"
+      ],
+      "supported_endpoint_types": null
+    },
+    {
+      "model_name": "claude-3-5-sonnet",
+      "quota_type": 0,
+      "model_ratio": 0,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 0,
+      "enable_groups": [
+        "default",
+        "private"
+      ],
+      "supported_endpoint_types": null
+    },
+    {
+      "model_name": "vendor/claude-3-5-sonnet",
+      "quota_type": 0,
+      "model_ratio": 0,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 0,
+      "enable_groups": [
+        "default",
+        "private"
+      ],
+      "supported_endpoint_types": null
+    },
+    {
+      "model_name": "gpt-4-gizmo-demo",
+      "quota_type": 0,
+      "model_ratio": 0,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 0,
+      "enable_groups": [
+        "default",
+        "private"
+      ],
+      "supported_endpoint_types": null
+    },
+    {
+      "model_name": "unpriced",
+      "quota_type": 0,
+      "model_ratio": 0,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 0,
+      "enable_groups": [
+        "default",
+        "private"
+      ],
+      "supported_endpoint_types": null
+    },
+    {
+      "model_name": "secret",
+      "quota_type": 0,
+      "model_ratio": 0,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 0,
+      "enable_groups": [
+        "private"
+      ],
+      "supported_endpoint_types": null
+    }
+  ],
+  "float_json": [
+    {
+      "input": "0",
+      "json": "0"
+    },
+    {
+      "input": "-0",
+      "json": "-0"
+    },
+    {
+      "input": "1",
+      "json": "1"
+    },
+    {
+      "input": "1.25",
+      "json": "1.25"
+    },
+    {
+      "input": "0.000001",
+      "json": "0.000001"
+    },
+    {
+      "input": "0.0000001",
+      "json": "1e-7"
+    },
+    {
+      "input": "1000000000000000100",
+      "json": "1000000000000000100"
+    },
+    {
+      "input": "1e20",
+      "json": "100000000000000000000"
+    },
+    {
+      "input": "1e21",
+      "json": "1e+21"
+    },
+    {
+      "input": "1e-20",
+      "json": "1e-20"
+    },
+    {
+      "input": "-1e-20",
+      "json": "-1e-20"
+    },
+    {
+      "input": "9007199254740992",
+      "json": "9007199254740992"
+    },
+    {
+      "input": "1.7976931348623157e308",
+      "json": "1.7976931348623157e+308"
+    },
+    {
+      "input": "5e-324",
+      "json": "5e-324"
+    }
+  ],
+  "options": {
+    "CacheRatio": "{\"gpt-4o\":0.5,\"claude-3-5-sonnet\":0.1}",
+    "CompletionRatio": "{\"gpt-4o\":3,\"claude-3-5-sonnet\":7,\"vendor/claude-3-5-sonnet\":7}",
+    "CreateCacheRatio": "{\"claude-3-5-sonnet\":1.25}",
+    "ModelPrice": "{\"image\":0.04}",
+    "ModelRatio": "{\"gpt-4o\":1.25,\"secret\":2,\"zero\":0,\"claude-3-5-sonnet\":2,\"vendor/claude-3-5-sonnet\":2,\"gpt-4-gizmo-*\":1}",
+    "QuotaPerUnit": "500000",
+    "UserUsableGroups": "{\"auto\":\"Auto\",\"default\":\"Default\",\"vip\":\"VIP\",\"private\":\"Private\"}",
+    "billing_setting.billing_expr": "{\"tier\":\"p * 2 + c * 4\"}",
+    "billing_setting.billing_mode": "{\"tier\":\"tiered_expr\",\"missing-expr\":\"tiered_expr\"}",
+    "group_ratio_setting.group_group_ratio": "{\"vip\":{\"default\":0.5}}",
+    "group_ratio_setting.group_ratio": "{\"default\":1,\"vip\":2,\"private\":3}"
+  }
+}
