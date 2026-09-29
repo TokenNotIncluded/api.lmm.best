@@ -27,6 +27,8 @@ func TestSumUsedQuotaByUserIDSurvivesUsernameChange(t *testing.T) {
 	stat, err = SumUsedQuotaByUserID(LogTypeUnknown, 0, 0, "", 43, "", 0, "")
 	require.NoError(t, err)
 	require.Zero(t, stat.Quota)
+	_, err = SumUsedQuotaByUserID(LogTypeUnknown, 0, 0, "", 0, "", 0, "")
+	require.Error(t, err)
 
 	// A username-based query no longer finds the row after an account rename;
 	// the authenticated self-stat path must not depend on this mutable field.

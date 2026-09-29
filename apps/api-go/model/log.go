@@ -664,6 +664,9 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 // account. Usernames are mutable, while log.user_id is the stable ownership
 // boundary used by the self log listing endpoint.
 func SumUsedQuotaByUserID(logType int, startTimestamp int64, endTimestamp int64, modelName string, userID int, tokenName string, channel int, group string) (stat Stat, err error) {
+	if userID <= 0 {
+		return Stat{}, errors.New("invalid user id")
+	}
 	return sumUsedQuota(logType, startTimestamp, endTimestamp, modelName, "", userID, tokenName, channel, group)
 }
 
