@@ -25,8 +25,9 @@ test('connection copy is translated with matching placeholders in every locale',
         placeholders(copy[id]),
         placeholders(marketConnectionTranslations.en[id])
       )
-      if (language !== 'en')
+      if (language !== 'en') {
         assert.notEqual(copy[id], marketConnectionTranslations.en[id])
+      }
     }
   }
 })

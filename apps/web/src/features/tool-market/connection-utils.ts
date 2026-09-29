@@ -20,7 +20,10 @@ export function isPersonalMarketClient(client: string): boolean {
     client.length > 0 &&
     client === client.trim() &&
     new TextEncoder().encode(client).length <= 128 &&
-    !/[\u0000-\u001f\u007f]/.test(client) &&
+    Array.from(client).every((character) => {
+      const code = character.charCodeAt(0)
+      return code >= 32 && code !== 127
+    }) &&
     client !== 'web-market' &&
     !client.startsWith('oauth:')
   )

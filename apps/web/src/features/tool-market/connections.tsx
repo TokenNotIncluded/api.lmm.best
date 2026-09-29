@@ -118,8 +118,9 @@ function ConnectionWorkspace({
   useEffect(() => {
     if (!issued) return
     const latest = tokens.data?.find((token) => token.id === issued.record.id)
-    if (connectionStatus(latest ?? issued.record, now) !== 'active')
+    if (connectionStatus(latest ?? issued.record, now) !== 'active') {
       setIssued(null)
+    }
   }, [issued, tokens.data, now])
 
   const action = useMutation({
@@ -172,8 +173,9 @@ function ConnectionWorkspace({
     }
     for (const row of tokens.data ?? []) ensure(row.client_id).tokens.push(row)
     for (const row of grants.data ?? []) ensure(row.client_id).grants.push(row)
-    for (const row of installations.data ?? [])
+    for (const row of installations.data ?? []) {
       ensure(row.client_id).installations.push(row)
+    }
     return [...rows].sort(([a], [b]) => a.localeCompare(b))
   }, [tokens.data, grants.data, installations.data])
   const errorKeys: Record<string, MarketConnectionCopyKey> = {
@@ -633,8 +635,9 @@ function ConnectionWorkspace({
               budgetQuota === undefined ||
               !budgets.isSuccess ||
               action.isPending
-            )
+            ) {
               return
+            }
             const amount = budgetQuota
             action.mutate(async () => {
               await marketAPI.budget({

@@ -160,8 +160,9 @@ const base = '/api/tool-market'
 async function unwrap<T>(request: Promise<{ data: Envelope<T> }>): Promise<T> {
   try {
     const { data } = await request
-    if (!data.success)
+    if (!data.success) {
       throw new MarketAPIError(data.code || 'TOOL_MARKET_UNAVAILABLE')
+    }
     return data.data
   } catch (error) {
     if (error instanceof MarketAPIError) throw error
