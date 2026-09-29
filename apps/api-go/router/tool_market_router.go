@@ -34,6 +34,7 @@ func setToolMarketRouter(parent *assistantRouterGroup) {
 	self.GET("/calls/:id/result", controller.GetToolMarketCallResult)
 	self.POST("/tokens", middleware.CriticalRateLimit(), controller.CreateToolMarketToken)
 	self.DELETE("/tokens/:id", controller.RevokeToolMarketToken)
+	self.POST("/clients/disconnect", middleware.CriticalRateLimit(), controller.DisconnectToolMarketClient)
 	self.POST("/services/:id/review", middleware.AdminAuth(), middleware.CriticalRateLimit(), controller.ReviewToolMarketDraft)
 	self.PUT("/config", middleware.RootAuth(), middleware.CriticalRateLimit(), controller.SetToolMarketConfig)
 	// Deliberately no reserve/start/settle endpoint. Only a trusted execution
