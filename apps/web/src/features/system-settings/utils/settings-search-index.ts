@@ -43,6 +43,7 @@ const SETTINGS_SYNONYMS: Record<string, readonly string[]> = {
   'site/header-navigation': ['top nav', 'menu', 'links'],
   'site/sidebar-modules': ['modules', 'feature toggle', 'console modules'],
   'site/ai-directory': ['directory', 'listing', 'catalog'],
+  'site/rss': ['rss', 'atom', 'feed', 'subscription', 'news'],
   'site/ai-directory-ads': ['ads', 'sponsored', 'advertising'],
   // Authentication
   'auth/basic-auth': ['login', 'signup', 'register', 'email verification'],

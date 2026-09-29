@@ -46,6 +46,10 @@ const AIDirectorySection = lazyNamedSection(
   () => import('./ai-directory-section'),
   'AIDirectorySection'
 )
+const RSSFeedsSection = lazyNamedSection(
+  () => import('./rss-feeds-section'),
+  'RSSFeedsSection'
+)
 const AIDirectoryAdsSection = lazyNamedSection(
   () => import('./ai-directory-ads-section'),
   'AIDirectoryAdsSection'
@@ -116,6 +120,13 @@ const SITE_SECTIONS = [
     titleKey: 'AI directory',
     build: (settings: SiteSettings) => (
       <AIDirectorySection initialValue={settings.AIDirectoryLinks} />
+    ),
+  },
+  {
+    id: 'rss',
+    titleKey: 'RSS',
+    build: (settings: SiteSettings) => (
+      <RSSFeedsSection initialValue={settings.RSSFeeds} />
     ),
   },
   {
