@@ -53,6 +53,8 @@ function flattenFeeds(feeds: RSSFeedResult[]): ReaderItem[] {
     })
 }
 
+const EMPTY_FEEDS: RSSFeedResult[] = []
+
 export function RSSReader() {
   const { t } = useTranslation()
   const isOwner = useAuthStore(
@@ -65,7 +67,7 @@ export function RSSReader() {
     queryFn: getRSSFeeds,
     staleTime: 3 * 60_000,
   })
-  const feeds = query.data ?? []
+  const feeds = query.data ?? EMPTY_FEEDS
   const allItems = useMemo(() => flattenFeeds(feeds), [feeds])
   const unavailable = useMemo(
     () => feeds.filter((feed) => Boolean(feed.error)),
