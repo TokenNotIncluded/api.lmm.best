@@ -1,6 +1,4 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
-import i18next from 'i18next'
-
 const en = {
   'Manage feeds': 'Manage feeds',
   'Search articles': 'Search articles',
@@ -36,11 +34,11 @@ const en = {
   'Move {{name}} up': 'Move {{name}} up',
   'Move {{name}} down': 'Move {{name}} down',
   'Remove {{name}}': 'Remove {{name}}',
-} as const
+}
 
-export const rssTranslations = {
+export const rssCopy = {
   en,
-  zhCN: {
+  zh: {
     'Manage feeds': '管理订阅源',
     'Search articles': '搜索文章',
     'All feeds': '全部订阅',
@@ -75,7 +73,7 @@ export const rssTranslations = {
     'Move {{name}} down': '下移 {{name}}',
     'Remove {{name}}': '删除 {{name}}',
   },
-  zhTW: {
+  'zh-TW': {
     'Manage feeds': '管理訂閱來源',
     'Search articles': '搜尋文章',
     'All feeds': '全部訂閱',
@@ -258,14 +256,4 @@ export const rssTranslations = {
     'Move {{name}} down': 'Di chuyển {{name}} xuống',
     'Remove {{name}}': 'Xóa {{name}}',
   },
-} as const
-
-let registered = false
-
-export function registerRSSTranslations() {
-  if (registered) return
-  for (const [language, translations] of Object.entries(rssTranslations)) {
-    i18next.addResourceBundle(language, 'translation', translations, true, true)
-  }
-  registered = true
 }

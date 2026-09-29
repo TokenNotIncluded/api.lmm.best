@@ -14,14 +14,11 @@ import {
   safeRSSFeedUrl,
   type RSSFeedConfig,
 } from '@/features/rss/api'
-import { registerRSSTranslations } from '@/features/rss/i18n'
 
 import { FormNavigationGuard } from '../components/form-navigation-guard'
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
-
-registerRSSTranslations()
 
 function validateFeeds(feeds: RSSFeedConfig[]): Record<string, string> {
   const errors: Record<string, string> = {}

@@ -18,9 +18,6 @@ import {
   type RSSFeedResult,
   type RSSItem,
 } from './api'
-import { registerRSSTranslations } from './i18n'
-
-registerRSSTranslations()
 
 type ReaderItem = RSSItem & {
   feedID: string

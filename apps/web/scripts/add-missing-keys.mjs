@@ -39,6 +39,7 @@ import { piGuideCopy } from './pi-guide-copy.mjs'
 import { piOAuthCopy } from './pi-oauth-copy.mjs'
 import { profileShareCopy } from './profile-share-copy.mjs'
 import { remoteControlCopy } from './remote-control-copy.mjs'
+import { rssCopy } from './rss-copy.mjs'
 import { toolMarketCopy } from './tool-market-copy.mjs'
 import { waitCompanionCopy } from './wait-companion-copy.mjs'
 
@@ -11862,7 +11863,9 @@ async function main() {
   const operationsFinishOnly = process.argv.includes('--only-operations-finish')
   const passkeyOnly = process.argv.includes('--only-passkey')
   const forgeRefreshOnly = process.argv.includes('--only-forge-refresh')
+  const rssOnly = process.argv.includes('--only-rss')
   const scoped =
+    rssOnly ||
     forgeRefreshOnly ||
     passkeyOnly ||
     operationsFinishOnly ||
@@ -11939,11 +11942,13 @@ async function main() {
                                           : assistantToolOnly
                                             ? assistantToolCopy
                                             : newKeys
-  const selectedEntries = forgeRefreshOnly
-    ? forgeRefreshCopy
-    : passkeyOnly
-      ? passkeyCopy
-      : entries
+  const selectedEntries = rssOnly
+    ? rssCopy
+    : forgeRefreshOnly
+      ? forgeRefreshCopy
+      : passkeyOnly
+        ? passkeyCopy
+        : entries
   let totalAdded = 0
   for (const [locale, baseTranslations] of Object.entries(selectedEntries)) {
     const translations = scoped
@@ -12914,6 +12919,10 @@ for (const [locale, values] of Object.entries(acquisitionLinkCopy)) {
 }
 
 for (const [locale, values] of Object.entries(aiDirectoryCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(rssCopy)) {
   Object.assign(newKeys[locale], values)
 }
 
