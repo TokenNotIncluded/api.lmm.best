@@ -429,7 +429,8 @@ the Free Software Foundation, either version 3 of the License, or
   border-radius: 999px;
   background: currentColor;
   opacity: 0.28;
-  animation: assistant-thinking-token 1.3s cubic-bezier(.2,.7,.25,1) infinite;
+  animation: assistant-thinking-token 1.3s cubic-bezier(0.2, 0.7, 0.25, 1)
+    infinite;
 }
 
 .assistant-thinking-tokens i:nth-child(1) {

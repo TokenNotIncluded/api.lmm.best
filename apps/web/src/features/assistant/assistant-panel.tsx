@@ -358,11 +358,7 @@ function AssistantUserFlowMessage(props: {
 
   useLayoutEffect(() => {
     const source = sourceRef.current
-    if (
-      !source ||
-      !hasFlowSource ||
-      props.animatedIds.has(props.entry.id)
-    ) {
+    if (!source || !hasFlowSource || props.animatedIds.has(props.entry.id)) {
       return
     }
     props.animatedIds.add(props.entry.id)
