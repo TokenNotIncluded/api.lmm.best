@@ -276,7 +276,10 @@ describe('Guide when the AI assistant is disabled', () => {
     await click(findButton(container, 'Continue to account setup'))
 
     assert.equal(router.state.location.pathname, '/sign-in')
-    assert.deepEqual(router.state.location.search, { redirect: '/guide' })
+    assert.deepEqual(
+      { ...router.state.location.search },
+      { redirect: '/guide' }
+    )
     assert.equal(consumeQueuedAssistantRequest(), undefined)
   })
 
