@@ -239,7 +239,7 @@ async fn deleted_at_binding_matches_gorm_null_timestamp_and_type_errors() {
             &router(),
             "POST",
             "/api/token/",
-            br#"{"name":"invalid","DeletedAt":"not-a-timestamp"}"#,
+            br#"{"name":"invalid","group":"default","DeletedAt":"not-a-timestamp"}"#,
             principal,
         )
         .await,
@@ -256,7 +256,7 @@ async fn deleted_at_binding_matches_gorm_null_timestamp_and_type_errors() {
             &router(),
             "POST",
             "/api/token/",
-            br#"{"name":"wrong-type","DeletedAt":123}"#,
+            br#"{"name":"wrong-type","group":"default","DeletedAt":123}"#,
             principal,
         )
         .await,
@@ -273,7 +273,7 @@ async fn deleted_at_binding_matches_gorm_null_timestamp_and_type_errors() {
             &router(),
             "POST",
             "/api/token/",
-            br#"{"name":"valid","DeletedAt":"2026-08-01T12:34:56Z"}"#,
+            br#"{"name":"valid","group":"default","DeletedAt":"2026-08-01T12:34:56Z"}"#,
             principal,
         )
         .await,
@@ -311,28 +311,28 @@ async fn mixed_case_deleted_at_create_update_preserves_active_rows_and_rejects_i
             &router,
             "POST",
             "/api/token/",
-            br#"{"name":"mixed-null-create","dElEtEdAt":null}"#,
+            br#"{"name":"mixed-null-create","group":"default","dElEtEdAt":null}"#,
             principal,
         )
         .await,
     )
     .await;
     assert_eq!(created_null["success"], true);
-    assert_active_token_row(&pool, 1, "mixed-null-create", 1, -1).await;
+    assert_active_token_row(&pool, 1, "mixed-null-create", 1, -1, "default").await;
 
     let created_valid = body(
         call_raw(
             &router,
             "POST",
             "/api/token/",
-            br#"{"name":"mixed-valid-create","dElEtEdAt":"2026-08-01T12:34:56Z"}"#,
+            br#"{"name":"mixed-valid-create","group":"default","dElEtEdAt":"2026-08-01T12:34:56Z"}"#,
             principal,
         )
         .await,
     )
     .await;
     assert_eq!(created_valid["success"], true);
-    assert_active_token_row(&pool, 2, "mixed-valid-create", 1, -1).await;
+    assert_active_token_row(&pool, 2, "mixed-valid-create", 1, -1, "default").await;
 
     let before_invalid_create: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM tokens WHERE deleted_at IS NULL")
@@ -344,7 +344,7 @@ async fn mixed_case_deleted_at_create_update_preserves_active_rows_and_rejects_i
             &router,
             "POST",
             "/api/token/",
-            br#"{"name":"mixed-invalid-create","dElEtEdAt":"not-a-timestamp"}"#,
+            br#"{"name":"mixed-invalid-create","group":"default","dElEtEdAt":"not-a-timestamp"}"#,
             principal,
         )
         .await,
@@ -385,7 +385,7 @@ async fn mixed_case_deleted_at_create_update_preserves_active_rows_and_rejects_i
     )
     .await;
     assert_eq!(updated_null["success"], true);
-    assert_active_token_row(&pool, 1, "mixed-null-update", 1, 0).await;
+    assert_active_token_row(&pool, 1, "mixed-null-update", 1, 0, "").await;
 
     let updated_valid = body(
         call_raw(
@@ -399,7 +399,7 @@ async fn mixed_case_deleted_at_create_update_preserves_active_rows_and_rejects_i
     )
     .await;
     assert_eq!(updated_valid["success"], true);
-    assert_active_token_row(&pool, 1, "mixed-valid-update", 1, 0).await;
+    assert_active_token_row(&pool, 1, "mixed-valid-update", 1, 0, "").await;
 
     let before_invalid_update = token_row(&pool, 1).await;
     let invalid_update = body(
@@ -524,28 +524,28 @@ async fn create_missing_and_explicit_zero_fields_use_go_model_defaults() {
             &router,
             "POST",
             "/api/token/",
-            Some(json!({"name":"create-default"})),
+            Some(json!({"name":"create-default","group":"default"})),
             principal,
         )
         .await,
     )
     .await;
     assert_eq!(created["success"], true);
-    assert_active_token_row(&pool, 1, "create-default", 1, -1).await;
+    assert_active_token_row(&pool, 1, "create-default", 1, -1, "default").await;
 
     let explicit_zero = body(
         call(
             &router,
             "POST",
             "/api/token/",
-            Some(json!({"name":"create-explicit-zero","status":0,"expired_time":0})),
+            Some(json!({"name":"create-explicit-zero","group":"default","status":0,"expired_time":0})),
             principal,
         )
         .await,
     )
     .await;
     assert_eq!(explicit_zero["success"], true);
-    assert_active_token_row(&pool, 2, "create-explicit-zero", 1, -1).await;
+    assert_active_token_row(&pool, 2, "create-explicit-zero", 1, -1, "default").await;
 }
 
 #[tokio::test]
@@ -574,7 +574,7 @@ async fn create_token_activation_is_one_time_and_transactional() {
             &router,
             "POST",
             "/api/token/",
-            Some(json!({"name":"first-activation"})),
+            Some(json!({"name":"first-activation","group":"default"})),
             user_seven,
         )
         .await,
@@ -592,7 +592,7 @@ async fn create_token_activation_is_one_time_and_transactional() {
             &router,
             "POST",
             "/api/token/",
-            Some(json!({"name":"subsequent-token"})),
+            Some(json!({"name":"subsequent-token","group":"default"})),
             user_seven,
         )
         .await,
@@ -612,7 +612,7 @@ async fn create_token_activation_is_one_time_and_transactional() {
             &router,
             "POST",
             "/api/token/",
-            Some(json!({"name":"reject-activation"})),
+            Some(json!({"name":"reject-activation","group":"default"})),
             ApiTokenPrincipal {
                 user_id: 8,
                 role: 1,
@@ -669,7 +669,9 @@ async fn api_token_body_parsing_does_not_require_content_type_or_json_media_type
         let response = router()
             .oneshot(
                 builder
-                    .body(Body::from(r#"{"name":"content-type-agnostic"}"#))
+                    .body(Body::from(
+                        r#"{"name":"content-type-agnostic","group":"default"}"#,
+                    ))
                     .expect("request"),
             )
             .await
@@ -704,7 +706,7 @@ async fn api_token_mutations_invalidate_cached_credentials_and_keep_listings_mas
         &router,
         "POST",
         "/api/token/",
-        Some(json!({"name":"oracle","remain_quota":42})),
+        Some(json!({"name":"oracle","group":"default","remain_quota":42})),
         principal,
     )
     .await;
@@ -1136,7 +1138,7 @@ async fn api_token_token_limit_and_owner_scope_use_postgres_authority() {
             &router,
             "POST",
             "/api/token/",
-            Some(json!({"name":"first","remain_quota":1})),
+            Some(json!({"name":"first","group":"default","remain_quota":1})),
             owner,
         )
         .await,
@@ -1148,7 +1150,7 @@ async fn api_token_token_limit_and_owner_scope_use_postgres_authority() {
             &router,
             "POST",
             "/api/token/",
-            Some(json!({"name":"second","remain_quota":1})),
+            Some(json!({"name":"second","group":"default","remain_quota":1})),
             owner,
         )
         .await,
@@ -1200,14 +1202,14 @@ async fn concurrent_create_keeps_the_legacy_count_then_insert_race_contract() {
             &router,
             "POST",
             "/api/token/",
-            Some(json!({"name":"concurrent-first"})),
+            Some(json!({"name":"concurrent-first","group":"default"})),
             principal,
         ),
         call(
             &router,
             "POST",
             "/api/token/",
-            Some(json!({"name":"concurrent-second"})),
+            Some(json!({"name":"concurrent-second","group":"default"})),
             principal,
         )
     );
@@ -1262,7 +1264,7 @@ async fn api_token_options_refresh_is_best_effort_and_retains_last_good_snapshot
                 &router,
                 "POST",
                 "/api/token/",
-                Some(json!({"name":name,"remain_quota":1})),
+                Some(json!({"name":name,"group":"default","remain_quota":1})),
                 principal,
             )
             .await,
@@ -1275,7 +1277,7 @@ async fn api_token_options_refresh_is_best_effort_and_retains_last_good_snapshot
             &router,
             "POST",
             "/api/token/",
-            Some(json!({"name":"three","remain_quota":1})),
+            Some(json!({"name":"three","group":"default","remain_quota":1})),
             principal,
         )
         .await,
@@ -1294,7 +1296,7 @@ async fn api_token_options_refresh_is_best_effort_and_retains_last_good_snapshot
             &router,
             "POST",
             "/api/token/",
-            Some(json!({"name":"three","remain_quota":1})),
+            Some(json!({"name":"three","group":"default","remain_quota":1})),
             principal,
         )
         .await,
@@ -1332,7 +1334,7 @@ async fn api_token_options_refresh_is_best_effort_and_retains_last_good_snapshot
             &router,
             "POST",
             "/api/token/",
-            Some(json!({"name":"fourth","remain_quota":1})),
+            Some(json!({"name":"fourth","group":"default","remain_quota":1})),
             principal,
         )
         .await,
@@ -1697,6 +1699,7 @@ async fn assert_active_token_row(
     name: &str,
     status: i64,
     expired_time: i64,
+    group: &str,
 ) {
     let row = token_row(pool, id).await;
     assert_eq!(row.0, name);
@@ -1707,7 +1710,7 @@ async fn assert_active_token_row(
     assert!(!row.5);
     assert_eq!(row.6, "");
     assert_eq!(row.7, "");
-    assert_eq!(row.8, "");
+    assert_eq!(row.8, group);
     assert!(!row.9);
     assert_eq!(row.10, None);
 }

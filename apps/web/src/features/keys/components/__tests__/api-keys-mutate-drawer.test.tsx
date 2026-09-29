@@ -207,8 +207,7 @@ async function renderCreateDrawer(): Promise<void> {
   )
   await act(async () =>
     waitForCondition(() => {
-      const saveButton = findButton('Save changes', false)
-      return saveButton !== null && !saveButton.disabled
+      return findButton('Select a group', false) !== null
     }, 'API key drawer did not finish initializing')
   )
 }
@@ -343,6 +342,7 @@ describe('API keys mutate drawer Auto group integration', () => {
     await renderCreateDrawer()
 
     const groupTrigger = getControlByLabel<HTMLButtonElement>('Group')
+    await selectComboboxOption(groupTrigger, 'Automatic routing')
     assert.equal(groupTrigger.textContent?.includes('auto'), true)
     assert.equal(
       document.body.textContent?.includes(
@@ -360,7 +360,7 @@ describe('API keys mutate drawer Auto group integration', () => {
 
     await changeInput(getControlByLabel<HTMLInputElement>('Name'), 'batch')
     await changeInput(getControlByLabel<HTMLInputElement>('Quantity'), '2')
-    await act(async () => findButton('Save changes', true).click())
+    await act(async () => findButton('Create API Key', true).click())
     await act(async () =>
       waitForCondition(
         () => createdPayloads.length === 2,
@@ -382,6 +382,10 @@ describe('API keys mutate drawer Auto group integration', () => {
     installApiFixtures(createdPayloads)
     await renderCreateDrawer()
 
+    await selectComboboxOption(
+      getControlByLabel<HTMLButtonElement>('Group'),
+      'Automatic routing'
+    )
     const autoOrderControl = getControlByLabel<HTMLElement>('Auto group order')
     const addGroupTrigger = autoOrderControl.querySelector<HTMLButtonElement>(
       'button[role="combobox"]'
@@ -412,7 +416,7 @@ describe('API keys mutate drawer Auto group integration', () => {
     assert.equal(findButton('Restore global Auto', true).disabled, false)
 
     await changeInput(getControlByLabel<HTMLInputElement>('Name'), 'custom')
-    await act(async () => findButton('Save changes', true).click())
+    await act(async () => findButton('Create API Key', true).click())
     await act(async () =>
       waitForCondition(
         () => createdPayloads.length === 1,
@@ -421,6 +425,28 @@ describe('API keys mutate drawer Auto group integration', () => {
     )
     assert.deepEqual(createdPayloads[0]?.auto_groups, ['vip'])
   })
+})
+
+test('creation waits for an explicit group even when Auto is the server default', async () => {
+  const payloads: Array<Record<string, unknown>> = []
+  installApiFixtures(payloads)
+  await renderCreateDrawer()
+  await changeInput(
+    getControlByLabel<HTMLInputElement>('Name'),
+    'Explicit group'
+  )
+  const submit = document.querySelector<HTMLButtonElement>(
+    '[data-slot="sheet-footer"] button:disabled'
+  )
+  assert.ok(submit)
+  assert.equal(submit.disabled, true)
+  await act(async () => submit.click())
+  assert.equal(payloads.length, 0)
+  await selectComboboxOption(
+    getControlByLabel<HTMLButtonElement>('Group'),
+    'Standard access'
+  )
+  assert.equal(findButton('Create API Key', true).disabled, false)
 })
 
 test('single creation keeps the one-time secret outside query cache and clears it on close', async () => {
@@ -441,8 +467,12 @@ test('single creation keeps the one-time secret outside query cache and clears i
     }
   }
   await renderCreateDrawer()
+  await selectComboboxOption(
+    getControlByLabel<HTMLButtonElement>('Group'),
+    'Standard access'
+  )
   await changeInput(getControlByLabel<HTMLInputElement>('Name'), 'First device')
-  await act(async () => findButton('Save changes', true).click())
+  await act(async () => findButton('Create API Key', true).click())
   await act(async () =>
     waitForCondition(
       () => !!document.querySelector('input[aria-label="API Key"]'),
@@ -477,14 +507,18 @@ test('an ambiguous creation failure cannot silently create a second key', async 
     throw new Error('connection lost')
   }
   await renderCreateDrawer()
+  await selectComboboxOption(
+    getControlByLabel<HTMLButtonElement>('Group'),
+    'Standard access'
+  )
   await changeInput(getControlByLabel<HTMLInputElement>('Name'), 'First device')
-  await act(async () => findButton('Save changes', true).click())
+  await act(async () => findButton('Create API Key', true).click())
   await act(async () =>
     waitForCondition(
       () => !!document.querySelector('[role="alert"]'),
       'uncertain creation message missing'
     )
   )
-  assert.equal(findButton('Save changes', true).disabled, true)
+  assert.equal(findButton('Create API Key', true).disabled, true)
   assert.equal(payloads.length, 1)
 })

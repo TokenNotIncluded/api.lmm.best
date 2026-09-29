@@ -106,7 +106,7 @@ func TestBackendJourneyL0CheckoutSettlementKeyAndDailyCheckin(t *testing.T) {
 	info = request(http.MethodGet, "/api/user/topup/info", "", true)
 	require.Equal(t, http.StatusOK, info.Code, info.Body.String())
 	assert.Contains(t, info.Body.String(), `"developer_access_granted":true`)
-	key := request(http.MethodPost, "/api/token/", `{"name":"journey-first-key","expired_time":-1,"unlimited_quota":true,"group":"","one_time_reveal":true}`, true)
+	key := request(http.MethodPost, "/api/token/", `{"name":"journey-first-key","expired_time":-1,"unlimited_quota":true,"group":"default","one_time_reveal":true}`, true)
 	require.Equal(t, http.StatusOK, key.Code, key.Body.String())
 	require.Equal(t, true, decode(key)["success"], key.Body.String())
 	var tokenCount int64
