@@ -679,7 +679,9 @@ export function PublicRelay() {
                           )
                         }
                       >
-                        {item.disabled ? t('Disabled') : t('Enabled')}
+                        {routingDisabled.includes(item.channel_id)
+                          ? t('Disabled')
+                          : t('Enabled')}
                       </button>
                       <div className='min-w-0 flex-1'>
                         <div className='truncate font-medium'>{item.name}</div>

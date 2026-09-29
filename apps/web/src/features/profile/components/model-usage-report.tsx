@@ -42,6 +42,8 @@ export interface ModelUsageCopySnapshot {
 
 interface ModelUsageReportProps {
   accountCreatedTime?: number
+  rangeKey?: ModelUsageRangeKey
+  onRangeKeyChange?: (range: ModelUsageRangeKey) => void
   onCopySnapshotChange?: (snapshot: ModelUsageCopySnapshot | null) => void
 }
 
@@ -51,12 +53,15 @@ function escapeMarkdownCell(value: string): string {
 
 export function ModelUsageReport({
   accountCreatedTime,
+  rangeKey: controlledRange,
+  onRangeKeyChange,
   onCopySnapshotChange,
 }: ModelUsageReportProps) {
   const { t, i18n } = useTranslation()
   const { resolvedTheme } = useTheme()
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language) ?? 'en'
-  const [rangeKey, setRangeKey] = useState<ModelUsageRangeKey>('30d')
+  const [localRange, setLocalRange] = useState<ModelUsageRangeKey>('30d')
+  const rangeKey = controlledRange ?? localRange
   const [activeIndex, setActiveIndex] = useState<number | null>(null)
   const [hideNumbers, setHideNumbers] = useState(false)
   const query = useModelUsage(rangeKey, accountCreatedTime)
@@ -75,7 +80,6 @@ export function ModelUsageReport({
         key: model.modelName,
         label:
           model.modelName === 'unknown' ? t('Unknown model') : model.modelName,
-        // Every slice uses the same metric, including free requests.
         value: model.share,
         color: `var(--forge-chart-${SEGMENT_COLORS[index % SEGMENT_COLORS.length]}-${resolvedTheme === 'dark' ? 'dark' : 'light'})`,
       }))
@@ -106,7 +110,6 @@ export function ModelUsageReport({
   const rangeLabel = `${dateFormat.format(new Date(query.range.start_timestamp * 1000))} – ${dateFormat.format(new Date(query.range.end_timestamp * 1000))}`
   const copyMarkdown = useMemo(() => {
     if (loading || failed || models.length === 0) return ''
-
     const displayNumber = (value: number) =>
       hideNumbers ? '••••' : formatNumber(value, locale)
     const displayQuota = (value: number) =>
@@ -115,7 +118,6 @@ export function ModelUsageReport({
       (model) =>
         `| ${escapeMarkdownCell(model.modelName === 'unknown' ? t('Unknown model') : model.modelName)} | ${displayNumber(model.tokens)} | ${displayNumber(model.requests)} | ${displayQuota(model.quota)} | ${shareFormatter.format(model.share)} |`
     )
-
     return [
       `### ${t('Model by model')}`,
       `_${rangeLabel}_`,
@@ -143,7 +145,6 @@ export function ModelUsageReport({
     totals.requests,
     totals.tokens,
   ])
-
   useEffect(() => {
     onCopySnapshotChange?.(
       copyMarkdown ? { markdown: copyMarkdown, rangeKey } : null
@@ -182,7 +183,8 @@ export function ModelUsageReport({
                 variant={rangeKey === key ? 'secondary' : 'ghost'}
                 aria-pressed={rangeKey === key}
                 onClick={() => {
-                  setRangeKey(key)
+                  setLocalRange(key)
+                  onRangeKeyChange?.(key)
                   setActiveIndex(null)
                 }}
               >

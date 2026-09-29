@@ -77,7 +77,7 @@ func TestProductionProbeSelectionCredentialBoundary(t *testing.T) {
 					t.Fatalf("wanted schema and selection queries, got %d", len(runner.queries))
 				}
 				query := strings.Join(runner.queries[1].Args, " ")
-				for _, required := range []string{"COALESCE((to_jsonb(tokens)->>'oauth_managed')::boolean, false) = false", "tokens.deleted_at IS NULL", "tokens.status = 1", "users.status = 1", "users.role >= 10", "tokens.expired_time", "tokens.remain_quota > 0", "BTRIM(tokens.allow_ips)", "LIMIT 1"} {
+				for _, required := range []string{"COALESCE((to_jsonb(tokens)->>'oauth_managed')::boolean, false) = false", "COALESCE(to_jsonb(tokens)->>'creation_source', '') <> 'assistant_runtime'", "tokens.deleted_at IS NULL", "tokens.status = 1", "users.status = 1", "users.role >= 10", "tokens.expired_time", "tokens.remain_quota > 0", "BTRIM(tokens.allow_ips)", "LIMIT 1"} {
 					if !strings.Contains(query, required) {
 						t.Errorf("missing credential boundary %q", required)
 					}

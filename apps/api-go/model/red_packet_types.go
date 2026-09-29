@@ -58,6 +58,7 @@ type RedPacket struct {
 	CreatedBy    int                 `json:"created_by" gorm:"not null;index"`
 	CreatedAt    int64               `json:"created_at" gorm:"bigint;not null"`
 	UpdatedAt    int64               `json:"updated_at" gorm:"bigint;not null"`
+	DeletedAt    gorm.DeletedAt      `json:"-" gorm:"index"`
 }
 
 func (RedPacket) TableName() string { return "red_packets" }

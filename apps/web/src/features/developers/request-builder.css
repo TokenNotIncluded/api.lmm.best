@@ -61,6 +61,9 @@ License, or (at your option) any later version.
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 0.8125rem;
 }
+select.dev-builder-input {
+  cursor: pointer;
+}
 .dev-builder-output {
   border: 1px solid var(--border);
   border-radius: 0.5rem;
@@ -88,7 +91,7 @@ License, or (at your option) any later version.
   font-size: 0.75rem;
   line-height: 1.7;
 }
-.dev-builder :is(button, input):focus-visible {
+.dev-builder :is(button, input, select):focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }

@@ -71,7 +71,7 @@ import { getBackendCapabilities } from '@/lib/backend-capabilities'
 import { formatQuota } from '@/lib/format'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { ForgePublicShell } from './forge-public-shell'
+import { EcosystemRouteShell } from './ecosystem-route-shell'
 
 type ChallengeDetailPageProps = {
   challengeId: number
@@ -127,19 +127,19 @@ export function ChallengeDetailPage(props: ChallengeDetailPageProps) {
 
   if (query.isLoading) {
     return (
-      <ForgePublicShell>
-        <main className='mx-auto flex max-w-6xl flex-col gap-5 px-5 pt-32 pb-24 md:px-10'>
+      <EcosystemRouteShell>
+        <main className='mx-auto flex max-w-6xl flex-col gap-5 px-5 pt-12 pb-20 md:px-10 md:pt-16'>
           <Skeleton className='h-12 w-2/3' />
           <Skeleton className='h-48 w-full' />
         </main>
-      </ForgePublicShell>
+      </EcosystemRouteShell>
     )
   }
 
   if (query.isError) {
     return (
-      <ForgePublicShell>
-        <main className='mx-auto max-w-4xl px-5 pt-32 pb-24 md:px-10'>
+      <EcosystemRouteShell>
+        <main className='mx-auto max-w-4xl px-5 pt-12 pb-20 md:px-10 md:pt-16'>
           <h1 className='mb-4 font-serif text-4xl'>
             {t('Challenge temporarily unavailable')}
           </h1>
@@ -163,15 +163,15 @@ export function ChallengeDetailPage(props: ChallengeDetailPageProps) {
             </Button>
           </div>
         </main>
-      </ForgePublicShell>
+      </EcosystemRouteShell>
     )
   }
 
   const detail = query.data
   if (!detail) {
     return (
-      <ForgePublicShell>
-        <main className='mx-auto max-w-4xl px-5 pt-32 pb-24 md:px-10'>
+      <EcosystemRouteShell>
+        <main className='mx-auto max-w-4xl px-5 pt-12 pb-20 md:px-10 md:pt-16'>
           <h1 className='mb-4 font-serif text-4xl'>
             {t('Challenge not found')}
           </h1>
@@ -185,7 +185,7 @@ export function ChallengeDetailPage(props: ChallengeDetailPageProps) {
             {t('Browse challenges')}
           </Button>
         </main>
-      </ForgePublicShell>
+      </EcosystemRouteShell>
     )
   }
 
@@ -276,7 +276,7 @@ export function ChallengeDetailPage(props: ChallengeDetailPageProps) {
   }
 
   return (
-    <ForgePublicShell>
+    <EcosystemRouteShell>
       <main className='bg-background text-foreground pt-16'>
         <section className='border-foreground text-foreground bg-accent border-y'>
           <div className='mx-auto grid max-w-7xl gap-10 px-5 py-14 md:grid-cols-[minmax(0,1fr)_300px] md:px-10 md:py-20'>
@@ -471,6 +471,6 @@ export function ChallengeDetailPage(props: ChallengeDetailPageProps) {
           />
         </div>
       </Dialog>
-    </ForgePublicShell>
+    </EcosystemRouteShell>
   )
 }

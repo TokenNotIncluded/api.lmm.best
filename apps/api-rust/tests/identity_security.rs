@@ -79,6 +79,162 @@ fn app(provider: Arc<MemorySecurityProvider>, authorizer: Authorizer) -> axum::R
 }
 
 #[tokio::test]
+async fn session_settings_require_boolean_and_preserve_no_data_success_envelope() {
+    let provider = Arc::new(MemorySecurityProvider::new(Ok(serde_json::Value::Null)));
+    let application = app(
+        provider.clone(),
+        Authorizer {
+            user: Ok(user()),
+            admin: Ok(admin()),
+        },
+    );
+    for payload in [
+        "{}",
+        "null",
+        r#"{"session_auto_logout":null}"#,
+        r#"{"session_auto_logout":"false"}"#,
+        r#"{"session_auto_logout":true,"SESSION_AUTO_LOGOUT":null}"#,
+        "{",
+    ] {
+        let response = application
+            .clone()
+            .oneshot(
+                Request::put("/api/user/sessions/settings")
+                    .header("content-type", "application/json")
+                    .body(Body::from(payload))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{payload}");
+        let body = axum::body::to_bytes(response.into_body(), 8192)
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+            json!({"success":false,"message":"session_auto_logout must be a boolean"})
+        );
+    }
+    assert!(provider.calls().unwrap().is_empty());
+    let response = application
+        .oneshot(
+            Request::put("/api/user/sessions/settings")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"session_auto_logout":true,"SESSION_AUTO_LOGOUT":false} {}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(
+        response.headers()["cache-control"]
+            .to_str()
+            .unwrap()
+            .contains("no-store")
+    );
+    let body = axum::body::to_bytes(response.into_body(), 8192)
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+        json!({"success":true,"message":""})
+    );
+    let calls = provider.calls().unwrap();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].operation, SecurityOperation::UpdateSessionSettings);
+    assert_eq!(calls[0].input, json!({"session_auto_logout":false}));
+}
+
+#[tokio::test]
+async fn session_settings_body_limit_precedes_browser_session_requirement_and_json() {
+    let provider = Arc::new(MemorySecurityProvider::default());
+    let mut pat = user();
+    pat.session_id = None;
+    let application = app(
+        provider.clone(),
+        Authorizer {
+            user: Ok(pat),
+            admin: Ok(admin()),
+        },
+    );
+    let response = application
+        .clone()
+        .oneshot(
+            Request::put("/api/user/sessions/settings")
+                .header("content-length", "16385")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    let response = application
+        .oneshot(
+            Request::put("/api/user/sessions/settings")
+                .body(Body::from("{"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert!(response.headers().contains_key("cache-control"));
+    assert!(provider.calls().unwrap().is_empty());
+    let application = app(
+        provider.clone(),
+        Authorizer {
+            user: Ok(user()),
+            admin: Ok(admin()),
+        },
+    );
+    let response = application
+        .oneshot(
+            Request::put("/api/user/sessions/settings")
+                .body(Body::from(" ".repeat(16385)))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert!(provider.calls().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn session_delete_decodes_and_trims_ids_without_an_artificial_length_limit() {
+    let provider = Arc::new(MemorySecurityProvider::new(Ok(json!({}))));
+    let application = app(
+        provider.clone(),
+        Authorizer {
+            user: Ok(user()),
+            admin: Ok(admin()),
+        },
+    );
+    let response = application
+        .clone()
+        .oneshot(
+            Request::delete("/api/user/sessions/%20%20")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert!(provider.calls().unwrap().is_empty());
+    let sid = "x".repeat(300);
+    let response = application
+        .oneshot(
+            Request::delete(format!("/api/user/sessions/%20{sid}%20"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(provider.calls().unwrap()[0].input["sid"], sid);
+}
+
+#[tokio::test]
 async fn registration_router_exposes_only_the_completed_anonymous_registration_slice() {
     let provider = Arc::new(MemorySecurityProvider::new(Ok(serde_json::Value::Null)));
     let response = registration_router(IdentitySecurityState::new(

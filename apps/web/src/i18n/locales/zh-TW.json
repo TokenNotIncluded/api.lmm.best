@@ -3715,7 +3715,7 @@
     "footer.columns.related.links.midjourney": "MjProxy",
     "footer.columns.related.title": "相關項目",
     "footer.defaultCopyright": "版權所有。",
-    "footer.new\u0061pi.projectAttributionSuffix": "版權所有，由項目貢獻者設計與開發。",
+    "footer.newapi.projectAttributionSuffix": "版權所有，由項目貢獻者設計與開發。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "對於 2025 年 5 月 10 日之後新增的渠道，在部署時無需從模型名稱中移除 \".\"",
     "For dsh web in a terminal, run this command. It installs only into the web profile.": "在終端機執行 dsh web 時使用此命令。它只會安裝到 web 設定檔。",
     "For example, a reliable OpenAI-compatible endpoint": "例如：穩定的 OpenAI 相容介面",
@@ -9996,6 +9996,13 @@
     "Zhipu V4": "智譜 V4",
     "Zoom": "縮放",
     "Zoom in": "放大",
-    "Zoom out": "縮小"
+    "Zoom out": "縮小",
+    "Fully claimed": "已領完",
+    "Delete red packet": "刪除紅包",
+    "Red packet deleted": "紅包已刪除",
+    "Failed to delete red packet": "刪除紅包失敗",
+    "Remove this red packet from the list and stop new claims. Claim history and already received rewards are kept.": "將此紅包從列表移除並停止新的領取。領取紀錄和已經收到的獎勵會保留。",
+    "A newer interface is available. Refresh after finishing any payment.": "介面有新版本，請完成目前的付款後再重新整理。",
+    "Refresh page": "重新整理頁面"
   }
 }
