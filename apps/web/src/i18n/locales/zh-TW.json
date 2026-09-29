@@ -10020,6 +10020,13 @@
     "Zhipu V4": "智譜 V4",
     "Zoom": "縮放",
     "Zoom in": "放大",
-    "Zoom out": "縮小"
+    "Zoom out": "縮小",
+    "Fully claimed": "已領完",
+    "Delete red packet": "刪除紅包",
+    "Red packet deleted": "紅包已刪除",
+    "Failed to delete red packet": "刪除紅包失敗",
+    "Remove this red packet from the list and stop new claims. Claim history and already received rewards are kept.": "將此紅包從列表移除並停止新的領取。領取紀錄和已經收到的獎勵會保留。",
+    "A newer interface is available. Refresh after finishing any payment.": "介面有新版本，請完成目前的付款後再重新整理。",
+    "Refresh page": "重新整理頁面"
   }
 }

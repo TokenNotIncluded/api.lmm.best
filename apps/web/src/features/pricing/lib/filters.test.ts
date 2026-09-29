@@ -81,4 +81,29 @@ describe('pricing model filters', () => {
       ['alpha-premium', 'alpha-shared']
     )
   })
+
+  test('searches supported endpoint types advertised by the search field', () => {
+    const models = [
+      {
+        ...model(1, 'generic-model', 'Provider', ['all']),
+        supported_endpoint_types: ['anthropic'],
+      },
+      {
+        ...model(2, 'other-model', 'Provider', ['all']),
+        supported_endpoint_types: ['openai'],
+      },
+    ]
+
+    const result = filterAndSortModels(models, {
+      ...noOtherFilters,
+      search: 'anthropic',
+      vendor: FILTER_ALL,
+      group: FILTER_ALL,
+    })
+
+    assert.deepEqual(
+      result.map((item) => item.model_name),
+      ['generic-model']
+    )
+  })
 })

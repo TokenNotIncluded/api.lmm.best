@@ -2019,7 +2019,10 @@ fn user_policy_message(headers: &HeaderMap, rejection: SystemConfigAuthRejection
     )
 }
 
-fn auth_rejection(headers: &HeaderMap, rejection: SystemConfigAuthRejection) -> Response {
+pub(crate) fn auth_rejection(
+    headers: &HeaderMap,
+    rejection: SystemConfigAuthRejection,
+) -> Response {
     let (status, code, message) = match rejection {
         SystemConfigAuthRejection::ConsoleNotFound => {
             return legacy_json(StatusCode::NOT_FOUND, json!({"message": "Not Found"}));
@@ -2282,6 +2285,7 @@ fn validate_option_update(
     }
     pricing::validate(key, value)?;
     match key {
+        "AIDirectoryLinks" => super::ai_directory::validate_directory_links(value).map(|_| ()),
         "QuotaForInviter" | "QuotaForInvitee"
             if positive_option_value(value)
                 && options

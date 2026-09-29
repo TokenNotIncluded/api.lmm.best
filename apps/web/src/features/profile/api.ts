@@ -66,6 +66,7 @@ export async function getProfileUsageWindow(
 
 export interface ProfileShareState {
   enabled: boolean
+  model_usage_enabled?: boolean
   token?: string
   url?: string
 }
@@ -80,9 +81,14 @@ export async function getProfileShareState(): Promise<ProfileShareState> {
   return res.data.data
 }
 
-export async function enableProfileShare(): Promise<ProfileShareState> {
+export async function enableProfileShare(
+  modelUsageEnabled?: boolean
+): Promise<ProfileShareState> {
   const res = await api.post<ApiResponse<ProfileShareState>>(
-    '/api/user/self/profile-share'
+    '/api/user/self/profile-share',
+    modelUsageEnabled === undefined
+      ? undefined
+      : { model_usage_enabled: modelUsageEnabled }
   )
   if (!res.data.success || !res.data.data) {
     throw new Error(res.data.message || 'Unable to enable profile sharing')

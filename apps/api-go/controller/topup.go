@@ -1186,7 +1186,7 @@ func RequestEpay(c *gin.Context) {
 		return
 	}
 	logger.LogInfo(c.Request.Context(), fmt.Sprintf("易支付 充值订单创建成功 user_id=%d trade_no=%s payment_method=%s amount=%s money=%s", id, tradeNo, req.PaymentMethod, requestedAmount.String(), payMoney.StringFixed(2)))
-	c.JSON(http.StatusOK, gin.H{"message": "success", "data": params, "url": uri})
+	c.JSON(http.StatusOK, gin.H{"message": "success", "data": params, "url": uri, "trade_no": tradeNo})
 }
 
 // tradeNo lock

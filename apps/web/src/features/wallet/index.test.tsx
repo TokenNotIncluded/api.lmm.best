@@ -59,6 +59,25 @@ for (const key of [
   })
 }
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+Object.defineProperty(globalThis, 'IntersectionObserver', {
+  configurable: true,
+  value: class {
+    constructor(private callback: IntersectionObserverCallback) {}
+    observe(target: Element) {
+      this.callback(
+        [
+          {
+            target,
+            isIntersecting: true,
+            intersectionRatio: 1,
+          } as IntersectionObserverEntry,
+        ],
+        this as unknown as IntersectionObserver
+      )
+    }
+    disconnect() {}
+  },
+})
 
 const { act, useEffect } = await import('react')
 const { createRoot } = await import('react-dom/client')
@@ -130,6 +149,7 @@ afterEach(async () => {
   api.post = originalPost
   useAuthStore.getState().auth.reset('complete')
   window.sessionStorage.removeItem('wallet-pending-topup-cloud')
+  window.localStorage.removeItem('wallet-topup-cloud:7')
   window.history.replaceState({}, '', '/wallet?discount_code=SAVE')
 })
 after(() => domWindow.close())
@@ -290,16 +310,19 @@ async function renderWallet(
 test('confirmed top-up grows the balance cloud only after the server reports success', async () => {
   window.history.replaceState({}, '', '/wallet')
   const launchedAt = Date.now() - 1_000
-  window.sessionStorage.setItem(
-    'wallet-pending-topup-cloud',
-    JSON.stringify({
-      userId: 7,
-      launchedAt,
-      expiresAt: launchedAt + 900_000,
-      baselineSuccessId: 10,
-      beforeQuota: 5_000_000,
-      expectedCredit: 10,
-    })
+  window.localStorage.setItem(
+    'wallet-topup-cloud:7',
+    JSON.stringify([
+      {
+        userId: 7,
+        launchedAt,
+        expiresAt: launchedAt + 900_000,
+        attemptId: 'confirmed-attempt',
+        tradeNo: 'confirmed-order',
+        beforeQuota: 5_000_000,
+        expectedCredit: 10,
+      },
+    ])
   )
   const { container, queryClient } = await renderWallet(true, {
     quota: 5_000_000,
@@ -327,6 +350,18 @@ test('confirmed top-up grows the balance cloud only after the server reports suc
   assert.equal(cloud?.getAttribute('data-success'), 'true')
   assert.ok(cloud?.querySelectorAll('.wallet-token-cloud-added').length)
   assert.ok(container.textContent?.includes('Order completed successfully'))
+  assert.ok(
+    window.localStorage.getItem('wallet-topup-cloud:7'),
+    'receipt remains until the visible animation completes'
+  )
+  const recharge = container.querySelector('#wallet-add-funds')
+  assert.ok(
+    recharge &&
+      cloud &&
+      cloud.compareDocumentPosition(recharge) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    'balance is before the checkout form'
+  )
   queryClient.clear()
 })
 

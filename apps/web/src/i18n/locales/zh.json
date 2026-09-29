@@ -10020,6 +10020,13 @@
     "Zhipu V4": "智谱 V4",
     "Zoom": "缩放",
     "Zoom in": "放大",
-    "Zoom out": "缩小"
+    "Zoom out": "缩小",
+    "Fully claimed": "已领完",
+    "Delete red packet": "删除红包",
+    "Red packet deleted": "红包已删除",
+    "Failed to delete red packet": "删除红包失败",
+    "Remove this red packet from the list and stop new claims. Claim history and already received rewards are kept.": "将此红包从列表移除并停止新的领取。领取记录和已经收到的奖励会保留。",
+    "A newer interface is available. Refresh after finishing any payment.": "界面有新版本，请完成当前支付后再刷新。",
+    "Refresh page": "刷新页面"
   }
 }

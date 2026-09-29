@@ -113,7 +113,7 @@ async fn create_minimal_relay_schema(pool: &PgPool) -> TestResult {
         "CREATE TABLE tokens (id BIGINT PRIMARY KEY, user_id BIGINT, status BIGINT, expired_time BIGINT, remain_quota BIGINT, unlimited_quota BOOLEAN, allow_ips TEXT, key TEXT, \"group\" TEXT, deleted_at TIMESTAMPTZ, accessed_time BIGINT DEFAULT 0, used_quota BIGINT DEFAULT 0)",
         "CREATE TABLE channels (id BIGINT PRIMARY KEY, status BIGINT, base_url TEXT, key TEXT, used_quota BIGINT DEFAULT 0)",
         "CREATE TABLE abilities (\"group\" TEXT, model TEXT, channel_id BIGINT, enabled BOOLEAN, priority BIGINT, weight BIGINT)",
-        "CREATE TABLE logs (user_id BIGINT, created_at BIGINT, type BIGINT, content TEXT, model_name TEXT, quota BIGINT, channel_id BIGINT, token_id BIGINT, \"group\" TEXT, request_id TEXT, is_stream BOOLEAN)",
+        "CREATE TABLE logs (user_id BIGINT, created_at BIGINT, type BIGINT, content TEXT, model_name TEXT, quota BIGINT, channel_id BIGINT, token_id BIGINT, \"group\" TEXT, request_id TEXT, is_stream BOOLEAN, prompt_tokens BIGINT, completion_tokens BIGINT, other TEXT)",
         "CREATE TABLE options (key TEXT PRIMARY KEY, value TEXT)",
     ] {
         sqlx::query(statement).execute(pool).await?;

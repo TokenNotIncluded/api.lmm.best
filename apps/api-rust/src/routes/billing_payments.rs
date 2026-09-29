@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use axum::{
     Json, Router,
     body::Bytes,
-    extract::{RawQuery, Request, State},
+    extract::{FromRequest, RawQuery, Request, State},
     http::{HeaderMap, HeaderValue, Method, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -63,6 +63,7 @@ pub struct BillingHttpState {
     cache: Arc<dyn BillingCache>,
     compliance: Arc<dyn PaymentCompliance>,
     config: BillingConfig,
+    native_stripe: Option<crate::routes::stripe_creem::stripe_wallet::StripeWalletState>,
 }
 
 /// Dependencies for the balance-only subscription purchase route.
@@ -145,7 +146,19 @@ impl BillingHttpState {
             cache: dependencies.cache,
             compliance: dependencies.compliance,
             config,
+            native_stripe: None,
         }
+    }
+
+    /// Install native subscription checkout only alongside the shared native
+    /// Stripe webhook, so every payable order has a durable callback path.
+    #[must_use]
+    pub fn with_native_stripe(
+        mut self,
+        native: crate::routes::stripe_creem::stripe_wallet::StripeWalletState,
+    ) -> Self {
+        self.native_stripe = Some(native);
+        self
     }
 }
 
@@ -305,7 +318,18 @@ pub fn subscription_balance_pay_router(state: SubscriptionBalancePayState) -> Ro
 /// sibling router keeps those surfaces from overlapping while still letting
 /// the isolated candidate merge both families through [`billing_payments_router`].
 pub fn billing_provider_payments_router(state: BillingHttpState) -> Router {
-    Router::new()
+    provider_payment_routes(state, true)
+}
+
+/// The native Stripe wallet processor owns the shared Stripe callback route
+/// when installed. Other still-disabled subscription/provider routes remain
+/// mounted with their existing fail-closed dependencies.
+pub fn billing_provider_payments_without_stripe_router(state: BillingHttpState) -> Router {
+    provider_payment_routes(state, false)
+}
+
+fn provider_payment_routes(state: BillingHttpState, include_stripe_webhook: bool) -> Router {
+    let routes = Router::new()
         .route("/api/subscription/epay/pay", post(epay_pay))
         .route("/api/subscription/stripe/pay", post(stripe_pay))
         .route("/api/subscription/creem/pay", post(creem_pay))
@@ -321,8 +345,13 @@ pub fn billing_provider_payments_router(state: BillingHttpState) -> Router {
             "/api/subscription/epay/return",
             get(epay_return).post(epay_return),
         )
-        .route("/api/stripe/webhook", post(stripe_webhook))
-        .route("/api/creem/webhook", post(creem_webhook))
+        .route("/api/creem/webhook", post(creem_webhook));
+    let routes = if include_stripe_webhook {
+        routes.merge(stripe_webhook_surface(stripe_webhook))
+    } else {
+        routes
+    };
+    routes
         // Go's UserAuth middleware runs before the JSON body is bound for
         // every user-initiated payment. Callback/webhook routes remain
         // intentionally outside this fence and use provider verification.
@@ -331,6 +360,17 @@ pub fn billing_provider_payments_router(state: BillingHttpState) -> Router {
             billing_payment_auth_boundary,
         ))
         .with_state(state)
+}
+
+/// One canonical route declaration shared by the legacy and native Stripe
+/// compositions. The listener selects one handler; it never merges both.
+pub(crate) fn stripe_webhook_surface<H, T, S>(handler: H) -> Router<S>
+where
+    H: axum::handler::Handler<T, S>,
+    T: 'static,
+    S: Clone + Send + Sync + 'static,
+{
+    Router::new().route("/api/stripe/webhook", post(handler))
 }
 
 pub fn billing_payments_router(state: BillingHttpState) -> Router {
@@ -363,6 +403,17 @@ async fn billing_payment_auth_boundary(
 ) -> Response {
     if !is_user_payment_route(request.uri().path(), request.method()) {
         return next.run(request).await;
+    }
+    if state.native_stripe.is_some()
+        && request.uri().path() == "/api/subscription/stripe/pay"
+        && request
+            .headers()
+            .get(header::CONTENT_LENGTH)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<u64>().ok())
+            .is_some_and(|size| size > 16 * 1024)
+    {
+        return legacy_empty_response(StatusCode::PAYLOAD_TOO_LARGE, None);
     }
     if state.authorizer.user_id(request.headers()).await.is_err() {
         return payment_error(StatusCode::UNAUTHORIZED, "Unauthorized");
@@ -832,12 +883,19 @@ async fn epay_pay(
 ) -> Response {
     start_payment(state, headers, request, EPAY).await
 }
-async fn stripe_pay(
-    State(state): State<BillingHttpState>,
-    headers: HeaderMap,
-    Json(request): Json<PayRequest>,
-) -> Response {
-    start_payment(state, headers, request, STRIPE).await
+async fn stripe_pay(State(state): State<BillingHttpState>, request: Request) -> Response {
+    let headers = request.headers().clone();
+    if let Some(native) = state.native_stripe.as_ref() {
+        let user_id = match state.authorizer.user_id(&headers).await {
+            Ok(id) if id > 0 => id,
+            _ => return payment_error(StatusCode::UNAUTHORIZED, "Unauthorized"),
+        };
+        return native.subscription_pay(user_id, request).await;
+    }
+    match Json::<PayRequest>::from_request(request, &state).await {
+        Ok(Json(request)) => start_payment(state, headers, request, STRIPE).await,
+        Err(error) => error.into_response(),
+    }
 }
 async fn creem_pay(
     State(state): State<BillingHttpState>,
