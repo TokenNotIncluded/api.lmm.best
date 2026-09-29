@@ -65,8 +65,10 @@ export const rssTranslations = {
     'Fetch this feed': '抓取此订阅',
     'Disabled feeds stay saved but are not fetched.':
       '关闭后仍保留配置，但不会抓取内容。',
-    'Enter a feed name (up to 80 characters).': '请输入订阅名称（最多 80 个字符）。',
-    'Enter a valid HTTP or HTTPS feed URL.': '请输入有效的 HTTP 或 HTTPS 订阅地址。',
+    'Enter a feed name (up to 80 characters).':
+      '请输入订阅名称（最多 80 个字符）。',
+    'Enter a valid HTTP or HTTPS feed URL.':
+      '请输入有效的 HTTP 或 HTTPS 订阅地址。',
     'This feed URL is already configured.': '这个订阅地址已经配置过了。',
     'Check the highlighted feed.': '请检查标出的订阅项。',
     'Move {{name}} up': '上移 {{name}}',
@@ -98,8 +100,10 @@ export const rssTranslations = {
     'Fetch this feed': '抓取此訂閱',
     'Disabled feeds stay saved but are not fetched.':
       '關閉後仍保留設定，但不會抓取內容。',
-    'Enter a feed name (up to 80 characters).': '請輸入訂閱名稱（最多 80 個字元）。',
-    'Enter a valid HTTP or HTTPS feed URL.': '請輸入有效的 HTTP 或 HTTPS 訂閱網址。',
+    'Enter a feed name (up to 80 characters).':
+      '請輸入訂閱名稱（最多 80 個字元）。',
+    'Enter a valid HTTP or HTTPS feed URL.':
+      '請輸入有效的 HTTP 或 HTTPS 訂閱網址。',
     'This feed URL is already configured.': '這個訂閱網址已經設定過了。',
     'Check the highlighted feed.': '請檢查標示的訂閱項目。',
     'Move {{name}} up': '上移 {{name}}',
@@ -154,10 +158,12 @@ export const rssTranslations = {
     'Loading articles...': '記事を読み込み中...',
     'Unable to load RSS feeds': 'RSS フィードを読み込めません',
     'Try loading the feeds again.': 'フィードをもう一度読み込んでください。',
-    'No RSS feeds are configured yet.': 'RSS フィードはまだ設定されていません。',
+    'No RSS feeds are configured yet.':
+      'RSS フィードはまだ設定されていません。',
     'No articles match your filters.': '条件に一致する記事がありません。',
     'Clear filters': 'フィルターを解除',
-    'Some feeds could not be refreshed.': '一部のフィードを更新できませんでした。',
+    'Some feeds could not be refreshed.':
+      '一部のフィードを更新できませんでした。',
     'Configure the RSS and Atom sources shown in the reader. Changes are shared with all users.':
       'リーダーに表示する RSS / Atom ソースを設定します。変更はすべてのユーザーに反映されます。',
     'Add feed': 'フィードを追加',
@@ -170,10 +176,12 @@ export const rssTranslations = {
     'Fetch this feed': 'このフィードを取得',
     'Disabled feeds stay saved but are not fetched.':
       '無効にしたフィードは保存されますが、取得されません。',
-    'Enter a feed name (up to 80 characters).': 'フィード名を入力してください（80文字以内）。',
+    'Enter a feed name (up to 80 characters).':
+      'フィード名を入力してください（80文字以内）。',
     'Enter a valid HTTP or HTTPS feed URL.':
       '有効な HTTP または HTTPS のフィード URL を入力してください。',
-    'This feed URL is already configured.': 'このフィード URL はすでに設定されています。',
+    'This feed URL is already configured.':
+      'このフィード URL はすでに設定されています。',
     'Check the highlighted feed.': '強調表示されたフィードを確認してください。',
     'Move {{name}} up': '{{name}} を上へ移動',
     'Move {{name}} down': '{{name}} を下へ移動',

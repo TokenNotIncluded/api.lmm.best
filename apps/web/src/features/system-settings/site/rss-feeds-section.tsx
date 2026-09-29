@@ -162,7 +162,10 @@ export function RSSFeedsSection({ initialValue }: { initialValue: string }) {
       {feeds.length > 0 && (
         <div className='divide-border overflow-hidden rounded-xl border'>
           {feeds.map((feed, index) => (
-            <div key={feed.id} className='border-border border-b last:border-b-0'>
+            <div
+              key={feed.id}
+              className='border-border border-b last:border-b-0'
+            >
               <div className='flex min-w-0 items-center gap-2 px-4 py-3'>
                 <button
                   type='button'

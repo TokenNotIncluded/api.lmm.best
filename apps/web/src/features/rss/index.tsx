@@ -117,7 +117,10 @@ export function RSSReader() {
           <div className='flex flex-col gap-4 border-b pb-5 sm:flex-row sm:items-end sm:justify-between'>
             <div>
               <div className='flex items-center gap-2'>
-                <Rss className='text-muted-foreground size-5' aria-hidden='true' />
+                <Rss
+                  className='text-muted-foreground size-5'
+                  aria-hidden='true'
+                />
                 <p className='text-sm font-medium'>RSS / Atom</p>
               </div>
               <p className='text-muted-foreground mt-1 text-sm'>
