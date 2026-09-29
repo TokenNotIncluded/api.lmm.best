@@ -444,6 +444,9 @@ WHERE tokens.deleted_at IS NULL
   -- OAuth-managed rows are accounting records, not raw bearer credentials.
   -- to_jsonb preserves the pre-OAuth schema used by older rollback packages.
   AND COALESCE((to_jsonb(tokens)->>'oauth_managed')::boolean, false) = false
+  -- Assistant runtime tokens are internal credentials rejected by GetTokenByKey.
+  -- Keep the legacy-schema tolerance used for oauth_managed above.
+  AND COALESCE(to_jsonb(tokens)->>'creation_source', '') <> 'assistant_runtime'
   AND tokens.status = 1
   AND users.status = 1
   AND users.role >= 10

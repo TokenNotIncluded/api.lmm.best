@@ -211,7 +211,9 @@ where
 }
 
 fn is_openai_stream_candidate(request: &reqwest::Request) -> bool {
-    request.url().path().ends_with("/v1/chat/completions")
+    ["/v1/chat/completions", "/v1/responses"]
+        .into_iter()
+        .any(|path| request.url().path().ends_with(path))
 }
 
 fn is_event_stream(headers: &HeaderMap) -> bool {
@@ -291,6 +293,17 @@ fn sse_event_has_visible_openai_output(event: &[u8]) -> bool {
         let Ok(value) = serde_json::from_slice::<serde_json::Value>(data) else {
             continue;
         };
+        if value
+            .get("type")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|kind| kind.starts_with("response.") && kind.ends_with(".delta"))
+            && value
+                .get("delta")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|delta| !delta.is_empty())
+        {
+            return true;
+        }
         let Some(choices) = value.get("choices").and_then(serde_json::Value::as_array) else {
             continue;
         };
@@ -529,6 +542,12 @@ mod tests {
         ] {
             assert!(sse_event_has_visible_openai_output(event));
         }
+        assert!(!sse_event_has_visible_openai_output(
+            br#"data: {"type":"response.created","response":{"status":"in_progress"}}"#
+        ));
+        assert!(sse_event_has_visible_openai_output(
+            br#"data: {"type":"response.output_text.delta","delta":"hello"}"#
+        ));
     }
 
     #[test]

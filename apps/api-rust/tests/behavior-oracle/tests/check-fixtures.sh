@@ -17,6 +17,14 @@ expected=(
   relay-responses
   v1-models
 )
+# Current-Go billing/token fixtures use a vector-array contract, not the
+# frozen route request/response fixture contract checked above.
+declare -A current_go_vectors=(
+  [relay-funding]=28
+  [relay-price-lifecycle]=32
+  [relay-token-counts]=208
+  [relay-tool-billing]=11
+)
 declare -A expected_routes=(
   [api-status]='GET /api/status'
   [api-notice]='GET /api/notice'
@@ -73,8 +81,15 @@ for name in "${expected[@]}"; do
   }
 done
 
+for name in "${!current_go_vectors[@]}"; do
+  fixture="$fixture_dir/$name.json"
+  jq -e --argjson count "${current_go_vectors[$name]}" \
+    'type == "array" and length == $count and all(.[]; type == "object")' \
+    "$fixture" >/dev/null || { echo "invalid current Go vector fixture: $fixture" >&2; exit 1; }
+done
+
 actual=$(find "$fixture_dir" -maxdepth 1 -name '*.json' -printf '%f\n' | sort)
-expected_files=$(printf '%s.json\n' "${expected[@]}" | sort)
+expected_files=$(printf '%s.json\n' "${expected[@]}" "${!current_go_vectors[@]}" | sort)
 [[ "$actual" == "$expected_files" ]] || {
   echo "fixture set differs from explicit required route manifest" >&2
   diff -u <(printf '%s\n' "$expected_files") <(printf '%s\n' "$actual") >&2 || true

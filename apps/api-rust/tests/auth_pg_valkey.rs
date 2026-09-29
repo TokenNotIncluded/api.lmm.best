@@ -1073,6 +1073,286 @@ fn integration_config() -> AuthConfig {
     }
 }
 
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL and Valkey; use LMM_AUTH_TEST_* variables"]
+async fn session_management_preserves_preferences_inventory_and_shared_revocation_fences() {
+    use lmm_api_rs::routes::identity_security::{
+        DashboardSecurityAuthorizer, IdentitySecurityState, PgValkeySecurityProvider,
+        router as security_router,
+    };
+    let (database_url, valkey_url) = integration_urls();
+    let pool = PgPoolOptions::new()
+        .max_connections(6)
+        .connect(&database_url)
+        .await
+        .unwrap();
+    reset_schema(&pool).await;
+    sqlx::query("INSERT INTO users (id,username,password,display_name,role,status,email,\"group\",setting,auth_version) VALUES (7,'alice',$1,'Alice',1,1,'alice@example.test','default',$2,1),(8,'other',$1,'Other',1,1,'other@example.test','default','{}',1)")
+        .bind(hash("correct horse", DEFAULT_COST).unwrap())
+        .bind(r#"{"session_auto_logout":false,"notify":{"channel":"email"},"future_field":[1,"keep"],"future_number":123456789012345678901234567890}"#)
+        .execute(&pool).await.unwrap();
+    let valkey = redis::Client::open(valkey_url.as_str()).unwrap();
+    let mut connection = valkey.get_multiplexed_async_connection().await.unwrap();
+    redis::cmd("FLUSHDB")
+        .query_async::<()>(&mut connection)
+        .await
+        .unwrap();
+    let auth: Arc<dyn DashboardAuth> = Arc::new(
+        PgValkeyDashboardAuth::new(pool.clone(), valkey.clone(), integration_config()).unwrap(),
+    );
+    let auth_app =
+        auth_router(AuthHttpState::new(auth.clone(), false).with_password_login_enabled(true));
+    let app = security_router(
+        IdentitySecurityState::new(
+            Arc::new(PgValkeySecurityProvider::new(pool.clone(), valkey.clone())),
+            Arc::new(DashboardSecurityAuthorizer::new(auth.clone())),
+        )
+        .with_session_authority(auth.clone(), false),
+    );
+    let mut sessions = Vec::new();
+    for _ in 0..4 {
+        let response = auth_app
+            .clone()
+            .oneshot(json_request(
+                "POST",
+                "/api/user/login",
+                r#"{"username":"alice","password":"correct horse"}"#,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let cookie = response.headers()[header::SET_COOKIE]
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_owned();
+        let response = json_body(response).await;
+        sessions.push((
+            response["data"]["session"]["sid"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
+            response["data"]["access_token"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
+            cookie,
+        ));
+    }
+    let current = &sessions[0];
+    let other = &sessions[1];
+    let stale = &sessions[2];
+    let aged = &sessions[3];
+    sqlx::query("UPDATE user_sessions SET created_at=created_at-600,last_active_at=last_active_at-600,ip=NULL,user_agent=NULL WHERE sid=$1").bind(&current.0).execute(&pool).await.unwrap();
+    sqlx::query("UPDATE user_sessions SET user_auth_version=0 WHERE sid=$1")
+        .bind(&stale.0)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE user_sessions SET created_at=created_at-604860 WHERE sid=$1")
+        .bind(&aged.0)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let foreign_sid = uuid::Uuid::new_v4().to_string();
+    sqlx::query("INSERT INTO user_sessions SELECT $1,8,version,user_auth_version,status,refresh_hash,previous_refresh_hash,previous_valid_until,login_method,ip,user_agent,created_at,last_active_at,expires_at,revoked_at,revoked_reason FROM user_sessions WHERE sid=$2")
+        .bind(&foreign_sid).bind(&other.0).execute(&pool).await.unwrap();
+
+    let session_request = |method: &str, path: &str, body: String| {
+        with_test_context(
+            Request::builder()
+                .method(method)
+                .uri(path)
+                .header(header::AUTHORIZATION, format!("Bearer {}", current.1))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+    };
+    let response = app
+        .clone()
+        .oneshot(session_request("GET", "/api/user/sessions", String::new()))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let inventory = json_body(response).await;
+    assert_eq!(inventory["session_auto_logout"], false);
+    let entries = inventory["data"].as_array().unwrap();
+    assert_eq!(entries.len(), 3);
+    assert_eq!(entries[0]["sid"], current.0);
+    assert_eq!(entries[0]["current"], true);
+    assert_eq!(entries[0]["ip"], "");
+    assert_eq!(entries[0]["user_agent"], "");
+    assert!(
+        entries
+            .iter()
+            .all(|entry| entry["sid"] != stale.0 && entry["sid"] != foreign_sid)
+    );
+
+    let response = app
+        .clone()
+        .oneshot(session_request(
+            "PUT",
+            "/api/user/sessions/settings",
+            r#"{"session_auto_logout":true}"#.to_owned(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(
+        json_body(response).await,
+        serde_json::json!({"success":true,"message":""})
+    );
+    let stored: String = sqlx::query_scalar("SELECT setting FROM users WHERE id=7")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(
+        stored.contains("123456789012345678901234567890"),
+        "unknown numeric settings must not lose precision"
+    );
+    let stored: Value = serde_json::from_str(&stored).unwrap();
+    assert_eq!(stored["session_auto_logout"], true);
+    assert_eq!(stored["notify"]["channel"], "email");
+    assert_eq!(stored["future_field"], serde_json::json!([1, "keep"]));
+    let reason: String =
+        sqlx::query_scalar("SELECT revoked_reason FROM user_sessions WHERE sid=$1")
+            .bind(&aged.0)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(reason, "weekly_auto_logout");
+    assert_eq!(
+        auth.current_session(SecretString::from(aged.1.clone()))
+            .await
+            .unwrap_err()
+            .kind,
+        AuthErrorKind::SessionRevoked
+    );
+
+    let foreign = app
+        .clone()
+        .oneshot(session_request(
+            "DELETE",
+            &format!("/api/user/sessions/{foreign_sid}"),
+            String::new(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(foreign.status(), StatusCode::NOT_FOUND);
+    assert_eq!(json_body(foreign).await["code"], "AUTH_SESSION_NOT_FOUND");
+    let foreign_status: String =
+        sqlx::query_scalar("SELECT status FROM user_sessions WHERE sid=$1")
+            .bind(&foreign_sid)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(foreign_status, "active");
+    let unavailable_auth = PgValkeyDashboardAuth::new(
+        pool.clone(),
+        redis::Client::open("redis://127.0.0.1:1/").unwrap(),
+        integration_config(),
+    )
+    .unwrap();
+    assert!(
+        unavailable_auth
+            .revoke_login_session(7, &other.0)
+            .await
+            .is_err()
+    );
+    let active: String = sqlx::query_scalar("SELECT status FROM user_sessions WHERE sid=$1")
+        .bind(&other.0)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        active, "active",
+        "deny-fence failure must precede the database mutation"
+    );
+
+    let delete_path = format!("/api/user/sessions/{}", other.0);
+    let first_request = session_request("DELETE", &delete_path, String::new());
+    let second_request = session_request("DELETE", &delete_path, String::new());
+    let (first, second) = tokio::join!(
+        app.clone().oneshot(first_request),
+        app.clone().oneshot(second_request)
+    );
+    let mut statuses = [
+        first.unwrap().status().as_u16(),
+        second.unwrap().status().as_u16(),
+    ];
+    statuses.sort();
+    assert_eq!(statuses, [200, 404]);
+    assert_eq!(
+        auth.current_session(SecretString::from(other.1.clone()))
+            .await
+            .unwrap_err()
+            .kind,
+        AuthErrorKind::SessionRevoked
+    );
+    let response = app
+        .clone()
+        .oneshot(session_request(
+            "POST",
+            "/api/user/sessions/revoke-others",
+            "{}".to_owned(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(json_body(response).await["data"]["revoked_count"], 1);
+    auth.current_session(SecretString::from(current.1.clone()))
+        .await
+        .unwrap();
+    let mut delete_current = session_request(
+        "DELETE",
+        &format!("/api/user/sessions/{}", current.0),
+        String::new(),
+    );
+    delete_current
+        .headers_mut()
+        .insert(header::COOKIE, current.2.parse().unwrap());
+    let response = app.oneshot(delete_current).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let cleared = response.headers()[header::SET_COOKIE].to_str().unwrap();
+    assert!(cleared.starts_with("new_api_refresh=;"));
+    assert!(
+        cleared.contains("Max-Age=0")
+            && cleared.contains("HttpOnly")
+            && cleared.contains("SameSite=Strict")
+    );
+    assert_eq!(json_body(response).await["data"]["current"], true);
+    assert_eq!(
+        auth.current_session(SecretString::from(current.1.clone()))
+            .await
+            .unwrap_err()
+            .kind,
+        AuthErrorKind::SessionRevoked
+    );
+    // The shared cache must retain deny tombstones for both Go and Rust readers.
+    let keys: Vec<String> = redis::cmd("KEYS")
+        .arg("auth:session:*")
+        .query_async(&mut connection)
+        .await
+        .unwrap();
+    let mut revoked_sids = std::collections::BTreeSet::new();
+    for key in keys {
+        let fields: Vec<Option<String>> = redis::cmd("HMGET")
+            .arg(key)
+            .arg("SID")
+            .arg("Status")
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        if matches!(fields[1].as_deref(), Some("revoked" | "revoking")) {
+            revoked_sids.insert(fields[0].clone().unwrap());
+        }
+    }
+    for session in sessions {
+        assert!(revoked_sids.contains(&session.0));
+    }
+}
+
 fn integration_urls() -> (String, String) {
     assert_eq!(
         env::var("LMM_AUTH_TEST_ALLOW_SCHEMA_RESET").as_deref(),

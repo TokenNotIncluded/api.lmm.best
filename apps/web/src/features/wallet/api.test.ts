@@ -15,15 +15,28 @@ You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import assert from 'node:assert/strict'
-import { afterEach, test } from 'node:test'
+import { after, afterEach, test } from 'node:test'
+
+import { Window } from 'happy-dom'
 
 import { api } from '@/lib/api'
+import { useAuthStore } from '@/stores/auth-store'
 
 import {
+  requestPayment,
+  requestStripePayment,
+  requestCreemPayment,
+  requestWaffoPayment,
+  requestWaffoPancakePayment,
   getAllBillingHistory,
   getUserBillingHistory,
   sendAffiliateInvitation,
 } from './api'
+import { prepareTopup, readPendingTopups } from './lib/topup-cloud-storage'
+
+const dom = new Window({ url: 'https://example.test/wallet' })
+Object.defineProperty(globalThis, 'window', { configurable: true, value: dom })
+after(() => dom.close())
 
 const originalGet = api.get
 const originalPost = api.post
@@ -31,6 +44,8 @@ const originalPost = api.post
 afterEach(() => {
   api.get = originalGet
   api.post = originalPost
+  dom.localStorage.clear()
+  useAuthStore.getState().auth.reset()
 })
 
 test('billing history APIs send the global sort contract to user and admin routes', async () => {
@@ -77,4 +92,52 @@ test('sendAffiliateInvitation posts only the recipient to the SMTP-backed route'
   assert.equal(capturedUrl, '/api/user/aff/invite')
   assert.deepEqual(capturedBody, { email: 'friend@example.com' })
   assert.equal(capturedConfig?.skipBusinessError, true)
+})
+
+test('all five gateways bind the server order before returning to redirect hooks', async () => {
+  useAuthStore.getState().auth.setUser({ id: 7, username: 'test', role: 1 })
+  const calls = [
+    () => requestPayment({ amount: 10, payment_method: 'alipay' }),
+    () => requestStripePayment({ amount: 10, payment_method: 'stripe' }),
+    () =>
+      requestCreemPayment({
+        product_id: 'test-product',
+        payment_method: 'creem',
+      }),
+    () => requestWaffoPayment({ amount: 10 }),
+    () => requestWaffoPancakePayment({ amount: 10 }),
+  ]
+  for (const [index, invoke] of calls.entries()) {
+    const intent = prepareTopup(7, 0, 10)
+    const order = `gateway-order-${index}`
+    api.post = (async () => ({
+      data: { success: true, data: { trade_no: order } },
+    })) as typeof api.post
+    await invoke()
+    assert.equal(
+      readPendingTopups(7).find((x) => x.attemptId === intent.attemptId)
+        ?.tradeNo,
+      order
+    )
+  }
+})
+
+test('a late gateway response cannot bind a receipt after account switch', async () => {
+  useAuthStore.getState().auth.setUser({ id: 7, username: 'first', role: 1 })
+  prepareTopup(7, 0, 10)
+  let resolve!: (response: {
+    data: { success: boolean; trade_no: string }
+  }) => void
+  const delayed = new Promise<{ data: { success: boolean; trade_no: string } }>(
+    (accept) => {
+      resolve = accept
+    }
+  )
+  api.post = (() => delayed) as typeof api.post
+  const response = requestPayment({ amount: 10, payment_method: 'alipay' })
+  useAuthStore.getState().auth.setUser({ id: 8, username: 'second', role: 1 })
+  resolve({ data: { success: true, trade_no: 'first-users-order' } })
+  await response
+  assert.equal(readPendingTopups(7)[0]?.tradeNo, undefined)
+  assert.deepEqual(readPendingTopups(8), [])
 })

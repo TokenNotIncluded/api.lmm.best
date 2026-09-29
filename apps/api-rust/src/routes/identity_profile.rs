@@ -51,6 +51,12 @@ pub enum ProfileAuthError {
 pub trait ProfileIdentityResolver: Send + Sync {
     /// Validates the request credentials and returns the authenticated actor.
     async fn principal(&self, headers: &HeaderMap) -> Result<ProfileIdentity, ProfileAuthError>;
+
+    /// Current Go permits only L1+ accounts to change API-key IP bypass.
+    /// An unavailable trust projection preserves the saved preference.
+    async fn may_manage_ip_bypass(&self, _identity: ProfileIdentity, _headers: &HeaderMap) -> bool {
+        false
+    }
 }
 
 struct RejectingProfileIdentityResolver;
@@ -100,6 +106,16 @@ impl ProfileIdentityResolver for DashboardProfileIdentityResolver {
             }
             Err(_) => Err(ProfileAuthError::Internal),
         }
+    }
+
+    async fn may_manage_ip_bypass(&self, identity: ProfileIdentity, headers: &HeaderMap) -> bool {
+        let Some(token) = bearer(headers) else {
+            return false;
+        };
+        self.auth
+            .self_user_view_for_optional(SecretString::from(token))
+            .await
+            .is_ok_and(|user| user.id == identity.user_id && user.trust_level_info.level >= 1)
     }
 }
 
@@ -647,11 +663,7 @@ impl ProfileLocalePatch {
             setting.insert("language".to_owned(), Value::String(language));
         }
         if let Some(currency) = self.settlement_currency {
-            if currency.is_empty() {
-                setting.remove("settlement_currency");
-            } else {
-                setting.insert("settlement_currency".to_owned(), Value::String(currency));
-            }
+            setting.insert("settlement_currency".to_owned(), Value::String(currency));
         }
         serde_json::to_string(&setting).map_err(|_| ProfileError::internal())
     }
@@ -690,7 +702,9 @@ async fn update_self_locale(
         .commit()
         .await
         .map_err(|_| ProfileError::internal())?;
-    clear_user_cache(state, user_id).await;
+    clear_user_cache_result(state, user_id)
+        .await
+        .map_err(|_| ProfileError::legacy(request_locale.update_failed()))?;
     Ok(common_update_success(request_locale))
 }
 
@@ -700,32 +714,44 @@ async fn update_self_setting(
     request: &mut Map<String, Value>,
     request_locale: LegacyLocale,
 ) -> Result<Response, ProfileError> {
+    let sidebar = request
+        .get("sidebar_modules")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ProfileError::legacy(request_locale.invalid_parameters()))?;
+    if !valid_sidebar_modules(sidebar) {
+        return Err(ProfileError::legacy(request_locale.invalid_parameters()));
+    }
+    let mut transaction = state
+        .pg
+        .begin()
+        .await
+        .map_err(|_| ProfileError::internal())?;
     let raw = sqlx::query_scalar::<_, Option<String>>(
-        "SELECT setting FROM users WHERE id = $1 AND deleted_at IS NULL",
+        "SELECT setting FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE",
     )
     .bind(user_id)
-    .fetch_optional(&state.pg)
+    .fetch_optional(&mut *transaction)
     .await
     .map_err(|_| ProfileError::internal())?
-    .flatten()
+    .ok_or_else(ProfileError::not_found)?
     .unwrap_or_default();
-    let mut setting = serde_json::from_str::<LegacyNotificationSetting>(&raw).unwrap_or_default();
-    // The legacy handler gives sidebar preference precedence when both exist.
-    if request.contains_key("sidebar_modules") {
-        if let Some(Value::String(value)) = request.remove("sidebar_modules") {
-            setting.sidebar_modules = value;
-        }
-    } else if let Some(Value::String(value)) = request.remove("language") {
-        setting.language = value;
-    }
+    let mut setting = parse_notification_setting(&raw)?;
+    // Sidebar takes precedence over accompanying locale fields in current Go.
+    setting.sidebar_modules = sidebar.to_owned();
     let serialized = serialize_legacy_notification_setting(&setting)?;
     sqlx::query("UPDATE users SET setting = $1 WHERE id = $2 AND deleted_at IS NULL")
         .bind(&serialized)
         .bind(user_id)
-        .execute(&state.pg)
+        .execute(&mut *transaction)
         .await
         .map_err(|_| ProfileError::internal())?;
-    update_user_setting_cache(state, user_id, &serialized).await;
+    transaction
+        .commit()
+        .await
+        .map_err(|_| ProfileError::internal())?;
+    clear_user_cache_result(state, user_id)
+        .await
+        .map_err(|_| ProfileError::legacy(request_locale.update_failed()))?;
     Ok(common_update_success(request_locale))
 }
 
@@ -920,44 +946,113 @@ async fn update_setting(
     request: Request,
 ) -> Result<Response, ProfileError> {
     let request_locale = locale(request.headers());
-    let object = match request_object(request).await {
-        Ok(object) => object,
-        Err(_) => return Err(ProfileError::legacy(request_locale.invalid_parameters())),
-    };
-    let request: UserSettingRequest = match serde_json::from_value(Value::Object(object)) {
-        Ok(request) => request,
+    let headers = request.headers().clone();
+    const SETTING_BODY_LIMIT: usize = 16 * 1024;
+    if request
+        .headers()
+        .get(header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+        .is_some_and(|length| length > SETTING_BODY_LIMIT as u64)
+    {
+        return Ok(crate::legacy_empty_response(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            None,
+        ));
+    }
+    let raw = to_bytes(request.into_body(), SETTING_BODY_LIMIT)
+        .await
+        .map_err(|_| ProfileError::legacy(request_locale.invalid_parameters()))?;
+    let request = match Option::<UserSettingRequest>::deserialize(
+        &mut serde_json::Deserializer::from_slice(&raw),
+    ) {
+        Ok(request) => request.unwrap_or_default(),
         Err(_) => return Err(ProfileError::legacy(request_locale.invalid_parameters())),
     };
     validate_user_setting(&request, request_locale)?;
-    update_notification_setting(&state, identity, request).await?;
+    let may_manage_ip_bypass = state
+        .identity
+        .may_manage_ip_bypass(identity, &headers)
+        .await;
+    update_notification_setting(&state, identity, request, may_manage_ip_bypass)
+        .await
+        .map_err(|_| ProfileError::legacy(request_locale.update_failed()))?;
     Ok(update_success(request_locale))
 }
 
-#[derive(Deserialize)]
+#[derive(Default)]
 struct UserSettingRequest {
-    #[serde(default)]
     notify_type: String,
-    #[serde(default)]
     quota_warning_threshold: f64,
-    #[serde(default)]
     webhook_url: String,
-    #[serde(default)]
     webhook_secret: String,
-    #[serde(default)]
     notification_email: String,
-    #[serde(default)]
     bark_url: String,
-    #[serde(default)]
     gotify_url: String,
-    #[serde(default)]
     gotify_token: String,
-    #[serde(default)]
     gotify_priority: i64,
     upstream_model_update_notify_enabled: Option<bool>,
-    #[serde(default)]
     accept_unset_model_ratio_model: bool,
-    #[serde(default)]
     record_ip_log: bool,
+    usage_leaderboard_visibility: String,
+    allow_key_bypass_ip_policy: bool,
+}
+
+impl<'de> Deserialize<'de> for UserSettingRequest {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Visitor;
+        impl<'de> serde::de::Visitor<'de> for Visitor {
+            type Value = UserSettingRequest;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a user setting object")
+            }
+            fn visit_map<M: serde::de::MapAccess<'de>>(
+                self,
+                mut map: M,
+            ) -> Result<Self::Value, M::Error> {
+                let mut request = UserSettingRequest::default();
+                // Go matches tagged struct fields case-insensitively and
+                // processes duplicate fields in order. Null scalar values
+                // leave the previous value; null pointers clear the pointer.
+                macro_rules! scalar {
+                    ($field:ident, $type:ty) => {
+                        if let Some(value) = map.next_value::<Option<$type>>()? {
+                            request.$field = value;
+                        }
+                    };
+                }
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.to_ascii_lowercase().as_str() {
+                        "notify_type" => scalar!(notify_type, String),
+                        "quota_warning_threshold" => scalar!(quota_warning_threshold, f64),
+                        "webhook_url" => scalar!(webhook_url, String),
+                        "webhook_secret" => scalar!(webhook_secret, String),
+                        "notification_email" => scalar!(notification_email, String),
+                        "bark_url" => scalar!(bark_url, String),
+                        "gotify_url" => scalar!(gotify_url, String),
+                        "gotify_token" => scalar!(gotify_token, String),
+                        "gotify_priority" => scalar!(gotify_priority, i64),
+                        "upstream_model_update_notify_enabled" => {
+                            request.upstream_model_update_notify_enabled = map.next_value()?
+                        }
+                        "accept_unset_model_ratio_model" => {
+                            scalar!(accept_unset_model_ratio_model, bool)
+                        }
+                        "record_ip_log" => scalar!(record_ip_log, bool),
+                        "usage_leaderboard_visibility" => {
+                            scalar!(usage_leaderboard_visibility, String)
+                        }
+                        "allow_key_bypass_ip_policy" => scalar!(allow_key_bypass_ip_policy, bool),
+                        _ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(request)
+            }
+        }
+        deserializer.deserialize_map(Visitor)
+    }
 }
 
 fn validate_user_setting(
@@ -974,6 +1069,18 @@ fn validate_user_setting(
         return Err(ProfileError::legacy(
             request_locale.quota_threshold_gt_zero(),
         ));
+    }
+    if !request.usage_leaderboard_visibility.is_empty()
+        && !matches!(
+            request
+                .usage_leaderboard_visibility
+                .trim()
+                .to_ascii_lowercase()
+                .as_str(),
+            "public" | "anonymous" | "hidden"
+        )
+    {
+        return Err(ProfileError::legacy(request_locale.invalid_parameters()));
     }
     match request.notify_type.as_str() {
         "email"
@@ -1057,32 +1164,53 @@ async fn update_notification_setting(
     state: &ProfileState,
     identity: ProfileIdentity,
     request: UserSettingRequest,
+    may_manage_ip_bypass: bool,
 ) -> Result<(), ProfileError> {
+    // Keep the preference read and write under the same row lock. A FOR
+    // UPDATE outside a transaction releases its lock before the UPDATE and
+    // can overwrite a concurrent session auto-logout preference change.
+    let mut transaction = state
+        .pg
+        .begin()
+        .await
+        .map_err(|_| ProfileError::internal())?;
     let raw = sqlx::query_scalar::<_, Option<String>>(
         "SELECT setting FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE",
     )
     .bind(identity.user_id)
-    .fetch_optional(&state.pg)
+    .fetch_optional(&mut *transaction)
     .await
     .map_err(|_| ProfileError::internal())?
-    .flatten()
+    .ok_or_else(ProfileError::not_found)?
     .unwrap_or_default();
-    let setting = build_notification_setting(&raw, &request, identity.role)?;
+    let setting = build_notification_setting(&raw, &request, identity.role, may_manage_ip_bypass)?;
     let updated = sqlx::query("UPDATE users SET setting = $1 WHERE id = $2 AND deleted_at IS NULL")
         .bind(&setting)
         .bind(identity.user_id)
-        .execute(&state.pg)
+        .execute(&mut *transaction)
         .await
         .map_err(|_| ProfileError::internal())?;
     if updated.rows_affected() != 1 {
         return Err(ProfileError::not_found());
     }
-    update_user_setting_cache(state, identity.user_id, &setting).await;
+    transaction
+        .commit()
+        .await
+        .map_err(|_| ProfileError::internal())?;
+    // Current Go UpdateUserSettingPreservingLocale invalidates the complete
+    // user cache after committing, just like locale preference updates.
+    clear_user_cache_result(state, identity.user_id).await?;
     Ok(())
 }
 
 #[derive(Default, Deserialize, Serialize, Debug, PartialEq)]
 struct LegacyNotificationSetting {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    session_auto_logout: Option<bool>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    usage_leaderboard_visibility: String,
+    #[serde(default, skip_serializing_if = "is_false")]
+    allow_key_bypass_ip_policy: bool,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     notify_type: String,
     #[serde(default, skip_serializing_if = "is_zero_f64")]
@@ -1129,12 +1257,91 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
+fn parse_notification_setting(raw: &str) -> Result<LegacyNotificationSetting, ProfileError> {
+    if raw.is_empty() {
+        return Ok(LegacyNotificationSetting::default());
+    }
+    serde_json::from_str::<Option<LegacyNotificationSetting>>(raw)
+        .map(Option::unwrap_or_default)
+        .map_err(|_| ProfileError::internal())
+}
+
+fn normalized_visibility(value: &str) -> &'static str {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "public" => "public",
+        "hidden" => "hidden",
+        _ => "anonymous",
+    }
+}
+
+fn valid_sidebar_modules(raw: &str) -> bool {
+    type RawMap = std::collections::BTreeMap<String, Box<serde_json::value::RawValue>>;
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return true;
+    }
+    if raw.len() > 16 * 1024 {
+        return false;
+    }
+    let Ok(object) = serde_json::from_str::<RawMap>(raw) else {
+        return false;
+    };
+    if object
+        .get("modules")
+        .is_some_and(|value| serde_json::from_str::<RawMap>(value.get()).is_err())
+    {
+        return false;
+    }
+    if let Some(preferences) = object.get("preferences") {
+        let Ok(preferences) = serde_json::from_str::<RawMap>(preferences.get()) else {
+            return false;
+        };
+        if preferences.get("density").is_some_and(|value| {
+            !matches!(
+                serde_json::from_str::<String>(value.get()).as_deref(),
+                Ok("compact" | "comfortable")
+            )
+        }) {
+            return false;
+        }
+        if let Some(route) = preferences.get("default_route") {
+            let route =
+                serde_json::from_str::<Option<String>>(route.get()).map(Option::unwrap_or_default);
+            if !route.is_ok_and(|value| {
+                value.is_empty()
+                    || (value.starts_with('/') && !value.starts_with("//") && !value.contains('\\'))
+            }) {
+                return false;
+            }
+        }
+        if ["section_order", "hidden_sections", "hidden"]
+            .iter()
+            .any(|key| {
+                preferences.get(*key).is_some_and(|value| {
+                    serde_json::from_str::<Vec<Box<serde_json::value::RawValue>>>(value.get())
+                        .is_err()
+                })
+            })
+        {
+            return false;
+        }
+        if preferences
+            .get("module_order")
+            .is_some_and(|value| serde_json::from_str::<RawMap>(value.get()).is_err())
+        {
+            return false;
+        }
+    }
+    true
+}
+
 fn build_notification_setting(
     raw: &str,
     request: &UserSettingRequest,
     role: i64,
+    may_manage_ip_bypass: bool,
 ) -> Result<String, ProfileError> {
-    let existing = serde_json::from_str::<LegacyNotificationSetting>(raw).unwrap_or_default();
+    let existing = parse_notification_setting(raw)?;
     let upstream = if role >= 10 {
         request
             .upstream_model_update_notify_enabled
@@ -1143,11 +1350,26 @@ fn build_notification_setting(
         existing.upstream_model_update_notify_enabled
     };
     let mut setting = LegacyNotificationSetting {
+        session_auto_logout: existing.session_auto_logout,
+        usage_leaderboard_visibility: normalized_visibility(
+            if request.usage_leaderboard_visibility.is_empty() {
+                &existing.usage_leaderboard_visibility
+            } else {
+                &request.usage_leaderboard_visibility
+            },
+        )
+        .to_owned(),
+        allow_key_bypass_ip_policy: if may_manage_ip_bypass {
+            request.allow_key_bypass_ip_policy
+        } else {
+            existing.allow_key_bypass_ip_policy
+        },
         notify_type: request.notify_type.clone(),
         quota_warning_threshold: request.quota_warning_threshold,
         upstream_model_update_notify_enabled: upstream,
         accept_unset_ratio_model: request.accept_unset_model_ratio_model,
         record_ip_log: request.record_ip_log,
+        language: existing.language,
         settlement_currency: existing.settlement_currency,
         ..LegacyNotificationSetting::default()
     };
@@ -1375,24 +1597,25 @@ async fn refresh_user_cache(state: &ProfileState, user_id: i64) {
 }
 
 async fn clear_user_cache(state: &ProfileState, user_id: i64) {
-    let Ok(mut connection) = state.valkey.get_multiplexed_async_connection().await else {
-        tracing::warn!(
-            user_id,
-            "identity profile Valkey unavailable after durable update"
-        );
-        return;
-    };
-    if redis::cmd("DEL")
-        .arg(format!("user:{user_id}"))
-        .query_async::<()>(&mut connection)
-        .await
-        .is_err()
-    {
+    if clear_user_cache_result(state, user_id).await.is_err() {
         tracing::warn!(
             user_id,
             "identity profile Valkey invalidation failed after durable update"
         );
     }
+}
+
+async fn clear_user_cache_result(state: &ProfileState, user_id: i64) -> Result<(), ProfileError> {
+    let mut connection = state
+        .valkey
+        .get_multiplexed_async_connection()
+        .await
+        .map_err(|_| ProfileError::internal())?;
+    redis::cmd("DEL")
+        .arg(format!("user:{user_id}"))
+        .query_async::<()>(&mut connection)
+        .await
+        .map_err(|_| ProfileError::internal())
 }
 
 async fn authenticated(
@@ -1426,6 +1649,13 @@ enum LegacyLocale {
 }
 
 impl LegacyLocale {
+    fn update_failed(self) -> &'static str {
+        match self {
+            Self::En => "Update failed",
+            Self::ZhCn => "更新失败",
+            Self::ZhTw => "更新失敗",
+        }
+    }
     fn invalid_parameters(self) -> &'static str {
         match self {
             Self::En => "Invalid parameters",
@@ -1623,7 +1853,8 @@ mod tests {
     use super::{
         AFF_CODE_LENGTH, LegacyLocale, LegacyNotificationSetting, ProfileLocalePatch,
         UserSettingRequest, build_notification_setting, generate_aff_code, is_request_uri,
-        self_oauth_binding_column, serialize_legacy_notification_setting, validate_user_setting,
+        normalized_visibility, self_oauth_binding_column, serialize_legacy_notification_setting,
+        valid_sidebar_modules, validate_user_setting,
     };
     use serde_json::{Map, Value};
 
@@ -1633,7 +1864,7 @@ mod tests {
         current: &str,
         request: &UserSettingRequest,
     ) -> Result<Value, Box<dyn std::error::Error>> {
-        let json = build_notification_setting(current, request, 1)
+        let json = build_notification_setting(current, request, 1, false)
             .map_err(|error| std::io::Error::other(format!("{error:?}")))?;
         Ok(serde_json::from_str(&json)?)
     }
@@ -1660,8 +1891,8 @@ mod tests {
         for (input, expected) in [
             (" cny ", Some("CNY")),
             ("\tUsd\n", Some("USD")),
-            ("", None),
-            ("  ", None),
+            ("", Some("")),
+            ("  ", Some("")),
         ] {
             let request = Map::from_iter([(
                 "settlement_currency".to_owned(),
@@ -1836,6 +2067,8 @@ mod tests {
             upstream_model_update_notify_enabled: None,
             accept_unset_model_ratio_model: false,
             record_ip_log: false,
+            usage_leaderboard_visibility: String::new(),
+            allow_key_bypass_ip_policy: false,
         };
         let value = notification_setting_json(
             r#"{"language":"zh","gotify_priority":7,"upstream_model_update_notify_enabled":true}"#,
@@ -1850,13 +2083,15 @@ mod tests {
                 "gotify_token": "token",
                 "gotify_priority": 5,
                 "upstream_model_update_notify_enabled": true,
+                "language": "zh",
+                "usage_leaderboard_visibility": "anonymous",
             })
         );
         Ok(())
     }
 
     #[test]
-    fn notification_setting_drops_fields_go_fresh_dto_drops() -> TestResult {
+    fn notification_setting_preserves_locale_but_drops_other_go_fresh_dto_fields() -> TestResult {
         let request = UserSettingRequest {
             notify_type: "email".to_owned(),
             quota_warning_threshold: 1.0,
@@ -1870,6 +2105,8 @@ mod tests {
             upstream_model_update_notify_enabled: None,
             accept_unset_model_ratio_model: false,
             record_ip_log: false,
+            usage_leaderboard_visibility: String::new(),
+            allow_key_bypass_ip_policy: false,
         };
         let value = notification_setting_json(
             r#"{"language":"zh","billing_preference":"wallet","gotify_priority":7}"#,
@@ -1878,9 +2115,157 @@ mod tests {
         assert_eq!(value["notify_type"], "email");
         assert_eq!(value["notification_email"], "ada@example.test");
         assert_eq!(value["gotify_priority"], 0);
-        assert!(value.get("language").is_none());
+        assert_eq!(value["language"], "zh");
         assert!(value.get("billing_preference").is_none());
         Ok(())
+    }
+
+    #[test]
+    fn notification_setting_preserves_weekly_session_preference() -> TestResult {
+        let request: UserSettingRequest = serde_json::from_value(serde_json::json!({
+            "notify_type": "email", "quota_warning_threshold": 42,
+            "session_auto_logout": true
+        }))?;
+        for enabled in [false, true] {
+            let current = serde_json::json!({"session_auto_logout": enabled}).to_string();
+            let value = notification_setting_json(&current, &request)?;
+            assert_eq!(value["session_auto_logout"], enabled);
+            // The same DTO is used for sidebar updates: roundtripping an
+            // unrelated preference must retain an explicit weekly opt-out.
+            let mut setting: LegacyNotificationSetting = serde_json::from_str(&current)?;
+            setting.sidebar_modules = "{}".to_owned();
+            let value: Value = serde_json::from_str(
+                &serialize_legacy_notification_setting(&setting).expect("valid setting"),
+            )?;
+            assert_eq!(value["session_auto_logout"], enabled);
+        }
+        assert!(
+            notification_setting_json("{}", &request)?
+                .get("session_auto_logout")
+                .is_none()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn notification_json_preserves_go_case_null_and_duplicate_field_rules() {
+        let input = r#"{"NOTIFY_TYPE":"email","quota_warning_threshold":42,"Quota_Warning_Threshold":null,"record_ip_log":true,"RECORD_IP_LOG":null,"webhook_secret":null,"upstream_model_update_notify_enabled":true,"UPSTREAM_MODEL_UPDATE_NOTIFY_ENABLED":null,"unknown":1e999}"#;
+        let request: UserSettingRequest = serde_json::from_str(input).unwrap();
+        assert_eq!(request.notify_type, "email");
+        assert_eq!(request.quota_warning_threshold, 42.0);
+        assert!(request.record_ip_log);
+        assert_eq!(request.webhook_secret, "");
+        assert_eq!(request.upstream_model_update_notify_enabled, None);
+        for invalid in [
+            r#"{"gotify_priority":1.5}"#,
+            r#"{"record_ip_log":"true"}"#,
+            r#"{"notify_type":1}"#,
+        ] {
+            assert!(serde_json::from_str::<UserSettingRequest>(invalid).is_err());
+        }
+    }
+
+    #[test]
+    fn notification_visibility_and_ip_bypass_match_current_go_privacy_and_trust_rules() -> TestResult
+    {
+        let mut request: UserSettingRequest = serde_json::from_value(serde_json::json!({
+            "notify_type":"email", "quota_warning_threshold":42,
+            "allow_key_bypass_ip_policy":false
+        }))?;
+        let current = r#"{"usage_leaderboard_visibility":" PUBLIC ","allow_key_bypass_ip_policy":true,"session_auto_logout":false,"language":"zh"}"#;
+        let stored = |request: &UserSettingRequest, may_manage: bool| -> Value {
+            serde_json::from_str(
+                &build_notification_setting(current, request, 1, may_manage)
+                    .expect("valid setting"),
+            )
+            .unwrap()
+        };
+        let l0 = stored(&request, false);
+        assert_eq!(l0["usage_leaderboard_visibility"], "public");
+        assert_eq!(
+            l0["allow_key_bypass_ip_policy"], true,
+            "L0 preserves the previous choice"
+        );
+        assert_eq!(l0["session_auto_logout"], false);
+        assert_eq!(l0["language"], "zh");
+        let l1 = stored(&request, true);
+        assert!(
+            l1.get("allow_key_bypass_ip_policy").is_none(),
+            "false uses Go omitempty"
+        );
+        request.usage_leaderboard_visibility = " HiDDen ".into();
+        request.allow_key_bypass_ip_policy = true;
+        assert!(validate_user_setting(&request, LegacyLocale::En).is_ok());
+        assert_eq!(
+            stored(&request, true)["usage_leaderboard_visibility"],
+            "hidden"
+        );
+        assert_eq!(stored(&request, true)["allow_key_bypass_ip_policy"], true);
+        request.usage_leaderboard_visibility = "everyone".into();
+        assert!(validate_user_setting(&request, LegacyLocale::En).is_err());
+        assert!(build_notification_setting("malformed", &request, 1, false).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn sidebar_shape_checks_match_current_go_without_treating_visibility_as_authorization() {
+        for value in [
+            "",
+            "  ",
+            "{}",
+            r#"{"legacy":{"hidden":true}}"#,
+            r#"{"modules":{},"preferences":{"density":"compact","default_route":"/dashboard","hidden":[],"module_order":{}}}"#,
+            r#"{"preferences":{"default_route":null}}"#,
+        ] {
+            assert!(valid_sidebar_modules(value), "{value}");
+        }
+        for value in [
+            "null",
+            "[]",
+            "bad",
+            r#"{"modules":null}"#,
+            r#"{"preferences":{"density":"dense"}}"#,
+            r#"{"preferences":{"default_route":"//outside.test"}}"#,
+            r#"{"preferences":{"default_route":"/\\outside.test"}}"#,
+            r#"{"preferences":{"hidden":null}}"#,
+            r#"{"preferences":{"module_order":[]}}"#,
+        ] {
+            assert!(!valid_sidebar_modules(value), "{value}");
+        }
+        assert!(!valid_sidebar_modules(&format!(
+            r#"{{"unknown":"{}"}}"#,
+            "x".repeat(16 * 1024)
+        )));
+    }
+
+    #[test]
+    fn sidebar_and_privacy_vectors_are_exported_from_current_go() {
+        let reference: Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/profile-preferences-go.json"
+        ))
+        .unwrap();
+        for vector in reference["sidebar"].as_array().unwrap() {
+            let input = vector["input"].as_str().unwrap();
+            assert_eq!(
+                valid_sidebar_modules(input),
+                vector["valid"].as_bool().unwrap(),
+                "{input}"
+            );
+        }
+        for vector in reference["visibility"].as_array().unwrap() {
+            let input = vector["input"].as_str().unwrap();
+            assert_eq!(
+                normalized_visibility(input),
+                vector["normalized"].as_str().unwrap()
+            );
+            let valid = matches!(
+                input.trim().to_ascii_lowercase().as_str(),
+                "public" | "anonymous" | "hidden"
+            );
+            assert_eq!(valid, vector["valid"].as_bool().unwrap());
+        }
+        assert_eq!(reference["sidebar"].as_array().unwrap().len(), 23);
+        assert_eq!(reference["visibility"].as_array().unwrap().len(), 10);
     }
 
     #[test]
@@ -1913,6 +2298,8 @@ mod tests {
             upstream_model_update_notify_enabled: None,
             accept_unset_model_ratio_model: false,
             record_ip_log: false,
+            usage_leaderboard_visibility: String::new(),
+            allow_key_bypass_ip_policy: false,
         };
         let error = validate_user_setting(&request, LegacyLocale::En)
             .err()

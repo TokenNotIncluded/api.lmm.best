@@ -3715,7 +3715,7 @@
     "footer.columns.related.links.midjourney": "MjProxy",
     "footer.columns.related.title": "関連プロジェクト",
     "footer.defaultCopyright": "すべての権利を留保します。",
-    "footer.new\u0061pi.projectAttributionSuffix": "すべての権利を留保します。プロジェクトコントリビューターにより設計・開発されています。",
+    "footer.newapi.projectAttributionSuffix": "すべての権利を留保します。プロジェクトコントリビューターにより設計・開発されています。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "2025 年 5 月 10 日以降に追加されたチャネルの場合、デプロイ時にモデル名から「.」を削除する必要はありません",
     "For dsh web in a terminal, run this command. It installs only into the web profile.": "ターミナルで dsh web を使う場合は、このコマンドを実行します。インストール先は web プロファイルだけです。",
     "For example, a reliable OpenAI-compatible endpoint": "例：信頼できる OpenAI 互換エンドポイント",
@@ -9996,6 +9996,13 @@
     "Zhipu V4": "Zhipu V 4",
     "Zoom": "ズーム",
     "Zoom in": "拡大",
-    "Zoom out": "縮小"
+    "Zoom out": "縮小",
+    "Fully claimed": "すべて受け取り済み",
+    "Delete red packet": "ギフトを削除",
+    "Red packet deleted": "ギフトを削除しました",
+    "Failed to delete red packet": "ギフトを削除できませんでした",
+    "Remove this red packet from the list and stop new claims. Claim history and already received rewards are kept.": "このギフトを一覧から削除し、新たな受け取りを停止します。受け取り履歴と受け取り済みの報酬は保持されます。",
+    "A newer interface is available. Refresh after finishing any payment.": "新しい画面バージョンがあります。お支払いを完了してから再読み込みしてください。",
+    "Refresh page": "ページを再読み込み"
   }
 }

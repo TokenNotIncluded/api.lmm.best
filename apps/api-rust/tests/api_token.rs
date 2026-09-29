@@ -1595,6 +1595,7 @@ fn router_for_with_wire_errors(
         ApiTokenHttpState::new(Arc::new(
             PgValkeyApiTokenService::new(pool, redis::Client::open(valkey_url).unwrap())
                 .with_crypto_secret("api-token-integration-secret")
+                .with_frozen_cache_refresh(true)
                 .with_max_user_tokens(max_user_tokens),
         ))
         .with_frozen_wire_errors(frozen_wire_errors),

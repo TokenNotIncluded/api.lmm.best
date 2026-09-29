@@ -12,26 +12,24 @@ export type PendingTopupCloud = {
   userId: number
   launchedAt: number
   expiresAt: number
-  baselineSuccessId: number
   beforeQuota: number
   expectedCredit: number
+  // Optional only to safely discard intents from older clients, never to guess.
+  baselineSuccessId?: number
+  attemptId?: string
+  tradeNo?: string
 }
 
-/** Only a newly completed server order may start the credited-token animation. */
+/** An unrelated success, even of the same amount, must never confirm checkout. */
 export function findConfirmedTopup(
   records: TopupRecord[],
   pending: PendingTopupCloud
 ) {
-  const earliestCompletion = Math.floor(pending.launchedAt / 1000) - 5
+  if (!pending.tradeNo) return undefined
   return records.find(
     (record) =>
       record.status === 'success' &&
-      record.id > pending.baselineSuccessId &&
-      (pending.baselineSuccessId > 0 ||
-        (record.create_time >= earliestCompletion &&
-          (record.complete_time ?? record.create_time) >= earliestCompletion &&
-          (pending.expectedCredit <= 0 ||
-            Math.abs(record.amount - pending.expectedCredit) <=
-              Math.max(1, pending.expectedCredit * 0.01))))
+      record.user_id === pending.userId &&
+      record.trade_no === pending.tradeNo
   )
 }
