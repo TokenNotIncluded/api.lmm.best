@@ -23,6 +23,11 @@ authenticated users then see it once after their next login.
   ID, position, text, and closing status in the final response. Aggregate usage
   text and upstream usage accounting remain unchanged.
 
+- Chat-to-Responses streams report interrupted upstream responses as failures
+  instead of fabricated completions, preserving partial output and existing
+  usage accounting. Clean EOF after a recognized finish reason remains valid;
+  cancellation and downstream write failures do not append terminal events.
+
 - The bounty board now shows a recoverable query error instead of an empty
   project list when loading fails. Retry refreshes only the list, while cached
   projects remain visible with an error notice after a failed refresh.

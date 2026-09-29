@@ -365,6 +365,19 @@ func FinalizeStreamResponse(c context.Context, info convmeta.Meta, state *Respon
 	return responseStreamResults(state, values, usage), nil
 }
 
+// FailChatToResponsesStream preserves the delivered prefix without running
+// success finalizers. Other conversion routes retain their existing lifecycle.
+func FailChatToResponsesStream(state *ResponseStreamState, code, message string) (*dto.OpenAIResponsesResponse, error) {
+	if state == nil || state.From != types.RelayFormatOpenAI || state.To != types.RelayFormatOpenAIResponses || len(state.stepStates) != 1 {
+		return nil, errors.New("expected direct Chat-to-Responses stream state")
+	}
+	chat, ok := state.stepStates[0].(*ChatToResponsesStreamState)
+	if !ok {
+		return nil, errors.New("expected Chat-to-Responses converter")
+	}
+	return chat.Fail(code, message)
+}
+
 func (s *ResponseStreamState) Usage() *dto.Usage {
 	if s == nil {
 		return nil
