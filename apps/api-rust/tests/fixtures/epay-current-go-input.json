@@ -1,0 +1,195 @@
+[
+  {
+    "name": "fractional-half-cent",
+    "amount": "5.25",
+    "method": "alipay",
+    "options": {},
+    "methods": [
+      {
+        "type": "alipay"
+      }
+    ]
+  },
+  {
+    "name": "fractional-six-digits",
+    "amount": "12.345678",
+    "method": "alipay",
+    "options": {},
+    "methods": [
+      {
+        "type": "alipay",
+        "settlement_currency": "USD",
+        "unit_price": "999"
+      }
+    ]
+  },
+  {
+    "name": "tokens-exact-quota",
+    "amount": "500001",
+    "method": "alipay",
+    "options": {
+      "general_setting.quota_display_type": "TOKENS"
+    },
+    "methods": [
+      {
+        "type": "alipay"
+      }
+    ]
+  },
+  {
+    "name": "custom-credit-rail",
+    "amount": "14.6",
+    "method": "epay",
+    "options": {},
+    "methods": [
+      {
+        "type": "epay",
+        "name": "LDC",
+        "settlement_unit": "LDC",
+        "unit_price": "3",
+        "topup_ratio": "0.8"
+      }
+    ]
+  },
+  {
+    "name": "integer-amount-discount",
+    "amount": "14",
+    "method": "alipay",
+    "options": {
+      "payment_setting.amount_discount": "{\"14\":0.9}"
+    },
+    "methods": [
+      {
+        "type": "alipay"
+      }
+    ]
+  },
+  {
+    "name": "disabled-duplicate",
+    "amount": "14.6",
+    "method": "alipay",
+    "options": {},
+    "methods": [
+      {
+        "type": "alipay",
+        "enabled": "true"
+      },
+      {
+        "type": "alipay",
+        "enabled": "false"
+      }
+    ]
+  },
+  {
+    "name": "minimum-limit",
+    "amount": "14.6",
+    "method": "alipay",
+    "options": {},
+    "methods": [
+      {
+        "type": "alipay",
+        "min_topup": "2"
+      }
+    ]
+  },
+  {
+    "name": "maximum-limit",
+    "amount": "14.6",
+    "method": "alipay",
+    "options": {},
+    "methods": [
+      {
+        "type": "alipay",
+        "max_topup": "5"
+      },
+      {
+        "type": "alipay",
+        "max_topup": "0.5"
+      }
+    ]
+  },
+  {
+    "name": "audience-rejected",
+    "amount": "14.6",
+    "method": "alipay",
+    "options": {},
+    "methods": [
+      {
+        "type": "alipay",
+        "audience_mode": "include",
+        "audience_email_contains": "other@example.com"
+      }
+    ]
+  },
+  {
+    "name": "too-many-decimal-places",
+    "amount": "1.0000001",
+    "method": "alipay",
+    "options": {},
+    "methods": [
+      {
+        "type": "alipay"
+      }
+    ]
+  },
+  {
+    "name": "request-micros-overflow",
+    "amount": "10000000000000",
+    "method": "alipay",
+    "options": {},
+    "methods": [
+      {
+        "type": "alipay"
+      }
+    ]
+  },
+  {
+    "name": "misconfigured-custom-pricing",
+    "amount": "14.6",
+    "method": "custom",
+    "options": {},
+    "methods": [
+      {
+        "type": "custom",
+        "settlement_currency": "USD",
+        "platform_units_per_usd": "10"
+      }
+    ]
+  },
+  {
+    "name": "null-discount",
+    "amount": "5.25",
+    "method": "alipay",
+    "body": "{\"amount\":5.25,\"payment_method\":\"alipay\",\"discount_code\":null}",
+    "options": {},
+    "methods": [
+      {
+        "type": "alipay"
+      }
+    ]
+  },
+  {
+    "name": "case-folded-amount",
+    "amount": "5.25",
+    "method": "alipay",
+    "body": "{\"AMOUNT\":5.25,\"payment_method\":\"alipay\"}",
+    "options": {},
+    "methods": [
+      {
+        "type": "alipay"
+      }
+    ]
+  },
+  {
+    "name": "duplicate-null-amount",
+    "amount": "5.25",
+    "method": "alipay",
+    "body": "{\"amount\":5.25,\"amount\":null,\"payment_method\":\"alipay\"}",
+    "options": {},
+    "methods": [
+      {
+        "type": "alipay"
+      }
+    ]
+  }
+]

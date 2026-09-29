@@ -6,10 +6,12 @@ it under the terms of the GNU Affero General Public License as
 published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
-import { useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
+import { getPricing } from '@/features/pricing/api'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 
 import { LMM_ISSUER } from './integration-prompts'
@@ -52,20 +54,95 @@ const LANGUAGES: readonly { id: Language; label: string }[] = [
   { id: 'python', label: 'Python' },
 ]
 
-const MODEL_SUGGESTIONS = ['gpt-4o-mini', 'claude-sonnet-4', 'gemini-2.0-flash']
+const MODEL_OPTIONS: Readonly<
+  Record<
+    Protocol,
+    {
+      endpoint: string
+      fallback: readonly string[]
+      preferred: readonly string[]
+    }
+  >
+> = {
+  chat: {
+    endpoint: 'openai',
+    fallback: ['gpt-5.6-sol', 'gpt-5.6-luna'],
+    preferred: ['gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-luna'],
+  },
+  messages: {
+    endpoint: 'anthropic',
+    fallback: ['claude-opus-4-6', 'claude-sonnet-4-6'],
+    preferred: [
+      'claude-opus-5',
+      'claude-opus-4-8',
+      'claude-opus-4-6',
+      'claude-sonnet-4-6',
+    ],
+  },
+  gemini: {
+    endpoint: 'gemini',
+    fallback: ['gemini-3.1-pro-preview', 'gemini-3-flash-preview'],
+    preferred: [
+      'gemini-3.1-pro-preview',
+      'gemini-3-flash-preview',
+      'gemini-3-pro-preview',
+    ],
+  },
+}
+
+function sortModels(models: string[], preferred: readonly string[]): string[] {
+  const rank = new Map(preferred.map((name, index) => [name, index]))
+  return models.sort((left, right) => {
+    const leftRank = rank.get(left) ?? Number.MAX_SAFE_INTEGER
+    const rightRank = rank.get(right) ?? Number.MAX_SAFE_INTEGER
+    if (leftRank !== rightRank) return leftRank - rightRank
+    return left.localeCompare(right, undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    })
+  })
+}
 
 /**
- * Build a real request against api.lmm.best without sending it. The snippet is
- * generated from the same fields the server expects, so what a developer copies
- * is exactly what a working client sends.
+ * Build a real request against api.lmm.best without sending the prompt. Model
+ * choices come from the live public pricing catalogue, filtered by endpoint
+ * compatibility, so the examples do not age into hard-coded legacy models.
  */
 export function RequestBuilder() {
   const { t } = useTranslation()
   const { copiedText, copyToClipboard } = useCopyToClipboard({ notify: false })
   const [protocol, setProtocol] = useState<Protocol>('chat')
   const [language, setLanguage] = useState<Language>('curl')
-  const [model, setModel] = useState(MODEL_SUGGESTIONS[0])
+  const [model, setModel] = useState(MODEL_OPTIONS.chat.fallback[0])
   const [prompt, setPrompt] = useState('Explain LMM in one sentence.')
+
+  const pricingQuery = useQuery({
+    queryKey: ['pricing'],
+    queryFn: ({ signal }) => getPricing(signal),
+    staleTime: 5 * 60_000,
+  })
+
+  const modelOptions = useMemo(() => {
+    const config = MODEL_OPTIONS[protocol]
+    const liveModels =
+      pricingQuery.data?.data
+        .filter((item) =>
+          item.supported_endpoint_types?.includes(config.endpoint)
+        )
+        .map((item) => item.model_name.trim())
+        .filter(Boolean) ?? []
+
+    const uniqueModels = [...new Set(liveModels)]
+    return uniqueModels.length > 0
+      ? sortModels(uniqueModels, config.preferred)
+      : [...config.fallback]
+  }, [pricingQuery.data?.data, protocol])
+
+  useEffect(() => {
+    if (!modelOptions.includes(model)) {
+      setModel(modelOptions[0])
+    }
+  }, [model, modelOptions])
 
   const active = PROTOCOLS.find((item) => item.id === protocol) ?? PROTOCOLS[0]
   const url = `${LMM_ISSUER}${active.path.replace('{model}', encodeURIComponent(model || 'MODEL'))}`
@@ -110,19 +187,18 @@ export function RequestBuilder() {
         >
           {t('Model')}
         </label>
-        <input
+        <select
           id='dev-builder-model'
-          list='dev-builder-models'
           value={model}
           onChange={(event) => setModel(event.target.value)}
           className='dev-builder-input'
-          placeholder='gpt-4o-mini'
-        />
-        <datalist id='dev-builder-models'>
-          {MODEL_SUGGESTIONS.map((item) => (
-            <option key={item} value={item} />
+        >
+          {modelOptions.map((item) => (
+            <option key={item} value={item}>
+              {item}
+            </option>
           ))}
-        </datalist>
+        </select>
       </div>
       <div className='dev-builder-row'>
         <label

@@ -20,10 +20,11 @@ import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { SectionPageLayout } from '@/components/layout'
 import { PageTransition } from '@/components/page-transition'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ForgePublicShell } from '@/features/forge/forge-public-shell'
+import { EcosystemRouteShell } from '@/features/forge/ecosystem-route-shell'
 
 import {
   MarketShareSection,
@@ -64,54 +65,72 @@ export function Rankings() {
     })
   }
 
-  return (
-    <ForgePublicShell>
-      <main className='mx-auto w-full max-w-7xl px-5 pt-12 pb-20 md:px-10 md:pt-16'>
-        <PageTransition className='space-y-10'>
-          <RankingsHero period={period} onPeriodChange={handlePeriodChange} />
+  const content = (compact: boolean) => (
+    <PageTransition className={compact ? 'space-y-6' : 'space-y-10'}>
+      <RankingsHero
+        period={period}
+        onPeriodChange={handlePeriodChange}
+        compact={compact}
+      />
 
-          <UserUsageLeaderboard
-            data={userUsageRankingsQuery.data?.data}
-            isLoading={userUsageRankingsQuery.isLoading}
-            error={userUsageRankingsQuery.error}
-            open={userLeaderboardOpen}
-            onOpenChange={setUserLeaderboardOpen}
+      <UserUsageLeaderboard
+        data={userUsageRankingsQuery.data?.data}
+        isLoading={userUsageRankingsQuery.isLoading}
+        error={userUsageRankingsQuery.error}
+        open={userLeaderboardOpen}
+        onOpenChange={setUserLeaderboardOpen}
+      />
+
+      {rankingsQuery.isLoading ? (
+        <RankingsLoading />
+      ) : !snapshot ? (
+        <RankingsError
+          message={
+            rankingsQuery.error instanceof Error
+              ? rankingsQuery.error.message
+              : t('Unable to load rankings data')
+          }
+          onRetry={() => void rankingsQuery.refetch()}
+        />
+      ) : (
+        <>
+          <ModelsSection
+            history={snapshot.models_history}
+            rows={snapshot.models}
+            period={period}
           />
 
-          {rankingsQuery.isLoading ? (
-            <RankingsLoading />
-          ) : !snapshot ? (
-            <RankingsError
-              message={
-                rankingsQuery.error instanceof Error
-                  ? rankingsQuery.error.message
-                  : t('Unable to load rankings data')
-              }
-              onRetry={() => void rankingsQuery.refetch()}
-            />
-          ) : (
-            <>
-              <ModelsSection
-                history={snapshot.models_history}
-                rows={snapshot.models}
-                period={period}
-              />
+          <MarketShareSection
+            history={snapshot.vendor_share_history}
+            rows={snapshot.vendors}
+            period={period}
+          />
 
-              <MarketShareSection
-                history={snapshot.vendor_share_history}
-                rows={snapshot.vendors}
-                period={period}
-              />
+          <PulseSection
+            movers={snapshot.top_movers}
+            droppers={snapshot.top_droppers}
+          />
+        </>
+      )}
+    </PageTransition>
+  )
 
-              <PulseSection
-                movers={snapshot.top_movers}
-                droppers={snapshot.top_droppers}
-              />
-            </>
-          )}
-        </PageTransition>
-      </main>
-    </ForgePublicShell>
+  return (
+    <EcosystemRouteShell
+      console={
+        <SectionPageLayout>
+          <SectionPageLayout.Title>{t('Rankings')}</SectionPageLayout.Title>
+          <SectionPageLayout.Content>
+            <div className='mx-auto w-full max-w-6xl'>{content(true)}</div>
+          </SectionPageLayout.Content>
+        </SectionPageLayout>
+      }
+      public={
+        <main className='mx-auto w-full max-w-7xl px-5 pt-12 pb-20 md:px-10 md:pt-16'>
+          {content(false)}
+        </main>
+      }
+    />
   )
 }
 

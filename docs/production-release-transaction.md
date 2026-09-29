@@ -69,10 +69,13 @@ operator-controlled, and no workflow holds a credential that can reach the
 backend CLI. Offline regression tests still run in the isolated server
 qualification workflow; these tests do not access production.
 
-The single exception is frontend-only: `deploy-web-frontend.yml` uses a key
-restricted to `/usr/local/sbin/lmm-web-deploy` on both origins, which can only
-run `frontend publish` for a new release id. It cannot invoke this wrapper, the
-backend CLI, or any other command.
+The single exception is frontend-only: an operator may manually dispatch
+`deploy-web-frontend.yml` for a signed Web release after verifying compatibility
+with both active Go backends. Its key is restricted to
+`/usr/local/sbin/lmm-web-deploy` on both origins, which can only run `frontend
+publish` for a new release id. Web changes requiring a new Go backend use the
+native combined transaction. The key cannot invoke this wrapper, the backend
+CLI, or any other command.
 
 ## Local validation
 

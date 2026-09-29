@@ -5,11 +5,11 @@
 //! cannot create orders or settle callbacks: it responds with the legacy
 //! failure envelope/plain-text acknowledgement and performs no network I/O.
 //!
-//! Go updates a paid order and wallet quota in separate writes. Rust requires
-//! a repository `complete` transaction instead; this is safer for replay but
-//! is not side-effect equivalent until a differential fixture proves the
-//! production failure boundary. Consequently this module carries no approval
-//! credit by itself.
+//! The current Go contract snapshots fractional amounts before checkout and
+//! commits verified wallet, coupon and referral changes in one transaction.
+
+pub(crate) mod runtime;
+pub use runtime::{PgEpayGateway, PgEpayRepository};
 
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -27,6 +27,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
+use rust_decimal::{Decimal, prelude::ToPrimitive};
 use secrecy::SecretString;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -97,10 +98,13 @@ pub trait TopupRepository: Send + Sync {
         Err(TopupError::Storage)
     }
     async fn create_pending(&self, request: CreateTopup) -> Result<PendingTopup, TopupError>;
-    /// Persists a locally prepared ePay order.  ePay signs its checkout before
-    /// Go inserts the order, so a conforming implementation must keep the
-    /// supplied trade number and money value intact rather than regenerating
-    /// either after the checkout has been signed.
+    /// Persist the complete immutable quote before creating a checkout.
+    async fn create_quoted_pending(&self, quote: QuotedTopup) -> Result<PendingTopup, TopupError> {
+        let order = PendingTopup::from_quote(quote)?;
+        self.insert_prepared_pending(order.clone()).await?;
+        Ok(order)
+    }
+    /// Persists an order prepared locally from a server-authoritative quote.
     async fn insert_prepared_pending(&self, _: PendingTopup) -> Result<(), TopupError> {
         Err(TopupError::Storage)
     }
@@ -111,6 +115,20 @@ pub trait TopupRepository: Send + Sync {
         payment_method: Option<&str>,
         callback: &str,
     ) -> Result<Completion, TopupError>;
+    /// The current Go contract binds signed money, method and provider
+    /// transaction evidence before any wallet mutation. An older adapter
+    /// which only accepts a trade number must not acknowledge a paid order.
+    async fn complete_verified(&self, _: &EpayCallback, _: &str) -> Result<Completion, TopupError> {
+        Err(TopupError::ProviderFrozen)
+    }
+    async fn complete_verified_at(
+        &self,
+        callback: &EpayCallback,
+        payload: &str,
+        _: &str,
+    ) -> Result<Completion, TopupError> {
+        self.complete_verified(callback, payload).await
+    }
     /// Subscription order completion is a separate durable state machine in
     /// Go. A top-up repository without that transaction must reject it rather
     /// than treating `SUBUSR*` as a wallet credit.
@@ -124,15 +142,15 @@ pub trait TopupRepository: Send + Sync {
     }
 }
 
-/// The amount is the platform top-up unit after legacy `int64(float64)`
-/// truncation. The repository computes and persists money from the user's
+/// Amount retains up to six decimal places. The repository computes money from the user's
 /// current group and configured ratio; no client or callback money is trusted.
 #[derive(Clone, Debug)]
 pub struct CreateTopup {
     pub user_id: i64,
-    pub amount: i64,
+    pub amount: Decimal,
     pub payment_method: String,
     pub provider: &'static str,
+    pub discount_code: String,
 }
 
 /// Server-priced top-up data after group pricing, discounts, and any token
@@ -141,11 +159,22 @@ pub struct CreateTopup {
 #[derive(Clone, Debug)]
 pub struct QuotedTopup {
     pub user_id: i64,
-    pub requested_amount: i64,
+    pub requested_amount: Decimal,
     pub stored_amount: i64,
     pub money: String,
     pub payment_method: String,
     pub provider: &'static str,
+    pub snapshot: SettlementSnapshot,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SettlementSnapshot {
+    pub platform_amount_micros: i64,
+    pub credited_quota: i64,
+    pub expected_amount_micros: i64,
+    pub settlement_currency: String,
+    pub discount_code_id: i64,
+    pub discount_percent: i64,
 }
 
 #[derive(Clone, Debug)]
@@ -157,6 +186,25 @@ pub struct PendingTopup {
     pub money: String,
     pub payment_method: String,
     pub provider: String,
+    pub requested_amount: Decimal,
+    pub snapshot: SettlementSnapshot,
+}
+
+impl PendingTopup {
+    fn from_quote(quote: QuotedTopup) -> Result<Self, TopupError> {
+        let random = uuid::Uuid::new_v4().simple().to_string();
+        let now = runtime::now_seconds()?;
+        Ok(Self {
+            trade_no: format!("USR{}NO{}{now}", quote.user_id, &random[..6]),
+            user_id: quote.user_id,
+            amount: quote.stored_amount,
+            money: quote.money,
+            payment_method: quote.payment_method,
+            provider: quote.provider.into(),
+            requested_amount: quote.requested_amount,
+            snapshot: quote.snapshot,
+        })
+    }
 }
 
 /// The ePay checkout and the exact order it signs.  Constructing this value
@@ -180,15 +228,12 @@ pub enum Completion {
 #[async_trait]
 pub trait EpayGateway: Send + Sync {
     async fn available(&self) -> Result<(), TopupError>;
-    /// Locally constructs the signed ePay request and its pending order before
-    /// the repository is allowed to write.  The default deliberately fails
-    /// closed so pre-existing adapters cannot accidentally retain a pending
-    /// order on checkout-construction failure.
+    /// Legacy adapter compatibility. The live route uses `begin` only after
+    /// its immutable pending order has committed.
     async fn prepare(&self, _: &QuotedTopup) -> Result<PreparedEpay, TopupError> {
         Err(TopupError::ProviderFrozen)
     }
-    /// Compatibility hook for adapters that only support the old persisted
-    /// order API. New ePay adapters must implement `prepare` instead.
+    /// Construct the checkout for the already-persisted order.
     async fn begin(&self, order: &PendingTopup) -> Result<Checkout, TopupError>;
     async fn verify(&self, fields: &EpayCallbackFields) -> Result<EpayCallback, TopupError>;
 }
@@ -314,6 +359,8 @@ pub struct EpayCallback {
     pub trade_success: bool,
     pub trade_no: String,
     pub payment_method: String,
+    pub money: String,
+    pub provider_transaction_id: String,
 }
 
 #[derive(Debug)]
@@ -322,13 +369,60 @@ pub enum TopupError {
     Storage,
     Provider,
     ProviderFrozen,
+    Message(String),
 }
 
-#[derive(Deserialize)]
+#[derive(Default)]
 struct PayJson {
     amount: f64,
-    #[serde(default)]
     payment_method: String,
+    discount_code: String,
+}
+
+impl<'de> Deserialize<'de> for PayJson {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct PayVisitor;
+        impl<'de> serde::de::Visitor<'de> for PayVisitor {
+            type Value = PayJson;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("an ePay request object")
+            }
+
+            fn visit_unit<E: serde::de::Error>(self) -> Result<PayJson, E> {
+                Ok(PayJson::default())
+            }
+
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut fields: A,
+            ) -> Result<PayJson, A::Error> {
+                let mut request = PayJson::default();
+                // Go encoding/json applies fields in wire order, accepts
+                // case-insensitive names and leaves scalar values unchanged
+                // on null. A serde Value/map would lose duplicate-key order.
+                while let Some(key) = fields.next_key::<String>()? {
+                    if key.eq_ignore_ascii_case("amount") {
+                        if let Some(value) = fields.next_value::<Option<f64>>()? {
+                            request.amount = value;
+                        }
+                    } else if key.eq_ignore_ascii_case("payment_method") {
+                        if let Some(value) = fields.next_value::<Option<String>>()? {
+                            request.payment_method = value;
+                        }
+                    } else if key.eq_ignore_ascii_case("discount_code") {
+                        if let Some(value) = fields.next_value::<Option<String>>()? {
+                            request.discount_code = value;
+                        }
+                    } else {
+                        fields.next_value::<serde::de::IgnoredAny>()?;
+                    }
+                }
+                Ok(request)
+            }
+        }
+        deserializer.deserialize_any(PayVisitor)
+    }
 }
 
 async fn epay_pay(State(state): State<UserTopupState>, request: Request) -> Response {
@@ -348,20 +442,25 @@ async fn epay_pay(State(state): State<UserTopupState>, request: Request) -> Resp
         Ok(v) => v,
         Err(message) => return legacy_error(message),
     };
-    if !matches!(
-        state
-            .repository
-            .payment_method_allowed(&request.payment_method)
-            .await,
-        Ok(true)
-    ) {
-        return legacy_error("支付方式不存在");
-    }
+    let amount = match Decimal::from_str_exact(&request.amount.to_string()) {
+        Ok(value)
+            if value > Decimal::ZERO
+                && value.normalize().scale() <= 6
+                && value
+                    .checked_mul(Decimal::from(1_000_000))
+                    .and_then(|micros| micros.to_i64())
+                    .is_some() =>
+        {
+            value
+        }
+        _ => return legacy_error("充值数量最多支持 6 位小数"),
+    };
     create_epay_checkout(
         &state,
         user_id,
-        request.amount as i64,
+        amount,
         request.payment_method,
+        request.discount_code,
     )
     .await
 }
@@ -369,40 +468,47 @@ async fn epay_pay(State(state): State<UserTopupState>, request: Request) -> Resp
 async fn create_epay_checkout(
     state: &UserTopupState,
     user_id: i64,
-    requested_amount: i64,
+    requested_amount: Decimal,
     payment_method: String,
+    discount_code: String,
 ) -> Response {
-    let quote = match quote_topup(state, user_id, requested_amount, payment_method, EPAY).await {
+    let quote = match quote_topup(
+        state,
+        user_id,
+        requested_amount,
+        payment_method,
+        discount_code,
+        EPAY,
+    )
+    .await
+    {
         Ok(quote) => quote,
         Err(QuoteFailure::Minimum(minimum)) => {
             return legacy_error(format!("充值数量不能小于 {minimum}"));
         }
         Err(QuoteFailure::TooLow) => return legacy_error("充值金额过低"),
         Err(QuoteFailure::Configuration) => return legacy_error("获取用户分组失败"),
+        Err(QuoteFailure::Message(message)) => return legacy_error(message),
     };
     if state.epay.available().await.is_err() {
         return legacy_error("当前管理员未配置支付信息");
     }
-    let prepared = match state.epay.prepare(&quote).await {
-        Ok(v) if prepared_order_matches(&v.order, &quote) => v,
-        Ok(_) | Err(_) => return legacy_error("拉起支付失败"),
+    let order = match state.repository.create_quoted_pending(quote.clone()).await {
+        Ok(order) if prepared_order_matches(&order, &quote) => order,
+        _ => return legacy_error("创建订单失败"),
     };
-    if state
-        .repository
-        .insert_prepared_pending(prepared.order)
-        .await
-        .is_err()
-    {
-        return legacy_error("创建订单失败");
+    match state.epay.begin(&order).await {
+        Ok(checkout) => legacy_success(checkout.data, checkout.url),
+        Err(_) => legacy_error("拉起支付失败"),
     }
-    legacy_success(prepared.checkout.data, prepared.checkout.url)
 }
 
 async fn quote_topup(
     state: &UserTopupState,
     user_id: i64,
-    requested_amount: i64,
+    requested_amount: Decimal,
     payment_method: String,
+    discount_code: String,
     provider: &'static str,
 ) -> Result<QuotedTopup, QuoteFailure> {
     let minimum = state
@@ -410,7 +516,7 @@ async fn quote_topup(
         .minimum_amount()
         .await
         .map_err(|_| QuoteFailure::Configuration)?;
-    if requested_amount < minimum {
+    if requested_amount < Decimal::from(minimum) {
         return Err(QuoteFailure::Minimum(minimum));
     }
     let request = CreateTopup {
@@ -418,12 +524,16 @@ async fn quote_topup(
         amount: requested_amount,
         payment_method,
         provider,
+        discount_code,
     };
     let quote = state
         .repository
         .quote(request)
         .await
-        .map_err(|_| QuoteFailure::Configuration)?;
+        .map_err(|error| match error {
+            TopupError::Message(message) => QuoteFailure::Message(message),
+            _ => QuoteFailure::Configuration,
+        })?;
     if quote.user_id != user_id
         || quote.requested_amount != requested_amount
         || quote.provider != provider
@@ -448,6 +558,7 @@ enum QuoteFailure {
     Minimum(i64),
     TooLow,
     Configuration,
+    Message(String),
 }
 
 fn prepared_order_matches(order: &PendingTopup, quote: &QuotedTopup) -> bool {
@@ -456,6 +567,8 @@ fn prepared_order_matches(order: &PendingTopup, quote: &QuotedTopup) -> bool {
         && order.money == quote.money
         && order.payment_method == quote.payment_method
         && order.provider == quote.provider
+        && order.requested_amount == quote.requested_amount
+        && order.snapshot == quote.snapshot
         && !order.trade_no.is_empty()
 }
 
@@ -499,6 +612,7 @@ async fn critical_rate_limit(
 }
 
 async fn epay_notify(State(state): State<UserTopupState>, request: Request) -> Response {
+    let caller_ip = critical_client_ip(&request).unwrap_or_default();
     let (parts, body) = request.into_parts();
     let fields = match parse_epay_notify_fields(
         &parts.method,
@@ -515,18 +629,18 @@ async fn epay_notify(State(state): State<UserTopupState>, request: Request) -> R
         Ok(v) if v.verified => v,
         _ => return plain("fail"),
     };
-    // Legacy sends success after signature validation, including duplicate,
-    // unknown, or provider-mismatch notifications; completion is idempotent.
-    if verified.trade_success {
-        let _ = state
-            .repository
-            .complete(
-                &verified.trade_no,
-                EPAY,
-                Some(&verified.payment_method),
-                &fields_json(&fields),
-            )
-            .await;
+    // Go HEAD rejects missing orders, mismatched evidence and storage
+    // failures. A valid signature alone is not proof of a durable credit.
+    if verified.trade_success
+        && !matches!(
+            state
+                .repository
+                .complete_verified_at(&verified, &fields_json(&fields), &caller_ip)
+                .await,
+            Ok(Completion::Completed | Completion::AlreadySucceeded)
+        )
+    {
+        return plain("fail");
     }
     plain("success")
 }
@@ -535,17 +649,22 @@ async fn epay_notify(State(state): State<UserTopupState>, request: Request) -> R
 struct Pay {
     amount: f64,
     payment_method: String,
+    discount_code: String,
 }
 fn parse_pay(headers: &HeaderMap, body: &[u8], query: Option<&str>) -> Result<Pay, String> {
     let mut amount = 0.0;
     let mut method = String::new();
+    let mut discount_code = String::new();
     let json_body = headers
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
         .is_some_and(|v| v.to_ascii_lowercase().contains("application/json"));
-    if json_body && let Ok(parsed) = serde_json::from_slice::<PayJson>(body) {
+    if json_body
+        && let Ok(parsed) = PayJson::deserialize(&mut serde_json::Deserializer::from_slice(body))
+    {
         amount = parsed.amount;
         method = parsed.payment_method;
+        discount_code = parsed.discount_code;
     }
     // Gin chooses its binder from Content-Type; an unlabelled JSON-looking
     // body is treated as a form, while an invalid JSON body is not reparsed as
@@ -575,12 +694,20 @@ fn parse_pay(headers: &HeaderMap, body: &[u8], query: Option<&str>) -> Result<Pa
             .or_else(|| query.and_then(|q| parse_form(q.as_bytes()).get("payment_method").cloned()))
             .unwrap_or_default();
     }
+    if discount_code.is_empty() {
+        discount_code = form
+            .get("discount_code")
+            .cloned()
+            .or_else(|| query.and_then(|q| parse_form(q.as_bytes()).get("discount_code").cloned()))
+            .unwrap_or_default();
+    }
     if !amount.is_finite() || amount <= 0.0 {
         return Err("参数错误: amount is required and must be > 0".into());
     }
     Ok(Pay {
         amount,
         payment_method: method,
+        discount_code,
     })
 }
 async fn parse_epay_notify_fields(
@@ -884,15 +1011,26 @@ mod tests {
             Ok(QuotedTopup {
                 user_id: input.user_id,
                 requested_amount: input.amount,
-                stored_amount: input.amount,
+                stored_amount: input.amount.to_i64().unwrap(),
                 money: "1.00".into(),
                 payment_method: input.payment_method,
                 provider: input.provider,
+                snapshot: SettlementSnapshot::default(),
             })
         }
 
         async fn create_pending(&self, _: CreateTopup) -> Result<PendingTopup, TopupError> {
-            unreachable!("ePay must prepare before it persists")
+            unreachable!("ePay persists the already-priced quote")
+        }
+
+        async fn create_quoted_pending(
+            &self,
+            quote: QuotedTopup,
+        ) -> Result<PendingTopup, TopupError> {
+            let mut order = PendingTopup::from_quote(quote)?;
+            order.trade_no = "USR42NOsigned".into();
+            self.insert_prepared_pending(order.clone()).await?;
+            Ok(order)
         }
 
         async fn insert_prepared_pending(&self, _: PendingTopup) -> Result<(), TopupError> {
@@ -926,29 +1064,15 @@ mod tests {
             Ok(())
         }
 
-        async fn prepare(&self, input: &QuotedTopup) -> Result<PreparedEpay, TopupError> {
-            recover_lock(&self.events).push("prepare");
+        async fn begin(&self, order: &PendingTopup) -> Result<Checkout, TopupError> {
+            recover_lock(&self.events).push("checkout");
             if self.fail_prepare {
                 return Err(TopupError::Provider);
             }
-            Ok(PreparedEpay {
-                order: PendingTopup {
-                    trade_no: "USR42NOsigned".into(),
-                    user_id: input.user_id,
-                    amount: input.stored_amount,
-                    money: input.money.clone(),
-                    payment_method: input.payment_method.clone(),
-                    provider: input.provider.into(),
-                },
-                checkout: Checkout {
-                    url: "https://epay.example/checkout".into(),
-                    data: json!({"out_trade_no":"USR42NOsigned"}),
-                },
+            Ok(Checkout {
+                url: "https://epay.example/checkout".into(),
+                data: json!({"out_trade_no":order.trade_no}),
             })
-        }
-
-        async fn begin(&self, _: &PendingTopup) -> Result<Checkout, TopupError> {
-            unreachable!("new ePay flow uses prepare before insert")
         }
 
         async fn verify(&self, _: &EpayCallbackFields) -> Result<EpayCallback, TopupError> {
@@ -984,6 +1108,15 @@ mod tests {
             *recover_lock(&self.completions) += 1;
             Ok(Completion::Completed)
         }
+
+        async fn complete_verified(
+            &self,
+            _: &EpayCallback,
+            _: &str,
+        ) -> Result<Completion, TopupError> {
+            *recover_lock(&self.completions) += 1;
+            Ok(Completion::Completed)
+        }
     }
 
     struct VerifyingEpay {
@@ -1012,6 +1145,8 @@ mod tests {
                 trade_success: true,
                 trade_no: "order-1".into(),
                 payment_method: "alipay".into(),
+                money: "1.00".into(),
+                provider_transaction_id: "provider-order-1".into(),
             })
         }
     }
@@ -1100,31 +1235,31 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn epay_prepare_failure_leaves_no_pending_order() -> TestResult {
+    async fn epay_checkout_failure_retains_a_settleable_pending_order() -> TestResult {
         let (router, events, pending_writes) = epay_app(true, false);
         let (status, body) = post_epay(router).await?;
 
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body, json!({"message":"error","data":"拉起支付失败"}));
-        assert_eq!(&*recover_lock(&events), &["prepare"]);
-        assert_eq!(*recover_lock(&pending_writes), 0);
+        assert_eq!(&*recover_lock(&events), &["insert", "checkout"]);
+        assert_eq!(*recover_lock(&pending_writes), 1);
         Ok(())
     }
 
     #[tokio::test]
-    async fn epay_insert_failure_keeps_legacy_response_after_local_prepare() -> TestResult {
+    async fn epay_insert_failure_prevents_checkout() -> TestResult {
         let (router, events, pending_writes) = epay_app(false, true);
         let (status, body) = post_epay(router).await?;
 
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body, json!({"message":"error","data":"创建订单失败"}));
-        assert_eq!(&*recover_lock(&events), &["prepare", "insert"]);
+        assert_eq!(&*recover_lock(&events), &["insert"]);
         assert_eq!(*recover_lock(&pending_writes), 0);
         Ok(())
     }
 
     #[tokio::test]
-    async fn epay_success_prepares_then_inserts_before_responding() -> TestResult {
+    async fn epay_success_inserts_before_checkout() -> TestResult {
         let (router, events, pending_writes) = epay_app(false, false);
         let (status, body) = post_epay(router).await?;
 
@@ -1133,7 +1268,7 @@ mod tests {
             body,
             json!({"message":"success","data":{"out_trade_no":"USR42NOsigned"},"url":"https://epay.example/checkout"})
         );
-        assert_eq!(&*recover_lock(&events), &["prepare", "insert"]);
+        assert_eq!(&*recover_lock(&events), &["insert", "checkout"]);
         assert_eq!(*recover_lock(&pending_writes), 1);
         Ok(())
     }
@@ -1368,6 +1503,27 @@ mod tests {
             assert_eq!(body, "fail", "{method} {uri}");
         }
         Ok(())
+    }
+
+    #[test]
+    fn json_null_case_folding_and_duplicate_fields_match_go_wire_order() {
+        let headers = HeaderMap::from_iter([(
+            header::CONTENT_TYPE,
+            header::HeaderValue::from_static("application/json"),
+        )]);
+        for body in [
+            r#"{"amount":5.25,"payment_method":"alipay","discount_code":null}"#,
+            r#"{"AMOUNT":5.25,"PAYMENT_METHOD":"alipay"}"#,
+            r#"{"amount":5.25,"amount":null,"payment_method":"alipay"}"#,
+            r#"{"amount":1,"AMOUNT":5.25,"payment_method":"alipay"}"#,
+            r#"{"AMOUNT":1,"amount":5.25,"payment_method":"alipay","payment_method":null}"#,
+        ] {
+            let request = parse_pay(&headers, body.as_bytes(), None).unwrap();
+            assert_eq!(request.amount, 5.25, "{body}");
+            assert_eq!(request.payment_method, "alipay", "{body}");
+            assert_eq!(request.discount_code, "");
+        }
+        assert!(parse_pay(&headers, br#"{"amount":5.25,"discount_code":42}"#, None).is_err());
     }
 
     #[test]

@@ -4,6 +4,8 @@
 //! route module never accepts a token key as dashboard authentication, and only
 //! exposes an unmasked key through the two explicit POST key-retrieval routes.
 
+mod current;
+
 use std::{
     sync::{Arc, RwLock},
     time::Duration,
@@ -37,6 +39,34 @@ const DEFAULT_MAX_USER_TOKENS: i64 = 1_000;
 const DEFAULT_QUOTA_PER_UNIT: f64 = 500_000.0;
 const API_TOKEN_REQUEST_MAX_BYTES: usize = 512 * 1024;
 type HmacSha256 = Hmac<Sha256>;
+
+pub(crate) fn legacy_token_cache_key(crypto_secret: &str, key: &str) -> Option<String> {
+    let mut mac = HmacSha256::new_from_slice(crypto_secret.as_bytes()).ok()?;
+    mac.update(key.as_bytes());
+    Some(format!(
+        "token:{}",
+        hex::encode(mac.finalize().into_bytes())
+    ))
+}
+
+// Current Go cacheInitToken: a stale database reader may neither republish
+// during a mutation fence nor replace quota already reserved in a complete hash.
+// ARGV[1] is TTL; the remaining arguments are complete field/value pairs.
+pub(crate) const LEGACY_TOKEN_CACHE_INIT: &str = r#"
+if redis.call('EXISTS', KEYS[2]) == 1 then return 0 end
+if redis.call('EXISTS', KEYS[1]) == 1 then
+  if redis.call('HGET', KEYS[1], 'Id') ~= false
+    and redis.call('HEXISTS', KEYS[1], 'RemainQuota') == 1
+    and redis.call('HEXISTS', KEYS[1], 'UsedQuota') == 1 then
+    redis.call('EXPIRE', KEYS[1], ARGV[1])
+    return 2
+  end
+  redis.call('DEL', KEYS[1])
+end
+redis.call('HSET', KEYS[1], unpack(ARGV, 2))
+redis.call('EXPIRE', KEYS[1], ARGV[1])
+return 1
+"#;
 
 /// Set only by already-authenticated dashboard middleware.
 ///
@@ -118,6 +148,7 @@ pub struct PgValkeyApiTokenService {
     max_user_tokens: i64,
     console_activation_on_create: bool,
     include_auto_groups_cache: bool,
+    frozen_cache_refresh: bool,
     settings_snapshot: Arc<RwLock<TokenSettings>>,
 }
 
@@ -133,6 +164,7 @@ impl PgValkeyApiTokenService {
             max_user_tokens: DEFAULT_MAX_USER_TOKENS,
             console_activation_on_create: true,
             include_auto_groups_cache: false,
+            frozen_cache_refresh: false,
             settings_snapshot: Arc::new(RwLock::new(TokenSettings::defaults(
                 DEFAULT_MAX_USER_TOKENS,
             ))),
@@ -184,6 +216,14 @@ impl PgValkeyApiTokenService {
         self
     }
 
+    /// Used only by the isolated historical listener, whose Go oracle predates
+    /// mutation fences and refreshes the complete cache after a token update.
+    #[must_use]
+    pub fn with_frozen_cache_refresh(mut self, enabled: bool) -> Self {
+        self.frozen_cache_refresh = enabled;
+        self
+    }
+
     async fn cache_connection(&self) -> Result<MultiplexedConnection, TokenError> {
         tokio::time::timeout(
             self.dependency_timeout,
@@ -216,14 +256,31 @@ impl PgValkeyApiTokenService {
             return Ok(());
         }
         let mut connection = self.cache_connection().await?;
-        let mut command = redis::cmd("DEL");
-        for key in keys {
-            command.arg(self.cache_key(&key)?);
+        if self.frozen_cache_refresh {
+            let mut command = redis::cmd("DEL");
+            for key in keys {
+                command.arg(self.cache_key(&key)?);
+            }
+            return command
+                .query_async::<()>(&mut connection)
+                .await
+                .map_err(|_| TokenError::internal());
         }
-        command
-            .query_async::<()>(&mut connection)
+        for key in keys {
+            let cache_key = self.cache_key(&key)?;
+            let fence_key = cache_key.replacen("token:", "token:fence:", 1);
+            // SET precedes DEL in one script so a concurrent old reader never
+            // observes an invalidated hash without the publication fence.
+            redis::Script::new(
+                "redis.call('SET',KEYS[2],'1','EX',10);return redis.call('DEL',KEYS[1])",
+            )
+            .key(cache_key)
+            .key(fence_key)
+            .invoke_async::<i64>(&mut connection)
             .await
-            .map_err(|_| TokenError::internal())
+            .map_err(|_| TokenError::internal())?;
+        }
+        Ok(())
     }
 
     async fn store_cache(&self, token: &ApiToken) -> Result<(), TokenError> {
@@ -303,13 +360,7 @@ return 1
     }
 
     fn cache_key(&self, key: &str) -> Result<String, TokenError> {
-        let mut mac = HmacSha256::new_from_slice(self.crypto_secret.as_bytes())
-            .map_err(|_| TokenError::internal())?;
-        mac.update(key.as_bytes());
-        Ok(format!(
-            "token:{}",
-            hex::encode(mac.finalize().into_bytes())
-        ))
+        legacy_token_cache_key(&self.crypto_secret, key).ok_or_else(TokenError::internal)
     }
 
     async fn token_settings(&self) -> TokenSettings {
@@ -447,13 +498,21 @@ return 1
         serde_json::to_string(groups).map_err(|_| TokenError::internal())
     }
 
-    async fn list(&self, user_id: i64, page: Page) -> Result<PageResult, TokenError> {
+    async fn list(
+        &self,
+        user_id: i64,
+        page: Page,
+        creation_mode: &str,
+        frozen: bool,
+    ) -> Result<PageResult, TokenError> {
+        let creation = current::creation_filter(if frozen { "" } else { creation_mode })?;
+        let visible = current::VISIBLE;
         let rows = if page.size < 0 {
             // GORM treats Limit(-1) as "cancel the LIMIT clause". PostgreSQL
             // rejects a literal negative LIMIT, so preserve the legacy result
             // by omitting the clause while retaining the raw response value.
             let sql = format!(
-                "{TOKEN_SELECT} WHERE user_id = $1 AND deleted_at IS NULL ORDER BY id DESC OFFSET $2"
+                "{TOKEN_SELECT} WHERE user_id = $1 AND deleted_at IS NULL AND {visible} AND ({creation}) ORDER BY id DESC OFFSET $2"
             );
             sqlx::query(&sql)
                 .bind(user_id)
@@ -462,7 +521,7 @@ return 1
                 .await
         } else {
             let sql = format!(
-                "{TOKEN_SELECT} WHERE user_id = $1 AND deleted_at IS NULL ORDER BY id DESC LIMIT $2 OFFSET $3"
+                "{TOKEN_SELECT} WHERE user_id = $1 AND deleted_at IS NULL AND {visible} AND ({creation}) ORDER BY id DESC LIMIT $2 OFFSET $3"
             );
             sqlx::query(&sql)
                 .bind(user_id)
@@ -476,13 +535,17 @@ return 1
         // and discards that error.  Keep the zero-value total when the second
         // query fails; changing this ordering changes both the response and
         // which database fault is observable.
-        let total = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM tokens WHERE user_id = $1 AND deleted_at IS NULL",
-        )
+        let total = sqlx::query_scalar::<_, i64>(&format!(
+            "SELECT COUNT(*) FROM tokens WHERE user_id = $1 AND deleted_at IS NULL AND {visible} AND ({creation})",
+        ))
         .bind(user_id)
         .fetch_one(&self.pg)
-        .await
-        .unwrap_or_default();
+        .await;
+        let total = if frozen {
+            total.unwrap_or_default()
+        } else {
+            total.map_err(TokenError::db)?
+        };
         Ok(PageResult {
             page: page.number,
             page_size: page.size,
@@ -498,11 +561,13 @@ return 1
         page: Page,
     ) -> Result<PageResult, TokenError> {
         let settings = self.token_settings().await;
+        let visible = current::VISIBLE;
         let presented_key = input.token.strip_prefix("sk-").unwrap_or(&input.token);
         if input.keyword.contains('%') || presented_key.contains('%') {
-            let count: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM tokens WHERE user_id = $1 AND deleted_at IS NULL",
-            )
+            let count: i64 = sqlx::query_scalar(&format!(
+                "SELECT COUNT(*) FROM tokens WHERE user_id = $1 AND deleted_at IS NULL AND {}",
+                current::COUNTED,
+            ))
             .bind(user_id)
             .fetch_one(&self.pg)
             .await
@@ -513,11 +578,12 @@ return 1
                 ));
             }
         }
+        let creation = current::creation_filter(&input.creation_mode)?;
         let keyword = like_pattern(&input.keyword)?;
         let token = like_pattern(presented_key)?;
-        let total: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM tokens WHERE user_id = $1 AND deleted_at IS NULL AND ($2 = '' OR name LIKE $2 ESCAPE '!') AND ($3 = '' OR key LIKE $3 ESCAPE '!')",
-        )
+        let total: i64 = sqlx::query_scalar(&format!(
+            "SELECT COUNT(*) FROM tokens WHERE user_id = $1 AND deleted_at IS NULL AND {visible} AND ({creation}) AND ($2 = '' OR name LIKE $2 ESCAPE '!') AND ($3 = '' OR key LIKE $3 ESCAPE '!')",
+        ))
         .bind(user_id)
         .bind(&keyword)
         .bind(&token)
@@ -525,7 +591,7 @@ return 1
         .await
         .map_err(TokenError::search_failed)?;
         let sql = format!(
-            "{TOKEN_SELECT} WHERE user_id = $1 AND deleted_at IS NULL AND ($2 = '' OR name LIKE $2 ESCAPE '!') AND ($3 = '' OR key LIKE $3 ESCAPE '!') ORDER BY id DESC LIMIT $4 OFFSET $5"
+            "{TOKEN_SELECT} WHERE user_id = $1 AND deleted_at IS NULL AND {visible} AND ({creation}) AND ($2 = '' OR name LIKE $2 ESCAPE '!') AND ($3 = '' OR key LIKE $3 ESCAPE '!') ORDER BY id DESC LIMIT $4 OFFSET $5"
         );
         let rows = sqlx::query(&sql)
             .bind(user_id)
@@ -552,7 +618,10 @@ return 1
         if id == 0 || user_id == 0 {
             return Err(TokenError::invalid("id 或 userId 为空！"));
         }
-        let sql = format!("{TOKEN_SELECT} WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL");
+        let sql = format!(
+            "{TOKEN_SELECT} WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL AND {}",
+            current::VISIBLE
+        );
         let row = sqlx::query(&sql)
             .bind(id)
             .bind(user_id)
@@ -571,9 +640,9 @@ return 1
         // `GetTokenKeysByIds` is one owner-scoped query. Missing or foreign
         // IDs are omitted, while a database failure fails the entire request.
         // Do not turn failures into an apparently successful partial map.
-        let rows = sqlx::query(
-            "SELECT id, key FROM tokens WHERE user_id = $1 AND id = ANY($2) AND deleted_at IS NULL",
-        )
+        let rows = sqlx::query(&format!(
+            "SELECT id, key FROM tokens WHERE user_id = $1 AND id = ANY($2) AND deleted_at IS NULL AND {}", current::REVEALABLE,
+        ))
         .bind(user_id)
         .bind(ids)
         .fetch_all(&self.pg)
@@ -596,21 +665,35 @@ return 1
             })
     }
 
-    async fn create(&self, user_id: i64, input: TokenInput) -> Result<(), TokenError> {
+    async fn create(
+        &self,
+        user_id: i64,
+        mut input: TokenInput,
+        frozen: bool,
+    ) -> Result<CreatedToken, TokenError> {
+        if frozen {
+            input.one_time_reveal = false;
+        }
         let settings = self.token_settings().await;
         validate_create_input(&input, settings.max_quota())?;
+        if !frozen && input.group != "auto" {
+            input.cross_group_retry = false;
+        }
         let auto_groups_raw = if input.group == "auto" {
             self.encode_auto_groups(user_id, &input.auto_groups).await?
         } else {
             String::new()
         };
-        let has_auto_groups_column = self.has_auto_groups_column().await?;
+        let columns: Vec<String> = sqlx::query_scalar("SELECT column_name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='tokens' AND column_name IN ('auto_groups','one_time_reveal','creation_source')")
+            .fetch_all(&self.pg).await.map_err(TokenError::db)?;
+        let has = |name: &str| columns.iter().any(|column| column == name);
         let key = generate_key();
         let now = unix_now();
         let mut tx = self.pg.begin().await.map_err(TokenError::db)?;
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM tokens WHERE user_id = $1 AND deleted_at IS NULL",
-        )
+        let count: i64 = sqlx::query_scalar(&format!(
+            "SELECT COUNT(*) FROM tokens WHERE user_id=$1 AND deleted_at IS NULL AND {}",
+            current::COUNTED,
+        ))
         .bind(user_id)
         .fetch_one(&mut *tx)
         .await
@@ -618,29 +701,68 @@ return 1
         if count >= settings.max_user_tokens {
             return Err(TokenError::token_limit(settings.max_user_tokens));
         }
-        // `AddToken` builds a fresh Go model without copying request status;
-        // GORM applies its `status:1` and `expired_time:-1` defaults whenever
-        // the incoming expiration is omitted or zero.
         let expired_time = legacy_create_expired_time(input.expired_time);
-        if has_auto_groups_column {
-            sqlx::query("INSERT INTO tokens (user_id, key, status, name, created_time, accessed_time, expired_time, remain_quota, unlimited_quota, model_limits_enabled, model_limits, allow_ips, used_quota, \"group\", cross_group_retry, auto_groups) VALUES ($1,$2,1,$3,$4,$4,$5,$6,$7,$8,$9,$10,0,$11,$12,$13)")
-                .bind(user_id).bind(&key).bind(input.name).bind(now).bind(expired_time).bind(input.remain_quota).bind(input.unlimited_quota).bind(input.model_limits_enabled).bind(input.model_limits).bind(input.allow_ips.unwrap_or_default()).bind(input.group).bind(input.cross_group_retry).bind(auto_groups_raw)
-                .execute(&mut *tx).await.map_err(TokenError::db)?;
-        } else {
-            sqlx::query("INSERT INTO tokens (user_id, key, status, name, created_time, accessed_time, expired_time, remain_quota, unlimited_quota, model_limits_enabled, model_limits, allow_ips, used_quota, \"group\", cross_group_retry) VALUES ($1,$2,1,$3,$4,$4,$5,$6,$7,$8,$9,$10,0,$11,$12)")
-                .bind(user_id).bind(&key).bind(input.name).bind(now).bind(expired_time).bind(input.remain_quota).bind(input.unlimited_quota).bind(input.model_limits_enabled).bind(input.model_limits).bind(input.allow_ips.unwrap_or_default()).bind(input.group).bind(input.cross_group_retry)
-                .execute(&mut *tx).await.map_err(TokenError::db)?;
+        let mut insert = sqlx::QueryBuilder::<sqlx::Postgres>::new(
+            "INSERT INTO tokens (user_id,key,status,name,created_time,accessed_time,expired_time,remain_quota,unlimited_quota,model_limits_enabled,model_limits,allow_ips,used_quota,\"group\",cross_group_retry",
+        );
+        if has("auto_groups") {
+            insert.push(",auto_groups");
         }
-        if self.console_activation_on_create {
-            sqlx::query(
-                "UPDATE users SET console_activated_at = EXTRACT(EPOCH FROM NOW())::BIGINT WHERE id = $1 AND deleted_at IS NULL AND console_activated_at = 0",
-            )
-            .bind(user_id)
-            .execute(&mut *tx)
+        // A requested one-time key must never silently lose its durable flag
+        // on an old schema. Such an INSERT fails and the transaction rolls back.
+        if has("one_time_reveal") || input.one_time_reveal {
+            insert.push(",one_time_reveal");
+        }
+        if has("creation_source") {
+            insert.push(",creation_source");
+        }
+        insert.push(") VALUES (");
+        {
+            let mut values = insert.separated(",");
+            values
+                .push_bind(user_id)
+                .push_bind(&key)
+                .push_bind(1_i64)
+                .push_bind(&input.name)
+                .push_bind(now)
+                .push_bind(now)
+                .push_bind(expired_time)
+                .push_bind(input.remain_quota)
+                .push_bind(input.unlimited_quota)
+                .push_bind(input.model_limits_enabled)
+                .push_bind(&input.model_limits)
+                .push_bind(input.allow_ips.as_deref().unwrap_or_default())
+                .push_bind(0_i64)
+                .push_bind(&input.group)
+                .push_bind(input.cross_group_retry);
+            if has("auto_groups") {
+                values.push_bind(&auto_groups_raw);
+            }
+            if has("one_time_reveal") || input.one_time_reveal {
+                values.push_bind(input.one_time_reveal);
+            }
+            if has("creation_source") {
+                values.push_bind("manual");
+            }
+        }
+        insert.push(") RETURNING id");
+        let id = insert
+            .build_query_scalar::<i64>()
+            .fetch_one(&mut *tx)
             .await
             .map_err(TokenError::db)?;
+        if self.console_activation_on_create {
+            sqlx::query("UPDATE users SET console_activated_at=EXTRACT(EPOCH FROM NOW())::BIGINT WHERE id=$1 AND deleted_at IS NULL AND console_activated_at=0")
+                .bind(user_id).execute(&mut *tx).await.map_err(TokenError::db)?;
         }
-        tx.commit().await.map_err(TokenError::db)
+        tx.commit().await.map_err(TokenError::db)?;
+        Ok(CreatedToken {
+            id,
+            name: input.name,
+            group: input.group,
+            one_time_reveal: input.one_time_reveal,
+            key: input.one_time_reveal.then_some(key),
+        })
     }
 
     async fn update(
@@ -654,40 +776,25 @@ return 1
         }
         let settings = self.token_settings().await;
         validate_input(&input.token, settings.max_quota())?;
-        let current = self.get(user_id, input.id).await?;
-        let has_auto_groups_column = self.has_auto_groups_column().await?;
+        let mut updated = self.get(user_id, input.id).await?;
         if input.status == 1
-            && current.status == 3
-            && current.expired_time != -1
-            && current.expired_time <= unix_now()
+            && updated.status == 3
+            && updated.expired_time != -1
+            && updated.expired_time <= unix_now()
         {
             return Err(TokenError::localized(TokenMessage::ExpiredCannotEnable));
         }
         if input.status == 1
-            && current.status == 4
-            && current.remain_quota <= 0
-            && !current.unlimited_quota
+            && updated.status == 4
+            && updated.remain_quota <= 0
+            && !updated.unlimited_quota
         {
             return Err(TokenError::localized(TokenMessage::ExhaustedCannotEnable));
         }
-        let mut updated = current;
         if status_only {
             updated.status = input.status;
-            // Go's status-only controller branch changes only this in-memory
-            // field, but Token.Update still selects and writes every mutable
-            // column. Preserve that observable UPDATE OF column set while
-            // retaining the loaded values (including NULL allow_ips).
-            if has_auto_groups_column {
-                sqlx::query("UPDATE tokens SET name=$1, status=$2, expired_time=$3, remain_quota=$4, unlimited_quota=$5, model_limits_enabled=$6, model_limits=$7, allow_ips=$8, \"group\"=$9, cross_group_retry=$10, auto_groups=$11 WHERE id=$12 AND user_id=$13 AND deleted_at IS NULL")
-                    .bind(&updated.name).bind(updated.status).bind(updated.expired_time).bind(updated.remain_quota).bind(updated.unlimited_quota).bind(updated.model_limits_enabled).bind(&updated.model_limits).bind(&updated.allow_ips).bind(&updated.group).bind(updated.cross_group_retry).bind(&updated.auto_groups_raw).bind(input.id).bind(user_id).execute(&self.pg).await.map_err(TokenError::db)?;
-            } else {
-                sqlx::query("UPDATE tokens SET name=$1, status=$2, expired_time=$3, remain_quota=$4, unlimited_quota=$5, model_limits_enabled=$6, model_limits=$7, allow_ips=$8, \"group\"=$9, cross_group_retry=$10 WHERE id=$11 AND user_id=$12 AND deleted_at IS NULL")
-                    .bind(&updated.name).bind(updated.status).bind(updated.expired_time).bind(updated.remain_quota).bind(updated.unlimited_quota).bind(updated.model_limits_enabled).bind(&updated.model_limits).bind(&updated.allow_ips).bind(&updated.group).bind(updated.cross_group_retry).bind(input.id).bind(user_id).execute(&self.pg).await.map_err(TokenError::db)?;
-            }
         } else {
             let t = input.token;
-            let auto_groups_set = t.auto_groups_set;
-            let requested_auto_groups = t.auto_groups;
             updated.name = t.name;
             updated.expired_time = t.expired_time.unwrap_or_default();
             updated.remain_quota = t.remain_quota;
@@ -701,24 +808,68 @@ return 1
                 updated.cross_group_retry = false;
                 updated.auto_groups_raw.clear();
                 updated.auto_groups = None;
-            } else if auto_groups_set {
-                updated.auto_groups_raw = self
-                    .encode_auto_groups(user_id, &requested_auto_groups)
-                    .await?;
+            } else if t.auto_groups_set {
+                updated.auto_groups_raw = self.encode_auto_groups(user_id, &t.auto_groups).await?;
                 updated.auto_groups = parse_auto_groups(&updated.auto_groups_raw);
             }
-            if has_auto_groups_column {
-                sqlx::query("UPDATE tokens SET name=$1, expired_time=$2, remain_quota=$3, unlimited_quota=$4, model_limits_enabled=$5, model_limits=$6, allow_ips=$7, \"group\"=$8, cross_group_retry=$9, auto_groups=$10 WHERE id=$11 AND user_id=$12 AND deleted_at IS NULL")
-                    .bind(&updated.name).bind(updated.expired_time).bind(updated.remain_quota).bind(updated.unlimited_quota).bind(updated.model_limits_enabled).bind(&updated.model_limits).bind(&updated.allow_ips).bind(&updated.group).bind(updated.cross_group_retry).bind(&updated.auto_groups_raw).bind(input.id).bind(user_id).execute(&self.pg).await.map_err(TokenError::db)?;
-            } else {
-                sqlx::query("UPDATE tokens SET name=$1, expired_time=$2, remain_quota=$3, unlimited_quota=$4, model_limits_enabled=$5, model_limits=$6, allow_ips=$7, \"group\"=$8, cross_group_retry=$9 WHERE id=$10 AND user_id=$11 AND deleted_at IS NULL")
-                    .bind(&updated.name).bind(updated.expired_time).bind(updated.remain_quota).bind(updated.unlimited_quota).bind(updated.model_limits_enabled).bind(&updated.model_limits).bind(&updated.allow_ips).bind(&updated.group).bind(updated.cross_group_retry).bind(input.id).bind(user_id).execute(&self.pg).await.map_err(TokenError::db)?;
+        }
+        current::mutable(&updated)?;
+        let has_auto_groups = self.has_auto_groups_column().await?;
+        if !self.frozen_cache_refresh {
+            let _ = self.invalidate([updated.key.clone()]).await;
+        }
+        // Both Go controller branches call Token.Update: every selected column
+        // is written, including the loaded status on a non-status-only update.
+        let mut query = sqlx::QueryBuilder::<sqlx::Postgres>::new("UPDATE tokens SET ");
+        {
+            let mut fields = query.separated(",");
+            fields.push("name=").push_bind_unseparated(&updated.name);
+            fields.push("status=").push_bind_unseparated(updated.status);
+            fields
+                .push("expired_time=")
+                .push_bind_unseparated(updated.expired_time);
+            fields
+                .push("remain_quota=")
+                .push_bind_unseparated(updated.remain_quota);
+            fields
+                .push("unlimited_quota=")
+                .push_bind_unseparated(updated.unlimited_quota);
+            fields
+                .push("model_limits_enabled=")
+                .push_bind_unseparated(updated.model_limits_enabled);
+            fields
+                .push("model_limits=")
+                .push_bind_unseparated(&updated.model_limits);
+            fields
+                .push("allow_ips=")
+                .push_bind_unseparated(&updated.allow_ips);
+            fields
+                .push("\"group\"=")
+                .push_bind_unseparated(&updated.group);
+            fields
+                .push("cross_group_retry=")
+                .push_bind_unseparated(updated.cross_group_retry);
+            if has_auto_groups {
+                fields
+                    .push("auto_groups=")
+                    .push_bind_unseparated(&updated.auto_groups_raw);
             }
         }
-        // This is intentionally best-effort, matching GORM's background
-        // cache refresh. A database update is authoritative even if Valkey is
-        // temporarily unavailable.
-        let _ = self.store_cache(&updated).await;
+        query
+            .push(" WHERE id=")
+            .push_bind(input.id)
+            .push(" AND user_id=")
+            .push_bind(user_id)
+            .push(" AND deleted_at IS NULL AND ")
+            .push(current::VISIBLE);
+        query
+            .build()
+            .execute(&self.pg)
+            .await
+            .map_err(TokenError::db)?;
+        if self.frozen_cache_refresh {
+            let _ = self.store_cache(&updated).await;
+        }
         Ok(updated)
     }
 
@@ -733,7 +884,8 @@ return 1
         }
         let mut tx = self.pg.begin().await.map_err(TokenError::db)?;
         let sql = format!(
-            "{TOKEN_SELECT} WHERE user_id = $1 AND id = ANY($2) AND deleted_at IS NULL FOR UPDATE"
+            "{TOKEN_SELECT} WHERE user_id = $1 AND id = ANY($2) AND deleted_at IS NULL AND {} FOR UPDATE",
+            current::VISIBLE
         );
         let rows = sqlx::query(&sql)
             .bind(user_id)
@@ -741,19 +893,28 @@ return 1
             .fetch_all(&mut *tx)
             .await
             .map_err(TokenError::db)?;
-        let keys = rows
+        let tokens = rows
             .iter()
             .map(token_from_row)
-            .collect::<Result<Vec<_>, _>>()?
+            .collect::<Result<Vec<_>, _>>()?;
+        for token in &tokens {
+            current::mutable(token)?;
+        }
+        let keys = tokens
             .into_iter()
             .map(|token| token.key)
             .collect::<Vec<_>>();
         if rows.is_empty() && require_existing_token {
             return Err(TokenError::not_found());
         }
-        sqlx::query("UPDATE tokens SET deleted_at = NOW() WHERE user_id = $1 AND id = ANY($2) AND deleted_at IS NULL").bind(user_id).bind(ids).execute(&mut *tx).await.map_err(TokenError::db)?;
+        if !self.frozen_cache_refresh {
+            let _ = self.invalidate(keys.iter().cloned()).await;
+        }
+        sqlx::query(&format!("UPDATE tokens SET deleted_at = NOW() WHERE user_id = $1 AND id = ANY($2) AND deleted_at IS NULL AND {}", current::VISIBLE)).bind(user_id).bind(ids).execute(&mut *tx).await.map_err(TokenError::db)?;
         tx.commit().await.map_err(TokenError::db)?;
-        let _ = self.invalidate(keys).await;
+        if self.frozen_cache_refresh {
+            let _ = self.invalidate(keys).await;
+        }
         Ok(rows.len())
     }
 
@@ -801,6 +962,8 @@ async fn list(
             .list(
                 principal.user_id,
                 PageQuery::from_raw(query.0.as_deref()).page(),
+                &raw_query_string(query.0.as_deref(), "creation_mode").unwrap_or_default(),
+                state.frozen_wire_errors,
             )
             .await,
         true,
@@ -818,7 +981,10 @@ async fn search(
         Ok(principal) => principal,
         Err(response) => return response,
     };
-    let query = SearchQuery::from_raw(query.0.as_deref());
+    let mut query = SearchQuery::from_raw(query.0.as_deref());
+    if state.frozen_wire_errors {
+        query.creation_mode.clear();
+    }
     let page = query.page.page();
     respond_token(
         state.service.search(principal.user_id, query, page).await,
@@ -875,6 +1041,8 @@ async fn key(
     };
     no_store(match legacy_id(&id) {
         Ok(id) => match state.service.get(principal.user_id, id).await {
+            Ok(token) if token.creation_source == "assistant_runtime" => (StatusCode::FORBIDDEN, Json(serde_json::json!({"success":false,"code":"TOKEN_INTERNAL_ONLY","message":"This assistant runtime key cannot be revealed or used for API calls."}))).into_response(),
+            Ok(token) if token.one_time_reveal => (StatusCode::FORBIDDEN, Json(serde_json::json!({"success":false,"code":"TOKEN_KEY_SHOWN_ONCE","message":"This key was shown only at creation. Use your saved copy or revoke it and create a replacement."}))).into_response(),
             Ok(token) => success(serde_json::json!({"key": token.key})),
             Err(error) => error.response_for(request_locale(&principal, &headers)),
         },
@@ -958,8 +1126,22 @@ async fn create(
             return error.response_for(request_locale(&principal, &headers));
         }
     };
-    match state.service.create(principal.user_id, input).await {
-        Ok(()) => success_no_data(),
+    match state
+        .service
+        .create(principal.user_id, input, state.frozen_wire_errors)
+        .await
+    {
+        Ok(_) if state.frozen_wire_errors => success_no_data(),
+        Ok(created) => {
+            let once = created.one_time_reveal;
+            let mut response = success(created);
+            if once {
+                response
+                    .headers_mut()
+                    .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            }
+            response
+        }
         Err(error) => error.response_for(request_locale(&principal, &headers)),
     }
 }
@@ -1112,6 +1294,8 @@ fn omit_auto_groups_field(value: &mut serde_json::Value) {
     match value {
         serde_json::Value::Object(map) => {
             map.remove("auto_groups");
+            map.remove("one_time_reveal");
+            map.remove("creation_source");
             for child in map.values_mut() {
                 omit_auto_groups_field(child);
             }
@@ -1426,6 +1610,8 @@ fn decode_legacy_json_for_route<T: DeserializeOwned>(
 
 #[derive(Default)]
 struct TokenWire {
+    one_time_reveal: bool,
+    creation_source: String,
     id: i64,
     user_id: i64,
     key: String,
@@ -1571,6 +1757,10 @@ impl<'de> Visitor<'de> for TokenWireVisitor {
                 set_string(&mut wire.group, &value, "group")
             } else if field.eq_ignore_ascii_case("cross_group_retry") {
                 set_bool(&mut wire.cross_group_retry, &value, "cross_group_retry")
+            } else if field.eq_ignore_ascii_case("one_time_reveal") {
+                set_bool(&mut wire.one_time_reveal, &value, "one_time_reveal")
+            } else if field.eq_ignore_ascii_case("creation_source") {
+                set_string(&mut wire.creation_source, &value, "creation_source")
             } else if field.eq_ignore_ascii_case("auto_groups") {
                 set_auto_groups(&mut wire.auto_groups_set, &mut wire.auto_groups, &value)
             } else if field.eq_ignore_ascii_case("DeletedAt") {
@@ -1973,8 +2163,20 @@ fn database_error_message(error: &sqlx::Error) -> String {
     }
 }
 
+#[derive(Serialize)]
+struct CreatedToken {
+    id: i64,
+    name: String,
+    group: String,
+    one_time_reveal: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    key: Option<String>,
+}
+
 #[derive(Clone, Debug, Serialize)]
 struct ApiToken {
+    one_time_reveal: bool,
+    creation_source: String,
     id: i64,
     user_id: i64,
     key: String,
@@ -1998,10 +2200,12 @@ struct ApiToken {
     #[serde(rename = "DeletedAt")]
     deleted_at: Option<()>,
 }
-const TOKEN_SELECT: &str = "SELECT id, user_id, COALESCE(key,''), COALESCE(status,0)::BIGINT, COALESCE(name,''), COALESCE(created_time,0), COALESCE(accessed_time,0), COALESCE(expired_time,0), COALESCE(remain_quota,0), COALESCE(unlimited_quota,FALSE), COALESCE(model_limits_enabled,FALSE), COALESCE(model_limits,''), allow_ips, COALESCE(used_quota,0), COALESCE(\"group\",''), COALESCE(cross_group_retry,FALSE), COALESCE(to_jsonb(tokens)->>'auto_groups','') AS auto_groups, COALESCE((to_jsonb(tokens)->>'account_balance_read')::boolean,FALSE) AS account_balance_read FROM tokens";
+const TOKEN_SELECT: &str = "SELECT id, user_id, COALESCE(key,''), COALESCE(status,0)::BIGINT, COALESCE(name,''), COALESCE(created_time,0), COALESCE(accessed_time,0), COALESCE(expired_time,0), COALESCE(remain_quota,0), COALESCE(unlimited_quota,FALSE), COALESCE(model_limits_enabled,FALSE), COALESCE(model_limits,''), allow_ips, COALESCE(used_quota,0), COALESCE(\"group\",''), COALESCE(cross_group_retry,FALSE), COALESCE(to_jsonb(tokens)->>'auto_groups','') AS auto_groups, COALESCE((to_jsonb(tokens)->>'account_balance_read')::boolean,FALSE) AS account_balance_read, COALESCE((to_jsonb(tokens)->>'one_time_reveal')::boolean,FALSE) AS one_time_reveal, COALESCE(to_jsonb(tokens)->>'creation_source','') AS creation_source FROM tokens";
 fn token_from_row(row: &sqlx::postgres::PgRow) -> Result<ApiToken, TokenError> {
     let auto_groups_raw: String = row.try_get(16).map_err(TokenError::db)?;
     Ok(ApiToken {
+        one_time_reveal: row.try_get("one_time_reveal").map_err(TokenError::db)?,
+        creation_source: row.try_get("creation_source").map_err(TokenError::db)?,
         id: row.try_get(0).map_err(TokenError::db)?,
         user_id: row.try_get(1).map_err(TokenError::db)?,
         key: row.try_get(2).map_err(TokenError::db)?,
@@ -2035,6 +2239,7 @@ fn parse_auto_groups(raw: &str) -> Option<Vec<String>> {
 }
 #[derive(Debug)]
 struct TokenInput {
+    one_time_reveal: bool,
     name: String,
     expired_time: Option<i64>,
     remain_quota: i64,
@@ -2050,6 +2255,7 @@ struct TokenInput {
 impl From<TokenWire> for TokenInput {
     fn from(wire: TokenWire) -> Self {
         Self {
+            one_time_reveal: wire.one_time_reveal,
             name: wire.name,
             expired_time: wire.expired_time,
             remain_quota: wire.remain_quota,
@@ -2113,6 +2319,8 @@ struct PageQuery {
 }
 #[derive(Deserialize)]
 struct SearchQuery {
+    #[serde(default)]
+    creation_mode: String,
     #[serde(default)]
     keyword: String,
     #[serde(default)]
@@ -2196,6 +2404,7 @@ impl SearchQuery {
     fn from_raw(raw: Option<&str>) -> Self {
         Self {
             keyword: raw_query_string(raw, "keyword").unwrap_or_default(),
+            creation_mode: raw_query_string(raw, "creation_mode").unwrap_or_default(),
             token: raw_query_string(raw, "token").unwrap_or_default(),
             page: PageQuery::from_raw(raw),
         }

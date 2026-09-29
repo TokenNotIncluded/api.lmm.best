@@ -11,6 +11,7 @@
 //! relay policy.
 
 use std::{
+    collections::BTreeMap,
     net::IpAddr,
     sync::Arc,
     time::{Instant, SystemTime, UNIX_EPOCH},
@@ -47,7 +48,19 @@ use lmm_contracts::relay::{
 use serde::Serialize;
 use sqlx::{PgPool, Row};
 
+pub(crate) mod billing;
+mod cache;
+mod drain;
+mod funding;
+mod reconcile;
 mod responses_terminal;
+mod settlement;
+mod token_count;
+mod tools;
+
+use billing::{Evidence, Price, UsageTracker};
+pub use drain::RelaySettlementTracker;
+pub use reconcile::RelayReconcilePolicy;
 
 const MAX_RELAY_BODY_BYTES: usize = 64 * 1024 * 1024;
 const MAX_UPSTREAM_ERROR_BODY_BYTES: usize = 1024 * 1024;
@@ -278,6 +291,9 @@ pub struct PgOpenAiRelayService {
     /// must supply the legacy model-ratio calculator before this service is
     /// mounted for production ownership.
     quota_per_request: i64,
+    option_pricing: bool,
+    settlement_tracker: RelaySettlementTracker,
+    cache: Option<cache::RelayCache>,
 }
 
 impl PgOpenAiRelayService {
@@ -289,7 +305,41 @@ impl PgOpenAiRelayService {
             pg,
             upstream,
             quota_per_request: quota_per_request.max(1),
+            option_pricing: false,
+            settlement_tracker: RelaySettlementTracker::default(),
+            cache: None,
         }
+    }
+
+    /// Uses a per-request snapshot of the persisted Go model/group prices.
+    /// Unsupported pricing modes fail before upstream I/O; they never fall
+    /// back to the fixture's fixed charge.
+    #[must_use]
+    pub const fn with_option_pricing(mut self) -> Self {
+        self.option_pricing = true;
+        self
+    }
+
+    /// Invalidates the existing Go user/token caches after committed quota
+    /// changes. Cache failures are bounded and never retry financial writes.
+    #[must_use]
+    pub fn with_valkey(
+        mut self,
+        client: redis::Client,
+        crypto_secret: impl Into<Arc<str>>,
+        dependency_timeout: std::time::Duration,
+    ) -> Self {
+        self.cache = Some(cache::RelayCache::new(
+            client,
+            crypto_secret.into(),
+            dependency_timeout,
+        ));
+        self
+    }
+
+    #[must_use]
+    pub fn settlement_tracker(&self) -> RelaySettlementTracker {
+        self.settlement_tracker.clone()
     }
 
     async fn retry_times(&self) -> Result<usize, OpenAiRelayFailure> {
@@ -322,7 +372,9 @@ impl PgOpenAiRelayService {
                       COALESCE(u.status,1) AS user_status,
                       COALESCE(u.role,1) AS user_role
                FROM tokens t JOIN users u ON u.id=t.user_id
-               WHERE t.key=$1 AND t.deleted_at IS NULL AND u.deleted_at IS NULL"#,
+               WHERE t.key=$1 AND t.deleted_at IS NULL AND u.deleted_at IS NULL
+                 AND NOT COALESCE((to_jsonb(t)->>'oauth_managed')::BOOLEAN,FALSE)
+                 AND COALESCE(to_jsonb(t)->>'creation_source','')<>'assistant_runtime'"#,
         )
         .bind(&credential.key)
         .fetch_optional(&self.pg)
@@ -362,6 +414,7 @@ impl PgOpenAiRelayService {
         &self,
         request: &OpenAiRelayRequest,
         excluded_channel_ids: &[i64],
+        existing: Option<&Reservation>,
     ) -> Result<Reservation, OpenAiRelayFailure> {
         let credential =
             relay_token_credential(&request.headers).ok_or_else(unauthorized_failure)?;
@@ -372,6 +425,36 @@ impl PgOpenAiRelayService {
         let key = &credential.key;
         let now = epoch_seconds();
         let selection_model = channel_selection_model(request.endpoint, &request.request.model);
+        let estimate = if self.option_pricing {
+            token_count::request(request.endpoint, &request.request.model, &request.raw_body)
+                .map_err(|message| {
+                    OpenAiRelayFailure::new(StatusCode::BAD_REQUEST, "count_token_failed", message)
+                })?
+        } else {
+            token_count::Estimate::default()
+        };
+        // Resolve trust pricing before taking quota row locks. Looking up
+        // paid-activation facts must not require another pool connection while
+        // the last available connection is held by this reservation.
+        let trust_discount = if self.option_pricing {
+            match sqlx::query(r#"SELECT u.id,COALESCE(u.role,1) AS role,
+                       COALESCE((to_jsonb(u)->>'created_at')::BIGINT,0) AS created_at,
+                       COALESCE((to_jsonb(u)->>'last_api_activity_at')::BIGINT,0) AS last_api_activity_at,
+                       (to_jsonb(u)->>'trust_level_override')::BIGINT AS trust_level_override
+                FROM users u JOIN tokens t ON t.user_id=u.id
+                WHERE t.key=$1 AND u.deleted_at IS NULL AND t.deleted_at IS NULL"#)
+                .bind(key).fetch_optional(&self.pg).await
+            {
+                Ok(Some(user)) => super::relay_misc_postgres::trust_discount_for_relay(
+                    &self.pg, user.try_get("id").unwrap_or_default(),
+                    user.try_get("role").unwrap_or(1), user.try_get("trust_level_override").unwrap_or(None),
+                    user.try_get("created_at").unwrap_or_default(), user.try_get("last_api_activity_at").unwrap_or_default(),
+                ).await,
+                _ => 1.0,
+            }
+        } else {
+            1.0
+        };
         let mut tx = self.pg.begin().await.map_err(|_| internal_failure())?;
         // Serialize an idempotency key even before a log row exists.  This is
         // transactional and does not create schema drift in the copied DB.
@@ -381,7 +464,7 @@ impl PgOpenAiRelayService {
             .await
             .map_err(|_| internal_failure())?;
         let replayed = sqlx::query_scalar::<_, i64>(
-            "SELECT 1 FROM logs WHERE token_id=(SELECT id FROM tokens WHERE key=$1 AND deleted_at IS NULL) AND request_id=$2 AND type=2 LIMIT 1",
+            "SELECT 1::BIGINT FROM logs WHERE token_id=(SELECT id FROM tokens WHERE key=$1 AND deleted_at IS NULL) AND request_id=$2 AND (type=2 OR (type=0 AND content='lmm-rust-relay-reservation-v1')) LIMIT 1",
         )
         .bind(key)
         .bind(&request.request_id)
@@ -389,13 +472,16 @@ impl PgOpenAiRelayService {
         .await
         .map_err(|_| internal_failure())?
         .is_some();
-        if replayed {
+        if replayed && existing.is_none() {
             return Err(OpenAiRelayFailure::new(
                 StatusCode::CONFLICT,
                 "request_replayed",
                 "request id has already been processed",
             ));
         }
+        // Funding and policy changes share Go's payer-first lock order.
+        sqlx::query("SELECT u.id FROM users u JOIN tokens t ON t.user_id=u.id WHERE t.key=$1 AND u.deleted_at IS NULL AND t.deleted_at IS NULL FOR UPDATE OF u")
+            .bind(key).execute(&mut *tx).await.map_err(|_|internal_failure())?;
         let row = sqlx::query(
             r#"SELECT t.id AS token_id, t.user_id,
                       COALESCE(t.status,1) AS token_status,
@@ -404,14 +490,20 @@ impl PgOpenAiRelayService {
                       COALESCE(t.unlimited_quota,FALSE) AS unlimited_quota,
                       COALESCE(u.status,1) AS user_status,
                       COALESCE(u.quota,0) AS user_quota,
+                      COALESCE(NULLIF(to_jsonb(u)->>'group',''),'default') AS user_group,
+                      COALESCE(NULLIF(t."group",''),NULLIF(to_jsonb(u)->>'group',''),'default') AS using_group,
+                      COALESCE((to_jsonb(t)->>'model_limits_enabled')::BOOLEAN,FALSE) AS model_limits_enabled,
+                      COALESCE(to_jsonb(t)->>'model_limits','') AS model_limits,
                       c.id AS channel_id, COALESCE(c.status,1) AS channel_status,
                       COALESCE(c.base_url,'') AS base_url,
                       c.key AS channel_key
                FROM tokens t JOIN users u ON u.id=t.user_id
-               JOIN abilities a ON a."group"=t."group" AND a.model=$2
+               JOIN abilities a ON a."group"=COALESCE(NULLIF(t."group",''),NULLIF(to_jsonb(u)->>'group',''),'default') AND a.model=$2
                    AND COALESCE(a.enabled,TRUE)
                JOIN channels c ON c.id=a.channel_id
                WHERE t.key=$1 AND t.deleted_at IS NULL AND u.deleted_at IS NULL
+                   AND NOT COALESCE((to_jsonb(t)->>'oauth_managed')::BOOLEAN,FALSE)
+                   AND COALESCE(to_jsonb(t)->>'creation_source','')<>'assistant_runtime'
                    AND ($3::BIGINT IS NULL OR c.id=$3)
                    AND (
                        $3::BIGINT IS NOT NULL
@@ -421,7 +513,7 @@ impl PgOpenAiRelayService {
                        )
                    )
                ORDER BY COALESCE(a.priority,0) DESC, COALESCE(a.weight,0) DESC, c.id
-               LIMIT 1 FOR UPDATE OF t,u,c"#,
+               LIMIT 1 FOR UPDATE OF u,c"#,
         )
         .bind(key)
         .bind(selection_model)
@@ -460,9 +552,73 @@ impl PgOpenAiRelayService {
         if token_status != 1 || user_status != 1 || (expires != -1 && expires < now) {
             return Err(unauthorized_failure());
         }
-        if (!unlimited && token_quota < self.quota_per_request)
-            || user_quota < self.quota_per_request
+        if row
+            .try_get::<bool, _>("model_limits_enabled")
+            .unwrap_or(false)
+            && !row
+                .try_get::<String, _>("model_limits")
+                .unwrap_or_default()
+                .split(',')
+                .any(|allowed| allowed.trim() == request.request.model)
         {
+            return Err(OpenAiRelayFailure::new(
+                StatusCode::FORBIDDEN,
+                "model_not_allowed",
+                "token has no access to this model",
+            ));
+        }
+        let using_group: String = row.try_get("using_group").map_err(|_| internal_failure())?;
+        let price = if self.option_pricing {
+            let rows: Vec<(String, String)> =
+                sqlx::query_as("SELECT key, value FROM options WHERE key = ANY($1)")
+                    .bind([
+                        "ModelPrice",
+                        "ModelRatio",
+                        "CompletionRatio",
+                        "CacheRatio",
+                        "CreateCacheRatio",
+                        "ImageRatio",
+                        "GroupRatio",
+                        "GroupGroupRatio",
+                        "QuotaPerUnit",
+                        "PreConsumedQuota",
+                        "billing_setting.billing_mode",
+                        "tool_price_setting.prices",
+                        "quota_setting.enable_free_model_pre_consume",
+                    ])
+                    .fetch_all(&mut *tx)
+                    .await
+                    .map_err(|_| internal_failure())?;
+            let options: BTreeMap<_, _> = rows.into_iter().collect();
+            // Price metadata comes from the endpoint-specific Go-compatible
+            // counter, so unknown max-token fields cannot alter prepayment.
+            let raw_request = serde_json::json!({"max_tokens": estimate.max_tokens});
+            let user_group = row
+                .try_get::<String, _>("user_group")
+                .map_err(|_| internal_failure())?;
+            if let Some(existing) = existing {
+                existing.price.clone().with_retry_group(
+                    &options,
+                    &user_group,
+                    &using_group,
+                    trust_discount,
+                )?
+            } else {
+                Price::from_options_with_discount(
+                    &options,
+                    &request.request.model,
+                    &user_group,
+                    &using_group,
+                    &raw_request,
+                    trust_discount,
+                )?
+                .with_prompt_tokens(estimate.tokens)?
+            }
+        } else {
+            Price::fixed(self.quota_per_request)
+        };
+        let quota = price.reservation;
+        if !self.option_pricing && ((!unlimited && token_quota < quota) || user_quota < quota) {
             return Err(OpenAiRelayFailure::new(
                 StatusCode::FORBIDDEN,
                 "insufficient_quota",
@@ -472,17 +628,6 @@ impl PgOpenAiRelayService {
         let token_id: i64 = row.try_get("token_id").map_err(|_| internal_failure())?;
         let user_id: i64 = row.try_get("user_id").map_err(|_| internal_failure())?;
         let channel_id: i64 = row.try_get("channel_id").map_err(|_| internal_failure())?;
-        sqlx::query("UPDATE users SET quota=COALESCE(quota,0)-$2,used_quota=COALESCE(used_quota,0)+$2,request_count=COALESCE(request_count,0)+1 WHERE id=$1")
-            .bind(user_id).bind(self.quota_per_request).execute(&mut *tx).await.map_err(|_| internal_failure())?;
-        sqlx::query("UPDATE tokens SET accessed_time=$2,used_quota=COALESCE(used_quota,0)+$3,remain_quota=CASE WHEN COALESCE(unlimited_quota,FALSE) THEN remain_quota ELSE COALESCE(remain_quota,0)-$3 END WHERE id=$1 AND user_id=$4")
-            .bind(token_id).bind(now).bind(self.quota_per_request).bind(user_id).execute(&mut *tx).await.map_err(|_| internal_failure())?;
-        sqlx::query("UPDATE channels SET used_quota=COALESCE(used_quota,0)+$2 WHERE id=$1")
-            .bind(channel_id)
-            .bind(self.quota_per_request)
-            .execute(&mut *tx)
-            .await
-            .map_err(|_| internal_failure())?;
-        tx.commit().await.map_err(|_| internal_failure())?;
         let raw_key: String = row.try_get("channel_key").map_err(|_| internal_failure())?;
         let api_key = raw_key
             .lines()
@@ -492,54 +637,271 @@ impl PgOpenAiRelayService {
             .to_owned();
         let base_url: String = row.try_get("base_url").map_err(|_| internal_failure())?;
         if api_key.is_empty() || base_url.trim().is_empty() {
-            self.refund(token_id, user_id, channel_id).await?;
             return Err(no_channel_failure());
         }
+        let funding = if self.option_pricing {
+            Some(
+                funding::reserve(
+                    &mut tx,
+                    funding::Request {
+                        request_id: &request.request_id,
+                        user_id,
+                        token_id,
+                        channel_id,
+                        model_name: &request.request.model,
+                        using_group: &using_group,
+                        is_stream: request.request.stream,
+                        expected_quota: quota,
+                        free: price.free(),
+                        price_snapshot: price.snapshot(),
+                        existing_id: existing
+                            .and_then(|reservation| reservation.funding.as_ref())
+                            .map(|record| record.reservation_id.as_str()),
+                    },
+                )
+                .await?,
+            )
+        } else {
+            sqlx::query("UPDATE users SET quota=COALESCE(quota,0)-$2 WHERE id=$1")
+                .bind(user_id)
+                .bind(quota)
+                .execute(&mut *tx)
+                .await
+                .map_err(|_| internal_failure())?;
+            sqlx::query("UPDATE tokens SET accessed_time=$2,remain_quota=CASE WHEN COALESCE(unlimited_quota,FALSE) THEN remain_quota ELSE COALESCE(remain_quota,0)-$3 END WHERE id=$1 AND user_id=$4")
+            .bind(token_id).bind(now).bind(quota).bind(user_id).execute(&mut *tx).await.map_err(|_| internal_failure())?;
+            None
+        };
+        // Persist the reservation in the same transaction as the debit. It
+        // closes the in-flight replay gap and leaves reconciliation evidence
+        // if the process is terminated before the response finishes.
+        if existing.is_some() {
+            sqlx::query("UPDATE logs SET quota=$3,channel_id=$4,\"group\"=$5 WHERE token_id=$1 AND request_id=$2 AND type=0 AND content='lmm-rust-relay-reservation-v1'")
+                .bind(token_id).bind(&request.request_id).bind(quota).bind(channel_id).bind(&using_group).execute(&mut *tx).await.map_err(|_|internal_failure())?;
+        } else {
+            sqlx::query("INSERT INTO logs (user_id,created_at,type,content,model_name,quota,channel_id,token_id,\"group\",request_id,is_stream) VALUES ($1,$2,0,'lmm-rust-relay-reservation-v1',$3,$4,$5,$6,$7,$8,$9)")
+            .bind(user_id).bind(now).bind(&request.request.model).bind(quota).bind(channel_id).bind(token_id).bind(&using_group).bind(&request.request_id).bind(request.request.stream)
+            .execute(&mut *tx).await.map_err(|_| internal_failure())?;
+        }
+        tx.commit().await.map_err(|_| internal_failure())?;
+        self.invalidate_quota_cache(user_id, token_id, Some(key))
+            .await;
         Ok(Reservation {
             token_id,
+            token_key: credential.key,
             user_id,
             channel_id,
+            request_id: request.request_id.clone(),
+            unlimited,
+            price,
+            estimated_prompt: estimate.tokens,
+            model: request.request.model.clone(),
             target: OpenAiUpstreamTarget { base_url, api_key },
+            funding,
         })
     }
 
-    async fn refund(
-        &self,
-        token_id: i64,
-        user_id: i64,
-        channel_id: i64,
-    ) -> Result<(), OpenAiRelayFailure> {
-        let mut tx = self.pg.begin().await.map_err(|_| internal_failure())?;
-        sqlx::query("UPDATE users SET quota=COALESCE(quota,0)+$2,used_quota=GREATEST(COALESCE(used_quota,0)-$2,0),request_count=GREATEST(COALESCE(request_count,0)-1,0) WHERE id=$1").bind(user_id).bind(self.quota_per_request).execute(&mut *tx).await.map_err(|_| internal_failure())?;
-        sqlx::query("UPDATE tokens SET used_quota=GREATEST(COALESCE(used_quota,0)-$2,0),remain_quota=CASE WHEN COALESCE(unlimited_quota,FALSE) THEN remain_quota ELSE COALESCE(remain_quota,0)+$2 END WHERE id=$1 AND user_id=$3").bind(token_id).bind(self.quota_per_request).bind(user_id).execute(&mut *tx).await.map_err(|_| internal_failure())?;
-        sqlx::query(
-            "UPDATE channels SET used_quota=GREATEST(COALESCE(used_quota,0)-$2,0) WHERE id=$1",
-        )
-        .bind(channel_id)
-        .bind(self.quota_per_request)
-        .execute(&mut *tx)
-        .await
-        .map_err(|_| internal_failure())?;
-        tx.commit().await.map_err(|_| internal_failure())
-    }
-
-    async fn log_success(
+    async fn settle(
         &self,
         reservation: &Reservation,
-        request: &OpenAiRelayRequest,
+        evidence: &Evidence,
     ) -> Result<(), OpenAiRelayFailure> {
-        sqlx::query("INSERT INTO logs (user_id,created_at,type,content,model_name,quota,channel_id,token_id,\"group\",request_id,is_stream) VALUES ($1,$2,2,'',$3,$4,$5,$6,'',$7,$8)")
-            .bind(reservation.user_id).bind(epoch_seconds()).bind(&request.request.model).bind(self.quota_per_request).bind(reservation.channel_id).bind(reservation.token_id).bind(&request.request_id).bind(request.request.stream)
-            .execute(&self.pg).await.map_err(|_| internal_failure())?;
+        let quota = reservation.price.quota(evidence)?;
+        if let Some(record) = &reservation.funding {
+            let usage = serde_json::to_value(evidence).map_err(|_| internal_failure())?;
+            let refund = !evidence.observed && !evidence.completed && quota == 0;
+            funding::intent(
+                &self.pg,
+                &record.reservation_id,
+                reservation.user_id,
+                quota,
+                &usage,
+                &reservation.price.log_metadata(evidence),
+                refund,
+            )
+            .await?;
+            return self
+                .finish_funded(
+                    &record.reservation_id,
+                    reservation.user_id,
+                    Some(&reservation.token_key),
+                )
+                .await
+                .map(|_| ());
+        }
+        let mut tx = self.pg.begin().await.map_err(|_| internal_failure())?;
+        // Use the same user -> token lock order as reservation, then consume
+        // the durable marker. Repeated callbacks cannot debit or refund twice.
+        sqlx::query("SELECT id FROM users WHERE id=$1 FOR UPDATE")
+            .bind(reservation.user_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|_| internal_failure())?;
+        let pending: Option<i64> = sqlx::query_scalar("SELECT quota FROM logs WHERE token_id=$1 AND request_id=$2 AND type=0 AND content='lmm-rust-relay-reservation-v1' FOR UPDATE")
+            .bind(reservation.token_id).bind(&reservation.request_id).fetch_optional(&mut *tx).await.map_err(|_| internal_failure())?;
+        let Some(prepaid) = pending else {
+            return Ok(());
+        };
+        let refund = prepaid - quota;
+        let billable = quota > 0 || evidence.usage.measured();
+        sqlx::query("UPDATE users SET quota=COALESCE(quota,0)+$2,used_quota=COALESCE(used_quota,0)+$3,request_count=COALESCE(request_count,0)+$4 WHERE id=$1")
+            .bind(reservation.user_id).bind(refund).bind(quota).bind(i64::from(billable))
+            .execute(&mut *tx).await.map_err(|_| internal_failure())?;
+        sqlx::query("UPDATE tokens SET used_quota=COALESCE(used_quota,0)+$2,remain_quota=CASE WHEN $4 THEN remain_quota ELSE COALESCE(remain_quota,0)+$3 END WHERE id=$1 AND user_id=$5")
+            .bind(reservation.token_id).bind(quota).bind(refund).bind(reservation.unlimited).bind(reservation.user_id)
+            .execute(&mut *tx).await.map_err(|_| internal_failure())?;
+        sqlx::query("UPDATE channels SET used_quota=COALESCE(used_quota,0)+$2 WHERE id=$1")
+            .bind(reservation.channel_id)
+            .bind(quota)
+            .execute(&mut *tx)
+            .await
+            .map_err(|_| internal_failure())?;
+        if billable || evidence.completed {
+            sqlx::query("UPDATE logs SET type=2,quota=$3,content=$4,prompt_tokens=$5,completion_tokens=$6,other=$7 WHERE token_id=$1 AND request_id=$2 AND type=0 AND content='lmm-rust-relay-reservation-v1'")
+                .bind(reservation.token_id).bind(&reservation.request_id).bind(quota)
+                .bind(if evidence.completed { "" } else { "upstream response interrupted; settled measured usage" })
+                .bind(evidence.usage.input).bind(evidence.usage.output)
+                .bind(reservation.price.log_metadata(evidence).to_string())
+                .execute(&mut *tx).await.map_err(|_| internal_failure())?;
+        } else {
+            sqlx::query("DELETE FROM logs WHERE token_id=$1 AND request_id=$2 AND type=0 AND content='lmm-rust-relay-reservation-v1'")
+                .bind(reservation.token_id).bind(&reservation.request_id).execute(&mut *tx).await.map_err(|_| internal_failure())?;
+        }
+        tx.commit().await.map_err(|_| internal_failure())?;
+        self.invalidate_quota_cache(
+            reservation.user_id,
+            reservation.token_id,
+            Some(&reservation.token_key),
+        )
+        .await;
         Ok(())
+    }
+
+    async fn settle_with_retries(
+        &self,
+        mut reservation: Reservation,
+        evidence: Evidence,
+    ) -> Result<(), OpenAiRelayFailure> {
+        let result = async {
+            // Resolve live settlement prices exactly once. Storage retries
+            // must retain this amount if an operator edits prices meanwhile.
+            // An empty failed/cancelled response needs no pricing dependency
+            // to return its entire reservation.
+            if self.option_pricing
+                && (evidence.completed || evidence.usage.measured() || !evidence.tools.is_empty())
+            {
+                let rows: Vec<(String, String)> =
+                    sqlx::query_as("SELECT key,value FROM options WHERE key=ANY($1)")
+                        .bind(["QuotaPerUnit", "tool_price_setting.prices"])
+                        .fetch_all(&self.pg)
+                        .await
+                        .map_err(|_| internal_failure())?;
+                reservation.price = reservation
+                    .price
+                    .clone()
+                    .with_settlement_options(&rows.into_iter().collect())?;
+            }
+            let mut last = None;
+            for _ in 0..3 {
+                match self.settle(&reservation, &evidence).await {
+                    Ok(()) => return Ok(()),
+                    Err(error) => last = Some(error),
+                }
+            }
+            Err(last.unwrap_or_else(internal_failure))
+        }
+        .await;
+        if result.is_err() {
+            tracing::error!(request_id=%reservation.request_id,token_id=reservation.token_id,
+                "relay settlement failed; durable reservation retained for reconciliation");
+        }
+        result
+    }
+
+    async fn finish_funded(
+        &self,
+        id: &str,
+        user: i64,
+        token_key: Option<&str>,
+    ) -> Result<bool, OpenAiRelayFailure> {
+        let mut tx = self.pg.begin().await.map_err(|_| internal_failure())?;
+        let Some(record) = funding::finish(&mut tx, id, user).await? else {
+            return Ok(false);
+        };
+        let evidence: Evidence =
+            serde_json::from_value(record.usage_snapshot.clone().ok_or_else(internal_failure)?)
+                .map_err(|_| internal_failure())?;
+        let quota = record.actual_quota.ok_or_else(internal_failure)?;
+        let billable = quota > 0 || evidence.usage.measured();
+        sqlx::query("UPDATE users SET used_quota=COALESCE(used_quota,0)+$2,request_count=COALESCE(request_count,0)+$3 WHERE id=$1")
+            .bind(user).bind(quota).bind(i64::from(billable)).execute(&mut *tx).await.map_err(|_|internal_failure())?;
+        sqlx::query("UPDATE channels SET used_quota=COALESCE(used_quota,0)+$2 WHERE id=$1")
+            .bind(record.channel_id)
+            .bind(quota)
+            .execute(&mut *tx)
+            .await
+            .map_err(|_| internal_failure())?;
+        sqlx::query("DELETE FROM logs WHERE token_id=$1 AND request_id=$2 AND type=0 AND content='lmm-rust-relay-reservation-v1'")
+            .bind(record.token_id).bind(&record.request_id).execute(&mut *tx).await.map_err(|_|internal_failure())?;
+        if billable || evidence.completed {
+            let mut metadata = record.log_metadata.clone();
+            if record.funding_source == "subscription" {
+                metadata["billing_source"] = serde_json::json!("subscription");
+                metadata["subscription_id"] = serde_json::json!(record.subscription_id);
+                metadata["subscription_settlement"] = serde_json::json!({"request_id":record.request_id,"status":record.status,"actual_quota":quota,
+                    "reserved_quota":record.subscription_reserved,"subscription_quota":record.subscription_settled,"wallet_quota":record.wallet_settled,"token_quota":quota});
+            }
+            sqlx::query("INSERT INTO logs(user_id,created_at,type,content,model_name,quota,channel_id,token_id,\"group\",request_id,is_stream,prompt_tokens,completion_tokens,other) VALUES($1,$2,2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)")
+                .bind(user).bind(epoch_seconds()).bind(if evidence.completed {""} else {"upstream response interrupted; settled measured usage"}).bind(&record.model_name).bind(quota)
+                .bind(record.channel_id).bind(record.token_id).bind(&record.using_group).bind(&record.request_id).bind(record.is_stream).bind(evidence.usage.input).bind(evidence.usage.output).bind(metadata.to_string())
+                .execute(&mut *tx).await.map_err(|_|internal_failure())?;
+        }
+        tx.commit().await.map_err(|_| internal_failure())?;
+        self.invalidate_quota_cache(user, record.token_id, token_key)
+            .await;
+        Ok(true)
+    }
+
+    async fn invalidate_quota_cache(&self, user: i64, token: i64, key: Option<&str>) {
+        if let Some(cache) = &self.cache {
+            cache.invalidate(&self.pg, user, token, key).await;
+        }
+    }
+
+    /// Retry persisted settlement intent without ever contacting a provider.
+    /// The caller may run this after migrations/startup and on a bounded timer.
+    pub async fn reconcile_settlements(&self, limit: i64) -> Result<usize, OpenAiRelayFailure> {
+        let service = self.clone();
+        let permit = self.settlement_tracker.enter();
+        tokio::spawn(async move {
+            let _permit=permit;
+            let pending=funding::pending(&service.pg,limit).await?;
+            let mut completed=0;
+            for (id,user) in pending {
+                match service.finish_funded(&id,user,None).await {
+                    Ok(true)=>completed+=1,
+                    Ok(false)=>{},
+                    Err(_)=>tracing::warn!(reservation_id=%id,user_id=user,"relay reconciliation remains pending"),
+                }
+            }
+            Ok(completed)
+        }).await.map_err(|_|internal_failure())?
     }
 }
 
+#[derive(Clone)]
 struct Reservation {
     token_id: i64,
+    token_key: String,
     user_id: i64,
     channel_id: i64,
+    request_id: String,
+    unlimited: bool,
+    price: Price,
+    estimated_prompt: i64,
+    model: String,
     target: OpenAiUpstreamTarget,
+    funding: Option<funding::Record>,
 }
 
 #[async_trait]
@@ -556,6 +918,28 @@ impl OpenAiRelayService for PgOpenAiRelayService {
         &self,
         request: OpenAiRelayRequest,
     ) -> Result<OpenAiRelayResult, OpenAiRelayFailure> {
+        // An HTTP disconnect must not cancel a transaction after its debit
+        // commits but before a refund guard is installed. A detached task
+        // owns that short critical section; its unclaimed response body is
+        // dropped normally and refunds through the same accounting guard.
+        let service = self.clone();
+        let (mut sender, receiver) = tokio::sync::oneshot::channel();
+        let permit = self.settlement_tracker.enter();
+        tokio::spawn(async move {
+            let _permit = permit;
+            let result = service.relay_owned(request, &mut sender).await;
+            let _ = sender.send(result);
+        });
+        receiver.await.map_err(|_| internal_failure())?
+    }
+}
+
+impl PgOpenAiRelayService {
+    async fn relay_owned(
+        &self,
+        request: OpenAiRelayRequest,
+        caller: &mut tokio::sync::oneshot::Sender<Result<OpenAiRelayResult, OpenAiRelayFailure>>,
+    ) -> Result<OpenAiRelayResult, OpenAiRelayFailure> {
         let credential =
             relay_token_credential(&request.headers).ok_or_else(unauthorized_failure)?;
         let specific_channel = credential
@@ -568,36 +952,73 @@ impl OpenAiRelayService for PgOpenAiRelayService {
             self.retry_times().await?
         };
         let mut excluded_channel_ids = Vec::new();
+        let mut accounting: Option<settlement::Guard> = None;
 
         for attempt in 0..=retry_times {
-            let reservation = self.reserve(&request, &excluded_channel_ids).await?;
-            match self.upstream.forward(&reservation.target, &request).await {
-                Ok(result) => {
-                    if let Err(error) = self.log_success(&reservation, &request).await {
-                        self.refund(
-                            reservation.token_id,
-                            reservation.user_id,
-                            reservation.channel_id,
-                        )
-                        .await?;
-                        return Err(error);
+            let reservation = match self
+                .reserve(
+                    &request,
+                    &excluded_channel_ids,
+                    accounting.as_ref().and_then(settlement::Guard::reservation),
+                )
+                .await
+            {
+                Ok(reservation) => reservation,
+                Err(error) => {
+                    if let Some(mut guard) = accounting.take() {
+                        guard.finish().await?;
                     }
-                    return Ok(result);
+                    return Err(error);
+                }
+            };
+            let target = reservation.target.clone();
+            let channel_id = reservation.channel_id;
+            if let Some(guard) = &mut accounting {
+                guard.replace_reservation(reservation, request.endpoint, &request.raw_body);
+            } else {
+                accounting = Some(settlement::Guard::new(
+                    self.clone(),
+                    reservation,
+                    request.endpoint,
+                    &request.raw_body,
+                ));
+            }
+            let response = tokio::select! {
+                biased;
+                _ = caller.closed() => {
+                    if let Some(mut guard)=accounting.take() {guard.finish().await?;}
+                    return Err(internal_failure());
+                }
+                response = self.upstream.forward(&target, &request) => response,
+            };
+            match response {
+                Ok(result) => {
+                    let guard = accounting.take().ok_or_else(internal_failure)?;
+                    return tokio::select! {
+                        biased;
+                        _ = caller.closed() => Err(internal_failure()),
+                        result = guard.response(result) => result,
+                    };
                 }
                 Err(error) => {
-                    self.refund(
-                        reservation.token_id,
-                        reservation.user_id,
-                        reservation.channel_id,
-                    )
-                    .await?;
                     if specific_channel
                         || attempt >= retry_times
                         || !is_first_output_retry_failure(&error)
                     {
+                        if let Some(mut guard) = accounting.take() {
+                            guard.finish().await?;
+                        }
                         return Err(error);
                     }
-                    excluded_channel_ids.push(reservation.channel_id);
+                    // A managed Go subscription reservation belongs to the
+                    // logical request, not an individual provider attempt.
+                    // Reuse it (and grow only the additional budget) on retry.
+                    if !self.option_pricing
+                        && let Some(mut guard) = accounting.take()
+                    {
+                        guard.finish().await?;
+                    }
+                    excluded_channel_ids.push(channel_id);
                 }
             }
         }

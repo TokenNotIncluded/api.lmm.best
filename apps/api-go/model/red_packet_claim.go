@@ -11,7 +11,7 @@ import (
 )
 
 func redPacketIsActive(packet *RedPacket, now int64) error {
-	if packet == nil || !packet.Enabled {
+	if packet == nil || packet.DeletedAt.Valid || !packet.Enabled {
 		return ErrRedPacketNotFound
 	}
 	if packet.StartAt > 0 && now < packet.StartAt {
@@ -176,7 +176,7 @@ func ClaimRedPacket(slug string, userID int) (*RedPacketReward, error) {
 }
 
 func ListUserRedPacketClaims(slug string, userID int) ([]RedPacketReward, error) {
-	packet, err := GetRedPacketBySlug(slug)
+	packet, err := getRedPacketBySlug(DB.Unscoped(), slug)
 	if err != nil {
 		return nil, err
 	}

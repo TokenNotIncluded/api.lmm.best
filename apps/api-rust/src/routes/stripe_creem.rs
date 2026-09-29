@@ -4,6 +4,9 @@
 //! persistence, and provider I/O are injected boundaries: an incomplete
 //! listener therefore fails closed and cannot accidentally create a checkout.
 
+pub mod stripe_provider;
+pub mod stripe_wallet;
+
 use std::{
     collections::BTreeMap,
     sync::Arc,
@@ -594,6 +597,7 @@ pub struct StripeCreemState {
     store: Arc<dyn StripeCreemStore>,
     authorizer: Arc<dyn StripeCreemAuthorizer>,
     gateway: Arc<dyn StripeCreemGateway>,
+    native_stripe: Option<stripe_wallet::StripeWalletState>,
 }
 impl StripeCreemState {
     #[must_use]
@@ -606,7 +610,14 @@ impl StripeCreemState {
             store,
             authorizer,
             gateway,
+            native_stripe: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_native_stripe(mut self, state: stripe_wallet::StripeWalletState) -> Self {
+        self.native_stripe = Some(state);
+        self
     }
 }
 
@@ -714,6 +725,9 @@ async fn stripe_amount(State(state): State<StripeCreemState>, request: Request) 
         Ok(actor) => actor,
         Err(response) => return response,
     };
+    if let Some(native) = &state.native_stripe {
+        return native.quote(actor.user_id, request).await;
+    }
     let request: StripePayRequest = match legacy_json(request).await {
         Ok(request) => request,
         Err(LegacyJsonError::Read) | Err(LegacyJsonError::Invalid) => {
@@ -747,6 +761,15 @@ async fn stripe_pay(State(state): State<StripeCreemState>, request: Request) -> 
         Ok(actor) => actor,
         Err(response) => return response,
     };
+    if let Some(native) = &state.native_stripe {
+        let settings = match state.store.stripe_settings().await {
+            Ok(settings) => settings,
+            Err(_) => return legacy("error", "拉起支付失败"),
+        };
+        return native
+            .pay(actor.user_id, request, &settings.trusted_redirect_domains)
+            .await;
+    }
     let request: StripePayRequest = match legacy_json(request).await {
         Ok(request) => request,
         Err(LegacyJsonError::Read) | Err(LegacyJsonError::Invalid) => {
@@ -811,7 +834,7 @@ async fn stripe_pay(State(state): State<StripeCreemState>, request: Request) -> 
         _ => return legacy("error", "拉起支付失败"),
     };
     let order = PendingTopup {
-        trade_no,
+        trade_no: trade_no.clone(),
         user_id: actor.user_id,
         amount: request.amount,
         money: money_f64,
@@ -821,7 +844,7 @@ async fn stripe_pay(State(state): State<StripeCreemState>, request: Request) -> 
     if state.store.create_pending(order).await.is_err() {
         return legacy("error", "创建订单失败");
     }
-    legacy("success", json!({"pay_link":link}))
+    legacy("success", json!({"pay_link":link,"trade_no":trade_no}))
 }
 
 async fn creem_pay(State(state): State<StripeCreemState>, request: Request) -> Response {

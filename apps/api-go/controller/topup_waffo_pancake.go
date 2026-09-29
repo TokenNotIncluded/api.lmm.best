@@ -650,6 +650,7 @@ func RequestWaffoPancakePay(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "success",
 		"data": gin.H{
+			"trade_no":            tradeNo,
 			"checkout_url":        session.CheckoutURL,
 			"session_id":          session.SessionID,
 			"expires_at":          session.ExpiresAt,

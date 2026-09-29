@@ -1876,21 +1876,25 @@ func ExpireDueSubscriptionsContext(ctx context.Context, limit int) (int, error) 
 
 // SubscriptionPreConsumeRecord stores idempotent pre-consume operations per request.
 type SubscriptionPreConsumeRecord struct {
-	Id                 int    `json:"id"`
-	RequestId          string `json:"request_id" gorm:"type:varchar(64);uniqueIndex"`
-	UserId             int    `json:"user_id" gorm:"index"`
-	UserSubscriptionId int    `json:"user_subscription_id" gorm:"index"`
-	PreConsumed        int64  `json:"pre_consumed" gorm:"type:bigint;not null;default:0"`
-	BillingManaged     bool   `json:"billing_managed" gorm:"not null;default:false"`
-	TokenId            int    `json:"token_id" gorm:"not null;default:0"`
-	TokenConsumed      int64  `json:"token_consumed" gorm:"type:bigint;not null;default:0"`
-	WalletOverflow     bool   `json:"wallet_overflow" gorm:"not null;default:false"`
-	ActualQuota        int64  `json:"actual_quota" gorm:"type:bigint;not null;default:0"`
-	WalletConsumed     int64  `json:"wallet_consumed" gorm:"type:bigint;not null;default:0"`
-	ReservedVersion    int64  `json:"reserved_version" gorm:"type:bigint;not null;default:0"`
-	Status             string `json:"status" gorm:"type:varchar(32);index"` // consumed/settling/settled/refunded
-	CreatedAt          int64  `json:"created_at" gorm:"bigint"`
-	UpdatedAt          int64  `json:"updated_at" gorm:"bigint;index"`
+	Id                    int    `json:"id"`
+	RequestId             string `json:"request_id" gorm:"type:varchar(64);uniqueIndex"`
+	UserId                int    `json:"user_id" gorm:"index"`
+	UserSubscriptionId    int    `json:"user_subscription_id" gorm:"index"`
+	PreConsumed           int64  `json:"pre_consumed" gorm:"type:bigint;not null;default:0"`
+	BillingManaged        bool   `json:"billing_managed" gorm:"not null;default:false"`
+	TokenId               int    `json:"token_id" gorm:"not null;default:0"`
+	TokenConsumed         int64  `json:"token_consumed" gorm:"type:bigint;not null;default:0"`
+	WalletOverflow        bool   `json:"wallet_overflow" gorm:"not null;default:false"`
+	ActualQuota           int64  `json:"actual_quota" gorm:"type:bigint;not null;default:0"`
+	WalletConsumed        int64  `json:"wallet_consumed" gorm:"type:bigint;not null;default:0"`
+	ReservedVersion       int64  `json:"reserved_version" gorm:"type:bigint;not null;default:0"`
+	Status                string `json:"status" gorm:"type:varchar(32);index"` // consumed/settling/settled/refunded
+	RecoveryAttempts      int    `json:"recovery_attempts" gorm:"not null;default:0"`
+	RecoveryLastAttemptAt int64  `json:"recovery_last_attempt_at" gorm:"bigint;index"`
+	RecoveryLastError     string `json:"-" gorm:"type:text"`
+	RecoveryState         string `json:"recovery_state" gorm:"type:varchar(32);index"` // pending/recovering/manual
+	CreatedAt             int64  `json:"created_at" gorm:"bigint"`
+	UpdatedAt             int64  `json:"updated_at" gorm:"bigint;index"`
 }
 
 func (r *SubscriptionPreConsumeRecord) BeforeCreate(tx *gorm.DB) error {
