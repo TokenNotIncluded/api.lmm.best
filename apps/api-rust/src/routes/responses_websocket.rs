@@ -8,9 +8,10 @@
 //! settlement remain one fail-closed service boundary; this module owns frame
 //! ordering, bidirectional transport, error events and close semantics.
 //!
-//! No production service adapter is exported here. The route must remain
-//! unmounted until the shared relay core can supply complete advanced-security,
-//! subscription/tiered/tool/image billing, affinity and channel-policy hooks.
+//! No production service adapter is exported here. The listener mounts this
+//! route with the fail-closed unconfigured service until the shared relay core
+//! supplies complete advanced-security, subscription/tiered/tool/image billing,
+//! affinity and channel-policy hooks.
 
 use std::{net::IpAddr, sync::Arc, time::Duration};
 
@@ -134,6 +135,8 @@ pub struct ResponsesTurnAuthorization {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResponsesCreate {
     pub event_id: String,
+    /// Client correlation identity; never part of the HTTP request object.
+    pub stream_id: String,
     pub model: String,
     /// Request object after removing WebSocket-only transport fields.
     pub request: Value,
@@ -390,7 +393,7 @@ impl ResponsesWebSocketState {
     }
 }
 
-/// Builds the unmounted candidate GET half of `/v1/responses`.
+/// Builds the GET half of `/v1/responses`; production uses the fail-closed service.
 pub fn router(state: ResponsesWebSocketState) -> Router {
     Router::new()
         .route("/v1/responses", get(responses_websocket))
@@ -429,6 +432,7 @@ struct ActiveSession {
     upstream: Option<Arc<ResponsesUpstream>>,
     incoming: Option<mpsc::Receiver<Result<ResponsesFrame, ResponsesUpstreamFailure>>>,
     current: Option<ResponsesTurn>,
+    current_stream_id: String,
 }
 
 impl ActiveSession {
@@ -440,6 +444,7 @@ impl ActiveSession {
             upstream: None,
             incoming: None,
             current: None,
+            current_stream_id: String::new(),
         }
     }
 }
@@ -533,10 +538,20 @@ async fn handle_client_data(
     frame: ResponsesFrame,
 ) -> bool {
     let payload = frame.payload();
-    let (event_type, event_id) = match event_metadata(payload) {
+    // Recover valid envelope identities even if another metadata field is malformed.
+    let envelope: Value = serde_json::from_slice(payload).unwrap_or_default();
+    let event_id = envelope
+        .get("event_id")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let stream_id = envelope
+        .get("stream_id")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let (event_type, _) = match event_metadata(payload) {
         Ok(metadata) => metadata,
         Err(failure) => {
-            send_error(client, "", &failure).await;
+            send_error(client, event_id, stream_id, &failure).await;
             return true;
         }
     };
@@ -545,7 +560,7 @@ async fn handle_client_data(
             let create = match normalize_create(payload) {
                 Ok(create) => create,
                 Err(failure) => {
-                    send_error(client, &event_id, &failure).await;
+                    send_error(client, event_id, stream_id, &failure).await;
                     return true;
                 }
             };
@@ -553,6 +568,7 @@ async fn handle_client_data(
                 send_error(
                     client,
                     &create.event_id,
+                    &create.stream_id,
                     &ResponsesWebSocketFailure::invalid_request("model is required"),
                 )
                 .await;
@@ -570,7 +586,7 @@ async fn handle_client_data(
             {
                 Ok(refreshed) => refreshed,
                 Err(failure) => {
-                    send_error(client, &create.event_id, &failure).await;
+                    send_error(client, &create.event_id, &create.stream_id, &failure).await;
                     return true;
                 }
             };
@@ -584,6 +600,7 @@ async fn handle_client_data(
                 send_error(
                         client,
                         &create.event_id,
+                        &create.stream_id,
                         &ResponsesWebSocketFailure::invalid_request(format!(
                             "responses websocket connection is locked to model {locked_model:?}; got {:?}",
                             create.model
@@ -596,6 +613,7 @@ async fn handle_client_data(
                 send_error(
                     client,
                     &create.event_id,
+                    &create.stream_id,
                     &ResponsesWebSocketFailure::new(
                         StatusCode::CONFLICT,
                         "invalid_request",
@@ -609,6 +627,7 @@ async fn handle_client_data(
                 send_error(
                     client,
                     &create.event_id,
+                    &create.stream_id,
                     &ResponsesWebSocketFailure::bad_response(
                         "locked responses websocket upstream is unavailable",
                     ),
@@ -629,7 +648,7 @@ async fn handle_client_data(
             {
                 Ok(started) => started,
                 Err(failure) => {
-                    send_error(client, &create.event_id, &failure).await;
+                    send_error(client, &create.event_id, &create.stream_id, &failure).await;
                     return true;
                 }
             };
@@ -646,6 +665,7 @@ async fn handle_client_data(
                 send_error(
                     client,
                     &create.event_id,
+                    &create.stream_id,
                     &ResponsesWebSocketFailure::new(
                         StatusCode::FORBIDDEN,
                         "get_channel_failed",
@@ -667,6 +687,7 @@ async fn handle_client_data(
                     send_error(
                         client,
                         &create.event_id,
+                        &create.stream_id,
                         &ResponsesWebSocketFailure::new(
                             StatusCode::FORBIDDEN,
                             "get_channel_failed",
@@ -689,6 +710,7 @@ async fn handle_client_data(
                     send_error(
                         client,
                         &create.event_id,
+                        &create.stream_id,
                         &ResponsesWebSocketFailure::bad_response(
                             "responses websocket upstream is unavailable",
                         ),
@@ -701,6 +723,7 @@ async fn handle_client_data(
             }
             session.locked_model.get_or_insert(create.model);
             session.locked_channel.get_or_insert(started.channel);
+            session.current_stream_id = create.stream_id;
             session.current = Some(started.turn);
             true
         }
@@ -708,19 +731,33 @@ async fn handle_client_data(
             if session.current.is_none() || session.upstream.is_none() {
                 send_error(
                     client,
-                    &event_id,
+                    event_id,
+                    stream_id,
                     &ResponsesWebSocketFailure::invalid_request("no response is active to cancel"),
                 )
                 .await;
                 return true;
             }
-            forward_control(client, state, session, frame).await
+            if !stream_id.is_empty() && stream_id != session.current_stream_id {
+                send_error(
+                    client,
+                    event_id,
+                    stream_id,
+                    &ResponsesWebSocketFailure::invalid_request(
+                        "stream_id does not match the active response",
+                    ),
+                )
+                .await;
+                return true;
+            }
+            forward_control(client, state, session, frame, event_id, stream_id).await
         }
         _ => {
             if session.upstream.is_none() {
                 send_error(
                     client,
-                    &event_id,
+                    event_id,
+                    stream_id,
                     &ResponsesWebSocketFailure::invalid_request(
                         "first responses websocket event must be response.create",
                     ),
@@ -728,7 +765,7 @@ async fn handle_client_data(
                 .await;
                 return true;
             }
-            forward_control(client, state, session, frame).await
+            forward_control(client, state, session, frame, event_id, stream_id).await
         }
     }
 }
@@ -738,6 +775,8 @@ async fn forward_control(
     state: &ResponsesWebSocketState,
     session: &mut ActiveSession,
     frame: ResponsesFrame,
+    event_id: &str,
+    stream_id: &str,
 ) -> bool {
     let Some(upstream) = session.upstream.as_ref() else {
         return true;
@@ -749,7 +788,8 @@ async fn forward_control(
     close_upstream(session).await;
     send_error(
         client,
-        "",
+        event_id,
+        stream_id,
         &ResponsesWebSocketFailure::bad_response("responses websocket upstream write failed"),
     )
     .await;
@@ -762,6 +802,7 @@ async fn handle_upstream_frame(
     session: &mut ActiveSession,
     frame: ResponsesFrame,
 ) -> bool {
+    let stream_id = session.current_stream_id.clone();
     if let Some(turn) = session.current.as_ref() {
         match state.service.observe_upstream(turn, &frame).await {
             Ok(ResponsesTurnObservation::Continue) => {}
@@ -773,6 +814,7 @@ async fn handle_upstream_frame(
                     send_error(
                         client,
                         "",
+                        &stream_id,
                         &ResponsesWebSocketFailure::bad_response(
                             "responses websocket turn state is unavailable",
                         ),
@@ -793,19 +835,23 @@ async fn handle_upstream_frame(
                     .await
                 {
                     session.current = Some(turn);
-                    send_error(client, "", &failure).await;
+                    send_error(client, "", &stream_id, &failure).await;
                     close_upstream(session).await;
                     return false;
                 }
             }
             Err(failure) => {
                 finish_current(state, session, ResponsesTurnFinish::UpstreamClosed).await;
-                send_error(client, "", &failure).await;
+                send_error(client, "", &stream_id, &failure).await;
                 close_upstream(session).await;
                 return false;
             }
         }
     }
+    if session.current.is_none() {
+        session.current_stream_id.clear();
+    }
+    let frame = correlate_upstream_frame(frame, &stream_id);
     if let Some(message) = frame.into_axum()
         && client.send(message).await.is_err()
     {
@@ -829,6 +875,9 @@ async fn finish_current(
             .is_err()
     {
         session.current = Some(turn);
+    }
+    if session.current.is_none() {
+        session.current_stream_id.clear();
     }
 }
 
@@ -865,6 +914,7 @@ fn event_metadata(payload: &[u8]) -> Result<(String, String), ResponsesWebSocket
     let object = value.as_object().ok_or_else(|| {
         ResponsesWebSocketFailure::invalid_request("invalid websocket event json: expected object")
     })?;
+    optional_string_field(object, "stream_id")?;
     let event_id = optional_string_field(object, "event_id")?.unwrap_or_default();
     let event_type = optional_string_field(object, "type")?.unwrap_or_default();
     if event_type.trim().is_empty() {
@@ -900,6 +950,7 @@ fn normalize_create(payload: &[u8]) -> Result<ResponsesCreate, ResponsesWebSocke
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_owned();
+    let stream_id = optional_string_field(root, "stream_id")?.unwrap_or_default();
     let top_generate = root.get("generate").cloned();
     let mut request = match root.get("response") {
         Some(Value::Object(response)) => response.clone(),
@@ -914,6 +965,7 @@ fn normalize_create(payload: &[u8]) -> Result<ResponsesCreate, ResponsesWebSocke
     let generate = top_generate.or_else(|| request.get("generate").cloned());
     request.remove("type");
     request.remove("event_id");
+    request.remove("stream_id");
     request.remove("background");
     request.remove("generate");
     request.remove("stream");
@@ -932,15 +984,49 @@ fn normalize_create(payload: &[u8]) -> Result<ResponsesCreate, ResponsesWebSocke
         "type".to_owned(),
         Value::String("response.create".to_owned()),
     );
+    if !stream_id.is_empty() {
+        outbound.insert("stream_id".to_owned(), Value::String(stream_id.clone()));
+    }
     if let Some(generate) = generate {
         outbound.insert("generate".to_owned(), generate);
     }
     Ok(ResponsesCreate {
         event_id,
+        stream_id,
         model,
         request: Value::Object(request),
         outbound_event: Value::Object(outbound),
     })
+}
+
+fn correlate_upstream_frame(frame: ResponsesFrame, stream_id: &str) -> ResponsesFrame {
+    if stream_id.is_empty() || !matches!(frame, ResponsesFrame::Text(_) | ResponsesFrame::Binary(_))
+    {
+        return frame;
+    }
+    let Ok(mut value) = serde_json::from_slice::<Value>(frame.payload()) else {
+        return frame;
+    };
+    let Some(object) = value.as_object_mut() else {
+        return frame;
+    };
+    if !object
+        .get("type")
+        .and_then(Value::as_str)
+        .is_some_and(|kind| kind == "error" || kind.starts_with("response."))
+    {
+        return frame;
+    }
+    // An explicit provider identity can refer to an earlier turn or control.
+    // Never relabel that evidence as the currently active response.
+    object
+        .entry("stream_id")
+        .or_insert_with(|| Value::String(stream_id.to_owned()));
+    match frame {
+        ResponsesFrame::Text(_) => ResponsesFrame::Text(value.to_string()),
+        ResponsesFrame::Binary(_) => ResponsesFrame::Binary(value.to_string().into_bytes()),
+        _ => unreachable!(),
+    }
 }
 
 #[derive(Serialize)]
@@ -950,6 +1036,8 @@ struct ErrorEvent<'error> {
     status: u16,
     #[serde(skip_serializing_if = "str::is_empty")]
     event_id: &'error str,
+    #[serde(skip_serializing_if = "str::is_empty")]
+    stream_id: &'error str,
     error: OpenAiError<'error>,
 }
 
@@ -962,11 +1050,17 @@ struct OpenAiError<'error> {
     code: &'error str,
 }
 
-async fn send_error(client: &mut WebSocket, event_id: &str, failure: &ResponsesWebSocketFailure) {
+async fn send_error(
+    client: &mut WebSocket,
+    event_id: &str,
+    stream_id: &str,
+    failure: &ResponsesWebSocketFailure,
+) {
     let event = ErrorEvent {
         event_type: "error",
         status: failure.status.as_u16(),
         event_id,
+        stream_id,
         error: OpenAiError {
             message: &failure.message,
             kind: &failure.kind,
