@@ -656,7 +656,10 @@ type Stat struct {
 	Tpm   int `json:"tpm"`
 }
 
-func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string) (stat Stat, err error) {
+// SumUsedQuota returns quota and current rate statistics. Optional request IDs
+// constrain both aggregates and preserve the legacy call shape for callers
+// that do not need request filtering.
+func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string, requestIDs ...string) (stat Stat, err error) {
 	tx := LOG_DB.Table("logs").Select("COALESCE(sum(quota), 0) quota")
 
 	// 为rpm和tpm创建单独的查询
@@ -691,6 +694,14 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 	if group != "" {
 		tx = tx.Where(logGroupCol+" = ?", group)
 		rpmTpmQuery = rpmTpmQuery.Where(logGroupCol+" = ?", group)
+	}
+	if len(requestIDs) > 0 && requestIDs[0] != "" {
+		tx = tx.Where("request_id = ?", requestIDs[0])
+		rpmTpmQuery = rpmTpmQuery.Where("request_id = ?", requestIDs[0])
+	}
+	if len(requestIDs) > 1 && requestIDs[1] != "" {
+		tx = tx.Where("upstream_request_id = ?", requestIDs[1])
+		rpmTpmQuery = rpmTpmQuery.Where("upstream_request_id = ?", requestIDs[1])
 	}
 
 	tx = tx.Where("type = ?", LogTypeConsume)

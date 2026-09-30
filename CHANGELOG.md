@@ -13,6 +13,9 @@ authenticated users then see it once after their next login.
 
 <!-- Add user-facing or operational changes here before the next release. -->
 
+- Usage-log statistics now honor `request_id` and `upstream_request_id` filters,
+  keeping aggregate totals aligned with the filtered log list.
+
 - Gemini tool conversion preserves full JSON Schema constraints through
   `parametersJsonSchema` when the legacy subset would discard them, including
   tuple items, constrained empty objects and deep schemas. Compatible schemas
