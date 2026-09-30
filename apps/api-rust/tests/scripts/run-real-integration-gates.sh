@@ -13,7 +13,7 @@ cd "$repo_root/apps/api-rust"
 suite=${1:-all}
 
 usage() {
-  echo "usage: $0 {auth|models|api-token|subscription-reset|migration|announcements|epay|stripe|catalog|token-queries|shared-trust|token-cache|relay-settlement|scripts|system-config|relay-timeouts|channel-balance|all}" >&2
+  echo "usage: $0 {auth|models|api-token|subscription-reset|migration|announcements|epay|stripe|catalog|token-queries|acquisition|shared-trust|token-cache|relay-settlement|scripts|system-config|relay-timeouts|channel-balance|all}" >&2
   exit 2
 }
 
@@ -190,6 +190,12 @@ run_token_queries() (
   python3 "$script_dir/verify-current-go-export.py" token-pricing "$LMM_TOKEN_PRICING_GO_ORACLE_OUTPUT"
   run_counted_api_integration_tests token_queries 6
 )
+
+run_acquisition() {
+  require_loopback_url LMM_TEST_DATABASE_URL
+  require_api_ignored_test_count acquisition 4
+  run_counted_api_integration_tests acquisition 4
+}
 
 run_shared_trust() {
   require_loopback_url LMM_TEST_DATABASE_URL
@@ -370,6 +376,7 @@ case "$suite" in
   stripe) run_stripe ;;
   catalog) run_catalog ;;
   token-queries) run_token_queries ;;
+  acquisition) run_acquisition ;;
   shared-trust) run_shared_trust ;;
   token-cache) run_token_cache ;;
   relay-settlement) run_relay_settlement ;;
@@ -377,6 +384,6 @@ case "$suite" in
   system-config) run_system_config ;;
   relay-timeouts) run_relay_timeouts ;;
   channel-balance) run_channel_balance ;;
-  all) run_auth; run_models; run_api_token; run_subscription_reset; run_system_config; run_migration; run_announcements; run_epay; run_stripe; run_catalog; run_token_queries; run_shared_trust; run_token_cache; run_relay_settlement; run_scripts; run_relay_timeouts; run_channel_balance ;;
+  all) run_auth; run_models; run_api_token; run_subscription_reset; run_system_config; run_migration; run_announcements; run_epay; run_stripe; run_catalog; run_token_queries; run_acquisition; run_shared_trust; run_token_cache; run_relay_settlement; run_scripts; run_relay_timeouts; run_channel_balance ;;
   *) usage ;;
 esac

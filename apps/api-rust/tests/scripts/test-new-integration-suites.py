@@ -10,7 +10,7 @@ import unittest
 
 SCRIPTS = Path(__file__).resolve().parent
 RUNNER = SCRIPTS / "run-real-integration-gates.sh"
-SUITES = {"epay":"epay_runtime_postgres", "stripe":"epay_runtime_postgres", "catalog":"ai_directory", "token-queries":"token_queries", "relay-settlement":"relay_openai_settlement_pg", "scripts":"scripts", "shared-trust":"lib", "token-cache":"lib"}
+SUITES = {"epay":"epay_runtime_postgres", "stripe":"epay_runtime_postgres", "catalog":"ai_directory", "token-queries":"token_queries", "acquisition":"acquisition", "relay-settlement":"relay_openai_settlement_pg", "scripts":"scripts", "shared-trust":"lib", "token-cache":"lib"}
 ORACLES = ("LMM_EPAY_GO_ORACLE_OUTPUT", "LMM_STRIPE_GO_ORACLE_OUTPUT", "LMM_STRIPE_SUBSCRIPTION_GO_ORACLE_OUTPUT", "LMM_STRIPE_SUBSCRIPTION_CHECKOUT_GO_ORACLE_OUTPUT", "LMM_AI_DIRECTORY_GO_ORACLE_OUTPUT", "LMM_TOKEN_PRICING_GO_ORACLE_OUTPUT", "LMM_RELAY_FUNDING_GO_VECTORS", "LMM_RELAY_PRICE_GO_VECTORS")
 
 FAKE_CARGO = r'''#!/usr/bin/env python3
@@ -197,7 +197,7 @@ class NewIntegrationSuiteGuards(unittest.TestCase):
     def test_remote_dependencies_and_aliases_are_rejected_before_any_tool(self):
         common = (("LMM_TEST_DATABASE_URL","postgresql://fixture:fixture@example.com:5432/production"),("LMM_AUTH_TEST_VALKEY_URL","redis://:fixture@example.com:6379/0"))
         for suite in SUITES:
-            variables = list(common if suite != "shared-trust" else common[:1])
+            variables = list(common[:1] if suite in ("shared-trust", "acquisition") else common)
             if suite in ("epay","stripe"):
                 variables += [("LMM_EPAY_TEST_DATABASE_URL",common[0][1]),("LMM_EPAY_TEST_VALKEY_URL",common[1][1])]
             if suite == "relay-settlement": variables += [("LMM_API_TOKEN_TEST_VALKEY_URL",common[1][1])]
