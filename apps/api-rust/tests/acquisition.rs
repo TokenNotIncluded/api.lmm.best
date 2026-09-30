@@ -305,6 +305,74 @@ async fn postgres_consent_visit_report_and_withdrawal_round_trip() {
         Value::Null
     );
 
+    // Populate every account-scoped table in the revoke contract for the withdrawing user
+    // and another user. Empty tables would hide missing or overbroad deletes.
+    sqlx::raw_sql(
+        "INSERT INTO users VALUES(8,1700000000,NULL);\
+        INSERT INTO acquisition_activities(user_id,day,first_at,last_at)\
+            VALUES(7,1700000000,1700000000,1700000010),\
+                  (7,1700086400,1700086400,1700086410),\
+                  (8,1700000000,1700000000,1700000020);\
+        INSERT INTO acquisition_corrections(user_id,previous_revision,source,reason)\
+            VALUES(7,0,'community','fixture seven'),\
+                  (7,1,'documentation','fixture seven revision two'),\
+                  (8,0,'documentation','fixture eight');\
+        INSERT INTO acquisition_correction_heads(user_id,revision,source,updated_at)\
+            VALUES(7,2,'documentation',1700086400),\
+                  (8,1,'documentation',1700000000);\
+        INSERT INTO acquisition_first_payments(user_id,first_paid_at,source)\
+            VALUES(7,1700000000,'community'),\
+                  (8,1700000000,'documentation');",
+    )
+    .execute(&fixture.pg)
+    .await
+    .unwrap();
+    fixture.store.grant(8).await.unwrap();
+    let other_visitor = "e".repeat(64);
+    fixture
+        .store
+        .observe(&other_visitor, 8, &visit_input, &["api.lmm.best"])
+        .await
+        .unwrap();
+    let snapshot_query = "SELECT jsonb_build_object(\
+        'visitor',(SELECT to_jsonb(v) FROM acquisition_visitors v WHERE id=$1),\
+        'visits',(SELECT jsonb_agg(v ORDER BY id) FROM acquisition_visits v WHERE visitor_id=$1))";
+    let other_visits: Value = sqlx::query_scalar(snapshot_query)
+        .bind(&other_visitor)
+        .fetch_one(&fixture.pg)
+        .await
+        .unwrap();
+    let mut unaffected = Vec::new();
+    for table in [
+        "acquisition_activities",
+        "acquisition_corrections",
+        "acquisition_correction_heads",
+        "acquisition_first_payments",
+        "acquisition_accounts",
+    ] {
+        let count: i64 =
+            sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {table} WHERE user_id=7"))
+                .fetch_one(&fixture.pg)
+                .await
+                .unwrap();
+        let expected = if matches!(table, "acquisition_activities" | "acquisition_corrections") {
+            2
+        } else {
+            1
+        };
+        assert_eq!(
+            count, expected,
+            "{table} must be populated before withdrawal"
+        );
+        let other: Value = sqlx::query_scalar(&format!(
+            "SELECT to_jsonb({table}) FROM {table} WHERE user_id=8"
+        ))
+        .fetch_one(&fixture.pg)
+        .await
+        .unwrap();
+        unaffected.push((table, other));
+    }
+
     fixture.store.withdraw(Some(&visitor), 7).await.unwrap();
     let allowed: bool =
         sqlx::query_scalar("SELECT allowed FROM acquisition_consents WHERE user_id=7")
@@ -312,17 +380,53 @@ async fn postgres_consent_visit_report_and_withdrawal_round_trip() {
             .await
             .unwrap();
     assert!(!allowed);
-    for table in [
-        "acquisition_visitors",
-        "acquisition_visits",
-        "acquisition_accounts",
-    ] {
-        let count: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {table}"))
+    for replay in [false, true] {
+        if replay {
+            fixture.store.withdraw(Some(&visitor), 7).await.unwrap();
+        }
+        for (table, column) in [
+            ("acquisition_visitors", "id"),
+            ("acquisition_visits", "visitor_id"),
+        ] {
+            let count: i64 =
+                sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {table} WHERE {column}=$1"))
+                    .bind(&visitor)
+                    .fetch_one(&fixture.pg)
+                    .await
+                    .unwrap();
+            assert_eq!(count, 0, "{table} after withdrawal (replay={replay})");
+        }
+        let after: Value = sqlx::query_scalar(snapshot_query)
+            .bind(&other_visitor)
             .fetch_one(&fixture.pg)
             .await
             .unwrap();
-        assert_eq!(count, 0, "{table}");
+        assert_eq!(after, other_visits, "unrelated visitor (replay={replay})");
+        for (table, before) in &unaffected {
+            let count: i64 =
+                sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {table} WHERE user_id=7"))
+                    .fetch_one(&fixture.pg)
+                    .await
+                    .unwrap();
+            assert_eq!(count, 0, "{table} after withdrawal (replay={replay})");
+            let after: Value = sqlx::query_scalar(&format!(
+                "SELECT to_jsonb({table}) FROM {table} WHERE user_id=8"
+            ))
+            .fetch_one(&fixture.pg)
+            .await
+            .unwrap();
+            assert_eq!(
+                &after, before,
+                "unrelated user in {table} (replay={replay})"
+            );
+        }
     }
+    let consents: Vec<(i64, bool, i64)> =
+        sqlx::query_as("SELECT user_id,allowed,version FROM acquisition_consents ORDER BY user_id")
+            .fetch_all(&fixture.pg)
+            .await
+            .unwrap();
+    assert_eq!(consents, vec![(7, false, 2), (8, true, 2)]);
     fixture.cleanup().await;
 }
 
