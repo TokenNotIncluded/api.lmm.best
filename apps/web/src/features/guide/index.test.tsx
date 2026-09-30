@@ -255,11 +255,31 @@ describe('Guide when the AI assistant is disabled', () => {
       /Create a key and import|Create an API key/
     )
 
+    await click(findButton(container, 'Codewhale (OAuth)'))
+    assert.ok(container.querySelector('#codewhale-oauth'))
+    assert.match(
+      container.textContent ?? '',
+      /git clone https:\/\/github\.com\/TokenNotIncluded\/codewhale-lmm-provider\.git/
+    )
+    assert.match(container.textContent ?? '', /codewhale-lmm login/)
+    assert.match(container.textContent ?? '', /codewhale-lmm models/)
+    assert.match(
+      container.textContent ?? '',
+      /codewhale-lmm run --model '<FULL_MODEL_ID>'/
+    )
+    assert.doesNotMatch(
+      container.textContent ?? '',
+      /Create a key and import|Create an API key/
+    )
+
     await click(findButton(container, 'Cherry Studio'))
     await click(findButton(container, 'Continue to account setup'))
 
     assert.equal(router.state.location.pathname, '/sign-in')
-    assert.deepEqual(router.state.location.search, { redirect: '/guide' })
+    assert.deepEqual(
+      { ...router.state.location.search },
+      { redirect: '/guide' }
+    )
     assert.equal(consumeQueuedAssistantRequest(), undefined)
   })
 

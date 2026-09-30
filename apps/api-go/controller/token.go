@@ -324,6 +324,10 @@ func AddToken(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgTokenNameTooLong)
 		return
 	}
+	if strings.TrimSpace(token.Group) == "" {
+		common.ApiErrorI18n(c, i18n.MsgTokenGroupRequired)
+		return
+	}
 	// 非无限额度时，检查额度值是否超出有效范围
 	if !token.UnlimitedQuota {
 		if token.RemainQuota < 0 {
@@ -354,7 +358,7 @@ func AddToken(c *gin.Context) {
 		if !setTokenAutoGroups(c, &token, request.AutoGroups.Groups) {
 			return
 		}
-	} else if strings.TrimSpace(token.Group) != "" {
+	} else {
 		userGroup, groupErr := getTokenRequestUserGroup(c)
 		if groupErr != nil {
 			common.ApiError(c, groupErr)
@@ -367,11 +371,6 @@ func AddToken(c *gin.Context) {
 		if !requireGroupWarningConfirmation(c, token.Group, request.GroupWarningConfirmations) {
 			return
 		}
-		token.CrossGroupRetry = false
-		_ = token.SetAutoGroups(nil)
-	} else {
-		// An empty group keeps the existing API-key behavior: inherit the
-		// account's group at request time. It is not an explicit group choice.
 		token.CrossGroupRetry = false
 		_ = token.SetAutoGroups(nil)
 	}

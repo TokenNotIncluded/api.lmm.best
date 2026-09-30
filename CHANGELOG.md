@@ -17,6 +17,11 @@ authenticated users then see it once after their next login.
   amounts are masked, rather than plotting live RPM as historical traffic.
   The live RPM and TPM badges remain available.
 
+- Gemini tool conversion preserves full JSON Schema constraints through
+  `parametersJsonSchema` when the legacy subset would discard them, including
+  tuple items, constrained empty objects and deep schemas. Compatible schemas
+  retain the existing normalized `parameters` representation.
+
 - The homepage now follows the selected interface language, including saved
   Chinese preferences and runtime language changes, instead of forcing English.
 - Pricing cards and table rows show complete model names with wrapping instead
@@ -26,6 +31,11 @@ authenticated users then see it once after their next login.
   item when content resumes after a closed segment, preserving each segment's
   ID, position, text, and closing status in the final response. Aggregate usage
   text and upstream usage accounting remain unchanged.
+
+- Chat-to-Responses streams report interrupted upstream responses as failures
+  instead of fabricated completions, preserving partial output and existing
+  usage accounting. Clean EOF after a recognized finish reason remains valid;
+  cancellation and downstream write failures do not append terminal events.
 
 - The bounty board now shows a recoverable query error instead of an empty
   project list when loading fails. Retry refreshes only the list, while cached

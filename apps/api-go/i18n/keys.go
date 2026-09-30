@@ -43,6 +43,7 @@ const (
 // Token related messages
 const (
 	MsgTokenNameTooLong          = "token.name_too_long"
+	MsgTokenGroupRequired        = "token.group_required"
 	MsgTokenQuotaNegative        = "token.quota_negative"
 	MsgTokenQuotaExceedMax       = "token.quota_exceed_max"
 	MsgTokenGenerateFailed       = "token.generate_failed"

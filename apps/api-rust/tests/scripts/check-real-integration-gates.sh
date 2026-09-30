@@ -20,6 +20,7 @@ declare -A requirements=(
   [scripts.rs]='repository_options_commit_refresh_runtime_invalidate_cache_and_redact_audit|LMM_TEST_DATABASE_URL|LMM_AUTH_TEST_VALKEY_URL'
   [ai_directory.rs]='postgres_cache_and_audit_failures_do_not_reverse_committed_wallet_changes,postgres_create_replay_quote_changes_and_concurrency_charge_once,postgres_hide_refunds_once_and_wallet_failure_rolls_back_visibility,postgres_public_private_pagination_expiry_and_http_contract|LMM_TEST_DATABASE_URL|LMM_AUTH_TEST_VALKEY_URL'
   [token_queries.rs]='configured_token_prices_match_current_go_reference_live_maps_and_limits,persisted_usage_is_exact_token_scoped_utc_and_never_changes_credentials,quota_query_auth_checks_exact_key_expiry_owner_oauth_and_ip_without_status_writes,quota_query_limiter_is_shared_per_owner_across_keys_and_instances,token_pricing_checks_permissions_before_query_validation_and_never_mutates_key,token_pricing_uses_shared_credited_trust_facts_and_excludes_internal_credits|LMM_TEST_DATABASE_URL|LMM_AUTH_TEST_VALKEY_URL'
+  [acquisition.rs]='postgres_consent_visit_report_and_withdrawal_round_trip,postgres_link_policy_and_lookback_contracts_are_durable,postgres_registration_cannot_override_explicit_consent_denial,postgres_registration_keeps_first_touch_and_selects_last_external_visit,postgres_registration_respects_visit_time_boundaries|LMM_TEST_DATABASE_URL|'
 )
 
 total_ignored=0
@@ -142,7 +143,7 @@ if rg -U -n 'else\s*\{\s*return;\s*\}' \
   exit 1
 fi
 
-for suite in auth models api-token system-config migration announcements epay stripe catalog token-queries shared-trust token-cache relay-settlement scripts channel-balance; do
+for suite in auth models api-token system-config migration announcements epay stripe catalog token-queries acquisition shared-trust token-cache relay-settlement scripts channel-balance; do
   if env -u LMM_TEST_DATABASE_URL -u LMM_AUTH_TEST_ALLOW_SCHEMA_RESET -u LMM_AUTH_TEST_DATABASE_URL -u LMM_AUTH_TEST_VALKEY_URL \
     -u LMM_MODELS_TEST_DATABASE_URL -u LMM_MODELS_TEST_VALKEY_URL \
     -u LMM_API_TOKEN_TEST_DATABASE_URL -u LMM_API_TOKEN_TEST_VALKEY_URL \
@@ -185,7 +186,7 @@ rg -Fq 'required integration test is missing:' "$empty_test_bin/announcements-ou
 
 # These suites must reject an empty COMPILED inventory before running Go,
 # opening the database, or treating libtest's zero-test success as a pass.
-for suite in epay stripe catalog token-queries relay-settlement scripts; do
+for suite in epay stripe catalog token-queries acquisition relay-settlement scripts; do
   if PATH="$empty_test_bin:$PATH" \
     LMM_TEST_DATABASE_URL='postgresql://127.0.0.1:5432/isolated' \
     LMM_AUTH_TEST_VALKEY_URL='redis://:fixture@127.0.0.1:6379/0' \

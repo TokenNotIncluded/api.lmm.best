@@ -84,18 +84,15 @@ func OpenAIResponsesRequestToGeminiChat(c context.Context, req *dto.OpenAIRespon
 	if err != nil {
 		return nil, err
 	}
-	for i := range functions {
-		if params, ok := functions[i].Parameters.(map[string]interface{}); ok {
-			if props, hasProps := params["properties"].(map[string]interface{}); hasProps && len(props) == 0 {
-				functions[i].Parameters = nil
-				continue
-			}
-		}
-		functions[i].Parameters = sharedgemini.CleanFunctionParameters(functions[i].Parameters)
+	declarations := make([]dto.GeminiFunctionDeclaration, 0, len(functions))
+	for _, function := range functions {
+		cleaned, full := sharedgemini.PreserveFunctionParameters(function.Parameters)
+		function.Parameters = cleaned
+		declarations = append(declarations, dto.GeminiFunctionDeclaration{FunctionRequest: function, ParametersJsonSchema: full})
 	}
 	if len(functions) > 0 {
 		geminiRequest.SetTools([]dto.GeminiChatTool{
-			{FunctionDeclarations: functions},
+			{FunctionDeclarations: declarations},
 		})
 	}
 

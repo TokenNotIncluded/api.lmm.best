@@ -47,6 +47,7 @@ import { Route as StatusIndexRouteImport } from './routes/status/index'
 import { Route as WebmcpIndexRouteImport } from './routes/webmcp/index'
 import { Route as authUserResetRouteImport } from './routes/(auth)/user/reset'
 import { Route as AuthenticatedAiDirectoryIndexRouteImport } from './routes/_authenticated/ai-directory/index'
+import { Route as AuthenticatedRssIndexRouteImport } from './routes/_authenticated/rss/index'
 import { Route as AuthenticatedChannelsIndexRouteImport } from './routes/_authenticated/channels/index'
 import { Route as AuthenticatedChatManagementIndexRouteImport } from './routes/_authenticated/chat-management/index'
 import { Route as AuthenticatedChatChatIdRouteImport } from './routes/_authenticated/chat/$chatId'
@@ -290,6 +291,11 @@ const AuthenticatedAiDirectoryIndexRoute =
     path: '/ai-directory/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedRssIndexRoute = AuthenticatedRssIndexRouteImport.update({
+  id: '/rss/',
+  path: '/rss/',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedChannelsIndexRoute =
   AuthenticatedChannelsIndexRouteImport.update({
     id: '/channels/',
@@ -642,6 +648,7 @@ export interface FileRoutesByFullPath {
   '/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/ai-directory/': typeof AuthenticatedAiDirectoryIndexRoute
+  '/rss/': typeof AuthenticatedRssIndexRoute
   '/channels/': typeof AuthenticatedChannelsIndexRoute
   '/chat-management/': typeof AuthenticatedChatManagementIndexRoute
   '/company/': typeof AuthenticatedCompanyIndexRoute
@@ -731,6 +738,7 @@ export interface FileRoutesByTo {
   '/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/ai-directory': typeof AuthenticatedAiDirectoryIndexRoute
+  '/rss': typeof AuthenticatedRssIndexRoute
   '/channels': typeof AuthenticatedChannelsIndexRoute
   '/chat-management': typeof AuthenticatedChatManagementIndexRoute
   '/company': typeof AuthenticatedCompanyIndexRoute
@@ -824,6 +832,7 @@ export interface FileRoutesById {
   '/_authenticated/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
   '/_authenticated/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/_authenticated/ai-directory/': typeof AuthenticatedAiDirectoryIndexRoute
+  '/_authenticated/rss/': typeof AuthenticatedRssIndexRoute
   '/_authenticated/channels/': typeof AuthenticatedChannelsIndexRoute
   '/_authenticated/chat-management/': typeof AuthenticatedChatManagementIndexRoute
   '/_authenticated/company/': typeof AuthenticatedCompanyIndexRoute
@@ -1442,6 +1451,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAiDirectoryIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/rss/': {
+      id: '/_authenticated/rss/'
+      path: '/rss'
+      fullPath: '/rss/'
+      preLoaderRoute: typeof AuthenticatedRssIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/channels/': {
       id: '/_authenticated/channels/'
       path: '/channels'
@@ -1906,6 +1922,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedSubscriptionsResetRoute: typeof AuthenticatedSubscriptionsResetRoute
   AuthenticatedUsageLogsSectionRoute: typeof AuthenticatedUsageLogsSectionRoute
   AuthenticatedAiDirectoryIndexRoute: typeof AuthenticatedAiDirectoryIndexRoute
+  AuthenticatedRssIndexRoute: typeof AuthenticatedRssIndexRoute
   AuthenticatedChannelsIndexRoute: typeof AuthenticatedChannelsIndexRoute
   AuthenticatedChatManagementIndexRoute: typeof AuthenticatedChatManagementIndexRoute
   AuthenticatedCompanyIndexRoute: typeof AuthenticatedCompanyIndexRoute
@@ -1948,6 +1965,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedSubscriptionsResetRoute: AuthenticatedSubscriptionsResetRoute,
   AuthenticatedUsageLogsSectionRoute: AuthenticatedUsageLogsSectionRoute,
   AuthenticatedAiDirectoryIndexRoute: AuthenticatedAiDirectoryIndexRoute,
+  AuthenticatedRssIndexRoute: AuthenticatedRssIndexRoute,
   AuthenticatedChannelsIndexRoute: AuthenticatedChannelsIndexRoute,
   AuthenticatedChatManagementIndexRoute: AuthenticatedChatManagementIndexRoute,
   AuthenticatedCompanyIndexRoute: AuthenticatedCompanyIndexRoute,

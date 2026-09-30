@@ -259,6 +259,28 @@ describe('AssistantSetupTool', () => {
       /dsh\.cmd plugin --profile web add "\$\(npm\.cmd view @tokennotincluded\/dsh-lmm-provider@latest dist\.tarball --prefer-online\)"/
     )
 
+    await act(async () => {
+      findButton('Codewhale (OAuth)').click()
+      await flushEffects()
+    })
+    assert.ok(container.querySelector('#codewhale-oauth'))
+    assert.match(
+      container.textContent ?? '',
+      /git clone https:\/\/github\.com\/TokenNotIncluded\/codewhale-lmm-provider\.git/
+    )
+    assert.match(container.textContent ?? '', /codewhale-lmm login/)
+    assert.match(container.textContent ?? '', /codewhale-lmm models/)
+    assert.match(
+      container.textContent ?? '',
+      /codewhale-lmm run --model '<FULL_MODEL_ID>'/
+    )
+    assert.match(
+      container.textContent ?? '',
+      /install Codewhale from the official GitHub Releases page/
+    )
+    assert.throws(() => findButton('Create API key'))
+    assert.equal(container.querySelector('select[aria-label="Model ID"]'), null)
+
     await act(async () => root.unmount())
   })
 
@@ -397,9 +419,26 @@ test('mobile walkthrough exposes official Chatbox steps and keeps desktop comman
     )
   )
   await act(async () => {
+    findButton('Codewhale (OAuth)').click()
+    await flushEffects()
+  })
+  assert.match(container.textContent ?? '', /npm install -g codewhale@latest/)
+  assert.match(
+    container.textContent ?? '',
+    /Android \/ Termux, Codewhale support is preview/
+  )
+  assert.match(container.textContent ?? '', /codewhale-lmm login/)
+  assert.throws(() => findButton('Create API key'))
+  await act(async () => {
+    findButton('Walk me through this').click()
+  })
+  assert.match(question, /codewhale-lmm companion adapter/)
+  assert.match(question, /codewhale-lmm run/)
+  await act(async () => {
     findButton('iOS / iPadOS').click()
     await flushEffects()
   })
+  assert.throws(() => findButton('Codewhale (OAuth)'))
   assert.match(container.textContent ?? '', /App Store link/)
   await act(async () => {
     findButton('Walk me through this').click()

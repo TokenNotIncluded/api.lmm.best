@@ -27,6 +27,7 @@ import { aiDirectoryCopy } from './ai-directory-copy.mjs'
 import { apiKeySourceCopy } from './api-key-source-copy.mjs'
 import { assistantSettingsCopy } from './assistant-settings-copy.mjs'
 import { assistantToolCopy } from './assistant-tool-copy.mjs'
+import { codewhaleGuideCopy } from './codewhale-guide-copy.mjs'
 import { drawingMcpExtraCopy } from './drawing-mcp-extra-copy.mjs'
 import { drawingWalletCopy } from './drawing-wallet-copy.mjs'
 import { dshGuideCopy } from './dsh-guide-copy.mjs'
@@ -39,6 +40,7 @@ import { piGuideCopy } from './pi-guide-copy.mjs'
 import { piOAuthCopy } from './pi-oauth-copy.mjs'
 import { profileShareCopy } from './profile-share-copy.mjs'
 import { remoteControlCopy } from './remote-control-copy.mjs'
+import { rssCopy } from './rss-copy.mjs'
 import { toolMarketCopy } from './tool-market-copy.mjs'
 import { waitCompanionCopy } from './wait-companion-copy.mjs'
 
@@ -11862,7 +11864,9 @@ async function main() {
   const operationsFinishOnly = process.argv.includes('--only-operations-finish')
   const passkeyOnly = process.argv.includes('--only-passkey')
   const forgeRefreshOnly = process.argv.includes('--only-forge-refresh')
+  const rssOnly = process.argv.includes('--only-rss')
   const scoped =
+    rssOnly ||
     forgeRefreshOnly ||
     passkeyOnly ||
     operationsFinishOnly ||
@@ -11939,11 +11943,13 @@ async function main() {
                                           : assistantToolOnly
                                             ? assistantToolCopy
                                             : newKeys
-  const selectedEntries = forgeRefreshOnly
-    ? forgeRefreshCopy
-    : passkeyOnly
-      ? passkeyCopy
-      : entries
+  const selectedEntries = rssOnly
+    ? rssCopy
+    : forgeRefreshOnly
+      ? forgeRefreshCopy
+      : passkeyOnly
+        ? passkeyCopy
+        : entries
   let totalAdded = 0
   for (const [locale, baseTranslations] of Object.entries(selectedEntries)) {
     const translations = scoped
@@ -11960,6 +11966,7 @@ async function main() {
           ...drawingMcpExtraCopy[locale],
           ...piGuideCopy[locale],
           ...dshGuideCopy[locale],
+          ...codewhaleGuideCopy[locale],
           ...remoteControlCopy[locale],
           ...waitCompanionCopy[locale],
           ...scriptsCopy[locale],
@@ -12914,6 +12921,10 @@ for (const [locale, values] of Object.entries(acquisitionLinkCopy)) {
 }
 
 for (const [locale, values] of Object.entries(aiDirectoryCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(rssCopy)) {
   Object.assign(newKeys[locale], values)
 }
 

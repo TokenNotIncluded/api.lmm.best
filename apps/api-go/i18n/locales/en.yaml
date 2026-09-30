@@ -35,6 +35,7 @@ auth.insufficient_privilege: "Unauthorized, insufficient privileges"
 
 # Token messages
 token.name_too_long: "Token name is too long"
+token.group_required: "Select a group before creating an API key"
 token.quota_negative: "Quota value cannot be negative"
 token.quota_exceed_max: "Quota value exceeds valid range, maximum is {{.Max}}"
 token.generate_failed: "Failed to generate token"
