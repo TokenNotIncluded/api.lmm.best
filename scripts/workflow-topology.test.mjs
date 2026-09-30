@@ -35,6 +35,17 @@ test('backend and release workflows do not have server access', () => {
   assert.match(workflow('server-release-qualification'), /qualify-go-migration-startup.sh/);
 });
 
+test('OpenCode fixture runs the pinned child and real host without privileged events', () => {
+  const source = workflow('opencode-lmm-auth');
+  assert.match(source, /permissions:\n  contents: read/);
+  assert.doesNotMatch(source, /pull_request_target|secrets\.|contents: write/);
+  assert.match(source, /persist-credentials: false/);
+  assert.match(source, /git submodule update --init --depth 1 -- packages\/opencode-lmm-auth/);
+  assert.match(source, /host-version: \['1\.18\.34', 'latest'\]/);
+  assert.match(source, /opencode-ai@\$HOST_VERSION/);
+  assert.match(source, /npm run test:host && npm run test:integration/);
+});
+
 test('manual frontend deployment is restricted to a signed web release on both origins', () => {
   const deploy = workflow('deploy-web-frontend');
   const triggers = deploy.split('\non:\n')[1]?.split('\npermissions:\n')[0];

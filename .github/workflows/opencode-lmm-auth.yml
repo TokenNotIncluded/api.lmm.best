@@ -1,0 +1,46 @@
+name: OpenCode LMM OAuth plugin
+
+on:
+  pull_request:
+    paths:
+      - 'packages/opencode-lmm-auth'
+      - 'packages/opencode-lmm-auth/**'
+      - '.gitmodules'
+      - 'apps/api-go/service/oauth_server.go'
+      - 'apps/api-go/router/oauth_opencode_test.go'
+      - '.github/workflows/opencode-lmm-auth.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  plugin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        host-version: ['1.18.34', 'latest']
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Initialize plugin submodule
+        run: git submodule update --init --depth 1 -- packages/opencode-lmm-auth
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.19.0'
+          cache: npm
+          cache-dependency-path: packages/opencode-lmm-auth/package-lock.json
+      - run: npm ci --ignore-scripts
+        working-directory: packages/opencode-lmm-auth
+      - run: npm run build && npm run typecheck && npm test && npm run pack:check
+        working-directory: packages/opencode-lmm-auth
+      - name: Install supported OpenCode host
+        env:
+          HOST_VERSION: ${{ matrix.host-version }}
+        run: npm install --global "opencode-ai@$HOST_VERSION"
+      - name: Verify real host and OAuth integration
+        run: npm run test:host && npm run test:integration
+        working-directory: packages/opencode-lmm-auth
