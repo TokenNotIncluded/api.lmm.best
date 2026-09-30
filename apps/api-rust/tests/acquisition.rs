@@ -153,6 +153,16 @@ impl PgFixture {
         }
     }
 
+    async fn set_visit_time(&self, visit: i64, created_at: i64) {
+        let result = sqlx::query("UPDATE acquisition_visits SET created_at=$1 WHERE id=$2")
+            .bind(created_at)
+            .bind(visit)
+            .execute(&self.pg)
+            .await
+            .unwrap();
+        assert_eq!(result.rows_affected(), 1);
+    }
+
     async fn cleanup(self) {
         self.pg.close().await;
         sqlx::query(&format!("DROP SCHEMA {} CASCADE", self.schema))
@@ -320,11 +330,7 @@ async fn postgres_consent_visit_report_and_withdrawal_round_trip() {
 #[ignore = "requires isolated PostgreSQL via LMM_TEST_DATABASE_URL"]
 async fn postgres_registration_keeps_first_touch_and_selects_last_external_visit() {
     let fixture = PgFixture::new().await;
-    let registered_at: i64 =
-        sqlx::query_scalar("SELECT EXTRACT(EPOCH FROM clock_timestamp())::BIGINT + 10")
-            .fetch_one(&fixture.pg)
-            .await
-            .unwrap();
+    let registered_at: i64 = 1_800_000_000;
     sqlx::query("UPDATE users SET created_at=$1 WHERE id=7")
         .bind(registered_at)
         .execute(&fixture.pg)
@@ -382,6 +388,13 @@ async fn postgres_registration_keeps_first_touch_and_selects_last_external_visit
         .await
         .unwrap();
 
+    // Explicit fixture timestamps keep ordering independent of runner speed.
+    fixture.set_visit_time(first.id, registered_at - 100).await;
+    fixture
+        .set_visit_time(selected.id, registered_at - 50)
+        .await;
+    fixture.set_visit_time(latest.id, registered_at - 10).await;
+
     fixture
         .store
         .attribute_registration(7, &visitor)
@@ -418,6 +431,27 @@ async fn postgres_registration_keeps_first_touch_and_selects_last_external_visit
     assert_eq!(owner, 7);
     assert_eq!(consent, (true, 2));
 
+    // A newly received visit would win a fresh attribution calculation.
+    // Replaying registration must preserve the original persisted snapshot.
+    let later = fixture
+        .store
+        .observe(
+            &visitor,
+            7,
+            &input(json!({
+                "consent":true,
+                "consent_version":2,
+                "nonce":"66666666666666666666666666666666",
+                "landing":"/guide",
+                "source":"documentation",
+                "campaign":"late-arrival"
+            })),
+            &["api.lmm.best"],
+        )
+        .await
+        .unwrap();
+    fixture.set_visit_time(later.id, registered_at - 1).await;
+
     fixture
         .store
         .attribute_registration(7, &visitor)
@@ -429,6 +463,16 @@ async fn postgres_registration_keeps_first_touch_and_selects_last_external_visit
             .await
             .unwrap();
     assert_eq!(account_count, 1, "registration replay must stay idempotent");
+    let replayed: Value = sqlx::query_scalar(
+        "SELECT to_jsonb(acquisition_accounts) FROM acquisition_accounts WHERE user_id=7",
+    )
+    .fetch_one(&fixture.pg)
+    .await
+    .unwrap();
+    assert_eq!(
+        replayed, account,
+        "replay must preserve every attribution field"
+    );
     fixture.cleanup().await;
 }
 
@@ -437,11 +481,7 @@ async fn postgres_registration_keeps_first_touch_and_selects_last_external_visit
 async fn postgres_registration_cannot_override_explicit_consent_denial() {
     let fixture = PgFixture::new().await;
     fixture.store.withdraw(None, 7).await.unwrap();
-    let registered_at: i64 =
-        sqlx::query_scalar("SELECT EXTRACT(EPOCH FROM clock_timestamp())::BIGINT + 10")
-            .fetch_one(&fixture.pg)
-            .await
-            .unwrap();
+    let registered_at: i64 = 1_800_000_000;
     sqlx::query("UPDATE users SET created_at=$1 WHERE id=7")
         .bind(registered_at)
         .execute(&fixture.pg)
@@ -449,7 +489,7 @@ async fn postgres_registration_cannot_override_explicit_consent_denial() {
         .unwrap();
 
     let visitor = "c".repeat(64);
-    fixture
+    let visit = fixture
         .store
         .observe(
             &visitor,
@@ -465,6 +505,7 @@ async fn postgres_registration_cannot_override_explicit_consent_denial() {
         )
         .await
         .unwrap();
+    fixture.set_visit_time(visit.id, registered_at - 1).await;
     fixture
         .store
         .attribute_registration(7, &visitor)
@@ -501,4 +542,85 @@ async fn postgres_registration_cannot_override_explicit_consent_denial() {
         .await;
     assert!(matches!(denied, Err(Error::Invalid(_))));
     fixture.cleanup().await;
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL via LMM_TEST_DATABASE_URL"]
+async fn postgres_registration_respects_visit_time_boundaries() {
+    const DAY: i64 = 86_400;
+    let registered_at: i64 = 1_800_000_000;
+    // Each case has only one candidate, so a missing bound cannot be masked
+    // by another, more recent visit. Both lower bounds are inclusive.
+    for (offset, has_first, has_registration) in [
+        (-90 * DAY - 1, false, false),
+        (-90 * DAY, true, false),
+        (-30 * DAY - 1, true, false),
+        (-30 * DAY, true, true),
+        (-30 * DAY + 1, true, true),
+        (0, true, true),
+        (1, false, false),
+    ] {
+        let fixture = PgFixture::new().await;
+        sqlx::query("UPDATE users SET created_at=$1 WHERE id=7")
+            .bind(registered_at)
+            .execute(&fixture.pg)
+            .await
+            .unwrap();
+        let visitor = "d".repeat(64);
+        let visit = fixture
+            .store
+            .observe(
+                &visitor,
+                0,
+                &input(json!({
+                    "consent":true,
+                    "consent_version":2,
+                    "nonce":"77777777777777777777777777777777",
+                    "landing":"/pricing",
+                    "source":"community"
+                })),
+                &["api.lmm.best"],
+            )
+            .await
+            .unwrap();
+        fixture
+            .set_visit_time(visit.id, registered_at + offset)
+            .await;
+        fixture
+            .store
+            .attribute_registration(7, &visitor)
+            .await
+            .unwrap();
+        let account: Value = sqlx::query_scalar(
+            "SELECT to_jsonb(acquisition_accounts) FROM acquisition_accounts WHERE user_id=7",
+        )
+        .fetch_one(&fixture.pg)
+        .await
+        .unwrap();
+        assert_eq!(
+            account["first_visit_id"],
+            if has_first { visit.id } else { 0 },
+            "first-touch boundary at offset {offset}"
+        );
+        assert_eq!(
+            account["registration_visit_id"],
+            if has_registration { visit.id } else { 0 },
+            "registration boundary at offset {offset}"
+        );
+        assert_eq!(
+            account["registration_source"],
+            if has_registration {
+                "community"
+            } else {
+                "unknown"
+            },
+            "registration source at offset {offset}"
+        );
+        assert_eq!(
+            account["consent_version"],
+            if offset <= 0 { 2 } else { 0 },
+            "post-registration consent must not leak backwards at offset {offset}"
+        );
+        fixture.cleanup().await;
+    }
 }
