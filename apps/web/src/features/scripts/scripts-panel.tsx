@@ -27,6 +27,7 @@ import { Label } from '@/components/ui/label'
 import { REPOSITORIES, repositoryUrl } from '@/features/repositories/api'
 import { RepositoryLink } from '@/features/repositories/repository-link'
 import { SettingsSection } from '@/features/system-settings/components/settings-section'
+import { BookmarkletInstall } from '@/features/test-key/bookmarklet-install'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -331,6 +332,9 @@ export function PublicScriptsPage() {
             )}
           </p>
         </div>
+        <div className='mb-8'>
+          <BookmarkletInstall />
+        </div>
         <div className='mb-8 flex flex-wrap items-center justify-between gap-4 border-y py-5'>
           <div>
             <p className='text-sm font-medium'>{t('Script repository')}</p>
@@ -362,6 +366,7 @@ export function ConsoleScriptsPage() {
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
         <div className='mx-auto w-full max-w-5xl space-y-6'>
+          <BookmarkletInstall />
           <p className='text-muted-foreground max-w-2xl text-sm'>
             {t(
               'Browse maintained setup scripts and copy the command for your system.'

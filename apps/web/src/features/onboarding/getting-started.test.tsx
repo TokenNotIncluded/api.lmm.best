@@ -124,6 +124,8 @@ function makeRouter() {
     '/pricing',
     '/wallet',
     '/tool-market',
+    '/guide',
+    '/test-key',
   ].map((path) =>
     createRoute({
       getParentRoute: () => rootRoute,
@@ -265,7 +267,11 @@ describe('getting started access boundaries', () => {
         stage: 'credential',
       },
     })
-    for (const text of ['1/3', 'Create API key', 'Continue setup']) {
+    for (const text of [
+      'API access enabled',
+      'Start with a separate key',
+      'Copy the API address',
+    ]) {
       assert.ok(l1.container.textContent?.includes(text))
     }
     await unmountPage(l1)
@@ -644,7 +650,7 @@ describe('getting started access boundaries', () => {
     assert.equal(consumeQueuedAssistantRequest(), undefined)
     await unmountPage(page)
   })
-  test('keeps unavailable optional probes inline and does not retry them', async () => {
+  test('does not fetch unrelated bounty probes from the activated setup page', async () => {
     const page = await renderPage(true, new Error('Not Found'), null, {
       developer_access_granted: true,
       onboarding: {
@@ -654,25 +660,32 @@ describe('getting started access boundaries', () => {
         stage: 'credential',
       },
     })
-    const unavailableMessage = 'Challenges are temporarily unavailable.'
-    const deadline = Date.now() + 1_000
-    while (
-      Date.now() < deadline &&
-      !page.container.textContent?.includes(unavailableMessage)
-    ) {
-      await act(flushEffects)
-    }
     assert.equal(
       page.gets.filter((url) => url.startsWith('/api/open-source-bounties?'))
         .length,
-      1
+      0
     )
-    assert.ok(page.container.textContent?.includes(unavailableMessage))
-    const config = page.getConfigs.find((_, index) =>
-      page.gets[index].startsWith('/api/open-source-bounties?')
+    assert.doesNotMatch(
+      page.container.textContent ?? '',
+      /Challenges are temporarily unavailable/
     )
-    assert.equal(config?.skipBusinessError, true)
-    assert.equal(config?.skipErrorHandler, true)
+    assert.ok(page.container.querySelector('a[href="/keys"]'))
     await unmountPage(page)
   })
+})
+
+test('activated onboarding offers direct setup actions without requiring a conversation', async () => {
+  const page = await renderPage(false, undefined, null, {
+    developer_access_granted: true,
+  })
+  assert.match(page.container.textContent ?? '', /Connect your first client/)
+  assert.ok(page.container.querySelector('a[href="/keys"]'))
+  assert.ok(page.container.querySelector('a[href="/guide"]'))
+  assert.ok(page.container.querySelector('a[href="/pricing"]'))
+  assert.ok(page.container.querySelector('a[draggable="true"]'))
+  assert.doesNotMatch(
+    page.container.textContent ?? '',
+    /One conversation to get started|What the assistant can do/
+  )
+  await unmountPage(page)
 })

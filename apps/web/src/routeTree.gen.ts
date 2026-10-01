@@ -15,6 +15,7 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as PrivacyPolicyRouteImport } from './routes/privacy-policy'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as TermsOfServiceRouteImport } from './routes/terms-of-service'
+import { Route as TestKeyRouteImport } from './routes/test-key'
 import { Route as TransferRouteImport } from './routes/transfer'
 import { Route as UserAgreementRouteImport } from './routes/user-agreement'
 import { Route as authForgotPasswordRouteImport } from './routes/(auth)/forgot-password'
@@ -128,6 +129,11 @@ const TermsRoute = TermsRouteImport.update({
 const TermsOfServiceRoute = TermsOfServiceRouteImport.update({
   id: '/terms-of-service',
   path: '/terms-of-service',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TestKeyRoute = TestKeyRouteImport.update({
+  id: '/test-key',
+  path: '/test-key',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TransferRoute = TransferRouteImport.update({
@@ -614,6 +620,7 @@ export interface FileRoutesByFullPath {
   '/privacy-policy': typeof PrivacyPolicyRoute
   '/terms': typeof TermsRoute
   '/terms-of-service': typeof TermsOfServiceRoute
+  '/test-key': typeof TestKeyRoute
   '/transfer': typeof TransferRoute
   '/user-agreement': typeof UserAgreementRoute
   '/system-settings': typeof AuthenticatedSystemSettingsRouteRouteWithChildren
@@ -706,6 +713,7 @@ export interface FileRoutesByTo {
   '/privacy-policy': typeof PrivacyPolicyRoute
   '/terms': typeof TermsRoute
   '/terms-of-service': typeof TermsOfServiceRoute
+  '/test-key': typeof TestKeyRoute
   '/transfer': typeof TransferRoute
   '/user-agreement': typeof UserAgreementRoute
   '/forgot-password': typeof authForgotPasswordRoute
@@ -800,6 +808,7 @@ export interface FileRoutesById {
   '/privacy-policy': typeof PrivacyPolicyRoute
   '/terms': typeof TermsRoute
   '/terms-of-service': typeof TermsOfServiceRoute
+  '/test-key': typeof TestKeyRoute
   '/transfer': typeof TransferRoute
   '/user-agreement': typeof UserAgreementRoute
   '/_authenticated/system-settings': typeof AuthenticatedSystemSettingsRouteRouteWithChildren
@@ -894,6 +903,7 @@ export interface FileRouteTypes {
     | '/privacy-policy'
     | '/terms'
     | '/terms-of-service'
+    | '/test-key'
     | '/transfer'
     | '/user-agreement'
     | '/system-settings'
@@ -986,6 +996,7 @@ export interface FileRouteTypes {
     | '/privacy-policy'
     | '/terms'
     | '/terms-of-service'
+    | '/test-key'
     | '/transfer'
     | '/user-agreement'
     | '/forgot-password'
@@ -1079,6 +1090,7 @@ export interface FileRouteTypes {
     | '/privacy-policy'
     | '/terms'
     | '/terms-of-service'
+    | '/test-key'
     | '/transfer'
     | '/user-agreement'
     | '/_authenticated/system-settings'
@@ -1174,6 +1186,7 @@ export interface RootRouteChildren {
   PrivacyPolicyRoute: typeof PrivacyPolicyRoute
   TermsRoute: typeof TermsRoute
   TermsOfServiceRoute: typeof TermsOfServiceRoute
+  TestKeyRoute: typeof TestKeyRoute
   TransferRoute: typeof TransferRoute
   UserAgreementRoute: typeof UserAgreementRoute
   errors401Route: typeof errors401Route
@@ -1241,6 +1254,13 @@ declare module '@tanstack/react-router' {
       path: '/terms-of-service'
       fullPath: '/terms-of-service'
       preLoaderRoute: typeof TermsOfServiceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/test-key': {
+      id: '/test-key'
+      path: '/test-key'
+      fullPath: '/test-key'
+      preLoaderRoute: typeof TestKeyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/transfer': {
@@ -2032,6 +2052,7 @@ const rootRouteChildren: RootRouteChildren = {
   PrivacyPolicyRoute: PrivacyPolicyRoute,
   TermsRoute: TermsRoute,
   TermsOfServiceRoute: TermsOfServiceRoute,
+  TestKeyRoute: TestKeyRoute,
   TransferRoute: TransferRoute,
   UserAgreementRoute: UserAgreementRoute,
   errors401Route: errors401Route,
