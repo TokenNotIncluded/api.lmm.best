@@ -49,6 +49,7 @@ import {
   isRestrictedPublicRoute,
 } from '@/lib/console-activation'
 import { resolveLegacyRoute } from '@/lib/legacy-route'
+import { bootstrapPublicEntry } from '@/lib/public-entry-bootstrap'
 import { useAuthStore } from '@/stores/auth-store'
 
 const PersonaDebugPanel = __LMM_PERSONA_DEBUG__
@@ -215,6 +216,7 @@ export const Route = createRootRouteWithContext<{
     }
 
     const pathname = location?.pathname || ''
+    if (bootstrapPublicEntry(pathname, bootstrapAuthentication)) return
     const needsSetupCheck =
       !setupStatusChecked && !pathname.startsWith('/setup')
     const nonBlockingPublicPath = isNonBlockingPublicPath(pathname)

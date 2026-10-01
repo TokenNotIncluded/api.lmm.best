@@ -359,7 +359,7 @@ function TestKeyForm({
 export function TestKeyPage() {
   const { t } = useTranslation()
   const q = useTestKeyCopy()
-  const { user, session } = useAuthStore((state) => state.auth)
+  const { user, session, bootstrapState } = useAuthStore((state) => state.auth)
   const framed = typeof window !== 'undefined' && window.self !== window.top
   return (
     <main className='bg-background text-foreground min-h-svh px-5 py-7 sm:px-7'>
@@ -382,6 +382,10 @@ export function TestKeyPage() {
               {q('open')}
             </a>
           </>
+        ) : !user && bootstrapState === 'checking' ? (
+          <p role='status' className='text-muted-foreground text-sm'>
+            {t('Loading...')}
+          </p>
         ) : !user ? (
           <>
             <p className='mb-4 text-sm'>{q('login')}</p>
