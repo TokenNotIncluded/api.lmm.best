@@ -34,7 +34,7 @@ const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(20);
 const DISCOVERY_MAX_RESPONSE_BYTES: usize = 1 << 20;
 const DISCOVERY_MAX_REDIRECTS: usize = 3;
 const MAX_CONTROL_BODY_BYTES: usize = 1 << 20;
-const AUTH_VERSION: &str = "864b7076dbcd0a3c01b5520316720ebf";
+use crate::auth_version::AUTH_VERSION;
 const AUTH_USER_DISABLED: &str = "AUTH_USER_DISABLED";
 const AUTH_USER_INVALID: &str = "AUTH_USER_INVALID";
 const AUTH_INSUFFICIENT_PRIVILEGE: &str = "AUTH_INSUFFICIENT_PRIVILEGE";

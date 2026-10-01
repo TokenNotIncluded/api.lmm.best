@@ -36,7 +36,7 @@ const PLAN_INFO_CACHE_PREFIX: &str = "new-api:subscription_plan_info:v1:";
 const ADMIN_ROLE: i64 = 10;
 const ROOT_ROLE: i64 = 100;
 const USER_CACHE_PREFIX: &str = "user:";
-const AUTH_VERSION: &str = "864b7076dbcd0a3c01b5520316720ebf";
+use crate::auth_version::AUTH_VERSION;
 
 #[derive(Clone)]
 pub struct BillingSubscriptionsState {

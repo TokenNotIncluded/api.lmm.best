@@ -268,7 +268,7 @@ assert_root_read_surface() {
     "$base/api/custom-oauth-provider/"
   grep -qx 200 "$runtime/$prefix.status"
   jq -e '.success == true and (.data | type == "array")' "$runtime/$prefix.json" >/dev/null
-  grep -Eqi '^auth-version:[[:space:]]*864b7076dbcd0a3c01b5520316720ebf[[:space:]]*$' \
+  grep -Eqi "^auth-version:[[:space:]]*$(cat "$repo_root/apps/api-go/common/auth_version.txt")[[:space:]]*$" \
     "$runtime/$prefix.headers"
 }
 

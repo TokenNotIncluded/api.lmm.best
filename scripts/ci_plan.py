@@ -34,6 +34,11 @@ def select_jobs(event: str, paths: list[str] | None = None) -> list[str]:
             if (not isinstance(path, str) or not path or path.startswith("/")
                     or "\\" in path or ".." in PurePosixPath(path).parts):
                 return list(REQUIRED_JOBS)
+            # This Go-owned data file is embedded by both backend builds.
+            if path == "apps/api-go/common/auth_version.txt":
+                selected.update(COMPONENTS["apps/api-go/"])
+                selected.update(COMPONENTS["apps/api-rust/"])
+                continue
             # Documentation below a component can affect its fixtures: classify
             # component roots before allowing repository documentation omissions.
             for prefix, jobs in COMPONENTS.items():

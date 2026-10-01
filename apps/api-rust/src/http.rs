@@ -463,7 +463,7 @@ async fn authenticate_api_token_dashboard_user(
     let mut response = next.run(request).await;
     response.headers_mut().insert(
         HeaderName::from_static("auth-version"),
-        HeaderValue::from_static("864b7076dbcd0a3c01b5520316720ebf"),
+        HeaderValue::from_static(lmm_api_rs::auth_version::AUTH_VERSION),
     );
     response
 }

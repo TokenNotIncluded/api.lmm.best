@@ -33,7 +33,7 @@ const IONET_PUBLIC_BASE: &str = "https://api.io.solutions/v1/io-cloud/caas/";
 const IONET_ENTERPRISE_BASE: &str = "https://api.io.solutions/enterprise/v1/io-cloud/caas/";
 const DEFAULT_IONET_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_IONET_RESPONSE_BYTES: usize = 1_048_576;
-const AUTH_VERSION: &str = "864b7076dbcd0a3c01b5520316720ebf";
+use crate::auth_version::AUTH_VERSION;
 
 /// Authenticated actor installed by the shared authentication listener.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

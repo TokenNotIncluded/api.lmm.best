@@ -31,7 +31,7 @@ use crate::auth::{
 use crate::{ClientIpKey, RequestContext, legacy_empty_response};
 
 const ADMIN_ROLE: i64 = 10;
-const AUTH_VERSION: &str = "864b7076dbcd0a3c01b5520316720ebf";
+use crate::auth_version::AUTH_VERSION;
 const GROUP_PATH: &str = "/api/group/";
 const RATIO_CONFIG_PATH: &str = "/api/ratio_config";
 

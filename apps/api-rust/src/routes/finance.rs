@@ -26,7 +26,7 @@ use sqlx::{PgPool, Row, postgres::PgRow};
 use crate::auth::{DashboardAuth, DashboardUserView, UserAuthPolicyError, enforce_user_auth_view};
 
 const ADMIN_ROLE: i64 = 10;
-const AUTH_VERSION: &str = "864b7076dbcd0a3c01b5520316720ebf";
+use crate::auth_version::AUTH_VERSION;
 const MAX_BODY_BYTES: usize = 64 * 1024;
 const DEFAULT_WINDOW_SECONDS: i64 = 30 * 24 * 60 * 60;
 const MAX_WINDOW_SECONDS: i64 = 366 * 24 * 60 * 60;

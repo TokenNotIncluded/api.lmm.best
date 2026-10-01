@@ -20,7 +20,7 @@ use sqlx::{PgPool, Row};
 use std::{collections::BTreeMap, sync::Arc};
 
 const CHANNEL_CACHE_GENERATION: &str = "lmm:channels:generation";
-const AUTH_VERSION: &str = "864b7076dbcd0a3c01b5520316720ebf";
+use crate::auth_version::AUTH_VERSION;
 
 /// Authorization is deliberately injected: the HTTP auth slice owns the
 /// bearer/session verifier and this route slice only owns channel policy.

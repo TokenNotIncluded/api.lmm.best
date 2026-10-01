@@ -248,7 +248,7 @@ async fn authenticated_subscription_extractor_failures_preserve_auth_version() {
             .headers()
             .get("auth-version")
             .and_then(|value| value.to_str().ok()),
-        Some("864b7076dbcd0a3c01b5520316720ebf")
+        Some(lmm_api_rs::auth_version::AUTH_VERSION)
     );
     assert!(matches!(
         response.status(),
@@ -474,7 +474,7 @@ async fn subscription_admin_routes_preserve_tcp_contract_atomicity_and_cache_rec
     );
     assert_eq!(
         rollback.headers()["auth-version"],
-        "864b7076dbcd0a3c01b5520316720ebf"
+        lmm_api_rs::auth_version::AUTH_VERSION
     );
     assert_eq!(
         rollback.json::<serde_json::Value>().await.expect("JSON")["success"],
@@ -560,7 +560,7 @@ async fn subscription_admin_routes_preserve_tcp_contract_atomicity_and_cache_rec
     assert_eq!(deleted.status(), reqwest::StatusCode::OK);
     assert_eq!(
         deleted.headers()["auth-version"],
-        "864b7076dbcd0a3c01b5520316720ebf"
+        lmm_api_rs::auth_version::AUTH_VERSION
     );
     assert_eq!(
         deleted

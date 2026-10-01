@@ -445,7 +445,7 @@ func authorizationToken(header string) (string, bool) {
 }
 
 func setDashboardAuthContext(c *gin.Context, user *model.UserBase, identity service.AuthIdentity, useAccessToken bool) {
-	c.Header("Auth-Version", "864b7076dbcd0a3c01b5520316720ebf") // gitleaks:allow
+	c.Header("Auth-Version", common.DashboardAuthVersion())
 	c.Set("username", user.Username)
 	c.Set("role", user.Role)
 	c.Set("id", user.Id)

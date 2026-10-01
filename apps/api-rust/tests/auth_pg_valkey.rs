@@ -150,7 +150,7 @@ async fn auth_routes_preserve_postgres_and_valkey_control_plane() {
     assert_eq!(self_response.status(), StatusCode::OK);
     assert_eq!(
         self_response.headers()["auth-version"],
-        "864b7076dbcd0a3c01b5520316720ebf"
+        lmm_api_rs::auth_version::AUTH_VERSION
     );
     assert_eq!(json_body(self_response).await["data"]["username"], "alice");
 

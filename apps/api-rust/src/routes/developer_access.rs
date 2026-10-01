@@ -32,7 +32,7 @@ use crate::{
 };
 
 const ADMIN_ROLE: i64 = 10;
-const AUTH_VERSION: &str = "864b7076dbcd0a3c01b5520316720ebf";
+use crate::auth_version::AUTH_VERSION;
 const BODY_LIMIT_BYTES: usize = 64 * 1024 * 1024;
 const REQUEST_LIMIT: i64 = 100;
 const MIN_REASON_CHARS: usize = 5;

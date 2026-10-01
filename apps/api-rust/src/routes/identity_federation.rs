@@ -41,7 +41,7 @@ const OAUTH_FLOW_TTL: Duration = Duration::from_secs(10 * 60);
 const MAX_IDENTITY_BODY_BYTES: usize = 1024 * 1024;
 const OAUTH_STATE_PATH: &str = "/api/oauth/state";
 const OAUTH_EMAIL_BIND_PATH: &str = "/api/oauth/email/bind";
-const AUTH_VERSION: &str = "864b7076dbcd0a3c01b5520316720ebf";
+use crate::auth_version::AUTH_VERSION;
 const EMAIL_VERIFICATION_PURPOSE: &str = "v";
 
 /// Identity returned by a configured OAuth/OIDC adapter after it has verified

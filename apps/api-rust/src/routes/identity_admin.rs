@@ -21,7 +21,7 @@ const ROLE_ADMIN: i64 = 10;
 const ROLE_ROOT: i64 = 100;
 const STATUS_ENABLED: i64 = 1;
 const STATUS_DISABLED: i64 = 2;
-const AUTH_VERSION: &str = "864b7076dbcd0a3c01b5520316720ebf";
+use crate::auth_version::AUTH_VERSION;
 const MAX_BODY_BYTES: usize = 1 << 20;
 // A pending fence must outlive the normal user-cache TTL.  If Valkey becomes
 // unavailable after a database commit, retaining this fence fails closed until

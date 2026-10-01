@@ -33,7 +33,7 @@ use crate::auth::DashboardAuth;
 const ADMIN_ROLE: i64 = 10;
 const ROOT_ROLE: i64 = 100;
 const MAX_SELF_RANGE_SECONDS: i64 = 30 * 24 * 60 * 60;
-const AUTH_VERSION: &str = "864b7076dbcd0a3c01b5520316720ebf";
+use crate::auth_version::AUTH_VERSION;
 // Go's log queries apply each timestamp predicate only when that query value
 // is non-zero.  Keeping this separate from the bounded data/stat queries
 // prevents a no-parameter log read from becoming `created_at <= 0`.

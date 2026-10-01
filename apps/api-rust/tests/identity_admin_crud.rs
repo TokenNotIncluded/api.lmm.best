@@ -284,7 +284,7 @@ async fn identity_admin_authenticated_handler_errors_include_auth_version() {
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
         response.headers()["auth-version"],
-        "864b7076dbcd0a3c01b5520316720ebf"
+        lmm_api_rs::auth_version::AUTH_VERSION
     );
 
     let unauthenticated = app(100)
@@ -339,7 +339,7 @@ async fn identity_admin_authenticates_before_malformed_json_binding() {
     assert_eq!(authenticated.status(), StatusCode::OK);
     assert_eq!(
         authenticated.headers()["auth-version"],
-        "864b7076dbcd0a3c01b5520316720ebf"
+        lmm_api_rs::auth_version::AUTH_VERSION
     );
     let body = axum::body::to_bytes(authenticated.into_body(), usize::MAX)
         .await

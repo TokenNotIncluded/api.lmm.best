@@ -25,7 +25,7 @@ use crate::auth::{
     user_auth_message, user_auth_status,
 };
 
-const AUTH_VERSION: &str = "864b7076dbcd0a3c01b5520316720ebf";
+use crate::auth_version::AUTH_VERSION;
 const MAX_BODY_BYTES: usize = 64 * 1024;
 const DEFAULT_PAGE_SIZE: i64 = 20;
 const MAX_PAGE_SIZE: i64 = 50;

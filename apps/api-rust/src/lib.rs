@@ -1,5 +1,7 @@
 //! Reusable HTTP slices for the Rust control-plane binary.
 
+/// Shared dashboard authentication protocol marker.
+pub mod auth_version;
 /// Native public command dispatch, run before service configuration.
 pub mod cli;
 /// Manual-only production deployment schemas and target recovery.

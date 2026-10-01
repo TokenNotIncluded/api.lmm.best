@@ -24,7 +24,7 @@ use sqlx::PgPool;
 use super::public_catalog::{HeaderNavAccess, parse_header_nav_access};
 use crate::auth::{DashboardAuth, UserAuthPolicyError, user_auth_message, user_auth_status};
 
-const AUTH_VERSION: &str = "864b7076dbcd0a3c01b5520316720ebf";
+use crate::auth_version::AUTH_VERSION;
 const LEADERBOARD_LIMIT: usize = 20;
 
 /// PostgreSQL and dashboard-auth dependencies for the user leaderboard.
