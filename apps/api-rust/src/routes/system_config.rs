@@ -47,7 +47,7 @@ fn is_retired_dynamic_pricing_option(key: &str) -> bool {
 
 const OPTIONS_CACHE_KEY: &str = "lmm:system-config:options";
 const AFFINITY_CACHE_PREFIX: &str = "new-api:channel_affinity:v1:";
-const AUTH_VERSION: &str = "864b7076dbcd0a3c01b5520316720ebf";
+use crate::auth_version::AUTH_VERSION;
 const OPTIONS_CACHE_TTL_SECONDS: u64 = 5;
 const WAFFO_PANCAKE_MUTATION_REQUEST_MAX_BYTES: usize = 16 << 10;
 const MAX_PROJECT_UPDATE_BYTES: usize = 1 << 20;

@@ -77,7 +77,7 @@ async fn root_roundtrip_and_anonymous_downloads_preserve_bytes_headers_and_count
         .unwrap();
     assert_eq!(
         response.headers()["auth-version"],
-        "864b7076dbcd0a3c01b5520316720ebf"
+        lmm_api_rs::auth_version::AUTH_VERSION
     );
     assert_eq!(json_body(response).await["data"]["size"], bytes.len());
     for path in ["/scripts/install.sh", "/api/scripts/install.sh/raw"] {

@@ -473,7 +473,7 @@ fn authenticated_response(mut response: Response) -> Response {
     for (name, value) in [
         (
             HeaderName::from_static("auth-version"),
-            "864b7076dbcd0a3c01b5520316720ebf",
+            crate::auth_version::AUTH_VERSION,
         ),
         (
             header::CACHE_CONTROL,

@@ -31,7 +31,7 @@ use crate::{
 
 const ADMIN_ROLE: i64 = 10;
 const ROOT_ROLE: i64 = 100;
-const AUTH_VERSION: &str = "864b7076dbcd0a3c01b5520316720ebf";
+use crate::auth_version::AUTH_VERSION;
 const MAX_BODY_BYTES: usize = 64 * 1024;
 const DEFAULT_PAGE_SIZE: i64 = 10;
 const MAX_PAGE_SIZE: i64 = 100;

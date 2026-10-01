@@ -13,6 +13,9 @@ authenticated users then see it once after their next login.
 
 <!-- Add user-facing or operational changes here before the next release. -->
 
+- Go and Rust share one embedded dashboard Auth-Version marker, with CI checking
+  both backends when it changes. Existing authentication behavior is preserved.
+
 - Usage logs hide the historical quota trend and skip its bucket queries while
   amounts are masked, rather than plotting live RPM as historical traffic.
   The live RPM and TPM badges remain available.

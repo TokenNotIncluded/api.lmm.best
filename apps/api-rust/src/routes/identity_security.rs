@@ -42,7 +42,7 @@ use crate::{
 use secrecy::SecretString;
 
 const ADMIN_ROLE: i64 = 10;
-const AUTH_VERSION: &str = "864b7076dbcd0a3c01b5520316720ebf";
+use crate::auth_version::AUTH_VERSION;
 const SESSIONS_PATH: &str = "/api/user/sessions";
 const PASSKEY_PATH: &str = "/api/user/passkey";
 const MAX_BODY_BYTES: usize = 1024 * 1024;

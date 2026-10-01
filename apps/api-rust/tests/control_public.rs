@@ -696,7 +696,7 @@ async fn dashboard_adapter_distinguishes_raw_bearer_missing_opaque_and_internal_
         assert_eq!(response.status(), StatusCode::OK, "{authorization}");
         assert_eq!(
             response.headers()["auth-version"],
-            "864b7076dbcd0a3c01b5520316720ebf"
+            lmm_api_rs::auth_version::AUTH_VERSION
         );
     }
 
@@ -806,7 +806,7 @@ async fn dashboard_adapter_policy_matrix_keeps_optional_and_required_headers_dis
     assert_eq!(disabled.status(), StatusCode::OK);
     assert_eq!(
         disabled.headers()["auth-version"],
-        "864b7076dbcd0a3c01b5520316720ebf"
+        lmm_api_rs::auth_version::AUTH_VERSION
     );
 
     let required = public_catalog_router(PublicCatalogState::new(
@@ -979,7 +979,7 @@ async fn dashboard_successes_include_the_frozen_auth_version_header() {
                 .headers()
                 .get("auth-version")
                 .and_then(|value| value.to_str().ok()),
-            Some("864b7076dbcd0a3c01b5520316720ebf"),
+            Some(lmm_api_rs::auth_version::AUTH_VERSION),
             "{uri}"
         );
     }
@@ -1011,7 +1011,7 @@ async fn successful_authentication_versions_validation_store_and_handler_errors(
     assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
     assert_eq!(
         invalid.headers()["auth-version"],
-        "864b7076dbcd0a3c01b5520316720ebf"
+        lmm_api_rs::auth_version::AUTH_VERSION
     );
 
     let mut store = public_catalog_store();
@@ -1028,7 +1028,7 @@ async fn successful_authentication_versions_validation_store_and_handler_errors(
     assert_eq!(failed.status(), StatusCode::BAD_REQUEST);
     assert_eq!(
         failed.headers()["auth-version"],
-        "864b7076dbcd0a3c01b5520316720ebf"
+        lmm_api_rs::auth_version::AUTH_VERSION
     );
 
     let mut token_store = public_catalog_store();
@@ -1798,7 +1798,7 @@ async fn rankings_parses_raw_query_after_optional_auth_with_go_first_value_rules
         );
         assert_eq!(
             response.headers()["auth-version"],
-            "864b7076dbcd0a3c01b5520316720ebf"
+            lmm_api_rs::auth_version::AUTH_VERSION
         );
         let body = to_bytes(response.into_body(), usize::MAX)
             .await
@@ -1843,7 +1843,7 @@ async fn rankings_discards_malformed_query_pairs_after_auth() {
         );
         assert_eq!(
             response.headers()["auth-version"],
-            "864b7076dbcd0a3c01b5520316720ebf"
+            lmm_api_rs::auth_version::AUTH_VERSION
         );
         let body = to_bytes(response.into_body(), usize::MAX)
             .await

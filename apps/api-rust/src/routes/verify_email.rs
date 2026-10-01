@@ -41,7 +41,7 @@ use crate::{
     legacy_empty_response,
 };
 
-const AUTH_VERSION: &str = "864b7076dbcd0a3c01b5520316720ebf";
+use crate::auth_version::AUTH_VERSION;
 const SECURITY_EMAIL_PURPOSE: &str = "s";
 const VERIFICATION_TTL: Duration = Duration::from_secs(10 * 60);
 const EMAIL_RATE_LIMIT_MAX: usize = 2;

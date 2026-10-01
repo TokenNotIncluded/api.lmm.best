@@ -24,7 +24,7 @@ use std::sync::Arc;
 use crate::auth::{AuthErrorKind, DashboardAuth};
 
 const ROLE_ROOT: i64 = 100;
-const AUTH_VERSION: &str = "864b7076dbcd0a3c01b5520316720ebf";
+use crate::auth_version::AUTH_VERSION;
 
 /// Authenticated identity supplied by the listener after token validation.
 #[derive(Clone, Copy, Debug)]

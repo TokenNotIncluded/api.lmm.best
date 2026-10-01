@@ -35,7 +35,7 @@ use crate::{
 };
 
 const ADMIN_ROLE: i64 = 10;
-const AUTH_VERSION: &str = "864b7076dbcd0a3c01b5520316720ebf";
+use crate::auth_version::AUTH_VERSION;
 const DEFAULT_WINDOW_SECONDS: i64 = 30 * 24 * 60 * 60;
 const MAX_WINDOW_SECONDS: i64 = 90 * 24 * 60 * 60;
 const MAX_ROWS: i64 = 200_000;

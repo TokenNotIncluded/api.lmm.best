@@ -387,7 +387,7 @@ async fn authenticated_profile_handler_errors_preserve_auth_version() {
             .headers()
             .get("auth-version")
             .and_then(|value| value.to_str().ok()),
-        Some("864b7076dbcd0a3c01b5520316720ebf")
+        Some(lmm_api_rs::auth_version::AUTH_VERSION)
     );
 }
 
