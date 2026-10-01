@@ -34,6 +34,12 @@ class Fixture:
         self.packets = [
             dict(base, id=1, slug='synthetic-live', title='Token-红包', total_items=22, remaining_items=17, claim_count=5),
             dict(base, id=2, slug='synthetic-empty', title='测试', total_items=7, remaining_items=0, claim_count=7),
+            dict(base, id=3, slug='synthetic-scheduled', title='未开始红包', total_items=6, remaining_items=6, claim_count=0,
+                 start_at=int(time.time()) + 3600),
+            dict(base, id=4, slug='synthetic-paused', title='暂停红包', total_items=6, remaining_items=6, claim_count=0,
+                 enabled=False),
+            dict(base, id=5, slug='synthetic-ended', title='已结束红包', total_items=6, remaining_items=4, claim_count=2,
+                 end_at=int(time.time()) - 3600),
         ]
 
     async def route(self, route):
@@ -60,12 +66,14 @@ class Fixture:
             data = {'status': True}
         elif url.path == '/api/red-packet/admin':
             data = self.packets
-        elif url.path == '/api/red-packet/admin/2' and request.method == 'DELETE':
+        elif url.path.startswith('/api/red-packet/admin/') and request.method == 'DELETE':
+            packet_id = int(url.path.rsplit('/', 1)[1])
+            assert any(packet['id'] == packet_id for packet in self.packets)
             if self.reject_delete:
                 return await route.fulfill(json={'success': False, 'message': 'Synthetic deletion failure'})
             await asyncio.sleep(0.15)
-            self.deleted.append(2)
-            self.packets = [p for p in self.packets if p['id'] != 2]
+            self.deleted.append(packet_id)
+            self.packets = [p for p in self.packets if p['id'] != packet_id]
             data = None
         elif url.path == '/api/user/topup/self':
             # Deliberately include an unrelated success to exercise exact matching.
@@ -140,7 +148,10 @@ async def main():
                 await page.goto(ORIGIN + '/red-packets')
                 empty = page.locator('[data-packet-id="2"]')
                 await empty.get_by_text('已领完', exact=True).wait_for()
-                assert await page.locator('[data-packet-id="1"]').get_by_role('button', name='删除红包').count() == 0
+                for packet_id, status in ((1, '进行中'), (3, '未开始'), (4, '暂停'), (5, '已结束')):
+                    card = page.locator(f'[data-packet-id="{packet_id}"]')
+                    await card.get_by_text(status, exact=True).wait_for()
+                    assert await card.get_by_role('button', name='删除红包').count() == 1
                 await capture(page, f'red-packets-{width}.png')
                 await empty.get_by_role('button', name='删除红包').click()
                 dialog = page.get_by_role('alertdialog')
@@ -157,6 +168,18 @@ async def main():
                 await dialog.get_by_role('button', name='删除', exact=True).click()
                 await empty.wait_for(state='detached')
                 assert fixture.deleted == [2]
+                for packet_id in (1, 3, 4, 5):
+                    card = page.locator(f'[data-packet-id="{packet_id}"]')
+                    previous_deletes = fixture.deleted.copy()
+                    await card.get_by_role('button', name='删除红包').click()
+                    await dialog.get_by_role('button', name='取消', exact=True).click()
+                    assert fixture.deleted == previous_deletes
+                    assert await card.count() == 1
+                    await card.get_by_role('button', name='删除红包').click()
+                    await dialog.get_by_role('button', name='删除', exact=True).click()
+                    await card.wait_for(state='detached')
+                    assert fixture.deleted == previous_deletes + [packet_id]
+                assert fixture.packets == []
                 assert not errors, errors
                 report.append({'scenario': f'red-packet-delete-{width}', 'passed': True})
                 await context.close()
