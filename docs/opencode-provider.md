@@ -14,8 +14,10 @@ use `opencode.sh` / `opencode.ps1` from `packages/lmm-scripts`. The installer
 installs the host and the latest published, checksum-verified plugin, preserves existing
 configuration and other plugins, and backs up configuration before changing it.
 Rerunning the installer updates the managed plugin entry. It does not sign in
-automatically. Restart OpenCode, run `opencode auth login`,
-and select **LMM → Sign in with LMM (OAuth)**.
+automatically. Run `opencode auth login --provider lmm`, select
+**Sign in with LMM (OAuth)** and complete browser consent, then start or restart
+OpenCode. The CLI is the initial login entry;
+an unconnected LMM provider has no models to display in the TUI model picker.
 
 The consent profile is `catalog:read balance:read usage:read models:invoke`, plus
 explicitly selected account groups. PKCE S256 and a state/issuer-bound loopback
