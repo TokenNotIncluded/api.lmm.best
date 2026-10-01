@@ -55,17 +55,11 @@ function UsageTrend(props: {
   buckets: TrendBucket[]
   loading: boolean
   error: boolean
-  sensitiveVisible: boolean
   onRetry: () => void
   onSelect: (bucket: TrendBucket) => void
 }) {
   const { t } = useTranslation()
-  const maxMetric = Math.max(
-    1,
-    ...props.buckets.map((bucket) =>
-      props.sensitiveVisible ? bucket.quota : bucket.rpm
-    )
-  )
+  const maxMetric = Math.max(1, ...props.buckets.map((bucket) => bucket.quota))
 
   if (props.loading) {
     return <Skeleton className='h-16 w-full min-w-[220px] rounded-md' />
@@ -111,7 +105,7 @@ function UsageTrend(props: {
         aria-label={t('Usage trend for the selected time range')}
       >
         {props.buckets.map((bucket) => {
-          const value = props.sensitiveVisible ? bucket.quota : bucket.rpm
+          const value = bucket.quota
           const height = value > 0 ? Math.max(10, (value / maxMetric) * 100) : 4
           return (
             <button
@@ -119,8 +113,8 @@ function UsageTrend(props: {
               type='button'
               className='bg-primary/55 hover:bg-primary/80 focus-visible:ring-ring min-w-0 flex-1 rounded-t-sm transition-[height,background-color] focus-visible:ring-2 focus-visible:outline-none motion-reduce:transition-none'
               style={{ height: `${height}%` }}
-              title={`${formatBucket(bucket.start)} · ${props.sensitiveVisible ? formatLogQuota(bucket.quota) : `${bucket.rpm} RPM`}`}
-              aria-label={`${formatBucket(bucket.start)}: ${props.sensitiveVisible ? formatLogQuota(bucket.quota) : `${bucket.rpm} RPM`}`}
+              title={`${formatBucket(bucket.start)} · ${formatLogQuota(bucket.quota)}`}
+              aria-label={`${formatBucket(bucket.start)}: ${formatLogQuota(bucket.quota)}`}
               onClick={() => props.onSelect(bucket)}
             />
           )
@@ -207,6 +201,7 @@ export function CommonLogsStats() {
       return results.filter((result): result is TrendBucket => result !== null)
     },
     placeholderData: (previousData) => previousData,
+    enabled: sensitiveVisible,
   })
 
   if (isLoading) {
@@ -238,25 +233,26 @@ export function CommonLogsStats() {
           accent='console-stat-accent-neutral'
         />
       </div>
-      <UsageTrend
-        buckets={trendQuery.data ?? []}
-        loading={trendQuery.isLoading}
-        error={trendQuery.isError}
-        sensitiveVisible={sensitiveVisible}
-        onRetry={() => void trendQuery.refetch()}
-        onSelect={(bucket) => {
-          void navigate({
-            to: '/usage-logs/$section',
-            params: { section: 'common' },
-            search: (previous) => ({
-              ...previous,
-              startTime: bucket.start,
-              endTime: bucket.end,
-              page: 1,
-            }),
-          })
-        }}
-      />
+      {sensitiveVisible && (
+        <UsageTrend
+          buckets={trendQuery.data ?? []}
+          loading={trendQuery.isLoading}
+          error={trendQuery.isError}
+          onRetry={() => void trendQuery.refetch()}
+          onSelect={(bucket) => {
+            void navigate({
+              to: '/usage-logs/$section',
+              params: { section: 'common' },
+              search: (previous) => ({
+                ...previous,
+                startTime: bucket.start,
+                endTime: bucket.end,
+                page: 1,
+              }),
+            })
+          }}
+        />
+      )}
     </div>
   )
 }

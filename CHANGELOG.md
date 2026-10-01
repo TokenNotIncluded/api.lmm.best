@@ -13,6 +13,10 @@ authenticated users then see it once after their next login.
 
 <!-- Add user-facing or operational changes here before the next release. -->
 
+- Usage logs hide the historical quota trend and skip its bucket queries while
+  amounts are masked, rather than plotting live RPM as historical traffic.
+  The live RPM and TPM badges remain available.
+
 - Gemini tool conversion preserves full JSON Schema constraints through
   `parametersJsonSchema` when the legacy subset would discard them, including
   tuple items, constrained empty objects and deep schemas. Compatible schemas
