@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Activity, BarChart3, ShieldCheck, WalletCards } from 'lucide-react'
+import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { IconBadge, type IconBadgeTone } from '@/components/ui/icon-badge'
@@ -39,6 +40,7 @@ function formatDiscount(percent: number) {
 interface WalletStatsCardProps {
   user: UserWalletData | null
   loading?: boolean
+  balanceAction?: ReactNode
   success?: WalletCloudSuccess | null
   onSuccessComplete?: (orderId: number) => void
 }
@@ -152,14 +154,18 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
               item.value
             )}
           </div>
-          <div
-            className={cn(
-              'text-muted-foreground pointer-events-none relative z-10 mt-1 text-xs',
-              index > 0 && 'hidden sm:block'
-            )}
-          >
-            {item.description}
-          </div>
+          {index === 0 ? (
+            <div className='relative z-10 mt-1 flex items-end justify-between gap-4'>
+              <div className='text-muted-foreground pointer-events-none text-xs'>
+                {item.description}
+              </div>
+              {props.balanceAction}
+            </div>
+          ) : (
+            <div className='text-muted-foreground pointer-events-none relative z-10 mt-1 hidden text-xs sm:block'>
+              {item.description}
+            </div>
+          )}
         </div>
       ))}
     </div>

@@ -998,10 +998,19 @@ function WalletCheckout(props: WalletProps) {
                   loading={userLoading}
                   success={cloudSuccess}
                   onSuccessComplete={acknowledgeTopupCloud}
+                  balanceAction={
+                    user ? (
+                      <WalletTransfers
+                        userID={user.id}
+                        balance={user.quota ?? 0}
+                        onBalanceChange={refreshWalletUser}
+                      />
+                    ) : null
+                  }
                 />
               ) : null}
 
-              {user && (
+              {user && !developerAccessGranted && (
                 <WalletTransfers
                   userID={user.id}
                   balance={user.quota ?? 0}
