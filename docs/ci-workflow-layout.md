@@ -13,6 +13,7 @@ GitHub Actions 负责构建、测试、签名和发布产物；后端服务器�
 | `standalone-deployment-tests.yml` | 部署脚本改动时运行 systemd 部署测试 |
 | `lmm.yml` | `apps/lmm` CLI 与 OAuth 改动时运行 |
 | `codewhale-lmm-provider.yml`、`coweft-identity.yml` | Codewhale provider 与 OIDC 身份边界的 PR 检查 |
+| `opencode-lmm-auth.yml` | OpenCode 子仓库构建、类型检查、包检查，以及真实宿主 OAuth 和三种流式协议验收 |
 | `console-page-review.yml`、`console-navigation-review.yml`、`settings-design-review.yml`、`ui-foundation-review.yml` | 前端页面、导航、设置和 UI 基础组件的 PR 视觉/交互检查 |
 
 以上辅助工作流只按路径触发，不持有服务器凭据，也不属于发布门禁。
