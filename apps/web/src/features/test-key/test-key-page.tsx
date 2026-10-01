@@ -1,6 +1,7 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
+import { isAxiosError } from 'axios'
 import { Check, Copy, KeyRound } from 'lucide-react'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -145,7 +146,20 @@ function TestKeyForm({
           previous?.state === 'created' ? { ...previous, copied } : previous
         )
       }
-    } catch {
+    } catch (failure) {
+      if (!active()) return
+      if (
+        isAxiosError(failure) &&
+        failure.response?.status === 422 &&
+        failure.response.data?.code === 'GROUP_WARNING_CONFIRMATION_REQUIRED'
+      ) {
+        // The server rejected this request before creating a key. Refresh the
+        // warning and require another explicit confirmation and submit.
+        setConfirmations(0)
+        await groups.refetch()
+        if (active()) setError(failure.response.data.message || q('failed'))
+        return
+      }
       // A lost response may follow a successful POST. Do not silently mint a
       // second key on retry; take the user to their existing key list instead.
       if (active()) setResult({ state: 'uncertain' })

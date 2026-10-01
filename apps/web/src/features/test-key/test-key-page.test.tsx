@@ -313,6 +313,73 @@ describe('test key popup', () => {
     )
     await page.unmount()
   })
+  test('refreshes changed group warnings without retrying creation automatically', async () => {
+    const page = await mount()
+    await page.chooseGroup()
+    let postCount = 0
+    const originalFixtureGet = api.get
+    api.get = (async (url) => {
+      if (url === '/api/user/self/groups') {
+        return {
+          data: {
+            success: true,
+            data: {
+              auto: {
+                desc: 'Auto',
+                ratio: 1,
+                warning: {
+                  enabled: true,
+                  message: 'Updated billing warning.',
+                  mode: 'inline',
+                  confirmations: 2,
+                },
+              },
+            },
+          },
+        }
+      }
+      return originalFixtureGet(url)
+    }) as typeof api.get
+    api.post = (async () => {
+      postCount++
+      if (postCount === 1)
+        throw {
+          isAxiosError: true,
+          response: {
+            status: 422,
+            data: {
+              code: 'GROUP_WARNING_CONFIRMATION_REQUIRED',
+              message: 'Updated billing warning.',
+            },
+          },
+        }
+      return {
+        data: { success: true, data: { id: 123, key: 'test-fixture-secret' } },
+      }
+    }) as typeof api.post
+    await page.submit()
+    assert.equal(postCount, 1)
+    assert.ok(page.container.querySelector('form'))
+    assert.match(page.container.textContent ?? '', /Updated billing warning/)
+    assert.equal(page.container.querySelector('#test-key-secret'), null)
+    await page.submit()
+    assert.equal(postCount, 1)
+    for (let i = 0; i < 2; i++) {
+      const confirm = [...page.container.querySelectorAll('button')].find(
+        (button) => (button.textContent ?? '').includes('I understand')
+      )
+      assert.ok(confirm)
+      await act(async () => {
+        confirm.click()
+        await flush()
+      })
+      assert.equal(postCount, 1)
+    }
+    await page.submit()
+    assert.equal(postCount, 2)
+    assert.ok(page.container.querySelector('#test-key-secret'))
+    await page.unmount()
+  })
   test('does not automatically retry an ambiguous creation response', async () => {
     const page = await mount()
     api.post = (async () => {

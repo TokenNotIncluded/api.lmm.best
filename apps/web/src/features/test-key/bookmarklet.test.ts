@@ -29,7 +29,7 @@ describe('test key bookmark', () => {
     const script = buildTestKeyBookmarklet(
       'https://api.lmm.best/ignored?secret=ignored'
     )
-    assert.equal(script.startsWith('javascript:'), true)
+    assert.equal(new URL(script).protocol, 'javascript:')
     assert.equal(script.includes('secret'), false)
     assert.equal(
       vm.runInNewContext(script.slice('javascript:'.length), {
