@@ -136,14 +136,12 @@ export async function reviewAccountActionRequest(
 export async function getUsers(
   params: GetUsersParams = {}
 ): Promise<GetUsersResponse> {
-  const { p = 1, page_size = 10, trust_level, sort_by, sort_order } = params
+  const { p = 1, page_size = 10, ...filters } = params
   const res = await api.get('/api/user/', {
     params: {
       p,
       page_size,
-      trust_level,
-      sort_by,
-      sort_order,
+      ...filters,
     },
   })
   return res.data
@@ -165,6 +163,12 @@ export async function searchUsers(
     page_size = 10,
     sort_by,
     sort_order,
+    risk_min,
+    risk_max,
+    transfers,
+    usage,
+    funding,
+    checkin,
   } = params
   const queryParams = new URLSearchParams()
   queryParams.set('keyword', keyword)
@@ -178,6 +182,16 @@ export async function searchUsers(
   queryParams.set('page_size', String(page_size))
   if (sort_by) queryParams.set('sort_by', sort_by)
   if (sort_order) queryParams.set('sort_order', sort_order)
+  for (const [key, value] of Object.entries({
+    risk_min,
+    risk_max,
+    transfers,
+    usage,
+    funding,
+    checkin,
+  })) {
+    if (value !== undefined) queryParams.set(key, String(value))
+  }
   const res = await api.get(`/api/user/search?${queryParams.toString()}`)
   return res.data
 }

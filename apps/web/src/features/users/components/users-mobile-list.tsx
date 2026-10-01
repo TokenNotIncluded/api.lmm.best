@@ -47,6 +47,7 @@ import { DataTableRowActions } from './data-table-row-actions'
 import { UserAssistantHistoryDialog } from './user-assistant-history-dialog'
 import { UserAssistantReviewDialog } from './user-assistant-review-dialog'
 import { UserQuotaCell } from './user-quota-cell'
+import { UserRiskCell } from './user-risk-cell'
 import { UserTrustLevelCell } from './user-trust-level-cell'
 
 type UsersMobileListProps = {
@@ -203,6 +204,7 @@ function UserMobileRow({ row }: { row: Row<User> }) {
         </div>
         <div className='flex max-w-[42%] shrink-0 flex-wrap justify-end gap-1'>
           {getStatusBadge(user, t)}
+          <UserRiskCell user={user} />
           <UserTrustLevelCell user={user} />
         </div>
       </div>
@@ -215,7 +217,17 @@ function UserMobileRow({ row }: { row: Row<User> }) {
           <span className='truncate'>{getRoleLabel(user, t)}</span>
         </MobileMetric>
         <MobileMetric label={t('Quota')}>
-          <UserQuotaCell used={user.used_quota} remaining={user.quota} />
+          <UserQuotaCell
+            used={user.used_quota}
+            remaining={user.quota}
+            transferred={user.wallet_risk?.transferred_quota}
+          />
+          <p className='text-muted-foreground text-xs'>
+            {t('Transferred out')}:{' '}
+            {formatQuota(user.wallet_risk?.transferred_quota ?? 0)} ·{' '}
+            {t('Received transfers')}:{' '}
+            {formatQuota(user.wallet_risk?.received_quota ?? 0)}
+          </p>
         </MobileMetric>
         <MobileMetric label={t('Top-up')}>
           <div className='truncate tabular-nums'>{topupMoneyDisplay}</div>

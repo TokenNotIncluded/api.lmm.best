@@ -36,7 +36,36 @@ export const usersSearchSchema = z.object({
     .optional()
     .catch([]),
   group: z.string().optional().catch(''),
-  l0Only: z.boolean().default(true).catch(true),
+  l0Only: z.boolean().default(false).catch(false),
+  sortBy: z
+    .enum([
+      'id',
+      'username',
+      'quota',
+      'group',
+      'created_at',
+      'last_login_at',
+      'topup_quota',
+      'topup_money',
+      'assistant_violations',
+      'risk_score',
+      'transferred_quota',
+      'received_quota',
+      'checkin_quota',
+      'used_quota',
+      'request_count',
+    ])
+    .default('id')
+    .catch('id'),
+  sortOrder: z.enum(['asc', 'desc']).default('desc').catch('desc'),
+  risk: z.enum(['all', 'high', 'medium', 'low']).default('all').catch('all'),
+  transfers: z
+    .enum(['all', 'sent', 'received', 'none'])
+    .default('all')
+    .catch('all'),
+  usage: z.enum(['all', 'zero', 'consumed']).default('all').catch('all'),
+  funding: z.enum(['all', 'paid', 'unpaid']).default('all').catch('all'),
+  checkin: z.enum(['all', 'yes', 'no']).default('all').catch('all'),
 })
 
 export const Route = createFileRoute('/_authenticated/users/')({

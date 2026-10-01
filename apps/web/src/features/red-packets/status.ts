@@ -29,7 +29,3 @@ export function redPacketStatus(packet: RedPacketPublic, now: number) {
   if (packet.start_at > now) return 'Scheduled'
   return 'Live'
 }
-
-export function canDeleteRedPacket(packet: RedPacketPublic, now: number) {
-  return ['Paused', 'Ended', 'Exhausted'].includes(redPacketStatus(packet, now))
-}

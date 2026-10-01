@@ -13,3 +13,6 @@
 [submodule "apps/coweft"]
 	path = apps/coweft
 	url = https://github.com/TokenNotIncluded/coweft.git
+[submodule "packages/opencode-lmm-auth"]
+	path = packages/opencode-lmm-auth
+	url = https://github.com/TokenNotIncluded/opencode-lmm-auth.git

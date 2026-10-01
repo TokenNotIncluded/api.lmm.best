@@ -30,6 +30,7 @@ import { cn } from '@/lib/utils'
 
 type UserQuotaCellProps = {
   used: number
+  transferred?: number
   remaining: number
 }
 
@@ -41,7 +42,7 @@ function getQuotaProgressColor(percentage: number): string {
 
 export function UserQuotaCell(props: UserQuotaCellProps) {
   const { t } = useTranslation()
-  const total = props.used + props.remaining
+  const total = props.used + props.remaining + (props.transferred ?? 0)
   const percentage = total > 0 ? (props.remaining / total) * 100 : 0
   const formattedRemaining = formatQuota(props.remaining)
   const formattedTotal = formatQuota(total)
@@ -84,6 +85,9 @@ export function UserQuotaCell(props: UserQuotaCellProps) {
           </div>
           <div>
             {t('Remaining:')} {formattedRemaining}
+          </div>
+          <div>
+            {t('Transferred out')}: {formatQuota(props.transferred ?? 0)}
           </div>
           <div>
             {t('Total:')} {formattedTotal}

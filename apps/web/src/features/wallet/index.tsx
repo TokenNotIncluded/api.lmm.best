@@ -74,6 +74,7 @@ import {
   expectedSettlement,
   isSettlementQuoteChanged,
 } from './lib/settlement-quote'
+import { WalletTransfers } from './transfers/wallet-transfers'
 import type {
   UserWalletData,
   PaymentMethod,
@@ -999,6 +1000,14 @@ function WalletCheckout(props: WalletProps) {
                   onSuccessComplete={acknowledgeTopupCloud}
                 />
               ) : null}
+
+              {user && (
+                <WalletTransfers
+                  userID={user.id}
+                  balance={user.quota ?? 0}
+                  onBalanceChange={refreshWalletUser}
+                />
+              )}
 
               <div id='wallet-add-funds' className='scroll-mt-4'>
                 <RechargeFormCard

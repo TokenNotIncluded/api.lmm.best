@@ -71,6 +71,8 @@ export type DataTableToolbarProps<TData> = {
    * when no column filters are set.
    */
   hasAdditionalFilters?: boolean
+  additionalFilterCount?: number
+  additionalFilterSummary?: ReactNode
   /**
    * Callback invoked when the user clicks Reset.
    */
@@ -304,7 +306,8 @@ export function DataTableToolbar<TData>(props: DataTableToolbarProps<TData>) {
     props.table
       .getState()
       .columnFilters.filter((filter) => filter.id !== props.searchKey).length +
-    (props.hasAdditionalFilters || props.hasExpandedActiveFilters ? 1 : 0)
+    (props.additionalFilterCount ??
+      (props.hasAdditionalFilters || props.hasExpandedActiveFilters ? 1 : 0))
   const expandToggle = hasExpandable ? (
     <Button
       type='button'
@@ -344,6 +347,7 @@ export function DataTableToolbar<TData>(props: DataTableToolbarProps<TData>) {
         filters={filters}
         onRemove={() => filterToggleRef.current?.focus()}
       />
+      {props.additionalFilterSummary}
       {hasExpandable && (
         <div
           id={filterPanelId}
