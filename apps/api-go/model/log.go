@@ -656,21 +656,24 @@ type Stat struct {
 	Tpm   int `json:"tpm"`
 }
 
-func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string) (stat Stat, err error) {
-	return sumUsedQuota(logType, startTimestamp, endTimestamp, modelName, username, 0, tokenName, channel, group)
+// SumUsedQuota returns quota and current rate statistics. Optional request IDs
+// constrain both aggregates and preserve the legacy call shape for callers
+// that do not need request filtering.
+func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string, requestIDs ...string) (stat Stat, err error) {
+	return sumUsedQuota(logType, startTimestamp, endTimestamp, modelName, username, 0, tokenName, channel, group, requestIDs...)
 }
 
 // SumUsedQuotaByUserID keeps self-service statistics tied to the authenticated
 // account. Usernames are mutable, while log.user_id is the stable ownership
 // boundary used by the self log listing endpoint.
-func SumUsedQuotaByUserID(logType int, startTimestamp int64, endTimestamp int64, modelName string, userID int, tokenName string, channel int, group string) (stat Stat, err error) {
+func SumUsedQuotaByUserID(logType int, startTimestamp int64, endTimestamp int64, modelName string, userID int, tokenName string, channel int, group string, requestIDs ...string) (stat Stat, err error) {
 	if userID <= 0 {
 		return Stat{}, errors.New("invalid user id")
 	}
-	return sumUsedQuota(logType, startTimestamp, endTimestamp, modelName, "", userID, tokenName, channel, group)
+	return sumUsedQuota(logType, startTimestamp, endTimestamp, modelName, "", userID, tokenName, channel, group, requestIDs...)
 }
 
-func sumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, userID int, tokenName string, channel int, group string) (stat Stat, err error) {
+func sumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, userID int, tokenName string, channel int, group string, requestIDs ...string) (stat Stat, err error) {
 	tx := LOG_DB.Table("logs").Select("COALESCE(sum(quota), 0) quota")
 
 	// 为rpm和tpm创建单独的查询
@@ -709,6 +712,14 @@ func sumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 	if group != "" {
 		tx = tx.Where(logGroupCol+" = ?", group)
 		rpmTpmQuery = rpmTpmQuery.Where(logGroupCol+" = ?", group)
+	}
+	if len(requestIDs) > 0 && requestIDs[0] != "" {
+		tx = tx.Where("request_id = ?", requestIDs[0])
+		rpmTpmQuery = rpmTpmQuery.Where("request_id = ?", requestIDs[0])
+	}
+	if len(requestIDs) > 1 && requestIDs[1] != "" {
+		tx = tx.Where("upstream_request_id = ?", requestIDs[1])
+		rpmTpmQuery = rpmTpmQuery.Where("upstream_request_id = ?", requestIDs[1])
 	}
 
 	tx = tx.Where("type = ?", LogTypeConsume)

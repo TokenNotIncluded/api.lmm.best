@@ -2,6 +2,7 @@ package model
 
 import (
 	"testing"
+	"time"
 
 	"github.com/glebarez/sqlite"
 	"github.com/google/uuid"
@@ -17,13 +18,15 @@ func TestSumUsedQuotaByUserIDSurvivesUsernameChange(t *testing.T) {
 	t.Cleanup(func() { LOG_DB = previous })
 	require.NoError(t, db.AutoMigrate(&Log{}))
 	require.NoError(t, db.Create(&Log{
-		UserId: 42, Username: "old-name", Type: LogTypeConsume,
+		CreatedAt: time.Now().Unix(), UserId: 42, Username: "old-name", Type: LogTypeConsume,
 		Quota: 123, PromptTokens: 10, CompletionTokens: 5,
 	}).Error)
 
 	stat, err := SumUsedQuotaByUserID(LogTypeUnknown, 0, 0, "", 42, "", 0, "")
 	require.NoError(t, err)
 	require.Equal(t, 123, stat.Quota)
+	require.Equal(t, 1, stat.Rpm)
+	require.Equal(t, 15, stat.Tpm)
 	stat, err = SumUsedQuotaByUserID(LogTypeUnknown, 0, 0, "", 43, "", 0, "")
 	require.NoError(t, err)
 	require.Zero(t, stat.Quota)
