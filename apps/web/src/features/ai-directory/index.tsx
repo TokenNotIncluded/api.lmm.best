@@ -15,6 +15,7 @@ import { ErrorState } from '@/components/error-state'
 import { SectionPageLayout } from '@/components/layout/components/section-page-layout'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { BookmarkletInstall } from '@/features/test-key/bookmarklet-install'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
@@ -189,6 +190,7 @@ export function AIDirectory() {
             </div>
           </div>
 
+          <BookmarkletInstall compact />
           <SponsoredDirectorySection />
 
           <div className='ai-directory-tools'>
