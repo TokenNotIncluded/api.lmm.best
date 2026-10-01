@@ -27,10 +27,9 @@ import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { ForgePublicShell } from '@/features/forge/forge-public-shell'
-import { formatQuota } from '@/lib/format'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { claimTransfer, inspectTransfer } from './api'
+import { claimTransfer, inspectTransfer, formatTransferQuota } from './api'
 
 const pendingTransferKey = 'wallet-transfer-login'
 export function ClaimTransfer() {
@@ -98,7 +97,9 @@ export function ClaimTransfer() {
           </>
         ) : data ? (
           <>
-            <p className='text-3xl font-semibold'>{formatQuota(data.quota)}</p>
+            <p className='text-3xl font-semibold'>
+              {formatTransferQuota(data.quota)}
+            </p>
             <p>
               {t('Created at')}:{' '}
               {new Date(data.created_at * 1000).toLocaleString()}

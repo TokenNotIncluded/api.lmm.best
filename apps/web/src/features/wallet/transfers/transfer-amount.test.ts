@@ -22,9 +22,13 @@ Copyright (C) 2026 LIghtJUNction
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
-import { transferQuota } from './api'
+import { transferQuota, formatTransferQuota } from './api'
 
 describe('wallet transfer amount conversion', () => {
+  test('shows exact amounts without compact rounding', () => {
+    assert.match(formatTransferQuota(625000), /1[.,]25/)
+    assert.match(formatTransferQuota(1), /0[.,]000002/)
+  })
   test('keeps exact platform credit units', () => {
     assert.equal(transferQuota('1.25', 500000), 625000)
     assert.equal(transferQuota('0.000002', 500000), 1)

@@ -20,6 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 Copyright (C) 2026 LIghtJUNction
 */
 import { api } from '@/lib/api'
+import { formatQuotaWithCurrency } from '@/lib/currency'
 
 export interface WalletTransfer {
   id: number
@@ -107,3 +108,11 @@ export function transferQuota(
     ? quota
     : null
 }
+
+export const formatTransferQuota = (quota: number) =>
+  formatQuotaWithCurrency(quota, {
+    digitsLarge: 12,
+    digitsSmall: 12,
+    abbreviate: false,
+    compact: false,
+  })

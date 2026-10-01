@@ -41,13 +41,13 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { formatQuota } from '@/lib/format'
 import {
   useSystemConfigStore,
   DEFAULT_CURRENCY_CONFIG,
 } from '@/stores/system-config-store'
 
 import {
+  formatTransferQuota,
   cancelTransfer,
   createTransfer,
   listTransfers,
@@ -116,6 +116,14 @@ export function TransferShare({ transfer }: { transfer: WalletTransfer }) {
   }
   return (
     <div className='grid justify-items-center gap-3 rounded-lg border p-4'>
+      <p className='text-sm font-medium'>
+        {formatTransferQuota(transfer.quota)} ·{' '}
+        {transfer.status === 'claimed'
+          ? t('Claimed')
+          : transfer.status === 'cancelled'
+            ? t('Cancelled')
+            : t('Awaiting claim')}
+      </p>
       <p className='text-destructive text-sm font-medium'>
         {t('Do not share this link publicly.')}
       </p>
@@ -235,7 +243,7 @@ export function WalletTransfers({
             </DialogDescription>
           </DialogHeader>
           <p className='text-sm'>
-            {t('Current Balance')}: {formatQuota(balance)}
+            {t('Current Balance')}: {formatTransferQuota(balance)}
           </p>
           <form
             onSubmit={(event) => {
@@ -277,11 +285,15 @@ export function WalletTransfers({
               </Button>
             </FieldGroup>
           </form>
-          {share &&
-            (
-              history.data?.pages.flat().find((item) => item.id === share.id) ??
-              share
-            ).status === 'pending' && <TransferShare transfer={share} />}
+          {share && (
+            <TransferShare
+              transfer={
+                history.data?.pages
+                  .flat()
+                  .find((item) => item.id === share.id) ?? share
+              }
+            />
+          )}
           <div className='flex items-center justify-between gap-2'>
             <h3 className='font-medium'>{t('Transfer history')}</h3>
             <Button
@@ -312,7 +324,7 @@ export function WalletTransfers({
                 className='grid gap-2 rounded-lg border p-3 text-sm'
               >
                 <div className='flex justify-between gap-3'>
-                  <strong>{formatQuota(transfer.quota)}</strong>
+                  <strong>{formatTransferQuota(transfer.quota)}</strong>
                   <span>{status(transfer.status)}</span>
                 </div>
                 <p>
@@ -336,15 +348,16 @@ export function WalletTransfers({
                     {t('Cancelled at')}: {date(transfer.cancelled_at)}
                   </p>
                 )}
-                {transfer.status === 'pending' && (
-                  <div className='flex flex-wrap gap-2'>
-                    <Button
-                      variant='outline'
-                      size='sm'
-                      onClick={() => setShare(transfer)}
-                    >
-                      {t('Link and QR code')}
-                    </Button>
+
+                <div className='flex flex-wrap gap-2'>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    onClick={() => setShare(transfer)}
+                  >
+                    {t('Link and QR code')}
+                  </Button>
+                  {transfer.status === 'pending' && (
                     <Button
                       variant='ghost'
                       size='sm'
@@ -363,8 +376,8 @@ export function WalletTransfers({
                     >
                       {t('Cancel transfer')}
                     </Button>
-                  </div>
-                )}
+                  )}
+                </div>
               </article>
             ))}
           </div>
