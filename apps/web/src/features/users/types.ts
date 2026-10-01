@@ -79,6 +79,20 @@ export const userSchema = z.object({
       updated_at: z.number(),
     })
     .optional(),
+  wallet_risk: z
+    .object({
+      score: z.number(),
+      high_risk: z.boolean(),
+      version: z.number(),
+      reasons: z.array(z.string()),
+      checkin_quota: z.number(),
+      checkin_count: z.number(),
+      transferred_quota: z.number(),
+      pending_quota: z.number(),
+      received_quota: z.number(),
+      high_risk_senders: z.number(),
+    })
+    .optional(),
   topup_summary: z
     .object({
       quota: z.number(),
@@ -123,10 +137,25 @@ export type UserSortBy =
   | 'topup_quota'
   | 'topup_money'
   | 'assistant_violations'
+  | 'risk_score'
+  | 'transferred_quota'
+  | 'received_quota'
+  | 'checkin_quota'
+  | 'used_quota'
+  | 'request_count'
 
 export type UserSortOrder = 'asc' | 'desc'
 
-export interface GetUsersParams {
+export interface UserActivityFilters {
+  risk_min?: number
+  risk_max?: number
+  transfers?: 'sent' | 'received' | 'none'
+  usage?: 'zero' | 'consumed'
+  funding?: 'paid' | 'unpaid'
+  checkin?: 'yes' | 'no'
+}
+
+export interface GetUsersParams extends UserActivityFilters {
   p?: number
   page_size?: number
   trust_level?: number
@@ -145,7 +174,7 @@ export interface GetUsersResponse {
   }
 }
 
-export interface SearchUsersParams {
+export interface SearchUsersParams extends UserActivityFilters {
   keyword?: string
   group?: string
   role?: string

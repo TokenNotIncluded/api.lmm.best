@@ -25,12 +25,18 @@ type userSortColumn struct {
 }
 
 var userSortColumns = map[string]userSortColumn{
-	"id":            {name: "id"},
-	"username":      {name: "username"},
-	"quota":         {name: "quota"},
-	"group":         {name: "group"},
-	"created_at":    {name: "created_at"},
-	"last_login_at": {name: "last_login_at"},
+	"id":                {name: "id"},
+	"username":          {name: "username"},
+	"quota":             {name: "quota"},
+	"used_quota":        {name: "used_quota"},
+	"request_count":     {name: "request_count"},
+	"risk_score":        {name: "risk_score", expression: userWalletRiskScoreSQL},
+	"transferred_quota": {name: "transferred_quota", expression: "user_wallet_risk_base.transferred_quota"},
+	"received_quota":    {name: "received_quota", expression: "user_wallet_risk_base.received_quota"},
+	"checkin_quota":     {name: "checkin_quota", expression: "user_wallet_risk_base.checkin_quota"},
+	"group":             {name: "group"},
+	"created_at":        {name: "created_at"},
+	"last_login_at":     {name: "last_login_at"},
 	"topup_quota": {
 		name:       "topup_quota",
 		expression: "COALESCE(user_topup_totals.credited_quota, 0)",
@@ -48,6 +54,7 @@ var userSortColumns = map[string]userSortColumn{
 type UserSortOptions struct {
 	SortBy    string
 	SortOrder string
+	Filters   UserListFilters
 }
 
 func NewUserSortOptions(sortBy string, sortOrder string) UserSortOptions {
@@ -77,14 +84,14 @@ func (options UserSortOptions) Apply(query *gorm.DB) *gorm.DB {
 		if options.SortOrder != "asc" {
 			direction = "DESC"
 		}
-		q = query.Order(clause.Expr{SQL: column.expression + " " + direction})
+		q = query.Order(column.expression + " " + direction + ", users.id DESC")
 	} else {
 		q = query.Order(clause.OrderByColumn{
 			Column: clause.Column{Name: column.name},
 			Desc:   options.SortOrder != "asc",
 		})
 	}
-	if column.name != "id" {
+	if column.name != "id" && column.expression == "" {
 		q = q.Order(clause.OrderByColumn{
 			Column: clause.Column{Name: "id"},
 			Desc:   true,
@@ -260,6 +267,7 @@ func PopulateUserTopupsContext(ctx context.Context, users []*User) error {
 // User if you add sensitive fields, don't forget to clean them in setupLogin function.
 // Otherwise, the sensitive information will be saved on local storage in plain text!
 type User struct {
+	WalletRisk                    *UserWalletRisk `json:"wallet_risk,omitempty" gorm:"-:all"`
 	Id                            int             `json:"id"`
 	Username                      string          `json:"username" gorm:"unique;index" validate:"max=20"`
 	Password                      string          `json:"password" gorm:"not null;" validate:"min=8,max=20"`
@@ -648,6 +656,10 @@ func GetAllUsersContext(ctx context.Context, pageInfo *common.PageInfo, onlyL0 b
 	if assistantReviewTablesAvailable(tx) {
 		query = joinAssistantReviewViolationTotals(tx, query)
 	}
+	if resolveUserSortOptions(sortOptions).needsWalletRisk() {
+		query = joinUserWalletRisk(tx, query)
+	}
+	query = resolveUserSortOptions(sortOptions).Filters.Apply(query)
 	if onlyL0 {
 		query = applyL0UserFilter(tx, query)
 	}
@@ -704,6 +716,10 @@ func SearchUsersContext(ctx context.Context, keyword string, group string, role 
 	if assistantReviewTablesAvailable(tx) {
 		query = joinAssistantReviewViolationTotals(tx, query)
 	}
+	if resolveUserSortOptions(sortOptions).needsWalletRisk() {
+		query = joinUserWalletRisk(tx, query)
+	}
+	query = resolveUserSortOptions(sortOptions).Filters.Apply(query)
 	if onlyL0 {
 		query = applyL0UserFilter(tx, query)
 	}

@@ -22,8 +22,31 @@ import { describe, test } from 'node:test'
 import { usersSearchSchema } from './index'
 
 describe('user management search state', () => {
-  test('enables the L0-only filter by default', () => {
-    assert.equal(usersSearchSchema.parse({}).l0Only, true)
+  test('preserves sorting and activity filters across URL round trips', () => {
+    const state = {
+      sortBy: 'risk_score',
+      sortOrder: 'desc',
+      risk: 'high',
+      transfers: 'sent',
+      usage: 'zero',
+      funding: 'unpaid',
+      checkin: 'yes',
+      page: 2,
+    }
+    const parsed = usersSearchSchema.parse(state)
+    assert.equal(parsed.sortBy, 'risk_score')
+    assert.equal(parsed.transfers, 'sent')
+    assert.deepEqual(
+      usersSearchSchema.parse(JSON.parse(JSON.stringify(parsed))),
+      parsed
+    )
+    assert.equal(
+      usersSearchSchema.parse({ sortBy: 'invalid', risk: 'invalid' }).risk,
+      'all'
+    )
+  })
+  test('shows all trust levels by default', () => {
+    assert.equal(usersSearchSchema.parse({}).l0Only, false)
   })
 
   test('preserves an explicitly disabled L0-only filter', () => {

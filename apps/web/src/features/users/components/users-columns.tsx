@@ -44,6 +44,7 @@ import { DataTableRowActions } from './data-table-row-actions'
 import { UserAssistantHistoryDialog } from './user-assistant-history-dialog'
 import { UserAssistantReviewDialog } from './user-assistant-review-dialog'
 import { UserQuotaCell } from './user-quota-cell'
+import { UserRiskCell } from './user-risk-cell'
 import { UserTrustLevelCell } from './user-trust-level-cell'
 
 function resolveTopupCurrency(
@@ -195,6 +196,29 @@ export function useUsersColumns(): ColumnDef<User>[] {
       meta: { mobileTitle: true },
     },
     {
+      id: 'risk_score',
+      accessorFn: (row) => row.wallet_risk?.score ?? 0,
+      header: t('Risk score'),
+      cell: ({ row }) => <UserRiskCell user={row.original} />,
+      size: 180,
+    },
+    {
+      id: 'transferred_quota',
+      accessorFn: (row) => row.wallet_risk?.transferred_quota ?? 0,
+      header: t('Transferred out'),
+      cell: ({ row }) =>
+        formatQuota(row.original.wallet_risk?.transferred_quota ?? 0),
+      size: 170,
+    },
+    {
+      id: 'received_quota',
+      accessorFn: (row) => row.wallet_risk?.received_quota ?? 0,
+      header: t('Received transfers'),
+      cell: ({ row }) =>
+        formatQuota(row.original.wallet_risk?.received_quota ?? 0),
+      size: 170,
+    },
+    {
       accessorKey: 'email',
       header: t('Email'),
       cell: ({ row }) => {
@@ -255,7 +279,13 @@ export function useUsersColumns(): ColumnDef<User>[] {
       header: t('Quota'),
       cell: ({ row }) => {
         const user = row.original
-        return <UserQuotaCell used={user.used_quota} remaining={user.quota} />
+        return (
+          <UserQuotaCell
+            used={user.used_quota}
+            remaining={user.quota}
+            transferred={user.wallet_risk?.transferred_quota}
+          />
+        )
       },
       size: 300,
       minSize: 260,
@@ -311,7 +341,6 @@ export function useUsersColumns(): ColumnDef<User>[] {
       id: 'topup_money',
       accessorFn: (row) => row.topup_summary?.money_micros ?? 0,
       header: t('Top-up amount'),
-      enableSorting: false,
       cell: ({ row }) => {
         const summary = row.original.topup_summary
         const methods = summary?.methods ?? []
