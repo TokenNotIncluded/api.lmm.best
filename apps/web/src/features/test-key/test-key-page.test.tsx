@@ -80,6 +80,7 @@ after(() => dom.close())
 async function mount(
   options: {
     anonymous?: boolean
+    checking?: boolean
     inactive?: boolean
     warning?: number
     component?: typeof TestKeyPage
@@ -92,6 +93,9 @@ async function mount(
         ? null
         : { ...user, developer_access_granted: !options.inactive }
     )
+  if (options.checking) {
+    useAuthStore.getState().auth.setBootstrapState('checking')
+  }
   const posts: unknown[] = []
   api.get = (async (url) => {
     if (url === '/api/user/self/groups') {
@@ -203,6 +207,20 @@ async function mount(
 }
 
 describe('test key popup', () => {
+  test('shows pending authentication before offering sign-in and never creates a key automatically', async () => {
+    const page = await mount({ anonymous: true, checking: true })
+    assert.ok(page.container.querySelector('[role="status"]'))
+    assert.equal(page.container.querySelector('a[href*="sign-in"]'), null)
+    assert.equal(page.container.querySelector('form'), null)
+    assert.equal(page.posts.length, 0)
+    await act(async () => {
+      useAuthStore.getState().auth.reset('complete')
+      await flush()
+    })
+    assert.ok(page.container.querySelector('a[href*="sign-in"]'))
+    assert.equal(page.posts.length, 0)
+    await page.unmount()
+  })
   test('does not create on navigation, requires login and preserves the destination', async () => {
     const page = await mount({ anonymous: true })
     assert.equal(page.posts.length, 0)
