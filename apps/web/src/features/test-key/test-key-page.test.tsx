@@ -342,7 +342,7 @@ describe('test key popup', () => {
     }) as typeof api.get
     api.post = (async () => {
       postCount++
-      if (postCount === 1)
+      if (postCount === 1) {
         throw {
           isAxiosError: true,
           response: {
