@@ -11,9 +11,10 @@ newer. OpenCode 1.18.34 is a regression baseline, not an installation version lo
 Install through
 the OpenCode entry in the [public scripts page](https://api.lmm.best/scripts), or
 use `opencode.sh` / `opencode.ps1` from `packages/lmm-scripts`. The installer
-installs the host and a checksum-verified, commit-pinned plugin, preserves existing
+installs the host and the latest published, checksum-verified plugin, preserves existing
 configuration and other plugins, and backs up configuration before changing it.
-It does not sign in automatically. Restart OpenCode, run `opencode auth login`,
+Rerunning the installer updates the managed plugin entry. It does not sign in
+automatically. Restart OpenCode, run `opencode auth login`,
 and select **LMM → Sign in with LMM (OAuth)**.
 
 The consent profile is `catalog:read balance:read usage:read models:invoke`, plus
