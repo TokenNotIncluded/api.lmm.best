@@ -21,9 +21,11 @@ import (
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
 	"github.com/LIghtJUNction/api.lmm.best/relay/helper"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
+	"github.com/LIghtJUNction/api.lmm.best/relaykit/relayconvert"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/types"
 	"github.com/LIghtJUNction/api.lmm.best/service"
 	"github.com/LIghtJUNction/api.lmm.best/setting"
+	"github.com/LIghtJUNction/api.lmm.best/setting/model_setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
@@ -527,6 +529,11 @@ func buildResponsesWSCreatePayload(c *gin.Context, relayInfo *relaycommon.RelayI
 	request, err := common.DeepCopy(&req)
 	if err != nil {
 		return nil, types.NewError(fmt.Errorf("failed to copy responses request: %w", err), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+	}
+	if !model_setting.GetGlobalSettings().PassThroughRequestEnabled && !relayInfo.ChannelSetting.PassThroughBodyEnabled {
+		if err := relayconvert.SanitizeToolSchemas(request); err != nil {
+			return nil, types.NewError(err, types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+		}
 	}
 	if err := helper.ModelMappedHelper(c, relayInfo, request); err != nil {
 		return nil, types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
