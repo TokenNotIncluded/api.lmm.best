@@ -728,3 +728,126 @@ async fn postgres_registration_respects_visit_time_boundaries() {
         fixture.cleanup().await;
     }
 }
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL via LMM_TEST_DATABASE_URL"]
+async fn postgres_visit_consent_and_owner_boundaries_are_atomic() {
+    let fixture = PgFixture::new().await;
+    let visitor = "f".repeat(64);
+
+    let missing_consent = fixture
+        .store
+        .observe(
+            &visitor,
+            7,
+            &input(json!({
+                "consent":true,
+                "consent_version":2,
+                "nonce":"88888888888888888888888888888888",
+                "landing":"/guide",
+                "source":"documentation"
+            })),
+            &["api.lmm.best"],
+        )
+        .await;
+    assert!(matches!(missing_consent, Err(Error::Invalid(_))));
+    let empty: (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT COUNT(*) FROM acquisition_visitors),\
+                (SELECT COUNT(*) FROM acquisition_visits)",
+    )
+    .fetch_one(&fixture.pg)
+    .await
+    .unwrap();
+    assert_eq!(
+        empty,
+        (0, 0),
+        "rejected consent must not persist partial rows"
+    );
+
+    let legacy = fixture
+        .store
+        .observe(
+            &visitor,
+            7,
+            &input(json!({
+                "consent":true,
+                "consent_version":1,
+                "nonce":"99999999999999999999999999999999",
+                "landing":"/guide",
+                "source":"documentation"
+            })),
+            &["api.lmm.best"],
+        )
+        .await
+        .unwrap();
+    assert_eq!(legacy.consent_version, 1);
+
+    sqlx::query("INSERT INTO users VALUES(8,1700000000,NULL)")
+        .execute(&fixture.pg)
+        .await
+        .unwrap();
+    fixture.store.grant(8).await.unwrap();
+    let foreign_owner = fixture
+        .store
+        .observe(
+            &visitor,
+            8,
+            &input(json!({
+                "consent":true,
+                "consent_version":2,
+                "nonce":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "landing":"/pricing",
+                "source":"community"
+            })),
+            &["api.lmm.best"],
+        )
+        .await;
+    assert!(matches!(foreign_owner, Err(Error::Invalid(_))));
+
+    let state: (i64, i64, i64) = sqlx::query_as(
+        "SELECT (SELECT user_id FROM acquisition_visitors WHERE id=$1),\
+                (SELECT COUNT(*) FROM acquisition_visits WHERE visitor_id=$1),\
+                (SELECT COUNT(*) FROM acquisition_visits \
+                    WHERE visitor_id=$1 AND nonce='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')",
+    )
+    .bind(&visitor)
+    .fetch_one(&fixture.pg)
+    .await
+    .unwrap();
+    assert_eq!(
+        state,
+        (7, 1, 0),
+        "owner conflict must roll back every write"
+    );
+
+    fixture.store.grant(7).await.unwrap();
+    let upgraded = fixture
+        .store
+        .observe(
+            &visitor,
+            7,
+            &input(json!({
+                "consent":true,
+                "consent_version":2,
+                "nonce":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "landing":"/pricing",
+                "source":"community"
+            })),
+            &["api.lmm.best"],
+        )
+        .await
+        .unwrap();
+    assert_eq!(upgraded.consent_version, 2);
+    let final_state: (i64, i64, bool, i64) = sqlx::query_as(
+        "SELECT (SELECT user_id FROM acquisition_visitors WHERE id=$1),\
+                (SELECT COUNT(*) FROM acquisition_visits WHERE visitor_id=$1),\
+                (SELECT allowed FROM acquisition_consents WHERE user_id=7),\
+                (SELECT version FROM acquisition_consents WHERE user_id=7)",
+    )
+    .bind(&visitor)
+    .fetch_one(&fixture.pg)
+    .await
+    .unwrap();
+    assert_eq!(final_state, (7, 2, true, 2));
+    fixture.cleanup().await;
+}
