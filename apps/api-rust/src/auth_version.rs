@@ -11,7 +11,7 @@ mod tests {
     fn marker_is_valid_header_value() {
         let value = axum::http::HeaderValue::from_str(AUTH_VERSION).unwrap();
         assert_eq!(value.to_str().unwrap(), AUTH_VERSION);
-        assert!(!AUTH_VERSION.is_empty());
+        assert!(!value.as_bytes().is_empty());
         assert_eq!(AUTH_VERSION.trim(), AUTH_VERSION);
     }
 }
