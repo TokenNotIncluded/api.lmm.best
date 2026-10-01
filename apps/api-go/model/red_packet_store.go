@@ -151,21 +151,14 @@ func DeleteRedPacket(packetID int) error {
 			}
 			return err
 		}
-		var claimed, claims, remaining int64
+		var claimed, claims int64
 		if err := tx.Model(&RedPacketItem{}).Where("packet_id = ? AND claimed_by <> 0", packetID).Count(&claimed).Error; err != nil {
 			return err
 		}
 		if err := tx.Model(&RedPacketClaim{}).Where("packet_id = ?", packetID).Count(&claims).Error; err != nil {
 			return err
 		}
-		if err := tx.Model(&RedPacketItem{}).Where("packet_id = ? AND claimed_by = 0", packetID).Count(&remaining).Error; err != nil {
-			return err
-		}
 		hasHistory := claimed > 0 || claims > 0
-		expired := packet.EndAt > 0 && common.GetTimestamp() >= packet.EndAt
-		if hasHistory && packet.Enabled && !expired && remaining > 0 {
-			return errors.New("已有领取记录且仍在进行的红包不可删除，请先停用")
-		}
 		// Release unused inventory bindings, not the underlying redemption/discount
 		// codes. Claimed bindings and their uniqueness constraints remain intact.
 		if err := tx.Where("packet_id = ? AND claimed_by = 0", packetID).

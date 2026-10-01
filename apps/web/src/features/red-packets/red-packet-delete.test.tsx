@@ -100,6 +100,13 @@ async function renderPackets() {
       remaining_items: 0,
       claim_count: 7,
     },
+    {
+      ...packet,
+      id: 3,
+      slug: 'scheduled',
+      title: 'Scheduled packet',
+      start_at: Math.floor(Date.now() / 1000) + 3600,
+    },
   ]
   api.get = (async (url: string) => ({
     data: {
@@ -137,7 +144,7 @@ async function renderPackets() {
   return {
     element,
     remove: () => {
-      packets = [packet]
+      packets = packets.filter((item) => item.id !== 1)
     },
   }
 }
@@ -149,26 +156,35 @@ function button(text: string, parent: ParentNode = document) {
   return found
 }
 
-test('exhausted packets can be deleted with confirmation; active packets have no delete action', async () => {
+test('live partially claimed packets can be deleted with confirmation', async () => {
   const { element, remove } = await renderPackets()
   assert.ok(
     element.querySelector('[data-packet-id="1"]')?.textContent?.includes('Live')
   )
-  assert.equal(
+  assert.ok(
     element.querySelector(
       '[data-packet-id="1"] button[aria-label="Delete red packet"]'
-    ),
-    null
+    )
   )
   assert.ok(
     element
       .querySelector('[data-packet-id="2"]')
       ?.textContent?.includes('Fully claimed')
   )
+  assert.ok(
+    element.querySelector(
+      '[data-packet-id="2"] button[aria-label="Delete red packet"]'
+    )
+  )
+  assert.ok(
+    element.querySelector(
+      '[data-packet-id="3"] button[aria-label="Delete red packet"]'
+    )
+  )
   let calls = 0
   let resolve!: (response: { data: { success: boolean } }) => void
   api.delete = ((url: string) => {
-    assert.equal(url, '/api/red-packet/admin/2')
+    assert.equal(url, '/api/red-packet/admin/1')
     calls++
     return new Promise<{ data: { success: boolean } }>((accept) => {
       resolve = accept
@@ -196,8 +212,8 @@ test('exhausted packets can be deleted with confirmation; active packets have no
   await act(async () => {
     await new Promise((accept) => setTimeout(accept, 25))
   })
-  assert.equal(element.querySelector('[data-packet-id="2"]'), null)
-  assert.ok(element.querySelector('[data-packet-id="1"]'))
+  assert.equal(element.querySelector('[data-packet-id="1"]'), null)
+  assert.ok(element.querySelector('[data-packet-id="2"]'))
   assert.equal(document.querySelector('[role="alertdialog"]'), null)
 })
 
@@ -214,7 +230,7 @@ for (const failure of ['business', 'network']) {
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20))
     })
-    assert.ok(element.querySelector('[data-packet-id="2"]'))
+    assert.ok(element.querySelector('[data-packet-id="1"]'))
     assert.ok(document.querySelector('[role="alertdialog"]'))
     assert.equal(button('Delete', dialog).disabled, false)
   })

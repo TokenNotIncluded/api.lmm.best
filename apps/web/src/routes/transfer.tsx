@@ -19,13 +19,8 @@ For commercial licensing, please contact support@quantumnous.com
 /*
 Copyright (C) 2026 LIghtJUNction
 */
-import type { RedPacketPublic } from './types'
+import { createFileRoute } from '@tanstack/react-router'
 
-/** Use state identifiers, not translated text, for action eligibility. */
-export function redPacketStatus(packet: RedPacketPublic, now: number) {
-  if (!packet.enabled) return 'Paused'
-  if (packet.end_at > 0 && packet.end_at <= now) return 'Ended'
-  if (packet.remaining_items <= 0) return 'Exhausted'
-  if (packet.start_at > now) return 'Scheduled'
-  return 'Live'
-}
+import { ClaimTransfer } from '@/features/wallet/transfers/claim-transfer'
+
+export const Route = createFileRoute('/transfer')({ component: ClaimTransfer })

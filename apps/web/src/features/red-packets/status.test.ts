@@ -9,7 +9,7 @@ License, or (at your option) any later version.
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { canDeleteRedPacket, redPacketStatus } from './status'
+import { redPacketStatus } from './status'
 import type { RedPacketPublic } from './types'
 
 const now = 1_800_000_000
@@ -28,19 +28,18 @@ const packet: RedPacketPublic = {
   claim_count: 5,
 }
 
-test('only paused, expired, or exhausted cards offer deletion', () => {
-  const cases: Array<[Partial<RedPacketPublic>, string, boolean]> = [
-    [{}, 'Live', false],
-    [{ start_at: now + 10 }, 'Scheduled', false],
-    [{ start_at: now }, 'Live', false],
-    [{ end_at: now + 1 }, 'Live', false],
-    [{ end_at: now }, 'Ended', true],
-    [{ end_at: now - 1 }, 'Ended', true],
-    [{ enabled: false }, 'Paused', true],
-    [{ total_items: 7, remaining_items: 0, claim_count: 7 }, 'Exhausted', true],
+test('packet status identifies live, scheduled, paused, expired and exhausted packets', () => {
+  const cases: Array<[Partial<RedPacketPublic>, string]> = [
+    [{}, 'Live'],
+    [{ start_at: now + 10 }, 'Scheduled'],
+    [{ start_at: now }, 'Live'],
+    [{ end_at: now + 1 }, 'Live'],
+    [{ end_at: now }, 'Ended'],
+    [{ end_at: now - 1 }, 'Ended'],
+    [{ enabled: false }, 'Paused'],
+    [{ total_items: 7, remaining_items: 0, claim_count: 7 }, 'Exhausted'],
   ]
-  for (const [patch, status, removable] of cases) {
+  for (const [patch, status] of cases) {
     assert.equal(redPacketStatus({ ...packet, ...patch }, now), status)
-    assert.equal(canDeleteRedPacket({ ...packet, ...patch }, now), removable)
   }
 })

@@ -8,7 +8,7 @@ import (
 )
 
 func TestDeleteRedPacketPreservesClaimAndSourceContracts(t *testing.T) {
-	for _, state := range []string{"unclaimed", "exhausted", "expired", "paused", "live"} {
+	for _, state := range []string{"unclaimed", "scheduled", "exhausted", "expired", "paused", "live"} {
 		t.Run(state, func(t *testing.T) {
 			previousType := common.MainDatabaseType()
 			common.SetMainDatabaseType(common.DatabaseTypeSQLite)
@@ -25,9 +25,9 @@ func TestDeleteRedPacketPreservesClaimAndSourceContracts(t *testing.T) {
 			if state == "exhausted" {
 				inputs = inputs[:1]
 			}
-			packet := RedPacket{Title: "packet", Enabled: true, CreatedBy: 1}
+			packet := RedPacket{Title: "packet", DrawMode: RedPacketDrawSequence, Enabled: true, CreatedBy: 1}
 			require.NoError(t, CreateRedPacket(&packet, inputs))
-			hasHistory := state != "unclaimed"
+			hasHistory := state != "unclaimed" && state != "scheduled"
 			if hasHistory {
 				_, err := ClaimRedPacket(packet.Slug, 42)
 				require.NoError(t, err)
@@ -39,13 +39,8 @@ func TestDeleteRedPacketPreservesClaimAndSourceContracts(t *testing.T) {
 			if state == "paused" {
 				require.NoError(t, db.Model(&packet).Update("enabled", false).Error)
 			}
-			if state == "live" {
-				require.ErrorContains(t, DeleteRedPacket(packet.Id), "仍在进行")
-				packets, err := ListRedPackets()
-				require.NoError(t, err)
-				require.Len(t, packets, 1)
-				require.EqualValues(t, 1, packets[0].RemainingItems)
-				return
+			if state == "scheduled" {
+				require.NoError(t, db.Model(&packet).Update("start_at", common.GetTimestamp()+3600).Error)
 			}
 			require.NoError(t, DeleteRedPacket(packet.Id))
 			require.NoError(t, DeleteRedPacket(packet.Id), "deletion is idempotent")
@@ -65,6 +60,16 @@ func TestDeleteRedPacketPreservesClaimAndSourceContracts(t *testing.T) {
 				} else {
 					require.Zero(t, count)
 				}
+			}
+			// Unclaimed sources can be included in a replacement packet. Claimed
+			// sources stay bound to their recipient and cannot be drawn again.
+			if state != "exhausted" {
+				replacement := RedPacket{Title: "replacement", Enabled: true, CreatedBy: 1}
+				require.NoError(t, CreateRedPacket(&replacement, inputs[1:]))
+			}
+			if hasHistory {
+				replacement := RedPacket{Title: "claimed source", Enabled: true, CreatedBy: 1}
+				require.Error(t, CreateRedPacket(&replacement, inputs[:1]))
 			}
 			var rewardCount int64
 			require.NoError(t, db.Model(&Redemption{}).Count(&rewardCount).Error)

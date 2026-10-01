@@ -27,7 +27,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
-import { canDeleteRedPacket, redPacketStatus } from './status'
+import { redPacketStatus } from './status'
 import type { RedPacket } from './types'
 
 export function RedPacketCard({
@@ -65,7 +65,6 @@ export function RedPacketCard({
     Exhausted: t('Fully claimed'),
     Scheduled: t('Scheduled'),
   }[status]
-  const removable = canDeleteRedPacket(packet, now)
   const shareUrl = `${window.location.origin}/red-packet/${packet.slug}`
   const claimed =
     packet.total_items > 0
@@ -110,20 +109,18 @@ export function RedPacketCard({
               {packet.claim_count} {t('claims')}
             </div>
           </div>
-          {removable && (
-            <Button
-              type='button'
-              size='sm'
-              variant='ghost'
-              className='text-muted-foreground hover:text-destructive shrink-0'
-              aria-label={t('Delete red packet')}
-              title={t('Delete red packet')}
-              onClick={onDelete}
-            >
-              <Trash2 className='size-4' />
-              {t('Delete')}
-            </Button>
-          )}
+          <Button
+            type='button'
+            size='sm'
+            variant='ghost'
+            className='text-muted-foreground hover:text-destructive shrink-0'
+            aria-label={t('Delete red packet')}
+            title={t('Delete red packet')}
+            onClick={onDelete}
+          >
+            <Trash2 className='size-4' />
+            {t('Delete')}
+          </Button>
         </div>
         <div
           className='bg-muted h-1.5 overflow-hidden rounded-full'
