@@ -15,6 +15,7 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as PrivacyPolicyRouteImport } from './routes/privacy-policy'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as TermsOfServiceRouteImport } from './routes/terms-of-service'
+import { Route as TransferRouteImport } from './routes/transfer'
 import { Route as UserAgreementRouteImport } from './routes/user-agreement'
 import { Route as authForgotPasswordRouteImport } from './routes/(auth)/forgot-password'
 import { Route as authOauthRouteImport } from './routes/(auth)/oauth'
@@ -47,7 +48,6 @@ import { Route as StatusIndexRouteImport } from './routes/status/index'
 import { Route as WebmcpIndexRouteImport } from './routes/webmcp/index'
 import { Route as authUserResetRouteImport } from './routes/(auth)/user/reset'
 import { Route as AuthenticatedAiDirectoryIndexRouteImport } from './routes/_authenticated/ai-directory/index'
-import { Route as AuthenticatedRssIndexRouteImport } from './routes/_authenticated/rss/index'
 import { Route as AuthenticatedChannelsIndexRouteImport } from './routes/_authenticated/channels/index'
 import { Route as AuthenticatedChatManagementIndexRouteImport } from './routes/_authenticated/chat-management/index'
 import { Route as AuthenticatedChatChatIdRouteImport } from './routes/_authenticated/chat/$chatId'
@@ -71,6 +71,7 @@ import { Route as AuthenticatedPublicRelayIndexRouteImport } from './routes/_aut
 import { Route as AuthenticatedRedPacketsIndexRouteImport } from './routes/_authenticated/red-packets/index'
 import { Route as AuthenticatedRedemptionCodesIndexRouteImport } from './routes/_authenticated/redemption-codes/index'
 import { Route as AuthenticatedRemoteControlIndexRouteImport } from './routes/_authenticated/remote-control/index'
+import { Route as AuthenticatedRssIndexRouteImport } from './routes/_authenticated/rss/index'
 import { Route as AuthenticatedSubscriptionsIndexRouteImport } from './routes/_authenticated/subscriptions/index'
 import { Route as AuthenticatedSubscriptionsResetRouteImport } from './routes/_authenticated/subscriptions/reset'
 import { Route as AuthenticatedSupportIndexRouteImport } from './routes/_authenticated/support/index'
@@ -127,6 +128,11 @@ const TermsRoute = TermsRouteImport.update({
 const TermsOfServiceRoute = TermsOfServiceRouteImport.update({
   id: '/terms-of-service',
   path: '/terms-of-service',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TransferRoute = TransferRouteImport.update({
+  id: '/transfer',
+  path: '/transfer',
   getParentRoute: () => rootRouteImport,
 } as any)
 const UserAgreementRoute = UserAgreementRouteImport.update({
@@ -291,11 +297,6 @@ const AuthenticatedAiDirectoryIndexRoute =
     path: '/ai-directory/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const AuthenticatedRssIndexRoute = AuthenticatedRssIndexRouteImport.update({
-  id: '/rss/',
-  path: '/rss/',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
 const AuthenticatedChannelsIndexRoute =
   AuthenticatedChannelsIndexRouteImport.update({
     id: '/channels/',
@@ -432,6 +433,11 @@ const AuthenticatedRemoteControlIndexRoute =
     path: '/remote-control/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedRssIndexRoute = AuthenticatedRssIndexRouteImport.update({
+  id: '/rss/',
+  path: '/rss/',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedSubscriptionsIndexRoute =
   AuthenticatedSubscriptionsIndexRouteImport.update({
     id: '/subscriptions/',
@@ -608,6 +614,7 @@ export interface FileRoutesByFullPath {
   '/privacy-policy': typeof PrivacyPolicyRoute
   '/terms': typeof TermsRoute
   '/terms-of-service': typeof TermsOfServiceRoute
+  '/transfer': typeof TransferRoute
   '/user-agreement': typeof UserAgreementRoute
   '/system-settings': typeof AuthenticatedSystemSettingsRouteRouteWithChildren
   '/forgot-password': typeof authForgotPasswordRoute
@@ -648,7 +655,6 @@ export interface FileRoutesByFullPath {
   '/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/ai-directory/': typeof AuthenticatedAiDirectoryIndexRoute
-  '/rss/': typeof AuthenticatedRssIndexRoute
   '/channels/': typeof AuthenticatedChannelsIndexRoute
   '/chat-management/': typeof AuthenticatedChatManagementIndexRoute
   '/company/': typeof AuthenticatedCompanyIndexRoute
@@ -666,6 +672,7 @@ export interface FileRoutesByFullPath {
   '/red-packets/': typeof AuthenticatedRedPacketsIndexRoute
   '/redemption-codes/': typeof AuthenticatedRedemptionCodesIndexRoute
   '/remote-control/': typeof AuthenticatedRemoteControlIndexRoute
+  '/rss/': typeof AuthenticatedRssIndexRoute
   '/subscriptions/': typeof AuthenticatedSubscriptionsIndexRoute
   '/support/': typeof AuthenticatedSupportIndexRoute
   '/system-info/': typeof AuthenticatedSystemInfoIndexRoute
@@ -699,6 +706,7 @@ export interface FileRoutesByTo {
   '/privacy-policy': typeof PrivacyPolicyRoute
   '/terms': typeof TermsRoute
   '/terms-of-service': typeof TermsOfServiceRoute
+  '/transfer': typeof TransferRoute
   '/user-agreement': typeof UserAgreementRoute
   '/forgot-password': typeof authForgotPasswordRoute
   '/oauth': typeof authOauthRoute
@@ -738,7 +746,6 @@ export interface FileRoutesByTo {
   '/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/ai-directory': typeof AuthenticatedAiDirectoryIndexRoute
-  '/rss': typeof AuthenticatedRssIndexRoute
   '/channels': typeof AuthenticatedChannelsIndexRoute
   '/chat-management': typeof AuthenticatedChatManagementIndexRoute
   '/company': typeof AuthenticatedCompanyIndexRoute
@@ -756,6 +763,7 @@ export interface FileRoutesByTo {
   '/red-packets': typeof AuthenticatedRedPacketsIndexRoute
   '/redemption-codes': typeof AuthenticatedRedemptionCodesIndexRoute
   '/remote-control': typeof AuthenticatedRemoteControlIndexRoute
+  '/rss': typeof AuthenticatedRssIndexRoute
   '/subscriptions': typeof AuthenticatedSubscriptionsIndexRoute
   '/support': typeof AuthenticatedSupportIndexRoute
   '/system-info': typeof AuthenticatedSystemInfoIndexRoute
@@ -792,6 +800,7 @@ export interface FileRoutesById {
   '/privacy-policy': typeof PrivacyPolicyRoute
   '/terms': typeof TermsRoute
   '/terms-of-service': typeof TermsOfServiceRoute
+  '/transfer': typeof TransferRoute
   '/user-agreement': typeof UserAgreementRoute
   '/_authenticated/system-settings': typeof AuthenticatedSystemSettingsRouteRouteWithChildren
   '/(auth)/forgot-password': typeof authForgotPasswordRoute
@@ -832,7 +841,6 @@ export interface FileRoutesById {
   '/_authenticated/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
   '/_authenticated/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/_authenticated/ai-directory/': typeof AuthenticatedAiDirectoryIndexRoute
-  '/_authenticated/rss/': typeof AuthenticatedRssIndexRoute
   '/_authenticated/channels/': typeof AuthenticatedChannelsIndexRoute
   '/_authenticated/chat-management/': typeof AuthenticatedChatManagementIndexRoute
   '/_authenticated/company/': typeof AuthenticatedCompanyIndexRoute
@@ -850,6 +858,7 @@ export interface FileRoutesById {
   '/_authenticated/red-packets/': typeof AuthenticatedRedPacketsIndexRoute
   '/_authenticated/redemption-codes/': typeof AuthenticatedRedemptionCodesIndexRoute
   '/_authenticated/remote-control/': typeof AuthenticatedRemoteControlIndexRoute
+  '/_authenticated/rss/': typeof AuthenticatedRssIndexRoute
   '/_authenticated/subscriptions/': typeof AuthenticatedSubscriptionsIndexRoute
   '/_authenticated/support/': typeof AuthenticatedSupportIndexRoute
   '/_authenticated/system-info/': typeof AuthenticatedSystemInfoIndexRoute
@@ -885,6 +894,7 @@ export interface FileRouteTypes {
     | '/privacy-policy'
     | '/terms'
     | '/terms-of-service'
+    | '/transfer'
     | '/user-agreement'
     | '/system-settings'
     | '/forgot-password'
@@ -942,6 +952,7 @@ export interface FileRouteTypes {
     | '/red-packets/'
     | '/redemption-codes/'
     | '/remote-control/'
+    | '/rss/'
     | '/subscriptions/'
     | '/support/'
     | '/system-info/'
@@ -975,6 +986,7 @@ export interface FileRouteTypes {
     | '/privacy-policy'
     | '/terms'
     | '/terms-of-service'
+    | '/transfer'
     | '/user-agreement'
     | '/forgot-password'
     | '/oauth'
@@ -1031,6 +1043,7 @@ export interface FileRouteTypes {
     | '/red-packets'
     | '/redemption-codes'
     | '/remote-control'
+    | '/rss'
     | '/subscriptions'
     | '/support'
     | '/system-info'
@@ -1066,6 +1079,7 @@ export interface FileRouteTypes {
     | '/privacy-policy'
     | '/terms'
     | '/terms-of-service'
+    | '/transfer'
     | '/user-agreement'
     | '/_authenticated/system-settings'
     | '/(auth)/forgot-password'
@@ -1123,6 +1137,7 @@ export interface FileRouteTypes {
     | '/_authenticated/red-packets/'
     | '/_authenticated/redemption-codes/'
     | '/_authenticated/remote-control/'
+    | '/_authenticated/rss/'
     | '/_authenticated/subscriptions/'
     | '/_authenticated/support/'
     | '/_authenticated/system-info/'
@@ -1159,6 +1174,7 @@ export interface RootRouteChildren {
   PrivacyPolicyRoute: typeof PrivacyPolicyRoute
   TermsRoute: typeof TermsRoute
   TermsOfServiceRoute: typeof TermsOfServiceRoute
+  TransferRoute: typeof TransferRoute
   UserAgreementRoute: typeof UserAgreementRoute
   errors401Route: typeof errors401Route
   errors403Route: typeof errors403Route
@@ -1225,6 +1241,13 @@ declare module '@tanstack/react-router' {
       path: '/terms-of-service'
       fullPath: '/terms-of-service'
       preLoaderRoute: typeof TermsOfServiceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/transfer': {
+      id: '/transfer'
+      path: '/transfer'
+      fullPath: '/transfer'
+      preLoaderRoute: typeof TransferRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/user-agreement': {
@@ -1451,13 +1474,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAiDirectoryIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/rss/': {
-      id: '/_authenticated/rss/'
-      path: '/rss'
-      fullPath: '/rss/'
-      preLoaderRoute: typeof AuthenticatedRssIndexRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
     '/_authenticated/channels/': {
       id: '/_authenticated/channels/'
       path: '/channels'
@@ -1617,6 +1633,13 @@ declare module '@tanstack/react-router' {
       path: '/remote-control'
       fullPath: '/remote-control/'
       preLoaderRoute: typeof AuthenticatedRemoteControlIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/rss/': {
+      id: '/_authenticated/rss/'
+      path: '/rss'
+      fullPath: '/rss/'
+      preLoaderRoute: typeof AuthenticatedRssIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/subscriptions/': {
@@ -1922,7 +1945,6 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedSubscriptionsResetRoute: typeof AuthenticatedSubscriptionsResetRoute
   AuthenticatedUsageLogsSectionRoute: typeof AuthenticatedUsageLogsSectionRoute
   AuthenticatedAiDirectoryIndexRoute: typeof AuthenticatedAiDirectoryIndexRoute
-  AuthenticatedRssIndexRoute: typeof AuthenticatedRssIndexRoute
   AuthenticatedChannelsIndexRoute: typeof AuthenticatedChannelsIndexRoute
   AuthenticatedChatManagementIndexRoute: typeof AuthenticatedChatManagementIndexRoute
   AuthenticatedCompanyIndexRoute: typeof AuthenticatedCompanyIndexRoute
@@ -1940,6 +1962,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedRedPacketsIndexRoute: typeof AuthenticatedRedPacketsIndexRoute
   AuthenticatedRedemptionCodesIndexRoute: typeof AuthenticatedRedemptionCodesIndexRoute
   AuthenticatedRemoteControlIndexRoute: typeof AuthenticatedRemoteControlIndexRoute
+  AuthenticatedRssIndexRoute: typeof AuthenticatedRssIndexRoute
   AuthenticatedSubscriptionsIndexRoute: typeof AuthenticatedSubscriptionsIndexRoute
   AuthenticatedSupportIndexRoute: typeof AuthenticatedSupportIndexRoute
   AuthenticatedSystemInfoIndexRoute: typeof AuthenticatedSystemInfoIndexRoute
@@ -1965,7 +1988,6 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedSubscriptionsResetRoute: AuthenticatedSubscriptionsResetRoute,
   AuthenticatedUsageLogsSectionRoute: AuthenticatedUsageLogsSectionRoute,
   AuthenticatedAiDirectoryIndexRoute: AuthenticatedAiDirectoryIndexRoute,
-  AuthenticatedRssIndexRoute: AuthenticatedRssIndexRoute,
   AuthenticatedChannelsIndexRoute: AuthenticatedChannelsIndexRoute,
   AuthenticatedChatManagementIndexRoute: AuthenticatedChatManagementIndexRoute,
   AuthenticatedCompanyIndexRoute: AuthenticatedCompanyIndexRoute,
@@ -1986,6 +2008,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedRedemptionCodesIndexRoute:
     AuthenticatedRedemptionCodesIndexRoute,
   AuthenticatedRemoteControlIndexRoute: AuthenticatedRemoteControlIndexRoute,
+  AuthenticatedRssIndexRoute: AuthenticatedRssIndexRoute,
   AuthenticatedSubscriptionsIndexRoute: AuthenticatedSubscriptionsIndexRoute,
   AuthenticatedSupportIndexRoute: AuthenticatedSupportIndexRoute,
   AuthenticatedSystemInfoIndexRoute: AuthenticatedSystemInfoIndexRoute,
@@ -2009,6 +2032,7 @@ const rootRouteChildren: RootRouteChildren = {
   PrivacyPolicyRoute: PrivacyPolicyRoute,
   TermsRoute: TermsRoute,
   TermsOfServiceRoute: TermsOfServiceRoute,
+  TransferRoute: TransferRoute,
   UserAgreementRoute: UserAgreementRoute,
   errors401Route: errors401Route,
   errors403Route: errors403Route,
