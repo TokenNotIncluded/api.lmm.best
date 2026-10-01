@@ -13,6 +13,8 @@ authenticated users then see it once after their next login.
 
 <!-- Add user-facing or operational changes here before the next release. -->
 
+- Usage-log statistics now honor `request_id` and `upstream_request_id` filters,
+  keeping aggregate totals aligned with the filtered log list.
 - Usage logs hide the historical quota trend and skip its bucket queries while
   amounts are masked, rather than plotting live RPM as historical traffic.
   The live RPM and TPM badges remain available.
