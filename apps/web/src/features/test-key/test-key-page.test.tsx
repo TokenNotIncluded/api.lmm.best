@@ -353,6 +353,7 @@ describe('test key popup', () => {
             },
           },
         }
+      }
       return {
         data: { success: true, data: { id: 123, key: 'test-fixture-secret' } },
       }
