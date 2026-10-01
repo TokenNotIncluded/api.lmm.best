@@ -98,6 +98,21 @@ Daily backups permit up to about 24 hours of data loss. An asynchronous PostgreS
 standby with WAL retention and a tested manual promotion procedure is a separate
 next step; do not claim disaster failover from logical dumps alone.
 
+## Public scripts and IP access rules
+
+Public `/scripts` serves the frontend directly. Script downloads under `/scripts/`,
+`/api/scripts`, and `/api/scripts/:name/raw` use a separate named backend location
+with `auth_request off`; the exemption must survive the internal redirect.
+Shared `/static/` assets are also public. Script repository management APIs retain
+IP policy enforcement and application authentication.
+
+IP rules are ordered: a matching `direct` rule wins over later regional rejects.
+A denied browser navigation returns 451; protected API paths deliberately return
+404 without disclosing the policy reason. An API 404 alone does not show that a
+rule failed to apply. Releases using `--preserve-edge-policy` retain installed
+Nginx configuration; source template fixes require a separate validated edge
+configuration update.
+
 ## Validation
 
 Run `node --test scripts/nginx-cluster.test.mjs scripts/nginx-service-errors.test.mjs`

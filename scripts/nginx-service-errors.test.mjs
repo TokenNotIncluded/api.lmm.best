@@ -15,7 +15,7 @@ test('nginx preserves access boundaries and API bodies while explaining edge out
  const frontend = path.join(dir, 'frontend');fs.mkdirSync(frontend)
  fs.mkdirSync(path.join(frontend,'current'));fs.writeFileSync(path.join(frontend,'current','index.html'), '<!doctype html><title>Fixture</title>')
  fs.writeFileSync(path.join(frontend,'service-status.json'), JSON.stringify({state:'maintenance'}))
- const backend = http.createServer((req,res) => {if(req.url.startsWith('/.well-known/oauth-')){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({issuer:'https://api.lmm.best'}));return;}res.writeHead(500,{'Content-Type':'application/json'});res.end('{"error":{"message":"upstream test failure"}}')})
+ const backend = http.createServer((req,res) => {if(req.url==='/api/scripts'||req.url.startsWith('/scripts/')||/^\/api\/scripts\/[^/]+\/raw(?:\?|$)/.test(req.url)){res.writeHead(200,{'Content-Type':'text/plain'});res.end('public script fixture');return;}if(req.url.startsWith('/.well-known/oauth-')){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({issuer:'https://api.lmm.best'}));return;}res.writeHead(500,{'Content-Type':'application/json'});res.end('{"error":{"message":"upstream test failure"}}')})
  backend.listen(0,'127.0.0.1');await once(backend,'listening')
  const reservation=net.createServer();reservation.listen(0,'127.0.0.1');await once(reservation,'listening');const port=reservation.address().port;await new Promise(resolve=>reservation.close(resolve))
  const source=fs.readFileSync(path.join(root,'packaging/common/lmm-api/edge-policy/nginx/lmm-api-locations.conf'),'utf8')
@@ -40,7 +40,7 @@ http {
  server {
   listen 127.0.0.1:${port};
   auth_request /__test_auth;
-  location = /__test_auth {internal;auth_request off;if ($http_x_fixture_allow = 1) {return 204;}return 500;}
+  location = /__test_auth {internal;auth_request off;if ($http_x_fixture_reject = 1) {return 403;}if ($http_x_fixture_allow = 1) {return 204;}return 500;}
   include ${dir}/locations.conf;
  }
 }`)
@@ -55,6 +55,18 @@ http {
   }
   assert.equal(response?.status,503);assert.match(response.headers.get('content-type'),/text\/html/)
   const html=await response.text();assert.ok(html.includes('LMM Best'));assert.ok(html.includes('恢复时间尚未确定'));assert.ok(!html.includes('$lmm_error_html_'));const requestID=html.match(/<code>([a-f0-9]{32})<\/code>/)[1];assert.equal(html,fs.readFileSync(path.join(root,'packaging/common/lmm-api/edge-policy/service-unavailable.html'),'utf8').trimEnd().replace('$request_id',requestID))
+  // The public paths must survive named-location redirects while the
+  // inherited auth_request is failing. Administrative APIs stay gated.
+  for(const endpoint of ['/scripts','/scripts/','/scripts/install.sh','/api/scripts','/api/scripts/install.sh/raw','/api/scripts/install.sh/raw?download=1']) {
+   response=await fetch(url+endpoint);assert.equal(response.status,200,endpoint);await response.text()
+  }
+  for(const endpoint of ['/scripts','/scripts/install.sh','/api/scripts','/api/scripts/install.sh/raw']) {
+   response=await fetch(url+endpoint,{headers:{'X-Fixture-Reject':'1'}});assert.equal(response.status,200,endpoint);await response.text()
+  }
+  response=await fetch(url+'/api/status',{headers:{'X-Fixture-Reject':'1'}});assert.equal(response.status,403);await response.text()
+  for(const endpoint of ['/api/scripts/repository','/api/scripts/repository/pull','/api/status']) {
+   response=await fetch(url+endpoint);assert.equal(response.status,503,endpoint);await response.text()
+  }
   response=await fetch(url+'/v1/chat/completions',{method:'POST',headers:{Accept:'text/html','Content-Type':'application/json'},body:'{}'})
   assert.equal(response.status,503);assert.match(response.headers.get('content-type'),/application\/json/);assert.equal((await response.json()).error.code,'service_temporarily_unavailable')
   response=await fetch(url+'/v1/chat/completions',{method:'POST',headers:{Accept:'application/json','X-Fixture-Allow':'1','Content-Type':'application/json'},body:'{}'})
