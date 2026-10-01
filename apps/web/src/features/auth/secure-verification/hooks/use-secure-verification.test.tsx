@@ -223,6 +223,33 @@ describe('useSecureVerification', () => {
     }
   })
 
+  test('prefers Passkey for a channel key read while retaining email fallback', async () => {
+    useAuthStore.getState().auth.setBundle(authBundle())
+    const { root } = await mountHarness()
+    try {
+      await act(async () => {
+        await requireHook().startVerification(async () => undefined, {
+          scope: 'channel.key.read',
+          preferredMethod: 'passkey',
+          verificationMethods: {
+            hasEmail: true,
+            has2FA: false,
+            hasPasskey: true,
+            passkeySupported: true,
+            availability: 'complete',
+          },
+        })
+      })
+      assert.equal(requireHook().state.method, 'passkey')
+      assert.equal(requireHook().methods.hasEmail, true)
+      assert.equal(requireHook().canUseMethod('passkey'), true)
+      await act(async () => requireHook().switchMethod('email'))
+      assert.equal(requireHook().state.method, 'email')
+    } finally {
+      await act(async () => root.unmount())
+    }
+  })
+
   test('does not probe methods for a completed anonymous session', async () => {
     useAuthStore.getState().auth.reset('complete')
     let requests = 0

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/middleware"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/service"
 	"github.com/LIghtJUNction/api.lmm.best/setting/system_setting"
@@ -301,4 +302,41 @@ func TestUniversalVerifyAcceptsBoundEmailAndConsumesCode(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, legacyResponse.Code)
 	assert.Contains(t, legacyResponse.Body.String(), "请绑定邮箱后使用邮箱验证")
+}
+
+func TestChannelKeyReadAcceptsPasskeyWithBoundEmail(t *testing.T) {
+	db := setupUserOnboardingTestDB(t)
+	previousSecret := common.SessionSecret
+	common.SessionSecret = "channel-key-proof-test-secret"
+	t.Cleanup(func() { common.SessionSecret = previousSecret })
+	user := &model.User{Username: "channel-key-passkey-user", Password: "placeholder", Email: "owner@example.com", Status: common.UserStatusEnabled, AuthVersion: 1}
+	require.NoError(t, db.Create(user).Error)
+	identity := service.AuthIdentity{UserID: user.Id, SessionID: "channel-key-session", UserAuthVersion: 1, SessionVersion: 1}
+	for _, method := range []string{"email", "passkey"} {
+		proof, _, err := service.IssueSecurityProof(identity, method, []string{securityProofScopeChannelKeyRead})
+		require.NoError(t, err)
+		response := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(response)
+		c.Request = httptest.NewRequest(http.MethodPost, "/api/channel/1/key", nil)
+		c.Request.Header.Set("X-Security-Proof", proof)
+		c.Set("id", identity.UserID)
+		c.Set("session_id", identity.SessionID)
+		c.Set("auth_version", identity.UserAuthVersion)
+		c.Set("session_version", identity.SessionVersion)
+		assert.True(t, middleware.RequireSecurityProof(c, securityProofScopeChannelKeyRead, []string{"email", "passkey"}), response.Body.String())
+	}
+	for _, scope := range []string{securityProofScopePasskeyRegister, securityProofScopePasskeyDelete, securityProofScopeReviewRunsDelete} {
+		proof, _, err := service.IssueSecurityProof(identity, "passkey", []string{scope})
+		require.NoError(t, err)
+		response := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(response)
+		c.Request = httptest.NewRequest(http.MethodPost, "/api/sensitive-action", nil)
+		c.Request.Header.Set("X-Security-Proof", proof)
+		c.Set("id", identity.UserID)
+		c.Set("session_id", identity.SessionID)
+		c.Set("auth_version", identity.UserAuthVersion)
+		c.Set("session_version", identity.SessionVersion)
+		assert.False(t, middleware.RequireSecurityProof(c, scope, []string{"email", "passkey"}))
+		assert.Contains(t, response.Body.String(), "SECURITY_PROOF_METHOD_MISMATCH")
+	}
 }

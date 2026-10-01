@@ -30,14 +30,14 @@ func RequireSecurityProof(c *gin.Context, requiredScope string, allowedMethods [
 		securityProofError(c, "SECURITY_PROOF_INVALID", "安全验证状态无效")
 		return false
 	}
-	preferredMethods, err := PreferredSecurityProofMethods(identity.UserID)
+	preferredMethods, err := PreferredSecurityProofMethods(identity.UserID, requiredScope)
 	if err != nil {
 		securityProofError(c, "SECURITY_PROOF_INVALID", "安全验证状态无效")
 		return false
 	}
 	// The configured list remains part of the call contract, but the account
-	// policy is authoritative: a bound email must use email verification; an
-	// account without one may use only its existing Passkey.
+	// policy is authoritative and scoped: channel key disclosure also permits
+	// Passkey, while other sensitive actions retain their primary method.
 	_ = allowedMethods
 	raw := strings.TrimSpace(c.GetHeader("X-Security-Proof"))
 	if raw == "" {
@@ -60,15 +60,20 @@ func RequireSecurityProof(c *gin.Context, requiredScope string, allowedMethods [
 	return true
 }
 
-// PreferredSecurityProofMethods returns the only proof method accepted for
+// PreferredSecurityProofMethods returns the proof methods accepted for
 // sensitive dashboard actions. Email is the primary path when bound, followed
 // by an enabled 2FA factor; Passkey is the compatibility fallback otherwise.
-func PreferredSecurityProofMethods(userID int) ([]string, error) {
+// Channel key disclosure additionally accepts a verified existing Passkey.
+func PreferredSecurityProofMethods(userID int, scopes ...string) ([]string, error) {
+	channelKeyRead := len(scopes) == 1 && scopes[0] == "channel.key.read"
 	user, err := model.GetUserCache(userID)
 	if err != nil {
 		return nil, err
 	}
 	if model.NormalizeEmail(user.Email) != "" {
+		if channelKeyRead {
+			return []string{"email", "passkey"}, nil
+		}
 		return []string{"email"}, nil
 	}
 	twoFA, err := model.GetTwoFAByUserId(userID)
@@ -76,6 +81,9 @@ func PreferredSecurityProofMethods(userID int) ([]string, error) {
 		return nil, err
 	}
 	if twoFA != nil && twoFA.IsEnabled {
+		if channelKeyRead {
+			return []string{"2fa", "passkey"}, nil
+		}
 		return []string{"2fa"}, nil
 	}
 	return []string{"passkey"}, nil

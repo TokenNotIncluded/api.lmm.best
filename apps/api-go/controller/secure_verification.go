@@ -97,7 +97,7 @@ func UniversalVerify(c *gin.Context) {
 		common.ApiError(c, errors.New("不支持的安全验证范围"))
 		return
 	}
-	preferredMethods, err := middleware.PreferredSecurityProofMethods(identity.UserID)
+	preferredMethods, err := middleware.PreferredSecurityProofMethods(identity.UserID, request.Scope)
 	if err != nil {
 		common.ApiError(c, err)
 		return

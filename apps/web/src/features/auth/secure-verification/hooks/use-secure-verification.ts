@@ -114,7 +114,10 @@ export function useSecureVerification(
       const checkedMethods =
         verificationMethods ?? (await fetchVerificationMethods())
       if (verificationMethods) setMethods(verificationMethods)
-      const availableMethods = getPreferredVerificationMethods(checkedMethods)
+      const availableMethods = getPreferredVerificationMethods(
+        checkedMethods,
+        scope
+      )
       const hasAvailableMethod =
         availableMethods.hasEmail ||
         availableMethods.has2FA ||
@@ -282,26 +285,32 @@ export function useSecureVerification(
 
   const canUseMethod = useCallback(
     (method: VerificationMethod) => {
-      const preferredMethods = getPreferredVerificationMethods(methods)
+      const preferredMethods = getPreferredVerificationMethods(
+        methods,
+        state.scope
+      )
       if (method === 'email') return preferredMethods.hasEmail
       if (method === '2fa') return preferredMethods.has2FA
       if (method === 'passkey') return preferredMethods.hasPasskey
       return false
     },
-    [methods]
+    [methods, state.scope]
   )
 
   const recommendedMethod = useMemo<VerificationMethod | null>(() => {
-    const preferredMethods = getPreferredVerificationMethods(methods)
+    const preferredMethods = getPreferredVerificationMethods(
+      methods,
+      state.scope
+    )
     if (preferredMethods.hasEmail) return 'email'
     if (preferredMethods.has2FA) return '2fa'
     if (preferredMethods.hasPasskey) return 'passkey'
     return null
-  }, [methods])
+  }, [methods, state.scope])
 
   const preferredMethods = useMemo(
-    () => getPreferredVerificationMethods(methods),
-    [methods]
+    () => getPreferredVerificationMethods(methods, state.scope),
+    [methods, state.scope]
   )
 
   return {
