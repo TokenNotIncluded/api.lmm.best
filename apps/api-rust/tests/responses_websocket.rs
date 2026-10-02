@@ -39,6 +39,7 @@ struct TestService {
     upstream: Arc<ResponsesUpstream>,
     peer: Arc<ResponsesUpstreamPeer>,
     finishes: Arc<Mutex<Vec<ResponsesTurnFinish>>>,
+    observations: Arc<Mutex<Vec<(String, Value)>>>,
     closed: Arc<Mutex<Vec<Option<String>>>>,
 }
 
@@ -56,6 +57,7 @@ impl TestService {
             upstream,
             peer: Arc::new(peer),
             finishes: Arc::new(Mutex::new(Vec::new())),
+            observations: Arc::new(Mutex::new(Vec::new())),
             closed: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -121,9 +123,14 @@ impl ResponsesWebSocketService for TestService {
 
     async fn observe_upstream(
         &self,
-        _turn: &ResponsesTurn,
+        turn: &ResponsesTurn,
         frame: &ResponsesFrame,
     ) -> Result<ResponsesTurnObservation, ResponsesWebSocketFailure> {
+        let value: Value = serde_json::from_slice(frame.payload()).unwrap_or_default();
+        self.observations
+            .lock()
+            .await
+            .push((turn.id.clone(), value.clone()));
         if self.reject_observe.load(Ordering::SeqCst) {
             return Err(ResponsesWebSocketFailure::new(
                 StatusCode::BAD_GATEWAY,
@@ -131,7 +138,6 @@ impl ResponsesWebSocketService for TestService {
                 "invalid provider event",
             ));
         }
-        let value: Value = serde_json::from_slice(frame.payload()).unwrap_or_default();
         Ok(match value.get("type").and_then(Value::as_str) {
             Some("response.completed" | "response.done") => ResponsesTurnObservation::Terminal {
                 success: true,
@@ -730,6 +736,517 @@ async fn cancellation_without_identity_keeps_legacy_active_turn_behavior() {
     assert_eq!(service.finishes.lock().await.len(), 1);
     socket.close(None).await.unwrap();
     server.abort();
+}
+
+#[tokio::test]
+async fn asynchronous_control_errors_keep_incoming_identity_without_observing_active_turn() {
+    let service = TestService::new();
+    let (url, server) = spawn(service.clone()).await;
+    let mut socket = connect(&url).await;
+    start_stream(&mut socket, &service.peer, "planner").await;
+    service.reject_observe.store(true, Ordering::SeqCst);
+    for (index, identity) in [Some("control"), None].into_iter().enumerate() {
+        let event_id = format!("append-{index}");
+        let mut control = json!({"type":"input_audio_buffer.append","event_id":event_id});
+        if let Some(identity) = identity {
+            control["stream_id"] = json!(identity);
+        }
+        socket
+            .send(Message::Text(control.to_string().into()))
+            .await
+            .unwrap();
+        assert_eq!(peer_json(&service.peer).await, control);
+        let error = if index == 0 {
+            json!({"type":"error","event_id":event_id,"error":{"code":"invalid_audio"}})
+        } else {
+            json!({"type":"error","event_id":"provider-event","error":{"event_id":event_id,"code":"invalid_audio"}})
+        };
+        service
+            .peer
+            .send(ResponsesFrame::Binary(error.to_string().into_bytes()))
+            .await
+            .unwrap();
+        let Message::Binary(bytes) = tokio::time::timeout(Duration::from_secs(2), socket.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap()
+        else {
+            panic!("expected binary control error");
+        };
+        let returned: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(returned.get("stream_id").and_then(Value::as_str), identity);
+        assert_eq!(returned["error"], error["error"]);
+        assert_eq!(returned["event_id"], error["event_id"]);
+    }
+    assert!(service.observations.lock().await.is_empty());
+    assert!(service.finishes.lock().await.is_empty());
+    service.reject_observe.store(false, Ordering::SeqCst);
+    assert_eq!(
+        provider_event(
+            &mut socket,
+            &service.peer,
+            json!({"type":"response.completed"})
+        )
+        .await["stream_id"],
+        "planner"
+    );
+    assert_eq!(service.finishes.lock().await.len(), 1);
+    socket.close(None).await.unwrap();
+    server.abort();
+}
+
+#[tokio::test]
+async fn late_and_repeated_control_errors_cannot_settle_a_subsequent_turn() {
+    let service = TestService::new();
+    let (url, server) = spawn(service.clone()).await;
+    let mut socket = connect(&url).await;
+    start_stream(&mut socket, &service.peer, "planner").await;
+    socket.send(Message::Text(json!({"type":"input_audio_buffer.append","event_id":"old-append","stream_id":"old-control"}).to_string().into())).await.unwrap();
+    let _ = peer_json(&service.peer).await;
+    let _ = provider_event(
+        &mut socket,
+        &service.peer,
+        json!({"type":"response.completed"}),
+    )
+    .await;
+    start_stream(&mut socket, &service.peer, "writer").await;
+    let observations = service.observations.lock().await.len();
+    for _ in 0..2 {
+        let error = provider_event(
+            &mut socket,
+            &service.peer,
+            json!({"type":"error","event_id":"old-append","error":{"code":"invalid_audio"}}),
+        )
+        .await;
+        assert_eq!(error["stream_id"], "old-control");
+    }
+    assert_eq!(service.observations.lock().await.len(), observations);
+    assert_eq!(service.finishes.lock().await.len(), 1);
+    assert_eq!(
+        provider_event(
+            &mut socket,
+            &service.peer,
+            json!({"type":"response.completed"})
+        )
+        .await["stream_id"],
+        "writer"
+    );
+    assert_eq!(service.finishes.lock().await.len(), 2);
+    socket.close(None).await.unwrap();
+    server.abort();
+}
+
+#[tokio::test]
+async fn cancel_operation_errors_match_target_or_unique_rejection_without_finishing_generation() {
+    let service = TestService::new();
+    let (url, server) = spawn(service.clone()).await;
+    let mut socket = connect(&url).await;
+    start_stream(&mut socket, &service.peer, "planner").await;
+    let _ = provider_event(
+        &mut socket,
+        &service.peer,
+        json!({"type":"response.created","response":{"id":"active"}}),
+    )
+    .await;
+    socket
+        .send(Message::Text(
+            json!({"type":"response.cancel","response_id":"missing","stream_id":"planner"})
+                .to_string()
+                .into(),
+        ))
+        .await
+        .unwrap();
+    let _ = peer_json(&service.peer).await;
+    assert_eq!(
+        provider_event(
+            &mut socket,
+            &service.peer,
+            json!({"type":"error","response_id":"missing","error":{"code":"target_rejected"}})
+        )
+        .await["stream_id"],
+        "planner"
+    );
+    socket
+        .send(Message::Text(
+            json!({"type":"response.cancel"}).to_string().into(),
+        ))
+        .await
+        .unwrap();
+    let _ = peer_json(&service.peer).await;
+    let rejection = provider_event(&mut socket, &service.peer, json!({"type":"error","error":{"type":"invalid_request_error","code":"response_not_active"}})).await;
+    assert!(rejection.get("stream_id").is_none());
+    socket.send(Message::Text(json!({"type":"response.cancel","event_id":"target-check","response_id":"expected","stream_id":"planner"}).to_string().into())).await.unwrap();
+    let _ = peer_json(&service.peer).await;
+    let mismatched = json!({"type":"error","response_id":"different","error":{"type":"invalid_request_error","code":"response_not_active"}});
+    assert_eq!(
+        provider_event(&mut socket, &service.peer, mismatched.clone()).await,
+        mismatched
+    );
+    assert_eq!(
+        provider_event(
+            &mut socket,
+            &service.peer,
+            json!({"type":"error","error":{"event_id":"target-check"}})
+        )
+        .await["stream_id"],
+        "planner"
+    );
+    assert_eq!(service.observations.lock().await.len(), 1);
+    assert!(service.finishes.lock().await.is_empty());
+    let _ = provider_event(
+        &mut socket,
+        &service.peer,
+        json!({"type":"response.completed","response":{"id":"active"}}),
+    )
+    .await;
+    assert_eq!(service.finishes.lock().await.len(), 1);
+    socket.close(None).await.unwrap();
+    server.abort();
+}
+
+#[tokio::test]
+async fn foreign_events_and_unknown_nested_references_bypass_active_observation() {
+    let service = TestService::new();
+    let (url, server) = spawn(service.clone()).await;
+    let mut socket = connect(&url).await;
+    start_stream(&mut socket, &service.peer, "planner").await;
+    let _ = provider_event(
+        &mut socket,
+        &service.peer,
+        json!({"type":"response.created","response":{"id":"previous"}}),
+    )
+    .await;
+    let _ = provider_event(
+        &mut socket,
+        &service.peer,
+        json!({"type":"response.completed","response":{"id":"previous"}}),
+    )
+    .await;
+    start_stream(&mut socket, &service.peer, "planner").await;
+    let before = service.observations.lock().await.len();
+    for event in [
+        json!({"type":"response.failed","stream_id":"other","response":{"id":"foreign"}}),
+        json!({"type":"response.failed","stream_id":123}),
+        json!({"type":"error","stream_id":{}}),
+        json!({"type":"error","stream_id":[]}),
+        json!({"type":"error","stream_id":"other","error":{"code":"late"}}),
+        json!({"type":"error","event_id":"provider-event","error":{"event_id":"unknown","code":"rejected"}}),
+        json!({"type":"response.completed","response":{"id":"previous"}}),
+        json!({"type":"error","response_id":"previous","error":{"code":"late"}}),
+    ] {
+        assert_eq!(
+            provider_event(&mut socket, &service.peer, event.clone()).await,
+            event
+        );
+    }
+    assert_eq!(service.observations.lock().await.len(), before);
+    assert_eq!(service.finishes.lock().await.len(), 1);
+    // A provider-generated top-level event ID alone retains legacy active-error behavior.
+    assert_eq!(
+        provider_event(
+            &mut socket,
+            &service.peer,
+            json!({"type":"error","event_id":"provider-event","error":{"code":"server_error"}})
+        )
+        .await["stream_id"],
+        "planner"
+    );
+    assert_eq!(service.finishes.lock().await.len(), 2);
+    socket.close(None).await.unwrap();
+    server.abort();
+}
+
+#[tokio::test]
+async fn ambiguous_control_references_never_choose_or_settle_an_active_turn() {
+    let service = TestService::new();
+    let (url, server) = spawn(service.clone()).await;
+    let mut socket = connect(&url).await;
+    start_stream(&mut socket, &service.peer, "planner").await;
+    for event_id in ["first", "second"] {
+        socket.send(Message::Text(json!({"type":"input_audio_buffer.append","event_id":event_id,"stream_id":event_id}).to_string().into())).await.unwrap();
+        let _ = peer_json(&service.peer).await;
+    }
+    let ambiguous = json!({"type":"error","event_id":"first","error":{"event_id":"second","code":"invalid_audio"}});
+    assert_eq!(
+        provider_event(&mut socket, &service.peer, ambiguous.clone()).await,
+        ambiguous
+    );
+    assert!(service.observations.lock().await.is_empty());
+    assert!(service.finishes.lock().await.is_empty());
+    assert_eq!(
+        provider_event(
+            &mut socket,
+            &service.peer,
+            json!({"type":"error","error":{"event_id":"first"}})
+        )
+        .await["stream_id"],
+        "first"
+    );
+    // A reference conflict remains ambiguous across pending and resolved entries.
+    assert_eq!(
+        provider_event(&mut socket, &service.peer, ambiguous.clone()).await,
+        ambiguous
+    );
+    assert_eq!(
+        provider_event(
+            &mut socket,
+            &service.peer,
+            json!({"type":"error","error":{"event_id":"second"}})
+        )
+        .await["stream_id"],
+        "second"
+    );
+    assert!(service.observations.lock().await.is_empty());
+    let _ = provider_event(
+        &mut socket,
+        &service.peer,
+        json!({"type":"response.completed"}),
+    )
+    .await;
+    assert_eq!(service.finishes.lock().await.len(), 1);
+    socket.close(None).await.unwrap();
+    server.abort();
+}
+
+#[tokio::test]
+async fn retained_control_ids_and_capacity_are_rejected_locally() {
+    let service = TestService::new();
+    let (url, server) = spawn(service.clone()).await;
+    let mut socket = connect(&url).await;
+    start_stream(&mut socket, &service.peer, "planner").await;
+    for index in 0..32 {
+        socket.send(Message::Text(json!({"type":"input_audio_buffer.append","event_id":format!("append-{index}"),"stream_id":"control"}).to_string().into())).await.unwrap();
+        let _ = peer_json(&service.peer).await;
+    }
+    for event_id in ["append-0", "overflow"] {
+        socket.send(Message::Text(json!({"type":"input_audio_buffer.append","event_id":event_id,"stream_id":"rejected"}).to_string().into())).await.unwrap();
+        let rejected = receive_json(&mut socket).await;
+        assert_eq!(rejected["stream_id"], "rejected");
+        assert_eq!(rejected["event_id"], event_id);
+        assert_eq!(rejected["status"], 400);
+    }
+    let _ = provider_event(
+        &mut socket,
+        &service.peer,
+        json!({"type":"error","event_id":"append-0"}),
+    )
+    .await;
+    // Resolving frees a pending slot but keeps a tombstone against event ID reuse.
+    socket
+        .send(Message::Text(
+            json!({"type":"input_audio_buffer.append","event_id":"append-0","stream_id":"reused"})
+                .to_string()
+                .into(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(receive_json(&mut socket).await["stream_id"], "reused");
+    socket.send(Message::Text(json!({"type":"input_audio_buffer.append","event_id":"replacement","stream_id":"control"}).to_string().into())).await.unwrap();
+    assert_eq!(peer_json(&service.peer).await["event_id"], "replacement");
+    assert!(service.observations.lock().await.is_empty());
+    assert!(service.finishes.lock().await.is_empty());
+    let _ = provider_event(
+        &mut socket,
+        &service.peer,
+        json!({"type":"response.completed"}),
+    )
+    .await;
+    assert_eq!(service.finishes.lock().await.len(), 1);
+    socket.close(None).await.unwrap();
+    server.abort();
+}
+
+#[tokio::test]
+async fn control_identity_byte_limit_keeps_unidentified_legacy_controls_working() {
+    let service = TestService::new();
+    let (url, server) = spawn(service.clone()).await;
+    let mut socket = connect(&url).await;
+    start_stream(&mut socket, &service.peer, "planner").await;
+    socket.send(Message::Text(json!({"type":"input_audio_buffer.append","event_id":"large","stream_id":"control","response_id":"r".repeat(64 * 1024)}).to_string().into())).await.unwrap();
+    let rejected = receive_json(&mut socket).await;
+    assert_eq!(rejected["event_id"], "large");
+    assert_eq!(rejected["stream_id"], "control");
+    assert_eq!(rejected["status"], 400);
+    for _ in 0..40 {
+        socket
+            .send(Message::Text(
+                json!({"type":"input_audio_buffer.append","audio":"legacy"})
+                    .to_string()
+                    .into(),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(peer_json(&service.peer).await["audio"], "legacy");
+    }
+    assert!(service.finishes.lock().await.is_empty());
+    let _ = provider_event(
+        &mut socket,
+        &service.peer,
+        json!({"type":"response.completed"}),
+    )
+    .await;
+    socket.close(None).await.unwrap();
+    server.abort();
+}
+
+#[tokio::test]
+async fn successful_turns_retire_controls_and_remember_recent_response_ids() {
+    let service = TestService::new();
+    let (url, server) = spawn(service.clone()).await;
+    let mut socket = connect(&url).await;
+    for index in 0..40 {
+        start_stream(&mut socket, &service.peer, "planner").await;
+        let _ = provider_event(
+            &mut socket,
+            &service.peer,
+            json!({"type":"response.created","response":{"id":format!("response-{index}")}}),
+        )
+        .await;
+        socket.send(Message::Text(json!({"type":"input_audio_buffer.append","event_id":format!("append-{index}"),"stream_id":"control"}).to_string().into())).await.unwrap();
+        assert_eq!(
+            peer_json(&service.peer).await["event_id"],
+            format!("append-{index}")
+        );
+        let _ = provider_event(
+            &mut socket,
+            &service.peer,
+            json!({"type":"response.completed","response":{"id":format!("response-{index}")}}),
+        )
+        .await;
+        if index < 39 {
+            socket.send(Message::Text(json!({"type":"input_audio_buffer.append","event_id":format!("idle-{index}"),"stream_id":"control"}).to_string().into())).await.unwrap();
+            assert_eq!(
+                peer_json(&service.peer).await["event_id"],
+                format!("idle-{index}")
+            );
+        }
+    }
+    start_stream(&mut socket, &service.peer, "planner").await;
+    let before = service.observations.lock().await.len();
+    assert_eq!(
+        provider_event(
+            &mut socket,
+            &service.peer,
+            json!({"type":"error","event_id":"append-30"})
+        )
+        .await["stream_id"],
+        "control"
+    );
+    let late = json!({"type":"response.completed","response":{"id":"response-10"}});
+    assert_eq!(
+        provider_event(&mut socket, &service.peer, late.clone()).await,
+        late
+    );
+    assert_eq!(service.observations.lock().await.len(), before);
+    assert_eq!(service.finishes.lock().await.len(), 40);
+    let _ = provider_event(
+        &mut socket,
+        &service.peer,
+        json!({"type":"response.completed","response":{"id":"current"}}),
+    )
+    .await;
+    assert_eq!(service.finishes.lock().await.len(), 41);
+    socket.close(None).await.unwrap();
+    server.abort();
+}
+
+#[tokio::test]
+async fn an_unknown_active_response_id_cannot_prove_a_control_target_mismatch() {
+    let service = TestService::new();
+    let (url, server) = spawn(service.clone()).await;
+    let mut socket = connect(&url).await;
+    start_stream(&mut socket, &service.peer, "planner").await;
+    socket
+        .send(Message::Text(
+            json!({"type":"response.cancel","event_id":"cancel","response_id":"active"})
+                .to_string()
+                .into(),
+        ))
+        .await
+        .unwrap();
+    let _ = peer_json(&service.peer).await;
+    let error = provider_event(
+        &mut socket,
+        &service.peer,
+        json!({"type":"error","response_id":"active","error":{"code":"server_error"}}),
+    )
+    .await;
+    assert_eq!(error["stream_id"], "planner");
+    assert_eq!(service.observations.lock().await.len(), 1);
+    assert_eq!(service.finishes.lock().await.len(), 1);
+    socket.send(Message::Text(json!({"type":"input_audio_buffer.append","response_id":"idle-target","stream_id":"idle-control"}).to_string().into())).await.unwrap();
+    let _ = peer_json(&service.peer).await;
+    assert_eq!(
+        provider_event(
+            &mut socket,
+            &service.peer,
+            json!({"type":"error","response_id":"idle-target"})
+        )
+        .await["stream_id"],
+        "idle-control"
+    );
+    assert_eq!(service.observations.lock().await.len(), 1);
+    assert_eq!(service.finishes.lock().await.len(), 1);
+    socket.close(None).await.unwrap();
+    server.abort();
+}
+
+#[tokio::test]
+async fn omitted_client_identity_keeps_provider_identity_and_legacy_terminal_observation() {
+    let service = TestService::new();
+    let (url, server) = spawn(service.clone()).await;
+    let mut socket = connect(&url).await;
+    socket
+        .send(Message::Text(
+            json!({"type":"response.create","model":"gpt-5.6-sol"})
+                .to_string()
+                .into(),
+        ))
+        .await
+        .unwrap();
+    assert!(peer_json(&service.peer).await.get("stream_id").is_none());
+    let event = json!({"type":"response.completed","stream_id":"provider"});
+    assert_eq!(
+        provider_event(&mut socket, &service.peer, event.clone()).await,
+        event
+    );
+    assert_eq!(service.observations.lock().await.len(), 1);
+    assert_eq!(service.finishes.lock().await.len(), 1);
+    socket.close(None).await.unwrap();
+    server.abort();
+}
+
+async fn start_stream<S>(
+    socket: &mut tokio_tungstenite::WebSocketStream<S>,
+    peer: &ResponsesUpstreamPeer,
+    stream_id: &str,
+) where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    socket
+        .send(Message::Text(
+            json!({"type":"response.create","model":"gpt-5.6-sol","stream_id":stream_id})
+                .to_string()
+                .into(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(peer_json(peer).await["stream_id"], stream_id);
+}
+
+async fn provider_event<S>(
+    socket: &mut tokio_tungstenite::WebSocketStream<S>,
+    peer: &ResponsesUpstreamPeer,
+    event: Value,
+) -> Value
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    peer.send(ResponsesFrame::Text(event.to_string()))
+        .await
+        .unwrap();
+    receive_json(socket).await
 }
 
 async fn spawn(service: TestService) -> (String, JoinHandle<()>) {
