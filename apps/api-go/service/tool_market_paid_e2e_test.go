@@ -83,6 +83,13 @@ func newPaidMarketHarness(t *testing.T, usePostgres ...bool) *paidMarketHarness 
 	previousMain, previousLog := common.MainDatabaseType(), common.LogDatabaseType()
 	previousGlobal, previousCritical, previousSecret := common.GlobalApiRateLimitEnable, common.CriticalRateLimitEnable, common.SessionSecret
 	previousGin := gin.Mode()
+	t.Cleanup(func() {
+		model.DB, model.LOG_DB = previousDB, previousLogDB
+		common.RedisEnabled = previousRedis
+		common.GlobalApiRateLimitEnable, common.CriticalRateLimitEnable, common.SessionSecret = previousGlobal, previousCritical, previousSecret
+		common.SetDatabaseTypes(previousMain, previousLog)
+		gin.SetMode(previousGin)
+	})
 	common.RedisEnabled = false
 	common.GlobalApiRateLimitEnable, common.CriticalRateLimitEnable = false, false
 	common.SessionSecret = "isolated-market-paid-http-session-test"
@@ -99,6 +106,7 @@ func newPaidMarketHarness(t *testing.T, usePostgres ...bool) *paidMarketHarness 
 	}
 	pool, err := db.DB()
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, pool.Close()) })
 	if postgresEnabled {
 		pool.SetMaxOpenConns(16)
 	} else {
@@ -130,12 +138,6 @@ func newPaidMarketHarness(t *testing.T, usePostgres ...bool) *paidMarketHarness 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		require.NoError(t, middleware.WaitAdminAudits(ctx))
-		model.DB, model.LOG_DB = previousDB, previousLogDB
-		common.RedisEnabled = previousRedis
-		common.GlobalApiRateLimitEnable, common.CriticalRateLimitEnable, common.SessionSecret = previousGlobal, previousCritical, previousSecret
-		common.SetDatabaseTypes(previousMain, previousLog)
-		gin.SetMode(previousGin)
-		require.NoError(t, pool.Close())
 	})
 	harness.ok("root", http.MethodPut, "/api/tool-market/config", model.ToolMarketConfig{Enabled: true, FeeBPS: 1000, RecipientID: harness.users["root"].Id}, nil)
 	harness.ok("buyer", http.MethodPut, "/api/tool-market/budgets", map[string]any{"scope": "account", "scope_id": "", "limit_quota": 600}, nil)

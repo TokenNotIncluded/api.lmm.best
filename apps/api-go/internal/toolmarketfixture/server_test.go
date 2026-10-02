@@ -1,7 +1,9 @@
 package toolmarketfixture
 
 import (
+	"bytes"
 	"context"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -51,6 +53,10 @@ func TestFixtureUsesRealHTTPSMCPAndDoesNotExecuteDuringDiscovery(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "image/png", pixel.MIMEType)
 	require.NotEmpty(t, pixel.Data)
+	decoded, err := png.Decode(bytes.NewReader(pixel.Data))
+	require.NoError(t, err, "the image fixture must contain a decodable PNG")
+	require.Equal(t, 1, decoded.Bounds().Dx())
+	require.Equal(t, 1, decoded.Bounds().Dy())
 	failure, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "fixture_fail", Arguments: map[string]any{}})
 	require.NoError(t, err)
 	require.True(t, failure.IsError)
