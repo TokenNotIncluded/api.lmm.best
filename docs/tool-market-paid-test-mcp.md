@@ -25,6 +25,8 @@ MCP 地址是 `http://127.0.0.1:8123/mcp`，健康检查是 `/health`。本地 H
 | `fixture_add` | 两个有界整数求和 | 10 |
 | `fixture_image` | 固定 1×1 PNG，原生 MCP 图片 | 150 |
 | `fixture_fail` | `isError: true`，明确失败 | 100，但失败实扣 0 |
+| `fixture_invalid_output` | 不符合输出 schema 的结果 | 100，但无效结果实扣 0 |
+| `fixture_empty` | 空结果 | 100，但空结果实扣 0 |
 | `fixture_pending` | `status: pending`，结果未完成 | 100，但不结算成功 |
 | `fixture_unknown` | 故意返回协议错误 | 100，但不结算成功 |
 | `fixture_slow_echo` | 最长等待两秒后回显，用于并发重放 | 100 |

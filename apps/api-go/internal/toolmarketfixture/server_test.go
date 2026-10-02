@@ -34,7 +34,7 @@ func TestFixtureUsesRealHTTPSMCPAndDoesNotExecuteDuringDiscovery(t *testing.T) {
 	t.Cleanup(func() { _ = session.Close() })
 	tools, err := session.ListTools(context.Background(), nil)
 	require.NoError(t, err)
-	require.Len(t, tools.Tools, 7)
+	require.Len(t, tools.Tools, 9)
 	require.Zero(t, calls.Load(), "discovery must never execute a paid business tool")
 
 	echo, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "fixture_echo", Arguments: map[string]any{"text": "paid fixture"}})
@@ -54,6 +54,13 @@ func TestFixtureUsesRealHTTPSMCPAndDoesNotExecuteDuringDiscovery(t *testing.T) {
 	failure, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "fixture_fail", Arguments: map[string]any{}})
 	require.NoError(t, err)
 	require.True(t, failure.IsError)
+	invalid, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "fixture_invalid_output", Arguments: map[string]any{}})
+	require.NoError(t, err)
+	require.Equal(t, "not an integer", invalid.StructuredContent.(map[string]any)["value"])
+	empty, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "fixture_empty", Arguments: map[string]any{}})
+	require.NoError(t, err)
+	require.Empty(t, empty.Content)
+	require.Nil(t, empty.StructuredContent)
 	pending, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "fixture_pending", Arguments: map[string]any{}})
 	require.NoError(t, err)
 	require.Equal(t, "pending", pending.StructuredContent.(map[string]any)["status"])
@@ -62,7 +69,7 @@ func TestFixtureUsesRealHTTPSMCPAndDoesNotExecuteDuringDiscovery(t *testing.T) {
 	slow, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "fixture_slow_echo", Arguments: map[string]any{"text": "bounded", "delay_ms": 0}})
 	require.NoError(t, err)
 	require.Equal(t, "bounded", slow.StructuredContent.(map[string]any)["text"])
-	require.Equal(t, int32(7), calls.Load())
+	require.Equal(t, int32(9), calls.Load())
 }
 
 func TestFixtureAuthenticationRejectsMissingWrongAndDuplicateBearers(t *testing.T) {

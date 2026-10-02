@@ -24,7 +24,11 @@ type Options struct {
 }
 
 func object(properties map[string]any, required ...string) map[string]any {
-	return map[string]any{"type": "object", "properties": properties, "required": required, "additionalProperties": false}
+	schema := map[string]any{"type": "object", "properties": properties, "additionalProperties": false}
+	if len(required) > 0 {
+		schema["required"] = required
+	}
+	return schema
 }
 
 func textProperty() map[string]any {
@@ -72,6 +76,12 @@ func NewServer(options Options) *mcp.Server {
 	})
 	add(&mcp.Tool{Name: "fixture_fail", Description: "TEST: explicit MCP business failure. LMM must release the hold and charge nothing.", InputSchema: object(map[string]any{})}, func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "Intentional test failure; no work was performed."}}}, nil
+	})
+	add(&mcp.Tool{Name: "fixture_invalid_output", Description: "TEST: deliberately violate the output schema. LMM must reject the result and charge nothing.", InputSchema: object(map[string]any{}), OutputSchema: object(map[string]any{"value": map[string]any{"type": "integer"}}, "value")}, func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return &mcp.CallToolResult{StructuredContent: map[string]any{"value": "not an integer"}}, nil
+	})
+	add(&mcp.Tool{Name: "fixture_empty", Description: "TEST: empty final result. LMM must reject it and charge nothing.", InputSchema: object(map[string]any{})}, func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return &mcp.CallToolResult{}, nil
 	})
 	add(&mcp.Tool{Name: "fixture_pending", Description: "TEST: intermediate business result. LMM must not settle it as a successful call.", InputSchema: object(map[string]any{}), OutputSchema: object(map[string]any{"status": map[string]any{"type": "string"}}, "status")}, func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return &mcp.CallToolResult{StructuredContent: map[string]any{"status": "pending"}}, nil
