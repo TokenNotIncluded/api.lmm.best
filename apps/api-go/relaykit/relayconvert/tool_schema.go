@@ -30,6 +30,13 @@ func SanitizeToolSchemas(request any) error {
 			return err
 		}
 		r.Functions = raw
+		for i := range r.Messages {
+			raw, err := sanitizeToolList(r.Messages[i].Tools, "chat-tools")
+			if err != nil {
+				return err
+			}
+			r.Messages[i].Tools = raw
+		}
 	case *dto.ClaudeRequest:
 		for i, tool := range r.GetTools() {
 			switch t := tool.(type) {
@@ -174,6 +181,14 @@ func sanitizeToolListAtDepth(raw json.RawMessage, protocol string, depth int) (j
 		case "chat-functions":
 			if err := clean(t, "parameters"); err != nil {
 				return nil, err
+			}
+		case "chat-tools":
+			if t["type"] == "function" {
+				if function, ok := t["function"].(map[string]any); ok {
+					if err := clean(function, "parameters"); err != nil {
+						return nil, err
+					}
+				}
 			}
 		case "gemini":
 			for _, key := range []string{"functionDeclarations", "function_declarations"} {

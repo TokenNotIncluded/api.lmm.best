@@ -15,12 +15,20 @@ func copyRequestForRelay[T any](src *T, passthrough bool) (*T, error) {
 		copy := *src
 		return &copy, nil
 	}
+	return copyMutableRequestForRelay(src, passthrough)
+}
+
+// Claude and Gemini handlers can change nested provider settings even when the
+// raw body is forwarded. Keep those copies isolated across channel retries.
+func copyMutableRequestForRelay[T any](src *T, passthrough bool) (*T, error) {
 	copy, err := common.DeepCopy(src)
 	if err != nil {
 		return nil, err
 	}
-	if err := relayconvert.SanitizeToolSchemas(copy); err != nil {
-		return nil, err
+	if !passthrough {
+		if err := relayconvert.SanitizeToolSchemas(copy); err != nil {
+			return nil, err
+		}
 	}
 	return copy, nil
 }

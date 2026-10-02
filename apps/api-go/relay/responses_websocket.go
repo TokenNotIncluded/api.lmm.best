@@ -595,7 +595,7 @@ func buildResponsesWSCreateEvent(jsonData []byte, generate common.RawMessage) ([
 }
 
 func removeResponsesWSTransportFields(jsonData []byte) ([]byte, error) {
-	var data map[string]any
+	var data map[string]common.RawMessage
 	if err := common.Unmarshal(jsonData, &data); err != nil {
 		return jsonData, err
 	}

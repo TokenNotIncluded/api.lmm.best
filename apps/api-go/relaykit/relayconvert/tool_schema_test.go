@@ -152,3 +152,16 @@ func TestResponsesNamespaceSchemasAndUnchangedBytes(t *testing.T) {
 	_, err = sanitizeToolList(json.RawMessage(tooDeep), "responses")
 	require.ErrorContains(t, err, "maximum depth")
 }
+
+func TestChatMessageToolSchemas(t *testing.T) {
+	req := &dto.GeneralOpenAIRequest{Messages: []dto.Message{{
+		Role: "tool", Content: map[string]any{"required": nil},
+		Tools: json.RawMessage(`[{"type":"function","function":{"name":"lookup","parameters":{"required":null,"minimum":9007199254740993,"default":{"required":null}}}},{"type":"custom","custom":{"required":null}}]`),
+	}}}
+	require.NoError(t, SanitizeToolSchemas(req))
+	require.Equal(t, 2, strings.Count(string(req.Messages[0].Tools), `"required":null`))
+	require.Contains(t, string(req.Messages[0].Tools), "9007199254740993")
+	require.Contains(t, string(req.Messages[0].Tools), `"default":{"required":null}`)
+	require.Contains(t, string(req.Messages[0].Tools), `"custom":{"required":null}`)
+	require.Contains(t, req.Messages[0].Content, "required")
+}
