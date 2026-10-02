@@ -38,7 +38,9 @@ The Zed bridge can forward OpenAI chat-completions and Responses streams for sup
 
 The API server must register the public clients `lmm-vscode` and `lmm-zed`. Each requests exactly `catalog:read balance:read usage:read models:invoke`, together with the group snapshot explicitly displayed during consent. The editor clients do not grant built-in MCP or marketplace scopes. Their credentials and revocation are isolated from the other editor and other LMM clients.
 
-Both adapters use the LMM authorization-server discovery document and a loopback callback with PKCE. The access token is used with the OAuth catalog and relay endpoints, rather than the ordinary API-key endpoints. See the [server OAuth contract](../apps/api-go/service/oauth_contract.md) for the authoritative endpoint and authorization rules.
+Both adapters use the LMM authorization-server discovery document and a loopback callback with PKCE. Starting with 0.1.1, each adapter checks its own ID in `lmm_client_ids_supported` before opening browser authorization. If the deployed server does not register the editor, the adapter reports that prerequisite directly. It never substitutes Pi or another client. Authorization and error pages identify the registered client, and each authorization code keeps the exact redirect, resource, client and scope confirmed for that request. The access token is used with the OAuth catalog and relay endpoints, rather than the ordinary API-key endpoints. See the [server OAuth contract](../apps/api-go/service/oauth_contract.md) for the authoritative endpoint and authorization rules.
+
+When deploying the authorization-code snapshot migration, unredeemed codes created by the previous server must restart sign-in. Those codes already have a 120-second lifetime; existing access and refresh tokens remain usable.
 
 The client registrations in this repository are not proof that the production server has been deployed. Until a server containing both registrations is deployed and OAuth is enabled, production login may reject these clients. A successful local build, mocked OAuth exchange or packaged artifact does not establish live login, model invocation or billing acceptance.
 
@@ -89,9 +91,9 @@ The VS Code manifest uses publisher ID `LIghtJUNction`, matching the existing pu
 For [Visual Studio Marketplace](https://code.visualstudio.com/api/working-with-extensions/publishing-extension), authenticate with the publisher account using `npx vsce login LIghtJUNction` or configure the documented Microsoft Entra identity, then publish the reviewed VSIX from its package directory:
 
 ```sh
-npx vsce publish --packagePath lmm-copilot-provider-0.1.0.vsix
+npx vsce publish --packagePath lmm-copilot-provider-0.1.1.vsix
 # With an already configured Microsoft Entra identity:
-# npx vsce publish --azure-credential --packagePath lmm-copilot-provider-0.1.0.vsix
+# npx vsce publish --azure-credential --packagePath lmm-copilot-provider-0.1.1.vsix
 ```
 
 After the Marketplace listing is published, install it with `code --install-extension LIghtJUNction.lmm-copilot-provider`.
@@ -99,13 +101,13 @@ After the Marketplace listing is published, install it with `code --install-exte
 For [Open VSX](https://github.com/eclipse-openvsx/openvsx/wiki/Publishing-Extensions), the account must have accepted the publisher agreement and have access to namespace `LIghtJUNction` to publish this same VSIX. Supply its registry token through `OVSX_PAT`, then publish the artifact:
 
 ```sh
-npx --package ovsx ovsx publish lmm-copilot-provider-0.1.0.vsix
+npx --package ovsx ovsx publish lmm-copilot-provider-0.1.1.vsix
 ```
 
 For the Zed bridge, complete `npm login` with an account permitted to publish the scope, then publish the reviewed archive from its package directory using [npm's public-package command](https://docs.npmjs.com/cli/v11/commands/npm-publish/):
 
 ```sh
-npm publish ./tokennotincluded-zed-lmm-provider-0.1.0.tgz --access public
+npm publish ./tokennotincluded-zed-lmm-provider-0.1.1.tgz --access public
 ```
 
 After publishing, verify the public registry entry and download/install that exact version. Record those URLs separately from the production OAuth and editor runtime acceptance results.
