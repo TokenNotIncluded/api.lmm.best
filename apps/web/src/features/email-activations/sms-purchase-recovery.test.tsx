@@ -268,13 +268,13 @@ function transportError(status?: number) {
   })
 }
 
-function createdOrder() {
+function createdOrder(quota = 4_500_000) {
   return {
     data: {
       success: true,
       data: {
         order: { id: 'fixture-order', status: 'active' },
-        quota: 4_500_000,
+        quota,
       },
     },
   }
@@ -1193,6 +1193,211 @@ test('retains recovery when a no-purchase code has the wrong HTTP status or a no
       assert.equal(findButton('Buy phone activation').disabled, true)
     }
   } finally {
+    await probe.close()
+  }
+})
+
+test('does not overwrite a newer balance when an unmounted original purchase returns after recovery', async () => {
+  login(1)
+  let serverQuota = 10_000_000
+  mockPanelApi(async () => response(1, serverQuota))
+  const original = deferred<ReturnType<typeof createdOrder>>()
+  const keys: string[] = []
+  api.post = (async (
+    _url: string,
+    _body: unknown,
+    config: { headers?: Record<string, string> }
+  ) => {
+    keys.push(config.headers?.['Idempotency-Key'] ?? '')
+    if (keys.length === 1) return original.promise
+    serverQuota = keys.length === 2 ? 9_500_000 : 9_000_000
+    return createdOrder(serverQuota)
+  }) as typeof api.post
+  const first = await mount(true)
+  await chooseFavorite(first)
+  await confirmPurchase()
+  await settle(() => keys.length === 1)
+  await first.close()
+  const second = await mount(true)
+  try {
+    await reconcilePurchase()
+    await settle(
+      () =>
+        localStorage.getItem(recoveryKey(1)) === null &&
+        useAuthStore.getState().auth.user?.quota === 9_500_000
+    )
+    await chooseFavorite(second)
+    await confirmPurchase()
+    await settle(
+      () =>
+        keys.length === 3 &&
+        useAuthStore.getState().auth.user?.quota === 9_000_000 &&
+        !findButton('Buy phone activation').disabled
+    )
+    assert.equal(keys[0], keys[1])
+    assert.notEqual(keys[0], keys[2])
+    await act(async () => original.resolve(createdOrder(9_500_000)))
+    assert.equal(
+      useAuthStore.getState().auth.user?.quota,
+      9_000_000,
+      'a delayed response must not restore the earlier balance'
+    )
+    assert.equal(
+      second.queryClient.getQueryData([
+        'user',
+        'sms-purchase-balance',
+        1,
+        'session-1',
+      ]),
+      9_000_000
+    )
+  } finally {
+    await second.close()
+  }
+})
+
+test('does not apply a late recovery balance or clear a newer partial batch result', async () => {
+  login(1)
+  let serverQuota = 10_000_000
+  mockPanelApi(async () => response(1, serverQuota))
+  const recovery = deferred<ReturnType<typeof createdOrder>>()
+  const saved = pendingPurchase()
+  let attempts = 0
+  api.post = (async () => {
+    attempts += 1
+    if (attempts === 1) return recovery.promise
+    if (attempts === 2) {
+      serverQuota = 9_000_000
+      return createdOrder(serverQuota)
+    }
+    throw Object.assign(new Error('fixture price changed'), {
+      isAxiosError: true,
+      response: { status: 409, data: { code: 'PRICE_CHANGED' } },
+    })
+  }) as typeof api.post
+  const probe = await mount(true)
+  let unsubscribe = () => {}
+  try {
+    await chooseFavorite(probe)
+    await act(async () => saveSmsPurchaseRecovery(saved))
+    await reconcilePurchase()
+    await settle(() => attempts === 1)
+    await act(async () => clearSmsPurchaseRecovery(saved))
+    await chooseFavorite(probe, 2)
+    await confirmPurchase()
+    await settle(
+      () =>
+        attempts === 3 &&
+        document.body.textContent?.includes(
+          '1 of 2 phone activations were purchased'
+        ) === true &&
+        !findButton('Buy phone activation').disabled
+    )
+    const observed: Array<number | undefined> = []
+    unsubscribe = useAuthStore.subscribe((state) =>
+      observed.push(state.auth.user?.quota)
+    )
+    await act(async () => recovery.resolve(createdOrder(9_500_000)))
+    assert.equal(useAuthStore.getState().auth.user?.quota, 9_000_000)
+    assert.ok(
+      observed.every((quota) => quota === 9_000_000),
+      'the late recovery quota must never be applied, even before the fresh balance read'
+    )
+    assert.ok(
+      document.body.textContent?.includes(
+        '1 of 2 phone activations were purchased'
+      )
+    )
+    assert.ok(document.body.textContent?.includes('fixture price changed'))
+    assert.equal(localStorage.getItem(recoveryKey(1)), null)
+  } finally {
+    unsubscribe()
+    await probe.close()
+  }
+})
+
+test('keeps a newer pending item and its balance when an old recovery succeeds', async () => {
+  login(1)
+  mockPanelApi(async () => response(1, 9_000_000))
+  const original = pendingPurchase()
+  localStorage.setItem(recoveryKey(1), JSON.stringify(original))
+  const recovery = deferred<ReturnType<typeof createdOrder>>()
+  api.post = (async () => recovery.promise) as typeof api.post
+  const probe = await mount(true)
+  let unsubscribe = () => {}
+  try {
+    await reconcilePurchase()
+    const newer = {
+      ...original,
+      offerId: 'new-quote',
+      idempotencyKey: 'new-key',
+    }
+    await act(async () => {
+      clearSmsPurchaseRecovery(original)
+      saveSmsPurchaseRecovery(newer)
+    })
+    const observed: Array<number | undefined> = []
+    unsubscribe = useAuthStore.subscribe((state) =>
+      observed.push(state.auth.user?.quota)
+    )
+    await act(async () => recovery.resolve(createdOrder(9_500_000)))
+    await settle(() => !findButton('Resolve purchase and continue').disabled)
+    assert.deepEqual(
+      JSON.parse(localStorage.getItem(recoveryKey(1)) ?? ''),
+      newer
+    )
+    assert.equal(findButton('Buy phone activation').disabled, true)
+    assert.equal(useAuthStore.getState().auth.user?.quota, 9_000_000)
+    assert.ok(observed.every((quota) => quota === 9_000_000))
+  } finally {
+    unsubscribe()
+    await probe.close()
+  }
+})
+
+test('keeps recovery blocked without applying the response balance when durable deletion fails', async () => {
+  login(1)
+  mockPanelApi(async () => response(1, 9_000_000))
+  const original = pendingPurchase()
+  localStorage.setItem(recoveryKey(1), JSON.stringify(original))
+  const recovery = deferred<ReturnType<typeof createdOrder>>()
+  api.post = (async () => recovery.promise) as typeof api.post
+  const probe = await mount(true)
+  const descriptor = Object.getOwnPropertyDescriptor(window, 'localStorage')
+  const stored = window.localStorage
+  let unsubscribe = () => {}
+  try {
+    await reconcilePurchase()
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: stored.getItem.bind(stored),
+        setItem: stored.setItem.bind(stored),
+        removeItem: () => {
+          throw new Error('fixture storage deletion failed')
+        },
+      },
+    })
+    const observed: Array<number | undefined> = []
+    unsubscribe = useAuthStore.subscribe((state) =>
+      observed.push(state.auth.user?.quota)
+    )
+    await act(async () => recovery.resolve(createdOrder(9_500_000)))
+    await settle(() => !findButton('Resolve purchase and continue').disabled)
+    assert.deepEqual(JSON.parse(stored.getItem(recoveryKey(1)) ?? ''), original)
+    assert.equal(findButton('Buy phone activation').disabled, true)
+    assert.equal(useAuthStore.getState().auth.user?.quota, 9_000_000)
+    assert.ok(observed.every((quota) => quota === 9_000_000))
+  } finally {
+    unsubscribe()
+    if (descriptor) {
+      Object.defineProperty(window, 'localStorage', descriptor)
+    } else {
+      Object.defineProperty(window, 'localStorage', {
+        configurable: true,
+        value: stored,
+      })
+    }
     await probe.close()
   }
 })

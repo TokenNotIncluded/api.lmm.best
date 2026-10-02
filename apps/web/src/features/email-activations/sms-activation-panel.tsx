@@ -228,8 +228,12 @@ function useSmsPurchaseMutation(options: SmsPurchaseMutationOptions) {
           }
           const result = await createHeroSmsSmsOrder(offerId, idempotencyKey)
           if (attempt.balance.isCurrentSession()) {
-            clearSmsPurchaseRecovery(record)
-            attempt.balance.recordQuota(result.quota)
+            const settled = clearSmsPurchaseRecovery(record)
+            if (settled && attempt.isMounted()) {
+              attempt.balance.recordQuota(result.quota)
+            } else {
+              await attempt.balance.invalidateQuota()
+            }
           }
           return result
         },
@@ -362,9 +366,12 @@ function useSmsPurchaseReconciliation({
         record.idempotencyKey
       )
       if (!balance.isCurrentSession()) return
-      clearSmsPurchaseRecovery(record)
+      const settled = clearSmsPurchaseRecovery(record)
+      if (!settled || !isMounted()) {
+        await balance.invalidateQuota()
+        return
+      }
       balance.recordQuota(result.quota)
-      if (!isMounted()) return
       toast.success(t('Purchase result reconciled'))
       setResult(null)
       await invalidate()
@@ -373,7 +380,10 @@ function useSmsPurchaseReconciliation({
       if (!isMounted() || !balance.isCurrentSession()) return
       const parsed = parseHeroSmsError(error)
       if (isSmsPurchaseNotCreated(error)) {
-        clearSmsPurchaseRecovery(record)
+        if (!clearSmsPurchaseRecovery(record)) {
+          await balance.invalidateQuota()
+          return
+        }
         const result: HeroSmsBatchPurchaseResult = {
           requested: record.requested,
           orders: [],

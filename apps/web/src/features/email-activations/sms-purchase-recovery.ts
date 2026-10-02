@@ -101,14 +101,15 @@ export function saveSmsPurchaseRecovery(record: SmsPurchaseRecovery) {
 export function clearSmsPurchaseRecovery(record: SmsPurchaseRecovery) {
   try {
     const existing = readSmsPurchaseRecovery(record.userId, true)
-    if (!existing || !samePurchase(existing, record)) return
+    if (!existing || !samePurchase(existing, record)) return false
     window.localStorage.removeItem(`${prefix}${record.userId}`)
   } catch {
     // Keep recovery blocked if the durable record cannot be removed.
-    return
+    return false
   }
   snapshots.delete(record.userId)
   notify()
+  return true
 }
 
 function subscribe(listener: () => void) {
