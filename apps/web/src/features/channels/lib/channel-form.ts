@@ -263,6 +263,7 @@ export const channelFormSchema = z
     system_prompt: z.string().optional(),
     system_prompt_override: z.boolean().optional(),
     // Type-specific settings (stored in settings JSON)
+    ollama_openai_chat: z.boolean().optional(), // Ollama chat transport
     is_enterprise_account: z.boolean().optional(), // OpenRouter specific
     vertex_key_type: z.enum(['json', 'api_key']).optional(), // Vertex AI specific
     aws_key_type: z.enum(['ak_sk', 'api_key']).optional(), // AWS specific
@@ -435,6 +436,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   system_prompt: '',
   system_prompt_override: false,
   // Type-specific settings
+  ollama_openai_chat: false,
   is_enterprise_account: false,
   vertex_key_type: 'json',
   aws_key_type: 'ak_sk',
@@ -503,6 +505,7 @@ export function transformChannelToFormDefaults(
   let vertexKeyType: 'json' | 'api_key' = 'json'
   let azureResponsesVersion = ''
   let isEnterpriseAccount = false
+  let ollamaOpenAIChat = false
   let awsKeyType: 'ak_sk' | 'api_key' = 'ak_sk'
   let allowServiceTier = false
   let disableStore = false
@@ -523,6 +526,7 @@ export function transformChannelToFormDefaults(
       vertexKeyType = parsed.vertex_key_type || 'json'
       azureResponsesVersion = parsed.azure_responses_version || ''
       isEnterpriseAccount = parsed.openrouter_enterprise === true
+      ollamaOpenAIChat = parsed.ollama_openai_chat === true
       awsKeyType = parsed.aws_key_type || 'ak_sk'
       allowServiceTier = parsed.allow_service_tier === true
       disableStore = parsed.disable_store === true
@@ -579,6 +583,7 @@ export function transformChannelToFormDefaults(
     // Channel extra settings
     ...extraSettings,
     // Type-specific settings
+    ollama_openai_chat: ollamaOpenAIChat,
     is_enterprise_account: isEnterpriseAccount,
     vertex_key_type: vertexKeyType,
     azure_responses_version: azureResponsesVersion,
@@ -662,6 +667,13 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
     settingsObj.openrouter_enterprise = formData.is_enterprise_account === true
   } else if ('openrouter_enterprise' in settingsObj) {
     delete settingsObj.openrouter_enterprise
+  }
+
+  // Ollama (type 4): opt in to the OpenAI-compatible chat endpoint.
+  if (formData.type === 4) {
+    settingsObj.ollama_openai_chat = formData.ollama_openai_chat === true
+  } else if ('ollama_openai_chat' in settingsObj) {
+    delete settingsObj.ollama_openai_chat
   }
 
   // Add aws_key_type for AWS channels (type 33)

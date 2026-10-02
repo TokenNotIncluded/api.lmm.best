@@ -291,6 +291,7 @@ const SENSITIVE_FORM_FIELDS = [
   'settings',
   'setting',
   'advanced_custom',
+  'ollama_openai_chat',
   'is_enterprise_account',
   'vertex_key_type',
   'aws_key_type',
@@ -2309,6 +2310,36 @@ export function ChannelMutateDrawer({
                                       )}
                                     </FormDescription>
                                     <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            )}
+
+                            {/* Ollama (type 4) */}
+                            {currentType === 4 && (
+                              <FormField
+                                control={form.control}
+                                name='ollama_openai_chat'
+                                render={({ field }) => (
+                                  <FormItem
+                                    className={sideDrawerSwitchItemClassName()}
+                                  >
+                                    <div className='flex flex-col gap-0.5'>
+                                      <FormLabel>
+                                        {t('Use OpenAI-compatible chat API')}
+                                      </FormLabel>
+                                      <FormDescription>
+                                        {t(
+                                          "Send OpenAI chat requests to /v1/chat/completions. Off uses /api/chat; embeddings and model management keep using Ollama's native API."
+                                        )}
+                                      </FormDescription>
+                                    </div>
+                                    <FormControl>
+                                      <Switch
+                                        checked={field.value ?? false}
+                                        onCheckedChange={field.onChange}
+                                      />
+                                    </FormControl>
                                   </FormItem>
                                 )}
                               />
