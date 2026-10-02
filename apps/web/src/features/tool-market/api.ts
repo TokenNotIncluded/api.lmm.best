@@ -182,6 +182,10 @@ type Envelope<T> = {
   code?: string
   message?: string
 }
+
+// Eligible authorization targets only; this does not report live token status.
+export type MarketOAuthClient = { client_id: string }
+
 const base = '/api/tool-market'
 async function unwrap<T>(request: Promise<{ data: Envelope<T> }>): Promise<T> {
   try {

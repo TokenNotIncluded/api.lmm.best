@@ -15,7 +15,7 @@ import {
   Store,
   XCircle,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout/components/section-page-layout'
@@ -49,6 +49,7 @@ import {
   type MarketTool,
   type MarketToken,
   type MarketDetail,
+  type MarketOAuthClient,
 } from './api'
 import { marketErrorKey } from './call-utils'
 import { MarketConnections } from './connections'
@@ -176,6 +177,21 @@ function ToolMarketWorkspace() {
     queryKey: [...key, 'tokens'],
     queryFn: () => marketAPI.mine<MarketToken>('tokens'),
   })
+  const oauthClients = useQuery({
+    queryKey: [...key, 'oauth-clients'],
+    queryFn: () => marketAPI.mine<MarketOAuthClient>('oauth-clients'),
+  })
+  const eligibleOAuthIDs = oauthClients.data?.map((row) => row.client_id) ?? []
+  useEffect(() => {
+    if (
+      client.startsWith('oauth:') &&
+      oauthClients.isSuccess &&
+      !oauthClients.data.some((row) => row.client_id === client)
+    ) {
+      setClient('web-market')
+      setGrantTool(null)
+    }
+  }, [client, oauthClients.isSuccess, oauthClients.data])
   const detail = useQuery({
     queryKey: [...key, 'detail', selected?.id, selected?.mode],
     queryFn: () => {
@@ -217,13 +233,20 @@ function ToolMarketWorkspace() {
   const clients = [
     ...new Set([
       'web-market',
-      client,
-      ...(tokens.data ?? []).map((row) => row.client_id),
-      ...(installs.data ?? []).map((row) => row.client_id),
-      ...(grants.data ?? []).map((row) => row.client_id),
+      ...[
+        client,
+        ...(tokens.data ?? []).map((row) => row.client_id),
+        ...(installs.data ?? []).map((row) => row.client_id),
+        ...(grants.data ?? []).map((row) => row.client_id),
+      ].filter((id) => !id.startsWith('oauth:')),
+      ...eligibleOAuthIDs,
     ]),
   ]
-  const accessReady = installs.isSuccess && grants.isSuccess
+  const accessReady =
+    installs.isSuccess &&
+    grants.isSuccess &&
+    (!client.startsWith('oauth:') ||
+      (oauthClients.isSuccess && eligibleOAuthIDs.includes(client)))
   const openPublisher = () => {
     setSelected(null)
     setEditorInitial(undefined)
@@ -672,7 +695,9 @@ function ToolMarketWorkspace() {
                       )}
                       <Separator />
                       {selected.mode === 'published' &&
-                        (installs.isPending || grants.isPending) && (
+                        (installs.isPending ||
+                          grants.isPending ||
+                          oauthClients.isPending) && (
                           <p
                             role='status'
                             className='text-muted-foreground text-sm'
@@ -681,7 +706,9 @@ function ToolMarketWorkspace() {
                           </p>
                         )}
                       {selected.mode === 'published' &&
-                        (installs.isError || grants.isError) && (
+                        (installs.isError ||
+                          grants.isError ||
+                          oauthClients.isError) && (
                           <div role='alert' className='space-y-2 text-sm'>
                             <p className='text-destructive'>
                               {t(
@@ -694,6 +721,7 @@ function ToolMarketWorkspace() {
                                 void Promise.allSettled([
                                   installs.refetch(),
                                   grants.refetch(),
+                                  oauthClients.refetch(),
                                 ])
                               }
                             >

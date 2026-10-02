@@ -211,12 +211,3 @@ func SetToolMarketConfig(c *gin.Context) {
 	}
 	toolMarketRespond(c, nil, model.SetToolMarketConfig(c.GetInt("id"), input))
 }
-
-func ListToolMarketAccountResources(c *gin.Context) {
-	offset, limit, ok := toolMarketPage(c)
-	if !ok {
-		return
-	}
-	rows, err := model.ListToolMarketAccountResources(c.GetInt("id"), c.Param("kind"), offset, limit)
-	toolMarketRespond(c, rows, err)
-}

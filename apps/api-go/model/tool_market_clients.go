@@ -1,11 +1,70 @@
 package model
 
 import (
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"gorm.io/gorm"
 )
+
+// ToolMarketOAuthClient is an authorization target, not a token status or an
+// introspection response. It contains no OAuth family IDs, scopes or digests.
+type ToolMarketOAuthClient struct {
+	ClientID string `json:"client_id"`
+}
+
+// ListToolMarketOAuthClients includes native clients which can invoke market
+// tools, including those without the optional manage scope. Expired access
+// tokens can still be refreshed, but used/expired refresh tokens, revoked
+// families and narrowed token scopes cannot make a client eligible.
+// The caller supplies the configured OAuth writer DB and trusted client policy.
+// This query never creates market access or changes OAuth consent.
+func ListToolMarketOAuthClients(db *gorm.DB, userID int, issuer, resource string, clientIDs, requiredScopes []string, offset, limit int) ([]ToolMarketOAuthClient, error) {
+	if db == nil || issuer == "" || resource == "" || len(clientIDs) == 0 || len(requiredScopes) == 0 || userID <= 0 || offset < 0 || offset > 10000 || limit < 1 || limit > 100 {
+		return nil, ErrToolMarketInput
+	}
+	if err := marketUser(db, userID, common.RoleCommonUser); err != nil {
+		return nil, err
+	}
+	now := time.Now().UnixMilli()
+	var candidates []struct {
+		ClientID   string
+		GrantScope string
+		TokenScope string
+	}
+	err := db.Table("oauth_server_grants AS family").
+		Select("DISTINCT family.client_id, family.scope AS grant_scope, tok.scope AS token_scope").
+		Joins("JOIN oauth_server_tokens AS tok ON tok.family_id = family.id AND tok.issuer = family.issuer").
+		Where("family.user_id = ? AND family.issuer = ? AND family.resource = ? AND family.client_id IN ?", userID, issuer, resource, clientIDs).
+		Where("family.revoked_at_ms = 0 AND family.absolute_expires_at_ms > ? AND family.binding_method = '' AND family.binding_thumbprint = ''", now).
+		Where("tok.kind IN ? AND tok.expires_at_ms > ? AND tok.used_at_ms = 0", []string{"access", "refresh"}, now).
+		Scan(&candidates).Error
+	if err != nil {
+		return nil, err
+	}
+	eligible := map[string]bool{}
+	for _, candidate := range candidates {
+		allowed := marketClientValid("oauth:" + candidate.ClientID)
+		for _, scope := range requiredScopes {
+			allowed = allowed && containsOAuthScope(candidate.GrantScope, scope) && containsOAuthScope(candidate.TokenScope, scope)
+		}
+		if allowed {
+			eligible[candidate.ClientID] = true
+		}
+	}
+	ids := make([]string, 0, len(eligible))
+	for id := range eligible {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	rows := []ToolMarketOAuthClient{}
+	for i := offset; i < len(ids) && len(rows) < limit; i++ {
+		rows = append(rows, ToolMarketOAuthClient{ClientID: "oauth:" + ids[i]})
+	}
+	return rows, nil
+}
 
 // ToolMarketClientDisconnect reports changes, not the account's private history.
 type ToolMarketClientDisconnect struct {

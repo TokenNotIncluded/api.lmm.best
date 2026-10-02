@@ -9,6 +9,7 @@ import { Window } from 'happy-dom'
 
 import type {
   Grant,
+  Installation,
   MarketConfig,
   MarketDetail,
   MarketService,
@@ -558,5 +559,160 @@ test('editing a published service opens the existing authored draft without repl
     button('Save draft', container).disabled,
     true,
     'saving still requires an explicit definition read'
+  )
+})
+
+for (const clientID of ['oauth:lmm-pi', 'oauth:lmm-dsh']) {
+  test(`first-time ${clientID} can authorize and load its first exact tool without a personal token`, async () => {
+    stubNavigation([builtin])
+    const authorizations: Parameters<typeof marketAPI.grant>[0][] = []
+    const installations: Installation[] = []
+    const savedGrants: Grant[] = []
+    marketAPI.mine = (async (kind: string) => {
+      if (kind === 'oauth-clients') return [{ client_id: clientID }]
+      if (kind === 'installations') return installations
+      if (kind === 'grants') return savedGrants
+      return []
+    }) as typeof marketAPI.mine
+    marketAPI.token = async () =>
+      assert.fail('OAuth authorization must not issue a personal token')
+    marketAPI.invoke = async () =>
+      assert.fail('Selecting or authorizing a client must not invoke a tool')
+    marketAPI.grant = async (input) => {
+      authorizations.push(input)
+      const row = { ...grant(builtin.tools[0]), ...input }
+      savedGrants.push(row)
+      return row
+    }
+    marketAPI.install = async (input, loaded) => {
+      assert.equal(loaded, true)
+      installations.push(input)
+      return null
+    }
+    const { container } = await mount()
+    await waitFor(() =>
+      Boolean(container.querySelector(`option[value="${clientID}"]`))
+    )
+    const card = [...container.querySelectorAll('button')].find(
+      (row) => row.querySelector('strong')?.textContent === builtin.version.name
+    )
+    assert.ok(card)
+    await click(card)
+    await waitFor(() =>
+      Boolean(container.querySelector('#market-active-client'))
+    )
+    const picker = container.querySelector<HTMLSelectElement>(
+      '#market-active-client'
+    )
+    assert.ok(picker)
+    await act(async () => {
+      picker.value = clientID
+      picker.dispatchEvent(new Event('change', { bubbles: true }))
+      await flush()
+    })
+    assert.equal(button('Load', container).disabled, false)
+    assert.equal(authorizations.length, 0)
+    assert.equal(installations.length, 0)
+    assert.equal(findButton('Run free tool', container), undefined)
+    await click(button('Add and authorize tool', container))
+    await waitFor(() => document.body.querySelector('[role="dialog"]') !== null)
+    const dialog = document.body.querySelector('[role="dialog"]')
+    assert.ok(dialog)
+    assert.ok(dialog.textContent?.includes(clientID))
+    assert.equal(
+      authorizations.length,
+      0,
+      'opening limits does not grant access'
+    )
+    await click(button('Add and authorize tool', dialog))
+    await waitFor(() => installations.length === 1 && savedGrants.length === 1)
+    assert.equal(authorizations[0].client_id, clientID)
+    assert.equal(authorizations[0].tool_id, builtin.tools[0].tool_id)
+    assert.equal(authorizations[0].version_id, builtin.version.id)
+    assert.deepEqual(installations[0], {
+      client_id: clientID,
+      tool_id: builtin.tools[0].tool_id,
+      version_id: builtin.version.id,
+    })
+    await waitFor(
+      () => container.textContent?.includes('Ready in this client.') === true
+    )
+  })
+}
+
+test('historical OAuth rows cannot impersonate eligible clients and revocation resets the selected target', async () => {
+  stubNavigation([builtin])
+  let eligible = [{ client_id: 'oauth:lmm-pi' }]
+  marketAPI.mine = (async (kind: string) => {
+    if (kind === 'oauth-clients') return eligible
+    if (kind === 'grants') {
+      return ['oauth:pretend-pi', 'oauth:lmm-dsh'].map((client_id) => ({
+        ...grant(builtin.tools[0]),
+        client_id,
+      }))
+    }
+    if (kind === 'tokens') return [{ client_id: 'oauth:pretend-token' }]
+    if (kind === 'installations') {
+      return [{ client_id: 'oauth:pretend-install' }]
+    }
+    return []
+  }) as typeof marketAPI.mine
+  const { container, client: cache } = await mount()
+  await waitFor(() =>
+    Boolean(container.querySelector('option[value="oauth:lmm-pi"]'))
+  )
+  assert.deepEqual(
+    [...container.querySelectorAll<HTMLOptionElement>('option')].map(
+      (row) => row.value
+    ),
+    ['web-market', 'oauth:lmm-pi']
+  )
+  const picker = container.querySelector<HTMLSelectElement>(
+    '#market-catalog-client'
+  )
+  assert.ok(picker)
+  await act(async () => {
+    picker.value = 'oauth:lmm-pi'
+    picker.dispatchEvent(new Event('change', { bubbles: true }))
+    await flush()
+  })
+  eligible = []
+  await act(async () => {
+    await cache.invalidateQueries({
+      queryKey: ['tool-market', 2, 'oauth-clients'],
+    })
+    await flush()
+  })
+  await waitFor(() => picker.value === 'web-market')
+  assert.equal(container.querySelector('option[value="oauth:lmm-pi"]'), null)
+})
+
+test('OAuth authorization targets are discarded when the signed-in account changes', async () => {
+  stubNavigation([builtin])
+  marketAPI.mine = (async (kind: string) => {
+    if (kind === 'oauth-clients') {
+      return useAuthStore.getState().auth.user?.id === 2
+        ? [{ client_id: 'oauth:lmm-pi' }]
+        : [{ client_id: 'oauth:lmm-dsh' }]
+    }
+    return []
+  }) as typeof marketAPI.mine
+  const { container } = await mount()
+  await waitFor(() =>
+    Boolean(container.querySelector('option[value="oauth:lmm-pi"]'))
+  )
+  await act(async () => {
+    useAuthStore
+      .getState()
+      .auth.setUser({ id: 3, username: 'other-user', role: 1 })
+    await flush()
+  })
+  await waitFor(() =>
+    Boolean(container.querySelector('option[value="oauth:lmm-dsh"]'))
+  )
+  assert.equal(container.querySelector('option[value="oauth:lmm-pi"]'), null)
+  assert.equal(
+    container.querySelector<HTMLSelectElement>('#market-catalog-client')?.value,
+    'web-market'
   )
 })
