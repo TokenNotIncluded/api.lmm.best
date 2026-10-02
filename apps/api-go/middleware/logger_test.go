@@ -39,3 +39,31 @@ func TestLoggerStripsOAuthQueriesButRetainsOrdinaryQueries(t *testing.T) {
 		}
 	}
 }
+
+func TestSensitiveRequestQueriesStayOutOfAccessLogs(t *testing.T) {
+	previous := gin.DefaultWriter
+	t.Cleanup(func() { gin.DefaultWriter = previous })
+	for _, path := range []string{
+		"/api/tool-market/inspect",
+		"/api/tool-market/services/test-service/credentials",
+		"/api/tool-market",
+		"/api/oauth2/authorize",
+	} {
+		t.Run(path, func(t *testing.T) {
+			var output bytes.Buffer
+			gin.DefaultWriter = &output
+			router := gin.New()
+			SetUpLogger(router)
+			router.GET(path, func(c *gin.Context) {
+				if c.Query("token") != "private-test-credential" {
+					t.Error("log redaction must preserve the actual request")
+				}
+				c.Status(http.StatusUnprocessableEntity)
+			})
+			router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, path+"?token=private-test-credential", nil))
+			if log := output.String(); strings.Contains(log, "private-test-credential") || strings.Contains(log, "token=") || !strings.Contains(log, path) {
+				t.Fatalf("access log leaked query or lost route: %q", log)
+			}
+		})
+	}
+}
