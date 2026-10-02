@@ -169,3 +169,19 @@ test('paid tool-market PostgreSQL qualification cannot silently use SQLite or sk
       `qualification filter must still select the real ${name} test`);
   }
 });
+
+test('drawing expiry qualification uses actual MySQL repeatable-read transactions', () => {
+  const go = job(workflow('server-release-qualification'), 'go-server');
+  assert.match(go, /image: mysql:8\.4/);
+  const step = go.split(/\n(?=      - name: )/).find((part) =>
+    part.startsWith('      - name: Protect drawing expiry against MySQL repeatable-read snapshots\n'));
+  assert.ok(step, 'drawing expiry must have its own real MySQL qualification step');
+  assert.match(step, /working-directory: apps\/api-go\n/);
+  assert.match(step, /TEST_MYSQL_DSN: root:[^\n]+@tcp\(127\.0\.0\.1:3306\)\/lmm_test_release\?parseTime=true\n/);
+  assert.match(step, /TEST_MYSQL_ISOLATED_DATABASE: '1'\n/);
+  assert.doesNotMatch(step, /continue-on-error:|\n        if:/);
+  const name = 'TestToolMarketDrawingExpiryReadsCommittedBillingMySQL';
+  assert.ok(step.includes(`run: go test -race -count=1 -v ./model -run '^${name}$' -timeout 180s`));
+  assert.ok(read('apps/api-go/model/tool_market_drawing_mysql_test.go').includes(`func ${name}(t *testing.T)`),
+    'qualification filter must select the actual MySQL regression');
+});
