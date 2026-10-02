@@ -124,6 +124,7 @@ const reads: Record<string, unknown> = {
   '/api/tool-market/mine/services': [],
   '/api/tool-market/mine/calls': [],
   '/api/tool-market/mine/tokens': [],
+  '/api/tool-market/mine/oauth-clients': [],
   '/api/tool-market/mine/income': [],
   '/api/tool-market/mine/budgets': [],
   '/api/rankings': {
