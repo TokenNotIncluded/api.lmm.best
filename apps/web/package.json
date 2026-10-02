@@ -47,7 +47,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "dayjs": "^1.11.21",
-    "dompurify": "3.4.13",
+    "dompurify": "3.4.16",
     "i18next": "^26.3.4",
     "i18next-browser-languagedetector": "^8.2.1",
     "katex": "^0.17.0",
