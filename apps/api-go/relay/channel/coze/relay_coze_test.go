@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -142,6 +143,35 @@ func TestCozeChatStreamHandlerPreservesTerminalUsage(t *testing.T) {
 	require.NotNil(t, info.RateLimitStreamStatus)
 	assert.Equal(t, relaycommon.StreamEndReasonDone, info.RateLimitStreamStatus.EndReason)
 	assert.False(t, info.RateLimitStreamStatus.HasErrors())
+}
+
+func TestCozeChatStreamHandlerRecordsCleanEOFWithoutCompletion(t *testing.T) {
+	for _, ending := range []string{"\n", "\n\n"} {
+		t.Run(fmt.Sprintf("ending=%q", ending), func(t *testing.T) {
+			c := newCozeResponseLimitTestContext(t, 1024)
+			c.Set("coze_input_count", 17)
+			info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "coze-test"}}
+			stream := "event: conversation.message.delta\ndata: {\"content\":\"hello\"}" + ending
+
+			usage, apiErr := cozeChatStreamHandler(c, info, &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(stream)),
+			})
+
+			require.Nil(t, apiErr, "partial-usage billing must retain the legacy return")
+			require.NotNil(t, usage)
+			assert.Equal(t, 17, usage.PromptTokens)
+			assert.Positive(t, usage.CompletionTokens)
+			assert.Equal(t, usage.PromptTokens+usage.CompletionTokens, usage.TotalTokens)
+			assert.Nil(t, info.StreamStatus, "legacy billing must keep its original stream status")
+			require.NotNil(t, info.RateLimitStreamStatus)
+			assert.Equal(t, relaycommon.StreamEndReasonEOF, info.RateLimitStreamStatus.EndReason)
+			assert.NoError(t, info.RateLimitStreamStatus.EndError, "the HTTP body ended cleanly")
+			assert.True(t, info.RateLimitStreamStatus.HasErrors(), "missing protocol completion must release the success reservation")
+			assert.Equal(t, http.StatusOK, c.Writer.Status())
+			assert.Empty(t, c.Errors, "the failure must come from missing completion rather than transport errors")
+		})
+	}
 }
 
 func TestCozeChatStreamHandlerRecordsInBandFailure(t *testing.T) {

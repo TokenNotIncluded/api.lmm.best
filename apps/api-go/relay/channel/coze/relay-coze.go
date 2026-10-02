@@ -151,6 +151,7 @@ func cozeChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *ht
 		if sawCompleted {
 			status.SetEndReason(relaycommon.StreamEndReasonDone, nil)
 		} else {
+			status.RecordError("upstream stream ended without a completion event")
 			status.SetEndReason(relaycommon.StreamEndReasonEOF, nil)
 		}
 	}()
