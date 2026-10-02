@@ -70,7 +70,7 @@ Built-in drawing, wallet, and bounty tools have no tool invocation fee. Drawing 
 
 ### Requirements
 
-- Git, [Just](https://github.com/casey/just), Bun **1.3.14**, and Node.js **22+**
+- Git, [Just](https://github.com/casey/just), Bun **1.3.14**, and Node.js **22.12+**
 - Go **1.25.1 or newer** for the default backend
 - PostgreSQL and Valkey services for a dedicated local development environment
 - Optional: Rust **1.91.0** for the preview backend

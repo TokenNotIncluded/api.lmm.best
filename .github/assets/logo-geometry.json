@@ -2,7 +2,7 @@
   "schema": "lmm-forge.logo-geometry/1",
   "name": "LMM Forge",
   "direction": "protocol punch / cut wordmark",
-  "status": "built_for_review",
+  "status": "ready",
   "compApproval": "No comp was approved. The user approved monochrome, sharp lettering, and strong contrast.",
   "provenance": {
     "kind": "original precise SVG geometry",

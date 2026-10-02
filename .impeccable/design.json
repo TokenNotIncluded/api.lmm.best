@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-02T22:11:08Z",
+  "title": "Design System: LMM Forge README brand",
+  "extensions": {
+    "colorMeta": {
+      "black": {
+        "role": "primary",
+        "displayName": "Black"
+      },
+      "white": {
+        "role": "neutral",
+        "displayName": "White"
+      }
+    },
+    "shadows": [],
+    "motion": [],
+    "breakpoints": [
+      {
+        "name": "readme-mobile",
+        "value": "640px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Compact symbol",
+      "kind": "custom",
+      "description": "Exact standalone symbol paths shown on a fixed white background with explicit black ink. Static image; no interactive states.",
+      "html": "<div class=\"ds-lmm-symbol-placement\"><svg class=\"ds-lmm-symbol\" xmlns=\"http://www.w3.org/2000/svg\" width=\"128\" height=\"128\" viewBox=\"0 0 128 128\" role=\"img\" aria-labelledby=\"lmm-symbol-title lmm-symbol-desc\">\n  <title id=\"lmm-symbol-title\">LMM Forge symbol</title>\n  <desc id=\"lmm-symbol-desc\">A solid L spine and base carry two open M shapes. A single diagonal cut finishes the base.</desc>\n  <path class=\"ds-lmm-symbol-ink\" fill-rule=\"evenodd\" d=\"M6 10H24V94H32V20H44L52 40L60 20H72V94H82V20H94L102 40L110 20H122V100L110 112H6Z M44 94V52L52 70L60 52V94Z M94 94V52L102 70L110 52V94Z\"/>\n</svg></div>",
+      "css": ".ds-lmm-symbol-placement { background: #ffffff; } .ds-lmm-symbol { display: block; max-width: 100%; height: auto; } .ds-lmm-symbol-ink { fill: #000000; }"
+    },
+    {
+      "name": "Full wordmark",
+      "kind": "custom",
+      "description": "Exact standalone horizontal wordmark paths shown on a fixed white background with explicit black ink. Static image; no interactive states.",
+      "html": "<div class=\"ds-lmm-wordmark-placement\"><svg class=\"ds-lmm-wordmark\" xmlns=\"http://www.w3.org/2000/svg\" width=\"718\" height=\"104\" viewBox=\"0 -2 718 104\" role=\"img\" aria-labelledby=\"lmm-wordmark-title lmm-wordmark-desc\">\n  <title id=\"lmm-wordmark-title\">LMM Forge</title>\n  <desc id=\"lmm-wordmark-desc\">LMM Forge in original uppercase lettering with broad M counterforms, squared bowls, and diagonal terminal cuts.</desc>\n  <g class=\"ds-lmm-wordmark-ink\" fill-rule=\"evenodd\">\n    <g id=\"ds-lmm-wordmark-lmm\">\n      <path d=\"M0 0H20V80H62V88L50 100H0Z\"/>\n      <path transform=\"translate(70 0)\" d=\"M0 100V0H22L45 34L68 0H90V100H70V34L45 67L20 34V100Z\"/>\n      <path transform=\"translate(172 0)\" d=\"M0 100V0H22L45 34L68 0H90V100H70V34L45 67L20 34V100Z\"/>\n    </g>\n    <g id=\"ds-lmm-wordmark-forge\" transform=\"translate(302 0)\">\n      <path d=\"M0 0H64V18H20V42H55V60H20V100H0Z\"/>\n      <path transform=\"translate(76 0)\" d=\"M14 -1H64L78 13V87L64 101H14L0 87V13Z M22 18L20 20V80L22 82H56L58 80V20L56 18Z\"/>\n      <path transform=\"translate(168 0)\" d=\"M0 0H55L74 19V42L59 57H45L78 100H54L20 57V100H0Z M20 18V39H47L54 32V25L47 18Z\"/>\n      <path transform=\"translate(258 0)\" d=\"M14 -1H64L78 13V29H58V20L56 18H22L20 20V80L22 82H56L58 80V64H43V46H78V87L64 101H14L0 87V13Z\"/>\n      <path transform=\"translate(350 0)\" d=\"M0 0H66V18H20V41H57V59H20V82H66V88L54 100H0Z\"/>\n    </g>\n  </g>\n</svg></div>",
+      "css": ".ds-lmm-wordmark-placement { background: #ffffff; } .ds-lmm-wordmark { display: block; max-width: 100%; height: auto; } .ds-lmm-wordmark-ink { fill: #000000; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Protocol punch",
+    "overview": "Broad, original cut lettering gives LMM Forge a direct silhouette. Open counterforms, sharp terminals, and strong black-and-white contrast carry the identity. The wordmark leads; flat space gives the glyphs room to read.\n\nThis record governs the root README and reusable logo assets in `.github/assets` only. Application surfaces keep their own closer-scoped design records. The user confirmed monochrome, sharp lettering, and strong contrast; no visual comp was approved. The built SVGs and [master geometry](.github/assets/logo-geometry.json) are the visual source of truth.",
+    "keyCharacteristics": [
+      "Original filled vector lettering with open counterforms.",
+      "Pure black and white, with explicit light and dark placements.",
+      "Shared master geometry, recomposed for desktop and mobile."
+    ],
+    "rules": [
+      {
+        "name": "The Full Contrast Rule",
+        "body": "Use black on white or white on black for the brand artwork. Keep the independent logo assets transparent; set their ink explicitly when the placement background is fixed.",
+        "section": "colors"
+      },
+      {
+        "name": "The Master Geometry Rule",
+        "body": "Preserve the exact paths and within-group positions from `logo-geometry.json`. LMM and FORGE may move and scale uniformly as separate groups; never stretch or redraw the glyphs.",
+        "section": "shapes"
+      }
+    ],
+    "dos": [
+      "**Do** reuse the exact master paths, open counterforms, and proportional scaling.",
+      "**Do** choose ink for the actual placement background and retain black-and-white contrast.",
+      "**Do** keep the symbol's full viewBox and honor the minimum symbol size and wordmark cap height.",
+      "**Do** preserve accessible image descriptions and native text links outside the artwork."
+    ],
+    "donts": [
+      "**Don't** substitute a font, add outlines, fill counterforms, or stretch the glyphs.",
+      "**Don't** add gradients, route graphs, circles, shadows, textures, or motion to these brand assets.",
+      "**Don't** treat the README composition as an application-wide layout rule or an application logo rollout."
+    ]
+  }
+}
