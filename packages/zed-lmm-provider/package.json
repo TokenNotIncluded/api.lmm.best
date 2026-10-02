@@ -12,6 +12,7 @@
     "lmm-zed": "dist/cli.js"
   },
   "files": [
+    "assets",
     "src",
     "README.md",
     "LICENSE",

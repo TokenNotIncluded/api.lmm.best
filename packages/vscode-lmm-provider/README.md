@@ -1,5 +1,7 @@
 # LMM for Copilot
 
+<img src="https://raw.githubusercontent.com/TokenNotIncluded/api.lmm.best/main/packages/vscode-lmm-provider/assets/icon.png" alt="LMM logo" width="128" height="128" />
+
 > **Preview:** Production OAuth client registration is pending deployment; current build/runtime tests do not establish live model access.
 
 Use the models available to your LMM account in the native VS Code Chat model picker. Sign in with your browser; no API key is required.
