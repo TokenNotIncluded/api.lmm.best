@@ -10,6 +10,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/constant"
 	"github.com/LIghtJUNction/api.lmm.best/logger"
+	"github.com/LIghtJUNction/api.lmm.best/relay/channel"
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
 	relayconstant "github.com/LIghtJUNction/api.lmm.best/relay/constant"
 	"github.com/LIghtJUNction/api.lmm.best/relay/helper"
@@ -116,7 +117,7 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		}
 	}
 
-	usage, newAPIError := adaptor.DoResponse(c, httpResp, info)
+	usage, newAPIError := channel.DoResponse(adaptor, c, httpResp, info)
 	if newAPIError != nil {
 		// reset status code 重置状态码
 		service.ResetStatusCode(newAPIError, statusCodeMappingStr)

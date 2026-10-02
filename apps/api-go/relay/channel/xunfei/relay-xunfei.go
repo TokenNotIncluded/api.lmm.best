@@ -15,6 +15,7 @@ import (
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/constant"
+	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
 	"github.com/LIghtJUNction/api.lmm.best/relay/helper"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/types"
@@ -130,18 +131,49 @@ func buildXunfeiAuthUrl(hostUrl string, apiKey, apiSecret string) string {
 	return callUrl
 }
 
-func xunfeiStreamHandler(c *gin.Context, textRequest dto.GeneralOpenAIRequest, appId string, apiSecret string, apiKey string) (*dto.Usage, *types.NewAPIError) {
+func xunfeiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, textRequest dto.GeneralOpenAIRequest, appId string, apiSecret string, apiKey string) (*dto.Usage, *types.NewAPIError) {
+	ctx, cancel := context.WithCancel(c.Request.Context())
+	defer cancel()
+	info.RateLimitStreamStatus = relaycommon.NewStreamStatus()
+	streamStatus := info.RateLimitStreamStatus
 	domain, authUrl := getXunfeiAuthUrl(c, apiKey, apiSecret, textRequest.Model)
-	dataChan, doneChan, err := xunfeiMakeRequest(c, textRequest, domain, authUrl, appId)
+	dataChan, doneChan, err := xunfeiMakeRequestWithContext(c, ctx, textRequest, domain, authUrl, appId)
 	if err != nil {
+		streamStatus.RecordError("stream_request_error")
+		if ctx.Err() != nil {
+			streamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, ctx.Err())
+		} else {
+			streamStatus.SetEndReason(relaycommon.StreamEndReasonScannerErr, err)
+		}
 		return nil, types.NewError(err, types.ErrorCodeDoRequestFailed)
 	}
 	helper.SetEventStreamHeaders(c)
 	var usage dto.Usage
 	var responseErr error
-	c.Stream(func(w io.Writer) bool {
+	writeFailed := false
+	writeEvent := func(data string) bool {
+		// Keep reading after a write failure so upstream usage is still collected.
+		if writeFailed {
+			return true
+		}
+		c.Render(-1, common.CustomEvent{Data: "data: " + data})
+		if err := c.Errors.Last(); err != nil {
+			writeFailed = true
+			streamStatus.RecordError("downstream_write_error")
+			streamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
+		}
+		return true
+	}
+	disconnected := c.Stream(func(_ io.Writer) bool {
 		select {
+		case <-ctx.Done():
+			streamStatus.RecordError("client_cancelled")
+			streamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, ctx.Err())
+			return false
 		case xunfeiResponse := <-dataChan:
+			if xunfeiResponse.Header.Code != 0 {
+				streamStatus.RecordError("upstream_error")
+			}
 			usage.PromptTokens += xunfeiResponse.Payload.Usage.Text.PromptTokens
 			usage.CompletionTokens += xunfeiResponse.Payload.Usage.Text.CompletionTokens
 			usage.TotalTokens += xunfeiResponse.Payload.Usage.Text.TotalTokens
@@ -149,17 +181,36 @@ func xunfeiStreamHandler(c *gin.Context, textRequest dto.GeneralOpenAIRequest, a
 			jsonResponse, err := json.Marshal(response)
 			if err != nil {
 				common.SysLog("error marshalling stream response: " + err.Error())
+				streamStatus.RecordError("stream_encode_error")
 				return true
 			}
-			c.Render(-1, common.CustomEvent{Data: "data: " + string(jsonResponse)})
-			return true
+			return writeEvent(string(jsonResponse))
 		case responseErr = <-doneChan:
 			if responseErr == nil {
-				c.Render(-1, common.CustomEvent{Data: "data: [DONE]"})
+				writeEvent("[DONE]")
+			} else {
+				streamStatus.RecordError("stream_response_error")
+				if ctx.Err() != nil {
+					streamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, ctx.Err())
+				} else {
+					streamStatus.SetEndReason(relaycommon.StreamEndReasonScannerErr, responseErr)
+				}
 			}
 			return false
 		}
 	})
+	if disconnected || ctx.Err() != nil {
+		if streamStatus.EndReason != relaycommon.StreamEndReasonClientGone {
+			streamStatus.RecordError("client_cancelled")
+		}
+		err := ctx.Err()
+		if err == nil {
+			err = context.Canceled
+		}
+		streamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
+	} else {
+		streamStatus.SetEndReason(relaycommon.StreamEndReasonDone, nil)
+	}
 	if responseErr != nil {
 		return nil, types.NewError(responseErr, types.ErrorCodeBadResponseBody)
 	}
@@ -217,6 +268,10 @@ func xunfeiMakeRequest(c *gin.Context, textRequest dto.GeneralOpenAIRequest, dom
 	if c != nil && c.Request != nil {
 		requestContext = c.Request.Context()
 	}
+	return xunfeiMakeRequestWithContext(c, requestContext, textRequest, domain, authUrl, appId)
+}
+
+func xunfeiMakeRequestWithContext(c *gin.Context, requestContext context.Context, textRequest dto.GeneralOpenAIRequest, domain, authUrl, appId string) (chan XunfeiChatResponse, chan error, error) {
 	d := websocket.Dialer{
 		HandshakeTimeout: 5 * time.Second,
 	}

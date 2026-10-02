@@ -7,11 +7,13 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/common/limiter"
 	"github.com/LIghtJUNction/api.lmm.best/constant"
+	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/types"
 	"github.com/LIghtJUNction/api.lmm.best/setting"
 
@@ -106,15 +108,20 @@ func newModelRateLimitError(message string, statusCode int) *types.NewAPIError {
 }
 
 // CheckModelRequestRateLimit checks and records the total-attempt quota now,
-// then returns a callback that records the successful-attempt quota exactly once.
+// then reserves successful-attempt capacity on the memory backend. Complete the
+// returned callback on every exit path; completion is idempotent on both backends.
 func CheckModelRequestRateLimit(c *gin.Context) (ModelRequestRateLimitCommit, *types.NewAPIError) {
 	if !setting.ModelRequestRateLimitEnabled {
 		return func(bool) {}, nil
 	}
 	duration, totalMaxCount, successMaxCount := modelRequestRateLimitConfig(c)
+	return checkModelRequestRateLimit(c, duration, totalMaxCount, successMaxCount, common.RedisEnabled)
+}
+
+func checkModelRequestRateLimit(c *gin.Context, duration int64, totalMaxCount, successMaxCount int, useRedis bool) (ModelRequestRateLimitCommit, *types.NewAPIError) {
 	userID := strconv.Itoa(c.GetInt("id"))
 
-	if common.RedisEnabled {
+	if useRedis {
 		ctx := context.Background()
 		rdb := common.RDB
 		successKey := fmt.Sprintf("rateLimit:%s:%s", ModelRequestRateLimitSuccessCountMark, userID)
@@ -139,10 +146,16 @@ func CheckModelRequestRateLimit(c *gin.Context) (ModelRequestRateLimitCommit, *t
 				return nil, newModelRateLimitError(fmt.Sprintf("您已达到总请求数限制：%d分钟内最多请求%d次，包括失败次数，请检查您的请求是否正确", setting.ModelRequestRateLimitDurationMinutes, totalMaxCount), http.StatusTooManyRequests)
 			}
 		}
+		// Redis retains its existing sliding success window. Strict distributed
+		// reservations require a separate atomic Redis protocol, not process-local
+		// pins. Use the same outcome and exactly-once accounting here.
+		var once sync.Once
 		return func(success bool) {
-			if success {
-				recordRedisRequest(ctx, rdb, successKey, successMaxCount)
-			}
+			once.Do(func() {
+				if success {
+					recordRedisRequest(ctx, rdb, successKey, successMaxCount)
+				}
+			})
 		}, nil
 	}
 
@@ -152,14 +165,11 @@ func CheckModelRequestRateLimit(c *gin.Context) (ModelRequestRateLimitCommit, *t
 	if totalMaxCount > 0 && !inMemoryRateLimiter.Request(totalKey, totalMaxCount, duration) {
 		return nil, newModelRateLimitError(fmt.Sprintf("您已达到总请求数限制：%d分钟内最多请求%d次，包括失败次数，请检查您的请求是否正确", setting.ModelRequestRateLimitDurationMinutes, totalMaxCount), http.StatusTooManyRequests)
 	}
-	if successMaxCount > 0 && !inMemoryRateLimiter.Check(successKey, successMaxCount, duration) {
+	commit, allowed := inMemoryRateLimiter.Reserve(successKey, successMaxCount, duration)
+	if !allowed {
 		return nil, newModelRateLimitError(fmt.Sprintf("您已达到请求数限制：%d分钟内最多请求%d次", setting.ModelRequestRateLimitDurationMinutes, successMaxCount), http.StatusTooManyRequests)
 	}
-	return func(success bool) {
-		if success && successMaxCount > 0 {
-			inMemoryRateLimiter.Request(successKey, successMaxCount, duration)
-		}
-	}, nil
+	return commit, nil
 }
 
 func rateLimitDurationSeconds(durationMinutes int) int64 {
@@ -198,93 +208,50 @@ func isResponsesWebSocketHandshake(c *gin.Context) bool {
 		strings.EqualFold(c.Request.Header.Get("Upgrade"), "websocket")
 }
 
-// Redis限流处理器
-func redisRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) gin.HandlerFunc {
+// modelRequestSucceeded uses the final protocol outcome rather than headers
+// committed before a stream has finished. Legacy adaptors must explicitly
+// complete DoResponse when they do not publish a protocol-specific status.
+func modelRequestSucceeded(c *gin.Context) bool {
+	if c == nil || c.Writer == nil || c.Request == nil || c.Writer.Status() >= http.StatusBadRequest || c.Request.Context().Err() != nil || len(c.Errors) > 0 {
+		return false
+	}
+	info, _ := common.GetContextKeyType[*relaycommon.RelayInfo](c, constant.ContextKeyRelayInfo)
+	if info != nil && (info.ResponseFailed || info.LastError != nil) {
+		return false
+	}
+	if info != nil {
+		status := info.StreamStatus
+		if status == nil {
+			status = info.RateLimitStreamStatus
+		}
+		if status != nil {
+			return status.IsNormalEnd() && status.EndError == nil && !status.HasErrors()
+		}
+	}
+	stream := common.GetContextKeyBool(c, constant.ContextKeyIsStream) || (info != nil && info.IsStream) ||
+		strings.HasPrefix(strings.ToLower(c.Writer.Header().Get("Content-Type")), "text/event-stream")
+	return !stream || (info != nil && info.ResponseCompleted && !info.ResponseFailed)
+}
+
+func modelRateLimitHandler(duration int64, totalMaxCount, successMaxCount int, useRedis bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userId := strconv.Itoa(c.GetInt("id"))
-		ctx := context.Background()
-		rdb := common.RDB
-
-		// 1. 检查成功请求数限制
-		successKey := fmt.Sprintf("rateLimit:%s:%s", ModelRequestRateLimitSuccessCountMark, userId)
-		allowed, err := checkRedisRateLimit(ctx, rdb, successKey, successMaxCount, duration)
-		if err != nil {
-			fmt.Println("检查成功请求数限制失败:", err.Error())
-			abortWithOpenAiMessage(c, http.StatusInternalServerError, "rate_limit_check_failed")
+		commit, apiErr := checkModelRequestRateLimit(c, duration, totalMaxCount, successMaxCount, useRedis)
+		if apiErr != nil {
+			abortWithOpenAiMessage(c, apiErr.StatusCode, apiErr.Error(), apiErr.GetErrorCode())
 			return
 		}
-		if !allowed {
-			abortWithOpenAiMessage(c, http.StatusTooManyRequests, fmt.Sprintf("您已达到请求数限制：%d分钟内最多请求%d次", setting.ModelRequestRateLimitDurationMinutes, successMaxCount))
-			return
-		}
-
-		//2.检查总请求数限制并记录总请求（当totalMaxCount为0时会自动跳过，使用令牌桶限流器
-		if totalMaxCount > 0 {
-			totalKey := fmt.Sprintf("rateLimit:%s", userId)
-			// 初始化
-			tb := limiter.New(ctx, rdb)
-			allowed, err = tb.Allow(
-				ctx,
-				totalKey,
-				limiter.WithCapacity(rateLimitCapacity(totalMaxCount, duration)),
-				limiter.WithRate(int64(totalMaxCount)),
-				limiter.WithRequested(duration),
-			)
-
-			if err != nil {
-				fmt.Println("检查总请求数限制失败:", err.Error())
-				abortWithOpenAiMessage(c, http.StatusInternalServerError, "rate_limit_check_failed")
-				return
-			}
-
-			if !allowed {
-				abortWithOpenAiMessage(c, http.StatusTooManyRequests, fmt.Sprintf("您已达到总请求数限制：%d分钟内最多请求%d次，包括失败次数，请检查您的请求是否正确", setting.ModelRequestRateLimitDurationMinutes, totalMaxCount))
-			}
-		}
-
-		// 4. 处理请求
+		defer commit(false)
 		c.Next()
-
-		// 5. 如果请求成功，记录成功请求
-		if c.Writer.Status() < 400 {
-			recordRedisRequest(ctx, rdb, successKey, successMaxCount)
-		}
+		commit(modelRequestSucceeded(c))
 	}
 }
 
-// 内存限流处理器
+func redisRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) gin.HandlerFunc {
+	return modelRateLimitHandler(duration, totalMaxCount, successMaxCount, true)
+}
+
 func memoryRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) gin.HandlerFunc {
-	inMemoryRateLimiter.Init(rateLimitWindowDuration(setting.ModelRequestRateLimitDurationMinutes))
-
-	return func(c *gin.Context) {
-		userId := strconv.Itoa(c.GetInt("id"))
-		totalKey := ModelRequestRateLimitCountMark + userId
-		successKey := ModelRequestRateLimitSuccessCountMark + userId
-
-		// 1. 检查总请求数限制（当totalMaxCount为0时跳过）
-		if totalMaxCount > 0 && !inMemoryRateLimiter.Request(totalKey, totalMaxCount, duration) {
-			c.Status(http.StatusTooManyRequests)
-			c.Abort()
-			return
-		}
-
-		// 2. 检查成功请求数限制
-		// 使用一个临时key来检查限制，这样可以避免实际记录
-		checkKey := successKey + "_check"
-		if !inMemoryRateLimiter.Request(checkKey, successMaxCount, duration) {
-			c.Status(http.StatusTooManyRequests)
-			c.Abort()
-			return
-		}
-
-		// 3. 处理请求
-		c.Next()
-
-		// 4. 如果请求成功，记录到实际的成功请求计数中
-		if c.Writer.Status() < 400 {
-			inMemoryRateLimiter.Request(successKey, successMaxCount, duration)
-		}
-	}
+	return modelRateLimitHandler(duration, totalMaxCount, successMaxCount, false)
 }
 
 // ModelRequestRateLimit 模型请求限流中间件
@@ -299,7 +266,8 @@ func ModelRequestRateLimit() func(c *gin.Context) {
 			abortWithOpenAiMessage(c, apiErr.StatusCode, apiErr.Error(), apiErr.GetErrorCode())
 			return
 		}
+		defer commit(false)
 		c.Next()
-		commit(c.Writer.Status() < 400)
+		commit(modelRequestSucceeded(c))
 	}
 }

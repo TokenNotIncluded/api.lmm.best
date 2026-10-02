@@ -138,4 +138,55 @@ func TestCozeChatStreamHandlerPreservesTerminalUsage(t *testing.T) {
 	assert.Equal(t, 2, usage.PromptTokens)
 	assert.Equal(t, 3, usage.CompletionTokens)
 	assert.Equal(t, 5, usage.TotalTokens)
+	assert.Nil(t, info.StreamStatus, "legacy billing must keep its original stream status")
+	require.NotNil(t, info.RateLimitStreamStatus)
+	assert.Equal(t, relaycommon.StreamEndReasonDone, info.RateLimitStreamStatus.EndReason)
+	assert.False(t, info.RateLimitStreamStatus.HasErrors())
+}
+
+func TestCozeChatStreamHandlerRecordsInBandFailure(t *testing.T) {
+	for _, event := range []string{"error", "conversation.chat.failed", "conversation.chat.canceled"} {
+		t.Run(event, func(t *testing.T) {
+			c := newCozeResponseLimitTestContext(t, 1024)
+			info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "coze-test"}}
+			stream := "event: " + event + "\ndata: {\"code\":500,\"message\":\"failed\"}\n\n"
+
+			usage, apiErr := cozeChatStreamHandler(c, info, &http.Response{Body: io.NopCloser(strings.NewReader(stream))})
+
+			require.Nil(t, apiErr)
+			require.NotNil(t, usage)
+			assert.Nil(t, info.StreamStatus, "legacy billing must keep its original stream status")
+			require.NotNil(t, info.RateLimitStreamStatus)
+			assert.True(t, info.RateLimitStreamStatus.HasErrors())
+			assert.Equal(t, relaycommon.StreamEndReasonHandlerStop, info.RateLimitStreamStatus.EndReason)
+		})
+	}
+}
+
+func TestCozeChatStreamHandlerRecordsDecodeFailure(t *testing.T) {
+	c := newCozeResponseLimitTestContext(t, 1024)
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "coze-test"}}
+	stream := "event: conversation.message.delta\ndata: invalid\n\n"
+
+	usage, apiErr := cozeChatStreamHandler(c, info, &http.Response{Body: io.NopCloser(strings.NewReader(stream))})
+
+	assert.Nil(t, usage)
+	require.NotNil(t, apiErr)
+	require.NotNil(t, info.RateLimitStreamStatus)
+	assert.True(t, info.RateLimitStreamStatus.HasErrors())
+	assert.Equal(t, relaycommon.StreamEndReasonHandlerStop, info.RateLimitStreamStatus.EndReason)
+}
+
+func TestCozeChatStreamHandlerRecordsCancellationAtEOF(t *testing.T) {
+	requestContext, cancel := context.WithCancel(context.Background())
+	c := newCozeResponseLimitTestContext(t, 1024)
+	c.Request = c.Request.WithContext(requestContext)
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "coze-test"}}
+	cancel()
+
+	_, _ = cozeChatStreamHandler(c, info, &http.Response{Body: io.NopCloser(strings.NewReader(""))})
+
+	require.NotNil(t, info.RateLimitStreamStatus)
+	assert.True(t, info.RateLimitStreamStatus.HasErrors())
+	assert.Equal(t, relaycommon.StreamEndReasonClientGone, info.RateLimitStreamStatus.EndReason)
 }

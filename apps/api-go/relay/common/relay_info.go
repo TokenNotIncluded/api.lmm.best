@@ -176,6 +176,14 @@ type RelayInfo struct {
 	FinalRequestRelayFormat types.RelayFormat
 
 	StreamStatus *StreamStatus
+	// RateLimitStreamStatus tracks legacy stream outcomes for admission only.
+	// Keep it separate from StreamStatus, which also drives usage estimation and
+	// billing metadata, so this classification cannot change legacy charging.
+	RateLimitStreamStatus *StreamStatus
+	// DoResponse completion is a fallback for legacy streaming adaptors without
+	// StreamStatus. Middleware always prefers a published protocol status.
+	ResponseCompleted bool
+	ResponseFailed    bool
 
 	// convOptions caches the converter settings snapshot (see ConvOptions).
 	convOptions *convmeta.Options
@@ -187,6 +195,26 @@ type RelayInfo struct {
 	*ResponsesUsageInfo
 	*ChannelMeta
 	*TaskRelayInfo
+}
+
+// ResetResponseOutcome starts an upstream response attempt. Retried requests
+// reuse RelayInfo, including when the selected channel uses a different protocol.
+func (info *RelayInfo) ResetResponseOutcome() {
+	if info == nil {
+		return
+	}
+	info.StreamStatus = nil
+	info.RateLimitStreamStatus = nil
+	info.ResponseCompleted = false
+	info.ResponseFailed = false
+}
+
+func (info *RelayInfo) CompleteResponseOutcome(apiErr *types.NewAPIError) {
+	if info == nil {
+		return
+	}
+	info.ResponseFailed = apiErr != nil
+	info.ResponseCompleted = true
 }
 
 func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
@@ -564,6 +592,7 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 		info.UserSetting = userSetting
 	}
 
+	c.Set(string(constant.ContextKeyRelayInfo), info)
 	return info
 }
 

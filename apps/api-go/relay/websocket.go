@@ -7,6 +7,7 @@ import (
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/pkg/wsmanager"
+	"github.com/LIghtJUNction/api.lmm.best/relay/channel"
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/types"
@@ -85,7 +86,7 @@ func WssHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types.
 		defer target.Close()
 	}
 
-	usage, newAPIError := adaptor.DoResponse(c, nil, info)
+	usage, newAPIError := channel.DoResponse(adaptor, c, nil, info)
 	if newAPIError != nil {
 		socketMu.Lock()
 		wasClosed := closed

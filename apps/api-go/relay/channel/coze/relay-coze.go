@@ -136,6 +136,24 @@ func (b *cozeResponseTextBuffer) String() string {
 }
 
 func cozeChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+	info.RateLimitStreamStatus = relaycommon.NewStreamStatus()
+	status := info.RateLimitStreamStatus
+	sawCompleted := false
+	defer func() {
+		if writerErr := c.Errors.Last(); writerErr != nil {
+			status.RecordError("write_response")
+			status.SetEndReason(relaycommon.StreamEndReasonClientGone, writerErr.Err)
+		}
+		if err := cozeRequestContext(c).Err(); err != nil {
+			status.RecordError("request_canceled")
+			status.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
+		}
+		if sawCompleted {
+			status.SetEndReason(relaycommon.StreamEndReasonDone, nil)
+		} else {
+			status.SetEndReason(relaycommon.StreamEndReasonEOF, nil)
+		}
+	}()
 	defer service.CloseResponseBodyGracefully(resp)
 	scanner := helper.NewStreamScanner(resp.Body)
 	scanner.Split(bufio.ScanLines)
@@ -149,6 +167,8 @@ func cozeChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *ht
 
 	for scanner.Scan() {
 		if err := cozeRequestContext(c).Err(); err != nil {
+			status.RecordError("request_canceled")
+			status.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
 			return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 		}
 		line := scanner.Text()
@@ -157,7 +177,12 @@ func cozeChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *ht
 			if currentEvent != "" && currentData != "" {
 				// handle last event
 				if err := handleCozeEvent(c, currentEvent, currentData, responseText, usage, id, info); err != nil {
+					status.RecordError("handle_event")
+					status.SetEndReason(relaycommon.StreamEndReasonHandlerStop, err)
 					return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
+				}
+				if currentEvent == "conversation.chat.completed" {
+					sawCompleted = true
 				}
 				currentEvent = ""
 				currentData = ""
@@ -179,14 +204,23 @@ func cozeChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *ht
 	// Last event
 	if currentEvent != "" && currentData != "" {
 		if err := handleCozeEvent(c, currentEvent, currentData, responseText, usage, id, info); err != nil {
+			status.RecordError("handle_event")
+			status.SetEndReason(relaycommon.StreamEndReasonHandlerStop, err)
 			return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
+		}
+		if currentEvent == "conversation.chat.completed" {
+			sawCompleted = true
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
+		status.RecordError("scan_response")
+		status.SetEndReason(relaycommon.StreamEndReasonScannerErr, err)
 		return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 	}
-	helper.Done(c)
+	if err := helper.StringData(c, "[DONE]"); err != nil {
+		status.RecordError("write_done")
+	}
 
 	if usage.TotalTokens == 0 {
 		usage = service.ResponseText2Usage(c, responseText.String(), info.UpstreamModelName, c.GetInt("coze_input_count"))
@@ -252,6 +286,11 @@ func handleCozeEvent(c *gin.Context, event string, data string, responseText *co
 		}
 
 		common.SysLog(fmt.Sprintf("stream event error: %v %v", errorData.Code, errorData.Message))
+		info.RateLimitStreamStatus.RecordError("upstream_error")
+		info.RateLimitStreamStatus.SetEndReason(relaycommon.StreamEndReasonHandlerStop, errors.New("coze stream error"))
+	case "conversation.chat.failed", "conversation.chat.canceled":
+		info.RateLimitStreamStatus.RecordError("upstream_chat_failed")
+		info.RateLimitStreamStatus.SetEndReason(relaycommon.StreamEndReasonHandlerStop, errors.New("coze chat failed"))
 	}
 	return nil
 }
