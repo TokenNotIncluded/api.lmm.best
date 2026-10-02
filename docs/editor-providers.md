@@ -15,7 +15,13 @@ For VS Code, build the VSIX in `packages/vscode-lmm-provider` with `npm ci --ign
 
 The VS Code adapter admits catalog models with a supported OpenAI chat-completions endpoint. Context limits are not supplied by the LMM catalog, so the extension advertises configurable conservative budgets through `lmm.maxInputTokens` and `lmm.maxOutputTokens`. Set these within the selected model's verified limits. Tool calling is disabled by default; put only model IDs verified to support OpenAI function calling in `lmm.toolModels` before using those models with Copilot Agent tools.
 
-For Zed, install the npm package/archive with Node 22.19 or later and the `zed` command in PATH. Run `lmm-zed login`, quit any existing Zed process, then run `lmm-zed start`. This loads the authorized catalog, updates Zed's LMM provider settings with a backup, starts the local bridge and launches Zed with its generated local credential. Keep the bridge terminal running. The local credential is separate from the LMM OAuth credentials.
+For Zed, install the [published npm bridge preview](https://www.npmjs.com/package/@tokennotincluded/zed-lmm-provider) with Node 22.19 or later and the `zed` command in PATH:
+
+```sh
+npm install -g @tokennotincluded/zed-lmm-provider@0.1.0
+```
+
+Production `lmm-zed` OAuth registration is still pending deployment, so production login and online model calls are not available yet. Once that server update is deployed, run `lmm-zed login`, quit any existing Zed process, then run `lmm-zed start`. This loads the authorized catalog, updates Zed's LMM provider settings with a backup, starts the local bridge and launches Zed with its generated local credential. Keep the bridge terminal running. The local credential is separate from the LMM OAuth credentials.
 
 `lmm-zed settings` prints the generated fragment without writing it; `lmm-zed configure` updates and backs up settings without launching Zed. These commands preserve unrelated settings and existing LMM model metadata. Inspect the catalog with `lmm-zed catalog` and supply verified model overrides using `--models models.json`, following the [bridge README](../packages/zed-lmm-provider/README.md).
 
@@ -74,7 +80,9 @@ Publication status must be recorded separately from packaging and deployment. A 
 
 ## Publishing the reviewed artifacts
 
-VS Code version 0.1.0 was published as a preview on 2026-10-02: [LMM for Copilot on Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=LIghtJUNction.lmm-copilot-provider). Its public listing and installation command were verified. Production OAuth client registration is still pending deployment; this publication does not establish live model access. Open VSX and the Zed npm package have not been published.
+VS Code version 0.1.0 was published as a preview on 2026-10-02: [LMM for Copilot on Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=LIghtJUNction.lmm-copilot-provider). Its public listing and installation command were verified. Production OAuth client registration is still pending deployment; this publication does not establish live model access. Open VSX has not been published.
+
+Zed bridge version 0.1.0 was published as a public npm preview on 2026-10-02: [@tokennotincluded/zed-lmm-provider](https://www.npmjs.com/package/@tokennotincluded/zed-lmm-provider). Install this exact version with `npm install -g @tokennotincluded/zed-lmm-provider@0.1.0`. It is an npm bridge, not a Zed extension-marketplace listing. Production `lmm-zed` OAuth registration remains pending deployment, and a real Zed session and live model invocation have not been verified.
 
 The VS Code manifest uses publisher ID `LIghtJUNction`, matching the existing publisher owned by the authenticated Visual Studio Marketplace account. The extension ID is `LIghtJUNction.lmm-copilot-provider`. Publishing requires registry authentication. Open VSX namespace access and npm publish access to the `@tokennotincluded` scope are separate prerequisites. Source publication through a pull request is a separate step.
 
