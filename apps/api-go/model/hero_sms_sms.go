@@ -1703,9 +1703,6 @@ func HideHeroSMSSMSOrderFromHistory(userID int, orderID string) error {
 		return nil
 	}
 	order, err := getHeroSMSSMSOrder(userID, trimmedOrderID)
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return newHeroSMSError(http.StatusNotFound, "ORDER_NOT_FOUND", "HeroSMS SMS order not found")
-	}
 	if err != nil {
 		return err
 	}
@@ -1772,6 +1769,9 @@ func heroSMSSMSOrderView(order *HeroSMSSMSOrder) (*HeroSMSSMSOrderView, error) {
 func getHeroSMSSMSOrder(userID int, orderID string) (*HeroSMSSMSOrder, error) {
 	var order HeroSMSSMSOrder
 	if err := DB.Where("id = ? AND user_id = ?", strings.TrimSpace(orderID), userID).First(&order).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, newHeroSMSError(http.StatusNotFound, "ORDER_NOT_FOUND", "HeroSMS SMS order not found")
+		}
 		return nil, err
 	}
 	return &order, nil
