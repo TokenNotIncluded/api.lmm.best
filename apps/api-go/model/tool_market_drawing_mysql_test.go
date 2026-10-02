@@ -13,6 +13,7 @@ import (
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	mysqlDriver "github.com/go-sql-driver/mysql"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -20,7 +21,9 @@ import (
 )
 
 // This requires a disposable MySQL server with CREATE/DROP DATABASE and PROCESS
-// permission. Each run creates and removes only its own random database.
+// permission, SELECT on performance_schema lock/transaction tables, and the
+// default ON transaction instrument/current consumer. It never enables global
+// instrumentation. Each run creates and removes only its own random database.
 func marketDrawingMySQLDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	dsn := strings.TrimSpace(os.Getenv("TEST_MYSQL_DSN"))
@@ -51,12 +54,18 @@ func marketDrawingMySQLDB(t *testing.T) *gorm.DB {
 	db := open(config)
 	pool, err := db.DB()
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, pool.Close()) })
 	pool.SetMaxOpenConns(8)
 	pool.SetMaxIdleConns(8)
 	var version, isolation string
 	require.NoError(t, db.Raw("SELECT VERSION(), @@transaction_isolation").Row().Scan(&version, &isolation))
 	require.True(t, strings.HasPrefix(version, "8."), "this regression qualifies MySQL 8, not a substitute dialect")
 	require.Equal(t, "REPEATABLE-READ", isolation)
+	var instrument, consumer string
+	require.NoError(t, db.Raw("SELECT ENABLED FROM performance_schema.setup_instruments WHERE NAME = 'transaction'").Scan(&instrument).Error)
+	require.NoError(t, db.Raw("SELECT ENABLED FROM performance_schema.setup_consumers WHERE NAME = 'events_transactions_current'").Scan(&consumer).Error)
+	require.Equal(t, "YES", instrument, "transaction instrumentation must already be enabled")
+	require.Equal(t, "YES", consumer, "current transaction consumer must already be enabled")
 	t.Logf("actual MySQL %s, isolation %s", version, isolation)
 	oldDB, oldRedis := DB, common.RedisEnabled
 	oldMain, oldLog := common.MainDatabaseType(), common.LogDatabaseType()
@@ -65,7 +74,6 @@ func marketDrawingMySQLDB(t *testing.T) *gorm.DB {
 	t.Cleanup(func() {
 		DB, common.RedisEnabled = oldDB, oldRedis
 		common.SetDatabaseTypes(oldMain, oldLog)
-		require.NoError(t, pool.Close())
 	})
 	require.NoError(t, db.AutoMigrate(append([]interface{}{&User{}}, toolMarketModels()...)...))
 	return db
@@ -154,17 +162,35 @@ func TestToolMarketDrawingExpiryReadsCommittedBillingMySQL(t *testing.T) {
 	select {
 	case <-expirySnapshot:
 	case err := <-expireDone:
-		t.Fatalf("expiry ended before creating its snapshot: %v", err)
+		t.Fatalf("expiry ended before its initial read: %v", err)
 	case <-time.After(10 * time.Second):
-		t.Fatal("expiry did not create its repeatable-read snapshot")
+		t.Fatal("expiry did not perform its initial read")
 	}
-	// Observe the actual InnoDB wait, rather than depending on a sleep or on
-	// which goroutine happens to run first. Complete still owns the row locks.
-	require.Eventually(t, func() bool {
-		var waiting int64
-		return db.Raw("SELECT COUNT(*) FROM information_schema.innodb_trx WHERE trx_mysql_thread_id = ? AND trx_state = 'LOCK WAIT'", expiryConnection.Load()).Scan(&waiting).Error == nil && waiting == 1
-	}, 5*time.Second, 10*time.Millisecond, "expiry must be blocked behind completion after its initial read")
-	t.Log("confirmed expiry's initial read and actual InnoDB LOCK WAIT before completing model billing")
+	// Observe the live requester/blocker service lock chain. The cached
+	// innodb_trx view can stay stale under frequent polling.
+	var observationError atomic.Value
+	observationError.Store("")
+	observedWait := assert.Eventually(t, func() bool {
+		waiting, err := marketMySQLServiceWait(db, expiryConnection.Load(), completeConnection.Load())
+		if err != nil {
+			observationError.Store(err.Error())
+			return false
+		}
+		observationError.Store("")
+		return waiting > 0
+	}, 5*time.Second, 10*time.Millisecond, "expiry must be blocked behind completion on the service PRIMARY lock after its initial read")
+	if !observedWait {
+		t.Logf("expiry wait diagnostics: completion=%d expiry=%d database=%s observationError=%v", completeConnection.Load(), expiryConnection.Load(), db.Migrator().CurrentDatabase(), observationError.Load())
+		select {
+		case err := <-expireDone:
+			t.Logf("expiry returned before wait observation: %v", err)
+			expireDone <- err
+		default:
+			t.Log("expiry remains in progress")
+		}
+		t.Fatal("expiry did not reach its observed service lock wait")
+	}
+	t.Log("confirmed expiry's initial read and live service PRIMARY lock wait before completing model billing")
 	release()
 	require.NoError(t, <-completeDone)
 	require.NoError(t, <-expireDone)

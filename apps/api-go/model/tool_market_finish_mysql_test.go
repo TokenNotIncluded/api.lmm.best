@@ -32,9 +32,25 @@ func marketPaidMySQLFixture(t *testing.T, maxCalls, grantLimit, budgetLimit int)
 	return f
 }
 
+// Use the live lock chain, not information_schema.innodb_trx. MySQL caches
+// innodb_trx and frequent polling can keep that snapshot from refreshing.
+func marketMySQLServiceWait(db *gorm.DB, requester, blocker int64) (int64, error) {
+	var count int64
+	err := db.Raw("SELECT COUNT(*) FROM performance_schema.data_lock_waits AS w JOIN performance_schema.threads AS req ON req.THREAD_ID = w.REQUESTING_THREAD_ID JOIN performance_schema.threads AS blk ON blk.THREAD_ID = w.BLOCKING_THREAD_ID JOIN performance_schema.data_locks AS dl ON dl.ENGINE_LOCK_ID = w.REQUESTING_ENGINE_LOCK_ID AND dl.ENGINE = w.ENGINE WHERE req.PROCESSLIST_ID = ? AND blk.PROCESSLIST_ID = ? AND dl.OBJECT_SCHEMA = DATABASE() AND dl.OBJECT_NAME = 'tool_market_services' AND dl.INDEX_NAME = 'PRIMARY'", requester, blocker).Scan(&count).Error
+	return count, err
+}
+
+func marketMySQLTransactionIsolation(t *testing.T, db *gorm.DB, connection int64) string {
+	t.Helper()
+	var isolation string
+	require.NoError(t, db.Raw("SELECT ev.ISOLATION_LEVEL FROM performance_schema.events_transactions_current AS ev JOIN performance_schema.threads AS th ON th.THREAD_ID = ev.THREAD_ID WHERE th.PROCESSLIST_ID = ? AND ev.STATE = 'ACTIVE'", connection).Scan(&isolation).Error)
+	require.NotEmpty(t, isolation, "active transaction instrumentation must be available")
+	return isolation
+}
+
 // Pause the first transaction after its row lock. The second does its initial
-// ordinary read and then actually blocks on that lock. The server's default is
-// RR; inspect InnoDB to prove each marketplace transaction uses RC instead.
+// ordinary read and then actually blocks on the shared service lock. The server
+// defaults to RR; inspect each active marketplace transaction to prove RC.
 func marketMySQLInterleave(t *testing.T, db *gorm.DB, initialTable, lockTable string, first, second func() error) (error, error) {
 	t.Helper()
 	firstLocked, secondRead, releaseFirst := make(chan struct{}), make(chan struct{}), make(chan struct{})
@@ -90,14 +106,38 @@ func marketMySQLInterleave(t *testing.T, db *gorm.DB, initialTable, lockTable st
 	case <-time.After(10 * time.Second):
 		t.Fatal("second operation did not perform its initial read")
 	}
-	require.Eventually(t, func() bool {
-		var waiting int64
-		return db.Raw("SELECT COUNT(*) FROM information_schema.innodb_trx WHERE trx_mysql_thread_id = ? AND trx_state = 'LOCK WAIT'", secondConnection.Load()).Scan(&waiting).Error == nil && waiting == 1
-	}, 5*time.Second, 10*time.Millisecond, "second operation must actually wait after its initial read")
-	var firstIsolation, secondIsolation string
-	require.NoError(t, db.Raw("SELECT trx_isolation_level FROM information_schema.innodb_trx WHERE trx_mysql_thread_id = ?", firstConnection.Load()).Scan(&firstIsolation).Error)
-	require.NoError(t, db.Raw("SELECT trx_isolation_level FROM information_schema.innodb_trx WHERE trx_mysql_thread_id = ?", secondConnection.Load()).Scan(&secondIsolation).Error)
-	t.Logf("confirmed InnoDB LOCK WAIT; actual transaction isolation: first=%s second=%s", firstIsolation, secondIsolation)
+	var observationError atomic.Value
+	observationError.Store("")
+	observedWait := assert.Eventually(t, func() bool {
+		waiting, err := marketMySQLServiceWait(db, secondConnection.Load(), firstConnection.Load())
+		if err != nil {
+			observationError.Store(err.Error())
+			return false
+		}
+		observationError.Store("")
+		return waiting > 0
+	}, 5*time.Second, 10*time.Millisecond, "second operation must actually wait on the service PRIMARY lock after its initial read")
+	if !observedWait {
+		t.Logf("wait barrier diagnostics: first=%d second=%d database=%s observationError=%v", firstConnection.Load(), secondConnection.Load(), db.Migrator().CurrentDatabase(), observationError.Load())
+		var transactions, waits, processes []map[string]any
+		t.Logf("transactions query error: %v", db.Raw("SELECT trx_mysql_thread_id, trx_state, trx_isolation_level, trx_query FROM information_schema.innodb_trx WHERE trx_mysql_thread_id IN (?, ?)", firstConnection.Load(), secondConnection.Load()).Scan(&transactions).Error)
+		t.Logf("transactions: %v", transactions)
+		t.Logf("lock wait query error: %v", db.Raw("SELECT req.PROCESSLIST_ID AS requester, blk.PROCESSLIST_ID AS blocker, dl.OBJECT_SCHEMA, dl.OBJECT_NAME, dl.INDEX_NAME, dl.LOCK_MODE, dl.LOCK_STATUS, dl.LOCK_DATA FROM performance_schema.data_lock_waits AS w JOIN performance_schema.threads AS req ON req.THREAD_ID = w.REQUESTING_THREAD_ID JOIN performance_schema.threads AS blk ON blk.THREAD_ID = w.BLOCKING_THREAD_ID JOIN performance_schema.data_locks AS dl ON dl.ENGINE_LOCK_ID = w.REQUESTING_ENGINE_LOCK_ID WHERE dl.OBJECT_SCHEMA = DATABASE()").Scan(&waits).Error)
+		t.Logf("lock waits: %v", waits)
+		t.Logf("process query error: %v", db.Raw("SELECT ID, COMMAND, STATE, INFO FROM information_schema.processlist WHERE DB = DATABASE() AND ID IN (?, ?)", firstConnection.Load(), secondConnection.Load()).Scan(&processes).Error)
+		t.Logf("processes: %v", processes)
+		select {
+		case err := <-secondDone:
+			t.Logf("second operation returned before wait observation: %v", err)
+			secondDone <- err
+		default:
+			t.Log("second operation remains in progress")
+		}
+		t.Fatal("market transaction did not reach its observed lock wait")
+	}
+	firstIsolation := marketMySQLTransactionIsolation(t, db, firstConnection.Load())
+	secondIsolation := marketMySQLTransactionIsolation(t, db, secondConnection.Load())
+	t.Logf("confirmed live service PRIMARY lock wait; actual transaction isolation: first=%s second=%s", firstIsolation, secondIsolation)
 	release()
 	firstErr, secondErr := <-firstDone, <-secondDone
 	require.NoError(t, db.Callback().Query().Remove(callback))
