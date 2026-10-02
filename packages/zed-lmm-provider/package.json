@@ -1,6 +1,6 @@
 {
   "name": "@tokennotincluded/zed-lmm-provider",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "LMM OAuth bridge for Zed's native AI model selector",
   "type": "module",
   "license": "AGPL-3.0-only",
