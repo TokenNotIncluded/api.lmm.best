@@ -234,7 +234,7 @@ func GetToolMarketExecution(userID int, clientID, toolID, versionID, grantID str
 		return nil, err
 	}
 	var grant ToolMarketGrant
-	q := DB.Where("user_id = ? AND client_id = ? AND tool_id = ? AND version_id = ? AND revoked_at = 0 AND expires_at > ?", userID, clientID, toolID, versionID, common.GetTimestamp())
+	q := DB.Where("user_id = ? AND tool_id = ? AND version_id = ? AND revoked_at = 0 AND expires_at > ?", userID, toolID, versionID, common.GetTimestamp()).Scopes(marketExactTextScope("client_id", clientID))
 	if grantID != "" {
 		q = q.Where("id = ?", grantID)
 	}
@@ -242,7 +242,7 @@ func GetToolMarketExecution(userID int, clientID, toolID, versionID, grantID str
 		return nil, err
 	}
 	var installation ToolMarketInstallation
-	if err := DB.First(&installation, "user_id = ? AND client_id = ? AND tool_id = ? AND version_id = ?", userID, clientID, toolID, versionID).Error; err != nil {
+	if err := DB.Scopes(marketExactTextScope("client_id", clientID)).First(&installation, "user_id = ? AND tool_id = ? AND version_id = ?", userID, toolID, versionID).Error; err != nil {
 		return nil, err
 	}
 	return &ToolMarketExecution{Service: *service, Version: version, Tool: *tool, Grant: grant}, nil
@@ -250,7 +250,7 @@ func GetToolMarketExecution(userID int, clientID, toolID, versionID, grantID str
 
 func ListToolMarketExecutions(userID int, clientID string) ([]ToolMarketExecution, error) {
 	var installs []ToolMarketInstallation
-	if err := DB.Where("user_id = ? AND client_id = ?", userID, clientID).Order("tool_id").Limit(101).Find(&installs).Error; err != nil {
+	if err := DB.Where("user_id = ?", userID).Scopes(marketExactTextScope("client_id", clientID)).Order("tool_id").Limit(101).Find(&installs).Error; err != nil {
 		return nil, err
 	}
 	if len(installs) > 100 {
@@ -273,7 +273,7 @@ func ListToolMarketExecutions(userID int, clientID string) ([]ToolMarketExecutio
 func GetToolMarketCall(userID int, clientID, id string) (*ToolMarketCall, error) {
 	q := DB.Where("id = ? AND user_id = ?", id, userID)
 	if clientID != "" {
-		q = q.Where("client_id = ?", clientID)
+		q = q.Scopes(marketExactTextScope("client_id", clientID))
 	}
 	var row ToolMarketCall
 	err := q.First(&row).Error

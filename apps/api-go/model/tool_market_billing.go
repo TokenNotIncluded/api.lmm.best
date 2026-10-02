@@ -129,11 +129,11 @@ func ReserveToolMarketCall(in ToolMarketReserveInput) (*ToolMarketCall, bool, er
 			return err
 		}
 		var installation ToolMarketInstallation
-		if err := tx.First(&installation, "user_id = ? AND client_id = ? AND tool_id = ? AND version_id = ?", in.UserID, in.ClientID, in.ToolID, in.VersionID).Error; err != nil {
+		if err := tx.Scopes(marketExactTextScope("client_id", in.ClientID)).First(&installation, "user_id = ? AND tool_id = ? AND version_id = ?", in.UserID, in.ToolID, in.VersionID).Error; err != nil {
 			return err
 		}
 		var grant ToolMarketGrant
-		if err := tx.First(&grant, "id = ? AND user_id = ? AND client_id = ? AND tool_id = ? AND version_id = ?", in.GrantID, in.UserID, in.ClientID, in.ToolID, in.VersionID).Error; err != nil {
+		if err := tx.Scopes(marketExactTextScope("client_id", in.ClientID)).First(&grant, "id = ? AND user_id = ? AND tool_id = ? AND version_id = ?", in.GrantID, in.UserID, in.ToolID, in.VersionID).Error; err != nil {
 			return err
 		}
 		if grant.RevokedAt != 0 || grant.ExpiresAt <= now {

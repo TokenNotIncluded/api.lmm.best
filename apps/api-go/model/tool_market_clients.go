@@ -1,6 +1,7 @@
 package model
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -46,7 +47,7 @@ func ListToolMarketOAuthClients(db *gorm.DB, userID int, issuer, resource string
 	}
 	eligible := map[string]bool{}
 	for _, candidate := range candidates {
-		allowed := marketClientValid("oauth:" + candidate.ClientID)
+		allowed := slices.Contains(clientIDs, candidate.ClientID) && marketClientValid("oauth:"+candidate.ClientID)
 		for _, scope := range requiredScopes {
 			allowed = allowed && containsOAuthScope(candidate.GrantScope, scope) && containsOAuthScope(candidate.TokenScope, scope)
 		}
@@ -97,20 +98,22 @@ func DisconnectToolMarketClient(userID int, clientID string) (*ToolMarketClientD
 		}
 		now := common.GetTimestamp()
 		tokens := tx.Model(&ToolMarketToken{}).
-			Where("user_id = ? AND client_id = ? AND revoked_at = 0", userID, clientID).
+			Where("user_id = ? AND revoked_at = 0", userID).
+			Scopes(marketExactTextScope("client_id", clientID)).
 			Update("revoked_at", now)
 		if tokens.Error != nil {
 			return tokens.Error
 		}
 		result.TokensRevoked = tokens.RowsAffected
 		grants := tx.Model(&ToolMarketGrant{}).
-			Where("user_id = ? AND client_id = ? AND revoked_at = 0", userID, clientID).
+			Where("user_id = ? AND revoked_at = 0", userID).
+			Scopes(marketExactTextScope("client_id", clientID)).
 			Update("revoked_at", now)
 		if grants.Error != nil {
 			return grants.Error
 		}
 		result.GrantsRevoked = grants.RowsAffected
-		installations := tx.Where("user_id = ? AND client_id = ?", userID, clientID).
+		installations := tx.Where("user_id = ?", userID).Scopes(marketExactTextScope("client_id", clientID)).
 			Delete(&ToolMarketInstallation{})
 		if installations.Error != nil {
 			return installations.Error

@@ -289,14 +289,14 @@ func marketAuthorizeCallDispatch(tx *gorm.DB, call ToolMarketCall) error {
 		return err
 	}
 	var grant ToolMarketGrant
-	if err := tx.First(&grant, "id = ? AND user_id = ? AND client_id = ? AND tool_id = ? AND version_id = ?", call.GrantID, call.UserID, call.ClientID, call.ToolID, call.VersionID).Error; err != nil {
+	if err := tx.Scopes(marketExactTextScope("client_id", call.ClientID)).First(&grant, "id = ? AND user_id = ? AND tool_id = ? AND version_id = ?", call.GrantID, call.UserID, call.ToolID, call.VersionID).Error; err != nil {
 		return err
 	}
 	if grant.RevokedAt != 0 || grant.ExpiresAt <= common.GetTimestamp() {
 		return ErrToolMarketDenied
 	}
 	var installation ToolMarketInstallation
-	return tx.First(&installation, "user_id = ? AND client_id = ? AND tool_id = ? AND version_id = ?", call.UserID, call.ClientID, call.ToolID, call.VersionID).Error
+	return tx.Scopes(marketExactTextScope("client_id", call.ClientID)).First(&installation, "user_id = ? AND tool_id = ? AND version_id = ?", call.UserID, call.ToolID, call.VersionID).Error
 }
 
 // Confirmation is a delivery stage of the same call, not a successful call.
