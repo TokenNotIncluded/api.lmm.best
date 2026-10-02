@@ -258,6 +258,30 @@ test('advanced JSON keeps unfinished raw input and only returns to guided form f
   assert.deepEqual(argumentsObject().extra, { remain: true })
 })
 
+test('advanced exact numbers survive switching to the parameter form and editing another field', async () => {
+  await mount(<Harness definition={schema} initialValue='{}' />)
+  await click(button('Advanced JSON'))
+  const exact =
+    '{"query":"original","count":9007199254740993,"amount":1.0000000000000000000000000001,"options":{"items":[9007199254740995]},"extra":{"decimal":0.123456789012345678901}}'
+  await setValue(element('textarea'), exact)
+  await click(button('Parameter form'))
+  assert.equal(document.body.querySelector('textarea'), null)
+  const previews = new Set(
+    [...document.body.querySelectorAll('pre')].map((item) => item.textContent)
+  )
+  assert.ok(previews.has('9007199254740993'))
+  assert.ok(previews.has('1.0000000000000000000000000001'))
+  assert.equal(document.body.querySelectorAll('input').length, 1)
+  await setValue(field('Query'), 'changed')
+  await click(button('Advanced JSON'))
+  const submitted = element<HTMLTextAreaElement>('textarea').value
+  assert.match(submitted, /"count": 9007199254740993/)
+  assert.match(submitted, /"amount": 1\.0000000000000000000000000001/)
+  assert.match(submitted, /"options": \{"items":\[9007199254740995\]\}/)
+  assert.match(submitted, /"extra": \{"decimal":0\.123456789012345678901\}/)
+  assert.equal(JSON.parse(submitted).query, 'changed')
+})
+
 test('reference schemas start in advanced JSON without inventing guided fields', async () => {
   const reference = JSON.stringify({
     $ref: '#/$defs/arguments',
@@ -414,6 +438,112 @@ test('an invalid optional numeric draft cannot execute a call with an old or sil
   await click(button('Run free tool'))
   await waitFor(() => inputs.length === 1)
   assert.deepEqual(inputs[0].arguments, { amount: -9.2 })
+})
+
+const exactTool: MarketTool = {
+  tool_id: 'exact-tool',
+  version_id: 'exact-version',
+  name: 'Exact numbers tool',
+  description: '',
+  input_schema: `{
+    "type":"object",
+    "properties":{
+      "count":{"type":"integer","title":"Count","minimum":9007199254740993,"default":9007199254740993},
+      "requiredCount":{"type":"integer","title":"Required count","default":9007199254740995},
+      "query":{"type":"string","title":"Query","default":"hi"}
+    },
+    "required":["requiredCount"]
+  }`,
+  output_schema: '',
+  permissions: '[]',
+  price_quota: 0,
+}
+const exactGrant: Grant = {
+  id: 'exact-grant',
+  client_id: 'exact-client',
+  tool_id: exactTool.tool_id,
+  version_id: exactTool.version_id,
+  max_price_quota: 0,
+  max_total_quota: 0,
+  max_calls: 2,
+  reserved_quota: 0,
+  spent_quota: 0,
+  successful_calls: 0,
+  reserved_calls: 0,
+  expires_at: Math.floor(Date.now() / 1000) + 3600,
+  revoked_at: 0,
+}
+async function mountExactCall() {
+  const inputs: Parameters<typeof marketAPI.invoke>[0][] = []
+  marketAPI.invoke = async (input) => {
+    inputs.push(structuredClone(input))
+    return {
+      call: {
+        id: 'exact-call',
+        service_id: 'exact-service',
+        tool_id: exactTool.tool_id,
+        version_id: exactTool.version_id,
+        client_id: exactGrant.client_id,
+        execution_status: 'succeeded',
+        settlement_status: 'settled',
+        price_quota: 0,
+        created_at: 100,
+        resolve_by: 200,
+      },
+      result_expired: false,
+    }
+  }
+  await mount(
+    <CallDialog
+      tool={exactTool}
+      grant={exactGrant}
+      endpoint='https://provider.example.test/mcp'
+      units={500000}
+      onClose={() => {}}
+    />
+  )
+  await waitFor(() => document.body.querySelector('[role="dialog"]') !== null)
+  return inputs
+}
+
+test('running untouched optional and required defaults submits their exact numeric JSON', async () => {
+  const inputs = await mountExactCall()
+  assert.ok(
+    [...document.body.querySelectorAll('pre')].some(
+      (item) => item.textContent === '9007199254740993'
+    )
+  )
+  assert.equal(field<HTMLInputElement>('Query').value, 'hi')
+  await click(button('Run free tool'))
+  await waitFor(() => inputs.length === 1)
+  assert.match(inputs[0].arguments_json ?? '', /"count": 9007199254740993/)
+  assert.match(
+    inputs[0].arguments_json ?? '',
+    /"requiredCount": 9007199254740995/
+  )
+})
+
+test('running advanced JSON after editing an unrelated parameter submits the original exact tokens', async () => {
+  const inputs = await mountExactCall()
+  await click(button('Advanced JSON'))
+  await setValue(
+    element('textarea'),
+    '{"count":9007199254740997,"requiredCount":9007199254740999,"query":"old","extra":{"fraction":0.123456789012345678901}}'
+  )
+  await click(button('Parameter form'))
+  await setValue(field('Query'), 'new')
+  await click(button('Run free tool'))
+  await waitFor(() => inputs.length === 1)
+  assert.match(inputs[0].arguments_json ?? '', /"count": 9007199254740997/)
+  assert.match(
+    inputs[0].arguments_json ?? '',
+    /"requiredCount": 9007199254740999/
+  )
+  assert.match(
+    inputs[0].arguments_json ?? '',
+    /"extra": \{"fraction":0\.123456789012345678901\}/
+  )
+  assert.equal(JSON.parse(inputs[0].arguments_json ?? '{}').query, 'new')
 })
 
 test('locked arguments disable guided controls and advanced editing', async () => {

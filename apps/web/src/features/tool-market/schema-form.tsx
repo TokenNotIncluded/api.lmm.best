@@ -10,6 +10,7 @@ import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 
+import { hasUnsafeJsonNumber, jsonObjectProperties } from './schema-form-json'
 import {
   guidedParameters,
   parameterValue,
@@ -36,16 +37,23 @@ export function ToolArgumentsForm({
   const [advanced, setAdvanced] = useState(fields.length === 0)
   const [fieldError, setFieldError] = useState(false)
   let parsed: Record<string, unknown> = {}
+  let rawValues = new Map<string, string>()
   let validObject = false
   try {
     const data: unknown = JSON.parse(value)
     if (schemaObject(data)) {
       parsed = data
+      rawValues = jsonObjectProperties(value)
       validObject = true
     }
   } catch {
     // Malformed advanced input remains editable, without discarding it.
   }
+  const rawFields = fields.length
+    ? jsonObjectProperties(
+        jsonObjectProperties(schema).get('properties') ?? '{}'
+      )
+    : new Map<string, string>()
   const change = (name: string, data: unknown) => {
     try {
       onChange(updateArgument(value, name, data))
@@ -97,6 +105,11 @@ export function ToolArgumentsForm({
             Array.isArray(definition?.required) &&
             definition.required.includes(name)
           const options = Array.isArray(field.enum) ? field.enum : null
+          // JSON number tokens may exceed JavaScript's precision. Keep their
+          // exact source visible and edit them through advanced JSON.
+          const exactOnly =
+            hasUnsafeJsonNumber(rawFields.get(name) ?? '{}') ||
+            hasUnsafeJsonNumber(rawValues.get(name) ?? 'null')
           return (
             <Field key={name}>
               <FieldLabel htmlFor={fieldID}>
@@ -105,7 +118,7 @@ export function ToolArgumentsForm({
                   <span className='text-muted-foreground'>{t('Required')}</span>
                 )}
               </FieldLabel>
-              {options || field.type === 'boolean' ? (
+              {!exactOnly && (options || field.type === 'boolean') ? (
                 <select
                   id={fieldID}
                   className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
@@ -147,7 +160,8 @@ export function ToolArgumentsForm({
                     </>
                   )}
                 </select>
-              ) : field.type === 'object' ||
+              ) : exactOnly ||
+                field.type === 'object' ||
                 field.type === 'array' ||
                 !['string', 'number', 'integer'].includes(
                   String(field.type)
@@ -155,7 +169,7 @@ export function ToolArgumentsForm({
                 <div>
                   {current !== undefined && (
                     <pre className='bg-muted max-h-32 overflow-auto rounded-md p-2 text-xs'>
-                      {JSON.stringify(current, null, 2)}
+                      {rawValues.get(name)}
                     </pre>
                   )}
                   <Button

@@ -2,6 +2,12 @@
 Copyright (C) 2026 LIghtJUNction
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
+import {
+  canRoundTripNumber,
+  jsonObjectProperties,
+  serializeJsonProperties,
+} from './schema-form-json'
+
 export type ParameterSchema = Record<string, unknown>
 
 export function schemaObject(value: unknown): value is ParameterSchema {
@@ -33,17 +39,27 @@ export function guidedParameters(schema: ParameterSchema | null) {
 }
 
 export function initialArguments(raw: string): string {
-  const defaults = Object.create(null) as Record<string, unknown>
-  for (const [name, field] of guidedParameters(readParameterSchema(raw))) {
+  const schema = readParameterSchema(raw)
+  const fields = guidedParameters(schema)
+  if (!fields.length) return '{}'
+  const properties = jsonObjectProperties(
+    jsonObjectProperties(raw).get('properties') ?? '{}'
+  )
+  const defaults = new Map<string, string>()
+  for (const [name, field] of fields) {
     // Confirming an action always belongs to the explicit confirmation step.
     if (
       Object.hasOwn(field, 'default') &&
       !/confirm|approve|accept/i.test(name)
     ) {
-      defaults[name] = field.default
+      const source = properties.get(name)
+      if (source) {
+        const defaultValue = jsonObjectProperties(source).get('default')
+        if (defaultValue !== undefined) defaults.set(name, defaultValue)
+      }
     }
   }
-  return JSON.stringify(defaults, null, 2)
+  return serializeJsonProperties(defaults)
 }
 
 export function parameterValue(field: ParameterSchema, raw: string): unknown {
@@ -53,6 +69,7 @@ export function parameterValue(field: ParameterSchema, raw: string): unknown {
     // parameter validation instead of silently dropping the user's value.
     if (!/^[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(raw)) return raw
     const number = Number(raw)
+    if (!canRoundTripNumber(raw)) return raw
     if (field.type === 'integer' && !Number.isSafeInteger(number)) return raw
     return Number.isFinite(number) ? number : raw
   }
@@ -63,15 +80,10 @@ export function parameterValue(field: ParameterSchema, raw: string): unknown {
 }
 
 export function updateArgument(raw: string, key: string, value: unknown) {
-  const current: unknown = JSON.parse(raw)
-  if (!schemaObject(current)) throw new Error('Arguments must be an object')
-  const next = Object.assign(Object.create(null), current) as Record<
-    string,
-    unknown
-  >
-  if (value === undefined) delete next[key]
-  else next[key] = value
-  return JSON.stringify(next, null, 2)
+  const next = jsonObjectProperties(raw)
+  if (value === undefined) next.delete(key)
+  else next.set(key, JSON.stringify(value))
+  return serializeJsonProperties(next)
 }
 
 // This supplies immediate feedback for common fields. The backend still checks
