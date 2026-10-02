@@ -101,3 +101,11 @@ colors:
 - [observed] Review and payment status are static. The welcome scene keeps its existing reduced-motion-aware cloud; account amounts and status never animate.
 - [observed] Pi setup stays behind a disclosure, with optional source feedback below. The welcome surface does not open or restore a sidebar conversation. Applications retain the existing confirmed request endpoint, validation, error recovery, and approval refresh; submitting never grants access in the browser. Existing activated-account onboarding remains a separate branch.
 - [observed] Implementation evidence: `src/features/onboarding/l0-welcome.tsx`, `src/features/onboarding/l0-welcome.css`, `src/features/onboarding/l0-access-copy.ts`, `src/features/onboarding/getting-started.tsx`, `src/components/layout/components/authenticated-layout.tsx`, and `src/features/assistant/assistant-launcher.tsx`. The persistent top-up action and its link to `/wallet` are asserted from the default chat scene in `src/features/onboarding/l0-paid-welcome.test.tsx`. The focused tests assert the review-first headline, backend-derived optional amount, secondary top-up styling, navigation from the default chat scene, inline application submission, and absence of the sidebar assistant for L0. Rendered verification must be repeated after layout changes; earlier screenshots are not evidence for the current revision.
+
+### Cut logo rollout
+
+- [observed] The default LMM Forge identity uses the original filled symbol and wordmark from `.github/assets/logo-geometry.json`. React components inherit neutral `currentColor`; typography and semantic colors for operational content remain unchanged.
+- [observed] Public navigation and expanded desktop sidebar use the horizontal wordmark when space allows. Narrow mobile navigation and collapsed sidebars use the compact symbol. The default home footer reuses the full wordmark; tenant-defined logos and names retain their own artwork.
+- [observed] Built-in cached names and logo URLs normalize to the default identity before rendering or preloading. The favicon and touch icon derive from the same symbol. They have explicit black backgrounds and white ink; transparent SVG placements select ink for the current surface.
+
+The platform-owned legacy name `lmm.best` also resolves to LMM Forge. Other tenant names stay as configured.

@@ -23,7 +23,8 @@ import { toast } from 'sonner'
 
 import { BrandLogo } from '@/components/brand-logo'
 import { HtmlContent } from '@/components/html-content'
-import { LMM_BRAND_NAME, LmmBrandMark } from '@/components/lmm-brand-mark'
+import { LMM_BRAND_NAME } from '@/components/lmm-brand-mark'
+import { LmmBrandWordmark } from '@/components/lmm-brand-wordmark'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { DEFAULT_LOGO, DEFAULT_SYSTEM_NAME } from '@/lib/constants'
 import { openResolvedExternalUrl } from '@/lib/external-navigation'
@@ -207,6 +208,8 @@ export function Footer(props: FooterProps) {
   const displayLogo = systemLogo || props.logo || DEFAULT_LOGO
   const configuredName = systemName || props.name || DEFAULT_SYSTEM_NAME
   const usesDefaultBrand = displayLogo === DEFAULT_LOGO
+  const showsDefaultWordmark =
+    usesDefaultBrand && configuredName === DEFAULT_SYSTEM_NAME
   const displayName =
     !isSetupSurface &&
     usesDefaultBrand &&
@@ -295,8 +298,27 @@ export function Footer(props: FooterProps) {
            * columns under plain font-medium headings. */}
           <div className='grid gap-12 py-8 sm:py-10 md:grid-cols-5 lg:pt-16'>
             <div className='col-span-5 space-y-6 md:col-span-2 md:space-y-8'>
-              <Link to='/' aria-label={displayName} className='flex size-10'>
-                <LmmBrandMark className='size-10' title={LMM_BRAND_NAME} />
+              <Link
+                to='/'
+                aria-label={displayName}
+                className='focus-visible:ring-ring inline-flex min-h-11 max-w-full items-center gap-2.5 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none'
+              >
+                {showsDefaultWordmark ? (
+                  <LmmBrandWordmark
+                    className='h-7 w-auto max-w-full'
+                    aria-hidden='true'
+                  />
+                ) : (
+                  <>
+                    <BrandLogo
+                      src={displayLogo}
+                      className='size-10 shrink-0 object-contain'
+                    />
+                    <span className='min-w-0 text-base font-semibold break-words'>
+                      {displayName}
+                    </span>
+                  </>
+                )}
               </Link>
               <p className='text-muted-foreground text-sm text-balance'>
                 {t(
@@ -432,18 +454,27 @@ export function Footer(props: FooterProps) {
         <div className='flex flex-col justify-between gap-6 md:flex-row md:gap-16'>
           {/* Brand column */}
           <div className='shrink-0'>
-            <Link to='/' className='group flex items-center gap-2.5'>
-              {isForgeSurface ? (
-                <LmmBrandMark className='size-9' title={LMM_BRAND_NAME} />
-              ) : (
-                <BrandLogo
-                  src={displayLogo}
-                  className='size-9 object-contain'
+            <Link
+              to='/'
+              aria-label={displayName}
+              className='group focus-visible:ring-ring flex min-h-11 max-w-full items-center gap-2.5 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none'
+            >
+              {showsDefaultWordmark ? (
+                <LmmBrandWordmark
+                  className='h-7 w-auto max-w-full'
+                  aria-hidden='true'
                 />
+              ) : (
+                <>
+                  <BrandLogo
+                    src={displayLogo}
+                    className='size-9 object-contain'
+                  />
+                  <span className='text-base font-semibold tracking-[-0.025em]'>
+                    {displayName}
+                  </span>
+                </>
               )}
-              <span className='text-base font-semibold tracking-[-0.025em]'>
-                {displayName}
-              </span>
             </Link>
             <p className='text-muted-foreground mt-3 max-w-[15rem] text-xs leading-relaxed'>
               {t('Open-source bounty collaboration')}

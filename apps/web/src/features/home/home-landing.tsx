@@ -18,14 +18,20 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type { ReactNode, Ref } from 'react'
 
+import { BrandLogo } from '@/components/brand-logo'
+import { LMM_BRAND_NAME } from '@/components/lmm-brand-mark'
+import { LmmBrandWordmark } from '@/components/lmm-brand-wordmark'
 import { Button } from '@/components/ui/button'
 import type { ConnectionMethod } from '@/features/onboarding/next-step'
 import { RepositoryLink } from '@/features/repositories/repository-link'
+import { DEFAULT_LOGO, DEFAULT_SYSTEM_NAME } from '@/lib/constants'
 
 import { segmentMovingText } from './home-text-segmentation'
 
 type HomeLandingProps = {
   rootRef: Ref<HTMLElement>
+  brandName: string
+  brandLogo: string
   t: (key: string) => string
   language: string
   primaryAction: ReactNode
@@ -135,6 +141,8 @@ function GravityDescription({
 /** Presentation only. Account state and actions stay in ForgeHome. */
 export function HomeLanding({
   rootRef,
+  brandName,
+  brandLogo,
   t,
   language,
   primaryAction,
@@ -150,6 +158,8 @@ export function HomeLanding({
   onConnectionMethodChange,
 }: HomeLandingProps) {
   const headline = t('AI models. One connection.')
+  const usesDefaultBrand =
+    brandLogo === DEFAULT_LOGO && brandName === DEFAULT_SYSTEM_NAME
   const steps = connectionMethod === 'oauth' ? OAUTH_STEPS : STEPS
   return (
     <main className='lmm-home' ref={rootRef} data-motion='loading'>
@@ -541,8 +551,22 @@ export function HomeLanding({
             <Arrow />
           </a>
         </div>
-        <span className='lmm-footer-type' aria-hidden='true'>
-          lmm<span>↗</span>
+        <span className='lmm-footer-brand'>
+          {usesDefaultBrand ? (
+            <LmmBrandWordmark
+              className='lmm-footer-wordmark'
+              title={LMM_BRAND_NAME}
+            />
+          ) : (
+            <span className='lmm-footer-custom-brand'>
+              <BrandLogo
+                src={brandLogo}
+                className='lmm-footer-custom-logo'
+                alt=''
+              />
+              <span>{brandName}</span>
+            </span>
+          )}
         </span>
       </footer>
     </main>

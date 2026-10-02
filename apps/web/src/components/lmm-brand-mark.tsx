@@ -20,16 +20,13 @@ import type { SVGProps } from 'react'
 
 import { cn } from '@/lib/utils'
 
-export const LMM_BRAND_NAME = 'LMM Best'
+export const LMM_BRAND_NAME = 'LMM Forge'
 
 type LmmBrandMarkProps = SVGProps<SVGSVGElement> & {
   title?: string
 }
 
-/**
- * LMM monogram: the L is a corner bracket that holds two Ms sharing one
- * middle leg — many models behind one endpoint.
- */
+/** Original cut symbol; keep the full viewBox and its open counterforms. */
 export function LmmBrandMark({
   className,
   title,
@@ -37,7 +34,7 @@ export function LmmBrandMark({
 }: LmmBrandMarkProps) {
   return (
     <svg
-      viewBox='0 0 56 56'
+      viewBox='0 0 128 128'
       xmlns='http://www.w3.org/2000/svg'
       role={title ? 'img' : undefined}
       aria-label={title}
@@ -47,19 +44,9 @@ export function LmmBrandMark({
       {...props}
     >
       <path
-        d='M18 39V17l7 11 7-11 7 11 7-11v22M32 17v22'
-        fill='none'
-        stroke='var(--forge-brand-mark-ink, currentColor)'
-        strokeWidth='4'
-        strokeLinejoin='miter'
-        strokeMiterlimit='10'
-      />
-      <path
-        d='M9 8v39h39'
-        fill='none'
-        stroke='var(--forge-brand-mark-accent, currentColor)'
-        strokeWidth='4'
-        strokeLinecap='square'
+        d='M6 10H24V94H32V20H44L52 40L60 20H72V94H82V20H94L102 40L110 20H122V100L110 112H6Z M44 94V52L52 70L60 52V94Z M94 94V52L102 70L110 52V94Z'
+        fill='currentColor'
+        fillRule='evenodd'
       />
     </svg>
   )

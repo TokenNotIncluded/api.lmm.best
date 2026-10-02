@@ -184,7 +184,7 @@ export function useSystemConfig(options: UseSystemConfigOptions = {}) {
 
     // The built-in brand is inline SVG. Never issue a request for the legacy
     // bitmap sentinel; only tenant-provided logos need asynchronous loading.
-    if (logo === DEFAULT_LOGO) return
+    if (isDefaultLogo(logo)) return
 
     // Skip if logo is already loaded
     if (!logo || logo === loadedLogoUrl) return
@@ -196,7 +196,7 @@ export function useSystemConfig(options: UseSystemConfigOptions = {}) {
         setLoadedLogoUrl(logo)
       },
       () => {
-        if (logo !== DEFAULT_LOGO) {
+        if (!isDefaultLogo(logo)) {
           // eslint-disable-next-line no-console
           console.error('Failed to load logo:', logo)
         }
@@ -209,10 +209,12 @@ export function useSystemConfig(options: UseSystemConfigOptions = {}) {
 
   return {
     ...config,
+    systemName: resolveSystemName(config.systemName),
+    logo: isDefaultLogo(config.logo) ? DEFAULT_LOGO : config.logo,
     loading,
     // DEFAULT_LOGO renders as LmmBrandMark rather than an image resource.
     logoLoaded:
-      config.logo === DEFAULT_LOGO ||
+      isDefaultLogo(config.logo) ||
       (config.logo === loadedLogoUrl && !!loadedLogoUrl),
   }
 }

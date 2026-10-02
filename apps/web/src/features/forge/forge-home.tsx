@@ -49,6 +49,7 @@ import type { ConnectionMethod } from '@/features/onboarding/next-step'
 import { useAccountNextStep } from '@/features/onboarding/use-account-next-step'
 import { PublicScriptsPanel } from '@/features/scripts/scripts-panel'
 import { useStatus } from '@/hooks/use-status'
+import { useSystemConfig } from '@/hooks/use-system-config'
 import { useTopNavLinks } from '@/hooks/use-top-nav-links'
 import { isConsoleActivated } from '@/lib/console-activation'
 import { useAuthStore } from '@/stores/auth-store'
@@ -156,6 +157,7 @@ export function ForgeHome() {
     }[nextStep.label] ?? t(nextStep.label)
   const user = useAuthStore((state) => state.auth.user)
   const { status } = useStatus()
+  const { systemName, logo } = useSystemConfig()
   const securityLink = useTopNavLinks().find(
     (link) => link.href === '/security'
   )
@@ -236,6 +238,8 @@ export function ForgeHome() {
     <ForgePublicShell>
       <HomeLanding
         rootRef={rootRef}
+        brandName={systemName}
+        brandLogo={logo}
         language={presetLanguage}
         connectionMethod={connectionMethod}
         onConnectionMethodChange={setConnectionMethod}

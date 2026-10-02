@@ -22,7 +22,8 @@ import { useTranslation } from 'react-i18next'
 
 import { Dialog } from '@/components/dialog'
 import { LanguageSwitcher } from '@/components/language-switcher'
-import { LMM_BRAND_NAME } from '@/components/lmm-brand-mark'
+import { LMM_BRAND_NAME, LmmBrandMark } from '@/components/lmm-brand-mark'
+import { LmmBrandWordmark } from '@/components/lmm-brand-wordmark'
 import { NotificationPopover } from '@/components/notification-popover'
 import { ProfileDropdown } from '@/components/profile-dropdown'
 import { ThemeSwitch } from '@/components/theme-switch'
@@ -177,6 +178,8 @@ export function PublicHeader(props: PublicHeaderProps) {
     usesDefaultBrand,
     systemName
   )
+  const showsDefaultWordmark =
+    usesDefaultBrand && !customSiteName && systemName === DEFAULT_SYSTEM_NAME
   const links =
     useDynamicNavLinks && dynamicLinks.length > 0 ? dynamicLinks : navLinks
   const mobileNavigationLinks = props.mobileLinks ?? links
@@ -352,14 +355,36 @@ export function PublicHeader(props: PublicHeaderProps) {
             <Link
               to={homeUrl}
               aria-label={displaySiteName}
-              className='group focus-visible:ring-ring flex min-w-0 touch-manipulation items-center gap-2.5 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none min-[1360px]:shrink-0'
+              className={cn(
+                'group focus-visible:ring-ring flex min-h-11 min-w-0 touch-manipulation items-center gap-2.5 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none min-[1360px]:shrink-0',
+                showsDefaultWordmark && 'min-w-11'
+              )}
             >
-              <div className='flex size-7 shrink-0 items-center justify-center transition-all duration-300 group-hover:scale-105'>
-                {logoContent}
-              </div>
-              <span className='truncate text-sm font-semibold tracking-tight'>
-                {loading ? <Skeleton className='h-4 w-16' /> : displaySiteName}
-              </span>
+              {showsDefaultWordmark && !loading ? (
+                <>
+                  <LmmBrandMark
+                    className='size-7 min-[480px]:hidden'
+                    aria-hidden='true'
+                  />
+                  <LmmBrandWordmark
+                    className='hidden h-[21px] w-auto min-[480px]:block'
+                    aria-hidden='true'
+                  />
+                </>
+              ) : (
+                <>
+                  <div className='flex size-7 shrink-0 items-center justify-center transition-all duration-300 group-hover:scale-105'>
+                    {logoContent}
+                  </div>
+                  <span className='truncate text-sm font-semibold tracking-tight'>
+                    {loading ? (
+                      <Skeleton className='h-4 w-16' />
+                    ) : (
+                      displaySiteName
+                    )}
+                  </span>
+                </>
+              )}
             </Link>
 
             {/* Desktop nav */}

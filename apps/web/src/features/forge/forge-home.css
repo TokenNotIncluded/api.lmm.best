@@ -1229,17 +1229,34 @@ For commercial licensing, please contact support@quantumnous.com
   gap: 0.5rem 1.5rem;
   font-size: 0.75rem;
 }
-.lmm-footer-type {
+.lmm-footer-brand {
   display: block;
-  font-size: clamp(7rem, 19vw, 17rem);
-  line-height: 0.9;
-  font-weight: 650;
-  letter-spacing: -0.09em;
-  padding-top: 1rem;
+  padding-block: clamp(1.25rem, 4vw, 3rem);
+  color: var(--foreground);
 }
-.lmm-footer-type > span {
-  color: var(--home-accent);
-  letter-spacing: -0.04em;
+.lmm-footer-wordmark {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.lmm-footer-custom-brand {
+  display: flex;
+  align-items: center;
+  gap: clamp(1rem, 3vw, 2rem);
+  font-size: clamp(2rem, 7vw, 6rem);
+  font-weight: 650;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+.lmm-footer-custom-brand > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.lmm-footer-custom-logo {
+  flex: 0 0 auto;
+  width: clamp(2.75rem, 8vw, 7rem);
+  height: clamp(2.75rem, 8vw, 7rem);
+  object-fit: contain;
 }
 @media (max-width: 900px) {
   .lmm-explore-console {
