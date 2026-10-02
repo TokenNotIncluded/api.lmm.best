@@ -230,7 +230,7 @@ export function CallResult({
 }) {
   const { t } = useTranslation()
   return (
-    <div className='space-y-3 text-sm' aria-live='polite'>
+    <div className='min-w-0 space-y-3 text-sm' aria-live='polite'>
       <dl className='grid grid-cols-2 gap-3'>
         <div>
           <dt className='text-muted-foreground'>{t('Execution status')}</dt>
@@ -315,12 +315,15 @@ function MCPResultView({ value }: { value: unknown }) {
   }
   const content = Array.isArray(value.content) ? value.content : []
   return (
-    <div className='space-y-3'>
+    <div className='min-w-0 space-y-3'>
       {content.map((item: unknown, index: number) => {
         if (!schemaObject(item)) return null
         if (item.type === 'text' && typeof item.text === 'string') {
           return (
-            <p key={index} className='break-words whitespace-pre-wrap'>
+            <p
+              key={index}
+              className='[overflow-wrap:anywhere] whitespace-pre-wrap'
+            >
               {item.text}
             </p>
           )
