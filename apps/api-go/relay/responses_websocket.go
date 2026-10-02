@@ -59,16 +59,21 @@ type responsesWSErrorEvent struct {
 }
 
 type responsesWSCallState struct {
-	StreamID   string
-	eventID    string
-	responseID string
-	info       *relaycommon.RelayInfo
-	usage      *dto.Usage
-	outputText responsesWSOutputTextBuffer
-	images     relaycommon.ImageGenerationCallCounter
-	commitRate middleware.ModelRequestRateLimitCommit
-	dataMu     sync.Mutex
-	finishing  bool
+	StreamID            string
+	eventID             string
+	responseID          string
+	info                *relaycommon.RelayInfo
+	usage               *dto.Usage
+	outputText          responsesWSOutputTextBuffer
+	images              relaycommon.ImageGenerationCallCounter
+	commitRate          middleware.ModelRequestRateLimitCommit
+	rateMu              sync.Mutex
+	rateDeliveryPending bool
+	rateOutcomeReady    bool
+	rateSuccess         bool
+	rateFinalized       bool
+	dataMu              sync.Mutex
+	finishing           bool
 }
 
 // Controls can fail asynchronously, including after their response has ended.
@@ -398,6 +403,20 @@ func (s *responsesWSSession) handleResponseCreate(create responsesWSCreateReques
 	if s.hasCurrent() {
 		return types.NewErrorWithStatusCode(errors.New("another response.create is already in progress on this websocket connection"), types.ErrorCodeInvalidRequest, http.StatusConflict, types.ErrOptionWithSkipRetry())
 	}
+	if create.EventID != "" {
+		s.stateMu.Lock()
+		duplicate := false
+		for _, control := range s.pendingControls {
+			duplicate = duplicate || control.eventID == create.EventID
+		}
+		for _, control := range s.resolvedControls {
+			duplicate = duplicate || control.eventID == create.EventID
+		}
+		s.stateMu.Unlock()
+		if duplicate {
+			return newResponsesWSInvalidRequestError(errors.New("event_id belongs to a retained control"))
+		}
+	}
 
 	commitRate, apiErr := middleware.CheckModelRequestRateLimit(s.c)
 	if apiErr != nil {
@@ -503,9 +522,7 @@ func (s *responsesWSSession) connectAndSendFirst(create responsesWSCreateRequest
 			commitRate(false)
 			return types.NewErrorWithStatusCode(errors.New("another response.create is already in progress on this websocket connection"), types.ErrorCodeInvalidRequest, http.StatusConflict, types.ErrOptionWithSkipRetry())
 		}
-		if err := s.writeTarget(websocket.TextMessage, payload); err != nil {
-			s.finishCall(state, false, false)
-			s.closeTarget()
+		if err := s.writeFirstTargetEvent(state, payload); err != nil {
 			apiErr = types.NewError(err, types.ErrorCodeBadResponse)
 			var shouldRetry bool
 			lastErr, shouldRetry = s.processChannelError(channel, apiErr, retryParam)
@@ -529,6 +546,17 @@ func (s *responsesWSSession) connectAndSendFirst(create responsesWSCreateRequest
 	}
 	commitRate(false)
 	return lastErr
+}
+
+func (s *responsesWSSession) writeFirstTargetEvent(state *responsesWSCallState, payload []byte) error {
+	if err := s.writeTarget(websocket.TextMessage, payload); err != nil {
+		// A failed, invisible connection attempt refunds its billing reservation,
+		// while the logical create keeps its rate reservation through retries.
+		s.finishCallWithRate(state, false, false, false)
+		s.closeTarget()
+		return err
+	}
+	return nil
 }
 
 func (s *responsesWSSession) processChannelError(channel *appmodel.Channel, apiErr *types.NewAPIError, retryParam *service.RetryParam) (*types.NewAPIError, bool) {
@@ -837,8 +865,7 @@ func (s *responsesWSSession) startTargetReader() {
 				_ = s.client.Close()
 				return
 			}
-			message = s.processUpstreamMessage(message)
-			if err := s.writeClient(messageType, message); err != nil {
+			if err := s.forwardUpstreamMessage(messageType, message); err != nil {
 				logger.LogError(s.c, "responses websocket client write failed: "+err.Error())
 				s.failCurrent()
 				s.closeTarget()
@@ -851,6 +878,25 @@ func (s *responsesWSSession) startTargetReader() {
 // processUpstreamMessage captures identity before terminal observation clears the
 // turn. Only protocol response/error events are annotated; provider fields win.
 func (s *responsesWSSession) processUpstreamMessage(message []byte) []byte {
+	return s.processUpstreamMessageForState(s.getCurrent(), message)
+}
+
+func (s *responsesWSSession) forwardUpstreamMessage(messageType int, message []byte) error {
+	state := s.getCurrent()
+	if state != nil {
+		state.rateMu.Lock()
+		state.rateDeliveryPending = true
+		state.rateMu.Unlock()
+	}
+	message = s.processUpstreamMessageForState(state, message)
+	err := s.writeClient(messageType, message)
+	if state != nil {
+		state.completeRateDelivery(err == nil)
+	}
+	return err
+}
+
+func (s *responsesWSSession) processUpstreamMessageForState(state *responsesWSCallState, message []byte) []byte {
 	var event map[string]common.RawMessage
 	if err := common.Unmarshal(message, &event); err != nil || event == nil {
 		return message
@@ -864,7 +910,6 @@ func (s *responsesWSSession) processUpstreamMessage(message []byte) []byte {
 			return message
 		}
 	}
-	state := s.getCurrent()
 	streamID := ""
 	if state != nil {
 		streamID = state.StreamID
@@ -1088,6 +1133,10 @@ func (s *responsesWSSession) applyTerminalResponseUsage(state *responsesWSCallSt
 }
 
 func (s *responsesWSSession) finishCall(state *responsesWSCallState, success, requestSucceeded bool) {
+	s.finishCallWithRate(state, success, requestSucceeded, true)
+}
+
+func (s *responsesWSSession) finishCallWithRate(state *responsesWSCallState, success, requestSucceeded, completeRate bool) {
 	if state == nil || !s.beginFinish(state) {
 		return
 	}
@@ -1103,8 +1152,8 @@ func (s *responsesWSSession) finishCall(state *responsesWSCallState, success, re
 	}
 	if !success {
 		state.refund(s.c)
-		if state.commitRate != nil {
-			state.commitRate(false)
+		if completeRate {
+			state.finishRate(false)
 		}
 		return
 	}
@@ -1113,10 +1162,43 @@ func (s *responsesWSSession) finishCall(state *responsesWSCallState, success, re
 	finalizeResponsesWSUsage(state)
 	state.dataMu.Unlock()
 	postResponsesWSConsumeQuota(s.c, state.info, state.usage, nil)
-	if state.commitRate != nil {
+	if completeRate {
 		// Billable partial output does not make a failed/cancelled request a
 		// success for the shared HTTP/WebSocket success-only rate limit.
-		state.commitRate(requestSucceeded)
+		state.finishRate(requestSucceeded)
+	}
+}
+
+func (state *responsesWSCallState) finishRate(success bool) {
+	state.rateMu.Lock()
+	if state.rateFinalized {
+		state.rateMu.Unlock()
+		return
+	}
+	if state.rateDeliveryPending {
+		state.rateOutcomeReady, state.rateSuccess = true, success
+		state.rateMu.Unlock()
+		return
+	}
+	state.rateFinalized = true
+	state.rateMu.Unlock()
+	if state.commitRate != nil {
+		state.commitRate(success)
+	}
+}
+
+func (state *responsesWSCallState) completeRateDelivery(delivered bool) {
+	state.rateMu.Lock()
+	state.rateDeliveryPending = false
+	if state.rateFinalized || !state.rateOutcomeReady && delivered {
+		state.rateMu.Unlock()
+		return
+	}
+	success := state.rateOutcomeReady && state.rateSuccess && delivered
+	state.rateFinalized = true
+	state.rateMu.Unlock()
+	if state.commitRate != nil {
+		state.commitRate(success)
 	}
 }
 

@@ -442,6 +442,138 @@ func TestResponsesWSTerminalAccountingSeparatesBillingAndSuccessRateSlots(t *tes
 	}
 }
 
+func TestResponsesWSCreateRejectsRetainedControlEventID(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	for _, resolved := range []bool{false, true} {
+		t.Run(fmt.Sprint(resolved), func(t *testing.T) {
+			session := &responsesWSSession{c: c, revalidateAuth: func(*gin.Context) *types.NewAPIError { return nil }}
+			control := responsesWSControl{eventID: "shared_event", streamID: "old_control"}
+			if resolved {
+				target, peer := responsesWSTestPair(t)
+				session.target = target
+				oldTurn := responsesWSCorrelationState("old_turn")
+				require.True(t, session.tryReserveCurrent(oldTurn))
+				responsesWSCorrelationForwardControl(t, session, peer, control.eventID, control.streamID)
+				session.processUpstreamMessage([]byte(`{"type":"response.cancelled"}`))
+				require.Nil(t, session.getCurrent())
+				require.Len(t, session.resolvedControls, 1)
+			} else {
+				session.pendingControls = []responsesWSControl{control}
+			}
+			create := responsesWSCreateRequest{EventID: "shared_event", StreamID: "new_turn", Request: dto.OpenAIResponsesRequest{Model: "gpt-5"}}
+			apiErr := session.handleResponseCreate(create)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, http.StatusBadRequest, apiErr.StatusCode)
+			assert.Contains(t, apiErr.Error(), "retained control")
+			assert.Nil(t, session.getCurrent())
+		})
+	}
+}
+
+func TestResponsesWSFirstWriteRetryKeepsTheLogicalRateReservation(t *testing.T) {
+	previousPost := postResponsesWSConsumeQuota
+	t.Cleanup(func() { postResponsesWSConsumeQuota = previousPost })
+	posted := 0
+	postResponsesWSConsumeQuota = func(_ *gin.Context, _ *relaycommon.RelayInfo, _ *dto.Usage, _ []string) { posted++ }
+
+	// The limiter's completion is once-only: releasing the first invisible
+	// attempt would admit competing requests and make later success a no-op.
+	limiter := common.InMemoryRateLimiter{}
+	reserved, allowed := limiter.Reserve("ws-logical-retry", 1, 60)
+	require.True(t, allowed)
+	completions := []bool{}
+	commit := func(success bool) {
+		completions = append(completions, success)
+		reserved(success)
+	}
+	assertSlotPinned := func() {
+		competing, admitted := limiter.Reserve("ws-logical-retry", 1, 60)
+		if admitted {
+			competing(false)
+		}
+		assert.False(t, admitted, "another request must not take the reserved success slot during retry")
+	}
+	failedTarget, _ := responsesWSTestPair(t)
+	require.NoError(t, failedTarget.Close())
+	first := responsesWSCorrelationState("logical_stream")
+	first.commitRate = commit
+	refund := &responsesWSRetryRefund{}
+	first.info.Billing = refund
+	session := &responsesWSSession{target: failedTarget, current: first}
+	payload := []byte(`{"type":"response.create","stream_id":"logical_stream","model":"gpt-5"}`)
+	require.Error(t, session.writeFirstTargetEvent(first, payload))
+	assert.Equal(t, 1, refund.refunds, "failed channel attempt still refunds its billing reservation")
+	assertSlotPinned()
+	assert.Empty(t, completions)
+	assert.Nil(t, session.getCurrent())
+
+	successfulTarget, targetPeer := responsesWSTestPair(t)
+	session.setTarget(successfulTarget)
+	second := responsesWSCorrelationState("logical_stream")
+	second.commitRate = commit
+	require.True(t, session.tryReserveCurrent(second))
+	require.NoError(t, session.writeFirstTargetEvent(second, payload))
+	require.NoError(t, targetPeer.SetReadDeadline(time.Now().Add(time.Second)))
+	_, forwarded, err := targetPeer.ReadMessage()
+	require.NoError(t, err)
+	assert.Equal(t, payload, forwarded)
+	assertSlotPinned()
+	client, clientPeer := responsesWSTestPair(t)
+	session.client = client
+	terminal := []byte(`{"type":"response.completed","response":{"usage":{"input_tokens":7,"output_tokens":3,"total_tokens":10}}}`)
+	require.NoError(t, session.forwardUpstreamMessage(websocket.TextMessage, terminal))
+	require.NoError(t, clientPeer.SetReadDeadline(time.Now().Add(time.Second)))
+	_, _, err = clientPeer.ReadMessage()
+	require.NoError(t, err)
+	competing, admitted := limiter.Reserve("ws-logical-retry", 1, 60)
+	if admitted {
+		competing(false)
+	}
+	assert.False(t, admitted, "successful retry consumes the reserved success slot")
+	assert.Equal(t, []bool{true}, completions)
+	assert.Equal(t, 1, posted)
+	assert.Nil(t, session.getCurrent())
+	session.failCurrent()
+	assert.Equal(t, []bool{true}, completions)
+}
+
+func TestResponsesWSTerminalClientWriteFailureReleasesSuccessSlotAfterBilling(t *testing.T) {
+	previousPost := postResponsesWSConsumeQuota
+	t.Cleanup(func() { postResponsesWSConsumeQuota = previousPost })
+	posted := 0
+	postResponsesWSConsumeQuota = func(_ *gin.Context, _ *relaycommon.RelayInfo, usage *dto.Usage, _ []string) {
+		posted++
+		assert.Equal(t, 10, usage.TotalTokens)
+	}
+	client, _ := responsesWSTestPair(t)
+	require.NoError(t, client.Close())
+	state := responsesWSCorrelationState("stream_completed")
+	limiter := common.InMemoryRateLimiter{}
+	reserved, admitted := limiter.Reserve("ws-terminal-delivery", 1, 60)
+	require.True(t, admitted)
+	completions := []bool{}
+	state.commitRate = func(success bool) { completions = append(completions, success); reserved(success) }
+	session := &responsesWSSession{client: client, current: state}
+	message := []byte(`{"type":"response.completed","response":{"usage":{"input_tokens":7,"output_tokens":3,"total_tokens":10}}}`)
+	require.Error(t, session.forwardUpstreamMessage(websocket.TextMessage, message))
+	assert.Equal(t, 1, posted, "provider usage remains billable when downstream delivery fails")
+	assert.Nil(t, session.getCurrent(), "billing completion may clear the active turn before the write result")
+	assert.Equal(t, []bool{false}, completions, "the captured rate reservation must survive until the failed client write")
+	next, admitted := limiter.Reserve("ws-terminal-delivery", 1, 60)
+	require.True(t, admitted, "downstream terminal write failure must release the reserved success slot")
+	next(false)
+	session.failCurrent()
+	state.finishRate(true)
+	assert.Equal(t, []bool{false}, completions, "later cleanup cannot change or duplicate the failed outcome")
+}
+
+type responsesWSRetryRefund struct {
+	relaycommon.BillingSettler
+	refunds int
+}
+
+func (refund *responsesWSRetryRefund) Refund(*gin.Context) { refund.refunds++ }
+
 func responsesWSCorrelationState(streamID string) *responsesWSCallState {
 	return &responsesWSCallState{
 		StreamID: streamID,
