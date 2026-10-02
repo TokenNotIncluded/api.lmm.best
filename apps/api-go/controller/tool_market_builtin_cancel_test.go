@@ -41,6 +41,7 @@ func TestToolMarketBuiltinCancellationAfterSideEffectPreservesUnknownAndReplay(t
 	require.NoError(t, err)
 	require.Equal(t, response.Call.ID, replayed.Call.ID)
 	require.Equal(t, "unknown", replayed.Call.ExecutionStatus)
+	require.Equal(t, "TOOL_MARKET_RESULT_UNKNOWN", replayed.ErrorCode)
 	assertBuiltinDraftCreatedOnce(t, db, user.Id)
 	var current model.ToolMarketGrant
 	require.NoError(t, db.First(&current, "id = ?", grant.ID).Error)
@@ -70,6 +71,7 @@ func TestToolMarketBuiltinResultPersistenceFailurePreservesSideEffectAndReplay(t
 	require.NoError(t, err)
 	require.Equal(t, response.Call.ID, replayed.Call.ID)
 	require.Equal(t, "unknown", replayed.Call.ExecutionStatus)
+	require.Equal(t, "TOOL_MARKET_RESULT_UNKNOWN", replayed.ErrorCode)
 	assertBuiltinDraftCreatedOnce(t, db, user.Id)
 }
 

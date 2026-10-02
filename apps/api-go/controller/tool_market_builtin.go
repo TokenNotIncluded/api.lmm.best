@@ -110,6 +110,12 @@ func GetToolMarketExecutionResponseWithBuiltins(userID int, clientID, id string)
 			return nil, err
 		}
 		response.ResultExpiresAt = response.Call.ResolveBy
+	} else if response.Call.OwnerID == 0 {
+		if response.Call.ExecutionStatus == "unknown" {
+			response.ErrorCode = "TOOL_MARKET_RESULT_UNKNOWN"
+		} else if response.Call.SettlementStatus == "held" && len(response.Result) != 0 {
+			response.ErrorCode = "TOOL_MARKET_SETTLEMENT_PENDING"
+		}
 	}
 	return response, nil
 }
