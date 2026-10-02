@@ -44,10 +44,17 @@ describe('PricingToolbar mobile controls', () => {
   })
 
   test('keeps model-square controls at a thumb-friendly size on mobile', () => {
-    assert.match(source, /inline-flex h-11 items-center[\s\S]*sm:h-8/)
+    assert.match(
+      source,
+      /inline-flex min-h-11 shrink-0 items-center[\s\S]*sm:h-8/
+    )
+    assert.match(source, /h-full min-h-11 items-center[\s\S]*sm:min-h-0/)
     assert.match(source, /w-11 sm:w-7/)
     assert.match(source, /className='h-11 gap-1\.5 sm:h-7(?: [^']*)?'/)
-    assert.match(source, /className='h-11 gap-1\.5 px-3 text-xs sm:h-8'/)
+    assert.match(
+      source,
+      /className='h-11 min-w-0 shrink gap-1\.5 px-2 text-xs sm:h-8 sm:shrink-0 sm:px-3'/
+    )
     assert.match(modelCardSource, /inline-flex min-h-11 items-center/)
     assert.match(
       modelCardSource,

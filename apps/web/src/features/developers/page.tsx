@@ -131,19 +131,19 @@ function Endpoint({
 export function DevelopersPage() {
   const { t } = useTranslation()
   return (
-    <main className='mx-auto w-full max-w-6xl px-5 py-12 sm:px-8 sm:py-16 lg:py-20'>
-      <h1 className='text-4xl font-semibold tracking-tight sm:text-5xl'>
+    <main className='mx-auto w-full max-w-6xl px-4 py-6 sm:px-8 sm:py-16 lg:py-20'>
+      <h1 className='text-3xl font-semibold tracking-tight sm:text-5xl'>
         {t('Developers')}
       </h1>
-      <p className='mt-4 max-w-2xl text-xl leading-snug text-balance'>
+      <p className='mt-2 max-w-2xl text-base leading-snug text-balance sm:mt-4 sm:text-xl'>
         {t('One base URL. Any client.')}
       </p>
-      <p className='text-muted-foreground mt-3 max-w-2xl leading-relaxed'>
+      <p className='text-muted-foreground mt-2 max-w-2xl text-sm leading-relaxed sm:mt-3 sm:text-base'>
         {t('Build a request below, then copy it into your project.')}
       </p>
       <nav
         aria-label={t('Integration guide')}
-        className='mt-8 flex flex-wrap gap-x-5 gap-y-1 border-y py-2 text-sm sm:gap-x-8'
+        className='mt-5 flex flex-nowrap gap-x-5 gap-y-1 overflow-x-auto border-y py-2 text-sm whitespace-nowrap sm:mt-8 sm:flex-wrap sm:gap-x-8 sm:overflow-visible sm:whitespace-normal'
       >
         <a className='dev-page-link' href='#request-builder'>
           {t('Request builder')}
@@ -162,12 +162,15 @@ export function DevelopersPage() {
       <section
         id='request-builder'
         aria-labelledby='request-builder-title'
-        className='mt-10 scroll-mt-24 sm:mt-12'
+        className='mt-6 scroll-mt-24 sm:mt-12'
       >
-        <h2 id='request-builder-title' className='text-2xl font-semibold'>
+        <h2
+          id='request-builder-title'
+          className='text-xl font-semibold sm:text-2xl'
+        >
           {t('Request builder')}
         </h2>
-        <p className='text-muted-foreground mt-3 max-w-prose leading-relaxed'>
+        <p className='text-muted-foreground mt-2 max-w-prose text-sm leading-relaxed sm:mt-3 sm:text-base'>
           {t(
             'Pick a protocol and language. The snippet updates as you type and is never sent.'
           )}
@@ -178,7 +181,7 @@ export function DevelopersPage() {
       <section
         id='pricing-api'
         aria-labelledby='pricing-api-title'
-        className='mt-12 scroll-mt-24 border-t pt-9'
+        className='mt-9 scroll-mt-24 border-t pt-6 sm:mt-12 sm:pt-9'
       >
         <h2 id='pricing-api-title' className='text-2xl font-semibold'>
           {t('Pricing API')}
@@ -231,7 +234,7 @@ export function DevelopersPage() {
       <section
         id='oauth-integration'
         aria-labelledby='oauth-integration-title'
-        className='mt-14 scroll-mt-24 border-t pt-9'
+        className='mt-9 scroll-mt-24 border-t pt-6 sm:mt-14 sm:pt-9'
       >
         <h2 id='oauth-integration-title' className='text-2xl font-semibold'>
           {t('OAuth integration')}

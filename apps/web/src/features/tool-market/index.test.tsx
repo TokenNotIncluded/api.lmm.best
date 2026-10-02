@@ -302,6 +302,7 @@ test('catalog search and type filters reset pagination and clear together withou
     button('Remote MCP', container).getAttribute('aria-pressed'),
     'true'
   )
+  await waitFor(() => !button('Next', container).disabled)
   await click(button('Next', container))
   await waitFor(() =>
     requests.some((row) => row[1] === 30 && row[2] === 'remote')
@@ -326,6 +327,7 @@ test('catalog search and type filters reset pagination and clear together withou
     )
   )
   assert.equal(button('Previous', container).disabled, true)
+  await waitFor(() => !button('Next', container).disabled)
   await click(button('Next', container))
   await waitFor(() =>
     requests.some(

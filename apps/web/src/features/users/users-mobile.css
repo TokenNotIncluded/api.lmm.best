@@ -1,0 +1,46 @@
+/*
+Copyright (C) 2026 LIghtJUNction
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+*/
+@media (max-width: 640px) {
+  .console-editorial .users-page .console-section-header {
+    padding-block: 0.75rem 0.5rem;
+  }
+
+  .console-editorial .users-page .console-page-heading {
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 0.5rem;
+  }
+
+  .console-editorial .users-page .console-page-heading > .console-page-actions {
+    flex-basis: auto;
+    justify-content: flex-end;
+  }
+
+  .users-toolbar [data-slot='table-toolbar-controls'] {
+    flex-wrap: nowrap;
+  }
+
+  .users-toolbar input {
+    flex: 1 1 0%;
+    width: 0;
+    min-width: 0;
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .users-toolbar button {
+    min-height: 44px;
+  }
+
+  .users-toolbar .console-filter-panel:not([hidden]) {
+    max-height: min(22rem, 45dvh);
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+  }
+}

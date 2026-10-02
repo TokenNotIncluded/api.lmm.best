@@ -209,6 +209,38 @@ afterEach(async () => {
 after(() => domWindow.close())
 
 describe('Guide when the AI assistant is disabled', () => {
+  test('keeps setup directly available and the compact contents expandable with working section targets', async () => {
+    const { container } = await renderGuide(null)
+    const overview =
+      container.querySelector<HTMLDetailsElement>('#guide-overview')
+    assert.ok(overview)
+    assert.equal(overview.open, false)
+    assert.equal(
+      overview.querySelector('summary')?.textContent?.trim(),
+      'On this page'
+    )
+    const setupLink = container.querySelector<HTMLAnchorElement>(
+      'header a[href="#client-setup"]'
+    )
+    assert.ok(setupLink)
+    assert.ok(container.querySelector('#client-setup button'))
+
+    await act(async () => {
+      overview.querySelector('summary')?.click()
+      await flushEffects()
+    })
+    assert.equal(overview.open, true)
+    assert.equal(overview.querySelectorAll(':scope > ol > li').length, 5)
+    const contents = overview.querySelector('nav')
+    assert.ok(contents)
+    const links = [...contents.querySelectorAll<HTMLAnchorElement>('a')]
+    assert.equal(links.length, 4)
+    for (const link of links) {
+      assert.ok(container.querySelector(link.hash), link.textContent ?? '')
+    }
+    assert.equal(consumeQueuedAssistantRequest(), undefined)
+  })
+
   test('keeps public installation available and returns visitors to the guide after sign-in', async () => {
     const { container, router } = await renderGuide(null)
     assert.doesNotMatch(
@@ -313,8 +345,9 @@ describe('Guide when the AI assistant is disabled', () => {
     assert.equal(router.state.location.pathname, '/guide')
     assert.equal(document.activeElement, support)
 
-    const troubleshooting =
-      container.querySelector<HTMLDetailsElement>('details')
+    const troubleshooting = container.querySelector<HTMLDetailsElement>(
+      '#guide-troubleshooting details'
+    )
     assert.ok(troubleshooting)
     await act(async () => {
       troubleshooting.querySelector('summary')?.click()

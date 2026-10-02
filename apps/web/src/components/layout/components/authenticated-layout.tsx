@@ -80,6 +80,7 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
                       showLanguageSwitcher={focusedOnboarding}
                       showConfigDrawer={focusedOnboarding}
                       showAssistant={!focusedOnboarding}
+                      showMobileAssistant={!assistantPage}
                       leftContent={
                         focusedOnboarding ? undefined : <ConsoleLocation />
                       }
@@ -92,13 +93,13 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
                           'min-h-0 min-w-0 flex-1 basis-0 overflow-hidden',
                           assistantPage
                             ? 'pb-0'
-                            : 'pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-16 xl:pb-0'
+                            : 'pb-[env(safe-area-inset-bottom)] xl:pb-0'
                         )}
                       >
                         {props.children ?? <AnimatedOutlet />}
                       </div>
                       {!focusedOnboarding && (
-                        <AssistantLauncher hideMobileLauncher={assistantPage} />
+                        <AssistantLauncher hideMobileLauncher />
                       )}
                     </div>
                   </SidebarInset>

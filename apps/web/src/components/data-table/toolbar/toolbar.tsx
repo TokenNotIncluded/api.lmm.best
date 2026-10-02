@@ -330,7 +330,10 @@ export function DataTableToolbar<TData>(props: DataTableToolbarProps<TData>) {
 
   return (
     <div className={cn('console-toolbar flex flex-col gap-3', props.className)}>
-      <div className='flex min-w-0 flex-wrap items-center gap-2'>
+      <div
+        data-slot='table-toolbar-controls'
+        className='flex min-w-0 flex-wrap items-center gap-2'
+      >
         {props.customSearch !== undefined ? props.customSearch : searchInput}
         {expandToggle}
         {resetButton}

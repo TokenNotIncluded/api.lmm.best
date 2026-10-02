@@ -16,14 +16,17 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { X } from 'lucide-react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { useTranslation } from 'react-i18next'
 
+import { Button } from '@/components/ui/button'
 import {
   Sidebar,
   SidebarContent,
   SidebarHeader,
   SidebarRail,
+  useSidebar,
 } from '@/components/ui/sidebar'
 import { useLayout } from '@/context/layout-provider'
 import { useSidebarDensity } from '@/hooks/use-sidebar-config'
@@ -43,6 +46,7 @@ import { SystemBrand } from './system-brand'
 export function AppSidebar() {
   const { t } = useTranslation()
   const { collapsible, variant } = useLayout()
+  const { setOpenMobile } = useSidebar()
   const density = useSidebarDensity()
   const { key, view, navGroups } = useSidebarView()
   const shouldReduce = useReducedMotion()
@@ -57,8 +61,22 @@ export function AppSidebar() {
       data-sidebar-density={density}
       className='top-0 h-dvh'
     >
-      <SidebarHeader className='gap-3 px-3 pt-3 pb-2 group-data-[collapsible=icon]:px-1'>
-        <SystemBrand variant='navigation' />
+      <SidebarHeader className='gap-3 px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2 group-data-[collapsible=icon]:px-1 md:pt-3'>
+        <div className='flex min-w-0 items-center gap-1'>
+          <div className='min-w-0 flex-1'>
+            <SystemBrand variant='navigation' />
+          </div>
+          <Button
+            type='button'
+            variant='ghost'
+            size='icon'
+            className='size-11 md:hidden'
+            aria-label={t('Close menu')}
+            onClick={() => setOpenMobile(false)}
+          >
+            <X aria-hidden='true' />
+          </Button>
+        </div>
         <ConsoleSearch />
       </SidebarHeader>
       {view && <SidebarViewHeader view={view} />}

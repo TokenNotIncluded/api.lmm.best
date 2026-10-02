@@ -151,17 +151,11 @@ export function UsersMobileBulkBar({ table }: UsersMobileBulkBarProps) {
         tabIndex={-1}
         onKeyDown={handleKeyDown}
         className={cn(
-          'fixed inset-x-2 bottom-3 z-50 rounded-2xl',
-          'motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-4 motion-safe:duration-200',
+          'sticky top-0 z-20 mb-2 rounded-xl',
           'focus-visible:ring-ring/50 focus-visible:ring-2 focus-visible:outline-none'
         )}
       >
-        <div
-          className={cn(
-            'rounded-2xl border p-2 shadow-xl',
-            'bg-background/95 supports-[backdrop-filter]:bg-background/60 backdrop-blur-lg'
-          )}
-        >
+        <div className={cn('bg-background rounded-xl border p-2')}>
           <div className='flex items-center gap-2'>
             <span
               className='bg-primary text-primary-foreground grid size-7 shrink-0 place-items-center rounded-full text-xs font-semibold tabular-nums'
