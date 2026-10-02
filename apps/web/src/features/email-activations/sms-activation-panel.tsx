@@ -65,6 +65,7 @@ import {
 } from './sms-order-sections.js'
 import { SmsPurchaseCard } from './sms-purchase-card.js'
 import {
+  checkSmsPurchaseRecovery,
   clearSmsPurchaseRecovery,
   readSmsPurchaseRecovery,
   recoveryBatchResult,
@@ -222,16 +223,31 @@ function useSmsPurchaseMutation(options: SmsPurchaseMutationOptions) {
           assertActive()
           const record = { userId, offerId, idempotencyKey, item, requested }
           try {
-            saveSmsPurchaseRecovery(record)
+            await saveSmsPurchaseRecovery(
+              record,
+              () => attempt.isMounted() && attempt.balance.isCurrentSession()
+            )
           } catch {
             throw new SmsPurchaseNotStartedError('HeroSMS request failed')
           }
+          if (!attempt.isMounted() || !attempt.balance.isCurrentSession()) {
+            // Once published, another tab can already be replaying this pair.
+            // Keep it recoverable even if this panel never sends its own POST.
+            throw new Error('HeroSMS request failed')
+          }
           const result = await createHeroSmsSmsOrder(offerId, idempotencyKey)
           if (attempt.balance.isCurrentSession()) {
-            const settled = clearSmsPurchaseRecovery(record)
-            if (settled && attempt.isMounted()) {
-              attempt.balance.recordQuota(result.quota)
-            } else {
+            const settled = await clearSmsPurchaseRecovery(
+              record,
+              attempt.balance.isCurrentSession,
+              () => {
+                if (attempt.isMounted() && attempt.balance.isCurrentSession()) {
+                  attempt.balance.recordQuota(result.quota)
+                }
+              }
+            )
+            if (!attempt.balance.isCurrentSession()) return result
+            if (!settled || !attempt.isMounted()) {
               await attempt.balance.invalidateQuota()
             }
           }
@@ -250,21 +266,30 @@ function useSmsPurchaseMutation(options: SmsPurchaseMutationOptions) {
       attempt.setBatchProgress({ completed: 0, total: attempt.quantity })
     },
     onSuccess: async (result, attempt) => {
-      const failure = result.failure
+      let failure = result.failure
+      if (failure && isSmsPurchaseNotCreated(failure.error)) {
+        // The safe retry conservatively wraps its errors as unknown. This
+        // server proof settles the original pair as well as the retry.
+        failure = { ...failure, ambiguous: false }
+        result = { ...result, failure }
+      }
       if (
-        !failure?.ambiguous &&
+        isSmsPurchaseNotCreated(failure?.error) &&
         failure?.offerId &&
         failure.idempotencyKey &&
         attempt.userId !== undefined &&
         attempt.balance.isCurrentSession()
       ) {
-        clearSmsPurchaseRecovery({
-          userId: attempt.userId,
-          offerId: failure.offerId,
-          idempotencyKey: failure.idempotencyKey,
-          item: failure.item,
-          requested: result.requested,
-        })
+        await clearSmsPurchaseRecovery(
+          {
+            userId: attempt.userId,
+            offerId: failure.offerId,
+            idempotencyKey: failure.idempotencyKey,
+            item: failure.item,
+            requested: result.requested,
+          },
+          attempt.balance.isCurrentSession
+        )
       }
       if (!attempt.isMounted() || !attempt.balance.isCurrentSession()) return
       attempt.setConfirmOpen(false)
@@ -304,19 +329,9 @@ function isSmsPurchaseNotCreated(error: unknown) {
 
 function isUncertainSmsPurchaseError(error: unknown) {
   if (error instanceof SmsPurchaseNotStartedError) return false
-  const parsed = parseHeroSmsError(error)
-  const definitiveErrors: Record<string, number> = {
-    PRICE_CHANGED: 409,
-    INVALID_REQUEST: 400,
-    TEMPORARY_SMS_MINIMUM_BALANCE: 402,
-    INSUFFICIENT_BALANCE: 402,
-    PURCHASE_NOT_CREATED: 409,
-  }
-  return !(
-    parsed.code &&
-    parsed.status !== undefined &&
-    definitiveErrors[parsed.code] === parsed.status
-  )
+  // Another context may still have this exact request in flight. Only the
+  // backend's serialized no-purchase proof can rule out a future settlement.
+  return !isSmsPurchaseNotCreated(error)
 }
 
 function useSmsPurchaseReconciliation({
@@ -361,37 +376,61 @@ function useSmsPurchaseReconciliation({
     const owner = { userId: recovery.userId, sessionId }
     setPendingOwner(owner)
     try {
+      const current = await checkSmsPurchaseRecovery(
+        record,
+        () => isMounted() && balance.isCurrentSession()
+      )
+      if (!isMounted() || !balance.isCurrentSession()) return
+      if (!current) {
+        toast.error(t('HeroSMS request failed'))
+        return
+      }
       const result = await createHeroSmsSmsOrder(
         record.offerId,
         record.idempotencyKey
       )
       if (!balance.isCurrentSession()) return
-      const settled = clearSmsPurchaseRecovery(record)
+      const settled = await clearSmsPurchaseRecovery(
+        record,
+        balance.isCurrentSession,
+        () => {
+          if (!isMounted() || !balance.isCurrentSession()) return
+          balance.recordQuota(result.quota)
+          toast.success(t('Purchase result reconciled'))
+          setResult(null)
+        }
+      )
+      if (!balance.isCurrentSession()) return
       if (!settled || !isMounted()) {
         await balance.invalidateQuota()
         return
       }
-      balance.recordQuota(result.quota)
-      toast.success(t('Purchase result reconciled'))
-      setResult(null)
       await invalidate()
       if (isMounted() && balance.isCurrentSession()) await refetchOffer()
     } catch (error) {
       if (!isMounted() || !balance.isCurrentSession()) return
       const parsed = parseHeroSmsError(error)
       if (isSmsPurchaseNotCreated(error)) {
-        if (!clearSmsPurchaseRecovery(record)) {
+        const settled = await clearSmsPurchaseRecovery(
+          record,
+          balance.isCurrentSession,
+          () => {
+            if (!isMounted() || !balance.isCurrentSession()) return
+            const result: HeroSmsBatchPurchaseResult = {
+              requested: record.requested,
+              orders: [],
+              completedCount: record.item - 1,
+              failure: { code: 'PRICE_CHANGED', item: record.item },
+            }
+            setResult(result)
+            toast.error(batchFailureMessage(result, t))
+          }
+        )
+        if (!isMounted() || !balance.isCurrentSession()) return
+        if (!settled) {
           await balance.invalidateQuota()
           return
         }
-        const result: HeroSmsBatchPurchaseResult = {
-          requested: record.requested,
-          orders: [],
-          completedCount: record.item - 1,
-          failure: { code: 'PRICE_CHANGED', item: record.item },
-        }
-        setResult(result)
-        toast.error(batchFailureMessage(result, t))
         await invalidate()
         if (isMounted() && balance.isCurrentSession()) await refetchOffer()
       } else if (isUncertainSmsPurchaseError(error)) {

@@ -80,6 +80,40 @@ await i18n.init({
 })
 const originalGet = api.get
 const originalPost = api.post
+
+function createSerialLocks() {
+  const tails = new Map<string, Promise<unknown>>()
+  let requests = 0
+  return {
+    get requests() {
+      return requests
+    },
+    request<T>(
+      name: string,
+      options: { mode: string },
+      mutate: () => T | PromiseLike<T>
+    ) {
+      assert.equal(options.mode, 'exclusive')
+      requests += 1
+      const previous = tails.get(name) ?? Promise.resolve()
+      const result = previous.then(mutate)
+      tails.set(
+        name,
+        result.catch(() => undefined)
+      )
+      return result
+    },
+  }
+}
+
+function installLocks(locks: unknown = createSerialLocks()) {
+  Object.defineProperty(window.navigator, 'locks', {
+    configurable: true,
+    value: locks,
+  })
+}
+
+installLocks()
 ;(
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true
@@ -189,6 +223,7 @@ afterEach(async () => {
   useAuthStore.getState().auth.reset()
   document.body.replaceChildren()
   localStorage.clear()
+  installLocks()
 })
 after(() => domWindow.close())
 
@@ -678,38 +713,61 @@ for (const status of [401, 403, 404, 409, 202]) {
   })
 }
 
-test('handles a definitive first minimum-balance refusal without retry or unknown recovery', async () => {
-  login(1)
-  mockPanelApi(async () => response(1, 5_000_000))
-  let attempts = 0
-  api.post = (async () => {
-    attempts += 1
-    throw Object.assign(new Error('fixture minimum balance'), {
-      isAxiosError: true,
-      response: {
-        status: 402,
-        data: { code: 'TEMPORARY_SMS_MINIMUM_BALANCE' },
-      },
-    })
-  }) as typeof api.post
-  const probe = await mount(true)
-  try {
-    await chooseFavorite(probe)
-    await confirmPurchase()
-    await settle(
-      () =>
-        document.body.textContent?.includes('Purchase not completed') === true
-    )
-    assert.equal(attempts, 1)
-    assert.equal(localStorage.getItem(recoveryKey(1)), null)
-    assert.equal(
-      document.body.textContent?.includes('Resolve purchase and continue'),
-      false
-    )
-  } finally {
-    await probe.close()
-  }
-})
+for (const refusal of [
+  { status: 402, code: 'TEMPORARY_SMS_MINIMUM_BALANCE' },
+  { status: 409, code: 'PRICE_CHANGED' },
+]) {
+  test(`retains a first ${refusal.code} until same-pair no-purchase proof permits a new key`, async () => {
+    login(1)
+    mockPanelApi(async () => response(1, 5_000_000))
+    const attempts: Array<{ body: unknown; key: string | undefined }> = []
+    api.post = (async (
+      _url: string,
+      body: unknown,
+      config: { headers?: Record<string, string> }
+    ) => {
+      attempts.push({ body, key: config.headers?.['Idempotency-Key'] })
+      if (attempts.length <= 2) {
+        throw Object.assign(new Error('fixture initial refusal'), {
+          isAxiosError: true,
+          response: { status: refusal.status, data: { code: refusal.code } },
+        })
+      }
+      if (attempts.length === 3) {
+        throw Object.assign(new Error('fixture expired quote proof'), {
+          isAxiosError: true,
+          response: { status: 409, data: { code: 'PURCHASE_NOT_CREATED' } },
+        })
+      }
+      return createdOrder()
+    }) as typeof api.post
+    const probe = await mount(true)
+    try {
+      await chooseFavorite(probe)
+      await confirmPurchase()
+      await settle(
+        () =>
+          document.body.textContent?.includes(
+            'Resolve purchase and continue'
+          ) === true
+      )
+      const saved = JSON.parse(localStorage.getItem(recoveryKey(1)) ?? '')
+      assert.equal(attempts.length, 2)
+      assert.equal(attempts[0]?.key, attempts[1]?.key)
+      assert.equal(saved.idempotencyKey, attempts[0]?.key)
+      assert.equal(findButton('Buy phone activation').disabled, true)
+      await reconcilePurchase()
+      await settle(() => !findButton('Buy phone activation').disabled)
+      assert.equal(localStorage.getItem(recoveryKey(1)), null)
+      assert.deepEqual(attempts[2], attempts[0])
+      await confirmPurchase()
+      await settle(() => attempts.length === 4)
+      assert.notEqual(attempts[3]?.key, saved.idempotencyKey)
+    } finally {
+      await probe.close()
+    }
+  })
+}
 
 test('keeps the recovery pair through repeated timeouts, auth failures, and unproven business errors', async () => {
   login(1)
@@ -846,9 +904,9 @@ test('ignores a late successful purchase callback after the same user signs in w
   }
 })
 
-test('fails closed if an existing recovery cannot be read even when storage writes succeed', () => {
+test('fails closed if an existing recovery cannot be read even when storage writes succeed', async () => {
   const original = pendingPurchase()
-  saveSmsPurchaseRecovery(original)
+  await saveSmsPurchaseRecovery(original)
   const descriptor = Object.getOwnPropertyDescriptor(window, 'localStorage')
   const stored = window.localStorage
   let writes = 0
@@ -868,10 +926,10 @@ test('fails closed if an existing recovery cannot be read even when storage writ
         },
       },
     })
-    assert.throws(() =>
+    await assert.rejects(() =>
       saveSmsPurchaseRecovery({ ...original, idempotencyKey: 'new-key' })
     )
-    clearSmsPurchaseRecovery(original)
+    await clearSmsPurchaseRecovery(original)
     assert.equal(writes, 0)
     assert.equal(deletes, 0)
   } finally {
@@ -886,12 +944,12 @@ test('fails closed if an existing recovery cannot be read even when storage writ
   assert.deepEqual(JSON.parse(stored.getItem(recoveryKey(1)) ?? ''), original)
 })
 
-test('does not clear a newer durable item when an old completion arrives', () => {
+test('does not clear a newer durable item when an old completion arrives', async () => {
   const original = pendingPurchase()
-  saveSmsPurchaseRecovery(original)
+  await saveSmsPurchaseRecovery(original)
   const newer = { ...original, offerId: 'new-quote', idempotencyKey: 'new-key' }
   localStorage.setItem(recoveryKey(1), JSON.stringify(newer))
-  clearSmsPurchaseRecovery(original)
+  await clearSmsPurchaseRecovery(original)
   assert.deepEqual(
     JSON.parse(localStorage.getItem(recoveryKey(1)) ?? ''),
     newer
@@ -1270,9 +1328,9 @@ test('does not apply a late recovery balance or clear a newer partial batch resu
       serverQuota = 9_000_000
       return createdOrder(serverQuota)
     }
-    throw Object.assign(new Error('fixture price changed'), {
+    throw Object.assign(new Error('fixture no-purchase proof'), {
       isAxiosError: true,
-      response: { status: 409, data: { code: 'PRICE_CHANGED' } },
+      response: { status: 409, data: { code: 'PURCHASE_NOT_CREATED' } },
     })
   }) as typeof api.post
   const probe = await mount(true)
@@ -1308,7 +1366,11 @@ test('does not apply a late recovery balance or clear a newer partial batch resu
         '1 of 2 phone activations were purchased'
       )
     )
-    assert.ok(document.body.textContent?.includes('fixture price changed'))
+    assert.ok(
+      document.body.textContent?.includes(
+        'The price changed before item 2. Review the new quote.'
+      )
+    )
     assert.equal(localStorage.getItem(recoveryKey(1)), null)
   } finally {
     unsubscribe()
@@ -1333,8 +1395,8 @@ test('keeps a newer pending item and its balance when an old recovery succeeds',
       idempotencyKey: 'new-key',
     }
     await act(async () => {
-      clearSmsPurchaseRecovery(original)
-      saveSmsPurchaseRecovery(newer)
+      await clearSmsPurchaseRecovery(original)
+      await saveSmsPurchaseRecovery(newer)
     })
     const observed: Array<number | undefined> = []
     unsubscribe = useAuthStore.subscribe((state) =>
@@ -1399,5 +1461,604 @@ test('keeps recovery blocked without applying the response balance when durable 
       })
     }
     await probe.close()
+  }
+})
+
+test('waits for the account lock before recording either competing purchase', async () => {
+  const locks = createSerialLocks()
+  installLocks(locks)
+  const gate = deferred<void>()
+  const original = pendingPurchase()
+  const newer = { ...original, idempotencyKey: 'competing-key' }
+  const held = locks.request(
+    recoveryKey(1),
+    { mode: 'exclusive' },
+    () => gate.promise
+  )
+  let posts = 0
+  const buy = async (record: typeof original) => {
+    await saveSmsPurchaseRecovery(record)
+    posts += 1
+  }
+  const competing = Promise.allSettled([buy(original), buy(newer)])
+  await new Promise((resolve) => setTimeout(resolve, 5))
+  try {
+    assert.equal(
+      localStorage.getItem(recoveryKey(1)),
+      null,
+      'neither tab may write while the account lock is held'
+    )
+    assert.equal(posts, 0)
+  } finally {
+    gate.resolve()
+    await held
+  }
+  const results = await competing
+  assert.equal(
+    results.filter((result) => result.status === 'fulfilled').length,
+    1
+  )
+  assert.equal(posts, 1)
+  assert.deepEqual(
+    JSON.parse(localStorage.getItem(recoveryKey(1)) ?? ''),
+    original
+  )
+})
+
+test('does not clear a newer item when an old clear waits for the account lock', async () => {
+  const locks = createSerialLocks()
+  installLocks(locks)
+  const original = pendingPurchase()
+  localStorage.setItem(recoveryKey(1), JSON.stringify(original))
+  const newer = { ...original, idempotencyKey: 'new-key-after-clear-wait' }
+  const gate = deferred<void>()
+  const held = locks.request(
+    recoveryKey(1),
+    { mode: 'exclusive' },
+    () => gate.promise
+  )
+  const clearing = Promise.resolve(clearSmsPurchaseRecovery(original))
+  await new Promise((resolve) => setTimeout(resolve, 5))
+  let result: boolean
+  try {
+    assert.deepEqual(
+      JSON.parse(localStorage.getItem(recoveryKey(1)) ?? ''),
+      original,
+      'the queued clear must not read or delete ahead of the lock'
+    )
+    localStorage.setItem(recoveryKey(1), JSON.stringify(newer))
+  } finally {
+    gate.resolve()
+    await held
+    result = await clearing
+  }
+  assert.equal(result, false)
+  assert.deepEqual(
+    JSON.parse(localStorage.getItem(recoveryKey(1)) ?? ''),
+    newer
+  )
+})
+
+test('uses independent account locks rather than one global or session lock', async () => {
+  const locks = createSerialLocks()
+  installLocks(locks)
+  const gate = deferred<void>()
+  const held = locks.request(
+    recoveryKey(1),
+    { mode: 'exclusive' },
+    () => gate.promise
+  )
+  try {
+    await saveSmsPurchaseRecovery(pendingPurchase(2))
+    assert.deepEqual(
+      JSON.parse(localStorage.getItem(recoveryKey(2)) ?? ''),
+      pendingPurchase(2)
+    )
+    assert.equal(localStorage.getItem(recoveryKey(1)), null)
+  } finally {
+    gate.resolve()
+    await held
+  }
+})
+
+for (const failure of ['missing', 'rejected', 'getter throws']) {
+  test(`does not send new or recovery purchases when browser locks are ${failure}`, async () => {
+    login(1)
+    mockPanelApi(async () => response(1, 9_000_000))
+    let attempts = 0
+    api.post = (async () => {
+      attempts += 1
+      return createdOrder(8_500_000)
+    }) as typeof api.post
+    const probe = await mount(true)
+    try {
+      await chooseFavorite(probe)
+      if (failure === 'getter throws') {
+        Object.defineProperty(window.navigator, 'locks', {
+          configurable: true,
+          get: () => {
+            throw new Error('fixture locks denied')
+          },
+        })
+      } else {
+        Object.defineProperty(window.navigator, 'locks', {
+          configurable: true,
+          value:
+            failure === 'missing'
+              ? undefined
+              : {
+                  request: () =>
+                    Promise.reject(new Error('fixture locks denied')),
+                },
+        })
+      }
+      await confirmPurchase()
+      await settle(
+        () =>
+          document.body.textContent?.includes('Purchase not completed') === true
+      )
+      assert.equal(attempts, 0)
+      assert.equal(localStorage.getItem(recoveryKey(1)), null)
+      const original = pendingPurchase()
+      await act(async () => {
+        localStorage.setItem(recoveryKey(1), JSON.stringify(original))
+        window.dispatchEvent(
+          new StorageEvent('storage', { key: recoveryKey(1) })
+        )
+      })
+      await reconcilePurchase()
+      await settle(() => !findButton('Resolve purchase and continue').disabled)
+      assert.equal(attempts, 0)
+      assert.equal(await clearSmsPurchaseRecovery(original), false)
+      await assert.rejects(() =>
+        saveSmsPurchaseRecovery({
+          ...original,
+          idempotencyKey: 'unsupported-key',
+        })
+      )
+      assert.deepEqual(
+        JSON.parse(localStorage.getItem(recoveryKey(1)) ?? ''),
+        original
+      )
+    } finally {
+      installLocks()
+      await probe.close()
+    }
+  })
+}
+
+for (const replacement of [
+  { id: 2, sid: 'session-2' },
+  { id: 1, sid: 'new-session-1' },
+]) {
+  test(`does not save or POST an old purchase queued behind a lock after signing into ${replacement.sid}`, async () => {
+    login(1)
+    mockPanelApi(async () =>
+      response(useAuthStore.getState().auth.user?.id ?? 0, 9_000_000)
+    )
+    const locks = createSerialLocks()
+    installLocks(locks)
+    let attempts = 0
+    api.post = (async () => {
+      attempts += 1
+      return createdOrder()
+    }) as typeof api.post
+    const probe = await mount(true)
+    const gate = deferred<void>()
+    let held = Promise.resolve()
+    try {
+      await chooseFavorite(probe)
+      held = locks.request(
+        recoveryKey(1),
+        { mode: 'exclusive' },
+        () => gate.promise
+      )
+      await confirmPurchase()
+      await settle(() => locks.requests === 2)
+      await act(async () => login(replacement.id, replacement.sid))
+      await act(async () => {
+        gate.resolve()
+        await held
+      })
+      assert.equal(attempts, 0)
+      assert.equal(localStorage.getItem(recoveryKey(1)), null)
+      assert.equal(useAuthStore.getState().auth.user?.id, replacement.id)
+    } finally {
+      gate.resolve()
+      await held
+      await probe.close()
+    }
+  })
+
+  test(`does not delete or settle an old recovery queued behind a lock after signing into ${replacement.sid}`, async () => {
+    login(1)
+    mockPanelApi(async () =>
+      response(useAuthStore.getState().auth.user?.id ?? 0, 9_000_000)
+    )
+    const locks = createSerialLocks()
+    installLocks(locks)
+    const original = pendingPurchase()
+    localStorage.setItem(recoveryKey(1), JSON.stringify(original))
+    const post = deferred<ReturnType<typeof createdOrder>>()
+    let attempts = 0
+    api.post = (async () => {
+      attempts += 1
+      return post.promise
+    }) as typeof api.post
+    const probe = await mount(true)
+    const gate = deferred<void>()
+    let held = Promise.resolve()
+    try {
+      await reconcilePurchase()
+      await settle(() => attempts === 1)
+      held = locks.request(
+        recoveryKey(1),
+        { mode: 'exclusive' },
+        () => gate.promise
+      )
+      await act(async () => post.resolve(createdOrder(8_500_000)))
+      await settle(() => locks.requests === 3)
+      await act(async () => login(replacement.id, replacement.sid))
+      await settle(() => probe.balance.canPurchase)
+      await act(async () => {
+        gate.resolve()
+        await held
+      })
+      assert.deepEqual(
+        JSON.parse(localStorage.getItem(recoveryKey(1)) ?? ''),
+        original
+      )
+      assert.equal(useAuthStore.getState().auth.user?.quota, 9_000_000)
+      assert.equal(attempts, 1)
+    } finally {
+      gate.resolve()
+      await held
+      await probe.close()
+    }
+  })
+}
+
+test('does not save or send a purchase after unmounting while waiting for its account lock', async () => {
+  login(1)
+  mockPanelApi(async () => response(1, 9_000_000))
+  const locks = createSerialLocks()
+  installLocks(locks)
+  let attempts = 0
+  api.post = (async () => {
+    attempts += 1
+    return createdOrder()
+  }) as typeof api.post
+  const probe = await mount(true)
+  const gate = deferred<void>()
+  let held = Promise.resolve()
+  try {
+    await chooseFavorite(probe)
+    held = locks.request(
+      recoveryKey(1),
+      { mode: 'exclusive' },
+      () => gate.promise
+    )
+    await confirmPurchase()
+    await settle(() => locks.requests === 2)
+    await probe.close()
+    await act(async () => {
+      gate.resolve()
+      await held
+    })
+    assert.equal(attempts, 0)
+    assert.equal(localStorage.getItem(recoveryKey(1)), null)
+  } finally {
+    gate.resolve()
+    await held
+    if (mountedProbes.has(probe)) await probe.close()
+  }
+})
+
+test('applies a matched recovery settlement before releasing its lock rather than after a delayed continuation', async () => {
+  login(1)
+  let serverQuota = 10_000_000
+  mockPanelApi(async () => response(1, serverQuota))
+  const serial = createSerialLocks()
+  const cleared = deferred<void>()
+  const release = deferred<void>()
+  let delayNext = false
+  installLocks({
+    request<T>(
+      name: string,
+      options: { mode: string },
+      mutate: () => T | PromiseLike<T>
+    ) {
+      const result = serial.request(name, options, mutate)
+      if (!delayNext) return result
+      delayNext = false
+      return result.then(async (value) => {
+        cleared.resolve()
+        await release.promise
+        return value
+      })
+    },
+  })
+  const post = deferred<ReturnType<typeof createdOrder>>()
+  let attempts = 0
+  api.post = (async () => {
+    attempts += 1
+    if (attempts === 1) return post.promise
+    if (attempts === 2) {
+      serverQuota = 9_000_000
+      return createdOrder(serverQuota)
+    }
+    throw Object.assign(new Error('fixture no-purchase proof'), {
+      isAxiosError: true,
+      response: { status: 409, data: { code: 'PURCHASE_NOT_CREATED' } },
+    })
+  }) as typeof api.post
+  const probe = await mount(true)
+  let unsubscribe = () => {}
+  try {
+    await chooseFavorite(probe)
+    await act(async () => saveSmsPurchaseRecovery(pendingPurchase()))
+    await reconcilePurchase()
+    await settle(() => attempts === 1)
+    delayNext = true
+    serverQuota = 9_500_000
+    await act(async () => {
+      post.resolve(createdOrder(serverQuota))
+      await cleared.promise
+    })
+    assert.equal(localStorage.getItem(recoveryKey(1)), null)
+    assert.equal(
+      useAuthStore.getState().auth.user?.quota,
+      9_500_000,
+      'settlement is applied inside the lock, before its returned promise continues'
+    )
+    await chooseFavorite(probe, 2)
+    await confirmPurchase()
+    await settle(
+      () =>
+        attempts === 3 &&
+        document.body.textContent?.includes(
+          '1 of 2 phone activations were purchased'
+        ) === true &&
+        !findButton('Buy phone activation').disabled
+    )
+    const observed: Array<number | undefined> = []
+    unsubscribe = useAuthStore.subscribe((state) =>
+      observed.push(state.auth.user?.quota)
+    )
+    await act(async () => release.resolve())
+    assert.equal(useAuthStore.getState().auth.user?.quota, 9_000_000)
+    assert.ok(observed.every((quota) => quota === 9_000_000))
+    assert.ok(
+      document.body.textContent?.includes(
+        '1 of 2 phone activations were purchased'
+      )
+    )
+  } finally {
+    unsubscribe()
+    release.resolve()
+    await probe.close()
+  }
+})
+
+for (const action of ['account change', 'unmount']) {
+  test(`does not POST after ${action} between a successful locked save and its promise continuation`, async () => {
+    login(1)
+    mockPanelApi(async () =>
+      response(useAuthStore.getState().auth.user?.id ?? 0, 9_000_000)
+    )
+    const serial = createSerialLocks()
+    const saved = deferred<void>()
+    const release = deferred<void>()
+    let delayFirst = true
+    installLocks({
+      request<T>(
+        name: string,
+        options: { mode: string },
+        mutate: () => T | PromiseLike<T>
+      ) {
+        const result = serial.request(name, options, mutate)
+        if (!delayFirst) return result
+        delayFirst = false
+        return result.then(async (value) => {
+          saved.resolve()
+          await release.promise
+          return value
+        })
+      },
+    })
+    let attempts = 0
+    api.post = (async () => {
+      attempts += 1
+      return createdOrder()
+    }) as typeof api.post
+    const probe = await mount(true)
+    try {
+      await chooseFavorite(probe)
+      await confirmPurchase()
+      await act(async () => saved.promise)
+      assert.ok(localStorage.getItem(recoveryKey(1)))
+      assert.equal(attempts, 0)
+      if (action === 'account change') {
+        await act(async () => login(2))
+      } else {
+        await probe.close()
+      }
+      await act(async () => release.resolve())
+      assert.equal(attempts, 0)
+      if (action === 'account change') {
+        assert.ok(
+          localStorage.getItem(recoveryKey(1)),
+          'a new account must not remove the original account recovery'
+        )
+        assert.equal(useAuthStore.getState().auth.user?.id, 2)
+      } else {
+        assert.ok(
+          localStorage.getItem(recoveryKey(1)),
+          'a published pair must remain available to another context'
+        )
+      }
+    } finally {
+      release.resolve()
+      if (mountedProbes.has(probe)) await probe.close()
+    }
+  })
+}
+
+test('settles a strict no-purchase proof returned by the same-key safe retry', async () => {
+  login(1)
+  mockPanelApi(async () => response(1, 5_000_000))
+  const pairs: Array<{ body: unknown; key: string | undefined }> = []
+  api.post = (async (
+    _url: string,
+    body: unknown,
+    config: { headers?: Record<string, string> }
+  ) => {
+    pairs.push({ body, key: config.headers?.['Idempotency-Key'] })
+    if (pairs.length === 1) throw transportError()
+    throw Object.assign(
+      new Error('HeroSMS SMS purchase was not created; refresh the quote'),
+      {
+        isAxiosError: true,
+        response: { status: 409, data: { code: 'PURCHASE_NOT_CREATED' } },
+      }
+    )
+  }) as typeof api.post
+  const probe = await mount(true)
+  try {
+    await chooseFavorite(probe)
+    await confirmPurchase()
+    await settle(
+      () =>
+        document.body.textContent?.includes(
+          'The price changed before item 1. Review the new quote.'
+        ) === true
+    )
+    assert.equal(pairs.length, 2)
+    assert.deepEqual(pairs[1], pairs[0])
+    assert.equal(localStorage.getItem(recoveryKey(1)), null)
+    assert.equal(findButton('Buy phone activation').disabled, false)
+    assert.equal(
+      document.body.textContent?.includes('Resolve purchase and continue'),
+      false
+    )
+    assert.equal(
+      document.body.textContent?.includes(
+        'HeroSMS SMS purchase was not created'
+      ),
+      false
+    )
+  } finally {
+    await probe.close()
+  }
+})
+
+test('keeps the published pair while a concurrent replay is pending after the original business refusal', async () => {
+  login(1)
+  mockPanelApi(async () => response(1, 5_000_000))
+  const firstPost = deferred<ReturnType<typeof createdOrder>>()
+  const replay = deferred<ReturnType<typeof createdOrder>>()
+  const keys: Array<string | undefined> = []
+  api.post = (async (
+    _url: string,
+    _body: unknown,
+    config: { headers?: Record<string, string> }
+  ) => {
+    keys.push(config.headers?.['Idempotency-Key'])
+    if (keys.length === 1) return firstPost.promise
+    if (keys.length === 2) return replay.promise
+    throw new Error('the unmounted original must never send another POST')
+  }) as typeof api.post
+  const first = await mount(true)
+  await chooseFavorite(first)
+  await confirmPurchase()
+  await settle(() => keys.length === 1)
+  const saved = JSON.parse(localStorage.getItem(recoveryKey(1)) ?? '')
+  await first.close()
+  const second = await mount(true)
+  try {
+    await reconcilePurchase()
+    await settle(() => keys.length === 2)
+    await act(async () =>
+      firstPost.reject(
+        Object.assign(new Error('fixture first refusal'), {
+          isAxiosError: true,
+          response: {
+            status: 402,
+            data: { code: 'TEMPORARY_SMS_MINIMUM_BALANCE' },
+          },
+        })
+      )
+    )
+    assert.deepEqual(
+      JSON.parse(localStorage.getItem(recoveryKey(1)) ?? ''),
+      saved
+    )
+    assert.equal(findButton('Buy phone activation').disabled, true)
+    assert.equal(keys.length, 2)
+    assert.equal(keys[0], keys[1])
+    await act(async () => replay.resolve(createdOrder()))
+    await settle(() => localStorage.getItem(recoveryKey(1)) === null)
+    assert.equal(keys.length, 2)
+  } finally {
+    await second.close()
+  }
+})
+
+test('an unmounted publisher cannot remove a pair another context has already started replaying', async () => {
+  login(1)
+  mockPanelApi(async () => response(1, 5_000_000))
+  const serial = createSerialLocks()
+  const saved = deferred<void>()
+  const release = deferred<void>()
+  let delayFirst = true
+  installLocks({
+    request<T>(
+      name: string,
+      options: { mode: string },
+      mutate: () => T | PromiseLike<T>
+    ) {
+      const result = serial.request(name, options, mutate)
+      if (!delayFirst) return result
+      delayFirst = false
+      return result.then(async (value) => {
+        saved.resolve()
+        await release.promise
+        return value
+      })
+    },
+  })
+  const replay = deferred<ReturnType<typeof createdOrder>>()
+  const keys: Array<string | undefined> = []
+  api.post = (async (
+    _url: string,
+    _body: unknown,
+    config: { headers?: Record<string, string> }
+  ) => {
+    keys.push(config.headers?.['Idempotency-Key'])
+    return replay.promise
+  }) as typeof api.post
+  const first = await mount(true)
+  await chooseFavorite(first)
+  await confirmPurchase()
+  await act(async () => saved.promise)
+  const record = JSON.parse(localStorage.getItem(recoveryKey(1)) ?? '')
+  await first.close()
+  const second = await mount(true)
+  try {
+    await reconcilePurchase()
+    await settle(() => keys.length === 1)
+    assert.equal(keys[0], record.idempotencyKey)
+    await act(async () => release.resolve())
+    assert.deepEqual(
+      JSON.parse(localStorage.getItem(recoveryKey(1)) ?? ''),
+      record
+    )
+    assert.equal(findButton('Buy phone activation').disabled, true)
+    assert.equal(keys.length, 1)
+    await act(async () => replay.resolve(createdOrder()))
+    await settle(() => localStorage.getItem(recoveryKey(1)) === null)
+  } finally {
+    release.resolve()
+    await second.close()
   }
 })

@@ -83,33 +83,81 @@ function notify() {
   for (const listener of listeners) listener()
 }
 
-export function saveSmsPurchaseRecovery(record: SmsPurchaseRecovery) {
-  const existing = readSmsPurchaseRecovery(record.userId, true)
-  if (existing && !samePurchase(existing, record)) {
+async function withRecoveryLock<T>(
+  record: SmsPurchaseRecovery,
+  canProceed: () => boolean,
+  mutate: () => T
+) {
+  const locks = window.navigator.locks
+  if (typeof locks?.request !== 'function') {
     throw new Error('HeroSMS request failed')
   }
-  // This must succeed before sending a purchase. Memory alone cannot survive
-  // a page reload between the provider purchase and its HTTP response.
-  window.localStorage.setItem(
+  return locks.request(
     `${prefix}${record.userId}`,
-    JSON.stringify(record)
+    { mode: 'exclusive' },
+    () => {
+      if (!canProceed()) throw new Error('HeroSMS request failed')
+      // Keep every shared read/check/write synchronous inside this origin-wide
+      // account lock. HTTP requests must only start after the lock is released.
+      return mutate()
+    }
   )
-  snapshots.delete(record.userId)
-  notify()
 }
 
-export function clearSmsPurchaseRecovery(record: SmsPurchaseRecovery) {
-  try {
+export async function saveSmsPurchaseRecovery(
+  record: SmsPurchaseRecovery,
+  canProceed: () => boolean = () => true
+) {
+  await withRecoveryLock(record, canProceed, () => {
     const existing = readSmsPurchaseRecovery(record.userId, true)
-    if (!existing || !samePurchase(existing, record)) return false
-    window.localStorage.removeItem(`${prefix}${record.userId}`)
+    if (existing && !samePurchase(existing, record)) {
+      throw new Error('HeroSMS request failed')
+    }
+    // Persistence must succeed before POST so reloads cannot lose its identity.
+    window.localStorage.setItem(
+      `${prefix}${record.userId}`,
+      JSON.stringify(record)
+    )
+    snapshots.delete(record.userId)
+    notify()
+  })
+}
+
+export async function clearSmsPurchaseRecovery(
+  record: SmsPurchaseRecovery,
+  canProceed: () => boolean = () => true,
+  onSettled: () => void = () => {}
+) {
+  try {
+    return await withRecoveryLock(record, canProceed, () => {
+      const existing = readSmsPurchaseRecovery(record.userId, true)
+      if (!existing || !samePurchase(existing, record)) return false
+      window.localStorage.removeItem(`${prefix}${record.userId}`)
+      snapshots.delete(record.userId)
+      // Apply the matching settlement before releasing the lock. A later tab
+      // can otherwise settle a newer attempt before this promise continues.
+      onSettled()
+      notify()
+      return true
+    })
   } catch {
-    // Keep recovery blocked if the durable record cannot be removed.
+    // No lock, failed storage, or an obsolete owner must leave recovery intact.
     return false
   }
-  snapshots.delete(record.userId)
-  notify()
-  return true
+}
+
+export async function checkSmsPurchaseRecovery(
+  record: SmsPurchaseRecovery,
+  canProceed: () => boolean
+) {
+  try {
+    return await withRecoveryLock(record, canProceed, () => {
+      const existing = readSmsPurchaseRecovery(record.userId, true)
+      return existing !== null && samePurchase(existing, record)
+    })
+  } catch {
+    return false
+  }
 }
 
 function subscribe(listener: () => void) {
