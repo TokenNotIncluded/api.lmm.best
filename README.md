@@ -8,20 +8,20 @@
 <h3 align="center">AI APIs. MCP tools. Open-source work.</h3>
 
 <p align="center">
-  Model access, tool publishing, and bounty collaboration in one open-source console.<br>
-  Built for the people using AI, the creators extending it, and the contributors maintaining it.
+  Model access, tool publishing, and bounty collaboration in one open-source console.
 </p>
 
 <p align="center">
-  <a href="https://lmm.best"><strong>Explore LMM</strong></a> ·
-  <a href="https://lmm.best/guide">Connect a client</a> ·
-  <a href="https://lmm.best/tool-market">Publish a tool</a> ·
-  <a href="docs/README.md">Read the docs</a>
+  <a href="https://lmm.best"><strong>Explore&nbsp;LMM</strong></a> ·
+  <a href="https://lmm.best/guide">Connect&nbsp;a&nbsp;client</a> ·
+  <a href="https://lmm.best/tool-market">Publish&nbsp;a&nbsp;tool</a> ·
+  <a href="docs/README.md">Read&nbsp;the&nbsp;docs</a>
 </p>
 
 <p align="center">
   <a href="https://github.com/TokenNotIncluded/api.lmm.best/actions/workflows/ci.yml"><img src="https://github.com/TokenNotIncluded/api.lmm.best/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/TokenNotIncluded/api.lmm.best/releases"><img src="https://img.shields.io/github/v/release/TokenNotIncluded/api.lmm.best?display_name=tag" alt="Latest component release"></a>
+  <a href="https://github.com/TokenNotIncluded/api.lmm.best/releases?q=go-v"><img src="https://img.shields.io/github/v/release/TokenNotIncluded/api.lmm.best?filter=go-v%2A&amp;label=Go" alt="Go release"></a>
+  <a href="https://github.com/TokenNotIncluded/api.lmm.best/releases?q=web-v"><img src="https://img.shields.io/github/v/release/TokenNotIncluded/api.lmm.best?filter=web-v%2A&amp;label=Web" alt="Web release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
 </p>
 
