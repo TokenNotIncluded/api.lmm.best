@@ -170,7 +170,7 @@ test('paid tool-market PostgreSQL qualification cannot silently use SQLite or sk
   }
 });
 
-test('drawing expiry qualification uses actual MySQL repeatable-read transactions', () => {
+test('drawing expiry qualification uses real MySQL with repeatable-read session defaults', () => {
   const go = job(workflow('server-release-qualification'), 'go-server');
   assert.match(go, /image: mysql:8\.4/);
   const step = go.split(/\n(?=      - name: )/).find((part) =>
@@ -184,4 +184,38 @@ test('drawing expiry qualification uses actual MySQL repeatable-read transaction
   assert.ok(step.includes(`run: go test -race -count=1 -v ./model -run '^${name}$' -timeout 180s`));
   assert.ok(read('apps/api-go/model/tool_market_drawing_mysql_test.go').includes(`func ${name}(t *testing.T)`),
     'qualification filter must select the actual MySQL regression');
+});
+
+test('tool-market client identity qualification exercises real MySQL collation aliases', () => {
+  const go = job(workflow('server-release-qualification'), 'go-server');
+  assert.match(go, /image: mysql:8\.4/);
+  const step = go.split(/\n(?=      - name: )/).find((part) =>
+    part.startsWith('      - name: Protect tool-market client boundaries against MySQL collation aliases\n'));
+  assert.ok(step, 'client boundaries need a dedicated real MySQL qualification step');
+  assert.match(step, /working-directory: apps\/api-go\n/);
+  assert.match(step, /TEST_MYSQL_DSN: root:[^\n]+@tcp\(127\.0\.0\.1:3306\)\/lmm_test_release\?parseTime=true\n/);
+  assert.match(step, /TEST_MYSQL_ISOLATED_DATABASE: '1'\n/);
+  assert.doesNotMatch(step, /continue-on-error:|\n        if:/);
+  const name = 'TestToolMarketClientIdentityMySQL';
+  assert.ok(step.includes(`run: go test -race -count=1 -v ./model -run '^${name}$' -timeout 180s`));
+  assert.ok(read('apps/api-go/model/tool_market_clients_mysql_test.go').includes(`func ${name}(t *testing.T)`),
+    'qualification filter must select the actual client-identity regression');
+});
+
+test('tool-market accounting qualification selects both MySQL lock-contention regressions', () => {
+  const go = job(workflow('server-release-qualification'), 'go-server');
+  assert.match(go, /image: mysql:8\.4/);
+  const step = go.split(/\n(?=      - name: )/).find((part) =>
+    part.startsWith('      - name: Protect tool-market limits and settlement counters under MySQL lock contention\n'));
+  assert.ok(step, 'reservation and settlement counters need real MySQL qualification');
+  assert.match(step, /working-directory: apps\/api-go\n/);
+  assert.match(step, /TEST_MYSQL_DSN: root:[^\n]+@tcp\(127\.0\.0\.1:3306\)\/lmm_test_release\?parseTime=true\n/);
+  assert.match(step, /TEST_MYSQL_ISOLATED_DATABASE: '1'\n/);
+  assert.doesNotMatch(step, /continue-on-error:|\n        if:/);
+  const tests = ['TestToolMarketConcurrentFinishCountersMySQL', 'TestToolMarketConcurrentReserveLimitsMySQL'];
+  assert.ok(step.includes(`run: go test -race -count=1 -v ./model -run '^(${tests.join('|')})$' -timeout 180s`));
+  for (const name of tests) {
+    assert.ok(read('apps/api-go/model/tool_market_finish_mysql_test.go').includes(`func ${name}(t *testing.T)`),
+      `qualification filter must select the actual ${name} regression`);
+  }
 });

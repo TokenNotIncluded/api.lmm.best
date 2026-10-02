@@ -147,6 +147,20 @@ jobs:
           TEST_MYSQL_ISOLATED_DATABASE: '1'
         run: go test -race -count=1 -v ./model -run '^TestToolMarketDrawingExpiryReadsCommittedBillingMySQL$' -timeout 180s
 
+      - name: Protect tool-market client boundaries against MySQL collation aliases
+        working-directory: apps/api-go
+        env:
+          TEST_MYSQL_DSN: root:lmm-release-mysql-password@tcp(127.0.0.1:3306)/lmm_test_release?parseTime=true
+          TEST_MYSQL_ISOLATED_DATABASE: '1'
+        run: go test -race -count=1 -v ./model -run '^TestToolMarketClientIdentityMySQL$' -timeout 180s
+
+      - name: Protect tool-market limits and settlement counters under MySQL lock contention
+        working-directory: apps/api-go
+        env:
+          TEST_MYSQL_DSN: root:lmm-release-mysql-password@tcp(127.0.0.1:3306)/lmm_test_release?parseTime=true
+          TEST_MYSQL_ISOLATED_DATABASE: '1'
+        run: go test -race -count=1 -v ./model -run '^(TestToolMarketConcurrentFinishCountersMySQL|TestToolMarketConcurrentReserveLimitsMySQL)$' -timeout 180s
+
       - name: Check Go formatting, vet, race tests, and relaykit
         env:
           LMM_INCIDENT343_TEST_DSN: postgres://lmm_test_release:lmm-release-postgres-password@127.0.0.1:5432/lmm_test_release?sslmode=disable
