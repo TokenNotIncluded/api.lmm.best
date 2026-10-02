@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -24,6 +25,91 @@ type BuiltinToolMarketServiceDefinition struct {
 	Name        string
 	Description string
 	Tools       []*mcp.Tool
+}
+
+type toolMarketBuiltinCallCaptureKey struct{}
+
+type toolMarketBuiltinCallCapture struct {
+	sync.Mutex
+	output           json.RawMessage
+	jsonTextFallback bool
+}
+
+// Keep SDK schema inference, defaults and validation, while capturing the
+// original typed values for the trusted internal dispatcher. Compatible HTTP
+// endpoints have no capture context and retain their existing SDK behavior.
+func addToolMarketBuiltinMCPTool[In, Out any](server *mcp.Server, tool *mcp.Tool, handler mcp.ToolHandlerFor[In, Out]) {
+	mcp.AddTool(server, tool, func(ctx context.Context, request *mcp.CallToolRequest, input In) (*mcp.CallToolResult, Out, error) {
+		capture, _ := ctx.Value(toolMarketBuiltinCallCaptureKey{}).(*toolMarketBuiltinCallCapture)
+		if capture != nil && len(request.Params.Arguments) != 0 {
+			// SDK validation has run, but its generic decoder rounds numbers
+			// before decoding In. Override only supplied fields, retaining the
+			// defaults already populated into this typed input.
+			decoder := json.NewDecoder(bytes.NewReader(request.Params.Arguments))
+			decoder.UseNumber()
+			if err := decoder.Decode(&input); err != nil {
+				var zero Out
+				return nil, zero, err
+			}
+		}
+		result, output, err := handler(ctx, request, input)
+		if capture != nil && err == nil && (result == nil || result.InputRequests == nil) {
+			if data, marshalErr := json.Marshal(output); marshalErr == nil && !bytes.Equal(data, []byte("null")) {
+				capture.Lock()
+				capture.output = data
+				capture.jsonTextFallback = result == nil || result.Content == nil
+				capture.Unlock()
+			}
+		}
+		return result, output, err
+	})
+}
+
+// Restore supplied numeric leaves after SDK validation and defaults. Keep the
+// SDK's resulting shape and added default fields instead of replacing the
+// normalized output with the original object wholesale.
+func restoreToolMarketBuiltinOutputNumbers(normalized, original json.RawMessage) json.RawMessage {
+	normalized = bytes.TrimSpace(normalized)
+	original = bytes.TrimSpace(original)
+	if len(normalized) == 0 || len(original) == 0 {
+		return normalized
+	}
+	if original[0] == '-' || original[0] >= '0' && original[0] <= '9' {
+		if normalized[0] == '-' || normalized[0] >= '0' && normalized[0] <= '9' {
+			return slices.Clone(original)
+		}
+		return normalized
+	}
+	if original[0] != normalized[0] {
+		return normalized
+	}
+	switch original[0] {
+	case '{':
+		var normalizedFields, originalFields map[string]json.RawMessage
+		if json.Unmarshal(normalized, &normalizedFields) != nil || json.Unmarshal(original, &originalFields) != nil {
+			return normalized
+		}
+		for key, value := range originalFields {
+			if current, ok := normalizedFields[key]; ok {
+				normalizedFields[key] = restoreToolMarketBuiltinOutputNumbers(current, value)
+			}
+		}
+		if data, err := json.Marshal(normalizedFields); err == nil {
+			return data
+		}
+	case '[':
+		var normalizedItems, originalItems []json.RawMessage
+		if json.Unmarshal(normalized, &normalizedItems) != nil || json.Unmarshal(original, &originalItems) != nil {
+			return normalized
+		}
+		for index := range min(len(normalizedItems), len(originalItems)) {
+			normalizedItems[index] = restoreToolMarketBuiltinOutputNumbers(normalizedItems[index], originalItems[index])
+		}
+		if data, err := json.Marshal(normalizedItems); err == nil {
+			return data
+		}
+	}
+	return normalized
 }
 
 var toolMarketBuiltinDrawingRelay struct {
@@ -198,12 +284,45 @@ func callBuiltinToolMarketServer(ctx context.Context, server *mcp.Server, tokenI
 		identity.Extra = make(map[string]any)
 	}
 	identity.Extra["market_builtin"] = true
+	capture := &toolMarketBuiltinCallCapture{}
+	var captureMu sync.Mutex
+	var nativeStructuredContent, nativeMeta, nativeContent json.RawMessage
 	server.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, request mcp.Request) (mcp.Result, error) {
-			if call, ok := request.(*mcp.CallToolRequest); ok {
+			call, isToolCall := request.(*mcp.CallToolRequest)
+			if isToolCall {
 				call.Extra = &mcp.RequestExtra{TokenInfo: &identity}
+				ctx = context.WithValue(ctx, toolMarketBuiltinCallCaptureKey{}, capture)
 			}
-			return next(ctx, method, request)
+			result, err := next(ctx, method, request)
+			if native, ok := result.(*mcp.CallToolResult); isToolCall && err == nil && ok && native != nil {
+				capture.Lock()
+				output, fallback := slices.Clone(capture.output), capture.jsonTextFallback
+				capture.Unlock()
+				if output != nil && native.StructuredContent != nil && native.InputRequests == nil {
+					if normalized, marshalErr := json.Marshal(native.StructuredContent); marshalErr == nil {
+						output = restoreToolMarketBuiltinOutputNumbers(normalized, output)
+						native.StructuredContent = output
+						if fallback {
+							native.Content = []mcp.Content{&mcp.TextContent{Text: string(output)}}
+						}
+					}
+				}
+				var structuredContent, meta, content json.RawMessage
+				if native.StructuredContent != nil {
+					structuredContent, _ = json.Marshal(native.StructuredContent)
+				}
+				if native.Meta != nil {
+					meta, _ = json.Marshal(native.Meta)
+				}
+				if native.Content != nil {
+					content, _ = json.Marshal(native.Content)
+				}
+				captureMu.Lock()
+				nativeStructuredContent, nativeMeta, nativeContent = structuredContent, meta, content
+				captureMu.Unlock()
+			}
+			return result, err
 		}
 	})
 	client, closeSession, err := connectBuiltinToolMarketServer(ctx, server)
@@ -215,5 +334,34 @@ func callBuiltinToolMarketServer(ctx context.Context, server *mcp.Server, tokenI
 	// internal additions out of the caller's request object.
 	callParams := *params
 	callParams.Meta = maps.Clone(params.Meta)
-	return client.CallTool(ctx, &callParams)
+	result, err := client.CallTool(ctx, &callParams)
+	if err != nil || result == nil {
+		return result, err
+	}
+	// SDK's generic client JSON decoder represents arbitrary numbers as
+	// float64. Keep the native handler's precise output at this internal
+	// boundary without replacing its protocol result type or input requests.
+	captureMu.Lock()
+	structuredContent, meta, content := slices.Clone(nativeStructuredContent), slices.Clone(nativeMeta), slices.Clone(nativeContent)
+	captureMu.Unlock()
+	if structuredContent != nil {
+		result.StructuredContent = structuredContent
+	}
+	if meta != nil {
+		var restored mcp.Meta
+		decoder := json.NewDecoder(bytes.NewReader(meta))
+		decoder.UseNumber()
+		if decoder.Decode(&restored) == nil {
+			result.Meta = restored
+		}
+	}
+	if content != nil {
+		var restored []toolMarketContentMetadata
+		decoder := json.NewDecoder(bytes.NewReader(content))
+		decoder.UseNumber()
+		if decoder.Decode(&restored) == nil {
+			restoreToolMarketContentMetadata(result.Content, restored)
+		}
+	}
+	return result, nil
 }

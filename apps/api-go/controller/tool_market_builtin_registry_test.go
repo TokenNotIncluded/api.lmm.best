@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"sync"
@@ -107,7 +108,15 @@ func TestBuiltinToolMarketTrustedIdentityIsIsolatedFromArgumentsAndOtherCalls(t 
 			if !assert.NoError(t, err) || !assert.False(t, result.IsError) {
 				return
 			}
-			assert.Equal(t, identity.UserID, result.StructuredContent.(map[string]any)["user_id"])
+			structured, err := json.Marshal(result.StructuredContent)
+			if !assert.NoError(t, err) {
+				return
+			}
+			var payload output
+			if !assert.NoError(t, json.Unmarshal(structured, &payload)) {
+				return
+			}
+			assert.Equal(t, identity.UserID, payload.UserID)
 			assert.NotContains(t, identity.Extra, "market_builtin")
 			assert.Equal(t, mcp.Meta{"user_id": "999"}, params.Meta)
 		}(index)

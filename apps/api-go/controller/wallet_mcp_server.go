@@ -135,7 +135,7 @@ func walletMCPLinkResult(output walletMCPOutput, link string) (*mcp.CallToolResu
 }
 
 func registerWalletMCPTools(server *mcp.Server) {
-	mcp.AddTool(server, bountyMCPTool("wallet.balance", "Read your wallet balance", "Read only the authenticated account's available wallet quota. This MCP tool costs zero; transfers and drawing-model usage are separate.", true, false, true),
+	addToolMarketBuiltinMCPTool(server, bountyMCPTool("wallet.balance", "Read your wallet balance", "Read only the authenticated account's available wallet quota. This MCP tool costs zero; transfers and drawing-model usage are separate.", true, false, true),
 		func(ctx context.Context, request *mcp.CallToolRequest, input struct{}) (*mcp.CallToolResult, walletMCPOutput, error) {
 			user, err := walletMCPActor(request, false)
 			if err != nil {
@@ -147,7 +147,7 @@ func registerWalletMCPTools(server *mcp.Server) {
 			return nil, walletMCPOutput{Message: "Current available wallet balance. No charge.", Data: map[string]any{"available_quota": user.Quota, "quota_per_platform_credit": common.QuotaPerUnit, "tool_price_quota": 0}}, nil
 		})
 
-	mcp.AddTool(server, bountyMCPTool("wallet.topup_link", "Generate an official top-up link and QR", "Open the official wallet with a bounded whole platform-credit amount prefilled. The user chooses a payment method and confirms there; this is not a payment-provider checkout, successful payment or balance credit. The MCP call is free.", true, false, true),
+	addToolMarketBuiltinMCPTool(server, bountyMCPTool("wallet.topup_link", "Generate an official top-up link and QR", "Open the official wallet with a bounded whole platform-credit amount prefilled. The user chooses a payment method and confirms there; this is not a payment-provider checkout, successful payment or balance credit. The MCP call is free.", true, false, true),
 		func(ctx context.Context, request *mcp.CallToolRequest, input walletMCPTopupInput) (*mcp.CallToolResult, walletMCPOutput, error) {
 			if _, err := walletMCPActor(request, false); err != nil {
 				return nil, walletMCPOutput{}, err
@@ -162,7 +162,7 @@ func registerWalletMCPTools(server *mcp.Server) {
 			return walletMCPLinkResult(walletMCPOutput{Message: "Review the amount and choose a payment method in your wallet. No payment has been created or charged.", Data: map[string]any{"url": link, "platform_credit_amount": input.Amount, "payment_confirmation_required": true, "tool_price_quota": 0}}, link)
 		})
 
-	mcp.AddTool(server, bountyMCPTool("wallet.transfers.list", "Read your wallet transfers", "Read up to 50 of your own transfer statuses. Pending links and QR codes are bearer credentials: share only with the intended recipient. Recipient contact details are not returned.", true, false, true),
+	addToolMarketBuiltinMCPTool(server, bountyMCPTool("wallet.transfers.list", "Read your wallet transfers", "Read up to 50 of your own transfer statuses. Pending links and QR codes are bearer credentials: share only with the intended recipient. Recipient contact details are not returned.", true, false, true),
 		func(ctx context.Context, request *mcp.CallToolRequest, input walletMCPListInput) (*mcp.CallToolResult, walletMCPOutput, error) {
 			user, err := walletMCPActor(request, false)
 			if err != nil {
@@ -186,7 +186,7 @@ func registerWalletMCPTools(server *mcp.Server) {
 			return nil, walletMCPOutput{Message: "Your own wallet transfers. Share pending links privately.", Data: views}, nil
 		})
 
-	mcp.AddTool(server, bountyMCPTool("wallet.transfer.create", "Create a confirmed transfer link and QR", "After an exact tool grant and explicit user confirmation, hold the specified amount from your wallet and create a private recipient link. Anyone with the link can claim it; share only with the intended recipient. The MCP fee is zero; the held transfer amount is real wallet balance. Reuse only the original market request to retry.", false, true, true),
+	addToolMarketBuiltinMCPTool(server, bountyMCPTool("wallet.transfer.create", "Create a confirmed transfer link and QR", "After an exact tool grant and explicit user confirmation, hold the specified amount from your wallet and create a private recipient link. Anyone with the link can claim it; share only with the intended recipient. The MCP fee is zero; the held transfer amount is real wallet balance. Reuse only the original market request to retry.", false, true, true),
 		func(ctx context.Context, request *mcp.CallToolRequest, input walletMCPTransferInput) (*mcp.CallToolResult, walletMCPOutput, error) {
 			user, err := walletMCPActor(request, true)
 			if err != nil {
@@ -223,7 +223,7 @@ func registerWalletMCPTools(server *mcp.Server) {
 			return walletMCPLinkResult(output, view.ShareURL)
 		})
 
-	mcp.AddTool(server, bountyMCPTool("wallet.transfer.cancel", "Cancel and refund your pending transfer", "After explicit user confirmation, cancel only your own unclaimed transfer and return the held amount to your wallet. Claimed transfers cannot be cancelled. The MCP tool is free.", false, true, true),
+	addToolMarketBuiltinMCPTool(server, bountyMCPTool("wallet.transfer.cancel", "Cancel and refund your pending transfer", "After explicit user confirmation, cancel only your own unclaimed transfer and return the held amount to your wallet. Claimed transfers cannot be cancelled. The MCP tool is free.", false, true, true),
 		func(ctx context.Context, request *mcp.CallToolRequest, input walletMCPCancelInput) (*mcp.CallToolResult, walletMCPOutput, error) {
 			user, err := walletMCPActor(request, true)
 			if err != nil {

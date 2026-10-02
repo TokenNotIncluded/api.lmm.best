@@ -188,5 +188,7 @@ func TestToolMarketMCPExecutionOutputRetainsContentAndConfirmation(t *testing.T)
 	require.True(t, result.NeedsInput())
 	require.Equal(t, "original", result.Meta["provider"])
 	require.IsType(t, map[string]any{}, result.Meta["lmm/market"])
-	require.Equal(t, float64(42), result.StructuredContent.(map[string]any)["answer"])
+	structured, err := json.Marshal(result.StructuredContent)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"answer":42}`, string(structured))
 }

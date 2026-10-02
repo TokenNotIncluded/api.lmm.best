@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -73,6 +74,24 @@ func marketMCPExecutionOutput(response *service.ToolMarketExecutionResponse, err
 		if json.Unmarshal(response.Result, result) != nil {
 			return marketMCPOutput(nil, service.ErrMarketRemoteResult)
 		}
+		// The SDK decodes arbitrary JSON values as float64. Keep the approved
+		// structured result and provider metadata exact when bridging them back
+		// onto the wire, including integers beyond JavaScript's safe range.
+		var native struct {
+			StructuredContent json.RawMessage             `json:"structuredContent"`
+			Meta              mcp.Meta                    `json:"_meta"`
+			Content           []toolMarketContentMetadata `json:"content"`
+		}
+		decoder := json.NewDecoder(bytes.NewReader(response.Result))
+		decoder.UseNumber()
+		if decoder.Decode(&native) != nil {
+			return marketMCPOutput(nil, service.ErrMarketRemoteResult)
+		}
+		if len(native.StructuredContent) != 0 {
+			result.StructuredContent = native.StructuredContent
+		}
+		result.Meta = native.Meta
+		restoreToolMarketContentMetadata(result.Content, native.Content)
 	} else {
 		result.Content = []mcp.Content{&mcp.TextContent{Text: "The original call has no final result available. Query lmm_market_call_status instead of starting another request."}}
 		result.IsError = true
@@ -85,6 +104,39 @@ func marketMCPExecutionOutput(response *service.ToolMarketExecutionResponse, err
 		result.IsError = true
 	}
 	return result, nil
+}
+
+type toolMarketContentMetadata struct {
+	Meta     mcp.Meta `json:"_meta"`
+	Resource *struct {
+		Meta mcp.Meta `json:"_meta"`
+	} `json:"resource"`
+}
+
+// Content remains in the SDK's native types; arbitrary nested provider metadata
+// uses the exact-number decoder instead of the SDK's generic float64 decoder.
+func restoreToolMarketContentMetadata(content []mcp.Content, native []toolMarketContentMetadata) {
+	for i, item := range content {
+		if i >= len(native) {
+			return
+		}
+		meta := native[i].Meta
+		switch item := item.(type) {
+		case *mcp.TextContent:
+			item.Meta = meta
+		case *mcp.ImageContent:
+			item.Meta = meta
+		case *mcp.AudioContent:
+			item.Meta = meta
+		case *mcp.ResourceLink:
+			item.Meta = meta
+		case *mcp.EmbeddedResource:
+			item.Meta = meta
+			if item.Resource != nil && native[i].Resource != nil {
+				item.Resource.Meta = native[i].Resource.Meta
+			}
+		}
+	}
 }
 
 func marketMCPSchema(properties map[string]any, required ...string) map[string]any {
@@ -152,7 +204,9 @@ func newToolMarketMCPServer(identity marketMCPIdentity) (*mcp.Server, error) {
 			continue
 		}
 		var args map[string]any
-		if json.Unmarshal([]byte(execution.Tool.InputSchema), &args) != nil {
+		decoder := json.NewDecoder(strings.NewReader(execution.Tool.InputSchema))
+		decoder.UseNumber()
+		if decoder.Decode(&args) != nil {
 			return nil, service.ErrMarketRemoteSchema
 		}
 		rewriteMarketSchemaRefs(args)
@@ -160,9 +214,10 @@ func newToolMarketMCPServer(identity marketMCPIdentity) (*mcp.Server, error) {
 		schema["$defs"] = map[string]any{"arguments": args}
 		var outputSchema any
 		if execution.Tool.OutputSchema != "" {
-			if json.Unmarshal([]byte(execution.Tool.OutputSchema), &outputSchema) != nil {
+			if !json.Valid([]byte(execution.Tool.OutputSchema)) {
 				return nil, service.ErrMarketRemoteSchema
 			}
+			outputSchema = json.RawMessage(execution.Tool.OutputSchema)
 		}
 		provider := fmt.Sprintf("Provider account: %d. Data recipient: %s.", execution.Service.OwnerID, execution.Version.Endpoint)
 		var annotations *mcp.ToolAnnotations

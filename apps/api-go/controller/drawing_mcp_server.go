@@ -189,7 +189,7 @@ func drawingMCPConsumeConfirmation(userID int, operation *model.OpenSourceBounty
 }
 
 func registerDrawingMCPTools(server *mcp.Server, relay http.Handler) {
-	mcp.AddTool(server, drawingMCPTool(
+	addToolMarketBuiltinMCPTool(server, drawingMCPTool(
 		"drawing.list_capabilities", "List drawing capabilities",
 		"List the authenticated developer's currently usable image groups and image-capable models. This is read-only and never spends quota.",
 		true, false, true,
@@ -214,7 +214,7 @@ func registerDrawingMCPTools(server *mcp.Server, relay http.Handler) {
 		}, nil
 	})
 
-	mcp.AddTool(server, drawingMCPTool(
+	addToolMarketBuiltinMCPTool(server, drawingMCPTool(
 		"drawing.generate", "Generate an image",
 		"Generate images through the same group-aware, quota-billed drawing relay used by the web workbench. The first call always asks for explicit confirmation of the prompt, model, group, image count, and billing impact.",
 		false, true, false,

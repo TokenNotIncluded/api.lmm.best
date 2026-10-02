@@ -10,7 +10,6 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/service"
 	"github.com/gin-gonic/gin"
-	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"gorm.io/gorm"
@@ -181,14 +180,8 @@ func ExecuteToolMarketWithBuiltins(ctx context.Context, in model.ToolMarketReser
 	if err != nil {
 		return nil, model.ErrToolMarketInput
 	}
-	var schema jsonschema.Schema
-	var arguments map[string]any
-	if len(in.Arguments) > 128<<10 || json.Unmarshal(schemaData, &schema) != nil || json.Unmarshal(in.Arguments, &arguments) != nil || arguments == nil {
-		return nil, service.ErrMarketRemoteInput
-	}
-	resolved, err := schema.Resolve(nil)
-	if err != nil || resolved.Validate(arguments) != nil {
-		return nil, service.ErrMarketRemoteInput
+	if _, err := service.ValidateToolMarketArguments(schemaData, in.Arguments); err != nil {
+		return nil, err
 	}
 	in.GrantID = execution.Grant.ID
 	var call *model.ToolMarketCall
