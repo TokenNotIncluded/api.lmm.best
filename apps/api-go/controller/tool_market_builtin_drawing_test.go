@@ -26,7 +26,8 @@ func TestToolMarketBuiltinDrawingFreeDispatchRetainsModelBillingAndReplay(t *tes
 	// Real, decodable PNGs: one exceeds the review's 768 KiB example; the
 	// second also exceeds the former UI's 3 MiB base64 ceiling.
 	images := []string{marketDrawingPNG(t, 512), marketDrawingPNG(t, 1024)}
-	payload, err := json.Marshal(map[string]any{"created": 1, "data": []any{map[string]any{"b64_json": images[0]}, map[string]any{"b64_json": images[1]}}})
+	exactNumber := json.Number("9007199254740993")
+	payload, err := json.Marshal(map[string]any{"created": exactNumber, "metadata": map[string]any{"request_number": exactNumber}, "data": []any{map[string]any{"b64_json": images[0]}, map[string]any{"b64_json": images[1]}}})
 	require.NoError(t, err)
 	fixture := newDrawingParityFixture(t, common.GetTrustQuota(), http.StatusOK, payload)
 	db := fixture.db
@@ -88,6 +89,9 @@ func TestToolMarketBuiltinDrawingFreeDispatchRetainsModelBillingAndReplay(t *tes
 	require.Equal(t, "settled", response.Call.SettlementStatus)
 	require.Greater(t, len(response.Result), model.ToolMarketResultMaxBytes)
 	require.LessOrEqual(t, len(response.Result), model.ToolMarketDrawingResultMaxBytes)
+	require.Contains(t, string(response.Result), `"created":9007199254740993`)
+	require.Contains(t, string(response.Result), `"request_number":9007199254740993`)
+	require.NotContains(t, string(response.Result), "9007199254740992", "provider integers must stay exact through pre-billing retention and SDK normalization")
 	for _, encoded := range images {
 		require.Equal(t, 1, strings.Count(string(response.Result), encoded), "base64 is retained once, not duplicated into JSON text")
 	}
@@ -125,7 +129,7 @@ func TestToolMarketBuiltinDrawingFreeDispatchRetainsModelBillingAndReplay(t *tes
 	replay, err := ExecuteToolMarketWithBuiltins(context.Background(), in, pending.RequestState, confirmed)
 	require.NoError(t, err)
 	require.Equal(t, response.Call.ID, replay.Call.ID)
-	require.JSONEq(t, string(response.Result), string(replay.Result))
+	require.Equal(t, response.Result, replay.Result, "replay must retain the exact image bytes and provider integers")
 	require.EqualValues(t, 1, fixture.upstream.Load(), "the same confirmed market request must not generate another image")
 	require.NoError(t, db.First(&user, fixture.user.Id).Error)
 	require.NoError(t, db.First(&token, fixture.token.Id).Error)

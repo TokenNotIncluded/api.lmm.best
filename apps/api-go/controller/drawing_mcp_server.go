@@ -11,6 +11,7 @@ import (
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -452,7 +453,13 @@ func decodeDrawingMCPRelayResult(recorder *httptest.ResponseRecorder) (map[strin
 		return nil, fmt.Errorf("image relay failed with HTTP %d", recorder.Code)
 	}
 	var result map[string]any
-	if err := json.Unmarshal(recorder.Body.Bytes(), &result); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(recorder.Body.Bytes()))
+	decoder.UseNumber()
+	if err := decoder.Decode(&result); err != nil {
+		return nil, errors.New("image relay returned an invalid response")
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
 		return nil, errors.New("image relay returned an invalid response")
 	}
 	if failure, ok := result["error"].(map[string]any); ok {
