@@ -6,17 +6,19 @@
 [![Issues](https://img.shields.io/github/issues/TokenNotIncluded/api.lmm.best)](https://github.com/TokenNotIncluded/api.lmm.best/issues)
 [![Last Commit](https://img.shields.io/github/last-commit/TokenNotIncluded/api.lmm.best)](https://github.com/TokenNotIncluded/api.lmm.best/commits/main)
 
-> **Access policy:** Access from China is prohibited.
+LMM Forge combines a multi-provider AI API gateway, a versioned MCP tool marketplace, and open-source bounty collaboration in one web console.
 
-LMM Forge is a production-grade, web-first bounty collaboration system for open-source maintenance, with delivery tracking, review/audit trails, and settlement workflows.
+[Website](https://lmm.best) · [Model pricing](https://lmm.best/pricing) · [Client setup](https://lmm.best/guide) · [Tool marketplace](https://lmm.best/tool-market) · [Documentation](docs/README.md)
+
+> **Access policy:** The default edge policy blocks requests geolocated to Mainland China (`CN`). Administrators can configure explicit IP routing rules.
 
 ## Table of Contents
 
 - [Overview](#overview)
+- [Tool marketplace](#tool-marketplace)
 - [Architecture](#architecture)
 - [Quick start](#quick-start)
 - [Deployment and upgrades](#deployment-and-upgrades)
-- [What LMM Forge supports](#what-lmm-forge-supports)
 - [Repository layout](#repository-layout)
 - [Documentation and operations](#documentation-and-operations)
 - [Workflow and command reference](#workflow-and-command-reference)
@@ -26,22 +28,31 @@ LMM Forge is a production-grade, web-first bounty collaboration system for open-
 
 ## Overview
 
-LMM Forge is a maintained derivative of `QuantumNous/new-api` with retained upstream compatibility and additional product features for bounty management.
+- **AI API gateway:** OpenAI Chat Completions and Responses, Anthropic Messages, and Gemini protocol routes, with provider routing, account quotas, and usage records. Available models depend on the configured providers and account permissions.
+- **Client integrations:** OAuth-based setup for Pi, DSH, OpenCode, and Codewhale, plus preview integrations for VS Code and Zed. Each client receives the permissions explicitly approved by the user.
+- **Tool marketplace:** Publish Remote MCP services, price individual tools, and earn platform balance from successful paid calls. Users control tool versions, client permissions, and spending limits.
+- **Open-source bounties:** Publish challenges, lock rewards, submit Issue/PR evidence, and follow review, acceptance, and dispute workflows.
+- **Account administration:** Manage users, roles, groups, balances, top-ups, and usage through desktop and mobile console views.
 
-Key differentiators:
+The project is a maintained fork of [QuantumNous/new-api](https://github.com/QuantumNous/new-api). [FORK.md](FORK.md) records the upstream relationship and attribution requirements.
 
-- Public bounty board with authenticated workflow controls
-- Evidence-driven acceptance for Issue/PR submissions
-- Escrowed reward handling with transparent settlement state
-- Dispute-aware delivery lifecycle and rating trail
+## Tool marketplace
 
-`FORK.md` captures the formal fork and attribution constraints that govern derivative distribution and branding.
+1. Register a public HTTPS Remote MCP endpoint, inspect its tool definitions, and set a free or paid price for each tool. Bearer and API Key authentication are supported for remote services.
+2. Validate a specific version and submit it for administrator review. Validated, free drafts visible only to their author can be activated directly; public, shared, or paid services require review.
+3. Users load a tool version and separately authorize its use, including client, call-count, expiry, and spending limits. Loading a tool does not authorize payment.
+
+Successful paid calls credit the creator's earnings and the platform fee to their respective platform balances. Creators can spend their balance on models and other tools. **Withdrawals are not supported.** The platform fee and recipient account are configured by the super administrator; the software does not impose a fixed fee percentage.
+
+Built-in drawing, wallet, and bounty tools have no tool invocation fee. Drawing still incurs model usage costs, and wallet transfers move the specified balance. Publishing connects an existing Remote MCP service; serverless code uploads are not currently supported.
+
+See the [marketplace implementation](docs/tool-market-implementation.md) and [client connection guide](docs/tool-market-connections.md) for supported protocols, permissions, billing, and execution limits.
 
 ## Architecture
 
 | Concern | Status |
 | --- | --- |
-| Frontend | Shared React application in `apps/web` |
+| Frontend | React and TypeScript application in `apps/web`, built with Rsbuild |
 | Default backend | Go provider CLI/service in `apps/api-go` |
 | Preview backend | Rust provider CLI/service in `apps/api-rust` (not default production traffic) |
 | LMM CLI | Rust setup tool in [`apps/lmm`](apps/lmm/README.md) (preview: discovery, planning and read-only OAuth login) |
@@ -57,35 +68,45 @@ Providers install real `lmm-api-go` or `lmm-api-rs` binaries. Production and ope
 
 ### Prerequisites
 
-- `git`, `bun`, `just`
-- Database + cache services suitable for local development
-- Optional: Go toolchain for native backend work, Rust toolchain for Rust preview runs
+- Git, [Just](https://github.com/casey/just), Bun **1.3.14**, and Node.js **22+**
+- Go **1.25.1 or newer** for the default backend
+- PostgreSQL and Valkey services for a dedicated local development environment
+- Optional: Rust **1.91.0** for the preview backend
 
 ### Bootstrap
 
 ```bash
-
 git clone https://github.com/TokenNotIncluded/api.lmm.best.git
 cd api.lmm.best
 just setup
+cp .env.example apps/api-go/.env
 ```
 
-### Run local services
+Edit `apps/api-go/.env` before starting the backend:
+
+- Set `SQL_DSN` to your development PostgreSQL database and `REDIS_CONN_STRING` to your Valkey instance.
+- Set independent, random `SESSION_SECRET` and `CRYPTO_SECRET` values. Keep these stable across restarts.
+- The template binds the API to `127.0.0.1:3000`. Use a dedicated development database: startup applies schema migrations by default.
+
+The Go development command runs from `apps/api-go` and loads `.env` from that directory.
+
+### Run the backend and frontend
+
+From the repository root, start the backend in one terminal:
 
 ```bash
-just infra-up   # Starts default PostgreSQL + Valkey when docker-compose.dev.yml exists
-just dev        # Starts web + Go backend together
-```
-
-Alternative flows:
-
-```bash
-just dev-web
 just dev-go
-just dev-rust
 ```
 
-Open <http://localhost:3000> and complete the setup flow.
+Start the frontend in a second terminal, using a separate port:
+
+```bash
+bun run --filter @lmm/web dev --port 5173 --host 127.0.0.1 --strict-port
+```
+
+Open <http://localhost:5173> and complete the setup flow. The frontend proxies API requests to `http://localhost:3000`; set `VITE_REACT_APP_SERVER_URL` when using a different backend address.
+
+`just dev`, `just infra-up`, and `just dev-rust` require a local `docker-compose.dev.yml`, which is not included in this repository. The two-terminal flow above uses your existing development database and cache services.
 
 ### Production-style local checks
 
@@ -103,22 +124,14 @@ matches the existing installation; do not replace package-owned files manually.
 | --- | --- | --- |
 | Standalone Go on systemd | `sudo bash scripts/lmm-api-deploy.sh systemd doctor`, then `upgrade` and explicit `confirm` | [Standalone workflow](docs/manual-systemd-deployment.md) |
 | Package-owned Go/Web | Installed `/usr/bin/lmm-api-deploy production` signed-plan workflow | [Package transactions](docs/seamless-upgrades.md) |
+| Frontend-only update | Manually dispatch [`deploy-web-frontend.yml`](.github/workflows/deploy-web-frontend.yml) with a signed `web-vX.Y.Z` release after checking compatibility with the active Go backend | [Component release architecture](docs/release-architecture.md) |
 
 `bash scripts/lmm-api-deploy.sh --help` works without a compiled backend.
 The standalone workflow updates an existing server, not a clean installation.
-Backend and frontend versions remain independent. Neither path is automatically
-run against production when code is merged or a release is published.
-
-## What LMM Forge supports
-
-- Challenge publication and acceptance
-- Contributor submission and evidence intake
-- Multi-step review with payout and dispute logic
-- User and administrator workflow surfaces for accountability and governance
-- Session and security controls documented under authentication contracts
-- Operational guardrails for upgrades, cutovers, and cache/auth topology constraints
-
-See [`docs/open-source-bounties.md`](./docs/open-source-bounties.md) for full bounty behavior and settlement rules.
+Go and Web have independent `go-vX.Y.Z` and `web-vX.Y.Z` releases. Rust remains a
+preview backend. Merging code or publishing a release does not deploy it to
+production. Frontend-only deployment switches the static release and preserves
+the previous frontend for explicit rollback.
 
 ## Repository layout
 
@@ -127,23 +140,27 @@ See [`docs/open-source-bounties.md`](./docs/open-source-bounties.md) for full bo
 | [`apps/web`](./apps/web) | Shared React frontend |
 | [`apps/api-go`](./apps/api-go) | Go API backend and production default |
 | [`apps/api-rust`](./apps/api-rust) | Rust preview backend |
-| [`deploy`](./deploy) | Migration/cutover/deploy documentation and scripts |
+| [`apps/lmm`](./apps/lmm) | Preview setup and discovery CLI |
+| [`packages`](./packages) | Client integrations |
+| [`scripts`](./scripts) | Development, verification, and deployment tooling |
 | [`packaging`](./packaging) | Packaging workflows and local package content |
 | [`docs`](./docs) | Operational guides, legal policy, and API references |
 
 ## Documentation and operations
 
-- `docs/README.md`: canonical docs index
-- `docs/authentication.md`: authentication and session model
-- `docs/seamless-upgrades.md`: upgrade workflow and constraints
-- `docs/postgresql-migration.md`: migration rehearsal contract
-- `docs/postgresql-cutover.md`: production cutover contract
-- `docs/valkey-lmm-api.md`: dedicated cache architecture
-- `docs/rust-blue-green.md`: ownership and route migration checkpoints
-- `docs/openapi/api.json`: admin API spec
-- `docs/openapi/relay.json`: relay API spec
-- `docs/legal`: legal policy corpus
-- `THIRD-PARTY-LICENSES.md`: dependency and license inventory
+| Topic | Guide |
+| --- | --- |
+| All documentation | [Documentation index](docs/README.md) |
+| Authentication and sessions | [Authentication](docs/authentication.md) |
+| Tool publishing and billing | [Marketplace implementation](docs/tool-market-implementation.md) |
+| MCP client setup | [Marketplace connections](docs/tool-market-connections.md) |
+| Bounties and reward settlement | [Open-source bounties](docs/open-source-bounties.md) |
+| OpenCode and editor integrations | [OpenCode provider](docs/opencode-provider.md), [VS Code and Zed](docs/editor-providers.md) |
+| Component releases and upgrades | [Release architecture](docs/release-architecture.md), [Signed upgrades](docs/seamless-upgrades.md) |
+| Database migration and cutover | [PostgreSQL migration](docs/postgresql-migration.md), [Cutover](docs/postgresql-cutover.md) |
+| Cache and backend operations | [Valkey](docs/valkey-lmm-api.md), [Rust blue-green preview](docs/rust-blue-green.md) |
+| API specifications | [Admin API](docs/openapi/api.json), [Relay API](docs/openapi/relay.json) |
+| Dependency licenses | [Third-party licenses](THIRD-PARTY-LICENSES.md) |
 
 ## Workflow and command reference
 
@@ -151,19 +168,22 @@ See [`docs/open-source-bounties.md`](./docs/open-source-bounties.md) for full bo
 
 ```text
 just setup           Install workspace dependencies
-just dev             Frontend + Go backend in one process group
+just dev-go          Start the Go development backend
+just dev-web         Start the frontend (defaults to port 3000; choose a separate port above)
 just build           Build frontend and Go backend artifacts
 just test            Run backend and frontend tests
-just check           Formatting, lint, typecheck, and contract checks
+just check           Formatting, lint, typecheck, tests, and deployment contract checks
 just deploy-production  Promote an already-staged signed package release plan
 ```
 
 ### Additional commands
 
-- `just infra-up` / `just infra-down` for local infrastructure
-- `just dev-go`, `just dev-web`, `just dev-rust` for focused runs
-- `just clean-generated` to clear generated build artifacts
-- `just docker` or `just package` for environment-specific release outputs
+- `just --list` shows all available recipes.
+- `just dev` and `just infra-up` / `just infra-down` use a locally supplied Compose file.
+- `just build-all` / `just test-all` include the Rust preview backend.
+- `just clean-generated` clears generated build artifacts.
+- `just package` requires a configured `LMM_API_BUILD_WORKSPACE`; see the [AUR packaging guide](packaging/aur/README.md).
+- Docker recipes require locally supplied Dockerfiles, which are not included in this repository.
 
 ## Contribution and support
 
