@@ -309,6 +309,9 @@ func marketListRemote(ctx context.Context, session *mcp.ClientSession) ([]*mcp.T
 	for page := 0; page < 10; page++ {
 		result, err := session.ListTools(ctx, &mcp.ListToolsParams{Cursor: cursor})
 		if err != nil {
+			if errors.Is(err, ErrMarketRemoteAuth) {
+				return nil, ErrMarketRemoteAuth
+			}
 			return nil, ErrMarketRemoteSchema
 		}
 		for _, tool := range result.Tools {
@@ -557,6 +560,22 @@ func (r *ToolMarketRemote) execute(ctx context.Context, in model.ToolMarketReser
 		return GetToolMarketExecutionResponse(in.UserID, in.ClientID, call.ID)
 	}
 	result, callErr := session.CallTool(ctx, &mcp.CallToolParams{Name: execution.Tool.Name, Arguments: arguments})
+	if errors.Is(callErr, ErrMarketRemoteAuth) {
+		// The remote explicitly rejected authentication. This is a failed call,
+		// not an uncertain transport outcome requiring a frozen balance.
+		data := []byte(`{"isError":true,"content":[{"type":"text","text":"The remote MCP service rejected its configured credential."}]}`)
+		if err := model.RecordToolMarketResult(call.ID, false, data); err != nil {
+			return nil, err
+		}
+		if err := model.FinishToolMarketCall(call.ID, false); err != nil {
+			return nil, err
+		}
+		response, err := GetToolMarketExecutionResponse(in.UserID, in.ClientID, call.ID)
+		if response != nil {
+			response.ErrorCode = "TOOL_MARKET_REMOTE_AUTH"
+		}
+		return response, err
+	}
 	if callErr != nil || result == nil || len(result.InputRequests) > 0 || result.RequestState != "" {
 		_ = model.MarkToolMarketCallUnknown(call.ID)
 		response, err := GetToolMarketExecutionResponse(in.UserID, in.ClientID, call.ID)

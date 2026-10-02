@@ -81,6 +81,7 @@ func TestToolMarketAuthenticatedRemoteLifecycle(t *testing.T) {
 			})
 			handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
 			var rotate atomic.Bool
+			var rejectCalls atomic.Bool
 			var rotateCredential func()
 			httpServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				secret := strings.TrimPrefix(req.Header.Get("Authorization"), "Bearer ")
@@ -91,10 +92,14 @@ func TestToolMarketAuthenticatedRemoteLifecycle(t *testing.T) {
 					http.Error(w, "do not expose this upstream error or credential", http.StatusUnauthorized)
 					return
 				}
-				if rotate.Load() {
+				if rotate.Load() || rejectCalls.Load() {
 					body, err := io.ReadAll(req.Body)
 					require.NoError(t, err)
 					req.Body = io.NopCloser(bytes.NewReader(body))
+					if bytes.Contains(body, []byte(`"tools/call"`)) && rejectCalls.Load() {
+						http.Error(w, "credential body must not leak", http.StatusUnauthorized)
+						return
+					}
 					if bytes.Contains(body, []byte(`"tools/list"`)) && rotate.Swap(false) {
 						rotateCredential()
 					}
@@ -149,6 +154,16 @@ func TestToolMarketAuthenticatedRemoteLifecycle(t *testing.T) {
 			replayed, err := remote.execute(ctx, input)
 			require.NoError(t, err)
 			require.Equal(t, response.Call.ID, replayed.Call.ID)
+			require.Equal(t, int32(1), calls.Load())
+			rejectCalls.Store(true)
+			input.RequestKey = "authentication-rejected"
+			failed, err := remote.execute(ctx, input)
+			require.NoError(t, err)
+			require.Equal(t, "failed", failed.Call.ExecutionStatus)
+			require.Equal(t, "released", failed.Call.SettlementStatus)
+			require.Equal(t, "TOOL_MARKET_REMOTE_AUTH", failed.ErrorCode)
+			require.NotContains(t, string(failed.Result), "credential body must not leak")
+			require.NotContains(t, string(failed.Result), credential.Secret)
 			require.Equal(t, int32(1), calls.Load())
 			var buyer model.User
 			require.NoError(t, db.First(&buyer, users[0].Id).Error)
