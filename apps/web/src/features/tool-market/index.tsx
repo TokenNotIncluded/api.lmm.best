@@ -322,7 +322,7 @@ function ToolMarketWorkspace() {
               item.max_price_quota !== undefined && (
                 <span className='text-muted-foreground text-xs'>
                   {item.max_price_quota === 0
-                    ? t('Free')
+                    ? t('Free tool')
                     : t('{{amount}} credits per successful call', {
                         amount:
                           item.min_price_quota === item.max_price_quota
@@ -395,6 +395,7 @@ function ToolMarketWorkspace() {
               key={selected?.id ?? 'new'}
               initial={editorInitial}
               units={units}
+              feeBps={config.data?.fee_bps}
               onCancel={() => setEditor(false)}
               onSaved={(id) => {
                 setEditor(false)
@@ -771,7 +772,7 @@ function ToolMarketWorkspace() {
                               </h4>
                               <p className='text-sm tabular-nums'>
                                 {tool.price_quota === 0
-                                  ? t('Free')
+                                  ? t('Free tool')
                                   : t(
                                       '{{amount}} credits per successful call',
                                       {

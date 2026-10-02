@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { marketQuota } from './money'
+import { marketNetQuota, marketQuota } from './money'
 
 test('market prices preserve the exact integer billing unit', () => {
   assert.equal(marketQuota('0', 500000), 0)
@@ -30,4 +30,15 @@ test('market prices preserve the exact integer billing unit', () => {
     )
   }
   assert.throws(() => marketQuota('1', 0.5))
+})
+
+test('author earnings use the configured fee and the exact integer settlement rounding', () => {
+  assert.equal(marketNetQuota(500000, 1000), 450000)
+  assert.equal(marketNetQuota(500000, 2500), 375000)
+  assert.equal(marketNetQuota(500000, 0), 500000)
+  assert.equal(marketNetQuota(500000, 10000), 0)
+  assert.equal(marketNetQuota(0, 1000), 0)
+  assert.equal(marketNetQuota(1, 1000), 1)
+  assert.equal(marketNetQuota(11, 1000), 10)
+  assert.equal(marketNetQuota(Number.MAX_SAFE_INTEGER, 1000), 8106479329266892)
 })
