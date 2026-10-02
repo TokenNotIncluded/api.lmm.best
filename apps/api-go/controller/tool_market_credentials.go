@@ -93,7 +93,7 @@ func InspectToolMarketRemoteWithCredentials(c *gin.Context) {
 		}
 	}
 	tools, err := service.InspectToolMarketRemoteAuthenticated(c.Request.Context(), input.Endpoint, credential)
-	toolMarketRespond(c, tools, err)
+	toolMarketRespond(c, toolMarketDiscoveryRows(tools), err)
 }
 
 func ActivateToolMarketPrivate(c *gin.Context) {
@@ -135,4 +135,20 @@ func ActivateToolMarketPrivate(c *gin.Context) {
 		return
 	}
 	toolMarketRespond(c, nil, model.ActivateToolMarketPrivate(actor, serviceID, input.VersionID))
+}
+
+// Keep raw schema strings alongside legacy JSON objects for browser authors:
+// JavaScript JSON.parse cannot preserve arbitrary numeric schema constraints.
+type toolMarketDiscoveryRow struct {
+	model.ToolMarketToolInput
+	InputSchemaJSON  string `json:"input_schema_json"`
+	OutputSchemaJSON string `json:"output_schema_json,omitempty"`
+}
+
+func toolMarketDiscoveryRows(tools []model.ToolMarketToolInput) []toolMarketDiscoveryRow {
+	rows := make([]toolMarketDiscoveryRow, 0, len(tools))
+	for _, tool := range tools {
+		rows = append(rows, toolMarketDiscoveryRow{ToolMarketToolInput: tool, InputSchemaJSON: string(tool.InputSchema), OutputSchemaJSON: string(tool.OutputSchema)})
+	}
+	return rows
 }

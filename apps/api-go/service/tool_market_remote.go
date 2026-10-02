@@ -16,14 +16,14 @@ import (
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
-	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/santhosh-tekuri/jsonschema/v6"
 	"gorm.io/gorm"
 )
 
 var (
 	ErrMarketRemoteConnection = errors.New("remote MCP connection failed; check the HTTPS endpoint and availability")
-	ErrMarketRemoteAuth       = errors.New("this remote requires authentication; credential-based services are not supported yet")
+	ErrMarketRemoteAuth       = errors.New("remote MCP authentication was rejected; check the service credential")
 	ErrMarketRemoteSchema     = errors.New("remote MCP tool definitions are invalid or unsupported")
 	ErrMarketRemoteChanged    = errors.New("remote MCP tool definition changed; synchronize and review a new version")
 	ErrMarketRemoteInput      = errors.New("arguments do not match the approved tool input schema")
@@ -100,6 +100,7 @@ type marketResponseTransport struct {
 	base       http.RoundTripper
 	endpoint   string
 	credential *model.ToolMarketResolvedCredential
+	capture    *marketWireCapture
 }
 
 func (t marketResponseTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -140,6 +141,9 @@ func (t marketResponseTransport) RoundTrip(req *http.Request) (*http.Response, e
 		return nil, ErrMarketRemoteAuth
 	}
 	resp.Body = &marketLimitedBody{ReadCloser: resp.Body, remaining: 2 << 20}
+	if t.capture != nil {
+		t.capture.wrap(req, resp)
+	}
 	return resp, nil
 }
 
@@ -177,15 +181,20 @@ func (r *ToolMarketRemote) connect(ctx context.Context, endpoint string) (*mcp.C
 }
 
 func (r *ToolMarketRemote) connectAuthenticated(ctx context.Context, endpoint string, credential *model.ToolMarketResolvedCredential) (*mcp.ClientSession, error) {
+	session, _, err := r.connectExact(ctx, endpoint, credential)
+	return session, err
+}
+
+func (r *ToolMarketRemote) connectExact(ctx context.Context, endpoint string, credential *model.ToolMarketResolvedCredential) (*mcp.ClientSession, *marketWireCapture, error) {
 	parsed, err := marketRemoteURL(endpoint)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if credential != nil {
 		snapshot := *credential
 		credential = &snapshot
 		if err := model.ValidateToolMarketCredential(credential.Mode, credential.Secret); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	httpClient := *r.client
@@ -198,47 +207,63 @@ func (r *ToolMarketRemote) connectAuthenticated(ctx context.Context, endpoint st
 		transport = marketResponseTransport{base: base}
 	}
 	transport.endpoint, transport.credential = parsed.String(), credential
+	capture := &marketWireCapture{}
+	transport.capture = capture
 	httpClient.Transport = transport
 	client := mcp.NewClient(&mcp.Implementation{Name: "lmm-tool-market", Version: "1"}, &mcp.ClientOptions{MultiRoundTrip: &mcp.MultiRoundTripOptions{Disabled: true}})
 	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: endpoint, HTTPClient: &httpClient, MaxRetries: -1, DisableStandaloneSSE: true}, nil)
 	if err != nil {
 		if errors.Is(err, ErrMarketRemoteAuth) {
-			return nil, ErrMarketRemoteAuth
+			return nil, nil, ErrMarketRemoteAuth
 		}
-		return nil, ErrMarketRemoteConnection
+		return nil, nil, ErrMarketRemoteConnection
 	}
-	return session, nil
+	return session, capture, nil
 }
 
-func marketSchema(raw []byte) (*jsonschema.Resolved, error) {
+func marketSchema(raw []byte) (*jsonschema.Schema, error) {
 	if len(raw) == 0 || len(raw) > 16384 {
 		return nil, ErrMarketRemoteSchema
 	}
 	var tree any
-	if json.Unmarshal(raw, &tree) != nil {
+	if marketDecodeExactJSON(raw, &tree) != nil {
 		return nil, ErrMarketRemoteSchema
 	}
-	if !marketJSONDepth(tree, 0) {
+	if !marketExactJSONBounded(tree, 0) {
 		return nil, ErrMarketRemoteSchema
 	}
 	if !marketSchemaReferencesSafe(tree) {
 		return nil, ErrMarketRemoteSchema
 	}
-	var schema jsonschema.Schema
-	if json.Unmarshal(raw, &schema) != nil || schema.Type != "object" {
+	schema, ok := tree.(map[string]any)
+	if !ok || schema["type"] != "object" {
 		return nil, ErrMarketRemoteSchema
 	}
-	switch schema.Schema {
-	case "", "http://json-schema.org/draft-07/schema#", "https://json-schema.org/draft-07/schema#", "https://json-schema.org/draft/2020-12/schema":
+	switch schema["$schema"] {
+	case nil, "", "http://json-schema.org/draft-07/schema#", "https://json-schema.org/draft-07/schema#", "https://json-schema.org/draft/2020-12/schema":
 	default:
 		return nil, ErrMarketRemoteSchema
 	}
-	resolved, err := schema.Resolve(&jsonschema.ResolveOptions{ValidateDefaults: true})
+	if schema["$schema"] == "" {
+		delete(schema, "$schema")
+	}
+	compiler := jsonschema.NewCompiler()
+	compiler.DefaultDraft(jsonschema.Draft2020)
+	compiler.UseLoader(marketNoSchemaLoader{})
+	const schemaURL = "https://lmm.invalid/tool-market/schema"
+	if err := compiler.AddResource(schemaURL, schema); err != nil {
+		return nil, ErrMarketRemoteSchema
+	}
+	resolved, err := compiler.Compile(schemaURL)
 	if err != nil {
 		return nil, ErrMarketRemoteSchema
 	}
 	return resolved, nil
 }
+
+type marketNoSchemaLoader struct{}
+
+func (marketNoSchemaLoader) Load(string) (any, error) { return nil, ErrMarketRemoteSchema }
 
 func marketSchemaReferencesSafe(value any) bool {
 	switch value := value.(type) {
@@ -291,7 +316,7 @@ func marketJSONDepth(value any, depth int) bool {
 func marketCanonical(value any) string {
 	data, _ := json.Marshal(value)
 	var normalized any
-	_ = json.Unmarshal(data, &normalized)
+	_ = marketDecodeExactJSON(data, &normalized)
 	data, _ = json.Marshal(normalized)
 	return string(data)
 }
@@ -302,7 +327,7 @@ func marketRemoteFingerprint(tool *mcp.Tool) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func marketListRemote(ctx context.Context, session *mcp.ClientSession) ([]*mcp.Tool, error) {
+func marketListRemote(ctx context.Context, session *mcp.ClientSession, capture *marketWireCapture) ([]*mcp.Tool, error) {
 	items := []*mcp.Tool{}
 	cursor := ""
 	seen := map[string]bool{}
@@ -313,6 +338,24 @@ func marketListRemote(ctx context.Context, session *mcp.ClientSession) ([]*mcp.T
 				return nil, ErrMarketRemoteAuth
 			}
 			return nil, ErrMarketRemoteSchema
+		}
+		exact, err := capture.result("tools/list")
+		if err != nil {
+			return nil, ErrMarketRemoteSchema
+		}
+		exactTools, ok := exact["tools"].([]any)
+		if !ok || len(exactTools) != len(result.Tools) {
+			return nil, ErrMarketRemoteSchema
+		}
+		for index, tool := range result.Tools {
+			definition, ok := exactTools[index].(map[string]any)
+			if !ok || tool == nil || definition["name"] != tool.Name {
+				return nil, ErrMarketRemoteSchema
+			}
+			tool.InputSchema, tool.OutputSchema = definition["inputSchema"], definition["outputSchema"]
+			if metadata, ok := definition["_meta"].(map[string]any); ok {
+				tool.Meta = metadata
+			}
 		}
 		for _, tool := range result.Tools {
 			if tool == nil || tool.Name == "" || len(tool.Name) > 128 || len(tool.Description) > 4000 || seen[tool.Name] {
@@ -369,12 +412,12 @@ func (r *ToolMarketRemote) inspectAuthenticated(ctx context.Context, endpoint st
 	}
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	session, err := r.connectAuthenticated(ctx, endpoint, credential)
+	session, capture, err := r.connectExact(ctx, endpoint, credential)
 	if err != nil {
 		return nil, err
 	}
 	defer session.Close()
-	tools, err := marketListRemote(ctx, session)
+	tools, err := marketListRemote(ctx, session, capture)
 	if err != nil {
 		return nil, err
 	}
@@ -420,12 +463,12 @@ func (r *ToolMarketRemote) validate(ctx context.Context, actor int, serviceID st
 	}
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	session, err := r.connectAuthenticated(ctx, detail.Version.Endpoint, credential)
+	session, capture, err := r.connectExact(ctx, detail.Version.Endpoint, credential)
 	if err != nil {
 		return err
 	}
 	defer session.Close()
-	tools, err := marketListRemote(ctx, session)
+	tools, err := marketListRemote(ctx, session, capture)
 	if err != nil {
 		return err
 	}
@@ -451,10 +494,10 @@ func (r *ToolMarketRemote) validate(ctx context.Context, actor int, serviceID st
 
 func marketSchemasMatch(local model.ToolMarketToolVersion, remote *mcp.Tool) bool {
 	var input, output any
-	if json.Unmarshal([]byte(local.InputSchema), &input) != nil {
+	if marketDecodeExactJSON([]byte(local.InputSchema), &input) != nil {
 		return false
 	}
-	if local.OutputSchema != "" && json.Unmarshal([]byte(local.OutputSchema), &output) != nil {
+	if local.OutputSchema != "" && marketDecodeExactJSON([]byte(local.OutputSchema), &output) != nil {
 		return false
 	}
 	return marketCanonical(input) == marketCanonical(remote.InputSchema) && marketCanonical(output) == marketCanonical(remote.OutputSchema)
@@ -503,13 +546,9 @@ func (r *ToolMarketRemote) execute(ctx context.Context, in model.ToolMarketReser
 	if err != nil {
 		return nil, err
 	}
-	inputSchema, err := marketSchema([]byte(execution.Tool.InputSchema))
+	arguments, err := ValidateToolMarketArguments(json.RawMessage(execution.Tool.InputSchema), in.Arguments)
 	if err != nil {
 		return nil, err
-	}
-	var arguments any
-	if len(in.Arguments) > 128<<10 || json.Unmarshal(in.Arguments, &arguments) != nil || !marketJSONDepth(arguments, 0) || inputSchema.Validate(arguments) != nil {
-		return nil, ErrMarketRemoteInput
 	}
 	select {
 	case r.slots <- struct{}{}:
@@ -520,12 +559,12 @@ func (r *ToolMarketRemote) execute(ctx context.Context, in model.ToolMarketReser
 	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
 	// Discovery and schema drift checks are read-only and happen before a hold.
-	session, err := r.connectAuthenticated(ctx, execution.Version.Endpoint, credential)
+	session, capture, err := r.connectExact(ctx, execution.Version.Endpoint, credential)
 	if err != nil {
 		return nil, err
 	}
 	defer session.Close()
-	tools, err := marketListRemote(ctx, session)
+	tools, err := marketListRemote(ctx, session, capture)
 	if err != nil {
 		return nil, err
 	}
@@ -584,6 +623,19 @@ func (r *ToolMarketRemote) execute(ctx context.Context, in model.ToolMarketReser
 		}
 		return response, err
 	}
+	exactResult, err := capture.result("tools/call")
+	if err != nil {
+		_ = model.MarkToolMarketCallUnknown(call.ID)
+		response, readErr := GetToolMarketExecutionResponse(in.UserID, in.ClientID, call.ID)
+		if response != nil {
+			response.ErrorCode = "TOOL_MARKET_RESULT_UNKNOWN"
+		}
+		return response, readErr
+	}
+	result.StructuredContent = exactResult["structuredContent"]
+	if metadata, ok := exactResult["_meta"].(map[string]any); ok {
+		result.Meta = metadata
+	}
 	success := !result.IsError
 	errorCode := ""
 	if success && execution.Tool.OutputSchema != "" {
@@ -616,7 +668,7 @@ func (r *ToolMarketRemote) execute(ctx context.Context, in model.ToolMarketReser
 			}
 		}
 	}
-	data, err := json.Marshal(result)
+	data, err := json.Marshal(exactResult)
 	if err != nil || len(data) > 2<<20 {
 		success = false
 		data = []byte(`{"isError":true,"content":[{"type":"text","text":"Remote result exceeds the supported limit."}]}`)
