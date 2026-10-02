@@ -1,6 +1,9 @@
 package relay
 
-import "github.com/LIghtJUNction/api.lmm.best/common"
+import (
+	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/relaykit/relayconvert"
+)
 
 // copyRequestForRelay isolates top-level metadata (model, stream options, etc.)
 // while avoiding a deep copy of payloads that will be sent verbatim from their
@@ -12,5 +15,20 @@ func copyRequestForRelay[T any](src *T, passthrough bool) (*T, error) {
 		copy := *src
 		return &copy, nil
 	}
-	return common.DeepCopy(src)
+	return copyMutableRequestForRelay(src, passthrough)
+}
+
+// Claude and Gemini handlers can change nested provider settings even when the
+// raw body is forwarded. Keep those copies isolated across channel retries.
+func copyMutableRequestForRelay[T any](src *T, passthrough bool) (*T, error) {
+	copy, err := common.DeepCopy(src)
+	if err != nil {
+		return nil, err
+	}
+	if !passthrough {
+		if err := relayconvert.SanitizeToolSchemas(copy); err != nil {
+			return nil, err
+		}
+	}
+	return copy, nil
 }

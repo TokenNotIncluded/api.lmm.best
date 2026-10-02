@@ -1177,7 +1177,7 @@ impl FinanceAccumulator {
             self.overview.refund_by_method.push(metric.clone());
         }
         let mut day = chrono::DateTime::<chrono::Utc>::from_timestamp(start, 0)
-            .map_or_else(chrono::Utc::now, |dt| dt)
+            .unwrap_or_else(chrono::Utc::now)
             .date_naive()
             .and_hms_opt(0, 0, 0)
             .map(|dt| dt.and_utc().timestamp())
@@ -1540,7 +1540,7 @@ impl FinanceBackend for PgFinanceBackend {
             .as_ref()
             .map(|v| v.trim().to_owned())
             .filter(|v| !v.is_empty())
-            .map_or_else(|| label.clone(), std::convert::identity);
+            .unwrap_or_else(|| label.clone());
         let label = if label.is_empty() {
             method.to_owned()
         } else {

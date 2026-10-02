@@ -9,6 +9,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/constant"
 	"github.com/LIghtJUNction/api.lmm.best/logger"
+	"github.com/LIghtJUNction/api.lmm.best/relay/channel"
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
 	relayconstant "github.com/LIghtJUNction/api.lmm.best/relay/constant"
 	"github.com/LIghtJUNction/api.lmm.best/relay/helper"
@@ -164,7 +165,7 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 		}
 	}
 
-	usage, newApiErr := adaptor.DoResponse(c, httpResp, info)
+	usage, newApiErr := channel.DoResponse(adaptor, c, httpResp, info)
 	if newApiErr != nil {
 		// reset status code 重置状态码
 		service.ResetStatusCode(newApiErr, statusCodeMappingStr)

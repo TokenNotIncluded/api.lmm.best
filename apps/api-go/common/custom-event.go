@@ -21,7 +21,15 @@ type stringWrapper struct {
 }
 
 func (w stringWrapper) writeString(str string) (int, error) {
-	return w.Writer.Write([]byte(str))
+	return w.Write([]byte(str))
+}
+
+func (w stringWrapper) Write(data []byte) (int, error) {
+	n, err := w.Writer.Write(data)
+	if err == nil && n < len(data) {
+		err = io.ErrShortWrite
+	}
+	return n, err
 }
 
 func checkWriter(writer io.Writer) stringWriter {
@@ -62,9 +70,12 @@ func encode(writer io.Writer, event CustomEvent) error {
 }
 
 func writeData(w stringWriter, data interface{}) error {
-	dataReplacer.WriteString(w, fmt.Sprint(data))
+	if _, err := dataReplacer.WriteString(w, fmt.Sprint(data)); err != nil {
+		return err
+	}
 	if strings.HasPrefix(data.(string), "data") {
-		w.writeString("\n\n")
+		_, err := w.writeString("\n\n")
+		return err
 	}
 	return nil
 }

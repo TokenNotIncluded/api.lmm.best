@@ -1,8 +1,8 @@
 package cohere
 
 import (
+	"context"
 	"encoding/json"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -82,7 +82,9 @@ func stopReasonCohere2OpenAI(reason string) string {
 
 func cohereStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	defer service.CloseResponseBodyGracefully(resp)
-	ctx := c.Request.Context()
+	ctx, cancel := context.WithCancel(c.Request.Context())
+	defer cancel()
+	info.RateLimitStreamStatus = relaycommon.NewStreamStatus()
 	responseId := helper.GetResponseID(c)
 	createdTime := common.GetTimestamp()
 	usage := &dto.Usage{}
@@ -101,7 +103,7 @@ func cohereStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		return 0, nil, nil
 	})
 	dataChan := make(chan string)
-	stopChan := make(chan bool)
+	stopChan := make(chan error, 1)
 	go func() {
 		for scanner.Scan() {
 			data := scanner.Text()
@@ -109,15 +111,47 @@ func cohereStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 				return
 			}
 		}
-		if err := scanner.Err(); err != nil {
+		err := scanner.Err()
+		if err != nil {
 			common.SysLog("error reading stream: " + err.Error())
 		}
-		helper.SendCtx(ctx, stopChan, true)
+		helper.SendCtx(ctx, stopChan, err)
 	}()
 	helper.SetEventStreamHeaders(c)
 	isFirst := true
-	c.Stream(func(w io.Writer) bool {
+	finished := false
+	// Keep reading terminal usage after a failed write; settlement still needs
+	// the upstream's billing facts even though this stream cannot count as success.
+	writeFailed := false
+	writeData := func(data string) {
+		if writeFailed {
+			return
+		}
+		err := ctx.Err()
+		if err == nil {
+			helper.ExtendWriteDeadline(c)
+			previousErrors := len(c.Errors)
+			err = helper.StringData(c, data)
+			if len(c.Errors) > previousErrors {
+				err = c.Errors.Last().Err
+			}
+		}
+		if err != nil {
+			info.RateLimitStreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
+			info.RateLimitStreamStatus.RecordError("downstream stream write failed")
+			writeFailed = true
+		}
+	}
+streamLoop:
+	for {
+		if err := ctx.Err(); err != nil {
+			info.RateLimitStreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
+			break
+		}
 		select {
+		case <-ctx.Done():
+			info.RateLimitStreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, ctx.Err())
+			break streamLoop
 		case data := <-dataChan:
 			if isFirst {
 				isFirst = false
@@ -128,7 +162,8 @@ func cohereStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 			err := json.Unmarshal([]byte(data), &cohereResp)
 			if err != nil {
 				common.SysLog("error unmarshalling stream response: " + err.Error())
-				return true
+				info.RateLimitStreamStatus.RecordError("invalid upstream stream response")
+				continue
 			}
 			var openaiResp dto.ChatCompletionsStreamResponse
 			openaiResp.Id = responseId
@@ -136,6 +171,10 @@ func cohereStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 			openaiResp.Object = "chat.completion.chunk"
 			openaiResp.Model = info.UpstreamModelName
 			if cohereResp.IsFinished {
+				finished = true
+				if cohereResp.FinishReason == "ERROR" || strings.HasPrefix(cohereResp.FinishReason, "ERROR_") {
+					info.RateLimitStreamStatus.RecordError("upstream stream terminal failure")
+				}
 				finishReason := stopReasonCohere2OpenAI(cohereResp.FinishReason)
 				openaiResp.Choices = []dto.ChatCompletionsStreamResponseChoice{
 					{
@@ -163,15 +202,21 @@ func cohereStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 			jsonStr, err := json.Marshal(openaiResp)
 			if err != nil {
 				common.SysLog("error marshalling stream response: " + err.Error())
-				return true
+				info.RateLimitStreamStatus.RecordError("failed to encode stream response")
+				continue
 			}
-			c.Render(-1, common.CustomEvent{Data: "data: " + string(jsonStr)})
-			return true
-		case <-stopChan:
-			c.Render(-1, common.CustomEvent{Data: "data: [DONE]"})
-			return false
+			writeData(string(jsonStr))
+		case err := <-stopChan:
+			if err != nil {
+				info.RateLimitStreamStatus.SetEndReason(relaycommon.StreamEndReasonScannerErr, err)
+			} else if !finished {
+				info.RateLimitStreamStatus.RecordError("upstream stream ended without a terminal response")
+			}
+			writeData("[DONE]")
+			info.RateLimitStreamStatus.SetEndReason(relaycommon.StreamEndReasonEOF, nil)
+			break streamLoop
 		}
-	})
+	}
 	if usage.PromptTokens == 0 {
 		usage = service.ResponseText2Usage(c, responseText, info.UpstreamModelName, info.GetEstimatePromptTokens())
 	}

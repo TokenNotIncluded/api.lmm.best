@@ -18,6 +18,7 @@ import (
 )
 
 type Adaptor struct {
+	openaiAdaptor openai.Adaptor
 }
 
 func (a *Adaptor) ConvertGeminiRequest(*gin.Context, *relaycommon.RelayInfo, *dto.GeminiChatRequest) (any, error) {
@@ -51,6 +52,10 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 }
 
 func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
+	if useOpenAIChat(info) {
+		// The OpenAI stream handler needs the thinking-to-content lifecycle state.
+		a.openaiAdaptor.Init(info)
+	}
 }
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
@@ -67,6 +72,9 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	}
 	if strings.Contains(info.RequestURLPath, "/v1/completions") || info.RelayMode == relayconstant.RelayModeCompletions {
 		return info.ChannelBaseUrl + "/api/generate", nil
+	}
+	if useOpenAIChat(info) {
+		return info.ChannelBaseUrl + "/v1/chat/completions", nil
 	}
 	return info.ChannelBaseUrl + "/api/chat", nil
 }
@@ -92,6 +100,18 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 	// decide generate or chat
 	if strings.Contains(info.RequestURLPath, "/v1/completions") || info.RelayMode == relayconstant.RelayModeCompletions {
 		return openAIToGenerate(c, request)
+	}
+	if useOpenAIChat(info) {
+		converted, err := a.openaiAdaptor.ConvertOpenAIRequest(c, info, request)
+		if err != nil {
+			return nil, err
+		}
+		if info.IsStream {
+			// Native Ollama includes counts in its final NDJSON record. Request the
+			// equivalent SSE usage event without forcing it downstream.
+			request.StreamOptions = &dto.StreamOptions{IncludeUsage: true}
+		}
+		return converted, nil
 	}
 	return openAIChatToOllamaChat(c, request)
 }
@@ -129,10 +149,21 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		claudeAdaptor := claude.Adaptor{}
 		return claudeAdaptor.DoResponse(c, resp, info)
 	}
+	if useOpenAIChat(info) {
+		return a.openaiAdaptor.DoResponse(c, resp, info)
+	}
 	if info.IsStream {
 		return ollamaStreamHandler(c, info, resp)
 	}
 	return ollamaChatHandler(c, info, resp)
+}
+
+func useOpenAIChat(info *relaycommon.RelayInfo) bool {
+	return info != nil && info.ChannelMeta != nil &&
+		info.RelayMode == relayconstant.RelayModeChatCompletions &&
+		info.RelayFormat == types.RelayFormatOpenAI &&
+		!strings.Contains(info.RequestURLPath, "/v1/completions") &&
+		info.ChannelOtherSettings.OllamaOpenAIChat
 }
 
 func useNativeClaudeMessages(info *relaycommon.RelayInfo) bool {

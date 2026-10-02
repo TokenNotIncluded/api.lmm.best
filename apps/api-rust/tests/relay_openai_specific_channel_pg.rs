@@ -195,6 +195,93 @@ async fn assert_reservation_refunded(pool: &PgPool, user_id: i64, token_id: i64)
 
 #[tokio::test]
 #[ignore = "requires isolated PostgreSQL via LMM_TEST_DATABASE_URL"]
+async fn postgres_ollama_native_chat_fails_before_reservation_and_explicit_opt_in_forwards()
+-> TestResult {
+    let Some((admin, pool, schema)) = isolated_pool().await? else {
+        eprintln!("skipping Ollama transport PostgreSQL test: LMM_TEST_DATABASE_URL is unset");
+        return Ok(());
+    };
+    let mut upstream = spawn_upstream(MockUpstreamBehavior::JsonSuccess).await?;
+    let result = async {
+        create_minimal_relay_schema(&pool).await?;
+        sqlx::query("ALTER TABLE channels ADD COLUMN type BIGINT, ADD COLUMN settings TEXT")
+            .execute(&pool)
+            .await?;
+        sqlx::query("INSERT INTO users (id,status,quota,role) VALUES (1,1,100,1)")
+            .execute(&pool)
+            .await?;
+        sqlx::query(
+            "INSERT INTO tokens (id,user_id,status,expired_time,remain_quota,unlimited_quota,allow_ips,key,\"group\") VALUES (11,1,1,-1,100,FALSE,'','tenant','default')",
+        )
+        .execute(&pool)
+        .await?;
+        sqlx::query(
+            "INSERT INTO channels (id,type,status,base_url,key,settings) VALUES (1,4,1,$1,'ollama-key','')",
+        )
+        .bind(&upstream.base_url)
+        .execute(&pool)
+        .await?;
+        sqlx::query(
+            "INSERT INTO abilities (\"group\",model,channel_id,enabled,priority,weight) VALUES ('default','gpt-4o',1,TRUE,1,1)",
+        )
+        .execute(&pool)
+        .await?;
+        let client = RelayHttpClient::new(RelayTimeoutConfig {
+            response_headers: Some(Duration::from_secs(2)),
+            ..Default::default()
+        })?;
+        let service = PgOpenAiRelayService::new(pool.clone(), OpenAiUpstreamClient::new(client), 1);
+        let tracker = service.settlement_tracker();
+        let router = openai_relay_router(OpenAiRelayHttpState::new(Arc::new(service), "test"));
+
+        for settings in ["", "{}", r#"{"ollama_openai_chat":false}"#] {
+            sqlx::query("UPDATE channels SET settings=$1 WHERE id=1")
+                .bind(settings)
+                .execute(&pool)
+                .await?;
+            assert_eq!(
+                relay_request(&router, "Bearer sk-tenant", false).await?,
+                StatusCode::NOT_IMPLEMENTED,
+            );
+            assert!(upstream.received.try_recv().is_err());
+            assert_reservation_refunded(&pool, 1, 11).await?;
+        }
+
+        sqlx::query("UPDATE channels SET settings=$1 WHERE id=1")
+            .bind(r#"{"ollama_openai_chat":true}"#)
+            .execute(&pool)
+            .await?;
+        assert_eq!(
+            relay_request(&router, "Bearer sk-tenant", false).await?,
+            StatusCode::OK,
+        );
+        assert!(
+            timeout(Duration::from_secs(1), upstream.received.recv())
+                .await?
+                .is_some()
+        );
+        assert!(
+            tracker
+                .drain_until(tokio::time::Instant::now() + Duration::from_secs(2))
+                .await
+        );
+        Ok::<(), Box<dyn std::error::Error>>(())
+    }
+    .await;
+
+    upstream.task.abort();
+    drop(pool);
+    let cleanup = sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
+        .execute(&admin)
+        .await;
+    drop(admin);
+    result?;
+    cleanup?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL via LMM_TEST_DATABASE_URL"]
 async fn postgres_specific_channel_enforces_role_pin_and_disabled_channel() -> TestResult {
     let Some((admin, pool, schema)) = isolated_pool().await? else {
         eprintln!(

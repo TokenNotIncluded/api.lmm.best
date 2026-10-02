@@ -310,6 +310,7 @@ export function ModelMutateDrawer({
       'claude.model_headers_settings': '',
       'claude.default_max_tokens': '',
       'claude.thinking_adapter_enabled': true,
+      'claude.refusal_no_output_no_charge_enabled': false,
       'claude.thinking_adapter_budget_tokens_percentage': 0.8,
       ModelPrice: '',
       ModelPriceLock: '{}',

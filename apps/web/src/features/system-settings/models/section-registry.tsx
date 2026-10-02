@@ -147,6 +147,8 @@ const MODELS_SECTIONS = [
             default_max_tokens: settings['claude.default_max_tokens'],
             thinking_adapter_enabled:
               settings['claude.thinking_adapter_enabled'],
+            refusal_no_output_no_charge_enabled:
+              settings['claude.refusal_no_output_no_charge_enabled'],
             thinking_adapter_budget_tokens_percentage:
               settings['claude.thinking_adapter_budget_tokens_percentage'],
           },

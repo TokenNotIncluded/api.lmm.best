@@ -73,10 +73,7 @@ impl UserRankingsState {
                     Ok(guard) => guard,
                     Err(poisoned) => poisoned.into_inner(),
                 };
-                last_good_nav
-                    .as_ref()
-                    .copied()
-                    .map_or_else(HeaderNavAccess::default, std::convert::identity)
+                last_good_nav.as_ref().copied().unwrap_or_default()
             }
         }
     }
@@ -473,7 +470,7 @@ fn usage_visibility(setting: &str) -> UsageVisibility {
                 .and_then(Value::as_str)
                 .map(str::to_owned)
         })
-        .map_or_else(String::new, std::convert::identity);
+        .unwrap_or_default();
     match raw.trim().to_ascii_lowercase().as_str() {
         "public" => UsageVisibility::Public,
         "hidden" => UsageVisibility::Hidden,

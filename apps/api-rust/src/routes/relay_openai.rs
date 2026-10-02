@@ -52,6 +52,7 @@ pub(crate) mod billing;
 mod cache;
 mod drain;
 mod funding;
+mod ollama;
 mod reconcile;
 mod responses_terminal;
 mod settlement;
@@ -495,6 +496,8 @@ impl PgOpenAiRelayService {
                       COALESCE((to_jsonb(t)->>'model_limits_enabled')::BOOLEAN,FALSE) AS model_limits_enabled,
                       COALESCE(to_jsonb(t)->>'model_limits','') AS model_limits,
                       c.id AS channel_id, COALESCE(c.status,1) AS channel_status,
+                      COALESCE((to_jsonb(c)->>'type')::BIGINT,0) AS channel_type,
+                      COALESCE(to_jsonb(c)->>'settings','') AS channel_settings,
                       COALESCE(c.base_url,'') AS base_url,
                       c.key AS channel_key
                FROM tokens t JOIN users u ON u.id=t.user_id
@@ -567,6 +570,13 @@ impl PgOpenAiRelayService {
                 "token has no access to this model",
             ));
         }
+        ollama::validate_transport(
+            row.try_get("channel_type")
+                .map_err(|_| internal_failure())?,
+            request.endpoint,
+            &row.try_get::<String, _>("channel_settings")
+                .map_err(|_| internal_failure())?,
+        )?;
         let using_group: String = row.try_get("using_group").map_err(|_| internal_failure())?;
         let price = if self.option_pricing {
             let rows: Vec<(String, String)> =

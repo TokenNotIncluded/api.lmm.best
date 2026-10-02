@@ -1,7 +1,9 @@
 package palm
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 
@@ -50,17 +52,37 @@ func streamResponsePaLM2OpenAI(palmResponse *PaLMChatResponse) *dto.ChatCompleti
 	return &response
 }
 
-func palmStreamHandler(c *gin.Context, resp *http.Response) (*types.NewAPIError, string) {
+func palmStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*types.NewAPIError, string) {
+	info.RateLimitStreamStatus = relaycommon.NewStreamStatus()
+	status := info.RateLimitStreamStatus
 	defer service.CloseResponseBodyGracefully(resp)
-	ctx := c.Request.Context()
+	ctx, cancel := context.WithCancel(c.Request.Context())
+	defer cancel()
+	defer func() {
+		if err := c.Request.Context().Err(); err != nil {
+			status.RecordError("request_canceled")
+			status.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
+		}
+		if writerErr := c.Errors.Last(); writerErr != nil {
+			status.RecordError("write_response")
+			status.SetEndReason(relaycommon.StreamEndReasonClientGone, writerErr.Err)
+		}
+		status.SetEndReason(relaycommon.StreamEndReasonDone, nil)
+	}()
 	responseText := ""
 	responseId := helper.GetResponseID(c)
 	createdTime := common.GetTimestamp()
-	dataChan := make(chan string)
+	type streamData struct {
+		json string
+		text string
+	}
+	dataChan := make(chan streamData)
 	stopChan := make(chan bool)
 	go func() {
 		responseBody, err := common.ReadResponseBody(resp)
 		if err != nil {
+			status.RecordError("read_response")
+			status.SetEndReason(relaycommon.StreamEndReasonScannerErr, err)
 			common.SysLog("error reading stream response: " + err.Error())
 			helper.SendCtx(ctx, stopChan, true)
 			return
@@ -68,6 +90,8 @@ func palmStreamHandler(c *gin.Context, resp *http.Response) (*types.NewAPIError,
 		var palmResponse PaLMChatResponse
 		err = json.Unmarshal(responseBody, &palmResponse)
 		if err != nil {
+			status.RecordError("decode_response")
+			status.SetEndReason(relaycommon.StreamEndReasonHandlerStop, err)
 			common.SysLog("error unmarshalling stream response: " + err.Error())
 			helper.SendCtx(ctx, stopChan, true)
 			return
@@ -75,31 +99,49 @@ func palmStreamHandler(c *gin.Context, resp *http.Response) (*types.NewAPIError,
 		fullTextResponse := streamResponsePaLM2OpenAI(&palmResponse)
 		fullTextResponse.Id = responseId
 		fullTextResponse.Created = createdTime
+		text := ""
+		if palmResponse.Error.Code != 0 || len(palmResponse.Candidates) == 0 {
+			status.RecordError("upstream_error")
+		}
 		if len(palmResponse.Candidates) > 0 {
-			responseText = palmResponse.Candidates[0].Content
+			text = palmResponse.Candidates[0].Content
 		}
 		jsonResponse, err := json.Marshal(fullTextResponse)
 		if err != nil {
+			status.RecordError("encode_response")
+			status.SetEndReason(relaycommon.StreamEndReasonHandlerStop, err)
 			common.SysLog("error marshalling stream response: " + err.Error())
 			helper.SendCtx(ctx, stopChan, true)
 			return
 		}
-		if !helper.SendCtx(ctx, dataChan, string(jsonResponse)) {
+		if !helper.SendCtx(ctx, dataChan, streamData{json: string(jsonResponse), text: text}) {
 			return
 		}
 		helper.SendCtx(ctx, stopChan, true)
 	}()
 	helper.SetEventStreamHeaders(c)
-	c.Stream(func(w io.Writer) bool {
+	clientDisconnected := c.Stream(func(w io.Writer) bool {
 		select {
 		case data := <-dataChan:
-			c.Render(-1, common.CustomEvent{Data: "data: " + data})
+			responseText = data.text
+			c.Render(-1, common.CustomEvent{Data: "data: " + data.json})
+			if c.Errors.Last() != nil {
+				return false
+			}
 			return true
 		case <-stopChan:
 			c.Render(-1, common.CustomEvent{Data: "data: [DONE]"})
 			return false
+		case <-ctx.Done():
+			status.RecordError("request_canceled")
+			status.SetEndReason(relaycommon.StreamEndReasonClientGone, ctx.Err())
+			return false
 		}
 	})
+	if clientDisconnected {
+		status.RecordError("client_disconnected")
+		status.SetEndReason(relaycommon.StreamEndReasonClientGone, errors.New("client disconnected"))
+	}
 	return nil, responseText
 }
 

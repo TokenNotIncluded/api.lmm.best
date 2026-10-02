@@ -117,7 +117,7 @@ func TestNormalizeResponsesWSCreateEvent(t *testing.T) {
 func TestBuildResponsesWSCreateEventPreservesSessionFields(t *testing.T) {
 	payload := []byte(`{"model":"gpt-5","input":"next","store":false,"previous_response_id":"resp_1",` +
 		`"stream":true,"background":true,"event_id":"drop"}`)
-	got, err := buildResponsesWSCreateEvent(payload, common.RawMessage(`false`))
+	got, err := buildResponsesWSCreateEvent(payload, common.RawMessage(`false`), "")
 	require.NoError(t, err)
 
 	var data map[string]any
@@ -138,7 +138,7 @@ func TestResponseCancelWithoutActiveResponseIsDeterministic(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, apiErr.StatusCode)
 	assert.Equal(t, "no response is active to cancel", apiErr.Error())
 
-	payload, err := buildResponsesWSErrorPayload("evt_cancel", apiErr)
+	payload, err := buildResponsesWSErrorPayload("evt_cancel", "", apiErr)
 	require.NoError(t, err)
 	var event responsesWSErrorEvent
 	require.NoError(t, common.Unmarshal(payload, &event))
@@ -192,7 +192,7 @@ func TestResponsesWSIncompleteAfterOutputSettlesPartialUsage(t *testing.T) {
 	session.observeUpstreamMessage([]byte(`{"type":"response.incomplete","response":{"usage":{"input_tokens":7,"output_tokens":3,"total_tokens":10}}}`))
 
 	assert.Nil(t, session.getCurrent())
-	assert.Equal(t, []bool{true}, commits)
+	assert.Equal(t, []bool{false}, commits)
 	require.NotNil(t, postedUsage)
 	assert.Equal(t, 7, postedUsage.PromptTokens)
 	assert.Equal(t, 3, postedUsage.CompletionTokens)
@@ -224,7 +224,7 @@ func TestResponsesWSDisconnectAfterOutputSettlesPartialUsage(t *testing.T) {
 	session.failCurrent()
 
 	assert.Nil(t, session.getCurrent())
-	assert.Equal(t, []bool{true}, commits)
+	assert.Equal(t, []bool{false}, commits)
 	assert.True(t, posted)
 }
 
@@ -251,7 +251,7 @@ func TestResponsesWSOutputTextBufferHonorsResponseBudget(t *testing.T) {
 }
 
 func TestBuildResponsesWSErrorPayload(t *testing.T) {
-	payload, err := buildResponsesWSErrorPayload("evt", types.NewErrorWithStatusCode(
+	payload, err := buildResponsesWSErrorPayload("evt", "", types.NewErrorWithStatusCode(
 		errors.New("model is required"), types.ErrorCodeInvalidRequest, http.StatusBadRequest,
 	))
 	require.NoError(t, err)

@@ -72,6 +72,7 @@ const schema = z.object({
       }
     }),
     thinking_adapter_enabled: z.boolean(),
+    refusal_no_output_no_charge_enabled: z.boolean(),
     thinking_adapter_budget_tokens_percentage: z.coerce
       .number()
       .min(0.1, { message: 'Must be at least 0.1' })
@@ -86,6 +87,7 @@ type FlatClaudeSettings = {
   'claude.model_headers_settings': string
   'claude.default_max_tokens': string
   'claude.thinking_adapter_enabled': boolean
+  'claude.refusal_no_output_no_charge_enabled': boolean
   'claude.thinking_adapter_budget_tokens_percentage': number
 }
 
@@ -105,6 +107,8 @@ export function ClaudeSettingsCard({ defaultValues }: ClaudeSettingsCardProps) {
     ),
     'claude.thinking_adapter_enabled':
       defaultValues.claude.thinking_adapter_enabled,
+    'claude.refusal_no_output_no_charge_enabled':
+      defaultValues.claude.refusal_no_output_no_charge_enabled,
     'claude.thinking_adapter_budget_tokens_percentage': Number(
       defaultValues.claude.thinking_adapter_budget_tokens_percentage
     ),
@@ -121,6 +125,8 @@ export function ClaudeSettingsCard({ defaultValues }: ClaudeSettingsCardProps) {
         values.claude.default_max_tokens
       ),
       thinking_adapter_enabled: values.claude.thinking_adapter_enabled,
+      refusal_no_output_no_charge_enabled:
+        values.claude.refusal_no_output_no_charge_enabled,
       thinking_adapter_budget_tokens_percentage:
         values.claude.thinking_adapter_budget_tokens_percentage,
     },
@@ -145,6 +151,8 @@ export function ClaudeSettingsCard({ defaultValues }: ClaudeSettingsCardProps) {
       ),
       'claude.thinking_adapter_enabled':
         defaultValues.claude.thinking_adapter_enabled,
+      'claude.refusal_no_output_no_charge_enabled':
+        defaultValues.claude.refusal_no_output_no_charge_enabled,
       'claude.thinking_adapter_budget_tokens_percentage': Number(
         defaultValues.claude.thinking_adapter_budget_tokens_percentage
       ),
@@ -162,6 +170,8 @@ export function ClaudeSettingsCard({ defaultValues }: ClaudeSettingsCardProps) {
         values.claude.default_max_tokens
       ),
       'claude.thinking_adapter_enabled': values.claude.thinking_adapter_enabled,
+      'claude.refusal_no_output_no_charge_enabled':
+        values.claude.refusal_no_output_no_charge_enabled,
       'claude.thinking_adapter_budget_tokens_percentage':
         values.claude.thinking_adapter_budget_tokens_percentage,
     }
@@ -247,6 +257,31 @@ export function ClaudeSettingsCard({ defaultValues }: ClaudeSettingsCardProps) {
           />
 
           <SettingsControlGroup>
+            <FormField
+              control={form.control}
+              name='claude.refusal_no_output_no_charge_enabled'
+              render={({ field }) => (
+                <SettingsSwitchItem>
+                  <SettingsSwitchContent>
+                    <FormLabel>
+                      {t('Do Not Charge for Claude Refusals Without Output')}
+                    </FormLabel>
+                    <FormDescription>
+                      {t(
+                        'When enabled, eligible Claude refusals with no output do not consume quota. Enable only when all selected Claude providers follow Anthropic’s no-charge behavior. Third-party providers may still charge you.'
+                      )}
+                    </FormDescription>
+                  </SettingsSwitchContent>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                </SettingsSwitchItem>
+              )}
+            />
+
             <FormField
               control={form.control}
               name='claude.thinking_adapter_enabled'

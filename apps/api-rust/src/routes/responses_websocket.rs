@@ -13,7 +13,7 @@
 //! supplies complete advanced-security, subscription/tiered/tool/image billing,
 //! affinity and channel-policy hooks.
 
-use std::{net::IpAddr, sync::Arc, time::Duration};
+use std::{collections::VecDeque, net::IpAddr, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use axum::{
@@ -40,6 +40,8 @@ use tokio_tungstenite::{
 use crate::RequestContext;
 
 const UPSTREAM_QUEUE_DEPTH: usize = 32;
+const CONTROL_CORRELATION_DEPTH: usize = UPSTREAM_QUEUE_DEPTH;
+const CONTROL_CORRELATION_BYTES: usize = 64 * 1024;
 const UPSTREAM_IO_TIMEOUT: Duration = Duration::from_secs(30);
 const RESPONSES_SUBPROTOCOL: &str = "responses";
 const REALTIME_SUBPROTOCOL: &str = "realtime";
@@ -433,6 +435,36 @@ struct ActiveSession {
     incoming: Option<mpsc::Receiver<Result<ResponsesFrame, ResponsesUpstreamFailure>>>,
     current: Option<ResponsesTurn>,
     current_stream_id: String,
+    current_event_id: String,
+    current_turn_id: Option<String>,
+    current_response_id: String,
+    resolved_response_ids: VecDeque<String>,
+    pending_controls: VecDeque<PendingControl>,
+    resolved_controls: VecDeque<PendingControl>,
+}
+
+struct PendingControl {
+    event_id: String,
+    stream_id: String,
+    response_id: String,
+    cancel: bool,
+    owner_turn_id: Option<String>,
+}
+
+impl PendingControl {
+    fn identity_bytes(&self) -> usize {
+        self.event_id.len() + self.stream_id.len() + self.response_id.len()
+    }
+
+    fn can_correlate(&self) -> bool {
+        !self.event_id.is_empty() || !self.response_id.is_empty() || self.cancel
+    }
+}
+
+enum ControlMatch {
+    None,
+    Unique(usize),
+    Ambiguous,
 }
 
 impl ActiveSession {
@@ -445,6 +477,12 @@ impl ActiveSession {
             incoming: None,
             current: None,
             current_stream_id: String::new(),
+            current_event_id: String::new(),
+            current_turn_id: None,
+            current_response_id: String::new(),
+            resolved_response_ids: VecDeque::new(),
+            pending_controls: VecDeque::new(),
+            resolved_controls: VecDeque::new(),
         }
     }
 }
@@ -623,6 +661,24 @@ async fn handle_client_data(
                 .await;
                 return true;
             }
+            if !create.event_id.is_empty()
+                && session
+                    .pending_controls
+                    .iter()
+                    .chain(&session.resolved_controls)
+                    .any(|control| control.event_id == create.event_id)
+            {
+                send_error(
+                    client,
+                    &create.event_id,
+                    &create.stream_id,
+                    &ResponsesWebSocketFailure::invalid_request(
+                        "event_id belongs to a retained control",
+                    ),
+                )
+                .await;
+                return true;
+            }
             if session.locked_channel.is_some() && session.upstream.is_none() {
                 send_error(
                     client,
@@ -724,6 +780,14 @@ async fn handle_client_data(
             session.locked_model.get_or_insert(create.model);
             session.locked_channel.get_or_insert(started.channel);
             session.current_stream_id = create.stream_id;
+            session.current_event_id = create.event_id;
+            session.current_response_id.clear();
+            session.current_turn_id = Some(started.turn.id.clone());
+            for control in &mut session.pending_controls {
+                if control.owner_turn_id.is_none() {
+                    control.owner_turn_id = Some(started.turn.id.clone());
+                }
+            }
             session.current = Some(started.turn);
             true
         }
@@ -781,7 +845,61 @@ async fn forward_control(
     let Some(upstream) = session.upstream.as_ref() else {
         return true;
     };
+    if !event_id.is_empty()
+        && (event_id == session.current_event_id
+            || session
+                .pending_controls
+                .iter()
+                .chain(&session.resolved_controls)
+                .any(|control| control.event_id == event_id))
+    {
+        send_error(
+            client,
+            event_id,
+            stream_id,
+            &ResponsesWebSocketFailure::invalid_request(
+                "event_id belongs to an active create or retained control",
+            ),
+        )
+        .await;
+        return true;
+    }
+    let envelope: Value = serde_json::from_slice(frame.payload()).unwrap_or_default();
+    let control = PendingControl {
+        event_id: event_id.to_owned(),
+        stream_id: stream_id.to_owned(),
+        response_id: envelope
+            .get("response_id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned(),
+        cancel: envelope.get("type").and_then(Value::as_str) == Some("response.cancel"),
+        owner_turn_id: session.current.as_ref().map(|turn| turn.id.clone()),
+    };
+    let pending_bytes = session
+        .pending_controls
+        .iter()
+        .map(PendingControl::identity_bytes)
+        .sum::<usize>();
+    if control.can_correlate()
+        && (session.pending_controls.len() == CONTROL_CORRELATION_DEPTH
+            || control.identity_bytes().saturating_add(pending_bytes) > CONTROL_CORRELATION_BYTES)
+    {
+        send_error(
+            client,
+            event_id,
+            stream_id,
+            &ResponsesWebSocketFailure::invalid_request(
+                "response control correlation capacity is exhausted",
+            ),
+        )
+        .await;
+        return true;
+    }
     if upstream.send(frame).await.is_ok() {
+        if control.can_correlate() {
+            session.pending_controls.push_back(control);
+        }
         return true;
     }
     finish_current(state, session, ResponsesTurnFinish::UpstreamWriteFailed).await;
@@ -802,8 +920,8 @@ async fn handle_upstream_frame(
     session: &mut ActiveSession,
     frame: ResponsesFrame,
 ) -> bool {
-    let stream_id = session.current_stream_id.clone();
-    if let Some(turn) = session.current.as_ref() {
+    let (stream_id, observe) = upstream_attribution(session, &frame);
+    if let Some(turn) = session.current.as_ref().filter(|_| observe) {
         match state.service.observe_upstream(turn, &frame).await {
             Ok(ResponsesTurnObservation::Continue) => {}
             Ok(ResponsesTurnObservation::Terminal {
@@ -849,7 +967,7 @@ async fn handle_upstream_frame(
         }
     }
     if session.current.is_none() {
-        session.current_stream_id.clear();
+        clear_current_identity(session);
     }
     let frame = correlate_upstream_frame(frame, &stream_id);
     if let Some(message) = frame.into_axum()
@@ -877,8 +995,225 @@ async fn finish_current(
         session.current = Some(turn);
     }
     if session.current.is_none() {
-        session.current_stream_id.clear();
+        clear_current_identity(session);
     }
+}
+
+fn clear_current_identity(session: &mut ActiveSession) {
+    session.current_stream_id.clear();
+    session.current_event_id.clear();
+    if !session.current_response_id.is_empty() {
+        let response_id = std::mem::take(&mut session.current_response_id);
+        if response_id.len() <= CONTROL_CORRELATION_BYTES {
+            while session.resolved_response_ids.len() == CONTROL_CORRELATION_DEPTH
+                || session
+                    .resolved_response_ids
+                    .iter()
+                    .map(String::len)
+                    .sum::<usize>()
+                    .saturating_add(response_id.len())
+                    > CONTROL_CORRELATION_BYTES
+            {
+                session.resolved_response_ids.pop_front();
+            }
+            session.resolved_response_ids.push_back(response_id);
+        }
+    }
+    if let Some(turn_id) = session.current_turn_id.take() {
+        let mut pending = std::mem::take(&mut session.pending_controls);
+        while let Some(control) = pending.pop_front() {
+            if control.owner_turn_id.as_deref() == Some(turn_id.as_str()) {
+                retain_resolved_control(session, control);
+            } else {
+                session.pending_controls.push_back(control);
+            }
+        }
+    }
+}
+
+fn retain_resolved_control(session: &mut ActiveSession, mut control: PendingControl) {
+    control.owner_turn_id = None;
+    while session.resolved_controls.len() == CONTROL_CORRELATION_DEPTH
+        || session
+            .resolved_controls
+            .iter()
+            .map(PendingControl::identity_bytes)
+            .sum::<usize>()
+            .saturating_add(control.identity_bytes())
+            > CONTROL_CORRELATION_BYTES
+    {
+        session.resolved_controls.pop_front();
+    }
+    session.resolved_controls.push_back(control);
+}
+
+fn upstream_attribution(session: &mut ActiveSession, frame: &ResponsesFrame) -> (String, bool) {
+    let value: Value = serde_json::from_slice(frame.payload()).unwrap_or_default();
+    let kind = value
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if (kind == "error" || kind.starts_with("response."))
+        && value
+            .get("stream_id")
+            .is_some_and(|identity| !identity.is_null() && !identity.is_string())
+    {
+        return (String::new(), false);
+    }
+    let stream_id = value
+        .get("stream_id")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let response_id = value
+        .get("response_id")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            value
+                .get("response")
+                .and_then(|response| response.get("id"))
+                .and_then(Value::as_str)
+        })
+        .unwrap_or_default();
+    if kind == "error" {
+        match matched_control(
+            &session.pending_controls,
+            &session.resolved_controls,
+            &value,
+            &session.current_response_id,
+            session.current.is_some(),
+        ) {
+            ControlMatch::Unique(index) => {
+                if index >= session.pending_controls.len() {
+                    return (
+                        session.resolved_controls[index - session.pending_controls.len()]
+                            .stream_id
+                            .clone(),
+                        false,
+                    );
+                }
+                if let Some(control) = session.pending_controls.remove(index) {
+                    let identity = control.stream_id.clone();
+                    retain_resolved_control(session, control);
+                    return (identity, false);
+                }
+            }
+            ControlMatch::Ambiguous => return (String::new(), false),
+            ControlMatch::None => {}
+        }
+        // A nested error reference names the rejected client event. The top-level
+        // event_id may instead name the provider's own output event.
+        let reference = value
+            .get("error")
+            .and_then(|error| error.get("event_id"))
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if !reference.is_empty() {
+            return (String::new(), false);
+        }
+    }
+    if kind == "error" || kind.starts_with("response.") {
+        if !session.current_stream_id.is_empty()
+            && !stream_id.is_empty()
+            && stream_id != session.current_stream_id
+            || !response_id.is_empty()
+                && session
+                    .resolved_response_ids
+                    .iter()
+                    .any(|known| known == response_id)
+            || !session.current_response_id.is_empty()
+                && !response_id.is_empty()
+                && response_id != session.current_response_id
+        {
+            return (String::new(), false);
+        }
+        if session.current.is_some() && kind.starts_with("response.") && !response_id.is_empty() {
+            session.current_response_id = response_id.to_owned();
+        }
+    }
+    (session.current_stream_id.clone(), true)
+}
+
+fn matched_control(
+    pending: &VecDeque<PendingControl>,
+    resolved: &VecDeque<PendingControl>,
+    value: &Value,
+    active_response_id: &str,
+    has_active_turn: bool,
+) -> ControlMatch {
+    let event_id = value
+        .get("event_id")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let reference = value
+        .get("error")
+        .and_then(|error| error.get("event_id"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let response_id = value
+        .get("response_id")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let stream_id = value
+        .get("stream_id")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let cancel_rejection = value
+        .get("error")
+        .and_then(|error| error.get("type"))
+        .and_then(Value::as_str)
+        == Some("invalid_request_error")
+        && matches!(
+            value
+                .get("error")
+                .and_then(|error| error.get("code"))
+                .and_then(Value::as_str),
+            Some("response_not_found" | "response_not_active" | "response_already_completed")
+        );
+    let controls = || pending.iter().chain(resolved).enumerate();
+    let exact = find_control(controls(), |control| {
+        !control.event_id.is_empty()
+            && (control.event_id == event_id || control.event_id == reference)
+    });
+    if !matches!(exact, ControlMatch::None) {
+        return exact;
+    }
+    if !reference.is_empty() {
+        return ControlMatch::None;
+    }
+    let target = find_control(controls(), |control| {
+        (!has_active_turn || !active_response_id.is_empty())
+            && !response_id.is_empty()
+            && response_id != active_response_id
+            && control.response_id == response_id
+            && (stream_id.is_empty() || stream_id == control.stream_id)
+    });
+    if !matches!(target, ControlMatch::None) {
+        return target;
+    }
+    find_control(pending.iter().enumerate(), |control| {
+        cancel_rejection
+            && control.cancel
+            && (stream_id.is_empty() || stream_id == control.stream_id)
+            && (response_id.is_empty()
+                || control.response_id.is_empty()
+                || response_id == control.response_id)
+    })
+}
+
+fn find_control<'control>(
+    controls: impl Iterator<Item = (usize, &'control PendingControl)>,
+    matches: impl Fn(&PendingControl) -> bool,
+) -> ControlMatch {
+    let mut found = ControlMatch::None;
+    for (index, control) in controls {
+        if matches(control) {
+            if !matches!(found, ControlMatch::None) {
+                return ControlMatch::Ambiguous;
+            }
+            found = ControlMatch::Unique(index);
+        }
+    }
+    found
 }
 
 async fn finish_detached(

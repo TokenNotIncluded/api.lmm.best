@@ -90,6 +90,20 @@ func streamResponseTencent2OpenAI(TencentResponse *TencentChatResponse) *dto.Cha
 }
 
 func tencentStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+	info.RateLimitStreamStatus = relaycommon.NewStreamStatus()
+	status := info.RateLimitStreamStatus
+	initialWriterErrors := len(c.Errors)
+	defer func() {
+		if err := c.Request.Context().Err(); err != nil {
+			status.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
+			status.RecordError("Tencent stream client canceled")
+		}
+		if len(c.Errors) > initialWriterErrors {
+			status.SetEndReason(relaycommon.StreamEndReasonClientGone, c.Errors.Last().Err)
+			status.RecordError("downstream Tencent stream write failed")
+		}
+		status.SetEndReason(relaycommon.StreamEndReasonEOF, nil)
+	}()
 	var responseText string
 	scanner := helper.NewStreamScanner(resp.Body)
 	scanner.Split(bufio.ScanLines)
@@ -107,7 +121,11 @@ func tencentStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *htt
 		err := common.Unmarshal([]byte(data), &tencentResponse)
 		if err != nil {
 			common.SysLog("error unmarshalling stream response: " + err.Error())
+			status.RecordError("invalid Tencent stream response")
 			continue
+		}
+		if tencentResponse.Error.Code != 0 {
+			status.RecordError("upstream Tencent stream error")
 		}
 
 		response := streamResponseTencent2OpenAI(&tencentResponse)
@@ -118,11 +136,17 @@ func tencentStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *htt
 		err = helper.ObjectData(c, response)
 		if err != nil {
 			common.SysLog(err.Error())
+			status.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
+			status.RecordError("downstream Tencent stream write failed")
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
 		common.SysLog("error reading stream: " + err.Error())
+		if c.Request.Context().Err() == nil {
+			status.SetEndReason(relaycommon.StreamEndReasonScannerErr, err)
+		}
+		status.RecordError("error reading Tencent stream")
 	}
 
 	helper.Done(c)
