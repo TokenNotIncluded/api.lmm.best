@@ -339,7 +339,7 @@ func CompleteToolMarketBuiltinDrawingBilling(callID string, settled bool) error 
 			return err
 		}
 		var result ToolMarketResult
-		if err := tx.Select("call_id", "builtin_billing_pending").First(&result, "call_id = ? AND success = ?", callID, true).Error; err != nil {
+		if err := lockForUpdate(tx).Select("call_id", "builtin_billing_pending").First(&result, "call_id = ? AND success = ?", callID, true).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrToolMarketConflict
 			}
@@ -390,7 +390,7 @@ func recordToolMarketResult(callID string, success bool, data json.RawMessage, d
 		}
 		if q.RowsAffected == 0 {
 			var prior ToolMarketResult
-			if err := tx.First(&prior, "call_id = ?", callID).Error; err != nil {
+			if err := lockForUpdate(tx).First(&prior, "call_id = ?", callID).Error; err != nil {
 				return err
 			}
 			if prior.Success != success || string(prior.Data) != string(data) || (!billingPending && prior.BuiltinBillingPending) {

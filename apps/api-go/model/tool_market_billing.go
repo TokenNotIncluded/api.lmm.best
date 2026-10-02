@@ -188,8 +188,9 @@ func ReserveToolMarketCall(in ToolMarketReserveInput) (*ToolMarketCall, bool, er
 	return &call, created && err == nil, err
 }
 
-// Lock order: service -> call -> wallets (sorted). No caller executes remotely
-// until this transaction commits. Only the winner receives started=true.
+// Lock order: service -> call -> retained result (when needed) -> wallets
+// (sorted). No caller executes remotely until this transaction commits. Only
+// the winner receives started=true.
 func marketCallTx(id string, fn func(*gorm.DB, *ToolMarketCall) error) error {
 	return DB.Transaction(func(tx *gorm.DB) error {
 		var call ToolMarketCall
@@ -284,14 +285,19 @@ func finishToolMarketCall(id string, success, expire bool) error {
 		if success && common.GetTimestamp() >= call.ResolveBy {
 			return ErrToolMarketConflict
 		}
-		if success {
-			var pending int64
-			if err := tx.Model(&ToolMarketResult{}).Where("call_id = ? AND builtin_billing_pending = ?", call.ID, true).Count(&pending).Error; err != nil {
-				return err
+		var outcome ToolMarketResult
+		outcomeErr := gorm.ErrRecordNotFound
+		if success || (expire && call.ExecutionStatus != "reserved" && call.ExecutionStatus != "awaiting_confirmation") {
+			// marketCallTx's initial ordinary read can establish a MySQL RR
+			// snapshot before waiting for the service/call locks. A final state
+			// decision must read the current result after acquiring those locks.
+			outcomeErr = lockForUpdate(tx).Select("call_id", "success", "builtin_billing_pending").First(&outcome, "call_id = ?", call.ID).Error
+			if outcomeErr != nil && !errors.Is(outcomeErr, gorm.ErrRecordNotFound) {
+				return outcomeErr
 			}
-			if pending != 0 {
-				return ErrToolMarketConflict
-			}
+		}
+		if success && outcomeErr == nil && outcome.BuiltinBillingPending {
+			return ErrToolMarketConflict
 		}
 		affected = []int{call.UserID, call.OwnerID, call.RecipientID}
 		if err := marketLockUsers(tx, append([]int(nil), affected...)...); err != nil {
@@ -355,8 +361,7 @@ func finishToolMarketCall(id string, success, expire bool) error {
 			}
 			if expire && call.ExecutionStatus != "reserved" && call.ExecutionStatus != "awaiting_confirmation" {
 				call.ExecutionStatus = "unknown"
-				var outcome ToolMarketResult
-				if err := tx.First(&outcome, "call_id = ?", call.ID).Error; err == nil {
+				if outcomeErr == nil {
 					if outcome.BuiltinBillingPending {
 						call.ExecutionStatus = "unknown"
 					} else if outcome.Success {
@@ -364,8 +369,6 @@ func finishToolMarketCall(id string, success, expire bool) error {
 					} else {
 						call.ExecutionStatus = "failed"
 					}
-				} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-					return err
 				}
 			} else if call.ExecutionStatus == "reserved" || call.ExecutionStatus == "awaiting_confirmation" {
 				call.ExecutionStatus = "cancelled"
