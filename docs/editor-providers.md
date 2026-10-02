@@ -74,7 +74,9 @@ Publication status must be recorded separately from packaging and deployment. A 
 
 ## Publishing the reviewed artifacts
 
-The VS Code manifest uses publisher ID `LIghtJUNction`, matching the existing publisher owned by the authenticated Visual Studio Marketplace account. The extension ID is `LIghtJUNction.lmm-copilot-provider`. Publishing still requires registry authentication. Open VSX namespace access and npm publish access to the `@tokennotincluded` scope are separate prerequisites. No marketplace listing or npm publication is established by this document. Source publication through a pull request is a separate step.
+VS Code version 0.1.0 was published as a preview on 2026-10-02: [LMM for Copilot on Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=LIghtJUNction.lmm-copilot-provider). Its public listing and installation command were verified. Production OAuth client registration is still pending deployment; this publication does not establish live model access. Open VSX and the Zed npm package have not been published.
+
+The VS Code manifest uses publisher ID `LIghtJUNction`, matching the existing publisher owned by the authenticated Visual Studio Marketplace account. The extension ID is `LIghtJUNction.lmm-copilot-provider`. Publishing requires registry authentication. Open VSX namespace access and npm publish access to the `@tokennotincluded` scope are separate prerequisites. Source publication through a pull request is a separate step.
 
 For [Visual Studio Marketplace](https://code.visualstudio.com/api/working-with-extensions/publishing-extension), authenticate with the publisher account using `npx vsce login LIghtJUNction` or configure the documented Microsoft Entra identity, then publish the reviewed VSIX from its package directory:
 
