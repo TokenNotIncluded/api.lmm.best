@@ -431,6 +431,17 @@ export function SmsPurchaseCard(props: SmsPurchaseCardProps) {
         </CardTitle>
       </CardHeader>
       <CardContent>
+        {props.batchProgress || props.batchResult?.failure ? (
+          <div className='mb-5'>
+            <SmsBatchStatus
+              progress={props.batchProgress}
+              result={props.batchResult}
+              feedback={props.batchFeedback}
+              reconciliationPending={props.reconciliationPending}
+              onReconcile={props.onReconcile}
+            />
+          </div>
+        ) : null}
         <Tabs
           value={page}
           onValueChange={(value) =>
@@ -490,13 +501,6 @@ export function SmsPurchaseCard(props: SmsPurchaseCardProps) {
               isError={props.offerIsError}
               error={props.offerError}
               onRefresh={props.onRefreshOffer}
-            />
-            <SmsBatchStatus
-              progress={props.batchProgress}
-              result={props.batchResult}
-              feedback={props.batchFeedback}
-              reconciliationPending={props.reconciliationPending}
-              onReconcile={props.onReconcile}
             />
             <Button
               type='button'

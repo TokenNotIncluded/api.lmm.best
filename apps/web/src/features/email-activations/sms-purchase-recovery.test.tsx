@@ -357,6 +357,11 @@ test('retains and replays an uncertain purchase after selecting a favorite', asy
     assert.equal(postAttempts, 2, 'same item retried exactly once')
     assert.equal(findButton('Buy phone activation').disabled, true)
     await act(async () => findButton('Favorites').click())
+    assert.equal(
+      document.body.textContent?.includes('Resolve purchase and continue'),
+      true,
+      'recovery remains available while browsing favorites'
+    )
     await act(async () => findButton('Telegram').click())
     assert.equal(findButton('Buy phone activation').disabled, true)
     assert.equal(
@@ -382,6 +387,7 @@ test('retains and replays an uncertain purchase after selecting a favorite', asy
         },
       }
     }) as typeof api.post
+    await act(async () => findButton('Favorites').click())
     await reconcilePurchase()
     await settle(() => postAttempts === 3)
     assert.equal(
