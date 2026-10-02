@@ -1,0 +1,95 @@
+{
+  "schema": "lmm-forge.logo-geometry/1",
+  "name": "LMM Forge",
+  "direction": "protocol punch / cut wordmark",
+  "status": "built_for_review",
+  "compApproval": "No comp was approved. The user approved monochrome, sharp lettering, and strong contrast.",
+  "provenance": {
+    "kind": "original precise SVG geometry",
+    "method": "Authored filled paths from explicit coordinates. No font outlines, generated raster, stock art, external references, scripts, or font requests are used.",
+    "generatedRasterNeeded": false,
+    "productionRasterAssets": [],
+    "proofRaster": "output/brand-review/logo-proof.png",
+    "proofRasterOrigin": "Rasterized from the authored SVG paths for size and contrast inspection only."
+  },
+  "ink": {
+    "light": "#000000",
+    "dark": "#ffffff",
+    "background": "transparent",
+    "themeSwitch": "@media (prefers-color-scheme: dark)",
+    "fillRule": "evenodd"
+  },
+  "symbol": {
+    "asset": ".github/assets/lmm-symbol.svg",
+    "viewBox": [0, 0, 128, 128],
+    "bounds": [6, 10, 122, 112],
+    "path": "M6 10H24V94H32V20H44L52 40L60 20H72V94H82V20H94L102 40L110 20H122V100L110 112H6Z M44 94V52L52 70L60 52V94Z M94 94V52L102 70L110 52V94Z",
+    "geometry": {
+      "lSpineWidth": 18,
+      "baseHeight": 18,
+      "mStemWidth": 12,
+      "mWidths": [40, 40],
+      "mLowerCounterWidth": 16,
+      "lToMGap": 8,
+      "mToMGap": 10,
+      "terminalCut": {"angleDegrees": 45, "run": 12, "rise": 12},
+      "connectivity": "One filled silhouette, connected through the L base; two internal counterforms."
+    },
+    "recommendedMinimumCssSize": 16,
+    "opticalRisk": "At 16 px the 8-unit L-to-M gap is one pixel and each M stem is 1.5 pixels. Keep the full viewBox and use native size rasterization; avoid additional padding inside a tiny icon slot."
+  },
+  "lettering": {
+    "units": "One cap height equals 100 geometry units.",
+    "capHeight": 100,
+    "verticalWeight": 20,
+    "horizontalWeight": 18,
+    "bowlOvershoot": 1,
+    "glyphs": {
+      "L": {"width": 62, "path": "M0 0H20V80H62V88L50 100H0Z"},
+      "M": {"width": 90, "path": "M0 100V0H22L45 34L68 0H90V100H70V34L45 67L20 34V100Z"},
+      "F": {"width": 64, "path": "M0 0H64V18H20V42H55V60H20V100H0Z"},
+      "O": {"width": 78, "path": "M14 -1H64L78 13V87L64 101H14L0 87V13Z M22 18L20 20V80L22 82H56L58 80V20L56 18Z"},
+      "R": {"width": 78, "path": "M0 0H55L74 19V42L59 57H45L78 100H54L20 57V100H0Z M20 18V39H47L54 32V25L47 18Z"},
+      "G": {"width": 78, "path": "M14 -1H64L78 13V29H58V20L56 18H22L20 20V80L22 82H56L58 80V64H43V46H78V87L64 101H14L0 87V13Z"},
+      "E": {"width": 66, "path": "M0 0H66V18H20V41H57V59H20V82H66V88L54 100H0Z"}
+    },
+    "groups": {
+      "LMM": {
+        "width": 262,
+        "viewBox": [0, 0, 262, 100],
+        "glyphs": [{"glyph": "L", "x": 0}, {"glyph": "M", "x": 70}, {"glyph": "M", "x": 172}],
+        "paths": [
+          {"x": 0, "d": "M0 0H20V80H62V88L50 100H0Z"},
+          {"x": 70, "d": "M0 100V0H22L45 34L68 0H90V100H70V34L45 67L20 34V100Z"},
+          {"x": 172, "d": "M0 100V0H22L45 34L68 0H90V100H70V34L45 67L20 34V100Z"}
+        ]
+      },
+      "FORGE": {
+        "width": 416,
+        "viewBox": [0, -2, 416, 104],
+        "glyphs": [{"glyph": "F", "x": 0}, {"glyph": "O", "x": 76}, {"glyph": "R", "x": 168}, {"glyph": "G", "x": 258}, {"glyph": "E", "x": 350}],
+        "paths": [
+          {"x": 0, "d": "M0 0H64V18H20V42H55V60H20V100H0Z"},
+          {"x": 76, "d": "M14 -1H64L78 13V87L64 101H14L0 87V13Z M22 18L20 20V80L22 82H56L58 80V20L56 18Z"},
+          {"x": 168, "d": "M0 0H55L74 19V42L59 57H45L78 100H54L20 57V100H0Z M20 18V39H47L54 32V25L47 18Z"},
+          {"x": 258, "d": "M14 -1H64L78 13V29H58V20L56 18H22L20 20V80L22 82H56L58 80V64H43V46H78V87L64 101H14L0 87V13Z"},
+          {"x": 350, "d": "M0 0H66V18H20V41H57V59H20V82H66V88L54 100H0Z"}
+        ]
+      }
+    },
+    "horizontalLockup": {
+      "asset": ".github/assets/lmm-wordmark.svg",
+      "viewBox": [0, -2, 718, 104],
+      "width": 718,
+      "groups": [{"group": "LMM", "x": 0}, {"group": "FORGE", "x": 302}],
+      "opticalGaps": {"L_M": 8, "M_M": 12, "LMM_FORGE": 40, "F_O": 12, "O_R": 14, "R_G": 12, "G_E": 14},
+      "spacingIntent": "The L closes toward the first M; paired M stems retain more air. F/O closes around the F's open lower half. Rounded bowls receive extra separation from vertical stems. The word break is deliberately larger than any letter gap."
+    },
+    "opticalRisk": "FORGE is display lettering. Use the compact symbol below a 20 px cap height. The R counter and G aperture need enough pixels to stay distinct."
+  },
+  "compositionGuidance": {
+    "reuse": "Insert these exact paths with fill-rule=evenodd. Scale groups uniformly. Preserve within-group positions; LMM and FORGE may be composed independently as two lines.",
+    "clearSpace": "For ordinary logo placement, leave at least one 20-unit wordmark stem or one 18-unit symbol spine around the artwork. The full symbol viewBox already provides its small-icon optical margin.",
+    "doNot": ["add outlines", "add route graphs or circles", "stretch glyphs non-uniformly", "fill the counterforms", "add gradients or font substitutions"]
+  }
+}

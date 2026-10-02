@@ -1,28 +1,30 @@
-<p align="center">
+<!--
+THESIS: The original cut wordmark owns the cover; precision comes from its silhouette.
+OWN-WORLD: Black and white, filled geometry, broad counterforms, one consistent 45-degree cut.
+STORY: Understand model access, tool publishing, and collaboration; choose a working entry.
+FIRST VIEWPORT: Oversized stepped lettering on desktop, stacked lettering on mobile; left-aligned copy and actions below. Release metadata sits with contribution guidance.
+FORM: Protocol punch, grounded direction 7, seed 04aecdac. User chose code-first SVG. Signature: one shared geometry reorganizes for the viewport; static imagery and native GitHub interactions.
+FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
+-->
+
+<p>
   <picture>
+    <source media="(max-width: 640px) and (prefers-color-scheme: dark)" srcset=".github/assets/readme-cover-mobile-dark.svg">
+    <source media="(max-width: 640px)" srcset=".github/assets/readme-cover-mobile-light.svg">
     <source media="(prefers-color-scheme: dark)" srcset=".github/assets/readme-cover-dark.svg">
-    <img src=".github/assets/readme-cover-light.svg" alt="LMM Forge — model access, MCP tools, and open-source collaboration" width="1200">
+    <img src=".github/assets/readme-cover-light.svg" alt="LMM Forge — AI APIs, MCP tools, and open-source collaboration" width="1440">
   </picture>
 </p>
 
-<h3 align="center">AI APIs. MCP tools. Open-source work.</h3>
+**AI APIs. MCP tools. Open-source work.**
 
-<p align="center">
-  Model access, tool publishing, and bounty collaboration in one open-source console.
-</p>
+Model access, tool publishing, and bounty collaboration in one open-source console.
 
-<p align="center">
+<p>
   <a href="https://lmm.best"><strong>Explore&nbsp;LMM</strong></a> ·
   <a href="https://lmm.best/guide">Connect&nbsp;a&nbsp;client</a> ·
   <a href="https://lmm.best/tool-market">Publish&nbsp;a&nbsp;tool</a> ·
   <a href="docs/README.md">Read&nbsp;the&nbsp;docs</a>
-</p>
-
-<p align="center">
-  <a href="https://github.com/TokenNotIncluded/api.lmm.best/actions/workflows/ci.yml"><img src="https://github.com/TokenNotIncluded/api.lmm.best/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/TokenNotIncluded/api.lmm.best/releases?q=go-v"><img src="https://img.shields.io/github/v/release/TokenNotIncluded/api.lmm.best?filter=go-v%2A&amp;label=Go" alt="Go release"></a>
-  <a href="https://github.com/TokenNotIncluded/api.lmm.best/releases?q=web-v"><img src="https://img.shields.io/github/v/release/TokenNotIncluded/api.lmm.best?filter=web-v%2A&amp;label=Web" alt="Web release"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
 </p>
 
 ## Start here
@@ -191,6 +193,13 @@ Use the explicit frontend command in [Run locally](#run-locally) to keep the fro
 
 ## Contribute
 
+<p>
+  <a href="https://github.com/TokenNotIncluded/api.lmm.best/actions/workflows/ci.yml"><img src="https://github.com/TokenNotIncluded/api.lmm.best/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/TokenNotIncluded/api.lmm.best/releases?q=go-v"><img src="https://img.shields.io/github/v/release/TokenNotIncluded/api.lmm.best?filter=go-v%2A&amp;label=Go" alt="Go release"></a>
+  <a href="https://github.com/TokenNotIncluded/api.lmm.best/releases?q=web-v"><img src="https://img.shields.io/github/v/release/TokenNotIncluded/api.lmm.best?filter=web-v%2A&amp;label=Web" alt="Web release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
+</p>
+
 LMM Forge is a maintained fork of [QuantumNous/new-api](https://github.com/QuantumNous/new-api). [FORK.md](FORK.md) records the upstream relationship and attribution requirements.
 
 For development requirements and scoped changes, start with [CONTRIBUTING.md](CONTRIBUTING.md). Use the repository's [Issue templates](.github/ISSUE_TEMPLATE) for bug reports and feature requests.
@@ -202,6 +211,10 @@ For development requirements and scoped changes, start with [CONTRIBUTING.md](CO
 The default edge policy blocks requests geolocated to Mainland China (`CN`). Administrators can configure explicit IP routing rules.
 
 Report vulnerabilities through [SECURITY.md](SECURITY.md). User-facing policies are documented in the [user agreement](docs/legal/user-agreement.md), [privacy policy](docs/legal/privacy-policy.md), and [terms of service](docs/legal/terms-of-service.md).
+
+## Brand assets
+
+[Compact symbol](.github/assets/lmm-symbol.svg) · [Full wordmark](.github/assets/lmm-wordmark.svg) · [Usage and source geometry](.github/assets/README.md)
 
 ## License
 

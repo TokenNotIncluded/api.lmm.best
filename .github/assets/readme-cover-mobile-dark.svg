@@ -1,14 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="600" viewBox="0 0 1440 600" role="img" aria-labelledby="cover-title cover-desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="480" viewBox="0 0 720 480" role="img" aria-labelledby="cover-title cover-desc">
   <title id="cover-title">LMM Forge</title>
-  <desc id="cover-desc">Original cut lettering in two stepped lines. AI APIs, MCP tools, and open-source collaboration.</desc>
-  <rect width="1440" height="600" fill="#000000"/>
+  <desc id="cover-desc">Original cut lettering in two stacked lines. AI APIs, MCP tools, and open-source collaboration.</desc>
+  <rect width="720" height="480" fill="#000000"/>
   <g fill="#ffffff" fill-rule="evenodd">
-    <g transform="translate(64 48) scale(2.4)">
+    <g transform="translate(48 48) scale(2.1)">
       <path transform="translate(0 0)" d="M0 0H20V80H62V88L50 100H0Z"/>
       <path transform="translate(70 0)" d="M0 100V0H22L45 34L68 0H90V100H70V34L45 67L20 34V100Z"/>
       <path transform="translate(172 0)" d="M0 100V0H22L45 34L68 0H90V100H70V34L45 67L20 34V100Z"/>
     </g>
-    <g transform="translate(336 316) scale(2.5)">
+    <g transform="translate(48 298) scale(1.5)">
       <path transform="translate(0 0)" d="M0 0H64V18H20V42H55V60H20V100H0Z"/>
       <path transform="translate(76 0)" d="M14 -1H64L78 13V87L64 101H14L0 87V13Z M22 18L20 20V80L22 82H56L58 80V20L56 18Z"/>
       <path transform="translate(168 0)" d="M0 0H55L74 19V42L59 57H45L78 100H54L20 57V100H0Z M20 18V39H47L54 32V25L47 18Z"/>
