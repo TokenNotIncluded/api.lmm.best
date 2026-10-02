@@ -159,3 +159,67 @@ test('credential validation uses UTF-8 byte limits and rejects unsafe header cha
     4096
   )
 })
+
+test('refresh retains exact schema text and identifies adjacent integers beyond JavaScript precision', () => {
+  const before = '{"type":"object","minimum":9007199254740992}'
+  const after = '{"type":"object","minimum":9007199254740993}'
+  const output = '{"type":"object","maximum":9007199254740995}'
+  const previous: EditableTools = {
+    tools: [
+      tool('search', {
+        input_schema: before,
+        permissions: ['read', 'network'],
+        price_quota: 25000,
+      }),
+    ],
+    selected: ['search'],
+    prices: { search: '0.05' },
+  }
+  const refreshed = refreshToolDefinitions(
+    previous,
+    [
+      tool('search', {
+        input_schema: JSON.parse(after),
+        input_schema_json: after,
+        output_schema: JSON.parse(output),
+        output_schema_json: output,
+      }),
+    ],
+    { firstDiscovery: false, endpointChanged: false }
+  )
+  assert.equal(refreshed.tools[0].input_schema, after)
+  assert.equal(refreshed.tools[0].output_schema, output)
+  assert.equal('input_schema_json' in refreshed.tools[0], false)
+  assert.deepEqual(refreshed.changes.changed, ['search'])
+  assert.deepEqual(refreshed.selected, ['search'])
+  assert.equal(refreshed.prices.search, '0.05')
+  assert.deepEqual(refreshed.tools[0].permissions, ['read', 'network'])
+})
+
+test('refresh refuses a legacy parsed schema whose integer precision is unavailable', () => {
+  const previous: EditableTools = {
+    tools: [tool('search')],
+    selected: ['search'],
+    prices: { search: '0.05' },
+  }
+  const untouched = structuredClone(previous)
+  assert.throws(
+    () =>
+      refreshToolDefinitions(
+        previous,
+        [
+          tool('search', {
+            input_schema: {
+              type: 'object',
+              properties: {
+                id: { type: 'integer', default: Number('9007199254740993') },
+              },
+            },
+          }),
+        ],
+        { firstDiscovery: false, endpointChanged: false }
+      ),
+    /original JSON/
+  )
+  assert.deepEqual(previous, untouched)
+})

@@ -495,3 +495,127 @@ test('changing the endpoint retains edited tool policy but never forwards the ol
     api.defaults.adapter = originalAdapter
   }
 })
+
+const preciseInputSchema =
+  '{"type":"object","properties":{"id":{"type":"integer","minimum":9007199254740993,"maximum":9007199254740997,"default":9007199254740995}}}'
+const preciseOutputSchema =
+  '{"type":"object","properties":{"id":{"type":"integer","const":9007199254740999}}}'
+function preciseDetail(): MarketDetail {
+  const item = structuredClone(initial)
+  item.tools[0].input_schema = preciseInputSchema
+  item.tools[0].output_schema = preciseOutputSchema
+  return item
+}
+function preciseInspectionEnvelope(): string {
+  return `{"success":true,"data":[{"name":"search","description":"Search","input_schema":${preciseInputSchema},"input_schema_json":${JSON.stringify(preciseInputSchema)},"output_schema":${preciseOutputSchema},"output_schema_json":${JSON.stringify(preciseOutputSchema)},"permissions":["read"],"price_quota":0}]}`
+}
+
+test('stored and rediscovered precise schemas reach the draft HTTP body as exact JSON object values', async () => {
+  const originalAdapter = api.defaults.adapter
+  const bodies: string[] = []
+  api.defaults.adapter = async (config) => {
+    const url = config.url ?? ''
+    let data: unknown
+    if (config.method === 'get' && url.endsWith('/credentials')) {
+      data = {
+        success: true,
+        data: { mode: 'none', configured: false, updated_at: 0 },
+      }
+    } else if (url.endsWith('/inspect')) {
+      // Axios parses the object copy and rounds its unsafe integers. Only the
+      // accompanying raw schema text can preserve the provider's actual values.
+      data = preciseInspectionEnvelope()
+    } else if (url.endsWith('/draft')) {
+      assert.equal(typeof config.data, 'string')
+      bodies.push(config.data)
+      data = {
+        success: true,
+        data: { ...initial.service, draft_version_id: 'version-new' },
+      }
+    } else if (config.method === 'put' && url.endsWith('/credentials')) {
+      data = {
+        success: true,
+        data: { mode: 'none', configured: false, updated_at: 0 },
+      }
+    } else assert.fail(`Unexpected request: ${url}`)
+    return { config, status: 200, statusText: 'OK', headers: {}, data }
+  }
+  const view = await renderEditor(preciseDetail())
+  try {
+    assert.equal(
+      view.container.querySelector('pre')?.textContent,
+      preciseInputSchema
+    )
+    await view.click('Read tool definitions')
+    assert.equal(view.container.querySelector('[role="alert"]'), null)
+    assert.equal(
+      view.button('Save draft').disabled,
+      false,
+      'identical exact schemas do not require a change acknowledgment'
+    )
+    await view.click('Save draft')
+    assert.equal(bodies.length, 1)
+    assert.ok(bodies[0].includes(`"input_schema":${preciseInputSchema}`))
+    assert.ok(bodies[0].includes(`"output_schema":${preciseOutputSchema}`))
+    assert.equal(bodies[0].includes('input_schema_json'), false)
+    assert.equal(bodies[0].includes('output_schema_json'), false)
+    assert.equal(bodies[0].includes('9007199254740992'), false)
+    const saved = JSON.parse(bodies[0])
+    assert.equal(typeof saved.tools[0].input_schema, 'object')
+    assert.deepEqual(saved.tools[0].permissions, ['read', 'network'])
+    assert.equal(saved.tools[0].price_quota, 25000)
+    assert.deepEqual(view.saved, ['service-existing'])
+  } finally {
+    await view.dispose()
+    api.defaults.adapter = originalAdapter
+  }
+})
+
+test('an unsafe legacy inspection fails visibly and invalidates the earlier save permission', async () => {
+  const originalAdapter = api.defaults.adapter
+  let reads = 0
+  api.defaults.adapter = async (config) => {
+    const url = config.url ?? ''
+    let data: unknown
+    if (config.method === 'get' && url.endsWith('/credentials')) {
+      data = {
+        success: true,
+        data: { mode: 'none', configured: false, updated_at: 0 },
+      }
+    } else if (url.endsWith('/inspect')) {
+      reads++
+      data =
+        reads === 1
+          ? preciseInspectionEnvelope()
+          : {
+              success: true,
+              data: [
+                {
+                  ...discovered[0],
+                  input_schema: JSON.parse(preciseInputSchema),
+                },
+              ],
+            }
+    } else assert.fail('A rejected schema must not be saved or executed')
+    return { config, status: 200, statusText: 'OK', headers: {}, data }
+  }
+  const view = await renderEditor(preciseDetail())
+  try {
+    await view.click('Read tool definitions')
+    assert.equal(view.button('Save draft').disabled, false)
+    await view.click('Read tool definitions')
+    assert.match(
+      view.container.querySelector('[role="alert"]')?.textContent ?? '',
+      /operation failed/
+    )
+    assert.equal(view.button('Save draft').disabled, true)
+    assert.equal(
+      view.container.querySelector('pre')?.textContent,
+      preciseInputSchema
+    )
+    assert.deepEqual(view.saved, [])
+  } finally {
+    await view.dispose()
+    api.defaults.adapter = originalAdapter
+  }
+})

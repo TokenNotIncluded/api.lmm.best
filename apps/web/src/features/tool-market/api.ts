@@ -9,6 +9,7 @@ import {
   connectionTokenInput,
   type ConnectionPermissions,
 } from './connection-utils'
+import { marketDraftBody } from './draft-body'
 import { marketInvokeBody } from './invoke-body'
 
 export type MarketConfig = {
@@ -71,8 +72,10 @@ export type MarketDetail = {
 export type ToolInput = {
   name: string
   description: string
-  input_schema: Record<string, unknown>
-  output_schema?: Record<string, unknown>
+  input_schema: Record<string, unknown> | string
+  output_schema?: Record<string, unknown> | string
+  input_schema_json?: string
+  output_schema_json?: string
   permissions: string[]
   price_quota: number
 }
@@ -250,8 +253,12 @@ export const marketAPI = {
   save: (id: string | undefined, input: DraftInput) =>
     unwrap<MarketService>(
       id
-        ? api.put(`${base}/services/${id}/draft`, input)
-        : api.post(`${base}/services`, input)
+        ? api.put(`${base}/services/${id}/draft`, marketDraftBody(input), {
+            headers: { 'Content-Type': 'application/json' },
+          })
+        : api.post(`${base}/services`, marketDraftBody(input), {
+            headers: { 'Content-Type': 'application/json' },
+          })
     ),
   validate: (id: string) =>
     unwrap<null>(api.post(`${base}/services/${id}/validate`)),

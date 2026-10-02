@@ -3,6 +3,7 @@ Copyright (C) 2026 LIghtJUNction
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 import type { ToolInput } from './api'
+import { marketSchemaJSON } from './draft-body'
 
 export type EditableTools = {
   tools: ToolInput[]
@@ -26,12 +27,36 @@ function normalizedDefinition(value: unknown): string {
   })
 }
 
+function exactSchema(
+  value: ToolInput['input_schema'] | undefined,
+  raw: string | undefined
+): ToolInput['input_schema'] {
+  const source = raw ?? value
+  if (source === undefined) throw new Error('Missing tool schema')
+  // Validation may parse a read-only copy. Raw JSON is never replaced with
+  // that copy; change detection and submission keep its exact numeric spelling.
+  const exact = marketSchemaJSON(source)
+  return typeof source === 'string' ? exact : source
+}
+
+export function exactEditorTool(tool: ToolInput): ToolInput {
+  const { input_schema_json, output_schema_json, ...definition } = tool
+  return {
+    ...definition,
+    input_schema: exactSchema(tool.input_schema, input_schema_json),
+    ...(tool.output_schema !== undefined || output_schema_json !== undefined
+      ? { output_schema: exactSchema(tool.output_schema, output_schema_json) }
+      : {}),
+  }
+}
+
 // A refresh updates the remote definition, not the owner's publication policy.
 export function refreshToolDefinitions(
   previous: EditableTools,
   discovered: ToolInput[],
   options: { firstDiscovery: boolean; endpointChanged: boolean }
 ): EditableTools & { changes: ToolDefinitionChanges } {
+  const exactDefinitions = discovered.map(exactEditorTool)
   const previousByName = new Map(
     previous.tools.map((tool) => [tool.name, tool])
   )
@@ -44,7 +69,7 @@ export function refreshToolDefinitions(
     changed: [],
     endpointChanged: options.endpointChanged,
   }
-  const tools = discovered.map((tool) => {
+  const tools = exactDefinitions.map((tool) => {
     const existing = previousByName.get(tool.name)
     if (!existing) {
       changes.added.push(tool.name)

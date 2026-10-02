@@ -63,10 +63,8 @@ export function ServiceEditor({
       initial?.tools.map((tool) => ({
         name: tool.name,
         description: tool.description,
-        input_schema: JSON.parse(tool.input_schema),
-        ...(tool.output_schema
-          ? { output_schema: JSON.parse(tool.output_schema) }
-          : {}),
+        input_schema: tool.input_schema,
+        ...(tool.output_schema ? { output_schema: tool.output_schema } : {}),
         permissions: JSON.parse(tool.permissions) ?? [],
         price_quota: tool.price_quota,
       })) ?? []
@@ -144,6 +142,7 @@ export function ServiceEditor({
     if (operationLock.current || !credentialsReady) return
     operationLock.current = true
     setInspectPending(true)
+    setInspectVersion(0)
     setError(undefined)
     try {
       const choice = credentialChoice()
@@ -645,7 +644,9 @@ export function ServiceEditor({
                           {t('Parameter schema')}
                         </summary>
                         <pre className='bg-muted mt-2 max-h-52 overflow-auto p-3 text-xs'>
-                          {JSON.stringify(tool.input_schema, null, 2)}
+                          {typeof tool.input_schema === 'string'
+                            ? tool.input_schema
+                            : JSON.stringify(tool.input_schema, null, 2)}
                         </pre>
                       </details>
                     </>
