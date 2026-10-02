@@ -327,7 +327,7 @@ func marketRemoteFingerprint(tool *mcp.Tool) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func marketListRemote(ctx context.Context, session *mcp.ClientSession, capture *marketWireCapture) ([]*mcp.Tool, error) {
+func marketListRemote(ctx context.Context, session *mcp.ClientSession, capture *marketWireCapture, credential *model.ToolMarketResolvedCredential) ([]*mcp.Tool, error) {
 	items := []*mcp.Tool{}
 	cursor := ""
 	seen := map[string]bool{}
@@ -340,7 +340,7 @@ func marketListRemote(ctx context.Context, session *mcp.ClientSession, capture *
 			return nil, ErrMarketRemoteSchema
 		}
 		exact, err := capture.result("tools/list")
-		if err != nil {
+		if err != nil || !marketRemoteSecretSafe(exact, credential) {
 			return nil, ErrMarketRemoteSchema
 		}
 		exactTools, ok := exact["tools"].([]any)
@@ -417,7 +417,7 @@ func (r *ToolMarketRemote) inspectAuthenticated(ctx context.Context, endpoint st
 		return nil, err
 	}
 	defer session.Close()
-	tools, err := marketListRemote(ctx, session, capture)
+	tools, err := marketListRemote(ctx, session, capture, credential)
 	if err != nil {
 		return nil, err
 	}
@@ -468,7 +468,7 @@ func (r *ToolMarketRemote) validate(ctx context.Context, actor int, serviceID st
 		return err
 	}
 	defer session.Close()
-	tools, err := marketListRemote(ctx, session, capture)
+	tools, err := marketListRemote(ctx, session, capture, credential)
 	if err != nil {
 		return err
 	}
@@ -564,7 +564,7 @@ func (r *ToolMarketRemote) execute(ctx context.Context, in model.ToolMarketReser
 		return nil, err
 	}
 	defer session.Close()
-	tools, err := marketListRemote(ctx, session, capture)
+	tools, err := marketListRemote(ctx, session, capture, credential)
 	if err != nil {
 		return nil, err
 	}
@@ -631,6 +631,22 @@ func (r *ToolMarketRemote) execute(ctx context.Context, in model.ToolMarketReser
 			response.ErrorCode = "TOOL_MARKET_RESULT_UNKNOWN"
 		}
 		return response, readErr
+	}
+	if !marketRemoteSecretSafe(exactResult, credential) {
+		// A provider may reflect the credential it just received anywhere in
+		// the result. Replace the entire package before persistence or delivery.
+		data := []byte(`{"isError":true,"content":[{"type":"text","text":"The remote MCP service returned an unsafe result."}]}`)
+		if err := model.RecordToolMarketResult(call.ID, false, data); err != nil {
+			return nil, err
+		}
+		if err := model.FinishToolMarketCall(call.ID, false); err != nil {
+			return nil, err
+		}
+		response, err := GetToolMarketExecutionResponse(in.UserID, in.ClientID, call.ID)
+		if response != nil {
+			response.ErrorCode = "TOOL_MARKET_UNSAFE_RESULT"
+		}
+		return response, err
 	}
 	result.StructuredContent = exactResult["structuredContent"]
 	if metadata, ok := exactResult["_meta"].(map[string]any); ok {

@@ -57,7 +57,10 @@ func (c *marketWireCapture) wrap(req *http.Request, resp *http.Response) {
 	if !exists || id == nil {
 		return
 	}
-	contentType, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+	contentType, _, contentTypeErr := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+	if contentTypeErr != nil {
+		contentType = ""
+	}
 	response := &marketWireResponse{id: marketCanonical(id), contentType: contentType}
 	c.mu.Lock()
 	if c.responses == nil {
