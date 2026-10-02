@@ -32,7 +32,7 @@ func TestResponsesWSToolSchemaNormalizationRespectsPassThrough(t *testing.T) {
 			common.SetContextKey(c, constant.ContextKeyChannelSetting, dto.ChannelSettings{PassThroughBodyEnabled: tt.channel})
 			req := dto.OpenAIResponsesRequest{Model: "gpt-test", Input: json.RawMessage(`"hello"`), Tools: json.RawMessage(`[{"type":"function","name":"lookup","parameters":{"required":null}}]`)}
 			info := &relaycommon.RelayInfo{OriginModelName: "gpt-test", Request: &req}
-			payload, apiErr := buildResponsesWSCreatePayload(c, info, req, nil)
+			payload, apiErr := buildResponsesWSCreatePayload(c, info, req, nil, "")
 			require.Nil(t, apiErr)
 			require.Equal(t, tt.remaining, strings.Count(string(payload), `"required":null`))
 			require.Contains(t, string(req.Tools), `"required":null`, "original request must survive retry")
@@ -61,7 +61,7 @@ func TestResponsesWSToolSchemaNormalizationKeepsNumericPrecision(t *testing.T) {
 				Tools: json.RawMessage(`[{"type":"function","name":"lookup","parameters":{"required":null,"minimum":9007199254740993,"default":{"required":null,"n":9007199254740993}}}]`),
 			}
 			info := &relaycommon.RelayInfo{OriginModelName: "gpt-test", Request: &req}
-			payload, apiErr := buildResponsesWSCreatePayload(c, info, req, nil)
+			payload, apiErr := buildResponsesWSCreatePayload(c, info, req, nil, "")
 			require.Nil(t, apiErr)
 			require.Equal(t, 3, strings.Count(string(payload), "9007199254740993"), string(payload))
 			require.NotContains(t, string(payload), "9007199254740992")
