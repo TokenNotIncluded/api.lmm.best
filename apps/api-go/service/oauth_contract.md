@@ -23,6 +23,8 @@ Status: implementation in progress; not deployed or independently audited.
 
 The consent adapter adds **only the explicitly displayed current group snapshot** to granted scopes as `group:<base64url-without-padding(UTF8(group))>`. These scopes are returned in the token response. Client must persist the returned scope instead of assuming it equals the current six-scope profile. Existing authorization never gains future application scopes, MCP scopes, or groups. Refresh may narrow scope; omitted scope preserves it. Removed groups are filtered from catalog and rejected at relay on every request. Registry allowlist changes require a restart; same-name groups are administrative security identities and must not be reused for a different privilege boundary.
 
+Each authorization code stores its own immutable client, exact redirect URI, resource and consent scope. Reusing a token family for another sign-in cannot change a pending code's callback or expand the new credentials beyond that sign-in's displayed permissions. Upgrading from the schema without these snapshots rejects pending legacy codes rather than guessing their original consent; these codes normally live for 120 seconds, and the affected client must start sign-in again. Existing access tokens, refresh rotation and revocation remain valid under their original permissions.
+
 Refresh rotation has no grace: the client journal serializes refreshes, stores only credential summaries and prevents replay after failed rotation. A crash that loses the replacement token requires login again. `/lmm-revoke` is wired to server revocation.
 
 ## Catalog v1

@@ -57,10 +57,16 @@ func (OAuthServerGrant) TableName() string { return "oauth_server_grants" }
 
 // OAuthServerCode retains its used tombstone until the family can be purged.
 // Retaining it permits a correctly bound replay to revoke issued credentials.
+// Consent bindings are immutable per code even when a later login reuses its
+// family. Empty migration defaults identify legacy codes that must be rejected.
 type OAuthServerCode struct {
 	Digest        string `gorm:"primaryKey;size:64"`
 	Issuer        string `gorm:"not null;size:512"`
 	FamilyID      string `gorm:"not null;size:43;index"`
+	ClientID      string `gorm:"not null;default:'';size:128"`
+	RedirectURI   string `gorm:"not null;default:'';size:1024"`
+	Resource      string `gorm:"not null;default:'';size:1024"`
+	Scope         string `gorm:"not null;default:'';size:2048"`
 	CodeChallenge string `gorm:"not null;size:43"`
 	CreatedAtMs   int64  `gorm:"not null"`
 	ExpiresAtMs   int64  `gorm:"not null;index"`
