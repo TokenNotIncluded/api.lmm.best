@@ -36,8 +36,8 @@ intended recipient. The sender can cancel only an unclaimed transfer. Recipient
 contact details are excluded from MCP transfer history.
 
 A confirmation is bound to the authenticated account and auth version, market
-client, exact tool/version/grant, market request and amount. It expires after
-10 minutes. Changing those inputs invalidates the confirmation. Its consumption,
+client, exact tool/version/grant, market request and amount. The marketplace
+call expires after 2 minutes. Changing those inputs invalidates the confirmation. Its consumption,
 wallet debit/refund and operation receipt commit together, so failed operations
 roll back and simultaneous retries do not repeat the hold or refund. Resume only
 the original market request; do not create a new request to retry an uncertain
