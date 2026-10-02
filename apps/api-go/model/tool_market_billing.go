@@ -91,7 +91,7 @@ func ReserveToolMarketCall(in ToolMarketReserveInput) (*ToolMarketCall, bool, er
 	id := marketDigest([]any{in.UserID, in.ClientID, in.RequestKey})
 	var call ToolMarketCall
 	created := false
-	err = DB.Transaction(func(tx *gorm.DB) error {
+	err = marketTransaction(DB, func(tx *gorm.DB) error {
 		// The service is the publication/dispatch lock; the user serializes all
 		// client and tool budgets, including requests for different services.
 		var tool ToolMarketTool
@@ -120,29 +120,20 @@ func ReserveToolMarketCall(in ToolMarketReserveInput) (*ToolMarketCall, bool, er
 		if in.ResolveBy <= now || in.ResolveBy > now+86400 {
 			return ErrToolMarketInput
 		}
-		var config ToolMarketConfig
-		if err := lockForShare(tx).First(&config, 1).Error; err != nil {
-			return err
-		}
-		if !config.Enabled || config.FeeBPS < 0 || config.FeeBPS > 10000 {
-			return ErrToolMarketDenied
-		}
-		if err := marketUser(tx, config.RecipientID, common.RoleRootUser); err != nil {
-			return err
-		}
-		if err := marketUser(tx, service.OwnerID, common.RoleCommonUser); err != nil {
-			return err
-		}
 		_, version, err := marketLiveTool(tx, in.UserID, in.ToolID, in.VersionID)
 		if err != nil {
 			return err
 		}
+		config, err := marketExecutionConfig(tx, service, in.VersionID, version.PriceQuota)
+		if err != nil {
+			return err
+		}
 		var installation ToolMarketInstallation
-		if err := tx.First(&installation, "user_id = ? AND client_id = ? AND tool_id = ? AND version_id = ?", in.UserID, in.ClientID, in.ToolID, in.VersionID).Error; err != nil {
+		if err := tx.Scopes(marketExactTextScope("client_id", in.ClientID)).First(&installation, "user_id = ? AND tool_id = ? AND version_id = ?", in.UserID, in.ToolID, in.VersionID).Error; err != nil {
 			return err
 		}
 		var grant ToolMarketGrant
-		if err := tx.First(&grant, "id = ? AND user_id = ? AND client_id = ? AND tool_id = ? AND version_id = ?", in.GrantID, in.UserID, in.ClientID, in.ToolID, in.VersionID).Error; err != nil {
+		if err := tx.Scopes(marketExactTextScope("client_id", in.ClientID)).First(&grant, "id = ? AND user_id = ? AND tool_id = ? AND version_id = ?", in.GrantID, in.UserID, in.ToolID, in.VersionID).Error; err != nil {
 			return err
 		}
 		if grant.RevokedAt != 0 || grant.ExpiresAt <= now {
@@ -197,10 +188,11 @@ func ReserveToolMarketCall(in ToolMarketReserveInput) (*ToolMarketCall, bool, er
 	return &call, created && err == nil, err
 }
 
-// Lock order: service -> call -> wallets (sorted). No caller executes remotely
-// until this transaction commits. Only the winner receives started=true.
+// Lock order: service -> call -> retained result (when needed) -> wallets
+// (sorted). No caller executes remotely until this transaction commits. Only
+// the winner receives started=true.
 func marketCallTx(id string, fn func(*gorm.DB, *ToolMarketCall) error) error {
-	return DB.Transaction(func(tx *gorm.DB) error {
+	return marketTransaction(DB, func(tx *gorm.DB) error {
 		var call ToolMarketCall
 		if err := tx.First(&call, "id = ?", id).Error; err != nil {
 			return err
@@ -231,29 +223,7 @@ func StartToolMarketCall(id string) (bool, error) {
 		if call.ResolveBy <= common.GetTimestamp() {
 			return ErrToolMarketDenied
 		}
-		var config ToolMarketConfig
-		if err := lockForShare(tx).First(&config, 1).Error; err != nil {
-			return err
-		}
-		if !config.Enabled {
-			return ErrToolMarketDenied
-		}
-		service, _, err := marketLiveTool(tx, call.UserID, call.ToolID, call.VersionID)
-		if err != nil {
-			return err
-		}
-		if err := marketUser(tx, service.OwnerID, common.RoleCommonUser); err != nil {
-			return err
-		}
-		var grant ToolMarketGrant
-		if err := tx.First(&grant, "id = ?", call.GrantID).Error; err != nil {
-			return err
-		}
-		if grant.RevokedAt != 0 || grant.ExpiresAt <= common.GetTimestamp() {
-			return ErrToolMarketDenied
-		}
-		var installation ToolMarketInstallation
-		if err := tx.First(&installation, "user_id = ? AND client_id = ? AND tool_id = ? AND version_id = ?", call.UserID, call.ClientID, call.ToolID, call.VersionID).Error; err != nil {
+		if err := marketAuthorizeCallDispatch(tx, *call); err != nil {
 			return err
 		}
 		call.ExecutionStatus, call.StartedAt = "running", common.GetTimestamp()
@@ -315,6 +285,20 @@ func finishToolMarketCall(id string, success, expire bool) error {
 		if success && common.GetTimestamp() >= call.ResolveBy {
 			return ErrToolMarketConflict
 		}
+		var outcome ToolMarketResult
+		outcomeErr := gorm.ErrRecordNotFound
+		if success || (expire && call.ExecutionStatus != "reserved" && call.ExecutionStatus != "awaiting_confirmation") {
+			// marketCallTx's initial ordinary read can establish a MySQL RR
+			// snapshot before waiting for the service/call locks. A final state
+			// decision must read the current result after acquiring those locks.
+			outcomeErr = lockForUpdate(tx).Select("call_id", "success", "builtin_billing_pending").First(&outcome, "call_id = ?", call.ID).Error
+			if outcomeErr != nil && !errors.Is(outcomeErr, gorm.ErrRecordNotFound) {
+				return outcomeErr
+			}
+		}
+		if success && outcomeErr == nil && outcome.BuiltinBillingPending {
+			return ErrToolMarketConflict
+		}
 		affected = []int{call.UserID, call.OwnerID, call.RecipientID}
 		if err := marketLockUsers(tx, append([]int(nil), affected...)...); err != nil {
 			return err
@@ -370,22 +354,23 @@ func finishToolMarketCall(id string, success, expire bool) error {
 			}
 			call.ExecutionStatus, call.SettlementStatus = "succeeded", "settled"
 		} else {
-			if err := ApplyWalletQuotaDelta(tx, call.UserID, call.PriceQuota); err != nil {
-				return err
+			if call.PriceQuota > 0 {
+				if err := ApplyWalletQuotaDelta(tx, call.UserID, call.PriceQuota); err != nil {
+					return err
+				}
 			}
-			if expire && call.ExecutionStatus != "reserved" {
+			if expire && call.ExecutionStatus != "reserved" && call.ExecutionStatus != "awaiting_confirmation" {
 				call.ExecutionStatus = "unknown"
-				var outcome ToolMarketResult
-				if err := tx.First(&outcome, "call_id = ?", call.ID).Error; err == nil {
-					if outcome.Success {
+				if outcomeErr == nil {
+					if outcome.BuiltinBillingPending {
+						call.ExecutionStatus = "unknown"
+					} else if outcome.Success {
 						call.ExecutionStatus = "succeeded"
 					} else {
 						call.ExecutionStatus = "failed"
 					}
-				} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-					return err
 				}
-			} else if call.ExecutionStatus == "reserved" {
+			} else if call.ExecutionStatus == "reserved" || call.ExecutionStatus == "awaiting_confirmation" {
 				call.ExecutionStatus = "cancelled"
 			} else {
 				call.ExecutionStatus = "failed"
@@ -395,6 +380,11 @@ func finishToolMarketCall(id string, success, expire bool) error {
 		call.FinishedAt = common.GetTimestamp()
 		if err := tx.Save(call).Error; err != nil {
 			return err
+		}
+		if call.OwnerID == 0 {
+			if err := tx.Where("call_id = ?", call.ID).Delete(&ToolMarketBuiltinContinuation{}).Error; err != nil {
+				return err
+			}
 		}
 		return marketEvent(tx, 0, call.ID, "call."+call.SettlementStatus, map[string]any{"execution_status": call.ExecutionStatus, "price_quota": call.PriceQuota})
 	})

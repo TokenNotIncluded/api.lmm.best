@@ -74,6 +74,7 @@ import {
   expectedSettlement,
   isSettlementQuoteChanged,
 } from './lib/settlement-quote'
+import { getWalletTopupPrefill } from './lib/topup-link'
 import { WalletTransfers } from './transfers/wallet-transfers'
 import type {
   UserWalletData,
@@ -85,6 +86,7 @@ import type {
 
 interface WalletProps {
   initialShowHistory?: boolean
+  initialTopupAmount?: number
 }
 
 type DiscountValidationContext = {
@@ -122,7 +124,12 @@ function WalletCheckout(props: WalletProps) {
       ? configuredQuotaPerUnit
       : DEFAULT_CURRENCY_CONFIG.quotaPerUnit
   const developerAccessGranted = !localPreview && isConsoleActivated(authUser)
-  const [enteredTopupAmount, setTopupAmount] = useState<number | null>(null)
+  const [enteredTopupAmount, setTopupAmount] = useState<number | null>(() =>
+    getWalletTopupPrefill(
+      typeof window === 'undefined' ? '' : window.location.search,
+      props.initialTopupAmount
+    )
+  )
   const [selectedPreset, setSelectedPreset] = useState<number | null>(null)
   const [selectedPaymentMethod, setSelectedPaymentMethod] =
     useState<PaymentMethod>()

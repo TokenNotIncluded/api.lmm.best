@@ -34,6 +34,7 @@ import {
   type MarketConfig,
   type MarketToken,
 } from './api'
+import { marketClientProfiles, type MarketClientProfile } from './client-config'
 import {
   marketConnectionNamespace,
   registerMarketConnectionTranslations,
@@ -57,19 +58,32 @@ type ClientAccess = {
 
 // Remount all local state on account changes; a one-time secret must never survive
 // logout/login or become visible to the next account in the same browser session.
-export function MarketConnections({ config }: { config: MarketConfig }) {
+export function MarketConnections({
+  config,
+  onChooseClient,
+}: {
+  config: MarketConfig
+  onChooseClient?: (clientID: string) => void
+}) {
   const userID = useAuthStore((state) => state.auth.user?.id)
   return userID ? (
-    <ConnectionWorkspace key={userID} userID={userID} config={config} />
+    <ConnectionWorkspace
+      key={userID}
+      userID={userID}
+      config={config}
+      onChooseClient={onChooseClient}
+    />
   ) : null
 }
 
 function ConnectionWorkspace({
   userID,
   config,
+  onChooseClient,
 }: {
   userID: number
   config: MarketConfig
+  onChooseClient?: (clientID: string) => void
 }) {
   const { t, i18n } = useTranslation()
   registerMarketConnectionTranslations(i18n)
@@ -96,6 +110,7 @@ function ConnectionWorkspace({
     queryFn: ({ signal }) => marketAPI.mine<Budget>('budgets', signal),
   })
   const [client, setClient] = useState('my-agent')
+  const [profile, setProfile] = useState<MarketClientProfile>('codex')
   const [permissions, setPermissions] = useState(defaultConnectionPermissions)
   const [issued, setIssued] = useState<IssuedToken | null>(null)
   const [copyStatus, setCopyStatus] = useState<'copied' | 'copyFailed' | null>(
@@ -149,8 +164,20 @@ function ConnectionWorkspace({
   const previewClient = issued?.record.client_id ?? client.trim()
   const preview =
     endpoint && isPersonalMarketClient(previewClient)
-      ? buildMarketClientConfig(endpoint, previewClient)
+      ? buildMarketClientConfig(endpoint, previewClient, undefined, profile)
       : ''
+  const profileLabels: Record<MarketClientProfile, string> = {
+    codex: 'Codex',
+    'claude-code': 'Claude Code',
+    cursor: 'Cursor',
+    http: m('genericHTTP'),
+  }
+  const profileHelp: Record<MarketClientProfile, MarketConnectionCopyKey> = {
+    codex: 'codexSetup',
+    'claude-code': 'claudeSetup',
+    cursor: 'cursorSetup',
+    http: 'httpSetup',
+  }
   let budgetQuota: number | undefined
   try {
     budgetQuota = marketQuota(limit, config.quota_per_unit)
@@ -251,6 +278,27 @@ function ConnectionWorkspace({
             }}
           >
             <FieldGroup>
+              <Field>
+                <FieldLabel htmlFor='mcp-client-profile'>
+                  {m('clientProfile')}
+                </FieldLabel>
+                <select
+                  id='mcp-client-profile'
+                  className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
+                  value={profile}
+                  onChange={(event) => {
+                    setProfile(event.target.value as MarketClientProfile)
+                    setCopyStatus(null)
+                  }}
+                >
+                  {marketClientProfiles.map((value) => (
+                    <option key={value} value={value}>
+                      {profileLabels[value]}
+                    </option>
+                  ))}
+                </select>
+                <FieldDescription>{m(profileHelp[profile])}</FieldDescription>
+              </Field>
               <Field>
                 <FieldLabel htmlFor='mcp-client'>{t('Client ID')}</FieldLabel>
                 <Input
@@ -388,7 +436,8 @@ function ConnectionWorkspace({
                       buildMarketClientConfig(
                         endpoint,
                         issued.record.client_id,
-                        issued.token
+                        issued.token,
+                        profile
                       )
                     )
                   }
@@ -405,6 +454,18 @@ function ConnectionWorkspace({
                   {t('Hide token')}
                 </Button>
               </div>
+              {onChooseClient && (
+                <div className='space-y-2 border-t pt-3'>
+                  <p className='text-muted-foreground text-sm'>
+                    {m('chooseToolsHint')}
+                  </p>
+                  <Button
+                    onClick={() => onChooseClient(issued.record.client_id)}
+                  >
+                    {m('chooseTools')}
+                  </Button>
+                </div>
+              )}
             </div>
           )}
           {copyStatus && (
@@ -425,11 +486,7 @@ function ConnectionWorkspace({
               </pre>
             </details>
           )}
-          <p className='text-muted-foreground text-xs'>
-            {t(
-              'OAuth connections use the client ID oauth:lmm-pi or oauth:lmm-dsh and require newly approved market scopes.'
-            )}
-          </p>
+          <p className='text-muted-foreground text-xs'>{m('oauthHelp')}</p>
         </section>
 
         <section className='min-w-0 space-y-4'>
@@ -466,6 +523,14 @@ function ConnectionWorkspace({
               >
                 <div className='flex flex-wrap items-start justify-between gap-3'>
                   <h4 className='min-w-0 font-semibold break-all'>{id}</h4>
+                  {onChooseClient && (
+                    <Button
+                      variant='outline'
+                      onClick={() => onChooseClient(id)}
+                    >
+                      {m('chooseTools')}
+                    </Button>
+                  )}
                   {isPersonalMarketClient(id) && hasAccess && (
                     <Button
                       variant='outline'

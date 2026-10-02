@@ -30,6 +30,8 @@ export function marketStatus(value: string, t: TFunction): string {
       return t('Succeeded')
     case 'running':
       return t('Running')
+    case 'awaiting_confirmation':
+      return t('Awaiting confirmation')
     case 'failed':
       return t('Failed')
     default:

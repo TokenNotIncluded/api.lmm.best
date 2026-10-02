@@ -35,7 +35,7 @@ type drawingParityFixture struct {
 
 // This uses only the existing isolated SQL unit-test fixture and a loopback
 // mock provider. It is not a production/strict-PostgreSQL acceptance rehearsal.
-func newDrawingParityFixture(t *testing.T, quota int, upstreamStatus int) *drawingParityFixture {
+func newDrawingParityFixture(t *testing.T, quota int, upstreamStatus int, upstreamResponse ...json.RawMessage) *drawingParityFixture {
 	t.Helper()
 	previousDB, previousLogDB := model.DB, model.LOG_DB
 	previousMainType, previousLogType := common.MainDatabaseType(), common.LogDatabaseType()
@@ -84,7 +84,11 @@ func newDrawingParityFixture(t *testing.T, quota int, upstreamStatus int) *drawi
 			_, _ = w.Write([]byte(`{"error":{"message":"mock provider rejected request","type":"invalid_request_error","code":"invalid_request"}}`))
 			return
 		}
-		_, _ = w.Write([]byte(`{"created":1,"data":[{"b64_json":"cGFyaXR5LTE="},{"b64_json":"cGFyaXR5LTI="}]}`))
+		if len(upstreamResponse) != 0 {
+			_, _ = w.Write(upstreamResponse[0])
+			return
+		}
+		_, _ = w.Write([]byte(`{"created":1,"data":[{"url":"https://example.test/parity-1.png"},{"url":"https://example.test/parity-2.png"}]}`))
 	}))
 	t.Cleanup(upstream.Close)
 	fixture.channel = model.Channel{

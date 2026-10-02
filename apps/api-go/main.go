@@ -483,6 +483,13 @@ func InitResources() (returnErr error) {
 		}
 	}
 	model.InitOptionMap()
+	if common.IsMasterNode && migrationSession.Applies() {
+		if err := controller.EnsureToolMarketBuiltinCatalog(context.Background()); err != nil {
+			return fmt.Errorf("failed to register built-in tool market catalog: %w", err)
+		}
+	} else if err := controller.VerifyToolMarketBuiltinCatalog(context.Background()); err != nil {
+		return fmt.Errorf("verify built-in tool market catalog: %w", err)
+	}
 
 	// 清理旧的磁盘缓存文件
 	common.CleanupOldCacheFiles()

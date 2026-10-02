@@ -12,7 +12,9 @@ func loggedRequestPath(param gin.LogFormatterParams) string {
 	if param.Request != nil && param.Request.URL != nil &&
 		(strings.HasPrefix(param.Request.URL.Path, "/api/oauth2/") ||
 			strings.HasPrefix(param.Request.URL.Path, "/api/user/auth/oauth2/") ||
-			strings.HasPrefix(param.Request.URL.Path, "/oauth/")) {
+			strings.HasPrefix(param.Request.URL.Path, "/oauth/") ||
+			param.Request.URL.Path == "/api/tool-market" ||
+			strings.HasPrefix(param.Request.URL.Path, "/api/tool-market/")) {
 		return param.Request.URL.Path
 	}
 	return param.Path

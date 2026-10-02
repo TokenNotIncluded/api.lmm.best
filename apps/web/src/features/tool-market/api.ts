@@ -9,6 +9,8 @@ import {
   connectionTokenInput,
   type ConnectionPermissions,
 } from './connection-utils'
+import { marketDraftBody } from './draft-body'
+import { marketInvokeBody } from './invoke-body'
 
 export type MarketConfig = {
   enabled: boolean
@@ -17,6 +19,7 @@ export type MarketConfig = {
   quota_per_unit: number
   web_client_id: string
   mcp_path: string
+  builtin_enabled?: boolean
 }
 export type MarketService = {
   id: string
@@ -34,6 +37,10 @@ export type MarketSummary = {
   name: string
   description: string
   execution_type: string
+  tool_count?: number
+  pricing?: string
+  min_price_quota?: number
+  max_price_quota?: number
 }
 export type MarketTool = {
   tool_id: string
@@ -65,8 +72,10 @@ export type MarketDetail = {
 export type ToolInput = {
   name: string
   description: string
-  input_schema: Record<string, unknown>
-  output_schema?: Record<string, unknown>
+  input_schema: Record<string, unknown> | string
+  output_schema?: Record<string, unknown> | string
+  input_schema_json?: string
+  output_schema_json?: string
   permissions: string[]
   price_quota: number
 }
@@ -106,7 +115,9 @@ export type MarketToken = {
 }
 export type MarketCall = {
   id: string
+  service_id: string
   tool_id: string
+  version_id: string
   client_id: string
   execution_status: string
   settlement_status: string
@@ -119,6 +130,21 @@ export type CallResponse = {
   result?: unknown
   result_expired: boolean
   error_code?: string
+}
+export type MarketAuthentication = {
+  mode: 'none' | 'bearer' | 'api_key'
+  secret?: string
+}
+export type MarketCredentials = {
+  mode: MarketAuthentication['mode']
+  configured: boolean
+  updated_at: number
+}
+export type MarketInputResponse = {
+  confirmation: {
+    action: 'accept' | 'decline' | 'cancel'
+    content?: { confirmed: true }
+  }
 }
 export type Income = {
   id: string
@@ -156,6 +182,10 @@ type Envelope<T> = {
   code?: string
   message?: string
 }
+
+// Eligible authorization targets only; this does not report live token status.
+export type MarketOAuthClient = { client_id: string }
+
 const base = '/api/tool-market'
 async function unwrap<T>(request: Promise<{ data: Envelope<T> }>): Promise<T> {
   try {
@@ -181,9 +211,11 @@ async function unwrap<T>(request: Promise<{ data: Envelope<T> }>): Promise<T> {
 }
 export const marketAPI = {
   config: () => unwrap<MarketConfig>(api.get(`${base}/config`)),
-  list: (q: string, offset = 0) =>
+  list: (q: string, offset = 0, executionType = '') =>
     unwrap<MarketSummary[]>(
-      api.get(base, { params: { q, offset, limit: 30 } })
+      api.get(base, {
+        params: { q, offset, execution_type: executionType, limit: 30 },
+      })
     ),
   detail: (id: string, mode: 'published' | 'draft' | 'review' = 'published') =>
     unwrap<MarketDetail>(
@@ -198,18 +230,46 @@ export const marketAPI = {
         })
       )
     ),
-  inspect: (endpoint: string) =>
-    unwrap<ToolInput[]>(api.post(`${base}/inspect`, { endpoint })),
+  inspect: (
+    endpoint: string,
+    authentication?: MarketAuthentication,
+    reference?: { service_id: string; version_id: string }
+  ) =>
+    unwrap<ToolInput[]>(
+      api.post(`${base}/inspect`, { endpoint, authentication, ...reference })
+    ),
+  credentials: (id: string, versionID: string) =>
+    unwrap<MarketCredentials>(
+      api.get(`${base}/services/${id}/credentials`, {
+        params: { version_id: versionID },
+      })
+    ),
+  setCredentials: (
+    id: string,
+    input: MarketAuthentication & {
+      version_id: string
+      copy_from_version_id?: string
+    }
+  ) =>
+    unwrap<MarketCredentials>(
+      api.put(`${base}/services/${id}/credentials`, input)
+    ),
   save: (id: string | undefined, input: DraftInput) =>
     unwrap<MarketService>(
       id
-        ? api.put(`${base}/services/${id}/draft`, input)
-        : api.post(`${base}/services`, input)
+        ? api.put(`${base}/services/${id}/draft`, marketDraftBody(input), {
+            headers: { 'Content-Type': 'application/json' },
+          })
+        : api.post(`${base}/services`, marketDraftBody(input), {
+            headers: { 'Content-Type': 'application/json' },
+          })
     ),
   validate: (id: string) =>
     unwrap<null>(api.post(`${base}/services/${id}/validate`)),
   submit: (id: string, version_id: string) =>
     unwrap<null>(api.post(`${base}/services/${id}/submit`, { version_id })),
+  activate: (id: string, version_id: string) =>
+    unwrap<null>(api.post(`${base}/services/${id}/activate`, { version_id })),
   reviews: () => unwrap<MarketService[]>(api.get(`${base}/reviews`)),
   review: (id: string, version_id: string, approve: boolean, note: string) =>
     unwrap<null>(
@@ -234,14 +294,26 @@ export const marketAPI = {
     grant_id: string
     request_id: string
     arguments: unknown
+    arguments_json?: string
+    request_state?: string
+    input_responses?: MarketInputResponse
   }) =>
-    unwrap<CallResponse>(api.post(`${base}/invoke`, input, { timeout: 60000 })),
+    unwrap<CallResponse>(
+      api.post(`${base}/invoke`, marketInvokeBody(input), {
+        timeout: 60000,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    ),
   result: (id: string) =>
     unwrap<CallResponse>(api.get(`${base}/calls/${id}/result`)),
-  calls: () =>
-    unwrap<MarketCall[]>(api.get(`${base}/calls`, { params: { limit: 100 } })),
-  income: () =>
-    unwrap<Income[]>(api.get(`${base}/income`, { params: { limit: 100 } })),
+  calls: (offset = 0) =>
+    unwrap<MarketCall[]>(
+      api.get(`${base}/calls`, { params: { offset, limit: 30 } })
+    ),
+  income: (offset = 0) =>
+    unwrap<Income[]>(
+      api.get(`${base}/income`, { params: { offset, limit: 30 } })
+    ),
   token: (clientID: string, permissions?: ConnectionPermissions) =>
     unwrap<{ token: string; record: MarketToken }>(
       api.post(`${base}/tokens`, connectionTokenInput(clientID, permissions))

@@ -49,6 +49,19 @@ func validTransferToken(token string) bool {
 }
 
 func CreateWalletTransfer(senderID, quota int, requestKey string) (*WalletTransfer, error) {
+	return createWalletTransfer(senderID, quota, requestKey, 0, nil)
+}
+
+// CreateWalletTransferWithMCPConfirmation commits the exact confirmed action
+// and its wallet debit together. Retries can only recover that same result.
+func CreateWalletTransferWithMCPConfirmation(senderID, quota int, requestKey string, authVersion int64, operation OpenSourceBountyMCPConfirmedOperation) (*WalletTransfer, error) {
+	if operation.ToolName != "wallet.transfer.create" || operation.State == "" || operation.PayloadHash == "" {
+		return nil, ErrWalletTransferInvalid
+	}
+	return createWalletTransfer(senderID, quota, requestKey, authVersion, &operation)
+}
+
+func createWalletTransfer(senderID, quota int, requestKey string, authVersion int64, operation *OpenSourceBountyMCPConfirmedOperation) (*WalletTransfer, error) {
 	if senderID <= 0 || quota <= 0 || common.ValidateWalletQuota(quota) != nil || len(requestKey) < 16 || len(requestKey) > 64 || strings.TrimSpace(requestKey) != requestKey {
 		return nil, ErrWalletTransferInvalid
 	}
@@ -64,10 +77,28 @@ func CreateWalletTransfer(senderID, quota int, requestKey string) (*WalletTransf
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND status = ?", senderID, common.UserStatusEnabled).First(&sender).Error; err != nil {
 			return err
 		}
+		if operation != nil {
+			if sender.AuthVersion != authVersion {
+				return ErrWalletTransferUnavailable
+			}
+			replay, err := walletMCPReplayTx(tx, senderID, *operation)
+			if err != nil {
+				return err
+			}
+			if replay {
+				return tx.Where("sender_id = ? AND request_key = ? AND quota = ?", senderID, requestKey, quota).First(&transfer).Error
+			}
+			if err := validateOpenSourceBountyMCPConfirmationTx(tx, senderID, operation.ToolName, operation.PayloadHash, operation.State); err != nil {
+				return err
+			}
+		}
 		var existing WalletTransfer
 		err := tx.Where("sender_id = ? AND request_key = ?", senderID, requestKey).First(&existing).Error
 		if err == nil {
 			if existing.Quota != quota {
+				return ErrWalletTransferInvalid
+			}
+			if operation != nil {
 				return ErrWalletTransferInvalid
 			}
 			transfer = existing
@@ -85,6 +116,11 @@ func CreateWalletTransfer(senderID, quota int, requestKey string) (*WalletTransf
 		}
 		if err := tx.Create(&transfer).Error; err != nil {
 			return err
+		}
+		if operation != nil {
+			if err := completeOpenSourceBountyMCPOperationTx(tx, senderID, operation.ToolName, operation.PayloadHash, operation.State, map[string]any{"transfer_id": transfer.Id}); err != nil {
+				return err
+			}
 		}
 		created = true
 		return nil
@@ -179,13 +215,46 @@ func ClaimWalletTransfer(token string, userID int) (*WalletTransfer, error) {
 }
 
 func CancelWalletTransfer(id, senderID int) error {
+	return cancelWalletTransfer(id, senderID, 0, nil)
+}
+
+func CancelWalletTransferWithMCPConfirmation(id, senderID int, authVersion int64, operation OpenSourceBountyMCPConfirmedOperation) error {
+	if operation.ToolName != "wallet.transfer.cancel" || operation.State == "" || operation.PayloadHash == "" {
+		return ErrWalletTransferInvalid
+	}
+	return cancelWalletTransfer(id, senderID, authVersion, &operation)
+}
+
+func cancelWalletTransfer(id, senderID int, authVersion int64, operation *OpenSourceBountyMCPConfirmedOperation) error {
 	var transfer WalletTransfer
 	refunded := false
 	err := walletTransferDB().Transaction(func(tx *gorm.DB) error {
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND sender_id = ?", id, senderID).First(&transfer).Error; err != nil {
 			return ErrWalletTransferUnavailable
 		}
+		if operation != nil {
+			var sender User
+			if err := lockForUpdate(tx).Where("id = ? AND status = ? AND auth_version = ?", senderID, common.UserStatusEnabled, authVersion).First(&sender).Error; err != nil {
+				return ErrWalletTransferUnavailable
+			}
+			replay, err := walletMCPReplayTx(tx, senderID, *operation)
+			if err != nil {
+				return err
+			}
+			if replay {
+				if transfer.Status == "cancelled" {
+					return nil
+				}
+				return ErrWalletTransferUnavailable
+			}
+			if err := validateOpenSourceBountyMCPConfirmationTx(tx, senderID, operation.ToolName, operation.PayloadHash, operation.State); err != nil {
+				return err
+			}
+		}
 		if transfer.Status == "cancelled" {
+			if operation != nil {
+				return ErrWalletTransferUnavailable
+			}
 			return nil
 		}
 		if transfer.Status != "pending" {
@@ -200,6 +269,11 @@ func CancelWalletTransfer(id, senderID int) error {
 		}
 		if err := ApplyWalletQuotaDelta(tx, senderID, transfer.Quota); err != nil {
 			return err
+		}
+		if operation != nil {
+			if err := completeOpenSourceBountyMCPOperationTx(tx, senderID, operation.ToolName, operation.PayloadHash, operation.State, map[string]any{"transfer_id": transfer.Id}); err != nil {
+				return err
+			}
 		}
 		refunded = true
 		return nil

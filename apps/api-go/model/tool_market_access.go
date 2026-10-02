@@ -1,6 +1,7 @@
 package model
 
 import (
+	"errors"
 	"sort"
 	"strings"
 
@@ -42,7 +43,7 @@ func SetToolMarketConfig(actor int, input ToolMarketConfig) error {
 	if input.FeeBPS < 0 || input.FeeBPS > 10000 || input.RecipientID <= 0 {
 		return ErrToolMarketInput
 	}
-	return DB.Transaction(func(tx *gorm.DB) error {
+	return marketTransaction(DB, func(tx *gorm.DB) error {
 		if err := marketUser(tx, actor, common.RoleRootUser); err != nil {
 			return err
 		}
@@ -65,7 +66,7 @@ func SetToolMarketConfig(actor int, input ToolMarketConfig) error {
 }
 
 func SetToolMarketFavorite(userID int, serviceID string, favorite bool) error {
-	return DB.Transaction(func(tx *gorm.DB) error {
+	return marketTransaction(DB, func(tx *gorm.DB) error {
 		if err := marketUser(tx, userID, common.RoleCommonUser); err != nil {
 			return err
 		}
@@ -95,17 +96,30 @@ func SetToolMarketInstallation(userID int, clientID, toolID, versionID string, l
 	if !marketClientValid(clientID) || toolID == "" {
 		return ErrToolMarketInput
 	}
-	return DB.Transaction(func(tx *gorm.DB) error {
+	return marketTransaction(DB, func(tx *gorm.DB) error {
 		if err := marketLockUsers(tx, userID); err != nil {
 			return err
 		}
 		if err := marketUser(tx, userID, common.RoleCommonUser); err != nil {
 			return err
 		}
-		query := tx.Where("user_id = ? AND client_id = ? AND tool_id = ?", userID, clientID, toolID)
+		query := tx.Where("user_id = ? AND tool_id = ?", userID, toolID).Scopes(marketExactTextScope("client_id", clientID))
 		if loaded {
 			if _, _, err := marketLiveTool(tx, userID, toolID, versionID); err != nil {
 				return err
+			}
+			if tx.Dialector.Name() == "mysql" {
+				// The existing composite PK may be case/accent-insensitive.
+				// Detect its collision under the user lock before an upsert can
+				// replace another client's installation and report it as loaded.
+				var existing ToolMarketInstallation
+				err := tx.First(&existing, "user_id = ? AND client_id = ? AND tool_id = ?", userID, clientID, toolID).Error
+				if err == nil && existing.ClientID != clientID {
+					return ErrToolMarketConflict
+				}
+				if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+					return err
+				}
 			}
 			row := ToolMarketInstallation{UserID: userID, ClientID: clientID, ToolID: toolID, VersionID: versionID, CreatedAt: common.GetTimestamp()}
 			if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "client_id"}, {Name: "tool_id"}}, DoUpdates: clause.AssignmentColumns([]string{"version_id", "created_at"})}).Create(&row).Error; err != nil {
@@ -126,7 +140,7 @@ func CreateToolMarketGrant(userID int, input ToolMarketGrant) (*ToolMarketGrant,
 	}
 	grant := ToolMarketGrant{ID: uuid.NewString(), UserID: userID, ClientID: input.ClientID, ToolID: input.ToolID, VersionID: input.VersionID,
 		MaxPriceQuota: input.MaxPriceQuota, MaxTotalQuota: input.MaxTotalQuota, MaxCalls: input.MaxCalls, ExpiresAt: input.ExpiresAt, CreatedAt: common.GetTimestamp()}
-	err := DB.Transaction(func(tx *gorm.DB) error {
+	err := marketTransaction(DB, func(tx *gorm.DB) error {
 		if err := marketLockUsers(tx, userID); err != nil {
 			return err
 		}
@@ -145,7 +159,7 @@ func CreateToolMarketGrant(userID int, input ToolMarketGrant) (*ToolMarketGrant,
 }
 
 func RevokeToolMarketGrant(userID int, id string) error {
-	return DB.Transaction(func(tx *gorm.DB) error {
+	return marketTransaction(DB, func(tx *gorm.DB) error {
 		if err := marketLockUsers(tx, userID); err != nil {
 			return err
 		}
@@ -186,7 +200,7 @@ func SetToolMarketBudget(userID int, scope, scopeID string, limit int) error {
 	default:
 		return ErrToolMarketInput
 	}
-	return DB.Transaction(func(tx *gorm.DB) error {
+	return marketTransaction(DB, func(tx *gorm.DB) error {
 		if err := marketLockUsers(tx, userID); err != nil {
 			return err
 		}
@@ -194,9 +208,21 @@ func SetToolMarketBudget(userID int, scope, scopeID string, limit int) error {
 			return err
 		}
 		// Creating or replacing a budget never forgets existing charges/holds.
+		if scope == "client" && tx.Dialector.Name() == "mysql" {
+			// Check the existing collated PK before an upsert can replace
+			// another client's budget. Distinct legal names stay distinct.
+			var existing ToolMarketBudget
+			err := tx.First(&existing, "user_id = ? AND scope = ? AND scope_id = ?", userID, scope, scopeID).Error
+			if err == nil && existing.ScopeID != scopeID {
+				return ErrToolMarketConflict
+			}
+			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+		}
 		q := tx.Model(&ToolMarketCall{}).Where("user_id = ?", userID)
 		if scope == "client" {
-			q = q.Where("client_id = ?", scopeID)
+			q = q.Scopes(marketExactTextScope("client_id", scopeID))
 		}
 		if scope == "tool" {
 			q = q.Where("tool_id = ?", scopeID)
@@ -221,26 +247,35 @@ func SetToolMarketBudget(userID int, scope, scopeID string, limit int) error {
 
 func marketBudgets(tx *gorm.DB, call ToolMarketCall) ([]ToolMarketBudget, error) {
 	rows := []ToolMarketBudget{}
-	err := tx.Where("user_id = ? AND ((scope = 'account' AND scope_id = '') OR (scope = 'client' AND scope_id = ?) OR (scope = 'tool' AND scope_id = ?))", call.UserID, call.ClientID, call.ToolID).Find(&rows).Error
+	err := tx.Where("user_id = ?", call.UserID).Where(clause.Or(
+		clause.And(clause.Eq{Column: "scope", Value: "account"}, clause.Eq{Column: "scope_id", Value: ""}),
+		clause.And(clause.Eq{Column: "scope", Value: "client"}, marketExactTextExpr(tx, "scope_id", call.ClientID)),
+		clause.And(clause.Eq{Column: "scope", Value: "tool"}, clause.Eq{Column: "scope_id", Value: call.ToolID}),
+	)).Find(&rows).Error
 	return rows, err
 }
 
 func marketSaveBudget(tx *gorm.DB, budget ToolMarketBudget) error {
 	// The account budget deliberately has an empty scope_id, so GORM Save
 	// would mistake its composite primary key for an uninitialized new row.
-	q := tx.Model(&ToolMarketBudget{}).Where("user_id = ? AND scope = ? AND scope_id = ?", budget.UserID, budget.Scope, budget.ScopeID).
+	q := tx.Model(&ToolMarketBudget{}).Where("user_id = ? AND scope = ?", budget.UserID, budget.Scope).Scopes(marketExactTextScope("scope_id", budget.ScopeID)).
 		Updates(map[string]any{"reserved_quota": budget.ReservedQuota, "spent_quota": budget.SpentQuota})
 	return q.Error
 }
 
 func SetToolMarketPaused(actor int, serviceID string, paused bool) error {
-	return DB.Transaction(func(tx *gorm.DB) error {
+	return marketTransaction(DB, func(tx *gorm.DB) error {
 		if err := marketUser(tx, actor, common.RoleCommonUser); err != nil {
 			return err
 		}
 		var service ToolMarketService
 		if err := lockForUpdate(tx).First(&service, "id = ?", serviceID).Error; err != nil {
 			return err
+		}
+		// System services are controlled by the compiled-in registry, including
+		// for administrators. Public author APIs cannot alter that registry.
+		if service.OwnerID == 0 {
+			return ErrToolMarketDenied
 		}
 		if service.OwnerID != actor {
 			if err := marketUser(tx, actor, common.RoleAdminUser); err != nil {

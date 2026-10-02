@@ -48,7 +48,7 @@ test('client names match reserved IDs and the UTF-8 byte boundary', () => {
   }
   assert.equal(isPersonalMarketClient('a'.repeat(128)), true)
   assert.equal(isPersonalMarketClient('工'.repeat(42)), true)
-  for (const days of [0, 91, 1.5, NaN, Infinity]) {
+  for (const days of [0, 91, 1.5, Number.NaN, Infinity]) {
     assert.throws(() =>
       connectionTokenInput('agent', {
         can_invoke: true,
