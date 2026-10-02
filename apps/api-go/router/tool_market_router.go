@@ -33,7 +33,7 @@ func setToolMarketRouter(parent *assistantRouterGroup) {
 	self.PUT("/services/:id/paused", middleware.CriticalRateLimit(), controller.SetToolMarketPaused)
 	self.GET("/reviews", middleware.AdminAuth(), controller.ListToolMarketReviews)
 	self.GET("/services/:id/review", middleware.AdminAuth(), controller.GetToolMarketReview)
-	self.POST("/invoke", middleware.CriticalRateLimit(), controller.InvokeToolMarketWithBuiltins)
+	self.POST("/invoke", middleware.CriticalRateLimit(), controller.PrepareDrawingMCPRequestContext, controller.InvokeToolMarketWithBuiltins)
 	self.GET("/calls/:id/result", controller.GetToolMarketCallResultWithBuiltins)
 	self.POST("/tokens", middleware.CriticalRateLimit(), controller.CreateToolMarketToken)
 	self.DELETE("/tokens/:id", controller.RevokeToolMarketToken)
