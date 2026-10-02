@@ -325,6 +325,7 @@ export type ModelSettings = {
   'claude.model_headers_settings': string
   'claude.default_max_tokens': string
   'claude.thinking_adapter_enabled': boolean
+  'claude.refusal_no_output_no_charge_enabled': boolean
   'claude.thinking_adapter_budget_tokens_percentage': number
   'grok.violation_deduction_enabled': boolean
   'grok.violation_deduction_amount': number
