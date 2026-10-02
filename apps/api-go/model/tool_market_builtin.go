@@ -2,6 +2,7 @@ package model
 
 import (
 	"bytes"
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"io"
@@ -189,6 +190,65 @@ func EnsureToolMarketBuiltinServices(definitions []ToolMarketBuiltinServiceInput
 		}
 		return nil
 	})
+}
+
+// VerifyToolMarketBuiltinServices never repairs or registers records. Workers
+// can become ready only after the migration writer publishes this exact catalog.
+func VerifyToolMarketBuiltinServices(ctx context.Context, definitions []ToolMarketBuiltinServiceInput) error {
+	if len(definitions) == 0 || len(definitions) > 32 {
+		return ErrToolMarketInput
+	}
+	seen := make(map[string]bool, len(definitions))
+	db := DB.WithContext(ctx)
+	for _, definition := range definitions {
+		input, err := normalizeMarketBuiltin(definition)
+		if err != nil {
+			return err
+		}
+		if seen[input.Key] {
+			return ErrToolMarketInput
+		}
+		seen[input.Key] = true
+		serviceID := ToolMarketBuiltinServiceID(input.Key)
+		versionID := marketBuiltinVersionID(input)
+		var service ToolMarketService
+		if err := db.First(&service, "id = ?", serviceID).Error; err != nil {
+			return err
+		}
+		if service.OwnerID != 0 || service.Status != "published" || service.DraftVersionID != "" || service.LiveVersionID != versionID {
+			return ErrToolMarketConflict
+		}
+		var version ToolMarketVersion
+		if err := db.First(&version, "id = ? AND service_id = ?", versionID, serviceID).Error; err != nil {
+			return err
+		}
+		if !marketBuiltinVersion(service, version) || version.Status != "published" || version.Visibility != "public" || version.AllowedUsers != "" || version.Digest != marketDigest(input) || version.Name != input.Name || version.Description != input.Description {
+			return ErrToolMarketConflict
+		}
+		var tools []ToolMarketToolVersion
+		if err := db.Where("version_id = ?", versionID).Order("name, tool_id").Find(&tools).Error; err != nil {
+			return err
+		}
+		if len(tools) != len(input.Tools) {
+			return ErrToolMarketConflict
+		}
+		for i, tool := range tools {
+			expected := input.Tools[i]
+			toolID := uuid.NewSHA1(uuid.MustParse(serviceID), []byte(expected.Name)).String()
+			permissions, _ := json.Marshal(expected.Permissions)
+			if tool.ToolID != toolID || tool.Name != expected.Name || tool.Description != expected.Description || tool.PriceQuota != 0 || tool.RemoteDigest != "" || tool.InputSchema != string(expected.InputSchema) || tool.OutputSchema != string(expected.OutputSchema) || tool.Permissions != string(permissions) {
+				return ErrToolMarketConflict
+			}
+			var identity ToolMarketTool
+			if err := db.First(&identity, "id = ?", toolID).Error; err != nil {
+				return err
+			}
+			if identity.ServiceID != serviceID || identity.Name != expected.Name {
+				return ErrToolMarketConflict
+			}
+		}
+	}
+	return nil
 }
 
 func marketExecutionConfig(tx *gorm.DB, service ToolMarketService, versionID string, price int) (ToolMarketConfig, error) {

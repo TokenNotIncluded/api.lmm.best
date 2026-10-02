@@ -23,7 +23,20 @@ func EnsureToolMarketBuiltinCatalog(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return model.EnsureToolMarketBuiltinServices(inputs)
+	if err := model.EnsureToolMarketBuiltinServices(inputs); err != nil {
+		return err
+	}
+	return model.VerifyToolMarketBuiltinServices(ctx, inputs)
+}
+
+// VerifyToolMarketBuiltinCatalog is the read-only startup path for workers.
+// Only the migration writer may register or advance compiled-in definitions.
+func VerifyToolMarketBuiltinCatalog(ctx context.Context) error {
+	inputs, err := toolMarketBuiltinCatalogInputs(ctx)
+	if err != nil {
+		return err
+	}
+	return model.VerifyToolMarketBuiltinServices(ctx, inputs)
 }
 
 func toolMarketBuiltinCatalogInputs(ctx context.Context) ([]model.ToolMarketBuiltinServiceInput, error) {
@@ -135,7 +148,14 @@ func ExecuteToolMarketWithBuiltins(ctx context.Context, in model.ToolMarketReser
 	} else if !errors.Is(replayErr, gorm.ErrRecordNotFound) {
 		return nil, replayErr
 	}
-	execution, err := model.GetToolMarketExecution(in.UserID, in.ClientID, in.ToolID, in.VersionID, in.GrantID)
+	grantID := in.GrantID
+	if replayErr == nil {
+		// Lookup has already rejected an explicitly different grant. A pending
+		// call stays bound to its original authorization even if a newer grant
+		// has since become the default for this client/tool/version.
+		grantID = prior.GrantID
+	}
+	execution, err := model.GetToolMarketExecution(in.UserID, in.ClientID, in.ToolID, in.VersionID, grantID)
 	if err != nil {
 		return nil, err
 	}

@@ -183,7 +183,9 @@ func newToolMarketMCPServer(identity marketMCPIdentity) (*mcp.Server, error) {
 			if json.Unmarshal(req.Params.Arguments, &input) != nil {
 				return marketMCPOutput(nil, model.ErrToolMarketInput)
 			}
-			response, err := ExecuteToolMarketWithBuiltins(ctx, model.ToolMarketReserveInput{UserID: identity.userID, ClientID: identity.clientID, RequestKey: input.RequestID, ToolID: execution.Tool.ToolID, VersionID: execution.Tool.VersionID, GrantID: execution.Grant.ID, Arguments: input.Arguments}, req.Params.RequestState, req.Params.InputResponses)
+			// The request identity selects the original grant for continuations;
+			// a fresh request selects the current default grant at invocation.
+			response, err := ExecuteToolMarketWithBuiltins(ctx, model.ToolMarketReserveInput{UserID: identity.userID, ClientID: identity.clientID, RequestKey: input.RequestID, ToolID: execution.Tool.ToolID, VersionID: execution.Tool.VersionID, Arguments: input.Arguments}, req.Params.RequestState, req.Params.InputResponses)
 			return marketMCPExecutionOutput(response, err)
 		})
 	}
