@@ -30,6 +30,7 @@ export type HeroSmsBatchFailureCode =
 export interface HeroSmsBatchPurchaseResult {
   requested: number
   orders: HeroSmsSmsOrder[]
+  completedCount?: number
   failure?: {
     code: HeroSmsBatchFailureCode
     item: number
@@ -47,7 +48,9 @@ interface HeroSmsBatchPurchaseDependencies {
   getFreshOffer: () => Promise<HeroSmsSmsOffer>
   createOrder: (
     offerId: string,
-    idempotencyKey: string
+    idempotencyKey: string,
+    item: number,
+    requested: number
   ) => Promise<{ order: HeroSmsSmsOrder; quota: number }>
   isAmbiguousNetworkError: (error: unknown) => boolean
   onProgress?: (completed: number, total: number) => void
@@ -120,14 +123,26 @@ function isAmbiguousHeroSmsPurchaseError(
 async function createOrderWithOneSafeRetry(
   dependencies: HeroSmsBatchPurchaseDependencies,
   offerId: string,
-  idempotencyKey: string
+  idempotencyKey: string,
+  item: number,
+  requested: number
 ) {
   try {
-    return await dependencies.createOrder(offerId, idempotencyKey)
+    return await dependencies.createOrder(
+      offerId,
+      idempotencyKey,
+      item,
+      requested
+    )
   } catch (error) {
     if (!dependencies.isAmbiguousNetworkError(error)) throw error
     try {
-      return await dependencies.createOrder(offerId, idempotencyKey)
+      return await dependencies.createOrder(
+        offerId,
+        idempotencyKey,
+        item,
+        requested
+      )
     } catch (retryError) {
       // The first request may still have succeeded. A later HTTP error cannot
       // make that unknown outcome definitive; preserve the exact offer/key so
@@ -181,7 +196,9 @@ export async function purchaseHeroSmsBatch(
       const result = await createOrderWithOneSafeRetry(
         dependencies,
         offer.id,
-        itemIdempotencyKey
+        itemIdempotencyKey,
+        index + 1,
+        requested
       )
       orders.push(result.order)
       dependencies.onProgress?.(orders.length, requested)

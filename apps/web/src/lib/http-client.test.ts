@@ -25,10 +25,12 @@ import {
   CanceledError,
   type AxiosAdapter,
   type AxiosResponse,
+  isCancel,
 } from 'axios'
 import { toast } from 'sonner'
 
 import {
+  applyAuthBundle,
   bindAuthCache,
   setDevelopmentAuthRefreshAdapter,
 } from '@/lib/auth-session'
@@ -245,6 +247,261 @@ describe('route navigation request cancellation', () => {
       assert.equal(messages.length, 1)
     } finally {
       toast.error = originalToast
+    }
+  })
+})
+
+function deferred() {
+  let release!: () => void
+  const promise = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  return { promise, release }
+}
+
+function switchedBundle(token: string, userId: number, sessionId: string) {
+  const auth = bundle(token, Math.floor(Date.now() / 1000) + 600)
+  auth.user.id = userId
+  auth.session.sid = sessionId
+  return auth
+}
+
+function rejectsChangedScope(request: Promise<unknown>) {
+  return assert.rejects(request, (error: unknown) => {
+    assert.ok(isCancel(error), 'scope changes must cancel without auth retry')
+    assert.equal(error.code, 'ERR_CANCELED')
+    return true
+  })
+}
+
+describe('requests bound to the initiating authentication', () => {
+  const authScope = { userId: 42, sessionId: 'refresh-session' }
+  const purchaseURL = '/api/hero-sms/sms/orders'
+
+  test('blocks each identity component before dispatch, including skipped refresh', async () => {
+    let calls = 0
+    api.defaults.adapter = async (config) => {
+      calls += 1
+      return response(config, 200, { success: true })
+    }
+    for (const [userId, sessionId] of [
+      [43, 'refresh-session'],
+      [42, 'other-session'],
+    ] as const) {
+      applyAuthBundle(switchedBundle('other-token', userId, sessionId), false)
+      await rejectsChangedScope(
+        api.post(
+          purchaseURL,
+          { request_key: 'old-purchase' },
+          { authScope, skipAuthRefresh: true }
+        )
+      )
+      assert.equal(calls, 0)
+    }
+  })
+
+  test('blocks a purchase if login changes while its initial refresh is pending', async () => {
+    const now = Math.floor(Date.now() / 1000)
+    applyAuthBundle(bundle('expiring-token', now + 10), false)
+    const refreshEntered = deferred(),
+      releaseRefresh = deferred()
+    let refreshCalls = 0
+    setDevelopmentAuthRefreshAdapter(async (config) => {
+      refreshCalls += 1
+      refreshEntered.release()
+      await releaseRefresh.promise
+      return response(config, 200, {
+        success: true,
+        data: bundle('old-refreshed-token', now + 600),
+      })
+    })
+    const authorizations: string[] = []
+    api.defaults.adapter = async (config) => {
+      authorizations.push(String(config.headers.Authorization ?? ''))
+      return response(config, 200, { success: true })
+    }
+    const rejected = rejectsChangedScope(
+      api.post(purchaseURL, { request_key: 'old-purchase' }, { authScope })
+    )
+    try {
+      await refreshEntered.promise
+      applyAuthBundle(
+        switchedBundle('new-account-token', 43, 'new-session'),
+        false
+      )
+    } finally {
+      releaseRefresh.release()
+    }
+    await rejected
+    assert.equal(refreshCalls, 1)
+    assert.deepEqual(
+      authorizations,
+      [],
+      'no purchase may use the new account token'
+    )
+    assert.equal(useAuthStore.getState().auth.accessToken, 'new-account-token')
+  })
+
+  test('blocks a 401 retry when refresh authenticates another session', async () => {
+    applyAuthBundle(
+      bundle('original-token', Math.floor(Date.now() / 1000) + 600),
+      false
+    )
+    const refreshEntered = deferred(),
+      releaseRefresh = deferred()
+    setDevelopmentAuthRefreshAdapter(async (config) => {
+      refreshEntered.release()
+      await releaseRefresh.promise
+      return response(config, 200, {
+        success: true,
+        data: switchedBundle('new-account-token', 43, 'new-session'),
+      })
+    })
+    const authorizations: string[] = []
+    api.defaults.adapter = async (config) => {
+      authorizations.push(String(config.headers.Authorization ?? ''))
+      if (authorizations.length === 1) {
+        throw new AxiosError(
+          'Unauthorized',
+          'ERR_BAD_REQUEST',
+          config,
+          undefined,
+          response(config, 401, {})
+        )
+      }
+      return response(config, 200, { success: true })
+    }
+    const rejected = rejectsChangedScope(
+      api.post(purchaseURL, { request_key: 'old-purchase' }, { authScope })
+    )
+    try {
+      await refreshEntered.promise
+    } finally {
+      releaseRefresh.release()
+    }
+    await rejected
+    assert.deepEqual(
+      authorizations,
+      ['Bearer original-token'],
+      'the original POST must not be replayed with a new token'
+    )
+    assert.equal(useAuthStore.getState().auth.accessToken, 'new-account-token')
+  })
+
+  test('late 401 responses cannot refresh or clear a newer login', async () => {
+    for (const authRetry of [false, true]) {
+      applyAuthBundle(
+        bundle('original-token', Math.floor(Date.now() / 1000) + 600),
+        false
+      )
+      const requestEntered = deferred(),
+        releaseRequest = deferred()
+      let refreshCalls = 0
+      setDevelopmentAuthRefreshAdapter(async (config) => {
+        refreshCalls += 1
+        return response(config, 200, {
+          success: true,
+          data: switchedBundle('new-account-token', 43, 'new-session'),
+        })
+      })
+      let calls = 0
+      api.defaults.adapter = async (config) => {
+        calls += 1
+        requestEntered.release()
+        await releaseRequest.promise
+        throw new AxiosError(
+          'Unauthorized',
+          'ERR_BAD_REQUEST',
+          config,
+          undefined,
+          response(config, 401, {})
+        )
+      }
+      const rejected = rejectsChangedScope(
+        api.post(
+          purchaseURL,
+          { request_key: 'old-purchase' },
+          { authScope, authRetry }
+        )
+      )
+      try {
+        await requestEntered.promise
+        applyAuthBundle(
+          switchedBundle('new-account-token', 43, 'new-session'),
+          false
+        )
+      } finally {
+        releaseRequest.release()
+      }
+      await rejected
+      assert.equal(calls, 1)
+      assert.equal(refreshCalls, 0)
+      assert.equal(
+        useAuthStore.getState().auth.accessToken,
+        'new-account-token'
+      )
+    }
+  })
+
+  test('scoped GETs cannot borrow an unscoped in-flight request', async () => {
+    applyAuthBundle(
+      switchedBundle('new-account-token', 43, 'new-session'),
+      false
+    )
+    const requestEntered = deferred(),
+      releaseRequest = deferred()
+    let calls = 0
+    api.defaults.adapter = async (config) => {
+      calls += 1
+      requestEntered.release()
+      await releaseRequest.promise
+      return response(config, 200, { success: true })
+    }
+    const ordinary = api.get('/api/auth-scope-deduplication-test')
+    await requestEntered.promise
+    const rejected = rejectsChangedScope(
+      api.get('/api/auth-scope-deduplication-test', { authScope })
+    )
+    releaseRequest.release()
+    await Promise.all([ordinary, rejected])
+    assert.equal(calls, 1)
+  })
+
+  test('same-session rotation and ordinary unscoped 401 retry still succeed', async () => {
+    for (const scoped of [false, true]) {
+      applyAuthBundle(
+        bundle('original-token', Math.floor(Date.now() / 1000) + 600),
+        false
+      )
+      setDevelopmentAuthRefreshAdapter(async (config) =>
+        response(config, 200, {
+          success: true,
+          data: bundle('rotated-token', Math.floor(Date.now() / 1000) + 600),
+        })
+      )
+      const authorizations: string[] = []
+      api.defaults.adapter = async (config) => {
+        authorizations.push(String(config.headers.Authorization ?? ''))
+        if (authorizations.length === 1) {
+          throw new AxiosError(
+            'Unauthorized',
+            'ERR_BAD_REQUEST',
+            config,
+            undefined,
+            response(config, 401, {})
+          )
+        }
+        return response(config, 200, { success: true })
+      }
+      await api.post(
+        purchaseURL,
+        { request_key: 'same-session-purchase' },
+        scoped ? { authScope } : {}
+      )
+      assert.deepEqual(authorizations, [
+        'Bearer original-token',
+        'Bearer rotated-token',
+      ])
     }
   })
 })

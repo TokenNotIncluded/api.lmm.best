@@ -37,7 +37,7 @@ func TestHeroSMSSMSConflictingReconcilersCannotReactivateRefundedOrder(t *testin
 		ProviderSnapshotCiphertext: snapshot,
 		ProviderRequestStartedAt:   time.Now().Add(-heroSMSSMSUnknownWindow - time.Second).Unix(),
 	}
-	_, err = reserveHeroSMSSMSQuota(&order)
+	_, err = reserveHeroSMSSMSQuota(&order, time.Now().Add(heroSMSSMSQuoteTTL))
 	require.NoError(t, err)
 
 	candidateStarted := make(chan struct{})

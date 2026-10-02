@@ -20,7 +20,6 @@ For commercial licensing, please contact support@quantumnous.com
 Copyright (C) 2026 LIghtJUNction
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { isAxiosError } from 'axios'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -29,6 +28,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useDebounce } from '@/hooks/use-debounce'
+import { useAuthStore } from '@/stores/auth-store'
 
 import {
   createHeroSmsIdempotencyKey,
@@ -64,6 +64,14 @@ import {
   SmsOrderHistoryCard,
 } from './sms-order-sections.js'
 import { SmsPurchaseCard } from './sms-purchase-card.js'
+import {
+  checkSmsPurchaseRecovery,
+  clearSmsPurchaseRecovery,
+  readSmsPurchaseRecovery,
+  recoveryBatchResult,
+  saveSmsPurchaseRecovery,
+  useSmsPurchaseRecovery,
+} from './sms-purchase-recovery.js'
 import {
   purchaseHeroSmsBatch,
   selectHeroSmsPriceTier,
@@ -117,6 +125,8 @@ const smsKeys = {
 type Translate = ReturnType<typeof useTranslation>['t']
 
 interface SmsPurchaseMutationOptions {
+  userId: number | undefined
+  isMounted: () => boolean
   balance: ReturnType<typeof useSmsPurchaseBalance>
   offer?: HeroSmsSmsOffer
   quantity: number
@@ -138,7 +148,10 @@ function batchFailureMessage(result: HeroSmsBatchPurchaseResult, t: Translate) {
       'The last purchase result is uncertain. Resolve it before buying again.'
     )
   }
-  if (result.failure.code === 'PRICE_CHANGED') {
+  if (
+    result.failure.code === 'PRICE_CHANGED' ||
+    isSmsPurchaseNotCreated(result.failure.error)
+  ) {
     return t('The price changed before item {{item}}. Review the new quote.', {
       item: result.failure.item,
     })
@@ -181,91 +194,246 @@ function showBatchResult(result: HeroSmsBatchPurchaseResult, t: Translate) {
 }
 
 function useSmsPurchaseMutation(options: SmsPurchaseMutationOptions) {
-  return useMutation({
-    mutationFn: () => {
-      if (!options.offer) throw new Error('HeroSMS request failed')
+  const mutation = useMutation({
+    mutationFn: (attempt: SmsPurchaseMutationOptions) => {
+      if (!attempt.offer || attempt.userId === undefined) {
+        throw new Error('HeroSMS request failed')
+      }
+      const userId = attempt.userId
+      const assertActive = () => {
+        if (!attempt.isMounted() || !attempt.balance.isCurrentSession()) {
+          throw new Error('HeroSMS request failed')
+        }
+      }
+      assertActive()
+      if (readSmsPurchaseRecovery(userId)) {
+        throw new Error('HeroSMS request failed')
+      }
       return purchaseHeroSmsBatch({
-        initialOffer: options.offer,
-        quantity: options.quantity,
+        initialOffer: attempt.offer,
+        quantity: attempt.quantity,
         idempotencyKey: createHeroSmsIdempotencyKey(),
-        getFreshOffer: options.getFreshOffer,
-        createOrder: async (offerId, idempotencyKey) => {
-          if (!options.balance.isCurrentSession()) {
+        getFreshOffer: async () => {
+          assertActive()
+          const offer = await attempt.getFreshOffer()
+          assertActive()
+          return offer
+        },
+        createOrder: async (offerId, idempotencyKey, item, requested) => {
+          assertActive()
+          const record = { userId, offerId, idempotencyKey, item, requested }
+          try {
+            await saveSmsPurchaseRecovery(
+              record,
+              () => attempt.isMounted() && attempt.balance.isCurrentSession()
+            )
+          } catch {
+            throw new SmsPurchaseNotStartedError('HeroSMS request failed')
+          }
+          if (!attempt.isMounted() || !attempt.balance.isCurrentSession()) {
+            // Once published, another tab can already be replaying this pair.
+            // Keep it recoverable even if this panel never sends its own POST.
             throw new Error('HeroSMS request failed')
           }
           const result = await createHeroSmsSmsOrder(offerId, idempotencyKey)
-          options.balance.recordQuota(result.quota)
+          if (attempt.balance.isCurrentSession()) {
+            const settled = await clearSmsPurchaseRecovery(
+              record,
+              attempt.balance.isCurrentSession,
+              () => {
+                if (attempt.isMounted() && attempt.balance.isCurrentSession()) {
+                  attempt.balance.recordQuota(result.quota)
+                }
+              }
+            )
+            if (!attempt.balance.isCurrentSession()) return result
+            if (!settled || !attempt.isMounted()) {
+              await attempt.balance.invalidateQuota()
+            }
+          }
           return result
         },
-        isAmbiguousNetworkError: (error) =>
-          isAxiosError(error) && !error.response,
-        onProgress: (completed, total) =>
-          options.setBatchProgress({ completed, total }),
+        isAmbiguousNetworkError: isUncertainSmsPurchaseError,
+        onProgress: (completed, total) => {
+          if (attempt.isMounted() && attempt.balance.isCurrentSession()) {
+            attempt.setBatchProgress({ completed, total })
+          }
+        },
       })
     },
-    onMutate: () => {
-      options.setBatchResult(null)
-      options.setBatchProgress({ completed: 0, total: options.quantity })
-      return options.balance
+    onMutate: (attempt) => {
+      attempt.setBatchResult(null)
+      attempt.setBatchProgress({ completed: 0, total: attempt.quantity })
     },
-    onSuccess: async (result, _variables, balance) => {
-      options.setConfirmOpen(false)
-      options.setBatchResult(result)
-      if (isSmsMinimumBalanceError(result.failure?.error)) balance?.markDenied()
-      showBatchResult(result, options.t)
-      options.setBatchProgress(null)
-      await options.invalidate()
-      await options.refetchOffer()
+    onSuccess: async (result, attempt) => {
+      let failure = result.failure
+      if (failure && isSmsPurchaseNotCreated(failure.error)) {
+        // The safe retry conservatively wraps its errors as unknown. This
+        // server proof settles the original pair as well as the retry.
+        failure = { ...failure, ambiguous: false }
+        result = { ...result, failure }
+      }
+      if (
+        isSmsPurchaseNotCreated(failure?.error) &&
+        failure?.offerId &&
+        failure.idempotencyKey &&
+        attempt.userId !== undefined &&
+        attempt.balance.isCurrentSession()
+      ) {
+        await clearSmsPurchaseRecovery(
+          {
+            userId: attempt.userId,
+            offerId: failure.offerId,
+            idempotencyKey: failure.idempotencyKey,
+            item: failure.item,
+            requested: result.requested,
+          },
+          attempt.balance.isCurrentSession
+        )
+      }
+      if (!attempt.isMounted() || !attempt.balance.isCurrentSession()) return
+      attempt.setConfirmOpen(false)
+      attempt.setBatchResult(result)
+      if (isSmsMinimumBalanceError(failure?.error)) attempt.balance.markDenied()
+      showBatchResult(result, attempt.t)
+      attempt.setBatchProgress(null)
+      await attempt.invalidate()
+      if (attempt.isMounted() && attempt.balance.isCurrentSession()) {
+        await attempt.refetchOffer()
+      }
     },
-    onError: (error, _variables, balance) => {
-      options.setBatchProgress(null)
+    onError: (error, attempt) => {
+      if (!attempt.isMounted() || !attempt.balance.isCurrentSession()) return
+      attempt.setBatchProgress(null)
       if (isSmsMinimumBalanceError(error)) {
-        balance?.markDenied()
+        attempt.balance.markDenied()
         toast.error(
-          options.t(
+          attempt.t(
             'Temporary SMS purchases require a balance of at least USD 10'
           )
         )
       } else {
-        toast.error(options.t(parseHeroSmsError(error).message))
+        toast.error(attempt.t(parseHeroSmsError(error).message))
       }
     },
   })
+  return { ...mutation, purchase: () => mutation.mutate(options) }
+}
+
+class SmsPurchaseNotStartedError extends Error {}
+
+function isSmsPurchaseNotCreated(error: unknown) {
+  const parsed = parseHeroSmsError(error)
+  return parsed.status === 409 && parsed.code === 'PURCHASE_NOT_CREATED'
+}
+
+function isUncertainSmsPurchaseError(error: unknown) {
+  if (error instanceof SmsPurchaseNotStartedError) return false
+  // Another context may still have this exact request in flight. Only the
+  // backend's serialized no-purchase proof can rule out a future settlement.
+  return !isSmsPurchaseNotCreated(error)
 }
 
 function useSmsPurchaseReconciliation({
-  result,
+  recovery,
+  balance,
+  isMounted,
+  purchasePending,
   setResult,
   invalidate,
   refetchOffer,
   t,
 }: {
-  result: HeroSmsBatchPurchaseResult | null
+  recovery: ReturnType<typeof useSmsPurchaseRecovery>
+  balance: ReturnType<typeof useSmsPurchaseBalance>
+  isMounted: () => boolean
+  purchasePending: boolean
   setResult: (result: HeroSmsBatchPurchaseResult | null) => void
   invalidate: () => Promise<void>
   refetchOffer: () => Promise<unknown>
   t: Translate
 }) {
-  const [pending, setPending] = useState(false)
+  const sessionId = useAuthStore((state) => state.auth.session?.sid)
+  const [pendingOwner, setPendingOwner] = useState<{
+    userId: number | undefined
+    sessionId: string | undefined
+  } | null>(null)
+  const pending =
+    pendingOwner !== null &&
+    pendingOwner.userId === recovery.userId &&
+    pendingOwner.sessionId === sessionId
   const run = async () => {
-    const failure = result?.failure
-    if (!failure?.ambiguous || !failure.offerId || !failure.idempotencyKey) {
+    const record = recovery.pending
+    if (
+      !record ||
+      pending ||
+      purchasePending ||
+      !isMounted() ||
+      !balance.isCurrentSession()
+    ) {
       return
     }
-    setPending(true)
+    const owner = { userId: recovery.userId, sessionId }
+    setPendingOwner(owner)
     try {
-      await createHeroSmsSmsOrder(failure.offerId, failure.idempotencyKey)
-      toast.success(t('Purchase result reconciled'))
-      setResult(null)
+      const current = await checkSmsPurchaseRecovery(
+        record,
+        () => isMounted() && balance.isCurrentSession()
+      )
+      if (!isMounted() || !balance.isCurrentSession()) return
+      if (!current) {
+        toast.error(t('HeroSMS request failed'))
+        return
+      }
+      const result = await createHeroSmsSmsOrder(
+        record.offerId,
+        record.idempotencyKey
+      )
+      if (!balance.isCurrentSession()) return
+      const settled = await clearSmsPurchaseRecovery(
+        record,
+        balance.isCurrentSession,
+        () => {
+          if (!isMounted() || !balance.isCurrentSession()) return
+          balance.recordQuota(result.quota)
+          toast.success(t('Purchase result reconciled'))
+          setResult(null)
+        }
+      )
+      if (!balance.isCurrentSession()) return
+      if (!settled || !isMounted()) {
+        await balance.invalidateQuota()
+        return
+      }
       await invalidate()
-      await refetchOffer()
+      if (isMounted() && balance.isCurrentSession()) await refetchOffer()
     } catch (error) {
+      if (!isMounted() || !balance.isCurrentSession()) return
       const parsed = parseHeroSmsError(error)
-      const stillAmbiguous =
-        (isAxiosError(error) && !error.response) ||
-        parsed.code === 'UPSTREAM_BUSY' ||
-        (parsed.status !== undefined && parsed.status >= 500)
-      if (stillAmbiguous) {
+      if (isSmsPurchaseNotCreated(error)) {
+        const settled = await clearSmsPurchaseRecovery(
+          record,
+          balance.isCurrentSession,
+          () => {
+            if (!isMounted() || !balance.isCurrentSession()) return
+            const result: HeroSmsBatchPurchaseResult = {
+              requested: record.requested,
+              orders: [],
+              completedCount: record.item - 1,
+              failure: { code: 'PRICE_CHANGED', item: record.item },
+            }
+            setResult(result)
+            toast.error(batchFailureMessage(result, t))
+          }
+        )
+        if (!isMounted() || !balance.isCurrentSession()) return
+        if (!settled) {
+          await balance.invalidateQuota()
+          return
+        }
+        await invalidate()
+        if (isMounted() && balance.isCurrentSession()) await refetchOffer()
+      } else if (isUncertainSmsPurchaseError(error)) {
         toast.error(
           t(
             'The last purchase result is uncertain. Resolve it before buying again.'
@@ -273,12 +441,11 @@ function useSmsPurchaseReconciliation({
         )
       } else {
         toast.error(t(parsed.message))
-        setResult(null)
-        await invalidate()
-        await refetchOffer()
       }
     } finally {
-      setPending(false)
+      if (isMounted()) {
+        setPendingOwner((current) => (current === owner ? null : current))
+      }
     }
   }
   return { pending, run }
@@ -462,6 +629,8 @@ function useSmsMarketplaceQueries({
 }
 
 function useSmsSelectionState() {
+  const userId = useAuthStore((state) => state.auth.user?.id)
+  const sessionId = useAuthStore((state) => state.auth.session?.sid)
   const [country, setCountry] = useState('')
   const [service, setService] = useState('')
   const [operator, setOperator] = useState('')
@@ -472,8 +641,20 @@ function useSmsSelectionState() {
   const [favorites, setFavorites] = useState<HeroSmsFavoritePair[]>(() =>
     loadHeroSmsFavorites()
   )
-  const [batchResult, setBatchResult] =
-    useState<HeroSmsBatchPurchaseResult | null>(null)
+  const [batchState, setBatchState] = useState<{
+    userId: number | undefined
+    sessionId: string | undefined
+    result: HeroSmsBatchPurchaseResult | null
+  } | null>(null)
+  const batchResult =
+    batchState &&
+    batchState.userId === userId &&
+    batchState.sessionId === sessionId
+      ? batchState.result
+      : null
+  const setBatchResult = (result: HeroSmsBatchPurchaseResult | null) => {
+    setBatchState({ userId, sessionId, result })
+  }
   const [lastSmsService, setLastSmsService] = useState('')
 
   const resetSelectionTail = () => {
@@ -672,6 +853,16 @@ export function HeroSmsSmsActivationPanel() {
   const { t, i18n } = useTranslation()
   const queryClient = useQueryClient()
   const purchaseBalance = useSmsPurchaseBalance()
+  const recovery = useSmsPurchaseRecovery()
+  const sessionId = useAuthStore((state) => state.auth.session?.sid)
+  const mounted = useRef(false)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
+  const isMounted = useCallback(() => mounted.current, [])
   const language = resolveSmsLanguage(i18n.resolvedLanguage, i18n.language)
   const pageVisible = usePageVisibility()
   const {
@@ -689,13 +880,18 @@ export function HeroSmsSmsActivationPanel() {
     setQuantity,
     favorites,
     setFavorites,
-    batchResult,
+    batchResult: selectionBatchResult,
     setBatchResult,
     lastSmsService,
     selectService,
     selectCountry,
     selectFavorite,
   } = useSmsSelectionState()
+  const batchResult = recovery.pending
+    ? recoveryBatchResult(recovery.pending)
+    : selectionBatchResult?.failure?.ambiguous
+      ? null
+      : selectionBatchResult
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [historyDetailOrderId, setHistoryDetailOrderId] = useState<
     string | null
@@ -706,10 +902,23 @@ export function HeroSmsSmsActivationPanel() {
   const [cancelConfirmOrderId, setCancelConfirmOrderId] = useState<
     string | null
   >(null)
-  const [batchProgress, setBatchProgress] = useState<{
-    completed: number
-    total: number
+  const [progressState, setProgressState] = useState<{
+    userId: number | undefined
+    sessionId: string | undefined
+    progress: { completed: number; total: number } | null
   } | null>(null)
+  const batchProgress =
+    progressState &&
+    progressState.userId === recovery.userId &&
+    progressState.sessionId === sessionId
+      ? progressState.progress
+      : null
+  const setBatchProgress = (
+    progress: { completed: number; total: number } | null
+  ) => {
+    setProgressState({ userId: recovery.userId, sessionId, progress })
+  }
+  useEffect(() => setConfirmOpen(false), [recovery.userId, sessionId])
   const {
     queries,
     effectiveOffer,
@@ -789,6 +998,8 @@ export function HeroSmsSmsActivationPanel() {
     ])
   }, [queryClient])
   const purchaseMutation = useSmsPurchaseMutation({
+    userId: recovery.userId,
+    isMounted,
     balance: purchaseBalance,
     offer: effectiveOffer,
     quantity: effectiveQuantity,
@@ -881,8 +1092,14 @@ export function HeroSmsSmsActivationPanel() {
     country: selectedCountry,
     t,
   })
+  const ownPurchasePending =
+    purchaseMutation.isPending &&
+    Boolean(purchaseMutation.variables?.balance.isCurrentSession())
   const reconciliation = useSmsPurchaseReconciliation({
-    result: batchResult,
+    recovery,
+    balance: purchaseBalance,
+    isMounted,
+    purchasePending: ownPurchasePending,
     setResult: setBatchResult,
     invalidate,
     refetchOffer: refetchEffectiveOffer,
@@ -892,7 +1109,7 @@ export function HeroSmsSmsActivationPanel() {
   const view = createSmsPanelView({
     effectiveQuantity,
     offer: effectiveOffer,
-    purchasePending: purchaseMutation.isPending,
+    purchasePending: ownPurchasePending,
     batchResult,
     selectedCountry,
     country,
@@ -965,7 +1182,9 @@ export function HeroSmsSmsActivationPanel() {
           batchFeedback={view.batchFeedback}
           canPurchase={view.canPurchase && purchaseBalance.canPurchase}
           reconciliationPending={
-            reconciliation.pending || queries.current.isFetching
+            ownPurchasePending ||
+            reconciliation.pending ||
+            queries.current.isFetching
           }
           onChannelChange={selectReceivingChannel}
           onServiceChange={selectService}
@@ -987,15 +1206,26 @@ export function HeroSmsSmsActivationPanel() {
           onRefreshOffer={() => void refetchEffectiveOffer()}
           onReconcile={() => void reconciliation.run()}
           onPurchase={() => {
-            if (purchaseBalance.canPurchase) setConfirmOpen(true)
+            if (view.canPurchase && purchaseBalance.canPurchase) {
+              setConfirmOpen(true)
+            }
           }}
         />
-        <Tabs defaultValue='current' className='console-sms-orders'>
-          <TabsList aria-label={t('Phone number')}>
-            <TabsTrigger value='current'>
+        <Tabs defaultValue='current' className='console-sms-orders min-w-0'>
+          <TabsList
+            aria-label={t('Phone number')}
+            className='grid w-full grid-cols-2 group-data-horizontal/tabs:h-auto'
+          >
+            <TabsTrigger
+              value='current'
+              className='h-auto min-w-0 px-2 whitespace-normal'
+            >
               {t('Active phone activations')} ({currentOrders.length})
             </TabsTrigger>
-            <TabsTrigger value='history'>
+            <TabsTrigger
+              value='history'
+              className='h-auto min-w-0 px-2 whitespace-normal'
+            >
               {t('Phone activation history')}
             </TabsTrigger>
           </TabsList>
@@ -1132,10 +1362,16 @@ export function HeroSmsSmsActivationPanel() {
           }
         )}
         confirmText={t('Confirm purchase')}
-        disabled={!purchaseBalance.canPurchase || purchaseBalance.isRefreshing}
+        disabled={
+          !view.canPurchase ||
+          !purchaseBalance.canPurchase ||
+          purchaseBalance.isRefreshing
+        }
         handleConfirm={() => {
           void purchaseBalance.refresh().then((allowed) => {
-            if (allowed) purchaseMutation.mutate()
+            if (allowed && isMounted() && purchaseBalance.isCurrentSession()) {
+              purchaseMutation.purchase()
+            }
           })
         }}
         isLoading={purchaseMutation.isPending}
