@@ -150,8 +150,8 @@ type legacyCodeWithoutConsentSnapshot struct {
 func (legacyCodeWithoutConsentSnapshot) TableName() string { return "oauth_server_codes" }
 
 func TestCodeSnapshotMigrationRejectsLegacyCodeAndPreservesTokens(t *testing.T) {
-	forDatabases(t, func(t *testing.T, db, _ *gorm.DB) {
-		s, _, _ := testServer(t, db)
+	forDatabases(t, func(t *testing.T, db, restartedDB *gorm.DB) {
+		s, clock, policy := testServer(t, db)
 		existing, _ := issueTokens(t, s)
 		pending := approveFlow(t, s)
 		var legacyRows []legacyCodeWithoutConsentSnapshot
@@ -161,13 +161,21 @@ func TestCodeSnapshotMigrationRejectsLegacyCodeAndPreservesTokens(t *testing.T) 
 		require.NoError(t, db.Create(&legacyRows).Error)
 		require.NoError(t, model.MigrateOAuthServer(db))
 		require.NoError(t, model.MigrateOAuthServer(db), "migration must be idempotent")
+		// Deployment restarts workers after migration. Use the unused second
+		// pool to model those new connections: dropping/recreating this fixture
+		// changes SELECT * column order and invalidates pgx's old cached plans.
+		var err error
+		s, err = New(restartedDB, testConfig(), policy)
+		require.NoError(t, err)
+		s.now = clock.now
+		db = restartedDB
 		var migrated model.OAuthServerCode
 		require.NoError(t, db.Where("digest = ?", digest(pending.code)).Take(&migrated).Error)
 		require.Empty(t, migrated.ClientID)
 		require.Empty(t, migrated.RedirectURI)
 		require.Empty(t, migrated.Resource)
 		require.Empty(t, migrated.Scope)
-		_, err := s.Exchange(context.Background(), codeValues(pending.code).Encode(), SenderBinding{})
+		_, err = s.Exchange(context.Background(), codeValues(pending.code).Encode(), SenderBinding{})
 		expectProtocol(t, err, "invalid_grant")
 		verify(t, s, existing.AccessToken)
 		rotated, err := s.Exchange(context.Background(), refreshValues(existing.RefreshToken).Encode(), SenderBinding{})
