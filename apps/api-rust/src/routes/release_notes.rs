@@ -472,7 +472,7 @@ async fn parse_publish_input(request: Request) -> Result<PublishInput, Response>
         .await
         .map_err(|_| invalid_publish_request())?;
     deserialize_one_nullable::<PublishInput>(&body)
-        .map(|input| input.map_or_else(PublishInput::default, std::convert::identity))
+        .map(|input| input.unwrap_or_default())
         .map_err(|_| invalid_publish_request())
 }
 
@@ -488,8 +488,7 @@ fn deserialize_nullable_string<'de, D>(deserializer: D) -> Result<String, D::Err
 where
     D: serde::Deserializer<'de>,
 {
-    Option::<String>::deserialize(deserializer)
-        .map(|value| value.map_or_else(String::new, std::convert::identity))
+    Option::<String>::deserialize(deserializer).map(|value| value.unwrap_or_default())
 }
 
 fn normalize_release_note(version: &str, content: &str) -> Result<(String, String), &'static str> {
