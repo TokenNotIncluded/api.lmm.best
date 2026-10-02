@@ -338,12 +338,26 @@ func CompleteToolMarketBuiltinDrawingBilling(callID string, settled bool) error 
 		if err := marketDrawingResultCall(tx, call); err != nil {
 			return err
 		}
-		q := tx.Model(&ToolMarketResult{}).Where("call_id = ? AND success = ?", callID, true).Update("builtin_billing_pending", !settled)
-		if q.Error != nil {
-			return q.Error
+		var result ToolMarketResult
+		if err := tx.Select("call_id", "builtin_billing_pending").First(&result, "call_id = ? AND success = ?", callID, true).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrToolMarketConflict
+			}
+			return err
 		}
-		if q.RowsAffected != 1 {
-			return ErrToolMarketConflict
+		if !settled {
+			return nil
+		}
+		if result.BuiltinBillingPending {
+			if err := tx.Model(&ToolMarketResult{}).Where("call_id = ?", callID).Update("builtin_billing_pending", false).Error; err != nil {
+				return err
+			}
+		}
+		if call.ExecutionStatus == "unknown" && call.SettlementStatus == "released" {
+			// Expiry released the market reservation while model billing was
+			// pending. Resolve only the now-known execution; preserve released
+			// budgets/slots and never repeat model or marketplace settlement.
+			return tx.Model(call).Update("execution_status", "succeeded").Error
 		}
 		return nil
 	})

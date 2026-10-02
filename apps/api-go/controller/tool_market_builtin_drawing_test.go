@@ -254,15 +254,52 @@ func TestToolMarketBuiltinDrawingBillingCompletionFailureRetainsImageThroughReco
 	require.NoError(t, err)
 	require.Equal(t, "unknown", status.Call.ExecutionStatus, "expiry cannot call an unfinished model settlement a success")
 	require.Equal(t, "released", status.Call.SettlementStatus)
+	releasedFinishedAt := status.Call.FinishedAt
 	require.Equal(t, response.Result, status.Result)
 	require.NoError(t, fixture.db.Callback().Update().Remove(callback))
+	var releasedGrant model.ToolMarketGrant
+	require.NoError(t, fixture.db.First(&releasedGrant, "id = ?", in.GrantID).Error)
+	var releasedBudgets []model.ToolMarketBudget
+	require.NoError(t, fixture.db.Where("user_id = ?", in.UserID).Order("scope, scope_id").Find(&releasedBudgets).Error)
+	require.NoError(t, model.CompleteToolMarketBuiltinDrawingBilling(response.Call.ID, false))
+	status, err = GetToolMarketExecutionResponseWithBuiltins(in.UserID, in.ClientID, response.Call.ID)
+	require.NoError(t, err)
+	require.Equal(t, "unknown", status.Call.ExecutionStatus, "an unsuccessful model settlement cannot make expired execution known successful")
+	require.Equal(t, "released", status.Call.SettlementStatus)
+	require.Equal(t, "TOOL_MARKET_SETTLEMENT_PENDING", status.ErrorCode)
 	require.NoError(t, model.CompleteToolMarketBuiltinDrawingBilling(response.Call.ID, true), "billing completion can arrive after market deadline release")
+	status, err = GetToolMarketExecutionResponseWithBuiltins(in.UserID, in.ClientID, response.Call.ID)
+	require.NoError(t, err)
+	require.Equal(t, "succeeded", status.Call.ExecutionStatus, "confirmed model settlement resolves the original expired execution")
+	require.Equal(t, "released", status.Call.SettlementStatus, "completion must not reopen the released reservation")
+	require.Equal(t, releasedFinishedAt, status.Call.FinishedAt)
+	require.Empty(t, status.ErrorCode)
+	require.Equal(t, response.Result, status.Result)
+	require.NoError(t, model.CompleteToolMarketBuiltinDrawingBilling(response.Call.ID, true), "the same late completion is idempotent")
 	replay, err := ExecuteToolMarketWithBuiltins(context.Background(), in, pending.RequestState, acceptMarketDrawing())
 	require.NoError(t, err)
+	require.Equal(t, "succeeded", replay.Call.ExecutionStatus)
+	require.Equal(t, "released", replay.Call.SettlementStatus)
+	require.Equal(t, releasedFinishedAt, replay.Call.FinishedAt)
+	require.Empty(t, replay.ErrorCode)
 	require.Equal(t, response.Result, replay.Result)
 	require.EqualValues(t, 1, fixture.upstream.Load())
 	require.NoError(t, fixture.db.First(&user, fixture.user.Id).Error)
 	require.Equal(t, charge, fixture.user.Quota-user.Quota)
+	var token model.Token
+	require.NoError(t, fixture.db.First(&token, fixture.token.Id).Error)
+	require.Equal(t, charge, fixture.token.RemainQuota-token.RemainQuota)
+	var completedGrant model.ToolMarketGrant
+	require.NoError(t, fixture.db.First(&completedGrant, "id = ?", in.GrantID).Error)
+	require.Equal(t, releasedGrant, completedGrant, "late completion does not reserve or charge another grant slot")
+	var completedBudgets []model.ToolMarketBudget
+	require.NoError(t, fixture.db.Where("user_id = ?", in.UserID).Order("scope, scope_id").Find(&completedBudgets).Error)
+	require.Equal(t, releasedBudgets, completedBudgets)
+	var logCount, transferCount int64
+	require.NoError(t, fixture.db.Model(&model.Log{}).Where("type = ?", model.LogTypeConsume).Count(&logCount).Error)
+	require.EqualValues(t, 1, logCount)
+	require.NoError(t, fixture.db.Model(&model.ToolMarketTransfer{}).Count(&transferCount).Error)
+	require.Zero(t, transferCount)
 }
 
 func TestToolMarketBuiltinDrawingRejectsUnusableProviderResultsBeforeBilling(t *testing.T) {
