@@ -1172,12 +1172,21 @@ export function HeroSmsSmsActivationPanel() {
             }
           }}
         />
-        <Tabs defaultValue='current' className='console-sms-orders'>
-          <TabsList aria-label={t('Phone number')}>
-            <TabsTrigger value='current'>
+        <Tabs defaultValue='current' className='console-sms-orders min-w-0'>
+          <TabsList
+            aria-label={t('Phone number')}
+            className='grid w-full grid-cols-2 group-data-horizontal/tabs:h-auto'
+          >
+            <TabsTrigger
+              value='current'
+              className='h-auto min-w-0 px-2 whitespace-normal'
+            >
               {t('Active phone activations')} ({currentOrders.length})
             </TabsTrigger>
-            <TabsTrigger value='history'>
+            <TabsTrigger
+              value='history'
+              className='h-auto min-w-0 px-2 whitespace-normal'
+            >
               {t('Phone activation history')}
             </TabsTrigger>
           </TabsList>
