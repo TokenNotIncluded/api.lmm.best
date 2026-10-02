@@ -39,6 +39,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import {
   marketAPI,
+  MarketAPIError,
   type CallResponse,
   type Grant,
   type Installation,
@@ -46,7 +47,10 @@ import {
   type MarketService,
   type MarketSummary,
   type MarketTool,
+  type MarketToken,
+  type MarketDetail,
 } from './api'
+import { marketErrorKey } from './call-utils'
 import { MarketConnections } from './connections'
 import { marketStatus, marketPermissionList } from './copy'
 import { creditAmount } from './money'
@@ -70,6 +74,7 @@ function MarketStatusIcon({ value }: { value: string }) {
     case 'reserved':
     case 'held':
     case 'running':
+    case 'awaiting_confirmation':
       return (
         <Clock aria-hidden='true' className='text-warning size-3.5 shrink-0' />
       )
@@ -107,6 +112,13 @@ function MarketStatusIcon({ value }: { value: string }) {
 }
 
 export function ToolMarket() {
+  const userID = useAuthStore((state) => state.auth.user?.id)
+  return <ToolMarketWorkspace key={userID ?? 'signed-out'} />
+}
+
+// Discard drafts, provider secrets, arguments and results when the signed-in
+// account changes, even if the router preserves the market page component.
+function ToolMarketWorkspace() {
   const { t } = useTranslation()
   const user = useAuthStore((state) => state.auth.user)
   const cache = useQueryClient()
@@ -115,16 +127,21 @@ export function ToolMarket() {
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
   const [offset, setOffset] = useState(0)
+  const [executionType, setExecutionType] = useState('')
+  const [callsOffset, setCallsOffset] = useState(0)
+  const [incomeOffset, setIncomeOffset] = useState(0)
   const [selected, setSelected] = useState<{
     id: string
     mode: 'published' | 'draft' | 'review'
   } | null>(null)
   const [editor, setEditor] = useState(false)
+  const [editorInitial, setEditorInitial] = useState<MarketDetail>()
   const [client, setClient] = useState('web-market')
   const [grantTool, setGrantTool] = useState<MarketTool | null>(null)
   const [callTool, setCallTool] = useState<{
     tool: MarketTool
     grant: Grant
+    endpoint: string
   } | null>(null)
   const [reviewNote, setReviewNote] = useState('')
   const [record, setRecord] = useState<CallResponse | null>(null)
@@ -133,8 +150,8 @@ export function ToolMarket() {
     queryFn: marketAPI.config,
   })
   const catalog = useQuery({
-    queryKey: [...key, 'catalog', search, offset],
-    queryFn: () => marketAPI.list(search, offset),
+    queryKey: [...key, 'catalog', search, offset, executionType],
+    queryFn: () => marketAPI.list(search, offset, executionType),
     enabled: tab === 'market',
   })
   const mine = useQuery({
@@ -155,6 +172,10 @@ export function ToolMarket() {
     queryKey: [...key, 'grants'],
     queryFn: () => marketAPI.mine<Grant>('grants'),
   })
+  const tokens = useQuery({
+    queryKey: [...key, 'tokens'],
+    queryFn: () => marketAPI.mine<MarketToken>('tokens'),
+  })
   const detail = useQuery({
     queryKey: [...key, 'detail', selected?.id, selected?.mode],
     queryFn: () => {
@@ -164,13 +185,13 @@ export function ToolMarket() {
     enabled: !!selected && !editor,
   })
   const calls = useQuery({
-    queryKey: [...key, 'calls'],
-    queryFn: marketAPI.calls,
+    queryKey: [...key, 'calls', callsOffset],
+    queryFn: () => marketAPI.calls(callsOffset),
     enabled: tab === 'records',
   })
   const income = useQuery({
-    queryKey: [...key, 'income'],
-    queryFn: marketAPI.income,
+    queryKey: [...key, 'income', incomeOffset],
+    queryFn: () => marketAPI.income(incomeOffset),
     enabled: tab === 'records',
   })
   const reviews = useQuery({
@@ -193,10 +214,50 @@ export function ToolMarket() {
     action.reset()
   }
   const current = detail.data
+  const clients = [
+    ...new Set([
+      'web-market',
+      client,
+      ...(tokens.data ?? []).map((row) => row.client_id),
+      ...(installs.data ?? []).map((row) => row.client_id),
+      ...(grants.data ?? []).map((row) => row.client_id),
+    ]),
+  ]
   const accessReady = installs.isSuccess && grants.isSuccess
   const openPublisher = () => {
     setSelected(null)
+    setEditorInitial(undefined)
     setEditor(true)
+  }
+  const editDraft = async () => {
+    if (!current || !selected) return
+    let source = current
+    if (selected.mode === 'published') {
+      try {
+        source = await marketAPI.detail(current.service.id, 'draft')
+      } catch (error) {
+        if (
+          !(error instanceof MarketAPIError) ||
+          error.code !== 'TOOL_MARKET_NOT_FOUND'
+        ) {
+          throw error
+        }
+      }
+    }
+    if (source.version.status === 'pending') {
+      setSelected({ id: source.service.id, mode: 'draft' })
+      return
+    }
+    setEditorInitial(source)
+    setEditor(true)
+  }
+  const chooseClient = (id: string) => {
+    setClient(id)
+    setSearch('')
+    setSearchInput('')
+    setOffset(0)
+    setExecutionType('')
+    chooseTab('market')
   }
   const browse = (items: MarketSummary[]) => (
     <div className='divide-border divide-y'>
@@ -215,15 +276,38 @@ export function ToolMarket() {
               {item.description}
             </span>
             <span className='text-muted-foreground mt-2 block text-xs'>
-              {t('Provider account {{id}}', { id: item.owner_id })}
+              {item.execution_type === 'builtin'
+                ? t('Platform builtin')
+                : t('Provider account {{id}}', { id: item.owner_id })}
             </span>
           </span>
           <span className='flex shrink-0 items-center gap-2'>
             <Badge variant='outline'>
-              {item.execution_type === 'remote'
-                ? 'Remote MCP'
-                : 'Serverless MCP'}
+              {item.execution_type === 'builtin'
+                ? t('Free tool calls')
+                : item.execution_type === 'remote'
+                  ? 'Remote MCP'
+                  : 'Serverless MCP'}
             </Badge>
+            {item.tool_count !== undefined && (
+              <span className='text-muted-foreground text-xs'>
+                {t('{{count}} tools', { count: item.tool_count })}
+              </span>
+            )}
+            {item.execution_type !== 'builtin' &&
+              item.min_price_quota !== undefined &&
+              item.max_price_quota !== undefined && (
+                <span className='text-muted-foreground text-xs'>
+                  {item.max_price_quota === 0
+                    ? t('Free')
+                    : t('{{amount}} credits per successful call', {
+                        amount:
+                          item.min_price_quota === item.max_price_quota
+                            ? creditAmount(item.min_price_quota, units)
+                            : `${creditAmount(item.min_price_quota, units)} – ${creditAmount(item.max_price_quota, units)}`,
+                      })}
+                </span>
+              )}
             <ChevronRight
               aria-hidden='true'
               className='text-muted-foreground size-4 transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none'
@@ -266,18 +350,27 @@ export function ToolMarket() {
           )}
           {config.data && !config.data.enabled && (
             <Alert>
-              <AlertTitle>{t('New tool calls are paused')}</AlertTitle>
+              <AlertTitle>{t('Remote tool calls are paused.')}</AlertTitle>
               <AlertDescription>
                 {t(
-                  'You can still browse tools and manage drafts, connections and existing records.'
+                  'Remote tool calls are paused. Free platform tools remain available; model generation and transfers keep their own charges.'
                 )}
               </AlertDescription>
+              {(user?.role ?? 0) >= 100 && (
+                <Button
+                  variant='outline'
+                  className='mt-3'
+                  onClick={() => chooseTab('review')}
+                >
+                  {t('Configure market')}
+                </Button>
+              )}
             </Alert>
           )}
           {editor ? (
             <ServiceEditor
               key={selected?.id ?? 'new'}
-              initial={selected ? current : undefined}
+              initial={editorInitial}
               units={units}
               onCancel={() => setEditor(false)}
               onSaved={(id) => {
@@ -335,9 +428,11 @@ export function ToolMarket() {
                             {current.version.description}
                           </p>
                           <p className='text-muted-foreground text-xs'>
-                            {t('Provider account {{id}}', {
-                              id: current.service.owner_id,
-                            })}
+                            {current.version.execution_type === 'builtin'
+                              ? t('Platform builtin')
+                              : t('Provider account {{id}}', {
+                                  id: current.service.owner_id,
+                                })}
                           </p>
                         </div>
                         <Badge variant='secondary'>
@@ -351,7 +446,8 @@ export function ToolMarket() {
                             {t('Data recipient')}
                           </dt>
                           <dd className='break-all'>
-                            {current.version.endpoint}
+                            {current.version.endpoint ||
+                              t('Runs on this platform')}
                           </dd>
                         </div>
                         <div>
@@ -363,24 +459,46 @@ export function ToolMarket() {
                           </dd>
                         </div>
                       </dl>
+                      {current.version.execution_type === 'builtin' && (
+                        <Alert>
+                          <AlertTitle>{t('Free tool calls')}</AlertTitle>
+                          <AlertDescription>
+                            {t(
+                              'Platform tools do not charge a tool fee. Model generation and transfers still use their normal pricing and require confirmation.'
+                            )}
+                          </AlertDescription>
+                        </Alert>
+                      )}
                       {selected.mode === 'published' ? (
                         <>
                           <Field className='max-w-md'>
                             <FieldLabel htmlFor='market-active-client'>
                               {t('Client ID')}
                             </FieldLabel>
-                            <Input
+                            <select
                               id='market-active-client'
                               value={client}
-                              maxLength={128}
+                              className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
                               onChange={(e) => setClient(e.target.value)}
-                            />
+                            >
+                              {clients.map((id) => (
+                                <option key={id} value={id}>
+                                  {id === 'web-market' ? t('This browser') : id}
+                                </option>
+                              ))}
+                            </select>
                             <p className='text-muted-foreground text-xs'>
                               {t(
-                                'Use web-market for this browser, or the client ID from your MCP connection.'
+                                'Choose this browser to try a tool, or a connected client to give it access.'
                               )}
                             </p>
                           </Field>
+                          <Button
+                            variant='outline'
+                            onClick={() => chooseTab('connections')}
+                          >
+                            {t('Connect another client')}
+                          </Button>
                           <Button
                             variant='outline'
                             disabled={action.isPending}
@@ -401,14 +519,16 @@ export function ToolMarket() {
                               ? t('Remove favorite')
                               : t('Favorite')}
                           </Button>
-                          {current.service.owner_id === user?.id && (
-                            <Button
-                              variant='outline'
-                              onClick={() => setEditor(true)}
-                            >
-                              {t('Edit draft')}
-                            </Button>
-                          )}
+                          {current.service.owner_id === user?.id &&
+                            current.version.execution_type !== 'builtin' && (
+                              <Button
+                                variant='outline'
+                                disabled={action.isPending}
+                                onClick={() => action.mutate(editDraft)}
+                              >
+                                {t('Edit draft')}
+                              </Button>
+                            )}
                         </>
                       ) : (
                         <div className='space-y-3'>
@@ -434,7 +554,7 @@ export function ToolMarket() {
                                   action.isPending ||
                                   current.version.status === 'pending'
                                 }
-                                onClick={() => setEditor(true)}
+                                onClick={() => action.mutate(editDraft)}
                               >
                                 {t('Edit draft')}
                               </Button>
@@ -466,6 +586,31 @@ export function ToolMarket() {
                               >
                                 {t('Submit for review')}
                               </Button>
+                              {current.version.visibility === 'private' &&
+                                current.tools.every(
+                                  (tool) => tool.price_quota === 0
+                                ) && (
+                                  <Button
+                                    disabled={
+                                      action.isPending ||
+                                      current.version.status === 'pending'
+                                    }
+                                    onClick={() =>
+                                      action.mutate(async () => {
+                                        await marketAPI.activate(
+                                          current.service.id,
+                                          current.version.id
+                                        )
+                                        setSelected({
+                                          id: current.service.id,
+                                          mode: 'published',
+                                        })
+                                      })
+                                    }
+                                  >
+                                    {t('Validate and enable only for me')}
+                                  </Button>
+                                )}
                             </div>
                           ) : (
                             <FieldGroup>
@@ -571,6 +716,21 @@ export function ToolMarket() {
                             !item.revoked_at &&
                             item.expires_at > Date.now() / 1000
                         )
+                        const availableGrant =
+                          !!grant &&
+                          grant.max_calls >
+                            grant.successful_calls +
+                              (grant.reserved_calls ?? 0) &&
+                          grant.max_total_quota -
+                            grant.spent_quota -
+                            grant.reserved_quota >=
+                            tool.price_quota &&
+                          grant.max_price_quota >= tool.price_quota
+                        const callsEnabled =
+                          !!config.data &&
+                          (current.version.execution_type === 'builtin'
+                            ? config.data.builtin_enabled !== false
+                            : config.data.enabled)
                         return (
                           <article
                             key={tool.tool_id}
@@ -607,11 +767,7 @@ export function ToolMarket() {
                                 {t('Parameter schema')}
                               </summary>
                               <pre className='bg-muted mt-2 max-h-56 overflow-auto p-3 text-xs'>
-                                {JSON.stringify(
-                                  JSON.parse(tool.input_schema),
-                                  null,
-                                  2
-                                )}
+                                {tool.input_schema}
                               </pre>
                             </details>
                             {selected.mode === 'published' && (
@@ -645,23 +801,60 @@ export function ToolMarket() {
                                 >
                                   {grant
                                     ? t('New authorization')
-                                    : t('Authorize')}
+                                    : t('Add and authorize tool')}
                                 </Button>
                                 {client === 'web-market' && (
                                   <Button
                                     disabled={
                                       !accessReady ||
                                       !loaded ||
-                                      !grant ||
-                                      !config.data?.enabled
+                                      !availableGrant ||
+                                      !callsEnabled
                                     }
                                     onClick={() =>
-                                      grant && setCallTool({ tool, grant })
+                                      grant &&
+                                      setCallTool({
+                                        tool,
+                                        grant,
+                                        endpoint: current.version.endpoint,
+                                      })
                                     }
                                   >
-                                    {t('Run tool')}
+                                    {tool.price_quota === 0
+                                      ? t('Run free tool')
+                                      : t('Run tool')}
                                   </Button>
                                 )}
+                                {grant && (
+                                  <Button
+                                    variant='ghost'
+                                    disabled={action.isPending || !accessReady}
+                                    onClick={() =>
+                                      action.mutate(() =>
+                                        marketAPI.revokeGrant(grant.id)
+                                      )
+                                    }
+                                  >
+                                    {t('Revoke authorization')}
+                                  </Button>
+                                )}
+                                <p className='text-muted-foreground basis-full text-xs'>
+                                  {!loaded
+                                    ? t(
+                                        'Add this tool to the selected client to make it available.'
+                                      )
+                                    : !availableGrant
+                                      ? t(
+                                          'Authorize this version with a remaining call and spending allowance.'
+                                        )
+                                      : !callsEnabled
+                                        ? t('Remote tool calls are paused.')
+                                        : client !== 'web-market'
+                                          ? t(
+                                              'Ready in this client. Refresh its tool list.'
+                                            )
+                                          : t('Ready to run in this browser.')}
+                                </p>
                               </div>
                             )}
                           </article>
@@ -673,6 +866,56 @@ export function ToolMarket() {
               ) : (
                 <>
                   <TabsContent value='market' className='space-y-4 pt-4'>
+                    <Field className='max-w-md'>
+                      <FieldLabel htmlFor='market-catalog-client'>
+                        {t('Client ID')}
+                      </FieldLabel>
+                      <select
+                        id='market-catalog-client'
+                        className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
+                        value={client}
+                        onChange={(event) => setClient(event.target.value)}
+                      >
+                        {clients.map((id) => (
+                          <option key={id} value={id}>
+                            {id === 'web-market' ? t('This browser') : id}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                    <div className='flex flex-wrap gap-2'>
+                      <Button
+                        variant={executionType === '' ? 'secondary' : 'outline'}
+                        onClick={() => {
+                          setExecutionType('')
+                          setOffset(0)
+                        }}
+                      >
+                        {t('All tools')}
+                      </Button>
+                      <Button
+                        variant={
+                          executionType === 'builtin' ? 'secondary' : 'outline'
+                        }
+                        onClick={() => {
+                          setExecutionType('builtin')
+                          setOffset(0)
+                        }}
+                      >
+                        {t('Platform builtin')}
+                      </Button>
+                      <Button
+                        variant={
+                          executionType === 'remote' ? 'secondary' : 'outline'
+                        }
+                        onClick={() => {
+                          setExecutionType('remote')
+                          setOffset(0)
+                        }}
+                      >
+                        {t('Remote MCP')}
+                      </Button>
+                    </div>
                     <form
                       className='flex gap-2'
                       onSubmit={(e) => {
@@ -863,7 +1106,12 @@ export function ToolMarket() {
                     ))}
                   </TabsContent>
                   <TabsContent value='connections' className='pt-4'>
-                    {config.data && <MarketConnections config={config.data} />}
+                    {config.data && (
+                      <MarketConnections
+                        config={config.data}
+                        onChooseClient={chooseClient}
+                      />
+                    )}
                   </TabsContent>
                   <TabsContent value='records' className='space-y-6 pt-4'>
                     {(calls.isPending || income.isPending) && (
@@ -934,6 +1182,24 @@ export function ToolMarket() {
                         </Button>
                       </div>
                     ))}
+                    <div className='flex justify-end gap-2'>
+                      <Button
+                        variant='outline'
+                        disabled={callsOffset === 0 || calls.isPending}
+                        onClick={() =>
+                          setCallsOffset(Math.max(0, callsOffset - 30))
+                        }
+                      >
+                        {t('Previous')}
+                      </Button>
+                      <Button
+                        variant='outline'
+                        disabled={calls.data?.length !== 30 || calls.isPending}
+                        onClick={() => setCallsOffset(callsOffset + 30)}
+                      >
+                        {t('Next')}
+                      </Button>
+                    </div>
                     {record && <CallResult response={record} units={units} />}
                     <h3 className='font-semibold'>{t('Income transfers')}</h3>
                     {income.data?.length === 0 && (
@@ -957,6 +1223,26 @@ export function ToolMarket() {
                         </span>
                       </div>
                     ))}
+                    <div className='flex justify-end gap-2'>
+                      <Button
+                        variant='outline'
+                        disabled={incomeOffset === 0 || income.isPending}
+                        onClick={() =>
+                          setIncomeOffset(Math.max(0, incomeOffset - 30))
+                        }
+                      >
+                        {t('Previous')}
+                      </Button>
+                      <Button
+                        variant='outline'
+                        disabled={
+                          income.data?.length !== 30 || income.isPending
+                        }
+                        onClick={() => setIncomeOffset(incomeOffset + 30)}
+                      >
+                        {t('Next')}
+                      </Button>
+                    </div>
                   </TabsContent>
                   {(user?.role ?? 0) >= 10 && (
                     <TabsContent value='review' className='space-y-6 pt-4'>
@@ -1022,11 +1308,20 @@ export function ToolMarket() {
             </p>
           )}
           {action.isError && (
-            <p role='alert' className='text-destructive text-sm'>
-              {t(
-                'The operation failed. Check the current status, permissions and configuration, then retry.'
-              )}
-            </p>
+            <div role='alert' className='space-y-2 text-sm'>
+              <p className='text-destructive'>
+                {t(marketErrorKey(action.error))}
+              </p>
+              <Button
+                variant='outline'
+                onClick={() => {
+                  action.reset()
+                  void cache.invalidateQueries({ queryKey: key })
+                }}
+              >
+                {t('Refresh')}
+              </Button>
+            </div>
           )}
           {grantTool && current && (
             <GrantDialog
@@ -1037,11 +1332,14 @@ export function ToolMarket() {
               onClose={() => setGrantTool(null)}
             />
           )}
-          {callTool && current && (
+          {callTool && (
             <CallDialog
               tool={callTool.tool}
-              grant={callTool.grant}
-              endpoint={current.version.endpoint}
+              grant={
+                grants.data?.find((row) => row.id === callTool.grant.id) ??
+                callTool.grant
+              }
+              endpoint={callTool.endpoint}
               units={units}
               onClose={() => setCallTool(null)}
             />
@@ -1055,9 +1353,12 @@ export function ToolMarket() {
 function MarketSettings({ config }: { config: MarketConfig }) {
   const { t } = useTranslation()
   const cache = useQueryClient()
+  const userID = useAuthStore((state) => state.auth.user?.id)
   const [enabled, setEnabled] = useState(config.enabled)
   const [fee, setFee] = useState(String(config.fee_bps / 100))
-  const [recipient, setRecipient] = useState(String(config.recipient_id || ''))
+  const [recipient, setRecipient] = useState(
+    String(config.recipient_id || userID || '')
+  )
   const save = useMutation({
     retry: false,
     mutationFn: () => {
@@ -1140,7 +1441,7 @@ function MarketSettings({ config }: { config: MarketConfig }) {
               )}
             </p>
           )}
-          <Button disabled={save.isPending}>
+          <Button type='submit' disabled={save.isPending}>
             {t('Confirm market settings')}
           </Button>
         </FieldGroup>

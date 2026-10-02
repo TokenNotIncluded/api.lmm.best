@@ -7,6 +7,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -14,24 +15,31 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import {
-  Field,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-} from '@/components/ui/field'
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 
 import {
   marketAPI,
   marketQuota,
+  MarketAPIError,
   type CallResponse,
   type Grant,
   type MarketTool,
 } from './api'
+import {
+  callCanBeEdited,
+  callConfirmation,
+  canStartAnotherCall,
+  marketErrorKey,
+} from './call-utils'
 import { marketStatus, marketPermissionList } from './copy'
 import { creditAmount } from './money'
+import { ToolArgumentsForm } from './schema-form'
+import {
+  argumentIssue,
+  initialArguments,
+  schemaObject,
+} from './schema-form-utils'
 
 export function GrantDialog({
   tool,
@@ -53,7 +61,7 @@ export function GrantDialog({
   const [hours, setHours] = useState('1')
   const grant = useMutation({
     retry: false,
-    mutationFn: () => {
+    mutationFn: async () => {
       const calls = Number(count),
         duration = Number(hours)
       if (
@@ -66,7 +74,7 @@ export function GrantDialog({
       ) {
         throw new Error('Invalid limit')
       }
-      return marketAPI.grant({
+      const authorization = await marketAPI.grant({
         client_id: clientID,
         tool_id: tool.tool_id,
         version_id: tool.version_id,
@@ -75,11 +83,26 @@ export function GrantDialog({
         max_calls: calls,
         expires_at: Math.floor(Date.now() / 1000) + duration * 3600,
       })
+      try {
+        await marketAPI.install(
+          {
+            client_id: clientID,
+            tool_id: tool.tool_id,
+            version_id: tool.version_id,
+          },
+          true
+        )
+      } catch {
+        throw new MarketAPIError('TOOL_MARKET_LOAD_INCOMPLETE')
+      }
+      return authorization
     },
     onSuccess: () => {
       void cache.invalidateQueries({ queryKey: ['tool-market'] })
       onClose()
     },
+    onSettled: () =>
+      void cache.invalidateQueries({ queryKey: ['tool-market'] }),
   })
   return (
     <Dialog
@@ -90,10 +113,10 @@ export function GrantDialog({
     >
       <DialogContent className='max-h-[90dvh] overflow-auto sm:max-w-lg'>
         <DialogHeader>
-          <DialogTitle>{t('Authorize tool calls')}</DialogTitle>
+          <DialogTitle>{t('Add and authorize tool')}</DialogTitle>
           <DialogDescription>
             {t(
-              'This grants the selected client permission to use this exact tool version within these limits.'
+              'This loads the tool for the selected client and authorizes this exact version within the limits below.'
             )}
           </DialogDescription>
         </DialogHeader>
@@ -108,7 +131,7 @@ export function GrantDialog({
           </div>
           <div>
             <dt className='text-muted-foreground'>{t('Data recipient')}</dt>
-            <dd className='break-all'>{endpoint}</dd>
+            <dd className='break-all'>{endpoint || t('Platform builtin')}</dd>
           </div>
           <div>
             <dt className='text-muted-foreground'>
@@ -176,13 +199,20 @@ export function GrantDialog({
             </Field>
             {grant.isError && (
               <p role='alert' className='text-destructive text-sm'>
-                {t(
-                  'Authorization failed. Check the limits and refresh the tool version.'
-                )}
+                {grant.error instanceof MarketAPIError &&
+                grant.error.code === 'TOOL_MARKET_LOAD_INCOMPLETE'
+                  ? t(
+                      'Authorization was saved, but loading failed. Refresh access and load this tool.'
+                    )
+                  : grant.error instanceof MarketAPIError
+                    ? t(marketErrorKey(grant.error))
+                    : t(
+                        'Authorization failed. Check the limits and refresh the tool version.'
+                      )}
               </p>
             )}
             <Button type='submit' disabled={grant.isPending}>
-              {t('Confirm authorization')}
+              {t('Add and authorize tool')}
             </Button>
           </FieldGroup>
         </form>
@@ -254,11 +284,116 @@ export function CallResult({
           )}
         </p>
       )}
+      {response.error_code && (
+        <p role='status'>
+          {response.error_code === 'TOOL_MARKET_RESULT_UNKNOWN'
+            ? t(
+                'The result is unknown. Check this call instead of starting it again.'
+              )
+            : response.error_code === 'TOOL_MARKET_SETTLEMENT_PENDING'
+              ? t(
+                  'The result was received. Settlement is still being confirmed.'
+                )
+              : t('The tool returned an invalid or unsuccessful result.')}
+        </p>
+      )}
       {response.result !== undefined && (
-        <pre className='bg-muted max-h-64 overflow-auto rounded-md p-3 text-xs break-all whitespace-pre-wrap'>
-          {JSON.stringify(response.result, null, 2)}
+        <MCPResultView value={response.result} />
+      )}
+    </div>
+  )
+}
+
+function MCPResultView({ value }: { value: unknown }) {
+  const { t } = useTranslation()
+  if (!schemaObject(value)) {
+    return (
+      <pre className='bg-muted max-h-64 overflow-auto rounded-md p-3 text-xs whitespace-pre-wrap'>
+        {JSON.stringify(value, null, 2)}
+      </pre>
+    )
+  }
+  const content = Array.isArray(value.content) ? value.content : []
+  return (
+    <div className='space-y-3'>
+      {content.map((item: unknown, index: number) => {
+        if (!schemaObject(item)) return null
+        if (item.type === 'text' && typeof item.text === 'string') {
+          return (
+            <p key={index} className='break-words whitespace-pre-wrap'>
+              {item.text}
+            </p>
+          )
+        }
+        if (
+          item.type === 'image' &&
+          typeof item.data === 'string' &&
+          item.data.length <= 3 * 1024 * 1024 &&
+          /^[A-Za-z0-9+/=\r\n]+$/.test(item.data) &&
+          typeof item.mimeType === 'string' &&
+          /^image\/(png|jpeg|webp|gif)$/.test(item.mimeType)
+        ) {
+          return (
+            <img
+              key={index}
+              src={`data:${item.mimeType};base64,${item.data}`}
+              alt={t('Image result')}
+              className='max-h-96 max-w-full rounded-md'
+            />
+          )
+        }
+        if (
+          item.type === 'audio' &&
+          typeof item.data === 'string' &&
+          item.data.length <= 3 * 1024 * 1024 &&
+          /^[A-Za-z0-9+/=\r\n]+$/.test(item.data) &&
+          typeof item.mimeType === 'string' &&
+          /^audio\/(wav|mpeg|ogg|webm|flac)$/.test(item.mimeType)
+        ) {
+          return (
+            <audio
+              key={index}
+              controls
+              aria-label={t('Audio result')}
+              src={`data:${item.mimeType};base64,${item.data}`}
+            />
+          )
+        }
+        if (
+          item.type === 'resource' &&
+          schemaObject(item.resource) &&
+          typeof item.resource.text === 'string'
+        ) {
+          return (
+            <pre
+              key={index}
+              className='bg-muted max-h-64 overflow-auto rounded-md p-3 text-xs whitespace-pre-wrap'
+            >
+              {item.resource.text}
+            </pre>
+          )
+        }
+        return (
+          <pre
+            key={index}
+            className='bg-muted max-h-64 overflow-auto rounded-md p-3 text-xs whitespace-pre-wrap'
+          >
+            {JSON.stringify(item, null, 2)}
+          </pre>
+        )
+      })}
+      {value.structuredContent !== undefined && (
+        <pre className='bg-muted max-h-64 overflow-auto rounded-md p-3 text-xs whitespace-pre-wrap'>
+          {JSON.stringify(value.structuredContent, null, 2)}
         </pre>
       )}
+      {!content.length &&
+        value.structuredContent === undefined &&
+        !value.inputRequests && (
+          <pre className='bg-muted max-h-64 overflow-auto rounded-md p-3 text-xs whitespace-pre-wrap'>
+            {JSON.stringify(value, null, 2)}
+          </pre>
+        )}
     </div>
   )
 }
@@ -278,17 +413,25 @@ export function CallDialog({
 }) {
   const { t } = useTranslation()
   const cache = useQueryClient()
-  const [args, setArgs] = useState('{}')
-  const [requestID] = useState(() => crypto.randomUUID())
+  const [args, setArgs] = useState(() => initialArguments(tool.input_schema))
+  const [requestID, setRequestID] = useState(() => crypto.randomUUID())
   const [submitted, setSubmitted] = useState<string | null>(null)
   const [response, setResponse] = useState<CallResponse | null>(null)
+  const [confirmed, setConfirmed] = useState(false)
+  const [validation, setValidation] = useState<string | null>(null)
+  const confirmation = callConfirmation(response)
   const run = useMutation({
     retry: false,
-    mutationFn: async () => {
+    mutationFn: async (action?: 'accept' | 'cancel') => {
       const raw = submitted ?? args
-      const parsed = JSON.parse(raw) as unknown
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        throw new Error('Arguments must be an object')
+      const issue = argumentIssue(raw, tool.input_schema)
+      if (issue) {
+        setValidation(issue)
+        throw new MarketAPIError('TOOL_MARKET_ARGUMENTS')
+      }
+      setValidation(null)
+      if (action && !confirmation) {
+        throw new MarketAPIError('TOOL_MARKET_INVALID_INPUT')
       }
       setSubmitted(raw)
       return marketAPI.invoke({
@@ -296,12 +439,35 @@ export function CallDialog({
         version_id: tool.version_id,
         grant_id: grant.id,
         request_id: requestID,
-        arguments: parsed,
+        arguments: JSON.parse(raw) as unknown,
+        arguments_json: raw,
+        ...(action && confirmation
+          ? {
+              request_state: confirmation.requestState,
+              input_responses: {
+                confirmation: {
+                  action,
+                  ...(action === 'accept'
+                    ? { content: { confirmed: true as const } }
+                    : {}),
+                },
+              },
+            }
+          : {}),
       })
     },
     onSuccess: (result) => {
       setResponse(result)
+      setConfirmed(false)
       void cache.invalidateQueries({ queryKey: ['tool-market'] })
+    },
+    onError: (error) => {
+      // Only definite pre-execution rejections make the original input editable.
+      // A network/server error retains its immutable payload and request ID.
+      if (!response && callCanBeEdited(error)) {
+        setSubmitted(null)
+        setRequestID(crypto.randomUUID())
+      }
     },
   })
   const refresh = useMutation({
@@ -309,13 +475,42 @@ export function CallDialog({
       if (!response) throw new Error('Missing call')
       return marketAPI.result(response.call.id)
     },
-    onSuccess: setResponse,
+    onSuccess: (result) => {
+      setResponse(result)
+      setConfirmed(false)
+    },
   })
+  const newCall = () => {
+    if (!canStartAnotherCall(response)) return
+    setSubmitted(null)
+    setResponse(null)
+    setRequestID(crypto.randomUUID())
+    setConfirmed(false)
+    setValidation(null)
+    run.reset()
+    refresh.reset()
+  }
+  const inputError =
+    validation?.startsWith('Missing parameter: ') ||
+    validation?.startsWith('Invalid parameter: ')
+      ? t('Check parameter {{name}}.', {
+          name: validation.slice(validation.indexOf(': ') + 2),
+        })
+      : validation
+        ? t(validation)
+        : null
+  const uncertainRequest =
+    submitted !== null &&
+    !response &&
+    run.isError &&
+    !callCanBeEdited(run.error)
   return (
     <Dialog
       open
       onOpenChange={(open) => {
-        if (!open && !run.isPending) onClose()
+        if (!open && !run.isPending && !confirmation && !uncertainRequest) {
+          onClose()
+        }
       }}
     >
       <DialogContent className='max-h-[90dvh] overflow-auto sm:max-w-xl'>
@@ -327,7 +522,9 @@ export function CallDialog({
             )}
           </DialogDescription>
         </DialogHeader>
-        <p className='text-muted-foreground text-sm break-all'>{endpoint}</p>
+        <p className='text-muted-foreground text-sm break-all'>
+          {endpoint || t('Platform builtin')}
+        </p>
         {!response && (
           <dl className='grid grid-cols-2 gap-3 text-sm'>
             <div className='col-span-2'>
@@ -381,55 +578,94 @@ export function CallDialog({
             </div>
           </dl>
         )}
-        <details className='text-sm'>
-          <summary className='cursor-pointer'>{t('Parameter schema')}</summary>
-          <pre className='bg-muted mt-2 max-h-40 overflow-auto p-3 text-xs'>
-            {JSON.stringify(JSON.parse(tool.input_schema), null, 2)}
-          </pre>
-        </details>
-        <Field>
-          <FieldLabel htmlFor='call-args'>{t('Arguments (JSON)')}</FieldLabel>
-          <Textarea
-            id='call-args'
-            className='min-h-32 font-mono text-xs'
-            value={args}
-            disabled={submitted !== null || run.isPending}
-            onChange={(e) => setArgs(e.target.value)}
-          />
-          <FieldDescription>
-            {t(
-              'Successful calls are charged once. Repeated delivery of this request does not charge again.'
-            )}
-          </FieldDescription>
-        </Field>
+        <ToolArgumentsForm
+          schema={tool.input_schema}
+          value={args}
+          onChange={(value) => {
+            setArgs(value)
+            setValidation(null)
+            run.reset()
+          }}
+          disabled={submitted !== null || run.isPending}
+        />
+        <p className='text-muted-foreground text-xs'>
+          {t(
+            'Successful calls are charged once. Repeated delivery of this request does not charge again.'
+          )}
+        </p>
         {run.isError && (
           <p role='alert' className='text-destructive text-sm'>
-            {t(
-              'The call could not be completed. Check your grant, budget, balance and arguments. A retry uses the same request ID.'
-            )}
+            {inputError || t(marketErrorKey(run.error))}
           </p>
         )}
         {!response && (
-          <Button disabled={run.isPending} onClick={() => run.mutate()}>
+          <Button
+            disabled={run.isPending}
+            onClick={() => run.mutate(undefined)}
+          >
             {run.isPending
               ? t('Running…')
               : submitted
                 ? t('Retry same request')
-                : t('Run for up to {{amount}} credits', {
-                    amount: creditAmount(tool.price_quota, units),
-                  })}
+                : tool.price_quota === 0
+                  ? t('Run free tool')
+                  : t('Run for up to {{amount}} credits', {
+                      amount: creditAmount(tool.price_quota, units),
+                    })}
           </Button>
         )}
         {response && (
           <>
             <CallResult response={response} units={units} />
-            <Button
-              variant='outline'
-              disabled={refresh.isPending}
-              onClick={() => refresh.mutate()}
-            >
-              {t('Refresh result')}
-            </Button>
+            {confirmation && (
+              <section className='space-y-3 rounded-lg border p-4'>
+                <h4 className='font-medium'>{t('Confirm tool action')}</h4>
+                <p className='text-sm whitespace-pre-wrap'>
+                  {confirmation.message}
+                </p>
+                <label className='flex items-start gap-3 text-sm'>
+                  <Checkbox
+                    checked={confirmed}
+                    disabled={run.isPending}
+                    onCheckedChange={(value) => setConfirmed(value === true)}
+                  />
+                  {t('I reviewed this action and its charges.')}
+                </label>
+                <div className='flex flex-wrap gap-2'>
+                  <Button
+                    disabled={!confirmed || run.isPending}
+                    onClick={() => run.mutate('accept')}
+                  >
+                    {t('Confirm and continue')}
+                  </Button>
+                  <Button
+                    variant='outline'
+                    disabled={run.isPending}
+                    onClick={() => run.mutate('cancel')}
+                  >
+                    {t('Cancel action')}
+                  </Button>
+                </div>
+              </section>
+            )}
+            <div className='flex flex-wrap gap-2'>
+              <Button
+                variant='outline'
+                disabled={refresh.isPending || run.isPending}
+                onClick={() => refresh.mutate()}
+              >
+                {t('Refresh result')}
+              </Button>
+              {canStartAnotherCall(response) && (
+                <Button
+                  variant='outline'
+                  disabled={run.isPending}
+                  onClick={newCall}
+                >
+                  {t('Start another call')}
+                </Button>
+              )}
+            </div>
           </>
         )}
         {refresh.isError && (
