@@ -242,6 +242,11 @@ func SetToolMarketPaused(actor int, serviceID string, paused bool) error {
 		if err := lockForUpdate(tx).First(&service, "id = ?", serviceID).Error; err != nil {
 			return err
 		}
+		// System services are controlled by the compiled-in registry, including
+		// for administrators. Public author APIs cannot alter that registry.
+		if service.OwnerID == 0 {
+			return ErrToolMarketDenied
+		}
 		if service.OwnerID != actor {
 			if err := marketUser(tx, actor, common.RoleAdminUser); err != nil {
 				return err

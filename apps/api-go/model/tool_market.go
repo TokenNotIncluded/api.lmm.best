@@ -141,7 +141,7 @@ type ToolMarketEvent struct {
 func toolMarketModels() []interface{} {
 	return []interface{}{&ToolMarketService{}, &ToolMarketVersion{}, &ToolMarketTool{}, &ToolMarketToolVersion{}, &ToolMarketAccess{},
 		&ToolMarketFavorite{}, &ToolMarketInstallation{}, &ToolMarketGrant{}, &ToolMarketBudget{}, &ToolMarketConfig{},
-		&ToolMarketEvent{}, &ToolMarketCall{}, &ToolMarketTransfer{}, &ToolMarketResult{}, &ToolMarketToken{}}
+		&ToolMarketEvent{}, &ToolMarketCall{}, &ToolMarketTransfer{}, &ToolMarketResult{}, &ToolMarketToken{}, &ToolMarketBuiltinContinuation{}, &ToolMarketCredential{}}
 }
 
 type ToolMarketToolInput struct {
@@ -372,6 +372,9 @@ func ReviewToolMarketVersion(actor int, serviceID, versionID string, approve boo
 		var service ToolMarketService
 		if err := lockForUpdate(tx).First(&service, "id = ?", serviceID).Error; err != nil {
 			return err
+		}
+		if service.OwnerID == 0 {
+			return ErrToolMarketDenied
 		}
 		if service.DraftVersionID != versionID {
 			return ErrToolMarketConflict

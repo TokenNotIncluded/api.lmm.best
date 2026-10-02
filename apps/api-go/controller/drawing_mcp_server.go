@@ -274,6 +274,11 @@ func drawingMCPAPIKeyID(request *mcp.CallToolRequest) (int, error) {
 	if oauth, ok := request.Extra.TokenInfo.Extra["oauth"].(bool); ok && oauth {
 		return 0, nil
 	}
+	if builtin, ok := request.Extra.TokenInfo.Extra["market_builtin"].(bool); ok && builtin {
+		if _, bound := request.Extra.TokenInfo.Extra["api_key_id"]; !bound {
+			return 0, nil
+		}
+	}
 	raw, ok := request.Extra.TokenInfo.Extra["api_key_id"]
 	if !ok {
 		return 0, errors.New("drawing MCP token is not bound to an API key; generate a new configuration")
@@ -421,7 +426,9 @@ func NewDrawingMCPHandler(sharedAdmission ...gin.HandlerFunc) http.Handler {
 	} else {
 		admission = middleware.RelayRequestAdmission()
 	}
-	server := newDrawingMCPServer(newDrawingMCPRelayEngine(admission))
+	relay := newDrawingMCPRelayEngine(admission)
+	SetToolMarketBuiltinDrawingRelay(relay)
+	server := newDrawingMCPServer(relay)
 	streamable := mcp.NewStreamableHTTPHandler(func(request *http.Request) *mcp.Server {
 		return server
 	}, &mcp.StreamableHTTPOptions{

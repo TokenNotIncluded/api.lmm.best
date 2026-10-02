@@ -104,6 +104,13 @@ func RevokeToolMarketToken(userID int, id string) error {
 }
 
 func RecordToolMarketValidation(actor int, serviceID, versionID, digest string, tools map[string]string) error {
+	return RecordToolMarketValidationWithCredential(actor, serviceID, versionID, digest, tools, "")
+}
+
+// Credential identity is captured before remote discovery and compared under
+// the service lock. Rotation/removal must invalidate an older validation even
+// if that network request finishes after the new credential was saved.
+func RecordToolMarketValidationWithCredential(actor int, serviceID, versionID, digest string, tools map[string]string, expectedCredentialID string) error {
 	return DB.Transaction(func(tx *gorm.DB) error {
 		if err := marketUser(tx, actor, common.RoleCommonUser); err != nil {
 			return err
@@ -111,6 +118,9 @@ func RecordToolMarketValidation(actor int, serviceID, versionID, digest string, 
 		var service ToolMarketService
 		if err := lockForUpdate(tx).First(&service, "id = ?", serviceID).Error; err != nil {
 			return err
+		}
+		if service.OwnerID == 0 {
+			return ErrToolMarketDenied
 		}
 		if service.OwnerID != actor {
 			if err := marketUser(tx, actor, common.RoleAdminUser); err != nil {
@@ -121,10 +131,21 @@ func RecordToolMarketValidation(actor int, serviceID, versionID, digest string, 
 			return ErrToolMarketConflict
 		}
 		var version ToolMarketVersion
-		if err := tx.First(&version, "id = ? AND service_id = ?", versionID, serviceID).Error; err != nil {
+		if err := lockForUpdate(tx).First(&version, "id = ? AND service_id = ?", versionID, serviceID).Error; err != nil {
 			return err
 		}
 		if version.Digest != digest || version.ExecutionType != "remote" || (version.Status != "draft" && version.Status != "pending") {
+			return ErrToolMarketConflict
+		}
+		var credential ToolMarketCredential
+		if err := tx.Select("id", "owner_id", "service_id").First(&credential, "version_id = ?", versionID).Error; err != nil {
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+		} else if credential.OwnerID != service.OwnerID || credential.ServiceID != service.ID {
+			return ErrToolMarketConflict
+		}
+		if credential.ID != expectedCredentialID {
 			return ErrToolMarketConflict
 		}
 		var definitions []ToolMarketToolVersion
