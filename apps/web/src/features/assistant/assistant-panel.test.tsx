@@ -2435,13 +2435,25 @@ describe('AssistantPanel', () => {
         findHistoryToggle().click()
         await flushEffects()
       })
+      await act(async () =>
+        waitForCondition(
+          () =>
+            document.querySelector(
+              '[data-testid="assistant-history-list"] button[aria-label="View Hermes model setup"]'
+            ) !== null,
+          'Owned conversation history did not render'
+        )
+      )
       await act(async () => {
         findButton('View').click()
         await flushEffects()
       })
       await act(async () =>
         waitForCondition(
-          () => findButton('Continue') !== undefined,
+          () =>
+            [...document.querySelectorAll<HTMLButtonElement>('button')].some(
+              (button) => button.textContent?.trim() === 'Continue'
+            ),
           'Continue action did not render'
         )
       )

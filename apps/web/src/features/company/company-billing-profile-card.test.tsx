@@ -368,6 +368,10 @@ describe('company billing profile form', () => {
           ?.length !== 0,
       'tax field error did not render'
     )
+    await waitForCondition(
+      () => document.activeElement?.id === 'company-billing-taxId',
+      'invalid tax field did not receive focus'
+    )
 
     assert.equal(
       document.querySelector('#company-billing-taxId-error')?.textContent,
