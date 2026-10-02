@@ -120,6 +120,13 @@ jobs:
           TEST_POSTGRES_ISOLATED_SCHEMA: '1'
         run: go test -race -count=1 -v ./model -run '^(TestRedPacketDeleteCannotEraseConcurrentClaimPostgres|TestReferralPostgres.*)$' -timeout 180s
 
+      - name: Protect paid tool-market authorization and ledger under PostgreSQL concurrency
+        working-directory: apps/api-go
+        env:
+          TEST_POSTGRES_DSN: postgres://lmm_test_release:lmm-release-postgres-password@127.0.0.1:5432/lmm_test_release?sslmode=disable
+          TEST_POSTGRES_ISOLATED_SCHEMA: '1'
+        run: go test -race -count=1 -v ./service -run '^(TestToolMarketPaidHTTPMCPUploadAndSettlementPostgres|TestToolMarketPaidPostgresBuyerIsolationAndConcurrentLedger)$' -timeout 180s
+
       - name: Check Go formatting, vet, race tests, and relaykit
         env:
           LMM_INCIDENT343_TEST_DSN: postgres://lmm_test_release:lmm-release-postgres-password@127.0.0.1:5432/lmm_test_release?sslmode=disable

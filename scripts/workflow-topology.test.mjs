@@ -147,3 +147,25 @@ test('test-only concurrency and request filtering cannot cancel production work'
   }
   assert.doesNotMatch(workflow('server-release-qualification'), /fix\/incident343-additive-recovery/);
 });
+
+test('paid tool-market PostgreSQL qualification cannot silently use SQLite or skip isolation', () => {
+  const go = job(workflow('server-release-qualification'), 'go-server');
+  assert.match(go, /image: postgres:18-alpine/);
+  const step = go.split(/\n(?=      - name: )/).find((part) =>
+    part.startsWith('      - name: Protect paid tool-market authorization and ledger under PostgreSQL concurrency\n'));
+  assert.ok(step, 'paid market qualification must have its own PostgreSQL step');
+  assert.match(step, /working-directory: apps\/api-go\n/);
+  assert.match(step, /TEST_POSTGRES_DSN: postgres:\/\/[^\n]+@127\.0\.0\.1:5432\/lmm_test_release\?sslmode=disable\n/);
+  assert.match(step, /TEST_POSTGRES_ISOLATED_SCHEMA: '1'\n/);
+  assert.doesNotMatch(step, /continue-on-error:|\n        if:/);
+  const tests = [
+    ['TestToolMarketPaidHTTPMCPUploadAndSettlementPostgres', 'tool_market_paid_e2e_test.go'],
+    ['TestToolMarketPaidPostgresBuyerIsolationAndConcurrentLedger', 'tool_market_paid_postgres_e2e_test.go'],
+  ];
+  const names = tests.map(([name]) => name).join('|');
+  assert.ok(step.includes(`run: go test -race -count=1 -v ./service -run '^(${names})$' -timeout 180s`));
+  for (const [name, file] of tests) {
+    assert.ok(read(`apps/api-go/service/${file}`).includes(`func ${name}(t *testing.T)`),
+      `qualification filter must still select the real ${name} test`);
+  }
+});
