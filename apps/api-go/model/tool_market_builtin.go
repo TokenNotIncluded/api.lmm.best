@@ -303,11 +303,11 @@ func marketAuthorizeCallDispatch(tx *gorm.DB, call ToolMarketCall) error {
 // This separate short-lived row leaves the final immutable result available
 // for idempotent replay and holds the original grant slot until completion.
 type ToolMarketBuiltinContinuation struct {
-	CallID      string `json:"-" gorm:"primaryKey;size:64"`
-	StateDigest string `json:"-" gorm:"size:64;not null"`
-	AuthVersion int64  `json:"-" gorm:"not null"`
-	Data        string `json:"-" gorm:"type:text"`
-	CreatedAt   int64  `json:"-"`
+	CallID      string                 `json:"-" gorm:"primaryKey;size:64"`
+	StateDigest string                 `json:"-" gorm:"size:64;not null"`
+	AuthVersion int64                  `json:"-" gorm:"not null"`
+	Data        ToolMarketDeliveryData `json:"-"`
+	CreatedAt   int64                  `json:"-"`
 }
 
 func RecordToolMarketBuiltinConfirmation(callID, state string, data json.RawMessage) error {
@@ -329,7 +329,7 @@ func RecordToolMarketBuiltinConfirmation(callID, state string, data json.RawMess
 			return err
 		}
 		tx = tx.Session(&gorm.Session{Logger: tx.Logger.LogMode(logger.Silent)})
-		row := ToolMarketBuiltinContinuation{CallID: callID, StateDigest: marketDigest(state), AuthVersion: user.AuthVersion, Data: string(data), CreatedAt: common.GetTimestamp()}
+		row := ToolMarketBuiltinContinuation{CallID: callID, StateDigest: marketDigest(state), AuthVersion: user.AuthVersion, Data: ToolMarketDeliveryData(data), CreatedAt: common.GetTimestamp()}
 		if err := tx.Create(&row).Error; err != nil {
 			return err
 		}

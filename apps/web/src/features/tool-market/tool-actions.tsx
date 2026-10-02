@@ -3,7 +3,7 @@ Copyright (C) 2026 LIghtJUNction
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -34,6 +34,11 @@ import {
 } from './call-utils'
 import { marketStatus, marketPermissionList } from './copy'
 import { creditAmount } from './money'
+import {
+  drawingResultImages,
+  resultImage,
+  type ResultImage,
+} from './result-images'
 import { ToolArgumentsForm } from './schema-form'
 import {
   argumentIssue,
@@ -304,6 +309,45 @@ export function CallResult({
   )
 }
 
+function ImageResult({ image }: { image: ResultImage }) {
+  const { t } = useTranslation()
+  const [url, setURL] = useState('')
+  useEffect(() => {
+    let blobURL = ''
+    try {
+      const decoded = atob(image.data)
+      const bytes = new Uint8Array(decoded.length)
+      for (let index = 0; index < decoded.length; index++) {
+        bytes[index] = decoded.charCodeAt(index)
+      }
+      blobURL = URL.createObjectURL(new Blob([bytes], { type: image.mimeType }))
+      setURL(blobURL)
+    } catch {
+      setURL('')
+    }
+    return () => {
+      if (blobURL) URL.revokeObjectURL(blobURL)
+    }
+  }, [image.data, image.mimeType])
+  if (!url) return null
+  return (
+    <div className='space-y-2'>
+      <img
+        src={url}
+        alt={t('Image result')}
+        className='max-h-96 max-w-full rounded-md'
+      />
+      <a
+        href={url}
+        download={`image.${image.mimeType.split('/')[1]}`}
+        className='text-primary underline'
+      >
+        {t('Download')}
+      </a>
+    </div>
+  )
+}
+
 function MCPResultView({ value }: { value: unknown }) {
   const { t } = useTranslation()
   if (!schemaObject(value)) {
@@ -314,6 +358,10 @@ function MCPResultView({ value }: { value: unknown }) {
     )
   }
   const content = Array.isArray(value.content) ? value.content : []
+  const drawing = drawingResultImages(
+    value.structuredContent,
+    t('Image result')
+  )
   return (
     <div className='min-w-0 space-y-3'>
       {content.map((item: unknown, index: number) => {
@@ -328,22 +376,9 @@ function MCPResultView({ value }: { value: unknown }) {
             </p>
           )
         }
-        if (
-          item.type === 'image' &&
-          typeof item.data === 'string' &&
-          item.data.length <= 3 * 1024 * 1024 &&
-          /^[A-Za-z0-9+/=\r\n]+$/.test(item.data) &&
-          typeof item.mimeType === 'string' &&
-          /^image\/(png|jpeg|webp|gif)$/.test(item.mimeType)
-        ) {
-          return (
-            <img
-              key={index}
-              src={`data:${item.mimeType};base64,${item.data}`}
-              alt={t('Image result')}
-              className='max-h-96 max-w-full rounded-md'
-            />
-          )
+        if (item.type === 'image') {
+          const image = resultImage(item.data, item.mimeType)
+          return image ? <ImageResult key={index} image={image} /> : null
         }
         if (
           item.type === 'audio' &&
@@ -385,9 +420,12 @@ function MCPResultView({ value }: { value: unknown }) {
           </pre>
         )
       })}
+      {drawing.images.map((image, index) => (
+        <ImageResult key={`drawing-${index}`} image={image} />
+      ))}
       {value.structuredContent !== undefined && (
         <pre className='bg-muted max-h-64 overflow-auto rounded-md p-3 text-xs whitespace-pre-wrap'>
-          {JSON.stringify(value.structuredContent, null, 2)}
+          {JSON.stringify(drawing.metadata, null, 2)}
         </pre>
       )}
       {!content.length &&

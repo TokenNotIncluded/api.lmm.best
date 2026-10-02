@@ -123,10 +123,10 @@ func GetToolMarketExecutionResponseWithBuiltins(userID int, clientID, id string)
 		}
 		response.ResultExpiresAt = response.Call.ResolveBy
 	} else if response.Call.OwnerID == 0 {
-		if response.Call.ExecutionStatus == "unknown" {
-			response.ErrorCode = "TOOL_MARKET_RESULT_UNKNOWN"
-		} else if response.Call.SettlementStatus == "held" && len(response.Result) != 0 {
+		if len(response.Result) != 0 && (response.Call.SettlementStatus == "held" || response.Call.ExecutionStatus == "unknown") {
 			response.ErrorCode = "TOOL_MARKET_SETTLEMENT_PENDING"
+		} else if response.Call.ExecutionStatus == "unknown" {
+			response.ErrorCode = "TOOL_MARKET_RESULT_UNKNOWN"
 		}
 	}
 	return response, nil
@@ -232,13 +232,21 @@ func ExecuteToolMarketWithBuiltins(ctx context.Context, in model.ToolMarketReser
 		// as unknown; never encourage a new request to replay its side effects.
 		_ = model.MarkToolMarketCallUnknown(call.ID)
 		response, err := GetToolMarketExecutionResponseWithBuiltins(in.UserID, in.ClientID, call.ID)
-		if response != nil {
+		if response != nil && len(response.Result) == 0 {
 			response.ErrorCode = "TOOL_MARKET_RESULT_UNKNOWN"
 		}
 		return response, err
 	}
+	limit := model.ToolMarketResultMaxBytes
+	drawingResult := key == "drawing" && definition.Name == "drawing.generate" && !result.IsError && len(result.InputRequests) == 0 && result.RequestState == ""
+	if drawingResult {
+		limit = model.ToolMarketDrawingResultMaxBytes
+		// Persist business output, independent of SDK-added transport metadata
+		// and its private resultType. Match the pre-billing retained envelope.
+		result = &mcp.CallToolResult{Content: result.Content, StructuredContent: result.StructuredContent}
+	}
 	data, err := json.Marshal(result)
-	if err != nil || len(data) > 2<<20 {
+	if err != nil || len(data) > limit {
 		_ = model.MarkToolMarketCallUnknown(call.ID)
 		return GetToolMarketExecutionResponseWithBuiltins(in.UserID, in.ClientID, call.ID)
 	}
@@ -257,10 +265,15 @@ func ExecuteToolMarketWithBuiltins(ctx context.Context, in model.ToolMarketReser
 		}
 		return GetToolMarketExecutionResponseWithBuiltins(in.UserID, in.ClientID, call.ID)
 	}
-	if err := model.RecordToolMarketResult(call.ID, !result.IsError, data); err != nil {
+	if drawingResult {
+		err = model.RecordToolMarketBuiltinDrawingResult(call.ID, data)
+	} else {
+		err = model.RecordToolMarketResult(call.ID, !result.IsError, data)
+	}
+	if err != nil {
 		_ = model.MarkToolMarketCallUnknown(call.ID)
 		response, readErr := GetToolMarketExecutionResponseWithBuiltins(in.UserID, in.ClientID, call.ID)
-		if response != nil {
+		if response != nil && len(response.Result) == 0 {
 			response.ErrorCode = "TOOL_MARKET_RESULT_UNKNOWN"
 		}
 		return response, readErr

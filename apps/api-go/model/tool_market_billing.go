@@ -284,6 +284,15 @@ func finishToolMarketCall(id string, success, expire bool) error {
 		if success && common.GetTimestamp() >= call.ResolveBy {
 			return ErrToolMarketConflict
 		}
+		if success {
+			var pending int64
+			if err := tx.Model(&ToolMarketResult{}).Where("call_id = ? AND builtin_billing_pending = ?", call.ID, true).Count(&pending).Error; err != nil {
+				return err
+			}
+			if pending != 0 {
+				return ErrToolMarketConflict
+			}
+		}
 		affected = []int{call.UserID, call.OwnerID, call.RecipientID}
 		if err := marketLockUsers(tx, append([]int(nil), affected...)...); err != nil {
 			return err
@@ -348,7 +357,9 @@ func finishToolMarketCall(id string, success, expire bool) error {
 				call.ExecutionStatus = "unknown"
 				var outcome ToolMarketResult
 				if err := tx.First(&outcome, "call_id = ?", call.ID).Error; err == nil {
-					if outcome.Success {
+					if outcome.BuiltinBillingPending {
+						call.ExecutionStatus = "unknown"
+					} else if outcome.Success {
 						call.ExecutionStatus = "succeeded"
 					} else {
 						call.ExecutionStatus = "failed"

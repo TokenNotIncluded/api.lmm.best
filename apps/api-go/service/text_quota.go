@@ -458,6 +458,12 @@ func canEstimateMissingTextUsage(ctx *gin.Context, info *relaycommon.RelayInfo) 
 }
 
 func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage, extraContent []string) {
+	_ = PostTextConsumeQuotaWithResult(ctx, relayInfo, usage, extraContent)
+}
+
+// The image delivery adapter needs the actual settlement outcome without
+// changing the existing response/logging behavior of other relay callers.
+func PostTextConsumeQuotaWithResult(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage, extraContent []string) error {
 	originUsage := usage
 	billingUsage := effectiveBillingUsage(usage)
 	if usage == nil {
@@ -666,6 +672,7 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	gopool.Go(func() {
 		perfmetrics.RecordRelaySample(relayInfo, true, int64(summary.CompletionTokens))
 	})
+	return settlementErr
 }
 
 // Usage counters and Log.Quota continue to describe measured usage, not payment.

@@ -56,7 +56,7 @@ const { QueryClient, QueryClientProvider } =
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { marketAPI, MarketAPIError } = await import('./api')
-const { CallDialog, GrantDialog } = await import('./tool-actions')
+const { CallDialog, GrantDialog, CallResult } = await import('./tool-actions')
 
 ;(
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -501,4 +501,78 @@ test('a known arguments rejection unlocks the form and a correction gets a new r
   assert.deepEqual(JSON.parse(structured.textContent ?? ''), {
     results: [{ title: 'Matched record', count: 3 }],
   })
+})
+
+test('large native and structured drawing images use downloadable blobs and keep base64 out of result text', async (context) => {
+  const createURL = URL.createObjectURL
+  const revokeURL = URL.revokeObjectURL
+  const blobs: Blob[] = []
+  const revoked: string[] = []
+  URL.createObjectURL = (blob) => {
+    blobs.push(blob as Blob)
+    return `blob:market-image-${blobs.length}`
+  }
+  URL.revokeObjectURL = (url) => {
+    revoked.push(url)
+  }
+  context.after(() => {
+    URL.createObjectURL = createURL
+    URL.revokeObjectURL = revokeURL
+  })
+  const encoded = Buffer.concat([
+    Buffer.from('\x89PNG\r\n\x1a\n', 'binary'),
+    Buffer.alloc(3 * 1024 * 1024),
+  ]).toString('base64')
+  const value = {
+    content: [{ type: 'image', mimeType: 'image/png', data: encoded }],
+    structuredContent: {
+      message: 'Image generation completed.',
+      data: {
+        created: 123,
+        data: { b64_json: encoded, revised_prompt: 'A generated image' },
+        usage: { total_tokens: 10 },
+      },
+    },
+  }
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  const cache = new QueryClient()
+  rendered.push({ root, cache })
+  await act(async () => {
+    root.render(
+      <I18nextProvider i18n={i18n}>
+        <CallResult
+          response={response('succeeded', 'settled', value)}
+          units={units}
+        />
+      </I18nextProvider>
+    )
+    await flush()
+  })
+  assert.equal(document.body.querySelectorAll('img').length, 2)
+  assert.equal(document.body.querySelectorAll('a[download]').length, 2)
+  assert.equal(blobs.length, 2)
+  assert.equal(blobs[0].type, 'image/png')
+  assert.ok(blobs[0].size > 3 * 1024 * 1024)
+  assert.equal(document.body.textContent?.includes(encoded), false)
+  assert.match(document.body.textContent ?? '', /A generated image/)
+  assert.match(document.body.textContent ?? '', /total_tokens/)
+  for (const image of document.body.querySelectorAll('img')) {
+    assert.match(image.src, /^blob:/)
+  }
+  for (const download of document.body.querySelectorAll('a[download]')) {
+    assert.match(download.getAttribute('href') ?? '', /^blob:/)
+  }
+  await act(async () => {
+    root.unmount()
+    await flush()
+  })
+  rendered.pop()
+  cache.clear()
+  assert.equal(
+    revoked.length,
+    2,
+    'all retained image blobs are released when the result leaves the screen'
+  )
 })

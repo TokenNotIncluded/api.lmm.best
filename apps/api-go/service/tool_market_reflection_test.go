@@ -143,7 +143,7 @@ func TestToolMarketRemoteCredentialReflectionNeverPublishedOrPersisted(t *testin
 				var persisted model.ToolMarketResult
 				require.NoError(t, db.First(&persisted, "call_id = ?", response.Call.ID).Error)
 				require.False(t, persisted.Success)
-				require.Equal(t, string(response.Result), persisted.Data, "only the fixed safe package is durable")
+				require.Equal(t, string(response.Result), string(persisted.Data), "only the fixed safe package is durable")
 				// A repeated request returns the fixed durable result, and never
 				// retries a provider operation with a possibly committed side effect.
 				replayed, err := remote.execute(ctx, input)

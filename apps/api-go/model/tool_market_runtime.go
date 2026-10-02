@@ -12,18 +12,41 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
+	"gorm.io/gorm/schema"
 )
 
 const ToolMarketWebClient = "web-market"
 
+const (
+	ToolMarketResultMaxBytes = 2 << 20
+	// Match the normal relay response ceiling, allowing the MCP wrapper.
+	ToolMarketDrawingResponseMaxBytes = 32 << 20
+	ToolMarketDrawingResultMaxBytes   = ToolMarketDrawingResponseMaxBytes + (64 << 10)
+)
+
+// TEXT is only 64 KiB on MySQL; delivery payloads need the same capacity as
+// their accepted envelopes. PostgreSQL and SQLite TEXT already support them.
+type ToolMarketDeliveryData string
+
+func (ToolMarketDeliveryData) GormDataType() string { return "text" }
+func (ToolMarketDeliveryData) GormDBDataType(db *gorm.DB, _ *schema.Field) string {
+	if db != nil && db.Dialector.Name() == "mysql" {
+		return "LONGTEXT"
+	}
+	return "TEXT"
+}
+
 // Results are short-lived delivery data, never author analytics or logs.
 type ToolMarketResult struct {
-	CallID    string `json:"call_id" gorm:"primaryKey;size:64"`
-	UserID    int    `json:"-" gorm:"index"`
-	Success   bool   `json:"success"`
-	Data      string `json:"-" gorm:"type:text"`
-	CreatedAt int64  `json:"created_at"`
-	ExpiresAt int64  `json:"expires_at" gorm:"index"`
+	CallID  string                 `json:"call_id" gorm:"primaryKey;size:64"`
+	UserID  int                    `json:"-" gorm:"index"`
+	Success bool                   `json:"success"`
+	Data    ToolMarketDeliveryData `json:"-"`
+	// A valid generated image is recoverable before normal model settlement.
+	// This flag keeps that delivery outcome from completing the market call.
+	BuiltinBillingPending bool  `json:"-" gorm:"not null;default:false"`
+	CreatedAt             int64 `json:"created_at"`
+	ExpiresAt             int64 `json:"expires_at" gorm:"index"`
 }
 
 type ToolMarketToken struct {
@@ -283,17 +306,70 @@ func LookupToolMarketReplay(in ToolMarketReserveInput) (*ToolMarketCall, error) 
 }
 
 func RecordToolMarketResult(callID string, success bool, data json.RawMessage) error {
-	if len(data) > 2<<20 || !json.Valid(data) {
+	return recordToolMarketResult(callID, success, data, false, false)
+}
+
+// Only the code-owned drawing adapter can use the larger delivery envelope.
+func RecordToolMarketBuiltinDrawingResult(callID string, data json.RawMessage) error {
+	return recordToolMarketResult(callID, true, data, true, false)
+}
+
+func PrepareToolMarketBuiltinDrawingResult(callID string, data json.RawMessage) error {
+	return recordToolMarketResult(callID, true, data, true, true)
+}
+
+func marketDrawingResultCall(tx *gorm.DB, call *ToolMarketCall) error {
+	if call.OwnerID != 0 || call.PriceQuota != 0 || call.ServiceID != ToolMarketBuiltinServiceID("drawing") {
+		return ErrToolMarketDenied
+	}
+	var version ToolMarketVersion
+	if err := tx.First(&version, "id = ? AND execution_type = ?", call.VersionID, "builtin").Error; err != nil {
+		return ErrToolMarketDenied
+	}
+	var tool ToolMarketToolVersion
+	if err := tx.First(&tool, "tool_id = ? AND version_id = ? AND name = ?", call.ToolID, call.VersionID, "drawing.generate").Error; err != nil {
+		return ErrToolMarketDenied
+	}
+	return nil
+}
+
+func CompleteToolMarketBuiltinDrawingBilling(callID string, settled bool) error {
+	return marketCallTx(callID, func(tx *gorm.DB, call *ToolMarketCall) error {
+		if err := marketDrawingResultCall(tx, call); err != nil {
+			return err
+		}
+		q := tx.Model(&ToolMarketResult{}).Where("call_id = ? AND success = ?", callID, true).Update("builtin_billing_pending", !settled)
+		if q.Error != nil {
+			return q.Error
+		}
+		if q.RowsAffected != 1 {
+			return ErrToolMarketConflict
+		}
+		return nil
+	})
+}
+
+func recordToolMarketResult(callID string, success bool, data json.RawMessage, drawing, billingPending bool) error {
+	limit := ToolMarketResultMaxBytes
+	if drawing {
+		limit = ToolMarketDrawingResultMaxBytes
+	}
+	if len(data) > limit || !json.Valid(data) {
 		return ErrToolMarketInput
 	}
 	return marketCallTx(callID, func(tx *gorm.DB, call *ToolMarketCall) error {
 		// Delivery payloads must not become SQL parameter dumps on an error.
 		tx = tx.Session(&gorm.Session{Logger: tx.Logger.LogMode(logger.Silent)})
+		if drawing {
+			if err := marketDrawingResultCall(tx, call); err != nil {
+				return err
+			}
+		}
 		if call.SettlementStatus != "held" || (call.ExecutionStatus != "running" && call.ExecutionStatus != "unknown") {
 			return ErrToolMarketConflict
 		}
 		now := common.GetTimestamp()
-		row := ToolMarketResult{CallID: callID, UserID: call.UserID, Success: success, Data: string(data), CreatedAt: now, ExpiresAt: now + 3600}
+		row := ToolMarketResult{CallID: callID, UserID: call.UserID, Success: success, Data: ToolMarketDeliveryData(data), BuiltinBillingPending: billingPending, CreatedAt: now, ExpiresAt: now + 3600}
 		q := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&row)
 		if q.Error != nil {
 			return q.Error
@@ -303,7 +379,7 @@ func RecordToolMarketResult(callID string, success bool, data json.RawMessage) e
 			if err := tx.First(&prior, "call_id = ?", callID).Error; err != nil {
 				return err
 			}
-			if prior.Success != success || prior.Data != string(data) {
+			if prior.Success != success || string(prior.Data) != string(data) || (!billingPending && prior.BuiltinBillingPending) {
 				return ErrToolMarketConflict
 			}
 		}
