@@ -38,6 +38,9 @@ export const Route = createFileRoute('/_authenticated/wallet/')({
 function RouteComponent() {
   const { show_history, topup_amount } = Route.useSearch()
   return (
-    <Wallet initialShowHistory={show_history} initialTopupAmount={topup_amount} />
+    <Wallet
+      initialShowHistory={show_history}
+      initialTopupAmount={topup_amount}
+    />
   )
 }

@@ -1502,7 +1502,12 @@ test('an MCP top-up link only prefills the wallet and waits for user payment sel
   api.post = (async (url, request) => {
     requests.push(url)
     assert.equal(url, '/api/user/amount')
-    return { data: { message: 'success', data: String((request as AmountRequest).amount) } }
+    return {
+      data: {
+        message: 'success',
+        data: String((request as AmountRequest).amount),
+      },
+    }
   }) as typeof api.post
   const { container, queryClient } = await renderWallet()
   const input = container.querySelector<HTMLInputElement>('#topup-amount')
@@ -1510,37 +1515,60 @@ test('an MCP top-up link only prefills the wallet and waits for user payment sel
   assert.equal(input.value, '25')
   assert.equal(document.querySelector('[role="alertdialog"]'), null)
   assert.equal(requests.length, 0, 'opening the link must not start checkout')
-  const pay = container.querySelector<HTMLButtonElement>('button[aria-label="Payment option 1"]')
+  const pay = container.querySelector<HTMLButtonElement>(
+    'button[aria-label="Payment option 1"]'
+  )
   assert.ok(pay)
   await act(async () => pay.click())
   assert.deepEqual(requests, ['/api/user/amount'])
-  assert.ok(document.querySelector('[role="alertdialog"]'), 'only a user payment selection opens confirmation')
+  assert.ok(
+    document.querySelector('[role="alertdialog"]'),
+    'only a user payment selection opens confirmation'
+  )
   queryClient.clear()
 })
 
 test('changing an MCP-prefilled amount keeps the user edit through later top-up data refreshes', async () => {
   window.history.replaceState({}, '', '/wallet?topup_amount=25')
-  api.post = (async (_url, request) => ({ data: { message: 'success', data: String((request as AmountRequest).amount) } })) as typeof api.post
+  api.post = (async (_url, request) => ({
+    data: {
+      message: 'success',
+      data: String((request as AmountRequest).amount),
+    },
+  })) as typeof api.post
   const { container, queryClient } = await renderWallet()
   const input = container.querySelector<HTMLInputElement>('#topup-amount')
   assert.ok(input)
-  const setter = Object.getOwnPropertyDescriptor(domWindow.HTMLInputElement.prototype, 'value')?.set
+  const setter = Object.getOwnPropertyDescriptor(
+    domWindow.HTMLInputElement.prototype,
+    'value'
+  )?.set
   assert.ok(setter)
   await act(async () => {
     setter.call(input, '50')
     input.dispatchEvent(new Event('input', { bubbles: true }))
   })
   assert.equal(input.value, '50')
-  await act(async () => { await queryClient.invalidateQueries() })
+  await act(async () => {
+    await queryClient.invalidateQueries()
+  })
   assert.equal(input.value, '50')
   assert.equal(document.querySelector('[role="alertdialog"]'), null)
   queryClient.clear()
 })
 
 test('duplicate and malformed MCP top-up amounts keep the normal wallet default', async () => {
-  for (const search of ['?topup_amount=25&topup_amount=50', '?topup_amount=1e3']) {
+  for (const search of [
+    '?topup_amount=25&topup_amount=50',
+    '?topup_amount=1e3',
+  ]) {
     window.history.replaceState({}, '', `/wallet${search}`)
-    api.post = (async (_url, request) => ({ data: { message: 'success', data: String((request as AmountRequest).amount) } })) as typeof api.post
+    api.post = (async (_url, request) => ({
+      data: {
+        message: 'success',
+        data: String((request as AmountRequest).amount),
+      },
+    })) as typeof api.post
     const { container, queryClient } = await renderWallet()
     const input = container.querySelector<HTMLInputElement>('#topup-amount')
     assert.ok(input)

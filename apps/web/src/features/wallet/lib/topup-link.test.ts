@@ -24,8 +24,24 @@ import { getWalletTopupPrefill, parseWalletTopupAmount } from './topup-link'
 test('wallet links only accept one bounded whole credit amount', () => {
   assert.equal(getWalletTopupPrefill('?topup_amount=25'), 25)
   assert.equal(getWalletTopupPrefill('?topup_amount=1000000'), 1_000_000)
-  for (const value of ['0', '-1', '01', '1.5', '1e3', 'Infinity', 'NaN', '1000001', '', ' 25', '0x10']) {
-    assert.equal(getWalletTopupPrefill(`?topup_amount=${encodeURIComponent(value)}`), null, value)
+  for (const value of [
+    '0',
+    '-1',
+    '01',
+    '1.5',
+    '1e3',
+    'Infinity',
+    'NaN',
+    '1000001',
+    '',
+    ' 25',
+    '0x10',
+  ]) {
+    assert.equal(
+      getWalletTopupPrefill(`?topup_amount=${encodeURIComponent(value)}`),
+      null,
+      value
+    )
   }
   assert.equal(getWalletTopupPrefill('?topup_amount=25&topup_amount=50'), null)
   assert.equal(getWalletTopupPrefill('?topup_amount=bad', 25), null)
@@ -34,7 +50,21 @@ test('wallet links only accept one bounded whole credit amount', () => {
 })
 
 test('route search ignores invalid values without making payment requests', () => {
-  for (const value of [null, undefined, true, {}, [], [25], '1e3', '01', '1000001', Number.NaN, 0, -1, 1.5]) {
+  for (const value of [
+    null,
+    undefined,
+    true,
+    {},
+    [],
+    [25],
+    '1e3',
+    '01',
+    '1000001',
+    Number.NaN,
+    0,
+    -1,
+    1.5,
+  ]) {
     assert.equal(parseWalletTopupAmount(value), undefined)
   }
   assert.equal(parseWalletTopupAmount(25), 25)

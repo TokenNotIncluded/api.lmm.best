@@ -70,11 +70,11 @@ import {
   dispatchSelectedPayment,
 } from './lib'
 import { discountAfterAmountChange } from './lib/discount-state'
-import { getWalletTopupPrefill } from './lib/topup-link'
 import {
   expectedSettlement,
   isSettlementQuoteChanged,
 } from './lib/settlement-quote'
+import { getWalletTopupPrefill } from './lib/topup-link'
 import { WalletTransfers } from './transfers/wallet-transfers'
 import type {
   UserWalletData,

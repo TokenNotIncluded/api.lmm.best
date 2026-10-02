@@ -27,16 +27,23 @@ export function parseWalletTopupAmount(value: unknown): number | undefined {
     return undefined
   }
   const amount = Number(value)
-  return Number.isSafeInteger(amount) && amount > 0 && amount <= MAX_LINK_TOPUP_AMOUNT
+  return Number.isSafeInteger(amount) &&
+    amount > 0 &&
+    amount <= MAX_LINK_TOPUP_AMOUNT
     ? amount
     : undefined
 }
 
 /** URL values only prefill the form. They never select, confirm or start payment. */
-export function getWalletTopupPrefill(search: string, initialAmount?: number): number | null {
+export function getWalletTopupPrefill(
+  search: string,
+  initialAmount?: number
+): number | null {
   const amounts = new URLSearchParams(search).getAll('topup_amount')
   if (amounts.length > 0) {
-    return amounts.length === 1 ? (parseWalletTopupAmount(amounts[0]) ?? null) : null
+    return amounts.length === 1
+      ? (parseWalletTopupAmount(amounts[0]) ?? null)
+      : null
   }
   return parseWalletTopupAmount(initialAmount) ?? null
 }
