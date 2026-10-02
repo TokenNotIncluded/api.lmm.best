@@ -1,0 +1,91 @@
+{
+  "name": "lmm-copilot-provider",
+  "displayName": "LMM for Copilot",
+  "description": "Use LMM models in VS Code Chat with secure browser OAuth sign-in.",
+  "version": "0.1.0",
+  "publisher": "TokenNotIncluded",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TokenNotIncluded/api.lmm.best.git",
+    "directory": "packages/vscode-lmm-provider"
+  },
+  "homepage": "https://api.lmm.best",
+  "engines": {
+    "vscode": "^1.104.0"
+  },
+  "categories": [
+    "AI",
+    "Chat"
+  ],
+  "extensionKind": [
+    "ui"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onLanguageModelChatProvider:lmm"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "lmm.signIn",
+        "title": "LMM: Sign In"
+      },
+      {
+        "command": "lmm.signOut",
+        "title": "LMM: Sign Out"
+      },
+      {
+        "command": "lmm.refreshModels",
+        "title": "LMM: Refresh Models"
+      }
+    ],
+    "languageModelChatProviders": [
+      {
+        "vendor": "lmm",
+        "displayName": "LMM",
+        "managementCommand": "lmm.signIn"
+      }
+    ],
+    "configuration": {
+      "title": "LMM",
+      "properties": {
+        "lmm.maxInputTokens": {
+          "type": "number",
+          "default": 32768,
+          "minimum": 1024,
+          "maximum": 2000000,
+          "description": "Conservative input budget advertised to VS Code. Set at or below the limits of your selected models; LMM catalog does not advertise context limits."
+        },
+        "lmm.maxOutputTokens": {
+          "type": "number",
+          "default": 4096,
+          "minimum": 1,
+          "maximum": 131072,
+          "description": "Output budget sent to each model. Set at or below your model's supported limit."
+        },
+        "lmm.toolModels": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Exact upstream model IDs verified to support OpenAI function calling. Enables Copilot Agent tools for these models. Empty by default."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "test": "npm run compile && node --test test/*.test.cjs",
+    "vscode:prepublish": "npm run compile",
+    "package": "vsce package --no-dependencies",
+    "test:host": "bash scripts/test-host.sh"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.0",
+    "@types/vscode": "1.104.0",
+    "@vscode/vsce": "4.0.0",
+    "typescript": "^5.9.3"
+  }
+}

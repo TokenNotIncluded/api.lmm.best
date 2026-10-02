@@ -1,0 +1,47 @@
+{
+  "name": "@tokennotincluded/zed-lmm-provider",
+  "version": "0.1.0",
+  "description": "LMM OAuth bridge for Zed's native AI model selector",
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "author": "TokenNotIncluded",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "bin": {
+    "lmm-zed": "dist/cli.js"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE",
+    "PROVENANCE.md",
+    "dist"
+  ],
+  "scripts": {
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "pack:check": "npm pack --dry-run --ignore-scripts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json && chmod +x dist/cli.js",
+    "prepack": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TokenNotIncluded/api.lmm.best.git",
+    "directory": "packages/zed-lmm-provider"
+  },
+  "keywords": [
+    "zed",
+    "lmm",
+    "oauth",
+    "ai",
+    "provider"
+  ],
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "jsonc-parser": "^3.3.1"
+  }
+}

@@ -1,0 +1,132 @@
+name: LMM editor providers
+
+on:
+  pull_request:
+    paths:
+      - 'packages/vscode-lmm-provider/**'
+      - 'packages/zed-lmm-provider/**'
+      - 'apps/api-go/service/oauth_server.go'
+      - 'apps/api-go/service/oauth_contract.md'
+      - 'apps/api-go/router/oauth_editor_test.go'
+      - 'docs/editor-providers.md'
+      - '.github/workflows/editor-providers.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'packages/vscode-lmm-provider/**'
+      - 'packages/zed-lmm-provider/**'
+      - 'apps/api-go/service/oauth_server.go'
+      - 'apps/api-go/router/oauth_editor_test.go'
+      - '.github/workflows/editor-providers.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  zed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: packages/zed-lmm-provider
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.19.0'
+          cache: npm
+          cache-dependency-path: packages/zed-lmm-provider/package-lock.json
+      - run: npm ci --ignore-scripts
+      - name: Typecheck and test OAuth bridge
+        run: npm run typecheck && npm test
+      - name: Check and package the bridge
+        run: npm run build && npm run pack:check && npm pack --ignore-scripts
+      - name: Check packaged executable
+        run: |
+          python3 - <<'PY'
+          import glob, json, tarfile
+          packages = glob.glob('*.tgz')
+          assert len(packages) == 1, packages
+          with tarfile.open(packages[0]) as package:
+              manifest = json.load(package.extractfile('package/package.json'))
+              entry = 'package/' + manifest['bin']['lmm-zed']
+              executable = package.getmember(entry)
+              assert executable.mode & 0o111, entry
+              assert package.extractfile(entry).readline().startswith(b'#!'), entry
+              assert not any('/test/' in name or '/node_modules/' in name for name in package.getnames())
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: lmm-zed-npm-package
+          path: packages/zed-lmm-provider/*.tgz
+          if-no-files-found: error
+          retention-days: 14
+
+  vscode:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: packages/vscode-lmm-provider
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.19.0'
+          cache: npm
+          cache-dependency-path: packages/vscode-lmm-provider/package-lock.json
+      - run: npm ci --ignore-scripts
+      - name: Typecheck and test the provider
+        run: npm test
+      - name: Install supported VS Code host and display tools
+        run: |
+          curl --fail --location --silent --show-error https://update.code.visualstudio.com/1.104.0/linux-deb-x64/stable --output "$RUNNER_TEMP/lmm-code.deb"
+          printf '%s  %s\n' 'dec5fe2e3a71a3fded60c7924a22967efc7a6ec608ad4f17e751cbc3cbde6c0a' "$RUNNER_TEMP/lmm-code.deb" | sha256sum --check
+          sudo apt-get update
+          sudo apt-get install --yes "$RUNNER_TEMP/lmm-code.deb" xvfb ripgrep
+      - name: Verify activation in the real extension host
+        run: xvfb-run -a npm run test:host
+      - name: Build installable VSIX
+        run: npm run package
+      - name: Check packaged entry point and contents
+        run: |
+          python3 - <<'PY'
+          import glob, json, zipfile
+          packages = glob.glob('*.vsix')
+          assert len(packages) == 1, packages
+          with zipfile.ZipFile(packages[0]) as package:
+              names = package.namelist()
+              manifest = json.loads(package.read('extension/package.json'))
+              entry = 'extension/' + manifest['main'].removeprefix('./')
+              assert entry in names, entry
+              assert manifest['contributes']['languageModelChatProviders'][0]['vendor'] == 'lmm'
+              assert not any('/test/' in name or '/node_modules/' in name for name in names), names
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: lmm-vscode-vsix
+          path: packages/vscode-lmm-provider/*.vsix
+          if-no-files-found: error
+          retention-days: 14
+
+  registration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: apps/api-go/go.sum
+      - name: Verify editor grants, refresh and revocation
+        env:
+          GIN_MODE: release
+        run: go test ./router ./service ./oauthserver -run 'TestOAuth(Editor|CLI|OpenCode|HTTPDiscovery)|TestCodewhale' -count=1
+        working-directory: apps/api-go

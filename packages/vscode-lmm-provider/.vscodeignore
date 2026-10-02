@@ -1,0 +1,10 @@
+src/**
+test/**
+node_modules/**
+.gitignore
+tsconfig.json
+package-lock.json
+*.vsix
+scripts/**
+.vscode-test/**
+.host-test/**
