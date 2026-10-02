@@ -14,7 +14,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func marketPaidMySQLFixture(t *testing.T, maxCalls, limit int) marketFixture {
+func marketPaidMySQLFixture(t *testing.T, maxCalls, grantLimit, budgetLimit int) marketFixture {
 	t.Helper()
 	db := marketDrawingMySQLDB(t)
 	f := marketFixture{db: db, buyer: marketTestUser(t, db, "mysql-paid-buyer", 1000, common.RoleCommonUser), author: marketTestUser(t, db, "mysql-paid-author", 0, common.RoleCommonUser), root: marketTestUser(t, db, "mysql-paid-root", 0, common.RoleRootUser)}
@@ -24,10 +24,10 @@ func marketPaidMySQLFixture(t *testing.T, maxCalls, limit int) marketFixture {
 	require.NoError(t, err)
 	f.tool = marketTestPublish(t, db, f.root.Id, f.service)
 	require.NoError(t, SetToolMarketInstallation(f.buyer.Id, "client-a", f.tool.ToolID, f.tool.VersionID, true))
-	f.grant, err = CreateToolMarketGrant(f.buyer.Id, ToolMarketGrant{ClientID: "client-a", ToolID: f.tool.ToolID, VersionID: f.tool.VersionID, MaxPriceQuota: 100, MaxTotalQuota: limit, MaxCalls: maxCalls, ExpiresAt: common.GetTimestamp() + 3600})
+	f.grant, err = CreateToolMarketGrant(f.buyer.Id, ToolMarketGrant{ClientID: "client-a", ToolID: f.tool.ToolID, VersionID: f.tool.VersionID, MaxPriceQuota: 100, MaxTotalQuota: grantLimit, MaxCalls: maxCalls, ExpiresAt: common.GetTimestamp() + 3600})
 	require.NoError(t, err)
 	for scope, id := range map[string]string{"account": "", "client": "client-a", "tool": f.tool.ToolID} {
-		require.NoError(t, SetToolMarketBudget(f.buyer.Id, scope, id, limit))
+		require.NoError(t, SetToolMarketBudget(f.buyer.Id, scope, id, budgetLimit))
 	}
 	return f
 }
@@ -110,7 +110,7 @@ func marketMySQLInterleave(t *testing.T, db *gorm.DB, initialTable, lockTable st
 }
 
 func TestToolMarketConcurrentFinishCountersMySQL(t *testing.T) {
-	f := marketPaidMySQLFixture(t, 2, 200)
+	f := marketPaidMySQLFixture(t, 2, 200, 200)
 	var calls [2]*ToolMarketCall
 	for index := range calls {
 		call, created, err := ReserveToolMarketCall(f.input(fmt.Sprintf("parallel-finish-%d", index)))
@@ -157,41 +157,51 @@ func TestToolMarketConcurrentFinishCountersMySQL(t *testing.T) {
 }
 
 func TestToolMarketConcurrentReserveLimitsMySQL(t *testing.T) {
-	f := marketPaidMySQLFixture(t, 1, 100)
-	var firstCreated, secondCreated bool
-	firstErr, secondErr := marketMySQLInterleave(t, f.db, "tool_market_tools", "tool_market_services", func() error {
-		_, created, err := ReserveToolMarketCall(f.input("parallel-reserve-first"))
-		firstCreated = created
-		return err
-	}, func() error {
-		_, created, err := ReserveToolMarketCall(f.input("parallel-reserve-second"))
-		secondCreated = created
-		return err
-	})
-	require.NoError(t, firstErr)
-	assert.ErrorIs(t, secondErr, ErrToolMarketBudget)
-	assert.True(t, firstCreated)
-	assert.False(t, secondCreated)
-	var calls int64
-	require.NoError(t, f.db.Model(&ToolMarketCall{}).Count(&calls).Error)
-	assert.EqualValues(t, 1, calls)
-	assert.Equal(t, 900, marketTestBalance(t, f.db, f.buyer.Id))
-	assert.Zero(t, marketTestBalance(t, f.db, f.author.Id))
-	assert.Zero(t, marketTestBalance(t, f.db, f.root.Id))
-	var grant ToolMarketGrant
-	require.NoError(t, f.db.First(&grant, "id = ?", f.grant.ID).Error)
-	assert.Equal(t, 1, grant.ReservedCalls)
-	assert.Equal(t, 100, grant.ReservedQuota)
-	assert.Zero(t, grant.SuccessfulCalls)
-	assert.Zero(t, grant.SpentQuota)
-	var budgets []ToolMarketBudget
-	require.NoError(t, f.db.Where("user_id = ?", f.buyer.Id).Order("scope, scope_id").Find(&budgets).Error)
-	require.Len(t, budgets, 3)
-	for _, budget := range budgets {
-		assert.Equal(t, 100, budget.ReservedQuota, "only one hold belongs in the "+budget.Scope+" budget")
-		assert.Zero(t, budget.SpentQuota)
+	for _, limits := range []struct {
+		name                    string
+		maxCalls, grant, budget int
+	}{
+		{"grant-limit", 1, 100, 200},
+		{"budget-limit", 2, 200, 100},
+	} {
+		t.Run(limits.name, func(t *testing.T) {
+			f := marketPaidMySQLFixture(t, limits.maxCalls, limits.grant, limits.budget)
+			var firstCreated, secondCreated bool
+			firstErr, secondErr := marketMySQLInterleave(t, f.db, "tool_market_tools", "tool_market_services", func() error {
+				_, created, err := ReserveToolMarketCall(f.input("parallel-reserve-first"))
+				firstCreated = created
+				return err
+			}, func() error {
+				_, created, err := ReserveToolMarketCall(f.input("parallel-reserve-second"))
+				secondCreated = created
+				return err
+			})
+			require.NoError(t, firstErr)
+			assert.ErrorIs(t, secondErr, ErrToolMarketBudget)
+			assert.True(t, firstCreated)
+			assert.False(t, secondCreated)
+			var calls int64
+			require.NoError(t, f.db.Model(&ToolMarketCall{}).Count(&calls).Error)
+			assert.EqualValues(t, 1, calls)
+			assert.Equal(t, 900, marketTestBalance(t, f.db, f.buyer.Id))
+			assert.Zero(t, marketTestBalance(t, f.db, f.author.Id))
+			assert.Zero(t, marketTestBalance(t, f.db, f.root.Id))
+			var grant ToolMarketGrant
+			require.NoError(t, f.db.First(&grant, "id = ?", f.grant.ID).Error)
+			assert.Equal(t, 1, grant.ReservedCalls)
+			assert.Equal(t, 100, grant.ReservedQuota)
+			assert.Zero(t, grant.SuccessfulCalls)
+			assert.Zero(t, grant.SpentQuota)
+			var budgets []ToolMarketBudget
+			require.NoError(t, f.db.Where("user_id = ?", f.buyer.Id).Order("scope, scope_id").Find(&budgets).Error)
+			require.Len(t, budgets, 3)
+			for _, budget := range budgets {
+				assert.Equal(t, 100, budget.ReservedQuota, "only one hold belongs in the "+budget.Scope+" budget")
+				assert.Zero(t, budget.SpentQuota)
+			}
+			var transfers int64
+			require.NoError(t, f.db.Model(&ToolMarketTransfer{}).Count(&transfers).Error)
+			assert.Zero(t, transfers)
+		})
 	}
-	var transfers int64
-	require.NoError(t, f.db.Model(&ToolMarketTransfer{}).Count(&transfers).Error)
-	assert.Zero(t, transfers)
 }
