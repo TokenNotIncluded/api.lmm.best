@@ -100,8 +100,9 @@ function FilterChip(props: {
     <button
       type='button'
       onClick={props.onClick}
+      aria-pressed={props.active}
       className={cn(
-        'group inline-flex max-w-full items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium transition-all',
+        'group focus-visible:ring-ring/50 inline-flex min-h-11 max-w-full items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors outline-none focus-visible:ring-2 sm:min-h-8 motion-reduce:transition-none',
         props.active
           ? 'border-foreground/30 bg-foreground/5 text-foreground'
           : 'border-border/70 bg-background text-muted-foreground hover:border-border hover:bg-muted/50 hover:text-foreground'
@@ -134,7 +135,7 @@ function FilterSection(props: FilterSectionProps) {
       defaultOpen
       className='border-border/70 border-b pb-3 last:border-b-0'
     >
-      <CollapsibleTrigger className='group flex w-full items-center justify-between py-2.5 text-left'>
+      <CollapsibleTrigger className='group focus-visible:ring-ring/50 flex min-h-11 w-full items-center justify-between rounded-sm py-2.5 text-left outline-none focus-visible:ring-2'>
         <span className='text-foreground text-sm font-semibold'>
           {props.title}
         </span>

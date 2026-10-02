@@ -119,7 +119,7 @@ import { RequestEstimator } from './request-estimator'
 
 function SectionTitle(props: { children: React.ReactNode }) {
   return (
-    <h2 className='text-muted-foreground mb-3 text-xs font-semibold tracking-wider uppercase'>
+    <h2 className='text-foreground mb-3 text-sm font-semibold'>
       {props.children}
     </h2>
   )
@@ -189,9 +189,12 @@ function OverviewMetric(props: {
 
   return (
     <div className='flex min-w-0 items-center gap-2 px-3 py-2'>
-      <Icon className='text-muted-foreground/70 size-3.5 shrink-0' />
+      <Icon
+        className='text-muted-foreground size-3.5 shrink-0'
+        aria-hidden='true'
+      />
       <div className='min-w-0 flex-1'>
-        <div className='text-muted-foreground truncate text-[10px] font-medium tracking-wider uppercase'>
+        <div className='text-muted-foreground text-xs leading-5 font-medium'>
           {props.label}
         </div>
         <div
@@ -242,7 +245,7 @@ function OverviewSummaryGrid(props: { model: PricingModel }) {
       : 0
 
   return (
-    <div className='bg-muted/20 grid overflow-hidden rounded-lg border sm:grid-cols-3 sm:divide-x'>
+    <div className='bg-muted/20 grid divide-y overflow-hidden rounded-lg border sm:grid-cols-3 sm:divide-x sm:divide-y-0'>
       <OverviewMetric
         icon={Timer}
         label='TPS'
@@ -280,7 +283,7 @@ function CatalogPillList(props: { items: string[] }) {
 
 function CatalogTextValue(props: { children: React.ReactNode }) {
   return (
-    <span className='text-foreground min-w-0 truncate text-sm font-semibold'>
+    <span className='text-foreground min-w-0 text-sm font-semibold wrap-anywhere'>
       {props.children}
     </span>
   )
@@ -400,11 +403,11 @@ function ModelBackendQuickStats(props: { model: PricingModel }) {
               <Icon className='size-3 shrink-0' />
               <span className='truncate'>{stat.label}</span>
             </span>
-            <span className='text-foreground truncate text-sm font-semibold tabular-nums'>
+            <span className='text-foreground text-sm font-semibold wrap-anywhere tabular-nums'>
               {stat.value}
             </span>
             {stat.hint && (
-              <span className='text-muted-foreground/60 truncate text-[10px]'>
+              <span className='text-muted-foreground text-xs leading-5 wrap-anywhere'>
                 {stat.hint}
               </span>
             )}
@@ -708,7 +711,7 @@ function PriceSection(props: {
                 </div>
                 <div className='text-foreground mt-1 font-mono text-base font-semibold tabular-nums'>
                   {entry.formatted}
-                  <span className='text-muted-foreground/40 ml-1 text-xs font-normal'>
+                  <span className='text-muted-foreground ml-1 text-xs font-normal'>
                     / {tokenUnitLabel}
                   </span>
                 </div>
@@ -726,12 +729,12 @@ function PriceSection(props: {
                   key={entry.key}
                   className='flex items-baseline justify-between gap-4'
                 >
-                  <span className='text-muted-foreground/70 text-sm'>
+                  <span className='text-muted-foreground text-sm'>
                     {t(entry.shortLabel)}
                   </span>
                   <span className='text-muted-foreground font-mono text-sm tabular-nums'>
                     {entry.formatted}
-                    <span className='text-muted-foreground/40 ml-1 text-xs font-normal'>
+                    <span className='text-muted-foreground ml-1 text-xs font-normal'>
                       / {tokenUnitLabel}
                     </span>
                   </span>
@@ -780,7 +783,7 @@ function PriceSection(props: {
         props.usdExchangeRate,
         baseGroupRatioMap
       )}
-      <span className='text-muted-foreground/40 ml-1 text-xs font-normal'>
+      <span className='text-muted-foreground ml-1 text-xs font-normal'>
         / {tokenUnitLabel}
       </span>
     </>
@@ -807,7 +810,7 @@ function PriceSection(props: {
                 key={item.type}
                 className='flex items-baseline justify-between gap-4'
               >
-                <span className='text-muted-foreground/70 text-sm'>
+                <span className='text-muted-foreground text-sm'>
                   {item.label}
                 </span>
                 <span className='text-muted-foreground font-mono text-sm tabular-nums'>
@@ -1055,7 +1058,7 @@ function GroupPricingSection(props: {
               </div>
             )
           })}
-          <p className='text-muted-foreground/40 mt-1.5 text-[10px]'>
+          <p className='text-muted-foreground mt-2 text-xs leading-5'>
             {t('Prices shown per')} {tokenUnitLabel} {t('tokens')}
           </p>
         </div>
@@ -1147,7 +1150,7 @@ function GroupPricingSection(props: {
       />
       <div className='-mx-4 sm:mx-0'>
         {isTokenBased && (
-          <p className='text-muted-foreground/40 mt-1.5 px-4 text-[10px] sm:px-0'>
+          <p className='text-muted-foreground mt-2 px-4 text-xs leading-5 sm:px-0'>
             {t('Prices shown per')} {tokenUnitLabel} {t('tokens')}
           </p>
         )}
@@ -1199,7 +1202,7 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
     Boolean(props.model.billing_expr)
 
   return (
-    <div className='@container/details space-y-4'>
+    <div className='@container/details min-w-0 space-y-5'>
       <ModelHeader model={props.model} />
       <ModelAvailability model={props.model} usableGroup={props.usableGroup} />
 
@@ -1211,7 +1214,7 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
               <TabsTrigger
                 key={value}
                 value={value}
-                className='h-8 min-w-0 gap-1.5 rounded-md px-3 text-xs sm:text-sm'
+                className='h-11 min-w-0 gap-1.5 rounded-md px-2 text-xs sm:h-9 sm:px-3 sm:text-sm'
               >
                 <Icon className='size-3.5' />
                 <span className='truncate'>{t(TAB_META[value].labelKey)}</span>

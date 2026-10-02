@@ -274,6 +274,81 @@ after(() => {
   }
 })
 
+test('catalog search and type filters reset pagination and clear together without invoking tools', async () => {
+  stubNavigation([remote])
+  const requests: [string, number, string][] = []
+  marketAPI.list = async (search = '', offset = 0, executionType = '') => {
+    requests.push([search, offset, executionType])
+    return Array.from({ length: 30 }, (_, index) => ({
+      ...summary(remote),
+      id: `catalog-${offset + index}`,
+      name: `Catalog tool ${offset + index}`,
+    }))
+  }
+  marketAPI.invoke = async () =>
+    assert.fail('Browsing filters must not invoke a tool')
+  const { container } = await mount()
+  await waitFor(() => !button('Next', container).disabled)
+  await click(button('Next', container))
+  await waitFor(() => requests.some((row) => row[1] === 30 && !row[2]))
+  assert.equal(button('Previous', container).disabled, false)
+
+  await click(button('Remote MCP', container))
+  await waitFor(() =>
+    requests.some((row) => row[1] === 0 && row[2] === 'remote')
+  )
+  assert.equal(button('Previous', container).disabled, true)
+  assert.equal(
+    button('Remote MCP', container).getAttribute('aria-pressed'),
+    'true'
+  )
+  await click(button('Next', container))
+  await waitFor(() =>
+    requests.some((row) => row[1] === 30 && row[2] === 'remote')
+  )
+
+  const input = container.querySelector<HTMLInputElement>('#market-search')
+  assert.ok(input)
+  const setter = Object.getOwnPropertyDescriptor(
+    HTMLInputElement.prototype,
+    'value'
+  )?.set
+  assert.ok(setter)
+  await act(async () => {
+    setter.call(input, 'needle')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await flush()
+  })
+  await click(button('Search', container))
+  await waitFor(() =>
+    requests.some(
+      (row) => row[0] === 'needle' && row[1] === 0 && row[2] === 'remote'
+    )
+  )
+  assert.equal(button('Previous', container).disabled, true)
+  await click(button('Next', container))
+  await waitFor(() =>
+    requests.some(
+      (row) => row[0] === 'needle' && row[1] === 30 && row[2] === 'remote'
+    )
+  )
+
+  await click(button('Clear filters', container))
+  await waitFor(
+    () => input.value === '' && button('Previous', container).disabled
+  )
+  assert.equal(
+    button('All tools', container).getAttribute('aria-pressed'),
+    'true'
+  )
+  assert.equal(
+    button('Remote MCP', container).getAttribute('aria-pressed'),
+    'false'
+  )
+  assert.equal(findButton('Clear filters', container), undefined)
+  await waitFor(() => JSON.stringify(requests.at(-1)) === '["",0,""]')
+})
+
 test('a paused remote market keeps builtin tools runnable and invokes only after explicit run', async () => {
   stubNavigation([builtin, remote])
   const calls: Parameters<typeof marketAPI.invoke>[0][] = []

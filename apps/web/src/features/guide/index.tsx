@@ -245,6 +245,41 @@ const GUIDE_SECTION_IDS = [
   'guide-support',
 ] as const
 
+function GuideContents({
+  copy,
+  compact = false,
+}: {
+  copy: (typeof COPY)['en']
+  compact?: boolean
+}) {
+  return (
+    <nav
+      aria-label={copy.sectionsTitle}
+      className={
+        compact
+          ? 'border-border/70 mt-8 border-b pb-5 lg:hidden'
+          : 'border-border/70 hidden border-t pt-5 lg:block'
+      }
+    >
+      <h2 className='text-sm font-semibold'>{copy.sectionsTitle}</h2>
+      <ol
+        className={compact ? 'mt-2 grid grid-cols-2 gap-x-4' : 'mt-2 space-y-1'}
+      >
+        {GUIDE_SECTION_IDS.map((id, index) => (
+          <li key={id}>
+            <a
+              href={`#${id}`}
+              className='hover:bg-muted focus-visible:outline-ring -mx-2 flex min-h-11 items-center rounded-lg px-2 py-2 text-sm leading-6 underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2'
+            >
+              {copy.sections[index]}
+            </a>
+          </li>
+        ))}
+      </ol>
+    </nav>
+  )
+}
+
 function GuideCode({
   label,
   value,
@@ -265,13 +300,14 @@ function GuideCode({
   }
 
   return (
-    <div className='bg-muted/35 overflow-hidden rounded-xl border'>
+    <div className='bg-muted/35 min-w-0 overflow-hidden rounded-xl border'>
       <div className='border-border/70 flex items-center justify-between gap-3 border-b px-4 py-2 text-xs'>
-        <span className='text-muted-foreground'>{label}</span>
+        <span className='text-muted-foreground min-w-0 leading-5'>{label}</span>
         <Button
           type='button'
           variant='ghost'
-          className='min-h-10'
+          className='min-h-11 shrink-0'
+          aria-label={`${copy.copy}: ${label}`}
           onClick={() => void copyValue()}
         >
           {status === 'copied' ? (
@@ -283,7 +319,7 @@ function GuideCode({
         </Button>
       </div>
       <pre
-        className='overflow-x-auto p-4 text-sm leading-7'
+        className='focus-visible:outline-ring overflow-x-auto p-4 text-xs leading-7 focus-visible:outline-2 focus-visible:-outline-offset-2 sm:text-sm'
         tabIndex={0}
         aria-label={label}
       >
@@ -405,10 +441,7 @@ curl ${rootUrl}/v1/chat/completions \
       <main>
         <div className='mx-auto max-w-6xl px-5 pt-12 pb-20 sm:px-8 sm:pt-16 lg:px-10 lg:pb-28'>
           <header className='max-w-3xl'>
-            <p className='text-muted-foreground text-xs font-semibold tracking-[0.18em]'>
-              {copy.eyebrow}
-            </p>
-            <h1 className='mt-5 font-serif text-5xl leading-[1.08] font-normal tracking-tight text-balance sm:text-6xl lg:text-7xl'>
+            <h1 className='font-serif text-4xl leading-[1.12] font-normal tracking-tight text-balance sm:text-5xl lg:text-6xl'>
               {copy.title}
             </h1>
             <p className='text-muted-foreground mt-6 max-w-2xl text-base leading-8'>
@@ -457,6 +490,8 @@ curl ${rootUrl}/v1/chat/completions \
               </li>
             ))}
           </ol>
+
+          <GuideContents copy={copy} compact />
 
           <div className='mt-12 grid items-start gap-10 lg:mt-16 lg:grid-cols-[minmax(0,1fr)_17rem] lg:gap-12'>
             <div className='min-w-0 space-y-12'>
@@ -634,32 +669,7 @@ curl ${rootUrl}/v1/chat/completions \
             </div>
 
             <aside className='space-y-7 lg:sticky lg:top-24'>
-              <nav
-                aria-label={copy.sectionsTitle}
-                className='border-border/70 border-t pt-5'
-              >
-                <h2 className='text-xs font-semibold tracking-[0.16em] uppercase'>
-                  {copy.sectionsTitle}
-                </h2>
-                <ol className='mt-4 space-y-2.5 text-sm'>
-                  {GUIDE_SECTION_IDS.map((id, index) => (
-                    <li key={id}>
-                      <a
-                        href={`#${id}`}
-                        className='focus-visible:outline-ring inline-flex min-h-6 items-baseline gap-2.5 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2'
-                      >
-                        <span
-                          className='text-muted-foreground font-mono text-xs'
-                          aria-hidden='true'
-                        >
-                          {String(index + 1).padStart(2, '0')}
-                        </span>
-                        <span>{copy.sections[index]}</span>
-                      </a>
-                    </li>
-                  ))}
-                </ol>
-              </nav>
+              <GuideContents copy={copy} />
               <section className='bg-background rounded-2xl border p-6'>
                 <h2 className='text-base font-semibold'>{copy.accountTitle}</h2>
                 <p className='text-muted-foreground mt-3 text-sm leading-7'>

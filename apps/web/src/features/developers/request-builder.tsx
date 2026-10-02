@@ -159,9 +159,7 @@ export function RequestBuilder() {
   return (
     <div className='dev-builder mt-6'>
       <div className='dev-builder-row'>
-        <span className='text-muted-foreground text-xs font-medium tracking-wide uppercase'>
-          {t('Protocol')}
-        </span>
+        <span className='dev-builder-label'>{t('Protocol')}</span>
         <div
           role='group'
           aria-label={t('Protocol')}
@@ -180,45 +178,39 @@ export function RequestBuilder() {
           ))}
         </div>
       </div>
-      <div className='dev-builder-row'>
-        <label
-          className='text-muted-foreground text-xs font-medium tracking-wide uppercase'
-          htmlFor='dev-builder-model'
-        >
-          {t('Model')}
-        </label>
-        <select
-          id='dev-builder-model'
-          value={model}
-          onChange={(event) => setModel(event.target.value)}
-          className='dev-builder-input'
-        >
-          {modelOptions.map((item) => (
-            <option key={item} value={item}>
-              {item}
-            </option>
-          ))}
-        </select>
+      <div className='dev-builder-fields'>
+        <div className='dev-builder-field'>
+          <label className='dev-builder-label' htmlFor='dev-builder-model'>
+            {t('Model')}
+          </label>
+          <select
+            id='dev-builder-model'
+            value={model}
+            onChange={(event) => setModel(event.target.value)}
+            className='dev-builder-input'
+          >
+            {modelOptions.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className='dev-builder-field'>
+          <label className='dev-builder-label' htmlFor='dev-builder-prompt'>
+            {t('Prompt')}
+          </label>
+          <input
+            id='dev-builder-prompt'
+            value={prompt}
+            maxLength={200}
+            onChange={(event) => setPrompt(event.target.value)}
+            className='dev-builder-input dev-builder-prompt'
+          />
+        </div>
       </div>
       <div className='dev-builder-row'>
-        <label
-          className='text-muted-foreground text-xs font-medium tracking-wide uppercase'
-          htmlFor='dev-builder-prompt'
-        >
-          {t('Prompt')}
-        </label>
-        <input
-          id='dev-builder-prompt'
-          value={prompt}
-          maxLength={200}
-          onChange={(event) => setPrompt(event.target.value)}
-          className='dev-builder-input'
-        />
-      </div>
-      <div className='dev-builder-row'>
-        <span className='text-muted-foreground text-xs font-medium tracking-wide uppercase'>
-          {t('Language')}
-        </span>
+        <span className='dev-builder-label'>{t('Language')}</span>
         <div
           role='group'
           aria-label={t('Language')}
@@ -244,13 +236,14 @@ export function RequestBuilder() {
             type='button'
             variant='outline'
             size='sm'
+            aria-label={`${t('Copy')}: ${active.label} · ${language}`}
             onClick={() => void copyToClipboard(snippet)}
-            className='min-h-9 shrink-0'
+            className='min-h-11 shrink-0'
           >
             <span aria-live='polite'>{copied ? t('Copied') : t('Copy')}</span>
           </Button>
         </div>
-        <pre>
+        <pre tabIndex={0} aria-label={`${active.label} · ${language}`}>
           <code>{snippet}</code>
         </pre>
       </div>
