@@ -153,9 +153,7 @@ try {
         `${name}: boxed token input returned`
       )
       const cinematic =
-        motion === 'no-preference' &&
-        height > 600 &&
-        (width > 680 || height > 700)
+        motion === 'no-preference' && height > 600 && width > 680
       if (cinematic) {
         assert.ok(
           metrics.runway.height <= Math.max(height * 2, 1536),
@@ -260,15 +258,62 @@ try {
         const panels = await page
           .locator('[data-cinema-panel]')
           .evaluateAll((elements) =>
-            elements.map((panel) => ({
-              inert: panel.inert,
-              visible: getComputedStyle(panel).visibility,
-            }))
+            elements.map((panel) => {
+              const style = getComputedStyle(panel)
+              const rect = panel.getBoundingClientRect()
+              return {
+                inert: panel.inert,
+                ariaHidden: panel.getAttribute('aria-hidden'),
+                visible: style.visibility,
+                display: style.display,
+                opacity: Number(style.opacity),
+                width: rect.width,
+                height: rect.height,
+              }
+            })
           )
+        assert.equal(panels.length, 5, `${name}: missing story chapters`)
         assert.ok(
-          panels.every((panel) => !panel.inert && panel.visible === 'visible'),
+          panels.every(
+            (panel) =>
+              !panel.inert &&
+              panel.ariaHidden !== 'true' &&
+              panel.visible === 'visible' &&
+              panel.display !== 'none' &&
+              panel.opacity > 0 &&
+              panel.width > 0 &&
+              panel.height > 0
+          ),
           `${name}: static story must keep every chapter accessible`
         )
+        const entries = page.locator(
+          '[data-cinema-panel] .lmm-intro-actions a, [data-cinema-panel] .lmm-intro-actions button, [data-cinema-panel] .lmm-core-link'
+        )
+        assert.ok((await entries.count()) > 0, `${name}: missing story actions`)
+        for (let index = 0; index < (await entries.count()); index++) {
+          const entry = entries.nth(index)
+          await entry.scrollIntoViewIfNeeded()
+          const target = await entry.evaluate((element) => {
+            const rect = element.getBoundingClientRect()
+            const hit = document.elementFromPoint(
+              rect.x + rect.width / 2,
+              rect.y + rect.height / 2
+            )
+            return {
+              width: rect.width,
+              height: rect.height,
+              unobstructed: hit === element || element.contains(hit),
+            }
+          })
+          assert.ok(
+            target.width >= 44 && target.height >= 44,
+            `${name}: undersized story action`
+          )
+          assert.ok(
+            target.unobstructed,
+            `${name}: story action covered by a widget`
+          )
+        }
       }
       if (assistantEnabled) {
         const input = page.locator('#forge-home-message')
