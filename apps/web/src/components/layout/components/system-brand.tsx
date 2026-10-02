@@ -113,7 +113,7 @@ export function SystemBrand(props: SystemBrandProps) {
         {usesDefaultBrand ? (
           <LmmBrandWordmark
             title={name}
-            className='hidden h-5 w-auto sm:block'
+            className='hidden h-[21px] w-auto sm:block'
           />
         ) : (
           <span className='hidden max-w-[12rem] truncate sm:inline'>
