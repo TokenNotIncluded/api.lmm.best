@@ -91,7 +91,7 @@ func ReserveToolMarketCall(in ToolMarketReserveInput) (*ToolMarketCall, bool, er
 	id := marketDigest([]any{in.UserID, in.ClientID, in.RequestKey})
 	var call ToolMarketCall
 	created := false
-	err = DB.Transaction(func(tx *gorm.DB) error {
+	err = marketTransaction(DB, func(tx *gorm.DB) error {
 		// The service is the publication/dispatch lock; the user serializes all
 		// client and tool budgets, including requests for different services.
 		var tool ToolMarketTool
@@ -192,7 +192,7 @@ func ReserveToolMarketCall(in ToolMarketReserveInput) (*ToolMarketCall, bool, er
 // (sorted). No caller executes remotely until this transaction commits. Only
 // the winner receives started=true.
 func marketCallTx(id string, fn func(*gorm.DB, *ToolMarketCall) error) error {
-	return DB.Transaction(func(tx *gorm.DB) error {
+	return marketTransaction(DB, func(tx *gorm.DB) error {
 		var call ToolMarketCall
 		if err := tx.First(&call, "id = ?", id).Error; err != nil {
 			return err

@@ -87,7 +87,7 @@ func DisconnectToolMarketClient(userID int, clientID string) (*ToolMarketClientD
 		return nil, ErrToolMarketInput
 	}
 	result := &ToolMarketClientDisconnect{ClientID: clientID}
-	err := DB.Transaction(func(tx *gorm.DB) error {
+	err := marketTransaction(DB, func(tx *gorm.DB) error {
 		// Same lock order as token/grant creation, installation and call reservation.
 		if err := marketLockUsers(tx, userID); err != nil {
 			return err

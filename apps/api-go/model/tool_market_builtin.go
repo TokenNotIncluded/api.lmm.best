@@ -117,7 +117,7 @@ func EnsureToolMarketBuiltinServices(definitions []ToolMarketBuiltinServiceInput
 		seen[input.Key] = true
 		normalized[i] = input
 	}
-	return DB.Transaction(func(tx *gorm.DB) error {
+	return marketTransaction(DB, func(tx *gorm.DB) error {
 		for _, input := range normalized {
 			serviceID := ToolMarketBuiltinServiceID(input.Key)
 			now := common.GetTimestamp()

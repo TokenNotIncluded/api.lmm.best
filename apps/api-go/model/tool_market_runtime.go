@@ -72,7 +72,7 @@ func CreateToolMarketToken(userID int, clientID string, invoke, manage bool, exp
 	}
 	raw := "lmm_market_" + base64.RawURLEncoding.EncodeToString(secret[:])
 	row := ToolMarketToken{ID: uuid.NewString(), UserID: userID, ClientID: clientID, Digest: marketDigest(raw), CanInvoke: invoke, CanManage: manage, CreatedAt: common.GetTimestamp(), ExpiresAt: expiresAt}
-	err := DB.Transaction(func(tx *gorm.DB) error {
+	err := marketTransaction(DB, func(tx *gorm.DB) error {
 		if err := marketLockUsers(tx, userID); err != nil {
 			return err
 		}
@@ -111,7 +111,7 @@ func VerifyToolMarketToken(raw string) (*ToolMarketToken, error) {
 }
 
 func RevokeToolMarketToken(userID int, id string) error {
-	return DB.Transaction(func(tx *gorm.DB) error {
+	return marketTransaction(DB, func(tx *gorm.DB) error {
 		if err := marketUser(tx, userID, common.RoleCommonUser); err != nil {
 			return err
 		}
@@ -134,7 +134,7 @@ func RecordToolMarketValidation(actor int, serviceID, versionID, digest string, 
 // the service lock. Rotation/removal must invalidate an older validation even
 // if that network request finishes after the new credential was saved.
 func RecordToolMarketValidationWithCredential(actor int, serviceID, versionID, digest string, tools map[string]string, expectedCredentialID string) error {
-	return DB.Transaction(func(tx *gorm.DB) error {
+	return marketTransaction(DB, func(tx *gorm.DB) error {
 		if err := marketUser(tx, actor, common.RoleCommonUser); err != nil {
 			return err
 		}

@@ -42,7 +42,7 @@ func SetToolMarketConfig(actor int, input ToolMarketConfig) error {
 	if input.FeeBPS < 0 || input.FeeBPS > 10000 || input.RecipientID <= 0 {
 		return ErrToolMarketInput
 	}
-	return DB.Transaction(func(tx *gorm.DB) error {
+	return marketTransaction(DB, func(tx *gorm.DB) error {
 		if err := marketUser(tx, actor, common.RoleRootUser); err != nil {
 			return err
 		}
@@ -65,7 +65,7 @@ func SetToolMarketConfig(actor int, input ToolMarketConfig) error {
 }
 
 func SetToolMarketFavorite(userID int, serviceID string, favorite bool) error {
-	return DB.Transaction(func(tx *gorm.DB) error {
+	return marketTransaction(DB, func(tx *gorm.DB) error {
 		if err := marketUser(tx, userID, common.RoleCommonUser); err != nil {
 			return err
 		}
@@ -95,7 +95,7 @@ func SetToolMarketInstallation(userID int, clientID, toolID, versionID string, l
 	if !marketClientValid(clientID) || toolID == "" {
 		return ErrToolMarketInput
 	}
-	return DB.Transaction(func(tx *gorm.DB) error {
+	return marketTransaction(DB, func(tx *gorm.DB) error {
 		if err := marketLockUsers(tx, userID); err != nil {
 			return err
 		}
@@ -126,7 +126,7 @@ func CreateToolMarketGrant(userID int, input ToolMarketGrant) (*ToolMarketGrant,
 	}
 	grant := ToolMarketGrant{ID: uuid.NewString(), UserID: userID, ClientID: input.ClientID, ToolID: input.ToolID, VersionID: input.VersionID,
 		MaxPriceQuota: input.MaxPriceQuota, MaxTotalQuota: input.MaxTotalQuota, MaxCalls: input.MaxCalls, ExpiresAt: input.ExpiresAt, CreatedAt: common.GetTimestamp()}
-	err := DB.Transaction(func(tx *gorm.DB) error {
+	err := marketTransaction(DB, func(tx *gorm.DB) error {
 		if err := marketLockUsers(tx, userID); err != nil {
 			return err
 		}
@@ -145,7 +145,7 @@ func CreateToolMarketGrant(userID int, input ToolMarketGrant) (*ToolMarketGrant,
 }
 
 func RevokeToolMarketGrant(userID int, id string) error {
-	return DB.Transaction(func(tx *gorm.DB) error {
+	return marketTransaction(DB, func(tx *gorm.DB) error {
 		if err := marketLockUsers(tx, userID); err != nil {
 			return err
 		}
@@ -186,7 +186,7 @@ func SetToolMarketBudget(userID int, scope, scopeID string, limit int) error {
 	default:
 		return ErrToolMarketInput
 	}
-	return DB.Transaction(func(tx *gorm.DB) error {
+	return marketTransaction(DB, func(tx *gorm.DB) error {
 		if err := marketLockUsers(tx, userID); err != nil {
 			return err
 		}
@@ -234,7 +234,7 @@ func marketSaveBudget(tx *gorm.DB, budget ToolMarketBudget) error {
 }
 
 func SetToolMarketPaused(actor int, serviceID string, paused bool) error {
-	return DB.Transaction(func(tx *gorm.DB) error {
+	return marketTransaction(DB, func(tx *gorm.DB) error {
 		if err := marketUser(tx, actor, common.RoleCommonUser); err != nil {
 			return err
 		}

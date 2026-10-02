@@ -15,7 +15,7 @@ func ActivateToolMarketPrivate(actor int, serviceID, versionID string) error {
 	if serviceID == "" || versionID == "" {
 		return ErrToolMarketInput
 	}
-	return DB.Transaction(func(tx *gorm.DB) error {
+	return marketTransaction(DB, func(tx *gorm.DB) error {
 		if err := marketUser(tx, actor, common.RoleCommonUser); err != nil {
 			return err
 		}

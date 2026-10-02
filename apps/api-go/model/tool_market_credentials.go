@@ -169,7 +169,7 @@ func ConfigureToolMarketCredential(actor int, serviceID, versionID, mode, secret
 	if copyFromVersionID == "" && ValidateToolMarketCredential(mode, secret) != nil {
 		return ErrToolMarketInput
 	}
-	return marketCredentialDB(DB).Transaction(func(tx *gorm.DB) error {
+	return marketTransaction(marketCredentialDB(DB), func(tx *gorm.DB) error {
 		if err := marketUser(tx, actor, common.RoleCommonUser); err != nil {
 			return err
 		}
