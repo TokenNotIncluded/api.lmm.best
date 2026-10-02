@@ -315,23 +315,24 @@ function SmsBatchStatus({
     )
   }
   if (!result?.failure) return null
+  const completed = result.completedCount ?? result.orders.length
   return (
     <div
       className='border-destructive/30 bg-destructive/5 rounded-lg border p-3 text-sm'
       role='alert'
     >
       <p className='font-medium'>
-        {result.orders.length > 0
+        {completed > 0
           ? t('Purchase partially completed')
           : t('Purchase not completed')}
       </p>
       <p className='text-muted-foreground mt-1'>{feedback}</p>
-      {result.orders.length > 0 ? (
+      {completed > 0 ? (
         <p className='mt-2 tabular-nums'>
           {t(
             '{{succeeded}} of {{requested}} phone activations were purchased',
             {
-              succeeded: result.orders.length,
+              succeeded: completed,
               requested: result.requested,
             }
           )}
