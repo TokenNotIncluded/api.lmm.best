@@ -1,79 +1,79 @@
-# LMM Forge
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/readme-cover-dark.svg">
+    <img src=".github/assets/readme-cover-light.svg" alt="LMM Forge — model access, MCP tools, and open-source collaboration" width="1200">
+  </picture>
+</p>
 
-[![CI](https://github.com/TokenNotIncluded/api.lmm.best/actions/workflows/ci.yml/badge.svg)](https://github.com/TokenNotIncluded/api.lmm.best/actions/workflows/ci.yml)
-[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](./LICENSE)
-[![Release](https://img.shields.io/github/v/release/TokenNotIncluded/api.lmm.best?display_name=tag)](https://github.com/TokenNotIncluded/api.lmm.best/releases)
-[![Issues](https://img.shields.io/github/issues/TokenNotIncluded/api.lmm.best)](https://github.com/TokenNotIncluded/api.lmm.best/issues)
-[![Last Commit](https://img.shields.io/github/last-commit/TokenNotIncluded/api.lmm.best)](https://github.com/TokenNotIncluded/api.lmm.best/commits/main)
+<h3 align="center">AI APIs. MCP tools. Open-source work.</h3>
 
-LMM Forge combines a multi-provider AI API gateway, a versioned MCP tool marketplace, and open-source bounty collaboration in one web console.
+<p align="center">
+  Model access, tool publishing, and bounty collaboration in one open-source console.<br>
+  Built for the people using AI, the creators extending it, and the contributors maintaining it.
+</p>
 
-[Website](https://lmm.best) · [Model pricing](https://lmm.best/pricing) · [Client setup](https://lmm.best/guide) · [Tool marketplace](https://lmm.best/tool-market) · [Documentation](docs/README.md)
+<p align="center">
+  <a href="https://lmm.best"><strong>Explore LMM</strong></a> ·
+  <a href="https://lmm.best/guide">Connect a client</a> ·
+  <a href="https://lmm.best/tool-market">Publish a tool</a> ·
+  <a href="docs/README.md">Read the docs</a>
+</p>
 
-> **Access policy:** The default edge policy blocks requests geolocated to Mainland China (`CN`). Administrators can configure explicit IP routing rules.
+<p align="center">
+  <a href="https://github.com/TokenNotIncluded/api.lmm.best/actions/workflows/ci.yml"><img src="https://github.com/TokenNotIncluded/api.lmm.best/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/TokenNotIncluded/api.lmm.best/releases"><img src="https://img.shields.io/github/v/release/TokenNotIncluded/api.lmm.best?display_name=tag" alt="Latest component release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
+</p>
 
-## Table of Contents
+## Start here
 
-- [Overview](#overview)
-- [Tool marketplace](#tool-marketplace)
-- [Architecture](#architecture)
-- [Quick start](#quick-start)
-- [Deployment and upgrades](#deployment-and-upgrades)
-- [Repository layout](#repository-layout)
-- [Documentation and operations](#documentation-and-operations)
-- [Workflow and command reference](#workflow-and-command-reference)
-- [Contribution and support](#contribution-and-support)
-- [Security and legal](#security-and-legal)
-- [License and attribution](#license-and-attribution)
+| Your goal | Your next step |
+| --- | --- |
+| Use models with your preferred client | [Client setup](https://lmm.best/guide) · [Model pricing](https://lmm.best/pricing) |
+| Publish tools and earn platform balance | [Tool marketplace](https://lmm.best/tool-market) · [Publishing workflow](#tool-marketplace) |
+| Contribute to open-source projects | [Bounty workflow](docs/open-source-bounties.md) |
+| Develop or operate your own instance | [Run locally](#run-locally) · [Deploy and upgrade](#deploy-and-upgrade) |
 
-## Overview
+## What you can build
 
-- **AI API gateway:** OpenAI Chat Completions and Responses, Anthropic Messages, and Gemini protocol routes, with provider routing, account quotas, and usage records. Available models depend on the configured providers and account permissions.
-- **Client integrations:** OAuth-based setup for Pi, DSH, OpenCode, and Codewhale, plus preview integrations for VS Code and Zed. Each client receives the permissions explicitly approved by the user.
-- **Tool marketplace:** Publish Remote MCP services, price individual tools, and earn platform balance from successful paid calls. Users control tool versions, client permissions, and spending limits.
-- **Open-source bounties:** Publish challenges, lock rewards, submit Issue/PR evidence, and follow review, acceptance, and dispute workflows.
-- **Account administration:** Manage users, roles, groups, balances, top-ups, and usage through desktop and mobile console views.
+**Model access.** Route requests through OpenAI Chat Completions and Responses, Anthropic Messages, or Gemini interfaces. Account quotas, provider routing, and usage records share one console. Available models depend on the configured providers and account permissions.
 
-The project is a maintained fork of [QuantumNous/new-api](https://github.com/QuantumNous/new-api). [FORK.md](FORK.md) records the upstream relationship and attribution requirements.
+OAuth-based client setup supports Pi, DSH, OpenCode, and Codewhale; VS Code and Zed integrations are in preview. Each client receives the permissions explicitly approved by the user.
+
+**A tool business.** Connect an existing Remote MCP service, price individual tools, and earn platform balance from successful paid calls. Users choose the versions they load and control client permissions and spending limits.
+
+**Open-source collaboration.** Publish challenges, lock rewards, submit Issue/PR evidence, and follow review, acceptance, and dispute workflows. See the [bounty guide](docs/open-source-bounties.md) for settlement rules.
+
+Administrators manage users, roles, groups, balances, top-ups, and usage through desktop and mobile console views.
 
 ## Tool marketplace
 
-1. Register a public HTTPS Remote MCP endpoint, inspect its tool definitions, and set a free or paid price for each tool. Bearer and API Key authentication are supported for remote services.
-2. Validate a specific version and submit it for administrator review. Validated, free drafts visible only to their author can be activated directly; public, shared, or paid services require review.
-3. Users load a tool version and separately authorize its use, including client, call-count, expiry, and spending limits. Loading a tool does not authorize payment.
+### Publish a service
 
-Successful paid calls credit the creator's earnings and the platform fee to their respective platform balances. Creators can spend their balance on models and other tools. **Withdrawals are not supported.** The platform fee and recipient account are configured by the super administrator; the software does not impose a fixed fee percentage.
+1. **Connect.** Register a public HTTPS Remote MCP endpoint, inspect its tool definitions, and set a free or paid price for each tool. Bearer and API Key authentication are supported for remote services.
+2. **Validate and review.** Submit a specific validated version for administrator review. Validated, free drafts visible only to their author can be activated directly; public, shared, or paid services require review.
+3. **Load and authorize.** Users load a tool version and separately approve its use, including client, call-count, expiry, and spending limits. Loading a tool does not authorize payment.
+
+### Earn platform balance
+
+Successful paid calls split credits between the creator and the configured platform recipient. Creators can spend their balance on models and other tools. **Withdrawals are not supported.**
+
+The super administrator configures the platform fee and recipient account. The software does not impose a fixed fee percentage.
 
 Built-in drawing, wallet, and bounty tools have no tool invocation fee. Drawing still incurs model usage costs, and wallet transfers move the specified balance. Publishing connects an existing Remote MCP service; serverless code uploads are not currently supported.
 
-See the [marketplace implementation](docs/tool-market-implementation.md) and [client connection guide](docs/tool-market-connections.md) for supported protocols, permissions, billing, and execution limits.
+[Marketplace implementation](docs/tool-market-implementation.md) · [Client connections and permissions](docs/tool-market-connections.md)
 
-## Architecture
+## Run locally
 
-| Concern | Status |
-| --- | --- |
-| Frontend | React and TypeScript application in `apps/web`, built with Rsbuild |
-| Default backend | Go provider CLI/service in `apps/api-go` |
-| Preview backend | Rust provider CLI/service in `apps/api-rust` (not default production traffic) |
-| LMM CLI | Rust setup tool in [`apps/lmm`](apps/lmm/README.md) (preview: discovery, planning and read-only OAuth login) |
-| Deployment | Signed package transactions or existing standalone systemd upgrades; see [deployment and upgrades](#deployment-and-upgrades) |
-| Packaging | Provider binaries and immutable runtime assets in `packaging/` |
-
-For existing standalone installations on systemd Linux, see
-[standalone systemd deployment](docs/manual-systemd-deployment.md).
-
-Providers install real `lmm-api-go` or `lmm-api-rs` binaries. Production and operator actions always enter through the one-hop `lmm-api` provider symlink. The frontend is released independently.
-
-## Quick start
-
-### Prerequisites
+### Requirements
 
 - Git, [Just](https://github.com/casey/just), Bun **1.3.14**, and Node.js **22+**
 - Go **1.25.1 or newer** for the default backend
 - PostgreSQL and Valkey services for a dedicated local development environment
 - Optional: Rust **1.91.0** for the preview backend
 
-### Bootstrap
+### Set up the workspace
 
 ```bash
 git clone https://github.com/TokenNotIncluded/api.lmm.best.git
@@ -90,15 +90,15 @@ Edit `apps/api-go/.env` before starting the backend:
 
 The Go development command runs from `apps/api-go` and loads `.env` from that directory.
 
-### Run the backend and frontend
+### Start both services
 
-From the repository root, start the backend in one terminal:
+Run the backend from the repository root:
 
 ```bash
 just dev-go
 ```
 
-Start the frontend in a second terminal, using a separate port:
+In a second terminal, start the frontend on a separate port:
 
 ```bash
 bun run --filter @lmm/web dev --port 5173 --host 127.0.0.1 --strict-port
@@ -108,75 +108,60 @@ Open <http://localhost:5173> and complete the setup flow. The frontend proxies A
 
 `just dev`, `just infra-up`, and `just dev-rust` require a local `docker-compose.dev.yml`, which is not included in this repository. The two-terminal flow above uses your existing development database and cache services.
 
-### Production-style local checks
+Check the default production components locally:
 
 ```bash
 just build
 just test
 ```
 
-## Deployment and upgrades
+## Deploy and upgrade
 
-Local development commands are not production installers. Choose the path that
-matches the existing installation; do not replace package-owned files manually.
+**Go and Web ship independently.** Their release tags are `go-vX.Y.Z` and `web-vX.Y.Z`. Rust remains a preview backend. Merging code or publishing a release does not deploy it to production.
 
-| Installation | Entry point | Guide |
-| --- | --- | --- |
-| Standalone Go on systemd | `sudo bash scripts/lmm-api-deploy.sh systemd doctor`, then `upgrade` and explicit `confirm` | [Standalone workflow](docs/manual-systemd-deployment.md) |
-| Package-owned Go/Web | Installed `/usr/bin/lmm-api-deploy production` signed-plan workflow | [Package transactions](docs/seamless-upgrades.md) |
-| Frontend-only update | Manually dispatch [`deploy-web-frontend.yml`](.github/workflows/deploy-web-frontend.yml) with a signed `web-vX.Y.Z` release after checking compatibility with the active Go backend | [Component release architecture](docs/release-architecture.md) |
+Choose the workflow for your existing installation. Local development commands are not production installers; package-owned files should be updated through their signed transaction workflow.
+
+| Installation | Workflow |
+| --- | --- |
+| Standalone Go on systemd | Start with `sudo bash scripts/lmm-api-deploy.sh systemd doctor`, then follow `upgrade` and explicit `confirm` in the [standalone guide](docs/manual-systemd-deployment.md). This updates an existing server. |
+| Package-owned Go/Web | Use the installed `/usr/bin/lmm-api-deploy production` entry point and its [signed release plan](docs/seamless-upgrades.md). |
+| Frontend-only update | Check compatibility with the active Go backend, then manually dispatch [`deploy-web-frontend.yml`](.github/workflows/deploy-web-frontend.yml) with a signed `web-vX.Y.Z` release. |
+
+Frontend-only deployment switches the static release and preserves the previous frontend for explicit rollback. Provider packages install real `lmm-api-go` or `lmm-api-rs` binaries; production and operator commands enter through the one-hop `lmm-api` provider symlink.
 
 `bash scripts/lmm-api-deploy.sh --help` works without a compiled backend.
-The standalone workflow updates an existing server, not a clean installation.
-Go and Web have independent `go-vX.Y.Z` and `web-vX.Y.Z` releases. Rust remains a
-preview backend. Merging code or publishing a release does not deploy it to
-production. Frontend-only deployment switches the static release and preserves
-the previous frontend for explicit rollback.
 
-## Repository layout
+[Component release architecture](docs/release-architecture.md) · [PostgreSQL migration](docs/postgresql-migration.md) · [Production cutover](docs/postgresql-cutover.md) · [Valkey operations](docs/valkey-lmm-api.md)
 
-| Path | Purpose |
+## Explore the codebase
+
+The production default is a Go API with a React and TypeScript frontend built with Rsbuild. Rust backend and CLI work remain explicit previews.
+
+| Path | Responsibility |
 | --- | --- |
-| [`apps/web`](./apps/web) | Shared React frontend |
-| [`apps/api-go`](./apps/api-go) | Go API backend and production default |
-| [`apps/api-rust`](./apps/api-rust) | Rust preview backend |
-| [`apps/lmm`](./apps/lmm) | Preview setup and discovery CLI |
-| [`packages`](./packages) | Client integrations |
-| [`scripts`](./scripts) | Development, verification, and deployment tooling |
-| [`packaging`](./packaging) | Packaging workflows and local package content |
-| [`docs`](./docs) | Operational guides, legal policy, and API references |
+| [`apps/web`](apps/web) | Shared web console and public pages |
+| [`apps/api-go`](apps/api-go) | Default API backend and provider CLI |
+| [`apps/api-rust`](apps/api-rust) | Preview backend |
+| [`apps/lmm`](apps/lmm/README.md) | Preview setup CLI: discovery, planning, and read-only OAuth login |
+| [`packages`](packages) | Client integrations |
+| [`scripts`](scripts) | Development, verification, and deployment tooling |
+| [`packaging`](packaging) | Provider packages and immutable runtime assets |
+| [`docs`](docs/README.md) | Product, API, and operations references |
 
-## Documentation and operations
-
-| Topic | Guide |
-| --- | --- |
-| All documentation | [Documentation index](docs/README.md) |
-| Authentication and sessions | [Authentication](docs/authentication.md) |
-| Tool publishing and billing | [Marketplace implementation](docs/tool-market-implementation.md) |
-| MCP client setup | [Marketplace connections](docs/tool-market-connections.md) |
-| Bounties and reward settlement | [Open-source bounties](docs/open-source-bounties.md) |
-| OpenCode and editor integrations | [OpenCode provider](docs/opencode-provider.md), [VS Code and Zed](docs/editor-providers.md) |
-| Component releases and upgrades | [Release architecture](docs/release-architecture.md), [Signed upgrades](docs/seamless-upgrades.md) |
-| Database migration and cutover | [PostgreSQL migration](docs/postgresql-migration.md), [Cutover](docs/postgresql-cutover.md) |
-| Cache and backend operations | [Valkey](docs/valkey-lmm-api.md), [Rust blue-green preview](docs/rust-blue-green.md) |
-| API specifications | [Admin API](docs/openapi/api.json), [Relay API](docs/openapi/relay.json) |
-| Dependency licenses | [Third-party licenses](THIRD-PARTY-LICENSES.md) |
-
-## Workflow and command reference
-
-### Primary command groups
+<details>
+<summary><strong>Development and operator commands</strong></summary>
 
 ```text
-just setup           Install workspace dependencies
-just dev-go          Start the Go development backend
-just dev-web         Start the frontend (defaults to port 3000; choose a separate port above)
-just build           Build frontend and Go backend artifacts
-just test            Run backend and frontend tests
-just check           Formatting, lint, typecheck, tests, and deployment contract checks
+just setup              Install dependencies from the committed lockfile
+just dev-go             Start the Go development backend
+just dev-web            Start the frontend (default port 3000)
+just build              Build the frontend and Go backend
+just test               Run backend and frontend tests
+just check              Format, lint, typecheck, tests, and deployment contracts
 just deploy-production  Promote an already-staged signed package release plan
 ```
 
-### Additional commands
+Use the explicit frontend command in [Run locally](#run-locally) to keep the frontend and API ports separate.
 
 - `just --list` shows all available recipes.
 - `just dev` and `just infra-up` / `just infra-down` use a locally supplied Compose file.
@@ -185,25 +170,39 @@ just deploy-production  Promote an already-staged signed package release plan
 - `just package` requires a configured `LMM_API_BUILD_WORKSPACE`; see the [AUR packaging guide](packaging/aur/README.md).
 - Docker recipes require locally supplied Dockerfiles, which are not included in this repository.
 
-## Contribution and support
+</details>
 
-- `Contributing` requirements: [CONTRIBUTING.md](./CONTRIBUTING.md)
-- `Support model`: [SUPPORT.md](./SUPPORT.md)
-- `Code of Conduct`: [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md)
-- `Issue workflows`: use GitHub Issue templates in `.github/ISSUE_TEMPLATE`
+<details>
+<summary><strong>Product, API, and operations documentation</strong></summary>
 
-## Security and legal
+| Topic | Reference |
+| --- | --- |
+| Documentation index | [All guides](docs/README.md) |
+| Authentication and sessions | [Authentication](docs/authentication.md) |
+| Tools and permissions | [Marketplace implementation](docs/tool-market-implementation.md) · [Connections](docs/tool-market-connections.md) |
+| Open-source work | [Bounties and settlement](docs/open-source-bounties.md) |
+| Editor integrations | [OpenCode](docs/opencode-provider.md) · [VS Code and Zed](docs/editor-providers.md) |
+| Releases and upgrades | [Architecture](docs/release-architecture.md) · [Signed upgrades](docs/seamless-upgrades.md) |
+| Backend preview | [Rust blue-green](docs/rust-blue-green.md) |
+| API specifications | [Admin API](docs/openapi/api.json) · [Relay API](docs/openapi/relay.json) |
+| Dependency notices | [Third-party licenses](THIRD-PARTY-LICENSES.md) |
 
-Security policy is maintained at: [SECURITY.md](./SECURITY.md)
+</details>
 
-Legal documents:
+## Contribute
 
-- [docs/legal/user-agreement.md](./docs/legal/user-agreement.md)
-- [docs/legal/privacy-policy.md](./docs/legal/privacy-policy.md)
-- [docs/legal/terms-of-service.md](./docs/legal/terms-of-service.md)
+LMM Forge is a maintained fork of [QuantumNous/new-api](https://github.com/QuantumNous/new-api). [FORK.md](FORK.md) records the upstream relationship and attribution requirements.
 
-## License and attribution
+For development requirements and scoped changes, start with [CONTRIBUTING.md](CONTRIBUTING.md). Use the repository's [Issue templates](.github/ISSUE_TEMPLATE) for bug reports and feature requests.
 
-This repository is distributed under AGPL-3.0. See [LICENSE](./LICENSE).
+[Support](SUPPORT.md) · [Code of Conduct](CODE_OF_CONDUCT.md) · [Security policy](SECURITY.md)
 
-Fork attribution and required notices are preserved in [NOTICE](./NOTICE).
+## Security and terms
+
+The default edge policy blocks requests geolocated to Mainland China (`CN`). Administrators can configure explicit IP routing rules.
+
+Report vulnerabilities through [SECURITY.md](SECURITY.md). User-facing policies are documented in the [user agreement](docs/legal/user-agreement.md), [privacy policy](docs/legal/privacy-policy.md), and [terms of service](docs/legal/terms-of-service.md).
+
+## License
+
+Released under [AGPL-3.0](LICENSE). Upstream attribution and required notices are preserved in [NOTICE](NOTICE) and [FORK.md](FORK.md).
