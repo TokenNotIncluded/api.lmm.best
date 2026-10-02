@@ -215,7 +215,8 @@ function Sidebar({
           data-slot='sidebar'
           data-sidebar-density={density}
           data-mobile='true'
-          className='bg-sidebar text-sidebar-foreground w-(--sidebar-width) p-0 [&>button]:hidden'
+          showCloseButton={false}
+          className='bg-sidebar text-sidebar-foreground w-(--sidebar-width) max-w-[calc(100vw-2.75rem)] p-0'
           style={
             {
               '--sidebar-width': SIDEBAR_WIDTH_MOBILE,

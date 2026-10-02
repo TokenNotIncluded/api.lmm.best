@@ -62,7 +62,7 @@ function getDisplaySiteName(
 
 function getPublicNavClassName(editorialHeader: boolean | undefined) {
   return cn(
-    'flex h-16 items-center justify-between border-b px-2',
+    'flex h-16 items-center justify-between gap-3 border-b px-2',
     editorialHeader && 'forge-public-nav'
   )
 }
@@ -352,12 +352,12 @@ export function PublicHeader(props: PublicHeaderProps) {
             <Link
               to={homeUrl}
               aria-label={displaySiteName}
-              className='group focus-visible:ring-ring flex shrink-0 touch-manipulation items-center gap-2.5 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none'
+              className='group focus-visible:ring-ring flex min-w-0 touch-manipulation items-center gap-2.5 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none min-[1360px]:shrink-0'
             >
               <div className='flex size-7 shrink-0 items-center justify-center transition-all duration-300 group-hover:scale-105'>
                 {logoContent}
               </div>
-              <span className='text-sm font-semibold tracking-tight'>
+              <span className='truncate text-sm font-semibold tracking-tight'>
                 {loading ? <Skeleton className='h-4 w-16' /> : displaySiteName}
               </span>
             </Link>
@@ -441,7 +441,7 @@ export function PublicHeader(props: PublicHeaderProps) {
             </div>
 
             {/* Mobile: compact actions + hamburger */}
-            <div className='public-header-mobile-actions flex items-center gap-2 min-[1360px]:hidden'>
+            <div className='public-header-mobile-actions flex shrink-0 items-center gap-2 min-[1360px]:hidden'>
               {showThemeSwitch && <ThemeSwitch />}
               {showAuthButtons && !loading && isAuthenticated && (
                 <ProfileDropdown />
@@ -487,7 +487,7 @@ export function PublicHeader(props: PublicHeaderProps) {
       {/* Mobile full-screen overlay */}
       <div
         className={cn(
-          'fixed inset-0 z-40 transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] min-[1360px]:pointer-events-none min-[1360px]:hidden',
+          'fixed inset-x-0 top-0 z-40 h-dvh overflow-hidden transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] min-[1360px]:pointer-events-none min-[1360px]:hidden',
           editorialHeader
             ? 'forge-public-mobile-overlay'
             : 'bg-background text-foreground',
@@ -503,11 +503,11 @@ export function PublicHeader(props: PublicHeaderProps) {
           aria-modal='true'
           aria-label={t('Header navigation')}
           aria-hidden={!mobileOpen}
-          className='public-mobile-navigation flex h-full flex-col justify-between gap-8 overflow-y-auto px-8 pt-[calc(5rem+env(safe-area-inset-top))] pb-[max(2.5rem,env(safe-area-inset-bottom))]'
+          className='public-mobile-navigation flex h-full min-h-0 flex-col justify-between gap-5 overflow-y-auto overscroll-contain px-5 pt-[calc(4.5rem+env(safe-area-inset-top))] pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:gap-8 sm:px-8 sm:pt-[calc(5rem+env(safe-area-inset-top))] sm:pb-[max(2.5rem,env(safe-area-inset-bottom))]'
         >
           <nav
             aria-label={t('Header navigation')}
-            className='flex flex-col gap-1'
+            className='flex shrink-0 flex-col gap-1'
           >
             {mobileNavigationLinks.map((link, i) => {
               const isActive = pathname === link.href
@@ -558,7 +558,7 @@ export function PublicHeader(props: PublicHeaderProps) {
 
           <div
             className={cn(
-              'flex flex-col gap-3 transition-all duration-500',
+              'flex shrink-0 flex-col gap-3 transition-all duration-500',
               mobileOpen
                 ? 'translate-y-0 opacity-100'
                 : 'translate-y-4 opacity-0'

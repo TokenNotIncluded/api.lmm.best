@@ -63,6 +63,7 @@ import {
 } from '@/components/ui/sheet'
 import { Textarea } from '@/components/ui/textarea'
 import { UserSourceDetails } from '@/features/acquisition/user-sources'
+import { useMediaQuery } from '@/hooks'
 import {
   ADMIN_PERMISSION_ACTIONS,
   ADMIN_PERMISSION_RESOURCES,
@@ -108,6 +109,7 @@ export function UsersMutateDrawer({
   currentRow,
 }: UsersMutateDrawerProps) {
   const { t } = useTranslation()
+  const isMobile = useMediaQuery('(max-width: 639px)')
   const isUpdate = !!currentRow
   const { triggerRefresh } = useUsers()
   const currentUser = useAuthStore((s) => s.auth.user)
@@ -221,6 +223,13 @@ export function UsersMutateDrawer({
     triggerRefresh()
   }
 
+  const userDetails = isUpdate && currentRow && open && (
+    <>
+      <UserAnnouncementStatus userID={currentRow.id} />
+      <UserSourceDetails userID={currentRow.id} />
+    </>
+  )
+
   return (
     <>
       <Sheet
@@ -233,9 +242,15 @@ export function UsersMutateDrawer({
         }}
       >
         <SheetContent
-          className={sideDrawerContentClassName('sm:max-w-[600px]')}
+          className={sideDrawerContentClassName(
+            'sm:max-w-[600px] max-sm:[&>button[data-slot=sheet-close]]:size-11'
+          )}
         >
-          <SheetHeader className={sideDrawerHeaderClassName()}>
+          <SheetHeader
+            className={sideDrawerHeaderClassName(
+              'shrink-0 pr-16 pt-[max(0.75rem,env(safe-area-inset-top))] sm:pr-6 sm:pt-4'
+            )}
+          >
             <SheetTitle>
               {isUpdate ? t('Update') : t('Create')} {t('User')}
             </SheetTitle>
@@ -249,15 +264,12 @@ export function UsersMutateDrawer({
             <form
               id='user-form'
               onSubmit={form.handleSubmit(onSubmit)}
-              className={sideDrawerFormClassName()}
+              className={sideDrawerFormClassName(
+                'max-sm:[&_input]:min-h-11 max-sm:[&_[data-slot=select-trigger]]:min-h-11 max-sm:[&_[data-slot=select-trigger]]:w-full max-sm:[&_button:not([role=checkbox]):not([role=switch])]:min-h-11 max-sm:[&_label[for=assistant-profile-enabled]]:min-h-11 max-sm:[&_label[for=assistant-profile-enabled]]:min-w-11'
+              )}
             >
               {/* Basic Information */}
-              {isUpdate && currentRow && open && (
-                <>
-                  <UserAnnouncementStatus userID={currentRow.id} />
-                  <UserSourceDetails userID={currentRow.id} />
-                </>
-              )}
+              {!isMobile && userDetails}
               <SideDrawerSection>
                 <h3 className='text-sm font-medium'>
                   {t('Basic Information')}
@@ -365,6 +377,8 @@ export function UsersMutateDrawer({
                 />
               </SideDrawerSection>
 
+              {isMobile && userDetails}
+
               {/* Group & Quota Settings (Update only) */}
               {isUpdate && (
                 <SideDrawerSection>
@@ -414,7 +428,7 @@ export function UsersMutateDrawer({
                             currency: currencyLabel,
                           })}
                         </FormLabel>
-                        <div className='flex gap-2'>
+                        <div className='flex flex-col gap-2 sm:flex-row'>
                           <FormControl>
                             <Input
                               value={
@@ -423,7 +437,7 @@ export function UsersMutateDrawer({
                                   : (field.value || 0).toFixed(6)
                               }
                               readOnly
-                              className='flex-1'
+                              className='min-w-0 flex-1 tabular-nums'
                             />
                           </FormControl>
                           <Button
@@ -500,7 +514,7 @@ export function UsersMutateDrawer({
                                     {resource.actions.map((option) => (
                                       <label
                                         key={option.action}
-                                        className='flex items-start gap-3'
+                                        className='flex min-h-11 items-start gap-3 py-2 sm:min-h-0 sm:py-0'
                                       >
                                         <Checkbox
                                           checked={
@@ -595,11 +609,24 @@ export function UsersMutateDrawer({
               )}
             </form>
           </Form>
-          <SheetFooter className={sideDrawerFooterClassName()}>
-            <SheetClose render={<Button variant='outline' />}>
+          <SheetFooter
+            className={sideDrawerFooterClassName(
+              'shrink-0 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-4'
+            )}
+          >
+            <SheetClose
+              render={
+                <Button variant='outline' className='min-h-11 sm:min-h-9' />
+              }
+            >
               {t('Close')}
             </SheetClose>
-            <Button form='user-form' type='submit' disabled={isSubmitting}>
+            <Button
+              form='user-form'
+              type='submit'
+              disabled={isSubmitting}
+              className='min-h-11 sm:min-h-9'
+            >
               {isSubmitting ? t('Saving...') : t('Save changes')}
             </Button>
           </SheetFooter>

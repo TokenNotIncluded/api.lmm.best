@@ -36,6 +36,7 @@ import { useNotifications } from '@/hooks/use-notifications'
 import { useStatus } from '@/hooks/use-status'
 import { useTopNavLinks } from '@/hooks/use-top-nav-links'
 import { cn } from '@/lib/utils'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { defaultTopNavLinks } from '../config/top-nav.config'
 import type { TopNavLink } from '../types'
@@ -59,6 +60,8 @@ type AppHeaderProps = {
   /** Persistent account balance and wallet entry. */
   showBalanceBadge?: boolean
   showAssistant?: boolean
+  /** The console exposes its assistant here instead of a mobile floating pill. */
+  showMobileAssistant?: boolean
 }
 
 export function AppHeader({
@@ -74,13 +77,16 @@ export function AppHeader({
   showLanguageSwitcher = true,
   showBalanceBadge = true,
   showAssistant = true,
+  showMobileAssistant = false,
 }: AppHeaderProps) {
   const dynamicLinks = useTopNavLinks()
   const links = dynamicLinks.length > 0 ? dynamicLinks : navLinks
   const { t } = useTranslation()
   const { status } = useStatus()
   const notifications = useNotifications()
+  const user = useAuthStore((state) => state.auth.user)
   const assistantEnabled = status?.assistant?.enabled !== false
+  const mobileAssistantAvailable = showMobileAssistant && user !== null
   const [railOpen, setRailOpenState] = useState(false)
 
   useEffect(
@@ -100,7 +106,9 @@ export function AppHeader({
     <Header showSidebarTrigger={showSidebarTrigger}>
       {showBrand && <SystemBrand variant='inline' />}
       {leftContent ? (
-        <div className='ms-2 flex min-w-0 items-center'>{leftContent}</div>
+        <div className='ms-1 flex min-w-0 flex-1 items-center sm:ms-2 sm:flex-initial'>
+          {leftContent}
+        </div>
       ) : null}
       {showTopNav && (
         <div className='mx-auto hidden min-w-0 flex-1 justify-center px-4 lg:flex'>
@@ -118,17 +126,20 @@ export function AppHeader({
               <TopNav links={links} aria-label={t('Header navigation')} />
             </div>
           )}
-          {assistantEnabled && showAssistant && (
+          {showAssistant && (assistantEnabled || mobileAssistantAvailable) && (
             <Button
               variant='ghost'
               size='icon'
               className={cn(
-                'relative hidden size-8 sm:inline-flex',
+                'relative size-11 sm:size-8',
+                !showMobileAssistant && 'hidden sm:inline-flex',
+                !assistantEnabled && 'sm:hidden',
                 railOpen && 'bg-accent text-accent-foreground'
               )}
               aria-label={t('Open AI assistant')}
               title={t('Open AI assistant')}
               aria-pressed={railOpen}
+              data-testid='header-assistant-launcher'
               onClick={handleAssistantClick}
             >
               <HugeiconsIcon
@@ -155,7 +166,9 @@ export function AppHeader({
               loading={notifications.loading}
             />
           )}
-          {showBalanceBadge && <AccountBalanceBadge />}
+          {showBalanceBadge && (
+            <AccountBalanceBadge compactMobile={showMobileAssistant} />
+          )}
           {showLanguageSwitcher && <LanguageSwitcher />}
           {showConfigDrawer && <ConfigDrawer />}
           {showProfileDropdown && <ProfileDropdown />}

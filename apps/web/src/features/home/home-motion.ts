@@ -285,7 +285,7 @@ export function mountHomeMotion(root: HTMLElement) {
       !!draw &&
       !reduced.matches &&
       window.innerHeight > 600 &&
-      (window.innerWidth > 680 || window.innerHeight > 700)
+      window.innerWidth > 680
     sceneProgress =
       manualChapter !== null && animated
         ? manualChapter / Math.max(1, scenePanels.length - 1)

@@ -133,7 +133,8 @@ export function SourceConsent() {
     return (
       <button
         type='button'
-        className='text-muted-foreground mx-4 my-2 text-xs underline'
+        data-slot='source-consent-toggle'
+        className='text-muted-foreground mx-4 my-2 min-h-11 text-xs underline sm:min-h-0'
         onClick={() => setExpanded(true)}
       >
         {t('Source privacy')}
@@ -142,6 +143,7 @@ export function SourceConsent() {
   }
   return (
     <section
+      data-slot='source-consent-panel'
       className='bg-background relative z-50 border-t p-4 text-sm'
       aria-label={t('Source privacy')}
     >

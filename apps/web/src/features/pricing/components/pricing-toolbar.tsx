@@ -105,7 +105,7 @@ function SegmentedControl(props: {
     <div
       role='group'
       aria-label={props.ariaLabel}
-      className='bg-muted/60 inline-flex h-11 items-center rounded-lg border p-0.5 sm:h-8'
+      className='bg-muted/60 inline-flex min-h-11 shrink-0 items-center rounded-lg border sm:h-8 sm:min-h-0 sm:p-0.5'
     >
       {props.options.map((option) => {
         const Icon = option.icon
@@ -118,7 +118,7 @@ function SegmentedControl(props: {
             aria-pressed={isActive}
             aria-label={option.tooltip || option.label}
             className={cn(
-              'focus-visible:ring-ring/50 inline-flex h-full items-center justify-center rounded-md text-xs font-medium transition-colors outline-none focus-visible:ring-2 motion-reduce:transition-none',
+              'focus-visible:ring-ring/50 inline-flex h-full min-h-11 items-center justify-center rounded-md text-xs font-medium transition-colors outline-none focus-visible:ring-2 sm:min-h-0 motion-reduce:transition-none',
               Icon && !option.label ? 'w-11 sm:w-7' : 'gap-1.5 px-3',
               isActive
                 ? 'bg-primary text-primary-foreground'
@@ -170,8 +170,8 @@ export function PricingToolbar(props: PricingToolbarProps) {
   return (
     <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
       <div>
-        <div className='flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between'>
-          <div className='flex items-center gap-2'>
+        <div className='flex min-w-0 items-center justify-between gap-2 sm:flex-col sm:items-stretch sm:gap-3 lg:flex-row lg:items-center'>
+          <div className='flex shrink-0 items-center gap-2'>
             <SheetTrigger
               render={
                 <Button
@@ -191,7 +191,7 @@ export function PricingToolbar(props: PricingToolbarProps) {
               )}
             </SheetTrigger>
 
-            <div className='text-muted-foreground flex items-baseline gap-1 text-sm'>
+            <div className='text-muted-foreground hidden items-baseline gap-1 text-sm sm:flex'>
               <span className='text-foreground font-semibold tabular-nums'>
                 {props.filteredCount.toLocaleString()}
               </span>
@@ -206,7 +206,7 @@ export function PricingToolbar(props: PricingToolbarProps) {
             </div>
           </div>
 
-          <div className='flex flex-wrap items-center gap-2'>
+          <div className='flex min-w-0 flex-1 items-center justify-end gap-2 sm:flex-initial sm:flex-wrap sm:justify-start'>
             <div className='hidden items-center gap-2 sm:flex'>
               <SegmentedControl
                 options={[
@@ -235,12 +235,12 @@ export function PricingToolbar(props: PricingToolbarProps) {
                     type='button'
                     variant='outline'
                     size='sm'
-                    className='h-11 gap-1.5 px-3 text-xs sm:h-8'
+                    className='h-11 min-w-0 shrink gap-1.5 px-2 text-xs sm:h-8 sm:shrink-0 sm:px-3'
                   />
                 }
               >
-                <ArrowUpDown className='size-3.5' />
-                <span>
+                <ArrowUpDown className='size-3.5 shrink-0' />
+                <span className='truncate'>
                   {sortLabels[props.sortBy as SortOption] || t('Sort')}
                 </span>
               </DropdownMenuTrigger>
@@ -284,7 +284,10 @@ export function PricingToolbar(props: PricingToolbarProps) {
         </div>
       </div>
 
-      <p role='note' className='text-muted-foreground text-xs leading-5'>
+      <p
+        role='note'
+        className='text-muted-foreground hidden text-xs leading-5 sm:block'
+      >
         {t(
           'No group selected shows starting prices. Checkout confirms the final amount.'
         )}

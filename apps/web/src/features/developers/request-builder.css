@@ -135,8 +135,9 @@ select.dev-builder-input {
 .dev-page-link:hover {
   text-decoration-thickness: 2px;
 }
-@media (max-width: 480px) {
+@media (max-width: 639px) {
   .dev-builder {
+    gap: 1rem;
     padding: 1rem;
   }
   .dev-builder-fields {
@@ -146,7 +147,27 @@ select.dev-builder-input {
     font-size: 1rem;
   }
   .dev-builder-row > :first-child {
-    min-width: 100%;
+    flex: 0 0 auto;
+    min-width: 0;
+    white-space: nowrap;
+  }
+  .dev-builder-row {
+    flex-wrap: nowrap;
+    gap: 0.5rem;
+  }
+  .dev-builder-tabs {
+    flex: 1 1 0%;
+    min-width: 0;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding: 0.25rem;
+  }
+  .dev-builder-tab {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+  .dev-page-link {
+    flex-shrink: 0;
   }
 }
 
