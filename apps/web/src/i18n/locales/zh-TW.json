@@ -9554,6 +9554,7 @@
     "Use CC Switch to manage Claude Code and Codex providers. Install the coding tool you want to use as well.": "使用 CC Switch 管理 Claude Code 和 Codex 的服務商設定，同時安裝你準備使用的程式開發工具。",
     "Use ChatGPT in your browser": "在瀏覽器中使用 ChatGPT",
     "Use commas or new lines to separate model IDs.": "請使用逗號或換行分隔模型 ID。",
+    "Use community tools, or publish your own.": "使用社群工具，或發布自己的工具。",
     "Use Create API key below, or use the key's CC Switch action on the /keys page.": "使用下方的「建立 API 金鑰」，或在 /keys 頁面使用該金鑰的 CC Switch 操作。",
     "Use Daed routing syntax. Matchers: domain/qname, dip/ip, sip, dport, sport, l4proto, ipversion, mac, pname, and dscp; supports ! negation, fallback, and direct/reject. Use # for comments.": "使用 Daed 路由語法。支援 domain/qname、dip/ip、sip、dport、sport、l4proto、ipversion、mac、pname、dscp；支援 ! 取反、fallback 以及 direct/reject。使用 # 加入註解。",
     "Use DeepSeek's web app for questions, writing, and reasoning.": "使用 DeepSeek 網頁應用提問、寫作和推理。",

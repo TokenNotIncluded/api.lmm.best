@@ -9554,6 +9554,7 @@
     "Use CC Switch to manage Claude Code and Codex providers. Install the coding tool you want to use as well.": "CC Switch で Claude Code と Codex のプロバイダーを管理できます。利用したいコーディングツールも別途インストールしてください。",
     "Use ChatGPT in your browser": "ブラウザで ChatGPT を使用する",
     "Use commas or new lines to separate model IDs.": "モデル ID はカンマまたは改行で区切ってください。",
+    "Use community tools, or publish your own.": "コミュニティのツールを使うか、自分のツールを公開できます。",
     "Use Create API key below, or use the key's CC Switch action on the /keys page.": "下の「API キーを作成」を使うか、/keys ページで対象キーの CC Switch 操作を使います。",
     "Use Daed routing syntax. Matchers: domain/qname, dip/ip, sip, dport, sport, l4proto, ipversion, mac, pname, and dscp; supports ! negation, fallback, and direct/reject. Use # for comments.": "Daed ルーティング構文を使用します。条件は domain/qname、dip/ip、sip、dport、sport、l4proto、ipversion、mac、pname、dscp に対応し、! の否定、fallback、direct/reject も使用できます。コメントには # を使います。",
     "Use DeepSeek's web app for questions, writing, and reasoning.": "DeepSeekのウェブアプリで質問、執筆、推論ができます。",

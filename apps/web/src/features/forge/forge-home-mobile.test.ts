@@ -32,8 +32,9 @@ test('homepage exposes a keyboard-accessible interactive explore console', () =>
   assert.match(source, /lmm-explore-console/)
   assert.match(
     source,
-    /aria-current=\{\s*activeExplore === (?:id|destination\.id)/
+    /data-preview-active=\{\s*activeExplore === (?:id|destination\.id)/
   )
+  assert.doesNotMatch(source, /aria-current=\{\s*activeExplore/)
   assert.match(
     source,
     /onFocus=\{\(\) => setActiveExplore\((?:id|destination\.id)\)\}/

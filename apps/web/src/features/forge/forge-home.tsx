@@ -83,7 +83,7 @@ const EXPLORE_DESTINATIONS = [
     id: 'market',
     href: '/tool-market',
     label: 'Tool market',
-    description: 'Browse, publish, authorize and run tools.',
+    description: 'Use community tools, or publish your own.',
   },
   {
     id: 'pricing',
@@ -476,8 +476,8 @@ export function ForgeHome() {
                         ? '/sign-in?redirect=%2Fsecurity'
                         : destination.href
                     }
-                    aria-current={
-                      activeExplore === destination.id ? 'page' : undefined
+                    data-preview-active={
+                      activeExplore === destination.id || undefined
                     }
                     onMouseEnter={() => setActiveExplore(destination.id)}
                     onFocus={() => setActiveExplore(destination.id)}
@@ -485,6 +485,9 @@ export function ForgeHome() {
                   >
                     <span>
                       <strong>{t(destination.label)}</strong>
+                      <span className='lmm-destination-description'>
+                        {t(destination.description)}
+                      </span>
                     </span>
                     <ArrowRight aria-hidden='true' />
                   </a>
