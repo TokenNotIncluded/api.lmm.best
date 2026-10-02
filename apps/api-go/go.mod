@@ -171,6 +171,7 @@ require (
 	github.com/LIghtJUNction/api.lmm.best/relaykit v0.0.0
 	github.com/google/jsonschema-go v0.4.3
 	github.com/modelcontextprotocol/go-sdk v1.7.0
+	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 )
 
 replace github.com/LIghtJUNction/api.lmm.best/relaykit => ./relaykit
