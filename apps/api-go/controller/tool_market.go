@@ -31,7 +31,12 @@ func toolMarketRespond(c *gin.Context, value any, err error) {
 		status, code, message = http.StatusConflict, "TOOL_MARKET_BUDGET", err.Error()
 	case errors.Is(err, model.ErrToolMarketBalance):
 		status, code, message = http.StatusConflict, "TOOL_MARKET_BALANCE", err.Error()
-	case errors.Is(err, service.ErrMarketRemoteConnection), errors.Is(err, service.ErrMarketRemoteAuth), errors.Is(err, service.ErrMarketRemoteNetwork):
+	case errors.Is(err, model.ErrToolMarketCredentialUnavailable):
+		status, code, message = http.StatusServiceUnavailable, "TOOL_MARKET_CREDENTIALS_UNAVAILABLE", "secure tool market credential storage is unavailable"
+	case errors.Is(err, service.ErrMarketRemoteAuth):
+		// An upstream 401 does not mean the caller's LMM session expired.
+		status, code, message = http.StatusUnprocessableEntity, "TOOL_MARKET_REMOTE_AUTH", "the remote MCP service rejected its configured credential"
+	case errors.Is(err, service.ErrMarketRemoteConnection), errors.Is(err, service.ErrMarketRemoteNetwork):
 		status, code, message = http.StatusUnprocessableEntity, "TOOL_MARKET_REMOTE_CONNECTION", err.Error()
 	case errors.Is(err, service.ErrMarketRemoteSchema), errors.Is(err, service.ErrMarketRemoteChanged):
 		status, code, message = http.StatusConflict, "TOOL_MARKET_REMOTE_CHANGED", err.Error()

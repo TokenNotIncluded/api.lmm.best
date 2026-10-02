@@ -55,7 +55,7 @@ func marketPublicIP(addr netip.Addr) bool {
 
 func marketRemoteURL(raw string) (*url.URL, error) {
 	u, err := url.Parse(raw)
-	if err != nil || len(raw) > 2048 || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Port() != "" && u.Port() != "443") {
+	if err != nil || len(raw) > 2048 || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || (u.Port() != "" && u.Port() != "443") {
 		return nil, ErrMarketRemoteNetwork
 	}
 	if ip, err := netip.ParseAddr(u.Hostname()); err == nil && !marketPublicIP(ip) {
@@ -96,7 +96,11 @@ func newMarketRemoteHTTPClient() *http.Client {
 	return &http.Client{Transport: marketResponseTransport{base: transport}, Timeout: 45 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return ErrMarketRemoteNetwork }}
 }
 
-type marketResponseTransport struct{ base http.RoundTripper }
+type marketResponseTransport struct {
+	base       http.RoundTripper
+	endpoint   string
+	credential *model.ToolMarketResolvedCredential
+}
 
 func (t marketResponseTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if _, err := marketRemoteURL(req.URL.String()); err != nil {
@@ -108,6 +112,25 @@ func (t marketResponseTransport) RoundTrip(req *http.Request) (*http.Response, e
 	clone.Header.Del("Authorization")
 	clone.Header.Del("Cookie")
 	clone.Header.Del("Proxy-Authorization")
+	clone.Header.Del("X-API-Key")
+	if t.credential != nil && t.credential.Mode != "none" {
+		// Credentials are endpoint-specific. Never carry them to another path,
+		// host or a protocol URL supplied by an untrusted remote service.
+		if req.URL.String() != t.endpoint {
+			return nil, ErrMarketRemoteNetwork
+		}
+		if err := model.ValidateToolMarketCredential(t.credential.Mode, t.credential.Secret); err != nil {
+			return nil, err
+		}
+		switch t.credential.Mode {
+		case "bearer":
+			clone.Header.Set("Authorization", "Bearer "+t.credential.Secret)
+		case "api_key":
+			clone.Header.Set("X-API-Key", t.credential.Secret)
+		default:
+			return nil, model.ErrToolMarketInput
+		}
+	}
 	resp, err := t.base.RoundTrip(clone)
 	if err != nil {
 		return nil, err
@@ -150,11 +173,34 @@ type ToolMarketRemote struct {
 var marketRemote = &ToolMarketRemote{client: newMarketRemoteHTTPClient(), slots: make(chan struct{}, 32)}
 
 func (r *ToolMarketRemote) connect(ctx context.Context, endpoint string) (*mcp.ClientSession, error) {
-	if _, err := marketRemoteURL(endpoint); err != nil {
+	return r.connectAuthenticated(ctx, endpoint, nil)
+}
+
+func (r *ToolMarketRemote) connectAuthenticated(ctx context.Context, endpoint string, credential *model.ToolMarketResolvedCredential) (*mcp.ClientSession, error) {
+	parsed, err := marketRemoteURL(endpoint)
+	if err != nil {
 		return nil, err
 	}
+	if credential != nil {
+		snapshot := *credential
+		credential = &snapshot
+		if err := model.ValidateToolMarketCredential(credential.Mode, credential.Secret); err != nil {
+			return nil, err
+		}
+	}
+	httpClient := *r.client
+	transport, ok := r.client.Transport.(marketResponseTransport)
+	if !ok {
+		base := r.client.Transport
+		if base == nil {
+			base = http.DefaultTransport
+		}
+		transport = marketResponseTransport{base: base}
+	}
+	transport.endpoint, transport.credential = parsed.String(), credential
+	httpClient.Transport = transport
 	client := mcp.NewClient(&mcp.Implementation{Name: "lmm-tool-market", Version: "1"}, &mcp.ClientOptions{MultiRoundTrip: &mcp.MultiRoundTripOptions{Disabled: true}})
-	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: endpoint, HTTPClient: r.client, MaxRetries: -1, DisableStandaloneSSE: true}, nil)
+	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: endpoint, HTTPClient: &httpClient, MaxRetries: -1, DisableStandaloneSSE: true}, nil)
 	if err != nil {
 		if errors.Is(err, ErrMarketRemoteAuth) {
 			return nil, ErrMarketRemoteAuth
@@ -302,7 +348,16 @@ func marketListRemote(ctx context.Context, session *mcp.ClientSession) ([]*mcp.T
 func InspectToolMarketRemote(ctx context.Context, endpoint string) ([]model.ToolMarketToolInput, error) {
 	return marketRemote.inspect(ctx, endpoint)
 }
+
+// InspectToolMarketRemoteAuthenticated uses a caller-supplied credential only for
+// this read-only discovery request. It never persists the supplied secret.
+func InspectToolMarketRemoteAuthenticated(ctx context.Context, endpoint string, credential *model.ToolMarketResolvedCredential) ([]model.ToolMarketToolInput, error) {
+	return marketRemote.inspectAuthenticated(ctx, endpoint, credential)
+}
 func (r *ToolMarketRemote) inspect(ctx context.Context, endpoint string) ([]model.ToolMarketToolInput, error) {
+	return r.inspectAuthenticated(ctx, endpoint, nil)
+}
+func (r *ToolMarketRemote) inspectAuthenticated(ctx context.Context, endpoint string, credential *model.ToolMarketResolvedCredential) ([]model.ToolMarketToolInput, error) {
 	select {
 	case r.slots <- struct{}{}:
 		defer func() { <-r.slots }()
@@ -311,7 +366,7 @@ func (r *ToolMarketRemote) inspect(ctx context.Context, endpoint string) ([]mode
 	}
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	session, err := r.connect(ctx, endpoint)
+	session, err := r.connectAuthenticated(ctx, endpoint, credential)
 	if err != nil {
 		return nil, err
 	}
@@ -350,6 +405,10 @@ func (r *ToolMarketRemote) validate(ctx context.Context, actor int, serviceID st
 	if detail.Version.ExecutionType != "remote" {
 		return ErrMarketRemoteSchema
 	}
+	credential, err := model.ResolveToolMarketCredential(detail.Service.OwnerID, detail.Service.ID, detail.Version.ID, detail.Version.Endpoint)
+	if err != nil {
+		return err
+	}
 	select {
 	case r.slots <- struct{}{}:
 		defer func() { <-r.slots }()
@@ -358,7 +417,7 @@ func (r *ToolMarketRemote) validate(ctx context.Context, actor int, serviceID st
 	}
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	session, err := r.connect(ctx, detail.Version.Endpoint)
+	session, err := r.connectAuthenticated(ctx, detail.Version.Endpoint, credential)
 	if err != nil {
 		return err
 	}
@@ -384,7 +443,7 @@ func (r *ToolMarketRemote) validate(ctx context.Context, actor int, serviceID st
 			return ErrMarketRemoteChanged
 		}
 	}
-	return model.RecordToolMarketValidation(actor, serviceID, detail.Version.ID, detail.Version.Digest, fingerprints)
+	return model.RecordToolMarketValidationWithCredential(actor, serviceID, detail.Version.ID, detail.Version.Digest, fingerprints, credential.ID)
 }
 
 func marketSchemasMatch(local model.ToolMarketToolVersion, remote *mcp.Tool) bool {
@@ -437,6 +496,10 @@ func (r *ToolMarketRemote) execute(ctx context.Context, in model.ToolMarketReser
 	if execution.Version.ExecutionType != "remote" || execution.Tool.RemoteDigest == "" {
 		return nil, ErrMarketRemoteSchema
 	}
+	credential, err := model.ResolveToolMarketCredential(execution.Service.OwnerID, execution.Service.ID, execution.Version.ID, execution.Version.Endpoint)
+	if err != nil {
+		return nil, err
+	}
 	inputSchema, err := marketSchema([]byte(execution.Tool.InputSchema))
 	if err != nil {
 		return nil, err
@@ -454,7 +517,7 @@ func (r *ToolMarketRemote) execute(ctx context.Context, in model.ToolMarketReser
 	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
 	// Discovery and schema drift checks are read-only and happen before a hold.
-	session, err := r.connect(ctx, execution.Version.Endpoint)
+	session, err := r.connectAuthenticated(ctx, execution.Version.Endpoint, credential)
 	if err != nil {
 		return nil, err
 	}
