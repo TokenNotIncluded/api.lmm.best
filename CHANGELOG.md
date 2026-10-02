@@ -13,6 +13,21 @@ authenticated users then see it once after their next login.
 
 <!-- Add user-facing or operational changes here before the next release. -->
 
+- The in-memory model success limiter reserves capacity while requests are in
+  flight and releases failed requests. HTTP stream and Responses WebSocket
+  outcomes determine success independently from whether a request is billable.
+- An optional, default-off Claude setting refunds pre-output refusals with
+  explicit zero-output usage. Ratio, fixed-price, tiered and tool billing share
+  this exemption; measured usage remains available in consume logs.
+- Native Seedance and Wan task adaptors use model-specific capability profiles
+  for request validation and billing, rejecting unsupported resolutions locally.
+- Responses WebSocket events preserve per-turn `stream_id` and distinguish
+  pending control errors from active response failures in Go and Rust.
+- Ollama channels can opt into OpenAI-compatible chat transport while retaining
+  their existing native transport defaults and non-chat endpoint behavior.
+- Tool schemas remove `required: null` across supported request protocols while
+  preserving literal schema data, large JSON integers and retry isolation.
+
 - Go and Rust share one embedded dashboard Auth-Version marker, with CI checking
   both backends when it changes. Existing authentication behavior is preserved.
 
