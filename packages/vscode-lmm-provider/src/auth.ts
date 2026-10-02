@@ -194,6 +194,11 @@ export class Auth {
           protectedResource.authorization_servers?.length === 1 &&
           protectedResource.authorization_servers[0] === ISSUER,
       );
+      assert(
+        Array.isArray(metadata.lmm_client_ids_supported) &&
+          metadata.lmm_client_ids_supported.includes(CLIENT),
+        "This LMM server has not enabled VS Code sign-in yet. Update the LMM server, then run LMM: Sign In again.",
+      );
       const verifier = randomBytes(32).toString("base64url"),
         state = randomBytes(32).toString("base64url");
       const callback = await listenCallback(ISSUER, state, signal, "VS Code");

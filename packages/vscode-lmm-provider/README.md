@@ -2,7 +2,7 @@
 
 <img src="https://raw.githubusercontent.com/TokenNotIncluded/api.lmm.best/main/packages/vscode-lmm-provider/assets/icon.png" alt="LMM logo" width="128" height="128" />
 
-> **Preview:** Production OAuth client registration is pending deployment; current build/runtime tests do not establish live model access.
+> **Preview:** Requires a deployed LMM server with `lmm-vscode` OAuth registration. The extension checks server support before opening the browser; local tests do not establish production account or model access.
 
 Use the models available to your LMM account in the native VS Code Chat model picker. Sign in with your browser; no API key is required.
 
@@ -14,6 +14,8 @@ Use the models available to your LMM account in the native VS Code Chat model pi
 4. Run **LMM: Sign Out** to remove the local credential and revoke the server grant.
 
 LMM account balance and current server pricing apply to every request. This extension does not provide free Copilot credits or an inline tab-completion provider. Chat UI availability and account requirements are controlled by your VS Code / Copilot installation.
+
+The consent screen identifies **VS Code**, and editor credentials remain separate from Pi, Zed, and other LMM clients. An older server without editor registration produces a clear sign-in error rather than opening a misleading authorization page.
 
 OAuth login uses a temporary listener bound only to `127.0.0.1`, random state, S256 PKCE, and an issuer-bound callback. Credentials are stored through VS Code SecretStorage. Expiring tokens rotate automatically; a durable hashed journal prevents refresh-token replay across windows or after a crash. If a rotation is interrupted, sign in again. Credentials, authorization codes, prompts, and responses are never logged by this extension.
 
@@ -37,13 +39,13 @@ npm run package
 npm run test:host
 ```
 
-`npm test` compiles against the stable VS Code 1.104 API and runs OAuth rotation, cross-window replay, catalog authorization, callback security, and SSE tests. `npm run package` creates `lmm-copilot-provider-0.1.0.vsix`; the extension has no runtime npm dependencies.
+`npm test` compiles against the stable VS Code 1.104 API and runs OAuth rotation, cross-window replay, catalog authorization, callback security, and SSE tests. `npm run package` creates `lmm-copilot-provider-0.1.1.vsix`; the extension has no runtime npm dependencies.
 
-Install the local package with `code --install-extension ./lmm-copilot-provider-0.1.0.vsix`. A real OAuth/model request requires the production server to register public native client `lmm-vscode` with loopback `/oauth/lmm/callback`, the required scopes, and the OAuth relay endpoints.
+Install the local package with `code --install-extension ./lmm-copilot-provider-0.1.1.vsix`. A real OAuth/model request requires the production server to register public native client `lmm-vscode` with loopback `/oauth/lmm/callback`, the required scopes, and the OAuth relay endpoints.
 
 ## Marketplace publishing
 
-The manifest publisher is `LIghtJUNction`. Publishing requires control of that exact Visual Studio Marketplace publisher and an Azure DevOps Personal Access Token authorized to manage extensions. Run `npx vsce publish --packagePath ./lmm-copilot-provider-0.1.0.vsix` from an authenticated publisher environment. Open VSX additionally requires an Open VSX account, a matching owned namespace, publisher agreement, and its own access token. Never put publishing tokens in repository files.
+The manifest publisher is `LIghtJUNction`. Publishing requires control of that exact Visual Studio Marketplace publisher and an Azure DevOps Personal Access Token authorized to manage extensions. Run `npx vsce publish --packagePath ./lmm-copilot-provider-0.1.1.vsix` from an authenticated publisher environment. Open VSX additionally requires an Open VSX account, a matching owned namespace, publisher agreement, and its own access token. Never put publishing tokens in repository files.
 
 Packaging and automated tests do not establish a successful browser OAuth session, paid model request, or Marketplace listing. Those must be verified separately.
 

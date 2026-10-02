@@ -91,6 +91,7 @@ func validateClient(client NativeClient) error {
 
 type Metadata struct {
 	Issuer                                     string   `json:"issuer"`
+	LMMClientIDsSupported                      []string `json:"lmm_client_ids_supported"`
 	AuthorizationEndpoint                      string   `json:"authorization_endpoint"`
 	TokenEndpoint                              string   `json:"token_endpoint"`
 	RevocationEndpoint                         string   `json:"revocation_endpoint"`
@@ -108,7 +109,9 @@ type Metadata struct {
 // Serve only once the complete protected HTTP surface is ready.
 func (s *Server) Metadata() Metadata {
 	seen := make(map[string]bool)
+	clientIDs := make([]string, 0, len(s.clients))
 	for _, client := range s.clients {
+		clientIDs = append(clientIDs, client.ID)
 		for _, scope := range client.Scopes {
 			seen[scope] = true
 		}
@@ -118,8 +121,9 @@ func (s *Server) Metadata() Metadata {
 		scopes = append(scopes, scope)
 	}
 	sort.Strings(scopes)
+	sort.Strings(clientIDs)
 	return Metadata{
-		Issuer: s.issuer, AuthorizationEndpoint: s.issuer + "/oauth/authorize",
+		Issuer: s.issuer, LMMClientIDsSupported: clientIDs, AuthorizationEndpoint: s.issuer + "/oauth/authorize",
 		TokenEndpoint: s.issuer + "/oauth/token", RevocationEndpoint: s.issuer + "/oauth/revoke",
 		ResponseTypesSupported: []string{"code"}, ResponseModesSupported: []string{"query"},
 		GrantTypesSupported: []string{"authorization_code", "refresh_token"}, ScopesSupported: scopes,

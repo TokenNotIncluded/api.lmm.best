@@ -3,7 +3,7 @@
   "displayName": "LMM for Copilot",
   "icon": "assets/icon.png",
   "description": "Use LMM models in VS Code Chat with secure browser OAuth sign-in.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "LIghtJUNction",
   "license": "AGPL-3.0-only",
   "repository": {
