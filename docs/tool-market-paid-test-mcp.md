@@ -63,4 +63,14 @@ GOMAXPROCS=2 go test -race -p 2 ./service -run 'TestToolMarketPaid' -count=1
 
 数据库并发验收使用 PostgreSQL 18 和多连接。配置 `TEST_POSTGRES_DSN` 指向专用测试数据库，并设置 `TEST_POSTGRES_ISOLATED_SCHEMA=1`，测试会创建独立随机 schema 并在结束时删除。未配置时该用例跳过，不能把 SQLite 的单连接检查当成 PostgreSQL 并发验收。
 
+MySQL 回归使用默认 `REPEATABLE-READ`、`utf8mb4_0900_ai_ci` 的专用 MySQL 8 实例。配置 `TEST_MYSQL_DSN`，测试账户需要 `CREATE/DROP DATABASE` 和 `PROCESS` 权限；设置 `TEST_MYSQL_ISOLATED_DATABASE=1` 后，每项测试创建并删除自己的随机数据库。不要指向生产数据库。服务资格 CI 显式执行以下四项；未配置 DSN 时的跳过不能算 MySQL 验收：
+
+```sh
+TEST_MYSQL_ISOLATED_DATABASE=1 go test -race -count=1 -v ./model \
+  -run '^(TestToolMarketDrawingExpiryReadsCommittedBillingMySQL|TestToolMarketClientIdentityMySQL|TestToolMarketConcurrentFinishCountersMySQL|TestToolMarketConcurrentReserveLimitsMySQL)$' \
+  -timeout 180s
+```
+
+测试实际观察 InnoDB 锁等待，覆盖绘图结算与到期恢复交错、大小写/重音客户端隔离、两笔并发结算的授权与预算计数，以及并发预扣不能突破授权次数、累计额度及三层预算上限。市场事务使用局部 `READ COMMITTED`，数据库会话默认仍为 `REPEATABLE-READ`。
+
 检查内容包括原生图片/结构化结果、成功扣一次、作者和平台入账、失败零费用、未知到期恢复、重复标识冲突、并发重放、预算和次数上限、跨用户/客户端访问、过期/撤销、凭证绑定、参数 schema 和定义漂移。真实生产上架、真实支付或真实绘图模型收费不属于这个固定测试服务的证明范围。
