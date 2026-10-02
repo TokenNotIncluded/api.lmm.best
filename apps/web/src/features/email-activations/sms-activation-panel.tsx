@@ -147,7 +147,10 @@ function batchFailureMessage(result: HeroSmsBatchPurchaseResult, t: Translate) {
       'The last purchase result is uncertain. Resolve it before buying again.'
     )
   }
-  if (result.failure.code === 'PRICE_CHANGED') {
+  if (
+    result.failure.code === 'PRICE_CHANGED' ||
+    isSmsPurchaseNotCreated(result.failure.error)
+  ) {
     return t('The price changed before item {{item}}. Review the new quote.', {
       item: result.failure.item,
     })
@@ -290,6 +293,11 @@ function useSmsPurchaseMutation(options: SmsPurchaseMutationOptions) {
 
 class SmsPurchaseNotStartedError extends Error {}
 
+function isSmsPurchaseNotCreated(error: unknown) {
+  const parsed = parseHeroSmsError(error)
+  return parsed.status === 409 && parsed.code === 'PURCHASE_NOT_CREATED'
+}
+
 function isUncertainSmsPurchaseError(error: unknown) {
   if (error instanceof SmsPurchaseNotStartedError) return false
   const parsed = parseHeroSmsError(error)
@@ -364,7 +372,19 @@ function useSmsPurchaseReconciliation({
     } catch (error) {
       if (!isMounted() || !balance.isCurrentSession()) return
       const parsed = parseHeroSmsError(error)
-      if (isUncertainSmsPurchaseError(error)) {
+      if (isSmsPurchaseNotCreated(error)) {
+        clearSmsPurchaseRecovery(record)
+        const result: HeroSmsBatchPurchaseResult = {
+          requested: record.requested,
+          orders: [],
+          completedCount: record.item - 1,
+          failure: { code: 'PRICE_CHANGED', item: record.item },
+        }
+        setResult(result)
+        toast.error(batchFailureMessage(result, t))
+        await invalidate()
+        if (isMounted() && balance.isCurrentSession()) await refetchOffer()
+      } else if (isUncertainSmsPurchaseError(error)) {
         toast.error(
           t(
             'The last purchase result is uncertain. Resolve it before buying again.'

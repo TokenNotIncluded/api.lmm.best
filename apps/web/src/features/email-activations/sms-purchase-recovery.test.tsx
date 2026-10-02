@@ -1035,3 +1035,158 @@ test('does not send a purchase if durable storage reads work but writes fail', a
     await probe.close()
   }
 })
+
+test('unblocks a new purchase only after the server proves the original item was not created', async () => {
+  login(1)
+  mockPanelApi(async () => response(1, 5_000_000))
+  const probe = await mount(true)
+  const saved = pendingPurchase()
+  const attempts: Array<{ body: unknown; key: string | undefined }> = []
+  api.post = (async (
+    _url: string,
+    body: unknown,
+    config: { headers?: Record<string, string> }
+  ) => {
+    attempts.push({ body, key: config.headers?.['Idempotency-Key'] })
+    if (attempts.length === 1) {
+      throw Object.assign(
+        new Error('HeroSMS SMS purchase was not created; refresh the quote'),
+        {
+          isAxiosError: true,
+          response: { status: 409, data: { code: 'PURCHASE_NOT_CREATED' } },
+        }
+      )
+    }
+    return createdOrder()
+  }) as typeof api.post
+  try {
+    await chooseFavorite(probe)
+    await act(async () => saveSmsPurchaseRecovery(saved))
+    assert.equal(findButton('Buy phone activation').disabled, true)
+    await reconcilePurchase()
+    await settle(() => !findButton('Buy phone activation').disabled)
+    assert.equal(localStorage.getItem(recoveryKey(1)), null)
+    assert.equal(
+      document.body.textContent?.includes('Resolve purchase and continue'),
+      false
+    )
+    assert.ok(
+      document.body.textContent?.includes(
+        'The price changed before item 1. Review the new quote.'
+      )
+    )
+    assert.equal(
+      document.body.textContent?.includes(
+        'HeroSMS SMS purchase was not created'
+      ),
+      false
+    )
+    assert.deepEqual(attempts, [
+      { body: { offer_id: saved.offerId }, key: saved.idempotencyKey },
+    ])
+    await confirmPurchase()
+    await settle(() => attempts.length === 2)
+    assert.notEqual(attempts[1]?.key, saved.idempotencyKey)
+    assert.deepEqual(attempts[1]?.body, { offer_id: 'quote' })
+  } finally {
+    await probe.close()
+  }
+})
+
+test('maps a definitive first no-purchase proof to the existing quote-changed feedback', async () => {
+  login(1)
+  mockPanelApi(async () => response(1, 5_000_000))
+  let attempts = 0
+  api.post = (async () => {
+    attempts += 1
+    throw Object.assign(
+      new Error('HeroSMS SMS purchase was not created; refresh the quote'),
+      {
+        isAxiosError: true,
+        response: { status: 409, data: { code: 'PURCHASE_NOT_CREATED' } },
+      }
+    )
+  }) as typeof api.post
+  const probe = await mount(true)
+  try {
+    await chooseFavorite(probe)
+    await confirmPurchase()
+    await settle(
+      () =>
+        document.body.textContent?.includes(
+          'The price changed before item 1. Review the new quote.'
+        ) === true
+    )
+    assert.equal(attempts, 1)
+    assert.equal(localStorage.getItem(recoveryKey(1)), null)
+    assert.equal(
+      document.body.textContent?.includes('Resolve purchase and continue'),
+      false
+    )
+    assert.equal(
+      document.body.textContent?.includes(
+        'HeroSMS SMS purchase was not created'
+      ),
+      false
+    )
+  } finally {
+    await probe.close()
+  }
+})
+
+test('retains recovery when a no-purchase code has the wrong HTTP status or a normal refusal is returned', async () => {
+  login(1)
+  mockPanelApi(async () => response(1, 5_000_000))
+  const saved = pendingPurchase()
+  localStorage.setItem(recoveryKey(1), JSON.stringify(saved))
+  const replies = [
+    { status: 500, code: 'PURCHASE_NOT_CREATED' },
+    { status: 200, code: 'PURCHASE_NOT_CREATED' },
+    { status: 401, code: 'PURCHASE_NOT_CREATED' },
+    { status: 409, code: 'PRICE_CHANGED' },
+    { status: 402, code: 'TEMPORARY_SMS_MINIMUM_BALANCE' },
+    { status: 402, code: 'INSUFFICIENT_BALANCE' },
+  ]
+  let attempts = 0
+  api.post = (async (
+    _url: string,
+    body: unknown,
+    config: { headers?: Record<string, string> }
+  ) => {
+    assert.deepEqual(body, { offer_id: saved.offerId })
+    assert.equal(config.headers?.['Idempotency-Key'], saved.idempotencyKey)
+    const reply = replies[attempts++]
+    assert.ok(reply)
+    if (reply.status === 200) {
+      return {
+        data: {
+          success: false,
+          code: reply.code,
+          message: 'fixture unproven response',
+        },
+      }
+    }
+    throw Object.assign(new Error('fixture unproven response'), {
+      isAxiosError: true,
+      response: { status: reply.status, data: { code: reply.code } },
+    })
+  }) as typeof api.post
+  const probe = await mount(true)
+  try {
+    for (let index = 0; index < replies.length; index += 1) {
+      await reconcilePurchase()
+      await settle(
+        () =>
+          attempts === index + 1 &&
+          !findButton('Resolve purchase and continue').disabled
+      )
+      assert.deepEqual(
+        JSON.parse(localStorage.getItem(recoveryKey(1)) ?? ''),
+        saved
+      )
+      assert.equal(findButton('Buy phone activation').disabled, true)
+    }
+  } finally {
+    await probe.close()
+  }
+})
