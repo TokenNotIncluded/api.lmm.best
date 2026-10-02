@@ -34,7 +34,7 @@ export async function listenCallback(
   issuer: string,
   state: string,
   signal: AbortSignal,
-  hostName = "Pi",
+  hostName = "the application",
 ): Promise<{
   redirectUri: string;
   code: Promise<string>;

@@ -8,6 +8,11 @@ exports.run = async () => {
     extension,
     "LMM extension is loaded in the actual VS Code extension host",
   );
+  assert.equal(extension.packageJSON.icon, "assets/icon.png");
+  const logo = await vscode.workspace.fs.readFile(
+    vscode.Uri.joinPath(extension.extensionUri, extension.packageJSON.icon),
+  );
+  assert.equal(Buffer.from(logo).subarray(1, 4).toString(), "PNG");
   await extension.activate();
   assert.ok(
     extension.isActive,
