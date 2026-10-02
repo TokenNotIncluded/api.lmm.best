@@ -122,8 +122,8 @@ func TestToolMarketDrawingExpiryReadsCommittedBillingMySQL(t *testing.T) {
 				}
 			}
 		} else if completeConnection.Load() != 0 && connection != completeConnection.Load() && expiryConnection.CompareAndSwap(0, connection) {
-			// marketCallTx's ordinary initial SELECT establishes the old RR
-			// snapshot before this transaction waits for the service lock.
+			// Observe marketCallTx's ordinary initial SELECT before this
+			// transaction waits for the service lock.
 			close(expirySnapshot)
 		}
 	}))
@@ -163,8 +163,8 @@ func TestToolMarketDrawingExpiryReadsCommittedBillingMySQL(t *testing.T) {
 	require.Eventually(t, func() bool {
 		var waiting int64
 		return db.Raw("SELECT COUNT(*) FROM information_schema.innodb_trx WHERE trx_mysql_thread_id = ? AND trx_state = 'LOCK WAIT'", expiryConnection.Load()).Scan(&waiting).Error == nil && waiting == 1
-	}, 5*time.Second, 10*time.Millisecond, "expiry must be blocked behind completion after its old snapshot exists")
-	t.Log("confirmed expiry's old snapshot and actual InnoDB LOCK WAIT before completing model billing")
+	}, 5*time.Second, 10*time.Millisecond, "expiry must be blocked behind completion after its initial read")
+	t.Log("confirmed expiry's initial read and actual InnoDB LOCK WAIT before completing model billing")
 	release()
 	require.NoError(t, <-completeDone)
 	require.NoError(t, <-expireDone)
