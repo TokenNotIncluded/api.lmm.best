@@ -47,7 +47,7 @@ export function VendorIconWall(props: VendorIconWallProps) {
 
   return (
     <section aria-label={t('Browse by vendor')} className='mb-8'>
-      <h2 className='text-muted-foreground mb-3 text-xs font-semibold tracking-wide uppercase'>
+      <h2 className='text-foreground mb-3 text-sm font-semibold'>
         {t('Browse by vendor')}
       </h2>
       <ul className='flex flex-wrap gap-2'>
@@ -57,7 +57,7 @@ export function VendorIconWall(props: VendorIconWallProps) {
             onClick={() => props.onVendorChange(FILTER_ALL)}
             aria-pressed={isAll}
             className={cn(
-              'inline-flex min-h-11 items-center gap-2 rounded-lg border px-3 text-sm transition-colors',
+              'focus-visible:ring-ring/50 inline-flex min-h-11 items-center gap-2 rounded-lg border px-3 text-sm transition-colors outline-none focus-visible:ring-2 motion-reduce:transition-none',
               isAll
                 ? 'border-primary/50 bg-primary/10 text-foreground'
                 : 'border-border/70 text-muted-foreground hover:border-border hover:bg-muted/50 hover:text-foreground'
@@ -78,17 +78,17 @@ export function VendorIconWall(props: VendorIconWallProps) {
                 aria-pressed={active}
                 title={t('{{count}} models', { count: vendor.modelCount })}
                 className={cn(
-                  'group inline-flex min-h-11 items-center gap-2 rounded-lg border px-3 text-sm transition-colors',
+                  'group focus-visible:ring-ring/50 inline-flex min-h-11 items-center gap-2 rounded-lg border px-3 text-sm transition-colors outline-none focus-visible:ring-2 motion-reduce:transition-none',
                   active
                     ? 'border-primary/50 bg-primary/10 text-foreground'
                     : 'border-border/70 text-muted-foreground hover:border-border hover:bg-muted/50 hover:text-foreground'
                 )}
               >
-                <span className='shrink-0 opacity-90 transition-transform group-hover:scale-110 motion-reduce:transform-none'>
+                <span className='shrink-0' aria-hidden='true'>
                   {vendor.icon ? getLobeIcon(vendor.icon, 18) : null}
                 </span>
                 <span className='max-w-[9rem] truncate'>{vendor.name}</span>
-                <span className='text-muted-foreground/70 font-mono text-[11px] tabular-nums'>
+                <span className='text-muted-foreground text-xs tabular-nums'>
                   {vendor.modelCount}
                 </span>
               </button>

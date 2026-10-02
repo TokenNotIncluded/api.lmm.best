@@ -227,7 +227,7 @@ function ConnectionWorkspace({
   }
 
   return (
-    <div className='space-y-6'>
+    <div className='space-y-8'>
       {(action.isError || readError) && (
         <div
           role='alert'
@@ -256,13 +256,15 @@ function ConnectionWorkspace({
           {m('saved')}
         </p>
       )}
-      <div className='grid items-start gap-6 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]'>
-        <section className='bg-card min-w-0 space-y-5 rounded-xl border p-5 sm:p-6'>
+      <div className='grid items-start gap-8 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]'>
+        <section className='bg-card min-w-0 space-y-5 rounded-xl border p-4 sm:p-6'>
           <div className='space-y-2'>
             <h3 className='text-lg font-semibold'>
               {t('Connect your MCP client')}
             </h3>
-            <p className='text-muted-foreground text-sm'>{m('summary')}</p>
+            <p className='text-muted-foreground max-w-[70ch] text-sm leading-6'>
+              {m('summary')}
+            </p>
           </div>
           <form
             onSubmit={(event) => {
@@ -277,14 +279,14 @@ function ConnectionWorkspace({
               })
             }}
           >
-            <FieldGroup>
+            <FieldGroup className='[&_input:not([type=checkbox])]:min-h-11'>
               <Field>
                 <FieldLabel htmlFor='mcp-client-profile'>
                   {m('clientProfile')}
                 </FieldLabel>
                 <select
                   id='mcp-client-profile'
-                  className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
+                  className='border-input bg-background focus-visible:ring-ring min-h-11 w-full rounded-md border px-3 text-base outline-none focus-visible:ring-2 sm:text-sm'
                   value={profile}
                   onChange={(event) => {
                     setProfile(event.target.value as MarketClientProfile)
@@ -322,7 +324,7 @@ function ConnectionWorkspace({
                 <legend className='mb-3 text-sm font-medium'>
                   {m('permissions')}
                 </legend>
-                <label className='flex cursor-pointer items-center gap-3 text-sm'>
+                <label className='focus-within:ring-ring flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-2 text-sm focus-within:ring-2'>
                   <input
                     type='checkbox'
                     className='accent-foreground size-4'
@@ -336,7 +338,7 @@ function ConnectionWorkspace({
                   />
                   {m('invoke')}
                 </label>
-                <label className='flex cursor-pointer items-center gap-3 text-sm'>
+                <label className='focus-within:ring-ring flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-2 text-sm focus-within:ring-2'>
                   <input
                     type='checkbox'
                     className='accent-foreground size-4'
@@ -358,7 +360,7 @@ function ConnectionWorkspace({
                 <FieldLabel htmlFor='mcp-expiry'>{m('expiry')}</FieldLabel>
                 <select
                   id='mcp-expiry'
-                  className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
+                  className='border-input bg-background focus-visible:ring-ring min-h-11 w-full rounded-md border px-3 text-base outline-none focus-visible:ring-2 sm:text-sm'
                   value={permissions.expires_in_days}
                   disabled={action.isPending}
                   onChange={(event) =>
@@ -382,6 +384,7 @@ function ConnectionWorkspace({
               )}
               <Button
                 type='submit'
+                className='min-h-11'
                 disabled={action.isPending || !validClient || !endpoint}
               >
                 {action.isPending
@@ -396,7 +399,7 @@ function ConnectionWorkspace({
               id='mcp-url'
               readOnly
               value={endpoint}
-              className='font-mono text-xs'
+              className='min-h-11 font-mono text-sm'
             />
           </Field>
           {issued && (
@@ -478,10 +481,14 @@ function ConnectionWorkspace({
           )}
           {preview && (
             <details className='text-sm'>
-              <summary className='cursor-pointer font-medium'>
+              <summary className='focus-visible:ring-ring w-fit cursor-pointer rounded-sm py-2 font-medium outline-none focus-visible:ring-2'>
                 {m('preview')}
               </summary>
-              <pre className='bg-muted mt-3 overflow-x-auto rounded-lg p-4 text-xs'>
+              <pre
+                className='bg-muted mt-3 overflow-x-auto rounded-lg p-4 text-xs leading-5'
+                tabIndex={0}
+                aria-label={m('preview')}
+              >
                 {preview}
               </pre>
             </details>
@@ -519,10 +526,12 @@ function ConnectionWorkspace({
             return (
               <article
                 key={id}
-                className='bg-card space-y-4 rounded-xl border p-5'
+                className='bg-card min-w-0 space-y-4 rounded-xl border p-4 sm:p-5'
               >
                 <div className='flex flex-wrap items-start justify-between gap-3'>
-                  <h4 className='min-w-0 font-semibold break-all'>{id}</h4>
+                  <h4 className='min-w-0 flex-1 basis-40 font-semibold break-all'>
+                    {id}
+                  </h4>
                   {onChooseClient && (
                     <Button
                       variant='outline'
@@ -598,7 +607,7 @@ function ConnectionWorkspace({
                 {(group.installations.length > 0 ||
                   group.grants.length > 0) && (
                   <details className='border-t pt-3 text-sm'>
-                    <summary className='cursor-pointer font-medium'>
+                    <summary className='focus-visible:ring-ring cursor-pointer rounded-sm py-2 font-medium outline-none focus-visible:ring-2'>
                       {t('Loaded tools and authorizations')}
                     </summary>
                     <div className='mt-3 space-y-4'>
@@ -683,17 +692,17 @@ function ConnectionWorkspace({
         </section>
       </div>
 
-      <section className='bg-card space-y-5 rounded-xl border p-5 sm:p-6'>
+      <section className='min-w-0 space-y-5 border-t pt-6'>
         <div className='space-y-2'>
           <h3 className='text-lg font-semibold'>{t('Spending budgets')}</h3>
-          <p className='text-muted-foreground max-w-3xl text-sm'>
+          <p className='text-muted-foreground max-w-[70ch] text-sm leading-6'>
             {t(
               'Budgets include reserved and spent credits. These are cumulative limits; changing them does not reset usage.'
             )}
           </p>
         </div>
         <form
-          className='grid items-end gap-4 sm:grid-cols-2 xl:grid-cols-4'
+          className='grid items-end gap-4 sm:grid-cols-2 xl:grid-cols-4 [&_input]:min-h-11'
           onSubmit={(event) => {
             event.preventDefault()
             if (
@@ -717,7 +726,7 @@ function ConnectionWorkspace({
             <FieldLabel htmlFor='budget-scope'>{t('Budget scope')}</FieldLabel>
             <select
               id='budget-scope'
-              className='border-input bg-background h-9 rounded-md border px-3 text-sm'
+              className='border-input bg-background focus-visible:ring-ring min-h-11 w-full rounded-md border px-3 text-base outline-none focus-visible:ring-2 sm:text-sm'
               value={scope}
               onChange={(event) => {
                 setScope(event.target.value)
@@ -758,6 +767,7 @@ function ConnectionWorkspace({
           </Field>
           <Button
             type='submit'
+            className='min-h-11'
             disabled={
               action.isPending ||
               !budgets.isSuccess ||
@@ -782,7 +792,7 @@ function ConnectionWorkspace({
             return (
               <div
                 key={`${budget.scope}:${budget.scope_id}`}
-                className='space-y-3 rounded-lg border p-4 text-sm'
+                className='bg-muted/40 min-w-0 space-y-3 rounded-lg p-4 text-sm'
               >
                 <div className='flex items-start justify-between gap-3'>
                   <p className='min-w-0 font-medium break-all'>

@@ -52,11 +52,7 @@ function getVendorSectionId(name: string, index: number) {
   return `vendor-section-${index}-${slug}`
 }
 
-/**
- * gpt.ge-style model square body: models grouped by vendor, each group led
- * by a soft translucent header card (vendor mark, name, count) and followed
- * by a responsive card grid.
- */
+/** Vendor headings keep related models together in the comparison grid. */
 export function VendorModelSections(props: VendorModelSectionProps) {
   const { t } = useTranslation()
 
@@ -81,15 +77,15 @@ export function VendorModelSections(props: VendorModelSectionProps) {
   if (groups.length === 0) return null
 
   return (
-    <div className='min-w-0 space-y-10'>
+    <div className='min-w-0 space-y-12'>
       {groups.map((group, index) => {
         const vendorIcon = group.icon ? getLobeIcon(group.icon, 28) : null
         const headingId = getVendorSectionId(group.name, index)
         return (
           <section key={group.name} aria-labelledby={headingId}>
-            <div className='bg-card/20 border-border/40 mb-4 flex min-h-16 gap-3 rounded-xl border p-3 max-md:flex-col md:items-center'>
-              <div className='flex flex-1 items-center gap-3'>
-                <div className='bg-muted flex size-11 shrink-0 items-center justify-center rounded-xl'>
+            <div className='mb-4 flex min-h-16 gap-3 rounded-xl'>
+              <div className='flex min-w-0 flex-1 items-center gap-3'>
+                <div className='flex size-10 shrink-0 items-center justify-center'>
                   {vendorIcon ?? (
                     <span
                       className='bg-foreground/90 text-primary-foreground flex size-6 items-center justify-center rounded-full text-[0.75em] font-semibold'
@@ -103,7 +99,7 @@ export function VendorModelSections(props: VendorModelSectionProps) {
                   <div className='flex flex-wrap items-center gap-2'>
                     <h2
                       id={headingId}
-                      className='text-foreground truncate text-base font-semibold'
+                      className='text-foreground text-lg font-semibold wrap-anywhere'
                     >
                       {group.name}
                     </h2>

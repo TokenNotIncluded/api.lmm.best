@@ -25,7 +25,6 @@ import {
   sideDrawerFormClassName,
   sideDrawerHeaderClassName,
 } from '@/components/drawer-layout'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -117,15 +116,16 @@ function SegmentedControl(props: {
             type='button'
             onClick={() => props.onChange(option.value)}
             aria-pressed={isActive}
+            aria-label={option.tooltip || option.label}
             className={cn(
-              'inline-flex h-full items-center justify-center rounded-md text-xs font-medium transition-all',
+              'focus-visible:ring-ring/50 inline-flex h-full items-center justify-center rounded-md text-xs font-medium transition-colors outline-none focus-visible:ring-2 motion-reduce:transition-none',
               Icon && !option.label ? 'w-11 sm:w-7' : 'gap-1.5 px-3',
               isActive
                 ? 'bg-primary text-primary-foreground'
                 : 'text-muted-foreground hover:text-foreground'
             )}
           >
-            {Icon && <Icon className='size-3.5' />}
+            {Icon && <Icon className='size-3.5' aria-hidden='true' />}
             {option.label}
           </button>
         )
@@ -169,7 +169,7 @@ export function PricingToolbar(props: PricingToolbarProps) {
 
   return (
     <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
-      <div className='rounded-xl border p-3'>
+      <div>
         <div className='flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between'>
           <div className='flex items-center gap-2'>
             <SheetTrigger
@@ -199,7 +199,7 @@ export function PricingToolbar(props: PricingToolbarProps) {
                 {props.filteredCount === 1 ? t('model') : t('models')}
               </span>
               {props.hasActiveFilters && props.totalCount && (
-                <span className='text-muted-foreground/60 text-xs'>
+                <span className='text-muted-foreground text-xs'>
                   / {props.totalCount.toLocaleString()}
                 </span>
               )}
@@ -284,15 +284,11 @@ export function PricingToolbar(props: PricingToolbarProps) {
         </div>
       </div>
 
-      <Alert role='note'>
-        <AlertDescription>
-          <p>
-            {t(
-              'No group selected shows starting prices. Checkout confirms the final amount.'
-            )}
-          </p>
-        </AlertDescription>
-      </Alert>
+      <p role='note' className='text-muted-foreground text-xs leading-5'>
+        {t(
+          'No group selected shows starting prices. Checkout confirms the final amount.'
+        )}
+      </p>
 
       <SheetContent
         side='right'

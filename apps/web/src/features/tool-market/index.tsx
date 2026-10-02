@@ -12,6 +12,7 @@ import {
   PackageSearch,
   PackageX,
   PauseCircle,
+  Search,
   Store,
   XCircle,
 } from 'lucide-react'
@@ -33,6 +34,7 @@ import {
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { useAuthStore } from '@/stores/auth-store'
@@ -283,19 +285,19 @@ function ToolMarketWorkspace() {
     chooseTab('market')
   }
   const browse = (items: MarketSummary[]) => (
-    <div className='divide-border divide-y'>
+    <div className='divide-border divide-y border-y'>
       {items.map((item) => (
         <button
           type='button'
           key={item.id}
-          className='hover:bg-muted/40 focus-visible:ring-ring group flex w-full flex-col items-start justify-between gap-3 rounded-sm px-2 py-5 text-left transition-colors outline-none focus-visible:ring-2 motion-safe:active:scale-[0.995] sm:flex-row sm:gap-4'
+          className='hover:bg-muted/40 focus-visible:ring-ring group grid w-full min-w-0 gap-3 px-3 py-5 text-left transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset sm:grid-cols-[minmax(0,1fr)_minmax(10rem,16rem)] sm:items-center sm:gap-6 sm:px-4'
           onClick={() => setSelected({ id: item.id, mode: 'published' })}
         >
           <span className='min-w-0'>
-            <strong className='block break-words group-hover:underline'>
+            <strong className='block text-base font-semibold break-words group-hover:underline group-hover:underline-offset-4'>
               {item.name}
             </strong>
-            <span className='text-muted-foreground mt-1 line-clamp-2 block max-w-3xl text-sm'>
+            <span className='text-muted-foreground mt-1.5 line-clamp-2 block max-w-[70ch] text-sm leading-6 break-words'>
               {item.description}
             </span>
             <span className='text-muted-foreground mt-2 block text-xs'>
@@ -304,36 +306,38 @@ function ToolMarketWorkspace() {
                 : t('Provider account {{id}}', { id: item.owner_id })}
             </span>
           </span>
-          <span className='flex shrink-0 items-center gap-2'>
-            <Badge variant='outline'>
-              {item.execution_type === 'builtin'
-                ? t('Free tool calls')
-                : item.execution_type === 'remote'
-                  ? 'Remote MCP'
-                  : 'Serverless MCP'}
-            </Badge>
-            {item.tool_count !== undefined && (
-              <span className='text-muted-foreground text-xs'>
-                {t('{{count}} tools', { count: item.tool_count })}
-              </span>
-            )}
-            {item.execution_type !== 'builtin' &&
-              item.min_price_quota !== undefined &&
-              item.max_price_quota !== undefined && (
-                <span className='text-muted-foreground text-xs'>
-                  {item.max_price_quota === 0
-                    ? t('Free tool')
-                    : t('{{amount}} credits per successful call', {
-                        amount:
-                          item.min_price_quota === item.max_price_quota
-                            ? creditAmount(item.min_price_quota, units)
-                            : `${creditAmount(item.min_price_quota, units)} – ${creditAmount(item.max_price_quota, units)}`,
-                      })}
+          <span className='flex min-w-0 items-center justify-between gap-3 sm:justify-end'>
+            <span className='flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 sm:justify-end'>
+              <Badge variant='outline' className='max-w-full whitespace-normal'>
+                {item.execution_type === 'builtin'
+                  ? t('Free tool calls')
+                  : item.execution_type === 'remote'
+                    ? 'Remote MCP'
+                    : 'Serverless MCP'}
+              </Badge>
+              {item.tool_count !== undefined && (
+                <span className='text-muted-foreground text-xs tabular-nums'>
+                  {t('{{count}} tools', { count: item.tool_count })}
                 </span>
               )}
+              {item.execution_type !== 'builtin' &&
+                item.min_price_quota !== undefined &&
+                item.max_price_quota !== undefined && (
+                  <span className='basis-full text-sm font-medium break-words tabular-nums sm:text-right'>
+                    {item.max_price_quota === 0
+                      ? t('Free tool')
+                      : t('{{amount}} credits per successful call', {
+                          amount:
+                            item.min_price_quota === item.max_price_quota
+                              ? creditAmount(item.min_price_quota, units)
+                              : `${creditAmount(item.min_price_quota, units)} – ${creditAmount(item.max_price_quota, units)}`,
+                        })}
+                  </span>
+                )}
+            </span>
             <ChevronRight
               aria-hidden='true'
-              className='text-muted-foreground size-4 transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none'
+              className='text-muted-foreground size-4 shrink-0 transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none'
             />
           </span>
         </button>
@@ -344,19 +348,24 @@ function ToolMarketWorkspace() {
     <SectionPageLayout>
       <SectionPageLayout.Title>{t('Tool market')}</SectionPageLayout.Title>
       <SectionPageLayout.Actions>
-        <Button variant='outline' onClick={() => chooseTab('connections')}>
+        <Button
+          variant='outline'
+          className='min-h-11'
+          onClick={() => chooseTab('connections')}
+        >
           {t('Connect MCP')}
         </Button>
         <Button
           variant={selected || editor ? 'outline' : 'default'}
+          className='min-h-11'
           onClick={openPublisher}
         >
           {t('Publish a tool')}
         </Button>
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
-        <div className='space-y-6'>
-          <p className='text-muted-foreground max-w-3xl text-sm'>
+        <div className='mx-auto w-full max-w-6xl space-y-6'>
+          <p className='text-muted-foreground max-w-[70ch] text-sm leading-6'>
             {t(
               'Discover MCP tools, choose what each client can use, and pay only for successful calls.'
             )}
@@ -407,8 +416,8 @@ function ToolMarketWorkspace() {
               value={tab}
               onValueChange={(value) => chooseTab(String(value))}
             >
-              <div className='max-w-full overflow-x-auto'>
-                <TabsList variant='line'>
+              <div className='max-w-full overflow-x-auto border-b pb-1'>
+                <TabsList variant='line' className='min-h-11'>
                   <TabsTrigger value='market'>{t('Discover')}</TabsTrigger>
                   <TabsTrigger value='mine'>{t('My publications')}</TabsTrigger>
                   <TabsTrigger value='connections'>
@@ -444,11 +453,11 @@ function ToolMarketWorkspace() {
                   {current && (
                     <>
                       <div className='flex flex-wrap items-start justify-between gap-4'>
-                        <div className='min-w-0 space-y-2'>
+                        <div className='min-w-0 flex-1 basis-64 space-y-2'>
                           <h3 className='text-xl font-semibold break-words'>
                             {current.version.name}
                           </h3>
-                          <p className='text-muted-foreground max-w-3xl text-sm whitespace-pre-wrap'>
+                          <p className='text-muted-foreground max-w-[70ch] text-sm leading-6 break-words whitespace-pre-wrap'>
                             {current.version.description}
                           </p>
                           <p className='text-muted-foreground text-xs'>
@@ -464,7 +473,7 @@ function ToolMarketWorkspace() {
                           {marketStatus(current.version.status, t)}
                         </Badge>
                       </div>
-                      <dl className='grid gap-3 text-sm sm:grid-cols-2'>
+                      <dl className='bg-muted/40 grid gap-4 rounded-lg p-4 text-sm sm:grid-cols-2'>
                         <div>
                           <dt className='text-muted-foreground'>
                             {t('Data recipient')}
@@ -502,7 +511,7 @@ function ToolMarketWorkspace() {
                             <select
                               id='market-active-client'
                               value={client}
-                              className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
+                              className='border-input bg-background focus-visible:ring-ring min-h-11 w-full rounded-md border px-3 text-base outline-none focus-visible:ring-2 sm:text-sm'
                               onChange={(e) => setClient(e.target.value)}
                             >
                               {clients.map((id) => (
@@ -763,14 +772,14 @@ function ToolMarketWorkspace() {
                         return (
                           <article
                             key={tool.tool_id}
-                            className='space-y-3 border-b pb-5'
+                            className='min-w-0 space-y-3 border-b py-5 first:pt-0'
                             data-tool-version={tool.version_id}
                           >
                             <div className='flex flex-wrap justify-between gap-3'>
-                              <h4 className='font-semibold break-all'>
+                              <h4 className='min-w-0 flex-1 basis-48 font-semibold break-all'>
                                 {tool.name}
                               </h4>
-                              <p className='text-sm tabular-nums'>
+                              <p className='text-sm font-medium tabular-nums'>
                                 {tool.price_quota === 0
                                   ? t('Free tool')
                                   : t(
@@ -784,7 +793,7 @@ function ToolMarketWorkspace() {
                                     )}
                               </p>
                             </div>
-                            <p className='text-muted-foreground text-sm whitespace-pre-wrap'>
+                            <p className='text-muted-foreground max-w-[70ch] text-sm leading-6 break-words whitespace-pre-wrap'>
                               {tool.description}
                             </p>
                             <p className='text-muted-foreground text-xs break-words'>
@@ -792,10 +801,14 @@ function ToolMarketWorkspace() {
                               {marketPermissionList(tool.permissions, t)}
                             </p>
                             <details className='text-sm'>
-                              <summary className='cursor-pointer'>
+                              <summary className='focus-visible:ring-ring w-fit cursor-pointer rounded-sm py-2 font-medium outline-none focus-visible:ring-2'>
                                 {t('Parameter schema')}
                               </summary>
-                              <pre className='bg-muted mt-2 max-h-56 overflow-auto p-3 text-xs'>
+                              <pre
+                                className='bg-muted mt-2 max-h-56 overflow-auto rounded-lg p-3 text-xs leading-5'
+                                tabIndex={0}
+                                aria-label={t('Parameter schema')}
+                              >
                                 {tool.input_schema}
                               </pre>
                             </details>
@@ -894,27 +907,72 @@ function ToolMarketWorkspace() {
                 </section>
               ) : (
                 <>
-                  <TabsContent value='market' className='space-y-4 pt-4'>
-                    <Field className='max-w-md'>
-                      <FieldLabel htmlFor='market-catalog-client'>
-                        {t('Client ID')}
-                      </FieldLabel>
-                      <select
-                        id='market-catalog-client'
-                        className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
-                        value={client}
-                        onChange={(event) => setClient(event.target.value)}
+                  <TabsContent value='market' className='space-y-5 pt-4'>
+                    <div className='grid items-end gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]'>
+                      <form
+                        className='min-w-0'
+                        onSubmit={(e) => {
+                          e.preventDefault()
+                          setSearch(searchInput)
+                          setOffset(0)
+                        }}
                       >
-                        {clients.map((id) => (
-                          <option key={id} value={id}>
-                            {id === 'web-market' ? t('This browser') : id}
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
-                    <div className='flex flex-wrap gap-2'>
+                        <Field>
+                          <FieldLabel htmlFor='market-search'>
+                            {t('Search tools')}
+                          </FieldLabel>
+                          <div className='flex gap-2'>
+                            <div className='relative min-w-0 flex-1'>
+                              <Search
+                                aria-hidden='true'
+                                className='text-muted-foreground pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2'
+                              />
+                              <Input
+                                id='market-search'
+                                placeholder={t('Search tools')}
+                                value={searchInput}
+                                maxLength={120}
+                                className='min-h-11 ps-9 text-base sm:text-sm'
+                                onChange={(e) => setSearchInput(e.target.value)}
+                              />
+                            </div>
+                            <Button
+                              variant='outline'
+                              type='submit'
+                              className='min-h-11'
+                            >
+                              {t('Search')}
+                            </Button>
+                          </div>
+                        </Field>
+                      </form>
+                      <Field>
+                        <FieldLabel htmlFor='market-catalog-client'>
+                          {t('Client ID')}
+                        </FieldLabel>
+                        <select
+                          id='market-catalog-client'
+                          className='border-input bg-background focus-visible:ring-ring min-h-11 w-full rounded-md border px-3 text-base outline-none focus-visible:ring-2 sm:text-sm'
+                          value={client}
+                          onChange={(event) => setClient(event.target.value)}
+                        >
+                          {clients.map((id) => (
+                            <option key={id} value={id}>
+                              {id === 'web-market' ? t('This browser') : id}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                    </div>
+                    <div
+                      className='flex flex-wrap items-center gap-2'
+                      role='group'
+                      aria-label={t('All tools')}
+                    >
                       <Button
                         variant={executionType === '' ? 'secondary' : 'outline'}
+                        aria-pressed={executionType === ''}
+                        className='min-h-11'
                         onClick={() => {
                           setExecutionType('')
                           setOffset(0)
@@ -926,6 +984,8 @@ function ToolMarketWorkspace() {
                         variant={
                           executionType === 'builtin' ? 'secondary' : 'outline'
                         }
+                        aria-pressed={executionType === 'builtin'}
+                        className='min-h-11'
                         onClick={() => {
                           setExecutionType('builtin')
                           setOffset(0)
@@ -937,6 +997,8 @@ function ToolMarketWorkspace() {
                         variant={
                           executionType === 'remote' ? 'secondary' : 'outline'
                         }
+                        aria-pressed={executionType === 'remote'}
+                        className='min-h-11'
                         onClick={() => {
                           setExecutionType('remote')
                           setOffset(0)
@@ -944,37 +1006,57 @@ function ToolMarketWorkspace() {
                       >
                         {t('Remote MCP')}
                       </Button>
+                      {(search || executionType) && (
+                        <Button
+                          variant='ghost'
+                          className='min-h-11'
+                          onClick={() => {
+                            setSearch('')
+                            setSearchInput('')
+                            setExecutionType('')
+                            setOffset(0)
+                          }}
+                        >
+                          {t('Clear filters')}
+                        </Button>
+                      )}
                     </div>
-                    <form
-                      className='flex gap-2'
-                      onSubmit={(e) => {
-                        e.preventDefault()
-                        setSearch(searchInput)
-                        setOffset(0)
-                      }}
-                    >
-                      <Input
-                        aria-label={t('Search tools')}
-                        placeholder={t('Search tools')}
-                        value={searchInput}
-                        maxLength={120}
-                        onChange={(e) => setSearchInput(e.target.value)}
-                      />
-                      <Button variant='outline' type='submit'>
-                        {t('Search')}
-                      </Button>
-                    </form>
-                    {catalog.isPending && <p role='status'>{t('Loading…')}</p>}
+                    {catalog.isPending && (
+                      <div
+                        role='status'
+                        className='divide-border divide-y border-y'
+                      >
+                        <span className='sr-only'>{t('Loading…')}</span>
+                        {[0, 1, 2].map((row) => (
+                          <div
+                            key={row}
+                            aria-hidden='true'
+                            className='space-y-3 px-3 py-5 sm:px-4'
+                          >
+                            <Skeleton className='h-5 w-40 rounded-sm' />
+                            <Skeleton className='h-4 w-full max-w-xl rounded-sm' />
+                            <Skeleton className='h-3 w-24 rounded-sm' />
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     {catalog.isError && (
-                      <p role='alert'>
-                        {t('Could not load tools.')}{' '}
+                      <div
+                        role='alert'
+                        className='bg-muted/40 flex flex-wrap items-center gap-3 rounded-lg p-4 text-sm'
+                      >
+                        <XCircle
+                          aria-hidden='true'
+                          className='text-destructive size-4 shrink-0'
+                        />
+                        <p className='flex-1'>{t('Could not load tools.')}</p>
                         <Button
                           variant='outline'
                           onClick={() => void catalog.refetch()}
                         >
                           {t('Retry')}
                         </Button>
-                      </p>
+                      </div>
                     )}
                     {catalog.data?.length === 0 && (
                       <Empty className='px-3 py-10'>
@@ -999,22 +1081,25 @@ function ToolMarketWorkspace() {
                           <Button
                             variant='outline'
                             onClick={
-                              search
+                              search || executionType
                                 ? () => {
                                     setSearch('')
                                     setSearchInput('')
+                                    setExecutionType('')
                                     setOffset(0)
                                   }
                                 : openPublisher
                             }
                           >
-                            {search ? t('Clear filters') : t('Publish a tool')}
+                            {search || executionType
+                              ? t('Clear filters')
+                              : t('Publish a tool')}
                           </Button>
                         </EmptyContent>
                       </Empty>
                     )}
-                    {catalog.data && browse(catalog.data)}
-                    <div className='flex justify-end gap-2'>
+                    {!!catalog.data?.length && browse(catalog.data)}
+                    <div className='flex justify-between gap-2 sm:justify-end'>
                       <Button
                         variant='outline'
                         disabled={offset === 0}
@@ -1032,13 +1117,20 @@ function ToolMarketWorkspace() {
                     </div>
                     {!!favorites.data?.length && (
                       <>
-                        <h3 className='font-semibold'>{t('Favorites')}</h3>
+                        <h3 className='pt-4 font-semibold'>{t('Favorites')}</h3>
                         {browse(favorites.data)}
                       </>
                     )}
                   </TabsContent>
                   <TabsContent value='mine' className='space-y-4 pt-4'>
-                    {mine.isPending && <p>{t('Loading…')}</p>}
+                    {mine.isPending && (
+                      <p
+                        role='status'
+                        className='text-muted-foreground py-6 text-sm'
+                      >
+                        {t('Loading…')}
+                      </p>
+                    )}
                     {mine.isError && (
                       <div
                         role='alert'
@@ -1077,9 +1169,9 @@ function ToolMarketWorkspace() {
                     {mine.data?.map((item) => (
                       <div
                         key={item.id}
-                        className='flex flex-wrap items-center justify-between gap-3 border-b py-4'
+                        className='flex flex-wrap items-center justify-between gap-4 border-b py-5'
                       >
-                        <div className='min-w-0'>
+                        <div className='min-w-0 flex-1 basis-48 space-y-1.5'>
                           <p className='font-medium break-all'>
                             {item.name || item.id}
                           </p>
@@ -1088,7 +1180,7 @@ function ToolMarketWorkspace() {
                             {marketStatus(item.status, t)}
                           </p>
                         </div>
-                        <div className='flex gap-2'>
+                        <div className='flex flex-wrap gap-2'>
                           {item.draft_version_id && (
                             <Button
                               variant='outline'

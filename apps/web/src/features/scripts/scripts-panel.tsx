@@ -15,6 +15,7 @@ import {
   GitBranch,
   KeyRound,
   RefreshCw,
+  AlertCircle,
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -22,8 +23,16 @@ import { toast } from 'sonner'
 
 import { SectionPageLayout } from '@/components/layout/components/section-page-layout'
 import { Button } from '@/components/ui/button'
+import {
+  Empty,
+  EmptyContent,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@/components/ui/empty'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Skeleton } from '@/components/ui/skeleton'
 import { REPOSITORIES, repositoryUrl } from '@/features/repositories/api'
 import { RepositoryLink } from '@/features/repositories/repository-link'
 import { SettingsSection } from '@/features/system-settings/components/settings-section'
@@ -127,25 +136,42 @@ function PublicScriptSource({ script }: { script: ScriptMeta }) {
       className='border-border/70 border-t'
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
-      <summary className='hover:bg-muted/50 cursor-pointer px-4 py-3 text-sm font-medium'>
-        {script.name}
+      <summary className='hover:bg-muted/50 focus-visible:ring-ring cursor-pointer px-4 py-4 text-sm font-medium break-all outline-none focus-visible:ring-2 focus-visible:ring-inset sm:px-5'>
+        <span className='ms-1 inline-flex items-center gap-2'>
+          <FileCode2
+            aria-hidden='true'
+            className='text-muted-foreground size-4 shrink-0'
+          />
+          {script.name}
+        </span>
       </summary>
       {open && (
-        <div className='space-y-3 px-4 pb-4'>
+        <div className='min-w-0 space-y-3 px-4 pb-4 sm:px-5 sm:pb-5'>
           <a
             href={scriptUrl(script.name)}
             download={script.name}
-            className='text-primary text-sm underline underline-offset-4'
+            className='text-primary focus-visible:ring-ring inline-flex min-h-11 items-center rounded-sm text-sm underline underline-offset-4 outline-none focus-visible:ring-2'
           >
             {t('Download')}
           </a>
           {source.isError ? (
-            <p role='alert' className='text-destructive text-sm'>
-              {t('Unable to load script')}
-            </p>
+            <div
+              role='alert'
+              className='flex flex-wrap items-center justify-between gap-3 text-sm'
+            >
+              <p className='text-destructive'>{t('Unable to load script')}</p>
+              <Button
+                type='button'
+                variant='outline'
+                className='min-h-11'
+                onClick={() => void source.refetch()}
+              >
+                {t('Retry')}
+              </Button>
+            </div>
           ) : (
             <pre
-              className='bg-muted max-h-96 overflow-auto rounded-lg p-3 text-xs'
+              className='bg-muted focus-visible:ring-ring max-h-96 overflow-auto rounded-lg p-4 text-xs leading-5 outline-none focus-visible:ring-2'
               tabIndex={0}
               aria-label={script.name}
             >
@@ -195,36 +221,50 @@ export function PublicScriptsPanel({
   if (scripts.isError) {
     if (!fullPage) return null
     return (
-      <div
-        role='alert'
-        className='border-destructive/40 text-destructive border border-dashed p-8 text-sm'
-      >
-        <div className='flex flex-wrap items-center justify-between gap-3'>
-          <span>{t('Unable to load scripts')}</span>
+      <Empty role='alert' className='border-border/70 border py-12'>
+        <EmptyHeader>
+          <EmptyMedia variant='icon'>
+            <AlertCircle aria-hidden='true' />
+          </EmptyMedia>
+          <EmptyTitle>{t('Unable to load scripts')}</EmptyTitle>
+        </EmptyHeader>
+        <EmptyContent>
           <Button
             type='button'
-            size='sm'
+            className='min-h-11'
             variant='outline'
             onClick={() => void scripts.refetch()}
           >
             {t('Retry')}
           </Button>
-        </div>
-      </div>
+        </EmptyContent>
+      </Empty>
     )
   }
   if (!scripts.data?.length) {
     if (!fullPage) return null
-    return (
-      <div className='border-border/70 text-muted-foreground border border-dashed p-8 text-sm'>
-        {scripts.isLoading ? t('Loading...') : t('No scripts published yet')}
+    return scripts.isLoading ? (
+      <div role='status' className='space-y-5 rounded-xl border p-4 sm:p-5'>
+        <span className='sr-only'>{t('Loading...')}</span>
+        <Skeleton className='h-6 w-40 rounded-sm' aria-hidden='true' />
+        <Skeleton className='h-16 w-full rounded-lg' aria-hidden='true' />
+        <Skeleton className='h-4 w-24 rounded-sm' aria-hidden='true' />
       </div>
+    ) : (
+      <Empty className='border-border/70 border py-12'>
+        <EmptyHeader>
+          <EmptyMedia variant='icon'>
+            <FileCode2 aria-hidden='true' />
+          </EmptyMedia>
+          <EmptyTitle>{t('No scripts published yet')}</EmptyTitle>
+        </EmptyHeader>
+      </Empty>
     )
   }
   return (
-    <div className={fullPage ? 'space-y-3' : 'space-y-2'}>
+    <div className={fullPage ? 'space-y-4' : 'space-y-3'}>
       {fullPage && (
-        <p className='text-muted-foreground mb-4 text-sm'>
+        <p className='text-muted-foreground text-sm leading-6'>
           {t('Pick your system, then copy one command.')}
         </p>
       )}
@@ -246,7 +286,7 @@ export function PublicScriptsPanel({
             aria-pressed={platform === value}
             onClick={() => setPicked(value)}
             className={cn(
-              'min-h-11 rounded-lg border px-3.5 text-sm font-medium transition-colors',
+              'focus-visible:ring-ring min-h-11 rounded-lg border px-3.5 text-sm font-medium transition-colors outline-none focus-visible:ring-2 motion-reduce:transition-none',
               platform === value
                 ? 'border-primary/50 bg-primary/10 text-foreground'
                 : 'border-border/70 text-muted-foreground hover:bg-muted/50 hover:text-foreground'
@@ -254,7 +294,7 @@ export function PublicScriptsPanel({
           >
             {label}
             {value === detected && picked === null && (
-              <span className='text-muted-foreground/70 ml-1.5 text-[10px] font-normal'>
+              <span className='text-muted-foreground ms-1.5 text-xs font-normal'>
                 {t('detected')}
               </span>
             )}
@@ -267,37 +307,38 @@ export function PublicScriptsPanel({
         return (
           <section
             key={script.name}
-            className='border-border/70 space-y-3 rounded-xl border p-4 sm:p-5'
+            className={cn(
+              'border-border/70 min-w-0 space-y-4 rounded-xl border p-4 sm:p-5',
+              index === 0 && 'bg-muted/40'
+            )}
           >
-            <div className='flex items-center justify-between gap-3'>
-              <h2 className='font-medium'>
-                {index === 0
-                  ? t('Start here')
-                  : platform === 'windows'
-                    ? 'Windows · PowerShell'
-                    : 'Linux / macOS · Bash'}
+            <div className='flex flex-wrap items-center justify-between gap-3'>
+              <h2 className='min-w-0 flex-1 basis-40 text-base font-semibold break-all'>
+                {index === 0 ? t('Start here') : script.name}
               </h2>
               <Button
                 type='button'
+                className='min-h-11'
                 variant={index === 0 ? 'default' : 'outline'}
                 onClick={() => void copyCommand(script.name, platform)}
               >
                 {copied === id ? (
-                  <Check className='me-2 size-4' />
+                  <Check aria-hidden='true' className='me-2 size-4' />
                 ) : (
-                  <Copy className='me-2 size-4' />
+                  <Copy aria-hidden='true' className='me-2 size-4' />
                 )}
                 {copied === id ? t('Copied') : t('Copy command')}
               </Button>
             </div>
             <pre
-              className='bg-muted overflow-x-auto rounded-lg p-3 text-sm break-all whitespace-pre-wrap'
+              className='bg-muted focus-visible:ring-ring overflow-x-auto rounded-lg p-4 text-sm leading-6 break-all whitespace-pre-wrap outline-none focus-visible:ring-2'
               tabIndex={0}
+              aria-label={script.name}
             >
               <code>{commandFor(script.name, platform)}</code>
             </pre>
             <a
-              className='text-muted-foreground text-xs underline underline-offset-4'
+              className='text-muted-foreground focus-visible:ring-ring inline-flex min-h-9 items-center rounded-sm text-xs break-all underline underline-offset-4 outline-none focus-visible:ring-2'
               href={scriptUrl(script.name)}
             >
               {script.name}
@@ -305,8 +346,8 @@ export function PublicScriptsPanel({
           </section>
         )
       })}
-      <details className='border-border/70 rounded-xl border'>
-        <summary className='hover:bg-muted/50 cursor-pointer p-4 text-sm font-medium'>
+      <details className='border-border/70 min-w-0 rounded-xl border'>
+        <summary className='hover:bg-muted/50 focus-visible:ring-ring cursor-pointer p-4 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-inset sm:p-5'>
           {t('Scripts')} ({scripts.data?.length ?? 0})
         </summary>
         {scripts.data?.map((script) => (
@@ -320,26 +361,24 @@ export function PublicScriptsPanel({
 export function PublicScriptsPage() {
   const { t } = useTranslation()
   return (
-    <main className='min-h-screen px-5 pt-12 pb-20 md:px-10 md:pt-16'>
-      <div className='mx-auto w-full max-w-5xl'>
+    <main className='min-h-screen px-4 pt-10 pb-20 sm:px-6 md:px-10 md:pt-16'>
+      <div className='mx-auto w-full max-w-4xl'>
         <div className='mb-8'>
           <h1 className='text-3xl font-semibold tracking-tight'>
             {t('Public scripts')}
           </h1>
-          <p className='text-muted-foreground mt-2 max-w-2xl text-sm'>
+          <p className='text-muted-foreground mt-3 max-w-[70ch] text-sm leading-6'>
             {t(
               'Browse maintained setup scripts and copy the command for your system.'
             )}
           </p>
         </div>
-        <div className='mb-8'>
-          <BookmarkletInstall />
-        </div>
-        <div className='mb-8 flex flex-wrap items-center justify-between gap-4 border-y py-5'>
-          <div>
+        <PublicScriptsPanel fullPage />
+        <div className='mt-10 flex flex-wrap items-center justify-between gap-4 border-y py-5'>
+          <div className='min-w-0 flex-1 basis-64'>
             <p className='text-sm font-medium'>{t('Script repository')}</p>
             <a
-              className='text-muted-foreground text-sm break-all underline underline-offset-4'
+              className='text-muted-foreground focus-visible:ring-ring mt-1 inline-block rounded-sm text-sm break-all underline underline-offset-4 outline-none focus-visible:ring-2'
               href={repositoryUrl('scripts')}
               target='_blank'
               rel='noopener noreferrer'
@@ -349,7 +388,9 @@ export function PublicScriptsPage() {
           </div>
           <RepositoryLink kind='scripts' />
         </div>
-        <PublicScriptsPanel fullPage />
+        <div className='mt-8'>
+          <BookmarkletInstall />
+        </div>
       </div>
     </main>
   )
@@ -365,17 +406,17 @@ export function ConsoleScriptsPage() {
         <RepositoryLink kind='scripts' />
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
-        <div className='mx-auto w-full max-w-5xl space-y-6'>
-          <BookmarkletInstall />
-          <p className='text-muted-foreground max-w-2xl text-sm'>
+        <div className='mx-auto w-full max-w-4xl space-y-6'>
+          <p className='text-muted-foreground max-w-[70ch] text-sm leading-6'>
             {t(
               'Browse maintained setup scripts and copy the command for your system.'
             )}
           </p>
-          <div className='border-border/70 border-y py-4'>
+          <PublicScriptsPanel fullPage />
+          <div className='border-border/70 border-y py-5'>
             <p className='text-sm font-medium'>{t('Script repository')}</p>
             <a
-              className='text-muted-foreground mt-1 block text-sm break-all underline underline-offset-4'
+              className='text-muted-foreground focus-visible:ring-ring mt-1 block w-fit rounded-sm text-sm break-all underline underline-offset-4 outline-none focus-visible:ring-2'
               href={repositoryUrl('scripts')}
               target='_blank'
               rel='noopener noreferrer'
@@ -383,7 +424,7 @@ export function ConsoleScriptsPage() {
               {REPOSITORIES.scripts}
             </a>
           </div>
-          <PublicScriptsPanel fullPage />
+          <BookmarkletInstall />
         </div>
       </SectionPageLayout.Content>
     </SectionPageLayout>

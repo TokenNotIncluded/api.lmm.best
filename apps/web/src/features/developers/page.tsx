@@ -51,7 +51,7 @@ export function IntegrationPrompt({
         </p>
       )}
       <details ref={details} className='group'>
-        <summary className='cursor-pointer py-2 text-sm underline underline-offset-4'>
+        <summary className='focus-visible:outline-ring min-h-11 cursor-pointer rounded-md py-3 text-sm underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2'>
           {t('Preview prompt')}
         </summary>
         <textarea
@@ -60,13 +60,50 @@ export function IntegrationPrompt({
           value={prompt}
           rows={15}
           aria-label={`${t('Integration prompt')}: ${label}`}
-          className='bg-background focus-visible:outline-ring mt-2 w-full resize-y rounded-lg border p-3 font-mono text-xs leading-relaxed focus-visible:outline-2 focus-visible:outline-offset-2'
+          className='bg-background focus-visible:outline-ring mt-2 min-h-64 w-full resize-y rounded-lg border p-3 font-mono text-xs leading-6 focus-visible:outline-2 focus-visible:outline-offset-2'
           onFocus={(event) => event.currentTarget.select()}
         />
       </details>
       <span role='status' className='sr-only'>
         {copiedText === prompt ? t('Copied to clipboard') : ''}
       </span>
+    </div>
+  )
+}
+
+function PricingExample() {
+  const { t } = useTranslation()
+  const { copiedText, copyToClipboard } = useCopyToClipboard({ notify: false })
+  const [failed, setFailed] = useState(false)
+  const copy = async () => setFailed(!(await copyToClipboard(PRICING_EXAMPLE)))
+  const copied = copiedText === PRICING_EXAMPLE
+
+  return (
+    <div className='bg-muted/40 mt-3 min-w-0 overflow-hidden rounded-xl border'>
+      <div className='flex items-center justify-between gap-3 border-b px-4 py-2'>
+        <span className='text-muted-foreground text-xs'>JavaScript</span>
+        <Button
+          type='button'
+          variant='ghost'
+          className='min-h-11 shrink-0'
+          aria-label={`${t('Copy')}: ${t('Fetch pricing from your backend.')}`}
+          onClick={() => void copy()}
+        >
+          <span aria-live='polite'>{copied ? t('Copied') : t('Copy')}</span>
+        </Button>
+      </div>
+      <pre
+        tabIndex={0}
+        aria-label={t('Fetch pricing from your backend.')}
+        className='focus-visible:outline-ring max-w-full overflow-x-auto p-4 font-mono text-xs leading-7 focus-visible:outline-2 focus-visible:-outline-offset-2'
+      >
+        <code>{PRICING_EXAMPLE}</code>
+      </pre>
+      {failed && (
+        <p role='alert' className='text-destructive px-4 pb-4 text-sm'>
+          {t('Copy failed')}
+        </p>
+      )}
     </div>
   )
 }
@@ -81,11 +118,11 @@ function Endpoint({
   label: string
 }) {
   return (
-    <div className='grid gap-1 py-3 sm:grid-cols-[10rem_minmax(0,1fr)]'>
-      <dt className='text-muted-foreground text-sm'>{label}</dt>
+    <div className='grid gap-2 py-4 sm:grid-cols-[9rem_minmax(0,1fr)]'>
+      <dt className='text-muted-foreground text-sm leading-6'>{label}</dt>
       <dd className='min-w-0 font-mono text-xs leading-6 sm:text-sm'>
         <span className='mr-3 font-semibold'>{method}</span>
-        <span className='break-all'>{path}</span>
+        <span className='[overflow-wrap:anywhere]'>{path}</span>
       </dd>
     </div>
   )
@@ -94,7 +131,7 @@ function Endpoint({
 export function DevelopersPage() {
   const { t } = useTranslation()
   return (
-    <main className='mx-auto w-full max-w-6xl px-5 py-12 sm:px-8 sm:py-20'>
+    <main className='mx-auto w-full max-w-6xl px-5 py-12 sm:px-8 sm:py-16 lg:py-20'>
       <h1 className='text-4xl font-semibold tracking-tight sm:text-5xl'>
         {t('Developers')}
       </h1>
@@ -106,18 +143,26 @@ export function DevelopersPage() {
       </p>
       <nav
         aria-label={t('Integration guide')}
-        className='mt-8 flex flex-wrap gap-x-6 gap-y-3 text-sm underline underline-offset-4'
+        className='mt-8 flex flex-wrap gap-x-5 gap-y-1 border-y py-2 text-sm sm:gap-x-8'
       >
-        <a href='#request-builder'>{t('Request builder')}</a>
-        <a href='#pricing-api'>{t('Pricing API')}</a>
-        <a href='#oauth-integration'>{t('OAuth integration')}</a>
-        <a href='/webmcp'>WebMCP</a>
+        <a className='dev-page-link' href='#request-builder'>
+          {t('Request builder')}
+        </a>
+        <a className='dev-page-link' href='#pricing-api'>
+          {t('Pricing API')}
+        </a>
+        <a className='dev-page-link' href='#oauth-integration'>
+          {t('OAuth integration')}
+        </a>
+        <a className='dev-page-link' href='/webmcp'>
+          WebMCP
+        </a>
       </nav>
 
       <section
         id='request-builder'
         aria-labelledby='request-builder-title'
-        className='mt-12 scroll-mt-24 border-t pt-9'
+        className='mt-10 scroll-mt-24 sm:mt-12'
       >
         <h2 id='request-builder-title' className='text-2xl font-semibold'>
           {t('Request builder')}
@@ -161,9 +206,7 @@ export function DevelopersPage() {
             <h3 className='mt-6 text-sm font-semibold'>
               {t('Fetch pricing from your backend.')}
             </h3>
-            <pre className='bg-muted/40 mt-3 max-w-full overflow-x-auto rounded-xl border p-4 font-mono text-xs leading-6'>
-              <code>{PRICING_EXAMPLE}</code>
-            </pre>
+            <PricingExample />
             <a
               className='mt-4 inline-block text-sm underline underline-offset-4'
               href={`${LMM_SOURCE}/blob/main/apps/api-go/service/oauth_catalog.go`}
@@ -175,7 +218,7 @@ export function DevelopersPage() {
           </div>
           <aside
             aria-label={t('Copy pricing prompt')}
-            className='order-1 lg:order-2 lg:pt-1'
+            className='order-1 border-b pb-6 lg:order-2 lg:border-b-0 lg:border-l lg:pt-1 lg:pb-0 lg:pl-7'
           >
             <IntegrationPrompt
               prompt={PRICING_PROMPT}
@@ -255,7 +298,7 @@ export function DevelopersPage() {
           </div>
           <aside
             aria-label={t('Copy OAuth prompt')}
-            className='order-1 lg:order-2 lg:pt-1'
+            className='order-1 border-b pb-6 lg:order-2 lg:border-b-0 lg:border-l lg:pt-1 lg:pb-0 lg:pl-7'
           >
             <IntegrationPrompt
               prompt={OAUTH_PROMPT}

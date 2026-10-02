@@ -323,10 +323,10 @@ export function ServiceEditor({
     }
   }
   return (
-    <section className='max-w-3xl space-y-6'>
+    <section className='max-w-4xl space-y-6'>
       <div>
         <h3 className='text-lg font-semibold'>{t('Publish a tool service')}</h3>
-        <p className='text-muted-foreground mt-2 text-sm'>
+        <p className='text-muted-foreground mt-2 max-w-[70ch] text-sm leading-6'>
           {t(
             'Connect a public HTTPS MCP service. Add a Bearer token or API key when the service requires authentication.'
           )}
@@ -338,7 +338,7 @@ export function ServiceEditor({
           void save()
         }}
       >
-        <FieldGroup>
+        <FieldGroup className='[&_input]:min-h-11'>
           <Field>
             <FieldLabel htmlFor='market-name'>{t('Name')}</FieldLabel>
             <Input
@@ -389,7 +389,7 @@ export function ServiceEditor({
             </FieldLabel>
             <select
               id='market-authentication'
-              className='border-input bg-background h-9 rounded-md border px-3 text-sm'
+              className='border-input bg-background focus-visible:ring-ring min-h-11 w-full rounded-md border px-3 text-base outline-none focus-visible:ring-2 sm:text-sm'
               value={authMode}
               disabled={pending || !credentialsReady}
               onChange={(event) => {
@@ -472,7 +472,7 @@ export function ServiceEditor({
             </FieldLabel>
             <select
               id='market-visibility'
-              className='border-input bg-background h-9 rounded-md border px-3 text-sm'
+              className='border-input bg-background focus-visible:ring-ring min-h-11 w-full rounded-md border px-3 text-base outline-none focus-visible:ring-2 sm:text-sm'
               value={visibility}
               disabled={pending}
               onChange={(e) => setVisibility(e.target.value)}
@@ -496,16 +496,16 @@ export function ServiceEditor({
               />
             </Field>
           )}
-          <fieldset className='space-y-4'>
-            <legend className='mb-3 font-medium'>
+          <fieldset className='min-w-0 space-y-4 border-t pt-6'>
+            <legend className='bg-background pe-3 text-base font-semibold'>
               {t('Tools and prices')}
             </legend>
-            <p className='text-muted-foreground text-sm'>
+            <p className='text-muted-foreground max-w-[70ch] text-sm leading-6'>
               {t(
                 'Choose free or paid pricing for each tool. Charges apply only to successful calls; failed and expired calls are refunded.'
               )}
             </p>
-            <p className='text-muted-foreground text-sm'>
+            <p className='text-muted-foreground max-w-[70ch] text-sm leading-6'>
               {t(
                 'Earnings stay in your platform balance and cannot be withdrawn.'
               )}
@@ -576,10 +576,11 @@ export function ServiceEditor({
               return (
                 <div
                   key={tool.name}
-                  className='border-border space-y-3 border-b pb-4'
+                  className='border-border min-w-0 space-y-4 border-b py-5'
                 >
                   <div className='flex items-start gap-3'>
                     <Checkbox
+                      className='mt-0.5 shrink-0'
                       id={`select-${tool.name}`}
                       checked={selected.includes(tool.name)}
                       disabled={pending}
@@ -593,7 +594,7 @@ export function ServiceEditor({
                     />
                     <label
                       htmlFor={`select-${tool.name}`}
-                      className='min-w-0 text-sm'
+                      className='min-w-0 cursor-pointer text-sm leading-6'
                     >
                       <strong className='break-all'>{tool.name}</strong>
                       {changes?.added.includes(tool.name) && (
@@ -612,14 +613,14 @@ export function ServiceEditor({
                     </label>
                   </div>
                   {selected.includes(tool.name) && (
-                    <>
+                    <div className='grid min-w-0 gap-4 sm:grid-cols-2 sm:ps-7'>
                       <Field>
                         <FieldLabel htmlFor={`billing-mode-${tool.name}`}>
                           {t('Billing mode')}
                         </FieldLabel>
                         <select
                           id={`billing-mode-${tool.name}`}
-                          className='border-input bg-background h-9 rounded-md border px-3 text-sm'
+                          className='border-input bg-background focus-visible:ring-ring min-h-11 w-full rounded-md border px-3 text-base outline-none focus-visible:ring-2 sm:text-sm'
                           value={billingModes[tool.name] ?? 'free'}
                           disabled={pending}
                           onChange={(event) => {
@@ -692,7 +693,7 @@ export function ServiceEditor({
                             </FieldDescription>
                           )}
                       </Field>
-                      <fieldset className='flex flex-wrap gap-3 text-sm'>
+                      <fieldset className='flex min-w-0 flex-wrap gap-x-4 gap-y-2 text-sm sm:col-span-2'>
                         <legend className='mb-2'>
                           {t('Declared permissions')}
                         </legend>
@@ -709,7 +710,7 @@ export function ServiceEditor({
                         ).map((permission) => (
                           <label
                             key={permission}
-                            className='flex items-center gap-2'
+                            className='flex min-h-9 cursor-pointer items-center gap-2'
                           >
                             <Checkbox
                               checked={tool.permissions.includes(permission)}
@@ -746,17 +747,21 @@ export function ServiceEditor({
                           </label>
                         ))}
                       </fieldset>
-                      <details className='text-sm'>
-                        <summary className='cursor-pointer'>
+                      <details className='min-w-0 text-sm sm:col-span-2'>
+                        <summary className='focus-visible:ring-ring w-fit cursor-pointer rounded-sm py-2 font-medium outline-none focus-visible:ring-2'>
                           {t('Parameter schema')}
                         </summary>
-                        <pre className='bg-muted mt-2 max-h-52 overflow-auto p-3 text-xs'>
+                        <pre
+                          className='bg-muted mt-2 max-h-52 overflow-auto rounded-lg p-3 text-xs leading-5'
+                          tabIndex={0}
+                          aria-label={t('Parameter schema')}
+                        >
                           {typeof tool.input_schema === 'string'
                             ? tool.input_schema
                             : JSON.stringify(tool.input_schema, null, 2)}
                         </pre>
                       </details>
-                    </>
+                    </div>
                   )}
                 </div>
               )
@@ -785,9 +790,10 @@ export function ServiceEditor({
                         )}
             </p>
           )}
-          <div className='flex gap-2'>
+          <div className='flex flex-wrap gap-2 border-t pt-4'>
             <Button
               type='submit'
+              className='min-h-11'
               disabled={
                 pending ||
                 !credentialsReady ||
@@ -802,6 +808,7 @@ export function ServiceEditor({
             <Button
               type='button'
               variant='outline'
+              className='min-h-11'
               onClick={() => {
                 setSecret('')
                 onCancel()
