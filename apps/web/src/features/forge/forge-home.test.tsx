@@ -345,6 +345,15 @@ describe('ForgeHome configured destinations', () => {
       hidden.container.querySelector('.lmm-destinations a[href="/security"]'),
       null
     )
+    const marketLink = hidden.container.querySelector(
+      '.lmm-destinations a[href="/tool-market"]'
+    )
+    assert.ok(marketLink)
+    assert.match(
+      marketLink.textContent ?? '',
+      /Use community tools, or publish your own\./
+    )
+    assert.equal(marketLink.hasAttribute('aria-current'), false)
     await unmountHome(hidden)
     const gated = await renderHome(null, true, false, {
       headerNavModules: JSON.stringify({

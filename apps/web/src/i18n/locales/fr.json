@@ -9561,6 +9561,7 @@
     "Use CC Switch to manage Claude Code and Codex providers. Install the coding tool you want to use as well.": "Utilisez CC Switch pour gérer les fournisseurs de Claude Code et de Codex. Installez également l'outil de programmation que vous souhaitez utiliser.",
     "Use ChatGPT in your browser": "Utiliser ChatGPT dans votre navigateur",
     "Use commas or new lines to separate model IDs.": "Séparez les identifiants de modèle par des virgules ou des retours à la ligne.",
+    "Use community tools, or publish your own.": "Utilisez les outils de la communauté ou publiez les vôtres.",
     "Use Create API key below, or use the key's CC Switch action on the /keys page.": "Utilisez « Créer une clé API » ci-dessous, ou l’action CC Switch de la clé sur la page /keys.",
     "Use Daed routing syntax. Matchers: domain/qname, dip/ip, sip, dport, sport, l4proto, ipversion, mac, pname, and dscp; supports ! negation, fallback, and direct/reject. Use # for comments.": "Utilisez la syntaxe de routage Daed. Prédicats : domain/qname, dip/ip, sip, dport, sport, l4proto, ipversion, mac, pname et dscp ; la négation !, fallback et direct/reject sont pris en charge. Utilisez # pour les commentaires.",
     "Use DeepSeek's web app for questions, writing, and reasoning.": "Utilisez l’application web DeepSeek pour poser des questions, écrire et raisonner.",
