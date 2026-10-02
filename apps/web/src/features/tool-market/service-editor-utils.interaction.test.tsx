@@ -56,6 +56,7 @@ const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
 const { ServiceEditor } = await import('./service-editor')
 type MarketDetail = import('./api').MarketDetail
+type DraftInput = import('./api').DraftInput
 const i18n = createInstance()
 await i18n
   .use(initReactI18next)
@@ -79,7 +80,13 @@ function changeNativeInput(input: HTMLInputElement, value: string) {
   input.dispatchEvent(new Event('input', { bubbles: true }))
 }
 
-async function renderEditor(initial?: MarketDetail) {
+function submitForm(container: HTMLElement) {
+  const form = container.querySelector('form')
+  assert.ok(form)
+  form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+}
+
+async function renderEditor(initial?: MarketDetail, feeBps = 1000) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   })
@@ -87,20 +94,26 @@ async function renderEditor(initial?: MarketDetail) {
   document.body.append(container)
   const root = createRoot(container)
   const saved: string[] = []
-  await act(async () =>
-    root.render(
-      <QueryClientProvider client={client}>
-        <I18nextProvider i18n={i18n}>
-          <ServiceEditor
-            initial={initial}
-            units={500000}
-            onSaved={(id) => saved.push(id)}
-            onCancel={() => {}}
-          />
-        </I18nextProvider>
-      </QueryClientProvider>
+  let displayedInitial = initial
+  let displayedFeeBps = feeBps
+  const render = async () => {
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={client}>
+          <I18nextProvider i18n={i18n}>
+            <ServiceEditor
+              initial={displayedInitial}
+              units={500000}
+              feeBps={displayedFeeBps}
+              onSaved={(id) => saved.push(id)}
+              onCancel={() => {}}
+            />
+          </I18nextProvider>
+        </QueryClientProvider>
+      )
     )
-  )
+  }
+  await render()
   const settle = async () => {
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20))
@@ -120,21 +133,31 @@ async function renderEditor(initial?: MarketDetail) {
     saved,
     button,
     settle,
+    input: async (id: string, value: string) => {
+      const input = container.querySelector<HTMLInputElement>(id)
+      assert.ok(input, id)
+      await act(async () => changeNativeInput(input, value))
+    },
+    select: async (id: string, value: string) => {
+      const select = container.querySelector<HTMLSelectElement>(id)
+      assert.ok(select, id)
+      await act(async () => {
+        select.value = value
+        select.dispatchEvent(new Event('change', { bubbles: true }))
+      })
+    },
+    submit: async () => {
+      await act(async () => submitForm(container))
+      await settle()
+    },
     rerenderInitial: async (next: MarketDetail) => {
-      await act(async () =>
-        root.render(
-          <QueryClientProvider client={client}>
-            <I18nextProvider i18n={i18n}>
-              <ServiceEditor
-                initial={next}
-                units={500000}
-                onSaved={(id) => saved.push(id)}
-                onCancel={() => {}}
-              />
-            </I18nextProvider>
-          </QueryClientProvider>
-        )
-      )
+      displayedInitial = next
+      await render()
+      await settle()
+    },
+    rerenderFee: async (next: number) => {
+      displayedFeeBps = next
+      await render()
       await settle()
     },
     click: async (name: string) => {
@@ -143,11 +166,7 @@ async function renderEditor(initial?: MarketDetail) {
           assert.equal(button(name).disabled, false)
           // Happy DOM's floating-point step validation rejects valid decimal
           // prices. Exercise the submit handler after checking the UI gate.
-          const form = container.querySelector('form')
-          assert.ok(form)
-          form.dispatchEvent(
-            new Event('submit', { bubbles: true, cancelable: true })
-          )
+          submitForm(container)
         } else button(name).click()
       })
       await settle()
@@ -210,6 +229,213 @@ const discovered = [
     price_quota: 0,
   },
 ]
+
+function pricingRequests(definitions = discovered) {
+  const originalAdapter = api.defaults.adapter
+  const drafts: DraftInput[] = []
+  api.defaults.adapter = async (config) => {
+    const url = config.url ?? ''
+    const input =
+      typeof config.data === 'string' ? JSON.parse(config.data) : config.data
+    let data: unknown
+    if (url.endsWith('/inspect')) {
+      data = definitions
+    } else if (
+      (config.method === 'post' && url.endsWith('/services')) ||
+      (config.method === 'put' && url.endsWith('/draft'))
+    ) {
+      drafts.push(input)
+      data = {
+        ...initial.service,
+        id: 'service-pricing',
+        draft_version_id: 'version-priced',
+      }
+    } else if (url.endsWith('/credentials')) {
+      data = { mode: 'none', configured: false, updated_at: 0 }
+    } else assert.fail(`Unexpected request: ${config.method} ${url}`)
+    return {
+      config,
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: { success: true, data },
+    }
+  }
+  return {
+    drafts,
+    restore: () => {
+      api.defaults.adapter = originalAdapter
+    },
+  }
+}
+
+async function readNewService(view: Awaited<ReturnType<typeof renderEditor>>) {
+  await view.input('#market-name', 'Priced tool service')
+  await view.input('#market-endpoint', 'https://tools.example.test/mcp')
+  await view.click('Read tool definitions')
+}
+
+test('a new service shows pricing guidance before discovery and cannot save undiscovered tools', async () => {
+  const originalAdapter = api.defaults.adapter
+  const requests: string[] = []
+  api.defaults.adapter = async (config) => {
+    requests.push(config.url ?? '')
+    assert.fail('A service without inspected tools must not write a draft')
+  }
+  const view = await renderEditor()
+  try {
+    assert.ok(
+      [...view.container.querySelectorAll('legend')].some(
+        (legend) => legend.textContent === 'Tools and prices'
+      ),
+      'pricing is visible as soon as the publisher opens the form'
+    )
+    assert.match(
+      view.container.textContent ?? '',
+      /Read the MCP tool definitions first to choose free or paid pricing for each tool/
+    )
+    assert.equal(
+      view.container.querySelectorAll('input[id^="select-"]').length,
+      0
+    )
+    await view.input('#market-name', 'Uninspected service')
+    await view.input('#market-endpoint', 'https://tools.example.test/mcp')
+    assert.equal(view.button('Save draft').disabled, true)
+    await view.submit()
+    assert.deepEqual(requests, [])
+    assert.deepEqual(view.saved, [])
+  } finally {
+    await view.dispose()
+    api.defaults.adapter = originalAdapter
+  }
+})
+
+test('each discovered tool can be priced independently and switching back to free saves zero', async () => {
+  const requests = pricingRequests()
+  const view = await renderEditor()
+  try {
+    await readNewService(view)
+    for (const name of ['search', 'new_tool']) {
+      const mode = view.container.querySelector<HTMLSelectElement>(
+        `#billing-mode-${name}`
+      )
+      assert.ok(mode)
+      assert.equal(mode.value, 'free')
+      assert.deepEqual(
+        [...mode.options].map((option) => option.textContent),
+        ['Free tool', 'Paid tool']
+      )
+    }
+    await view.select('#billing-mode-search', 'paid')
+    assert.equal(view.button('Save draft').disabled, true)
+    await view.input('#price-search', '1')
+    await view.select('#billing-mode-new_tool', 'paid')
+    await view.input('#price-new_tool', '0.000002')
+    await view.click('Save draft')
+    assert.equal(requests.drafts.length, 1)
+    assert.deepEqual(
+      requests.drafts[0].tools.map(({ name, price_quota }) => ({
+        name,
+        price_quota,
+      })),
+      [
+        { name: 'search', price_quota: 500000 },
+        { name: 'new_tool', price_quota: 1 },
+      ]
+    )
+    await view.select('#billing-mode-search', 'free')
+    await view.click('Save draft')
+    assert.equal(requests.drafts.length, 2)
+    assert.deepEqual(
+      requests.drafts[1].tools.map(({ name, price_quota }) => ({
+        name,
+        price_quota,
+      })),
+      [
+        { name: 'search', price_quota: 0 },
+        { name: 'new_tool', price_quota: 1 },
+      ],
+      'making one tool free must not reset the other tool price'
+    )
+    await view.select('#billing-mode-new_tool', 'free')
+    await view.click('Save draft')
+    assert.equal(requests.drafts.length, 3)
+    assert.deepEqual(
+      requests.drafts[2].tools.map((tool) => tool.price_quota),
+      [0, 0]
+    )
+  } finally {
+    await view.dispose()
+    requests.restore()
+  }
+})
+
+test('paid tools with an empty or zero price cannot submit, while explicit free pricing saves zero', async () => {
+  const requests = pricingRequests([discovered[0]])
+  const view = await renderEditor()
+  try {
+    await readNewService(view)
+    await view.select('#billing-mode-search', 'paid')
+    for (const invalidPrice of ['', '0']) {
+      await view.input('#price-search', invalidPrice)
+      assert.equal(view.button('Save draft').disabled, true, invalidPrice)
+      await view.submit()
+      assert.deepEqual(requests.drafts, [])
+      assert.deepEqual(view.saved, [])
+    }
+    await view.select('#billing-mode-search', 'free')
+    await view.click('Save draft')
+    assert.equal(requests.drafts.length, 1)
+    assert.equal(requests.drafts[0].tools[0].price_quota, 0)
+    assert.deepEqual(view.saved, ['service-pricing'])
+  } finally {
+    await view.dispose()
+    requests.restore()
+  }
+})
+
+test('net earnings use the current platform fee and refreshing definitions preserves the entered price', async () => {
+  const requests = pricingRequests([discovered[0]])
+  const view = await renderEditor(undefined, 1000)
+  try {
+    await readNewService(view)
+    await view.select('#billing-mode-search', 'paid')
+    await view.input('#price-search', '1')
+    assert.match(
+      view.container.textContent ?? '',
+      /You receive 0\.9 credits per successful call after the 10% platform fee\./
+    )
+    await view.rerenderFee(2500)
+    assert.match(
+      view.container.textContent ?? '',
+      /You receive 0\.75 credits per successful call after the 25% platform fee\./
+    )
+    await view.click('Read tool definitions')
+    assert.equal(
+      view.container.querySelector<HTMLSelectElement>('#billing-mode-search')
+        ?.value,
+      'paid'
+    )
+    assert.equal(
+      view.container.querySelector<HTMLInputElement>('#price-search')?.value,
+      '1'
+    )
+    assert.match(
+      view.container.textContent ?? '',
+      /You receive 0\.75 credits per successful call after the 25% platform fee\./
+    )
+    await view.click('Save draft')
+    assert.equal(requests.drafts.length, 1)
+    assert.equal(
+      requests.drafts[0].tools[0].price_quota,
+      500000,
+      'the platform fee changes author earnings, not the buyer price'
+    )
+  } finally {
+    await view.dispose()
+    requests.restore()
+  }
+})
 
 test('editor preserves owner policy, requires review, and retries credential writes without a duplicate draft', async () => {
   const originalAdapter = api.defaults.adapter

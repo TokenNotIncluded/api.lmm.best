@@ -26,6 +26,7 @@ import {
   type MarketService,
   type ToolInput,
 } from './api'
+import { creditAmount, marketNetQuota } from './money'
 import {
   editorCredentialWrite,
   refreshToolDefinitions,
@@ -36,11 +37,13 @@ import {
 export function ServiceEditor({
   initial: initialDetail,
   units,
+  feeBps,
   onSaved,
   onCancel,
 }: {
   initial?: MarketDetail
   units: number
+  feeBps?: number
   onSaved: (id: string) => void
   onCancel: () => void
 }) {
@@ -75,6 +78,13 @@ export function ServiceEditor({
   const [prices, setPrices] = useState<Record<string, string>>(() =>
     Object.fromEntries(
       tools.map((tool) => [tool.name, String(tool.price_quota / units)])
+    )
+  )
+  const [billingModes, setBillingModes] = useState<
+    Record<string, 'free' | 'paid'>
+  >(() =>
+    Object.fromEntries(
+      tools.map((tool) => [tool.name, tool.price_quota > 0 ? 'paid' : 'free'])
     )
   )
   const [inspectedEndpoint, setInspectedEndpoint] = useState(
@@ -130,6 +140,26 @@ export function ServiceEditor({
     changes?.changed.length ||
     changes?.removed.length
   )
+  const priceQuotas: Record<string, number | undefined> = Object.fromEntries(
+    tools.map((tool) => {
+      try {
+        const raw = prices[tool.name] ?? '0'
+        const quota = marketQuota(raw, units)
+        if (
+          Number(raw) > 1000000 ||
+          (billingModes[tool.name] === 'paid' ? quota <= 0 : quota !== 0)
+        ) {
+          throw new Error('Invalid price')
+        }
+        return [tool.name, quota]
+      } catch {
+        return [tool.name, undefined]
+      }
+    })
+  )
+  const hasInvalidPrice = selected.some(
+    (name) => priceQuotas[name] === undefined
+  )
   const credentialChoice = () =>
     editorCredentialWrite({
       mode: authMode,
@@ -173,6 +203,14 @@ export function ServiceEditor({
       setTools(refreshed.tools)
       setSelected(refreshed.selected)
       setPrices(refreshed.prices)
+      setBillingModes((current) =>
+        Object.fromEntries(
+          refreshed.tools.map((tool) => [
+            tool.name,
+            current[tool.name] ?? 'free',
+          ])
+        )
+      )
       setChanges((previous) =>
         previous && !reviewedChanges
           ? {
@@ -206,7 +244,7 @@ export function ServiceEditor({
     }
   }
   const save = async () => {
-    if (operationLock.current || !credentialsReady) return
+    if (operationLock.current || !credentialsReady || hasInvalidPrice) return
     operationLock.current = true
     setSavePending(true)
     setError(undefined)
@@ -458,73 +496,84 @@ export function ServiceEditor({
               />
             </Field>
           )}
-          {tools.length > 0 && (
-            <fieldset className='space-y-4'>
-              <legend className='mb-3 font-medium'>
-                {t('Tools and prices')}
-              </legend>
-              <p className='text-muted-foreground text-sm'>
+          <fieldset className='space-y-4'>
+            <legend className='mb-3 font-medium'>
+              {t('Tools and prices')}
+            </legend>
+            <p className='text-muted-foreground text-sm'>
+              {t(
+                'Choose free or paid pricing for each tool. Charges apply only to successful calls; failed and expired calls are refunded.'
+              )}
+            </p>
+            <p className='text-muted-foreground text-sm'>
+              {t(
+                'Earnings stay in your platform balance and cannot be withdrawn.'
+              )}
+            </p>
+            {tools.length === 0 && (
+              <p className='bg-muted rounded-md p-3 text-sm'>
                 {t(
-                  'Select the tools to publish and review their permissions. Prices are per successful call in platform credits; failed and expired calls are refunded.'
+                  'Read the MCP tool definitions first to choose free or paid pricing for each tool.'
                 )}
               </p>
-              {changes && (
-                <div
-                  className='bg-muted space-y-2 rounded-md p-3 text-sm'
-                  role='status'
-                >
+            )}
+            {changes && (
+              <div
+                className='bg-muted space-y-2 rounded-md p-3 text-sm'
+                role='status'
+              >
+                <p>
+                  {t(
+                    'Existing prices, selections and declared permissions are preserved when definitions are refreshed.'
+                  )}
+                </p>
+                {newToolsNeedSelection && (
                   <p>
                     {t(
-                      'Existing prices, selections and declared permissions are preserved when definitions are refreshed.'
+                      'New tools are not selected automatically. Review and select the tools you want to publish.'
                     )}
                   </p>
-                  {newToolsNeedSelection && (
-                    <p>
-                      {t(
-                        'New tools are not selected automatically. Review and select the tools you want to publish.'
-                      )}
-                    </p>
-                  )}
-                  {changes.endpointChanged && (
-                    <p>
-                      {t(
-                        'The endpoint changed. Review the tools and permissions before saving.'
-                      )}
-                    </p>
-                  )}
-                  {changes.changed.length > 0 && (
-                    <p>
-                      {t('Changed tool definitions')}:{' '}
-                      <span className='break-all'>
-                        {changes.changed.join(', ')}
-                      </span>
-                    </p>
-                  )}
-                  {changes.removed.length > 0 && (
-                    <p>
-                      {t('Removed tools')}:{' '}
-                      <span className='break-all'>
-                        {changes.removed.join(', ')}
-                      </span>
-                    </p>
-                  )}
-                  {requiresReview && (
-                    <label className='flex items-center gap-2'>
-                      <Checkbox
-                        checked={reviewedChanges}
-                        disabled={pending}
-                        onCheckedChange={(checked) =>
-                          setReviewedChanges(Boolean(checked))
-                        }
-                      />
-                      {t(
-                        'I reviewed the endpoint and tool definition changes.'
-                      )}
-                    </label>
-                  )}
-                </div>
-              )}
-              {tools.map((tool) => (
+                )}
+                {changes.endpointChanged && (
+                  <p>
+                    {t(
+                      'The endpoint changed. Review the tools and permissions before saving.'
+                    )}
+                  </p>
+                )}
+                {changes.changed.length > 0 && (
+                  <p>
+                    {t('Changed tool definitions')}:{' '}
+                    <span className='break-all'>
+                      {changes.changed.join(', ')}
+                    </span>
+                  </p>
+                )}
+                {changes.removed.length > 0 && (
+                  <p>
+                    {t('Removed tools')}:{' '}
+                    <span className='break-all'>
+                      {changes.removed.join(', ')}
+                    </span>
+                  </p>
+                )}
+                {requiresReview && (
+                  <label className='flex items-center gap-2'>
+                    <Checkbox
+                      checked={reviewedChanges}
+                      disabled={pending}
+                      onCheckedChange={(checked) =>
+                        setReviewedChanges(Boolean(checked))
+                      }
+                    />
+                    {t('I reviewed the endpoint and tool definition changes.')}
+                  </label>
+                )}
+              </div>
+            )}
+            {tools.map((tool) => {
+              const priceQuota = priceQuotas[tool.name]
+              return (
                 <div
                   key={tool.name}
                   className='border-border space-y-3 border-b pb-4'
@@ -565,6 +614,32 @@ export function ServiceEditor({
                   {selected.includes(tool.name) && (
                     <>
                       <Field>
+                        <FieldLabel htmlFor={`billing-mode-${tool.name}`}>
+                          {t('Billing mode')}
+                        </FieldLabel>
+                        <select
+                          id={`billing-mode-${tool.name}`}
+                          className='border-input bg-background h-9 rounded-md border px-3 text-sm'
+                          value={billingModes[tool.name] ?? 'free'}
+                          disabled={pending}
+                          onChange={(event) => {
+                            const mode =
+                              event.target.value === 'paid' ? 'paid' : 'free'
+                            setBillingModes((current) => ({
+                              ...current,
+                              [tool.name]: mode,
+                            }))
+                            setPrices((current) => ({
+                              ...current,
+                              [tool.name]: mode === 'free' ? '0' : '',
+                            }))
+                          }}
+                        >
+                          <option value='free'>{t('Free tool')}</option>
+                          <option value='paid'>{t('Paid tool')}</option>
+                        </select>
+                      </Field>
+                      <Field>
                         <FieldLabel htmlFor={`price-${tool.name}`}>
                           {t('Price per successful call')}
                         </FieldLabel>
@@ -576,14 +651,46 @@ export function ServiceEditor({
                           max='1000000'
                           step='0.000001'
                           value={prices[tool.name] ?? '0'}
+                          aria-invalid={priceQuota === undefined}
                           disabled={pending}
-                          onChange={(e) =>
+                          onChange={(e) => {
+                            const raw = e.target.value
                             setPrices((current) => ({
                               ...current,
-                              [tool.name]: e.target.value,
+                              [tool.name]: raw,
                             }))
-                          }
+                            if (Number(raw) > 0) {
+                              setBillingModes((current) => ({
+                                ...current,
+                                [tool.name]: 'paid',
+                              }))
+                            }
+                          }}
                         />
+                        {billingModes[tool.name] === 'paid' &&
+                          priceQuota === undefined && (
+                            <FieldDescription className='text-destructive'>
+                              {t('Enter a positive price for a paid tool.')}
+                            </FieldDescription>
+                          )}
+                        {priceQuota !== undefined &&
+                          feeBps !== undefined &&
+                          Number.isSafeInteger(feeBps) &&
+                          feeBps >= 0 &&
+                          feeBps <= 10000 && (
+                            <FieldDescription>
+                              {t(
+                                'You receive {{amount}} credits per successful call after the {{fee}}% platform fee.',
+                                {
+                                  amount: creditAmount(
+                                    marketNetQuota(priceQuota, feeBps),
+                                    units
+                                  ),
+                                  fee: feeBps / 100,
+                                }
+                              )}
+                            </FieldDescription>
+                          )}
                       </Field>
                       <fieldset className='flex flex-wrap gap-3 text-sm'>
                         <legend className='mb-2'>
@@ -652,9 +759,9 @@ export function ServiceEditor({
                     </>
                   )}
                 </div>
-              ))}
-            </fieldset>
-          )}
+              )
+            })}
+          </fieldset>
           {error && (
             <p role='alert' className='text-destructive text-sm'>
               {error === 'credentials'
@@ -685,6 +792,7 @@ export function ServiceEditor({
                 pending ||
                 !credentialsReady ||
                 !selected.length ||
+                hasInvalidPrice ||
                 !inspectVersion ||
                 (requiresReview && !reviewedChanges)
               }
