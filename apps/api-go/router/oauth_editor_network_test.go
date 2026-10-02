@@ -1,10 +1,13 @@
 package router
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"html"
 	"io"
 	"maps"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -53,7 +56,27 @@ func newOAuthEditorNetwork(t *testing.T, clientID string) *oauthEditorNetwork {
 	t.Cleanup(callback.Close)
 	client := server.Client()
 	client.Timeout = 10 * time.Second
-	var err error
+	// Keep both the URL and Host at the configured issuer. Cookie-jar lookup
+	// differed across Go versions for a listener URL with an overridden Host.
+	// Route that one logical origin to this fixture and verify its TLS certificate
+	// against the listener name; no request can reach an external server.
+	listenerURL, err := url.Parse(server.URL)
+	require.NoError(t, err)
+	issuerURL, err := url.Parse(oauthTestIssuer)
+	require.NoError(t, err)
+	issuerAddress := net.JoinHostPort(issuerURL.Hostname(), "443")
+	transport := client.Transport.(*http.Transport).Clone()
+	transport.TLSClientConfig = transport.TLSClientConfig.Clone()
+	transport.TLSClientConfig.ServerName = listenerURL.Hostname()
+	transport.Proxy = nil
+	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		if address != issuerAddress {
+			return nil, errors.New("OAuth TLS fixture cannot contact an external origin")
+		}
+		return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, network, listenerURL.Host)
+	}
+	client.Transport = transport
+	t.Cleanup(client.CloseIdleConnections)
 	client.Jar, err = cookiejar.New(nil)
 	require.NoError(t, err)
 	query, err := url.ParseQuery(h.query)
@@ -66,9 +89,8 @@ func newOAuthEditorNetwork(t *testing.T, clientID string) *oauthEditorNetwork {
 
 func (n *oauthEditorNetwork) request(t *testing.T, method, path, body string, headers map[string]string) oauthEditorNetworkResponse {
 	t.Helper()
-	request, err := http.NewRequest(method, n.server.URL+path, strings.NewReader(body))
+	request, err := http.NewRequest(method, oauthTestIssuer+path, strings.NewReader(body))
 	require.NoError(t, err)
-	request.Host = strings.TrimPrefix(oauthTestIssuer, "https://")
 	for name, value := range headers {
 		request.Header.Set(name, value)
 	}
