@@ -74,9 +74,9 @@ Publication status must be recorded separately from packaging and deployment. A 
 
 ## Publishing the reviewed artifacts
 
-The VS Code manifest currently uses publisher ID `TokenNotIncluded`. Publishing requires confirmed control of that publisher in the target registry, and registry authentication. The npm package additionally requires publish access to the `@tokennotincluded` scope. These account prerequisites are pending; no marketplace listing or npm publication is established by this document. Source publication through a pull request is a separate step.
+The VS Code manifest uses publisher ID `LIghtJUNction`, matching the existing publisher owned by the authenticated Visual Studio Marketplace account. The extension ID is `LIghtJUNction.lmm-copilot-provider`. Publishing still requires registry authentication. Open VSX namespace access and npm publish access to the `@tokennotincluded` scope are separate prerequisites. No marketplace listing or npm publication is established by this document. Source publication through a pull request is a separate step.
 
-For [Visual Studio Marketplace](https://code.visualstudio.com/api/working-with-extensions/publishing-extension), authenticate with the publisher account using `npx vsce login TokenNotIncluded` or configure the documented Microsoft Entra identity, then publish the reviewed VSIX from its package directory:
+For [Visual Studio Marketplace](https://code.visualstudio.com/api/working-with-extensions/publishing-extension), authenticate with the publisher account using `npx vsce login LIghtJUNction` or configure the documented Microsoft Entra identity, then publish the reviewed VSIX from its package directory:
 
 ```sh
 npx vsce publish --packagePath lmm-copilot-provider-0.1.0.vsix
@@ -84,7 +84,9 @@ npx vsce publish --packagePath lmm-copilot-provider-0.1.0.vsix
 # npx vsce publish --azure-credential --packagePath lmm-copilot-provider-0.1.0.vsix
 ```
 
-For [Open VSX](https://github.com/eclipse-openvsx/openvsx/wiki/Publishing-Extensions), the account must have accepted the publisher agreement and have access to namespace `TokenNotIncluded`. Supply its registry token through `OVSX_PAT`, then publish the same artifact:
+After the Marketplace listing is published, install it with `code --install-extension LIghtJUNction.lmm-copilot-provider`.
+
+For [Open VSX](https://github.com/eclipse-openvsx/openvsx/wiki/Publishing-Extensions), the account must have accepted the publisher agreement and have access to namespace `LIghtJUNction` to publish this same VSIX. Supply its registry token through `OVSX_PAT`, then publish the artifact:
 
 ```sh
 npx --package ovsx ovsx publish lmm-copilot-provider-0.1.0.vsix

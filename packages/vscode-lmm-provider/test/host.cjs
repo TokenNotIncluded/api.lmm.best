@@ -2,7 +2,7 @@ const assert = require("node:assert/strict");
 const vscode = require("vscode");
 exports.run = async () => {
   const extension = vscode.extensions.getExtension(
-    "TokenNotIncluded.lmm-copilot-provider",
+    "LIghtJUNction.lmm-copilot-provider",
   );
   assert.ok(
     extension,

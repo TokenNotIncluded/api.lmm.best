@@ -1,5 +1,7 @@
 # LMM for Copilot
 
+> **Preview:** Production OAuth client registration is pending deployment; current build/runtime tests do not establish live model access.
+
 Use the models available to your LMM account in the native VS Code Chat model picker. Sign in with your browser; no API key is required.
 
 ## Setup
@@ -39,7 +41,7 @@ Install the local package with `code --install-extension ./lmm-copilot-provider-
 
 ## Marketplace publishing
 
-The manifest publisher is `TokenNotIncluded`. Publishing requires control of that exact Visual Studio Marketplace publisher and an Azure DevOps Personal Access Token authorized to manage extensions. Run `npx vsce publish --packagePath ./lmm-copilot-provider-0.1.0.vsix` from an authenticated publisher environment. Open VSX additionally requires an Open VSX account, a matching owned namespace, publisher agreement, and its own access token. Never put publishing tokens in repository files.
+The manifest publisher is `LIghtJUNction`. Publishing requires control of that exact Visual Studio Marketplace publisher and an Azure DevOps Personal Access Token authorized to manage extensions. Run `npx vsce publish --packagePath ./lmm-copilot-provider-0.1.0.vsix` from an authenticated publisher environment. Open VSX additionally requires an Open VSX account, a matching owned namespace, publisher agreement, and its own access token. Never put publishing tokens in repository files.
 
 Packaging and automated tests do not establish a successful browser OAuth session, paid model request, or Marketplace listing. Those must be verified separately.
 
