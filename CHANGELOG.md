@@ -24,8 +24,9 @@ authenticated users then see it once after their next login.
   for request validation and billing, rejecting unsupported resolutions locally.
 - Responses WebSocket events preserve per-turn `stream_id` and distinguish
   pending control errors from active response failures in Go and Rust.
-- Ollama channels can opt into OpenAI-compatible chat transport while retaining
-  their existing native transport defaults and non-chat endpoint behavior.
+- Ollama channels can opt into OpenAI-compatible chat transport. Go retains
+  native defaults and non-chat endpoint behavior; Rust rejects unsupported
+  native chat/generate before quota reservation.
 - Tool schemas remove `required: null` across supported request protocols while
   preserving literal schema data and retry isolation. Raw JSON request paths
   and parameter overrides retain large JSON integers during normalization.
