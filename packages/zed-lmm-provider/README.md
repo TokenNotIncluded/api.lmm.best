@@ -1,5 +1,7 @@
 # LMM for Zed
 
+**0.1.0 is a preview release.** The production LMM service has not yet deployed the `lmm-zed` OAuth client registration, so browser login and online model calls are not available yet. Installing this package prepares the local bridge; it does not enable production access until that server update is deployed.
+
 Use your LMM OAuth account in Zed's native AI model selector, with account-scoped models and automatic token refresh. No LMM API key is needed.
 
 Zed's extension API currently cannot register an AI model provider. This package runs a local authenticated OpenAI-compatible bridge and configures Zed's built-in provider support. It is distributed through npm, **not the Zed extension marketplace**.
