@@ -383,7 +383,7 @@ test("untrusted discovery fails before opening browser or exchanging tokens", as
 });
 
 test("an older server cannot silently substitute Pi for the VS Code client", async () => {
-  for (const supported of [undefined, ["lmm-pi"], "lmm-vscode"]) {
+  for (const supported of [undefined, ["lmm-pi"], "lmm-vscode", [CLIENT, 123]]) {
     let opened = false;
     let exchanged = false;
     const auth = new Auth(secret(), async (url) => {

@@ -196,6 +196,7 @@ export class Auth {
       );
       assert(
         Array.isArray(metadata.lmm_client_ids_supported) &&
+          metadata.lmm_client_ids_supported.every((id: unknown) => typeof id === "string") &&
           metadata.lmm_client_ids_supported.includes(CLIENT),
         "This LMM server has not enabled VS Code sign-in yet. Update the LMM server, then run LMM: Sign In again.",
       );
