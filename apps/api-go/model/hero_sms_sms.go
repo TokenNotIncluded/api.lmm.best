@@ -604,13 +604,17 @@ func CreateHeroSMSSMSOrder(ctx context.Context, userID int, request HeroSMSSMSPu
 		heroSMSSMSIdempotencyMissHook()
 	}
 
+	quote, err := decodeHeroSMSSMSQuote(request.OfferID)
+	if err != nil || quote.Version != heroSMSSMSQuoteVersion || quote.UserID != userID || quote.CurrencyCode != setting.HeroSMSCurrencyCode {
+		return nil, 0, 0, newHeroSMSError(http.StatusConflict, "PRICE_CHANGED", "refresh the HeroSMS SMS quote")
+	}
+	quoteExpiresAt := time.Unix(quote.IssuedAt, 0).Add(heroSMSSMSQuoteTTL)
+	if time.Now().After(quoteExpiresAt) {
+		return resolveExpiredHeroSMSSMSPurchase(ctx, userID, idempotencyHash, payloadHash, quoteExpiresAt)
+	}
 	client, err := heroSMSSMSClient()
 	if err != nil {
 		return nil, 0, 0, err
-	}
-	quote, err := decodeHeroSMSSMSQuote(request.OfferID)
-	if err != nil || quote.Version != heroSMSSMSQuoteVersion || quote.UserID != userID || quote.CurrencyCode != setting.HeroSMSCurrencyCode || time.Since(time.Unix(quote.IssuedAt, 0)) > heroSMSSMSQuoteTTL {
-		return nil, 0, 0, newHeroSMSError(http.StatusConflict, "PRICE_CHANGED", "refresh the HeroSMS SMS quote")
 	}
 	currentMultiplier, err := heroSMSMultiplierDecimal()
 	if err != nil {
@@ -657,7 +661,7 @@ func CreateHeroSMSSMSOrder(ctx context.Context, userID int, request HeroSMSSMSPu
 	if view, quota, status, found, replayErr := replayHeroSMSSMSIdempotentOrder(userID, idempotencyHash, payloadHash); found || replayErr != nil {
 		return view, quota, status, replayErr
 	}
-	if time.Since(time.Unix(quote.IssuedAt, 0)) > heroSMSSMSQuoteTTL {
+	if time.Now().After(quoteExpiresAt) {
 		return nil, 0, 0, newHeroSMSError(http.StatusConflict, "PRICE_CHANGED", "refresh the HeroSMS SMS quote")
 	}
 	lockedMultiplier, err := heroSMSMultiplierDecimal()
@@ -716,7 +720,7 @@ func CreateHeroSMSSMSOrder(ctx context.Context, userID int, request HeroSMSSMSPu
 		LastErrorMessage:           "provider purchase intent is reserved but not started",
 		ProviderRequestStartedAt:   time.Now().Unix(),
 	}
-	newQuota, err := reserveHeroSMSSMSQuota(&order)
+	newQuota, err := reserveHeroSMSSMSQuota(&order, quoteExpiresAt)
 	if err != nil {
 		return nil, 0, 0, err
 	}
@@ -788,12 +792,65 @@ func heroSMSSMSMinimumBalanceError(quota, minimumQuota int) error {
 	return nil
 }
 
-func reserveHeroSMSSMSQuota(order *HeroSMSSMSOrder) (int, error) {
+// lockHeroSMSSMSPurchaseUser makes reservation and expired-attempt resolution
+// share one database serialization point. The no-op write also takes SQLite's
+// writer lock before any reads; SELECT FOR UPDATE alone cannot do that there.
+func lockHeroSMSSMSPurchaseUser(tx *gorm.DB, userID int) (*User, error) {
+	if err := tx.Model(&User{}).Where("id = ?", userID).UpdateColumn("quota", gorm.Expr("quota")).Error; err != nil {
+		return nil, err
+	}
+	var user User
+	if err := lockForUpdate(tx).Select("id", "quota").Where("id = ?", userID).First(&user).Error; err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+// resolveExpiredHeroSMSSMSPurchase confirms absence only while holding the same
+// user lock used immediately before creating an order. A previous reservation
+// must commit before this lookup; a later reservation rejects the expired quote
+// after taking that lock, even if its provider lease previously expired.
+func resolveExpiredHeroSMSSMSPurchase(ctx context.Context, userID int, idempotencyHash, payloadHash string, quoteExpiresAt time.Time) (*HeroSMSSMSOrderView, int, int, error) {
+	var view *HeroSMSSMSOrderView
+	var quota, status int
+	err := DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		user, err := lockHeroSMSSMSPurchaseUser(tx, userID)
+		if err != nil {
+			return err
+		}
+		var existing HeroSMSSMSOrder
+		// This is the transaction's first consistent read, after the user lock,
+		// so MySQL also sees reservations committed before that lock was acquired.
+		// Do not lock the order: refunds already lock order before user.
+		err = tx.Where("user_id = ? AND idempotency_key_hash = ?", userID, idempotencyHash).First(&existing).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			if !time.Now().After(quoteExpiresAt) {
+				return newHeroSMSError(http.StatusConflict, "PRICE_CHANGED", "refresh the HeroSMS SMS quote")
+			}
+			return newHeroSMSError(http.StatusConflict, "PURCHASE_NOT_CREATED", "HeroSMS SMS purchase was not created; refresh the quote")
+		}
+		if err != nil {
+			return err
+		}
+		if existing.RequestPayloadHash != payloadHash {
+			return newHeroSMSError(http.StatusConflict, "IDEMPOTENCY_MISMATCH", "idempotent request payload mismatch")
+		}
+		view, err = heroSMSSMSOrderView(&existing)
+		quota, status = user.Quota, statusForHeroSMSSMSOrder(existing.Status)
+		return err
+	})
+	return view, quota, status, err
+}
+
+func reserveHeroSMSSMSQuota(order *HeroSMSSMSOrder, quoteExpiresAt time.Time) (int, error) {
 	newQuota := 0
 	err := DB.Transaction(func(tx *gorm.DB) error {
-		var user User
-		if err := lockForUpdate(tx).Select("id", "quota").Where("id = ?", order.UserID).First(&user).Error; err != nil {
+		user, err := lockHeroSMSSMSPurchaseUser(tx, order.UserID)
+		if err != nil {
 			return err
+		}
+		if time.Now().After(quoteExpiresAt) {
+			return newHeroSMSError(http.StatusConflict, "PRICE_CHANGED", "refresh the HeroSMS SMS quote")
 		}
 		// This is a starting-balance floor for new purchases, not a surcharge
 		// or a minimum remaining balance. Existing orders replay before this transaction.
