@@ -51,12 +51,21 @@ func (s *Server) exchangeCode(ctx context.Context, values url.Values) (*TokenRes
 		if err != nil {
 			return nil, err
 		}
-		if family == nil || family.ClientID != values.Get("client_id") || family.RedirectURI != values.Get("redirect_uri") || family.Resource != values.Get("resource") {
+		if family == nil || family.ClientID != values.Get("client_id") || family.Resource != values.Get("resource") {
 			return protocolError("invalid_grant"), nil
 		}
 		var code model.OAuthServerCode
 		if err := tx.Where("digest = ? AND issuer = ?", digest(values.Get("code")), s.issuer).Take(&code).Error; err != nil {
 			return nil, err
+		}
+		// A family can be reused by later consent with a different redirect or
+		// scope. Code bindings must remain those originally shown to the user.
+		// Legacy rows have empty snapshot defaults: reject rather than infer
+		// their original consent from the family's mutable latest state.
+		if code.ClientID == "" || code.RedirectURI == "" || code.Resource == "" || code.Scope == "" ||
+			code.ClientID != family.ClientID || code.Resource != family.Resource ||
+			code.ClientID != values.Get("client_id") || code.RedirectURI != values.Get("redirect_uri") || code.Resource != values.Get("resource") {
+			return protocolError("invalid_grant"), nil
 		}
 		if !matchesChallenge(values.Get("code_verifier"), code.CodeChallenge) {
 			return protocolError("invalid_grant"), nil
@@ -65,7 +74,9 @@ func (s *Server) exchangeCode(ctx context.Context, values url.Values) (*TokenRes
 		if code.UsedAtMs != 0 {
 			return protocolError("invalid_grant"), revokeFamily(tx, family, now.UnixMilli(), "authorization_code_reuse")
 		}
-		if code.ExpiresAtMs <= now.UnixMilli() || !familyLive(family, now) || !s.grantPermitted(tx, *family, family.Scope) {
+		consentedGrant := *family
+		consentedGrant.RedirectURI = code.RedirectURI
+		if code.ExpiresAtMs <= now.UnixMilli() || !familyLive(family, now) || !s.grantPermitted(tx, consentedGrant, code.Scope) {
 			return protocolError("invalid_grant"), nil
 		}
 		// A slow policy/permission lookup must not extend the code lifetime.
@@ -76,7 +87,7 @@ func (s *Server) exchangeCode(ctx context.Context, values url.Values) (*TokenRes
 		if err := tx.Model(&code).Update("used_at_ms", now.UnixMilli()).Error; err != nil {
 			return nil, err
 		}
-		response, err = s.issuePair(tx, family, family.Scope, now)
+		response, err = s.issuePair(tx, family, code.Scope, now)
 		return nil, err
 	})
 	if err != nil {

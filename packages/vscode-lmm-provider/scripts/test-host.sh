@@ -11,4 +11,4 @@ if ! rg -q 'LMM_REAL_HOST_SMOKE_PASS' "$profile_directory/user/logs"; then
   rg -n 'error|Error|LMM_|lmm-copilot' "$profile_directory/user/logs" >&2 || true
   exit 1
 fi
-printf '%s\n' 'LMM_REAL_HOST_SMOKE_PASS: actual VS Code extension activation, provider registration, command registration, silent unauthenticated model discovery.'
+printf '%s\n' 'LMM_REAL_HOST_SMOKE_PASS: actual VS Code extension activation, bundled logo, provider registration, command registration, silent unauthenticated model discovery.'

@@ -6,7 +6,7 @@ const { join } = require("node:path");
 const { Auth, parseToken } = require("../dist/auth");
 const { catalogModels, streamCompletion } = require("../dist/wire");
 const { listenCallback } = require("../dist/callback");
-const { RESOURCE, ISSUER } = require("../dist/protocol");
+const { RESOURCE, ISSUER, CLIENT } = require("../dist/protocol");
 const scope =
   "catalog:read balance:read usage:read models:invoke group:ZGVmYXVsdA";
 const token = (suffix = "one") => ({
@@ -318,6 +318,7 @@ test("complete browser OAuth verifies discovery, client, PKCE and saves credenti
     if (url.endsWith("/.well-known/oauth-authorization-server"))
       return response({
         issuer: ISSUER,
+        lmm_client_ids_supported: ["lmm-vscode"],
         authorization_endpoint: RESOURCE + "/authorize",
         token_endpoint: RESOURCE + "/token",
         revocation_endpoint: RESOURCE + "/revoke",
@@ -351,6 +352,7 @@ test("complete browser OAuth verifies discovery, client, PKCE and saves credenti
     authorization = new URL(value);
     assert.equal(authorization.origin, ISSUER);
     assert.equal(authorization.pathname, "/api/oauth2/authorize");
+    assert.equal(authorization.searchParams.get("client_id"), CLIENT);
     assert.equal(
       authorization.searchParams.get("code_challenge_method"),
       "S256",
@@ -377,5 +379,82 @@ test("untrusted discovery fails before opening browser or exchanging tokens", as
     }, AbortSignal.timeout(10000)),
   );
   assert.equal(opened, false);
+  assert.equal(await auth.current(), undefined);
+});
+
+test("an older server cannot silently substitute Pi for the VS Code client", async () => {
+  for (const supported of [undefined, ["lmm-pi"], "lmm-vscode", [CLIENT, 123]]) {
+    let opened = false;
+    let exchanged = false;
+    const auth = new Auth(secret(), async (url) => {
+      if (url.endsWith("/.well-known/oauth-authorization-server"))
+        return response({
+          issuer: ISSUER,
+          lmm_client_ids_supported: supported,
+          authorization_endpoint: RESOURCE + "/authorize",
+          token_endpoint: RESOURCE + "/token",
+          revocation_endpoint: RESOURCE + "/revoke",
+          authorization_response_iss_parameter_supported: true,
+          code_challenge_methods_supported: ["S256"],
+          response_types_supported: ["code"],
+        });
+      if (url.endsWith("/.well-known/oauth-protected-resource/api/oauth2"))
+        return response({ resource: RESOURCE, authorization_servers: [ISSUER] });
+      exchanged = true;
+      throw new Error("No token request is permitted");
+    });
+    await assert.rejects(
+      auth.login(async () => { opened = true; }, AbortSignal.timeout(10000)),
+      /has not enabled VS Code sign-in yet/,
+    );
+    assert.equal(opened, false);
+    assert.equal(exchanged, false);
+    assert.equal(await auth.current(), undefined);
+  }
+});
+
+test("VS Code revokes only its own client credentials", async () => {
+  const store = secret(parseToken(token()));
+  let calls = 0;
+  const auth = new Auth(store, async (url, init) => {
+    calls++;
+    assert.equal(url, RESOURCE + "/revoke");
+    const form = new URLSearchParams(init.body);
+    assert.equal(form.get("client_id"), CLIENT);
+    assert.equal(form.get("token"), "lmm_at_one");
+    return new Response(null, { status: 200 });
+  });
+  await auth.logout();
+  assert.equal(calls, 1);
+  assert.equal(await auth.current(), undefined);
+});
+
+test("cancelled login closes the callback and never consumes a token", async () => {
+  const controller = new AbortController();
+  let redirect;
+  let exchanged = false;
+  const auth = new Auth(secret(), async (url) => {
+    if (url.endsWith("/.well-known/oauth-authorization-server"))
+      return response({
+        issuer: ISSUER,
+        lmm_client_ids_supported: [CLIENT],
+        authorization_endpoint: RESOURCE + "/authorize",
+        token_endpoint: RESOURCE + "/token",
+        revocation_endpoint: RESOURCE + "/revoke",
+        authorization_response_iss_parameter_supported: true,
+        code_challenge_methods_supported: ["S256"],
+        response_types_supported: ["code"],
+      });
+    if (url.endsWith("/.well-known/oauth-protected-resource/api/oauth2"))
+      return response({ resource: RESOURCE, authorization_servers: [ISSUER] });
+    exchanged = true;
+    throw new Error("No token request is permitted");
+  });
+  await assert.rejects(auth.login(async (value) => {
+    redirect = new URL(value).searchParams.get("redirect_uri");
+    controller.abort();
+  }, controller.signal), /cancelled or timed out/);
+  await assert.rejects(fetch(redirect));
+  assert.equal(exchanged, false);
   assert.equal(await auth.current(), undefined);
 });

@@ -206,6 +206,9 @@ func (s *Server) decideByBrowserBinding(ctx context.Context, binding string, app
 			return protocolError("access_denied"), nil
 		}
 		now := s.now()
+		if row.ExpiresAtMs <= now.UnixMilli() {
+			return protocolError("invalid_request"), nil
+		}
 		if err := tx.Model(row).Update("consumed_at_ms", now.UnixMilli()).Error; err != nil {
 			return nil, err
 		}
@@ -337,11 +340,15 @@ func (s *Server) createCode(tx *gorm.DB, family *model.OAuthServerGrant, challen
 	if err != nil {
 		return "", err
 	}
+	// Grant reuse may merge earlier scopes and replace its latest redirect.
+	// Preserve exactly this consent before that mutable family is reused.
+	row := model.OAuthServerCode{Digest: digest(code), Issuer: s.issuer, ClientID: family.ClientID,
+		RedirectURI: family.RedirectURI, Resource: family.Resource, Scope: family.Scope, CodeChallenge: challenge,
+		CreatedAtMs: now.UnixMilli(), ExpiresAtMs: now.Add(CodeTTL).UnixMilli()}
 	if err := s.reuseOrCreateGrant(tx, family, now); err != nil {
 		return "", err
 	}
-	row := model.OAuthServerCode{Digest: digest(code), Issuer: s.issuer, FamilyID: family.ID, CodeChallenge: challenge,
-		CreatedAtMs: now.UnixMilli(), ExpiresAtMs: now.Add(CodeTTL).UnixMilli()}
+	row.FamilyID = family.ID
 	if err := tx.Create(&row).Error; err != nil {
 		return "", err
 	}

@@ -6,8 +6,10 @@ on:
       - 'packages/vscode-lmm-provider/**'
       - 'packages/zed-lmm-provider/**'
       - 'apps/api-go/service/oauth_server.go'
+      - 'apps/api-go/controller/oauth_server*.go'
+      - 'apps/api-go/oauthserver/**'
       - 'apps/api-go/service/oauth_contract.md'
-      - 'apps/api-go/router/oauth_editor_test.go'
+      - 'apps/api-go/router/oauth_editor*.go'
       - 'docs/editor-providers.md'
       - '.github/workflows/editor-providers.yml'
   push:
@@ -16,7 +18,9 @@ on:
       - 'packages/vscode-lmm-provider/**'
       - 'packages/zed-lmm-provider/**'
       - 'apps/api-go/service/oauth_server.go'
-      - 'apps/api-go/router/oauth_editor_test.go'
+      - 'apps/api-go/controller/oauth_server*.go'
+      - 'apps/api-go/oauthserver/**'
+      - 'apps/api-go/router/oauth_editor*.go'
       - '.github/workflows/editor-providers.yml'
   workflow_dispatch:
 
@@ -105,6 +109,8 @@ jobs:
               entry = 'extension/' + manifest['main'].removeprefix('./')
               assert entry in names, entry
               assert manifest['contributes']['languageModelChatProviders'][0]['vendor'] == 'lmm'
+              assert manifest['icon'] == 'assets/icon.png'
+              assert 'extension/' + manifest['icon'] in names
               assert not any('/test/' in name or '/node_modules/' in name for name in names), names
           PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -128,5 +134,7 @@ jobs:
       - name: Verify editor grants, refresh and revocation
         env:
           GIN_MODE: release
-        run: go test ./router ./service ./oauthserver -run 'TestOAuth(Editor|CLI|OpenCode|HTTPDiscovery)|TestCodewhale' -count=1
+        run: |
+          go test ./oauthserver -count=1
+          go test ./router ./service -run 'TestOAuth' -count=1
         working-directory: apps/api-go
