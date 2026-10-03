@@ -302,6 +302,7 @@ const (
 	MsgOAuthTrustLevelLow                 = "oauth.trust_level_low"
 	MsgOAuthTrustLevelLowRequireAssistant = "oauth.trust_level_low_require_assistant"
 	MsgOAuthEmailVerificationRequired     = "oauth.email_verification_required"
+	MsgOAuthGitHubMigrationDeclined       = "oauth.github_migration_declined"
 )
 
 // Model layer error messages (for translation in controller)

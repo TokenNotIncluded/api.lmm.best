@@ -175,11 +175,17 @@ func GetPasskeyByCredentialID(credentialID []byte) (*PasskeyCredential, error) {
 // assertion. Registration identity (credential ID, public key, AAGUID,
 // transports and attestation metadata) is immutable on this path.
 func UpdatePasskeyAssertionState(userID int, credential *webauthn.Credential, lastUsedAt time.Time) error {
-	if userID <= 0 || credential == nil || len(credential.ID) == 0 || lastUsedAt.IsZero() {
+	return UpdatePasskeyAssertionStateWithTx(DB, userID, credential, lastUsedAt)
+}
+
+// UpdatePasskeyAssertionStateWithTx keeps a migration login's credential state
+// in the same transaction as challenge consumption and session issuance.
+func UpdatePasskeyAssertionStateWithTx(tx *gorm.DB, userID int, credential *webauthn.Credential, lastUsedAt time.Time) error {
+	if tx == nil || userID <= 0 || credential == nil || len(credential.ID) == 0 || lastUsedAt.IsZero() {
 		return fmt.Errorf("Passkey 保存失败，请重试")
 	}
 	credentialID := base64.StdEncoding.EncodeToString(credential.ID)
-	result := DB.Model(&PasskeyCredential{}).
+	result := tx.Model(&PasskeyCredential{}).
 		Where("user_id = ? AND credential_id = ?", userID, credentialID).
 		Updates(map[string]interface{}{
 			"sign_count":      credential.Authenticator.SignCount,

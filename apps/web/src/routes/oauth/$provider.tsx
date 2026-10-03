@@ -24,7 +24,7 @@ import {
 } from '@tanstack/react-router'
 import type { AxiosRequestConfig } from 'axios'
 import i18next from 'i18next'
-import { useEffect } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 import { OAuthCallbackScreen } from '@/features/auth/components/oauth-callback-screen'
@@ -32,6 +32,7 @@ import {
   OAUTH_BIND_CALLBACK_MESSAGE,
   OAUTH_BIND_RESULT_MESSAGE,
 } from '@/features/auth/constants'
+import { useAuthRedirect } from '@/features/auth/hooks/use-auth-redirect'
 import { sanitizeAuthRedirect } from '@/features/auth/lib/auth-redirect'
 import {
   parseTelegramBindCallback,
@@ -42,9 +43,16 @@ import {
   getOAuthSessionStorage,
   resolveOAuthCallbackMode,
 } from '@/features/auth/lib/oauth-callback-mode'
+import { finishPasskeyLogin } from '@/features/auth/passkey'
+import type { ApiResponse } from '@/features/auth/types'
 import { api, applyAuthBundle, isAuthBundle } from '@/lib/api'
 import { getAuthenticatedLandingRoute } from '@/lib/console-activation'
+import {
+  prepareCredentialRequestOptions,
+  requestPasskeyAuthentication,
+} from '@/lib/passkey'
 import { getServerErrorMessageKey } from '@/lib/server-error-message'
+import { useAuthStore, type AuthBundle } from '@/stores/auth-store'
 
 type OAuthRequestConfig = AxiosRequestConfig & {
   skipBusinessError?: boolean
@@ -58,8 +66,27 @@ interface OAuthBindingResult {
   message?: string
 }
 
+interface OAuthPasskeyChallenge {
+  options: unknown
+  flowToken: string
+  expiresAt?: number
+}
+
 function OAuthCallback() {
   const navigate = useNavigate()
+  const { redirectTo2FA } = useAuthRedirect()
+  const setPending2FAFlowToken = useAuthStore(
+    (state) => state.auth.setPending2FAFlowToken
+  )
+  const [passkeyChallenge, setPasskeyChallenge] =
+    useState<OAuthPasskeyChallenge | null>(null)
+  const [isPasskeyPending, setIsPasskeyPending] = useState(false)
+  const passkeyPending = useRef(false)
+  const passkeyAttempt = useRef(0)
+  const callbackRequest = useRef<{
+    key: string
+    promise: Promise<ApiResponse>
+  } | null>(null)
   const { provider } = useParams({ from: '/oauth/$provider' }) as {
     provider: string
   }
@@ -74,6 +101,95 @@ function OAuthCallback() {
     error_code?: string
   }
   const callbackState = search.state ?? ''
+
+  const safeNavigate = useCallback(
+    (target: unknown, fallback: string = '/open-source-bounties') => {
+      const href =
+        sanitizeAuthRedirect(target, window.location.origin) ?? fallback
+      void navigate({ href, replace: true })
+    },
+    [navigate]
+  )
+  const completeLogin = useCallback(
+    (bundle: AuthBundle) => {
+      applyAuthBundle(bundle)
+      safeNavigate(search.redirect, getAuthenticatedLandingRoute(bundle.user))
+      toast.success(i18next.t('Signed in successfully!'))
+    },
+    [safeNavigate, search.redirect]
+  )
+
+  useEffect(() => {
+    return () => {
+      passkeyAttempt.current += 1
+    }
+  }, [])
+
+  const handlePasskeyCancel = () => {
+    passkeyAttempt.current += 1
+    passkeyPending.current = false
+    setIsPasskeyPending(false)
+    setPasskeyChallenge(null)
+    safeNavigate('/sign-in', '/sign-in')
+  }
+
+  const handlePasskeyVerification = async () => {
+    if (!passkeyChallenge || passkeyPending.current) return
+    if (!navigator.credentials?.get) {
+      toast.error(i18next.t('Passkey is not available in this browser'))
+      return
+    }
+    if (
+      passkeyChallenge.expiresAt !== undefined &&
+      passkeyChallenge.expiresAt * 1000 <= Date.now()
+    ) {
+      toast.error(i18next.t('Login flow expired. Please sign in again.'))
+      safeNavigate('/sign-in', '/sign-in')
+      return
+    }
+
+    const attempt = ++passkeyAttempt.current
+    passkeyPending.current = true
+    setIsPasskeyPending(true)
+    try {
+      const assertion = await requestPasskeyAuthentication(
+        passkeyChallenge.options
+      )
+      if (attempt !== passkeyAttempt.current) return
+      if (!assertion) {
+        toast.info(i18next.t('Passkey login was cancelled'))
+        return
+      }
+      const response = await finishPasskeyLogin(
+        passkeyChallenge.flowToken,
+        assertion
+      )
+      if (attempt !== passkeyAttempt.current) return
+      if (!response.success || !isAuthBundle(response.data)) {
+        const messageKey = getServerErrorMessageKey(response)
+        toast.error(
+          messageKey
+            ? i18next.t(messageKey)
+            : response.message || i18next.t('Failed to complete Passkey login')
+        )
+        return
+      }
+      completeLogin(response.data)
+    } catch (error: unknown) {
+      if (attempt !== passkeyAttempt.current) return
+      if (getServerErrorMessageKey(error)) return
+      if (error instanceof DOMException && error.name === 'NotAllowedError') {
+        toast.info(i18next.t('Passkey login was cancelled or timed out'))
+      } else {
+        toast.error(i18next.t('Passkey login failed'))
+      }
+    } finally {
+      if (attempt === passkeyAttempt.current) {
+        passkeyPending.current = false
+        setIsPasskeyPending(false)
+      }
+    }
+  }
   const isTelegramBindCallback =
     provider === 'telegram' &&
     (search.telegram_bind === 'success' || search.telegram_bind === 'error')
@@ -175,21 +291,13 @@ function OAuthCallback() {
       }
     }
 
-    const safeNavigate = (
-      target: unknown,
-      fallback: string = '/open-source-bounties'
-    ) => {
-      const href =
-        sanitizeAuthRedirect(target, window.location.origin) ?? fallback
-      void navigate({ href, replace: true })
-    }
-
     if (!code && !search.error) {
       toast.error(i18next.t('Missing code'))
       safeNavigate('/sign-in', '/sign-in')
       return
     }
 
+    let active = true
     void (async () => {
       try {
         const config: OAuthRequestConfig = {
@@ -201,23 +309,64 @@ function OAuthCallback() {
           },
           skipBusinessError: true,
         }
-        const response = await api.get(`/api/oauth/${provider}`, config)
-        if (response.data?.success && isAuthBundle(response.data?.data)) {
-          applyAuthBundle(response.data.data)
-          safeNavigate(
-            search.redirect,
-            getAuthenticatedLandingRoute(response.data.data.user)
-          )
-          toast.success(i18next.t('Signed in successfully!'))
-          return
+        const key = JSON.stringify([
+          provider,
+          code,
+          state,
+          search.error,
+          search.error_description,
+        ])
+        if (callbackRequest.current?.key !== key) {
+          passkeyAttempt.current += 1
+          passkeyPending.current = false
+          setIsPasskeyPending(false)
+          setPasskeyChallenge(null)
+          callbackRequest.current = {
+            key,
+            promise: api
+              .get<ApiResponse>(`/api/oauth/${provider}`, config)
+              .then((response) => response.data),
+          }
         }
-        const messageKey = getServerErrorMessageKey(response.data)
+        const response = await callbackRequest.current.promise
+        if (!active) return
+        if (response?.success) {
+          const data = response.data as Record<string, unknown> | undefined
+          if (data?.require_2fa === true || data?.require_passkey === true) {
+            if (typeof data.flow_token !== 'string' || !data.flow_token) {
+              throw new Error(
+                i18next.t('Login flow expired. Please sign in again.')
+              )
+            }
+            if (data.require_2fa === true) {
+              setPending2FAFlowToken(data.flow_token)
+              redirectTo2FA()
+              return
+            }
+            prepareCredentialRequestOptions(data.options)
+            setPasskeyChallenge({
+              options: data.options,
+              flowToken: data.flow_token,
+              expiresAt:
+                typeof data.expires_at === 'number'
+                  ? data.expires_at
+                  : undefined,
+            })
+            return
+          }
+          if (isAuthBundle(response.data)) {
+            completeLogin(response.data)
+            return
+          }
+        }
+        const messageKey = getServerErrorMessageKey(response)
         toast.error(
           messageKey
             ? i18next.t(messageKey)
-            : response.data?.message || i18next.t('OAuth failed')
+            : response?.message || i18next.t('OAuth failed')
         )
       } catch (error: unknown) {
+        if (!active) return
         const messageKey = getServerErrorMessageKey(error)
         const responseMessage = (
           error as { response?: { data?: { message?: string } } }
@@ -233,11 +382,18 @@ function OAuthCallback() {
       }
       safeNavigate('/sign-in', '/sign-in')
     })()
+    return () => {
+      active = false
+    }
   }, [
     callbackState,
+    completeLogin,
     mode,
     navigate,
     provider,
+    redirectTo2FA,
+    safeNavigate,
+    setPending2FAFlowToken,
     search.code,
     search.error,
     search.error_code,
@@ -247,7 +403,21 @@ function OAuthCallback() {
     search.telegram_bind,
   ])
 
-  return <OAuthCallbackScreen provider={provider} mode={mode} />
+  return (
+    <OAuthCallbackScreen
+      provider={provider}
+      mode={mode}
+      passkeyChallenge={
+        mode === 'login' && passkeyChallenge
+          ? {
+              pending: isPasskeyPending,
+              onVerify: handlePasskeyVerification,
+              onCancel: handlePasskeyCancel,
+            }
+          : undefined
+      }
+    />
+  )
 }
 
 export const Route = createFileRoute('/oauth/$provider')({

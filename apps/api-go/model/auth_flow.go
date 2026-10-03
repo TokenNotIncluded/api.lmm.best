@@ -200,30 +200,11 @@ func ConsumeAuthFlowWithAction(token string, match AuthFlowMatch, action func(tx
 	}
 	var consumed AuthFlow
 	err := DB.Transaction(func(tx *gorm.DB) error {
-		query := applyAuthFlowMatch(lockForUpdate(tx), token, match)
-		if err := query.First(&consumed).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return ErrAuthFlowInvalid
-			}
+		flow, err := ConsumeAuthFlowWithTx(tx, token, match)
+		if err != nil {
 			return err
 		}
-		if consumed.ConsumedAt != nil {
-			return ErrAuthFlowConsumed
-		}
-		now := time.Now()
-		if !consumed.ExpiresAt.After(now) {
-			return ErrAuthFlowExpired
-		}
-		result := tx.Model(&AuthFlow{}).
-			Where("id = ? AND consumed_at IS NULL AND expires_at > ?", consumed.Id, now).
-			Update("consumed_at", now)
-		if result.Error != nil {
-			return result.Error
-		}
-		if result.RowsAffected != 1 {
-			return ErrAuthFlowConsumed
-		}
-		consumed.ConsumedAt = &now
+		consumed = *flow
 		if action != nil {
 			if err := action(tx, &consumed); err != nil {
 				return err
@@ -235,6 +216,39 @@ func ConsumeAuthFlowWithAction(token string, match AuthFlowMatch, action func(tx
 		return nil, err
 	}
 	return &consumed, nil
+}
+
+// ConsumeAuthFlowWithTx lets an authentication ceremony consume its challenge
+// in the same transaction as its account mutation and resulting session.
+func ConsumeAuthFlowWithTx(tx *gorm.DB, token string, match AuthFlowMatch) (*AuthFlow, error) {
+	if tx == nil || token == "" || match.Purpose == "" {
+		return nil, ErrAuthFlowInvalid
+	}
+	var flow AuthFlow
+	if err := applyAuthFlowMatch(lockForUpdate(tx), token, match).First(&flow).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrAuthFlowInvalid
+		}
+		return nil, err
+	}
+	if flow.ConsumedAt != nil {
+		return nil, ErrAuthFlowConsumed
+	}
+	now := time.Now()
+	if !flow.ExpiresAt.After(now) {
+		return nil, ErrAuthFlowExpired
+	}
+	result := tx.Model(&AuthFlow{}).
+		Where("id = ? AND consumed_at IS NULL AND expires_at > ?", flow.Id, now).
+		Update("consumed_at", now)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected != 1 {
+		return nil, ErrAuthFlowConsumed
+	}
+	flow.ConsumedAt = &now
+	return &flow, nil
 }
 
 func DeleteExpiredAuthFlows(now time.Time) error {

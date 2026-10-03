@@ -22,6 +22,16 @@ import { describe, test } from 'node:test'
 import { getServerErrorMessageKey } from './server-error-message'
 
 describe('server error message mapping', () => {
+  test('maps a declined GitHub migration to a safe recovery path', () => {
+    assert.equal(
+      getServerErrorMessageKey({
+        code: 'oauth.github_migration_declined',
+        message: 'raw server detail',
+      }),
+      'GitHub account ownership could not be verified. Sign in another way and relink GitHub in account settings.'
+    )
+  })
+
   test('maps the active-session limit to recovery instructions', () => {
     const message = getServerErrorMessageKey({ code: 'AUTH_SESSION_LIMIT' })
 

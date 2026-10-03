@@ -118,8 +118,6 @@ export function OtpForm({ className, ...props }: OtpFormProps) {
       await handleLoginSuccess(res.data)
       toast.success(t('Signed in'))
     } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error('2FA verification error:', error)
       if (getServerErrorMessageKey(error)) return
       const errorMessage =
         error instanceof Error ? error.message : t('Verification failed')

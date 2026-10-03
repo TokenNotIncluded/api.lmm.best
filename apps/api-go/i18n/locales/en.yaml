@@ -286,3 +286,5 @@ custom_oauth.name_empty: "Provider name cannot be empty"
 custom_oauth.has_bindings: "Cannot delete provider with existing user bindings"
 custom_oauth.binding_not_found: "OAuth binding not found"
 custom_oauth.provider_id_field_invalid: "Could not extract user ID from provider response"
+
+oauth.github_migration_declined: "GitHub account ownership could not be verified. Sign in another way and relink GitHub in account settings."
