@@ -1099,6 +1099,20 @@ fn retain_resolved_control(session: &mut ActiveSession, mut control: PendingCont
     session.resolved_controls.push_back(control);
 }
 
+fn upstream_response_id(value: &Value) -> &str {
+    value
+        .get("response_id")
+        .and_then(Value::as_str)
+        .filter(|identity| !identity.is_empty())
+        .or_else(|| {
+            value
+                .get("response")
+                .and_then(|response| response.get("id"))
+                .and_then(Value::as_str)
+        })
+        .unwrap_or_default()
+}
+
 fn upstream_attribution(session: &mut ActiveSession, frame: &ResponsesFrame) -> (String, bool) {
     let value: Value = serde_json::from_slice(frame.payload()).unwrap_or_default();
     let kind = value
@@ -1116,17 +1130,14 @@ fn upstream_attribution(session: &mut ActiveSession, frame: &ResponsesFrame) -> 
         .get("stream_id")
         .and_then(Value::as_str)
         .unwrap_or_default();
-    let response_id = value
-        .get("response_id")
-        .and_then(Value::as_str)
-        .filter(|identity| !identity.is_empty())
-        .or_else(|| {
-            value
-                .get("response")
-                .and_then(|response| response.get("id"))
-                .and_then(Value::as_str)
-        })
-        .unwrap_or_default();
+    let response_id = upstream_response_id(&value);
+    let foreign_response = !response_id.is_empty()
+        && (session
+            .resolved_response_ids
+            .iter()
+            .any(|known| known == response_id)
+            || !session.current_response_id.is_empty()
+                && response_id != session.current_response_id);
     if kind == "error" {
         let event_id = value
             .get("event_id")
@@ -1165,6 +1176,7 @@ fn upstream_attribution(session: &mut ActiveSession, frame: &ResponsesFrame) -> 
                 &session.current_event_id,
                 &session.current_response_id,
                 session.current.is_some(),
+                foreign_response,
             )
         };
         match control_match {
@@ -1196,14 +1208,7 @@ fn upstream_attribution(session: &mut ActiveSession, frame: &ResponsesFrame) -> 
         if !session.current_stream_id.is_empty()
             && !stream_id.is_empty()
             && stream_id != session.current_stream_id
-            || !response_id.is_empty()
-                && session
-                    .resolved_response_ids
-                    .iter()
-                    .any(|known| known == response_id)
-            || !session.current_response_id.is_empty()
-                && !response_id.is_empty()
-                && response_id != session.current_response_id
+            || foreign_response
         {
             return (String::new(), false);
         }
@@ -1221,6 +1226,7 @@ fn matched_control(
     active_event_id: &str,
     active_response_id: &str,
     has_active_turn: bool,
+    foreign_response: bool,
 ) -> ControlMatch {
     let event_id = value
         .get("event_id")
@@ -1231,10 +1237,7 @@ fn matched_control(
         .and_then(|error| error.get("event_id"))
         .and_then(Value::as_str)
         .unwrap_or_default();
-    let response_id = value
-        .get("response_id")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
+    let response_id = upstream_response_id(value);
     let stream_id = value
         .get("stream_id")
         .and_then(Value::as_str)
@@ -1303,8 +1306,8 @@ fn matched_control(
             && control.cancel
             && (stream_id.is_empty() || stream_id == control.stream_id)
             && (response_id.is_empty()
-                || control.response_id.is_empty()
-                || response_id == control.response_id)
+                || response_id == control.response_id
+                || control.response_id.is_empty() && !foreign_response)
     })
 }
 

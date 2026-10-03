@@ -64,6 +64,14 @@ can identify its own rejection. The cancel rejection codes `response_not_found`,
 pending cancel. Conflicting explicit stream/response targets do not qualify for
 this inference. A cancelled turn is finalized by its response terminal event,
 not by a rejection of the cancel request.
+Control matching uses the nonempty top-level `response_id`, falling back to
+`response.id` just as turn observation does. An implicit cancel cannot consume an
+error for a known foreign or completed response, including before the new turn's
+response ID is known. Its pending record remains available for its own rejection,
+so that later rejection cannot become an active-turn failure. Exact client-event
+references and explicit cancel targets retain their existing priority; an unseen
+response ID can still match an implicit cancel while the current response ID is
+unknown.
 
 Controls owned by a finalized turn move into recent resolved history, preventing
 completed turns from exhausting the pending registry. Controls with no event or

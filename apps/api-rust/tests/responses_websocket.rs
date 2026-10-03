@@ -868,7 +868,7 @@ async fn cancel_operation_errors_match_target_or_unique_rejection_without_finish
         provider_event(
             &mut socket,
             &service.peer,
-            json!({"type":"error","response_id":"missing","error":{"code":"target_rejected"}})
+            json!({"type":"error","response_id":"","response":{"id":"missing"},"error":{"code":"target_rejected"}})
         )
         .await["stream_id"],
         "planner"
@@ -909,6 +909,169 @@ async fn cancel_operation_errors_match_target_or_unique_rejection_without_finish
     assert_eq!(service.finishes.lock().await.len(), 1);
     socket.close(None).await.unwrap();
     server.abort();
+}
+
+#[tokio::test]
+async fn foreign_response_errors_cannot_consume_an_implicit_cancel_before_its_rejection() {
+    for knows_current_response in [true, false] {
+        let foreign_ids: &[&str] = if knows_current_response {
+            &["previous-response", "foreign-response"]
+        } else {
+            &["previous-response"]
+        };
+        for foreign_id in foreign_ids {
+            for response_shape in 0..3 {
+                for cancel_event_id in ["", "cancel"] {
+                    let references: &[&str] = if cancel_event_id.is_empty() {
+                        &[""]
+                    } else {
+                        &["", "top", "nested"]
+                    };
+                    for reference in references {
+                        let service = TestService::new();
+                        let (url, server) = spawn(service.clone()).await;
+                        let mut socket = connect(&url).await;
+                        start_stream(&mut socket, &service.peer, "previous").await;
+                        let _ = provider_event(
+                            &mut socket,
+                            &service.peer,
+                            json!({"type":"response.completed","response":{"id":"previous-response"}}),
+                        )
+                        .await;
+                        start_identified_stream(
+                            &mut socket,
+                            &service.peer,
+                            "current-create",
+                            "current",
+                        )
+                        .await;
+                        if knows_current_response {
+                            let _ = provider_event(
+                                &mut socket,
+                                &service.peer,
+                                json!({"type":"response.created","response":{"id":"current-response"}}),
+                            )
+                            .await;
+                        }
+                        let observations = service.observations.lock().await.len();
+                        let mut cancel = json!({"type":"response.cancel","stream_id":"current"});
+                        if !cancel_event_id.is_empty() {
+                            cancel["event_id"] = json!(cancel_event_id);
+                        }
+                        socket
+                            .send(Message::Text(cancel.to_string().into()))
+                            .await
+                            .unwrap();
+                        let _ = peer_json(&service.peer).await;
+
+                        let mut foreign = json!({"type":"error","error":{"type":"invalid_request_error","code":"response_not_found"}});
+                        if response_shape == 0 {
+                            foreign["response_id"] = json!(foreign_id);
+                        } else {
+                            foreign["response"] = json!({"id":foreign_id});
+                            if response_shape == 2 {
+                                foreign["response_id"] = json!("");
+                            }
+                        }
+                        assert_eq!(
+                            provider_event(&mut socket, &service.peer, foreign.clone()).await,
+                            foreign,
+                            "foreign response errors cannot borrow the pending cancel identity"
+                        );
+                        assert_eq!(service.observations.lock().await.len(), observations);
+                        assert_eq!(service.finishes.lock().await.len(), 1);
+
+                        let mut rejection = json!({"type":"error","error":{"type":"invalid_request_error","code":"response_not_active"}});
+                        if *reference == "top" {
+                            rejection["event_id"] = json!(cancel_event_id);
+                        } else if *reference == "nested" {
+                            rejection["error"]["event_id"] = json!(cancel_event_id);
+                        }
+                        assert_eq!(
+                            provider_event(&mut socket, &service.peer, rejection).await["stream_id"],
+                            "current"
+                        );
+                        assert_eq!(
+                            service.observations.lock().await.len(),
+                            observations,
+                            "the legitimate cancel rejection must remain a control error"
+                        );
+                        assert_eq!(
+                            service.finishes.lock().await.len(),
+                            1,
+                            "neither error may prematurely settle the current turn"
+                        );
+                        let _ = provider_event(
+                            &mut socket,
+                            &service.peer,
+                            json!({"type":"response.completed","response":{"id":"current-response"}}),
+                        )
+                        .await;
+                        assert_eq!(service.observations.lock().await.len(), observations + 1);
+                        assert_eq!(
+                            service.finishes.lock().await.last(),
+                            Some(&ResponsesTurnFinish::Terminal {
+                                success: true,
+                                billable_partial: false,
+                            })
+                        );
+                        assert_eq!(service.finishes.lock().await.len(), 2);
+                        socket.close(None).await.unwrap();
+                        server.abort();
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn cancel_rejection_keeps_unknown_response_and_explicit_target_compatibility() {
+    for targets_previous_response in [false, true] {
+        let service = TestService::new();
+        let (url, server) = spawn(service.clone()).await;
+        let mut socket = connect(&url).await;
+        if targets_previous_response {
+            start_stream(&mut socket, &service.peer, "previous").await;
+            let _ = provider_event(
+                &mut socket,
+                &service.peer,
+                json!({"type":"response.completed","response":{"id":"previous-response"}}),
+            )
+            .await;
+        }
+        start_stream(&mut socket, &service.peer, "current").await;
+        let observations = service.observations.lock().await.len();
+        let finishes = service.finishes.lock().await.len();
+        let mut cancel = json!({"type":"response.cancel","stream_id":"current"});
+        let rejected_response = if targets_previous_response {
+            cancel["response_id"] = json!("previous-response");
+            "previous-response"
+        } else {
+            "unseen-response"
+        };
+        socket
+            .send(Message::Text(cancel.to_string().into()))
+            .await
+            .unwrap();
+        let _ = peer_json(&service.peer).await;
+        let rejection = json!({"type":"error","response_id":"","response":{"id":rejected_response},"error":{"type":"invalid_request_error","code":"response_not_active"}});
+        assert_eq!(
+            provider_event(&mut socket, &service.peer, rejection).await["stream_id"],
+            "current"
+        );
+        assert_eq!(service.observations.lock().await.len(), observations);
+        assert_eq!(service.finishes.lock().await.len(), finishes);
+        let _ = provider_event(
+            &mut socket,
+            &service.peer,
+            json!({"type":"response.completed","response":{"id":"current-response"}}),
+        )
+        .await;
+        assert_eq!(service.finishes.lock().await.len(), finishes + 1);
+        socket.close(None).await.unwrap();
+        server.abort();
+    }
 }
 
 #[tokio::test]

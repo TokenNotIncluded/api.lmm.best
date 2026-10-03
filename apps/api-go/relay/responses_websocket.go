@@ -994,6 +994,13 @@ func (s *responsesWSSession) correlateControlError(event map[string]common.RawMe
 	_ = common.Unmarshal(event["event_id"], &eventID)
 	_ = common.Unmarshal(event["stream_id"], &streamID)
 	_ = common.Unmarshal(event["response_id"], &responseID)
+	if responseID == "" {
+		var response struct {
+			ID string `json:"id"`
+		}
+		_ = common.Unmarshal(event["response"], &response)
+		responseID = response.ID
+	}
 	var failure struct {
 		EventID string `json:"event_id"`
 		Type    string `json:"type"`
@@ -1013,15 +1020,7 @@ func (s *responsesWSSession) correlateControlError(event map[string]common.RawMe
 			if eventID != previous.eventID {
 				continue
 			}
-			identifiedResponseID := responseID
-			if identifiedResponseID == "" {
-				var response struct {
-					ID string `json:"id"`
-				}
-				_ = common.Unmarshal(event["response"], &response)
-				identifiedResponseID = response.ID
-			}
-			currentResponse := activeResponseID != "" && identifiedResponseID == activeResponseID
+			currentResponse := activeResponseID != "" && responseID == activeResponseID
 			currentStream := state != nil && streamID != "" && streamID == state.StreamID && streamID != previous.streamID
 			if !currentResponse && !currentStream {
 				return "", false, true
@@ -1084,8 +1083,18 @@ func (s *responsesWSSession) correlateControlError(event map[string]common.RawMe
 		}
 	}
 	if match < 0 {
+		knownForeignResponse := responseID != "" && activeResponseID != "" && responseID != activeResponseID
+		for _, finishedResponseID := range s.finishedResponseIDs {
+			if responseID != "" && responseID == finishedResponseID {
+				knownForeignResponse = true
+				break
+			}
+		}
 		for i, control := range s.pendingControls {
-			cancelRejection := control.isCancel && failure.Type == "invalid_request_error" && (failure.Code == "response_not_found" || failure.Code == "response_not_active" || failure.Code == "response_already_completed") && (responseID == "" || control.responseID == "" || responseID == control.responseID) && (streamID == "" || streamID == control.streamID)
+			// An implicit cancel cannot claim a known foreign or completed response,
+			// including before response.created identifies the current response.
+			targetMatch := responseID == "" || responseID == control.responseID || control.responseID == "" && !knownForeignResponse
+			cancelRejection := control.isCancel && failure.Type == "invalid_request_error" && (failure.Code == "response_not_found" || failure.Code == "response_not_active" || failure.Code == "response_already_completed") && targetMatch && (streamID == "" || streamID == control.streamID)
 			if !cancelRejection {
 				continue
 			}
