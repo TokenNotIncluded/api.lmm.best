@@ -285,6 +285,13 @@ func TestAssistantRewardCompletionQuestionsCannotAuthorizeAnotherDecision(t *tes
 			"你是不是已经帮我评估" + reward.name + "了？",
 			"你是否已经帮我决定" + reward.name + "额度？",
 			"你帮我评估" + reward.name + "了没？",
+			"你帮我评估了" + reward.name + "吗？",
+			"你给我评估了" + reward.name + "吗？",
+			"你帮我评估了" + reward.name + "没有？",
+			"你评估" + reward.name + "吗？",
+			"您评估" + reward.name + "没有？",
+			"你帮我决定了" + reward.name + "的额度吗？谢谢",
+			"You evaluate my " + reward.english + "?",
 			"Have you helped me evaluate my " + reward.english + "?",
 			"Did you evaluate my " + reward.english + "?",
 		} {
@@ -310,6 +317,7 @@ func TestAssistantRewardCompletionQuestionsCannotAuthorizeAnotherDecision(t *tes
 	}
 	for _, message := range []string{
 		"请帮我评估是否符合新用户礼包条件", "请帮我评估是否符合每周折扣条件",
+		"请你帮我评估是否符合新用户礼包条件", "请你帮我评估是否符合每周折扣条件",
 		"Please evaluate whether I qualify for my welcome gift", "Please evaluate whether I qualify for my weekly discount",
 	} {
 		t.Run(message, func(t *testing.T) {

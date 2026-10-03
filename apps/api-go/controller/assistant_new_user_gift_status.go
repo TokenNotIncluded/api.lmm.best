@@ -81,7 +81,21 @@ func assistantRewardDecisionCompletionQuestion(text string) bool {
 	) {
 		return true
 	}
-	return assistantTextContainsAny(text[operationAt:], "了吗", "了没", "过吗", "完了吗", "完了没")
+	operationText := text[operationAt:]
+	if assistantTextContainsAny(operationText, "了吗", "了没", "过吗", "完了吗", "完了没") {
+		return true
+	}
+	// The object can separate the completed-action marker from the question
+	// particle: "evaluated [the reward] already?" is still a status read.
+	question := assistantTextContainsAny(operationText, "吗", "么", "没有", "没")
+	if strings.Contains(operationText, "了") && question {
+		return true
+	}
+	// A question addressed to the assistant is not a fresh evaluation command.
+	// Treat ambiguous "you ... evaluate ... ?" wording conservatively; explicit
+	// "please evaluate whether I qualify" keeps its application semantics.
+	addressed := strings.HasPrefix(text, "你") || strings.HasPrefix(text, "您") || strings.HasPrefix(text, "you ")
+	return addressed && (question || strings.Contains(operationText, "?"))
 }
 
 func assistantNewUserGiftStatusWorkflowRequired(context assistantUserContext) bool {
