@@ -22,6 +22,8 @@ import {
   CHANNEL_TYPE_NEW_API,
   CHANNEL_STATUS,
   isOpenAIChannelType,
+  supportsResponsesWebSocket,
+  getDefaultResponsesWebSocketEnabled,
   ERROR_MESSAGES,
   MODEL_FETCHABLE_TYPES,
 } from '../constants'
@@ -252,6 +254,7 @@ export const channelFormSchema = z
     key_mode: z.enum(['append', 'replace']).optional(), // For editing multi-key channels
     // Channel extra settings (stored in setting JSON, not sent directly)
     force_format: z.boolean().optional(),
+    responses_websocket_enabled: z.boolean().optional(),
     thinking_to_content: z.boolean().optional(),
     proxy: z
       .string()
@@ -428,6 +431,8 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   key_mode: 'append',
   // Channel extra settings
   force_format: false,
+  // Keep unset until the selected type supplies its compatibility default.
+  responses_websocket_enabled: undefined,
   thinking_to_content: false,
   proxy: '',
   http_protocol: HTTP_PROTOCOL_AUTO,
@@ -469,6 +474,9 @@ export function transformChannelToFormDefaults(
   // Parse channel extra settings from setting field
   let extraSettings = {
     force_format: false,
+    responses_websocket_enabled: getDefaultResponsesWebSocketEnabled(
+      channel.type
+    ),
     thinking_to_content: false,
     proxy: '',
     http_protocol: HTTP_PROTOCOL_AUTO as 'auto' | 'http1',
@@ -487,6 +495,11 @@ export function transformChannelToFormDefaults(
       )
       extraSettings = {
         force_format: parsed.force_format || false,
+        responses_websocket_enabled:
+          supportsResponsesWebSocket(channel.type) &&
+          (typeof parsed.responses_websocket_enabled === 'boolean'
+            ? parsed.responses_websocket_enabled
+            : getDefaultResponsesWebSocketEnabled(channel.type)),
         thinking_to_content: parsed.thinking_to_content || false,
         proxy: parsed.proxy || '',
         http_protocol: protocol,
@@ -614,6 +627,12 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
     pass_through_body_enabled: formData.pass_through_body_enabled || false,
     system_prompt: formData.system_prompt || '',
     system_prompt_override: formData.system_prompt_override || false,
+  }
+
+  if (supportsResponsesWebSocket(formData.type)) {
+    settingObj.responses_websocket_enabled =
+      formData.responses_websocket_enabled ??
+      getDefaultResponsesWebSocketEnabled(formData.type)
   }
 
   const protocol = normalizeHttpProtocol(formData.http_protocol)

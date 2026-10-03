@@ -3196,6 +3196,15 @@ mod tests {
         let actual: Value = serde_json::from_slice(&body)?;
         assert_eq!(actual["success"], true);
         assert_eq!(actual["message"], "");
+        // Both shapes are read by the Web capability gate. Rust's production
+        // Responses WebSocket service remains unconfigured even though its
+        // transport route is mounted, so neither may advertise support.
+        for pointer in [
+            "/backend_capabilities/responses_websocket",
+            "/data/backend_capabilities/responses_websocket",
+        ] {
+            assert_ne!(actual.pointer(pointer).and_then(Value::as_bool), Some(true));
+        }
         assert_eq!(actual["data"]["version"], "v0.0.0");
         assert_eq!(actual["data"]["start_time"], 1_700_000_000_i64);
         assert_eq!(
