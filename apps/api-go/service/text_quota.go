@@ -450,6 +450,9 @@ func canEstimateMissingTextUsage(ctx *gin.Context, info *relaycommon.RelayInfo) 
 	if ctx == nil || info == nil {
 		return false
 	}
+	if info.ResponsesUsageReported {
+		return false
+	}
 	if ctx.Request != nil && ctx.Request.Context().Err() != nil {
 		return false
 	}
@@ -522,7 +525,12 @@ func PostTextConsumeQuotaWithResult(ctx *gin.Context, relayInfo *relaycommon.Rel
 		extraContent = append(extraContent, "Claude 在输出前拒绝请求；按已启用的策略免计费")
 	} else if !summary.hasBillableUsage() {
 		estimatedCap := estimatedBillingQuotaCap(relayInfo)
-		if !canEstimateMissingTextUsage(ctx, relayInfo) {
+		if relayInfo.ResponsesUsageReported {
+			// Explicit Responses zero is a report, not missing usage. Keep
+			// separately priced actual tool calls in the branch above.
+			summary.Quota = 0
+			extraContent = append(extraContent, "上游已报告零用量；不使用历史或预扣额度估算")
+		} else if !canEstimateMissingTextUsage(ctx, relayInfo) {
 			// Unknown usage on an interrupted/failed request is not evidence
 			// of a successful request. Settle zero through the normal path so
 			// prepayment is refunded without replaying an already-started stream.

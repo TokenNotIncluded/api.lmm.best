@@ -17,7 +17,7 @@ use axum::{
     http::{Request, StatusCode, header},
     response::Response,
 };
-use futures_util::{StreamExt, stream};
+use futures_util::{FutureExt, StreamExt, stream};
 use lmm_api_rs::{
     relay_http::{RelayHttpClient, RelayTimeoutConfig},
     routes::relay_openai::{
@@ -418,6 +418,179 @@ async fn failed_terminal_without_usage_refunds_without_a_success_log() -> TestRe
         .await?;
     assert_eq!(logs, 0);
     fixture.cleanup().await
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL via LMM_TEST_DATABASE_URL"]
+async fn responses_missing_usage_output_and_reported_zero_settle_over_real_http() -> TestResult {
+    let output =
+        json!([{"type":"message","content":[{"type":"output_text","text":"hello world"}]}]);
+    // priced-model uses the existing generic estimator: two words and one
+    // space are ceil(1.02 + 0.42 + 1.02) = 3 tokens, rather than OpenAI BPE.
+    let cases = [
+        (
+            "terminal-text",
+            true,
+            vec![
+                json!({"type":"response.completed","response":{"status":"completed","output":output}}),
+            ],
+            3,
+            true,
+        ),
+        (
+            "terminal-refusal",
+            true,
+            vec![
+                json!({"type":"response.completed","response":{"status":"completed","output":[{"type":"message","content":[{"type":"refusal","refusal":"hello world"}]}]}}),
+            ],
+            3,
+            true,
+        ),
+        (
+            "terminal-function",
+            true,
+            vec![
+                json!({"type":"response.completed","response":{"status":"completed","output":[{"type":"function_call","arguments":"hello world"}]}}),
+            ],
+            3,
+            true,
+        ),
+        (
+            "terminal-reasoning",
+            true,
+            vec![
+                json!({"type":"response.done","response":{"status":"completed","output":[{"type":"reasoning","summary":[{"type":"summary_text","text":"hello world"}]}]}}),
+            ],
+            3,
+            true,
+        ),
+        (
+            "delta-no-duplicate",
+            true,
+            vec![
+                json!({"type":"response.output_text.delta","delta":"hello world"}),
+                json!({"type":"response.completed","response":{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"hello world plus terminal snapshot"}]}]}}),
+            ],
+            3,
+            true,
+        ),
+        (
+            "stream-reported-zero",
+            true,
+            vec![
+                json!({"type":"response.completed","response":{"status":"completed","output":output,"usage":{"input_tokens":0,"output_tokens":0}}}),
+            ],
+            0,
+            true,
+        ),
+        (
+            "json-reported-zero",
+            false,
+            vec![
+                json!({"status":"completed","output":output,"usage":{"input_tokens":0,"output_tokens":0}}),
+            ],
+            0,
+            true,
+        ),
+        (
+            "failed-terminal-only",
+            true,
+            vec![json!({"type":"response.failed","response":{"status":"failed","output":output}})],
+            0,
+            false,
+        ),
+        (
+            "nested-error-output",
+            true,
+            vec![
+                json!({"type":"response.completed","response":{"status":"completed","error":{"code":"upstream_failed"},"output":output}}),
+            ],
+            0,
+            false,
+        ),
+        (
+            "flat-error-before-usage",
+            true,
+            vec![
+                json!({"type":"error","code":"upstream_failed"}),
+                json!({"type":"response.completed","response":{"usage":{"input_tokens":100,"output_tokens":50}}}),
+            ],
+            0,
+            false,
+        ),
+    ];
+    for (name, streaming, events, expected_output, completed) in cases {
+        let fixture = Fixture::new(streaming).await?;
+        let outcome = std::panic::AssertUnwindSafe(async {
+            let wire = if streaming {
+                // Keep a terminal error and the later completion in the same
+                // provider chunk, so stopping reads cannot race a second send.
+                events
+                    .into_iter()
+                    .map(|event| format!("data: {event}\n\n"))
+                    .collect::<String>()
+            } else {
+                assert_eq!(events.len(), 1, "{name}");
+                events.into_iter().next().unwrap().to_string()
+            };
+            // JSON settlement consumes the provider body before the request
+            // future returns, so queue the finite response before awaiting it.
+            fixture.wire.send(Ok(Bytes::from(wire))).await?;
+            let response = fixture.request(name, streaming).await?;
+            assert_eq!(response.status(), StatusCode::OK, "{name}");
+            let body = timeout(
+                Duration::from_secs(3),
+                to_bytes(response.into_body(), 65536),
+            )
+            .await??;
+            if name == "flat-error-before-usage" {
+                assert!(!String::from_utf8_lossy(&body).contains("response.completed"));
+                assert!(!String::from_utf8_lossy(&body).contains("upstream_stream_interrupted"));
+            }
+            let log: Option<(i64, i64, i64)> = sqlx::query_as(
+                "SELECT quota,prompt_tokens,completion_tokens FROM logs WHERE type=2",
+            )
+            .fetch_optional(&fixture.pg)
+            .await?;
+            if expected_output > 0 {
+                let (quota, input, output) =
+                    log.expect("generated output must have a consumption log");
+                assert!(input > 0, "{name}");
+                assert_eq!(output, expected_output, "{name}");
+                assert_eq!(
+                    quota,
+                    input + 3 * output,
+                    "frozen model/group rates: {name}"
+                );
+                fixture.settled(quota, 1).await?;
+            } else {
+                // Request counters follow billable usage, while a completed
+                // zero-usage turn still has its zero-quota consumption log.
+                fixture.settled(0, 0).await?;
+                if completed {
+                    assert_eq!(log, Some((0, 0, 0)), "{name}");
+                } else {
+                    assert!(log.is_none(), "{name}");
+                }
+            }
+            assert_eq!(fixture.calls.load(Ordering::SeqCst), 1, "{name}");
+            Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+        })
+        .catch_unwind()
+        .await;
+        let cleanup = fixture.cleanup().await;
+        match outcome {
+            Ok(result) => {
+                result.map_err(|error| std::io::Error::other(format!("{name}: {error}")))?;
+                cleanup?;
+            }
+            Err(panic) => {
+                let _ = cleanup;
+                std::panic::resume_unwind(panic);
+            }
+        }
+    }
+    Ok(())
 }
 
 #[tokio::test]

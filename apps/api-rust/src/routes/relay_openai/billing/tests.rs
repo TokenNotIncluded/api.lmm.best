@@ -364,6 +364,142 @@ fn explicit_terminal_usage_prevents_local_output_from_overwriting_it() {
 }
 
 #[test]
+fn responses_missing_usage_generated_output_kinds() {
+    for kind in [
+        "output_text",
+        "refusal",
+        "function_call_arguments",
+        "reasoning_text",
+        "reasoning_summary_text",
+    ] {
+        let mut tracker =
+            UsageTracker::new(OpenAiRelayEndpoint::Responses).with_input("gpt-4o".to_owned(), 12);
+        event(
+            &mut tracker,
+            json!({"type":format!("response.{kind}.delta"),"delta":"hello world"}),
+        );
+        tracker.eof(false);
+        tracker.finalize();
+        assert_eq!(tracker.evidence.usage.input, 12, "{kind}");
+        assert_eq!(tracker.evidence.usage.output, 2, "{kind}");
+        assert!(!tracker.evidence.completed);
+    }
+}
+
+#[test]
+fn responses_successful_terminal_only_output() {
+    let cases = [
+        (
+            json!([{"type":"message","content":[{"type":"output_text","text":"hello world"}]}]),
+            2,
+        ),
+        (
+            json!([{"type":"message","content":[{"type":"refusal","refusal":"hello world"}]}]),
+            2,
+        ),
+        (
+            json!([{"type":"function_call","arguments":"hello world"}]),
+            2,
+        ),
+        (
+            json!([{"type":"reasoning","content":[{"type":"reasoning_text","text":"hello "}],"summary":[{"type":"summary_text","text":"world"}]}]),
+            2,
+        ),
+        (
+            json!([{"type":"reasoning","encrypted_content":"opaque"},{"type":"image_generation_call","result":"base64"},{"type":"web_search_call","action":{"query":"metadata"}}]),
+            0,
+        ),
+    ];
+    for (output, expected) in cases {
+        for kind in ["response.completed", "response.done"] {
+            let mut tracker = UsageTracker::new(OpenAiRelayEndpoint::Responses)
+                .with_input("gpt-4o".to_owned(), 12);
+            event(
+                &mut tracker,
+                json!({"type":kind,"response":{"status":"completed","output":output}}),
+            );
+            tracker.finalize();
+            assert!(tracker.evidence.completed);
+            assert_eq!(tracker.evidence.usage.output, expected);
+            assert_eq!(
+                tracker.evidence.usage.input,
+                if expected == 0 { 0 } else { 12 }
+            );
+        }
+    }
+}
+
+#[test]
+fn responses_terminal_output_cannot_replace_deltas_or_usage() {
+    for (delta, usage, expected_input, expected_output) in [
+        (true, None, 12, 2),
+        (
+            false,
+            Some(json!({"input_tokens":100,"output_tokens":7})),
+            100,
+            7,
+        ),
+        (
+            false,
+            Some(json!({"input_tokens":0,"output_tokens":0})),
+            0,
+            0,
+        ),
+    ] {
+        let mut tracker =
+            UsageTracker::new(OpenAiRelayEndpoint::Responses).with_input("gpt-4o".to_owned(), 12);
+        if delta {
+            event(
+                &mut tracker,
+                json!({"type":"response.output_text.delta","delta":"hello world"}),
+            );
+        }
+        let mut response = json!({"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"hello world plus terminal snapshot"}]}]});
+        if let Some(usage) = usage {
+            response["usage"] = usage;
+        }
+        event(
+            &mut tracker,
+            json!({"type":"response.completed","response":response}),
+        );
+        tracker.finalize();
+        assert_eq!(tracker.evidence.usage.input, expected_input);
+        assert_eq!(tracker.evidence.usage.output, expected_output);
+    }
+}
+
+#[test]
+fn responses_unsuccessful_terminal_only_output_is_not_estimated() {
+    for kind in [
+        "response.failed",
+        "response.incomplete",
+        "response.cancelled",
+        "response.canceled",
+        "response.completed",
+        "error",
+    ] {
+        let mut tracker =
+            UsageTracker::new(OpenAiRelayEndpoint::Responses).with_input("gpt-4o".to_owned(), 12);
+        event(
+            &mut tracker,
+            json!({"type":kind,"response":{"status":"failed","output":[{"type":"message","content":[{"type":"output_text","text":"hello world"}]}]}}),
+        );
+        tracker.finalize();
+        assert_eq!(tracker.evidence.usage, Usage::default());
+        assert!(!tracker.evidence.completed);
+    }
+    let mut tracker =
+        UsageTracker::new(OpenAiRelayEndpoint::Responses).with_input("gpt-4o".to_owned(), 12);
+    event(
+        &mut tracker,
+        json!({"type":"response.completed","response":{"status":"completed","error":{"code":"failed"},"output":[{"type":"message","content":[{"type":"output_text","text":"hello world"}]}]}}),
+    );
+    tracker.finalize();
+    assert_eq!(tracker.evidence.usage, Usage::default());
+    assert!(!tracker.evidence.completed);
+}
+
+#[test]
 fn terminal_explicit_zero_is_authoritative() {
     let mut tracker = UsageTracker::new(OpenAiRelayEndpoint::Responses);
     event(
@@ -377,6 +513,42 @@ fn terminal_explicit_zero_is_authoritative() {
     assert_eq!(tracker.evidence.usage, Usage::default());
     assert!(tracker.evidence.reported);
     assert_eq!(Price::fixed(99).quota(&tracker.evidence).unwrap(), 0);
+}
+
+#[test]
+fn successful_responses_reported_zero_never_uses_prepayment_fallback() {
+    for stream in [false, true] {
+        let mut tracker =
+            UsageTracker::new(OpenAiRelayEndpoint::Responses).with_input("gpt-4o".to_owned(), 100);
+        let response = json!({"status":"completed","usage":{"input_tokens":0,"output_tokens":0},"output":[{"type":"message","content":[{"type":"output_text","text":"hello world"}]}]});
+        if stream {
+            event(
+                &mut tracker,
+                json!({"type":"response.completed","response":response}),
+            );
+        } else {
+            assert!(
+                tracker
+                    .json(response.to_string().as_bytes())
+                    .unwrap()
+                    .is_none()
+            );
+        }
+        tracker.finalize();
+        assert!(tracker.evidence.completed);
+        assert!(tracker.evidence.reported);
+        assert_eq!(tracker.evidence.usage, Usage::default());
+        assert_eq!(Price::fixed(99).quota(&tracker.evidence).unwrap(), 0);
+    }
+    let evidence = Evidence {
+        completed: true,
+        ..Default::default()
+    };
+    assert_eq!(
+        Price::fixed(99).quota(&evidence).unwrap(),
+        99,
+        "absent usage keeps the existing successful-empty fallback"
+    );
 }
 
 #[test]
