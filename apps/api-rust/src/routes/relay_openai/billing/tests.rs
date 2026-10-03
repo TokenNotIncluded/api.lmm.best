@@ -635,8 +635,11 @@ fn missing_empty_or_exact_provider_model_keeps_legacy_evidence_and_logs_unchange
         assert_eq!(price.log_metadata(&tracker.evidence), json!({}));
     }
     // Existing durable usage snapshots decode without a schema migration.
-    let evidence: Evidence =
-        serde_json::from_value(json!({"usage":{"input":20,"output":4},"completed":true})).unwrap();
+    let evidence: Evidence = serde_json::from_value(json!({
+        "usage":{"input":20,"output":4,"cached":0,"cache_write":0,"image":0},
+        "completed":true,"terminal":true,"reported":true,"tools":{},"observed":true
+    }))
+    .unwrap();
     assert!(evidence.response_model.is_none());
     assert_eq!(price.log_metadata(&evidence), json!({}));
 }
