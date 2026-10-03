@@ -157,6 +157,8 @@ func TestAssistantPersonaMatrix(t *testing.T) {
 				"get_user_overview",
 				"get_user_usage_summary",
 				"prepare_user_action",
+				"list_my_api_keys",
+				"prepare_api_key_action",
 			)
 			if assistantWeeklyDiscountToolAllowed(context) {
 				expectedAllowed = append(expectedAllowed, "prepare_weekly_discount")

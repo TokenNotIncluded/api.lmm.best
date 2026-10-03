@@ -64,6 +64,7 @@ func assistantSafeToolInput(arguments string) map[string]any {
 		"action": {}, "days": {}, "group": {}, "identifier": {}, "model_id": {},
 		"expression": {}, "page": {}, "platform": {}, "provider": {}, "query": {}, "section": {},
 		"target_user_id": {}, "title": {}, "topic": {}, "operation_id": {},
+		"token_id": {},
 	}
 	result := make(map[string]any)
 	for key, value := range input {

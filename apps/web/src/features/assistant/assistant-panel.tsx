@@ -124,6 +124,7 @@ import {
   type AssistantChatMessage,
   type AssistantAccountDisableAction,
   type AssistantCreateKeyAction,
+  type AssistantKeyManagementAction,
   type AssistantAdminChangeAction,
   type AssistantImageGenerationAction,
   type AssistantHumanSupportAction,
@@ -161,6 +162,7 @@ import {
   isExplicitAssistantL1Request,
 } from './assistant-intent'
 import { AssistantJourneyProgress } from './assistant-journey'
+import { AssistantKeyManagementTool } from './assistant-key-management-tool'
 import { AssistantKeyTool } from './assistant-key-tool'
 import {
   hasAssistantMessageSubstantialMeaning,
@@ -1277,6 +1279,8 @@ function AssistantPanelSession(props: AssistantPanelProps) {
     useState<AssistantHumanSupportAction | null>(null)
   const [keyCreationAction, setKeyCreationAction] =
     useState<AssistantCreateKeyAction | null>(null)
+  const [keyManagementAction, setKeyManagementAction] =
+    useState<AssistantKeyManagementAction | null>(null)
   const [autoConfirmKeyToken, setAutoConfirmKeyToken] = useState<string | null>(
     null
   )
@@ -1435,6 +1439,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
     setAccountDisableDraft(null)
     setHumanSupportAction(null)
     setKeyCreationAction(null)
+    setKeyManagementAction(null)
     setAutoConfirmKeyToken(null)
     setUserActionDraft(null)
   }, [])
@@ -1775,6 +1780,9 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         reply.action?.type === 'image_generation' ? reply.action : undefined
       const humanSupportAction =
         reply.action?.type === 'human_support' ? reply.action : undefined
+      const keyManagementAction =
+        reply.action?.type === 'api_key_action' ? reply.action : undefined
+      setKeyManagementAction(null)
       const userAction =
         reply.action?.type === 'user_password_change' ||
         reply.action?.type === 'user_display_name_change' ||
@@ -1862,6 +1870,15 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         setUserActionDraft(null)
         setActiveTool(null)
         suggestedAction = undefined
+      } else if (keyManagementAction) {
+        setKeyManagementAction(keyManagementAction)
+        setKeyCreationAction(null)
+        setHumanSupportAction(null)
+        setRecommendationDraft(null)
+        setAccountDisableDraft(null)
+        setUserActionDraft(null)
+        setActiveTool(null)
+        suggestedAction = undefined
       } else if (reply.action?.type === 'create_key') {
         setKeyCreationAction(reply.action)
         setHumanSupportAction(null)
@@ -1894,6 +1911,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         !adminChange &&
         !imageAction &&
         !humanSupportAction &&
+        !keyManagementAction &&
         !userAction &&
         reply.action?.type !== 'account_disable_request' &&
         reply.action?.type !== 'navigate' &&
@@ -2538,6 +2556,12 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                               current === userActionDraft ? null : current
                             )
                           }
+                        />
+                      ) : null}
+                      {keyManagementAction && accountAccessConfirmed ? (
+                        <AssistantKeyManagementTool
+                          action={keyManagementAction}
+                          onCancelled={() => setKeyManagementAction(null)}
                         />
                       ) : null}
                       {activeTool === 'cost' && accountAccessConfirmed ? (

@@ -54,6 +54,8 @@ const TOOL_TITLE_KEYS = {
   calculate_cost: 'Calculate cost',
   set_conversation_title: 'Update conversation title',
   request_create_key: 'Prepare API key creation',
+  list_my_api_keys: 'Read your API keys',
+  prepare_api_key_action: 'Prepare API key deletion or disabling',
   request_human_support: 'Human technical support',
 } satisfies Record<string, string>
 
@@ -76,6 +78,8 @@ const TOOL_SUMMARY_KEYS = {
   calculate_cost: 'Cost estimate calculated',
   set_conversation_title: 'Conversation title updated',
   request_create_key: 'API key creation prepared',
+  list_my_api_keys: 'Your API key list loaded',
+  prepare_api_key_action: 'API key action prepared',
 } satisfies Record<string, string>
 
 function toolErrorText(

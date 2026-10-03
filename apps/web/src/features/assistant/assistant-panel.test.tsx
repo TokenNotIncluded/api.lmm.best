@@ -24,6 +24,8 @@ import { Window } from 'happy-dom'
 
 import type { AuthUser } from '@/stores/auth-store'
 
+import { preparedKeyAction } from './assistant-key-management-test-fixtures'
+
 const domWindow = new Window({ url: 'https://console.example.test/' })
 for (const key of [
   'window',
@@ -360,6 +362,72 @@ function requireValue<T>(value: T | null | undefined): T {
 }
 
 describe('AssistantPanel', () => {
+  test('lets an L0 user review their own key action and never executes from chat confirmation', async () => {
+    let keyActions = 0
+    api.get = (async (url: string) => {
+      if (url === '/api/assistant/status') {
+        return {
+          data: {
+            success: true,
+            data: { ...assistantStatus, developer_access_granted: false },
+          },
+        }
+      }
+      if (url === '/api/assistant/pre-conversation-presets') {
+        return { data: { success: true, data: { presets: [] } } }
+      }
+      return { data: { success: false, message: 'Not enabled for this test' } }
+    }) as typeof api.get
+    api.post = (async (url: string) => {
+      if (url === '/api/assistant/tools/key-action') {
+        keyActions += 1
+        throw new Error('Chat must never execute a key action')
+      }
+      assert.equal(url, '/api/assistant/chat')
+      return {
+        data: {
+          choices: [
+            {
+              message: {
+                content: 'Review the exact API key before deleting it.',
+              },
+            },
+          ],
+          lmm_assistant_action: preparedKeyAction(),
+        },
+        headers: {},
+      }
+    }) as typeof api.post
+    const rendered = await renderPanel(undefined, 'page', registrationUser)
+    try {
+      for (const message of ['Delete my Production SDK API key', '确认删除']) {
+        const textarea = requireValue(
+          document.querySelector<HTMLTextAreaElement>('textarea')
+        )
+        await setTextareaValue(textarea, message)
+        await act(async () => {
+          findButton('Send').click()
+          await flushEffects()
+          await waitForCondition(
+            () => findCard('Delete API key') !== null,
+            'L0 key confirmation did not render'
+          )
+        })
+        assert.match(
+          document.body.textContent ?? '',
+          /Production SDK · ID 7 · Group: default/
+        )
+        assert.equal(keyActions, 0)
+      }
+      await act(async () => findButton('Cancel').click())
+      assert.equal(findCard('Delete API key'), null)
+      assert.equal(keyActions, 0)
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+
   test('opens installation guidance from the welcome screen without a model request or key access', async () => {
     let chatRequests = 0
     api.get = (async (url: string) => {

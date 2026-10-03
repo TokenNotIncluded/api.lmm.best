@@ -35,9 +35,20 @@ import {
   consumeAssistantAISDKStream,
   isRetryableAssistantStatus,
 } from './assistant-ai-stream'
+import {
+  parseAssistantKeyManagementAction,
+  parseAssistantKeyManagementReceipt,
+  type AssistantKeyManagementAction,
+  type AssistantKeyManagementReceipt,
+} from './assistant-key-management-contract'
 import { redactAssistantMessageForRequest } from './assistant-message-safety'
 import { ASSISTANT_PROMPT_PRESET_COPY_VERSION } from './assistant-prompt-presets'
 import type { AssistantSupportRequest } from './assistant-support-api'
+
+export type {
+  AssistantKeyManagementAction,
+  AssistantKeyManagementReceipt,
+} from './assistant-key-management-contract'
 
 type AssistantChatPayload = {
   choices?: Array<{
@@ -453,6 +464,7 @@ export type AssistantAction =
   | AssistantAccountDisableAction
   | AssistantHumanSupportAction
   | AssistantCreateKeyAction
+  | AssistantKeyManagementAction
   | AssistantNewUserGiftAction
   | AssistantWeeklyDiscountAction
   | AssistantImageGenerationAction
@@ -1078,6 +1090,9 @@ export function parseAssistantAction(
 ): AssistantAction | undefined {
   if (!value || typeof value !== 'object') return undefined
   const action = value as Record<string, unknown>
+  if (action.type === 'api_key_action') {
+    return parseAssistantKeyManagementAction(value)
+  }
   const navigation = parseAssistantNavigationAction(action)
   if (navigation) return navigation
   const newUserGift = parseAssistantNewUserGiftAction(action)
@@ -1960,6 +1975,46 @@ export async function confirmAssistantDefaultKey(
   } catch (error) {
     if (axios.isAxiosError<AssistantAPIResponse<never>>(error)) {
       throw normalizeAssistantRequestError(error, 'Unable to create API key')
+    }
+    throw error
+  }
+}
+
+export async function confirmAssistantKeyAction(
+  action: AssistantKeyManagementAction,
+  twoFactorCode = ''
+): Promise<AssistantKeyManagementReceipt> {
+  const prepared = parseAssistantKeyManagementAction(action)
+  const fallback = 'Unable to confirm the key action'
+  if (!prepared) throw new AssistantRequestError(fallback)
+  try {
+    const response = await api.post<AssistantAPIResponse<unknown>>(
+      '/api/assistant/tools/key-action',
+      {
+        confirmation_token: prepared.confirmation_token,
+        two_factor_code: twoFactorCode.trim(),
+      },
+      { skipBusinessError: true, skipErrorHandler: true }
+    )
+    const payload = response.data
+    if (
+      !payload ||
+      typeof payload !== 'object' ||
+      Array.isArray(payload) ||
+      payload.success !== true ||
+      payload.data === undefined
+    ) {
+      throw new AssistantRequestError(
+        fallback,
+        typeof payload?.code === 'string' ? payload.code : undefined
+      )
+    }
+    const receipt = parseAssistantKeyManagementReceipt(payload.data, prepared)
+    if (!receipt) throw new AssistantRequestError(fallback)
+    return receipt
+  } catch (error) {
+    if (axios.isAxiosError<AssistantAPIResponse<never>>(error)) {
+      throw new AssistantRequestError(fallback, error.response?.data?.code)
     }
     throw error
   }

@@ -199,6 +199,9 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 	if minimum := assistantCreateKeyWorkflowMinSteps(userContext); maxSteps < minimum {
 		maxSteps = minimum
 	}
+	if minimum := assistantKeyManagementWorkflowMinSteps(userContext); maxSteps < minimum {
+		maxSteps = minimum
+	}
 	if minimum := assistantImageGenerationWorkflowMinSteps(userContext); maxSteps < minimum {
 		maxSteps = minimum
 	}

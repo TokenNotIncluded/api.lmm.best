@@ -591,6 +591,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 	definitions = append(definitions, assistantRegistrationTools()...)
 	definitions = append(definitions, assistantAdminOperationToolDefinitions()...)
 	definitions = append(definitions, assistantAdminPricingAuditTools()...)
+	definitions = append(definitions, assistantKeyManagementToolDefinitions()...)
 	return append(definitions, assistantSkillTools()...)
 }
 
@@ -748,6 +749,8 @@ func assistantToolAllowedForContext(name string, userContext assistantUserContex
 		"get_user_overview",
 		"get_user_usage_summary",
 		"prepare_user_action",
+		"list_my_api_keys",
+		"prepare_api_key_action",
 		"get_bounty_guide",
 		"get_bounty_data",
 		"search_web",
@@ -792,6 +795,8 @@ func assistantToolChoiceForContext(userContext assistantUserContext) any {
 		// A ready, explicit purchase request must read the live offers before
 		// the model can answer from stale plan context or invent a price.
 		name = "get_plan_offers"
+	} else if assistantKeyManagementWorkflowRequired(userContext) {
+		name = "list_my_api_keys"
 	} else if assistantSupportBookingDecision(userContext.LatestUserRequest) > 0 {
 		name = "get_human_support_status"
 	} else if assistantHumanSupportRequest(userContext.LatestUserRequest) {
@@ -994,6 +999,9 @@ func assistantReadChain(userContext assistantUserContext) []string {
 		return nil
 	}
 	tools := make([]string, 0, 3)
+	if assistantKeyManagementWorkflowRequired(userContext) {
+		tools = append(tools, "list_my_api_keys")
+	}
 	hasModelReference := assistantHasModelReference(text)
 	if assistantPlanOfferWorkflowRequired(userContext) {
 		// Keep this first: plan offers are a live, read-only fact source and
@@ -1198,6 +1206,15 @@ func assistantToolChoiceForAgentStep(userContext assistantUserContext, calledToo
 	if userContext.ConversationTitleNeeded {
 		return choice
 	}
+	if assistantKeyManagementWorkflowRequired(userContext) {
+		if !calledTools["list_my_api_keys"] {
+			return assistantNamedToolChoice("list_my_api_keys")
+		}
+		if !successfulTools["list_my_api_keys"] || calledTools["prepare_api_key_action"] {
+			return "none"
+		}
+		return "auto" // ask for a precise target, or prepare its confirmation
+	}
 	if assistantCreateKeyWorkflowRequired(userContext) {
 		if userContext.CreateKeyAction == assistantCreateKeyActionRequest && !calledTools["get_service_facts"] {
 			return assistantNamedToolChoice("get_service_facts")
@@ -1392,7 +1409,7 @@ func assistantNamedToolChoiceUnsupported(body []byte) bool {
 
 func assistantServerReadFallbackAllowed(name string) bool {
 	switch strings.TrimSpace(name) {
-	case "get_l1_recommendation", "get_account_access", "get_service_facts", "get_available_models":
+	case "get_l1_recommendation", "get_account_access", "get_service_facts", "get_available_models", "list_my_api_keys":
 		return true
 	default:
 		return false
@@ -2065,6 +2082,10 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 		return executeAssistantUserOverviewTool(c, actorUserID, input)
 	case "get_user_usage_summary":
 		return executeAssistantUserUsageTool(c, actorUserID, input)
+	case "list_my_api_keys":
+		return executeAssistantListMyAPIKeysTool(c, actorUserID, input)
+	case "prepare_api_key_action":
+		return executeAssistantPrepareAPIKeyActionTool(c, actorUserID, input)
 	case "prepare_user_action":
 		return executeAssistantPrepareUserActionTool(c, actorUserID, input)
 	case "get_available_models":

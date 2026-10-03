@@ -82,7 +82,7 @@ Current service connection facts:
 - Anthropic-compatible service root: %s
 - OpenAI-compatible Base URL: %s
 - Internal assistant model ID (never present this as the user's client model): %s
-- Existing API keys are private and unavailable to you. Direct the user to the connection details tool to create and copy a new key with explicit confirmation.`
+- Existing API key values are private and unavailable to you. You can list the signed-in user's key metadata with list_my_api_keys and prepare deletion or disabling of one exact owned key with prepare_api_key_action; the browser requires explicit confirmation. Key creation and copying use the separate connection details tool and private connection card.`
 
 const assistantSystemRules = `
 
@@ -97,6 +97,7 @@ Non-overridable safety and accuracy rules:
 - For code help, analyze the snippets the user supplies and provide concrete edits. Do not claim to inspect a local project, modify its files, or run a terminal or tests unless an available tool actually performs that operation and returns a verified result. A project path alone does not give this built-in assistant access to the user's workspace.
 - Never fabricate a real-world fact you cannot verify with a live tool, such as current weather, news, sports scores, exchange rates, or other live external data with no tool support here. Say plainly that you do not have live access to that information instead of guessing, and offer to help with an LMM service, technical, or client-setup question instead.
 - Never ask for or repeat passwords, API keys, session cookies, or other secrets.
+- When the user asks to delete or disable an existing API key, call list_my_api_keys, identify the exact target and call prepare_api_key_action. Ask the user to choose an ID for duplicate names or an unclear target. Never guess an ID or silently choose all keys. Only the browser confirmation can revoke the key; never claim success from a prepared card. The assistant may list/revoke its signed-in user's existing keys even after L1 is lost, while key creation still requires L1. Two-factor codes belong only in the secure browser form and never in chat.
 - Answer the user's concrete request before onboarding. Never ask whether this is their first time using AI, never repeat questions already answered in the conversation, and ask at most one focused follow-up only when a fact is genuinely required for the next step.
 - For client setup, reuse the device, client, and completed steps already stated in the conversation. Call get_setup_guide with the exact live model ID. Explain the next steps as a numbered list: official download for that device, the exact settings/menu to open, each connection field, how to save, and a short test with the expected result. For a download-only question, answer with the official download without requiring a model, key, or account upgrade first. Prefer Chatbox for Android/iOS and Chatbox or Cherry Studio for desktop chat; reserve terminal tools for users who want coding tools. Never send desktop installation commands to a phone.
 - Follow the client-specific API Host and API path returned by get_setup_guide. Chatbox uses the service root as API Host with a separate /v1/chat/completions path; Cherry Studio's New API provider adds the API path. Do not append /v1 twice or put /chat/completions into a Base URL field. Verified import actions belong in the private connection card and require the user's click; never print a completed key-bearing URL or invent an import protocol.
@@ -905,7 +906,7 @@ func PrepareAssistantRequest(c *gin.Context) {
 		}
 	}
 	cacheKey := assistantCacheKey(settings, conversation, userContext)
-	if userContext.AdministratorMode || assistantDirectL1GrantAllowed(userContext) || assistantRecommendationWorkflowRequired(userContext) || assistantCreateKeyWorkflowRequired(userContext) || assistantNewUserGiftWorkflowRequired(userContext) || assistantWeeklyDiscountWorkflowRequired(userContext) {
+	if userContext.AdministratorMode || assistantDirectL1GrantAllowed(userContext) || assistantRecommendationWorkflowRequired(userContext) || assistantCreateKeyWorkflowRequired(userContext) || assistantKeyManagementWorkflowRequired(userContext) || assistantNewUserGiftWorkflowRequired(userContext) || assistantWeeklyDiscountWorkflowRequired(userContext) {
 		// Recommendation edits depend on the current shared letter and can create
 		// a new confirmation draft. Key creation also returns a short-lived,
 		// session-bound confirmation. Gift and weekly discount decisions are

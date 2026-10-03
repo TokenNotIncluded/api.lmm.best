@@ -176,6 +176,9 @@ type assistantUserContext struct {
 	// reconstructed from the current user turn and the immediately preceding
 	// group-choice prompt, and never crosses the model context boundary.
 	CreateKeyAction assistantCreateKeyAction `json:"-"`
+	// Preserve a key selection reply after the assistant asked for a target.
+	// This is workflow state, never an authorization grant or account metadata.
+	KeyManagementRequested bool `json:"-"`
 	// NewUserGiftRequested carries a pending one-time gift request across a
 	// substantive follow-up turn. It is local workflow state and must never
 	// cross the model boundary or become durable user metadata.
@@ -353,6 +356,7 @@ func assistantUserContextForRequest(userID int, message string, conversation ...
 		LatestUserRequest:       message,
 		RecommendationAction:    classifyAssistantRecommendationAction(message),
 		CreateKeyAction:         classifyAssistantCreateKeyAction(message, conversation...),
+		KeyManagementRequested:  assistantPendingKeyManagementRequest(message, conversation...),
 		NewUserGiftRequested:    assistantNewUserGiftRequest(message) || assistantPendingNewUserGiftRequest(userID, conversation...),
 		WeeklyDiscountRequested: assistantWeeklyDiscountRequest(message) || assistantPendingWeeklyDiscountRequest(userID, conversation...),
 	}
@@ -1362,7 +1366,7 @@ func assistantWelcomeStrategyForContext(context assistantUserContext) string {
 		return strategy
 	}
 
-	l0Boundary := "For this L0 account, answer the user's current question directly without asking whether this is their first time using AI or open-source projects. Do not repeat onboarding questions already answered. People may simply want to use the relay and do not need an open-source project, a technical stack, or a contribution plan. Keep developer and write actions unavailable until L1, explain the next small step only when it helps the current request, and keep L1 or payment discussions proportional to the user's actual need."
+	l0Boundary := "For this L0 account, answer the user's current question directly without asking whether this is their first time using AI or open-source projects. Do not repeat onboarding questions already answered. People may simply want to use the relay and do not need an open-source project, a technical stack, or a contribution plan. Keep developer and write actions unavailable until L1, explain the next small step only when it helps the current request, and keep L1 or payment discussions proportional to the user's actual need. Exception: the user can list metadata for and revoke their own existing API keys through the secure confirmation workflow; this never grants creation or developer access."
 	if profile == assistantProfileL0Applicant {
 		return l0Boundary
 	}
