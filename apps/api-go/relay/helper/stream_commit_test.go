@@ -71,7 +71,11 @@ func TestStreamCommitWriteFailureStopsFurtherEvents(t *testing.T) {
 	require.True(t, HTTPStreamDownstreamFailed(c))
 	require.Equal(t, relaycommon.StreamEndReasonWriterError, info.StreamStatus.EndReason)
 	require.Empty(t, w.Body.String())
+	require.Len(t, c.Errors, 1, "legacy Gin renderer evidence must survive direct error propagation")
+	require.ErrorIs(t, c.Errors[0].Err, w.writeError)
+	require.True(t, c.IsAborted())
 	require.Error(t, StringData(c, "must not write after failure"))
+	require.Len(t, c.Errors, 1, "the failure latch must not record repeated synthetic write errors")
 }
 
 type resettableCommitWriter struct{ gin.ResponseWriter }

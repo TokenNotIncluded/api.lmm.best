@@ -56,7 +56,7 @@ event is written after the downstream failure is latched.
 There is no new pricing, usage estimator or timeout policy in this change.
 Dedicated readers use their existing `RateLimitStreamStatus`, keeping admission
 classification separate from their legacy usage collection. In particular,
-Cohere and Zhipu continue reading terminal usage after an output write fails.
+Cohere, Zhipu and Coze continue reading terminal usage after an output write fails.
 They stop writing to the client immediately, prohibit retry and retain the
 existing settlement facts. This is **usage collection continuation**, not a
 claim that the upstream was immediately canceled.
@@ -80,7 +80,7 @@ native Responses partial-output settlement policy.
 | Zhipu | Explicit non-SSE rejected; headerless input waits for a parsed business write. | Initial failure precedes producer; later failure latches writes off while retaining meta usage; request cancellation exits/closes body. | Per-line scanner limit; no reader-owned aggregate byte, idle or total deadline. |
 | Tencent | Same explicit SSE gate. | Initial failure precedes Scan; later failure stops all writes, including DONE, while retaining existing text collection; deferred body close. | Per-line limit; no reader-owned aggregate byte, idle or total deadline. |
 | Cloudflare | Same explicit SSE gate. | Initial failure precedes Scan; later failure stops client writes and retains existing read-to-DONE/EOF behavior; deferred body close. | Per-line limit; no reader-owned aggregate byte, idle or total deadline. |
-| Coze | Same explicit SSE gate. | Initial failure precedes Scan; event write failure returns and closes body under existing usage rules. | Per-line limit and retained-text limit; no reader-owned read deadline. |
+| Coze | Same explicit SSE gate. | Initial failure precedes Scan; later write/flush failure stops client writes while retaining the existing read-to-terminal-usage/EOF behavior; deferred body close. | Per-line limit and retained-text limit; no reader-owned aggregate byte, idle or total deadline. |
 | Cohere v1 | Existing HTTP status/provider JSON-lines codec acceptance, before producer start. This is not payload-success verification or an SSE MIME assertion. | Initial failure closes body without starting producer. Later failure stops all writes/flushes and continues terminal usage collection; cancellation closes body. | Per-line limit and 30 s downstream write deadline; no reader-owned aggregate byte, idle or total deadline. |
 | PaLM | Existing status/provider whole-JSON conversion acceptance; synthetic SSE, before the body-read goroutine. | Initial failure closes body before producer; synthetic write failure returns, with no subsequent write. | Whole response read limit, default 32 MiB; no reader-owned read deadline. |
 | Ollama | Existing status/provider NDJSON or JSON codec acceptance; before role frame/Scan. | Initial failure closes body; later write failure retains existing read-to-done usage collection; request cancellation closes body. | Per-line limit; no reader-owned aggregate byte, idle or total deadline. |

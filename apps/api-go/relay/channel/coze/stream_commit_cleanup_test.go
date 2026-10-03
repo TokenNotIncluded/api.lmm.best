@@ -34,6 +34,99 @@ type commitTrackedBody struct {
 	closed atomic.Bool
 }
 
+type continuationFailedWriter struct {
+	*httptest.ResponseRecorder
+	failFlush       bool
+	writes          int
+	flushes         int
+	writesAtFailure int
+}
+
+func (w *continuationFailedWriter) Write(data []byte) (int, error) {
+	w.writes++
+	if !w.failFlush {
+		w.writesAtFailure = w.writes
+		return 0, io.ErrClosedPipe
+	}
+	return w.ResponseRecorder.Write(data)
+}
+
+func (w *continuationFailedWriter) FlushError() error {
+	w.flushes++
+	if w.failFlush && w.flushes == 2 {
+		w.writesAtFailure = w.writes
+		return io.ErrClosedPipe
+	}
+	w.ResponseRecorder.Flush()
+	return nil
+}
+
+type continuationBody struct {
+	io.Reader
+	closed bool
+}
+
+func (b *continuationBody) Close() error { b.closed = true; return nil }
+
+func TestStreamWriteFailureRetainsTerminalUsageWithoutMoreClientWrites(t *testing.T) {
+	for _, failFlush := range []bool{false, true} {
+		t.Run(map[bool]string{false: "write", true: "flush"}[failFlush], func(t *testing.T) {
+			writer := &continuationFailedWriter{ResponseRecorder: httptest.NewRecorder(), failFlush: failFlush}
+			c, _ := gin.CreateTestContext(writer)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			body := &continuationBody{Reader: strings.NewReader(
+				"event: conversation.message.delta\ndata: {\"content\":\"hello\"}\n\n" +
+					"event: conversation.message.delta\ndata: {\"content\":\"continued\"}\n\n" +
+					"event: conversation.chat.completed\ndata: {\"usage\":{\"input_count\":10,\"output_count\":2,\"token_count\":12}}\n\n")}
+			info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "coze-test"}}
+			usage, apiErr := cozeChatStreamHandler(c, info, &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/event-stream"}}, Body: body})
+
+			require.Nil(t, apiErr, "delivery failure must not discard the provider's terminal usage")
+			require.Equal(t, 10, usage.PromptTokens)
+			require.Equal(t, 2, usage.CompletionTokens)
+			require.Equal(t, 12, usage.TotalTokens)
+			require.Nil(t, info.StreamStatus, "legacy billing metadata must remain separate")
+			require.True(t, info.RateLimitStreamStatus.HasErrors())
+			require.Equal(t, relaycommon.StreamEndReasonClientGone, info.RateLimitStreamStatus.EndReason)
+			require.True(t, helper.HTTPStreamDownstreamFailed(c))
+			require.Positive(t, writer.writesAtFailure, "the failure must follow the first business write")
+			require.Equal(t, writer.writesAtFailure, writer.writes, "later deltas, terminal frames and DONE must not write")
+			require.Equal(t, map[bool]int{false: 1, true: 2}[failFlush], writer.flushes)
+			require.NotContains(t, writer.Body.String(), "continued")
+			require.NotContains(t, writer.Body.String(), "[DONE]")
+			require.True(t, body.closed)
+		})
+	}
+}
+
+func TestStreamWriteFailureDoesNotMaskLaterDecodeFailure(t *testing.T) {
+	for _, event := range []string{"conversation.message.delta", "conversation.chat.completed"} {
+		for _, terminated := range []bool{false, true} {
+			t.Run(event+map[bool]string{false: "/EOF", true: "/blank line"}[terminated], func(t *testing.T) {
+				writer := &continuationFailedWriter{ResponseRecorder: httptest.NewRecorder()}
+				c, _ := gin.CreateTestContext(writer)
+				c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+				stream := "event: conversation.message.delta\ndata: {\"content\":\"hello\"}\n\n" +
+					"event: " + event + "\ndata: {"
+				if terminated {
+					stream += "\n\n"
+				}
+				body := &continuationBody{Reader: strings.NewReader(stream)}
+				info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "coze-test"}}
+				usage, apiErr := cozeChatStreamHandler(c, info, &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/event-stream"}}, Body: body})
+
+				require.NotNil(t, apiErr, "the delivery latch must not swallow a subsequent upstream decode error")
+				require.Nil(t, usage, "preserve the existing decode-failure settlement outcome")
+				require.Equal(t, types.ErrorCodeBadResponseBody, apiErr.GetErrorCode())
+				require.Equal(t, 1, writer.writes)
+				require.Equal(t, 1, writer.flushes)
+				require.True(t, helper.HTTPStreamDownstreamFailed(c))
+				require.True(t, body.closed)
+			})
+		}
+	}
+}
+
 func (b *commitTrackedBody) Read([]byte) (int, error) {
 	b.reads.Add(1)
 	return 0, io.EOF

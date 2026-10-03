@@ -186,14 +186,17 @@ func cozeChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *ht
 		if line == "" {
 			if currentEvent != "" && currentData != "" {
 				// handle last event
+				wasDownstreamFailed := helper.HTTPStreamDownstreamFailed(c)
 				if err := handleCozeEvent(c, currentEvent, currentData, responseText, usage, id, info); err != nil {
 					status.RecordError("handle_event")
-					if helper.HTTPStreamDownstreamFailed(c) {
+					// Continue only for this event's newly observed delivery error.
+					// A previous failure must not hide a later decode error.
+					if !wasDownstreamFailed && helper.HTTPStreamDownstreamFailed(c) {
 						status.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
 					} else {
 						status.SetEndReason(relaycommon.StreamEndReasonHandlerStop, err)
+						return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 					}
-					return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 				}
 				if currentEvent == "conversation.chat.completed" {
 					sawCompleted = true
@@ -217,14 +220,15 @@ func cozeChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *ht
 
 	// Last event
 	if currentEvent != "" && currentData != "" {
+		wasDownstreamFailed := helper.HTTPStreamDownstreamFailed(c)
 		if err := handleCozeEvent(c, currentEvent, currentData, responseText, usage, id, info); err != nil {
 			status.RecordError("handle_event")
-			if helper.HTTPStreamDownstreamFailed(c) {
+			if !wasDownstreamFailed && helper.HTTPStreamDownstreamFailed(c) {
 				status.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
 			} else {
 				status.SetEndReason(relaycommon.StreamEndReasonHandlerStop, err)
+				return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 			}
-			return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 		}
 		if currentEvent == "conversation.chat.completed" {
 			sawCompleted = true
@@ -236,10 +240,12 @@ func cozeChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *ht
 		status.SetEndReason(relaycommon.StreamEndReasonScannerErr, err)
 		return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 	}
-	if err := helper.StringData(c, "[DONE]"); err != nil {
-		helper.MarkHTTPStreamDownstreamFailure(c)
-		status.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
-		status.RecordError("write_done")
+	if !helper.HTTPStreamDownstreamFailed(c) {
+		if err := helper.StringData(c, "[DONE]"); err != nil {
+			helper.MarkHTTPStreamDownstreamFailure(c)
+			status.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
+			status.RecordError("write_done")
+		}
 	}
 
 	if usage.TotalTokens == 0 {
@@ -262,6 +268,9 @@ func handleCozeEvent(c *gin.Context, event string, data string, responseText *co
 		usage.PromptTokens = chatData.Usage.InputCount
 		usage.CompletionTokens = chatData.Usage.OutputCount
 		usage.TotalTokens = chatData.Usage.TokenCount
+		if helper.HTTPStreamDownstreamFailed(c) {
+			return nil
+		}
 
 		finishReason := "stop"
 		stopResponse := helper.GenerateStopResponse(id, common.GetTimestamp(), info.UpstreamModelName, finishReason)
@@ -282,6 +291,9 @@ func handleCozeEvent(c *gin.Context, event string, data string, responseText *co
 		}
 
 		responseText.WriteString(content)
+		if helper.HTTPStreamDownstreamFailed(c) {
+			return nil
+		}
 
 		openaiResponse := dto.ChatCompletionsStreamResponse{
 			Id:      id,

@@ -169,6 +169,9 @@ func renderSSEEvent(c *gin.Context, data string) error {
 	err := (common.CustomEvent{Data: data}).Render(c.Writer)
 	if err != nil {
 		markHTTPStreamDownstreamFailure(c)
+		// Preserve Gin Render's error evidence for legacy delivery accounting.
+		_ = c.Error(err)
+		c.Abort()
 	}
 	return err
 }
