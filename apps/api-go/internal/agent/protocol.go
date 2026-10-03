@@ -57,7 +57,8 @@ type Response struct {
 }
 
 type Choice struct {
-	Message ResponseMessage `json:"message"`
+	Message      ResponseMessage `json:"message"`
+	FinishReason string          `json:"finish_reason,omitempty"`
 }
 
 type ResponseMessage struct {

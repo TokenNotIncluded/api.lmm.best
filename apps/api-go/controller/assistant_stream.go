@@ -458,7 +458,8 @@ func readAssistantSSELine(buffer *bytes.Buffer) ([]byte, bool) {
 
 type assistantChatStreamChunk struct {
 	Choices []struct {
-		Delta struct {
+		FinishReason string `json:"finish_reason"`
+		Delta        struct {
 			Content   json.RawMessage `json:"content"`
 			ToolCalls []struct {
 				Index    int    `json:"index"`
@@ -485,6 +486,7 @@ type assistantStreamingRelayWriter struct {
 	content      strings.Builder
 	toolCalls    map[int]agent.Call
 	toolCallSeen bool
+	finishReason string
 }
 
 func mergeAssistantStreamFragment(current, next string) string {
@@ -585,6 +587,7 @@ func (r *assistantStreamingRelayWriter) ResetForRelayRetry() error {
 	r.content.Reset()
 	clear(r.toolCalls)
 	r.toolCallSeen = false
+	r.finishReason = ""
 	return sessionErr
 }
 
@@ -606,6 +609,9 @@ func (r *assistantStreamingRelayWriter) handleData(data string) {
 		return
 	}
 	for _, choice := range chunk.Choices {
+		if choice.FinishReason != "" {
+			r.finishReason = choice.FinishReason
+		}
 		if len(choice.Delta.ToolCalls) > 0 {
 			if !r.toolCallSeen {
 				r.toolCallSeen = true
@@ -653,6 +659,7 @@ func (r *assistantStreamingRelayWriter) responseBody() ([]byte, error) {
 		}
 		if response, err := agent.Parse(body); err == nil && len(response.Choices) > 0 {
 			message := response.Choices[0].Message
+			r.finishReason = response.Choices[0].FinishReason
 			if len(message.ToolCalls) > 0 {
 				return body, nil
 			}
@@ -682,9 +689,9 @@ func (r *assistantStreamingRelayWriter) responseBody() ([]byte, error) {
 		}
 		message["tool_calls"] = toolCalls
 	}
-	return json.Marshal(map[string]any{
-		"choices": []any{map[string]any{
-			"message": message,
-		}},
-	})
+	choice := map[string]any{"message": message}
+	if r.finishReason != "" {
+		choice["finish_reason"] = r.finishReason
+	}
+	return json.Marshal(map[string]any{"choices": []any{choice}})
 }

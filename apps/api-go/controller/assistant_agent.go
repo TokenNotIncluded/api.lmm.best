@@ -1661,7 +1661,7 @@ func relayAssistantTurnWithRetryUsing(c *gin.Context, request assistantOpenAIReq
 			response, parseErr := parseAssistantResponse(body)
 			if parseErr == nil && len(response.Choices) > 0 {
 				message := response.Choices[0].Message
-				if len(message.ToolCalls) > 0 || strings.TrimSpace(assistantResponseContent(message.Content)) != "" {
+				if assistantOutputLengthLimited(response) || len(message.ToolCalls) > 0 || strings.TrimSpace(assistantResponseContent(message.Content)) != "" {
 					return status, body, nil
 				}
 			}
@@ -1845,13 +1845,24 @@ func normalizeAssistantClientResponse(c *gin.Context, body []byte) ([]byte, erro
 		return nil, errors.New("assistant upstream returned an invalid response")
 	}
 	content := strings.TrimSpace(assistantResponseContent(response.Choices[0].Message.Content))
+	lengthLimited := assistantOutputLengthLimited(response)
+	if lengthLimited {
+		content = assistantIncompleteOutputContent(c, content)
+	}
 	if content == "" {
 		return nil, errors.New("assistant upstream returned no usable text")
 	}
-	payload := map[string]any{
-		"choices": []any{map[string]any{
-			"message": map[string]any{"role": "assistant", "content": content},
-		}},
+	choice := map[string]any{"message": map[string]any{"role": "assistant", "content": content}}
+	if reason := response.Choices[0].FinishReason; reason == "stop" || reason == "length" || reason == "tool_calls" || reason == "function_call" || reason == "content_filter" {
+		choice["finish_reason"] = reason
+	}
+	payload := map[string]any{"choices": []any{choice}}
+	if lengthLimited {
+		payload["lmm_assistant_completion"] = map[string]any{
+			"status": "incomplete", "code": assistantOutputIncompleteCode,
+			"retryable": false, "finish_reason": "length",
+			"next_action": "ask_for_remaining_text",
+		}
 	}
 	if c != nil {
 		if requestID := strings.TrimSpace(c.GetString(common.RequestIdKey)); requestID != "" {
@@ -1871,7 +1882,14 @@ func normalizeAssistantClientResponse(c *gin.Context, body []byte) ([]byte, erro
 	// "\\u003c"). Keep the provider-to-browser boundary within the same
 	// retained-byte budget instead of allowing an expanded response to escape
 	// the relay limit.
-	return common.MarshalLimit(payload, assistantUpstreamResponseMaxBytes)
+	encoded, encodeErr := common.MarshalLimit(payload, assistantUpstreamResponseMaxBytes)
+	if encodeErr != nil && lengthLimited {
+		// The notice itself must still reach the user when a large partial
+		// answer cannot fit after normalization/JSON escaping.
+		choice["message"] = map[string]any{"role": "assistant", "content": assistantIncompleteOutputContent(c, "")}
+		return common.MarshalLimit(payload, assistantUpstreamResponseMaxBytes)
+	}
+	return encoded, encodeErr
 }
 
 func writeAssistantUpstreamError(c *gin.Context, code, message string) {
