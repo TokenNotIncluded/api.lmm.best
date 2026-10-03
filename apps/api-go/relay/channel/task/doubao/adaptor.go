@@ -82,13 +82,13 @@ type responseTask struct {
 		VideoURL   string `json:"video_url"`
 		Resolution string `json:"resolution"`
 	} `json:"content"`
-	GenerateAudio   *bool  `json:"generate_audio"`
-	Seed            int    `json:"seed"`
-	Resolution      string `json:"resolution"`
-	Duration        int    `json:"duration"`
-	Ratio           string `json:"ratio"`
-	FramesPerSecond int    `json:"framespersecond"`
-	ServiceTier     string `json:"service_tier"`
+	GenerateAudio   *bool        `json:"generate_audio"`
+	Seed            int          `json:"seed"`
+	Resolution      string       `json:"resolution"`
+	Duration        dto.IntValue `json:"duration"`
+	Ratio           string       `json:"ratio"`
+	FramesPerSecond int          `json:"framespersecond"`
+	ServiceTier     string       `json:"service_tier"`
 	Tools           []struct {
 		Type string `json:"type"`
 	} `json:"tools"`
@@ -446,10 +446,13 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 		if taskResult.TotalTokens <= 0 {
 			taskResult.TotalTokens = taskResult.CompletionTokens
 		}
-	case "failed":
+	case "failed", "cancelled", "expired":
 		taskResult.Status = model.TaskStatusFailure
 		taskResult.Progress = "100%"
 		taskResult.Reason = resTask.Error.Message
+		if taskResult.Reason == "" {
+			taskResult.Reason = "task " + resTask.Status
+		}
 	default:
 		// Unknown status, treat as processing
 		taskResult.Status = model.TaskStatusInProgress
@@ -584,9 +587,14 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(originTask *model.Task) ([]byte, erro
 	openAIVideo.CompletedAt = originTask.UpdatedAt
 	openAIVideo.Model = originTask.Properties.OriginModelName
 
-	if dResp.Status == "failed" {
+	switch dResp.Status {
+	case "failed", "cancelled", "expired":
+		message := dResp.Error.Message
+		if message == "" {
+			message = "task " + dResp.Status
+		}
 		openAIVideo.Error = &dto.OpenAIVideoError{
-			Message: dResp.Error.Message,
+			Message: message,
 			Code:    dResp.Error.Code,
 		}
 	}

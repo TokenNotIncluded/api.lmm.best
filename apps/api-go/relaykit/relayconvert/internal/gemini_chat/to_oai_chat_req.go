@@ -117,18 +117,22 @@ func GeminiGenerateContentRequestToOpenAIChat(geminiRequest *dto.GeminiChatReque
 			if tool.FunctionDeclarations == nil {
 				continue
 			}
-			functionDeclarations, err := kitutil.Any2Type[[]dto.FunctionRequest](tool.FunctionDeclarations)
+			functionDeclarations, err := kitutil.Any2Type[[]dto.GeminiFunctionDeclaration](tool.FunctionDeclarations)
 			if err != nil {
 				kitutil.LogSystemError(fmt.Sprintf("failed to parse gemini function declarations: %v (type=%T)", err, tool.FunctionDeclarations))
 				continue
 			}
 			for _, function := range functionDeclarations {
+				parameters := function.Parameters
+				if function.ParametersJsonSchema != nil {
+					parameters = function.ParametersJsonSchema
+				}
 				openAITool := dto.ToolCallRequest{
 					Type: "function",
 					Function: dto.FunctionRequest{
 						Name:        function.Name,
 						Description: function.Description,
-						Parameters:  function.Parameters,
+						Parameters:  parameters,
 					},
 				}
 				tools = append(tools, openAITool)

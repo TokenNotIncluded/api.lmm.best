@@ -181,7 +181,8 @@ type RelayInfo struct {
 	// billing metadata, so this classification cannot change legacy charging.
 	RateLimitStreamStatus *StreamStatus
 	// DoResponse completion is a fallback for legacy streaming adaptors without
-	// StreamStatus. Middleware always prefers a published protocol status.
+	// StreamStatus. ResponseFailed also preserves failures handled by an adaptor
+	// without returning an API error, so retry and billing behavior stay unchanged.
 	ResponseCompleted bool
 	ResponseFailed    bool
 
@@ -213,7 +214,7 @@ func (info *RelayInfo) CompleteResponseOutcome(apiErr *types.NewAPIError) {
 	if info == nil {
 		return
 	}
-	info.ResponseFailed = apiErr != nil
+	info.ResponseFailed = info.ResponseFailed || apiErr != nil
 	info.ResponseCompleted = true
 }
 

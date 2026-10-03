@@ -8,7 +8,9 @@ import (
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/constant"
 	"github.com/LIghtJUNction/api.lmm.best/logger"
+	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
 
 	"github.com/gin-gonic/gin"
 )
@@ -88,6 +90,9 @@ func IOCopyBytesGracefully(c *gin.Context, src *http.Response, data []byte) {
 
 	_, err := io.Copy(c.Writer, body)
 	if err != nil {
+		if info, ok := common.GetContextKeyType[*relaycommon.RelayInfo](c, constant.ContextKeyRelayInfo); ok && info != nil {
+			info.ResponseFailed = true
+		}
 		logger.LogError(c, fmt.Sprintf("failed to copy response body: %s", err.Error()))
 	}
 	c.Writer.Flush()
