@@ -50,6 +50,9 @@ test('owner grants and revokes balance access without importing or exposing a ke
     .use(initReactI18next)
     .init({ lng: 'en', resources: { en: { translation: {} } } })
   const originalAdapter = api.defaults.adapter
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async () =>
+    Response.json({ object: 'list', data: [] })) as typeof fetch
   let enabled = false
   const mutations: unknown[] = []
   api.defaults.adapter = async (config) => {
@@ -113,6 +116,7 @@ test('owner grants and revokes balance access without importing or exposing a ke
     await act(async () => root.unmount())
     client.clear()
     api.defaults.adapter = originalAdapter
+    globalThis.fetch = originalFetch
     host.remove()
     dom.close()
   }
