@@ -425,6 +425,8 @@ async fn failed_terminal_without_usage_refunds_without_a_success_log() -> TestRe
 async fn responses_missing_usage_output_and_reported_zero_settle_over_real_http() -> TestResult {
     let output =
         json!([{"type":"message","content":[{"type":"output_text","text":"hello world"}]}]);
+    // priced-model uses the existing generic estimator: two words and one
+    // space are ceil(1.02 + 0.42 + 1.02) = 3 tokens, rather than OpenAI BPE.
     let cases = [
         (
             "terminal-text",
@@ -432,7 +434,7 @@ async fn responses_missing_usage_output_and_reported_zero_settle_over_real_http(
             vec![
                 json!({"type":"response.completed","response":{"status":"completed","output":output}}),
             ],
-            2,
+            3,
             true,
         ),
         (
@@ -441,7 +443,7 @@ async fn responses_missing_usage_output_and_reported_zero_settle_over_real_http(
             vec![
                 json!({"type":"response.completed","response":{"status":"completed","output":[{"type":"message","content":[{"type":"refusal","refusal":"hello world"}]}]}}),
             ],
-            2,
+            3,
             true,
         ),
         (
@@ -450,7 +452,7 @@ async fn responses_missing_usage_output_and_reported_zero_settle_over_real_http(
             vec![
                 json!({"type":"response.completed","response":{"status":"completed","output":[{"type":"function_call","arguments":"hello world"}]}}),
             ],
-            2,
+            3,
             true,
         ),
         (
@@ -459,7 +461,7 @@ async fn responses_missing_usage_output_and_reported_zero_settle_over_real_http(
             vec![
                 json!({"type":"response.done","response":{"status":"completed","output":[{"type":"reasoning","summary":[{"type":"summary_text","text":"hello world"}]}]}}),
             ],
-            2,
+            3,
             true,
         ),
         (
@@ -469,7 +471,7 @@ async fn responses_missing_usage_output_and_reported_zero_settle_over_real_http(
                 json!({"type":"response.output_text.delta","delta":"hello world"}),
                 json!({"type":"response.completed","response":{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"hello world plus terminal snapshot"}]}]}}),
             ],
-            2,
+            3,
             true,
         ),
         (
