@@ -154,10 +154,10 @@ class NewIntegrationSuiteGuards(unittest.TestCase):
                 self.assertTrue(commands)
                 self.assertTrue(all(event["target"] == target or (suite == "relay-settlement" and event["target"] == "lib") for event in commands))
                 expected = [(True,4),(True,1),(False,1),(False,4)] if suite == "catalog" else [(True,len(commands[0]["names"])),(False,len(commands[0]["names"]))]
-                if suite == "relay-settlement": expected = [(True,35),(False,35),(True,1),(False,1)]
+                if suite == "relay-settlement": expected = [(True,36),(False,36),(True,1),(False,1)]
                 self.assertEqual([(event["listing"],len(event["names"])) for event in commands],expected)
                 if suite == "relay-settlement":
-                    required = {"provider_response_model_diagnostics_preserve_wire_quota_and_ledger", "provider_response_model_diagnostics_survive_settlement_recovery"}
+                    required = {"provider_response_model_diagnostics_preserve_wire_quota_and_ledger", "provider_response_model_diagnostics_survive_settlement_recovery", "responses_missing_usage_output_and_reported_zero_settle_over_real_http"}
                     for command in commands[:2]:
                         self.assertTrue(required.issubset(command["names"]))
                 if suite == "stripe":

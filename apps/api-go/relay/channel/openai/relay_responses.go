@@ -48,6 +48,7 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	usage := dto.Usage{}
 	if responsesResponse.Usage != nil {
 		service.ApplyResponsesUsage(&usage, responsesResponse.Usage)
+		info.ResponsesUsageReported = true
 	}
 	// Count actual tool invocations from Output (not tool declarations).
 	for _, output := range responsesResponse.Output {
@@ -123,12 +124,13 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 				// terminal usage report, including zero, remains authoritative.
 				finalUsage := false
 				switch streamResponse.Type {
-				case "response.completed", "response.done", "response.failed", "response.incomplete", "response.cancelled", "response.canceled":
+				case "response.completed", "response.done", "response.failed", "response.incomplete", "response.cancelled", "response.canceled", "error":
 					finalUsage = true
 				}
 				if service.ValidUsage(candidate) || finalUsage {
 					*usage = *candidate
 					hasUsage = true
+					info.ResponsesUsageReported = true
 				}
 			}
 		}
@@ -137,9 +139,14 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		case "response.completed", "response.done":
 			terminal = true
 			if streamResponse.Response != nil {
-				failed := relaycommon.IsNonBillableResponsesStatus(streamResponse.Response.Status)
+				failed := relaycommon.IsNonBillableResponsesStatus(streamResponse.Response.Status) || streamResponse.Response.Error != nil
 				if failed {
 					info.StreamStatus.RecordError("upstream Responses terminal failure")
+				}
+				if !failed && !hasUsage && responseTextBuilder.Len() == 0 {
+					// Final output often repeats deltas. Only recover it when
+					// the successful terminal was the sole generated output.
+					responseTextBuilder.WriteString(ResponsesTerminalOutputText(data))
 				}
 				if !imageCommitted {
 					if failed {
@@ -159,7 +166,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 				imageCounter.Commit(info)
 				imageCommitted = true
 			}
-		case "response.failed", "response.incomplete", "response.cancelled", "response.canceled":
+		case "response.failed", "response.incomplete", "response.cancelled", "response.canceled", "error":
 			terminal = true
 			// A terminal event stops scanning; it does not by itself prove
 			// successful consumption. Keep measured usage, but prohibit the
@@ -170,7 +177,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 				imageCounter.Commit(info)
 				imageCommitted = true
 			}
-		case "response.output_text.delta", "response.function_call_arguments.delta", "response.reasoning_text.delta", "response.reasoning_summary_text.delta":
+		case "response.output_text.delta", "response.refusal.delta", "response.function_call_arguments.delta", "response.reasoning_text.delta", "response.reasoning_summary_text.delta":
 			// A tool-only partial response still consumed output. This is only a
 			// local lower-bound estimate when the provider supplied no usage.
 			responseTextBuilder.WriteString(streamResponse.Delta)

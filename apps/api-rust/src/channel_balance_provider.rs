@@ -265,6 +265,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn advanced_custom_unsupported_balance_preserves_legacy_reply_without_delegating() {
+        let inner = Arc::new(CountingInner::default());
+        let provider = DeepSeekBalanceChannelAdvancedProvider::with_balance_service(
+            inner.clone(),
+            Arc::new(FixedBalance(Err(
+                DeepSeekBalanceStoreError::UnsupportedChannel,
+            ))),
+        );
+        let mut request = call(ChannelAdvancedOperation::UpdateBalance);
+        request.channel_id = Some(58);
+        request.input = json!({"balance": {"method": "POST", "json_pointer": "/balance"}});
+        let reply = provider
+            .execute_reply(request)
+            .await
+            .expect("unsupported balance reply");
+        match reply {
+            ChannelAdvancedReply::Json { status, body } => {
+                assert_eq!(status, axum::http::StatusCode::OK);
+                assert_eq!(body, json!({"success": false, "message": "尚未实现"}));
+            }
+            ChannelAdvancedReply::Raw(_) => panic!("unsupported balance reply must be JSON"),
+        }
+        assert_eq!(inner.calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
     async fn update_all_balances_is_explicit_fail_closed_boundary_without_delegating() {
         let inner = Arc::new(CountingInner::default());
         let provider = DeepSeekBalanceChannelAdvancedProvider::with_balance_service(

@@ -23,6 +23,13 @@ func TestRelayInfoGetFinalRequestRelayFormatPrefersExplicitFinal(t *testing.T) {
 	require.Equal(t, types.RelayFormat(types.RelayFormatOpenAIResponses), info.GetFinalRequestRelayFormat())
 }
 
+func TestInitChannelMetaDoesNotReuseReportedResponsesUsageAcrossAttempts(t *testing.T) {
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	info := &RelayInfo{ResponsesUsageReported: true}
+	info.InitChannelMeta(ctx)
+	require.False(t, info.ResponsesUsageReported, "a retry must decide from its own provider report")
+}
+
 func TestRelayInfoGetFinalRequestRelayFormatFallsBackToConversionChain(t *testing.T) {
 	info := &RelayInfo{
 		RelayFormat:            types.RelayFormatOpenAI,

@@ -14,6 +14,7 @@ This directory contains operational, API, and legal documentation for LMM Forge.
 - [`model-price-locks.md`](./model-price-locks.md): model base price locks, ignored-change warnings, and API compatibility.
 - [`claude-refusal-billing.md`](./claude-refusal-billing.md): opt-in billing policy for Claude refusals without output.
 - [`async-task-performance-metrics.md`](./async-task-performance-metrics.md): Go terminal task sampling, financial invariants, and shared Rust metric reads.
+- [`responses-missing-usage.md`](./responses-missing-usage.md): provider-reported zero, generated output estimates and the confirmed partial-output policy in #373.
 - [`go-memory-management.md`](./go-memory-management.md): Go request memory, optional large-request admission, and small-host tuning.
 - [`postgresql-migration.md`](./postgresql-migration.md): migration rehearsal workflow.
 - [`postgresql-cutover.md`](./postgresql-cutover.md): production cutover transaction.
@@ -24,6 +25,7 @@ This directory contains operational, API, and legal documentation for LMM Forge.
 - [`open-source-bounties.md`](./open-source-bounties.md): bounty mechanics and workflow.
 - [`ionet-client.md`](./ionet-client.md): iNet client reference artifact.
 - [`channel/other_setting.md`](./channel/other_setting.md): additional channel JSON settings.
+- [`advanced-custom-balance.md`](./advanced-custom-balance.md): declarative Go balance requests, extraction, credential boundaries, and Rust support limits.
 
 ## API contracts
 

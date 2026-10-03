@@ -27,6 +27,7 @@ import { aiDirectoryCopy } from './ai-directory-copy.mjs'
 import { apiKeySourceCopy } from './api-key-source-copy.mjs'
 import { assistantSettingsCopy } from './assistant-settings-copy.mjs'
 import { assistantToolCopy } from './assistant-tool-copy.mjs'
+import { balanceQueryCopy } from './balance-query-copy.mjs'
 import { codewhaleGuideCopy } from './codewhale-guide-copy.mjs'
 import { drawingMcpExtraCopy } from './drawing-mcp-extra-copy.mjs'
 import { drawingWalletCopy } from './drawing-wallet-copy.mjs'
@@ -11865,12 +11866,14 @@ async function main() {
   const operationsFinishOnly = process.argv.includes('--only-operations-finish')
   const passkeyOnly = process.argv.includes('--only-passkey')
   const forgeRefreshOnly = process.argv.includes('--only-forge-refresh')
+  const balanceOnly = process.argv.includes('--only-balance-query')
   const rssOnly = process.argv.includes('--only-rss')
   const responseModelOnly = process.argv.includes('--only-response-model')
   const responsesWebSocketOnly = process.argv.includes(
     '--only-responses-websocket'
   )
   const scoped =
+    balanceOnly ||
     responsesWebSocketOnly ||
     responseModelOnly ||
     rssOnly ||
@@ -11950,17 +11953,19 @@ async function main() {
                                           : assistantToolOnly
                                             ? assistantToolCopy
                                             : newKeys
-  const selectedEntries = responsesWebSocketOnly
-    ? responsesWebSocketCopy
-    : responseModelOnly
-      ? responseModelCopy
-      : rssOnly
-        ? rssCopy
-        : forgeRefreshOnly
-          ? forgeRefreshCopy
-          : passkeyOnly
-            ? passkeyCopy
-            : entries
+  const selectedEntries = balanceOnly
+    ? balanceQueryCopy
+    : responsesWebSocketOnly
+      ? responsesWebSocketCopy
+      : responseModelOnly
+        ? responseModelCopy
+        : rssOnly
+          ? rssCopy
+          : forgeRefreshOnly
+            ? forgeRefreshCopy
+            : passkeyOnly
+              ? passkeyCopy
+              : entries
   let totalAdded = 0
   for (const [locale, baseTranslations] of Object.entries(selectedEntries)) {
     const translations = scoped
@@ -13002,6 +13007,10 @@ for (const [locale, values] of Object.entries(responseModelCopy)) {
 }
 
 for (const [locale, values] of Object.entries(responsesWebSocketCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(balanceQueryCopy)) {
   Object.assign(newKeys[locale], values)
 }
 
