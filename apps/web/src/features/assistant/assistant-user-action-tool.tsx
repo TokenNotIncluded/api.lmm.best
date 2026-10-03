@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useNavigate } from '@tanstack/react-router'
-import { Loader2, ShieldAlert } from 'lucide-react'
+import { Loader2, Pencil, ShieldAlert } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -37,11 +37,16 @@ import { Label } from '@/components/ui/label'
 import { logout } from '@/features/auth/api'
 import { clearAuthentication } from '@/lib/api'
 
-import { executeAssistantUserAction, type AssistantUserAction } from './api'
+import {
+  executeAssistantUserAction,
+  getAssistantDisplayNameValidationError,
+  type AssistantUserAction,
+} from './api'
 
 export function AssistantUserActionTool(props: {
   action: AssistantUserAction
   onCompleted: () => void
+  onUpdated?: () => void | Promise<void>
 }) {
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -50,12 +55,29 @@ export function AssistantUserActionTool(props: {
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [usernameConfirmation, setUsernameConfirmation] = useState('')
+  const [displayName, setDisplayName] = useState(() =>
+    props.action.type === 'user_display_name_change'
+      ? props.action.proposed_display_name
+      : ''
+  )
+  const [error, setError] = useState<string | null>(null)
+  const isDisplayNameChange = props.action.type === 'user_display_name_change'
 
   const targetLabel = props.action.target_display_name
     ? `${props.action.target_display_name} (${props.action.target_username})`
     : props.action.target_username
 
   const submit = async () => {
+    if (loading) return
+    setError(null)
+    if (isDisplayNameChange) {
+      const validationError =
+        getAssistantDisplayNameValidationError(displayName)
+      if (validationError) {
+        setError(t(validationError))
+        return
+      }
+    }
     if (props.action.type === 'user_password_change') {
       if (props.action.target_is_self && !currentPassword) {
         toast.error(t('Please enter your current password'))
@@ -88,6 +110,7 @@ export function AssistantUserActionTool(props: {
       const result = await executeAssistantUserAction(props.action, {
         currentPassword,
         newPassword,
+        displayName,
       })
       if (result.selfDeleted) {
         toast.success(t('Account deleted successfully'))
@@ -103,30 +126,53 @@ export function AssistantUserActionTool(props: {
       toast.success(
         props.action.type === 'user_password_change'
           ? t('Password changed successfully')
-          : t('User action completed')
+          : isDisplayNameChange
+            ? t('Display name changed successfully')
+            : t('User action completed')
       )
+      try {
+        await props.onUpdated?.()
+      } catch {
+        // The mutation succeeded. A later account refresh can retry without
+        // reporting a failed change or retaining an already consumed token.
+      }
       props.onCompleted()
-    } catch {
-      toast.error(t('User action failed'))
+    } catch (error) {
+      const message = isDisplayNameChange
+        ? error instanceof Error
+          ? t(error.message)
+          : t('Unable to change display name')
+        : t('User action failed')
+      if (isDisplayNameChange) setError(message)
+      toast.error(message)
     } finally {
       setLoading(false)
     }
   }
 
   const title =
-    props.action.type === 'user_password_change'
-      ? t('Change password')
-      : props.action.type === 'user_oauth_unbind'
-        ? t('Unbind OAuth login')
-        : props.action.action === 'delete'
-          ? t('Delete user')
-          : t('Disable user')
+    props.action.type === 'user_display_name_change'
+      ? t('Change display name')
+      : props.action.type === 'user_password_change'
+        ? t('Change password')
+        : props.action.type === 'user_oauth_unbind'
+          ? t('Unbind OAuth login')
+          : props.action.action === 'delete'
+            ? t('Delete user')
+            : t('Disable user')
 
   return (
-    <Card size='sm' className='border-warning/50 w-full'>
+    <Card
+      size='sm'
+      className={isDisplayNameChange ? 'w-full' : 'border-warning/50 w-full'}
+    >
       <CardHeader>
         <CardTitle className='flex items-center gap-2 text-sm'>
-          <ShieldAlert className='size-4' aria-hidden='true' />
+          {isDisplayNameChange ? (
+            <Pencil className='size-4' aria-hidden='true' />
+          ) : (
+            <ShieldAlert className='size-4' aria-hidden='true' />
+          )}
           {title}
         </CardTitle>
         <p className='text-muted-foreground text-sm'>
@@ -134,15 +180,47 @@ export function AssistantUserActionTool(props: {
         </p>
       </CardHeader>
       <CardContent className='space-y-4'>
-        <Alert>
-          <ShieldAlert className='size-4' aria-hidden='true' />
-          <AlertTitle>{t('Confirmation required')}</AlertTitle>
-          <AlertDescription>
-            {t(
-              'Review this account action carefully. It is sent through the normal authenticated API only after you confirm.'
-            )}
-          </AlertDescription>
-        </Alert>
+        {!isDisplayNameChange ? (
+          <Alert>
+            <ShieldAlert className='size-4' aria-hidden='true' />
+            <AlertTitle>{t('Confirmation required')}</AlertTitle>
+            <AlertDescription>
+              {t(
+                'Review this account action carefully. It is sent through the normal authenticated API only after you confirm.'
+              )}
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
+        {isDisplayNameChange ? (
+          <div className='space-y-2'>
+            <Label htmlFor='assistant-display-name'>{t('Display Name')}</Label>
+            <Input
+              id='assistant-display-name'
+              value={displayName}
+              onChange={(event) => {
+                setDisplayName(event.target.value)
+                setError(null)
+              }}
+              placeholder={t('Enter display name')}
+              autoComplete='nickname'
+              aria-invalid={Boolean(error)}
+              aria-describedby={
+                error ? 'assistant-display-name-error' : undefined
+              }
+              disabled={loading}
+            />
+            {error ? (
+              <p
+                id='assistant-display-name-error'
+                role='alert'
+                className='text-destructive text-sm'
+              >
+                {error}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
 
         {props.action.type === 'user_password_change' ? (
           <div className='space-y-3'>

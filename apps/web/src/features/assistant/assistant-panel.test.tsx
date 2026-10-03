@@ -2083,6 +2083,174 @@ describe('AssistantPanel', () => {
     }
   })
 
+  test('confirms an edited nickname, refreshes the authenticated user, and removes the card', async () => {
+    const user: AuthUser = {
+      id: 94,
+      username: 'nickname-user',
+      display_name: 'Current nickname',
+      role: 1,
+      developer_access_granted: true,
+    }
+    useAuthStore.getState().auth.setBundle({
+      access_token: 'test-access-token',
+      token_type: 'Bearer',
+      access_expires_at: 1_900_000_000,
+      user,
+      session: {
+        sid: 'nickname-session',
+        current: true,
+        login_method: 'password',
+        ip: '127.0.0.1',
+        user_agent: 'test',
+        created_at: 1,
+        last_active_at: 1,
+        expires_at: 1_900_000_000,
+      },
+    })
+    const originalPut = api.put
+    const mutations: Array<{ url: string; body: unknown }> = []
+    const accountRequests: string[] = []
+    let savedDisplayName = user.display_name
+    api.get = (async (url: string) => {
+      if (url === '/api/assistant/status') {
+        return { data: { success: true, data: assistantStatus } }
+      }
+      if (url === '/api/assistant/pre-conversation-presets') {
+        return {
+          data: { success: true, data: assistantPreConversationPresets },
+        }
+      }
+      if (url === '/api/user/self') {
+        accountRequests.push('GET /api/user/self')
+        return {
+          data: {
+            success: true,
+            data: { ...user, display_name: savedDisplayName },
+          },
+        }
+      }
+      return { data: { success: true, data: null } }
+    }) as typeof api.get
+    api.post = (async (url: string) => {
+      assert.equal(url, '/api/assistant/chat')
+      return {
+        data: {
+          choices: [
+            { message: { content: 'Review your new nickname and confirm.' } },
+          ],
+          lmm_assistant_action: {
+            type: 'user_display_name_change',
+            requires_confirmation: true,
+            target_user_id: user.id,
+            target_username: user.username,
+            target_display_name: user.display_name,
+            target_role: user.role,
+            target_group: 'default',
+            target_is_self: true,
+            proposed_display_name: 'Proposed nickname',
+            confirmation_token: 'nickname-confirmation-token',
+          },
+        },
+      }
+    }) as typeof api.post
+    api.put = (async (url: string, body: unknown) => {
+      mutations.push({ url, body })
+      assert.equal(url, '/api/assistant/profile/display-name')
+      accountRequests.push('PUT /api/assistant/profile/display-name')
+      savedDisplayName = (body as { display_name: string }).display_name
+      return {
+        data: { success: true, data: { display_name: savedDisplayName } },
+      }
+    }) as typeof api.put
+
+    const rendered = await renderPanel(undefined, 'page', user)
+    try {
+      await setTextareaValue(
+        requireValue(
+          document.querySelector<HTMLTextAreaElement>(
+            'textarea[aria-label="Ask AI assistant"]'
+          )
+        ),
+        'Please change my nickname to Proposed nickname.'
+      )
+      await act(async () => {
+        requireValue(
+          document.querySelector<HTMLButtonElement>('button[aria-label="Send"]')
+        ).click()
+        await flushEffects()
+      })
+      await act(async () =>
+        waitForCondition(
+          () => findCard('Change display name') !== null,
+          'Nickname confirmation card did not render'
+        )
+      )
+      const card = requireValue(findCard('Change display name'))
+      assert.match(card.textContent ?? '', /Current nickname \(nickname-user\)/)
+      const input = requireValue(
+        card.querySelector<HTMLInputElement>('#assistant-display-name')
+      )
+      assert.equal(input.value, 'Proposed nickname')
+      const setValue = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        'value'
+      )?.set
+      assert.ok(setValue)
+      await act(async () => {
+        setValue.call(input, 'Edited nickname')
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+        await flushEffects()
+      })
+      assert.deepEqual(mutations, [])
+      assert.deepEqual(accountRequests, [])
+      assert.equal(
+        useAuthStore.getState().auth.user?.display_name,
+        user.display_name
+      )
+
+      const confirm = requireValue(
+        [...card.querySelectorAll<HTMLButtonElement>('button')].find(
+          (button) => button.textContent?.trim() === 'Confirm'
+        )
+      )
+      await act(async () => {
+        confirm.click()
+        await flushEffects()
+      })
+      await act(async () =>
+        waitForCondition(
+          () =>
+            useAuthStore.getState().auth.user?.display_name ===
+              'Edited nickname' && findCard('Change display name') === null,
+          'Nickname update did not refresh the user and remove its confirmation card'
+        )
+      )
+      assert.deepEqual(mutations, [
+        {
+          url: '/api/assistant/profile/display-name',
+          body: {
+            display_name: 'Edited nickname',
+            confirmation_token: 'nickname-confirmation-token',
+            confirmed: true,
+          },
+        },
+      ])
+      assert.deepEqual(accountRequests, [
+        'PUT /api/assistant/profile/display-name',
+        'GET /api/user/self',
+      ])
+      assert.equal(
+        useAuthStore.getState().auth.session?.sid,
+        'nickname-session'
+      )
+      assert.equal(document.querySelector('#assistant-display-name'), null)
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+      api.put = originalPut
+    }
+  })
+
   test('gives administrators a confirmation-gated server change card', async () => {
     let appliedRequest: unknown
     api.get = (async (url: string) => {

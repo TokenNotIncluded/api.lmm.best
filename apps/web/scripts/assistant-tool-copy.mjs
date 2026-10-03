@@ -1,5 +1,10 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
 const keys = [
+  'Change display name',
+  'Display name changed successfully',
+  'Display name must be 1 to 20 characters',
+  'Display name cannot contain control characters',
+  'Unable to change display name',
   'Prepare API key creation',
   'API key creation prepared',
   'Prepared; confirmation required',
@@ -11,6 +16,11 @@ const keys = [
 const values = {
   en: keys,
   zh: [
+    '修改昵称',
+    '昵称修改成功',
+    '昵称须为 1 到 20 个字符',
+    '昵称不能包含控制字符',
+    '无法修改昵称',
     '准备创建 API 密钥',
     '已准备创建 API 密钥',
     '待确认',
@@ -19,6 +29,11 @@ const values = {
     '这里只显示尚未被自动审核批准的 L0 申请。完成三轮对话后，助手也可以直接授予 L1。',
   ],
   'zh-TW': [
+    '修改暱稱',
+    '暱稱修改成功',
+    '暱稱須為 1 到 20 個字元',
+    '暱稱不能包含控制字元',
+    '無法修改暱稱',
     '準備建立 API 金鑰',
     '已準備建立 API 金鑰',
     '待確認',
@@ -27,6 +42,11 @@ const values = {
     '這裡只顯示尚未獲自動審核批准的 L0 申請。完成三輪對話後，助手也可以直接授予 L1。',
   ],
   fr: [
+    'Modifier le nom affiché',
+    'Nom affiché modifié',
+    'Le nom affiché doit contenir de 1 à 20 caractères',
+    'Le nom affiché ne peut pas contenir de caractères de contrôle',
+    'Impossible de modifier le nom affiché',
     'Préparer la création de la clé API',
     'Création de la clé API préparée',
     'Préparé ; confirmation requise',
@@ -35,6 +55,11 @@ const values = {
     'Seules les demandes L0 non approuvées automatiquement figurent ici. L’assistant peut aussi accorder directement le niveau L1 après trois échanges complets.',
   ],
   ja: [
+    '表示名を変更',
+    '表示名を変更しました',
+    '表示名は 1〜20 文字で入力してください',
+    '表示名に制御文字は使用できません',
+    '表示名を変更できません',
     'API キーの作成を準備',
     'API キーの作成を準備しました',
     '準備完了。確認が必要です',
@@ -43,6 +68,11 @@ const values = {
     'ここには自動審査で承認されなかった L0 申請だけが表示されます。3 回の対話が完了すると、アシスタントが L1 を直接付与することもできます。',
   ],
   ru: [
+    'Изменить отображаемое имя',
+    'Отображаемое имя изменено',
+    'Отображаемое имя должно содержать от 1 до 20 символов',
+    'Отображаемое имя не должно содержать управляющие символы',
+    'Не удалось изменить отображаемое имя',
     'Подготовить создание API-ключа',
     'Создание API-ключа подготовлено',
     'Подготовлено; требуется подтверждение',
@@ -51,6 +81,11 @@ const values = {
     'Здесь отображаются только заявки L0, не одобренные автоматической проверкой. После трёх завершённых диалоговых циклов ассистент также может напрямую выдать уровень L1.',
   ],
   vi: [
+    'Đổi tên hiển thị',
+    'Đã đổi tên hiển thị',
+    'Tên hiển thị phải có từ 1 đến 20 ký tự',
+    'Tên hiển thị không được chứa ký tự điều khiển',
+    'Không thể đổi tên hiển thị',
     'Chuẩn bị tạo khóa API',
     'Đã chuẩn bị tạo khóa API',
     'Đã chuẩn bị; cần xác nhận',

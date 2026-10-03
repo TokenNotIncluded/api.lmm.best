@@ -1777,6 +1777,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         reply.action?.type === 'human_support' ? reply.action : undefined
       const userAction =
         reply.action?.type === 'user_password_change' ||
+        reply.action?.type === 'user_display_name_change' ||
         reply.action?.type === 'user_oauth_unbind' ||
         reply.action?.type === 'user_account_action'
           ? reply.action
@@ -2515,8 +2516,28 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                       ) : null}
                       {userActionDraft ? (
                         <AssistantUserActionTool
+                          key={
+                            userActionDraft.type === 'user_display_name_change'
+                              ? userActionDraft.confirmation_token
+                              : userActionDraft.type
+                          }
                           action={userActionDraft}
-                          onCompleted={() => setUserActionDraft(null)}
+                          onUpdated={async () => {
+                            if (
+                              userActionDraft.type ===
+                              'user_display_name_change'
+                            ) {
+                              await refreshAuthenticatedUser()
+                              await queryClient.invalidateQueries({
+                                queryKey: ['assistant-status'],
+                              })
+                            }
+                          }}
+                          onCompleted={() =>
+                            setUserActionDraft((current) =>
+                              current === userActionDraft ? null : current
+                            )
+                          }
                         />
                       ) : null}
                       {activeTool === 'cost' && accountAccessConfirmed ? (

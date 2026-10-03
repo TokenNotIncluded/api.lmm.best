@@ -386,6 +386,9 @@ func executeAssistantUserUsageTool(c *gin.Context, actorUserID int, input map[st
 
 func executeAssistantPrepareUserActionTool(c *gin.Context, actorUserID int, input map[string]any) map[string]any {
 	actionName := strings.TrimSpace(inputString(input, "action"))
+	if actionName == "change_display_name" {
+		return executeAssistantPrepareDisplayNameTool(c, actorUserID, input)
+	}
 	target, targetError := resolveAssistantUserTarget(c, actorUserID, input, true)
 	if targetError != nil {
 		return targetError

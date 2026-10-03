@@ -23,8 +23,10 @@ import { api } from '@/lib/api'
 
 import {
   ASSISTANT_MAX_REQUEST_ATTEMPTS,
+  AssistantRequestError,
   archiveAssistantConversation,
   buildAssistantConversation,
+  executeAssistantUserAction,
   getAssistantConversationHistory,
   isAssistantRequestAborted,
   parseAssistantAction,
@@ -33,6 +35,7 @@ import {
   parseAssistantToolTraces,
   sendAssistantMessage,
   type AssistantChatMessage,
+  type AssistantUserDisplayNameChangeAction,
   unarchiveAssistantConversation,
 } from './api'
 
@@ -42,6 +45,142 @@ function retryableAxiosError(status: number) {
     response: { status },
   })
 }
+
+const displayNameAction: AssistantUserDisplayNameChangeAction = {
+  type: 'user_display_name_change',
+  requires_confirmation: true,
+  target_user_id: 7,
+  target_username: 'alice',
+  target_display_name: 'Alice',
+  target_role: 1,
+  target_group: 'default',
+  target_is_self: true,
+  proposed_display_name: '爱丽丝',
+  confirmation_token: 'display-name-token',
+}
+
+describe('assistant display-name changes', () => {
+  test('submits the edited name through the confirmed profile endpoint', async () => {
+    const originalPut = api.put
+    const calls: Array<{ url: string; body: unknown; options: unknown }> = []
+    api.put = (async (url: string, body: unknown, options: unknown) => {
+      calls.push({ url, body, options })
+      return {
+        data: { success: true, data: { display_name: '😀'.repeat(20) } },
+      }
+    }) as typeof api.put
+    try {
+      assert.deepEqual(
+        await executeAssistantUserAction(displayNameAction, {
+          displayName: ` ${'😀'.repeat(20)} `,
+          currentPassword: 'never-send',
+          newPassword: 'never-send',
+        }),
+        { selfDeleted: false }
+      )
+      assert.deepEqual(calls, [
+        {
+          url: '/api/assistant/profile/display-name',
+          body: {
+            display_name: '😀'.repeat(20),
+            confirmation_token: displayNameAction.confirmation_token,
+            confirmed: true,
+          },
+          options: { skipBusinessError: true, skipErrorHandler: true },
+        },
+      ])
+    } finally {
+      api.put = originalPut
+    }
+  })
+
+  test('rejects empty, overlong and non-self changes before requesting', async () => {
+    const originalPut = api.put
+    let calls = 0
+    api.put = (async () => {
+      calls += 1
+      throw new Error('must not request')
+    }) as typeof api.put
+    try {
+      for (const name of ['', '  ', '😀'.repeat(21)]) {
+        await assert.rejects(
+          executeAssistantUserAction(displayNameAction, { displayName: name }),
+          /Display name must be 1 to 20 characters/
+        )
+      }
+      await assert.rejects(
+        executeAssistantUserAction(
+          {
+            ...displayNameAction,
+            target_is_self: false,
+          } as unknown as AssistantUserDisplayNameChangeAction,
+          { displayName: 'Alice' }
+        ),
+        /Unable to change display name/
+      )
+      await assert.rejects(
+        executeAssistantUserAction(
+          { ...displayNameAction, confirmation_token: ' ' },
+          { displayName: 'Alice' }
+        ),
+        /Unable to change display name/
+      )
+      for (const name of ['Ali\u0000ce', 'Ali\nce', 'Ali\u0085ce']) {
+        await assert.rejects(
+          executeAssistantUserAction(displayNameAction, { displayName: name }),
+          /Display name cannot contain control characters/
+        )
+      }
+      assert.equal(calls, 0)
+    } finally {
+      api.put = originalPut
+    }
+  })
+
+  test('preserves a non-2xx backend message and error code', async () => {
+    const originalPut = api.put
+    api.put = (async () => {
+      throw Object.assign(new Error('Request failed with status code 422'), {
+        isAxiosError: true,
+        response: {
+          status: 422,
+          data: {
+            success: false,
+            code: 'display_name_confirmation_expired',
+            message: 'This confirmation has expired. Prepare the change again.',
+          },
+        },
+      })
+    }) as typeof api.put
+    try {
+      await assert.rejects(
+        executeAssistantUserAction(displayNameAction, { displayName: 'Alice' }),
+        (error: unknown) =>
+          error instanceof AssistantRequestError &&
+          error.code === 'display_name_confirmation_expired' &&
+          error.message ===
+            'This confirmation has expired. Prepare the change again.'
+      )
+    } finally {
+      api.put = originalPut
+    }
+  })
+
+  test('preserves a backend failure reason', async () => {
+    const originalPut = api.put
+    api.put = (async () => ({
+      data: { success: false, message: 'This confirmation has expired' },
+    })) as typeof api.put
+    try {
+      await assert.rejects(
+        executeAssistantUserAction(displayNameAction, { displayName: 'Alice' }),
+        /This confirmation has expired/
+      )
+    } finally {
+      api.put = originalPut
+    }
+  })
+})
 
 describe('assistant response parsing', () => {
   test('extracts the first assistant message', () => {
@@ -476,6 +615,39 @@ describe('assistant response parsing', () => {
       }),
       undefined
     )
+  })
+
+  test('accepts only self display-name previews with a confirmation token', () => {
+    assert.deepEqual(parseAssistantAction(displayNameAction), displayNameAction)
+    assert.deepEqual(
+      parseAssistantAction({
+        ...displayNameAction,
+        proposed_display_name: '',
+      }),
+      { ...displayNameAction, proposed_display_name: '' }
+    )
+    assert.deepEqual(
+      parseAssistantAction({
+        ...displayNameAction,
+        proposed_display_name: '😀'.repeat(20),
+      }),
+      { ...displayNameAction, proposed_display_name: '😀'.repeat(20) }
+    )
+    for (const invalid of [
+      { target_is_self: false },
+      { requires_confirmation: false },
+      { confirmation_token: '' },
+      { confirmation_token: undefined },
+      { proposed_display_name: undefined },
+      { proposed_display_name: '😀'.repeat(21) },
+      { proposed_display_name: 'Ali\u0000ce' },
+      { password: 'should-never-be-accepted' },
+    ]) {
+      assert.equal(
+        parseAssistantAction({ ...displayNameAction, ...invalid }),
+        undefined
+      )
+    }
   })
 
   test('keeps tool traces bounded and accepts only scalar safe input', () => {

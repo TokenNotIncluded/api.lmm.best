@@ -389,12 +389,13 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_user_action",
-				Description: "Prepare a confirmation card for a safe user-account action. Supported actions are change_password, bind_oauth, unbind_oauth, disable, and delete. Never pass a password or secret to this tool. Regular users can act only on themselves; administrators can act only on permitted lower-role targets. OAuth binding is interactive and must be completed by the target user in their own session.",
+				Description: "Prepare a confirmation card for a safe user-account action. Supported actions are change_display_name, change_password, bind_oauth, unbind_oauth, disable, and delete. change_display_name changes only the signed-in user's nickname, is available at L0 and above, and opens an editable form even if no new nickname was supplied. Never pass a password or secret to this tool. Regular users can act only on themselves; administrators can act only on permitted lower-role targets. OAuth binding is interactive and must be completed by the target user in their own session.",
 				Parameters: objectSchema(map[string]any{
-					"action":     map[string]any{"type": "string", "enum": []string{"change_password", "bind_oauth", "unbind_oauth", "disable", "delete"}},
-					"user_id":    map[string]any{"type": "integer", "minimum": 1},
-					"identifier": map[string]any{"type": "string", "maxLength": 200},
-					"provider":   map[string]any{"type": "string", "maxLength": 120},
+					"action":       map[string]any{"type": "string", "enum": []string{"change_display_name", "change_password", "bind_oauth", "unbind_oauth", "disable", "delete"}},
+					"display_name": map[string]any{"type": "string", "minLength": 1, "maxLength": 20},
+					"user_id":      map[string]any{"type": "integer", "minimum": 1},
+					"identifier":   map[string]any{"type": "string", "maxLength": 200},
+					"provider":     map[string]any{"type": "string", "maxLength": 120},
 				}, []string{"action"}),
 			},
 		},

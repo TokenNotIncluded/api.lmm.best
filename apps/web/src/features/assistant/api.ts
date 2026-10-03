@@ -414,6 +414,13 @@ export type AssistantUserPasswordChangeAction = AssistantUserTargetAction & {
   type: 'user_password_change'
 }
 
+export type AssistantUserDisplayNameChangeAction = AssistantUserTargetAction & {
+  type: 'user_display_name_change'
+  target_is_self: true
+  proposed_display_name: string
+  confirmation_token: string
+}
+
 export type AssistantUserOAuthUnbindAction = AssistantUserTargetAction & {
   type: 'user_oauth_unbind'
   provider: string
@@ -428,6 +435,7 @@ export type AssistantUserAccountAction = AssistantUserTargetAction & {
 
 export type AssistantUserAction =
   | AssistantUserPasswordChangeAction
+  | AssistantUserDisplayNameChangeAction
   | AssistantUserOAuthUnbindAction
   | AssistantUserAccountAction
 
@@ -891,6 +899,23 @@ function parseAssistantWeeklyDiscountAction(
   }
 }
 
+export function getAssistantDisplayNameValidationError(
+  value: string
+):
+  | 'Display name must be 1 to 20 characters'
+  | 'Display name cannot contain control characters'
+  | undefined {
+  const displayName = value.trim()
+  const length = [...displayName].length
+  if (length < 1 || length > 20) {
+    return 'Display name must be 1 to 20 characters'
+  }
+  if (/\p{Cc}/u.test(displayName)) {
+    return 'Display name cannot contain control characters'
+  }
+  return undefined
+}
+
 function parseAssistantUserAction(
   action: Record<string, unknown>
 ): AssistantUserAction | undefined {
@@ -932,6 +957,28 @@ function parseAssistantUserAction(
   }
   if (action.type === 'user_password_change') {
     return { type: action.type, ...target }
+  }
+  if (
+    action.type === 'user_display_name_change' &&
+    action.target_is_self === true &&
+    typeof action.proposed_display_name === 'string' &&
+    typeof action.confirmation_token === 'string'
+  ) {
+    const displayName = action.proposed_display_name.trim()
+    const confirmationToken = action.confirmation_token.trim()
+    if (
+      (displayName && getAssistantDisplayNameValidationError(displayName)) ||
+      !confirmationToken
+    ) {
+      return undefined
+    }
+    return {
+      type: action.type,
+      ...target,
+      target_is_self: true,
+      proposed_display_name: displayName,
+      confirmation_token: confirmationToken,
+    }
   }
   if (
     action.type === 'user_oauth_unbind' &&
@@ -1615,12 +1662,45 @@ export async function recordAssistantPreConversationPresetClick(
 
 export async function executeAssistantUserAction(
   action: AssistantUserAction,
-  input: { currentPassword?: string; newPassword?: string }
+  input: {
+    currentPassword?: string
+    newPassword?: string
+    displayName?: string
+  }
 ): Promise<{ selfDeleted: boolean }> {
   const skipOptions = {
     skipBusinessError: true,
     skipErrorHandler: true,
   } as const
+  if (action.type === 'user_display_name_change') {
+    const displayName = (input.displayName ?? '').trim()
+    if (!action.target_is_self || !action.confirmation_token.trim()) {
+      throw new Error('Unable to change display name')
+    }
+    const validationError = getAssistantDisplayNameValidationError(displayName)
+    if (validationError) throw new Error(validationError)
+    try {
+      const response = await api.put<AssistantAPIResponse<unknown>>(
+        '/api/assistant/profile/display-name',
+        {
+          display_name: displayName,
+          confirmation_token: action.confirmation_token,
+          confirmed: true,
+        },
+        skipOptions
+      )
+      requireAssistantData(response.data, 'Unable to change display name')
+      return { selfDeleted: false }
+    } catch (error) {
+      if (axios.isAxiosError<AssistantAPIResponse<never>>(error)) {
+        throw normalizeAssistantRequestError(
+          error,
+          'Unable to change display name'
+        )
+      }
+      throw error
+    }
+  }
   if (action.type === 'user_password_change') {
     const password = input.newPassword ?? ''
     if (action.target_is_self) {

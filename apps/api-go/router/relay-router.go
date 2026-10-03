@@ -134,6 +134,7 @@ func SetRelayRouter(router *gin.Engine, sharedAdmission ...gin.HandlerFunc) {
 	assistantRouter.Use(middleware.UserAuth(), largeRequestAdmission)
 	{
 		assistantRouter.GET("/status", controller.GetAssistantStatus)
+		assistantRouter.PUT("/profile/display-name", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.UserCriticalRateLimit("assistant-display-name"), middleware.DisableCache(), controller.ConfirmAssistantDisplayName)
 		assistantRouter.GET("/registration-check", middleware.DisableCache(), controller.GetAssistantRegistrationState)
 		assistantRouter.GET("/models", middleware.AdminAuth(), controller.GetAssistantModels)
 		assistantRouter.GET("/offers", controller.GetAssistantPlanOffers)
