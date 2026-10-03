@@ -318,6 +318,60 @@ func TestSeedanceCompletionFactsAndLegacySnapshots(t *testing.T) {
 
 func boolPointer(v bool) *bool { return &v }
 
+func TestSeedanceCompletionAcceptsProviderDurationEncodings(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	for _, duration := range []string{`5`, `"5"`} {
+		t.Run(duration, func(t *testing.T) {
+			data := []byte(`{"status":"succeeded","duration":` + duration + `,"content":{"video_url":"https://example.com/video.mp4"},"usage":{"completion_tokens":1234}}`)
+			result, err := adaptor.ParseTaskResult(data)
+			require.NoError(t, err)
+			require.Equal(t, model.TaskStatusSuccess, result.Status)
+			require.Equal(t, 1234, result.TotalTokens)
+			require.Equal(t, "https://example.com/video.mp4", result.Url)
+			_, err = adaptor.ConvertToOpenAIVideo(&model.Task{Data: data, Status: model.TaskStatusSuccess})
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestSeedanceTerminalFailuresDoNotRemainInProgress(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	for _, status := range []string{"failed", "cancelled", "expired"} {
+		for _, message := range []string{"", "provider stopped the task"} {
+			t.Run(status+"/"+message, func(t *testing.T) {
+				data, err := common.Marshal(map[string]any{
+					"status": status, "error": map[string]any{"code": "TaskStopped", "message": message},
+					"usage": map[string]any{"total_tokens": 1234},
+				})
+				require.NoError(t, err)
+				result, err := adaptor.ParseTaskResult(data)
+				require.NoError(t, err)
+				require.Equal(t, model.TaskStatusFailure, result.Status)
+				require.Equal(t, "100%", result.Progress)
+				require.Zero(t, result.TotalTokens)
+				wantReason := message
+				if wantReason == "" {
+					wantReason = "task " + status
+				}
+				require.Equal(t, wantReason, result.Reason)
+				response, err := adaptor.ConvertToOpenAIVideo(&model.Task{Data: data, Status: model.TaskStatusFailure})
+				require.NoError(t, err)
+				var video struct {
+					Status string `json:"status"`
+					Error  struct {
+						Code    string `json:"code"`
+						Message string `json:"message"`
+					} `json:"error"`
+				}
+				require.NoError(t, common.Unmarshal(response, &video))
+				require.Equal(t, "failed", video.Status)
+				require.Equal(t, "TaskStopped", video.Error.Code)
+				require.Equal(t, wantReason, video.Error.Message)
+			})
+		}
+	}
+}
+
 func TestSeedanceCompletionQuotaPreservesConfiguredPricesAndLocks(t *testing.T) {
 	modelRatios := ratio_setting.ModelRatio2JSONString()
 	modelPrices := ratio_setting.ModelPrice2JSONString()
@@ -332,7 +386,7 @@ func TestSeedanceCompletionQuotaPreservesConfiguredPricesAndLocks(t *testing.T) 
 	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1.7}`))
 	require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(`{"default":{"default":1.2}}`))
 	task := completionTestTask(seedance20, map[string]float64{"resolution": 51.0 / 46, "video_input": 31.0 / 51, "seconds": 2})
-	task.Data = json.RawMessage(`{"status":"succeeded","resolution":"4k","usage":{"completion_tokens":10000}}`)
+	task.Data = json.RawMessage(`{"status":"succeeded","duration":"5","resolution":"4k","usage":{"completion_tokens":10000}}`)
 	adaptor := &TaskAdaptor{}
 	result, err := adaptor.ParseTaskResult(task.Data)
 	require.NoError(t, err)
