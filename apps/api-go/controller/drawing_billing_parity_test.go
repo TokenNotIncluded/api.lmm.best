@@ -56,6 +56,12 @@ func newDrawingParityFixture(t *testing.T, quota int, upstreamStatus int, upstre
 	common.DrawingEnabled, common.LogConsumeEnabled = true, true
 	require.NoError(t, i18n.Init())
 	db, user := createAssistantKeyFixture(t, "drawing-billing-owner")
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	// This shared-memory unit fixture checks billing outcomes, not SQLite
+	// concurrency. Serialize the real async refund and market transactions
+	// so a shared-cache lock cannot turn its expected failure into pending.
+	sqlDB.SetMaxOpenConns(1)
 	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}, &model.Model{}, &model.Vendor{}))
 	setAssistantKeyOption(t, db, "UserUsableGroups", `{"default":"Default","image-2":"Drawing"}`)
 	setAssistantKeyOption(t, db, "GroupRatio", `{"default":1,"image-2":1}`)
