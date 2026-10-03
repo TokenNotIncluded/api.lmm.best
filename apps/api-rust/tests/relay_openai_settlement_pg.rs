@@ -559,7 +559,9 @@ async fn responses_missing_usage_output_and_reported_zero_settle_over_real_http(
                 );
                 fixture.settled(quota, 1).await?;
             } else {
-                fixture.settled(0, i64::from(completed)).await?;
+                // Request counters follow billable usage, while a completed
+                // zero-usage turn still has its zero-quota consumption log.
+                fixture.settled(0, 0).await?;
                 if completed {
                     assert_eq!(log, Some((0, 0, 0)), "{name}");
                 } else {
