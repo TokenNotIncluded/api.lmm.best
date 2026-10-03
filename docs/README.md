@@ -26,6 +26,7 @@ This directory contains operational, API, and legal documentation for LMM Forge.
 - [`open-source-bounties.md`](./open-source-bounties.md): bounty mechanics and workflow.
 - [`ionet-client.md`](./ionet-client.md): iNet client reference artifact.
 - [`channel/other_setting.md`](./channel/other_setting.md): additional channel JSON settings.
+- [`advanced-custom-balance.md`](./advanced-custom-balance.md): declarative Go balance requests, extraction, credential boundaries, and Rust support limits.
 
 ## API contracts
 

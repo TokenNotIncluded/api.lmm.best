@@ -104,7 +104,7 @@ For commercial licensing, please contact support@quantumnous.com
   max-width: 56rem;
   margin: 0 auto;
   font-size: clamp(3.2rem, 6.6vw, 6.2rem);
-  font-weight: 550;
+  font-weight: 750;
   line-height: 1.03;
   letter-spacing: -0.03em;
   text-wrap: balance;
@@ -133,8 +133,23 @@ For commercial licensing, please contact support@quantumnous.com
 .lmm-intro-actions [data-slot='button'] {
   min-height: 3rem;
   padding-inline: 1.4rem;
-  border-radius: 999px;
+  border-radius: 0;
   box-shadow: none;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.lmm-intro-actions > [data-slot='button']:first-child {
+  padding-right: 1.9rem;
+  clip-path: polygon(
+    0 0,
+    100% 0,
+    100% calc(100% - var(--cut-size, 0.625rem)),
+    calc(100% - var(--cut-size, 0.625rem)) 100%,
+    0 100%
+  );
+}
+.lmm-intro-actions > [data-slot='button']:first-child:focus-visible {
+  clip-path: none;
 }
 .lmm-intro-actions a {
   font-size: 0.875rem;
@@ -160,11 +175,11 @@ For commercial licensing, please contact support@quantumnous.com
 .lmm-access-note li::before {
   content: '';
   display: inline-block;
-  flex: 0 0 0.25rem;
-  height: 0.25rem;
+  flex: 0 0 0.35rem;
+  height: 0.35rem;
   background: currentColor;
-  border-radius: 50%;
-  transform: translateY(-0.2em);
+  clip-path: polygon(0 0, 100% 0, 100% 45%, 45% 100%, 0 100%);
+  transform: translateY(-0.15em);
 }
 .lmm-text-link {
   display: inline-flex;
@@ -403,9 +418,9 @@ For commercial licensing, please contact support@quantumnous.com
   margin: 0;
   font-family: var(--font-body);
   font-size: clamp(2.6rem, 4.4vw, 4.4rem);
-  font-weight: 500;
-  line-height: 1.08;
-  letter-spacing: -0.035em;
+  font-weight: 750;
+  line-height: 1.04;
+  letter-spacing: -0.05em;
   text-wrap: balance;
   color: var(--home-stage-ink);
 }
@@ -733,9 +748,9 @@ For commercial licensing, please contact support@quantumnous.com
 }
 .lmm-protocols > span::before {
   content: '';
-  width: 0.4rem;
-  height: 0.4rem;
-  border-radius: 50%;
+  width: 0.45rem;
+  height: 0.45rem;
+  clip-path: polygon(0 0, 100% 0, 100% 45%, 45% 100%, 0 100%);
   background: var(--home-accent);
 }
 .lmm-protocols > span:nth-child(2)::before {
@@ -755,11 +770,22 @@ For commercial licensing, please contact support@quantumnous.com
 .lmm-section h2 {
   margin: 0;
   max-width: 42rem;
-  font-size: clamp(2rem, 3.4vw, 3rem);
-  font-weight: 500;
-  line-height: 1.14;
-  letter-spacing: -0.03em;
+  font-size: clamp(2.1rem, 3.8vw, 3.4rem);
+  font-weight: 750;
+  line-height: 1.06;
+  letter-spacing: -0.05em;
   text-wrap: balance;
+}
+/* Cut mark: the logo's 45° base cut, set as a solid block above each
+ * section heading. Monochrome so it reads as identity, not decoration. */
+.lmm-section h2::before {
+  content: '';
+  display: block;
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-bottom: 1.1rem;
+  background: currentColor;
+  clip-path: polygon(0 0, 100% 0, 100% 45%, 45% 100%, 0 100%);
 }
 .lmm-section-intro {
   display: flex;
@@ -794,8 +820,8 @@ For commercial licensing, please contact support@quantumnous.com
 }
 .lmm-story-step h3 {
   margin: 0;
-  font-size: 1.15rem;
-  font-weight: 550;
+  font-size: 1.2rem;
+  font-weight: 650;
   line-height: 1.5;
   letter-spacing: -0.035em;
 }
@@ -808,7 +834,11 @@ For commercial licensing, please contact support@quantumnous.com
 }
 .lmm-step-number {
   padding-top: 0.3rem;
-  font: 0.75rem/1.5 monospace;
+  font:
+    600 0.78rem/1.5 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
   font-variant-numeric: tabular-nums;
   color: var(--muted-foreground);
   transition: color 220ms ease;
@@ -1147,8 +1177,9 @@ For commercial licensing, please contact support@quantumnous.com
   overflow-wrap: anywhere;
 }
 .lmm-destinations a strong {
-  font-size: 1.1rem;
-  font-weight: 500;
+  font-size: 1.15rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
 }
 .lmm-explore-preview {
   display: grid;
@@ -1167,9 +1198,10 @@ For commercial licensing, please contact support@quantumnous.com
 .lmm-explore-preview strong {
   margin-top: 0;
   font-family: var(--font-body);
-  font-size: clamp(1.75rem, 3vw, 2.5rem);
-  font-weight: 500;
-  line-height: 1.2;
+  font-size: clamp(1.9rem, 3.4vw, 2.9rem);
+  font-weight: 750;
+  line-height: 1.08;
+  letter-spacing: -0.045em;
 }
 .lmm-explore-preview p {
   max-width: 26rem;

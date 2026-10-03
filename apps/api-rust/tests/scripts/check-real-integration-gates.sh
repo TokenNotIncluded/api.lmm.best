@@ -94,6 +94,14 @@ grep -Fq 'channel_balance_store::tests::persisted_balance_updates_value_and_time
   echo "real-integration runner does not execute the channel balance persistence regression" >&2
   exit 1
 }
+grep -Fq 'async fn advanced_custom_balance_is_unsupported_without_fetch_or_update()' "$balance_source" || {
+  echo "Advanced Custom balance unsupported regression test is missing" >&2
+  exit 1
+}
+grep -Fq 'channel_balance_store::tests::advanced_custom_balance_is_unsupported_without_fetch_or_update' "$runner" || {
+  echo "real-integration runner does not execute the Advanced Custom balance unsupported regression" >&2
+  exit 1
+}
 for oracle_test in \
   TestGetDeepSeekBalanceUSD \
   TestRefreshChannelBalancesCapturesAndSanitizesProviderFailure \

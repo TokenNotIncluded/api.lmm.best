@@ -65,6 +65,7 @@ import { cn } from '@/lib/utils'
 
 import {
   ADVANCED_CUSTOM_AUTH_MODE_OPTIONS,
+  ADVANCED_CUSTOM_BALANCE_PATH,
   ADVANCED_CUSTOM_CONVERTER_OPTIONS,
   ADVANCED_CUSTOM_INCOMING_PATH_OPTIONS,
   ADVANCED_CUSTOM_MODEL_LIST_LABEL,
@@ -96,6 +97,7 @@ import type {
   AdvancedCustomConverter,
   AdvancedCustomRoute,
 } from '../../types'
+import { AdvancedCustomBalanceFields } from './advanced-custom-balance-fields'
 
 type AdvancedCustomEditorDialogProps = {
   open: boolean
@@ -140,7 +142,12 @@ function getRouteIncomingPath(route: AdvancedCustomRoute): string {
 }
 
 function isCatchAllRoute(route: AdvancedCustomRoute): boolean {
-  return !route.models || route.models.length === 0
+  const incomingPath = getRouteIncomingPath(route)
+  return (
+    incomingPath !== ADVANCED_CUSTOM_MODEL_LIST_PATH &&
+    incomingPath !== ADVANCED_CUSTOM_BALANCE_PATH &&
+    (!route.models || route.models.length === 0)
+  )
 }
 
 function buildRouteGroups(
@@ -326,11 +333,18 @@ export function AdvancedCustomEditorDialog({
     )
     const nextRoutes = routes.map((route, routeIndex) => {
       if (!groupRouteIndexes.has(routeIndex)) return route
-      if (resolvedIncomingPath === ADVANCED_CUSTOM_MODEL_LIST_PATH) {
+      if (
+        resolvedIncomingPath === ADVANCED_CUSTOM_MODEL_LIST_PATH ||
+        resolvedIncomingPath === ADVANCED_CUSTOM_BALANCE_PATH
+      ) {
         return {
           ...route,
           incoming_path: resolvedIncomingPath,
-          upstream_path: ADVANCED_CUSTOM_MODEL_LIST_PATH,
+          upstream_path: resolvedIncomingPath,
+          balance:
+            resolvedIncomingPath === ADVANCED_CUSTOM_BALANCE_PATH
+              ? route.balance
+              : undefined,
           converter: 'none' as const,
           models: [],
         }
@@ -339,6 +353,7 @@ export function AdvancedCustomEditorDialog({
       return {
         ...route,
         incoming_path: resolvedIncomingPath,
+        balance: undefined,
         converter: isAdvancedCustomIncomingPathAllowed(
           resolvedIncomingPath,
           converter
@@ -642,7 +657,11 @@ export function AdvancedCustomEditorDialog({
                       className={longSelectItemClass}
                     >
                       <div className='flex min-w-0 flex-col gap-1 leading-snug whitespace-normal'>
-                        <span>{option.label}</span>
+                        <span>
+                          {option.value === ADVANCED_CUSTOM_BALANCE_PATH
+                            ? t('Balance')
+                            : option.label}
+                        </span>
                         <span className='text-muted-foreground font-mono text-xs break-all'>
                           {option.value}
                         </span>
@@ -757,7 +776,11 @@ function RouteGroupEditor({
   const { t } = useTranslation()
   const incomingPath = group.incomingPath || '/v1/chat/completions'
   const isModelListGroup = incomingPath === ADVANCED_CUSTOM_MODEL_LIST_PATH
-  const incomingPathLabel = getAdvancedCustomIncomingPathLabel(incomingPath)
+  const isBalanceGroup = incomingPath === ADVANCED_CUSTOM_BALANCE_PATH
+  const isManagementGroup = isModelListGroup || isBalanceGroup
+  const incomingPathLabel = isBalanceGroup
+    ? t('Balance')
+    : getAdvancedCustomIncomingPathLabel(incomingPath)
   const catchAllRoute = group.routeRows.find((routeRow) =>
     isCatchAllRoute(routeRow.route)
   )
@@ -789,16 +812,18 @@ function RouteGroupEditor({
             <Badge variant='secondary'>
               {group.routeRows.length} {t('Routes')}
             </Badge>
-            {isModelListGroup ? (
+            {isManagementGroup ? (
               <Badge variant='outline'>
-                {ADVANCED_CUSTOM_MODEL_LIST_LABEL}
+                {isBalanceGroup
+                  ? t('Balance')
+                  : ADVANCED_CUSTOM_MODEL_LIST_LABEL}
               </Badge>
             ) : (
               <Badge variant={hasCatchAll ? 'outline' : 'secondary'}>
                 {hasCatchAll ? t('Fallback route') : t('Model-scoped only')}
               </Badge>
             )}
-            {!isModelListGroup && !catchAllIsLast ? (
+            {!isManagementGroup && !catchAllIsLast ? (
               <Badge variant='destructive'>{t('Fallback must be last')}</Badge>
             ) : null}
           </div>
@@ -824,13 +849,18 @@ function RouteGroupEditor({
                     disabled={
                       (option.value !== incomingPath &&
                         usedIncomingPaths.has(option.value)) ||
-                      (option.value === ADVANCED_CUSTOM_MODEL_LIST_PATH &&
+                      ((option.value === ADVANCED_CUSTOM_MODEL_LIST_PATH ||
+                        option.value === ADVANCED_CUSTOM_BALANCE_PATH) &&
                         group.routeRows.length > 1)
                     }
                     className={longSelectItemClass}
                   >
                     <div className='flex min-w-0 flex-col gap-1 leading-snug whitespace-normal'>
-                      <span>{option.label}</span>
+                      <span>
+                        {option.value === ADVANCED_CUSTOM_BALANCE_PATH
+                          ? t('Balance')
+                          : option.label}
+                      </span>
                       <span className='text-muted-foreground font-mono text-xs break-all'>
                         {option.value}
                       </span>
@@ -842,7 +872,7 @@ function RouteGroupEditor({
           </Select>
         </div>
 
-        {!isModelListGroup ? (
+        {!isManagementGroup ? (
           <Button
             type='button'
             variant='outline'
@@ -857,13 +887,17 @@ function RouteGroupEditor({
 
       <div className='border-t px-3 py-2'>
         <p className='text-muted-foreground text-xs leading-relaxed'>
-          {isModelListGroup
+          {isBalanceGroup
             ? t(
-                'This route discovers upstream OpenAI models and cannot be split or matched by client model rules.'
+                'Go backend only. Rust does not support Advanced Custom balance queries.'
               )
-            : t(
-                'Routes with the same incoming path are split by client model rules. Unmatched requests use the final fallback.'
-              )}
+            : isModelListGroup
+              ? t(
+                  'This route discovers upstream OpenAI models and cannot be split or matched by client model rules.'
+                )
+              : t(
+                  'Routes with the same incoming path are split by client model rules. Unmatched requests use the final fallback.'
+                )}
         </p>
         {groupHasError && validationError ? (
           <p className='text-destructive mt-1 text-xs'>
@@ -956,6 +990,8 @@ function RouteEditor({
   const incomingPath =
     route.incoming_path || getDefaultAdvancedCustomIncomingPath(converter)
   const isModelListRoute = incomingPath === ADVANCED_CUSTOM_MODEL_LIST_PATH
+  const isBalanceRoute = incomingPath === ADVANCED_CUSTOM_BALANCE_PATH
+  const isManagementRoute = isModelListRoute || isBalanceRoute
   const converterOptions = useMemo(
     () => getAdvancedCustomConverterOptions(incomingPath),
     [incomingPath]
@@ -973,7 +1009,7 @@ function RouteEditor({
   const ConverterVisualIcon = isNativeConverter ? ArrowRight : Shuffle
   const modelsInputValue = route.models?.join(', ') || ''
   const parsedRouteModels = parseAdvancedCustomRouteModels(modelsInputValue)
-  const isFallback = !isModelListRoute && parsedRouteModels.length === 0
+  const isFallback = !isManagementRoute && parsedRouteModels.length === 0
 
   const setConverter = (nextConverter: AdvancedCustomConverter) => {
     let nextIncomingPath = incomingPath
@@ -1041,12 +1077,14 @@ function RouteEditor({
               <div className='text-sm font-medium'>
                 {t('Route')} {index + 1}
               </div>
-              {isModelListRoute ? (
+              {isManagementRoute ? (
                 <Badge variant='outline'>
-                  {ADVANCED_CUSTOM_MODEL_LIST_LABEL}
+                  {isBalanceRoute
+                    ? t('Balance')
+                    : ADVANCED_CUSTOM_MODEL_LIST_LABEL}
                 </Badge>
               ) : null}
-              {!isModelListRoute && isFallback ? (
+              {!isManagementRoute && isFallback ? (
                 <Badge variant='outline'>{t('Fallback')}</Badge>
               ) : null}
               <TooltipProvider delay={100}>
@@ -1114,10 +1152,12 @@ function RouteEditor({
           className='lg:gap-1'
           labelClassName='lg:sr-only'
         >
-          {isModelListRoute && parsedRouteModels.length === 0 ? (
+          {isManagementRoute && parsedRouteModels.length === 0 ? (
             <div className='flex h-9 items-center'>
               <Badge variant='outline'>
-                {ADVANCED_CUSTOM_MODEL_LIST_LABEL}
+                {isBalanceRoute
+                  ? t('Balance')
+                  : ADVANCED_CUSTOM_MODEL_LIST_LABEL}
               </Badge>
             </div>
           ) : (
@@ -1191,7 +1231,7 @@ function RouteEditor({
         >
           <Select
             value={converter}
-            disabled={isModelListRoute && converter === 'none'}
+            disabled={isManagementRoute && converter === 'none'}
             onValueChange={(value) =>
               setConverter(value as AdvancedCustomConverter)
             }
@@ -1323,6 +1363,12 @@ function RouteEditor({
             <span className='hidden lg:block' aria-hidden='true' />
           </div>
         </>
+      ) : null}
+      {isBalanceRoute ? (
+        <AdvancedCustomBalanceFields
+          value={route.balance}
+          onChange={(balance) => onChange({ balance })}
+        />
       ) : null}
     </div>
   )

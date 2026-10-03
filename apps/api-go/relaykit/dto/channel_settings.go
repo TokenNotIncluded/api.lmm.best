@@ -122,11 +122,12 @@ type AdvancedCustomConfig struct {
 }
 
 type AdvancedCustomRoute struct {
-	IncomingPath string                   `json:"incoming_path,omitempty"`
-	UpstreamPath string                   `json:"upstream_path,omitempty"`
-	Converter    string                   `json:"converter,omitempty"`
-	Models       []string                 `json:"models,omitempty"`
-	Auth         *AdvancedCustomRouteAuth `json:"auth,omitempty"`
+	IncomingPath string                       `json:"incoming_path,omitempty"`
+	UpstreamPath string                       `json:"upstream_path,omitempty"`
+	Converter    string                       `json:"converter,omitempty"`
+	Models       []string                     `json:"models,omitempty"`
+	Auth         *AdvancedCustomRouteAuth     `json:"auth,omitempty"`
+	Balance      *AdvancedCustomBalanceConfig `json:"balance,omitempty"`
 }
 
 type AdvancedCustomRouteAuth struct {
@@ -406,6 +407,14 @@ func (c *AdvancedCustomConfig) Validate() error {
 
 		if route.IncomingPath == "" {
 			return fmt.Errorf("advanced_custom.advanced_routes[%d].incoming_path is required", i)
+		}
+		if route.Balance != nil {
+			if route.IncomingPath != AdvancedCustomBalancePath {
+				return fmt.Errorf("advanced_custom.advanced_routes[%d].balance is only supported for the balance route", i)
+			}
+			if err := route.Balance.Validate(); err != nil {
+				return fmt.Errorf("advanced_custom.advanced_routes[%d].balance: %w", i, err)
+			}
 		}
 		if !strings.HasPrefix(route.IncomingPath, "/") {
 			return fmt.Errorf("advanced_custom.advanced_routes[%d].incoming_path must start with /", i)

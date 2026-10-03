@@ -363,6 +363,8 @@ run_channel_balance() {
   run_channel_balance_rust_contracts
   TEST_DATABASE_URL="$LMM_TEST_DATABASE_URL" \
     run_exact_api_lib_test channel_balance_store::tests::persisted_balance_updates_value_and_timestamp_together
+  TEST_DATABASE_URL="$LMM_TEST_DATABASE_URL" \
+    run_exact_api_lib_test channel_balance_store::tests::advanced_custom_balance_is_unsupported_without_fetch_or_update
 }
 
 case "$suite" in

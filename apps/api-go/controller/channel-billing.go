@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -428,7 +429,23 @@ func updateChannelMoonshotBalance(ctx context.Context, channel *model.Channel) (
 }
 
 func fetchAdvancedCustomBalance(ctx context.Context, channel *model.Channel) (channelBalanceResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	key := strings.TrimSpace(channel.Key)
+	// Balance lookup must not repair configuration by saving a potentially stale
+	// channel row. The general model getters do that after decoding failures.
+	var otherSettings dto.ChannelOtherSettings
+	if channel.OtherSettings != "" {
+		if err := common.UnmarshalJsonStr(channel.OtherSettings, &otherSettings); err != nil {
+			return channelBalanceResult{}, errors.New("invalid balance route configuration")
+		}
+	}
+	var settings dto.ChannelSettings
+	if channel.Setting != nil && *channel.Setting != "" {
+		if err := common.UnmarshalJsonStr(*channel.Setting, &settings); err != nil {
+			return channelBalanceResult{}, errors.New("balance transport configuration failed")
+		}
+	}
 	info := &relaycommon.RelayInfo{
 		RelayFormat:    types.RelayFormatOpenAI,
 		RelayMode:      relayconstant.RelayModeUnknown,
@@ -437,20 +454,24 @@ func fetchAdvancedCustomBalance(ctx context.Context, channel *model.Channel) (ch
 			ChannelType:          constant.ChannelTypeAdvancedCustom,
 			ChannelBaseUrl:       channel.GetBaseURL(),
 			ApiKey:               key,
-			ChannelOtherSettings: channel.GetOtherSettings(),
+			ChannelOtherSettings: otherSettings,
 		},
 	}
-	requestURL, headers, err := (&advancedcustom.Adaptor{}).BuildBalanceRequest(info)
+	query, err := (&advancedcustom.Adaptor{}).BuildBalanceQuery(info)
 	if err != nil {
-		return channelBalanceResult{}, sanitizeFetchModelsError(err, key)
+		return channelBalanceResult{}, errors.New("invalid balance route configuration")
 	}
-	if err := applyFetchModelsHeaderOverrides(channel, key, headers); err != nil {
-		return channelBalanceResult{}, sanitizeFetchModelsError(err, key)
+	requestURL, headers := query.URL, query.Header
+	if err := applyAdvancedCustomBalanceHeaderOverrides(channel, key, headers); err != nil {
+		return channelBalanceResult{}, errors.New("invalid balance request headers")
+	}
+	if err := validateAdvancedCustomBalanceDestination(requestURL, headers); err != nil {
+		return channelBalanceResult{}, err
 	}
 
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	request, err := http.NewRequestWithContext(ctx, query.Method, requestURL, bytes.NewReader(query.Body))
 	if err != nil {
-		return channelBalanceResult{}, sanitizeFetchModelsError(err, key)
+		return channelBalanceResult{}, errors.New("invalid balance request")
 	}
 	for name, values := range headers {
 		for _, value := range values {
@@ -460,13 +481,17 @@ func fetchAdvancedCustomBalance(ctx context.Context, channel *model.Channel) (ch
 			request.Host = headers.Get(name)
 		}
 	}
-	client, err := service.GetHttpClientWithProxy(channel.GetSetting().Proxy)
+	client, err := service.GetHttpClientWithProxySettings(settings.Proxy, settings)
 	if err != nil {
-		return channelBalanceResult{}, sanitizeFetchModelsError(err, key)
+		return channelBalanceResult{}, errors.New("balance transport configuration failed")
 	}
-	response, err := client.Do(request)
+	// The configured route may name an explicit absolute endpoint. Credentials
+	// remain on that endpoint: never follow redirects or mutate a cached client.
+	balanceClient := *client
+	balanceClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	response, err := balanceClient.Do(request)
 	if err != nil {
-		return channelBalanceResult{}, sanitizeAdvancedCustomRequestError(err, key, requestURL)
+		return channelBalanceResult{}, errors.New("balance request failed")
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
@@ -474,7 +499,7 @@ func fetchAdvancedCustomBalance(ctx context.Context, channel *model.Channel) (ch
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, maxAdvancedCustomBalanceResponseBytes+1))
 	if err != nil {
-		return channelBalanceResult{}, sanitizeAdvancedCustomRequestError(err, key, requestURL)
+		return channelBalanceResult{}, errors.New("balance response read failed")
 	}
 	if len(body) > maxAdvancedCustomBalanceResponseBytes {
 		return channelBalanceResult{}, fmt.Errorf("balance response exceeds %d bytes", maxAdvancedCustomBalanceResponseBytes)
@@ -482,7 +507,17 @@ func fetchAdvancedCustomBalance(ctx context.Context, channel *model.Channel) (ch
 
 	var validated json.RawMessage
 	if err := common.Unmarshal(body, &validated); err != nil {
-		return channelBalanceResult{}, fmt.Errorf("invalid balance JSON response: %w", err)
+		return channelBalanceResult{}, errors.New("invalid balance JSON response")
+	}
+	if query.Config != nil && query.Config.JSONPointer != "" {
+		balance, err := extractAdvancedCustomBalance(validated, query.Config)
+		if err != nil {
+			return channelBalanceResult{}, err
+		}
+		if err := channel.UpdateBalanceContext(ctx, balance); err != nil {
+			return channelBalanceResult{}, model.ErrChannelBalanceUpdate
+		}
+		return channelBalanceResult{Balance: balance}, nil
 	}
 	if common.GetJsonType(validated) == "object" {
 		var creditSummary struct {
@@ -490,7 +525,7 @@ func fetchAdvancedCustomBalance(ctx context.Context, channel *model.Channel) (ch
 			TotalAvailable json.RawMessage `json:"total_available"`
 		}
 		if err := common.Unmarshal(body, &creditSummary); err != nil {
-			return channelBalanceResult{}, fmt.Errorf("invalid balance JSON response: %w", err)
+			return channelBalanceResult{}, errors.New("invalid balance JSON response")
 		}
 		if creditSummary.Object == "credit_summary" &&
 			common.GetJsonType(creditSummary.TotalAvailable) == "number" {
@@ -500,7 +535,7 @@ func fetchAdvancedCustomBalance(ctx context.Context, channel *model.Channel) (ch
 				!math.IsNaN(balance) &&
 				!math.IsInf(balance, 0) {
 				if err := channel.UpdateBalanceContext(ctx, balance); err != nil {
-					return channelBalanceResult{}, err
+					return channelBalanceResult{}, model.ErrChannelBalanceUpdate
 				}
 				return channelBalanceResult{Balance: balance}, nil
 			}
@@ -509,7 +544,7 @@ func fetchAdvancedCustomBalance(ctx context.Context, channel *model.Channel) (ch
 
 	formatted, err := common.IndentJson(body)
 	if err != nil {
-		return channelBalanceResult{}, fmt.Errorf("invalid balance JSON response: %w", err)
+		return channelBalanceResult{}, errors.New("invalid balance JSON response")
 	}
 	return channelBalanceResult{RawResponse: string(formatted)}, nil
 }
