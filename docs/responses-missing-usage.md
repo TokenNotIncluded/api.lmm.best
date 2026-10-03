@@ -21,11 +21,11 @@ The input estimate remains clamped to 1,050,000 tokens. A successful response wi
 
 Flat `error` events terminate both runtimes immediately, preventing a later completion from replacing the failure and avoiding a second synthetic interruption event. A nominally completed event carrying a non-null error cannot seed terminal-output estimates.
 
-## Unresolved policy in issue #373
+## Confirmed partial-output policy in issue #373
 
 Issue [#373](https://github.com/TokenNotIncluded/api.lmm.best/issues/373) requests zero fallback after explicit failure without provider usage, while also requiring the original [#341](https://github.com/TokenNotIncluded/api.lmm.best/pull/341) regressions to remain green. The original `failed_text` regression explicitly charges a stream that emitted text and then `response.failed` without provider usage. Both requirements cannot be met unchanged.
 
-This change preserves that existing partial-output rule. It does not settle the policy decision or claim to close #373. An explicit failed/error event after actual output still uses the existing local lower bound when provider usage is absent. Choosing zero in that case requires an intentional financial policy change and updating the original regression. Created-only and empty-incomplete requests continue to settle at zero.
+On 2026-10-03 the maintainer explicitly chose to preserve the existing partial-output billing rule. An explicit failed/error event after actual output therefore still uses the existing local lower bound when provider usage is absent. Empty failures, created-only and empty-incomplete requests continue to settle at zero. The issue is resolved against this confirmed policy rather than changing the original `failed_text` regression.
 
 ## Verification scope
 
