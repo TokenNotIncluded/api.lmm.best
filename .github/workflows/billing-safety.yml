@@ -5,6 +5,8 @@ on:
     paths:
       - 'apps/api-go/service/**'
       - 'apps/api-go/model/**'
+      - 'apps/api-go/relay/channel/claude/**'
+      - 'apps/api-go/setting/model_setting/**'
       - 'apps/api-go/go.mod'
       - 'apps/api-go/go.sum'
       - '.github/workflows/billing-safety.yml'
@@ -13,6 +15,8 @@ on:
     paths:
       - 'apps/api-go/service/**'
       - 'apps/api-go/model/**'
+      - 'apps/api-go/relay/channel/claude/**'
+      - 'apps/api-go/setting/model_setting/**'
       - 'apps/api-go/go.mod'
       - 'apps/api-go/go.sum'
       - '.github/workflows/billing-safety.yml'
@@ -45,4 +49,6 @@ jobs:
             apps/api-go/go.sum
             apps/api-go/relaykit/go.sum
       - name: Run real service-package regressions under the race detector
-        run: go test -race -p 2 ./service -run '^TestBillingSafety' -count=1 -timeout=5m
+        run: go test -race -p 2 ./service -run '^(TestBillingSafety|TestPostTextConsumeQuotaClaudeRefusal|TestTextBillingExemption)' -count=1 -timeout=5m
+      - name: Validate Claude refusal evidence and default-off policy
+        run: go test -race -p 2 ./relay/channel/claude ./setting/model_setting -run '^(TestClaudeRefusal|TestClaudeResponses)' -count=1 -timeout=5m
