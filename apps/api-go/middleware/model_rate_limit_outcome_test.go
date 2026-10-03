@@ -16,9 +16,12 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/constant"
 	"github.com/LIghtJUNction/api.lmm.best/relay/channel"
+	"github.com/LIghtJUNction/api.lmm.best/relay/channel/baidu"
 	"github.com/LIghtJUNction/api.lmm.best/relay/channel/coze"
+	"github.com/LIghtJUNction/api.lmm.best/relay/channel/gemini"
 	openai "github.com/LIghtJUNction/api.lmm.best/relay/channel/openai"
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
+	relayconstant "github.com/LIghtJUNction/api.lmm.best/relay/constant"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/types"
 	"github.com/LIghtJUNction/api.lmm.best/setting"
@@ -274,6 +277,146 @@ func runModelOutcomeResponsesStream(t *testing.T, c *gin.Context, terminal strin
 type modelOutcomeReadError struct{}
 
 func (modelOutcomeReadError) Read([]byte) (int, error) { return 0, io.ErrUnexpectedEOF }
+
+type modelOutcomeShortWriter struct{ *httptest.ResponseRecorder }
+
+func (*modelOutcomeShortWriter) Write(data []byte) (int, error) { return len(data) / 2, nil }
+
+func addModelOutcomeSuccessRoute(t *testing.T, router *gin.Engine, userID int) {
+	t.Helper()
+	router.POST("/success", func(c *gin.Context) { c.Set("id", userID) }, ModelRequestRateLimit(), func(c *gin.Context) {
+		info := genModelOutcomeRelayInfo(c, false)
+		info.RelayMode = relayconstant.RelayModeChatCompletions
+		info.RelayFormat = types.RelayFormatOpenAI
+		body := `{"id":"chat_success","choices":[{"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}`
+		usage, apiErr := channel.DoResponse(&openai.Adaptor{}, c, &http.Response{
+			StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)),
+		}, info)
+		require.Nil(t, apiErr)
+		measuredUsage, ok := usage.(*dto.Usage)
+		require.True(t, ok)
+		assert.Equal(t, 12, measuredUsage.TotalTokens)
+		assert.True(t, info.ResponseCompleted)
+		assert.False(t, info.ResponseFailed)
+		assert.True(t, modelRequestSucceeded(c))
+	})
+}
+
+func TestModelRequestRateLimitReleasesNonStreamAdaptorFailures(t *testing.T) {
+	for _, backend := range []string{"memory", "redis"} {
+		t.Run(backend, func(t *testing.T) {
+			configureModelOutcomeTest(t, backend, 0, 1)
+			for _, tc := range []struct {
+				name       string
+				adaptor    channel.Adaptor
+				mode       int
+				body       string
+				readError  bool
+				writeError bool
+				shortWrite bool
+				wantTokens int
+			}{
+				{name: "Gemini prompt blocked mapped to 200", adaptor: &gemini.Adaptor{}, mode: relayconstant.RelayModeChatCompletions, body: `{"promptFeedback":{"blockReason":"SAFETY"},"usageMetadata":{"promptTokenCount":10,"totalTokenCount":10}}`, wantTokens: 10},
+				{name: "Gemini empty candidates mapped to 200", adaptor: &gemini.Adaptor{}, mode: relayconstant.RelayModeChatCompletions, body: `{"usageMetadata":{"promptTokenCount":10,"totalTokenCount":10}}`, wantTokens: 10},
+				{name: "Gemini native prompt blocked", adaptor: &gemini.Adaptor{}, mode: relayconstant.RelayModeGemini, body: `{"promptFeedback":{"blockReason":"SAFETY"},"usageMetadata":{"promptTokenCount":10,"totalTokenCount":10}}`, wantTokens: 10},
+				{name: "TTS response read failed", adaptor: &openai.Adaptor{}, mode: relayconstant.RelayModeAudioSpeech, readError: true, wantTokens: 10},
+				{name: "TTS client write failed", adaptor: &openai.Adaptor{}, mode: relayconstant.RelayModeAudioSpeech, body: strings.Repeat("x", 480), writeError: true, wantTokens: 27},
+				{name: "TTS client short write", adaptor: &openai.Adaptor{}, mode: relayconstant.RelayModeAudioSpeech, body: strings.Repeat("x", 480), shortWrite: true, wantTokens: 27},
+				{name: "chat client write failed", adaptor: &openai.Adaptor{}, mode: relayconstant.RelayModeChatCompletions, body: `{"id":"chat_failure","choices":[{"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}`, writeError: true, wantTokens: 12},
+				{name: "chat client short write", adaptor: &openai.Adaptor{}, mode: relayconstant.RelayModeChatCompletions, body: `{"id":"chat_failure","choices":[{"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}`, shortWrite: true, wantTokens: 12},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					userID := nextModelOutcomeUserID()
+					router := gin.New()
+					router.POST("/v1/responses", func(c *gin.Context) { c.Set("id", userID) }, ModelRequestRateLimit(), func(c *gin.Context) {
+						info := genModelOutcomeRelayInfo(c, false)
+						info.RelayMode = tc.mode
+						info.RelayFormat = types.RelayFormatOpenAI
+						info.SetEstimatePromptTokens(10)
+						if tc.mode == relayconstant.RelayModeAudioSpeech {
+							info.Request = &dto.AudioRequest{ResponseFormat: "pcm"}
+						}
+						c.Set("status_code_mapping", `{"400":200,"500":200}`)
+						var reader io.Reader = strings.NewReader(tc.body)
+						if tc.readError {
+							reader = modelOutcomeReadError{}
+						}
+						usage, apiErr := channel.DoResponse(tc.adaptor, c, &http.Response{
+							StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(reader),
+						}, info)
+						require.Nil(t, apiErr, "retain the adaptor's existing retry and billing behavior")
+						measuredUsage, ok := usage.(*dto.Usage)
+						require.True(t, ok)
+						assert.Equal(t, tc.wantTokens, measuredUsage.TotalTokens, "retain measured usage on a failed response")
+						assert.True(t, info.ResponseCompleted)
+						assert.True(t, info.ResponseFailed, "HTTP 200 must not hide a known response failure")
+						assert.False(t, modelRequestSucceeded(c))
+					})
+					addModelOutcomeSuccessRoute(t, router, userID)
+					writer := httptest.NewRecorder()
+					var downstream http.ResponseWriter = writer
+					if tc.writeError {
+						downstream = &modelOutcomeFailedWriter{ResponseRecorder: writer, closed: make(chan bool)}
+					} else if tc.shortWrite {
+						downstream = &modelOutcomeShortWriter{ResponseRecorder: writer}
+					}
+					router.ServeHTTP(downstream, httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
+					require.Equal(t, http.StatusOK, writer.Code)
+					if tc.mode == relayconstant.RelayModeGemini {
+						assert.JSONEq(t, tc.body, writer.Body.String(), "retain the native Gemini response")
+					}
+					for _, wantStatus := range []int{http.StatusOK, http.StatusTooManyRequests} {
+						writer := httptest.NewRecorder()
+						router.ServeHTTP(writer, httptest.NewRequest(http.MethodPost, "/success", nil))
+						require.Equal(t, wantStatus, writer.Code, "only the successful response consumes the success slot")
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestModelRequestRateLimitReleasesBaiduStreamErrors(t *testing.T) {
+	for _, backend := range []string{"memory", "redis"} {
+		t.Run(backend, func(t *testing.T) {
+			configureModelOutcomeTest(t, backend, 0, 1)
+			for _, providerError := range []string{`"error_code":110,"error_msg":"token invalid"`, `"error_code":18`, `"error_msg":"token invalid"`} {
+				t.Run(providerError, func(t *testing.T) {
+					userID := nextModelOutcomeUserID()
+					router := gin.New()
+					router.POST("/v1/responses", func(c *gin.Context) { c.Set("id", userID) }, ModelRequestRateLimit(), func(c *gin.Context) {
+						info := genModelOutcomeRelayInfo(c, true)
+						info.RelayMode = relayconstant.RelayModeChatCompletions
+						body := "data: {" + providerError + `,"usage":{"prompt_tokens":10,"total_tokens":10}}` + "\n\n"
+						usage, apiErr := channel.DoResponse(&baidu.Adaptor{}, c, &http.Response{
+							StatusCode: http.StatusOK,
+							Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+							Body:       io.NopCloser(strings.NewReader(body)),
+						}, info)
+						require.Nil(t, apiErr)
+						measuredUsage, ok := usage.(*dto.Usage)
+						require.True(t, ok)
+						assert.Equal(t, 10, measuredUsage.TotalTokens, "provider usage is retained")
+						assert.True(t, info.ResponseCompleted)
+						assert.True(t, info.ResponseFailed)
+						assert.False(t, modelRequestSucceeded(c))
+					})
+					addModelOutcomeSuccessRoute(t, router, userID)
+					for range 2 {
+						writer := httptest.NewRecorder()
+						router.ServeHTTP(writer, httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
+						require.Equal(t, http.StatusOK, writer.Code, "a failed stream must not consume the success slot")
+					}
+					for _, wantStatus := range []int{http.StatusOK, http.StatusTooManyRequests} {
+						writer := httptest.NewRecorder()
+						router.ServeHTTP(writer, httptest.NewRequest(http.MethodPost, "/success", nil))
+						require.Equal(t, wantStatus, writer.Code, "only the successful response consumes the success slot")
+					}
+				})
+			}
+		})
+	}
+}
 
 func runModelOutcomeLegacyStream(t *testing.T, c *gin.Context, fail bool) {
 	t.Helper()
@@ -702,5 +845,25 @@ func TestModelResponseOutcomePreservesAdaptorUsageAndError(t *testing.T) {
 			info.StreamStatus.RecordError("terminal response.failed")
 			assert.False(t, modelRequestSucceeded(c))
 		})
+	}
+}
+
+func TestModelResponseOutcomeRetainsReportedFailureAndResetsBeforeRetry(t *testing.T) {
+	configureModelOutcomeTest(t, "memory", 0, 1)
+	c, _ := newModelOutcomeContext(nextModelOutcomeUserID())
+	info := genModelOutcomeRelayInfo(c, false)
+	wantUsage := &dto.Usage{PromptTokens: 10, TotalTokens: 10}
+	for _, failed := range []bool{true, false} {
+		adaptor := modelOutcomeAdaptor{response: func(_ *gin.Context, _ *http.Response, gotInfo *relaycommon.RelayInfo) (any, *types.NewAPIError) {
+			require.False(t, gotInfo.ResponseFailed, "each response attempt starts without the previous failure")
+			gotInfo.ResponseFailed = failed
+			return wantUsage, nil
+		}}
+		usage, apiErr := channel.DoResponse(adaptor, c, &http.Response{StatusCode: http.StatusOK}, info)
+		require.Same(t, wantUsage, usage)
+		require.Nil(t, apiErr)
+		assert.True(t, info.ResponseCompleted)
+		assert.Equal(t, failed, info.ResponseFailed)
+		assert.Equal(t, !failed, modelRequestSucceeded(c))
 	}
 }
