@@ -31,4 +31,6 @@ On 2026-10-03 the maintainer explicitly chose to preserve the existing partial-o
 
 Go covers the existing real HTTP/gzip settlement matrix plus refusal interruption, terminal text/refusal/function/reasoning, snapshot deduplication, reported-zero final settlement, completed-with-error and flat-error termination. The assertions compare wallet, Token, user usage, consume-log quota and one upstream request. Native nonstream reported-zero observation is covered separately.
 
+Go Responses WebSocket coverage includes 58 real upstream/downstream cases with SQL settlement assertions: accepted zero and positive usage, lifecycle placeholders, all five delta kinds, terminal-only output, failed/incomplete partial output, nested errors, replay prevention, fresh attempts and bounded local prompt estimates. Downstream delivery determines success-slot consumption independently from token settlement.
+
 Rust unit tests cover the same output types, provider usage priority, successful reported-zero pricing, failed terminal-only exclusion and flat-error framing. The explicitly ignored PostgreSQL settlement suite includes real HTTP cases for all terminal output types, snapshot deduplication, streaming/nonstreaming reported zero, nested failure and flat-error termination; it must be run with an isolated database. Normal tests alone do not prove that integration suite passed.
