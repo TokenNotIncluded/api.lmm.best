@@ -8,6 +8,41 @@ is exercised through the explicit test service, not through a production
 billing/provider adapter. Production Rust provider/billing enablement remains
 separate work; this change does not enable it.
 
+## Rust channel capability boundary (#375)
+
+Rust keeps `GET /v1/responses` closed for every channel type, including OpenAI,
+OpenHuman, Codex, Advanced Custom (58), Sub2API (59), and New API (60). The
+production listener still mounts `UnconfiguredResponsesWebSocketService`.
+A complete, valid WebSocket upgrade request receives HTTP 503 with
+`error.code=service_unavailable` before upgrade, channel selection, upstream
+connection, quota reservation, or settlement. This is the runtime's unconfigured
+service error, not a channel-specific unsupported/non-retryable error.
+
+The Rust channel management API accepts `setting` and `settings` as JSON-object
+strings and stores each supplied string without filtering individual fields.
+Manually including `responses_websocket_enabled` therefore preserves that field
+when the whole setting string is supplied, but Rust does not read it to enable
+WebSocket routing. An update replaces the supplied setting string; this statement
+does not imply merging omitted settings or validate the Web editor's
+create/update/reload serialization. Rust's `/api/status` does not advertise
+`responses_websocket=true`; the Web capability reader requires explicit `true`.
+
+The fail-closed upgrade regressions use an actual TCP listener and the standard
+WebSocket client's full Upgrade/Connection/key/version handshake. One exercises
+the unconfigured production service directly; another uses the existing test
+service's call counters to verify that the rejected handshake never enters
+per-turn authorization, provider start/observation, settlement, or session cleanup.
+The real `/api/status` router regression checks both capability envelope shapes.
+These tests cover the disabled runtime boundary, not a Rust provider/billing
+adapter or per-channel eligibility matrix.
+
+Enabling Rust later requires a real policy/provider/billing service, the shared
+channel eligibility and toggle rules, and regressions for channel settings and
+connection-relevant route/auth changes. The current transport retains one
+upstream object per session and rejects replacement; it does not reconnect when
+Advanced Custom configuration changes. The correlation fixtures below continue
+to use a synthetic channel and do not establish production channel support.
+
 ## Envelope boundary
 
 - `stream_id` is an optional string on the client WebSocket envelope. Omitted,
@@ -130,4 +165,5 @@ GOMAXPROCS=2 go test -race -p 2 ./relay -run 'ResponsesWS|ResponseCancel|CancelT
 GOMAXPROCS=2 go vet -p 2 ./relay
 # From the repository root:
 cargo test --manifest-path apps/api-rust/Cargo.toml --locked --test responses_websocket
+cargo test --manifest-path apps/api-rust/Cargo.toml --locked --lib status_should_match_the_current_go_shape_through_the_real_router
 ```

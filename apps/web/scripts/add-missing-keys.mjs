@@ -40,6 +40,7 @@ import { piGuideCopy } from './pi-guide-copy.mjs'
 import { piOAuthCopy } from './pi-oauth-copy.mjs'
 import { profileShareCopy } from './profile-share-copy.mjs'
 import { remoteControlCopy } from './remote-control-copy.mjs'
+import { responsesWebSocketCopy } from './responses-websocket-copy.mjs'
 import { rssCopy } from './rss-copy.mjs'
 import { toolMarketCopy } from './tool-market-copy.mjs'
 import { waitCompanionCopy } from './wait-companion-copy.mjs'
@@ -12925,6 +12926,10 @@ for (const [locale, values] of Object.entries(aiDirectoryCopy)) {
 }
 
 for (const [locale, values] of Object.entries(rssCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(responsesWebSocketCopy)) {
   Object.assign(newKeys[locale], values)
 }
 

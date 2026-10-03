@@ -113,6 +113,7 @@ import {
 } from '@/features/auth/secure-verification'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { useHiddenClickUnlock } from '@/hooks/use-hidden-click-unlock'
+import { useStatus } from '@/hooks/use-status'
 import {
   ADMIN_PERMISSION_ACTIONS,
   ADMIN_PERMISSION_RESOURCES,
@@ -146,6 +147,8 @@ import {
   FIELD_PLACEHOLDERS,
   MODEL_FETCHABLE_TYPES,
   isOpenAIChannelType,
+  getDefaultResponsesWebSocketEnabled,
+  supportsResponsesWebSocket,
 } from '../../constants'
 import { useChannelMutateForm } from '../../hooks/use-channel-mutate-form'
 import {
@@ -183,6 +186,7 @@ import {
 import { ParamOverrideEditorDialog } from '../dialogs/param-override-editor-dialog'
 import { StatusCodeRiskDialog } from '../dialogs/status-code-risk-dialog'
 import { ModelMappingEditor } from '../model-mapping-editor'
+import { ResponsesWebSocketSetting } from '../responses-websocket-setting'
 import {
   ChannelAdvancedSection,
   ChannelApiAccessSection,
@@ -297,6 +301,7 @@ const SENSITIVE_FORM_FIELDS = [
   'aws_key_type',
   'azure_responses_version',
   'force_format',
+  'responses_websocket_enabled',
   'thinking_to_content',
   'proxy',
   'http_protocol',
@@ -353,6 +358,10 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.proxy?.trim() ||
     values.system_prompt?.trim() ||
     values.force_format ||
+    (supportsResponsesWebSocket(values.type) &&
+      values.responses_websocket_enabled !== undefined &&
+      values.responses_websocket_enabled !==
+        getDefaultResponsesWebSocketEnabled(values.type)) ||
     values.thinking_to_content ||
     values.pass_through_body_enabled ||
     values.system_prompt_override ||
@@ -702,6 +711,7 @@ export function ChannelMutateDrawer({
   })
 
   const { copyToClipboard } = useCopyToClipboard()
+  const { status: backendStatus } = useStatus()
 
   const {
     open: verificationOpen,
@@ -775,6 +785,9 @@ export function ChannelMutateDrawer({
   const currentParamOverride = form.watch('param_override')
   const currentHeaderOverride = form.watch('header_override')
   const currentForceFormat = form.watch('force_format')
+  const currentResponsesWebSocketEnabled = form.watch(
+    'responses_websocket_enabled'
+  )
   const currentThinkingToContent = form.watch('thinking_to_content')
   const currentPassThroughBodyEnabled = form.watch('pass_through_body_enabled')
   const currentDisableTaskPollingSleep = form.watch(
@@ -1047,6 +1060,10 @@ export function ChannelMutateDrawer({
   )
   const extraSettingsConfigured = Boolean(
     currentForceFormat ||
+    (supportsResponsesWebSocket(currentType) &&
+      currentResponsesWebSocketEnabled !== undefined &&
+      currentResponsesWebSocketEnabled !==
+        getDefaultResponsesWebSocketEnabled(currentType)) ||
     currentThinkingToContent ||
     currentPassThroughBodyEnabled ||
     currentDisableTaskPollingSleep ||
@@ -2045,6 +2062,17 @@ export function ChannelMutateDrawer({
                                             Number.isInteger(nextType) &&
                                             nextType > 0
                                           ) {
+                                            if (nextType !== field.value) {
+                                              form.setValue(
+                                                'responses_websocket_enabled',
+                                                getDefaultResponsesWebSocketEnabled(
+                                                  nextType
+                                                ),
+                                                {
+                                                  shouldDirty: true,
+                                                }
+                                              )
+                                            }
                                             field.onChange(nextType)
                                           }
                                         }}
@@ -4164,6 +4192,11 @@ export function ChannelMutateDrawer({
                             className='space-y-4 disabled:opacity-60'
                           >
                             <div className='divide-border space-y-0 divide-y border-y'>
+                              <ResponsesWebSocketSetting
+                                control={form.control}
+                                channelType={currentType}
+                                status={backendStatus}
+                              />
                               {isOpenAIChannelType(currentType) && (
                                 <FormField
                                   control={form.control}
