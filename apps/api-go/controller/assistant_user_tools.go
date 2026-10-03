@@ -347,10 +347,16 @@ func executeAssistantUserOverviewTool(c *gin.Context, actorUserID int, input map
 	if targetError != nil {
 		return targetError
 	}
+	overview := assistantSafeUserOverview(target.User)
+	if target.Self {
+		for key, value := range assistantWalletBalanceFields(target.User.Quota) {
+			overview[key] = value
+		}
+	}
 	return map[string]any{
 		"ok":     true,
 		"scope":  map[bool]string{true: "self", false: "administrator_target"}[target.Self],
-		"user":   assistantSafeUserOverview(target.User),
+		"user":   overview,
 		"notice": "Passwords, access tokens, OAuth subject IDs, session data, and raw request content are omitted.",
 	}
 }

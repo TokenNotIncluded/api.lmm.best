@@ -165,5 +165,5 @@ func TestAssistantAccountSetupNextStepUsesObservedProgress(t *testing.T) {
 	require.Contains(t, assistantAccountSetupNextStep(model.OnboardingState{}), "explicit confirmation")
 	require.Contains(t, assistantAccountSetupNextStep(model.OnboardingState{CredentialComplete: true}), "OAuth clients do not need")
 	require.Contains(t, assistantAccountSetupNextStep(model.OnboardingState{CredentialComplete: true, APIKeyCreated: true}), "test its first request")
-	require.Contains(t, assistantAccountSetupNextStep(model.OnboardingState{FirstRequestComplete: true}), "Setup is complete")
+	require.Contains(t, assistantAccountSetupNextStep(model.OnboardingState{FirstRequestComplete: true}), "does not establish client installation/configuration proof or a successful client response")
 }

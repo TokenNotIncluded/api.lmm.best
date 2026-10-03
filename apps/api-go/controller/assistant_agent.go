@@ -226,7 +226,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "get_account_access",
-				Description: "Read the signed-in user's non-secret access state, such as trust level and whether developer features are unlocked.",
+				Description: "Read the signed-in user's live non-secret access, USD wallet balance, and task progress, including credentials, API activity, and separately recorded client installation/configuration proofs. Call this before explaining a stuck main task or wallet balance; do not infer client proof from an API call or balance from usage totals.",
 				Parameters:  emptyObjectSchema(),
 			},
 		},
@@ -234,7 +234,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "get_l1_recommendation",
-				Description: "Read the signed-in user's one current L1 access recommendation letter and review status. Call this before discussing, drafting, polishing, replacing, or removing the in-console recommendation. This is the authoritative shared letter visible to the user and administrators.",
+				Description: "Read the signed-in user's historical L1 recommendation record. Call this before discussing a historical letter or a removal request. Letter editing, submission, and administrator approval are retired; a historical pending status does not block tool-based registration verification.",
 				Parameters:  emptyObjectSchema(),
 			},
 		},
@@ -366,7 +366,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "get_user_overview",
-				Description: "Read a sanitized account overview. With no target, read the signed-in user's own account. An administrator may provide a username, email, or numeric ID for a permitted lower-role user. Never returns passwords, access tokens, OAuth subject IDs, or raw request content.",
+				Description: "Read a sanitized account overview. With no target, read the signed-in user's own account, including explicit USD wallet balance separate from usage and subscription quota. An administrator may provide a username, email, or numeric ID for a permitted lower-role user. Never returns passwords, access tokens, OAuth subject IDs, or raw request content.",
 				Parameters: objectSchema(map[string]any{
 					"user_id":    map[string]any{"type": "integer", "minimum": 1},
 					"identifier": map[string]any{"type": "string", "maxLength": 200},
@@ -802,6 +802,8 @@ func assistantToolChoiceForContext(userContext assistantUserContext) any {
 		name = "prepare_new_user_gift"
 	} else if assistantWeeklyDiscountRequest(userContext.LatestUserRequest) {
 		name = "prepare_weekly_discount"
+	} else if assistantAccountProgressRequest(userContext.LatestUserRequest) || assistantWalletBalanceRequest(userContext.LatestUserRequest) {
+		name = "get_account_access"
 	} else {
 		switch userContext.Intent {
 		case model.AssistantIntentCost, model.AssistantIntentModels:
@@ -998,11 +1000,14 @@ func assistantReadChain(userContext assistantUserContext) []string {
 		// must be loaded before the final answer for an explicit ready purchase.
 		tools = append(tools, "get_plan_offers")
 	}
+	if assistantAccountProgressRequest(text) || assistantWalletBalanceRequest(text) {
+		// Checklist proofs and wallet balance are account facts. Usage totals
+		// alone cannot answer either, even when the agent loop is disabled.
+		tools = append(tools, "get_account_access")
+	}
 	if userContext.Intent == model.AssistantIntentRecommendation {
-		// Recommendation is a single shared, user-visible document. Read the
-		// authoritative current row before answering even for a plain “show my
-		// recommendation” request; otherwise a disabled agent loop could make
-		// the model answer from stale context and miss the existing letter.
+		// Read the historical letter before discussing its record. A disabled
+		// agent loop must not make the model invent a letter or an approval task.
 		tools = append(tools, "get_l1_recommendation")
 	}
 	if assistantPublicActivityQuestion(text) {
@@ -1036,6 +1041,19 @@ func assistantReadChain(userContext assistantUserContext) []string {
 		tools = append(tools, "get_bounty_data")
 	}
 	return tools
+}
+
+func assistantAccountProgressRequest(text string) bool {
+	return assistantTextContainsAny(strings.ToLower(text), "主线任务", "主线进度", "安装证明", "配置证明", "main task", "onboarding progress", "onboarding checklist", "installation proof", "configuration proof")
+}
+
+func assistantWalletBalanceRequest(text string) bool {
+	text = strings.ToLower(strings.TrimSpace(text))
+	if text == "余额" || text == "balance" || assistantTextContainsAny(text, "我还有多少钱", "wallet balance", "my balance", "my account balance") {
+		return true
+	}
+	return assistantTextContainsAny(text, "余额", "balance") &&
+		assistantTextContainsAny(text, "我", "账户", "钱包", "查", "多少", "my", "wallet", "account", "how much", "check")
 }
 
 func assistantNextRead(userContext assistantUserContext, calledTools, successfulTools map[string]bool) (string, bool) {
@@ -1886,14 +1904,14 @@ func assistantDeveloperCapabilityRequired(userID int, capability string) (map[st
 	}
 	_, granted, err := getAssistantDeveloperAccess(userID)
 	if err != nil {
-		return map[string]any{"ok": false, "error": "account access could not be loaded"}, true
+		return assistantAccountUnavailable("account access could not be loaded"), true
 	}
 	if !granted {
 		return map[string]any{
 			"ok":        false,
 			"status":    "l1_required",
 			"error":     "L1 access is required for " + capability,
-			"next_step": "Ask the user to continue the L1 onboarding conversation and submit an administrator recommendation.",
+			"next_step": assistantL0AccessNextStep,
 		}, true
 	}
 	return nil, false
@@ -2231,11 +2249,11 @@ func executeAssistantConversationTitleTool(c *gin.Context, input map[string]any)
 
 func executeAssistantL1RecommendationStateTool(c *gin.Context, userID int) map[string]any {
 	if userID <= 0 {
-		return map[string]any{"ok": false, "error": "signed-in account is unavailable"}
+		return assistantAccountUnavailable("signed-in account is unavailable")
 	}
 	request, err := model.GetDeveloperAccessRequest(userID)
 	if err != nil {
-		return map[string]any{"ok": false, "error": "the current recommendation could not be loaded"}
+		return assistantAccountUnavailable("the historical recommendation could not be loaded")
 	}
 	if request == nil {
 		result := map[string]any{
@@ -2257,6 +2275,7 @@ func executeAssistantL1RecommendationStateTool(c *gin.Context, userID int) map[s
 		"recommendation":          request.AIRecommendation,
 		"administrator_note":      request.AdminNote,
 		"is_single_shared_letter": true,
+		"historical_read_only":    true,
 		"next_step":               "This is read-only historical data. Recommendation editing and submission are retired. Continue tool-based registration verification without preparing a letter.",
 	}
 	if assistantUserContextFromGin(c).RecommendationAction == assistantRecommendationActionRemove {
@@ -2971,7 +2990,7 @@ func executeAssistantInvitationTool(userID int) map[string]any {
 		"next_step":                    "Open the invitation page to generate or copy the current invitation code.",
 	}
 	if model.IsDisposableEmail(user.Email) {
-		result["message"] = "Known disposable email domains are not eligible for new-account or invitation promotional credits. Use a durable email for legitimate referrals; ordinary account access and administrator review remain available."
+		result["message"] = "Known disposable email domains are not eligible for new-account or invitation promotional credits. Use a durable email for legitimate referrals; ordinary account support and tool-based registration verification remain available."
 	}
 	if !operation_setting.IsPaymentComplianceConfirmed() {
 		result["message"] = "Reward configuration is shown for explanation only; payment-related rewards remain subject to the platform compliance setting."
@@ -3203,60 +3222,103 @@ func executeAssistantSearchTool(c *gin.Context, input map[string]any) map[string
 	}
 }
 
+const assistantL0AccessNextStep = "Continue the user's current task using the details already provided. After enough concrete user-authored context and three server-recorded completed turns, call get_registration_risk, then grant_l1_access only if the server permits. No recommendation letter or administrator approval is required; historical pending letters do not block this flow. Do not bypass a blocked or unavailable server check."
+
+func assistantAccountUnavailable(message string) map[string]any {
+	return map[string]any{"ok": false, "status": "unavailable", "error": message, "next_step": "Explain that live account or task progress is unavailable. Do not claim a milestone is pending or completed, and do not ask the user to repeat setup or create another key based on missing data."}
+}
+
 func executeAssistantAccountTool(userID int) map[string]any {
-	if userID <= 0 {
-		return map[string]any{"ok": false, "error": "signed-in account is unavailable"}
+	if userID <= 0 || model.DB == nil {
+		return assistantAccountUnavailable("signed-in account is unavailable")
 	}
-	user, err := model.GetUserCache(userID)
+	// Use the same fresh account facts for access and setup. A cached user can
+	// otherwise report L0 immediately after a server-validated L1 grant.
+	user, err := model.GetUserById(userID, false)
 	if err != nil {
-		return map[string]any{"ok": false, "error": "account access could not be loaded"}
+		return assistantAccountUnavailable("account access could not be loaded")
 	}
-	access, err := model.GetDeveloperAccessStateForUserBase(user)
+	snapshot, err := model.GetFreshUserAccessSnapshot(user)
 	if err != nil {
-		return map[string]any{"ok": false, "error": "developer access could not be loaded"}
+		return assistantAccountUnavailable("account access could not be loaded")
 	}
-	trust, err := model.GetTrustLevelInfoForUserBase(user)
-	if err != nil {
-		return map[string]any{"ok": false, "error": "trust level could not be loaded"}
-	}
+	access, trust := snapshot.DeveloperAccess, snapshot.TrustLevel
 	result := map[string]any{
 		"ok":                       true,
+		"scope":                    "self",
+		"access_level":             trustLevelLabel(trust.Level),
 		"trust_level":              trust.Level,
 		"developer_access_granted": access.Granted,
 		"paid_activation_complete": access.PaidActivationComplete,
 		"console_activated":        user.ConsoleActivatedAt > 0,
+		"registration_workflow": map[string]any{
+			"review_mode": "built_in_tools", "recommendation_required": false,
+			"minimum_completed_turns": model.AssistantDirectGrantMinCompletedTurns,
+		},
+	}
+	for key, value := range assistantWalletBalanceFields(user.Quota) {
+		result[key] = value
 	}
 	request, requestErr := model.GetDeveloperAccessRequest(userID)
 	if requestErr != nil {
-		return map[string]any{"ok": false, "error": "L1 recommendation status could not be loaded"}
+		return assistantAccountUnavailable("historical L1 recommendation record could not be loaded")
 	}
 	if request != nil {
 		result["l1_request"] = map[string]any{
-			"status":            request.Status,
-			"source":            request.Source,
-			"user_statement":    request.Reason,
-			"ai_recommendation": request.AIRecommendation,
-			"admin_note":        request.AdminNote,
-			"created_at":        request.CreatedAt,
-			"reviewed_at":       request.ReviewedAt,
+			"status":               request.Status,
+			"source":               request.Source,
+			"user_statement":       request.Reason,
+			"ai_recommendation":    request.AIRecommendation,
+			"admin_note":           request.AdminNote,
+			"created_at":           request.CreatedAt,
+			"reviewed_at":          request.ReviewedAt,
+			"historical_read_only": true,
 		}
 	}
 	if access.Granted {
-		fullUser, err := model.GetUserById(userID, false)
+		onboarding, err := model.GetOnboardingStateForUserSnapshot(user, snapshot)
 		if err != nil {
-			return map[string]any{"ok": false, "error": "account setup status could not be loaded"}
+			return assistantAccountUnavailable("account setup status could not be loaded")
 		}
-		onboarding, err := model.GetOnboardingStateForUser(fullUser)
+		todo, err := model.GetL1OnboardingTodo(userID)
 		if err != nil {
-			return map[string]any{"ok": false, "error": "account setup status could not be loaded"}
+			return assistantAccountUnavailable("client onboarding proofs could not be loaded")
+		}
+		journey, err := model.GetAssistantJourney(userID)
+		if err != nil {
+			return assistantAccountUnavailable("main task status could not be loaded")
+		}
+		main := make([]map[string]any, 0, len(journey.Main))
+		for _, step := range journey.Main {
+			item := map[string]any{"id": step.Id, "status": step.Status}
+			if step.Id == "get_recommendation" {
+				item["historical_read_only"] = true
+				item["required_for_l1_access"] = false
+				item["required_for_main_task"] = false
+			}
+			main = append(main, item)
 		}
 		result["onboarding"] = onboarding
-		result["wallet_quota"] = fullUser.Quota
-		result["next_step"] = assistantAccountSetupNextStep(onboarding)
-	} else if request != nil && request.Status == model.DeveloperAccessRequestPending {
-		result["next_step"] = "Tell the user the recommendation is pending administrator review."
+		result["onboarding_todo"] = todo
+		result["main_task"] = main
+		result["last_api_activity_at"] = user.LastAPIActivityAt
+		result["onboarding_evidence_note"] = "The legacy first_request_complete/first_successful_response milestones are derived from last_api_activity_at, which can include billed failed requests. Their status is the server checklist's state, not independent proof that a client received a successful response. Verify the actual response before claiming success."
+		result["client_proof"] = map[string]any{
+			"install_client": map[string]any{
+				"proof_type": model.L1OnboardingProofInstallClient, "request_step": model.L1OnboardingStepInstallClient,
+				"required_fields": []string{"step", "client"},
+			},
+			"configure_client": map[string]any{
+				"proof_type": model.L1OnboardingProofConfigureClient, "request_step": model.L1OnboardingStepConfigureClient,
+				"required_fields": []string{"step", "client", "base_url", "group"},
+			},
+			"method": "POST", "path": "/api/onboarding/todo/proof", "authentication": "existing_api_key",
+			"note": "Use request_step as the HTTP body step, not proof_type. Client milestones require separate API-key-authenticated proof reports; an API call alone does not complete them. Reports record received proof, not an independent device inspection. Never ask the user to paste a key into chat.",
+		}
+		result["wallet_quota"] = user.Quota
+		result["next_step"] = assistantAccountProgressNextStep(onboarding, todo)
 	} else {
-		result["next_step"] = "Continue the onboarding conversation and prepare an L1 recommendation only after collecting a concrete use case."
+		result["next_step"] = assistantL0AccessNextStep
 	}
 	return result
 }
@@ -3265,12 +3327,31 @@ func executeAssistantAccountTool(userID int) map[string]any {
 // second manual API key; wallet quota alone does not determine subscription access.
 func assistantAccountSetupNextStep(state model.OnboardingState) string {
 	if state.FirstRequestComplete {
-		return "Setup is complete. Offer usage records or help with the user's next task; do not create another key unless requested."
+		return "The account has recorded API activity. This does not establish client installation/configuration proof or a successful client response; check onboarding_todo and the actual response before claiming completion. Offer usage records or help with the user's next task; do not create another key unless requested."
 	}
 	if state.CredentialComplete {
 		return "A credential already exists. Help configure the selected client and test its first request. OAuth clients do not need a manual API key."
 	}
 	return "Ask which client the user wants to use. For an OAuth client guide authorization; otherwise prepare an API key and request explicit confirmation before creating it. Check available funding before a paid test request."
+}
+
+func assistantAccountProgressNextStep(state model.OnboardingState, todo *model.L1OnboardingTodoView) string {
+	if todo == nil || todo.Status == "unavailable" {
+		return "The main task's client proof status is unavailable. Do not claim its steps are completed or require another key; use the separately observed account connection state."
+	}
+	if todo.Status == model.L1OnboardingStatusCompleted {
+		return "The server checklist marks all required client proofs and post-configuration API activity as complete. Explain this live checklist state; verify the actual client response before claiming it succeeded. Offer usage records or help with the user's next task; do not create another key unless requested."
+	}
+	switch todo.CurrentStep {
+	case model.L1OnboardingStepInstallClient:
+		return "The main task is waiting for a client_heartbeat installation proof. A successful API call alone cannot complete install_client. Explain the missing proof using the live steps, reuse the existing credential, and help the client report its onboarding proof; do not ask the user to reinstall or create another key merely because this milestone is pending."
+	case model.L1OnboardingStepConfigureClient:
+		return "Installation proof is recorded; the main task is waiting for client_configuration proof. Reuse the existing credential and client settings when helping report this proof. A successful API call alone cannot complete configure_client; do not create another key."
+	case model.L1OnboardingStepFirstSuccessfulResponse:
+		return "Installation and configuration proofs are recorded. The server checklist needs API activity at or after the configuration proof timestamp; an earlier call does not complete it. Reuse the existing credential for a short test and verify the actual successful response; do not create another key."
+	default:
+		return assistantAccountSetupNextStep(state)
+	}
 }
 
 // quotePOSIXShellLiteral returns a single shell word without leaving any part of
