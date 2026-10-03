@@ -14,7 +14,10 @@ separate work; this change does not enable it.
   null, or empty identities do not add a field to gateway-generated errors.
 - Flat and nested `response.create` requests remove `stream_id` from the
   normalized HTTP request object. The outgoing WebSocket create envelope may
-  carry the top-level identity. A nested response identity is not authoritative.
+  carry the top-level `stream_id`. Create `event_id` remains local correlation
+  metadata and is excluded from both the HTTP DTO and upstream create envelope.
+  Channel overrides cannot replace the stream identity. A nested response
+  identity is not authoritative.
 - Invalid metadata, malformed create, authorization/start failure, rejected
   overlap, and failed control writes use the incoming envelope identity when
   available. Invalid JSON cannot supply a reliable identity.
@@ -48,6 +51,12 @@ pending controls and recent resolved controls. A unique match supplies the
 control's incoming identity, preserves any explicit provider identity, and bypasses
 active-turn observation/settlement. Conflicting references and unknown nested
 client references bypass observation without inventing an identity.
+The nested reference names the rejected client event and takes precedence over
+an unrecognized provider output `event_id`. A reference to the active
+`response.create` settles that turn and releases its success reservation, even
+when a cancel is pending. If the top-level identity names a different retained
+control or active create, neither turn nor control is consumed. A late nested
+create reference cannot settle a subsequent turn.
 
 When the active response ID is known, a different control target `response_id`
 can identify its own rejection. The cancel rejection codes `response_not_found`,
@@ -55,6 +64,14 @@ can identify its own rejection. The cancel rejection codes `response_not_found`,
 pending cancel. Conflicting explicit stream/response targets do not qualify for
 this inference. A cancelled turn is finalized by its response terminal event,
 not by a rejection of the cancel request.
+Control matching uses the nonempty top-level `response_id`, falling back to
+`response.id` just as turn observation does. An implicit cancel cannot consume an
+error for a known foreign or completed response, including before the new turn's
+response ID is known. Its pending record remains available for its own rejection,
+so that later rejection cannot become an active-turn failure. Exact client-event
+references and explicit cancel targets retain their existing priority; an unseen
+response ID can still match an implicit cancel while the current response ID is
+unknown.
 
 Controls owned by a finalized turn move into recent resolved history, preventing
 completed turns from exhausting the pending registry. Controls with no event or
@@ -62,23 +79,42 @@ response reference are forwarded as before; unreferenced data chunks do not fill
 the registry. A pending registry limit of 32 controls and 64 KiB of retained
 identity strings rejects additional controls locally before forwarding them.
 Recent resolved controls and completed response IDs each have the same bounded
-history. Duplicate control event IDs in retained history are rejected locally.
+history. Completed create identities have a separate history with the same
+32-entry/64-KiB limits. Identified creates whose `event_id` plus `stream_id` exceeds
+64 KiB are rejected before rate limiting or reservation, ensuring every accepted
+identified create fits in that history. A retained create or control event ID
+cannot be reused by either a create or a control.
+
+A late error naming a completed create at top-level cannot settle the current
+turn. A known current `response_id`, or an explicit current `stream_id` different
+from that completed create's stream, can prove that the top-level ID is a provider
+output ID instead. Such stronger identities pass through the usual foreign-stream
+and foreign-response checks before observation. Reusing the same stream ID does
+not prove a new turn; without a known current response ID, the completed create
+reference is ignored. An old nested `error.event_id` remains a client reference
+and always bypasses current-turn observation, even with an apparent current stream.
 
 Explicit response/stream identities from earlier turns bypass current-turn
 observation. Unidentified provider errors retain the existing active-turn failure
 behavior: a provider must supply a usable reference for reliable control
 attribution. A top-level provider `event_id` not present in retained history may
 be the provider's own output ID; it is not assumed to identify a client control.
-History is bounded, so references older than that history need an explicit stream
-or current response identity. No transport can distinguish a wholly unreferenced
-late error from a current-generation error on timing alone.
+An omitted or empty top-level `response_id` falls back to `response.id` in both
+runtimes, so an empty field cannot hide a completed response from late-event checks.
+History is bounded, so references older than that history need a distinct stream
+or known current response identity. IDs evicted by either count or bytes may be
+accepted again; clients should use unique create/control event IDs and distinct
+stream IDs if late events can outlive that window. No transport can distinguish
+a wholly unreferenced late error from a current-generation error on timing alone.
 
 ## Validation and production boundary
 
 Go and Rust tests cover flat/nested envelope isolation, create/error identity,
 malformed metadata, overlap, cancellation, sequential and omitted IDs, explicit
 provider identity preservation, pending-control errors, foreign/late events,
-bounded tracking, and legacy controls. Go additionally verifies that the HTTP
+active-create error references, conflicting client references, bounded tracking,
+completed-create references, identity reuse boundaries, and legacy controls. Go
+additionally verifies that the HTTP
 Responses DTO never serializes `stream_id` and that partial billing does not
 consume a successful-request rate-limit slot.
 

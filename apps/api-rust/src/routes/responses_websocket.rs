@@ -439,8 +439,20 @@ struct ActiveSession {
     current_turn_id: Option<String>,
     current_response_id: String,
     resolved_response_ids: VecDeque<String>,
+    completed_creates: VecDeque<CompletedCreate>,
     pending_controls: VecDeque<PendingControl>,
     resolved_controls: VecDeque<PendingControl>,
+}
+
+struct CompletedCreate {
+    event_id: String,
+    stream_id: String,
+}
+
+impl CompletedCreate {
+    fn identity_bytes(&self) -> usize {
+        self.event_id.len() + self.stream_id.len()
+    }
 }
 
 struct PendingControl {
@@ -481,6 +493,7 @@ impl ActiveSession {
             current_turn_id: None,
             current_response_id: String::new(),
             resolved_response_ids: VecDeque::new(),
+            completed_creates: VecDeque::new(),
             pending_controls: VecDeque::new(),
             resolved_controls: VecDeque::new(),
         }
@@ -662,18 +675,37 @@ async fn handle_client_data(
                 return true;
             }
             if !create.event_id.is_empty()
-                && session
+                && (session
                     .pending_controls
                     .iter()
                     .chain(&session.resolved_controls)
                     .any(|control| control.event_id == create.event_id)
+                    || session
+                        .completed_creates
+                        .iter()
+                        .any(|completed| completed.event_id == create.event_id))
             {
                 send_error(
                     client,
                     &create.event_id,
                     &create.stream_id,
                     &ResponsesWebSocketFailure::invalid_request(
-                        "event_id belongs to a retained control",
+                        "event_id belongs to a retained create or control",
+                    ),
+                )
+                .await;
+                return true;
+            }
+            if !create.event_id.is_empty()
+                && create.event_id.len().saturating_add(create.stream_id.len())
+                    > CONTROL_CORRELATION_BYTES
+            {
+                send_error(
+                    client,
+                    &create.event_id,
+                    &create.stream_id,
+                    &ResponsesWebSocketFailure::invalid_request(
+                        "response create correlation identity is too large",
                     ),
                 )
                 .await;
@@ -848,6 +880,10 @@ async fn forward_control(
     if !event_id.is_empty()
         && (event_id == session.current_event_id
             || session
+                .completed_creates
+                .iter()
+                .any(|completed| completed.event_id == event_id)
+            || session
                 .pending_controls
                 .iter()
                 .chain(&session.resolved_controls)
@@ -858,7 +894,7 @@ async fn forward_control(
             event_id,
             stream_id,
             &ResponsesWebSocketFailure::invalid_request(
-                "event_id belongs to an active create or retained control",
+                "event_id belongs to an active or retained create or control",
             ),
         )
         .await;
@@ -1000,8 +1036,24 @@ async fn finish_current(
 }
 
 fn clear_current_identity(session: &mut ActiveSession) {
-    session.current_stream_id.clear();
-    session.current_event_id.clear();
+    let completed = CompletedCreate {
+        event_id: std::mem::take(&mut session.current_event_id),
+        stream_id: std::mem::take(&mut session.current_stream_id),
+    };
+    if !completed.event_id.is_empty() {
+        while session.completed_creates.len() == CONTROL_CORRELATION_DEPTH
+            || session
+                .completed_creates
+                .iter()
+                .map(CompletedCreate::identity_bytes)
+                .sum::<usize>()
+                .saturating_add(completed.identity_bytes())
+                > CONTROL_CORRELATION_BYTES
+        {
+            session.completed_creates.pop_front();
+        }
+        session.completed_creates.push_back(completed);
+    }
     if !session.current_response_id.is_empty() {
         let response_id = std::mem::take(&mut session.current_response_id);
         if response_id.len() <= CONTROL_CORRELATION_BYTES {
@@ -1047,6 +1099,20 @@ fn retain_resolved_control(session: &mut ActiveSession, mut control: PendingCont
     session.resolved_controls.push_back(control);
 }
 
+fn upstream_response_id(value: &Value) -> &str {
+    value
+        .get("response_id")
+        .and_then(Value::as_str)
+        .filter(|identity| !identity.is_empty())
+        .or_else(|| {
+            value
+                .get("response")
+                .and_then(|response| response.get("id"))
+                .and_then(Value::as_str)
+        })
+        .unwrap_or_default()
+}
+
 fn upstream_attribution(session: &mut ActiveSession, frame: &ResponsesFrame) -> (String, bool) {
     let value: Value = serde_json::from_slice(frame.payload()).unwrap_or_default();
     let kind = value
@@ -1064,24 +1130,56 @@ fn upstream_attribution(session: &mut ActiveSession, frame: &ResponsesFrame) -> 
         .get("stream_id")
         .and_then(Value::as_str)
         .unwrap_or_default();
-    let response_id = value
-        .get("response_id")
-        .and_then(Value::as_str)
-        .or_else(|| {
-            value
-                .get("response")
-                .and_then(|response| response.get("id"))
-                .and_then(Value::as_str)
-        })
-        .unwrap_or_default();
+    let response_id = upstream_response_id(&value);
+    let foreign_response = !response_id.is_empty()
+        && (session
+            .resolved_response_ids
+            .iter()
+            .any(|known| known == response_id)
+            || !session.current_response_id.is_empty()
+                && response_id != session.current_response_id);
     if kind == "error" {
-        match matched_control(
-            &session.pending_controls,
-            &session.resolved_controls,
-            &value,
-            &session.current_response_id,
-            session.current.is_some(),
-        ) {
+        let event_id = value
+            .get("event_id")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let reference = value
+            .get("error")
+            .and_then(|error| error.get("event_id"))
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let completed = session
+            .completed_creates
+            .iter()
+            .find(|completed| completed.event_id == event_id);
+        let create_collision = reference.is_empty() && completed.is_some();
+        if let Some(completed) = completed.filter(|_| create_collision) {
+            // A provider output ID can collide with a completed client create.
+            // Only a current response ID or a distinct current stream proves
+            // the error belongs to this turn rather than the retained create.
+            let current_response = !session.current_response_id.is_empty()
+                && response_id == session.current_response_id;
+            let distinct_current_stream = !stream_id.is_empty()
+                && stream_id == session.current_stream_id
+                && stream_id != completed.stream_id;
+            if !current_response && !distinct_current_stream {
+                return (String::new(), false);
+            }
+        }
+        let control_match = if create_collision {
+            ControlMatch::None
+        } else {
+            matched_control(
+                &session.pending_controls,
+                &session.resolved_controls,
+                &value,
+                &session.current_event_id,
+                &session.current_response_id,
+                session.current.is_some(),
+                foreign_response,
+            )
+        };
+        match control_match {
             ControlMatch::Unique(index) => {
                 if index >= session.pending_controls.len() {
                     return (
@@ -1102,12 +1200,7 @@ fn upstream_attribution(session: &mut ActiveSession, frame: &ResponsesFrame) -> 
         }
         // A nested error reference names the rejected client event. The top-level
         // event_id may instead name the provider's own output event.
-        let reference = value
-            .get("error")
-            .and_then(|error| error.get("event_id"))
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        if !reference.is_empty() {
+        if !reference.is_empty() && reference != session.current_event_id {
             return (String::new(), false);
         }
     }
@@ -1115,14 +1208,7 @@ fn upstream_attribution(session: &mut ActiveSession, frame: &ResponsesFrame) -> 
         if !session.current_stream_id.is_empty()
             && !stream_id.is_empty()
             && stream_id != session.current_stream_id
-            || !response_id.is_empty()
-                && session
-                    .resolved_response_ids
-                    .iter()
-                    .any(|known| known == response_id)
-            || !session.current_response_id.is_empty()
-                && !response_id.is_empty()
-                && response_id != session.current_response_id
+            || foreign_response
         {
             return (String::new(), false);
         }
@@ -1137,8 +1223,10 @@ fn matched_control(
     pending: &VecDeque<PendingControl>,
     resolved: &VecDeque<PendingControl>,
     value: &Value,
+    active_event_id: &str,
     active_response_id: &str,
     has_active_turn: bool,
+    foreign_response: bool,
 ) -> ControlMatch {
     let event_id = value
         .get("event_id")
@@ -1149,10 +1237,7 @@ fn matched_control(
         .and_then(|error| error.get("event_id"))
         .and_then(Value::as_str)
         .unwrap_or_default();
-    let response_id = value
-        .get("response_id")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
+    let response_id = upstream_response_id(value);
     let stream_id = value
         .get("stream_id")
         .and_then(Value::as_str)
@@ -1170,14 +1255,40 @@ fn matched_control(
             Some("response_not_found" | "response_not_active" | "response_already_completed")
         );
     let controls = || pending.iter().chain(resolved).enumerate();
-    let exact = find_control(controls(), |control| {
-        !control.event_id.is_empty()
-            && (control.event_id == event_id || control.event_id == reference)
+    let top_level = find_control(controls(), |control| {
+        !control.event_id.is_empty() && control.event_id == event_id
     });
-    if !matches!(exact, ControlMatch::None) {
-        return exact;
-    }
     if !reference.is_empty() {
+        // The nested reference names the client operation. An unknown reference
+        // cannot consume an unrelated control named by the provider's event ID.
+        if reference == active_event_id {
+            return if matches!(top_level, ControlMatch::None) {
+                ControlMatch::None
+            } else {
+                ControlMatch::Ambiguous
+            };
+        }
+        let nested = find_control(controls(), |control| {
+            !control.event_id.is_empty() && control.event_id == reference
+        });
+        return match (top_level, nested) {
+            (ControlMatch::None, ControlMatch::Unique(index))
+                if active_event_id.is_empty() || event_id != active_event_id =>
+            {
+                ControlMatch::Unique(index)
+            }
+            (ControlMatch::Unique(top), ControlMatch::Unique(nested)) if top == nested => {
+                ControlMatch::Unique(nested)
+            }
+            _ => ControlMatch::Ambiguous,
+        };
+    }
+    if !matches!(top_level, ControlMatch::None) {
+        return top_level;
+    }
+    if !active_event_id.is_empty() && event_id == active_event_id {
+        // A create rejection remains a turn failure even if its code also
+        // resembles a pending cancellation rejection.
         return ControlMatch::None;
     }
     let target = find_control(controls(), |control| {
@@ -1195,8 +1306,8 @@ fn matched_control(
             && control.cancel
             && (stream_id.is_empty() || stream_id == control.stream_id)
             && (response_id.is_empty()
-                || control.response_id.is_empty()
-                || response_id == control.response_id)
+                || response_id == control.response_id
+                || control.response_id.is_empty() && !foreign_response)
     })
 }
 
