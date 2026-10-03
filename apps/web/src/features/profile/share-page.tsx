@@ -42,7 +42,9 @@ import {
   disableProfileShare,
   enableProfileShare,
   getProfileShareState,
+  updateProfileAggregate,
 } from './api'
+import { LinkedUsageProfiles } from './components/linked-usage-profiles'
 import { ModelUsageReport } from './components/model-usage-report'
 import { useProfile } from './hooks'
 import type { ModelUsageRangeKey } from './lib/model-usage'
@@ -73,7 +75,9 @@ export function ProfileSharePage() {
   const reduceMotion = useReducedMotion()
   const queryClient = useQueryClient()
   const { profile } = useProfile()
-  const [options, setOptions] = useState<BadgeOptions>(INITIAL_OPTIONS)
+  const [options, setOptions] = useState<BadgeOptions>(() =>
+    changeBadgeLayout(INITIAL_OPTIONS, 'aggregate')
+  )
   const [showStatistics, setShowStatistics] = useState(false)
   const [reportRange, setReportRange] = useState<ModelUsageRangeKey>('30d')
   const [previewURL, setPreviewURL] = useState('')
@@ -105,6 +109,14 @@ export function ProfileSharePage() {
       toast.success(t('Public SVG badge disabled'))
     },
     onError: () => toast.error(t('Could not disable the public badge')),
+  })
+  const aggregateMutation = useMutation({
+    mutationFn: updateProfileAggregate,
+    onSuccess: (data) => {
+      queryClient.setQueryData(['profile-share'], data)
+      setFailedURL('')
+      setPreviewAttempt((value) => value + 1)
+    },
   })
   const publicEnabled = canShareBadge(shareQuery.data, options.layout)
   const badgeURL = useMemo(
@@ -152,6 +164,13 @@ export function ProfileSharePage() {
       previous.layout === 'models' ? { ...previous, period } : previous
     )
   }
+  const refreshUsage = async () => {
+    const result = await shareQuery.refetch()
+    if (result.isSuccess) {
+      setFailedURL('')
+      setPreviewAttempt((value) => value + 1)
+    }
+  }
   const updateOption = <K extends keyof BadgeOptions>(
     key: K,
     value: BadgeOptions[K]
@@ -176,11 +195,11 @@ export function ProfileSharePage() {
               {t('Profile')}
             </Link>
             <h1 className='text-foreground text-lg font-semibold tracking-tight'>
-              {t('Show your token usage anywhere')}
+              {t('One badge for your AI usage')}
             </h1>
             <p className='text-muted-foreground max-w-2xl text-sm leading-relaxed'>
               {t(
-                'Create an animated SVG from your real usage, then copy a clickable snippet for GitHub or your website.'
+                'Connect your profiles and copy one SVG badge for your GitHub README.'
               )}
             </p>
           </div>
@@ -193,7 +212,10 @@ export function ProfileSharePage() {
               onRetry={() => void shareQuery.refetch()}
             />
           ) : (
-            <div className='border-border/70 bg-card/40 flex flex-col gap-4 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5'>
+            <div
+              data-testid='badge-sharing'
+              className='border-border/70 bg-card/40 flex flex-col gap-4 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5'
+            >
               <div className='space-y-1'>
                 <h2 className='font-medium'>
                   {publicEnabled
@@ -201,20 +223,50 @@ export function ProfileSharePage() {
                     : t('Your public badge is off')}
                 </h2>
                 <p className='text-muted-foreground max-w-2xl text-sm leading-relaxed'>
-                  {options.layout === 'models'
+                  {options.layout === 'aggregate'
                     ? t(
-                        'Model names, tokens, requests and platform spend become public. Appearance options do not restrict access.'
+                        'Profile links and imported usage become public when sharing is enabled.'
                       )
-                    : t(
-                        'Turn it on to create a public image URL. You can turn it off at any time.'
-                      )}
+                    : options.layout === 'models'
+                      ? t(
+                          'Model names, tokens, requests and platform spend become public. Appearance options do not restrict access.'
+                        )
+                      : t(
+                          'Turn it on to create a public image URL. You can turn it off at any time.'
+                        )}
                 </p>
               </div>
-              {options.layout === 'models' ? (
+              {options.layout === 'aggregate' ? (
                 <Button
+                  className='min-h-11'
                   variant={publicEnabled ? 'outline' : 'default'}
                   disabled={
-                    enableMutation.isPending || disableMutation.isPending
+                    aggregateMutation.isPending ||
+                    enableMutation.isPending ||
+                    disableMutation.isPending ||
+                    shareQuery.isFetching
+                  }
+                  onClick={() =>
+                    aggregateMutation.mutate({
+                      aggregate_usage_enabled: !publicEnabled,
+                      linked_profiles: shareQuery.data?.linked_profiles ?? [],
+                    })
+                  }
+                >
+                  {t(
+                    publicEnabled
+                      ? 'Turn off linked sharing'
+                      : 'Turn on linked sharing'
+                  )}
+                </Button>
+              ) : options.layout === 'models' ? (
+                <Button
+                  variant={publicEnabled ? 'outline' : 'default'}
+                  className='min-h-11'
+                  disabled={
+                    enableMutation.isPending ||
+                    disableMutation.isPending ||
+                    aggregateMutation.isPending
                   }
                   onClick={() => void enableMutation.mutate(!publicEnabled)}
                 >
@@ -225,6 +277,7 @@ export function ProfileSharePage() {
               ) : shareQuery.data?.enabled ? (
                 <Button
                   variant='outline'
+                  className='min-h-11'
                   disabled={
                     disableMutation.isPending || enableMutation.isPending
                   }
@@ -234,8 +287,11 @@ export function ProfileSharePage() {
                 </Button>
               ) : (
                 <Button
+                  className='min-h-11'
                   disabled={
-                    enableMutation.isPending || disableMutation.isPending
+                    enableMutation.isPending ||
+                    disableMutation.isPending ||
+                    aggregateMutation.isPending
                   }
                   onClick={() => void enableMutation.mutate(undefined)}
                 >
@@ -244,12 +300,184 @@ export function ProfileSharePage() {
               )}
             </div>
           )}
-          <div className='grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.12fr)]'>
-            <section className='border-border/70 space-y-6 rounded-2xl border p-4 sm:p-6'>
+          {aggregateMutation.isError ||
+          enableMutation.isError ||
+          disableMutation.isError ? (
+            <p role='alert' className='text-destructive text-sm'>
+              {t('Could not update badge sharing. Try the action again.')}
+            </p>
+          ) : null}
+          <section className='space-y-5' aria-label={t('Your SVG badge')}>
+            <div className='border-border space-y-4 rounded-xl border p-4 sm:p-5'>
+              <div className='flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between'>
+                <div>
+                  <h2 className='text-lg font-semibold tracking-tight'>
+                    {t('Your SVG badge')}
+                  </h2>
+                  {badgeURL ? (
+                    <CopyButton
+                      value={readmeCode}
+                      variant='default'
+                      className='mt-3 min-h-11'
+                      aria-label={t('Copy README code')}
+                    >
+                      {t('Copy README code')}
+                    </CopyButton>
+                  ) : null}
+                </div>
+                <div className='space-y-2'>
+                  <Label htmlFor='badge-layout'>{t('Layout')}</Label>
+                  <NativeSelect
+                    id='badge-layout'
+                    className='w-full'
+                    value={options.layout}
+                    onChange={(event) =>
+                      changeLayout(event.target.value as BadgeLayout)
+                    }
+                  >
+                    <NativeSelectOption value='aggregate'>
+                      {t('Linked accounts')}
+                    </NativeSelectOption>
+                    <NativeSelectOption value='models'>
+                      {t('Model by model')}
+                    </NativeSelectOption>
+                    <NativeSelectOption value='profile'>
+                      {t('Profile overview')}
+                    </NativeSelectOption>
+                    <NativeSelectOption value='badge'>
+                      {t('Compact badge')}
+                    </NativeSelectOption>
+                  </NativeSelect>
+                </div>
+              </div>
+              {badgeURL ? (
+                previewURL !== badgeURL ? (
+                  <Skeleton className='h-80 w-full rounded-xl' />
+                ) : failedURL === previewURL ? (
+                  <ErrorState
+                    title={t(
+                      'Preview failed. Check the settings and try again.'
+                    )}
+                    onRetry={() => {
+                      setFailedURL('')
+                      setPreviewAttempt((value) => value + 1)
+                    }}
+                  />
+                ) : (
+                  <>
+                    <img
+                      key={`${previewURL}-${previewAttempt}`}
+                      src={previewURL}
+                      alt={t('Preview of your token usage badge')}
+                      width={options.width}
+                      height={options.height}
+                      onError={() => setFailedURL(previewURL)}
+                      className='mx-auto h-auto w-full max-w-4xl'
+                    />
+                    <a
+                      className={buttonVariants({
+                        variant: 'outline',
+                        size: 'sm',
+                        className: 'min-h-11 w-full sm:w-auto',
+                      })}
+                      href={badgeURL}
+                      target='_blank'
+                      rel='noopener noreferrer'
+                    >
+                      {t('Open image')}
+                    </a>
+                  </>
+                )
+              ) : (
+                <div className='bg-muted/50 text-muted-foreground flex min-h-48 items-center justify-center rounded-xl px-6 text-center text-sm'>
+                  {options.layout === 'aggregate'
+                    ? t('Turn on linked sharing to preview your accounts.')
+                    : options.layout === 'models'
+                      ? t('Turn on model sharing to preview your real usage.')
+                      : t(
+                          'Turn on the public badge to preview your real usage.'
+                        )}
+                </div>
+              )}
+              <p className='text-muted-foreground text-xs leading-relaxed'>
+                {t('Usage updates periodically. GitHub may cache the image.')}
+              </p>
+            </div>
+            {badgeURL ? (
+              <details className='border-border space-y-5 rounded-xl border p-4 sm:p-5'>
+                <summary className='flex min-h-11 cursor-pointer items-center text-sm font-medium'>
+                  {t('Embed code and image URL')}
+                </summary>
+                <div>
+                  <h2 className='text-lg font-medium'>
+                    {t('Copy embed code')}
+                  </h2>
+                  <p className='text-muted-foreground mt-1 text-sm'>
+                    {t(
+                      'Paste the whole snippet so clicking the image opens LMM Best.'
+                    )}
+                  </p>
+                </div>
+                {(
+                  [
+                    ['GitHub README', readmeCode, t('Copy README code')],
+                    ['Website HTML', htmlCode, t('Copy HTML code')],
+                    ['SVG URL', badgeURL, t('Copy SVG URL')],
+                  ] as const
+                ).map(([heading, value, copyLabel]) => (
+                  <div key={heading} className='space-y-2'>
+                    <div className='flex items-center justify-between gap-2'>
+                      <h3 className='text-sm font-medium'>{heading}</h3>
+                      <CopyButton
+                        value={value}
+                        variant='outline'
+                        size='sm'
+                        aria-label={copyLabel}
+                      >
+                        {copyLabel}
+                      </CopyButton>
+                    </div>
+                    <textarea
+                      readOnly
+                      value={value}
+                      aria-label={heading}
+                      className='border-border bg-muted/40 focus-visible:ring-ring/30 min-h-20 w-full resize-y rounded-xl border p-3 font-mono text-xs break-all focus-visible:ring-3 focus-visible:outline-none'
+                    />
+                  </div>
+                ))}
+              </details>
+            ) : null}
+          </section>
+          {!shareQuery.isPending && shareQuery.data ? (
+            <LinkedUsageProfiles
+              state={shareQuery.data}
+              accountName={profile?.display_name || profile?.username}
+              onSave={async (settings) => {
+                await aggregateMutation.mutateAsync(settings)
+              }}
+              onRefresh={() => void refreshUsage()}
+              refreshing={shareQuery.isFetching}
+              onToggleModelSharing={() =>
+                enableMutation.mutate(!shareQuery.data?.model_usage_enabled)
+              }
+              modelSharingBusy={
+                enableMutation.isPending ||
+                disableMutation.isPending ||
+                aggregateMutation.isPending
+              }
+              sharingBusy={
+                aggregateMutation.isPending ||
+                enableMutation.isPending ||
+                disableMutation.isPending
+              }
+            />
+          ) : null}
+          <details className='border-border rounded-xl border p-4 sm:p-5'>
+            <summary className='flex min-h-11 cursor-pointer items-center text-sm font-medium'>
+              {t('Customize appearance')}
+            </summary>
+            <div className='space-y-6 pt-5'>
               <div>
-                <h2 className='text-lg font-medium'>
-                  {t('Customize appearance')}
-                </h2>
                 <p className='text-muted-foreground mt-1 text-sm'>
                   {t('Every option becomes part of your SVG URL.')}
                 </p>
@@ -302,27 +530,6 @@ export function ProfileSharePage() {
               </div>
               <div className='grid gap-4 sm:grid-cols-2'>
                 <div className='space-y-2'>
-                  <Label htmlFor='badge-layout'>{t('Layout')}</Label>
-                  <NativeSelect
-                    id='badge-layout'
-                    className='w-full'
-                    value={options.layout}
-                    onChange={(event) =>
-                      changeLayout(event.target.value as BadgeLayout)
-                    }
-                  >
-                    <NativeSelectOption value='models'>
-                      {t('Model by model')}
-                    </NativeSelectOption>
-                    <NativeSelectOption value='profile'>
-                      {t('Profile overview')}
-                    </NativeSelectOption>
-                    <NativeSelectOption value='badge'>
-                      {t('Compact badge')}
-                    </NativeSelectOption>
-                  </NativeSelect>
-                </div>
-                <div className='space-y-2'>
                   <Label htmlFor='badge-theme'>{t('Theme')}</Label>
                   <NativeSelect
                     id='badge-theme'
@@ -350,7 +557,13 @@ export function ProfileSharePage() {
                 </div>
                 {options.layout !== 'profile' ? (
                   <div className='space-y-2'>
-                    <Label htmlFor='badge-period'>{t('Usage period')}</Label>
+                    <Label htmlFor='badge-period'>
+                      {t(
+                        options.layout === 'aggregate'
+                          ? 'LMM usage period'
+                          : 'Usage period'
+                      )}
+                    </Label>
                     <NativeSelect
                       id='badge-period'
                       className='w-full'
@@ -381,6 +594,13 @@ export function ProfileSharePage() {
                         </NativeSelectOption>
                       ) : null}
                     </NativeSelect>
+                    {options.layout === 'aggregate' ? (
+                      <p className='text-muted-foreground text-xs leading-relaxed'>
+                        {t(
+                          'Sets only the LMM period in the SVG. Other accounts keep their own periods.'
+                        )}
+                      </p>
+                    ) : null}
                   </div>
                 ) : null}
                 {options.layout === 'models' ? (
@@ -405,30 +625,32 @@ export function ProfileSharePage() {
                     </p>
                   </div>
                 ) : null}
-                <div className='space-y-2'>
-                  <Label htmlFor='badge-animation'>{t('Animation')}</Label>
-                  <NativeSelect
-                    id='badge-animation'
-                    className='w-full'
-                    value={options.animation}
-                    onChange={(event) =>
-                      updateOption(
-                        'animation',
-                        event.target.value as BadgeAnimation
-                      )
-                    }
-                  >
-                    <NativeSelectOption value='wave'>
-                      {t('Wave')}
-                    </NativeSelectOption>
-                    <NativeSelectOption value='pulse'>
-                      {t('Pulse')}
-                    </NativeSelectOption>
-                    <NativeSelectOption value='none'>
-                      {t('No animation')}
-                    </NativeSelectOption>
-                  </NativeSelect>
-                </div>
+                {options.layout !== 'aggregate' ? (
+                  <div className='space-y-2'>
+                    <Label htmlFor='badge-animation'>{t('Animation')}</Label>
+                    <NativeSelect
+                      id='badge-animation'
+                      className='w-full'
+                      value={options.animation}
+                      onChange={(event) =>
+                        updateOption(
+                          'animation',
+                          event.target.value as BadgeAnimation
+                        )
+                      }
+                    >
+                      <NativeSelectOption value='wave'>
+                        {t('Wave')}
+                      </NativeSelectOption>
+                      <NativeSelectOption value='pulse'>
+                        {t('Pulse')}
+                      </NativeSelectOption>
+                      <NativeSelectOption value='none'>
+                        {t('No animation')}
+                      </NativeSelectOption>
+                    </NativeSelect>
+                  </div>
+                ) : null}
                 <div className='space-y-2'>
                   <Label htmlFor='badge-font'>{t('Font')}</Label>
                   <NativeSelect
@@ -539,7 +761,7 @@ export function ProfileSharePage() {
                           onChange={(event) =>
                             updateColor(key, event.target.value)
                           }
-                          className='h-10 w-14 cursor-pointer p-1'
+                          className='h-11 w-14 cursor-pointer p-1'
                         />
                         <Label
                           htmlFor={`badge-color-${key}`}
@@ -562,125 +784,34 @@ export function ProfileSharePage() {
                     ['label', t('Token label'), 32],
                     [
                       'footer',
-                      options.layout === 'profile'
+                      options.layout === 'profile' ||
+                      options.layout === 'aggregate'
                         ? t('Footer text')
                         : t('Period caption'),
                       48,
                     ],
                   ] as const
-                ).map(([key, label, maxLength]) => (
-                  <div key={key} className='space-y-2'>
-                    <Label htmlFor={`badge-${key}`}>{label}</Label>
-                    <Input
-                      id={`badge-${key}`}
-                      value={options[key]}
-                      maxLength={maxLength}
-                      placeholder={t('Leave blank for the default')}
-                      onChange={(event) =>
-                        updateOption(key, event.target.value)
-                      }
-                    />
-                  </div>
-                ))}
-              </div>
-            </section>
-            <section className='space-y-5 lg:sticky lg:top-4'>
-              <div className='border-border/70 space-y-4 rounded-2xl border p-4 sm:p-6'>
-                <h2 className='text-lg font-medium'>{t('Live SVG preview')}</h2>
-                {badgeURL ? (
-                  previewURL !== badgeURL ? (
-                    <Skeleton className='h-80 w-full rounded-xl' />
-                  ) : failedURL === previewURL ? (
-                    <ErrorState
-                      title={t(
-                        'Preview failed. Check the settings and try again.'
-                      )}
-                      onRetry={() => {
-                        setFailedURL('')
-                        setPreviewAttempt((value) => value + 1)
-                      }}
-                    />
-                  ) : (
-                    <>
-                      <img
-                        key={`${previewURL}-${previewAttempt}`}
-                        src={previewURL}
-                        alt={t('Preview of your token usage badge')}
-                        width={options.width}
-                        height={options.height}
-                        onError={() => setFailedURL(previewURL)}
-                        className='h-auto w-full'
-                      />
-                      <a
-                        className={buttonVariants({
-                          variant: 'outline',
-                          size: 'sm',
-                          className: 'w-full sm:w-auto',
-                        })}
-                        href={badgeURL}
-                        target='_blank'
-                        rel='noopener noreferrer'
-                      >
-                        {t('Open image')}
-                      </a>
-                    </>
+                )
+                  .filter(
+                    ([key]) => options.layout !== 'aggregate' || key !== 'label'
                   )
-                ) : (
-                  <div className='bg-muted/50 text-muted-foreground flex min-h-48 items-center justify-center rounded-xl px-6 text-center text-sm'>
-                    {options.layout === 'models'
-                      ? t('Turn on model sharing to preview your real usage.')
-                      : t(
-                          'Turn on the public badge to preview your real usage.'
-                        )}
-                  </div>
-                )}
-                <p className='text-muted-foreground text-xs leading-relaxed'>
-                  {t('Usage updates periodically. GitHub may cache the image.')}
-                </p>
-              </div>
-              {badgeURL ? (
-                <div className='border-border/70 space-y-5 rounded-2xl border p-4 sm:p-6'>
-                  <div>
-                    <h2 className='text-lg font-medium'>
-                      {t('Copy embed code')}
-                    </h2>
-                    <p className='text-muted-foreground mt-1 text-sm'>
-                      {t(
-                        'Paste the whole snippet so clicking the image opens LMM Best.'
-                      )}
-                    </p>
-                  </div>
-                  {(
-                    [
-                      ['GitHub README', readmeCode, t('Copy README code')],
-                      ['Website HTML', htmlCode, t('Copy HTML code')],
-                      ['SVG URL', badgeURL, t('Copy SVG URL')],
-                    ] as const
-                  ).map(([heading, value, copyLabel]) => (
-                    <div key={heading} className='space-y-2'>
-                      <div className='flex items-center justify-between gap-2'>
-                        <h3 className='text-sm font-medium'>{heading}</h3>
-                        <CopyButton
-                          value={value}
-                          variant='outline'
-                          size='sm'
-                          aria-label={copyLabel}
-                        >
-                          {copyLabel}
-                        </CopyButton>
-                      </div>
-                      <textarea
-                        readOnly
-                        value={value}
-                        aria-label={heading}
-                        className='border-border bg-muted/40 focus-visible:ring-ring/30 min-h-20 w-full resize-y rounded-xl border p-3 font-mono text-xs break-all focus-visible:ring-3 focus-visible:outline-none'
+                  .map(([key, label, maxLength]) => (
+                    <div key={key} className='space-y-2'>
+                      <Label htmlFor={`badge-${key}`}>{label}</Label>
+                      <Input
+                        id={`badge-${key}`}
+                        value={options[key]}
+                        maxLength={maxLength}
+                        placeholder={t('Leave blank for the default')}
+                        onChange={(event) =>
+                          updateOption(key, event.target.value)
+                        }
                       />
                     </div>
                   ))}
-                </div>
-              ) : null}
-            </section>
-          </div>
+              </div>
+            </div>
+          </details>
           <details
             className='border-border/70 rounded-2xl border p-4 sm:p-6'
             onToggle={(event) => setShowStatistics(event.currentTarget.open)}

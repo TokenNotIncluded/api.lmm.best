@@ -23,6 +23,10 @@ import {
   type InternalAxiosRequestConfig,
 } from 'axios'
 
+import type {
+  LinkedUsageProfile,
+  ProfileAggregateSource,
+} from '@/features/profile/types'
 import {
   applyAuthBundle,
   setDevelopmentAuthRefreshAdapter,
@@ -68,6 +72,8 @@ const debugAssistantRuntimeKeys = new Set<DebugPersonaId>()
 type DebugProfileShare = {
   enabled: boolean
   modelUsageEnabled: boolean
+  aggregateUsageEnabled: boolean
+  linkedProfiles: LinkedUsageProfile[]
 }
 const debugProfileShares = new Map<DebugPersonaId, DebugProfileShare>()
 const debugProfileShareToken = 'a'.repeat(48)
@@ -75,9 +81,103 @@ const debugProfileShareToken = 'a'.repeat(48)
 function activeDebugProfileShare(): DebugProfileShare {
   const existing = debugProfileShares.get(state.activePersona)
   if (existing) return existing
-  const created = { enabled: true, modelUsageEnabled: false }
+  const created: DebugProfileShare = {
+    enabled: true,
+    modelUsageEnabled: false,
+    aggregateUsageEnabled: false,
+    linkedProfiles: [
+      {
+        provider: 'cursor',
+        url: 'https://cursor.com/@profile-fixture',
+        label: 'Cursor review account',
+      },
+      {
+        provider: 'chatgpt',
+        url: 'https://chatgpt.com/u/profile-fixture',
+        label: 'Codex review account',
+        snapshot: {
+          tokens: 117_000_000_000,
+          period: 'all',
+          observed_at: new Date(now * 1000).toISOString(),
+          approximate: true,
+          source: 'Synthetic review fixture: Codex lifetime tokens',
+        },
+      },
+    ],
+  }
   debugProfileShares.set(state.activePersona, created)
   return created
+}
+
+// Local review fixtures only; the debug runtime never fetches provider profiles.
+function debugAggregateSources(
+  share: DebugProfileShare
+): ProfileAggregateSource[] {
+  const active = share.enabled && share.aggregateUsageEnabled
+  return [
+    {
+      provider: 'lmm',
+      url: 'https://api.lmm.best',
+      label: 'LMM Forge',
+      status: active ? 'live' : 'disabled',
+      source: 'native',
+      period: '30d',
+      approximate: false,
+      ...(active
+        ? {
+            tokens: 91_234_567,
+            requests: 1234,
+            fetched_at: new Date(now * 1000).toISOString(),
+          }
+        : {}),
+    },
+    ...share.linkedProfiles.map((profile): ProfileAggregateSource => {
+      const base = {
+        provider: profile.provider,
+        url: profile.url,
+        label: profile.label || profile.provider,
+        period: profile.snapshot?.period ?? 'reported',
+        approximate: profile.snapshot?.approximate ?? false,
+      }
+      if (!active) {
+        return {
+          ...base,
+          status: 'disabled',
+          source:
+            profile.provider === 'cursor' && !profile.snapshot
+              ? 'public_ssr'
+              : 'owner_snapshot',
+        }
+      }
+      if (profile.snapshot) {
+        return {
+          ...base,
+          ...profile.snapshot,
+          status: 'snapshot',
+          source: 'owner_snapshot',
+          snapshot_source: profile.snapshot.source,
+        }
+      }
+      if (profile.provider === 'cursor') {
+        return {
+          ...base,
+          status: 'live',
+          source: 'public_ssr',
+          tokens: 502_839_373,
+          period_start: '2026-09-04',
+          period_end: '2026-10-03',
+          period_timezone: 'unspecified',
+          fetched_at: new Date(now * 1000).toISOString(),
+        }
+      }
+      return {
+        ...base,
+        status:
+          profile.provider === 'chatgpt' ? 'login_required' : 'unsupported',
+        source: 'owner_snapshot',
+      }
+    }),
+  ]
 }
 
 function trustLevel(level: number): TrustLevelInfo {
@@ -953,9 +1053,16 @@ const debugAdapter: AxiosAdapter = async (config) => {
       if (typeof data?.model_usage_enabled === 'boolean') {
         share.modelUsageEnabled = data.model_usage_enabled
       }
+      if (typeof data?.aggregate_usage_enabled === 'boolean') {
+        share.aggregateUsageEnabled = data.aggregate_usage_enabled
+      }
+      if (Array.isArray(data?.linked_profiles)) {
+        share.linkedProfiles = structuredClone(data.linked_profiles)
+      }
     } else if (method === 'DELETE') {
       share.enabled = false
       share.modelUsageEnabled = false
+      share.aggregateUsageEnabled = false
     }
     return response(
       config,
@@ -964,10 +1071,19 @@ const debugAdapter: AxiosAdapter = async (config) => {
           ? {
               enabled: true,
               model_usage_enabled: share.modelUsageEnabled,
+              aggregate_usage_enabled: share.aggregateUsageEnabled,
+              linked_profiles: share.linkedProfiles,
+              aggregate_sources: debugAggregateSources(share),
               token: debugProfileShareToken,
               url: `${window.location.origin}/api/share/profile/${debugProfileShareToken}.svg`,
             }
-          : { enabled: false }
+          : {
+              enabled: false,
+              model_usage_enabled: false,
+              aggregate_usage_enabled: false,
+              linked_profiles: share.linkedProfiles,
+              aggregate_sources: debugAggregateSources(share),
+            }
       )
     )
   }
