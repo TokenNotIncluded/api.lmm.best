@@ -70,6 +70,6 @@ func RerankHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayI
 	}
 	c.Writer.Header().Set("Content-Type", "application/json")
 	c.Writer.WriteHeader(resp.StatusCode)
-	c.Writer.Write(jsonResponse)
+	service.WriteResponseBytes(c, jsonResponse)
 	return nil, &usage
 }

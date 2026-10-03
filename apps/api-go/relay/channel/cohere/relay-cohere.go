@@ -261,7 +261,7 @@ func cohereHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 	}
 	c.Writer.Header().Set("Content-Type", "application/json")
 	c.Writer.WriteHeader(resp.StatusCode)
-	_, _ = c.Writer.Write(jsonResponse)
+	_, _ = service.WriteResponseBytes(c, jsonResponse)
 	return &usage, nil
 }
 
@@ -297,6 +297,6 @@ func cohereRerankHandler(c *gin.Context, resp *http.Response, info *relaycommon.
 	}
 	c.Writer.Header().Set("Content-Type", "application/json")
 	c.Writer.WriteHeader(resp.StatusCode)
-	_, _ = c.Writer.Write(jsonResponse)
+	_, _ = service.WriteResponseBytes(c, jsonResponse)
 	return &usage, nil
 }

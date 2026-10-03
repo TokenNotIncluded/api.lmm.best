@@ -174,7 +174,7 @@ func baiduHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respon
 	}
 	c.Writer.Header().Set("Content-Type", "application/json")
 	c.Writer.WriteHeader(resp.StatusCode)
-	_, _ = c.Writer.Write(jsonResponse)
+	_, _ = service.WriteResponseBytes(c, jsonResponse)
 	return nil, &fullTextResponse.Usage
 }
 
@@ -199,7 +199,7 @@ func baiduEmbeddingHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *ht
 	}
 	c.Writer.Header().Set("Content-Type", "application/json")
 	c.Writer.WriteHeader(resp.StatusCode)
-	_, _ = c.Writer.Write(jsonResponse)
+	_, _ = service.WriteResponseBytes(c, jsonResponse)
 	return nil, &fullTextResponse.Usage
 }
 

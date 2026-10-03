@@ -19,6 +19,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/relay/helper"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/types"
+	"github.com/LIghtJUNction/api.lmm.best/service"
 	"github.com/samber/lo"
 
 	"github.com/gin-gonic/gin"
@@ -259,7 +260,7 @@ func xunfeiHandler(c *gin.Context, textRequest dto.GeneralOpenAIRequest, appId s
 		return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 	}
 	c.Writer.Header().Set("Content-Type", "application/json")
-	_, _ = c.Writer.Write(jsonResponse)
+	_, _ = service.WriteResponseBytes(c, jsonResponse)
 	return &usage, nil
 }
 
