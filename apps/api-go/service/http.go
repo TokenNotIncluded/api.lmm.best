@@ -58,6 +58,23 @@ func isForbiddenUpstreamHeader(k string) bool {
 	}
 }
 
+// WriteResponseBytes preserves the writer's result while recording incomplete
+// non-stream delivery for success-only request accounting. Adaptors can retain
+// their existing usage and API-error behavior after headers have been sent.
+func WriteResponseBytes(c *gin.Context, data []byte) (int, error) {
+	written, err := c.Writer.Write(data)
+	if err != nil || written < len(data) {
+		markResponseDeliveryFailure(c)
+	}
+	return written, err
+}
+
+func markResponseDeliveryFailure(c *gin.Context) {
+	if info, ok := common.GetContextKeyType[*relaycommon.RelayInfo](c, constant.ContextKeyRelayInfo); ok && info != nil {
+		info.ResponseFailed = true
+	}
+}
+
 func IOCopyBytesGracefully(c *gin.Context, src *http.Response, data []byte) {
 	if c.Writer == nil {
 		return
@@ -90,9 +107,7 @@ func IOCopyBytesGracefully(c *gin.Context, src *http.Response, data []byte) {
 
 	_, err := io.Copy(c.Writer, body)
 	if err != nil {
-		if info, ok := common.GetContextKeyType[*relaycommon.RelayInfo](c, constant.ContextKeyRelayInfo); ok && info != nil {
-			info.ResponseFailed = true
-		}
+		markResponseDeliveryFailure(c)
 		logger.LogError(c, fmt.Sprintf("failed to copy response body: %s", err.Error()))
 	}
 	c.Writer.Flush()
