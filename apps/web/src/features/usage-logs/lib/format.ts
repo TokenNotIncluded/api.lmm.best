@@ -26,6 +26,10 @@ import {
 
 import type { UsageLog } from '../data/schema'
 import type { LogOtherData } from '../types'
+import {
+  getResponseModelObservation,
+  type ResponseModelObservation,
+} from './response-model'
 
 export { normalizeTierLabel }
 
@@ -218,18 +222,25 @@ export function formatModelName(log: UsageLog): {
   name: string
   isMapped: boolean
   actualModel?: string
+  responseModel?: ResponseModelObservation
 } {
   const other = parseLogOther(log.other)
-  const isMapped = !!(
+  const responseModel = getResponseModelObservation(other?.response_model)
+  const mappedModel =
     other?.is_model_mapped &&
-    other?.upstream_model_name &&
+    typeof other.upstream_model_name === 'string' &&
     other.upstream_model_name !== ''
-  )
+      ? other.upstream_model_name
+      : responseModel?.upstream_model &&
+          responseModel.upstream_model !== responseModel.requested_model
+        ? responseModel.upstream_model
+        : undefined
 
   return {
     name: log.model_name,
-    isMapped,
-    actualModel: isMapped ? other.upstream_model_name : undefined,
+    isMapped: !!mappedModel,
+    actualModel: mappedModel,
+    responseModel,
   }
 }
 

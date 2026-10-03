@@ -1657,12 +1657,29 @@ impl PgObservabilityStore {
         const USER_LOG_JSON: &str = "jsonb_build_object('id', l.id, 'user_id', l.user_id, 'created_at', l.created_at, 'type', l.type, 'content', l.content, 'username', l.username, 'token_name', l.token_name, 'model_name', l.model_name, 'quota', l.quota, 'prompt_tokens', l.prompt_tokens, 'completion_tokens', l.completion_tokens, 'use_time', l.use_time, 'is_stream', l.is_stream, 'channel', l.channel_id, 'channel_name', '', 'token_id', l.token_id, 'group', l.\"group\", 'ip', l.ip, 'request_id', l.request_id, 'upstream_request_id', l.upstream_request_id, 'other', l.other)";
 
         if call.operation == ObservabilityOperation::LogsByToken {
-            // GetLogByTokenId intentionally ignores dashboard paging and date
-            // filters and returns the most recent MaxRecentItems rows. The Go
-            // default is 1000, and the user formatter assigns display ids from
-            // one for this endpoint.
+            // Only explicit paging keys change the legacy recent-row array.
+            // Both queries use the authenticated token and ignore dashboard
+            // filters, including client-supplied token ids and timestamps.
+            let pagination = token_log_page_query(&call.query)?;
             let (where_sql, binds) =
                 log_where(call.operation, &call.query, &call.principal, start, end)?;
+            if let Some((page, page_size, offset)) = pagination {
+                let count_sql = format!("SELECT COUNT(*) FROM logs l {where_sql}");
+                let total = self.fetch_log_count(&count_sql, &binds).await?;
+                let sql = format!(
+                    "SELECT {USER_LOG_JSON} FROM logs l {where_sql} ORDER BY l.id DESC LIMIT ${} OFFSET ${}",
+                    binds.len() + 1,
+                    binds.len() + 2,
+                );
+                let mut row_binds = binds;
+                row_binds.push(LogBind::I64(page_size));
+                row_binds.push(LogBind::I64(offset));
+                let rows = self.fetch_log_rows(&sql, &row_binds).await?;
+                let items = normalize_self_log_items(values(rows), offset);
+                return Ok(
+                    json!({"page": page, "page_size": page_size, "total": total, "items": items}),
+                );
+            }
             let sql = format!(
                 "SELECT {USER_LOG_JSON} FROM logs l {where_sql} ORDER BY l.id DESC LIMIT 1000"
             );
@@ -2032,6 +2049,10 @@ fn integer_query(query: &BTreeMap<String, String>, key: &str) -> i64 {
 }
 
 fn page_query(query: &BTreeMap<String, String>) -> (i64, i64, i64) {
+    page_query_with_limit(query, 100)
+}
+
+fn page_query_with_limit(query: &BTreeMap<String, String>, limit: i64) -> (i64, i64, i64) {
     let page = query
         .get("p")
         .and_then(|value| value.parse::<i64>().ok())
@@ -2042,9 +2063,27 @@ fn page_query(query: &BTreeMap<String, String>) -> (i64, i64, i64) {
         .filter_map(|key| query.get(key))
         .find_map(|value| value.parse::<i64>().ok().filter(|size| *size > 0))
         .unwrap_or(10)
-        .min(100);
+        .min(limit);
     let offset = page.saturating_sub(1).saturating_mul(page_size);
     (page, page_size, offset)
+}
+
+fn token_log_page_query(
+    query: &BTreeMap<String, String>,
+) -> Result<Option<(i64, i64, i64)>, ObservabilityStoreError> {
+    if !["p", "page_size", "ps", "size"]
+        .into_iter()
+        .any(|key| query.contains_key(key))
+    {
+        return Ok(None);
+    }
+    let (page, page_size, offset) = page_query_with_limit(query, 1000);
+    if page.checked_mul(page_size).is_none() {
+        return Err(ObservabilityStoreError::Legacy(
+            "分页参数超出范围".to_owned(),
+        ));
+    }
+    Ok(Some((page, page_size, offset)))
 }
 
 fn normalize_self_log_items(mut items: Value, offset: i64) -> Value {
@@ -3284,6 +3323,104 @@ mod tests {
         assert!(query.contains("WHERE token_id = $1 ORDER BY id DESC LIMIT 1000"));
         assert!(!query.contains("WHERE token_id = $1 AND"));
         assert!(query.contains("'channel', COALESCE(channel_id, 0)"));
+    }
+
+    #[test]
+    fn token_log_paging_is_explicit_and_normalizes_like_go() -> TestResult {
+        for (raw, expected) in [
+            ("", None),
+            ("token_id=9&start_timestamp=1&end_timestamp=2", None),
+            ("page=2", None),
+            ("p", Some((1, 10, 0))),
+            ("p=", Some((1, 10, 0))),
+            ("page_size=", Some((1, 10, 0))),
+            ("ps=", Some((1, 10, 0))),
+            ("size=", Some((1, 10, 0))),
+            ("p=2&page_size=2", Some((2, 2, 2))),
+            ("p=101&size=10", Some((101, 10, 1000))),
+            ("ps=1000", Some((1, 1000, 0))),
+            ("page_size=1001", Some((1, 1000, 0))),
+            ("p=0&page_size=0", Some((1, 10, 0))),
+            ("p=-1&page_size=0", Some((1, 10, 0))),
+            ("p=bad&page_size=bad", Some((1, 10, 0))),
+            (
+                "p=9223372036854775808&size=9223372036854775808",
+                Some((1, 10, 0)),
+            ),
+            (
+                "p=-9223372036854775809&size=-9223372036854775809",
+                Some((1, 10, 0)),
+            ),
+            ("page_size=bad&ps=2&size=3", Some((1, 2, 0))),
+            ("page_size=-1&ps=0&size=3", Some((1, 3, 0))),
+            ("page_size=2&ps=3&size=4", Some((1, 2, 0))),
+            ("p=bad&p=2&size=2", Some((1, 2, 0))),
+            (
+                "p=9223372036854775807&size=1",
+                Some((i64::MAX, 1, i64::MAX - 1)),
+            ),
+        ] {
+            let query = parse_query(RawQuery(Some(raw.to_owned())));
+            assert_eq!(token_log_page_query(&query)?, expected, "{raw}");
+        }
+
+        let query = parse_query(RawQuery(Some("page_size=1000".to_owned())));
+        assert_eq!(page_query(&query), (1, 100, 0));
+        Ok(())
+    }
+
+    #[test]
+    fn token_log_paging_rejects_overflow_instead_of_saturating_offsets() -> TestResult {
+        for raw in [
+            "p=9223372036854775807&size=2",
+            "p=9223372036854776&page_size=1000",
+        ] {
+            let query = parse_query(RawQuery(Some(raw.to_owned())));
+            let error = token_log_page_query(&query)
+                .expect_err("a valid page times its effective size must fit i64");
+            assert!(
+                matches!(error, ObservabilityStoreError::Legacy(message) if message == "分页参数超出范围")
+            );
+        }
+        let query = parse_query(RawQuery(Some(
+            "p=9223372036854775&page_size=1000".to_owned(),
+        )));
+        assert_eq!(
+            token_log_page_query(&query)?,
+            Some((9223372036854775, 1000, 9223372036854774000))
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn token_log_overflow_returns_legacy_error_before_database_access() -> TestResult {
+        let store = PgObservabilityStore::new(
+            PgPool::connect_lazy("postgres://unused:unused@localhost/unused")?,
+            Arc::new(UnavailableObservabilityMetrics),
+            Arc::new(UnavailableObservabilityMaintenance),
+        );
+        let authorizer = DashboardObservabilityAuthorizer::new(
+            Arc::new(StaticDashboardAuth {
+                user: user(ADMIN_ROLE),
+            }),
+            Arc::new(StaticTokenAuth),
+        );
+        let response = observability_read_router(ObservabilityState::new(
+            Arc::new(store),
+            Arc::new(authorizer),
+        ))
+        .oneshot(
+            Request::get("/api/log/token?p=9223372036854775807&page_size=2")
+                .header("authorization", "Bearer token")
+                .body(Body::empty())?,
+        )
+        .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response_body(response).await?,
+            json!({"success": false, "message": "分页参数超出范围"})
+        );
+        Ok(())
     }
 
     #[test]

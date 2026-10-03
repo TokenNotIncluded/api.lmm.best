@@ -13,11 +13,13 @@ This directory contains operational, API, and legal documentation for LMM Forge.
 - [`release-architecture.md`](./release-architecture.md): component-scoped Go/Web release identities and Rust preview boundary.
 - [`model-price-locks.md`](./model-price-locks.md): model base price locks, ignored-change warnings, and API compatibility.
 - [`claude-refusal-billing.md`](./claude-refusal-billing.md): opt-in billing policy for Claude refusals without output.
+- [`async-task-performance-metrics.md`](./async-task-performance-metrics.md): Go terminal task sampling, financial invariants, and shared Rust metric reads.
 - [`go-memory-management.md`](./go-memory-management.md): Go request memory, optional large-request admission, and small-host tuning.
 - [`postgresql-migration.md`](./postgresql-migration.md): migration rehearsal workflow.
 - [`postgresql-cutover.md`](./postgresql-cutover.md): production cutover transaction.
 - [`valkey-lmm-api.md`](./valkey-lmm-api.md): dedicated Valkey deployment guidance.
 - [`rust-blue-green.md`](./rust-blue-green.md): Rust provider rollout and ownership checkpoints.
+- [`task-plugin-host-decision.md`](./task-plugin-host-decision.md): decision against the current upstream script host migration and evidence required for a future provider proposal.
 - [`test-single-instance.md`](./test-single-instance.md): isolated Rust test-host guide.
 - [`open-source-bounties.md`](./open-source-bounties.md): bounty mechanics and workflow.
 - [`ionet-client.md`](./ionet-client.md): iNet client reference artifact.
@@ -28,6 +30,9 @@ This directory contains operational, API, and legal documentation for LMM Forge.
 
 - [`openapi/api.json`](./openapi/api.json): admin API contract.
 - [`openapi/relay.json`](./openapi/relay.json): relay API contract.
+- [`relay-response-model.md`](./relay-response-model.md): provider response-model observations, compatibility rules, and runtime logging boundaries.
+- [`responses-websocket-channels.md`](./responses-websocket-channels.md): channel capability, native route eligibility, and persistent connection authorization.
+- [`token-log-pagination.md`](./token-log-pagination.md): opt-in token usage-log pagination and Go/Rust response contracts.
 - [`translation-glossary.md`](./translation-glossary.md): bilingual terminology base.
 - [`translation-glossary.fr.md`](./translation-glossary.fr.md): French glossary.
 - [`translation-glossary.ru.md`](./translation-glossary.ru.md): Russian glossary.

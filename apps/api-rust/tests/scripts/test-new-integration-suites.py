@@ -37,6 +37,8 @@ else:
     selector = args[args.index("--lib")+1]
     names = [selector]
 listing = "--list" in args
+if os.environ.get("LMM_SUITE_GUARD_CARGO_MODE") == "omit-model-diagnostics" and target == "relay_openai_settlement_pg":
+    names = [name for name in names if not name.startswith("provider_response_model_diagnostics_")]
 oracles = {key:value for key,value in os.environ.items() if key.endswith("_GO_ORACLE_OUTPUT") or key in ("LMM_RELAY_FUNDING_GO_VECTORS", "LMM_RELAY_PRICE_GO_VECTORS")}
 with open(os.environ["LMM_SUITE_GUARD_TRACE"], "a") as trace:
     trace.write(json.dumps({"command":"cargo", "target":target, "listing":listing, "names":names,
@@ -152,14 +154,24 @@ class NewIntegrationSuiteGuards(unittest.TestCase):
                 self.assertTrue(commands)
                 self.assertTrue(all(event["target"] == target or (suite == "relay-settlement" and event["target"] == "lib") for event in commands))
                 expected = [(True,4),(True,1),(False,1),(False,4)] if suite == "catalog" else [(True,len(commands[0]["names"])),(False,len(commands[0]["names"]))]
-                if suite == "relay-settlement": expected = [(True,33),(False,33),(True,1),(False,1)]
+                if suite == "relay-settlement": expected = [(True,35),(False,35),(True,1),(False,1)]
                 self.assertEqual([(event["listing"],len(event["names"])) for event in commands],expected)
+                if suite == "relay-settlement":
+                    required = {"provider_response_model_diagnostics_preserve_wire_quota_and_ledger", "provider_response_model_diagnostics_survive_settlement_recovery"}
+                    for command in commands[:2]:
+                        self.assertTrue(required.issubset(command["names"]))
                 if suite == "stripe":
                     self.assertEqual(len(commands[0]["names"]), 12)
                     self.assertTrue(all(name.startswith("stripe_wallet::") for name in commands[0]["names"]))
                     self.assertIn("stripe_wallet::subscription_pay::stripe_current_go_subscription_checkout_reference_matches", commands[0]["names"])
                     self.assertIn("stripe_wallet::subscription_pay::stripe_subscription_checkout_gates_then_completes_persisted_plan_once", commands[0]["names"])
                 if suite == "epay": self.assertFalse(any(name.startswith("stripe_wallet::") for name in commands[0]["names"]))
+
+    def test_relay_settlement_cannot_drop_model_diagnostic_regressions(self):
+        result = self.run_suite("relay-settlement", LMM_SUITE_GUARD_CARGO_MODE="omit-model-diagnostics")
+        self.assertNotEqual(result.returncode, 0, result.stdout+result.stderr)
+        self.assertIn("required integration test count mismatch", result.stderr)
+        self.assertFalse(any(event["command"] == "cargo" and not event["listing"] for event in self.events()))
 
     def test_fresh_current_go_exports_replace_all_inherited_oracle_paths(self):
         for suite in ("epay", "stripe", "catalog", "token-queries", "relay-settlement"):

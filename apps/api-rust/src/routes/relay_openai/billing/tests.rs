@@ -489,3 +489,157 @@ fn chat_json_missing_prompt_preserves_nonzero_completion_and_prefers_chat_counte
         }
     );
 }
+
+#[test]
+fn provider_model_observation_does_not_change_usage_or_price_and_preserves_tool_metadata() {
+    let price = price(&[
+        ("ModelRatio", json!({"test-model": 2})),
+        ("CompletionRatio", json!({"test-model": 3})),
+    ]);
+    for endpoint in [
+        OpenAiRelayEndpoint::Completions,
+        OpenAiRelayEndpoint::ChatCompletions,
+        OpenAiRelayEndpoint::Responses,
+        OpenAiRelayEndpoint::ResponsesCompact,
+    ] {
+        for streaming in [false, true] {
+            let responses = matches!(
+                endpoint,
+                OpenAiRelayEndpoint::Responses | OpenAiRelayEndpoint::ResponsesCompact
+            );
+            let mut tracker = UsageTracker::new(endpoint)
+                .with_input("test-model".into(), 500)
+                .with_response_models("test-model".into(), "mapped".into());
+            let mut baseline = UsageTracker::new(endpoint).with_input("test-model".into(), 500);
+            let provider = json!({"model":"provider/mapped-preview", "usage":if responses {
+                json!({"input_tokens":20,"output_tokens":4})
+            } else {
+                json!({"prompt_tokens":20,"completion_tokens":4})
+            }});
+            if streaming {
+                let value = if responses {
+                    json!({"type":"response.completed","response":provider})
+                } else {
+                    provider
+                };
+                event(&mut tracker, value.clone());
+                event(&mut baseline, value);
+            } else {
+                let wire = provider.to_string();
+                assert!(tracker.json(wire.as_bytes()).unwrap().is_none());
+                assert!(baseline.json(wire.as_bytes()).unwrap().is_none());
+            }
+            tracker.finalize();
+            baseline.finalize();
+            assert_eq!(tracker.model, "test-model");
+            assert_eq!(price.quota(&tracker.evidence).unwrap(), 64);
+            assert_eq!(
+                price.quota(&tracker.evidence).unwrap(),
+                price.quota(&baseline.evidence).unwrap()
+            );
+            let mut ordinary = serde_json::to_value(&tracker.evidence).unwrap();
+            let expected = json!({"requested_model":"test-model","upstream_model":"mapped","returned_model":"provider/mapped-preview"});
+            assert_eq!(
+                ordinary.as_object_mut().unwrap().remove("response_model"),
+                Some(expected.clone())
+            );
+            assert_eq!(ordinary, serde_json::to_value(&baseline.evidence).unwrap());
+            assert_eq!(
+                price.log_metadata(&tracker.evidence)["response_model"],
+                expected
+            );
+
+            tracker.evidence.tools.insert("web_search".into(), 1);
+            baseline.evidence.tools.insert("web_search".into(), 1);
+            let mut metadata = price.log_metadata(&tracker.evidence);
+            assert_eq!(
+                metadata.as_object_mut().unwrap().remove("response_model"),
+                Some(expected)
+            );
+            assert_eq!(metadata, price.log_metadata(&baseline.evidence));
+            assert_eq!(
+                price.quota(&tracker.evidence).unwrap(),
+                price.quota(&baseline.evidence).unwrap()
+            );
+        }
+    }
+}
+
+#[test]
+fn provider_models_are_observed_from_fragmented_raw_events_and_genuine_mismatch_is_sticky() {
+    for endpoint in [
+        OpenAiRelayEndpoint::ChatCompletions,
+        OpenAiRelayEndpoint::Responses,
+    ] {
+        let mut tracker =
+            UsageTracker::new(endpoint).with_response_models("requested".into(), "mapped".into());
+        if matches!(endpoint, OpenAiRelayEndpoint::Responses) {
+            event(
+                &mut tracker,
+                json!({"type":"response.output_text.delta", "model":"outer-noise", "delta":"hello"}),
+            );
+            assert!(tracker.evidence.response_model.is_none());
+        }
+        for model in [
+            json!("vendor/mapped-preview"),
+            json!("other"),
+            json!("requested"),
+            json!(null),
+            json!(""),
+            json!("another"),
+        ] {
+            let value = if matches!(endpoint, OpenAiRelayEndpoint::Responses) {
+                // The outer model is converter-shaped noise. Only the actual
+                // provider response object's declaration belongs in metadata.
+                json!({"type":"response.in_progress", "model":"outer-noise", "response":{"model":model}})
+            } else {
+                json!({"model":model})
+            };
+            event(&mut tracker, value);
+        }
+        assert_eq!(
+            serde_json::to_value(&tracker.evidence.response_model).unwrap(),
+            json!({
+                "requested_model":"requested", "upstream_model":"mapped", "returned_model":"other"
+            })
+        );
+        assert!(tracker.evidence.response_model.as_ref().unwrap().mismatch());
+    }
+}
+
+#[test]
+fn missing_empty_or_exact_provider_model_keeps_legacy_evidence_and_logs_unchanged() {
+    let price = price(&[("ModelRatio", json!({"test-model":1}))]);
+    for model in [
+        json!(null),
+        json!(42),
+        json!(""),
+        json!(" \t"),
+        json!("test-model"),
+    ] {
+        let mut tracker = UsageTracker::new(OpenAiRelayEndpoint::Responses)
+            .with_response_models("test-model".into(), "test-model".into());
+        assert!(
+            tracker
+                .json(json!({"model":model}).to_string().as_bytes())
+                .unwrap()
+                .is_none()
+        );
+        assert!(tracker.evidence.response_model.is_none());
+        assert!(
+            serde_json::to_value(&tracker.evidence)
+                .unwrap()
+                .get("response_model")
+                .is_none()
+        );
+        assert_eq!(price.log_metadata(&tracker.evidence), json!({}));
+    }
+    // Existing durable usage snapshots decode without a schema migration.
+    let evidence: Evidence = serde_json::from_value(json!({
+        "usage":{"input":20,"output":4,"cached":0,"cache_write":0,"image":0},
+        "completed":true,"terminal":true,"reported":true,"tools":{},"observed":true
+    }))
+    .unwrap();
+    assert!(evidence.response_model.is_none());
+    assert_eq!(price.log_metadata(&evidence), json!({}));
+}

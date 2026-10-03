@@ -94,6 +94,9 @@ func HandleStreamResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 	if claudeError := claudeResponse.GetClaudeError(); claudeError != nil && claudeError.Type != "" {
 		return types.WithClaudeError(*claudeError, http.StatusInternalServerError)
 	}
+	if claudeResponse.Type == "message_start" && claudeResponse.Message != nil {
+		info.ObserveResponseModel(claudeResponse.Message.Model)
+	}
 	observeClaudeRefusal(c, &claudeResponse, data)
 	if info.RelayFormat == types.RelayFormatOpenAIResponses {
 		response := StreamResponseClaude2OpenAI(&claudeResponse)
@@ -241,6 +244,7 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 	if claudeError := claudeResponse.GetClaudeError(); claudeError != nil && claudeError.Type != "" {
 		return types.WithClaudeError(*claudeError, http.StatusInternalServerError)
 	}
+	info.ObserveResponseModel(claudeResponse.Model)
 	resetClaudeRefusalBilling(c)
 	observeClaudeRefusal(c, &claudeResponse, string(data))
 	markClaudeRefusalBillingExemption(c)

@@ -39,6 +39,8 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
 	}
 
+	info.ObserveResponseModel(responsesResponse.Model)
+
 	// 写入新的 response body
 	service.IOCopyBytesGracefully(c, resp, responseBody)
 
@@ -112,6 +114,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			sequence = *event.SequenceNumber
 		}
 		if streamResponse.Response != nil {
+			info.ObserveResponseModel(streamResponse.Response.Model)
 			lastResponse = streamResponse.Response
 			if lastResponse.Usage != nil {
 				candidate := &dto.Usage{}
