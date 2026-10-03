@@ -30,6 +30,10 @@ impl Guard {
     ) {
         self.tracker = UsageTracker::new(endpoint)
             .with_input(reservation.model.clone(), reservation.estimated_prompt)
+            .with_response_models(
+                reservation.model.clone(),
+                reservation.upstream_model.clone(),
+            )
             .with_request(body);
         self.reservation = Some(reservation);
     }
@@ -41,6 +45,10 @@ impl Guard {
     ) -> Self {
         let tracker = UsageTracker::new(endpoint)
             .with_input(reservation.model.clone(), reservation.estimated_prompt)
+            .with_response_models(
+                reservation.model.clone(),
+                reservation.upstream_model.clone(),
+            )
             .with_request(request_body);
         Self {
             service,

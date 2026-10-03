@@ -29,6 +29,9 @@ This directory contains operational, API, and legal documentation for LMM Forge.
 
 - [`openapi/api.json`](./openapi/api.json): admin API contract.
 - [`openapi/relay.json`](./openapi/relay.json): relay API contract.
+- [`relay-response-model.md`](./relay-response-model.md): provider response-model observations, compatibility rules, and runtime logging boundaries.
+- [`responses-websocket-channels.md`](./responses-websocket-channels.md): channel capability, native route eligibility, and persistent connection authorization.
+- [`token-log-pagination.md`](./token-log-pagination.md): opt-in token usage-log pagination and Go/Rust response contracts.
 - [`translation-glossary.md`](./translation-glossary.md): bilingual terminology base.
 - [`translation-glossary.fr.md`](./translation-glossary.fr.md): French glossary.
 - [`translation-glossary.ru.md`](./translation-glossary.ru.md): Russian glossary.

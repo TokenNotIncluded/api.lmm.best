@@ -638,10 +638,11 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         const modelInfo = formatModelName(log)
 
         return (
-          <div className='flex w-fit flex-col gap-0.5'>
+          <div className='flex w-fit max-w-full min-w-0 flex-col gap-0.5'>
             <ModelBadge
               modelName={modelInfo.name}
               actualModel={modelInfo.actualModel}
+              responseModel={modelInfo.responseModel}
             />
           </div>
         )
