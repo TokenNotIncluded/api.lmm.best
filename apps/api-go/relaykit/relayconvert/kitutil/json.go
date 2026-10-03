@@ -15,6 +15,18 @@ func Unmarshal(data []byte, v any) error {
 	return json.Unmarshal(data, v)
 }
 
+// UnmarshalWithNumber retains numeric JSON tokens in dynamic tool schemas.
+// Keep ordinary request and application decoding on Unmarshal: their callers
+// may rely on the default float64 representation of interface values.
+func UnmarshalWithNumber(data []byte, v any) error {
+	if !json.Valid(data) {
+		return json.Unmarshal(data, v)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	return decoder.Decode(v)
+}
+
 func UnmarshalJsonStr(data string, v any) error {
 	return json.Unmarshal(StringToByteSlice(data), v)
 }
