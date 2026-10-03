@@ -116,6 +116,7 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	AppendChannelAffinityAdminInfo(ctx, adminInfo)
 
 	other["admin_info"] = adminInfo
+	AppendResponseModelLogInfo(relayInfo, other)
 	appendRequestPath(ctx, relayInfo, other)
 	appendRequestConversionChain(relayInfo, other)
 	appendFinalRequestFormat(relayInfo, other)
@@ -123,6 +124,14 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	appendParamOverrideInfo(relayInfo, other)
 	appendStreamStatus(relayInfo, other)
 	return other
+}
+
+// AppendResponseModelLogInfo is diagnostic only and writes names, never a stored
+// mismatch decision. Old rows are evaluated by the current UI comparison rule.
+func AppendResponseModelLogInfo(info *relaycommon.RelayInfo, other map[string]interface{}) {
+	if info != nil && other != nil && info.ResponseModel.Useful() {
+		other["response_model"] = *info.ResponseModel
+	}
 }
 
 func appendParamOverrideInfo(relayInfo *relaycommon.RelayInfo, other map[string]interface{}) {

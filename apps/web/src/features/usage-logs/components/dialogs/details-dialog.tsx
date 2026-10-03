@@ -69,6 +69,7 @@ import { cn } from '@/lib/utils'
 import type { UsageLog } from '../../data/schema'
 import {
   parseLogOther,
+  formatModelName,
   getParamOverrideActionLabel,
   parseAuditLine,
   decodeBillingExprB64,
@@ -105,6 +106,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { LogRequestSummary } from '../log-request-summary'
+import { ResponseModelDetails } from '../model-badge'
 
 // Maps a channel-update changed-field token (as recorded by the backend audit)
 // to its i18n label key for display in the audit details.
@@ -505,6 +507,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
       ? safeLogDiagnostic(props.log.content ?? '')
       : (props.log.content ?? '')
   const other = parseLogOther(props.log.other)
+  const modelInfo = formatModelName(props.log)
   const typeConfig = getLogTypeConfig(props.log.type)
 
   const isViolation = isViolationFeeLog(other)
@@ -1078,8 +1081,13 @@ export function DetailsDialog(props: DetailsDialogProps) {
           />
         )}
 
-        {/* Model mapping */}
-        {other?.is_model_mapped && other?.upstream_model_name && (
+        {modelInfo.responseModel && (
+          <DetailSection label={t('Response Model')}>
+            <ResponseModelDetails observation={modelInfo.responseModel} />
+          </DetailSection>
+        )}
+        {/* Model mapping for historical logs without a response observation. */}
+        {!modelInfo.responseModel && modelInfo.actualModel && (
           <DetailSection label={t('Model Mapping')}>
             <DetailRow
               label={t('Request Model')}
@@ -1088,7 +1096,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
             />
             <DetailRow
               label={t('Actual Model')}
-              value={other.upstream_model_name}
+              value={modelInfo.actualModel}
               mono
             />
           </DetailSection>

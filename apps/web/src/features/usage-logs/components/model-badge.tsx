@@ -16,9 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Route } from 'lucide-react'
+import { Alert02Icon, Route01Icon } from '@hugeicons/core-free-icons'
+import { HugeiconsIcon } from '@hugeicons/react'
 import { useTranslation } from 'react-i18next'
 
+import { CopyButton } from '@/components/copy-button'
 import { StatusBadge } from '@/components/status-badge'
 import {
   Popover,
@@ -28,9 +30,15 @@ import {
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
 
+import {
+  isResponseModelMismatch,
+  type ResponseModelObservation,
+} from '../lib/response-model'
+
 interface ModelBadgeProps {
   modelName: string
   actualModel?: string
+  responseModel?: ResponseModelObservation
   className?: string
 }
 
@@ -122,22 +130,23 @@ function resolveModelProvider(modelName: string): ModelProvider | null {
   return null
 }
 
-function ModelBadgeContent(props: ModelBadgeProps) {
+function ModelBadgeContent(props: ModelBadgeProps & { copyable?: boolean }) {
   const provider = resolveModelProvider(props.modelName)
 
   return (
     <StatusBadge
       copyText={props.modelName}
+      copyable={props.copyable}
       size='sm'
       showDot={!provider}
       autoColor={provider ? undefined : props.modelName}
       className={cn(
-        'border-border/60 bg-muted/30 h-6 max-w-none gap-1.5 rounded-md border px-2 [font-family:var(--font-body)]',
+        'border-border/60 bg-muted/30 h-auto min-h-6 max-w-full gap-1.5 rounded-md border px-2 py-0.5 whitespace-normal [font-family:var(--font-body)]',
         provider && 'text-foreground',
         props.className
       )}
     >
-      <span className='flex max-w-none items-center gap-1.5'>
+      <span className='flex max-w-full min-w-0 items-center gap-1.5'>
         {provider && (
           <span
             className='flex h-[18px] w-[18px] shrink-0 items-center justify-center'
@@ -147,7 +156,9 @@ function ModelBadgeContent(props: ModelBadgeProps) {
             {getLobeIcon(provider.icon, 18)}
           </span>
         )}
-        <span className='whitespace-nowrap'>{props.modelName}</span>
+        <span className='min-w-0 [overflow-wrap:anywhere]'>
+          {props.modelName}
+        </span>
       </span>
     </StatusBadge>
   )
@@ -155,8 +166,24 @@ function ModelBadgeContent(props: ModelBadgeProps) {
 
 export function ModelBadge(props: ModelBadgeProps) {
   const { t } = useTranslation()
+  const mismatch = isResponseModelMismatch(props.responseModel)
+  const returnedLabel = props.responseModel
+    ? t('Response model: {{model}}', {
+        model: props.responseModel.returned_model,
+      })
+    : ''
+  const hasDetails =
+    !!props.actualModel ||
+    !!(
+      props.responseModel &&
+      (mismatch ||
+        props.responseModel.returned_model !==
+          props.responseModel.requested_model ||
+        props.responseModel.upstream_model !==
+          props.responseModel.requested_model)
+    )
 
-  if (!props.actualModel) {
+  if (!hasDetails) {
     return <ModelBadgeContent {...props} />
   }
 
@@ -164,32 +191,111 @@ export function ModelBadge(props: ModelBadgeProps) {
     <Popover>
       <PopoverTrigger
         render={
-          <button type='button' className='inline-flex items-center gap-1' />
+          <button
+            type='button'
+            aria-label={`${t('Model')}: ${props.modelName}${returnedLabel ? `, ${returnedLabel}` : ''}`}
+            className='inline-flex max-w-full min-w-0 flex-wrap items-center gap-1 text-left'
+          />
         }
       >
-        <ModelBadgeContent {...props} />
-        <Route className='text-muted-foreground size-3 shrink-0' />
+        <ModelBadgeContent {...props} copyable={false} />
+        {mismatch && props.responseModel ? (
+          <ResponseModelWarning observation={props.responseModel} />
+        ) : (
+          <span className='text-muted-foreground shrink-0 [&>svg]:size-3'>
+            <HugeiconsIcon icon={Route01Icon} aria-hidden='true' />
+          </span>
+        )}
       </PopoverTrigger>
-      <PopoverContent className='w-72'>
-        <div className='space-y-2'>
-          <div className='flex items-start justify-between gap-3'>
-            <span className='text-muted-foreground text-xs'>
-              {t('Request Model:')}
-            </span>
-            <span className='truncate font-mono text-xs font-medium'>
-              {props.modelName}
-            </span>
+      <PopoverContent className='w-96 max-w-[calc(100vw-2rem)]'>
+        {props.responseModel ? (
+          <ResponseModelDetails observation={props.responseModel} />
+        ) : (
+          <div className='flex flex-col gap-2'>
+            <ModelDetailRow
+              label={t('Request Model:')}
+              model={props.modelName}
+            />
+            <ModelDetailRow
+              label={t('Actual Model:')}
+              model={props.actualModel || ''}
+            />
           </div>
-          <div className='flex items-start justify-between gap-3'>
-            <span className='text-muted-foreground text-xs'>
-              {t('Actual Model:')}
-            </span>
-            <span className='truncate font-mono text-xs font-medium'>
-              {props.actualModel}
-            </span>
-          </div>
-        </div>
+        )}
       </PopoverContent>
     </Popover>
+  )
+}
+
+function ModelDetailRow(props: { label: string; model: string }) {
+  const { t } = useTranslation()
+  const hasModelName = props.model.trim() !== ''
+  return (
+    <div className='grid min-w-0 grid-cols-[5.25rem_minmax(0,1fr)_auto] items-start gap-2 text-xs sm:grid-cols-[7rem_minmax(0,1fr)_auto] sm:gap-3'>
+      <span className='text-muted-foreground min-w-0'>{props.label}</span>
+      <span className='min-w-0 font-mono [overflow-wrap:anywhere]'>
+        {hasModelName ? props.model : '—'}
+      </span>
+      {hasModelName && (
+        <CopyButton
+          value={props.model}
+          aria-label={`${t('Copy to clipboard')} (${props.label})`}
+          className='size-6'
+        />
+      )}
+    </div>
+  )
+}
+
+function ResponseModelWarning(props: {
+  observation: ResponseModelObservation
+}) {
+  const { t } = useTranslation()
+  return (
+    <StatusBadge
+      variant='warning'
+      copyable={false}
+      aria-label={t('Response model mismatch')}
+      data-response-model-warning
+      className='h-auto min-h-5 max-w-full py-0.5 text-left whitespace-normal'
+    >
+      <span className='shrink-0 [&>svg]:size-3.5'>
+        <HugeiconsIcon icon={Alert02Icon} aria-hidden='true' />
+      </span>
+      <span className='min-w-0 [overflow-wrap:anywhere]'>
+        {t('Response model: {{model}}', {
+          model: props.observation.returned_model,
+        })}
+      </span>
+    </StatusBadge>
+  )
+}
+
+/** Shared by the table/mobile popover and the request details dialog. */
+export function ResponseModelDetails(props: {
+  observation: ResponseModelObservation
+}) {
+  const { t } = useTranslation()
+  const mismatch = isResponseModelMismatch(props.observation)
+  const rows = [
+    [t('Request Model'), props.observation.requested_model],
+    [t('Upstream Model'), props.observation.upstream_model],
+    [t('Response Model'), props.observation.returned_model],
+  ]
+
+  return (
+    <div className='flex min-w-0 flex-col gap-2'>
+      {mismatch && <ResponseModelWarning observation={props.observation} />}
+      {rows.map(([label, model]) => (
+        <ModelDetailRow key={label} label={label} model={model} />
+      ))}
+      {mismatch && (
+        <p className='text-muted-foreground text-xs'>
+          {t(
+            'The upstream returned a different model name. This warning alone does not prove model substitution.'
+          )}
+        </p>
+      )}
+    </div>
   )
 }

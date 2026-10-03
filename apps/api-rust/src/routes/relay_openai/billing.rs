@@ -8,6 +8,7 @@ use rust_decimal::{Decimal, RoundingStrategy, prelude::ToPrimitive};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::response_model::ResponseModelObservation;
 use super::tools::{ToolCalls, ToolPrices};
 use super::{OpenAiRelayEndpoint, OpenAiRelayFailure};
 use crate::routes::sse::SseFrameParser;
@@ -336,11 +337,18 @@ impl Price {
         let tools = self
             .tool_prices
             .log_items(&evidence.tools, &self.model_name);
-        if tools.is_empty() {
-            serde_json::json!({})
-        } else {
-            serde_json::json!({"tool_surcharges":tools})
+        let mut metadata = serde_json::json!({});
+        if !tools.is_empty() {
+            metadata["tool_surcharges"] = serde_json::json!(tools);
         }
+        if let Some(observation) = evidence
+            .response_model
+            .as_ref()
+            .filter(|model| model.useful())
+        {
+            metadata["response_model"] = serde_json::json!(observation);
+        }
+        metadata
     }
 
     pub fn free(&self) -> bool {
@@ -553,6 +561,8 @@ pub(super) struct Evidence {
     pub reported: bool,
     pub tools: BTreeMap<String, i64>,
     pub observed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_model: Option<ResponseModelObservation>,
 }
 
 pub(super) struct UsageTracker {
@@ -566,6 +576,7 @@ pub(super) struct UsageTracker {
     output: String,
     tool_count: i64,
     tools: ToolCalls,
+    response_model: Option<ResponseModelObservation>,
 }
 
 impl UsageTracker {
@@ -581,6 +592,7 @@ impl UsageTracker {
             output: String::new(),
             tool_count: 0,
             tools: ToolCalls::default(),
+            response_model: None,
         }
     }
 
@@ -592,6 +604,11 @@ impl UsageTracker {
 
     pub fn with_request(mut self, raw: &[u8]) -> Self {
         self.tools = ToolCalls::from_request(raw);
+        self
+    }
+
+    pub fn with_response_models(mut self, requested: String, upstream: String) -> Self {
+        self.response_model = Some(ResponseModelObservation::new(requested, upstream));
         self
     }
 
@@ -745,6 +762,21 @@ impl UsageTracker {
         } else {
             value
         };
+        // Responses SSE declares its model only inside the provider response
+        // object. Top-level event fields are not model observations.
+        let declared_model = if stream && responses {
+            value.get("response")
+        } else {
+            Some(value)
+        }
+        .and_then(|response| response.get("model"))
+        .and_then(Value::as_str);
+        if let Some(observation) = self.response_model.as_mut()
+            && let Some(returned) = declared_model
+        {
+            observation.observe(returned);
+            self.evidence.response_model = observation.useful().then(|| observation.clone());
+        }
         let terminal = !stream
             || matches!(
                 kind,

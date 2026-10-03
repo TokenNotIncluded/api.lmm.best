@@ -1759,3 +1759,159 @@ async fn relay_trust_discount_uses_credited_quota_and_excludes_linuxdo_credit() 
     }
     Ok(())
 }
+
+fn response_model_provider_wire(path: &str, streaming: bool, scenario: &str) -> Vec<u8> {
+    let responses = path == "/v1/responses";
+    let returned = match scenario {
+        "exact" => "priced-model",
+        "alias" => "vendor/priced-model-preview",
+        _ => "unexpected-model",
+    };
+    let usage = if responses {
+        json!({"input_tokens":20,"output_tokens":4})
+    } else {
+        json!({"prompt_tokens":20,"completion_tokens":4})
+    };
+    if !streaming {
+        let value = if responses {
+            json!({"id":"resp-model","object":"response","status":"completed","model":returned,"output":[],"usage":usage,"provider_marker":"kept"})
+        } else {
+            json!({"id":"chat-model","object":"chat.completion","model":returned,"choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}],"usage":usage,"provider_marker":"kept"})
+        };
+        return value.to_string().into_bytes();
+    }
+
+    let models: &[&str] = match scenario {
+        "exact" => &["priced-model", "", "priced-model"],
+        "alias" => &["vendor/priced-model-preview", "", "priced-model"],
+        _ => &[
+            "vendor/priced-model-preview",
+            "unexpected-model",
+            "priced-model",
+        ],
+    };
+    let mut wire = String::new();
+    for model in models {
+        let value = if responses {
+            json!({"type":"response.in_progress","response":{"id":"resp-model","model":model}})
+        } else {
+            json!({"id":"chat-model","object":"chat.completion.chunk","model":model,"choices":[{"index":0,"delta":{"content":"hello"}}]})
+        };
+        wire.push_str(&format!("data: {value}\n\n"));
+    }
+    let terminal = if responses {
+        json!({"type":"response.completed","response":{"id":"resp-model","status":"completed","model":"priced-model","usage":usage}})
+    } else {
+        json!({"id":"chat-model","object":"chat.completion.chunk","model":"priced-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":usage})
+    };
+    wire.push_str(&format!("data: {terminal}\n\n"));
+    if !responses {
+        wire.push_str("data: [DONE]\n\n");
+    }
+    wire.into_bytes()
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL via LMM_TEST_DATABASE_URL"]
+async fn provider_response_model_diagnostics_preserve_wire_quota_and_ledger() -> TestResult {
+    for path in ["/v1/chat/completions", "/v1/responses"] {
+        for streaming in [false, true] {
+            let fixture = Fixture::new(streaming).await?;
+            for (index, scenario) in ["exact", "alias", "mismatch"].into_iter().enumerate() {
+                let sender = if index == 0 {
+                    fixture.wire.clone()
+                } else {
+                    fixture.queue_turn().await
+                };
+                let expected_wire = response_model_provider_wire(path, streaming, scenario);
+                sender.send(Ok(Bytes::from(expected_wire.clone()))).await?;
+                let request_id = format!("model-diagnostic-{streaming}-{scenario}");
+                let response = fixture.request_to(&request_id, streaming, path).await?;
+                assert_eq!(response.status(), StatusCode::OK);
+                let actual_wire = to_bytes(response.into_body(), 65536).await?;
+                assert_eq!(actual_wire.as_ref(), expected_wire.as_slice());
+                fixture
+                    .settled(32 * (index as i64 + 1), index as i64 + 1)
+                    .await?;
+
+                let row: (i64, i64, i64, String, String) = sqlx::query_as(
+                    "SELECT quota,prompt_tokens,completion_tokens,model_name,other FROM logs WHERE type=2 AND request_id=$1",
+                ).bind(&request_id).fetch_one(&fixture.pg).await?;
+                assert_eq!(
+                    (row.0, row.1, row.2, row.3.as_str()),
+                    (32, 20, 4, "priced-model")
+                );
+                let other: Value = serde_json::from_str(&row.4)?;
+                let (actual_quota, usage, metadata): (i64, Value, Value) = sqlx::query_as(
+                    "SELECT actual_quota,usage_snapshot,log_metadata FROM relay_settlement_records WHERE request_id=$1",
+                ).bind(&request_id).fetch_one(&fixture.pg).await?;
+                assert_eq!(actual_quota, 32);
+                if scenario == "exact" {
+                    assert!(other.get("response_model").is_none());
+                    assert!(usage.get("response_model").is_none());
+                    assert!(metadata.get("response_model").is_none());
+                } else {
+                    let expected = json!({
+                        "requested_model":"priced-model", "upstream_model":"priced-model",
+                        "returned_model":if scenario == "alias" { "vendor/priced-model-preview" } else { "unexpected-model" }
+                    });
+                    assert_eq!(other["response_model"], expected);
+                    assert_eq!(usage["response_model"], expected);
+                    assert_eq!(metadata["response_model"], expected);
+                }
+                assert_eq!(fixture.calls.load(Ordering::SeqCst), index + 1);
+            }
+            fixture.cleanup().await?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL via LMM_TEST_DATABASE_URL"]
+async fn provider_response_model_diagnostics_survive_settlement_recovery() -> TestResult {
+    let fixture = Fixture::new(true).await?;
+    sqlx::query("ALTER TABLE logs ADD CONSTRAINT reject_finalization CHECK(type<>2)")
+        .execute(&fixture.pg)
+        .await?;
+    let expected_wire = response_model_provider_wire("/v1/responses", true, "mismatch");
+    fixture
+        .wire
+        .send(Ok(Bytes::from(expected_wire.clone())))
+        .await?;
+    let response = fixture.request("model-diagnostic-recovery", true).await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        to_bytes(response.into_body(), 65536).await?.as_ref(),
+        expected_wire.as_slice()
+    );
+    let (status, metadata): (String, Value) = sqlx::query_as(
+        "SELECT status,log_metadata FROM relay_settlement_records WHERE request_id='model-diagnostic-recovery'",
+    ).fetch_one(&fixture.pg).await?;
+    assert_eq!(status, "settling");
+    let expected = json!({"requested_model":"priced-model","upstream_model":"priced-model","returned_model":"unexpected-model"});
+    assert_eq!(metadata["response_model"], expected);
+    sqlx::query("ALTER TABLE logs DROP CONSTRAINT reject_finalization")
+        .execute(&fixture.pg)
+        .await?;
+    assert_eq!(
+        fixture
+            .service
+            .reconcile_settlements(10)
+            .await
+            .map_err(|failure| std::io::Error::other(failure.message))?,
+        1
+    );
+    fixture.settled(32, 1).await?;
+    let other: String = sqlx::query_scalar(
+        "SELECT other FROM logs WHERE type=2 AND request_id='model-diagnostic-recovery'",
+    )
+    .fetch_one(&fixture.pg)
+    .await?;
+    assert_eq!(
+        serde_json::from_str::<Value>(&other)?["response_model"],
+        expected
+    );
+    assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
+    fixture.cleanup().await
+}

@@ -64,7 +64,27 @@ func GetLogByKey(c *gin.Context) {
 		})
 		return
 	}
-	logs, err := model.GetLogByTokenId(tokenId)
+	query := c.Request.URL.Query()
+	paginated := query.Has("p") || query.Has("page_size") || query.Has("ps") || query.Has("size")
+	var data any
+	var err error
+	if paginated {
+		pageInfo := common.GetPageQuery(c, model.MaxTokenLogPageSize)
+		pageInfo.Page = max(1, pageInfo.Page)
+		// Bound the end as well as the offset: display ids add one per row.
+		if pageInfo.Page > int(^uint(0)>>1)/pageInfo.PageSize {
+			c.JSON(200, gin.H{"success": false, "message": "分页参数超出范围"})
+			return
+		}
+		var total int64
+		var logs []*model.Log
+		logs, total, err = model.GetLogByTokenIdPage(tokenId, pageInfo.GetStartIdx(), pageInfo.PageSize)
+		pageInfo.SetTotal(int(total))
+		pageInfo.SetItems(logs)
+		data = pageInfo
+	} else {
+		data, err = model.GetLogByTokenId(tokenId)
+	}
 	if err != nil {
 		c.JSON(200, gin.H{
 			"success": false,
@@ -75,7 +95,7 @@ func GetLogByKey(c *gin.Context) {
 	c.JSON(200, gin.H{
 		"success": true,
 		"message": "",
-		"data":    logs,
+		"data":    data,
 	})
 }
 

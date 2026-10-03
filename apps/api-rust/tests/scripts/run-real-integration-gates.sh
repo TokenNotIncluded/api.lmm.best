@@ -211,7 +211,7 @@ run_relay_settlement() (
   for variable in LMM_TEST_DATABASE_URL LMM_AUTH_TEST_VALKEY_URL; do require_loopback_url "$variable"; done
   export LMM_API_TOKEN_TEST_VALKEY_URL="${LMM_API_TOKEN_TEST_VALKEY_URL:-$LMM_AUTH_TEST_VALKEY_URL}"
   require_loopback_url LMM_API_TOKEN_TEST_VALKEY_URL
-  require_api_ignored_test_count relay_openai_settlement_pg 34
+  require_api_ignored_test_count relay_openai_settlement_pg 36
   runtime=$(mktemp -d "${TMPDIR:-/tmp}/lmm-current-go-funding.XXXXXX")
   trap 'rm -rf -- "$runtime"' EXIT
   export LMM_RELAY_FUNDING_GO_VECTORS="$runtime/funding.json"
@@ -223,7 +223,7 @@ run_relay_settlement() (
   )
   python3 "$script_dir/verify-current-go-export.py" relay-funding "$LMM_RELAY_FUNDING_GO_VECTORS"
   python3 "$script_dir/verify-current-go-export.py" relay-price "$LMM_RELAY_PRICE_GO_VECTORS"
-  run_counted_api_integration_tests relay_openai_settlement_pg 34
+  run_counted_api_integration_tests relay_openai_settlement_pg 36
   run_exact_api_lib_test routes::relay_openai::funding::go_oracle_tests::current_go_funding_vectors_match_real_postgres_reserve_settle_refund_and_grow
 )
 

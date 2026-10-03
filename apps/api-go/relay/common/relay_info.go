@@ -121,6 +121,12 @@ type RelayInfo struct {
 	SendResponseCount      int
 	ReceivedResponseCount  int
 	FinalPreConsumedQuota  int // 最终预消耗的配额
+
+	ResponseModel               *ResponseModel
+	responseModelRequestedModel string
+	responseModelSelectedModel  string
+	responseModelSelectionSeen  bool
+
 	// A provider report (including terminal zero) is distinct from absent
 	// Responses usage. Neither local tokens nor prepayment may replace it.
 	ResponsesUsageReported bool
@@ -222,6 +228,7 @@ func (info *RelayInfo) CompleteResponseOutcome(apiErr *types.NewAPIError) {
 }
 
 func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
+	info.resetResponseModel()
 	info.ResponsesUsageReported = false
 	channelType := common.GetContextKeyInt(c, constant.ContextKeyChannelType)
 	paramOverride := common.GetContextKeyStringMap(c, constant.ContextKeyChannelParamOverride)
@@ -551,7 +558,8 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 		UserQuota:  common.GetContextKeyInt(c, constant.ContextKeyUserQuota),
 		UserEmail:  common.GetContextKeyString(c, constant.ContextKeyUserEmail),
 
-		OriginModelName: common.GetContextKeyString(c, constant.ContextKeyOriginalModel),
+		OriginModelName:             common.GetContextKeyString(c, constant.ContextKeyOriginalModel),
+		responseModelRequestedModel: common.GetContextKeyString(c, constant.ContextKeyOriginalModel),
 
 		TokenId:        common.GetContextKeyInt(c, constant.ContextKeyTokenId),
 		TokenKey:       common.GetContextKeyString(c, constant.ContextKeyTokenKey),
