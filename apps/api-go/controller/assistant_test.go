@@ -1335,7 +1335,7 @@ func TestAssistantPricingEndpointAppliesTrustDiscountToGroupRatios(t *testing.T)
 func TestAssistantAgentToolsExposeSafeAndConfirmationGatedActions(t *testing.T) {
 	c, _ := createAssistantKeyTestContext(t, "assistant-tool-user")
 	definitions := assistantToolDefinitions()
-	require.Len(t, definitions, 50)
+	require.Len(t, definitions, 52)
 	names := make(map[string]bool, len(definitions))
 	for _, definition := range definitions {
 		names[definition.Function.Name] = true
@@ -1353,6 +1353,8 @@ func TestAssistantAgentToolsExposeSafeAndConfirmationGatedActions(t *testing.T) 
 	assert.True(t, names["get_bounty_guide"])
 	assert.True(t, names["get_bounty_data"])
 	assert.True(t, names["prepare_new_user_gift"])
+	assert.True(t, names["get_new_user_gift_status"])
+	assert.True(t, names["get_weekly_discount_status"])
 	assert.True(t, names["prepare_weekly_discount"])
 	assert.True(t, names["get_usage_summary"])
 	assert.True(t, names["navigate_to_page"])
@@ -2444,7 +2446,7 @@ func TestAssistantGiftRequestUsesOneTimeDecisionToolForL1(t *testing.T) {
 	// “新人福利” is the wording users actually see in the console. It must
 	// enter the same confirmation-gated gift workflow as “新用户礼包” rather
 	// than falling through to a generic onboarding answer.
-	for _, message := range []string{"申请新人福利", "我想领取新手福利", "我想申请新用户福利", "How do I claim the new user gift?"} {
+	for _, message := range []string{"申请新人福利", "我想领取新手福利", "我想申请新用户福利", "I want to claim the new user gift"} {
 		context.LatestUserRequest = message
 		assert.Equal(t, []string{"prepare_new_user_gift"}, assistantReadChain(context), message)
 		assert.True(t, assistantNewUserGiftWorkflowRequired(context), message)

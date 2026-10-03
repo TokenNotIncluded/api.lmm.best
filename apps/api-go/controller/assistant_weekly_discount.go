@@ -49,6 +49,9 @@ func ClaimAssistantWeeklyDiscount(c *gin.Context) {
 }
 
 func executeAssistantWeeklyDiscountTool(c *gin.Context, userID int, input map[string]any) map[string]any {
+	if assistantRewardReadOnlyRequest(c) {
+		return assistantWeeklyDiscountReadOnlyRequestResult()
+	}
 	percent, ok := inputNumber(input, "discount_percent")
 	if !ok || math.IsNaN(percent) || math.IsInf(percent, 0) || math.Trunc(percent) != percent || percent < 0 || percent > 10 {
 		return map[string]any{"ok": false, "status": "invalid_decision", "error": "discount_percent must be an integer from 0 to 10"}

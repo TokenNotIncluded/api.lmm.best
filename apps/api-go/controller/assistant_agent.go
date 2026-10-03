@@ -302,12 +302,28 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 		{
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
+				Name:        "get_new_user_gift_status",
+				Description: "Read only the signed-in user's stored welcome-gift status and USD amount. Use for status, rules, eligibility questions, and whether a gift was already claimed. This never evaluates eligibility, creates a decision, consumes the opportunity, or claims a gift. An existing offer reopens its claim card. No stored decision does not establish eligibility; claimed and declined decisions cannot be reset by changing conversations.",
+				Parameters:  emptyObjectSchema(),
+			},
+		},
+		{
+			Type: "function",
+			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_new_user_gift",
 				Description: "For an eligible signed-in user who has not used their one lifetime welcome-gift opportunity, make the decision only after the conversation contains a concrete legitimate workflow, the work they plan to do, and enough user-authored detail to evaluate it. A category label and client name alone are insufficient. This includes users who have already reached L1; access level does not erase an unused opportunity. Judge demonstrated clarity, coherent follow-up, specificity, and constructive engagement from the complete conversation. Choose an integer 0-1000 US cents. Zero is a valid final decision and consumes the opportunity. Do not reward demands for money, self-reported expertise alone, promotions, referrals, multiple accounts, automation, or unsafe behavior. The server enforces eligibility and one-time issuance; never promise an amount before this tool succeeds.",
 				Parameters: objectSchema(map[string]any{
 					"amount_cents": map[string]any{"type": "integer", "minimum": 0, "maximum": 1000},
 					"reason":       map[string]any{"type": "string", "minLength": 2, "maxLength": 240},
 				}, []string{"amount_cents", "reason"}),
+			},
+		},
+		{
+			Type: "function",
+			Function: assistantOpenAIToolFunction{
+				Name:        "get_weekly_discount_status",
+				Description: "Read only the signed-in user's stored discount decision for the current UTC week. Use for discount rules, conditions, status, and whether an offered discount was already claimed. This never evaluates, creates or consumes a decision, or claims a code; it never returns a private discount code or internal evaluation. No stored decision does not prove eligibility.",
+				Parameters:  emptyObjectSchema(),
 			},
 		},
 		{
@@ -658,6 +674,9 @@ func assistantDirectL1GrantAllowed(context assistantUserContext) bool {
 }
 
 func assistantNewUserGiftToolAllowed(context assistantUserContext) bool {
+	if context.RewardTopic == "weekly_discount" || context.RewardTopic == "other" || assistantNewUserGiftStatusWorkflowRequired(context) || assistantWeeklyDiscountStatusWorkflowRequired(context) {
+		return false
+	}
 	// An unused opportunity survives L0 -> L1 upgrades. Deterministic server
 	// checks still reject disabled/disposable/abusive accounts and the unique
 	// gift row makes the decision one-time. Keep the existing high-risk and
@@ -670,6 +689,9 @@ func assistantNewUserGiftToolAllowed(context assistantUserContext) bool {
 }
 
 func assistantWeeklyDiscountToolAllowed(context assistantUserContext) bool {
+	if context.RewardTopic == "gift" || context.RewardTopic == "other" || assistantNewUserGiftStatusWorkflowRequired(context) || assistantWeeklyDiscountStatusWorkflowRequired(context) {
+		return false
+	}
 	// The weekly reward is deliberately separate from the one-time welcome
 	// gift: a normal promotion question is not itself abuse. Keep the hard
 	// security boundary and administrator separation, while letting the model
@@ -678,6 +700,9 @@ func assistantWeeklyDiscountToolAllowed(context assistantUserContext) bool {
 }
 
 func assistantToolAllowedForContext(name string, userContext assistantUserContext) bool {
+	if name == "get_new_user_gift_status" || name == "get_weekly_discount_status" {
+		return true
+	}
 	if name == "prepare_l1_recommendation" {
 		return false
 	}
@@ -803,8 +828,12 @@ func assistantToolChoiceForContext(userContext assistantUserContext) any {
 		name = "request_human_support"
 	} else if assistantPublicActivityQuestion(userContext.LatestUserRequest) {
 		name = "get_service_facts"
+	} else if assistantNewUserGiftStatusWorkflowRequired(userContext) {
+		name = "get_new_user_gift_status"
 	} else if assistantNewUserGiftRequest(userContext.LatestUserRequest) {
 		name = "prepare_new_user_gift"
+	} else if assistantWeeklyDiscountStatusWorkflowRequired(userContext) {
+		name = "get_weekly_discount_status"
 	} else if assistantWeeklyDiscountRequest(userContext.LatestUserRequest) {
 		name = "prepare_weekly_discount"
 	} else if assistantAccountProgressRequest(userContext.LatestUserRequest) || assistantWalletBalanceRequest(userContext.LatestUserRequest) {
@@ -956,9 +985,15 @@ func assistantGiftPromotionConflict(text string) bool {
 }
 
 func assistantNewUserGiftRequest(text string) bool {
+	if assistantNewUserGiftStatusRequest(text) {
+		return false
+	}
 	normalized := strings.ToLower(strings.TrimSpace(text))
 	if assistantActionDeclined(normalized, assistantGiftActionRule) {
 		return false
+	}
+	if strings.Contains(normalized, "礼包") && assistantExplicitGiftDecisionRequest(normalized) {
+		return true
 	}
 	if assistantTextContainsAny(normalized,
 		"新用户礼包", "新用户福利", "新手礼包", "新手奖励", "新用户奖励", "新人礼包", "新人福利", "新手福利",
@@ -979,6 +1014,9 @@ func assistantNewUserGiftRequest(text string) bool {
 }
 
 func assistantWeeklyDiscountRequest(text string) bool {
+	if assistantWeeklyDiscountStatusRequest(text) {
+		return false
+	}
 	normalized := strings.ToLower(strings.TrimSpace(text))
 	if assistantActionDeclined(normalized, assistantDiscountActionRule) {
 		return false
@@ -1021,10 +1059,14 @@ func assistantReadChain(userContext assistantUserContext) []string {
 	if assistantPublicActivityQuestion(text) {
 		tools = append(tools, "get_service_facts")
 	}
-	if assistantNewUserGiftWorkflowRequired(userContext) {
+	if assistantNewUserGiftStatusWorkflowRequired(userContext) {
+		tools = append(tools, "get_new_user_gift_status")
+	} else if assistantNewUserGiftWorkflowRequired(userContext) {
 		tools = append(tools, "prepare_new_user_gift")
 	}
-	if assistantWeeklyDiscountWorkflowRequired(userContext) {
+	if assistantWeeklyDiscountStatusWorkflowRequired(userContext) {
+		tools = append(tools, "get_weekly_discount_status")
+	} else if assistantWeeklyDiscountWorkflowRequired(userContext) {
 		tools = append(tools, "prepare_weekly_discount")
 	}
 	if assistantTextContainsAny(text,
@@ -1099,13 +1141,21 @@ func assistantPublicActivityWorkflowRequired(userContext assistantUserContext) b
 }
 
 func assistantNewUserGiftWorkflowRequired(userContext assistantUserContext) bool {
-	return !assistantActionDeclined(userContext.LatestUserRequest, assistantGiftActionRule) &&
+	return userContext.RewardTopic != "weekly_discount" && userContext.RewardTopic != "other" &&
+		!assistantExplicitWeeklyDiscountTopic(userContext.LatestUserRequest) &&
+		!assistantNewUserGiftStatusWorkflowRequired(userContext) &&
+		!assistantWeeklyDiscountStatusWorkflowRequired(userContext) &&
+		!assistantActionDeclined(userContext.LatestUserRequest, assistantGiftActionRule) &&
 		(assistantNewUserGiftRequest(userContext.LatestUserRequest) || userContext.NewUserGiftRequested) &&
 		assistantNewUserGiftToolAllowed(userContext)
 }
 
 func assistantWeeklyDiscountWorkflowRequired(userContext assistantUserContext) bool {
-	return !assistantActionDeclined(userContext.LatestUserRequest, assistantDiscountActionRule) &&
+	return userContext.RewardTopic != "gift" && userContext.RewardTopic != "other" &&
+		!assistantExplicitNewUserGiftTopic(userContext.LatestUserRequest) &&
+		!assistantNewUserGiftStatusWorkflowRequired(userContext) &&
+		!assistantWeeklyDiscountStatusWorkflowRequired(userContext) &&
+		!assistantActionDeclined(userContext.LatestUserRequest, assistantDiscountActionRule) &&
 		(assistantWeeklyDiscountRequest(userContext.LatestUserRequest) || userContext.WeeklyDiscountRequested) &&
 		assistantWeeklyDiscountToolAllowed(userContext)
 }
@@ -1134,10 +1184,10 @@ func assistantLiveActivityWorkflowMinSteps(userContext assistantUserContext) int
 	if assistantPublicActivityWorkflowRequired(userContext) {
 		steps++
 	}
-	if assistantNewUserGiftWorkflowRequired(userContext) {
+	if assistantNewUserGiftStatusWorkflowRequired(userContext) || assistantNewUserGiftWorkflowRequired(userContext) {
 		steps++
 	}
-	if assistantWeeklyDiscountWorkflowRequired(userContext) {
+	if assistantWeeklyDiscountStatusWorkflowRequired(userContext) || assistantWeeklyDiscountWorkflowRequired(userContext) {
 		steps++
 	}
 	if steps == 1 {
@@ -1409,7 +1459,7 @@ func assistantNamedToolChoiceUnsupported(body []byte) bool {
 
 func assistantServerReadFallbackAllowed(name string) bool {
 	switch strings.TrimSpace(name) {
-	case "get_l1_recommendation", "get_account_access", "get_service_facts", "get_available_models", "list_my_api_keys":
+	case "get_l1_recommendation", "get_account_access", "get_service_facts", "get_available_models", "list_my_api_keys", "get_new_user_gift_status", "get_weekly_discount_status":
 		return true
 	default:
 		return false
@@ -1958,6 +2008,14 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 	}
 	actorUserID := assistantActorUserID(c)
 	name := strings.TrimSpace(call.Function.Name)
+	if assistantRewardReadOnlyRequest(c) {
+		if name == "prepare_new_user_gift" {
+			return assistantGiftReadOnlyRequestResult()
+		}
+		if name == "prepare_weekly_discount" {
+			return assistantWeeklyDiscountReadOnlyRequestResult()
+		}
+	}
 	if c != nil {
 		if rawContext, exists := c.Get(assistantUserContextKey); exists {
 			if userContext, ok := rawContext.(assistantUserContext); ok && !assistantToolExecutionAllowedForContext(name, userContext) {
@@ -2149,8 +2207,12 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 		return executeAssistantBountyTool()
 	case "get_bounty_data":
 		return executeAssistantBountyDataTool(actorUserID, input)
+	case "get_new_user_gift_status":
+		return executeAssistantNewUserGiftStatusTool(c, actorUserID)
 	case "prepare_new_user_gift":
 		return executeAssistantNewUserGiftTool(c, actorUserID, input)
+	case "get_weekly_discount_status":
+		return executeAssistantWeeklyDiscountStatusTool(c, actorUserID)
 	case "prepare_weekly_discount":
 		return executeAssistantWeeklyDiscountTool(c, actorUserID, input)
 	case "prepare_image_generation":

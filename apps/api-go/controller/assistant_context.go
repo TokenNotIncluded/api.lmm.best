@@ -186,6 +186,9 @@ type assistantUserContext struct {
 	// WeeklyDiscountRequested carries a pending weekly reward request across a
 	// substantive follow-up turn without exposing it to the model context.
 	WeeklyDiscountRequested bool `json:"-"`
+	// RewardTopic is the most recent explicit reward or account/setup topic.
+	// It only disambiguates read-only follow-ups and never authorizes a decision.
+	RewardTopic string `json:"-"`
 	// CompletedAssistantTurns is derived only from durable, server-owned
 	// user/assistant pairs. It gates the narrow L0 direct-grant tool and never
 	// trusts transcript messages supplied by the browser.
@@ -354,6 +357,7 @@ func assistantUserContextForRequest(userID int, message string, conversation ...
 		CustomerProfile:         assistantProfileUnknown,
 		Intent:                  assistantRequestIntent(message),
 		LatestUserRequest:       message,
+		RewardTopic:             assistantRewardTopicForRequest(message, conversation...),
 		RecommendationAction:    classifyAssistantRecommendationAction(message),
 		CreateKeyAction:         classifyAssistantCreateKeyAction(message, conversation...),
 		KeyManagementRequested:  assistantPendingKeyManagementRequest(message, conversation...),
