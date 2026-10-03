@@ -76,6 +76,40 @@ whole cache operation has a deadline. Failure logs a warning and leaves the
 committed financial result intact; it never repeats a debit or turns successful
 generation into another provider request.
 
+## Response model diagnostics
+
+The PostgreSQL OpenAI executor observes provider-origin model declarations in
+Chat/Completions and HTTP Responses/Compact, including streamed responses. Its raw
+provider JSON/SSE tracker reads `model` or a Responses event's `response.model`
+before downstream response conversion. Models synthesized by a converter are
+not observations.
+
+The selected attempt freezes the client-requested name and the model in the
+actual outbound request. This native executor currently forwards the original
+request body without channel model-mapping rewrites, so these two names normally
+match. Diagnostics do not introduce mapping, change the selected channel, or
+change the existing price snapshot, token counts, funding, quota, retry policy,
+or provider response bytes.
+
+Useful observations are stored in the existing consume-log `other.response_model`
+and durable settlement metadata as exactly three strings:
+`requested_model`, `upstream_model`, and `returned_model`. An ordinary exact
+response adds no metadata. Case differences, provider paths, compatible dated
+variants, and genuinely different models retain the declaration for inspection.
+No mismatch boolean is persisted; compatibility is derived from the names with
+the [shared comparison rule](../../../docs/relay-response-model.md) and
+[test vectors](../../api-go/relay/common/testdata/response_model_compatibility.json).
+The first useful compatible alias survives later matching or empty events. A
+genuine mismatch can replace that alias and then survives every later event.
+Settlement recovery carries the same diagnostic without repeating provider I/O.
+
+| Rust runtime path | Diagnostic scope |
+| --- | --- |
+| Native OpenAI Chat/Completions and HTTP Responses/Compact JSON and SSE | Provider observations and consume-log/durable metadata. |
+| Native Claude / Gemini JSON and SSE | Provider responses are forwarded, but `PgAnthropicGeminiRelayBackend::record_outcome` has no usage-log settlement owner yet. These routes do not emit this consume-log diagnostic. |
+| Cross-protocol relay | Remains subject to the existing ownership/capability gate; this feature does not open it. |
+| `GET /v1/responses` WebSocket | The ordinary listener still mounts `UnconfiguredResponsesWebSocketService`; no production diagnostic is claimed. |
+
 ## Remaining parity work
 
 This path does not yet establish complete Go parity for `tiered_expr`, every

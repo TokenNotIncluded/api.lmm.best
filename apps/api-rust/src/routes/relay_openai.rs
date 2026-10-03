@@ -54,6 +54,7 @@ mod drain;
 mod funding;
 mod ollama;
 mod reconcile;
+mod response_model;
 mod responses_terminal;
 mod settlement;
 mod token_count;
@@ -706,6 +707,9 @@ impl PgOpenAiRelayService {
             price,
             estimated_prompt: estimate.tokens,
             model: request.request.model.clone(),
+            // The executor forwards raw_body unchanged, including its model.
+            // Freeze the actual provider selection independently of diagnostics.
+            upstream_model: request.request.model.clone(),
             target: OpenAiUpstreamTarget { base_url, api_key },
             funding,
         })
@@ -910,6 +914,7 @@ struct Reservation {
     price: Price,
     estimated_prompt: i64,
     model: String,
+    upstream_model: String,
     target: OpenAiUpstreamTarget,
     funding: Option<funding::Record>,
 }

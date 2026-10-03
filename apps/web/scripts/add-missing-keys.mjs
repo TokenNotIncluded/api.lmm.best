@@ -11865,7 +11865,9 @@ async function main() {
   const passkeyOnly = process.argv.includes('--only-passkey')
   const forgeRefreshOnly = process.argv.includes('--only-forge-refresh')
   const rssOnly = process.argv.includes('--only-rss')
+  const responseModelOnly = process.argv.includes('--only-response-model')
   const scoped =
+    responseModelOnly ||
     rssOnly ||
     forgeRefreshOnly ||
     passkeyOnly ||
@@ -11943,13 +11945,15 @@ async function main() {
                                           : assistantToolOnly
                                             ? assistantToolCopy
                                             : newKeys
-  const selectedEntries = rssOnly
-    ? rssCopy
-    : forgeRefreshOnly
-      ? forgeRefreshCopy
-      : passkeyOnly
-        ? passkeyCopy
-        : entries
+  const selectedEntries = responseModelOnly
+    ? responseModelCopy
+    : rssOnly
+      ? rssCopy
+      : forgeRefreshOnly
+        ? forgeRefreshCopy
+        : passkeyOnly
+          ? passkeyCopy
+          : entries
   let totalAdded = 0
   for (const [locale, baseTranslations] of Object.entries(selectedEntries)) {
     const translations = scoped
@@ -12925,6 +12929,68 @@ for (const [locale, values] of Object.entries(aiDirectoryCopy)) {
 }
 
 for (const [locale, values] of Object.entries(rssCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+const responseModelCopy = {
+  en: {
+    'Response Model': 'Response Model',
+    'Response model mismatch': 'Response model mismatch',
+    'Response model: {{model}}': 'Response model: {{model}}',
+    'Upstream Model': 'Upstream Model',
+    'The upstream returned a different model name. This warning alone does not prove model substitution.':
+      'The upstream returned a different model name. This warning alone does not prove model substitution.',
+  },
+  zh: {
+    'Response Model': '返回模型',
+    'Response model mismatch': '返回模型不一致',
+    'Response model: {{model}}': '返回模型：{{model}}',
+    'Upstream Model': '上游模型',
+    'The upstream returned a different model name. This warning alone does not prove model substitution.':
+      '上游返回了不同的模型名。仅凭这条警告无法证明模型被替换。',
+  },
+  'zh-TW': {
+    'Response Model': '回傳模型',
+    'Response model mismatch': '回傳模型不一致',
+    'Response model: {{model}}': '回傳模型：{{model}}',
+    'Upstream Model': '上游模型',
+    'The upstream returned a different model name. This warning alone does not prove model substitution.':
+      '上游回傳了不同的模型名稱。僅憑這則警告無法證明模型被替換。',
+  },
+  fr: {
+    'Response Model': 'Modèle retourné',
+    'Response model mismatch': 'Modèle retourné différent',
+    'Response model: {{model}}': 'Modèle retourné : {{model}}',
+    'Upstream Model': 'Modèle en amont',
+    'The upstream returned a different model name. This warning alone does not prove model substitution.':
+      'Le fournisseur a retourné un nom de modèle différent. Cet avertissement seul ne prouve pas une substitution de modèle.',
+  },
+  ja: {
+    'Response Model': '応答モデル',
+    'Response model mismatch': '応答モデルの不一致',
+    'Response model: {{model}}': '応答モデル：{{model}}',
+    'Upstream Model': '上流モデル',
+    'The upstream returned a different model name. This warning alone does not prove model substitution.':
+      '上流から異なるモデル名が返されました。この警告だけではモデルの置き換えを証明できません。',
+  },
+  ru: {
+    'Response Model': 'Модель в ответе',
+    'Response model mismatch': 'Модель в ответе отличается',
+    'Response model: {{model}}': 'Модель в ответе: {{model}}',
+    'Upstream Model': 'Модель провайдера',
+    'The upstream returned a different model name. This warning alone does not prove model substitution.':
+      'Провайдер вернул другое имя модели. Одного этого предупреждения недостаточно, чтобы доказать подмену модели.',
+  },
+  vi: {
+    'Response Model': 'Mô hình trả về',
+    'Response model mismatch': 'Mô hình trả về khác',
+    'Response model: {{model}}': 'Mô hình trả về: {{model}}',
+    'Upstream Model': 'Mô hình phía nhà cung cấp',
+    'The upstream returned a different model name. This warning alone does not prove model substitution.':
+      'Nhà cung cấp trả về tên mô hình khác. Chỉ cảnh báo này không đủ để chứng minh mô hình đã bị thay thế.',
+  },
+}
+for (const [locale, values] of Object.entries(responseModelCopy)) {
   Object.assign(newKeys[locale], values)
 }
 

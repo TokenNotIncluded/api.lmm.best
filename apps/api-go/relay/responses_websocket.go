@@ -1150,6 +1150,9 @@ func (s *responsesWSSession) observeUpstreamMessageForState(state *responsesWSCa
 	requestSucceeded := false
 	state.dataMu.Lock()
 	state.info.SetFirstResponseTime()
+	if streamResponse.Response != nil {
+		state.info.ObserveResponseModel(streamResponse.Response.Model)
+	}
 	if streamResponse.Response != nil && streamResponse.Response.ID != "" {
 		state.responseID = streamResponse.Response.ID
 	}
