@@ -144,6 +144,20 @@ func TestAssistantRuntimeMetadataQuestionIsDeterministic(t *testing.T) {
 	modelID := strings.TrimSpace(setting.GetAssistantSettings().Model)
 	assert.False(t, assistantRuntimeMetadataQuestion("请查一下 "+modelID+" 的实时价格"))
 	assert.False(t, assistantRuntimeMetadataQuestion("what is the model name and price?"))
+	for _, message := range []string{
+		"我计划把模型 API 接入 Codex 做知识图谱科研，已经清楚 API 密钥、接口地址及模型名称的配置流程。请评估新用户礼包。",
+		"API 密钥、接口地址和模型名称等底层调用逻辑已配置就绪，请帮我完成机器人开发接入。",
+		"模型名称怎么填？",
+		"模型型号应该选哪一个用于代码开发？",
+		"Which model should I use for coding?",
+		"My training data contains a model name field. Help validate the dataset schema.",
+		"What model are you running? Also help me configure Codex.",
+		"你是什么模型？另外请评估一下我的新用户礼包。",
+	} {
+		assert.False(t, assistantRuntimeMetadataQuestion(message), message)
+	}
+	assert.True(t, assistantRuntimeMetadataQuestion("你是什么 AI？"))
+	assert.True(t, assistantRuntimeMetadataQuestion("Which model are you running?"))
 
 	settings := setting.GetAssistantSettings()
 	body := assistantRuntimeMetadataBody(settings)
@@ -1585,6 +1599,8 @@ func TestAssistantModelsToolUsesModelListBillingPredicate(t *testing.T) {
 	assistantResult := executeAssistantModelsTool(user.Id)
 	assert.Equal(t, true, assistantResult["ok"])
 	assert.Equal(t, []string{"assistant-priced-model"}, assistantResult["model_ids"])
+	assert.Equal(t, "/pricing", assistantResult["model_list_path"])
+	assert.Equal(t, "catalog_and_pricing_not_a_chat_workbench", assistantResult["model_list_purpose"])
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)

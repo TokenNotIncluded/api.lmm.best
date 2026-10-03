@@ -639,6 +639,24 @@ func TestRedactAssistantHistoryContentDoesNotTreatInvalidIPOrCardAsSensitive(t *
 	assert.Contains(t, redacted, "1234 5678 9012 3456")
 }
 
+func TestRedactAssistantHistoryContentCoversKeysEmbeddedInTOMLProviderNames(t *testing.T) {
+	key := "sk-" + strings.Repeat("synthetic", 4) // gitleaks:allow -- synthetic redaction fixture
+	for _, section := range []string{"model_providers", "providers"} {
+		value := "[" + section + ".lmm" + key + "]\nbase_url = \"https://api.example.com/v1\""
+		redacted := RedactAssistantHistoryContent(value)
+		assert.NotContains(t, redacted, key)
+		assert.Contains(t, redacted, "["+section+".REDACTED_API_KEY]")
+		assert.Contains(t, redacted, "https://api.example.com/v1")
+	}
+	for _, value := range []string{
+		"[model_providers.lmm]",
+		"[model_providers.task-analysis]",
+		"A task-description can mention sk as ordinary text.",
+	} {
+		assert.Equal(t, value, RedactAssistantHistoryContent(value))
+	}
+}
+
 func TestAssistantHistoryPostgreSQLMigration(t *testing.T) {
 	if strings.TrimSpace(os.Getenv("TEST_POSTGRES_DSN")) == "" || os.Getenv("TEST_POSTGRES_ISOLATED_SCHEMA") != "1" {
 		t.Skip("set TEST_POSTGRES_DSN and TEST_POSTGRES_ISOLATED_SCHEMA=1 to run PostgreSQL assistant history migration test")

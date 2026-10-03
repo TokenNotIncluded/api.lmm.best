@@ -58,17 +58,21 @@ var (
 	ErrAssistantTokenLimit                  = errors.New("assistant API key limit reached")
 
 	assistantHistoryAPIKeyPattern = regexp.MustCompile(`(?i)\b(?:sk|rk|pk|ak|tok|token|key|secret)[_-][a-z0-9._~+/-]{8,}\b`)
-	assistantHistoryJWTPattern    = regexp.MustCompile(`\beyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\b`)
-	assistantHistoryEmailPattern  = regexp.MustCompile(`(?i)\b[a-z0-9.!#$%&'*+/=?^_` + "`" + `{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+\b`)
-	assistantHistoryCookiePattern = regexp.MustCompile(`(?i)\b(cookie|set-cookie|session(?:[_ -]?id)?|csrf(?:[_ -]?token)?)\s*[:=：]\s*[^\s;,]+`)
-	assistantHistoryBearerPattern = regexp.MustCompile(`(?i)\bbearer\s+[a-z0-9._~+/-]{6,}=*`)
-	assistantHistorySecretPattern = regexp.MustCompile(`(?i)\b(password|passwd|pwd|api[ _-]?key|access[ _-]?token|refresh[ _-]?token|bearer|authorization|密碼|密码|密钥|令牌)\s*[:=：]\s*[^\s,;]+`)
-	assistantHistoryURLSecret     = regexp.MustCompile(`(?i)([?&](?:api[_-]?key|access[_-]?token|token|password|passwd|secret)=)[^&#\s]+`)
-	assistantHistoryPEMPrivateKey = regexp.MustCompile(`(?s)-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----`)
-	assistantHistoryIPv4Pattern   = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
-	assistantHistoryIPv6Pattern   = regexp.MustCompile(`[0-9A-Fa-f:]{2,39}`)
-	assistantHistoryPhonePattern  = regexp.MustCompile(`(^|[^\w])((?:\+?86[\s-]?)?1[3-9]\d{9}|\+\d{1,3}(?:[\s.-]?\d{2,4}){2,4})([^\w]|$)`)
-	assistantHistoryCardPattern   = regexp.MustCompile(`(^|[^0-9])([0-9][0-9 -]{11,22}[0-9])([^0-9]|$)`)
+	// A pasted key can become part of a malformed TOML provider identifier,
+	// hiding its prefix from the normal word-boundary matcher. Restrict this
+	// additional match to provider sections with a long credential-like suffix.
+	assistantHistoryTOMLKeyPattern = regexp.MustCompile(`(?i)\[(model_providers|providers)\.[^\]\r\n]*(?:sk|rk|pk|ak)[_-][a-z0-9._~+/-]{20,}[^\]\r\n]*\]`)
+	assistantHistoryJWTPattern     = regexp.MustCompile(`\beyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\b`)
+	assistantHistoryEmailPattern   = regexp.MustCompile(`(?i)\b[a-z0-9.!#$%&'*+/=?^_` + "`" + `{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+\b`)
+	assistantHistoryCookiePattern  = regexp.MustCompile(`(?i)\b(cookie|set-cookie|session(?:[_ -]?id)?|csrf(?:[_ -]?token)?)\s*[:=：]\s*[^\s;,]+`)
+	assistantHistoryBearerPattern  = regexp.MustCompile(`(?i)\bbearer\s+[a-z0-9._~+/-]{6,}=*`)
+	assistantHistorySecretPattern  = regexp.MustCompile(`(?i)\b(password|passwd|pwd|api[ _-]?key|access[ _-]?token|refresh[ _-]?token|bearer|authorization|密碼|密码|密钥|令牌)\s*[:=：]\s*[^\s,;]+`)
+	assistantHistoryURLSecret      = regexp.MustCompile(`(?i)([?&](?:api[_-]?key|access[_-]?token|token|password|passwd|secret)=)[^&#\s]+`)
+	assistantHistoryPEMPrivateKey  = regexp.MustCompile(`(?s)-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----`)
+	assistantHistoryIPv4Pattern    = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
+	assistantHistoryIPv6Pattern    = regexp.MustCompile(`[0-9A-Fa-f:]{2,39}`)
+	assistantHistoryPhonePattern   = regexp.MustCompile(`(^|[^\w])((?:\+?86[\s-]?)?1[3-9]\d{9}|\+\d{1,3}(?:[\s.-]?\d{2,4}){2,4})([^\w]|$)`)
+	assistantHistoryCardPattern    = regexp.MustCompile(`(^|[^0-9])([0-9][0-9 -]{11,22}[0-9])([^0-9]|$)`)
 )
 
 // AssistantConversation holds only redacted, support-oriented text.  Its
@@ -252,6 +256,7 @@ func RedactAssistantHistoryContent(value string) string {
 	value = assistantHistoryCookiePattern.ReplaceAllString(value, "$1: [REDACTED]")
 	value = assistantHistoryBearerPattern.ReplaceAllString(value, "Bearer [REDACTED_TOKEN]")
 	value = assistantHistorySecretPattern.ReplaceAllString(value, "$1: [REDACTED]")
+	value = assistantHistoryTOMLKeyPattern.ReplaceAllString(value, "[$1.REDACTED_API_KEY]")
 	value = assistantHistoryAPIKeyPattern.ReplaceAllString(value, "[REDACTED_API_KEY]")
 	value = assistantHistoryJWTPattern.ReplaceAllString(value, "[REDACTED_TOKEN]")
 	value = assistantHistoryEmailPattern.ReplaceAllString(value, "[REDACTED_EMAIL]")

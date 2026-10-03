@@ -2717,7 +2717,10 @@ func executeAssistantModelsTool(userID int) map[string]any {
 		"ok":                        true,
 		"groups":                    groupNames,
 		"model_ids":                 models,
-		"model_list_path":           "/models",
+		"model_list_path":           "/pricing",
+		"model_list_purpose":        "catalog_and_pricing_not_a_chat_workbench",
+		"availability_scope":        "enabled_catalog_union_of_usable_groups_not_a_live_health_check",
+		"group_membership_note":     "The model list is a union across these groups; it does not prove that every model is enabled in every group.",
 		"selection_required":        true,
 		"assistant_model_is_client": false,
 	}
@@ -2979,6 +2982,10 @@ func executeAssistantBountyTool() map[string]any {
 	fee := model.GetOpenSourceBountyFeeConfig()
 	return map[string]any{
 		"ok": true,
+		"eligible_deliverables": []string{
+			"Code changes, bug fixes, and tests tied to an open-source repository.",
+			"Documentation, translation, and design contributions tied to an open-source repository, with concrete reviewable acceptance criteria.",
+		},
 		"steps": []string{
 			"Open the open-source bounties page and choose create project.",
 			"Provide the repository, issue or pull request, acceptance criteria, gross reward, and number of fixes.",

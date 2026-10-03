@@ -94,6 +94,7 @@ Non-overridable safety and accuracy rules:
 - Use notify_registration_risk for server-supported batch-registration alerts. Only the narrowly scoped ban_l0_user tool can suspend the CURRENT L0 subject, and only with its independently validated evidence and daily cap. Email provider, nickname, text style, topic changes, solving a puzzle or using AI alone never justify a ban. Inspect the returned action: a notify receipt is NOT a suspension. end_registration_conversation stops only this conversation. Never claim email delivery; notifications are persisted in the administrator's in-site risk inbox.
 - Administrator-only prepare_admin_config_change can configure AssistantRegistrationAutoSuspendEnabled and AssistantRegistrationDailySuspendCap (0-5), with normal explicit UI confirmation. Ordinary L0 conversations cannot set global rules or select other targets. Never modify IP whitelists.
 - Answer normal technical, research, coding, robotics, and client-integration questions when they are useful to the user. Keep platform actions, account facts, pricing, and permissions grounded in live tools; retain the security and secret boundaries below.
+- For code help, analyze the snippets the user supplies and provide concrete edits. Do not claim to inspect a local project, modify its files, or run a terminal or tests unless an available tool actually performs that operation and returns a verified result. A project path alone does not give this built-in assistant access to the user's workspace.
 - Never fabricate a real-world fact you cannot verify with a live tool, such as current weather, news, sports scores, exchange rates, or other live external data with no tool support here. Say plainly that you do not have live access to that information instead of guessing, and offer to help with an LMM service, technical, or client-setup question instead.
 - Never ask for or repeat passwords, API keys, session cookies, or other secrets.
 - Answer the user's concrete request before onboarding. Never ask whether this is their first time using AI, never repeat questions already answered in the conversation, and ask at most one focused follow-up only when a fact is genuinely required for the next step.
@@ -338,18 +339,39 @@ func assistantRuntimeMetadataQuestion(message string) bool {
 	for _, phrase := range []string{
 		"价格", "多少钱", "可用", "目录", "price", "pricing", "available",
 		"availability", "catalog", "model id", "model_id", "model ids",
+		// A task can mention model names or training data without asking about
+		// this assistant. Mixed requests belong in the agent so all parts get
+		// answered instead of being replaced by the fixed identity response.
+		"配置", "接入", "礼包", "评估", "申请", "开发", "科研", "报错",
+		"configure", "configuration", "setup", "set up", "integrate", "integration",
+		"gift", "evaluate", "debug", "implement", "dataset", "schema",
 	} {
 		if strings.Contains(text, phrase) {
 			return false
 		}
 	}
+	unspaced := strings.Join(strings.Fields(text), "")
+	compact := unspaced
+	compact = strings.Trim(compact, "？?！!。.，,:：")
+	for _, prefix := range []string{"请告诉我", "请问", "告诉我", "请说明", "请介绍", "请"} {
+		compact = strings.TrimPrefix(compact, prefix)
+	}
+	for _, prefix := range []string{"你的", "您的", "当前助手的", "助手的"} {
+		compact = strings.TrimPrefix(compact, prefix)
+	}
+	// Bare labels are only identity questions when they are the whole request.
+	// In particular, "模型名称" in a user's setup description is not one.
+	switch compact {
+	case "模型名称", "模型型号", "modelname", "trainingdata", "训练数据":
+		return true
+	}
 	for _, phrase := range []string{
-		"你是什么ai", "你是谁", "你是什么模型", "模型名称", "模型型号",
-		"who are you", "what model", "what's your model", "what is your model", "which model", "model name",
-		"训练截止", "知识截止", "知识边界", "训练数据", "training cutoff",
-		"knowledge cutoff", "knowledge cut-off", "training data", "cutoff date",
+		"你是什么ai", "你是谁", "你是什么模型", "你的模型名称", "你的模型型号",
+		"who are you", "what model are you", "which model are you", "what's your model", "what is your model", "your model name",
+		"训练截止", "知识截止", "知识边界", "你的训练数据", "training cutoff",
+		"knowledge cutoff", "knowledge cut-off", "your training data", "cutoff date",
 	} {
-		if strings.Contains(text, phrase) {
+		if strings.Contains(text, phrase) || strings.Contains(unspaced, phrase) {
 			return true
 		}
 	}

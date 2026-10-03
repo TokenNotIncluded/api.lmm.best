@@ -118,6 +118,29 @@ func TestAssistantSafeToolInputPreservesConversationTitle(t *testing.T) {
 	assert.Equal(t, map[string]any{"title": "配置 API 密钥"}, input)
 }
 
+func TestAssistantModelNavigationUsesThePublicCatalogForOrdinaryUsers(t *testing.T) {
+	db := setupManageUserTestDB(t)
+	for _, test := range []struct {
+		name string
+		role int
+		path string
+	}{
+		{"catalog-user", common.RoleCommonUser, "/pricing"},
+		{"catalog-admin", common.RoleAdminUser, "/models"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			user := model.User{Username: test.name, AffCode: test.name, Password: "password", Role: test.role, Status: common.UserStatusEnabled}
+			require.NoError(t, db.Create(&user).Error)
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			result := executeAssistantNavigateTool(c, user.Id, map[string]any{"page": "models"})
+			require.Equal(t, true, result["ok"])
+			action, exists := c.Get(assistantClientActionKey)
+			require.True(t, exists)
+			assert.Equal(t, test.path, action.(map[string]any)["path"])
+		})
+	}
+}
+
 func TestAssistantMathToolTraceShowsSafeExpressionResultAndActionableErrors(t *testing.T) {
 	success := buildAssistantToolTrace(assistantOpenAIToolCall{
 		Function: assistantOpenAIToolCallFunction{

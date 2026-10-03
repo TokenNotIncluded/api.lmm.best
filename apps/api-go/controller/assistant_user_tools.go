@@ -281,8 +281,13 @@ func executeAssistantNavigateTool(c *gin.Context, actorUserID int, input map[str
 	}
 	if page == "models" {
 		actor, err := model.GetUserById(actorUserID, false)
-		if err != nil || actor.Role < common.RoleAdminUser {
-			return map[string]any{"ok": false, "status": "target_forbidden", "error": "the models page is available only to administrators"}
+		if err != nil {
+			return map[string]any{"ok": false, "status": "context_unavailable", "error": "account access could not be loaded"}
+		}
+		if actor.Role < common.RoleAdminUser {
+			// /models manages server model metadata. The user-facing catalogue
+			// is /pricing and remains available without administrator privileges.
+			path = "/pricing"
 		}
 		ok = true
 	}
