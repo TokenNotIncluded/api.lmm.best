@@ -104,6 +104,18 @@ try {
         await page.locator('[data-source-status="snapshot"]').count(),
         1
       )
+      assert.match(
+        await page.getByTestId('lmm-self-profile').innerText(),
+        /899,140,697/
+      )
+      assert.match(
+        await page.getByTestId('lmm-self-profile').innerText(),
+        /13,815/
+      )
+      assert.equal(
+        await page.locator('[data-source-status="unsupported"]').count(),
+        1
+      )
       assert.equal(
         await page
           .locator(
@@ -148,11 +160,37 @@ try {
         .locator('input[type="url"]')
         .fill('https://github.com/profile-fixture')
       await page.getByTestId('save-linked-accounts').click()
-      await page.locator('[data-source-status="unsupported"]').waitFor()
+      await extraAccount.locator('[data-source-status="unsupported"]').waitFor()
       assert.ok(
         !(
-          await page.locator('[data-source-status="unsupported"]').innerText()
+          await extraAccount
+            .locator('[data-source-status="unsupported"]')
+            .innerText()
         ).includes('0 Tokens')
+      )
+      await extraAccount
+        .getByRole('button', { name: '移除账号 4', exact: true })
+        .click()
+      await page.getByTestId('save-linked-accounts').click()
+      await page.getByText('关联账号已保存。', { exact: true }).waitFor()
+      await page.waitForFunction(
+        () =>
+          document.querySelectorAll('[data-testid="linked-profile-row"]')
+            .length === 3 &&
+          document.querySelectorAll('[data-source-status="unsupported"]')
+            .length === 1 &&
+          document.querySelectorAll('[data-source-status="live"]').length ===
+            2 &&
+          document.querySelectorAll('[data-source-status="snapshot"]')
+            .length === 1
+      )
+      await page.waitForFunction(() =>
+        [...document.images].some(
+          (image) =>
+            image.src.includes('layout=aggregate') &&
+            image.complete &&
+            image.naturalWidth > 0
+        )
       )
       await aggregateImage.scrollIntoViewIfNeeded()
       await page.screenshot({

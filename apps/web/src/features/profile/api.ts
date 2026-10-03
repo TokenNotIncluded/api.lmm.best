@@ -76,7 +76,7 @@ export interface ProfileShareState {
 
 /** Save linked accounts without changing the separate model-sharing permission. */
 export async function updateProfileAggregate(
-  settings: import('./types').ProfileAggregateSettings
+  settings: Partial<import('./types').ProfileAggregateSettings>
 ): Promise<ProfileShareState> {
   const res = await api.post<ApiResponse<ProfileShareState>>(
     '/api/user/self/profile-share',
@@ -89,10 +89,12 @@ export async function updateProfileAggregate(
   return res.data.data
 }
 
-export async function getProfileShareState(): Promise<ProfileShareState> {
+export async function getProfileShareState(
+  signal?: AbortSignal
+): Promise<ProfileShareState> {
   const res = await api.get<ApiResponse<ProfileShareState>>(
     '/api/user/self/profile-share',
-    { skipBusinessError: true, skipErrorHandler: true }
+    { signal, skipBusinessError: true, skipErrorHandler: true }
   )
   if (!res.data.success || !res.data.data) {
     throw new Error(res.data.message || 'Unable to load profile sharing')

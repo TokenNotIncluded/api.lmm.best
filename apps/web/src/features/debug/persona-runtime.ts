@@ -77,6 +77,9 @@ type DebugProfileShare = {
 }
 const debugProfileShares = new Map<DebugPersonaId, DebugProfileShare>()
 const debugProfileShareToken = 'a'.repeat(48)
+// Fixed synthetic review data matches TestProfileShareAggregateVisualFixtures.
+// These accounts and values do not represent a production sharing permission.
+const debugProfileFetchedAt = '2026-10-04T00:00:00Z'
 
 function activeDebugProfileShare(): DebugProfileShare {
   const existing = debugProfileShares.get(state.activePersona)
@@ -89,19 +92,25 @@ function activeDebugProfileShare(): DebugProfileShare {
       {
         provider: 'cursor',
         url: 'https://cursor.com/@profile-fixture',
-        label: 'Cursor review account',
+        label: 'Cursor',
       },
       {
         provider: 'chatgpt',
         url: 'https://chatgpt.com/u/profile-fixture',
-        label: 'Codex review account',
+        label: 'ChatGPT / Codex',
         snapshot: {
           tokens: 117_000_000_000,
           period: 'all',
-          observed_at: new Date(now * 1000).toISOString(),
+          observed_at: '2026-10-03T18:46:00Z',
           approximate: true,
-          source: 'Synthetic review fixture: Codex lifetime tokens',
+          source:
+            'Codex lifetime tokens; displayed 117B; owner-observed snapshot',
         },
+      },
+      {
+        provider: 'custom',
+        url: 'https://github.com/profile-fixture-unavailable',
+        label: 'Unavailable source',
       },
     ],
   }
@@ -118,16 +127,19 @@ function debugAggregateSources(
     {
       provider: 'lmm',
       url: 'https://api.lmm.best',
-      label: 'LMM Forge',
+      label: 'LMM Best',
       status: active ? 'live' : 'disabled',
       source: 'native',
       period: '30d',
       approximate: false,
       ...(active
         ? {
-            tokens: 91_234_567,
-            requests: 1234,
-            fetched_at: new Date(now * 1000).toISOString(),
+            tokens: 899_140_697,
+            requests: 13_815,
+            period_start: '2026-09-04T00:00:00Z',
+            period_end: debugProfileFetchedAt,
+            period_timezone: 'UTC',
+            fetched_at: debugProfileFetchedAt,
           }
         : {}),
     },
@@ -136,7 +148,9 @@ function debugAggregateSources(
         provider: profile.provider,
         url: profile.url,
         label: profile.label || profile.provider,
-        period: profile.snapshot?.period ?? 'reported',
+        period:
+          profile.snapshot?.period ??
+          (profile.provider === 'cursor' ? 'reported' : 'unknown'),
         approximate: profile.snapshot?.approximate ?? false,
       }
       if (!active) {
@@ -167,7 +181,7 @@ function debugAggregateSources(
           period_start: '2026-09-04',
           period_end: '2026-10-03',
           period_timezone: 'unspecified',
-          fetched_at: new Date(now * 1000).toISOString(),
+          fetched_at: debugProfileFetchedAt,
         }
       }
       return {

@@ -43,6 +43,7 @@ import {
   enableProfileShare,
   getProfileShareState,
   updateProfileAggregate,
+  type ProfileShareState,
 } from './api'
 import { LinkedUsageProfiles } from './components/linked-usage-profiles'
 import { ModelUsageReport } from './components/model-usage-report'
@@ -85,13 +86,22 @@ export function ProfileSharePage() {
   const [previewAttempt, setPreviewAttempt] = useState(0)
   const shareQuery = useQuery({
     queryKey: ['profile-share'],
-    queryFn: getProfileShareState,
+    queryFn: ({ signal }) => getProfileShareState(signal),
     retry: 1,
   })
+  const confirmShareState = async (data: ProfileShareState) => {
+    // A GET may have read the old settings before waiting for a provider.
+    // Cancel even reads started during the mutation before publishing its ACK.
+    await queryClient.cancelQueries({
+      queryKey: ['profile-share'],
+      exact: true,
+    })
+    queryClient.setQueryData(['profile-share'], data)
+  }
   const enableMutation = useMutation({
     mutationFn: (modelUsage?: boolean) => enableProfileShare(modelUsage),
-    onSuccess: (data, modelUsage) => {
-      queryClient.setQueryData(['profile-share'], data)
+    onSuccess: async (data, modelUsage) => {
+      await confirmShareState(data)
       toast.success(
         t(
           modelUsage === false
@@ -104,16 +114,16 @@ export function ProfileSharePage() {
   })
   const disableMutation = useMutation({
     mutationFn: disableProfileShare,
-    onSuccess: (data) => {
-      queryClient.setQueryData(['profile-share'], data)
+    onSuccess: async (data) => {
+      await confirmShareState(data)
       toast.success(t('Public SVG badge disabled'))
     },
     onError: () => toast.error(t('Could not disable the public badge')),
   })
   const aggregateMutation = useMutation({
     mutationFn: updateProfileAggregate,
-    onSuccess: (data) => {
-      queryClient.setQueryData(['profile-share'], data)
+    onSuccess: async (data) => {
+      await confirmShareState(data)
       setFailedURL('')
       setPreviewAttempt((value) => value + 1)
     },
@@ -249,7 +259,6 @@ export function ProfileSharePage() {
                   onClick={() =>
                     aggregateMutation.mutate({
                       aggregate_usage_enabled: !publicEnabled,
-                      linked_profiles: shareQuery.data?.linked_profiles ?? [],
                     })
                   }
                 >
@@ -279,7 +288,9 @@ export function ProfileSharePage() {
                   variant='outline'
                   className='min-h-11'
                   disabled={
-                    disableMutation.isPending || enableMutation.isPending
+                    disableMutation.isPending ||
+                    enableMutation.isPending ||
+                    aggregateMutation.isPending
                   }
                   onClick={() => void disableMutation.mutate()}
                 >

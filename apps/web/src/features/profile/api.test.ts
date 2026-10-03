@@ -25,6 +25,7 @@ import {
   getProfileUsageWindow,
   performCheckin,
   enableProfileShare,
+  getProfileShareState,
   updateProfileAggregate,
 } from './api'
 
@@ -162,4 +163,15 @@ test('model-share consent sends explicit booleans and preserves body-less enable
     { model_usage_enabled: true },
     { model_usage_enabled: false },
   ])
+})
+
+test('profile share reads pass the query AbortSignal to axios', async () => {
+  const controller = new AbortController()
+  let observedSignal: AbortSignal | undefined
+  api.get = (async (_url, config) => {
+    observedSignal = config?.signal as AbortSignal | undefined
+    return { data: { success: true, data: { enabled: true } } }
+  }) as typeof api.get
+  await getProfileShareState(controller.signal)
+  assert.equal(observedSignal, controller.signal)
 })
