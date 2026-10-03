@@ -133,11 +133,10 @@ func OpenaiImageStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp 
 		return nil, types.NewOpenAIError(fmt.Errorf("invalid response"), types.ErrorCodeBadResponse, http.StatusInternalServerError)
 	}
 
-	contentType := strings.ToLower(resp.Header.Get("Content-Type"))
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return OpenaiImageHandler(c, info, resp)
 	}
-	if !strings.Contains(contentType, "text/event-stream") {
+	if !helper.IsEventStreamResponse(resp) {
 		return openaiImageJSONAsStreamHandler(c, info, resp)
 	}
 	// Reuse the shared streaming engine (helper.StreamScannerHandler) so the

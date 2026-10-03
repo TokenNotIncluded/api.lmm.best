@@ -23,6 +23,7 @@ const (
 	StreamEndReasonEOF         StreamEndReason = "eof"
 	StreamEndReasonPanic       StreamEndReason = "panic"
 	StreamEndReasonPingFail    StreamEndReason = "ping_fail"
+	StreamEndReasonWriterError StreamEndReason = "writer_error"
 )
 
 const maxStreamErrorEntries = 20

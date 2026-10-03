@@ -102,6 +102,7 @@ func ollamaStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	sawDone := false
 	defer func() {
 		if c.Request != nil && c.Request.Context().Err() != nil {
+			helper.MarkHTTPStreamDownstreamFailure(c)
 			status.SetEndReason(relaycommon.StreamEndReasonClientGone, c.Request.Context().Err())
 			status.RecordError("Ollama stream request context ended")
 		} else if status.EndReason == relaycommon.StreamEndReasonNone {
@@ -125,7 +126,11 @@ func ollamaStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		defer stopClose()
 	}
 
-	helper.SetEventStreamHeaders(c)
+	if err := helper.CommitEventStreamHeaders(c); err != nil {
+		status.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
+		status.RecordError("downstream header commit failed")
+		return nil, types.NewError(err, types.ErrorCodeBadResponseBody, types.ErrOptionWithSkipRetry())
+	}
 	scanner := helper.NewStreamScanner(resp.Body)
 	usage := &dto.Usage{}
 	var model = info.UpstreamModelName
@@ -145,6 +150,7 @@ func ollamaStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 			return
 		}
 		if err = ollamaWriteStreamData(c, string(data)); err != nil {
+			helper.MarkHTTPStreamDownstreamFailure(c)
 			status.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
 			status.RecordError("failed to write Ollama stream response")
 			writeFailed = true
@@ -243,6 +249,7 @@ func ollamaStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		// send [DONE]
 		if !writeFailed {
 			if err := ollamaWriteStreamData(c, "[DONE]"); err != nil {
+				helper.MarkHTTPStreamDownstreamFailure(c)
 				status.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
 				status.RecordError("failed to write Ollama stream completion")
 			}

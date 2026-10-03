@@ -29,27 +29,27 @@ func TestResponseModelOpenAIHandlersObserveProviderBeforeConversion(t *testing.T
 		"data: " + `{"type":"response.completed","response":{"id":"resp_1","status":"completed","model":"gpt-4o","usage":{"input_tokens":20,"output_tokens":4,"total_tokens":24}}}` + "\n\ndata: [DONE]\n\n"
 	type handler func(*gin.Context, *relaycommon.RelayInfo, *http.Response) (*dto.Usage, *types.NewAPIError)
 	for _, tt := range []struct {
-		name, body  string
-		handle      handler
-		format      types.RelayFormat
-		stream, raw bool
+		name, body, contentType string
+		handle                  handler
+		format                  types.RelayFormat
+		stream, raw             bool
 	}{
-		{"chat JSON", chat, OpenaiHandler, types.RelayFormatOpenAI, false, true},
-		{"chat to Responses JSON", chat, OaiChatToResponsesHandler, types.RelayFormatOpenAIResponses, false, false},
-		{"Responses JSON", responses, OaiResponsesHandler, types.RelayFormatOpenAIResponses, false, true},
-		{"Responses to chat JSON", responses, OaiResponsesToChatHandler, types.RelayFormatOpenAI, false, false},
-		{"chat SSE sticky", chatSSE, OaiStreamHandler, types.RelayFormatOpenAI, true, false},
-		{"chat to Responses SSE sticky", chatSSE, OaiChatToResponsesStreamHandler, types.RelayFormatOpenAIResponses, true, false},
-		{"Responses SSE sticky", responseSSE, OaiResponsesStreamHandler, types.RelayFormatOpenAIResponses, true, false},
-		{"Responses to chat SSE sticky", responseSSE, OaiResponsesToChatStreamHandler, types.RelayFormatOpenAI, true, false},
-		{"Responses buffered SSE sticky", responseSSE, OaiResponsesToChatBufferedStreamHandler, types.RelayFormatOpenAI, false, false},
+		{"chat JSON", chat, "application/json", OpenaiHandler, types.RelayFormatOpenAI, false, true},
+		{"chat to Responses JSON", chat, "application/json", OaiChatToResponsesHandler, types.RelayFormatOpenAIResponses, false, false},
+		{"Responses JSON", responses, "application/json", OaiResponsesHandler, types.RelayFormatOpenAIResponses, false, true},
+		{"Responses to chat JSON", responses, "application/json", OaiResponsesToChatHandler, types.RelayFormatOpenAI, false, false},
+		{"chat SSE sticky", chatSSE, "text/event-stream", OaiStreamHandler, types.RelayFormatOpenAI, true, false},
+		{"chat to Responses SSE sticky", chatSSE, "text/event-stream", OaiChatToResponsesStreamHandler, types.RelayFormatOpenAIResponses, true, false},
+		{"Responses SSE sticky", responseSSE, "text/event-stream", OaiResponsesStreamHandler, types.RelayFormatOpenAIResponses, true, false},
+		{"Responses to chat SSE sticky", responseSSE, "text/event-stream", OaiResponsesToChatStreamHandler, types.RelayFormatOpenAI, true, false},
+		{"Responses buffered SSE sticky", responseSSE, "text/event-stream", OaiResponsesToChatBufferedStreamHandler, types.RelayFormatOpenAI, false, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			writer := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(writer)
 			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 			info := &relaycommon.RelayInfo{OriginModelName: "client-model", ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "gpt-4o"}, RelayFormat: tt.format, RelayMode: relayconstant.RelayModeChatCompletions, IsStream: tt.stream, ShouldIncludeUsage: true, DisablePing: true}
-			resp := &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(tt.body))}
+			resp := &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {tt.contentType}}, Body: io.NopCloser(strings.NewReader(tt.body))}
 			usage, apiErr := tt.handle(c, info, resp)
 			require.Nil(t, apiErr)
 			require.Equal(t, 20, usage.PromptTokens)

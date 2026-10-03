@@ -89,6 +89,11 @@ func cohereStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	createdTime := common.GetTimestamp()
 	usage := &dto.Usage{}
 	responseText := ""
+	if err := helper.CommitEventStreamHeaders(c); err != nil {
+		info.RateLimitStreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
+		info.RateLimitStreamStatus.RecordError("downstream header commit failed")
+		return nil, types.NewError(err, types.ErrorCodeBadResponseBody, types.ErrOptionWithSkipRetry())
+	}
 	scanner := helper.NewStreamScanner(resp.Body)
 	scanner.Split(func(data []byte, atEOF bool) (advance int, token []byte, err error) {
 		if atEOF && len(data) == 0 {
@@ -117,7 +122,6 @@ func cohereStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		}
 		helper.SendCtx(ctx, stopChan, err)
 	}()
-	helper.SetEventStreamHeaders(c)
 	isFirst := true
 	finished := false
 	// Keep reading terminal usage after a failed write; settlement still needs
@@ -137,6 +141,7 @@ func cohereStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 			}
 		}
 		if err != nil {
+			helper.MarkHTTPStreamDownstreamFailure(c)
 			info.RateLimitStreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
 			info.RateLimitStreamStatus.RecordError("downstream stream write failed")
 			writeFailed = true
@@ -145,11 +150,13 @@ func cohereStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 streamLoop:
 	for {
 		if err := ctx.Err(); err != nil {
+			helper.MarkHTTPStreamDownstreamFailure(c)
 			info.RateLimitStreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
 			break
 		}
 		select {
 		case <-ctx.Done():
+			helper.MarkHTTPStreamDownstreamFailure(c)
 			info.RateLimitStreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, ctx.Err())
 			break streamLoop
 		case data := <-dataChan:

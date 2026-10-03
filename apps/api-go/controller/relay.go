@@ -110,6 +110,17 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		if newAPIError != nil {
 			logger.LogError(c, fmt.Sprintf("relay error: %s", common.LocalLogPreview(newAPIError.Error())))
 			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
+			// An SSE header commit does not prove billable body delivery. Keep
+			// existing error/refund handling, but never append JSON to committed
+			// SSE or write again after a downstream transport failure.
+			if common.GetContextKeyBool(c, constant.ContextKeyHTTPStreamCommitted) || common.GetContextKeyBool(c, constant.ContextKeyHTTPStreamDownstreamFailure) {
+				return
+			}
+			if relayFormat != types.RelayFormatOpenAIRealtime {
+				// Gin's JSON renderer preserves a pre-existing Content-Type.
+				// Uncommitted SSE attempts must still produce actual JSON errors.
+				c.Header("Content-Type", "application/json")
+			}
 			switch relayFormat {
 			case types.RelayFormatOpenAIRealtime:
 				helper.WssError(c, ws, newAPIError.ToOpenAIError())
@@ -237,6 +248,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
 		relayInfo.RetryIndex = retryParam.GetRetry()
+		common.SetContextKey(c, constant.ContextKeyHTTPStreamCommitted, false)
+		common.SetContextKey(c, constant.ContextKeyHTTPStreamDownstreamFailure, false)
+		c.Set("event_stream_headers_set", false)
 		common.SetContextKey(c, constant.ContextKeyUpstreamChannelFailure, false)
 		common.SetContextKey(c, constant.ContextKeyUpstreamCapabilityMismatch, false)
 		common.SetContextKey(c, constant.ContextKeyUpstreamUnsupportedParameter, false)

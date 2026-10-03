@@ -13,6 +13,7 @@ import (
 	"time"
 
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
+	"github.com/LIghtJUNction/api.lmm.best/relay/helper"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/types"
 	"github.com/gin-gonic/gin"
@@ -133,6 +134,40 @@ func TestCohereStreamStatusWriteFailurePreservesUsage(t *testing.T) {
 			}
 		})
 	}
+}
+
+type cohereStatusFlushFailedWriter struct {
+	*httptest.ResponseRecorder
+	writes  int
+	flushes int
+}
+
+func (w *cohereStatusFlushFailedWriter) Write(data []byte) (int, error) {
+	w.writes++
+	return w.ResponseRecorder.Write(data)
+}
+
+func (w *cohereStatusFlushFailedWriter) FlushError() error {
+	w.flushes++
+	if w.flushes > 1 {
+		return io.ErrClosedPipe
+	}
+	w.ResponseRecorder.Flush()
+	return nil
+}
+
+func TestCoherePostOutputFlushFailurePreservesUsageWithoutFurtherWrites(t *testing.T) {
+	writer := &cohereStatusFlushFailedWriter{ResponseRecorder: httptest.NewRecorder()}
+	c, info := newCohereStatusContext(writer, context.Background())
+	usage, apiErr := cohereStreamHandler(c, info, &http.Response{Body: io.NopCloser(strings.NewReader(cohereStatusText + cohereStatusTerminal("COMPLETE")))})
+	require.Nil(t, apiErr)
+	require.Equal(t, 13, usage.PromptTokens)
+	require.Equal(t, 7, usage.CompletionTokens)
+	require.Equal(t, relaycommon.StreamEndReasonClientGone, info.RateLimitStreamStatus.EndReason)
+	require.ErrorIs(t, info.RateLimitStreamStatus.EndError, io.ErrClosedPipe)
+	require.True(t, helper.HTTPStreamDownstreamFailed(c))
+	require.Equal(t, 2, writer.writes, "only the first event payload and delimiter are written")
+	require.Equal(t, 2, writer.flushes, "terminal usage must not flush a failed downstream writer")
 }
 
 type cohereStatusBlockingBody struct {

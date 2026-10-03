@@ -72,6 +72,7 @@ func TestStreamScannerUpstreamHeartbeats(t *testing.T) {
 				body := ": preamble\n\n:\n\ndata: business\n\n" + strings.Repeat(":\n\n: keep-alive\n\n", 1000) + "data: second\n\ndata: [DONE]\n\n"
 				c, resp, info := setupStreamTest(t, strings.NewReader(body))
 				info.DisablePing = disablePing
+				info.FirstResponseTimeout = time.Second
 				var received []string
 				StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {
 					if len(received) == 0 {

@@ -136,6 +136,9 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	}
 
 	defer service.CloseResponseBodyGracefully(resp)
+	if apiErr := validateOpenAIStreamResponse(resp); apiErr != nil {
+		return nil, apiErr
+	}
 	info.FirstResponseObserved = false
 	if info.FirstResponseTimeout <= 0 && common.OpenAIFirstOutputTimeout > 0 {
 		info.FirstResponseTimeout = time.Duration(common.OpenAIFirstOutputTimeout) * time.Second
@@ -158,7 +161,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	// 检查是否为音频模型
 	isAudioModel := strings.Contains(strings.ToLower(model), "audio")
 
-	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
+	handleData := func(data string, sr *helper.StreamResult) {
 		if lastStreamData != "" && !lastStreamDataSent && !shouldHoldOpenAIUsageChunk(info, lastStreamData) {
 			if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
 				common.SysLog("error handling stream format: " + err.Error())
@@ -203,10 +206,64 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 				lastStreamDataSent = true
 			}
 		}
+	}
+	// Keep protocol metadata in order without committing role/usage-only
+	// attempts. Bound the retained prefix independently of stream duration.
+	const maxFirstOutputPrefixBytes = 1 << 20
+	prefixLimit := int64(maxFirstOutputPrefixBytes)
+	if responseLimit := common.ResponseBodyLimit(); responseLimit > 0 && responseLimit < prefixLimit {
+		prefixLimit = responseLimit
+	}
+	var prefix []string
+	var prefixBytes int64
+	var prefixResult *helper.StreamResult
+	var prefixError error
+	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
+		if info.FirstResponseTimeout > 0 && !info.FirstResponseObserved && !hasVisibleStreamOutput(data) {
+			if len(prefix) >= 1024 || int64(len(data))+8 > prefixLimit-prefixBytes {
+				prefixError = errors.New("upstream first-output metadata exceeds the stream prefix limit")
+				sr.Stop(prefixError)
+				return
+			}
+			prefix = append(prefix, data)
+			prefixBytes += int64(len(data)) + 8
+			prefixResult = sr
+			return
+		}
+		if info.FirstResponseTimeout > 0 && !info.FirstResponseObserved {
+			// Once a visible frame has arrived, commitment ends failover even
+			// when the client's first flush/write fails.
+			if err := helper.CommitEventStreamHeaders(c); err != nil {
+				sr.Stop(err)
+				return
+			}
+		}
+		for _, previous := range prefix {
+			handleData(previous, sr)
+			if helper.HTTPStreamDownstreamFailed(c) {
+				return
+			}
+		}
+		prefix = nil
+		prefixBytes = 0
+		handleData(data, sr)
 	})
-	if errors.Is(info.StreamStatus.EndError, helper.ErrFirstResponseTimeout) && !info.FirstResponseObserved {
+	if prefixError != nil {
+		return nil, types.NewOpenAIError(prefixError, types.ErrorCodeReadResponseBodyFailed, http.StatusBadGateway)
+	}
+	if errors.Is(info.StreamStatus.EndError, helper.ErrFirstResponseTimeout) && !info.FirstResponseObserved && !common.GetContextKeyBool(c, constant.ContextKeyHTTPStreamCommitted) {
 		common.SetContextKey(c, constant.ContextKeyUpstreamChannelFailure, true)
 		return nil, types.NewOpenAIError(helper.ErrFirstResponseTimeout, types.ErrorCodeUpstreamTimeout, http.StatusGatewayTimeout)
+	}
+	// A clean empty completion still preserves its metadata/usage and terminal
+	// framing. Timeout/error attempts discard the prefix without committing.
+	if len(prefix) > 0 && info.StreamStatus.IsNormalEnd() && !info.StreamStatus.HasErrors() && !helper.HTTPStreamDownstreamFailed(c) {
+		for _, previous := range prefix {
+			handleData(previous, prefixResult)
+			if helper.HTTPStreamDownstreamFailed(c) {
+				break
+			}
+		}
 	}
 
 	// 对音频模型，从倒数第二个stream data中提取usage信息
@@ -251,7 +308,14 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		info.CountBillableToolCall(dto.BuildInCallFunctionCall, name)
 	}
 
-	HandleFinalResponse(c, info, lastStreamData, responseId, createAt, model, systemFingerprint, usage, containStreamUsage)
+	if !helper.HTTPStreamDownstreamFailed(c) {
+		HandleFinalResponse(c, info, lastStreamData, responseId, createAt, model, systemFingerprint, usage, containStreamUsage)
+	}
+	if helper.HTTPStreamDownstreamFailed(c) {
+		// Final framing can fail after the scanner workers have joined. Keep
+		// the usage facts above, while admission sees the failed transport.
+		info.ResponseFailed = true
+	}
 
 	return usage, nil
 }

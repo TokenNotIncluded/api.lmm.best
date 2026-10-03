@@ -21,9 +21,28 @@ type claudeResponsesReadError struct{}
 
 func (claudeResponsesReadError) Read([]byte) (int, error) { return 0, io.ErrUnexpectedEOF }
 
-type claudeResponsesFlushFailure struct{ *httptest.ResponseRecorder }
+type claudeResponsesCloseBody struct {
+	io.ReadCloser
+	closed bool
+}
 
-func (claudeResponsesFlushFailure) Flush() { panic("test downstream disconnected") }
+func (b *claudeResponsesCloseBody) Close() error {
+	b.closed = true
+	return b.ReadCloser.Close()
+}
+
+type claudeResponsesFlushFailure struct {
+	*httptest.ResponseRecorder
+	flushes int
+}
+
+func (w *claudeResponsesFlushFailure) Flush() {
+	w.flushes++
+	if w.flushes == 2 {
+		panic("test downstream disconnected")
+	}
+	w.ResponseRecorder.Flush()
+}
 
 func TestClaudeResponsesInterruptedStreamDoesNotCompleteOrExempt(t *testing.T) {
 	setClaudeStreamingTimeoutForTest(t)
@@ -77,20 +96,33 @@ func TestClaudeResponsesDisconnectedClientDoesNotWriteTerminalEvent(t *testing.T
 		t.Run(name, func(t *testing.T) {
 			c, recorder, info := newClaudeRefusalTestContext(types.RelayFormatOpenAIResponses, true)
 			info.DisablePing = true
+			var failedWriter *claudeResponsesFlushFailure
 			if cancelled {
 				requestCtx, cancel := context.WithCancel(context.Background())
 				c.Request = c.Request.WithContext(requestCtx)
 				cancel()
 			} else {
-				newContext, _ := gin.CreateTestContext(&claudeResponsesFlushFailure{recorder})
+				failedWriter = &claudeResponsesFlushFailure{ResponseRecorder: recorder}
+				newContext, _ := gin.CreateTestContext(failedWriter)
 				newContext.Request = c.Request
 				c = newContext
 			}
 			response := claudeRefusalTestResponse(claudeRefusalSSE(`{"type":"message_start","message":{"id":"msg_disconnected","model":"claude-sonnet-4-5","usage":{"input_tokens":7,"output_tokens":0}}}`), true)
-			_, apiErr := (&Adaptor{}).DoResponse(c, response, info)
+			body := &claudeResponsesCloseBody{ReadCloser: response.Body}
+			response.Body = body
+			gotUsage, apiErr := (&Adaptor{}).DoResponse(c, response, info)
 			require.Nil(t, apiErr)
+			require.True(t, body.closed, "a disconnected stream must close the upstream body")
 			require.NotContains(t, recorder.Body.String(), "response.completed")
 			require.NotContains(t, recorder.Body.String(), "response.failed")
+			if failedWriter != nil {
+				usage, ok := gotUsage.(*dto.Usage)
+				require.True(t, ok)
+				require.Equal(t, 7, usage.PromptTokens, "a post-message write failure must retain measured input")
+				require.Equal(t, 2, failedWriter.flushes, "header commit succeeds; the first business-event flush fails once")
+				require.Contains(t, recorder.Body.String(), "response.created")
+				require.True(t, info.StreamStatus.HasErrors())
+			}
 		})
 	}
 }

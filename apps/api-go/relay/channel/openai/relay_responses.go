@@ -81,6 +81,9 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	}
 
 	defer service.CloseResponseBodyGracefully(resp)
+	if apiErr := validateOpenAIStreamResponse(resp); apiErr != nil {
+		return nil, apiErr
+	}
 
 	var usage = &dto.Usage{}
 	var responseTextBuilder strings.Builder
@@ -89,6 +92,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	terminal := false
 	hasUsage := false
 	downstreamWriteFailed := false
+	eventWritten := false
 	var lastResponse *dto.OpenAIResponsesResponse
 	sequence := -1
 
@@ -135,6 +139,9 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			}
 		}
 		writeErr := writeResponsesEvent(c, streamResponse.Type, data)
+		if writeErr == nil {
+			eventWritten = true
+		}
 		switch streamResponse.Type {
 		case "response.completed", "response.done":
 			terminal = true
@@ -239,7 +246,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		// path. Returning an API error here would retry/refund the whole request.
 		const message = "Upstream response ended before a terminal event"
 		info.StreamStatus.RecordError(message)
-		if !c.Writer.Written() && !downstreamWriteFailed && c.Request.Context().Err() == nil {
+		if !eventWritten && !downstreamWriteFailed && c.Request.Context().Err() == nil {
 			return usage, types.NewOpenAIError(fmt.Errorf("%s", message), types.ErrorCodeBadResponseBody, http.StatusBadGateway)
 		}
 		if !downstreamWriteFailed && c.Request.Context().Err() == nil && info.StreamStatus.EndReason != relaycommon.StreamEndReasonHandlerStop && info.StreamStatus.EndReason != relaycommon.StreamEndReasonPingFail {

@@ -85,6 +85,10 @@ const (
 	// ContextKeyLanguage stores the user's language preference for i18n
 	ContextKeyLanguage ContextKey = "language"
 	ContextKeyIsStream ContextKey = "is_stream"
+	// These belong to an HTTP SSE attempt, not a WebSocket connection or an
+	// internal assistant recorder that can reset a failed attempt.
+	ContextKeyHTTPStreamCommitted         ContextKey = "http_stream_committed"
+	ContextKeyHTTPStreamDownstreamFailure ContextKey = "http_stream_downstream_failure"
 	// ContextKeyRelayInfo exposes the active attempt's final protocol outcome to
 	// request middleware. Store the RelayInfo pointer because streams replace status.
 	ContextKeyRelayInfo ContextKey = "relay_info"
