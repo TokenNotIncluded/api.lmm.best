@@ -29,6 +29,21 @@ export function isOpenAIChannelType(type: number): boolean {
   return type === CHANNEL_TYPE_OPENAI || type === CHANNEL_TYPE_OPENHUMAN
 }
 
+export function supportsResponsesWebSocket(type: number): boolean {
+  return [
+    CHANNEL_TYPE_OPENAI,
+    57,
+    58,
+    59,
+    CHANNEL_TYPE_NEW_API,
+    CHANNEL_TYPE_OPENHUMAN,
+  ].includes(type)
+}
+
+export function getDefaultResponsesWebSocketEnabled(type: number): boolean {
+  return isOpenAIChannelType(type) || type === 57
+}
+
 export const CHANNEL_TYPES = {
   0: 'Unknown',
   1: 'OpenAI',

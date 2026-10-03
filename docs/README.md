@@ -19,6 +19,7 @@ This directory contains operational, API, and legal documentation for LMM Forge.
 - [`postgresql-cutover.md`](./postgresql-cutover.md): production cutover transaction.
 - [`valkey-lmm-api.md`](./valkey-lmm-api.md): dedicated Valkey deployment guidance.
 - [`rust-blue-green.md`](./rust-blue-green.md): Rust provider rollout and ownership checkpoints.
+- [`task-plugin-host-decision.md`](./task-plugin-host-decision.md): decision against the current upstream script host migration and evidence required for a future provider proposal.
 - [`test-single-instance.md`](./test-single-instance.md): isolated Rust test-host guide.
 - [`open-source-bounties.md`](./open-source-bounties.md): bounty mechanics and workflow.
 - [`ionet-client.md`](./ionet-client.md): iNet client reference artifact.

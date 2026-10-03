@@ -88,3 +88,26 @@ func TestAssistantAdminOperationContractsPreserveQueryAndMutationSemantics(t *te
 		t.Fatal("bulk values must be encoded strings")
 	}
 }
+
+func TestAssistantAdminTokenLogPaginationContract(t *testing.T) {
+	contract := assistantAdminOperationContract("GetLogByKey")
+	if contract["contract_status"] != "derived" || contract["body_schema"] != nil {
+		t.Fatalf("token log read must have a complete query-only contract: %v", contract)
+	}
+	query := contract["query_schema"].(map[string]any)
+	properties := query["properties"].(map[string]any)
+	for _, key := range []string{"p", "page_size", "ps", "size"} {
+		field, ok := properties[key].(map[string]any)
+		if !ok || field["type"] != "string" {
+			t.Errorf("missing HTTP string paging field %q", key)
+		}
+	}
+	if _, required := query["required"]; required {
+		t.Error("paging must stay optional for legacy token-log reads")
+	}
+	for _, key := range []string{"token_id", "user_id", "start_timestamp", "end_timestamp"} {
+		if _, ok := properties[key]; ok {
+			t.Errorf("token-log reads must not advertise the ignored scope/filter parameter %q", key)
+		}
+	}
+}
