@@ -25,6 +25,8 @@ import (
 
 // https://platform.minimaxi.com/docs/api-reference/video-generation-intro
 type TaskAdaptor struct {
+	// Native Hailuo tasks keep the configured base price. Duration, resolution
+	// and input media do not add model-family billing multipliers.
 	taskcommon.BaseBilling
 	ChannelType int
 	apiKey      string
@@ -163,6 +165,8 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq, in
 	if err := req.UnmarshalMetadata(&videoRequest); err != nil {
 		return nil, errors.Wrap(err, "unmarshal metadata to video request failed")
 	}
+	// Metadata must not choose a different model from the one being billed.
+	videoRequest.Model = info.UpstreamModelName
 
 	return videoRequest, nil
 }
@@ -190,13 +194,12 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 
 	taskResult := relaycommon.TaskInfo{}
 
-	if resTask.BaseResp.StatusCode == StatusSuccess {
-		taskResult.Code = 0
-	} else {
+	if resTask.BaseResp.StatusCode != StatusSuccess {
 		taskResult.Code = resTask.BaseResp.StatusCode
 		taskResult.Reason = resTask.BaseResp.StatusMsg
 		taskResult.Status = model.TaskStatusFailure
 		taskResult.Progress = "100%"
+		return &taskResult, nil
 	}
 
 	switch resTask.Status {

@@ -155,7 +155,7 @@ func countClaudeStreamBillableTools(c *gin.Context, info *relaycommon.RelayInfo,
 }
 
 func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, claudeInfo *ClaudeResponseInfo) {
-	if claudeStreamCompleted(c, info, claudeInfo) {
+	if claudeStreamCompleted(c, info, claudeInfo) && claudeRefusalBillingState(c).finalHasZeroOutput {
 		markClaudeRefusalBillingExemption(c)
 	}
 	if claudeInfo.Usage.PromptTokens == 0 {

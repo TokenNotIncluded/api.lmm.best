@@ -19,6 +19,7 @@ const claudeRefusalStateKey = "claude_refusal_billing_state"
 type claudeRefusalState struct {
 	stopReason            string
 	finalStopReason       string
+	finalHasZeroOutput    bool
 	messageStopped        bool
 	hasOutput             bool
 	hasZeroOutput         bool
@@ -73,6 +74,13 @@ func observeClaudeRefusal(c *gin.Context, response *dto.ClaudeResponse, data str
 		state.observeUsage(data, "message.usage")
 	}
 	state.observeUsage(data, "usage")
+	if response.Type == "message_delta" {
+		// message_start reports an initial count, not the completed request's
+		// output. Require the final delta to measure zero independently; a
+		// missing/null final count must not reuse an earlier zero.
+		output := gjson.Get(data, "usage.output_tokens")
+		state.finalHasZeroOutput = output.Type == gjson.Number && output.Float() == 0
+	}
 	// Anthropic charges these categories even before output (September 2026).
 	// Keep this upstream fact independent of client identity and local prices.
 	for _, path := range []string{"stop_details.category", "delta.stop_details.category", "message.stop_details.category"} {
