@@ -4,6 +4,9 @@ import { after, afterEach, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 
+import type { ProfileShareState } from '../api'
+import type { ProfileAggregateSettings } from '../types'
+
 const dom = new Window()
 for (const key of [
   'window',
@@ -200,7 +203,7 @@ test('account form validates, keeps failed drafts, disables busy inputs, retries
             }}
             accountName='Current owner'
             onSave={async (settings) => {
-              await updateProfileAggregate(settings)
+              return updateProfileAggregate(settings)
             }}
             onRefresh={() => {}}
             refreshing={false}
@@ -288,7 +291,7 @@ test('provider change drops another account snapshot and additions stop at five'
                 },
               ],
             }}
-            onSave={async () => {}}
+            onSave={async () => ({ enabled: true })}
             onRefresh={() => {}}
             refreshing={false}
             onToggleModelSharing={() => {}}
@@ -315,6 +318,151 @@ test('provider change drops another account snapshot and additions stop at five'
     for (let i = 0; i < 4; i++) await click(button(host, 'Add account'))
     assert.equal(button(host, 'Add account').disabled, true)
     assert.match(host.textContent ?? '', /5 of 5 accounts/)
+  } finally {
+    await act(async () => root.unmount())
+  }
+})
+
+test('dirty account edits survive parent consent changes and refetch, then own save reconciles', async () => {
+  const { host, root } = mount()
+  let savedSettings: ProfileAggregateSettings | undefined
+  const initial: ProfileShareState = {
+    enabled: true,
+    aggregate_usage_enabled: false,
+    linked_profiles: [],
+  }
+  const render = async (state: ProfileShareState) => {
+    await act(async () =>
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <LinkedUsageProfiles
+            state={state}
+            onSave={async (settings) => {
+              savedSettings = settings
+              return {
+                enabled: true,
+                aggregate_usage_enabled: settings.aggregate_usage_enabled,
+                linked_profiles: settings.linked_profiles.map((profile) => ({
+                  ...profile,
+                  label: 'Server label',
+                })),
+              }
+            }}
+            onRefresh={() => {}}
+            refreshing={false}
+            onToggleModelSharing={() => {}}
+            modelSharingBusy={false}
+            sharingBusy={false}
+          />
+        </I18nextProvider>
+      )
+    )
+  }
+  try {
+    await render(initial)
+    await click(button(host, 'Add account'))
+    const url = host.querySelector<HTMLInputElement>('input[type="url"]')
+    assert.ok(url)
+    await input(url, 'https://cursor.com/@unsaved')
+    await render({ ...initial, aggregate_usage_enabled: true })
+    assert.equal(
+      host.querySelector<HTMLInputElement>('input[type="url"]')?.value,
+      'https://cursor.com/@unsaved'
+    )
+    assert.match(host.textContent ?? '', /Unsaved changes/)
+    assert.equal(
+      host.querySelector('[data-slot="switch"]')?.hasAttribute('data-checked'),
+      true
+    )
+    await render({
+      ...initial,
+      aggregate_usage_enabled: true,
+      linked_profiles: [
+        { provider: 'cursor', url: 'https://cursor.com/@external' },
+      ],
+    })
+    assert.equal(
+      host.querySelector<HTMLInputElement>('input[type="url"]')?.value,
+      'https://cursor.com/@unsaved'
+    )
+    await click(button(host, 'Save linked accounts'))
+    assert.equal(
+      savedSettings?.linked_profiles[0]?.url,
+      'https://cursor.com/@unsaved'
+    )
+    assert.equal(savedSettings?.aggregate_usage_enabled, true)
+    assert.equal(
+      host.querySelector<HTMLInputElement>('input[id$="-label"]')?.value,
+      'Server label'
+    )
+    assert.match(host.textContent ?? '', /Linked accounts saved/)
+    await render({
+      ...initial,
+      aggregate_usage_enabled: true,
+      linked_profiles: [
+        { provider: 'cursor', url: 'https://cursor.com/@after-save' },
+      ],
+    })
+    assert.equal(
+      host.querySelector<HTMLInputElement>('input[type="url"]')?.value,
+      'https://cursor.com/@after-save'
+    )
+  } finally {
+    await act(async () => root.unmount())
+  }
+})
+
+test('a local unsaved consent choice takes priority until save succeeds', async () => {
+  const { host, root } = mount()
+  let settings: ProfileAggregateSettings | undefined
+  const render = async (enabled: boolean) => {
+    await act(async () =>
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <LinkedUsageProfiles
+            state={{
+              enabled: true,
+              aggregate_usage_enabled: enabled,
+              linked_profiles: [],
+            }}
+            onSave={async (value) => {
+              settings = value
+              return {
+                enabled: true,
+                aggregate_usage_enabled: value.aggregate_usage_enabled,
+                linked_profiles: value.linked_profiles,
+              }
+            }}
+            onRefresh={() => {}}
+            refreshing={false}
+            onToggleModelSharing={() => {}}
+            modelSharingBusy={false}
+            sharingBusy={false}
+          />
+        </I18nextProvider>
+      )
+    )
+  }
+  try {
+    await render(false)
+    const toggle = host.querySelector<HTMLElement>('[data-slot="switch"]')
+    assert.ok(toggle)
+    await click(toggle)
+    await render(true)
+    await render(false)
+    assert.equal(
+      host.querySelector('[data-slot="switch"]')?.hasAttribute('data-checked'),
+      true
+    )
+    assert.match(host.textContent ?? '', /Unsaved changes/)
+    await click(button(host, 'Save linked accounts'))
+    assert.equal(settings?.aggregate_usage_enabled, true)
+    await render(true)
+    await render(false)
+    assert.equal(
+      host.querySelector('[data-slot="switch"]')?.hasAttribute('data-checked'),
+      false
+    )
   } finally {
     await act(async () => root.unmount())
   }

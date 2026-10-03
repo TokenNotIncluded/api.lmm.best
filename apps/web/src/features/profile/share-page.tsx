@@ -452,9 +452,7 @@ export function ProfileSharePage() {
             <LinkedUsageProfiles
               state={shareQuery.data}
               accountName={profile?.display_name || profile?.username}
-              onSave={async (settings) => {
-                await aggregateMutation.mutateAsync(settings)
-              }}
+              onSave={(settings) => aggregateMutation.mutateAsync(settings)}
               onRefresh={() => void refreshUsage()}
               refreshing={shareQuery.isFetching}
               onToggleModelSharing={() =>

@@ -1,5 +1,5 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Badge } from '@/components/ui/badge'
@@ -151,7 +151,7 @@ export function AggregateSourceSummary({
 interface LinkedUsageProfilesProps {
   state: ProfileShareState
   accountName?: string
-  onSave: (settings: ProfileAggregateSettings) => Promise<void>
+  onSave: (settings: ProfileAggregateSettings) => Promise<ProfileShareState>
   onRefresh: () => void
   refreshing: boolean
   onToggleModelSharing: () => void
@@ -181,20 +181,30 @@ export function LinkedUsageProfiles({
   const [saveError, setSaveError] = useState(false)
   const [saved, setSaved] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const draftDirty = useRef(false)
+  const consentDirty = useRef(false)
   const busy = saving || sharingBusy
   useEffect(() => {
+    // Refetch and unrelated sharing mutations must not replace an active edit.
+    if (draftDirty.current) return
     const profiles = JSON.parse(signature) as LinkedUsageProfile[]
     setDrafts(profiles.map((profile) => profileDraft(profile)))
     setDirty(false)
     setErrors({})
   }, [signature])
-  useEffect(() => setEnabled(savedEnabled), [savedEnabled])
+  useEffect(() => {
+    if (!consentDirty.current) setEnabled(savedEnabled)
+  }, [savedEnabled])
+  const markDirty = () => {
+    draftDirty.current = true
+    setDirty(true)
+    setSaved(false)
+  }
   const change = (id: string, patch: Partial<LinkedProfileDraft>) => {
     setDrafts((rows) =>
       rows.map((row) => (row.id === id ? { ...row, ...patch } : row))
     )
-    setDirty(true)
-    setSaved(false)
+    markDirty()
     setSaveError(false)
     setErrors((previous) => ({ ...previous, [id]: '' }))
   }
@@ -205,10 +215,24 @@ export function LinkedUsageProfiles({
     setSaving(true)
     setSaveError(false)
     try {
-      await onSave({
+      const settings = {
         aggregate_usage_enabled: enabled,
         linked_profiles: prepared.profiles,
-      })
+      }
+      const response = await onSave(settings)
+      // Reconcile our own confirmed save even if the props update arrived while
+      // the form was dirty, or the normalized server configuration is unchanged.
+      setDrafts(
+        (response.linked_profiles ?? settings.linked_profiles).map((profile) =>
+          profileDraft(profile)
+        )
+      )
+      setEnabled(
+        response.aggregate_usage_enabled ?? settings.aggregate_usage_enabled
+      )
+      draftDirty.current = false
+      consentDirty.current = false
+      setErrors({})
       setDirty(false)
       setSaved(true)
     } catch {
@@ -263,8 +287,8 @@ export function LinkedUsageProfiles({
             disabled={busy}
             onCheckedChange={(value) => {
               setEnabled(value)
-              setDirty(true)
-              setSaved(false)
+              consentDirty.current = true
+              markDirty()
             }}
           />
         </Field>
@@ -332,8 +356,7 @@ export function LinkedUsageProfiles({
                 })}
                 onClick={() => {
                   setDrafts((rows) => rows.filter((row) => row.id !== draft.id))
-                  setDirty(true)
-                  setSaved(false)
+                  markDirty()
                 }}
               >
                 {t('Remove')}
@@ -596,8 +619,7 @@ export function LinkedUsageProfiles({
           disabled={busy || drafts.length >= MAX_LINKED_PROFILES}
           onClick={() => {
             setDrafts((rows) => [...rows, profileDraft()])
-            setDirty(true)
-            setSaved(false)
+            markDirty()
           }}
         >
           {t('Add account')}
