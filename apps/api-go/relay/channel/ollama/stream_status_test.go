@@ -157,9 +157,14 @@ func TestOllamaStreamCancellationIsNotSuccess(t *testing.T) {
 			}
 			info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "test"}}
 			usage, apiErr := ollamaStreamHandler(c, info, &http.Response{Body: io.NopCloser(strings.NewReader(ollamaCompletedStream))})
-			require.Nil(t, apiErr)
 			require.Nil(t, info.StreamStatus)
-			require.Equal(t, 12, usage.TotalTokens)
+			if cancelBefore {
+				require.NotNil(t, apiErr)
+				require.Nil(t, usage, "canceled header commit must precede upstream reading")
+			} else {
+				require.Nil(t, apiErr)
+				require.Equal(t, 12, usage.TotalTokens)
+			}
 			require.Equal(t, relaycommon.StreamEndReasonClientGone, info.RateLimitStreamStatus.EndReason)
 			require.ErrorIs(t, info.RateLimitStreamStatus.EndError, context.Canceled)
 			require.True(t, info.RateLimitStreamStatus.HasErrors())

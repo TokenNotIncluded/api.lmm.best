@@ -136,6 +136,10 @@ func (b *cozeResponseTextBuffer) String() string {
 }
 
 func cozeChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+	defer service.CloseResponseBodyGracefully(resp)
+	if err := helper.ValidateEventStreamResponse(resp); err != nil {
+		return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeBadResponse, http.StatusBadGateway)
+	}
 	info.RateLimitStreamStatus = relaycommon.NewStreamStatus()
 	status := info.RateLimitStreamStatus
 	sawCompleted := false
@@ -145,6 +149,7 @@ func cozeChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *ht
 			status.SetEndReason(relaycommon.StreamEndReasonClientGone, writerErr.Err)
 		}
 		if err := cozeRequestContext(c).Err(); err != nil {
+			helper.MarkHTTPStreamDownstreamFailure(c)
 			status.RecordError("request_canceled")
 			status.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
 		}
@@ -155,10 +160,13 @@ func cozeChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *ht
 			status.SetEndReason(relaycommon.StreamEndReasonEOF, nil)
 		}
 	}()
-	defer service.CloseResponseBodyGracefully(resp)
 	scanner := helper.NewStreamScanner(resp.Body)
 	scanner.Split(bufio.ScanLines)
-	helper.SetEventStreamHeaders(c)
+	if err := helper.CommitEventStreamResponseHeaders(c, resp); err != nil {
+		status.RecordError("downstream header commit failed")
+		status.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
+		return nil, types.NewError(err, types.ErrorCodeBadResponseBody, types.ErrOptionWithSkipRetry())
+	}
 	id := helper.GetResponseID(c)
 	responseText := newCozeResponseTextBuffer(c)
 
@@ -168,6 +176,7 @@ func cozeChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *ht
 
 	for scanner.Scan() {
 		if err := cozeRequestContext(c).Err(); err != nil {
+			helper.MarkHTTPStreamDownstreamFailure(c)
 			status.RecordError("request_canceled")
 			status.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
 			return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
@@ -179,7 +188,11 @@ func cozeChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *ht
 				// handle last event
 				if err := handleCozeEvent(c, currentEvent, currentData, responseText, usage, id, info); err != nil {
 					status.RecordError("handle_event")
-					status.SetEndReason(relaycommon.StreamEndReasonHandlerStop, err)
+					if helper.HTTPStreamDownstreamFailed(c) {
+						status.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
+					} else {
+						status.SetEndReason(relaycommon.StreamEndReasonHandlerStop, err)
+					}
 					return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 				}
 				if currentEvent == "conversation.chat.completed" {
@@ -206,7 +219,11 @@ func cozeChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *ht
 	if currentEvent != "" && currentData != "" {
 		if err := handleCozeEvent(c, currentEvent, currentData, responseText, usage, id, info); err != nil {
 			status.RecordError("handle_event")
-			status.SetEndReason(relaycommon.StreamEndReasonHandlerStop, err)
+			if helper.HTTPStreamDownstreamFailed(c) {
+				status.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
+			} else {
+				status.SetEndReason(relaycommon.StreamEndReasonHandlerStop, err)
+			}
 			return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 		}
 		if currentEvent == "conversation.chat.completed" {
@@ -220,6 +237,8 @@ func cozeChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *ht
 		return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 	}
 	if err := helper.StringData(c, "[DONE]"); err != nil {
+		helper.MarkHTTPStreamDownstreamFailure(c)
+		status.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
 		status.RecordError("write_done")
 	}
 

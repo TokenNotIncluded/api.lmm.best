@@ -16,6 +16,9 @@ import (
 )
 
 func ShouldRetryRelayError(c *gin.Context, apiErr *types.NewAPIError, retryTimes int) bool {
+	if c != nil && (common.GetContextKeyBool(c, constant.ContextKeyHTTPStreamCommitted) || common.GetContextKeyBool(c, constant.ContextKeyHTTPStreamDownstreamFailure)) {
+		return false
+	}
 	if apiErr == nil || ShouldSkipRetryAfterChannelAffinityFailure(c) {
 		return false
 	}
@@ -68,12 +71,18 @@ func ShouldExcludeChannelForRetry(c *gin.Context, _ *types.NewAPIError) bool {
 	if c == nil {
 		return false
 	}
+	if common.GetContextKeyBool(c, constant.ContextKeyHTTPStreamDownstreamFailure) {
+		return false
+	}
 	return common.GetContextKeyBool(c, constant.ContextKeyUpstreamChannelFailure) ||
 		common.GetContextKeyBool(c, constant.ContextKeyUpstreamCapabilityMismatch) ||
 		common.GetContextKeyBool(c, constant.ContextKeyUpstreamUnsupportedParameter)
 }
 
 func ProcessChannelError(c *gin.Context, channelError types.ChannelError, apiErr *types.NewAPIError) {
+	if c != nil && common.GetContextKeyBool(c, constant.ContextKeyHTTPStreamDownstreamFailure) {
+		return
+	}
 	if apiErr == nil {
 		return
 	}

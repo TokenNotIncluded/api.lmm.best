@@ -67,6 +67,9 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		return nil, types.NewOpenAIError(fmt.Errorf("invalid response"), types.ErrorCodeBadResponse, http.StatusInternalServerError)
 	}
 	defer service.CloseResponseBodyGracefully(resp)
+	if apiErr := validateOpenAIStreamResponse(resp); apiErr != nil {
+		return nil, apiErr
+	}
 
 	responseID := helper.GetResponseID(c)
 	state, err := relayconvert.NewResponseStreamState(types.RelayFormatOpenAI, types.RelayFormatOpenAIResponses, relayconvert.ResponseStreamOptions{
@@ -79,6 +82,7 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 	streamErr := (*types.NewAPIError)(nil)
 	upstreamAPIError := false
 	writeFailed := false
+	eventWritten := false
 	endEvidence := chatResponsesEndEvidence{choices: make(map[int]bool)}
 
 	sendEvent := func(event relayconvert.ChatToResponsesStreamEvent) bool {
@@ -93,6 +97,7 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			streamErr = types.NewOpenAIError(fmt.Errorf("downstream stream write failed"), types.ErrorCodeBadResponseBody, http.StatusBadGateway)
 			return false
 		}
+		eventWritten = true
 		return true
 	}
 
@@ -150,7 +155,7 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 	if writeFailed || c.Request.Context().Err() != nil || info.StreamStatus.EndReason == relaycommon.StreamEndReasonClientGone || info.StreamStatus.EndReason == relaycommon.StreamEndReasonPingFail {
 		return usage, nil
 	}
-	if upstreamAPIError && !c.Writer.Written() {
+	if upstreamAPIError && !eventWritten {
 		return usage, streamErr
 	}
 	complete := streamErr == nil && !info.StreamStatus.HasErrors() && endEvidence.valid && !endEvidence.invalid &&
@@ -159,7 +164,7 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 	fail := func() (*dto.Usage, *types.NewAPIError) {
 		const message = "Upstream response ended before a terminal event"
 		info.StreamStatus.RecordError(message)
-		if !c.Writer.Written() {
+		if !eventWritten {
 			return usage, types.NewOpenAIError(fmt.Errorf("%s", message), types.ErrorCodeBadResponseBody, http.StatusBadGateway)
 		}
 		response, err := relayconvert.FailChatToResponsesStream(state, "upstream_stream_interrupted", message)

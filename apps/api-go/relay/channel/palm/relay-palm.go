@@ -3,8 +3,6 @@ package palm
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"io"
 	"net/http"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -60,6 +58,7 @@ func palmStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 	defer cancel()
 	defer func() {
 		if err := c.Request.Context().Err(); err != nil {
+			helper.MarkHTTPStreamDownstreamFailure(c)
 			status.RecordError("request_canceled")
 			status.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
 		}
@@ -72,6 +71,11 @@ func palmStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 	responseText := ""
 	responseId := helper.GetResponseID(c)
 	createdTime := common.GetTimestamp()
+	if err := helper.CommitEventStreamHeaders(c); err != nil {
+		status.RecordError("downstream header commit failed")
+		status.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
+		return types.NewError(err, types.ErrorCodeBadResponseBody, types.ErrOptionWithSkipRetry()), ""
+	}
 	type streamData struct {
 		json string
 		text string
@@ -119,30 +123,30 @@ func palmStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 		}
 		helper.SendCtx(ctx, stopChan, true)
 	}()
-	helper.SetEventStreamHeaders(c)
-	clientDisconnected := c.Stream(func(w io.Writer) bool {
+	for {
 		select {
 		case data := <-dataChan:
 			responseText = data.text
-			c.Render(-1, common.CustomEvent{Data: "data: " + data.json})
-			if c.Errors.Last() != nil {
-				return false
+			if err := helper.StringData(c, data.json); err != nil {
+				helper.MarkHTTPStreamDownstreamFailure(c)
+				status.RecordError("write_response")
+				status.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
+				return nil, responseText
 			}
-			return true
 		case <-stopChan:
-			c.Render(-1, common.CustomEvent{Data: "data: [DONE]"})
-			return false
+			if err := helper.StringData(c, "[DONE]"); err != nil {
+				helper.MarkHTTPStreamDownstreamFailure(c)
+				status.RecordError("write_response")
+				status.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
+			}
+			return nil, responseText
 		case <-ctx.Done():
+			helper.MarkHTTPStreamDownstreamFailure(c)
 			status.RecordError("request_canceled")
 			status.SetEndReason(relaycommon.StreamEndReasonClientGone, ctx.Err())
-			return false
+			return nil, responseText
 		}
-	})
-	if clientDisconnected {
-		status.RecordError("client_disconnected")
-		status.SetEndReason(relaycommon.StreamEndReasonClientGone, errors.New("client disconnected"))
 	}
-	return nil, responseText
 }
 
 func palmHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {

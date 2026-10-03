@@ -51,7 +51,7 @@ func TestCloudflareStreamPublishesOutcomeWithoutChangingLegacyReturn(t *testing.
 			apiErr, usage := cfStreamHandler(c, info, &http.Response{Body: io.NopCloser(test.reader)})
 
 			require.Nil(t, apiErr)
-			require.NotNil(t, usage)
+			require.NotNil(t, usage, "headerless input retains the legacy usage return")
 			assert.Nil(t, info.StreamStatus, "legacy billing must keep its original stream status")
 			require.NotNil(t, info.RateLimitStreamStatus)
 			assert.Equal(t, test.reason, info.RateLimitStreamStatus.EndReason)

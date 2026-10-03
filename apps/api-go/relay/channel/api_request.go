@@ -507,6 +507,12 @@ func startPingKeepAlive(c *gin.Context, pingInterval time.Duration) (context.Can
 func sendPingData(c *gin.Context, mutex *sync.Mutex) error {
 	mutex.Lock()
 	defer mutex.Unlock()
+	// Waiting for an upstream HTTP response is still a retryable attempt.
+	// Only the validated stream handler can retire that boundary; a pinger
+	// must never commit 200 before provider headers/errors have been accepted.
+	if !common2.GetContextKeyBool(c, appconstant.ContextKeyHTTPStreamCommitted) {
+		return nil
+	}
 
 	// Bound the write so a slow client cannot block this goroutine forever;
 	// doRequest's defer waits for the pinger to exit before returning.

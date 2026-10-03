@@ -81,6 +81,9 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 		return nil, types.NewOpenAIError(fmt.Errorf("invalid response"), types.ErrorCodeBadResponse, http.StatusInternalServerError)
 	}
 	defer service.CloseResponseBodyGracefully(resp)
+	if apiErr := validateOpenAIStreamResponse(resp); apiErr != nil {
+		return nil, apiErr
+	}
 
 	accumulator := relayconvert.NewResponsesBufferedAccumulator()
 	var finalResponse *dto.OpenAIResponsesResponse
@@ -190,6 +193,9 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 	}
 
 	defer service.CloseResponseBodyGracefully(resp)
+	if apiErr := validateOpenAIStreamResponse(resp); apiErr != nil {
+		return nil, apiErr
+	}
 
 	responseId := helper.GetResponseID(c)
 	createAt := time.Now().Unix()
@@ -202,6 +208,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 	}
 	streamErr := (*types.NewAPIError)(nil)
+	var reportedUsage *dto.Usage
 
 	if info.RelayFormat == types.RelayFormatClaude && info.ClaudeConvertInfo == nil {
 		info.ClaudeConvertInfo = &relaycommon.ClaudeConvertInfo{LastMessagesType: relaycommon.LastMessageTypeNone}
@@ -216,8 +223,10 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			streamErr = types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
 			return false
 		}
-		c.Render(-1, common.CustomEvent{Data: "data: " + string(geminiResponseStr)})
-		_ = helper.FlushWriter(c)
+		if err := helper.StringData(c, string(geminiResponseStr)); err != nil {
+			streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+			return false
+		}
 		return true
 	}
 
@@ -291,6 +300,15 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			sr.Stop(streamErr)
 			return
 		}
+		// These are the events whose response metadata the existing converter
+		// consumes. Presence, including an explicit zero report, is evidence;
+		// the initialized zero state by itself is not a provider report.
+		if streamResp.Response != nil && streamResp.Response.Usage != nil {
+			switch streamResp.Type {
+			case "response.created", "response.completed", "response.done", "response.incomplete":
+				reportedUsage = relayconvert.UsageFromResponsesUsage(streamResp.Response.Usage)
+			}
+		}
 
 		results, err := relayconvert.ConvertStreamResponseChunk(c, info, state, &streamResp)
 		if err != nil {
@@ -305,6 +323,27 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			}
 		}
 	})
+
+	clientFailed := func() bool { return helper.HTTPStreamDownstreamFailed(c) || c.Request.Context().Err() != nil }
+	clientFailureUsage := func() (*dto.Usage, *types.NewAPIError) {
+		// A client transport failure cannot erase already generated output.
+		// Preserve accepted reports (even zero); otherwise settle only the
+		// existing locally countable output, without inventing input/prepayment.
+		usage := reportedUsage
+		if usage == nil {
+			usage = &dto.Usage{}
+			if text := state.UsageText(); text != "" {
+				usage = service.ResponseText2Usage(c, text, info.UpstreamModelName, 0)
+			}
+		}
+		state.SetUsage(usage)
+		info.ResponseFailed = true
+		info.StreamStatus.RecordError("downstream stream delivery failed")
+		return usage, nil
+	}
+	if clientFailed() {
+		return clientFailureUsage()
+	}
 
 	if streamErr != nil {
 		return nil, streamErr
@@ -325,17 +364,26 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 	}
 	for _, result := range finalResults {
 		if !sendStreamResult(result) {
+			if clientFailed() {
+				return clientFailureUsage()
+			}
 			return nil, streamErr
 		}
 	}
 	if info.RelayFormat == types.RelayFormatOpenAI && info.ShouldIncludeUsage && usage != nil {
 		if err := helper.ObjectData(c, helper.GenerateFinalUsageResponse(responseId, createAt, info.UpstreamModelName, *usage)); err != nil {
+			if clientFailed() {
+				return clientFailureUsage()
+			}
 			return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 		}
 	}
 
 	if info.RelayFormat == types.RelayFormatOpenAI {
 		helper.Done(c)
+	}
+	if clientFailed() {
+		return clientFailureUsage()
 	}
 	return usage, nil
 }

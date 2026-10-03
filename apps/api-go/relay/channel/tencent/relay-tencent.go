@@ -90,11 +90,16 @@ func streamResponseTencent2OpenAI(TencentResponse *TencentChatResponse) *dto.Cha
 }
 
 func tencentStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+	defer service.CloseResponseBodyGracefully(resp)
+	if err := helper.ValidateEventStreamResponse(resp); err != nil {
+		return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeBadResponse, http.StatusBadGateway)
+	}
 	info.RateLimitStreamStatus = relaycommon.NewStreamStatus()
 	status := info.RateLimitStreamStatus
 	initialWriterErrors := len(c.Errors)
 	defer func() {
 		if err := c.Request.Context().Err(); err != nil {
+			helper.MarkHTTPStreamDownstreamFailure(c)
 			status.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
 			status.RecordError("Tencent stream client canceled")
 		}
@@ -108,7 +113,12 @@ func tencentStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *htt
 	scanner := helper.NewStreamScanner(resp.Body)
 	scanner.Split(bufio.ScanLines)
 
-	helper.SetEventStreamHeaders(c)
+	if err := helper.CommitEventStreamResponseHeaders(c, resp); err != nil {
+		status.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
+		status.RecordError("downstream header commit failed")
+		return nil, types.NewError(err, types.ErrorCodeBadResponseBody, types.ErrOptionWithSkipRetry())
+	}
+	writeFailed := false
 
 	for scanner.Scan() {
 		data := scanner.Text()
@@ -133,8 +143,13 @@ func tencentStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *htt
 			responseText += response.Choices[0].Delta.GetContentString()
 		}
 
+		if writeFailed {
+			continue
+		}
 		err = helper.ObjectData(c, response)
 		if err != nil {
+			helper.MarkHTTPStreamDownstreamFailure(c)
+			writeFailed = true
 			common.SysLog(err.Error())
 			status.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
 			status.RecordError("downstream Tencent stream write failed")
@@ -149,9 +164,13 @@ func tencentStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *htt
 		status.RecordError("error reading Tencent stream")
 	}
 
-	helper.Done(c)
-
-	service.CloseResponseBodyGracefully(resp)
+	if !writeFailed {
+		if err := helper.StringData(c, "[DONE]"); err != nil {
+			helper.MarkHTTPStreamDownstreamFailure(c)
+			status.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
+			status.RecordError("downstream Tencent stream completion failed")
+		}
+	}
 
 	return service.ResponseText2Usage(c, responseText, info.UpstreamModelName, info.GetEstimatePromptTokens()), nil
 }

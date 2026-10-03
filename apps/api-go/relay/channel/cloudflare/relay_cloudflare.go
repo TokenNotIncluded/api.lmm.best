@@ -30,6 +30,10 @@ func convertCf2CompletionsRequest(textRequest dto.GeneralOpenAIRequest) *CfReque
 }
 
 func cfStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*types.NewAPIError, *dto.Usage) {
+	defer service.CloseResponseBodyGracefully(resp)
+	if err := helper.ValidateEventStreamResponse(resp); err != nil {
+		return types.NewErrorWithStatusCode(err, types.ErrorCodeBadResponse, http.StatusBadGateway), nil
+	}
 	info.RateLimitStreamStatus = relaycommon.NewStreamStatus()
 	status := info.RateLimitStreamStatus
 	endedWithDone := false
@@ -39,6 +43,7 @@ func cfStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Res
 			status.SetEndReason(relaycommon.StreamEndReasonClientGone, writerErr.Err)
 		}
 		if c.Request != nil && c.Request.Context().Err() != nil {
+			helper.MarkHTTPStreamDownstreamFailure(c)
 			status.RecordError("request_canceled")
 			status.SetEndReason(relaycommon.StreamEndReasonClientGone, c.Request.Context().Err())
 		}
@@ -51,7 +56,12 @@ func cfStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Res
 	scanner := helper.NewStreamScanner(resp.Body)
 	scanner.Split(bufio.ScanLines)
 
-	helper.SetEventStreamHeaders(c)
+	if err := helper.CommitEventStreamResponseHeaders(c, resp); err != nil {
+		status.RecordError("downstream header commit failed")
+		status.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
+		return types.NewError(err, types.ErrorCodeBadResponseBody, types.ErrOptionWithSkipRetry()), nil
+	}
+	writeFailed := false
 	id := helper.GetResponseID(c)
 	var responseText string
 	isFirst := true
@@ -95,12 +105,18 @@ func cfStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Res
 		}
 		response.Id = id
 		response.Model = info.UpstreamModelName
+		if writeFailed {
+			continue
+		}
 		err = helper.ObjectData(c, response)
 		if isFirst {
 			isFirst = false
 			info.FirstResponseTime = time.Now()
 		}
 		if err != nil {
+			helper.MarkHTTPStreamDownstreamFailure(c)
+			writeFailed = true
+			status.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
 			status.RecordError("write_response")
 			logger.LogError(c, "error_rendering_stream_response: "+err.Error())
 		}
@@ -112,19 +128,24 @@ func cfStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Res
 		logger.LogError(c, "error_scanning_stream_response: "+err.Error())
 	}
 	usage := service.ResponseText2Usage(c, responseText, info.UpstreamModelName, info.GetEstimatePromptTokens())
-	if info.ShouldIncludeUsage {
+	if info.ShouldIncludeUsage && !writeFailed {
 		response := helper.GenerateFinalUsageResponse(id, info.StartTime.Unix(), info.UpstreamModelName, *usage)
 		err := helper.ObjectData(c, response)
 		if err != nil {
+			helper.MarkHTTPStreamDownstreamFailure(c)
+			writeFailed = true
+			status.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
 			status.RecordError("write_usage")
 			logger.LogError(c, "error_rendering_final_usage_response: "+err.Error())
 		}
 	}
-	if err := helper.StringData(c, "[DONE]"); err != nil {
-		status.RecordError("write_done")
+	if !writeFailed {
+		if err := helper.StringData(c, "[DONE]"); err != nil {
+			helper.MarkHTTPStreamDownstreamFailure(c)
+			status.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
+			status.RecordError("write_done")
+		}
 	}
-
-	service.CloseResponseBodyGracefully(resp)
 
 	return nil, usage
 }
