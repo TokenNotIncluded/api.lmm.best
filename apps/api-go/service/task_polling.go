@@ -15,6 +15,7 @@ import (
 	taskdto "github.com/LIghtJUNction/api.lmm.best/dto"
 	"github.com/LIghtJUNction/api.lmm.best/logger"
 	"github.com/LIghtJUNction/api.lmm.best/model"
+	perfmetrics "github.com/LIghtJUNction/api.lmm.best/pkg/perf_metrics"
 	"github.com/LIghtJUNction/api.lmm.best/relay/channel/task/taskcommon"
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
@@ -35,6 +36,10 @@ type TaskPollingAdaptor interface {
 // GetTaskAdaptorFunc 由 main 包注入，用于获取指定平台的任务适配器。
 // 打破 service -> relay -> relay/channel -> service 的循环依赖。
 var GetTaskAdaptorFunc func(platform constant.TaskPlatform) TaskPollingAdaptor
+
+func isTerminalTaskStatus(status model.TaskStatus) bool {
+	return status == model.TaskStatusSuccess || status == model.TaskStatusFailure
+}
 
 const (
 	refundReconciliationLimit       = 100
@@ -87,6 +92,9 @@ func sweepTimedOutTasks(ctx context.Context) {
 		timedOutCount++
 		if !isLegacy && task.Quota != 0 {
 			RefundTaskQuota(ctx, task, reason)
+		}
+		if !isTerminalTaskStatus(oldStatus) {
+			perfmetrics.RecordTaskResult(task, nil)
 		}
 	}
 
@@ -254,6 +262,9 @@ func updateSunoTasks(ctx context.Context, channelId int, taskIds []string, taskM
 			if won && task.Quota != 0 {
 				RefundTaskQuota(ctx, task, task.FailReason)
 			}
+			if won && !isTerminalTaskStatus(previousStatus) {
+				perfmetrics.RecordTaskResult(task, nil)
+			}
 		}
 		return err
 	}
@@ -328,6 +339,9 @@ func updateSunoTasks(ctx context.Context, channelId int, taskIds []string, taskM
 			logger.LogWarn(ctx, fmt.Sprintf("Task %s CAS lost or no-op update, skip billing", task.TaskID))
 		} else if isFailure && prevStatus != model.TaskStatusFailure && task.Quota != 0 {
 			RefundTaskQuota(ctx, task, task.FailReason)
+		}
+		if err == nil && won && !isTerminalTaskStatus(prevStatus) && isTerminalTaskStatus(task.Status) {
+			perfmetrics.RecordTaskResult(task, nil)
 		}
 	}
 	return nil
@@ -500,6 +514,7 @@ func failTaskForPolling(ctx context.Context, task *model.Task, reason string) bo
 	if task.Quota != 0 {
 		RefundTaskQuota(ctx, task, reason)
 	}
+	perfmetrics.RecordTaskResult(task, nil)
 	return true
 }
 
@@ -586,6 +601,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 
 	shouldRefund := false
 	shouldSettle := false
+	recordResult := false
 	quota := task.Quota
 
 	task.Status = model.TaskStatus(taskResult.Status)
@@ -646,6 +662,8 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 			logger.LogWarn(ctx, fmt.Sprintf("Task %s CAS lost or no-op update, skip billing", task.TaskID))
 			shouldRefund = false
 			shouldSettle = false
+		} else {
+			recordResult = !isTerminalTaskStatus(snap.Status)
 		}
 	} else if !snap.Equal(task.Snapshot()) {
 		if _, err := task.UpdateWithStatus(snap.Status); err != nil {
@@ -661,6 +679,9 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	}
 	if shouldRefund {
 		RefundTaskQuota(ctx, task, task.FailReason)
+	}
+	if recordResult {
+		perfmetrics.RecordTaskResult(task, taskResult)
 	}
 
 	return nil
