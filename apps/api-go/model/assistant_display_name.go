@@ -29,7 +29,7 @@ func NormalizeAssistantDisplayName(value string) (string, error) {
 		return "", ErrAssistantDisplayNameInvalid
 	}
 	for _, character := range value {
-		if unicode.IsControl(character) {
+		if unicode.IsControl(character) || unicode.Is(unicode.Zl, character) || unicode.Is(unicode.Zp, character) {
 			return "", ErrAssistantDisplayNameInvalid
 		}
 	}

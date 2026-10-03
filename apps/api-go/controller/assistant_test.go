@@ -153,6 +153,11 @@ func TestAssistantRuntimeMetadataQuestionIsDeterministic(t *testing.T) {
 		"My training data contains a model name field. Help validate the dataset schema.",
 		"What model are you running? Also help me configure Codex.",
 		"你是什么模型？另外请评估一下我的新用户礼包。",
+		"你是什么 AI？顺便打开我的钱包。",
+		"你是什么 AI？请计算 2+2。",
+		"Who are you? Open my wallet.",
+		"What's your model, and delete my old key.",
+		"我清楚模型名称，请打开个人资料。",
 	} {
 		assert.False(t, assistantRuntimeMetadataQuestion(message), message)
 	}

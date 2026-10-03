@@ -910,7 +910,7 @@ export function getAssistantDisplayNameValidationError(
   if (length < 1 || length > 20) {
     return 'Display name must be 1 to 20 characters'
   }
-  if (/\p{Cc}/u.test(displayName)) {
+  if (/[\p{Cc}\p{Zl}\p{Zp}]/u.test(displayName)) {
     return 'Display name cannot contain control characters'
   }
   return undefined

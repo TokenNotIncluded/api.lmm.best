@@ -331,54 +331,34 @@ func assistantConversationRestrictedBody() []byte {
 	return body
 }
 
+var assistantRuntimeMetadataClausePattern = regexp.MustCompile(`^(?:(?:你|您)(?:是谁|是什么(?:ai|人工智能|语言模型|模型))(?:呢|吗)?|(?:(?:你|您)的)?(?:模型名称|模型型号)(?:是什么|是啥|叫什么)?|(?:(?:你|您)的)?(?:训练数据|训练截止(?:时间|日期)?|知识截止(?:时间|日期)?|知识边界)(?:到?(?:什么时候|何时|哪天)|是什么|是多少|是哪天)?|whoareyou|(?:what|which)(?:ai|language)?modelareyou(?:running|using)?|(?:what's|whatis)yourmodel(?:name)?|(?:your)?modelname|(?:(?:whatis|what's|whenis)(?:your|the)?)?(?:trainingcutoff|knowledgecut-?off|cutoffdate)(?:date)?|(?:your)?trainingdata)$`)
+
 func assistantRuntimeMetadataQuestion(message string) bool {
 	text := strings.ToLower(strings.TrimSpace(message))
 	if text == "" {
 		return false
 	}
-	// Live catalog and pricing requests must stay on the model tools even when
-	// the user also says “model name”. Identity metadata must never swallow a
-	// request for an exact model's availability or price.
-	for _, phrase := range []string{
-		"价格", "多少钱", "可用", "目录", "price", "pricing", "available",
-		"availability", "catalog", "model id", "model_id", "model ids",
-		// A task can mention model names or training data without asking about
-		// this assistant. Mixed requests belong in the agent so all parts get
-		// answered instead of being replaced by the fixed identity response.
-		"配置", "接入", "礼包", "评估", "申请", "开发", "科研", "报错",
-		"configure", "configuration", "setup", "set up", "integrate", "integration",
-		"gift", "evaluate", "debug", "implement", "dataset", "schema",
-	} {
-		if strings.Contains(text, phrase) {
+	// Only pure metadata questions use the fixed answer. A mixed identity and
+	// task request belongs in the agent, which can answer both. Substring
+	// matching would swallow setup descriptions containing "model name" and
+	// requests such as "Who are you? Open my wallet."
+	text = strings.NewReplacer(" and ", ",", "以及", "，", "并且", "，").Replace(text)
+	clauses := strings.FieldsFunc(text, func(r rune) bool {
+		return strings.ContainsRune("？?！!。.，,;；:：\n", r)
+	})
+	if len(clauses) == 0 {
+		return false
+	}
+	for _, clause := range clauses {
+		compact := strings.Join(strings.Fields(clause), "")
+		for _, prefix := range []string{"请告诉我", "请问", "告诉我", "请说明", "请介绍", "请", "please", "canyoutellme", "couldyoutellme", "tellme", "and", "also"} {
+			compact = strings.TrimPrefix(compact, prefix)
+		}
+		if !assistantRuntimeMetadataClausePattern.MatchString(compact) {
 			return false
 		}
 	}
-	unspaced := strings.Join(strings.Fields(text), "")
-	compact := unspaced
-	compact = strings.Trim(compact, "？?！!。.，,:：")
-	for _, prefix := range []string{"请告诉我", "请问", "告诉我", "请说明", "请介绍", "请"} {
-		compact = strings.TrimPrefix(compact, prefix)
-	}
-	for _, prefix := range []string{"你的", "您的", "当前助手的", "助手的"} {
-		compact = strings.TrimPrefix(compact, prefix)
-	}
-	// Bare labels are only identity questions when they are the whole request.
-	// In particular, "模型名称" in a user's setup description is not one.
-	switch compact {
-	case "模型名称", "模型型号", "modelname", "trainingdata", "训练数据":
-		return true
-	}
-	for _, phrase := range []string{
-		"你是什么ai", "你是谁", "你是什么模型", "你的模型名称", "你的模型型号",
-		"who are you", "what model are you", "which model are you", "what's your model", "what is your model", "your model name",
-		"训练截止", "知识截止", "知识边界", "你的训练数据", "training cutoff",
-		"knowledge cutoff", "knowledge cut-off", "your training data", "cutoff date",
-	} {
-		if strings.Contains(text, phrase) || strings.Contains(unspaced, phrase) {
-			return true
-		}
-	}
-	return false
+	return true
 }
 
 func assistantRuntimeMetadataBody(settings setting.AssistantSettings) []byte {

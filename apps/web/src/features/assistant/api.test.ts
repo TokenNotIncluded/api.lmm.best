@@ -125,7 +125,7 @@ describe('assistant display-name changes', () => {
         ),
         /Unable to change display name/
       )
-      for (const name of ['Ali\u0000ce', 'Ali\nce', 'Ali\u0085ce']) {
+      for (const name of ['Ali\u0000ce', 'Ali\nce', 'Ali\u0085ce', 'Ali\u2028ce', 'Ali\u2029ce']) {
         await assert.rejects(
           executeAssistantUserAction(displayNameAction, { displayName: name }),
           /Display name cannot contain control characters/

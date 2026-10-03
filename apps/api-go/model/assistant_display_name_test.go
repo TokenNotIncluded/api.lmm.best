@@ -13,7 +13,7 @@ import (
 )
 
 func TestAssistantDisplayNameNormalization(t *testing.T) {
-	for _, value := range []string{"", "   ", strings.Repeat("字", 21), "a\nb", "a\x00b", string([]byte{0xff})} {
+	for _, value := range []string{"", "   ", strings.Repeat("字", 21), "a\nb", "a\x00b", "a\u2028b", "a\u2029b", string([]byte{0xff})} {
 		_, err := NormalizeAssistantDisplayName(value)
 		assert.ErrorIs(t, err, ErrAssistantDisplayNameInvalid)
 	}
