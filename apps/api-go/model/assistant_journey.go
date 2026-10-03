@@ -41,17 +41,13 @@ func assistantGiftJourneyStep(gift *AssistantNewUserGift) AssistantJourneyStep {
 
 // GetAssistantJourney derives progress from authoritative server records. It
 // intentionally stores no duplicate progress flags that could drift from the
-// recommendation, key, client-proof, relay-usage, or bounty state.
+// developer-access, key, client-proof, relay-usage, or bounty state.
 func GetAssistantJourney(userID int) (*AssistantJourney, error) {
 	if userID <= 0 {
 		return nil, gorm.ErrInvalidData
 	}
 	var conversationCount int64
 	if err := DB.Model(&AssistantConversation{}).Where("user_id = ?", userID).Count(&conversationCount).Error; err != nil {
-		return nil, err
-	}
-	request, err := GetDeveloperAccessRequest(userID)
-	if err != nil {
 		return nil, err
 	}
 	onboarding, err := GetL1OnboardingTodo(userID)
@@ -74,7 +70,10 @@ func GetAssistantJourney(userID int) (*AssistantJourney, error) {
 	return &AssistantJourney{
 		Main: []AssistantJourneyStep{
 			journeyStep("ask_ai", conversationCount > 0),
-			journeyStep("get_recommendation", request != nil && request.AIRecommendation != ""),
+			// Keep the old step ID for existing clients; it now means "Get L1
+			// access". Eligibility carries the fresh DeveloperAccessState.Granted
+			// decision. Historical recommendation text never grants access.
+			journeyStep("get_recommendation", onboarding.Eligibility.DeveloperAccessGranted),
 			journeyStep("create_api_key", onboardingState[L1OnboardingStepCreateAPIKey]),
 			journeyStep("install_client", onboardingState[L1OnboardingStepInstallClient]),
 			journeyStep("configure_client", onboardingState[L1OnboardingStepConfigureClient]),

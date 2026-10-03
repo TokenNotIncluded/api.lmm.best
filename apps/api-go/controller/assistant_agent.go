@@ -3329,13 +3329,9 @@ func executeAssistantAccountTool(userID int) map[string]any {
 		}
 		main := make([]map[string]any, 0, len(journey.Main))
 		for _, step := range journey.Main {
-			item := map[string]any{"id": step.Id, "status": step.Status}
-			if step.Id == "get_recommendation" {
-				item["historical_read_only"] = true
-				item["required_for_l1_access"] = false
-				item["required_for_main_task"] = false
-			}
-			main = append(main, item)
+			// get_recommendation is the compatibility ID for the actual L1
+			// access milestone; historical letters live only in l1_request.
+			main = append(main, map[string]any{"id": step.Id, "status": step.Status})
 		}
 		result["onboarding"] = onboarding
 		result["onboarding_todo"] = todo

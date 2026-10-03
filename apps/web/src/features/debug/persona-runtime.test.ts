@@ -155,6 +155,12 @@ describe('persona debug runtime', () => {
       assert.equal(journey.data.data.main.length, 6)
       assert.equal(journey.data.data.side.length, 2)
       assert.equal(
+        journey.data.data.main.find(
+          (step: { id: string }) => step.id === 'get_recommendation'
+        )?.status,
+        fixture.access ? 'completed' : 'pending'
+      )
+      assert.equal(
         journey.data.data.main.filter(
           (step: { status: string }) => step.status === 'pending'
         ).length,
