@@ -63,9 +63,11 @@ test('scoped translation writes run with only committed script dependencies', as
         .filter((key) => key !== 'Existing fixture')
         .sort()
       assert.ok(added.length > 0, `${locale} must receive scoped translations`)
-      if (keys)
+      if (keys) {
         assert.deepEqual(added, keys, `${locale} must receive the same keys`)
-      else keys = added
+      } else {
+        keys = added
+      }
       for (const key of added) assert.equal(typeof translation[key], 'string')
     }
   } finally {
