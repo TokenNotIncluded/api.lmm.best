@@ -243,6 +243,183 @@ async fn postgres_link_policy_and_lookback_contracts_are_durable() {
 
 #[tokio::test]
 #[ignore = "requires isolated PostgreSQL via LMM_TEST_DATABASE_URL"]
+async fn postgres_link_updates_filters_searches_and_deletes_are_durable() {
+    let fixture = PgFixture::new().await;
+
+    for invalid in [
+        json!({"name":"Missing source","target":"/guide"}),
+        json!({"name":"Missing target","source":"community"}),
+        json!({"name":"External target","source":"community","target":"https://example.com"}),
+    ] {
+        assert!(matches!(
+            fixture.store.save_link(input(invalid)).await,
+            Err(Error::Invalid(_))
+        ));
+    }
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM acquisition_links")
+        .fetch_one(&fixture.pg)
+        .await
+        .unwrap();
+    assert_eq!(count, 0, "invalid links must not persist partial rows");
+
+    let original = fixture
+        .store
+        .save_link(input(json!({
+            "name":"Literal_mark",
+            "source":"community",
+            "medium":"documentation",
+            "campaign":"Launch",
+            "content":"readme",
+            "target":"/guide"
+        })))
+        .await
+        .unwrap();
+    let wildcard_decoy = fixture
+        .store
+        .save_link(input(json!({
+            "name":"LiteralXmark",
+            "source":"social",
+            "target":"/pricing"
+        })))
+        .await
+        .unwrap();
+    let archived = fixture
+        .store
+        .save_link(input(json!({
+            "name":"Archive match",
+            "source":"newsletter",
+            "target":"/sign-up",
+            "archived":true
+        })))
+        .await
+        .unwrap();
+    let deleted = fixture
+        .store
+        .save_link(input(json!({
+            "name":"Deleted match",
+            "source":"partner",
+            "target":"/challenges"
+        })))
+        .await
+        .unwrap();
+
+    let updated = fixture
+        .store
+        .save_link(input(json!({
+            "id":original.id,
+            "name":"Renamed_mark",
+            "source":"must-not-replace",
+            "medium":"must-not-replace",
+            "campaign":"must-not-replace",
+            "content":"must-not-replace",
+            "target":"/pricing",
+            "archived":true
+        })))
+        .await
+        .unwrap();
+    assert_eq!(updated.name, "Renamed_mark");
+    assert!(updated.archived);
+    assert_eq!(updated.source, original.source);
+    assert_eq!(updated.medium, original.medium);
+    assert_eq!(updated.campaign, original.campaign);
+    assert_eq!(updated.content, original.content);
+    assert_eq!(updated.target, original.target);
+    assert_eq!(updated.created_at, original.created_at);
+    let persisted: Value =
+        sqlx::query_scalar("SELECT to_jsonb(acquisition_links) FROM acquisition_links WHERE id=$1")
+            .bind(&original.id)
+            .fetch_one(&fixture.pg)
+            .await
+            .unwrap();
+    assert_eq!(persisted["name"], "Renamed_mark");
+    assert_eq!(persisted["archived"], true);
+    assert_eq!(persisted["source"], original.source);
+    assert_eq!(persisted["medium"], original.medium);
+    assert_eq!(persisted["campaign"], original.campaign);
+    assert_eq!(persisted["content"], original.content);
+    assert_eq!(persisted["target"], original.target);
+    assert_eq!(persisted["created_at"], original.created_at);
+
+    let literal_underscore = fixture.store.links(1, 20, "all", "_").await.unwrap();
+    assert_eq!(literal_underscore["total"], 1);
+    assert_eq!(literal_underscore["items"][0]["id"], original.id);
+    assert_eq!(
+        fixture.store.links(1, 20, "all", "%").await.unwrap()["total"],
+        0,
+        "SQL wildcard characters must be treated as literal search text"
+    );
+    assert_eq!(
+        fixture
+            .store
+            .links(1, 20, "archived", "MATCH")
+            .await
+            .unwrap()["items"][0]["id"],
+        archived.id,
+        "searches must remain case insensitive"
+    );
+    let first_page = fixture.store.links(1, 1, "active", "").await.unwrap();
+    let second_page = fixture.store.links(2, 1, "active", "").await.unwrap();
+    assert_eq!(first_page["total"], 2);
+    assert_eq!(second_page["total"], 2);
+    let mut page_ids = vec![
+        first_page["items"][0]["id"].as_str().unwrap().to_owned(),
+        second_page["items"][0]["id"].as_str().unwrap().to_owned(),
+    ];
+    page_ids.sort();
+    let mut expected_ids = vec![wildcard_decoy.id.clone(), deleted.id.clone()];
+    expected_ids.sort();
+    assert_eq!(
+        page_ids, expected_ids,
+        "page offsets must return each active row exactly once"
+    );
+
+    for invalid in [
+        fixture.store.links(0, 20, "all", "").await,
+        fixture.store.links(1, 0, "all", "").await,
+        fixture.store.links(1, 20, "unknown", "").await,
+        fixture.store.links(1, 20, "all", &"x".repeat(81)).await,
+    ] {
+        assert!(matches!(invalid, Err(Error::Invalid(_))));
+    }
+    assert!(matches!(
+        fixture.store.delete_link("not-an-id").await,
+        Err(Error::Invalid(_))
+    ));
+
+    fixture.store.delete_link(&deleted.id).await.unwrap();
+    assert_eq!(
+        fixture.store.links(1, 20, "deleted", "").await.unwrap()["items"][0]["id"],
+        deleted.id
+    );
+    assert_eq!(
+        fixture.store.links(1, 20, "all", "").await.unwrap()["total"],
+        3,
+        "the all view must still exclude soft-deleted links"
+    );
+    assert!(matches!(
+        fixture.store.delete_link(&deleted.id).await,
+        Err(Error::Database(sqlx::Error::RowNotFound))
+    ));
+    assert!(matches!(
+        fixture
+            .store
+            .save_link(input(json!({
+                "id":deleted.id,
+                "name":"Cannot revive",
+                "archived":false
+            })))
+            .await,
+        Err(Error::Database(sqlx::Error::RowNotFound))
+    ));
+
+    let active = fixture.store.links(1, 20, "active", "").await.unwrap();
+    assert_eq!(active["total"], 1);
+    assert_eq!(active["items"][0]["id"], wildcard_decoy.id);
+    fixture.cleanup().await;
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL via LMM_TEST_DATABASE_URL"]
 async fn postgres_consent_visit_report_and_withdrawal_round_trip() {
     let fixture = PgFixture::new().await;
     fixture.store.grant(7).await.unwrap();
