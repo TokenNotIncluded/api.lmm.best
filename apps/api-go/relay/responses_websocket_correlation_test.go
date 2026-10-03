@@ -35,6 +35,7 @@ func TestResponsesWSCreateStreamIDIsTransportMetadata(t *testing.T) {
 			httpBody, err := common.Marshal(create.Request)
 			require.NoError(t, err)
 			assert.NotContains(t, responsesWSCorrelationObject(t, httpBody), "stream_id")
+			assert.NotContains(t, responsesWSCorrelationObject(t, httpBody), "event_id")
 		})
 	}
 
@@ -132,13 +133,21 @@ func TestResponsesWSLateTerminalsDoNotAcquireANewerTurnIdentity(t *testing.T) {
 	}
 	current := responsesWSCorrelationState("stream_current")
 	require.True(t, session.tryReserveCurrent(current))
+	created := session.processUpstreamMessage([]byte(`{"type":"response.created","response_id":"","response":{"id":"response_current"}}`))
+	assert.Equal(t, "stream_current", responsesWSCorrelationObject(t, created)["stream_id"])
+	assert.Equal(t, "response_current", current.responseID)
 	for _, message := range []string{
 		`{"type":"response.failed","response":{"id":"response_0"}}`,
 		`{"type":"error","response_id":"response_1","error":{"message":"late"}}`,
+		`{"type":"response.failed","response_id":"","response":{"id":"response_0"}}`,
+		`{"type":"response.failed","response_id":"","response":{"id":"response_foreign"}}`,
 	} {
 		assert.Equal(t, []byte(message), session.processUpstreamMessage([]byte(message)))
 		assert.Same(t, current, session.getCurrent())
 	}
+	terminal := session.processUpstreamMessage([]byte(`{"type":"response.cancelled","response_id":"","response":{"id":"response_current"}}`))
+	assert.Equal(t, "stream_current", responsesWSCorrelationObject(t, terminal)["stream_id"])
+	assert.Nil(t, session.getCurrent())
 }
 
 func TestResponsesWSCompletedTurnsRetirePendingControls(t *testing.T) {
@@ -404,6 +413,153 @@ func TestResponsesWSAmbiguousControlErrorsDoNotClaimActiveStream(t *testing.T) {
 	}
 }
 
+func TestResponsesWSCreateErrorReferenceFinishesTheActiveTurn(t *testing.T) {
+	for _, nested := range []bool{false, true} {
+		t.Run(fmt.Sprint(nested), func(t *testing.T) {
+			state := responsesWSCorrelationState("stream_create")
+			state.eventID = "evt_create"
+			commits := []bool{}
+			state.commitRate = func(success bool) { commits = append(commits, success) }
+			session := &responsesWSSession{current: state}
+			// A pending cancel must not steal a rejection naming response.create.
+			session.pendingControls = []responsesWSControl{{eventID: "evt_cancel", isCancel: true, turn: state}}
+			upstream := `{"type":"error","event_id":"evt_create","error":{"type":"invalid_request_error","code":"response_not_active"}}`
+			if nested {
+				upstream = `{"type":"error","event_id":"provider_error","error":{"event_id":"evt_create","type":"invalid_request_error","code":"response_not_active"}}`
+			}
+			got := responsesWSCorrelationObject(t, session.processUpstreamMessage([]byte(upstream)))
+			assert.Equal(t, "stream_create", got["stream_id"])
+			assert.Nil(t, session.getCurrent(), "a rejected create must release the active turn")
+			assert.Equal(t, []bool{false}, commits, "the rejected create releases its success reservation once")
+			next := responsesWSCorrelationState("stream_next")
+			next.eventID = "evt_next"
+			require.True(t, session.tryReserveCurrent(next), "the next create must not be blocked by a rejected turn")
+			late := []byte(`{"type":"error","error":{"event_id":"evt_create","message":"late create error"}}`)
+			assert.Equal(t, late, session.processUpstreamMessage(late))
+			assert.Same(t, next, session.getCurrent())
+			assert.Equal(t, []bool{false}, commits)
+		})
+	}
+}
+
+func TestResponsesWSNestedErrorReferenceCannotConsumeAnotherControl(t *testing.T) {
+	for _, reference := range []string{"evt_unknown", "evt_create"} {
+		t.Run(reference, func(t *testing.T) {
+			state := responsesWSCorrelationState("stream_create")
+			state.eventID = "evt_create"
+			control := responsesWSControl{eventID: "evt_control", streamID: "stream_control", turn: state}
+			session := &responsesWSSession{current: state, pendingControls: []responsesWSControl{control}}
+			message := []byte(fmt.Sprintf(`{"type":"error","event_id":"evt_control","error":{"event_id":%q,"message":"conflicting reference"}}`, reference))
+			assert.Equal(t, message, session.processUpstreamMessage(message))
+			assert.Same(t, state, session.getCurrent())
+			assert.Equal(t, []responsesWSControl{control}, session.pendingControls, "conflicting references cannot retire a different control")
+			assert.Empty(t, session.resolvedControls)
+		})
+	}
+
+	state := responsesWSCorrelationState("stream_create")
+	state.eventID = "evt_create"
+	control := responsesWSControl{eventID: "evt_control", streamID: "stream_control", turn: state}
+	session := &responsesWSSession{current: state, pendingControls: []responsesWSControl{control}}
+	message := []byte(`{"type":"error","event_id":"evt_create","error":{"event_id":"evt_control","message":"conflicting reference"}}`)
+	assert.Equal(t, message, session.processUpstreamMessage(message))
+	assert.Same(t, state, session.getCurrent())
+	assert.Equal(t, []responsesWSControl{control}, session.pendingControls)
+}
+
+func TestResponsesWSCompletedCreateReferencesCannotSettleANewerTurn(t *testing.T) {
+	for _, streamID := range []string{"stream_current", "stream_previous"} {
+		t.Run(streamID, func(t *testing.T) {
+			session := &responsesWSSession{}
+			previous := responsesWSCorrelationState("stream_previous")
+			previous.eventID = "evt_previous"
+			require.True(t, session.tryReserveCurrent(previous))
+			session.processUpstreamMessage([]byte(`{"type":"response.cancelled"}`))
+			current := responsesWSCorrelationState(streamID)
+			current.eventID = "evt_current"
+			require.True(t, session.tryReserveCurrent(current))
+			for _, message := range []string{
+				`{"type":"error","event_id":"evt_previous","error":{"message":"late create error"}}`,
+				`{"type":"error","event_id":"evt_previous","stream_id":"stream_previous","error":{"message":"late create error"}}`,
+				`{"type":"error","stream_id":"` + streamID + `","error":{"event_id":"evt_previous","message":"late create error"}}`,
+			} {
+				assert.Equal(t, []byte(message), session.processUpstreamMessage([]byte(message)))
+				assert.Same(t, current, session.getCurrent())
+			}
+			message := session.processUpstreamMessage([]byte(`{"type":"error","event_id":"evt_current","error":{"message":"current create failed"}}`))
+			assert.Equal(t, streamID, responsesWSCorrelationObject(t, message)["stream_id"])
+			assert.Nil(t, session.getCurrent())
+		})
+	}
+}
+
+func TestResponsesWSCurrentIdentityOverridesACompletedCreateOutputID(t *testing.T) {
+	for _, reference := range []string{"stream", "response", "nested response"} {
+		t.Run(reference, func(t *testing.T) {
+			current := responsesWSCorrelationState("stream_current")
+			current.eventID = "evt_current"
+			current.responseID = "response_current"
+			previousStreamID := "stream_previous"
+			if reference != "stream" {
+				previousStreamID = current.StreamID
+			}
+			session := &responsesWSSession{
+				current:          current,
+				completedCreates: []responsesWSCompletedCreate{{eventID: "evt_previous", streamID: previousStreamID}},
+				pendingControls:  []responsesWSControl{{eventID: "evt_cancel", isCancel: true, turn: current}},
+			}
+			fields := `"stream_id":"stream_current"`
+			if reference == "response" {
+				fields = `"response_id":"response_current"`
+			} else if reference == "nested response" {
+				fields = `"response_id":"","response":{"id":"response_current"}`
+			}
+			message := []byte(`{"type":"error","event_id":"evt_previous",` + fields + `,"error":{"type":"invalid_request_error","code":"response_not_found"}}`)
+			got := session.processUpstreamMessage(message)
+			assert.Equal(t, "stream_current", responsesWSCorrelationObject(t, got)["stream_id"])
+			assert.Nil(t, session.getCurrent(), "a known current identity must override a coinciding provider output ID")
+		})
+	}
+}
+
+func TestResponsesWSCompletedCreateHistoryBoundsAndIdentityReuse(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	target, peer := responsesWSTestPair(t)
+	session := &responsesWSSession{c: c, target: target, revalidateAuth: func(*gin.Context) *types.NewAPIError { return nil }}
+	for i := 0; i <= responsesWSMaxPendingControls; i++ {
+		state := responsesWSCorrelationState("stream_history")
+		state.eventID = fmt.Sprintf("evt_%d", i)
+		require.True(t, session.tryReserveCurrent(state))
+		session.processUpstreamMessage([]byte(`{"type":"response.cancelled"}`))
+	}
+	require.Len(t, session.completedCreates, responsesWSMaxPendingControls)
+	assert.Equal(t, "evt_1", session.completedCreates[0].eventID)
+	create := responsesWSCreateRequest{EventID: "evt_1", StreamID: "stream_next", Request: dto.OpenAIResponsesRequest{Model: "gpt-5"}}
+	apiErr := session.handleResponseCreate(create)
+	require.NotNil(t, apiErr)
+	assert.Contains(t, apiErr.Error(), "retained")
+	apiErr = session.forwardControl(websocket.TextMessage, []byte(`{"type":"session.update","event_id":"evt_1"}`), "evt_1", "")
+	require.NotNil(t, apiErr)
+	assert.Empty(t, session.pendingControls)
+	// Evicted IDs can be reused, while callers must avoid delayed references
+	// beyond the bounded correlation window.
+	responsesWSCorrelationForwardControl(t, session, peer, "evt_0", "stream_next")
+
+	for i := 0; i < 3; i++ {
+		state := responsesWSCorrelationState("stream_history")
+		state.eventID = strings.Repeat("x", responsesWSMaxControlIdentityBytes/2) + fmt.Sprint(i)
+		require.True(t, session.tryReserveCurrent(state))
+		session.processUpstreamMessage([]byte(`{"type":"response.cancelled"}`))
+	}
+	require.Len(t, session.completedCreates, 1, "the history also evicts identities exceeding the aggregate byte limit")
+	create.EventID = strings.Repeat("x", responsesWSMaxControlIdentityBytes)
+	create.StreamID = "x"
+	apiErr = session.handleResponseCreate(create)
+	require.NotNil(t, apiErr)
+	assert.Contains(t, apiErr.Error(), "identity limit")
+	assert.Nil(t, session.getCurrent())
+}
+
 func TestResponsesWSMalformedProviderStreamIDDoesNotSettle(t *testing.T) {
 	for _, explicit := range []string{`42`, `{}`, `[]`} {
 		t.Run(explicit, func(t *testing.T) {
@@ -496,20 +652,23 @@ func TestResponsesWSFirstWriteRetryKeepsTheLogicalRateReservation(t *testing.T) 
 	failedTarget, _ := responsesWSTestPair(t)
 	require.NoError(t, failedTarget.Close())
 	first := responsesWSCorrelationState("logical_stream")
+	first.eventID = "evt_retry"
 	first.commitRate = commit
 	refund := &responsesWSRetryRefund{}
 	first.info.Billing = refund
 	session := &responsesWSSession{target: failedTarget, current: first}
-	payload := []byte(`{"type":"response.create","stream_id":"logical_stream","model":"gpt-5"}`)
+	payload := []byte(`{"type":"response.create","event_id":"evt_retry","stream_id":"logical_stream","model":"gpt-5"}`)
 	require.Error(t, session.writeFirstTargetEvent(first, payload))
 	assert.Equal(t, 1, refund.refunds, "failed channel attempt still refunds its billing reservation")
 	assertSlotPinned()
 	assert.Empty(t, completions)
 	assert.Nil(t, session.getCurrent())
+	assert.Empty(t, session.completedCreates, "an invisible failed write is an attempt, not a completed logical create")
 
 	successfulTarget, targetPeer := responsesWSTestPair(t)
 	session.setTarget(successfulTarget)
 	second := responsesWSCorrelationState("logical_stream")
+	second.eventID = "evt_retry"
 	second.commitRate = commit
 	require.True(t, session.tryReserveCurrent(second))
 	require.NoError(t, session.writeFirstTargetEvent(second, payload))

@@ -95,6 +95,7 @@ impl ResponsesWebSocketService for TestService {
         request: ResponsesStartTurn,
     ) -> Result<ResponsesStartedTurn, ResponsesWebSocketFailure> {
         assert!(request.create.request.get("stream_id").is_none());
+        assert!(request.create.request.get("event_id").is_none());
         let index = self.start_calls.fetch_add(1, Ordering::SeqCst) + 1;
         if self.reject_start.load(Ordering::SeqCst) {
             return Err(ResponsesWebSocketFailure::new(
@@ -491,11 +492,15 @@ async fn stream_identity_is_envelope_only_and_does_not_leak_between_turns() {
     let mut socket = connect(&url).await;
     for stream_id in [Some("planner"), Some("writer"), None] {
         let mut create = json!({"type":"response.create","model":"gpt-5.6-sol"});
+        let event_id = stream_id.map(|id| format!("{id}-create"));
         if let Some(id) = stream_id {
             create["stream_id"] = json!(id);
+            create["event_id"] = json!(event_id);
         }
         if stream_id == Some("writer") {
-            create = json!({"type":"response.create","stream_id":"writer","response":{"model":"gpt-5.6-sol","stream_id":"must-not-leak"}});
+            create = json!({"type":"response.create","event_id":event_id,"stream_id":"writer","response":{"model":"gpt-5.6-sol","event_id":"must-not-leak","stream_id":"must-not-leak"}});
+        } else if stream_id.is_none() {
+            create = json!({"type":"response.create","response":{"model":"gpt-5.6-sol","event_id":"nested-only"}});
         }
         socket
             .send(Message::Text(create.to_string().into()))
@@ -506,6 +511,7 @@ async fn stream_identity_is_envelope_only_and_does_not_leak_between_turns() {
             forwarded.get("stream_id").and_then(Value::as_str),
             stream_id
         );
+        assert!(forwarded.get("event_id").is_none());
         service.peer.send(ResponsesFrame::Text(json!({"type":"response.output_text.delta","stream_id":"provider-explicit","delta":"original"}).to_string())).await.unwrap();
         let explicit = receive_json(&mut socket).await;
         assert_eq!(explicit["stream_id"], "provider-explicit");
@@ -1010,6 +1016,452 @@ async fn ambiguous_control_references_never_choose_or_settle_an_active_turn() {
 }
 
 #[tokio::test]
+async fn active_create_rejections_settle_the_turn_before_pending_cancel_inference() {
+    let service = TestService::new();
+    let (url, server) = spawn(service.clone()).await;
+    let mut socket = connect(&url).await;
+
+    for (index, nested_reference) in [true, false].into_iter().enumerate() {
+        let create_id = format!("create-{index}");
+        socket
+            .send(Message::Text(
+                json!({"type":"response.create","event_id":create_id,"model":"gpt-5.6-sol","stream_id":"planner"})
+                    .to_string()
+                    .into(),
+            ))
+            .await
+            .unwrap();
+        let forwarded = peer_json(&service.peer).await;
+        assert_eq!(forwarded["type"], "response.create");
+        assert_eq!(forwarded["model"], "gpt-5.6-sol");
+        assert_eq!(forwarded["stream_id"], "planner");
+        assert!(forwarded.get("event_id").is_none());
+        assert_eq!(service.start_calls.load(Ordering::SeqCst), index + 1);
+        socket
+            .send(Message::Text(
+                json!({"type":"response.cancel","event_id":format!("cancel-{index}"),"response_id":"missing"})
+                    .to_string()
+                    .into(),
+            ))
+            .await
+            .unwrap();
+        let _ = peer_json(&service.peer).await;
+
+        let mut error = json!({"type":"error","error":{"type":"invalid_request_error","code":"response_not_found"}});
+        if nested_reference {
+            error["event_id"] = json!("provider-event");
+            error["error"]["event_id"] = json!(create_id);
+        } else {
+            error["event_id"] = json!(create_id);
+        }
+        assert_eq!(
+            provider_event(&mut socket, &service.peer, error).await["stream_id"],
+            "planner"
+        );
+        assert_eq!(service.observations.lock().await.len(), index + 1);
+        assert_eq!(
+            service.finishes.lock().await.as_slice(),
+            vec![
+                ResponsesTurnFinish::Terminal {
+                    success: false,
+                    billable_partial: false,
+                };
+                index + 1
+            ]
+        );
+    }
+
+    start_stream(&mut socket, &service.peer, "writer").await;
+    for _ in 0..2 {
+        let late = json!({"type":"error","error":{"event_id":"create-0","code":"invalid_request"}});
+        assert_eq!(
+            provider_event(&mut socket, &service.peer, late.clone()).await,
+            late
+        );
+    }
+    assert_eq!(service.observations.lock().await.len(), 2);
+    assert_eq!(service.finishes.lock().await.len(), 2);
+    assert_eq!(
+        provider_event(
+            &mut socket,
+            &service.peer,
+            json!({"type":"response.completed"})
+        )
+        .await["stream_id"],
+        "writer"
+    );
+    socket.close(None).await.unwrap();
+    server.abort();
+}
+
+#[tokio::test]
+async fn conflicting_create_and_control_references_keep_pending_controls_intact() {
+    let service = TestService::new();
+    let (url, server) = spawn(service.clone()).await;
+    let mut socket = connect(&url).await;
+    socket
+        .send(Message::Text(
+            json!({"type":"response.create","event_id":"create","model":"gpt-5.6-sol","stream_id":"planner"})
+                .to_string()
+                .into(),
+        ))
+        .await
+        .unwrap();
+    let _ = peer_json(&service.peer).await;
+    for index in 0..32 {
+        socket
+            .send(Message::Text(
+                json!({"type":"input_audio_buffer.append","event_id":format!("control-{index}"),"stream_id":"control"})
+                    .to_string()
+                    .into(),
+            ))
+            .await
+            .unwrap();
+        let _ = peer_json(&service.peer).await;
+    }
+    for (event_id, reference) in [
+        ("control-0", "unknown"),
+        ("control-0", "create"),
+        ("create", "control-0"),
+        ("control-0", "control-1"),
+    ] {
+        let conflicting = json!({"type":"error","event_id":event_id,"error":{"event_id":reference,"code":"invalid_audio"}});
+        assert_eq!(
+            provider_event(&mut socket, &service.peer, conflicting.clone()).await,
+            conflicting
+        );
+    }
+    assert!(service.observations.lock().await.is_empty());
+    assert!(service.finishes.lock().await.is_empty());
+    socket
+        .send(Message::Text(
+            json!({"type":"input_audio_buffer.append","event_id":"overflow","stream_id":"rejected"})
+                .to_string()
+                .into(),
+        ))
+        .await
+        .unwrap();
+    let rejected = receive_json(&mut socket).await;
+    assert_eq!(rejected["event_id"], "overflow");
+    assert_eq!(rejected["stream_id"], "rejected");
+    assert_eq!(rejected["status"], 400);
+    assert_eq!(
+        provider_event(
+            &mut socket,
+            &service.peer,
+            json!({"type":"error","event_id":"provider-event","error":{"event_id":"control-0"}})
+        )
+        .await["stream_id"],
+        "control"
+    );
+    socket
+        .send(Message::Text(
+            json!({"type":"input_audio_buffer.append","event_id":"replacement"})
+                .to_string()
+                .into(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(peer_json(&service.peer).await["event_id"], "replacement");
+    let _ = provider_event(
+        &mut socket,
+        &service.peer,
+        json!({"type":"response.completed"}),
+    )
+    .await;
+    assert_eq!(service.finishes.lock().await.len(), 1);
+    socket.close(None).await.unwrap();
+    server.abort();
+}
+
+#[tokio::test]
+async fn empty_response_id_uses_nested_identity_for_current_and_late_events() {
+    let service = TestService::new();
+    let (url, server) = spawn(service.clone()).await;
+    let mut socket = connect(&url).await;
+    start_stream(&mut socket, &service.peer, "previous").await;
+    let _ = provider_event(
+        &mut socket,
+        &service.peer,
+        json!({"type":"response.completed","response":{"id":"previous-response"}}),
+    )
+    .await;
+    start_stream(&mut socket, &service.peer, "current").await;
+    assert_eq!(
+        provider_event(
+            &mut socket,
+            &service.peer,
+            json!({"type":"response.created","response_id":"","response":{"id":"current-response"}})
+        )
+        .await["stream_id"],
+        "current"
+    );
+    let before = service.observations.lock().await.len();
+    for response_id in ["previous-response", "foreign-response"] {
+        let late =
+            json!({"type":"response.completed","response_id":"","response":{"id":response_id}});
+        assert_eq!(
+            provider_event(&mut socket, &service.peer, late.clone()).await,
+            late
+        );
+    }
+    assert_eq!(service.observations.lock().await.len(), before);
+    assert_eq!(service.finishes.lock().await.len(), 1);
+    assert_eq!(
+        provider_event(
+            &mut socket,
+            &service.peer,
+            json!({"type":"response.completed","response_id":"","response":{"id":"current-response"}})
+        )
+        .await["stream_id"],
+        "current"
+    );
+    assert_eq!(service.finishes.lock().await.len(), 2);
+    socket.close(None).await.unwrap();
+    server.abort();
+}
+
+#[tokio::test]
+async fn completed_create_errors_and_reused_ids_do_not_affect_a_new_turn() {
+    let service = TestService::new();
+    let (url, server) = spawn(service.clone()).await;
+    let mut socket = connect(&url).await;
+    start_identified_stream(&mut socket, &service.peer, "previous-create", "shared").await;
+    let _ = provider_event(
+        &mut socket,
+        &service.peer,
+        json!({"type":"response.completed"}),
+    )
+    .await;
+    start_identified_stream(&mut socket, &service.peer, "current-create", "shared").await;
+    let _ = provider_event(
+        &mut socket,
+        &service.peer,
+        json!({"type":"response.created","response":{"id":"current-response"}}),
+    )
+    .await;
+    socket
+        .send(Message::Text(
+            json!({"type":"response.cancel","event_id":"cancel","stream_id":"shared"})
+                .to_string()
+                .into(),
+        ))
+        .await
+        .unwrap();
+    let _ = peer_json(&service.peer).await;
+    let observations = service.observations.lock().await.len();
+    for late in [
+        json!({"type":"error","event_id":"previous-create","error":{"code":"server_error"}}),
+        json!({"type":"error","event_id":"previous-create","stream_id":"shared","error":{"type":"invalid_request_error","code":"response_not_found"}}),
+        json!({"type":"error","stream_id":"shared","response_id":"current-response","error":{"event_id":"previous-create","code":"server_error"}}),
+    ] {
+        for _ in 0..2 {
+            assert_eq!(
+                provider_event(&mut socket, &service.peer, late.clone()).await,
+                late
+            );
+        }
+    }
+    assert_eq!(service.observations.lock().await.len(), observations);
+    assert_eq!(service.finishes.lock().await.len(), 1);
+    socket
+        .send(Message::Text(
+            json!({"type":"input_audio_buffer.append","event_id":"previous-create","stream_id":"rejected"})
+                .to_string()
+                .into(),
+        ))
+        .await
+        .unwrap();
+    let rejected = receive_json(&mut socket).await;
+    assert_eq!(rejected["status"], 400);
+    assert_eq!(rejected["stream_id"], "rejected");
+    let _ = provider_event(
+        &mut socket,
+        &service.peer,
+        json!({"type":"response.completed","response":{"id":"current-response"}}),
+    )
+    .await;
+    socket
+        .send(Message::Text(
+            json!({"type":"response.create","event_id":"previous-create","model":"gpt-5.6-sol","stream_id":"rejected"})
+                .to_string()
+                .into(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(receive_json(&mut socket).await["status"], 400);
+    assert_eq!(service.start_calls.load(Ordering::SeqCst), 2);
+    start_identified_stream(&mut socket, &service.peer, "next-create", "next").await;
+    let _ = provider_event(
+        &mut socket,
+        &service.peer,
+        json!({"type":"response.completed"}),
+    )
+    .await;
+    socket.close(None).await.unwrap();
+    server.abort();
+}
+
+#[tokio::test]
+async fn current_response_id_or_distinct_stream_overrides_completed_create_top_level_id() {
+    let service = TestService::new();
+    let (url, server) = spawn(service.clone()).await;
+    let mut socket = connect(&url).await;
+    start_identified_stream(&mut socket, &service.peer, "previous-create", "shared").await;
+    let _ = provider_event(
+        &mut socket,
+        &service.peer,
+        json!({"type":"response.completed"}),
+    )
+    .await;
+    for (index, stream_id) in ["distinct", "shared"].into_iter().enumerate() {
+        start_identified_stream(
+            &mut socket,
+            &service.peer,
+            &format!("current-create-{index}"),
+            stream_id,
+        )
+        .await;
+        let _ = provider_event(
+            &mut socket,
+            &service.peer,
+            json!({"type":"response.created","response":{"id":format!("current-response-{index}")}}),
+        )
+        .await;
+        socket
+            .send(Message::Text(
+                json!({"type":"response.cancel","event_id":format!("cancel-{index}"),"stream_id":stream_id})
+                    .to_string()
+                    .into(),
+            ))
+            .await
+            .unwrap();
+        let _ = peer_json(&service.peer).await;
+        let mut error = json!({"type":"error","event_id":"previous-create","error":{"type":"invalid_request_error","code":"response_not_found"}});
+        if index == 0 {
+            error["stream_id"] = json!(stream_id);
+        } else {
+            error["response_id"] = json!(format!("current-response-{index}"));
+        }
+        assert_eq!(
+            provider_event(&mut socket, &service.peer, error).await["stream_id"],
+            stream_id
+        );
+        assert_eq!(service.finishes.lock().await.len(), index + 2);
+    }
+    assert_eq!(service.observations.lock().await.len(), 5);
+    socket.close(None).await.unwrap();
+    server.abort();
+}
+
+#[tokio::test]
+async fn completed_create_history_allows_identity_reuse_after_count_eviction() {
+    let service = TestService::new();
+    let (url, server) = spawn(service.clone()).await;
+    let mut socket = connect(&url).await;
+    for index in 0..33 {
+        start_identified_stream(
+            &mut socket,
+            &service.peer,
+            &format!("create-{index}"),
+            "shared",
+        )
+        .await;
+        let _ = provider_event(
+            &mut socket,
+            &service.peer,
+            json!({"type":"response.completed"}),
+        )
+        .await;
+    }
+    start_identified_stream(&mut socket, &service.peer, "create-0", "shared").await;
+    socket
+        .send(Message::Text(
+            json!({"type":"input_audio_buffer.append","event_id":"create-1"})
+                .to_string()
+                .into(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(receive_json(&mut socket).await["status"], 400);
+    let _ = provider_event(
+        &mut socket,
+        &service.peer,
+        json!({"type":"response.completed"}),
+    )
+    .await;
+    socket
+        .send(Message::Text(
+            json!({"type":"input_audio_buffer.append","event_id":"create-1"})
+                .to_string()
+                .into(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(peer_json(&service.peer).await["event_id"], "create-1");
+    assert_eq!(service.finishes.lock().await.len(), 34);
+    socket.close(None).await.unwrap();
+    server.abort();
+}
+
+#[tokio::test]
+async fn completed_create_history_counts_event_and_stream_identity_bytes() {
+    let service = TestService::new();
+    let (url, server) = spawn(service.clone()).await;
+    let mut socket = connect(&url).await;
+    let first_id = "a".repeat(32 * 1024 - 1);
+    let second_id = "b".repeat(32 * 1024 - 1);
+    for event_id in [first_id.as_str(), second_id.as_str(), "c"] {
+        start_identified_stream(&mut socket, &service.peer, event_id, "s").await;
+        let _ = provider_event(
+            &mut socket,
+            &service.peer,
+            json!({"type":"response.completed"}),
+        )
+        .await;
+    }
+    start_identified_stream(&mut socket, &service.peer, &first_id, "s").await;
+    socket
+        .send(Message::Text(
+            json!({"type":"input_audio_buffer.append","event_id":second_id})
+                .to_string()
+                .into(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(receive_json(&mut socket).await["status"], 400);
+    let _ = provider_event(
+        &mut socket,
+        &service.peer,
+        json!({"type":"response.completed"}),
+    )
+    .await;
+    socket
+        .send(Message::Text(
+            json!({"type":"response.create","event_id":"large","stream_id":"s".repeat(64 * 1024),"model":"gpt-5.6-sol"})
+                .to_string()
+                .into(),
+        ))
+        .await
+        .unwrap();
+    let rejected = receive_json(&mut socket).await;
+    assert_eq!(rejected["status"], 400);
+    assert_eq!(rejected["event_id"], "large");
+    assert_eq!(service.start_calls.load(Ordering::SeqCst), 4);
+    // Without a client create event ID there is no completed identity to retain.
+    start_stream(&mut socket, &service.peer, &"s".repeat(64 * 1024)).await;
+    let _ = provider_event(
+        &mut socket,
+        &service.peer,
+        json!({"type":"response.completed"}),
+    )
+    .await;
+    assert_eq!(service.start_calls.load(Ordering::SeqCst), 5);
+    socket.close(None).await.unwrap();
+    server.abort();
+}
+
+#[tokio::test]
 async fn retained_control_ids_and_capacity_are_rejected_locally() {
     let service = TestService::new();
     let (url, server) = spawn(service.clone()).await;
@@ -1215,6 +1667,29 @@ async fn omitted_client_identity_keeps_provider_identity_and_legacy_terminal_obs
     assert_eq!(service.finishes.lock().await.len(), 1);
     socket.close(None).await.unwrap();
     server.abort();
+}
+
+async fn start_identified_stream<S>(
+    socket: &mut tokio_tungstenite::WebSocketStream<S>,
+    peer: &ResponsesUpstreamPeer,
+    event_id: &str,
+    stream_id: &str,
+) where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    socket
+        .send(Message::Text(
+            json!({"type":"response.create","event_id":event_id,"model":"gpt-5.6-sol","stream_id":stream_id})
+                .to_string()
+                .into(),
+        ))
+        .await
+        .unwrap();
+    let forwarded = peer_json(peer).await;
+    assert_eq!(forwarded["type"], "response.create");
+    assert_eq!(forwarded["model"], "gpt-5.6-sol");
+    assert!(forwarded.get("event_id").is_none());
+    assert_eq!(forwarded["stream_id"], stream_id);
 }
 
 async fn start_stream<S>(

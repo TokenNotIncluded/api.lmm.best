@@ -84,6 +84,14 @@ type responsesWSControl struct {
 	turn                          *responsesWSCallState
 }
 
+type responsesWSCompletedCreate struct {
+	eventID, streamID string
+}
+
+func (create responsesWSCompletedCreate) identityBytes() int {
+	return len(create.eventID) + len(create.streamID)
+}
+
 const responsesWSMaxPendingControls = 32
 const responsesWSMaxControlIdentityBytes = 64 * 1024
 
@@ -150,6 +158,7 @@ type responsesWSSession struct {
 	stateMu             sync.Mutex
 	current             *responsesWSCallState
 	finishedResponseIDs []string
+	completedCreates    []responsesWSCompletedCreate
 	pendingControls     []responsesWSControl
 	resolvedControls    []responsesWSControl
 	revalidateAuth      func(*gin.Context) *types.NewAPIError
@@ -267,6 +276,9 @@ func (s *responsesWSSession) forwardControl(messageType int, message []byte, eve
 				duplicate = duplicate || previous.eventID == eventID
 			}
 			for _, previous := range s.resolvedControls {
+				duplicate = duplicate || previous.eventID == eventID
+			}
+			for _, previous := range s.completedCreates {
 				duplicate = duplicate || previous.eventID == eventID
 			}
 		}
@@ -404,6 +416,9 @@ func (s *responsesWSSession) handleResponseCreate(create responsesWSCreateReques
 		return types.NewErrorWithStatusCode(errors.New("another response.create is already in progress on this websocket connection"), types.ErrorCodeInvalidRequest, http.StatusConflict, types.ErrOptionWithSkipRetry())
 	}
 	if create.EventID != "" {
+		if len(create.EventID)+len(create.StreamID) > responsesWSMaxControlIdentityBytes {
+			return newResponsesWSInvalidRequestError(errors.New("response.create identity exceeds the retained identity limit"))
+		}
 		s.stateMu.Lock()
 		duplicate := false
 		for _, control := range s.pendingControls {
@@ -412,9 +427,12 @@ func (s *responsesWSSession) handleResponseCreate(create responsesWSCreateReques
 		for _, control := range s.resolvedControls {
 			duplicate = duplicate || control.eventID == create.EventID
 		}
+		for _, previous := range s.completedCreates {
+			duplicate = duplicate || previous.eventID == create.EventID
+		}
 		s.stateMu.Unlock()
 		if duplicate {
-			return newResponsesWSInvalidRequestError(errors.New("event_id belongs to a retained control"))
+			return newResponsesWSInvalidRequestError(errors.New("event_id belongs to a retained control or create"))
 		}
 	}
 
@@ -990,21 +1008,68 @@ func (s *responsesWSSession) correlateControlError(event map[string]common.RawMe
 	}
 	s.stateMu.Lock()
 	defer s.stateMu.Unlock()
+	if failure.EventID == "" {
+		for _, previous := range s.completedCreates {
+			if eventID != previous.eventID {
+				continue
+			}
+			identifiedResponseID := responseID
+			if identifiedResponseID == "" {
+				var response struct {
+					ID string `json:"id"`
+				}
+				_ = common.Unmarshal(event["response"], &response)
+				identifiedResponseID = response.ID
+			}
+			currentResponse := activeResponseID != "" && identifiedResponseID == activeResponseID
+			currentStream := state != nil && streamID != "" && streamID == state.StreamID && streamID != previous.streamID
+			if !currentResponse && !currentStream {
+				return "", false, true
+			}
+			// An explicit current response or a distinct current stream can
+			// identify a provider output ID that collides with an old create.
+			return "", false, false
+		}
+	}
 	all := make([]responsesWSControl, 0, len(s.pendingControls)+len(s.resolvedControls))
 	all = append(all, s.pendingControls...)
 	all = append(all, s.resolvedControls...)
-	match := -1
+	topMatch, referenceMatch := -1, -1
 	for i, control := range all {
-		if control.eventID == "" || (control.eventID != eventID && control.eventID != failure.EventID) {
+		if control.eventID == "" {
 			continue
 		}
-		if match >= 0 && match != i {
+		if control.eventID == eventID {
+			if topMatch >= 0 {
+				return "", false, true
+			}
+			topMatch = i
+		}
+		if control.eventID == failure.EventID {
+			if referenceMatch >= 0 {
+				return "", false, true
+			}
+			referenceMatch = i
+		}
+	}
+	topIsCreate := state != nil && state.eventID != "" && eventID == state.eventID
+	referenceIsCreate := state != nil && state.eventID != "" && failure.EventID == state.eventID
+	match := topMatch
+	if failure.EventID != "" {
+		// The nested reference names the rejected client event. An active
+		// create rejection must settle that turn, never a pending cancel.
+		if referenceIsCreate {
+			if topMatch >= 0 {
+				return "", false, true
+			}
+			return "", false, false
+		}
+		if referenceMatch < 0 || topIsCreate || topMatch >= 0 && topMatch != referenceMatch {
 			return "", false, true
 		}
-		match = i
-	}
-	if match < 0 && failure.EventID != "" {
-		return "", false, true
+		match = referenceMatch
+	} else if topIsCreate {
+		return "", false, false
 	}
 	if match < 0 {
 		for i, control := range all {
@@ -1140,7 +1205,9 @@ func (s *responsesWSSession) finishCallWithRate(state *responsesWSCallState, suc
 	if state == nil || !s.beginFinish(state) {
 		return
 	}
-	defer s.completeFinish(state)
+	// An invisible failed first write may be retried with the same logical
+	// create identity; it must not enter completed-create history yet.
+	defer s.completeFinish(state, completeRate)
 	if !success {
 		state.dataMu.Lock()
 		if responsesWSHasBillablePartialLocked(state) {
@@ -1277,7 +1344,7 @@ func (s *responsesWSSession) beginFinish(state *responsesWSCallState) bool {
 	return true
 }
 
-func (s *responsesWSSession) completeFinish(state *responsesWSCallState) {
+func (s *responsesWSSession) completeFinish(state *responsesWSCallState, rememberCreate bool) {
 	state.dataMu.Lock()
 	responseID := state.responseID
 	state.dataMu.Unlock()
@@ -1285,6 +1352,18 @@ func (s *responsesWSSession) completeFinish(state *responsesWSCallState) {
 	defer s.stateMu.Unlock()
 	if s.current == state {
 		s.current = nil
+		if rememberCreate && state.eventID != "" {
+			s.completedCreates = append(s.completedCreates, responsesWSCompletedCreate{eventID: state.eventID, streamID: state.StreamID})
+			identityBytes := 0
+			for _, previous := range s.completedCreates {
+				identityBytes += previous.identityBytes()
+			}
+			for len(s.completedCreates) > responsesWSMaxPendingControls || identityBytes > responsesWSMaxControlIdentityBytes {
+				identityBytes -= s.completedCreates[0].identityBytes()
+				s.completedCreates[0] = responsesWSCompletedCreate{}
+				s.completedCreates = s.completedCreates[1:]
+			}
+		}
 		if responseID != "" {
 			s.finishedResponseIDs = append(s.finishedResponseIDs, responseID)
 			identityBytes := 0
