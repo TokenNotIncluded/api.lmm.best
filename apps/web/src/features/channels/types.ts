@@ -123,6 +123,14 @@ export interface AdvancedCustomRoute {
   converter?: AdvancedCustomConverter
   models?: string[]
   auth?: AdvancedCustomRouteAuth
+  balance?: AdvancedCustomBalanceConfig
+}
+
+export interface AdvancedCustomBalanceConfig {
+  method?: 'GET' | 'POST'
+  body_template?: string
+  json_pointer?: string
+  scale?: number
 }
 
 export interface AdvancedCustomRouteAuth {

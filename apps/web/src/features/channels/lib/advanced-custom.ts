@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type {
+  AdvancedCustomBalanceConfig,
   AdvancedCustomAuthType,
   AdvancedCustomConfig,
   AdvancedCustomConverter,
@@ -27,6 +28,8 @@ import type {
 export const CHANNEL_TYPE_ADVANCED_CUSTOM = 58
 export const ADVANCED_CUSTOM_MODEL_LIST_PATH = '/v1/models'
 export const ADVANCED_CUSTOM_MODEL_LIST_LABEL = 'OpenAI Models'
+export const ADVANCED_CUSTOM_BALANCE_PATH =
+  '/v1/dashboard/billing/credit_grants'
 
 export const ADVANCED_CUSTOM_CONVERTER_OPTIONS: Array<{
   value: AdvancedCustomConverter
@@ -115,6 +118,7 @@ export const ADVANCED_CUSTOM_INCOMING_PATH_OPTIONS: AdvancedCustomIncomingPathOp
       value: ADVANCED_CUSTOM_MODEL_LIST_PATH,
       label: ADVANCED_CUSTOM_MODEL_LIST_LABEL,
     },
+    { value: ADVANCED_CUSTOM_BALANCE_PATH, label: 'Balance' },
     {
       value: '/v1/embeddings',
       label: 'OpenAI Embeddings',
@@ -172,6 +176,7 @@ export const ADVANCED_CUSTOM_INCOMING_PATH_OPTIONS: AdvancedCustomIncomingPathOp
 const ADVANCED_CUSTOM_ROUTE_SUMMARY_LABELS: Record<string, string> = {
   '/v1/chat/completions': 'OpenAI Chat',
   [ADVANCED_CUSTOM_MODEL_LIST_PATH]: ADVANCED_CUSTOM_MODEL_LIST_LABEL,
+  [ADVANCED_CUSTOM_BALANCE_PATH]: 'Balance',
 }
 
 export type AdvancedCustomValidationError = {
@@ -550,6 +555,7 @@ export function validateAdvancedCustomConfig(
     { catchAllIndex: number | null; models: Map<string, number> }
   >()
   let modelListRouteIndex: number | null = null
+  let balanceRouteIndex: number | null = null
   for (let index = 0; index < routes.length; index += 1) {
     const route = routes[index]
     const incomingPath = route.incoming_path?.trim() || ''
@@ -569,30 +575,50 @@ export function validateAdvancedCustomConfig(
         message: 'Incoming path must not include query',
       }
     }
-    if (incomingPath === ADVANCED_CUSTOM_MODEL_LIST_PATH) {
-      if (modelListRouteIndex !== null) {
+    const isBalance = incomingPath === ADVANCED_CUSTOM_BALANCE_PATH
+    if (route.balance != null) {
+      if (!isBalance) {
         return {
           routeIndex: index,
-          message: 'Only one OpenAI Models route is allowed',
+          message: 'Balance settings are only supported on the balance route',
         }
       }
-      modelListRouteIndex = index
+      const balanceError = validateAdvancedCustomBalance(route.balance)
+      if (balanceError) return { routeIndex: index, message: balanceError }
+    }
+    if (incomingPath === ADVANCED_CUSTOM_MODEL_LIST_PATH || isBalance) {
+      if ((isBalance ? balanceRouteIndex : modelListRouteIndex) !== null) {
+        return {
+          routeIndex: index,
+          message: isBalance
+            ? 'Only one balance route is allowed'
+            : 'Only one OpenAI Models route is allowed',
+        }
+      }
+      if (isBalance) balanceRouteIndex = index
+      else modelListRouteIndex = index
       if (routeModels.length > 0) {
         return {
           routeIndex: index,
-          message: 'OpenAI Models route does not support client model rules',
+          message: isBalance
+            ? 'Balance route does not support client model rules'
+            : 'OpenAI Models route does not support client model rules',
         }
       }
       if (converter !== 'none') {
         return {
           routeIndex: index,
-          message: 'OpenAI Models route must use native forwarding',
+          message: isBalance
+            ? 'Balance route must use native forwarding'
+            : 'OpenAI Models route must use native forwarding',
         }
       }
       if (upstreamPath.includes('{model}')) {
         return {
           routeIndex: index,
-          message: 'OpenAI Models upstream path must not contain {model}',
+          message: isBalance
+            ? 'Balance upstream path must not contain {model}'
+            : 'OpenAI Models upstream path must not contain {model}',
         }
       }
     }
@@ -613,6 +639,16 @@ export function validateAdvancedCustomConfig(
       return {
         routeIndex: index,
         message: 'Upstream path must be a full URL or a path starting with /',
+      }
+    }
+    if (isBalance) {
+      const endpoint = new URL(upstreamPath, 'https://configured-base.invalid')
+      if (endpoint.username || endpoint.password || endpoint.hash) {
+        return {
+          routeIndex: index,
+          message:
+            'Balance endpoint must not contain credentials or a fragment',
+        }
       }
     }
     if (!isAdvancedCustomConverter(converter)) {
@@ -727,7 +763,73 @@ function normalizeAdvancedCustomRoute(
       value: route.auth.value || '',
     }
   }
+  if (route.balance != null) {
+    nextRoute.balance =
+      typeof route.balance === 'object' && !Array.isArray(route.balance)
+        ? { ...route.balance }
+        : route.balance
+  }
   return nextRoute
+}
+
+export function validateAdvancedCustomBalance(
+  balance: AdvancedCustomBalanceConfig
+): string | null {
+  if (
+    typeof balance !== 'object' ||
+    Array.isArray(balance) ||
+    balance === null
+  ) {
+    return 'Balance settings must be an object'
+  }
+  if (balance.method != null && typeof balance.method !== 'string') {
+    return 'Balance method must be GET or POST'
+  }
+  const method = balance.method?.trim().toUpperCase() || 'GET'
+  if (method !== 'GET' && method !== 'POST') {
+    return 'Balance method must be GET or POST'
+  }
+  if (balance.body_template !== undefined && balance.body_template !== null) {
+    if (method !== 'POST') return 'Balance body template requires POST'
+    if (typeof balance.body_template !== 'string') {
+      return 'Balance body template must be valid JSON'
+    }
+    if (new TextEncoder().encode(balance.body_template).length > 16 * 1024) {
+      return 'Balance body template must fit within 16 KiB'
+    }
+    try {
+      JSON.parse(balance.body_template)
+    } catch {
+      return 'Balance body template must be valid JSON'
+    }
+  }
+  const pointer = balance.json_pointer ?? ''
+  if (
+    typeof pointer !== 'string' ||
+    (pointer !== '' &&
+      (!pointer.startsWith('/') ||
+        new TextEncoder().encode(pointer).length > 1024))
+  ) {
+    return 'Balance JSON pointer must start with / and fit within 1024 bytes'
+  }
+  if (pointer !== '') {
+    const tokens = pointer.slice(1).split('/')
+    if (tokens.length > 32) return 'Balance JSON pointer has too many levels'
+    if (tokens.some((token) => /~(?:[^01]|$)/.test(token))) {
+      return 'Balance JSON pointer has an invalid escape'
+    }
+  }
+  if (balance.scale !== undefined && balance.scale !== null) {
+    if (pointer === '') return 'Balance scale requires a JSON pointer'
+    if (
+      typeof balance.scale !== 'number' ||
+      !Number.isFinite(balance.scale) ||
+      balance.scale <= 0
+    ) {
+      return 'Balance scale must be finite and positive'
+    }
+  }
+  return null
 }
 
 function normalizeAdvancedCustomRouteModels(
