@@ -80,7 +80,7 @@ func assistantKeyManagementToolDefinitions() []assistantOpenAIToolDefinition {
 		}},
 		{Type: "function", Function: assistantOpenAIToolFunction{
 			Name:        "prepare_api_key_action",
-			Description: "Prepare a browser confirmation card to delete or disable ONE exact API key belonging to the signed-in user. First call list_my_api_keys and use an ID it actually returned. Never guess an ID, select an arbitrary key, or silently act on all keys. For duplicate names ask the user to choose the exact ID before preparing a card. This tool does not mutate a key; deletion/disabling requires the user's click and current two-factor verification in the secure form. Never ask for a key or a two-factor code in chat. No enable, creation, cross-user action or quota change is supported.",
+			Description: "Prepare a browser confirmation card to delete or disable ONE exact API key belonging to the signed-in user. First call list_my_api_keys and use an ID it actually returned. The user must select that exact ID or its complete name. Names with Chinese or other non-ASCII characters must be quoted in full, or supplied as the entire selection reply. Never guess an ID, select an arbitrary key, or silently act on all keys. For duplicate names ask the user to choose the exact ID before preparing a card. This tool does not mutate a key; deletion/disabling requires the user's click and current two-factor verification in the secure form. Never ask for a key or a two-factor code in chat. No enable, creation, cross-user action or quota change is supported.",
 			Parameters: objectSchema(map[string]any{
 				"action":   map[string]any{"type": "string", "enum": []string{"delete", "disable"}},
 				"token_id": map[string]any{"type": "integer", "minimum": 1},
@@ -185,40 +185,40 @@ func assistantKeyIDSelectedByUser(c *gin.Context, id int) bool {
 }
 
 func assistantKeySelectionMessage(c *gin.Context) string {
-	text := strings.ToLower(strings.TrimSpace(c.GetString("assistant_history_latest_message")))
+	return strings.ToLower(assistantKeySelectionRawMessage(c))
+}
+
+func assistantKeySelectionRawMessage(c *gin.Context) string {
+	text := strings.TrimSpace(c.GetString("assistant_history_latest_message"))
 	if text == "" {
-		text = strings.ToLower(strings.TrimSpace(assistantUserContextFromGin(c).LatestUserRequest))
+		text = strings.TrimSpace(assistantUserContextFromGin(c).LatestUserRequest)
 	}
 	return text
 }
 
 func assistantKeyNameSelectedByUser(c *gin.Context, name string) bool {
-	name = strings.ToLower(strings.TrimSpace(name))
-	if name == "" {
+	if strings.TrimSpace(name) == "" {
 		return false
 	}
-	pattern := regexp.QuoteMeta(name)
-	// Prevent a short ASCII name such as "a" matching "api key".
-	if regexp.MustCompile(`^[a-z0-9_ -]+$`).MatchString(name) {
-		pattern = `\b` + pattern + `\b`
-	} else {
-		pattern += `(?:[^a-z0-9_]|$)`
+	text := assistantKeySelectionRawMessage(c)
+	if text == name {
+		return true
 	}
-	return regexp.MustCompile(pattern).MatchString(assistantKeySelectionMessage(c))
-}
-
-func assistantKeyNameSelectionOverlaps(c *gin.Context, name string, listed map[int]model.AssistantKeyMetadata) bool {
-	name = strings.ToLower(strings.TrimSpace(name))
-	if name == "" {
-		return false
-	}
-	for _, candidate := range listed {
-		otherName := strings.ToLower(strings.TrimSpace(candidate.Name))
-		if otherName != name && strings.Contains(otherName, name) && assistantKeyNameSelectedByUser(c, otherName) {
+	// Quoting selects the complete, case-sensitive metadata name. Neither a
+	// filtered list nor pagination can turn a longer name into this target.
+	for _, quotes := range [][2]string{{`"`, `"`}, {"'", "'"}, {"`", "`"}, {"“", "”"}, {"‘", "’"}, {"「", "」"}, {"『", "』"}, {"《", "》"}} {
+		if strings.Contains(text, quotes[0]+name+quotes[1]) {
 			return true
 		}
 	}
-	return false
+	// Unquoted non-ASCII names cannot be split from surrounding prose reliably.
+	// Require a full quoted name or ID instead of treating a CJK prefix as a
+	// selected key. ASCII names must occupy a whole whitespace-delimited token,
+	// so "abc" cannot match "abc甲", "abc-long", or "abc.long" either.
+	if regexp.MustCompile(`[^\x00-\x7f]`).MatchString(name) {
+		return false
+	}
+	return regexp.MustCompile(`(?:^|\s)` + regexp.QuoteMeta(name) + `(?:\s|$)`).MatchString(text)
 }
 
 func executeAssistantPrepareAPIKeyActionTool(c *gin.Context, userID int, input map[string]any) map[string]any {
@@ -258,12 +258,8 @@ func executeAssistantPrepareAPIKeyActionTool(c *gin.Context, userID int, input m
 	if nameMatches > 1 && !assistantKeyIDSelectedByUser(c, key.ID) {
 		return map[string]any{"ok": false, "status": "target_choice_required", "error": "multiple keys share this name; ask the user to choose an exact key ID before preparing confirmation"}
 	}
-	_, allMatches, err := model.ListAssistantKeyMetadata(userID, 0, 1, "")
-	if err != nil {
-		return map[string]any{"ok": false, "status": "keys_unavailable", "error": "API key metadata could not be loaded"}
-	}
-	if allMatches > 1 && !assistantKeyIDSelectedByUser(c, key.ID) && (!assistantKeyNameSelectedByUser(c, key.Name) || assistantKeyNameSelectionOverlaps(c, key.Name, listed)) {
-		return map[string]any{"ok": false, "status": "target_choice_required", "error": "multiple keys exist; ask the user to choose the exact name or ID instead of selecting an arbitrary key"}
+	if !assistantKeyIDSelectedByUser(c, key.ID) && !assistantKeyNameSelectedByUser(c, key.Name) {
+		return map[string]any{"ok": false, "status": "target_choice_required", "error": "ask the user to select the exact ID, quote the complete key name, or send the complete name as their selection reply"}
 	}
 	twoFactorRequired, err := model.IsTwoFAEnabled(userID)
 	if err != nil {

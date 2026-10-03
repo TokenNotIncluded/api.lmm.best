@@ -106,6 +106,7 @@ func TestAssistantKeyManagementConfirmRejectsRetargetingWrongSessionAndWrongOwne
 	key := model.Token{UserId: user.Id, Key: "confirmation-private", Name: "desktop", Group: "default"}
 	require.NoError(t, db.Create(&key).Error)
 	c, _ := assistantKeyContext(t, http.MethodPost, "/api/assistant/chat", "", user.Id, "confirm-session")
+	c.Set(assistantUserContextKey, assistantUserContext{LatestUserRequest: fmt.Sprintf("停用 ID %d", key.Id)})
 	assistantManagementListForTest(t, c, user.Id)
 	require.Equal(t, true, executeAssistantPrepareAPIKeyActionTool(c, user.Id, map[string]any{"action": "disable", "token_id": float64(key.Id)})["ok"])
 	stored, _ := c.Get(assistantClientActionKey)
@@ -146,11 +147,73 @@ func TestAssistantKeyManagementNamesCannotSelectTheirPrefixes(t *testing.T) {
 		result := executeAssistantPrepareAPIKeyActionTool(c, user.Id, map[string]any{"action": "delete", "token_id": float64(keys[0].Id)})
 		assert.Equal(t, "target_choice_required", result["status"])
 	}
-	c.Set(assistantUserContextKey, assistantUserContext{LatestUserRequest: "删除测试2这个密钥"})
+	c.Set(assistantUserContextKey, assistantUserContext{LatestUserRequest: "删除「测试2」这个密钥"})
 	assert.Equal(t, true, executeAssistantPrepareAPIKeyActionTool(c, user.Id, map[string]any{"action": "delete", "token_id": float64(keys[1].Id)})["ok"])
 	assert.False(t, assistantKeyIDSelectedByUser(c, keys[0].Id))
 	c.Set("assistant_history_latest_message", "ID 100")
 	assert.False(t, assistantKeyIDSelectedByUser(c, 10))
+}
+
+func TestAssistantKeyManagementExactNameSelectionSurvivesFilteredAndPagedLists(t *testing.T) {
+	for _, test := range []struct {
+		name, targetName, longerName, message string
+		filtered, allowed                     bool
+	}{
+		{"filtered CJK prefix", "测试", "测试甲", "删除测试甲的密钥", true, false},
+		{"unread page CJK prefix", "测试", "测试甲", "删除测试甲的密钥", false, false},
+		{"quoted longer CJK cannot select prefix", "测试", "测试甲", "删除「测试甲」的密钥", true, false},
+		{"quoted short CJK is exact", "测试", "测试甲", "删除「测试」的密钥", true, true},
+		{"quoted short CJK with unread longer name", "测试", "测试甲", "删除“测试”的密钥", false, true},
+		{"whole CJK selection reply", "测试", "测试甲", "测试", true, true},
+		{"different CJK suffix", "测试甲", "测试乙", "删除「测试乙」的密钥", true, false},
+		{"whole different CJK suffix", "测试甲", "测试乙", "测试乙", true, false},
+		{"mixed CJK English prefix", "测试Alpha", "测试Alpha生产", "删除测试Alpha生产的密钥", true, false},
+		{"quoted mixed CJK English name", "测试Alpha", "测试Alpha生产", "删除『测试Alpha』的密钥", true, true},
+		{"ASCII name with CJK suffix", "abc", "abc甲", "删除 abc甲 的密钥", true, false},
+		{"ASCII name with hyphen suffix", "abc", "abc-prod", "删除 abc-prod 的密钥", true, false},
+		{"ASCII name with dot suffix", "abc", "abc.prod", "删除 abc.prod 的密钥", true, false},
+		{"ASCII full whitespace token", "abc", "abc甲", "删除 abc 这个密钥", true, true},
+		{"case is part of exact name", "Test", "test", "删除 \"test\" 这个密钥", true, false},
+		{"padded name is quoted exactly", " spaced ", "spaced", "删除 \" spaced \" 这个密钥", true, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			db, user := createAssistantKeyFixture(t, "key-exact-selection")
+			// The longer name is older than the first metadata page. No name
+			// overlap from an unfiltered previous read can rescue the check.
+			longer := model.Token{UserId: user.Id, Key: "exact-selection-long-secret", Name: test.longerName, Group: "default"}
+			require.NoError(t, db.Create(&longer).Error)
+			for i := range 24 {
+				filler := model.Token{UserId: user.Id, Key: fmt.Sprintf("exact-selection-filler-secret-%d", i), Name: fmt.Sprintf("filler-%d", i), Group: "default"}
+				require.NoError(t, db.Create(&filler).Error)
+			}
+			target := model.Token{UserId: user.Id, Key: "exact-selection-target-secret", Name: test.targetName, Group: "default"}
+			require.NoError(t, db.Create(&target).Error)
+			c, _ := assistantKeyContext(t, http.MethodPost, "/api/assistant/chat", "", user.Id, "exact-selection-session")
+			c.Set(assistantUserContextKey, assistantUserContext{LatestUserRequest: test.message})
+			input := map[string]any{}
+			if test.filtered {
+				input["exact_name"] = test.targetName
+			}
+			listed := executeAssistantListMyAPIKeysTool(c, user.Id, input)
+			require.Equal(t, true, listed["ok"])
+			stored, _ := c.Get(assistantListedKeyMetadataContextKey)
+			metadata := stored.(map[int]model.AssistantKeyMetadata)
+			require.Contains(t, metadata, target.Id)
+			require.NotContains(t, metadata, longer.Id, "longer name must be absent from the provider's read")
+			result := executeAssistantPrepareAPIKeyActionTool(c, user.Id, map[string]any{"action": "delete", "token_id": float64(target.Id)})
+			if test.allowed {
+				require.Equal(t, true, result["ok"], result)
+				assert.Equal(t, "confirmation_required", result["status"])
+			} else {
+				assert.Equal(t, "target_choice_required", result["status"], result)
+				_, exists := c.Get(assistantClientActionKey)
+				assert.False(t, exists, "a mismatched target must not reach a confirmation card")
+			}
+			var unchanged model.Token
+			require.NoError(t, db.First(&unchanged, target.Id).Error)
+			assert.Equal(t, common.TokenStatusEnabled, unchanged.Status)
+		})
+	}
 }
 
 func TestAssistantKeyManagementReadAndPrepareRunWhenAgentLoopDisabled(t *testing.T) {

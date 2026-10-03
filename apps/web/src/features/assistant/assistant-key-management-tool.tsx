@@ -58,6 +58,9 @@ function PreparedKeyManagementTool(props: KeyManagementProps) {
   const requestPending = useRef(false)
   const [submitting, setSubmitting] = useState(false)
   const [cancelled, setCancelled] = useState(false)
+  const [twoFactorRequired, setTwoFactorRequired] = useState(
+    props.action.two_factor_required
+  )
   const [twoFactorCode, setTwoFactorCode] = useState('')
   const [receipt, setReceipt] = useState<AssistantKeyManagementReceipt | null>(
     null
@@ -80,7 +83,7 @@ function PreparedKeyManagementTool(props: KeyManagementProps) {
       cancelled ||
       receipt ||
       failure === 'expired' ||
-      (props.action.two_factor_required && !twoFactorCode.trim())
+      (twoFactorRequired && !twoFactorCode.trim())
     ) {
       return
     }
@@ -101,13 +104,12 @@ function PreparedKeyManagementTool(props: KeyManagementProps) {
         error instanceof AssistantRequestError &&
         (error.code === 'ASSISTANT_KEY_ACTION_CONFIRMATION_INVALID' ||
           error.code === 'ASSISTANT_KEY_CONFIRMATION_INVALID')
+      const invalidTwoFactor =
+        error instanceof AssistantRequestError &&
+        error.code === 'ASSISTANT_TWO_FACTOR_INVALID'
+      if (invalidTwoFactor) setTwoFactorRequired(true)
       setFailure(
-        expired
-          ? 'expired'
-          : error instanceof AssistantRequestError &&
-              error.code === 'ASSISTANT_TWO_FACTOR_INVALID'
-            ? 'two-factor'
-            : 'retry'
+        expired ? 'expired' : invalidTwoFactor ? 'two-factor' : 'retry'
       )
     } finally {
       setTwoFactorCode('')
@@ -167,7 +169,7 @@ function PreparedKeyManagementTool(props: KeyManagementProps) {
                 )}
           </AlertDescription>
         </Alert>
-        {props.action.two_factor_required ? (
+        {twoFactorRequired ? (
           <FieldGroup>
             <Field>
               <FieldLabel htmlFor={codeId}>
@@ -222,7 +224,7 @@ function PreparedKeyManagementTool(props: KeyManagementProps) {
           disabled={
             submitting ||
             failure === 'expired' ||
-            (props.action.two_factor_required && !twoFactorCode.trim())
+            (twoFactorRequired && !twoFactorCode.trim())
           }
         >
           {submitting ? <Spinner data-icon='inline-start' /> : null}

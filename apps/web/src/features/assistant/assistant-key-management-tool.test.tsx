@@ -293,3 +293,72 @@ test('expired confirmation disables the old action while authentication errors a
     await rendered.unmount()
   }
 })
+
+test('server requiring 2FA after preparation reveals the code field and prevents empty retries', async () => {
+  const action = preparedKeyAction('disable', false)
+  const requests: Array<{ url: string; data: unknown }> = []
+  api.post = (async (url: string, data: unknown) => {
+    requests.push({ url, data })
+    if (requests.length === 1) {
+      return {
+        data: {
+          success: false,
+          code: 'ASSISTANT_TWO_FACTOR_INVALID',
+          message: 'Authentication code required',
+        },
+      }
+    }
+    return { data: { success: true, data: keyActionReceipt(action) } }
+  }) as typeof api.post
+  const rendered = await renderTool(action)
+  try {
+    assert.equal(rendered.container.querySelector('input'), null)
+    assert.equal(
+      button(rendered.container, 'Confirm disabling').disabled,
+      false
+    )
+    await act(async () => {
+      button(rendered.container, 'Confirm disabling').click()
+      await flushEffects()
+    })
+    assert.equal(rendered.container.querySelector('input')?.type, 'password')
+    assert.equal(button(rendered.container, 'Confirm disabling').disabled, true)
+    await rendered.render({ ...action })
+    await act(async () =>
+      button(rendered.container, 'Confirm disabling').click()
+    )
+    assert.equal(requests.length, 1)
+    await enterCode(rendered.container, '   ')
+    assert.equal(button(rendered.container, 'Confirm disabling').disabled, true)
+    await enterCode(rendered.container, ' 654321 ')
+    assert.equal(
+      button(rendered.container, 'Confirm disabling').disabled,
+      false
+    )
+    await act(async () => {
+      button(rendered.container, 'Confirm disabling').click()
+      await flushEffects()
+    })
+    assert.deepEqual(requests, [
+      {
+        url: '/api/assistant/tools/key-action',
+        data: {
+          confirmation_token: action.confirmation_token,
+          two_factor_code: '',
+        },
+      },
+      {
+        url: '/api/assistant/tools/key-action',
+        data: {
+          confirmation_token: action.confirmation_token,
+          two_factor_code: '654321',
+        },
+      },
+    ])
+    assert.match(rendered.container.textContent ?? '', /API key disabled/)
+    assert.equal(rendered.container.querySelector('input'), null)
+    assert.equal(rendered.container.innerHTML.includes('654321'), false)
+  } finally {
+    await rendered.unmount()
+  }
+})
