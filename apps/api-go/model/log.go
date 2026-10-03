@@ -167,14 +167,37 @@ func formatUserLogs(logs []*Log, startIdx int) {
 	assignDisplayLogIds(logs, startIdx)
 }
 
-func GetLogByTokenId(tokenId int) (logs []*Log, err error) {
+const MaxTokenLogPageSize = 1000
+
+func tokenLogQuery(tokenId int) *gorm.DB {
 	order := "id desc"
 	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
 		order = clickHouseLogOrder("")
 	}
-	err = LOG_DB.Model(&Log{}).Where("token_id = ?", tokenId).Order(order).Limit(common.MaxRecentItems).Find(&logs).Error
+	return LOG_DB.Model(&Log{}).Where("token_id = ?", tokenId).Order(order)
+}
+
+func GetLogByTokenId(tokenId int) (logs []*Log, err error) {
+	err = tokenLogQuery(tokenId).Limit(common.MaxRecentItems).Find(&logs).Error
 	formatUserLogs(logs, 0)
 	return logs, err
+}
+
+// GetLogByTokenIdPage counts and reads only the authenticated token's history.
+// The legacy reader deliberately does not incur an exact count.
+func GetLogByTokenIdPage(tokenId, startIdx, pageSize int) (logs []*Log, total int64, err error) {
+	if startIdx < 0 || pageSize < 1 || pageSize > MaxTokenLogPageSize || startIdx > int(^uint(0)>>1)-pageSize {
+		return nil, 0, errors.New("分页参数超出范围")
+	}
+	if err = LOG_DB.Model(&Log{}).Where("token_id = ?", tokenId).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	err = tokenLogQuery(tokenId).Offset(startIdx).Limit(pageSize).Find(&logs).Error
+	if err != nil {
+		return nil, 0, err
+	}
+	formatUserLogs(logs, startIdx)
+	return logs, total, nil
 }
 
 func RecordLog(userId int, logType int, content string) {

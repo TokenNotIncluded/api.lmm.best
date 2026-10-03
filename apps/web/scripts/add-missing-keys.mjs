@@ -40,6 +40,7 @@ import { piGuideCopy } from './pi-guide-copy.mjs'
 import { piOAuthCopy } from './pi-oauth-copy.mjs'
 import { profileShareCopy } from './profile-share-copy.mjs'
 import { remoteControlCopy } from './remote-control-copy.mjs'
+import { responsesWebSocketCopy } from './responses-websocket-copy.mjs'
 import { rssCopy } from './rss-copy.mjs'
 import { toolMarketCopy } from './tool-market-copy.mjs'
 import { waitCompanionCopy } from './wait-companion-copy.mjs'
@@ -11866,7 +11867,11 @@ async function main() {
   const forgeRefreshOnly = process.argv.includes('--only-forge-refresh')
   const rssOnly = process.argv.includes('--only-rss')
   const responseModelOnly = process.argv.includes('--only-response-model')
+  const responsesWebSocketOnly = process.argv.includes(
+    '--only-responses-websocket'
+  )
   const scoped =
+    responsesWebSocketOnly ||
     responseModelOnly ||
     rssOnly ||
     forgeRefreshOnly ||
@@ -11945,15 +11950,17 @@ async function main() {
                                           : assistantToolOnly
                                             ? assistantToolCopy
                                             : newKeys
-  const selectedEntries = responseModelOnly
-    ? responseModelCopy
-    : rssOnly
-      ? rssCopy
-      : forgeRefreshOnly
-        ? forgeRefreshCopy
-        : passkeyOnly
-          ? passkeyCopy
-          : entries
+  const selectedEntries = responsesWebSocketOnly
+    ? responsesWebSocketCopy
+    : responseModelOnly
+      ? responseModelCopy
+      : rssOnly
+        ? rssCopy
+        : forgeRefreshOnly
+          ? forgeRefreshCopy
+          : passkeyOnly
+            ? passkeyCopy
+            : entries
   let totalAdded = 0
   for (const [locale, baseTranslations] of Object.entries(selectedEntries)) {
     const translations = scoped
@@ -12991,6 +12998,10 @@ const responseModelCopy = {
   },
 }
 for (const [locale, values] of Object.entries(responseModelCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(responsesWebSocketCopy)) {
   Object.assign(newKeys[locale], values)
 }
 
