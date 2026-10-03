@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -374,13 +375,49 @@ func testHeroSMSBatchCountMismatchCancelsAndRefunds(t *testing.T) {
 	require.Equal(t, stored.ChargeQuota, stored.RefundedQuota)
 }
 
+type heroSMSPurchaseTimeoutTestClient struct {
+	herosms.Client
+	purchaseStarted <-chan struct{}
+	purchaseErrors  chan<- error
+	createCalls     *atomic.Int32
+}
+
+func (client heroSMSPurchaseTimeoutTestClient) CreateEmail(ctx context.Context, site, domain string) (*herosms.EmailRecord, error) {
+	client.createCalls.Add(1)
+	purchaseCtx, cancel := context.WithCancelCause(ctx)
+	watcherDone := make(chan struct{})
+	defer func() {
+		cancel(nil)
+		<-watcherDone
+	}()
+	go func() {
+		defer close(watcherDone)
+		select {
+		case <-client.purchaseStarted:
+			cancel(context.DeadlineExceeded)
+		case <-purchaseCtx.Done():
+		}
+	}()
+	record, err := client.Client.CreateEmail(purchaseCtx, site, domain)
+	select {
+	case client.purchaseErrors <- err:
+	default:
+	}
+	return record, err
+}
+
 func testHeroSMSEmailTimeoutReconcilesWithoutReposting(t *testing.T) {
 	db := setupHeroSMSTestDB(t)
 	user := createHeroSMSTestUser(t, db, 103, 1_000_000)
 	require.NoError(t, UpdateHeroSMSSettings(HeroSMSSettingsUpdate{Enabled: ptrBool(true), APIKey: "test-secret-key-12345"}))
 	var posts atomic.Int32
+	var createCalls atomic.Int32
 	var purchased atomic.Bool
+	purchaseStarted := make(chan struct{})
+	purchaseErrors := make(chan error, 1)
 	releasePurchase := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releasePurchase) }) }
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch request.Method + " " + request.URL.Path {
 		case http.MethodGet + " /emails/domains":
@@ -394,25 +431,34 @@ func testHeroSMSEmailTimeoutReconcilesWithoutReposting(t *testing.T) {
 		case http.MethodGet + " /emails/1":
 			encodeHeroSMSModelTestJSON(t, writer, heroSMSActivationResponse(1, "a@mail.test", 0.10, 840))
 		case http.MethodPost + " /emails":
-			posts.Add(1)
 			purchased.Store(true)
+			if posts.Add(1) == 1 {
+				close(purchaseStarted)
+			}
 			<-releasePurchase
 		default:
 			writer.WriteHeader(http.StatusNotFound)
 		}
 	}))
 	defer server.Close()
+	defer release()
 	restore := SetHeroSMSClientFactoryForTest(func(_ string, _ string) herosms.Client {
-		client := herosms.NewClient(server.URL, "secret")
-		client.TimeoutForTest(10 * time.Millisecond)
-		return client
+		// Keep ordinary GETs on the real client's default deadline. Only the
+		// accepted POST is interrupted, so scheduler delays cannot time out the
+		// quote or provider snapshot before the purchase starts.
+		return heroSMSPurchaseTimeoutTestClient{
+			Client: herosms.NewClient(server.URL, "secret"), purchaseStarted: purchaseStarted,
+			purchaseErrors: purchaseErrors, createCalls: &createCalls,
+		}
 	}, server.URL)
 	defer restore()
 
 	request := HeroSMSEmailPurchaseRequest{DomainID: heroSMSTestQuoteID(t, "0.10"), Quantity: 1}
 	order, status, err := CreateHeroSMSEmailActivations(t.Context(), user.Id, "timeout-idem", request)
-	close(releasePurchase)
+	release()
 	require.NoError(t, err)
+	require.Equal(t, int32(1), createCalls.Load())
+	require.ErrorIs(t, <-purchaseErrors, herosms.ErrUpstreamTimeout, "the real HTTP client must classify the post-acceptance deadline as a timeout")
 	require.Equal(t, http.StatusAccepted, status)
 	require.Equal(t, HeroSMSEmailOrderStatusPurchaseUnknown, order.Status)
 	require.Equal(t, int32(1), posts.Load())
@@ -427,6 +473,7 @@ func testHeroSMSEmailTimeoutReconcilesWithoutReposting(t *testing.T) {
 	require.Equal(t, "a@mail.test", replayed.Activations[0].Email)
 	require.Equal(t, order.ID, replayed.ID)
 	require.Equal(t, int32(1), posts.Load())
+	require.Equal(t, int32(1), createCalls.Load(), "reconciliation and replay must not retry CreateEmail, even if a retry is cancelled before reaching the server")
 }
 
 func testHeroSMSUpstream500ReconcilesWithoutRefundOrRepost(t *testing.T) {
