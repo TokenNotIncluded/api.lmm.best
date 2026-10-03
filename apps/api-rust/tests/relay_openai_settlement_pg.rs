@@ -522,17 +522,22 @@ async fn responses_missing_usage_output_and_reported_zero_settle_over_real_http(
     for (name, streaming, events, expected_output, completed) in cases {
         let fixture = Fixture::new(streaming).await?;
         let outcome = std::panic::AssertUnwindSafe(async {
+            let wire = if streaming {
+                // Keep a terminal error and the later completion in the same
+                // provider chunk, so stopping reads cannot race a second send.
+                events
+                    .into_iter()
+                    .map(|event| format!("data: {event}\n\n"))
+                    .collect::<String>()
+            } else {
+                assert_eq!(events.len(), 1, "{name}");
+                events.into_iter().next().unwrap().to_string()
+            };
+            // JSON settlement consumes the provider body before the request
+            // future returns, so queue the finite response before awaiting it.
+            fixture.wire.send(Ok(Bytes::from(wire))).await?;
             let response = fixture.request(name, streaming).await?;
-            for event in events {
-                if streaming {
-                    fixture.event(event).await?;
-                } else {
-                    fixture
-                        .wire
-                        .send(Ok(Bytes::from(event.to_string())))
-                        .await?;
-                }
-            }
+            assert_eq!(response.status(), StatusCode::OK, "{name}");
             let body = timeout(
                 Duration::from_secs(3),
                 to_bytes(response.into_body(), 65536),
@@ -576,7 +581,7 @@ async fn responses_missing_usage_output_and_reported_zero_settle_over_real_http(
         let cleanup = fixture.cleanup().await;
         match outcome {
             Ok(result) => {
-                result?;
+                result.map_err(|error| std::io::Error::other(format!("{name}: {error}")))?;
                 cleanup?;
             }
             Err(panic) => {
