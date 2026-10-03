@@ -140,6 +140,13 @@ jobs:
           TEST_POSTGRES_ISOLATED_SCHEMA: '1'
         run: go test -race -count=1 -v ./service -run '^(TestToolMarketPaidHTTPMCPUploadAndSettlementPostgres|TestToolMarketPaidPostgresBuyerIsolationAndConcurrentLedger)$' -timeout 180s
 
+      - name: Protect GitHub identity migration and login rollback under PostgreSQL concurrency
+        working-directory: apps/api-go
+        env:
+          TEST_POSTGRES_DSN: postgres://lmm_test_release:lmm-release-postgres-password@127.0.0.1:5432/lmm_test_release?sslmode=disable
+          TEST_POSTGRES_ISOLATED_SCHEMA: '1'
+        run: GOMAXPROCS=2 go test -race -p 2 ./service -run '^TestGitHubMigrationPostgres' -count=1 -timeout 180s
+
       - name: Protect drawing expiry against MySQL repeatable-read snapshots
         working-directory: apps/api-go
         env:
