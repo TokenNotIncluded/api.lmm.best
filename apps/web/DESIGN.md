@@ -112,3 +112,11 @@ Also run the console page, interaction and navigation scripts and frontend quali
 - [observed] Built-in cached names and logo URLs normalize to the default identity before rendering or preloading. The favicon and touch icon derive from the same symbol. They have explicit black backgrounds and white ink; transparent SVG placements select ink for the current surface.
 
 The platform-owned legacy name `lmm.best` also resolves to LMM Forge. Other tenant names stay as configured.
+
+### Cut system in the application
+
+- [observed] The default preset uses a tighter `--radius` (0.5rem) and a shared `--cut-size` token. A solid 45° cut mark — the logo's base cut — precedes console page titles (`.console-page-title::before`) and homepage section headings (`.lmm-section h2::before`), and replaces round bullets in the homepage protocol and access-note lists. The mark inherits `currentColor`; it adds no new palette entry.
+- [observed] The active console navigation row is a full-contrast block (`--sidebar-primary` on `--sidebar-primary-foreground`) with a 45° trailing notch. The notch is removed under `:focus-visible` so the focus outline is never clipped. Sidebar rows use an explicit 0.375rem radius because the Luma sidebar rescopes `--radius`.
+- [observed] Display headings on the homepage and console titles use heavy weights (650–750) with tight tracking. The homepage primary call to action is a square-cornered block carrying the same notch, with the notch removed when it has keyboard focus.
+- [observed] `--font-sans` names the bundled family `'Public Sans Variable'` first, followed by a deterministic CJK sans stack. The previous stack named only `'Public Sans'`, which never matched the Fontsource face, so the app silently rendered the platform sans.
+- [observed] Card primitives use a light `shadow-xs`; borders and the theme's slightly stronger `--border` carry structure. Named presets and the user's radius axis continue to override these defaults.

@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 /* Shared page rhythm; no color literals or marketing-page overrides. */
 .console-editorial .console-page {
   --page-gutter: clamp(1rem, 2.5cqi, 2.5rem);
-  --page-radius: 1rem;
+  --page-radius: var(--radius);
 }
 .console-editorial .console-page .console-section-header {
   padding: clamp(1.25rem, 2.4cqi, 2rem) var(--page-gutter) 1.1rem;
@@ -39,8 +39,20 @@ For commercial licensing, please contact support@quantumnous.com
 .console-editorial .console-page-title {
   font-size: clamp(1.35rem, 1.8cqi, 1.8rem);
   line-height: 1.25;
-  letter-spacing: -0.035em;
-  font-weight: 600;
+  letter-spacing: -0.04em;
+  font-weight: 700;
+}
+/* Cut mark: a small solid block with the logo's 45° base cut anchors every
+ * page title to the brand without adding another color. */
+.console-editorial .console-page-title::before {
+  content: '';
+  display: inline-block;
+  width: 0.5em;
+  height: 0.5em;
+  margin-right: 0.45em;
+  vertical-align: 0.06em;
+  background: currentColor;
+  clip-path: polygon(0 0, 100% 0, 100% 45%, 45% 100%, 0 100%);
 }
 .console-editorial .console-page-actions {
   gap: 0.5rem;
