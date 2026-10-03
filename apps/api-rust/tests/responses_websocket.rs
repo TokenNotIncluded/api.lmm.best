@@ -33,6 +33,7 @@ struct TestService {
     authorize_calls: Arc<AtomicUsize>,
     start_calls: Arc<AtomicUsize>,
     reject_handshake: Arc<AtomicBool>,
+    unconfigured_handshake: Arc<AtomicBool>,
     reject_start: Arc<AtomicBool>,
     reject_finish: Arc<AtomicBool>,
     reject_observe: Arc<AtomicBool>,
@@ -51,6 +52,7 @@ impl TestService {
             authorize_calls: Arc::new(AtomicUsize::new(0)),
             start_calls: Arc::new(AtomicUsize::new(0)),
             reject_handshake: Arc::new(AtomicBool::new(false)),
+            unconfigured_handshake: Arc::new(AtomicBool::new(false)),
             reject_start: Arc::new(AtomicBool::new(false)),
             reject_finish: Arc::new(AtomicBool::new(false)),
             reject_observe: Arc::new(AtomicBool::new(false)),
@@ -67,9 +69,14 @@ impl TestService {
 impl ResponsesWebSocketService for TestService {
     async fn handshake(
         &self,
-        _request: &ResponsesHandshakeRequest,
+        request: &ResponsesHandshakeRequest,
     ) -> Result<ResponsesSession, ResponsesHandshakeFailure> {
         self.handshake_calls.fetch_add(1, Ordering::SeqCst);
+        if self.unconfigured_handshake.load(Ordering::SeqCst) {
+            return UnconfiguredResponsesWebSocketService
+                .handshake(request)
+                .await;
+        }
         if self.reject_handshake.load(Ordering::SeqCst) {
             return Err(ResponsesHandshakeFailure::concealed_not_found());
         }
@@ -199,6 +206,32 @@ async fn unconfigured_transport_remains_fail_closed_without_stream_identity() {
         .unwrap();
     let error: Value = serde_json::from_slice(&bytes).unwrap();
     assert!(error.get("stream_id").is_none());
+}
+
+#[tokio::test]
+async fn unconfigured_transport_rejects_a_valid_websocket_upgrade_with_stable_error() {
+    let app = router(ResponsesWebSocketState::new(Arc::new(
+        UnconfiguredResponsesWebSocketService,
+    )));
+    let (url, server) = spawn_router(app).await;
+    assert_unconfigured_upgrade_rejection(&url).await;
+    server.abort();
+}
+
+#[tokio::test]
+async fn unconfigured_handshake_does_not_select_a_provider_or_settle_quota() {
+    let service = TestService::new();
+    service.unconfigured_handshake.store(true, Ordering::SeqCst);
+    let (url, server) = spawn(service.clone()).await;
+    assert_unconfigured_upgrade_rejection(&url).await;
+
+    assert_eq!(service.handshake_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(service.authorize_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(service.start_calls.load(Ordering::SeqCst), 0);
+    assert!(service.observations.lock().await.is_empty());
+    assert!(service.finishes.lock().await.is_empty());
+    assert!(service.closed.lock().await.is_empty());
+    server.abort();
 }
 
 #[tokio::test]
@@ -1888,13 +1921,59 @@ where
 }
 
 async fn spawn(service: TestService) -> (String, JoinHandle<()>) {
+    spawn_router(router(ResponsesWebSocketState::new(Arc::new(service)))).await
+}
+
+async fn spawn_router(app: axum::Router) -> (String, JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
-    let app = router(ResponsesWebSocketState::new(Arc::new(service)));
     let server = tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
     (format!("ws://{address}/v1/responses"), server)
+}
+
+async fn assert_unconfigured_upgrade_rejection(url: &str) {
+    // IntoClientRequest supplies a complete RFC 6455 handshake, including a
+    // random key, so rejection cannot be attributed to malformed upgrade headers.
+    let mut request = url.into_client_request().unwrap();
+    assert_eq!(request.headers()[header::UPGRADE], "websocket");
+    assert_eq!(request.headers()[header::CONNECTION], "Upgrade");
+    assert_eq!(request.headers()[header::SEC_WEBSOCKET_VERSION], "13");
+    assert!(request.headers().contains_key(header::SEC_WEBSOCKET_KEY));
+    request
+        .headers_mut()
+        .insert(header::AUTHORIZATION, "Bearer good".parse().unwrap());
+    request
+        .headers_mut()
+        .insert(header::SEC_WEBSOCKET_PROTOCOL, "responses".parse().unwrap());
+
+    // Read the entire rejection body with the HTTP client: a failed WebSocket
+    // handshake may expose only the bytes received alongside the headers.
+    let response = reqwest::Client::builder()
+        .no_proxy()
+        .http1_only()
+        .timeout(Duration::from_secs(2))
+        .build()
+        .unwrap()
+        .get(format!("http://{}", url.strip_prefix("ws://").unwrap()))
+        .headers(request.headers().clone())
+        .send()
+        .await
+        .expect("unconfigured handshake request failed");
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    for name in [
+        header::UPGRADE,
+        header::SEC_WEBSOCKET_ACCEPT,
+        header::SEC_WEBSOCKET_PROTOCOL,
+    ] {
+        assert!(!response.headers().contains_key(name));
+    }
+    let body: Value = response.json().await.expect("HTTP rejection JSON missing");
+    assert_eq!(
+        body,
+        json!({"error":{"message":"responses websocket service is not configured","type":"new_api_error","param":"","code":"service_unavailable"}})
+    );
 }
 
 async fn connect(

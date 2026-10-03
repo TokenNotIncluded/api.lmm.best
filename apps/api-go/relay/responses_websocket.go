@@ -18,6 +18,7 @@ import (
 	appmodel "github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/pkg/wsmanager"
 	relaychannel "github.com/LIghtJUNction/api.lmm.best/relay/channel"
+	"github.com/LIghtJUNction/api.lmm.best/relay/channel/openai"
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
 	"github.com/LIghtJUNction/api.lmm.best/relay/helper"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
@@ -143,18 +144,25 @@ func (b *responsesWSOutputTextBuffer) String() string {
 }
 
 type responsesWSSession struct {
-	c              *gin.Context
-	client         *websocket.Conn
-	target         *websocket.Conn
-	unregister     func()
-	lockedModel    string
-	lockedChannel  *appmodel.Channel
-	nextEventIndex int
-	closeOnce      sync.Once
-	closed         atomic.Bool
+	c                     *gin.Context
+	client                *websocket.Conn
+	target                *websocket.Conn
+	unregister            func()
+	lockedModel           string
+	lockedChannel         *appmodel.Channel
+	connectionFingerprint string
+	connectionKey         string
+	connectionKeyIndex    int
+	nextEventIndex        int
+	closeOnce             sync.Once
+	closed                atomic.Bool
 
-	clientWriteMu       sync.Mutex
-	targetWriteMu       sync.Mutex
+	clientWriteMu sync.Mutex
+	targetWriteMu sync.Mutex
+	// Serializes forwarding with connection replacement, so a retired reader
+	// cannot settle or close a newer turn after a configuration change.
+	targetReadMu        sync.Mutex
+	targetReaders       sync.WaitGroup
 	stateMu             sync.Mutex
 	current             *responsesWSCallState
 	finishedResponseIDs []string
@@ -186,7 +194,11 @@ func ResponsesWebSocketHelper(c *gin.Context, client *websocket.Conn) *types.New
 	}
 	session.unregister = unregister
 	session.targetWriteMu.Unlock()
-	defer session.closeTarget()
+	defer func() {
+		_ = session.client.Close()
+		session.closeTarget()
+		session.targetReaders.Wait()
+	}()
 	defer session.failCurrent()
 
 	for {
@@ -404,6 +416,12 @@ func (s *responsesWSSession) handleResponseCreate(create responsesWSCreateReques
 	}
 	lockedChannel, apiErr := validateResponsesWSTurnAuthorization(s.c, modelName, s.lockedChannel)
 	if apiErr != nil {
+		if !s.hasCurrent() && (apiErr.GetErrorCode() == "responses_websocket_disabled" || apiErr.GetErrorCode() == "responses_websocket_unsupported") {
+			// Rejecting a second create must not orphan an already admitted turn.
+			// Its terminal event still releases the rate reservation and settles
+			// any output; an idle connection can be retired immediately.
+			s.closeTarget()
+		}
 		return apiErr
 	}
 	if lockedChannel != nil {
@@ -433,6 +451,12 @@ func (s *responsesWSSession) handleResponseCreate(create responsesWSCreateReques
 		s.stateMu.Unlock()
 		if duplicate {
 			return newResponsesWSInvalidRequestError(errors.New("event_id belongs to a retained control or create"))
+		}
+	}
+	if lockedChannel != nil && s.hasTarget() && s.connectionFingerprint != "" {
+		s.retainConnectionCredential(lockedChannel)
+		if responsesWSConnectionFingerprint(s.c, lockedChannel, modelName) != s.connectionFingerprint {
+			s.closeTarget()
 		}
 	}
 
@@ -499,11 +523,11 @@ func (s *responsesWSSession) connectAndSendFirst(create responsesWSCreateRequest
 			lastErr = apiErr
 			break
 		}
-		addResponsesWSUsedChannel(s.c, channel.Id)
-		if channel.Type != appconstant.ChannelTypeOpenAI && channel.Type != appconstant.ChannelTypeOpenHuman && channel.Type != appconstant.ChannelTypeCodex {
-			lastErr = types.NewErrorWithStatusCode(fmt.Errorf("responses websocket only supports OpenAI, OpenHuman, and Codex channels, got channel type %d", channel.Type), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
-			continue
+		if apiErr := responsesWSChannelEligibility(channel, s.c.Request.URL.Path, modelName); apiErr != nil {
+			lastErr = apiErr
+			break
 		}
+		addResponsesWSUsedChannel(s.c, channel.Id)
 
 		state, payload, apiErr := s.prepareCall(create, commitRate)
 		if apiErr != nil {
@@ -552,6 +576,9 @@ func (s *responsesWSSession) connectAndSendFirst(create responsesWSCreateRequest
 
 		s.lockedModel = modelName
 		s.lockedChannel = channel
+		s.connectionFingerprint = responsesWSConnectionFingerprint(s.c, channel, modelName)
+		s.connectionKey = state.info.ApiKey
+		s.connectionKeyIndex = state.info.ChannelMultiKeyIndex
 		if !s.registerChannelClose(channel.Id) {
 			return nil
 		}
@@ -872,25 +899,49 @@ func (s *responsesWSSession) startTargetReader() {
 	if target == nil {
 		return
 	}
+	s.targetReaders.Add(1)
 	go func() {
+		defer s.targetReaders.Done()
 		for {
 			messageType, message, err := target.ReadMessage()
 			if err != nil {
+				s.targetReadMu.Lock()
+				if s.getTarget() != target {
+					s.targetReadMu.Unlock()
+					return
+				}
 				if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
 					logger.LogError(s.c, "responses websocket upstream read failed: "+err.Error())
 				}
 				s.failCurrent()
 				_ = s.client.Close()
+				s.targetReadMu.Unlock()
 				return
 			}
-			if err := s.forwardUpstreamMessage(messageType, message); err != nil {
-				logger.LogError(s.c, "responses websocket client write failed: "+err.Error())
-				s.failCurrent()
-				s.closeTarget()
+			current, err := s.forwardTargetMessage(target, messageType, message)
+			if !current {
+				return
+			}
+			if err != nil {
 				return
 			}
 		}
 	}()
+}
+
+func (s *responsesWSSession) forwardTargetMessage(target *websocket.Conn, messageType int, message []byte) (bool, error) {
+	s.targetReadMu.Lock()
+	defer s.targetReadMu.Unlock()
+	if s.getTarget() != target {
+		return false, nil
+	}
+	err := s.forwardUpstreamMessage(messageType, message)
+	if err != nil {
+		logger.LogError(s.c, "responses websocket client write failed: "+err.Error())
+		s.failCurrent()
+		s.closeTargetLocked()
+	}
+	return true, err
 }
 
 // processUpstreamMessage captures identity before terminal observation clears the
@@ -1150,25 +1201,41 @@ func (s *responsesWSSession) observeUpstreamMessageForState(state *responsesWSCa
 	requestSucceeded := false
 	state.dataMu.Lock()
 	state.info.SetFirstResponseTime()
-	if streamResponse.Response != nil && streamResponse.Response.ID != "" {
-		state.responseID = streamResponse.Response.ID
+	if streamResponse.Response != nil {
+		state.info.ObserveResponseModel(streamResponse.Response.Model)
+		if streamResponse.Response.ID != "" {
+			state.responseID = streamResponse.Response.ID
+		}
+		if streamResponse.Response.Usage != nil {
+			candidate := &dto.Usage{}
+			service.ApplyResponsesUsage(candidate, streamResponse.Response.Usage)
+			if service.ValidUsage(candidate) {
+				*state.usage = *candidate
+				state.info.ResponsesUsageReported = true
+			}
+		}
 	}
 	switch streamResponse.Type {
 	case "response.completed", "response.done":
-		if streamResponse.Response != nil && relaycommon.IsNonBillableResponsesStatus(streamResponse.Response.Status) {
-			state.images.Reset()
-			terminal = true
-			break
-		}
 		s.applyTerminalResponseUsage(state, streamResponse.Response)
 		terminal = true
+		if streamResponse.Response != nil && (relaycommon.IsNonBillableResponsesStatus(streamResponse.Response.Status) || streamResponse.Response.Error != nil) {
+			if relaycommon.IsNonBillableResponsesStatus(streamResponse.Response.Status) {
+				state.images.Reset()
+			}
+			success = responsesWSHasBillablePartialLocked(state)
+			break
+		}
+		if !state.info.ResponsesUsageReported && state.outputText.Len() == 0 {
+			state.outputText.WriteString(s.c, openai.ResponsesTerminalOutputText(string(message)))
+		}
 		success = true
 		requestSucceeded = true
 	case "response.incomplete", "response.failed", "response.cancelled", "response.canceled", "response.error", "error":
 		s.applyTerminalResponseUsage(state, streamResponse.Response)
 		terminal = true
 		success = responsesWSHasBillablePartialLocked(state)
-	case "response.output_text.delta":
+	case "response.output_text.delta", "response.refusal.delta", "response.function_call_arguments.delta", "response.reasoning_text.delta", "response.reasoning_summary_text.delta":
 		state.outputText.WriteString(s.c, streamResponse.Delta)
 	case dto.ResponsesOutputTypeItemDone:
 		if streamResponse.Item != nil {
@@ -1195,7 +1262,14 @@ func (s *responsesWSSession) applyTerminalResponseUsage(state *responsesWSCallSt
 		return
 	}
 	if response.Usage != nil {
-		service.ApplyResponsesUsage(state.usage, response.Usage)
+		// Only terminal events call this helper. Reports, including explicit
+		// zero, remain authoritative on successful and failed turns alike.
+		if state.info != nil {
+			state.info.ResponsesUsageReported = true
+		}
+		candidate := &dto.Usage{}
+		service.ApplyResponsesUsage(candidate, response.Usage)
+		*state.usage = *candidate
 	}
 	for i := range response.Output {
 		output := &response.Output[i]
@@ -1303,13 +1377,22 @@ func finalizeResponsesWSUsage(state *responsesWSCallState) {
 	if state == nil || state.usage == nil || state.info == nil {
 		return
 	}
+	if state.info.ResponsesUsageReported {
+		return
+	}
 	if state.usage.CompletionTokens == 0 {
 		if output := state.outputText.String(); output != "" {
 			state.usage.CompletionTokens = service.CountTextToken(output, state.info.UpstreamModelName)
 		}
 	}
 	if state.usage.PromptTokens == 0 && state.usage.CompletionTokens != 0 {
-		state.usage.PromptTokens = state.info.GetEstimatePromptTokens()
+		estimated := state.info.GetEstimatePromptTokens()
+		if estimated < 0 {
+			estimated = 0
+		} else if estimated > openai.MaxUnverifiedResponsesInputTokens {
+			estimated = openai.MaxUnverifiedResponsesInputTokens
+		}
+		state.usage.PromptTokens = estimated
 	}
 	if state.usage.TotalTokens == 0 {
 		state.usage.TotalTokens = state.usage.PromptTokens + state.usage.CompletionTokens
@@ -1431,6 +1514,8 @@ func (s *responsesWSSession) getTarget() *websocket.Conn {
 }
 
 func (s *responsesWSSession) setTarget(target *websocket.Conn) {
+	s.targetReadMu.Lock()
+	defer s.targetReadMu.Unlock()
 	s.targetWriteMu.Lock()
 	defer s.targetWriteMu.Unlock()
 	s.target = target
@@ -1468,6 +1553,13 @@ func buildResponsesWSErrorPayload(eventID, streamID string, apiErr *types.NewAPI
 }
 
 func (s *responsesWSSession) closeTarget() {
+	s.targetReadMu.Lock()
+	defer s.targetReadMu.Unlock()
+	s.closeTargetLocked()
+}
+
+// The caller holds targetReadMu, excluding forwarding by the retired reader.
+func (s *responsesWSSession) closeTargetLocked() {
 	var target *websocket.Conn
 	var unregister func()
 	s.targetWriteMu.Lock()
@@ -1517,8 +1609,8 @@ func (s *responsesWSSession) closeWithCode(code int, reason string) {
 		if target := s.getTarget(); target != nil {
 			_ = target.WriteControl(websocket.CloseMessage, closeMessage, deadline)
 		}
-		s.closeTarget()
 		_ = s.client.Close()
+		s.closeTarget()
 	})
 }
 
@@ -1554,7 +1646,10 @@ func selectResponsesWSChannel(c *gin.Context, modelName string, retryParam *serv
 		if channel.Status != common.ChannelStatusEnabled {
 			return nil, types.NewErrorWithStatusCode(errors.New("specified channel is disabled"), types.ErrorCodeGetChannelFailed, http.StatusForbidden, types.ErrOptionWithSkipRetry())
 		}
-		if apiErr := middleware.SetupContextForSelectedChannel(c, channel, modelName); apiErr != nil {
+		if apiErr := responsesWSChannelEligibility(channel, c.Request.URL.Path, modelName); apiErr != nil {
+			return nil, apiErr
+		}
+		if apiErr := setupResponsesWSChannelContext(c, channel, modelName); apiErr != nil {
 			return nil, apiErr
 		}
 		return channel, nil
@@ -1567,14 +1662,14 @@ func selectResponsesWSChannel(c *gin.Context, modelName string, retryParam *serv
 	if retryParam.GetRetry() == 0 {
 		if preferredChannelID, found := service.GetPreferredChannelByAffinity(c, modelName, usingGroup); found {
 			preferred, err := appmodel.CacheGetChannel(preferredChannelID)
-			if err == nil && preferred != nil && preferred.Status == common.ChannelStatusEnabled {
+			if err == nil && preferred != nil && preferred.Status == common.ChannelStatusEnabled && responsesWSChannelEligibility(preferred, c.Request.URL.Path, modelName) == nil {
 				if usingGroup == "auto" {
 					userGroup := common.GetContextKeyString(c, appconstant.ContextKeyUserGroup)
 					for _, group := range service.GetUserAutoGroup(userGroup) {
 						if appmodel.IsChannelEnabledForGroupModel(group, modelName, preferred.Id) {
 							common.SetContextKey(c, appconstant.ContextKeyAutoGroup, group)
 							service.MarkChannelAffinityUsed(c, group, preferred.Id)
-							if apiErr := middleware.SetupContextForSelectedChannel(c, preferred, modelName); apiErr != nil {
+							if apiErr := setupResponsesWSChannelContext(c, preferred, modelName); apiErr != nil {
 								return nil, apiErr
 							}
 							return preferred, nil
@@ -1582,7 +1677,7 @@ func selectResponsesWSChannel(c *gin.Context, modelName string, retryParam *serv
 					}
 				} else if appmodel.IsChannelEnabledForGroupModel(usingGroup, modelName, preferred.Id) {
 					service.MarkChannelAffinityUsed(c, usingGroup, preferred.Id)
-					if apiErr := middleware.SetupContextForSelectedChannel(c, preferred, modelName); apiErr != nil {
+					if apiErr := setupResponsesWSChannelContext(c, preferred, modelName); apiErr != nil {
 						return nil, apiErr
 					}
 					return preferred, nil
@@ -1591,17 +1686,39 @@ func selectResponsesWSChannel(c *gin.Context, modelName string, retryParam *serv
 		}
 	}
 
-	channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(retryParam)
-	if err != nil {
-		return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %s", selectGroup, modelName, err.Error()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+	var eligibilityErr *types.NewAPIError
+	for {
+		// Capability filtering is local selection, not an upstream retry. Keep
+		// existing priority, auto-group and public-relay ordering semantics.
+		restoreRetry := retryParam.PreserveRetryState()
+		groupIndex := common.GetContextKeyInt(c, appconstant.ContextKeyAutoGroupIndex)
+		groupRetryIndex := common.GetContextKeyInt(c, appconstant.ContextKeyAutoGroupRetryIndex)
+		channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(retryParam)
+		if err != nil {
+			return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %s", selectGroup, modelName, err.Error()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+		}
+		if channel == nil {
+			if eligibilityErr != nil {
+				return nil, eligibilityErr
+			}
+			return nil, types.NewErrorWithStatusCode(errors.New("no eligible responses websocket channel is available"), types.ErrorCode("responses_websocket_unsupported"), http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
+		if apiErr := responsesWSChannelEligibility(channel, c.Request.URL.Path, modelName); apiErr != nil {
+			eligibilityErr = apiErr
+			if channel.Id <= 0 {
+				return nil, apiErr
+			}
+			retryParam.ExcludeChannel(channel.Id)
+			restoreRetry()
+			common.SetContextKey(c, appconstant.ContextKeyAutoGroupIndex, groupIndex)
+			common.SetContextKey(c, appconstant.ContextKeyAutoGroupRetryIndex, groupRetryIndex)
+			continue
+		}
+		if apiErr := setupResponsesWSChannelContext(c, channel, modelName); apiErr != nil {
+			return nil, apiErr
+		}
+		return channel, nil
 	}
-	if channel == nil {
-		return nil, types.NewError(fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在（retry）", selectGroup, modelName), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
-	}
-	if apiErr := middleware.SetupContextForSelectedChannel(c, channel, modelName); apiErr != nil {
-		return nil, apiErr
-	}
-	return channel, nil
 }
 
 func selectResponsesWSChannelForSession(c *gin.Context, modelName string, retryParam *service.RetryParam, locked *appmodel.Channel) (*appmodel.Channel, *types.NewAPIError) {
@@ -1625,8 +1742,12 @@ func validateResponsesWSTurnAuthorization(c *gin.Context, modelName string, lock
 	if channel.Status != common.ChannelStatusEnabled {
 		return nil, types.NewErrorWithStatusCode(fmt.Errorf("locked channel %d is disabled", channel.Id), types.ErrorCodeGetChannelFailed, http.StatusForbidden, types.ErrOptionWithSkipRetry())
 	}
-	if channel.Type != appconstant.ChannelTypeOpenAI && channel.Type != appconstant.ChannelTypeOpenHuman && channel.Type != appconstant.ChannelTypeCodex {
-		return nil, types.NewErrorWithStatusCode(fmt.Errorf("locked channel %d no longer supports responses websocket", channel.Id), types.ErrorCodeGetChannelFailed, http.StatusForbidden, types.ErrOptionWithSkipRetry())
+	requestPath := "/v1/responses"
+	if c.Request != nil && c.Request.URL != nil {
+		requestPath = c.Request.URL.Path
+	}
+	if apiErr := responsesWSChannelEligibility(channel, requestPath, modelName); apiErr != nil {
+		return nil, apiErr
 	}
 	if channelIDRaw := common.GetContextKeyString(c, appconstant.ContextKeyTokenSpecificChannelId); channelIDRaw != "" {
 		channelID, parseErr := strconv.Atoi(channelIDRaw)
@@ -1658,7 +1779,7 @@ func validateResponsesWSTurnAuthorization(c *gin.Context, modelName string, lock
 	if selectedAutoGroup != "" {
 		common.SetContextKey(c, appconstant.ContextKeyAutoGroup, selectedAutoGroup)
 	}
-	if apiErr := middleware.SetupContextForSelectedChannel(c, channel, modelName); apiErr != nil {
+	if apiErr := setupResponsesWSChannelContext(c, channel, modelName); apiErr != nil {
 		return nil, apiErr
 	}
 	return channel, nil

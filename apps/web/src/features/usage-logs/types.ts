@@ -192,6 +192,12 @@ export interface LogOtherData {
   cache_creation_ratio_1h?: number
   is_model_mapped?: boolean
   upstream_model_name?: string
+  // Diagnostic names only; the UI derives compatibility using current rules.
+  response_model?: {
+    requested_model: string
+    upstream_model: string
+    returned_model: string
+  }
   audio_ratio?: number
   audio_completion_ratio?: number
   frt?: number

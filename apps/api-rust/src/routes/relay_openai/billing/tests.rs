@@ -364,6 +364,142 @@ fn explicit_terminal_usage_prevents_local_output_from_overwriting_it() {
 }
 
 #[test]
+fn responses_missing_usage_generated_output_kinds() {
+    for kind in [
+        "output_text",
+        "refusal",
+        "function_call_arguments",
+        "reasoning_text",
+        "reasoning_summary_text",
+    ] {
+        let mut tracker =
+            UsageTracker::new(OpenAiRelayEndpoint::Responses).with_input("gpt-4o".to_owned(), 12);
+        event(
+            &mut tracker,
+            json!({"type":format!("response.{kind}.delta"),"delta":"hello world"}),
+        );
+        tracker.eof(false);
+        tracker.finalize();
+        assert_eq!(tracker.evidence.usage.input, 12, "{kind}");
+        assert_eq!(tracker.evidence.usage.output, 2, "{kind}");
+        assert!(!tracker.evidence.completed);
+    }
+}
+
+#[test]
+fn responses_successful_terminal_only_output() {
+    let cases = [
+        (
+            json!([{"type":"message","content":[{"type":"output_text","text":"hello world"}]}]),
+            2,
+        ),
+        (
+            json!([{"type":"message","content":[{"type":"refusal","refusal":"hello world"}]}]),
+            2,
+        ),
+        (
+            json!([{"type":"function_call","arguments":"hello world"}]),
+            2,
+        ),
+        (
+            json!([{"type":"reasoning","content":[{"type":"reasoning_text","text":"hello "}],"summary":[{"type":"summary_text","text":"world"}]}]),
+            2,
+        ),
+        (
+            json!([{"type":"reasoning","encrypted_content":"opaque"},{"type":"image_generation_call","result":"base64"},{"type":"web_search_call","action":{"query":"metadata"}}]),
+            0,
+        ),
+    ];
+    for (output, expected) in cases {
+        for kind in ["response.completed", "response.done"] {
+            let mut tracker = UsageTracker::new(OpenAiRelayEndpoint::Responses)
+                .with_input("gpt-4o".to_owned(), 12);
+            event(
+                &mut tracker,
+                json!({"type":kind,"response":{"status":"completed","output":output}}),
+            );
+            tracker.finalize();
+            assert!(tracker.evidence.completed);
+            assert_eq!(tracker.evidence.usage.output, expected);
+            assert_eq!(
+                tracker.evidence.usage.input,
+                if expected == 0 { 0 } else { 12 }
+            );
+        }
+    }
+}
+
+#[test]
+fn responses_terminal_output_cannot_replace_deltas_or_usage() {
+    for (delta, usage, expected_input, expected_output) in [
+        (true, None, 12, 2),
+        (
+            false,
+            Some(json!({"input_tokens":100,"output_tokens":7})),
+            100,
+            7,
+        ),
+        (
+            false,
+            Some(json!({"input_tokens":0,"output_tokens":0})),
+            0,
+            0,
+        ),
+    ] {
+        let mut tracker =
+            UsageTracker::new(OpenAiRelayEndpoint::Responses).with_input("gpt-4o".to_owned(), 12);
+        if delta {
+            event(
+                &mut tracker,
+                json!({"type":"response.output_text.delta","delta":"hello world"}),
+            );
+        }
+        let mut response = json!({"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"hello world plus terminal snapshot"}]}]});
+        if let Some(usage) = usage {
+            response["usage"] = usage;
+        }
+        event(
+            &mut tracker,
+            json!({"type":"response.completed","response":response}),
+        );
+        tracker.finalize();
+        assert_eq!(tracker.evidence.usage.input, expected_input);
+        assert_eq!(tracker.evidence.usage.output, expected_output);
+    }
+}
+
+#[test]
+fn responses_unsuccessful_terminal_only_output_is_not_estimated() {
+    for kind in [
+        "response.failed",
+        "response.incomplete",
+        "response.cancelled",
+        "response.canceled",
+        "response.completed",
+        "error",
+    ] {
+        let mut tracker =
+            UsageTracker::new(OpenAiRelayEndpoint::Responses).with_input("gpt-4o".to_owned(), 12);
+        event(
+            &mut tracker,
+            json!({"type":kind,"response":{"status":"failed","output":[{"type":"message","content":[{"type":"output_text","text":"hello world"}]}]}}),
+        );
+        tracker.finalize();
+        assert_eq!(tracker.evidence.usage, Usage::default());
+        assert!(!tracker.evidence.completed);
+    }
+    let mut tracker =
+        UsageTracker::new(OpenAiRelayEndpoint::Responses).with_input("gpt-4o".to_owned(), 12);
+    event(
+        &mut tracker,
+        json!({"type":"response.completed","response":{"status":"completed","error":{"code":"failed"},"output":[{"type":"message","content":[{"type":"output_text","text":"hello world"}]}]}}),
+    );
+    tracker.finalize();
+    assert_eq!(tracker.evidence.usage, Usage::default());
+    assert!(!tracker.evidence.completed);
+}
+
+#[test]
 fn terminal_explicit_zero_is_authoritative() {
     let mut tracker = UsageTracker::new(OpenAiRelayEndpoint::Responses);
     event(
@@ -377,6 +513,42 @@ fn terminal_explicit_zero_is_authoritative() {
     assert_eq!(tracker.evidence.usage, Usage::default());
     assert!(tracker.evidence.reported);
     assert_eq!(Price::fixed(99).quota(&tracker.evidence).unwrap(), 0);
+}
+
+#[test]
+fn successful_responses_reported_zero_never_uses_prepayment_fallback() {
+    for stream in [false, true] {
+        let mut tracker =
+            UsageTracker::new(OpenAiRelayEndpoint::Responses).with_input("gpt-4o".to_owned(), 100);
+        let response = json!({"status":"completed","usage":{"input_tokens":0,"output_tokens":0},"output":[{"type":"message","content":[{"type":"output_text","text":"hello world"}]}]});
+        if stream {
+            event(
+                &mut tracker,
+                json!({"type":"response.completed","response":response}),
+            );
+        } else {
+            assert!(
+                tracker
+                    .json(response.to_string().as_bytes())
+                    .unwrap()
+                    .is_none()
+            );
+        }
+        tracker.finalize();
+        assert!(tracker.evidence.completed);
+        assert!(tracker.evidence.reported);
+        assert_eq!(tracker.evidence.usage, Usage::default());
+        assert_eq!(Price::fixed(99).quota(&tracker.evidence).unwrap(), 0);
+    }
+    let evidence = Evidence {
+        completed: true,
+        ..Default::default()
+    };
+    assert_eq!(
+        Price::fixed(99).quota(&evidence).unwrap(),
+        99,
+        "absent usage keeps the existing successful-empty fallback"
+    );
 }
 
 #[test]
@@ -488,4 +660,158 @@ fn chat_json_missing_prompt_preserves_nonzero_completion_and_prefers_chat_counte
             ..Default::default()
         }
     );
+}
+
+#[test]
+fn provider_model_observation_does_not_change_usage_or_price_and_preserves_tool_metadata() {
+    let price = price(&[
+        ("ModelRatio", json!({"test-model": 2})),
+        ("CompletionRatio", json!({"test-model": 3})),
+    ]);
+    for endpoint in [
+        OpenAiRelayEndpoint::Completions,
+        OpenAiRelayEndpoint::ChatCompletions,
+        OpenAiRelayEndpoint::Responses,
+        OpenAiRelayEndpoint::ResponsesCompact,
+    ] {
+        for streaming in [false, true] {
+            let responses = matches!(
+                endpoint,
+                OpenAiRelayEndpoint::Responses | OpenAiRelayEndpoint::ResponsesCompact
+            );
+            let mut tracker = UsageTracker::new(endpoint)
+                .with_input("test-model".into(), 500)
+                .with_response_models("test-model".into(), "mapped".into());
+            let mut baseline = UsageTracker::new(endpoint).with_input("test-model".into(), 500);
+            let provider = json!({"model":"provider/mapped-preview", "usage":if responses {
+                json!({"input_tokens":20,"output_tokens":4})
+            } else {
+                json!({"prompt_tokens":20,"completion_tokens":4})
+            }});
+            if streaming {
+                let value = if responses {
+                    json!({"type":"response.completed","response":provider})
+                } else {
+                    provider
+                };
+                event(&mut tracker, value.clone());
+                event(&mut baseline, value);
+            } else {
+                let wire = provider.to_string();
+                assert!(tracker.json(wire.as_bytes()).unwrap().is_none());
+                assert!(baseline.json(wire.as_bytes()).unwrap().is_none());
+            }
+            tracker.finalize();
+            baseline.finalize();
+            assert_eq!(tracker.model, "test-model");
+            assert_eq!(price.quota(&tracker.evidence).unwrap(), 64);
+            assert_eq!(
+                price.quota(&tracker.evidence).unwrap(),
+                price.quota(&baseline.evidence).unwrap()
+            );
+            let mut ordinary = serde_json::to_value(&tracker.evidence).unwrap();
+            let expected = json!({"requested_model":"test-model","upstream_model":"mapped","returned_model":"provider/mapped-preview"});
+            assert_eq!(
+                ordinary.as_object_mut().unwrap().remove("response_model"),
+                Some(expected.clone())
+            );
+            assert_eq!(ordinary, serde_json::to_value(&baseline.evidence).unwrap());
+            assert_eq!(
+                price.log_metadata(&tracker.evidence)["response_model"],
+                expected
+            );
+
+            tracker.evidence.tools.insert("web_search".into(), 1);
+            baseline.evidence.tools.insert("web_search".into(), 1);
+            let mut metadata = price.log_metadata(&tracker.evidence);
+            assert_eq!(
+                metadata.as_object_mut().unwrap().remove("response_model"),
+                Some(expected)
+            );
+            assert_eq!(metadata, price.log_metadata(&baseline.evidence));
+            assert_eq!(
+                price.quota(&tracker.evidence).unwrap(),
+                price.quota(&baseline.evidence).unwrap()
+            );
+        }
+    }
+}
+
+#[test]
+fn provider_models_are_observed_from_fragmented_raw_events_and_genuine_mismatch_is_sticky() {
+    for endpoint in [
+        OpenAiRelayEndpoint::ChatCompletions,
+        OpenAiRelayEndpoint::Responses,
+    ] {
+        let mut tracker =
+            UsageTracker::new(endpoint).with_response_models("requested".into(), "mapped".into());
+        if matches!(endpoint, OpenAiRelayEndpoint::Responses) {
+            event(
+                &mut tracker,
+                json!({"type":"response.output_text.delta", "model":"outer-noise", "delta":"hello"}),
+            );
+            assert!(tracker.evidence.response_model.is_none());
+        }
+        for model in [
+            json!("vendor/mapped-preview"),
+            json!("other"),
+            json!("requested"),
+            json!(null),
+            json!(""),
+            json!("another"),
+        ] {
+            let value = if matches!(endpoint, OpenAiRelayEndpoint::Responses) {
+                // The outer model is converter-shaped noise. Only the actual
+                // provider response object's declaration belongs in metadata.
+                json!({"type":"response.in_progress", "model":"outer-noise", "response":{"model":model}})
+            } else {
+                json!({"model":model})
+            };
+            event(&mut tracker, value);
+        }
+        assert_eq!(
+            serde_json::to_value(&tracker.evidence.response_model).unwrap(),
+            json!({
+                "requested_model":"requested", "upstream_model":"mapped", "returned_model":"other"
+            })
+        );
+        assert!(tracker.evidence.response_model.as_ref().unwrap().mismatch());
+    }
+}
+
+#[test]
+fn missing_empty_or_exact_provider_model_keeps_legacy_evidence_and_logs_unchanged() {
+    let price = price(&[("ModelRatio", json!({"test-model":1}))]);
+    for model in [
+        json!(null),
+        json!(42),
+        json!(""),
+        json!(" \t"),
+        json!("test-model"),
+    ] {
+        let mut tracker = UsageTracker::new(OpenAiRelayEndpoint::Responses)
+            .with_response_models("test-model".into(), "test-model".into());
+        assert!(
+            tracker
+                .json(json!({"model":model}).to_string().as_bytes())
+                .unwrap()
+                .is_none()
+        );
+        assert!(tracker.evidence.response_model.is_none());
+        assert!(
+            serde_json::to_value(&tracker.evidence)
+                .unwrap()
+                .get("response_model")
+                .is_none()
+        );
+        assert_eq!(price.log_metadata(&tracker.evidence), json!({}));
+    }
+    // Existing durable usage snapshots decode without a schema migration.
+    let evidence: Evidence = serde_json::from_value(json!({
+        "usage":{"input":20,"output":4,"cached":0,"cache_write":0,"image":0},
+        "completed":true,"terminal":true,"reported":true,"tools":{},"observed":true
+    }))
+    .unwrap();
+    assert!(evidence.response_model.is_none());
+    assert_eq!(price.log_metadata(&evidence), json!({}));
 }
