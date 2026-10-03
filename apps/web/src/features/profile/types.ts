@@ -29,6 +29,60 @@ export interface ApiResponse<T = unknown> {
   data?: T
 }
 
+export type LinkedProfileProvider = 'cursor' | 'chatgpt' | 'custom'
+export type ProfileSnapshotPeriod = 'all' | '7d' | '30d' | '365d' | 'custom'
+
+export interface ProfileUsageSnapshot {
+  tokens?: number
+  requests?: number
+  messages?: number
+  period: ProfileSnapshotPeriod
+  period_start?: string
+  period_end?: string
+  observed_at: string
+  approximate: boolean
+  source?: string
+}
+
+export interface LinkedUsageProfile {
+  provider: LinkedProfileProvider
+  url: string
+  label?: string
+  snapshot?: ProfileUsageSnapshot
+}
+
+export interface ProfileAggregateSource {
+  provider: LinkedProfileProvider | 'lmm'
+  url: string
+  label: string
+  status:
+    | 'live'
+    | 'snapshot'
+    | 'login_required'
+    | 'unavailable'
+    | 'unsupported'
+    | 'disabled'
+  tokens?: number
+  requests?: number
+  messages?: number
+  agents?: number
+  period: string
+  period_start?: string
+  period_end?: string
+  period_timezone?: string
+  observed_at?: string
+  fetched_at?: string
+  approximate: boolean
+  source: 'native' | 'public_ssr' | 'owner_snapshot'
+  snapshot_source?: string
+  reason?: string
+}
+
+export interface ProfileAggregateSettings {
+  aggregate_usage_enabled: boolean
+  linked_profiles: LinkedUsageProfile[]
+}
+
 /**
  * User profile data
  */

@@ -25,6 +25,8 @@ import {
   getProfileUsageWindow,
   performCheckin,
   enableProfileShare,
+  getProfileShareState,
+  updateProfileAggregate,
 } from './api'
 
 const originalGet = api.get
@@ -33,6 +35,56 @@ const originalPost = api.post
 afterEach(() => {
   api.get = originalGet
   api.post = originalPost
+})
+
+test('linked account settings preserve separate consent and explicit clearing', async () => {
+  const requests: unknown[] = []
+  api.post = (async (url, body, config) => {
+    requests.push({ url, body, config })
+    return {
+      data: {
+        success: true,
+        data: {
+          enabled: true,
+          aggregate_usage_enabled: true,
+          model_usage_enabled: false,
+        },
+      },
+    }
+  }) as typeof api.post
+  const settings = {
+    aggregate_usage_enabled: true,
+    linked_profiles: [
+      { provider: 'cursor' as const, url: 'https://cursor.com/@one' },
+    ],
+  }
+  assert.equal(
+    (await updateProfileAggregate(settings)).model_usage_enabled,
+    false
+  )
+  await updateProfileAggregate({
+    aggregate_usage_enabled: false,
+    linked_profiles: [],
+  })
+  assert.deepEqual(requests, [
+    {
+      url: '/api/user/self/profile-share',
+      body: settings,
+      config: { skipBusinessError: true, skipErrorHandler: true },
+    },
+    {
+      url: '/api/user/self/profile-share',
+      body: { aggregate_usage_enabled: false, linked_profiles: [] },
+      config: { skipBusinessError: true, skipErrorHandler: true },
+    },
+  ])
+  api.post = (async () => ({
+    data: { success: false, message: 'raw private provider detail' },
+  })) as typeof api.post
+  await assert.rejects(
+    updateProfileAggregate(settings),
+    /^Error: Unable to save linked profiles$/
+  )
 })
 
 describe('profile activity API', () => {
@@ -111,4 +163,15 @@ test('model-share consent sends explicit booleans and preserves body-less enable
     { model_usage_enabled: true },
     { model_usage_enabled: false },
   ])
+})
+
+test('profile share reads pass the query AbortSignal to axios', async () => {
+  const controller = new AbortController()
+  let observedSignal: AbortSignal | undefined
+  api.get = (async (_url, config) => {
+    observedSignal = config?.signal as AbortSignal | undefined
+    return { data: { success: true, data: { enabled: true } } }
+  }) as typeof api.get
+  await getProfileShareState(controller.signal)
+  assert.equal(observedSignal, controller.signal)
 })

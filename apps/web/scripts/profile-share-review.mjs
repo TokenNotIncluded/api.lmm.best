@@ -10,7 +10,6 @@ if (!output) throw new Error('PROFILE_SHARE_REVIEW_OUTPUT is required')
 await mkdir(output, { recursive: true })
 const browser = await chromium.launch({ headless: true })
 const report = []
-const now = Math.floor(Date.now() / 1000)
 try {
   for (const width of [1440, 390]) {
     const context = await browser.newContext({
@@ -27,7 +26,6 @@ try {
       localStorage.setItem('i18nextLng', 'zhCN')
       localStorage.setItem('lmm:source-consent:v2', 'no')
     })
-    let modelsEnabled = false
     const errors = [],
       requests = []
     await context.route('**/*', async (route) => {
@@ -37,7 +35,10 @@ try {
       if (url.pathname.startsWith('/api/share/profile/')) {
         const theme = url.searchParams.get('theme') ?? 'dark'
         const body = await readFile(
-          path.join(output, `models-${theme}.svg`),
+          path.join(
+            output,
+            `${url.searchParams.get('layout') === 'aggregate' ? 'aggregate' : 'models'}-${theme}.svg`
+          ),
           'utf8'
         )
         return route.fulfill({ contentType: 'image/svg+xml', body })
@@ -79,12 +80,127 @@ try {
       )
       await page.getByTestId('persona-debug-trigger').waitFor()
       await page.locator('#badge-layout').waitFor()
-      assert.equal(await page.locator('#badge-layout').inputValue(), 'models')
+      assert.equal(
+        await page.locator('#badge-layout').inputValue(),
+        'aggregate'
+      )
       assert.equal(
         await page.locator('textarea[aria-label="SVG URL"]').count(),
         0
       )
+      await page.getByTestId('badge-sharing').getByRole('button').click()
+      const aggregateImage = page.locator('img[src*="layout=aggregate"]')
+      await aggregateImage.waitFor()
+      await page.waitForFunction(() =>
+        [...document.images].some(
+          (image) =>
+            image.src.includes('layout=aggregate') &&
+            image.complete &&
+            image.naturalWidth > 0
+        )
+      )
+      assert.equal(await page.locator('[data-source-status="live"]').count(), 2)
+      assert.equal(
+        await page.locator('[data-source-status="snapshot"]').count(),
+        1
+      )
+      assert.match(
+        await page.getByTestId('lmm-self-profile').innerText(),
+        /899,140,697/
+      )
+      assert.match(
+        await page.getByTestId('lmm-self-profile').innerText(),
+        /13,815/
+      )
+      assert.equal(
+        await page.locator('[data-source-status="unsupported"]').count(),
+        1
+      )
+      assert.equal(
+        await page
+          .locator(
+            '[data-testid="lmm-self-profile"] [data-source-status="live"]'
+          )
+          .count(),
+        1
+      )
+      assert.match(
+        await page.locator('[data-source-status="snapshot"]').innerText(),
+        /117,000,000,000/
+      )
+      assert.match(
+        await page
+          .locator(
+            '[data-testid="linked-profile-row"] [data-source-status="live"]'
+          )
+          .innerText(),
+        /2026-09-04.*2026-10-03/
+      )
+      const aggregateCode = await page
+        .locator('textarea[aria-label="GitHub README"]')
+        .inputValue()
+      assert.match(aggregateCode, /^\[!\[AI usage across linked profiles\]/)
+      assert.equal(
+        new URL(
+          await page.locator('textarea[aria-label="SVG URL"]').inputValue()
+        ).searchParams.get('animation'),
+        'none'
+      )
+      await page.getByTestId('add-linked-account').click()
+      const extraAccount = page.getByTestId('linked-profile-row').last()
+      await extraAccount
+        .locator('select[id$="-provider"]')
+        .selectOption('custom')
+      await extraAccount
+        .locator('input[type="url"]')
+        .fill('https://127.0.0.1/private')
+      await page.getByTestId('save-linked-accounts').click()
+      await extraAccount.locator('[role="alert"]').waitFor()
+      await extraAccount
+        .locator('input[type="url"]')
+        .fill('https://github.com/profile-fixture')
+      await page.getByTestId('save-linked-accounts').click()
+      await extraAccount.locator('[data-source-status="unsupported"]').waitFor()
+      assert.ok(
+        !(
+          await extraAccount
+            .locator('[data-source-status="unsupported"]')
+            .innerText()
+        ).includes('0 Tokens')
+      )
+      await extraAccount
+        .getByRole('button', { name: '移除账号 4', exact: true })
+        .click()
+      await page.getByTestId('save-linked-accounts').click()
+      await page.getByText('关联账号已保存。', { exact: true }).waitFor()
+      await page.waitForFunction(
+        () =>
+          document.querySelectorAll('[data-testid="linked-profile-row"]')
+            .length === 3 &&
+          document.querySelectorAll('[data-source-status="unsupported"]')
+            .length === 1 &&
+          document.querySelectorAll('[data-source-status="live"]').length ===
+            2 &&
+          document.querySelectorAll('[data-source-status="snapshot"]')
+            .length === 1
+      )
+      await page.waitForFunction(() =>
+        [...document.images].some(
+          (image) =>
+            image.src.includes('layout=aggregate') &&
+            image.complete &&
+            image.naturalWidth > 0
+        )
+      )
+      await aggregateImage.scrollIntoViewIfNeeded()
+      await page.screenshot({
+        path: path.join(output, `aggregate-share-${width}.png`),
+        fullPage: true,
+        animations: 'disabled',
+      })
+      await page.locator('#badge-layout').selectOption('models')
       await page
+        .getByTestId('badge-sharing')
         .getByRole('button', { name: '开启模型用量分享', exact: true })
         .click()
       const image = page.locator('img[src*="/api/share/profile/"]')
@@ -97,6 +213,7 @@ try {
             image.naturalWidth > 0
         )
       )
+      await page.locator('summary').filter({ hasText: '自定义外观' }).click()
       assert.equal(
         await page.locator('#badge-period option[value="all"]').count(),
         0
@@ -168,9 +285,11 @@ try {
       )
       await page.locator('#badge-layout').selectOption('models')
       await page
+        .getByTestId('badge-sharing')
         .getByRole('button', { name: '关闭模型用量分享', exact: true })
         .click()
       await page
+        .getByTestId('badge-sharing')
         .getByRole('button', { name: '开启模型用量分享', exact: true })
         .waitFor()
       assert.equal(await svgURL.count(), 0)

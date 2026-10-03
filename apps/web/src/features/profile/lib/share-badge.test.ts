@@ -33,6 +33,39 @@ test('model sharing is separate from an existing profile URL', () => {
   assert.equal(canShareBadge(undefined, 'models'), false)
 })
 
+test('aggregate sharing uses independent consent and excludes model-only SVG parameters', () => {
+  assert.equal(
+    canShareBadge({ enabled: true, model_usage_enabled: true }, 'aggregate'),
+    false
+  )
+  assert.equal(
+    canShareBadge(
+      { enabled: true, aggregate_usage_enabled: true },
+      'aggregate'
+    ),
+    true
+  )
+  assert.equal(
+    canShareBadge(
+      { enabled: false, aggregate_usage_enabled: true },
+      'aggregate'
+    ),
+    false
+  )
+  const options = changeBadgeLayout(INITIAL_OPTIONS, 'aggregate')
+  const url = new URL(
+    buildBadgeURL('https://api.lmm.best/example.svg', options, 'en')
+  )
+  assert.equal(url.searchParams.get('layout'), 'aggregate')
+  assert.equal(url.searchParams.get('animation'), 'none')
+  assert.equal(url.searchParams.has('top'), false)
+  assert.equal(options.height, 720)
+  assert.match(
+    buildBadgeEmbedCode(url.toString(), options).markdown,
+    /AI usage across linked profiles/
+  )
+})
+
 test('all appearance presets round-trip into model SVG URLs', () => {
   for (const preset of BADGE_STYLE_PRESETS) {
     const options = {

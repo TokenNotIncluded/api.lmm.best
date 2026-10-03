@@ -23,6 +23,10 @@ import {
   type InternalAxiosRequestConfig,
 } from 'axios'
 
+import type {
+  LinkedUsageProfile,
+  ProfileAggregateSource,
+} from '@/features/profile/types'
 import {
   applyAuthBundle,
   setDevelopmentAuthRefreshAdapter,
@@ -68,16 +72,126 @@ const debugAssistantRuntimeKeys = new Set<DebugPersonaId>()
 type DebugProfileShare = {
   enabled: boolean
   modelUsageEnabled: boolean
+  aggregateUsageEnabled: boolean
+  linkedProfiles: LinkedUsageProfile[]
 }
 const debugProfileShares = new Map<DebugPersonaId, DebugProfileShare>()
 const debugProfileShareToken = 'a'.repeat(48)
+// Fixed synthetic review data matches TestProfileShareAggregateVisualFixtures.
+// These accounts and values do not represent a production sharing permission.
+const debugProfileFetchedAt = '2026-10-04T00:00:00Z'
 
 function activeDebugProfileShare(): DebugProfileShare {
   const existing = debugProfileShares.get(state.activePersona)
   if (existing) return existing
-  const created = { enabled: true, modelUsageEnabled: false }
+  const created: DebugProfileShare = {
+    enabled: true,
+    modelUsageEnabled: false,
+    aggregateUsageEnabled: false,
+    linkedProfiles: [
+      {
+        provider: 'cursor',
+        url: 'https://cursor.com/@profile-fixture',
+        label: 'Cursor',
+      },
+      {
+        provider: 'chatgpt',
+        url: 'https://chatgpt.com/u/profile-fixture',
+        label: 'ChatGPT / Codex',
+        snapshot: {
+          tokens: 117_000_000_000,
+          period: 'all',
+          observed_at: '2026-10-03T18:46:00Z',
+          approximate: true,
+          source:
+            'Codex lifetime tokens; displayed 117B; owner-observed snapshot',
+        },
+      },
+      {
+        provider: 'custom',
+        url: 'https://github.com/profile-fixture-unavailable',
+        label: 'Unavailable source',
+      },
+    ],
+  }
   debugProfileShares.set(state.activePersona, created)
   return created
+}
+
+// Local review fixtures only; the debug runtime never fetches provider profiles.
+function debugAggregateSources(
+  share: DebugProfileShare
+): ProfileAggregateSource[] {
+  const active = share.enabled && share.aggregateUsageEnabled
+  return [
+    {
+      provider: 'lmm',
+      url: 'https://api.lmm.best',
+      label: 'LMM Best',
+      status: active ? 'live' : 'disabled',
+      source: 'native',
+      period: '30d',
+      approximate: false,
+      ...(active
+        ? {
+            tokens: 899_140_697,
+            requests: 13_815,
+            period_start: '2026-09-04T00:00:00Z',
+            period_end: debugProfileFetchedAt,
+            period_timezone: 'UTC',
+            fetched_at: debugProfileFetchedAt,
+          }
+        : {}),
+    },
+    ...share.linkedProfiles.map((profile): ProfileAggregateSource => {
+      const base = {
+        provider: profile.provider,
+        url: profile.url,
+        label: profile.label || profile.provider,
+        period:
+          profile.snapshot?.period ??
+          (profile.provider === 'cursor' ? 'reported' : 'unknown'),
+        approximate: profile.snapshot?.approximate ?? false,
+      }
+      if (!active) {
+        return {
+          ...base,
+          status: 'disabled',
+          source:
+            profile.provider === 'cursor' && !profile.snapshot
+              ? 'public_ssr'
+              : 'owner_snapshot',
+        }
+      }
+      if (profile.snapshot) {
+        return {
+          ...base,
+          ...profile.snapshot,
+          status: 'snapshot',
+          source: 'owner_snapshot',
+          snapshot_source: profile.snapshot.source,
+        }
+      }
+      if (profile.provider === 'cursor') {
+        return {
+          ...base,
+          status: 'live',
+          source: 'public_ssr',
+          tokens: 502_839_373,
+          period_start: '2026-09-04',
+          period_end: '2026-10-03',
+          period_timezone: 'unspecified',
+          fetched_at: debugProfileFetchedAt,
+        }
+      }
+      return {
+        ...base,
+        status:
+          profile.provider === 'chatgpt' ? 'login_required' : 'unsupported',
+        source: 'owner_snapshot',
+      }
+    }),
+  ]
 }
 
 function trustLevel(level: number): TrustLevelInfo {
@@ -953,9 +1067,16 @@ const debugAdapter: AxiosAdapter = async (config) => {
       if (typeof data?.model_usage_enabled === 'boolean') {
         share.modelUsageEnabled = data.model_usage_enabled
       }
+      if (typeof data?.aggregate_usage_enabled === 'boolean') {
+        share.aggregateUsageEnabled = data.aggregate_usage_enabled
+      }
+      if (Array.isArray(data?.linked_profiles)) {
+        share.linkedProfiles = structuredClone(data.linked_profiles)
+      }
     } else if (method === 'DELETE') {
       share.enabled = false
       share.modelUsageEnabled = false
+      share.aggregateUsageEnabled = false
     }
     return response(
       config,
@@ -964,10 +1085,19 @@ const debugAdapter: AxiosAdapter = async (config) => {
           ? {
               enabled: true,
               model_usage_enabled: share.modelUsageEnabled,
+              aggregate_usage_enabled: share.aggregateUsageEnabled,
+              linked_profiles: share.linkedProfiles,
+              aggregate_sources: debugAggregateSources(share),
               token: debugProfileShareToken,
               url: `${window.location.origin}/api/share/profile/${debugProfileShareToken}.svg`,
             }
-          : { enabled: false }
+          : {
+              enabled: false,
+              model_usage_enabled: false,
+              aggregate_usage_enabled: false,
+              linked_profiles: share.linkedProfiles,
+              aggregate_sources: debugAggregateSources(share),
+            }
       )
     )
   }

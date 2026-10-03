@@ -20,13 +20,24 @@ func profileShareSelfResponse(c *gin.Context, share *model.ProfileShare) {
 		c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"enabled": false}})
 		return
 	}
+	profiles := share.LinkedProfiles
+	if profiles == nil {
+		profiles = []model.ProfileLinkedProfile{}
+	}
+	if err := validateProfileLinkedProfiles(profiles, time.Now()); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Unable to load profile sharing settings"})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"enabled":             true,
-			"model_usage_enabled": share.ModelUsageEnabled,
-			"token":               share.Token,
-			"url":                 profileShareDestination + "/api/share/profile/" + share.Token + ".svg",
+			"enabled":                 true,
+			"model_usage_enabled":     share.ModelUsageEnabled,
+			"aggregate_usage_enabled": share.AggregateUsageEnabled,
+			"linked_profiles":         profiles,
+			"aggregate_sources":       resolveProfileAggregateSources(c.Request.Context(), share, "30d", time.Now()),
+			"token":                   share.Token,
+			"url":                     profileShareDestination + "/api/share/profile/" + share.Token + ".svg",
 		},
 	})
 }
@@ -42,9 +53,11 @@ func GetSelfProfileShare(c *gin.Context) {
 
 func EnableSelfProfileShare(c *gin.Context) {
 	var request struct {
-		ModelUsageEnabled *bool `json:"model_usage_enabled"`
+		ModelUsageEnabled     *bool                         `json:"model_usage_enabled"`
+		AggregateUsageEnabled *bool                         `json:"aggregate_usage_enabled"`
+		LinkedProfiles        *[]model.ProfileLinkedProfile `json:"linked_profiles"`
 	}
-	decoder := json.NewDecoder(http.MaxBytesReader(c.Writer, c.Request.Body, 1024))
+	decoder := json.NewDecoder(http.MaxBytesReader(c.Writer, c.Request.Body, ProfileShareSettingsMaxBytes))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&request); err != nil && !errors.Is(err, io.EOF) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid profile sharing settings"})
@@ -54,9 +67,15 @@ func EnableSelfProfileShare(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid profile sharing settings"})
 		return
 	}
+	if request.LinkedProfiles != nil {
+		if err := validateProfileLinkedProfiles(*request.LinkedProfiles, time.Now()); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
+			return
+		}
+	}
 	share, err := model.EnableProfileShare(c.GetInt("id"))
-	if err == nil && request.ModelUsageEnabled != nil {
-		share, err = model.SetProfileShareModelUsage(share, *request.ModelUsageEnabled)
+	if err == nil {
+		share, err = model.SetProfileShareSettings(share, request.ModelUsageEnabled, request.AggregateUsageEnabled, request.LinkedProfiles)
 	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Unable to enable profile sharing"})
@@ -95,6 +114,8 @@ func GetPublicProfileShareSVG(c *gin.Context) {
 	var err error
 	if query.Get("layout") == "models" {
 		options, top, err = parseProfileShareModelsSVGOptions(query)
+	} else if query.Get("layout") == "aggregate" {
+		options, err = parseProfileShareAggregateSVGOptions(query)
 	} else {
 		options, err = parseProfileShareSVGOptions(query)
 	}
@@ -108,7 +129,29 @@ func GetPublicProfileShareSVG(c *gin.Context) {
 		return
 	}
 	var svg string
-	if options.Layout == "models" {
+	if options.Layout == "aggregate" {
+		share, shareErr := model.GetProfileShare(owner.Id)
+		if shareErr != nil || share == nil || share.Token != token || !share.AggregateUsageEnabled || validateProfileLinkedProfiles(share.LinkedProfiles, time.Now()) != nil {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		sources := resolveProfileAggregateSources(c.Request.Context(), share, options.Period, time.Now())
+		// External fetches can take seconds. Recheck permission and configuration
+		// after they finish; no cache can keep a revoked token/configuration alive.
+		current, readErr := model.GetProfileShare(owner.Id)
+		if readErr != nil || current == nil || current.Token != token || !current.AggregateUsageEnabled {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		oldConfig, _ := json.Marshal(share.LinkedProfiles)
+		newConfig, _ := json.Marshal(current.LinkedProfiles)
+		currentOwner, ownerErr := model.GetProfileShareOwner(token)
+		if string(oldConfig) != string(newConfig) || ownerErr != nil || currentOwner == nil {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		svg = renderProfileShareAggregateSVG(options, sources)
+	} else if options.Layout == "models" {
 		share, shareErr := model.GetProfileShare(owner.Id)
 		if shareErr != nil || share == nil || share.Token != token || !share.ModelUsageEnabled {
 			c.Status(http.StatusNotFound)

@@ -260,7 +260,7 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.GET("/self/groups", controller.GetUserGroups)
 				selfRoute.GET("/self", controller.GetSelf)
 				selfRoute.GET("/self/profile-share", middleware.DisableCache(), controller.GetSelfProfileShare)
-				selfRoute.POST("/self/profile-share", middleware.SessionCookieOriginGuard(), middleware.CriticalRateLimit(), middleware.DisableCache(), middleware.RequestBodyLimit(1024), controller.EnableSelfProfileShare)
+				selfRoute.POST("/self/profile-share", middleware.SessionCookieOriginGuard(), middleware.CriticalRateLimit(), middleware.DisableCache(), middleware.RequestBodyLimit(controller.ProfileShareSettingsMaxBytes), controller.EnableSelfProfileShare)
 				selfRoute.DELETE("/self/profile-share", middleware.SessionCookieOriginGuard(), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.DisableSelfProfileShare)
 				selfRoute.GET("/self/announcements", middleware.DisableCache(), controller.GetSelfAnnouncementStatus)
 				selfRoute.POST("/self/announcements/read", middleware.DisableCache(), middleware.RequestBodyLimit(1024), controller.AcknowledgeSelfAnnouncement)
