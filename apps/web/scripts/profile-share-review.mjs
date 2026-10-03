@@ -10,6 +10,47 @@ if (!output) throw new Error('PROFILE_SHARE_REVIEW_OUTPUT is required')
 await mkdir(output, { recursive: true })
 const browser = await chromium.launch({ headless: true })
 const report = []
+
+async function captureInternalSurface(page, prefix, width) {
+  const content = page.locator('main.console-page > .console-section-content')
+  const captures = []
+  let top = 0
+  await page.evaluate(() => window.scrollTo(0, 0))
+  // This console scrolls inside main. Document fullPage cannot capture it;
+  // overlapping real viewports cover every part without changing the layout.
+  for (let index = 0; index < 24; index += 1) {
+    await content.evaluate(async (element, scrollTop) => {
+      element.scrollTop = scrollTop
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+    }, top)
+    const dimensions = await content.evaluate((element) => ({
+      scrollTop: element.scrollTop,
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+    }))
+    assert.ok(dimensions.clientHeight > 80)
+    assert.ok(Math.abs(dimensions.scrollTop - top) <= 1)
+    const file =
+      index === 0
+        ? `${prefix}-${width}.png`
+        : `${prefix}-${width}-section-${String(index + 1).padStart(2, '0')}.png`
+    await page.screenshot({
+      path: path.join(output, file),
+      fullPage: false,
+      animations: 'disabled',
+    })
+    captures.push({ file, ...dimensions })
+    if (top + dimensions.clientHeight >= dimensions.scrollHeight - 1) {
+      return captures
+    }
+    top = Math.min(
+      top + dimensions.clientHeight - 80,
+      dimensions.scrollHeight - dimensions.clientHeight
+    )
+  }
+  throw new Error('The complete configuration surface exceeded 24 viewports')
+}
+
 try {
   for (const width of [1440, 390]) {
     const context = await browser.newContext({
@@ -192,12 +233,47 @@ try {
             image.naturalWidth > 0
         )
       )
-      await aggregateImage.scrollIntoViewIfNeeded()
-      await page.screenshot({
-        path: path.join(output, `aggregate-share-${width}.png`),
-        fullPage: true,
-        animations: 'disabled',
-      })
+      await page
+        .locator('main.console-page > .console-section-content')
+        .evaluate((element) => {
+          element.scrollTop = 0
+        })
+      const copyAction = await page
+        .locator('button[aria-label="复制 README 代码"]')
+        .first()
+        .evaluate((button) => {
+          const bounds = button.getBoundingClientRect()
+          const label = [...button.childNodes].find(
+            (node) =>
+              node.nodeType === Node.TEXT_NODE && node.textContent.trim()
+          )
+          if (!label) {
+            throw new Error('The primary copy action has no visible label')
+          }
+          const range = document.createRange()
+          range.selectNodeContents(label)
+          const text = range.getBoundingClientRect()
+          return {
+            width: bounds.width,
+            height: bounds.height,
+            clientWidth: button.clientWidth,
+            scrollWidth: button.scrollWidth,
+            left: bounds.left,
+            right: bounds.right,
+            labelLeft: text.left,
+            labelRight: text.right,
+          }
+        })
+      assert.ok(copyAction.height >= 44)
+      assert.ok(copyAction.scrollWidth <= copyAction.clientWidth + 1)
+      assert.ok(copyAction.labelLeft >= copyAction.left - 1)
+      assert.ok(copyAction.labelRight <= copyAction.right + 1)
+      assert.ok(copyAction.left >= 0 && copyAction.right <= width)
+      const captures = await captureInternalSurface(
+        page,
+        'aggregate-share',
+        width
+      )
       await page.locator('#badge-layout').selectOption('models')
       await page
         .getByTestId('badge-sharing')
@@ -238,10 +314,15 @@ try {
             .inputValue()
         ).includes('###')
       )
-      await image.scrollIntoViewIfNeeded()
+      await page
+        .locator('main.console-page > .console-section-content')
+        .evaluate((element) => {
+          element.scrollTop = 0
+        })
+      await page.evaluate(() => window.scrollTo(0, 0))
       await page.screenshot({
         path: path.join(output, `model-share-${width}.png`),
-        fullPage: true,
+        fullPage: false,
         animations: 'disabled',
       })
       await page.getByRole('button', { name: 'Paper', exact: true }).click()
@@ -253,10 +334,15 @@ try {
             image.naturalWidth > 0
         )
       )
-      await image.scrollIntoViewIfNeeded()
+      await page
+        .locator('main.console-page > .console-section-content')
+        .evaluate((element) => {
+          element.scrollTop = 0
+        })
+      await page.evaluate(() => window.scrollTo(0, 0))
       await page.screenshot({
         path: path.join(output, `model-share-paper-${width}.png`),
-        fullPage: true,
+        fullPage: false,
         animations: 'disabled',
       })
       await page.locator('#badge-top').selectOption('3')
@@ -300,7 +386,7 @@ try {
       }))
       assert.ok(dimensions.scroll <= dimensions.viewport + 1)
       assert.deepEqual(errors, [])
-      report.push({ width, dimensions, requests, errors })
+      report.push({ width, dimensions, copyAction, captures, requests, errors })
     } catch (error) {
       await page.screenshot({
         path: path.join(output, `failure-${width}.png`),

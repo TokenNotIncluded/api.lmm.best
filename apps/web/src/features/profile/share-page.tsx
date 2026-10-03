@@ -329,7 +329,8 @@ export function ProfileSharePage() {
                     <CopyButton
                       value={readmeCode}
                       variant='default'
-                      className='mt-3 min-h-11'
+                      size='default'
+                      className='mt-3 min-h-11 w-full sm:w-auto'
                       aria-label={t('Copy README code')}
                     >
                       {t('Copy README code')}
