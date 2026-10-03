@@ -22,6 +22,9 @@ func assistantWeeklyDiscountStatusRequest(text string) bool {
 	if assistantActionDeclined(text, assistantDiscountActionRule) {
 		return false
 	}
+	if assistantRewardDecisionCompletionQuestion(text) {
+		return true
+	}
 	if assistantTextContainsAny(text,
 		"领取了吗", "领取了没", "领过了吗", "领过吗", "领了吗", "领取成功", "领取是否成功", "是否领取", "有没有领取", "已经领取", "已领取",
 		"申请结果", "申请成功", "申请过", "申请的", "评估结果", "审核结果", "评估过", "决定过",

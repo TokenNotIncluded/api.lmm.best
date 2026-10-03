@@ -21,6 +21,9 @@ func assistantNewUserGiftStatusRequest(text string) bool {
 	if assistantExplicitOtherRewardTopic(text) && !assistantExplicitWelcomeGiftRequest(text) && !strings.Contains(text, "礼包") {
 		return false
 	}
+	if assistantRewardDecisionCompletionQuestion(text) {
+		return true
+	}
 	if assistantTextContainsAny(text,
 		"领取了吗", "领取了没", "领过了吗", "领过吗", "领了吗", "领取成功", "领取是否成功", "是否领取", "有没有领取", "已经领取",
 		"评估过", "评估了吗", "被评估", "决定了吗", "决定了没", "已经决定", "evaluated", "decided", "evaluation status", "decision status",
@@ -41,7 +44,7 @@ func assistantNewUserGiftStatusRequest(text string) bool {
 	) {
 		// An explicit request to evaluate under the rules is still a decision
 		// request; a question about rules or eligibility alone is not.
-		if !assistantTextContainsAny(text, "评估", "决定", "evaluate", "decide") || assistantTextContainsAny(text, "结果", "审核", "通过了", "了吗", "是否", "result", "evaluated", "decided") {
+		if !assistantTextContainsAny(text, "评估", "决定", "evaluate", "decide") || assistantTextContainsAny(text, "结果", "审核", "通过了", "result", "evaluated", "decided") {
 			return true
 		}
 	}
@@ -49,11 +52,36 @@ func assistantNewUserGiftStatusRequest(text string) bool {
 }
 
 func assistantExplicitGiftDecisionRequest(text string) bool {
+	if assistantRewardDecisionCompletionQuestion(text) {
+		return false
+	}
 	return assistantTextContainsAny(strings.ToLower(text),
 		"申请", "领取", "想领", "要领", "帮我领", "给我", "送我", "发我", "希望给",
 		"请评估", "帮我评估", "评估我", "评估一下", "评估新", "评估礼包", "现在评估", "想评估", "我要评估", "你来评估", "麻烦评估", "请决定", "帮我决定", "决定给我",
 		"apply", "i want to claim", "i'd like to claim", "claim my", "claim the", "please claim", "give me", "grant me", "please evaluate", "evaluate my", "evaluate me", "evaluate the", "please decide", "decide my", "decide the",
 	)
+}
+
+// A quoted action phrase is not a new instruction when the user is asking
+// whether that action already happened. Check the question's position around
+// the operation so "please evaluate whether I qualify" remains an application.
+func assistantRewardDecisionCompletionQuestion(text string) bool {
+	text = strings.ToLower(strings.TrimSpace(text))
+	operationAt := len(text)
+	for _, operation := range []string{"评估", "决定", "申请", "领取", "发放", "发码", "evaluate", "decid", "appl", "claim", "issu"} {
+		if at := strings.Index(text, operation); at >= 0 && at < operationAt {
+			operationAt = at
+		}
+	}
+	if operationAt == len(text) {
+		return false
+	}
+	if assistantTextContainsAny(text[:operationAt],
+		"有没有", "是否", "是不是", "有无", "did you", "have you", "had you", "has my", "was my", "did i", "have i", "has it", "was it",
+	) {
+		return true
+	}
+	return assistantTextContainsAny(text[operationAt:], "了吗", "了没", "过吗", "完了吗", "完了没")
 }
 
 func assistantNewUserGiftStatusWorkflowRequired(context assistantUserContext) bool {
@@ -86,6 +114,9 @@ func assistantExplicitOtherRewardTopic(text string) bool {
 
 func assistantRewardReadOnlyFollowUp(text string) bool {
 	text = strings.ToLower(text)
+	if assistantRewardDecisionCompletionQuestion(text) {
+		return true
+	}
 	if assistantTextContainsAny(text,
 		"领取了吗", "领取了没", "领过吗", "领了吗", "领取成功", "是否领取", "有没有领取", "已经领取", "还差什么条件", "还需要什么条件", "还缺什么条件", "算实质交流", "算实质性交流", "算不算实质",
 		"评估过", "评估了吗", "被评估", "决定了吗", "决定了没", "已经决定", "evaluated", "decided", "evaluation status", "decision status",

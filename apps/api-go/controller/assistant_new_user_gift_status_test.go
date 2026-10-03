@@ -272,3 +272,53 @@ func TestAssistantWeeklyQueriesCannotResumeOldGiftDecision(t *testing.T) {
 		assert.Equal(t, "read_only_request", executeAssistantNewUserGiftTool(c, 123, nil)["status"])
 	}
 }
+
+func TestAssistantRewardCompletionQuestionsCannotAuthorizeAnotherDecision(t *testing.T) {
+	for _, reward := range []struct {
+		name, english, topic, statusTool string
+	}{
+		{name: "新用户礼包", english: "welcome gift", topic: "gift", statusTool: "get_new_user_gift_status"},
+		{name: "每周折扣", english: "weekly discount", topic: "weekly_discount", statusTool: "get_weekly_discount_status"},
+	} {
+		for _, message := range []string{
+			"你有没有帮我评估" + reward.name + "？",
+			"你是不是已经帮我评估" + reward.name + "了？",
+			"你是否已经帮我决定" + reward.name + "额度？",
+			"你帮我评估" + reward.name + "了没？",
+			"Have you helped me evaluate my " + reward.english + "?",
+			"Did you evaluate my " + reward.english + "?",
+		} {
+			t.Run(message, func(t *testing.T) {
+				context := assistantUserContext{LatestUserRequest: message, RewardTopic: reward.topic, NewUserGiftRequested: true, WeeklyDiscountRequested: true}
+				assert.True(t, assistantRewardDecisionCompletionQuestion(message))
+				assert.False(t, assistantExplicitGiftDecisionRequest(message))
+				assert.False(t, assistantNewUserGiftWorkflowRequired(context))
+				assert.False(t, assistantWeeklyDiscountWorkflowRequired(context))
+				assert.Equal(t, []string{reward.statusTool}, assistantReadChain(context))
+				assert.Equal(t, reward.statusTool, assistantNamedToolChoiceName(assistantToolChoiceForContext(context)))
+				c, _ := gin.CreateTestContext(httptest.NewRecorder())
+				c.Set(assistantUserContextKey, context)
+				for _, prepare := range []string{"prepare_new_user_gift", "prepare_weekly_discount"} {
+					result := executeAssistantTool(c, assistantOpenAIToolCall{Function: assistantOpenAIToolCallFunction{Name: prepare, Arguments: "{}"}})
+					assert.Equal(t, "read_only_request", result["status"])
+					assert.Equal(t, false, result["mutation_attempted"])
+				}
+				assert.Equal(t, "read_only_request", executeAssistantNewUserGiftTool(c, 123, nil)["status"])
+				assert.Equal(t, "read_only_request", executeAssistantWeeklyDiscountTool(c, 123, nil)["status"])
+			})
+		}
+	}
+	for _, message := range []string{
+		"请帮我评估是否符合新用户礼包条件", "请帮我评估是否符合每周折扣条件",
+		"Please evaluate whether I qualify for my welcome gift", "Please evaluate whether I qualify for my weekly discount",
+	} {
+		t.Run(message, func(t *testing.T) {
+			assert.False(t, assistantRewardDecisionCompletionQuestion(message))
+			assert.True(t, assistantExplicitGiftDecisionRequest(message))
+			context := assistantUserContextForRequest(0, message)
+			assert.False(t, assistantNewUserGiftStatusWorkflowRequired(context))
+			assert.False(t, assistantWeeklyDiscountStatusWorkflowRequired(context))
+			assert.True(t, assistantNewUserGiftWorkflowRequired(context) || assistantWeeklyDiscountWorkflowRequired(context))
+		})
+	}
+}
