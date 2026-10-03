@@ -297,7 +297,9 @@ export function LinkedUsageProfiles({
       <div className='space-y-3' data-testid='lmm-self-profile'>
         <div className='flex flex-wrap items-center justify-between gap-3'>
           <div>
-            <h3 className='font-sans font-medium'>LMM Forge</h3>
+            <h3 className='font-medium' style={{ fontFamily: 'inherit' }}>
+              LMM Forge
+            </h3>
             <p className='text-muted-foreground text-sm'>
               {accountName || t('Your current account')}
             </p>
@@ -344,7 +346,7 @@ export function LinkedUsageProfiles({
           >
             <Separator />
             <div className='flex items-center justify-between gap-3'>
-              <h3 className='font-sans font-medium'>
+              <h3 className='font-medium' style={{ fontFamily: 'inherit' }}>
                 {t('Account {{number}}', { number: index + 1 })}
               </h3>
               <Button

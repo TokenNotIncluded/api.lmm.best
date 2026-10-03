@@ -269,6 +269,40 @@ try {
       assert.ok(copyAction.labelLeft >= copyAction.left - 1)
       assert.ok(copyAction.labelRight <= copyAction.right + 1)
       assert.ok(copyAction.left >= 0 && copyAction.right <= width)
+      const headingFonts = await page.evaluate(async () => {
+        await document.fonts.ready
+        const body = document.querySelector(
+          '[data-testid="lmm-self-profile"] p'
+        )
+        if (!body) {
+          throw new Error('The native account body is missing')
+        }
+        const headings = [
+          ...document.querySelectorAll(
+            '[data-testid="lmm-self-profile"] h3, [data-testid="linked-profile-row"] h3'
+          ),
+        ]
+        return {
+          body: getComputedStyle(body).fontFamily,
+          headings: headings.map((heading) => ({
+            label: heading.textContent.trim(),
+            fontFamily: getComputedStyle(heading).fontFamily,
+          })),
+        }
+      })
+      await writeFile(
+        path.join(output, `heading-fonts-${width}.json`),
+        JSON.stringify(headingFonts, null, 2)
+      )
+      assert.match(headingFonts.body, /Public Sans/)
+      assert.equal(headingFonts.headings.length, 4)
+      for (const heading of headingFonts.headings) {
+        assert.equal(
+          heading.fontFamily,
+          headingFonts.body,
+          `${heading.label} must use the console body font`
+        )
+      }
       const captures = await captureInternalSurface(
         page,
         'aggregate-share',
@@ -386,7 +420,15 @@ try {
       }))
       assert.ok(dimensions.scroll <= dimensions.viewport + 1)
       assert.deepEqual(errors, [])
-      report.push({ width, dimensions, copyAction, captures, requests, errors })
+      report.push({
+        width,
+        dimensions,
+        copyAction,
+        headingFonts,
+        captures,
+        requests,
+        errors,
+      })
     } catch (error) {
       await page.screenshot({
         path: path.join(output, `failure-${width}.png`),
