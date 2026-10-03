@@ -1325,7 +1325,9 @@ func (state *responsesWSCallState) finishRate(success bool) {
 		state.rateMu.Unlock()
 		return
 	}
-	if state.rateDeliveryPending {
+	// Only successful outcomes depend on terminal delivery. A failed turn
+	// must release its reservation before completeFinish allows another create.
+	if success && state.rateDeliveryPending {
 		state.rateOutcomeReady, state.rateSuccess = true, success
 		state.rateMu.Unlock()
 		return
