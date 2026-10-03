@@ -7,6 +7,7 @@ import (
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/logger"
+	"github.com/LIghtJUNction/api.lmm.best/relay/channel"
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
 	"github.com/LIghtJUNction/api.lmm.best/relay/helper"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
@@ -82,7 +83,7 @@ func EmbeddingHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		}
 	}
 
-	usage, newAPIError := adaptor.DoResponse(c, httpResp, info)
+	usage, newAPIError := channel.DoResponse(adaptor, c, httpResp, info)
 	if newAPIError != nil {
 		// reset status code 重置状态码
 		service.ResetStatusCode(newAPIError, statusCodeMappingStr)

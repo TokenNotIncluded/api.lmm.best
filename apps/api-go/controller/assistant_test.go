@@ -144,6 +144,25 @@ func TestAssistantRuntimeMetadataQuestionIsDeterministic(t *testing.T) {
 	modelID := strings.TrimSpace(setting.GetAssistantSettings().Model)
 	assert.False(t, assistantRuntimeMetadataQuestion("请查一下 "+modelID+" 的实时价格"))
 	assert.False(t, assistantRuntimeMetadataQuestion("what is the model name and price?"))
+	for _, message := range []string{
+		"我计划把模型 API 接入 Codex 做知识图谱科研，已经清楚 API 密钥、接口地址及模型名称的配置流程。请评估新用户礼包。",
+		"API 密钥、接口地址和模型名称等底层调用逻辑已配置就绪，请帮我完成机器人开发接入。",
+		"模型名称怎么填？",
+		"模型型号应该选哪一个用于代码开发？",
+		"Which model should I use for coding?",
+		"My training data contains a model name field. Help validate the dataset schema.",
+		"What model are you running? Also help me configure Codex.",
+		"你是什么模型？另外请评估一下我的新用户礼包。",
+		"你是什么 AI？顺便打开我的钱包。",
+		"你是什么 AI？请计算 2+2。",
+		"Who are you? Open my wallet.",
+		"What's your model, and delete my old key.",
+		"我清楚模型名称，请打开个人资料。",
+	} {
+		assert.False(t, assistantRuntimeMetadataQuestion(message), message)
+	}
+	assert.True(t, assistantRuntimeMetadataQuestion("你是什么 AI？"))
+	assert.True(t, assistantRuntimeMetadataQuestion("Which model are you running?"))
 
 	settings := setting.GetAssistantSettings()
 	body := assistantRuntimeMetadataBody(settings)
@@ -210,7 +229,7 @@ func TestPrepareAssistantRequestOwnsModelAndPrompt(t *testing.T) {
 	assert.Contains(t, captured.Messages[0].Content, "https://api.example.com\n")
 	assert.Contains(t, captured.Messages[0].Content, "https://api.example.com/v1")
 	assert.Contains(t, captured.Messages[0].Content, "server-owned-model")
-	assert.Contains(t, captured.Messages[0].Content, "Existing API keys are private")
+	assert.Contains(t, captured.Messages[0].Content, "Existing API key values are private")
 	assert.Equal(t, "user", captured.Messages[1].Role)
 	assert.Equal(t, "How do I create a key?", captured.Messages[1].Content)
 }
@@ -1316,7 +1335,7 @@ func TestAssistantPricingEndpointAppliesTrustDiscountToGroupRatios(t *testing.T)
 func TestAssistantAgentToolsExposeSafeAndConfirmationGatedActions(t *testing.T) {
 	c, _ := createAssistantKeyTestContext(t, "assistant-tool-user")
 	definitions := assistantToolDefinitions()
-	require.Len(t, definitions, 48)
+	require.Len(t, definitions, 52)
 	names := make(map[string]bool, len(definitions))
 	for _, definition := range definitions {
 		names[definition.Function.Name] = true
@@ -1334,6 +1353,8 @@ func TestAssistantAgentToolsExposeSafeAndConfirmationGatedActions(t *testing.T) 
 	assert.True(t, names["get_bounty_guide"])
 	assert.True(t, names["get_bounty_data"])
 	assert.True(t, names["prepare_new_user_gift"])
+	assert.True(t, names["get_new_user_gift_status"])
+	assert.True(t, names["get_weekly_discount_status"])
 	assert.True(t, names["prepare_weekly_discount"])
 	assert.True(t, names["get_usage_summary"])
 	assert.True(t, names["navigate_to_page"])
@@ -1341,6 +1362,8 @@ func TestAssistantAgentToolsExposeSafeAndConfirmationGatedActions(t *testing.T) 
 	assert.True(t, names["get_user_overview"])
 	assert.True(t, names["get_user_usage_summary"])
 	assert.True(t, names["prepare_user_action"])
+	assert.True(t, names["list_my_api_keys"])
+	assert.True(t, names["prepare_api_key_action"])
 	assert.True(t, names["search_web"])
 	assert.True(t, names["get_setup_guide"])
 	assert.True(t, names["grant_l1_access"])
@@ -1585,6 +1608,8 @@ func TestAssistantModelsToolUsesModelListBillingPredicate(t *testing.T) {
 	assistantResult := executeAssistantModelsTool(user.Id)
 	assert.Equal(t, true, assistantResult["ok"])
 	assert.Equal(t, []string{"assistant-priced-model"}, assistantResult["model_ids"])
+	assert.Equal(t, "/pricing", assistantResult["model_list_path"])
+	assert.Equal(t, "catalog_and_pricing_not_a_chat_workbench", assistantResult["model_list_purpose"])
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
@@ -2421,7 +2446,7 @@ func TestAssistantGiftRequestUsesOneTimeDecisionToolForL1(t *testing.T) {
 	// “新人福利” is the wording users actually see in the console. It must
 	// enter the same confirmation-gated gift workflow as “新用户礼包” rather
 	// than falling through to a generic onboarding answer.
-	for _, message := range []string{"申请新人福利", "我想领取新手福利", "我想申请新用户福利", "How do I claim the new user gift?"} {
+	for _, message := range []string{"申请新人福利", "我想领取新手福利", "我想申请新用户福利", "I want to claim the new user gift"} {
 		context.LatestUserRequest = message
 		assert.Equal(t, []string{"prepare_new_user_gift"}, assistantReadChain(context), message)
 		assert.True(t, assistantNewUserGiftWorkflowRequired(context), message)

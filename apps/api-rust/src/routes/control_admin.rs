@@ -1063,7 +1063,7 @@ fn is_builtin_oauth_slug(slug: &str) -> bool {
 fn legacy_oauth_default(value: Option<String>, default: &'static str) -> String {
     value
         .filter(|value| !value.is_empty())
-        .map_or_else(|| default.to_owned(), std::convert::identity)
+        .unwrap_or_else(|| default.to_owned())
 }
 
 #[derive(Deserialize)]
@@ -1248,9 +1248,7 @@ async fn create_oauth(State(state): State<ControlAdminState>, request: Request) 
     if is_builtin_oauth_slug(&slug) {
         return failure(StatusCode::OK, "该 Slug 与内置 OAuth 提供商冲突");
     }
-    let access_policy = request
-        .access_policy
-        .map_or_else(String::new, std::convert::identity);
+    let access_policy = request.access_policy.unwrap_or_default();
     if let Err(message) = validate_access_policy(&access_policy) {
         return failure(StatusCode::OK, message);
     }
@@ -1265,7 +1263,7 @@ async fn create_oauth(State(state): State<ControlAdminState>, request: Request) 
     let display_name_field = legacy_oauth_default(request.display_name_field, "name");
     let email_field = legacy_oauth_default(request.email_field, "email");
     let result = sqlx::query("INSERT INTO custom_oauth_providers (name,slug,icon,enabled,client_id,client_secret,authorization_endpoint,token_endpoint,user_info_endpoint,scopes,user_id_field,username_field,display_name_field,email_field,well_known,auth_style,access_policy,access_denied_message,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW(),NOW()) RETURNING id")
-        .bind(name).bind(&slug).bind(request.icon.map_or_else(String::new, std::convert::identity)).bind(request.enabled.is_some_and(std::convert::identity)).bind(client_id).bind(client_secret).bind(authorization_endpoint).bind(token_endpoint).bind(user_info_endpoint).bind(scopes).bind(user_id_field).bind(username_field).bind(display_name_field).bind(email_field).bind(request.well_known.map_or_else(String::new, std::convert::identity)).bind(request.auth_style.map_or(0, std::convert::identity)).bind(access_policy).bind(request.access_denied_message.map_or_else(String::new, std::convert::identity)).fetch_one(&state.pg).await;
+        .bind(name).bind(&slug).bind(request.icon.unwrap_or_default()).bind(request.enabled.is_some_and(std::convert::identity)).bind(client_id).bind(client_secret).bind(authorization_endpoint).bind(token_endpoint).bind(user_info_endpoint).bind(scopes).bind(user_id_field).bind(username_field).bind(display_name_field).bind(email_field).bind(request.well_known.unwrap_or_default()).bind(request.auth_style.map_or(0, std::convert::identity)).bind(access_policy).bind(request.access_denied_message.unwrap_or_default()).fetch_one(&state.pg).await;
     let id = match result {
         Ok(row) => match row.try_get::<i64, _>("id") {
             Ok(id) => id,
@@ -1326,7 +1324,7 @@ async fn update_oauth(
     }
     let access_policy = request
         .access_policy
-        .map_or_else(|| current.access_policy.clone(), std::convert::identity);
+        .unwrap_or_else(|| current.access_policy.clone());
     if let Err(message) = validate_access_policy(&access_policy) {
         return failure(StatusCode::OK, message);
     }
@@ -1334,7 +1332,7 @@ async fn update_oauth(
         return response;
     }
     let result = sqlx::query("UPDATE custom_oauth_providers SET name=$1,slug=$2,icon=$3,enabled=$4,client_id=$5,client_secret=CASE WHEN $6 = '' THEN client_secret ELSE $6 END,authorization_endpoint=$7,token_endpoint=$8,user_info_endpoint=$9,scopes=$10,user_id_field=$11,username_field=$12,display_name_field=$13,email_field=$14,well_known=$15,auth_style=$16,access_policy=$17,access_denied_message=$18,updated_at=NOW() WHERE id=$19")
-        .bind(request.name.filter(|value| !value.is_empty()).map_or(current.name, std::convert::identity)).bind(slug).bind(request.icon.map_or(current.icon, std::convert::identity)).bind(request.enabled.map_or(current.enabled, std::convert::identity)).bind(request.client_id.filter(|value| !value.is_empty()).map_or(current.client_id, std::convert::identity)).bind(request.client_secret.map_or_else(String::new, std::convert::identity)).bind(request.authorization_endpoint.filter(|value| !value.is_empty()).map_or(current.authorization_endpoint, std::convert::identity)).bind(request.token_endpoint.filter(|value| !value.is_empty()).map_or(current.token_endpoint, std::convert::identity)).bind(request.user_info_endpoint.filter(|value| !value.is_empty()).map_or(current.user_info_endpoint, std::convert::identity)).bind(request.scopes.filter(|value| !value.is_empty()).map_or(current.scopes, std::convert::identity)).bind(request.user_id_field.filter(|value| !value.is_empty()).map_or(current.user_id_field, std::convert::identity)).bind(request.username_field.filter(|value| !value.is_empty()).map_or(current.username_field, std::convert::identity)).bind(request.display_name_field.filter(|value| !value.is_empty()).map_or(current.display_name_field, std::convert::identity)).bind(request.email_field.filter(|value| !value.is_empty()).map_or(current.email_field, std::convert::identity)).bind(request.well_known.map_or(current.well_known, std::convert::identity)).bind(request.auth_style.map_or(current.auth_style, std::convert::identity)).bind(access_policy).bind(request.access_denied_message.map_or(current.access_denied_message, std::convert::identity)).bind(id).execute(&state.pg).await;
+        .bind(request.name.filter(|value| !value.is_empty()).map_or(current.name, std::convert::identity)).bind(slug).bind(request.icon.map_or(current.icon, std::convert::identity)).bind(request.enabled.map_or(current.enabled, std::convert::identity)).bind(request.client_id.filter(|value| !value.is_empty()).map_or(current.client_id, std::convert::identity)).bind(request.client_secret.unwrap_or_default()).bind(request.authorization_endpoint.filter(|value| !value.is_empty()).map_or(current.authorization_endpoint, std::convert::identity)).bind(request.token_endpoint.filter(|value| !value.is_empty()).map_or(current.token_endpoint, std::convert::identity)).bind(request.user_info_endpoint.filter(|value| !value.is_empty()).map_or(current.user_info_endpoint, std::convert::identity)).bind(request.scopes.filter(|value| !value.is_empty()).map_or(current.scopes, std::convert::identity)).bind(request.user_id_field.filter(|value| !value.is_empty()).map_or(current.user_id_field, std::convert::identity)).bind(request.username_field.filter(|value| !value.is_empty()).map_or(current.username_field, std::convert::identity)).bind(request.display_name_field.filter(|value| !value.is_empty()).map_or(current.display_name_field, std::convert::identity)).bind(request.email_field.filter(|value| !value.is_empty()).map_or(current.email_field, std::convert::identity)).bind(request.well_known.map_or(current.well_known, std::convert::identity)).bind(request.auth_style.map_or(current.auth_style, std::convert::identity)).bind(access_policy).bind(request.access_denied_message.map_or(current.access_denied_message, std::convert::identity)).bind(id).execute(&state.pg).await;
     match result {
         Ok(_) => {}
         Err(error) if is_unique(&error) => return failure(StatusCode::OK, "该 Slug 已被使用"),
@@ -1419,16 +1417,8 @@ async fn oauth_discovery(State(state): State<ControlAdminState>, request: Reques
         Ok(request) => request,
         Err(response) => return *response,
     };
-    let well_known_url = request
-        .well_known_url
-        .map_or_else(String::new, std::convert::identity)
-        .trim()
-        .to_owned();
-    let issuer_url = request
-        .issuer_url
-        .map_or_else(String::new, std::convert::identity)
-        .trim()
-        .to_owned();
+    let well_known_url = request.well_known_url.unwrap_or_default().trim().to_owned();
+    let issuer_url = request.issuer_url.unwrap_or_default().trim().to_owned();
     if well_known_url.is_empty() && issuer_url.is_empty() {
         return failure(StatusCode::OK, "请先填写 Discovery URL 或 Issuer URL");
     }
@@ -1683,15 +1673,13 @@ async fn list_tasks(
     // as zero.
     let query_limit = (page_size >= 0).then_some(page_size);
     let query_offset = (page - 1).saturating_mul(page_size).max(0);
-    let platform =
-        raw_query_string(raw, "platform").map_or_else(String::new, std::convert::identity);
-    let task_id = raw_query_string(raw, "task_id").map_or_else(String::new, std::convert::identity);
-    let status = raw_query_string(raw, "status").map_or_else(String::new, std::convert::identity);
-    let action = raw_query_string(raw, "action").map_or_else(String::new, std::convert::identity);
+    let platform = raw_query_string(raw, "platform").unwrap_or_default();
+    let task_id = raw_query_string(raw, "task_id").unwrap_or_default();
+    let status = raw_query_string(raw, "status").unwrap_or_default();
+    let action = raw_query_string(raw, "action").unwrap_or_default();
     let start_timestamp = raw_query_i64(raw, "start_timestamp").map_or(0, std::convert::identity);
     let end_timestamp = raw_query_i64(raw, "end_timestamp").map_or(0, std::convert::identity);
-    let channel_id_text =
-        raw_query_string(raw, "channel_id").map_or_else(String::new, std::convert::identity);
+    let channel_id_text = raw_query_string(raw, "channel_id").unwrap_or_default();
     let channel_id = if channel_id_text.is_empty() {
         None
     } else {
@@ -1783,14 +1771,14 @@ fn system_task_from_row(row: sqlx::postgres::PgRow) -> Result<Value, sqlx::Error
             "error".to_owned(),
             json!(
                 row.try_get::<Option<String>, _>("error")?
-                    .map_or_else(String::new, std::convert::identity)
+                    .unwrap_or_default()
             ),
         ),
         (
             "locked_by".to_owned(),
             json!(
                 row.try_get::<Option<String>, _>("locked_by")?
-                    .map_or_else(String::new, std::convert::identity)
+                    .unwrap_or_default()
             ),
         ),
         (
@@ -1833,7 +1821,7 @@ fn task_from_row(row: sqlx::postgres::PgRow) -> Result<Value, sqlx::Error> {
         .to_owned();
     let properties = row
         .try_get::<Option<Value>, _>(16)?
-        .map_or_else(|| json!({"input": ""}), std::convert::identity);
+        .unwrap_or_else(|| json!({"input": ""}));
     let username = row.try_get::<String, _>("username")?;
     let mut response = serde_json::Map::from_iter([
         ("id".to_owned(), json!(row.try_get::<i64, _>("id")?)),

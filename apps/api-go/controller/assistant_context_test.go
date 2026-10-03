@@ -871,7 +871,7 @@ func TestAssistantLegitimateGiftRequestKeepsGiftWorkflowAvailable(t *testing.T) 
 		"申请新人福利",
 		"我想领取新手福利",
 		"我想申请新用户福利",
-		"How do I claim the new user gift?",
+		"I want to claim the new user gift",
 	} {
 		context := assistantUserContextForRequest(0, message)
 		assert.NotEqual(t, assistantProfilePromotion, context.CustomerProfile, message)

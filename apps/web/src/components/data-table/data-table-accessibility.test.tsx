@@ -49,7 +49,7 @@ for (const key of [
   })
 }
 
-const { act } = await import('react')
+const { act, useState } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
@@ -135,14 +135,25 @@ describe('data-table pagination accessibility', () => {
     )
     assert.ok(navigation)
     assert.equal(
+      rendered.container.querySelectorAll('[role="navigation"]').length,
+      1
+    )
+    assert.equal(
       navigation.classList.contains('overflow-x-auto'),
-      true,
-      'narrow pagination controls should remain horizontally reachable'
+      false,
+      'pagination controls should not require a horizontal scroll'
     )
 
     const currentPage = navigation.querySelector('button[aria-current="page"]')
     assert.ok(currentPage)
     assert.match(currentPage.textContent?.trim() ?? '', /3$/)
+
+    const mobileCurrentPage = navigation.querySelector(
+      'span[aria-current="page"]'
+    )
+    assert.ok(mobileCurrentPage)
+    assert.equal(mobileCurrentPage.getAttribute('aria-label'), 'Go to page 3')
+    assert.match(mobileCurrentPage.textContent ?? '', /3\s*\/\s*10/)
 
     const morePages = [...navigation.querySelectorAll('span.sr-only')].find(
       (element) => element.textContent === 'More pages'
@@ -153,6 +164,10 @@ describe('data-table pagination accessibility', () => {
       '[data-slot="select-trigger"]'
     )
     assert.ok(pageSizeTrigger)
+    assert.equal(
+      navigation.querySelectorAll('[data-slot="select-trigger"]').length,
+      1
+    )
     assert.equal(pageSizeTrigger.getAttribute('aria-label'), 'Rows per page')
     assert.equal(
       pageSizeTrigger.classList.contains('@lg/pagination:h-8'),
@@ -174,6 +189,105 @@ describe('data-table pagination accessibility', () => {
       true,
       'narrow pagination containers should expose 44px page targets'
     )
+
+    await act(async () => rendered.root.unmount())
+  })
+
+  test('previous and next controls update the page and stop at the first and last page', async () => {
+    const calls: string[] = []
+
+    function PaginationHarness() {
+      const [pageIndex, setPageIndex] = useState(0)
+      const table = {
+        ...createPaginationTable(),
+        getState: () => ({ pagination: { pageIndex, pageSize: 20 } }),
+        getPageCount: () => 3,
+        getRowCount: () => 60,
+        getCanPreviousPage: () => pageIndex > 0,
+        getCanNextPage: () => pageIndex < 2,
+        setPageIndex: (nextPageIndex: number) => {
+          calls.push('setPageIndex')
+          setPageIndex(nextPageIndex)
+        },
+        previousPage: () => {
+          calls.push('previousPage')
+          setPageIndex(pageIndex - 1)
+        },
+        nextPage: () => {
+          calls.push('nextPage')
+          setPageIndex(pageIndex + 1)
+        },
+      } as unknown as Table<unknown>
+
+      return <DataTablePagination table={table} />
+    }
+
+    const rendered = await renderWithI18n(<PaginationHarness />)
+    const navigation = rendered.container.querySelector(
+      '[role="navigation"][aria-label="Pagination"]'
+    )
+    assert.ok(navigation)
+    const paginationNavigation = navigation
+
+    function getButton(label: string) {
+      const button = [
+        ...paginationNavigation.querySelectorAll<HTMLButtonElement>('button'),
+      ].find((element) => element.textContent?.trim() === label)
+      assert.ok(button, `${label} should be reachable`)
+      return button
+    }
+
+    function assertPage(currentPage: number) {
+      const indicator = paginationNavigation.querySelector(
+        'span[aria-current="page"]'
+      )
+      assert.ok(indicator)
+      assert.equal(
+        indicator.getAttribute('aria-label'),
+        `Go to page ${currentPage}`
+      )
+      assert.match(
+        indicator.textContent ?? '',
+        new RegExp(`${currentPage}\\s*\\/\\s*3`)
+      )
+      assert.equal(getButton('Go to previous page').disabled, currentPage === 1)
+      assert.equal(getButton('Go to next page').disabled, currentPage === 3)
+      assert.equal(
+        paginationNavigation.querySelectorAll('[data-slot="select-trigger"]')
+          .length,
+        1
+      )
+    }
+
+    assertPage(1)
+    await act(async () => getButton('Go to previous page').click())
+    assert.deepEqual(calls, [])
+    assertPage(1)
+
+    await act(async () => getButton('Go to next page').click())
+    assert.deepEqual(calls, ['nextPage'])
+    assertPage(2)
+
+    await act(async () => getButton('Go to next page').click())
+    assert.deepEqual(calls, ['nextPage', 'nextPage'])
+    assertPage(3)
+
+    await act(async () => getButton('Go to next page').click())
+    assert.deepEqual(calls, ['nextPage', 'nextPage'])
+    assertPage(3)
+
+    await act(async () => getButton('Go to previous page').click())
+    assert.deepEqual(calls, ['nextPage', 'nextPage', 'previousPage'])
+    assertPage(2)
+
+    await act(async () => getButton('Go to previous page').click())
+    assert.deepEqual(calls, [
+      'nextPage',
+      'nextPage',
+      'previousPage',
+      'previousPage',
+    ])
+    assertPage(1)
 
     await act(async () => rendered.root.unmount())
   })

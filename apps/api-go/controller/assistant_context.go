@@ -176,6 +176,9 @@ type assistantUserContext struct {
 	// reconstructed from the current user turn and the immediately preceding
 	// group-choice prompt, and never crosses the model context boundary.
 	CreateKeyAction assistantCreateKeyAction `json:"-"`
+	// Preserve a key selection reply after the assistant asked for a target.
+	// This is workflow state, never an authorization grant or account metadata.
+	KeyManagementRequested bool `json:"-"`
 	// NewUserGiftRequested carries a pending one-time gift request across a
 	// substantive follow-up turn. It is local workflow state and must never
 	// cross the model boundary or become durable user metadata.
@@ -183,6 +186,9 @@ type assistantUserContext struct {
 	// WeeklyDiscountRequested carries a pending weekly reward request across a
 	// substantive follow-up turn without exposing it to the model context.
 	WeeklyDiscountRequested bool `json:"-"`
+	// RewardTopic is the most recent explicit reward or account/setup topic.
+	// It only disambiguates read-only follow-ups and never authorizes a decision.
+	RewardTopic string `json:"-"`
 	// CompletedAssistantTurns is derived only from durable, server-owned
 	// user/assistant pairs. It gates the narrow L0 direct-grant tool and never
 	// trusts transcript messages supplied by the browser.
@@ -351,8 +357,10 @@ func assistantUserContextForRequest(userID int, message string, conversation ...
 		CustomerProfile:         assistantProfileUnknown,
 		Intent:                  assistantRequestIntent(message),
 		LatestUserRequest:       message,
+		RewardTopic:             assistantRewardTopicForRequest(message, conversation...),
 		RecommendationAction:    classifyAssistantRecommendationAction(message),
 		CreateKeyAction:         classifyAssistantCreateKeyAction(message, conversation...),
+		KeyManagementRequested:  assistantPendingKeyManagementRequest(message, conversation...),
 		NewUserGiftRequested:    assistantNewUserGiftRequest(message) || assistantPendingNewUserGiftRequest(userID, conversation...),
 		WeeklyDiscountRequested: assistantWeeklyDiscountRequest(message) || assistantPendingWeeklyDiscountRequest(userID, conversation...),
 	}
@@ -1331,7 +1339,7 @@ func assistantHasHighConfidenceSecurityAbuseConversation(messages []assistantOpe
 func assistantWelcomeStrategy(profile assistantCustomerProfile) string {
 	switch profile {
 	case assistantProfileTechnical:
-		return "Lead with exact endpoints, model IDs, client configuration, and transparent cost facts. Treat explicit free, self-hosted, open-source, no-payment, and no-relay constraints as hard requirements: do not recommend this hosted relay, a paid plan, or a fiat payment path when they conflict. Welcome users who simply want to use the relay without contributing to open source. Do not pressure the user to pay or contribute; explain the public challenge and administrator review path for L1 only when relevant."
+		return "Lead with exact endpoints, model IDs, client configuration, and transparent cost facts. Treat explicit free, self-hosted, open-source, no-payment, and no-relay constraints as hard requirements: do not recommend this hosted relay, a paid plan, or a fiat payment path when they conflict. Welcome users who simply want to use the relay without contributing to open source. Do not pressure the user to pay or contribute; explain public challenges or the built-in server-validated registration flow for L1 only when relevant. No recommendation letter or administrator approval is required."
 	case assistantProfileGuided:
 		return "Use short numbered steps, ask only one easy question at a time, confirm each prerequisite, and avoid unexplained jargon. Treat the user's stated experience level as already answered and never ask again whether they are new or technical. Keep payment hidden until L1 by default: willingness to pay is not permission to pitch a plan, while a clear purchase intent with one key detail may proceed unless policy blocks it."
 	case assistantProfilePromotion:
@@ -1362,7 +1370,7 @@ func assistantWelcomeStrategyForContext(context assistantUserContext) string {
 		return strategy
 	}
 
-	l0Boundary := "For this L0 account, answer the user's current question directly without asking whether this is their first time using AI or open-source projects. Do not repeat onboarding questions already answered. People may simply want to use the relay and do not need an open-source project, a technical stack, or a contribution plan. Keep developer and write actions unavailable until L1, explain the next small step only when it helps the current request, and keep L1 or payment discussions proportional to the user's actual need."
+	l0Boundary := "For this L0 account, answer the user's current question directly without asking whether this is their first time using AI or open-source projects. Do not repeat onboarding questions already answered. People may simply want to use the relay and do not need an open-source project, a technical stack, or a contribution plan. Keep developer and write actions unavailable until L1, explain the next small step only when it helps the current request, and keep L1 or payment discussions proportional to the user's actual need. Exception: the user can list metadata for and revoke their own existing API keys through the secure confirmation workflow; this never grants creation or developer access."
 	if profile == assistantProfileL0Applicant {
 		return l0Boundary
 	}

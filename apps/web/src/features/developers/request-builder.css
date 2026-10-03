@@ -8,7 +8,8 @@ License, or (at your option) any later version.
 */
 .dev-builder {
   display: grid;
-  gap: 0.75rem;
+  min-width: 0;
+  gap: 1.25rem;
   padding: 1.25rem;
   border: 1px solid var(--border);
   border-radius: 0.75rem;
@@ -16,12 +17,28 @@ License, or (at your option) any later version.
 }
 .dev-builder-row {
   display: flex;
+  min-width: 0;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem 0.75rem;
 }
 .dev-builder-row > :first-child {
   min-width: 5rem;
+}
+.dev-builder-label {
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+.dev-builder-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
+  gap: 1rem;
+}
+.dev-builder-field {
+  display: grid;
+  min-width: 0;
+  gap: 0.5rem;
 }
 .dev-builder-tabs {
   display: flex;
@@ -60,11 +77,16 @@ License, or (at your option) any later version.
   background: var(--background);
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 0.8125rem;
+  caret-color: var(--foreground);
+}
+.dev-builder-prompt {
+  font-family: var(--font-body);
 }
 select.dev-builder-input {
   cursor: pointer;
 }
 .dev-builder-output {
+  min-width: 0;
   border: 1px solid var(--border);
   border-radius: 0.5rem;
   overflow: hidden;
@@ -75,7 +97,7 @@ select.dev-builder-input {
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  padding: 0.5rem 0.75rem;
+  padding: 0.5rem 1rem;
   border-bottom: 1px solid var(--border);
 }
 .dev-builder-output-head code {
@@ -86,21 +108,66 @@ select.dev-builder-input {
 }
 .dev-builder-output pre {
   margin: 0;
-  padding: 0.9rem 0.75rem;
+  padding: 1rem;
   overflow-x: auto;
   font-size: 0.75rem;
   line-height: 1.7;
 }
-.dev-builder :is(button, input, select):focus-visible {
+.dev-builder :is(button, input, select, pre):focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
-@media (max-width: 480px) {
+.dev-builder-output pre:focus-visible {
+  outline-offset: -2px;
+}
+.dev-page-link {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  border-radius: 0.25rem;
+  text-decoration: underline;
+  text-underline-offset: 0.25rem;
+}
+.dev-page-link:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 4px;
+}
+.dev-page-link:hover {
+  text-decoration-thickness: 2px;
+}
+@media (max-width: 639px) {
+  .dev-builder {
+    gap: 1rem;
+    padding: 1rem;
+  }
+  .dev-builder-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
   .dev-builder-input {
     font-size: 1rem;
   }
   .dev-builder-row > :first-child {
-    min-width: 100%;
+    flex: 0 0 auto;
+    min-width: 0;
+    white-space: nowrap;
+  }
+  .dev-builder-row {
+    flex-wrap: nowrap;
+    gap: 0.5rem;
+  }
+  .dev-builder-tabs {
+    flex: 1 1 0%;
+    min-width: 0;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding: 0.25rem;
+  }
+  .dev-builder-tab {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+  .dev-page-link {
+    flex-shrink: 0;
   }
 }
 

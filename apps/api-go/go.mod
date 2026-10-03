@@ -76,6 +76,7 @@ require (
 	github.com/paulmach/orb v0.11.1 // indirect
 	github.com/pierrec/lz4/v4 v4.1.22 // indirect
 	github.com/rogpeppe/go-internal v1.13.1 // indirect
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/segmentio/asm v1.2.0 // indirect
 	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
@@ -171,6 +172,7 @@ require (
 	github.com/LIghtJUNction/api.lmm.best/relaykit v0.0.0
 	github.com/google/jsonschema-go v0.4.3
 	github.com/modelcontextprotocol/go-sdk v1.7.0
+	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 )
 
 replace github.com/LIghtJUNction/api.lmm.best/relaykit => ./relaykit

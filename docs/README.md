@@ -6,14 +6,19 @@ This directory contains operational, API, and legal documentation for LMM Forge.
 
 - [`authentication.md`](./authentication.md): authentication and session architecture.
 - [`seamless-upgrades.md`](./seamless-upgrades.md): operator upgrade flow.
+- [`backend-cli-deployment-contract.md`](./backend-cli-deployment-contract.md): normative provider entry points, package transactions, and manual rollback.
+- [`manual-systemd-deployment.md`](./manual-systemd-deployment.md): standalone systemd deployment commands and recovery.
+- [`production-release-transaction.md`](./production-release-transaction.md): manual release acceptance and transaction reconciliation.
+- [`controller-only-backup-format.md`](./controller-only-backup-format.md): optional controller-owned backup imports and signed evidence.
 - [`release-architecture.md`](./release-architecture.md): component-scoped Go/Web release identities and Rust preview boundary.
 - [`model-price-locks.md`](./model-price-locks.md): model base price locks, ignored-change warnings, and API compatibility.
+- [`claude-refusal-billing.md`](./claude-refusal-billing.md): opt-in billing policy for Claude refusals without output.
 - [`go-memory-management.md`](./go-memory-management.md): Go request memory, optional large-request admission, and small-host tuning.
 - [`postgresql-migration.md`](./postgresql-migration.md): migration rehearsal workflow.
 - [`postgresql-cutover.md`](./postgresql-cutover.md): production cutover transaction.
 - [`valkey-lmm-api.md`](./valkey-lmm-api.md): dedicated Valkey deployment guidance.
-- [`rust-blue-green.md`](./rust-blue-green.md): Rust blue-green and ownership checkpoints.
-- [`test-single-instance.md`](./test-single-instance.md): isolated Rust host operation note.
+- [`rust-blue-green.md`](./rust-blue-green.md): Rust provider rollout and ownership checkpoints.
+- [`test-single-instance.md`](./test-single-instance.md): isolated Rust test-host guide.
 - [`open-source-bounties.md`](./open-source-bounties.md): bounty mechanics and workflow.
 - [`ionet-client.md`](./ionet-client.md): iNet client reference artifact.
 - [`channel/other_setting.md`](./channel/other_setting.md): additional channel JSON settings.

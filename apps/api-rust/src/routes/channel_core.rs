@@ -1457,6 +1457,20 @@ mod tests {
     }
 
     #[test]
+    fn ollama_transport_settings_remain_unchanged_after_validation() -> TestResult {
+        let settings = "{ \"ollama_openai_chat\": true, \"future_setting\": {\"key\": 1} }";
+        let channel: ChannelInput = json_from_value(
+            json!({"type":4,"key":"key","settings":settings}),
+            "Ollama channel input",
+        )?;
+        channel
+            .validate(true)
+            .map_err(|error| test_error(format!("Ollama settings validation failed: {error:?}")))?;
+        assert_eq!(channel.settings, settings);
+        Ok(())
+    }
+
+    #[test]
     fn provider_configuration_validation_matches_frozen_go_boundaries() -> TestResult {
         let new_api = ChannelInput {
             r#type: 60,

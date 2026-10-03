@@ -21,8 +21,8 @@ For commercial licensing, please contact support@quantumnous.com
  */
 
 // System Configuration Defaults
-export const DEFAULT_SYSTEM_NAME = 'LMM Best'
-export const DEFAULT_LOGO = '/lmm-best-mark.svg'
+export const DEFAULT_SYSTEM_NAME = 'LMM Forge'
+export const DEFAULT_LOGO = '/lmm-cut-mark.svg'
 
 /** Normalize only our shipped defaults; preserve tenant-provided artwork. */
 export function isDefaultLogo(src?: string): boolean {
@@ -36,6 +36,7 @@ export function isDefaultLogo(src?: string): boolean {
       ownOrigin &&
       [
         DEFAULT_LOGO,
+        '/lmm-best-mark.svg',
         '/logo.png',
         '/favicon.ico',
         '/lmm-forge-mark.svg',
@@ -48,7 +49,15 @@ export function isDefaultLogo(src?: string): boolean {
 
 export function resolveSystemName(value?: string): string {
   const name = value?.trim()
-  return !name || ['New API', 'NewAPI', 'LMM API', 'LMM Forge'].includes(name)
+  return !name ||
+    [
+      'New API',
+      'NewAPI',
+      'LMM API',
+      'LMM Best',
+      'lmm.best',
+      'LMM Forge',
+    ].includes(name)
     ? DEFAULT_SYSTEM_NAME
     : name
 }

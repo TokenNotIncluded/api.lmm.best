@@ -2,6 +2,7 @@ package ali
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/relay/channel"
 	"github.com/LIghtJUNction/api.lmm.best/relay/channel/task/taskcommon"
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
+	"github.com/LIghtJUNction/api.lmm.best/relay/helper"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
 	"github.com/LIghtJUNction/api.lmm.best/service"
 	"github.com/samber/lo"
@@ -55,6 +57,7 @@ type AliVideoInput struct {
 // AliVideoParameters 视频参数
 type AliVideoParameters struct {
 	Resolution   string `json:"resolution,omitempty"`    // 分辨率: 480P/720P/1080P（图生视频、首尾帧生视频）
+	Ratio        string `json:"ratio,omitempty"`         // Wan2.7 文生视频宽高比
 	Size         string `json:"size,omitempty"`          // 尺寸: 如 "832*480"（文生视频）
 	Duration     int    `json:"duration,omitempty"`      // 时长: 3-10秒
 	PromptExtend bool   `json:"prompt_extend,omitempty"` // 是否开启prompt智能改写
@@ -88,9 +91,30 @@ type AliVideoOutput struct {
 
 // AliUsage 使用统计
 type AliUsage struct {
-	Duration   dto.IntValue `json:"duration,omitempty"`
+	Duration   aliDuration  `json:"duration,omitempty"`
 	VideoCount dto.IntValue `json:"video_count,omitempty"`
 	SR         dto.IntValue `json:"SR,omitempty"`
+}
+
+// DashScope documents duration as a float; older responses may encode it as a
+// string. Keep fractional seconds instead of rounding before settlement.
+type aliDuration float64
+
+func (duration *aliDuration) UnmarshalJSON(data []byte) error {
+	if strings.TrimSpace(string(data)) == "null" {
+		*duration = 0
+		return nil
+	}
+	var value dto.StringValue
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	seconds, err := strconv.ParseFloat(string(value), 64)
+	if err != nil {
+		return err
+	}
+	*duration = aliDuration(seconds)
+	return nil
 }
 
 type AliMetadata struct {
@@ -131,8 +155,31 @@ func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 }
 
 func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *taskdto.TaskError) {
-	// ValidateMultipartDirect 负责解析并将原始 TaskSubmitReq 存入 context
-	return relaycommon.ValidateMultipartDirect(c, info)
+	if taskErr := relaycommon.ValidateMultipartDirect(c, info); taskErr != nil {
+		return taskErr
+	}
+	req, err := relaycommon.GetTaskRequest(c)
+	if err != nil {
+		return service.TaskErrorWrapperLocal(err, "invalid_request", http.StatusBadRequest)
+	}
+	// The common task pipeline maps models after validation. Resolve the same
+	// mapping on a copy so aliases are validated against their upstream model.
+	validationInfo := *info
+	validationInfo.ChannelMeta = &relaycommon.ChannelMeta{}
+	if info.ChannelMeta != nil {
+		*validationInfo.ChannelMeta = *info.ChannelMeta
+	}
+	validationInfo.OriginModelName = firstNonEmpty(info.OriginModelName, req.Model)
+	if validationInfo.UpstreamModelName == "" {
+		validationInfo.UpstreamModelName = validationInfo.OriginModelName
+	}
+	if err = helper.ModelMappedHelper(c, &validationInfo, nil); err == nil {
+		_, err = a.convertToAliRequest(&validationInfo, req)
+	}
+	if err != nil {
+		return service.TaskErrorWrapperLocal(err, "invalid_request", http.StatusBadRequest)
+	}
+	return nil
 }
 
 func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, error) {
@@ -178,6 +225,8 @@ var (
 		"960*960",
 		"1088*832",
 		"832*1088",
+		"1104*832",
+		"832*1104",
 	}
 	size1080p = []string{
 		"1920*1080",
@@ -185,6 +234,8 @@ var (
 		"1440*1440",
 		"1632*1248",
 		"1248*1632",
+		"1648*1248",
+		"1248*1648",
 	}
 )
 
@@ -197,68 +248,6 @@ func sizeToResolution(size string) (string, error) {
 		return "1080P", nil
 	}
 	return "", fmt.Errorf("invalid size: %s", size)
-}
-
-func ProcessAliOtherRatios(aliReq *AliVideoRequest) (map[string]float64, error) {
-	otherRatios := make(map[string]float64)
-	aliRatios := map[string]map[string]float64{
-		"wan2.6-i2v": {
-			"720P":  1,
-			"1080P": 1 / 0.6,
-		},
-		"wan2.5-t2v-preview": {
-			"480P":  1,
-			"720P":  2,
-			"1080P": 1 / 0.3,
-		},
-		"wan2.2-t2v-plus": {
-			"480P":  1,
-			"1080P": 0.7 / 0.14,
-		},
-		"wan2.5-i2v-preview": {
-			"480P":  1,
-			"720P":  2,
-			"1080P": 1 / 0.3,
-		},
-		"wan2.2-i2v-plus": {
-			"480P":  1,
-			"1080P": 0.7 / 0.14,
-		},
-		"wan2.2-kf2v-flash": {
-			"480P":  1,
-			"720P":  2,
-			"1080P": 4.8,
-		},
-		"wan2.2-i2v-flash": {
-			"480P": 1,
-			"720P": 2,
-		},
-		"wan2.2-s2v": {
-			"480P": 1,
-			"720P": 0.9 / 0.5,
-		},
-	}
-	var resolution string
-
-	// size match
-	if aliReq.Parameters.Size != "" {
-		toResolution, err := sizeToResolution(aliReq.Parameters.Size)
-		if err != nil {
-			return nil, err
-		}
-		resolution = toResolution
-	} else {
-		resolution = strings.ToUpper(aliReq.Parameters.Resolution)
-		if !strings.HasSuffix(resolution, "P") {
-			resolution = resolution + "P"
-		}
-	}
-	if otherRatio, ok := aliRatios[aliReq.Model]; ok {
-		if ratio, ok := otherRatio[resolution]; ok {
-			otherRatios[fmt.Sprintf("resolution-%s", resolution)] = ratio
-		}
-	}
-	return otherRatios, nil
 }
 
 func isWan27I2VModel(model string) bool {
@@ -350,9 +339,10 @@ func normalizeWan27I2VInput(aliReq *AliVideoRequest, req relaycommon.TaskSubmitR
 
 func (a *TaskAdaptor) convertToAliRequest(info *relaycommon.RelayInfo, req relaycommon.TaskSubmitReq) (*AliVideoRequest, error) {
 	upstreamModel := req.Model
-	if info.IsModelMapped {
+	if info != nil && info.ChannelMeta != nil && info.IsModelMapped {
 		upstreamModel = info.UpstreamModelName
 	}
+	profile, profileErr := getVideoCapability(upstreamModel)
 	aliReq := &AliVideoRequest{
 		Model: upstreamModel,
 		Input: AliVideoInput{
@@ -365,43 +355,36 @@ func (a *TaskAdaptor) convertToAliRequest(info *relaycommon.RelayInfo, req relay
 		},
 	}
 
-	// 处理分辨率映射
-	if req.Size != "" {
-		// text to video size must be contained *
-		if strings.Contains(req.Model, "t2v") && !strings.Contains(req.Size, "*") {
-			return nil, fmt.Errorf("invalid size: %s, example: %s", req.Size, "1920*1080")
-		}
-		if strings.Contains(req.Size, "*") {
-			aliReq.Parameters.Size = req.Size
-		} else {
-			resolution := strings.ToUpper(req.Size)
-			// 支持 480p, 720p, 1080p 或 480P, 720P, 1080P
-			if !strings.HasSuffix(resolution, "P") {
-				resolution = resolution + "P"
-			}
-			aliReq.Parameters.Resolution = resolution
-		}
+	// Leave an omitted resolution to DashScope. Billing reserves the most
+	// expensive supported tier until completion usage reports a valid tier.
+	if strings.Contains(req.Size, "*") {
+		aliReq.Parameters.Size = req.Size
 	} else {
-		// 根据模型设置默认分辨率
-		if strings.Contains(req.Model, "t2v") { // image to video
-			if strings.HasPrefix(req.Model, "wan2.5") {
-				aliReq.Parameters.Size = "1920*1080"
-			} else if strings.HasPrefix(req.Model, "wan2.2") {
-				aliReq.Parameters.Size = "1920*1080"
-			} else {
+		aliReq.Parameters.Resolution = req.Size
+	}
+	if profileErr == nil && profile.sizeBased && req.Size == "" {
+		aliReq.Parameters.Size = "1920*1080"
+	}
+	if profileErr == nil && req.Size == "" && profile.legacyDefault != "" {
+		aliReq.Parameters.Resolution = profile.legacyDefault
+	}
+	if profileErr != nil {
+		// Preserve custom-model passthrough without assigning billing dimensions.
+		aliReq.Parameters.Resolution = normalizeResolution(aliReq.Parameters.Resolution)
+		if strings.Contains(upstreamModel, "t2v") && req.Size != "" && !strings.Contains(req.Size, "*") {
+			return nil, fmt.Errorf("invalid size: %s, example: 1920*1080", req.Size)
+		}
+		if req.Size == "" {
+			if strings.Contains(upstreamModel, "t2v") {
 				aliReq.Parameters.Size = "1280*720"
-			}
-		} else {
-			if strings.HasPrefix(req.Model, "wan2.6") {
-				aliReq.Parameters.Resolution = "1080P"
-			} else if strings.HasPrefix(req.Model, "wan2.5") {
-				aliReq.Parameters.Resolution = "1080P"
-			} else if strings.HasPrefix(req.Model, "wan2.2-i2v-flash") {
-				aliReq.Parameters.Resolution = "720P"
-			} else if strings.HasPrefix(req.Model, "wan2.2-i2v-plus") {
-				aliReq.Parameters.Resolution = "1080P"
+				if strings.HasPrefix(upstreamModel, "wan2.5") || strings.HasPrefix(upstreamModel, "wan2.2") {
+					aliReq.Parameters.Size = "1920*1080"
+				}
 			} else {
 				aliReq.Parameters.Resolution = "720P"
+				if strings.HasPrefix(upstreamModel, "wan2.6") || strings.HasPrefix(upstreamModel, "wan2.5") || strings.HasPrefix(upstreamModel, "wan2.2-i2v-plus") {
+					aliReq.Parameters.Resolution = "1080P"
+				}
 			}
 		}
 	}
@@ -437,6 +420,17 @@ func (a *TaskAdaptor) convertToAliRequest(info *relaycommon.RelayInfo, req relay
 		return nil, errors.New("can't change model with metadata")
 	}
 
+	if profileErr == nil {
+		if err := normalizeVideoParameters(aliReq, profile); err != nil {
+			return nil, err
+		}
+	} else if aliReq.Parameters == nil {
+		aliReq.Parameters = &AliVideoParameters{Duration: 5}
+	}
+	if aliReq.Parameters.Duration <= 0 || aliReq.Parameters.Duration > relaycommon.MaxTaskDurationSeconds {
+		return nil, fmt.Errorf("duration must be between 1 and %d", relaycommon.MaxTaskDurationSeconds)
+	}
+
 	if err := normalizeWan27I2VInput(aliReq, req); err != nil {
 		return nil, err
 	}
@@ -457,14 +451,12 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 		return nil
 	}
 
-	// metadata can override Duration past standard request validation;
-	// cap it because it is used as a billing multiplier.
 	otherRatios := map[string]float64{
-		"seconds": float64(min(aliReq.Parameters.Duration, relaycommon.MaxTaskDurationSeconds)),
+		"seconds": float64(aliReq.Parameters.Duration),
 	}
 	ratios, err := ProcessAliOtherRatios(aliReq)
 	if err != nil {
-		return otherRatios
+		return nil
 	}
 	for k, v := range ratios {
 		otherRatios[k] = v

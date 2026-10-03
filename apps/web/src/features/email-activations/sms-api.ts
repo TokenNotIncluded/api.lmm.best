@@ -20,6 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 Copyright (C) 2026 LIghtJUNction
 */
 import { api } from '@/lib/api'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { createHeroSmsIdempotencyKey } from './api.js'
 
@@ -167,15 +168,16 @@ export function createHeroSmsSmsOrder(
   offerId: string,
   idempotencyKey = createHeroSmsIdempotencyKey()
 ) {
+  const auth = useAuthStore.getState().auth
+  const options = {
+    ...requestOptions,
+    authScope: auth.user
+      ? { userId: auth.user.id, sessionId: auth.session?.sid }
+      : undefined,
+    headers: { 'Idempotency-Key': idempotencyKey },
+  }
   return unwrap<{ order: HeroSmsSmsOrder; quota: number }>(
-    api.post(
-      '/api/hero-sms/sms/orders',
-      { offer_id: offerId },
-      {
-        ...requestOptions,
-        headers: { 'Idempotency-Key': idempotencyKey },
-      }
-    )
+    api.post('/api/hero-sms/sms/orders', { offer_id: offerId }, options)
   )
 }
 

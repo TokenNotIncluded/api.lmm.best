@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/service/herosms"
@@ -72,7 +73,7 @@ func TestHeroSMSSMSMinimumBalanceStillRequiresActualCharge(t *testing.T) {
 	db := setupHeroSMSTestDB(t)
 	user := createHeroSMSTestUser(t, db, 841, common.GetTrustQuota())
 	order := HeroSMSSMSOrder{UserID: user.Id, ChargeQuota: user.Quota + 1}
-	_, err := reserveHeroSMSSMSQuota(&order)
+	_, err := reserveHeroSMSSMSQuota(&order, time.Now().Add(heroSMSSMSQuoteTTL))
 	var apiErr *HeroSMSError
 	require.ErrorAs(t, err, &apiErr)
 	require.Equal(t, "INSUFFICIENT_BALANCE", apiErr.Code)

@@ -1,10 +1,13 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
 // Source copy belongs to the tool-market UI. All writes use add-missing-keys.mjs.
+import { toolMarketEditorCopy } from './tool-market-editor-copy.mjs'
+import { toolMarketPracticalCopy } from './tool-market-practical-copy.mjs'
+
 const rows = `
 Could not load tool access. Retry before changing permissions.|无法读取工具授权状态，请重试后再修改权限。|無法讀取工具授權狀態，請重試後再修改權限。|Impossible de lire les autorisations. Réessayez avant de les modifier.|ツールの権限を読み込めません。再試行してから権限を変更してください。|Не удалось загрузить права инструмента. Повторите попытку перед их изменением.|Không thể tải quyền công cụ. Hãy thử lại trước khi thay đổi quyền.
 Remaining spending limit|剩余可消费额度|剩餘可消費額度|Budget restant|残りの支出枠|Остаток лимита расходов|Hạn mức chi tiêu còn lại
 Remaining successful calls|剩余成功调用次数|剩餘成功呼叫次數|Appels réussis restants|成功する呼び出しの残り回数|Осталось успешных вызовов|Số lần gọi thành công còn lại
-Account|账户|帳戶|Compte|アカウント|Аккаунт|Tài khoản
+Account|账号|帳號|Compte|アカウント|Аккаунт|Tài khoản
 Add this as a Bearer token in your client. Do not paste it into an Agent conversation.|在客户端中将其设为 Bearer 令牌，不要粘贴到 Agent 对话中。|在用戶端中將其設為 Bearer 權杖，請勿貼到 Agent 對話中。|Ajoutez-le comme jeton Bearer dans votre client. Ne le collez pas dans une conversation avec un agent.|クライアントに Bearer トークンとして設定してください。Agent との会話には貼り付けないでください。|Укажите его как токен Bearer в клиенте. Не вставляйте его в диалог с агентом.|Thêm làm token Bearer trong ứng dụng. Không dán vào cuộc trò chuyện với Agent.
 Approve and publish|批准并发布|核准並發布|Approuver et publier|承認して公開|Одобрить и опубликовать|Duyệt và công bố
 Arguments (JSON)|参数（JSON）|參數（JSON）|Paramètres (JSON)|引数（JSON）|Параметры (JSON)|Tham số (JSON)
@@ -66,7 +69,7 @@ Platform fee (%)|平台手续费（%）|平台手續費（%）|Commission de la 
 Price per successful call|每次成功调用的价格|每次成功呼叫的價格|Prix par appel réussi|成功した呼び出し 1 回の料金|Цена успешного вызова|Giá mỗi lần gọi thành công
 Processing…|处理中…|處理中…|Traitement…|処理中…|Обработка…|Đang xử lý…
 Provider account {{id}}|提供方账户 {{id}}|提供方帳戶 {{id}}|Compte fournisseur {{id}}|提供者アカウント {{id}}|Аккаунт провайдера {{id}}|Tài khoản nhà cung cấp {{id}}
-Public|公开|公開|Public|公開|Публичный|Công khai
+Public|公开|公開|Public|公開|Публичное|Công khai
 Publish a tool|发布工具|發布工具|Publier un outil|ツールを公開|Опубликовать инструмент|Đăng công cụ
 Publish a tool service|发布工具服务|發布工具服務|Publier un service d’outils|ツールサービスを公開|Опубликовать сервис инструментов|Đăng dịch vụ công cụ
 Read|读取|讀取|Lire|読み取り|Чтение|Đọc
@@ -140,3 +143,10 @@ export const toolMarketCopy = Object.fromEntries(
     Object.fromEntries(rows.map((row) => [row[0], row[index]])),
   ])
 )
+for (const locale of locales) {
+  Object.assign(
+    toolMarketCopy[locale],
+    toolMarketEditorCopy[locale],
+    toolMarketPracticalCopy[locale]
+  )
+}

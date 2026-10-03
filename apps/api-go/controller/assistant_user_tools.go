@@ -64,6 +64,7 @@ func assistantSafeToolInput(arguments string) map[string]any {
 		"action": {}, "days": {}, "group": {}, "identifier": {}, "model_id": {},
 		"expression": {}, "page": {}, "platform": {}, "provider": {}, "query": {}, "section": {},
 		"target_user_id": {}, "title": {}, "topic": {}, "operation_id": {},
+		"token_id": {},
 	}
 	result := make(map[string]any)
 	for key, value := range input {
@@ -281,8 +282,13 @@ func executeAssistantNavigateTool(c *gin.Context, actorUserID int, input map[str
 	}
 	if page == "models" {
 		actor, err := model.GetUserById(actorUserID, false)
-		if err != nil || actor.Role < common.RoleAdminUser {
-			return map[string]any{"ok": false, "status": "target_forbidden", "error": "the models page is available only to administrators"}
+		if err != nil {
+			return map[string]any{"ok": false, "status": "context_unavailable", "error": "account access could not be loaded"}
+		}
+		if actor.Role < common.RoleAdminUser {
+			// /models manages server model metadata. The user-facing catalogue
+			// is /pricing and remains available without administrator privileges.
+			path = "/pricing"
 		}
 		ok = true
 	}
@@ -342,10 +348,16 @@ func executeAssistantUserOverviewTool(c *gin.Context, actorUserID int, input map
 	if targetError != nil {
 		return targetError
 	}
+	overview := assistantSafeUserOverview(target.User)
+	if target.Self {
+		for key, value := range assistantWalletBalanceFields(target.User.Quota) {
+			overview[key] = value
+		}
+	}
 	return map[string]any{
 		"ok":     true,
 		"scope":  map[bool]string{true: "self", false: "administrator_target"}[target.Self],
-		"user":   assistantSafeUserOverview(target.User),
+		"user":   overview,
 		"notice": "Passwords, access tokens, OAuth subject IDs, session data, and raw request content are omitted.",
 	}
 }
@@ -381,6 +393,9 @@ func executeAssistantUserUsageTool(c *gin.Context, actorUserID int, input map[st
 
 func executeAssistantPrepareUserActionTool(c *gin.Context, actorUserID int, input map[string]any) map[string]any {
 	actionName := strings.TrimSpace(inputString(input, "action"))
+	if actionName == "change_display_name" {
+		return executeAssistantPrepareDisplayNameTool(c, actorUserID, input)
+	}
 	target, targetError := resolveAssistantUserTarget(c, actorUserID, input, true)
 	if targetError != nil {
 		return targetError

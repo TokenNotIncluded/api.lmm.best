@@ -2,6 +2,10 @@
 Copyright (C) 2026 LIghtJUNction
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
+import {
+  formatMarketClientConfig,
+  type MarketClientProfile,
+} from './client-config'
 
 export type ConnectionPermissions = {
   can_invoke: boolean
@@ -18,6 +22,7 @@ export const defaultConnectionPermissions: ConnectionPermissions = {
 export function isPersonalMarketClient(client: string): boolean {
   return (
     client.length > 0 &&
+    !/[\uD800-\uDFFF]/u.test(client) &&
     client === client.trim() &&
     new TextEncoder().encode(client).length <= 128 &&
     Array.from(client).every((character) => {
@@ -77,26 +82,19 @@ export function marketEndpoint(origin: string, path: string): string {
 export function buildMarketClientConfig(
   endpoint: string,
   client: string,
-  token = 'YOUR_CONNECTION_TOKEN'
+  token = 'YOUR_CONNECTION_TOKEN',
+  profile: MarketClientProfile = 'http'
 ): string {
   const url = new URL(endpoint)
   const safeEndpoint = marketEndpoint(url.origin, url.pathname)
-  if (url.href !== safeEndpoint || !isPersonalMarketClient(client)) {
+  if (
+    url.href !== safeEndpoint ||
+    !isPersonalMarketClient(client) ||
+    !/^[A-Za-z0-9._~+/-]+=*$/.test(token)
+  ) {
     throw new Error('Invalid connection settings')
   }
-  return JSON.stringify(
-    {
-      mcpServers: {
-        [client]: {
-          type: 'http',
-          url: safeEndpoint,
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      },
-    },
-    null,
-    2
-  )
+  return formatMarketClientConfig(safeEndpoint, client, token, profile)
 }
 
 export function connectionStatus(

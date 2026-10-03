@@ -32,8 +32,9 @@ test('homepage exposes a keyboard-accessible interactive explore console', () =>
   assert.match(source, /lmm-explore-console/)
   assert.match(
     source,
-    /aria-current=\{\s*activeExplore === (?:id|destination\.id)/
+    /data-preview-active=\{\s*activeExplore === (?:id|destination\.id)/
   )
+  assert.doesNotMatch(source, /aria-current=\{\s*activeExplore/)
   assert.match(
     source,
     /onFocus=\{\(\) => setActiveExplore\((?:id|destination\.id)\)\}/
@@ -124,19 +125,17 @@ test('homepage removes the manual word field and presents all OAuth client optio
   assert.match(providerCommands, /codewhale-lmm-provider\.git/)
 })
 
-test('homepage reserves separate grid rows for copy and navigation', () => {
+test('desktop keeps its scene grid while phones avoid a screen-sized scroll runway', () => {
   assert.match(css, /grid-template-rows: minmax\(0, 1fr\) auto;/)
-  assert.match(css, /grid-template-rows: minmax\(0, 1fr\) auto auto;/)
   assert.match(css, /\.lmm-core-steps \{\s*grid-area: 2 \/ 2;/)
-  assert.match(css, /grid-area: 3 \/ 1;/)
-  assert.doesNotMatch(css, /(?:340svh|160rem|120rem)/)
+  assert.doesNotMatch(css, /(?:340svh|160rem|120rem|80rem)/)
 })
 
-test('short phones expose the complete static story instead of clipped controls', () => {
-  assert.match(css, /\(max-width: 680px\) and \(max-height: 700px\)/)
+test('portrait and landscape phones expose the complete content instead of clipped controls', () => {
+  assert.match(css, /\(max-width: 960px\) and \(max-height: 600px\)/)
   assert.match(
     motion,
-    /window\.innerWidth > 680 \|\| window\.innerHeight > 700/
+    /window\.innerHeight > 600 &&\s*window\.innerWidth > 680/
   )
 })
 

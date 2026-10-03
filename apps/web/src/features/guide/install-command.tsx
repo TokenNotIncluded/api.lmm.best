@@ -52,7 +52,7 @@ export function InstallCommand({
       <div className='flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center'>
         <code
           tabIndex={0}
-          className='bg-muted min-w-0 flex-1 overflow-x-auto rounded px-3 py-2 text-xs select-text'
+          className='bg-muted focus-visible:outline-ring block min-h-11 min-w-0 flex-1 overflow-x-auto rounded-lg px-3 py-3 text-xs leading-6 whitespace-pre select-text focus-visible:outline-2 focus-visible:outline-offset-2'
         >
           {value}
         </code>
@@ -62,7 +62,7 @@ export function InstallCommand({
           size='sm'
           onClick={() => void copy()}
           aria-label={copyLabel}
-          className='shrink-0'
+          className='min-h-11 shrink-0 sm:self-start'
         >
           {state === 'copied' ? (
             <Check data-icon='inline-start' />
@@ -72,6 +72,9 @@ export function InstallCommand({
           {state === 'copied' ? t('Copied') : t('Copy')}
         </Button>
       </div>
+      <span role='status' className='sr-only'>
+        {state === 'copied' ? t('Copied') : ''}
+      </span>
       {state === 'failed' && (
         <p role='alert' className='text-destructive text-sm'>
           {t('Unable to copy command')}

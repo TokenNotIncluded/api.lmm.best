@@ -76,6 +76,14 @@ export function useSmsPurchaseBalance() {
     isLoading: balance.isPending && balance.isFetching,
     isRefreshing: balance.isFetching,
     isCurrentSession,
+    invalidateQuota: async () => {
+      if (!isCurrentSession()) return
+      await queryClient.invalidateQueries({
+        queryKey,
+        exact: true,
+        refetchType: 'active',
+      })
+    },
     refresh: async () => {
       if (!isCurrentSession()) return false
       const result = await balance.refetch()

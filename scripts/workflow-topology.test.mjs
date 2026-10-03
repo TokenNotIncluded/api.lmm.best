@@ -147,3 +147,75 @@ test('test-only concurrency and request filtering cannot cancel production work'
   }
   assert.doesNotMatch(workflow('server-release-qualification'), /fix\/incident343-additive-recovery/);
 });
+
+test('paid tool-market PostgreSQL qualification cannot silently use SQLite or skip isolation', () => {
+  const go = job(workflow('server-release-qualification'), 'go-server');
+  assert.match(go, /image: postgres:18-alpine/);
+  const step = go.split(/\n(?=      - name: )/).find((part) =>
+    part.startsWith('      - name: Protect paid tool-market authorization and ledger under PostgreSQL concurrency\n'));
+  assert.ok(step, 'paid market qualification must have its own PostgreSQL step');
+  assert.match(step, /working-directory: apps\/api-go\n/);
+  assert.match(step, /TEST_POSTGRES_DSN: postgres:\/\/[^\n]+@127\.0\.0\.1:5432\/lmm_test_release\?sslmode=disable\n/);
+  assert.match(step, /TEST_POSTGRES_ISOLATED_SCHEMA: '1'\n/);
+  assert.doesNotMatch(step, /continue-on-error:|\n        if:/);
+  const tests = [
+    ['TestToolMarketPaidHTTPMCPUploadAndSettlementPostgres', 'tool_market_paid_e2e_test.go'],
+    ['TestToolMarketPaidPostgresBuyerIsolationAndConcurrentLedger', 'tool_market_paid_postgres_e2e_test.go'],
+  ];
+  const names = tests.map(([name]) => name).join('|');
+  assert.ok(step.includes(`run: go test -race -count=1 -v ./service -run '^(${names})$' -timeout 180s`));
+  for (const [name, file] of tests) {
+    assert.ok(read(`apps/api-go/service/${file}`).includes(`func ${name}(t *testing.T)`),
+      `qualification filter must still select the real ${name} test`);
+  }
+});
+
+test('drawing expiry qualification uses real MySQL with repeatable-read session defaults', () => {
+  const go = job(workflow('server-release-qualification'), 'go-server');
+  assert.match(go, /image: mysql:8\.4/);
+  const step = go.split(/\n(?=      - name: )/).find((part) =>
+    part.startsWith('      - name: Protect drawing expiry against MySQL repeatable-read snapshots\n'));
+  assert.ok(step, 'drawing expiry must have its own real MySQL qualification step');
+  assert.match(step, /working-directory: apps\/api-go\n/);
+  assert.match(step, /TEST_MYSQL_DSN: root:[^\n]+@tcp\(127\.0\.0\.1:3306\)\/lmm_test_release\?parseTime=true\n/);
+  assert.match(step, /TEST_MYSQL_ISOLATED_DATABASE: '1'\n/);
+  assert.doesNotMatch(step, /continue-on-error:|\n        if:/);
+  const name = 'TestToolMarketDrawingExpiryReadsCommittedBillingMySQL';
+  assert.ok(step.includes(`run: go test -race -count=1 -v ./model -run '^${name}$' -timeout 180s`));
+  assert.ok(read('apps/api-go/model/tool_market_drawing_mysql_test.go').includes(`func ${name}(t *testing.T)`),
+    'qualification filter must select the actual MySQL regression');
+});
+
+test('tool-market client identity qualification exercises real MySQL collation aliases', () => {
+  const go = job(workflow('server-release-qualification'), 'go-server');
+  assert.match(go, /image: mysql:8\.4/);
+  const step = go.split(/\n(?=      - name: )/).find((part) =>
+    part.startsWith('      - name: Protect tool-market client boundaries against MySQL collation aliases\n'));
+  assert.ok(step, 'client boundaries need a dedicated real MySQL qualification step');
+  assert.match(step, /working-directory: apps\/api-go\n/);
+  assert.match(step, /TEST_MYSQL_DSN: root:[^\n]+@tcp\(127\.0\.0\.1:3306\)\/lmm_test_release\?parseTime=true\n/);
+  assert.match(step, /TEST_MYSQL_ISOLATED_DATABASE: '1'\n/);
+  assert.doesNotMatch(step, /continue-on-error:|\n        if:/);
+  const name = 'TestToolMarketClientIdentityMySQL';
+  assert.ok(step.includes(`run: go test -race -count=1 -v ./model -run '^${name}$' -timeout 180s`));
+  assert.ok(read('apps/api-go/model/tool_market_clients_mysql_test.go').includes(`func ${name}(t *testing.T)`),
+    'qualification filter must select the actual client-identity regression');
+});
+
+test('tool-market accounting qualification selects both MySQL lock-contention regressions', () => {
+  const go = job(workflow('server-release-qualification'), 'go-server');
+  assert.match(go, /image: mysql:8\.4/);
+  const step = go.split(/\n(?=      - name: )/).find((part) =>
+    part.startsWith('      - name: Protect tool-market limits and settlement counters under MySQL lock contention\n'));
+  assert.ok(step, 'reservation and settlement counters need real MySQL qualification');
+  assert.match(step, /working-directory: apps\/api-go\n/);
+  assert.match(step, /TEST_MYSQL_DSN: root:[^\n]+@tcp\(127\.0\.0\.1:3306\)\/lmm_test_release\?parseTime=true\n/);
+  assert.match(step, /TEST_MYSQL_ISOLATED_DATABASE: '1'\n/);
+  assert.doesNotMatch(step, /continue-on-error:|\n        if:/);
+  const tests = ['TestToolMarketConcurrentFinishCountersMySQL', 'TestToolMarketConcurrentReserveLimitsMySQL'];
+  assert.ok(step.includes(`run: go test -race -count=1 -v ./model -run '^(${tests.join('|')})$' -timeout 180s`));
+  for (const name of tests) {
+    assert.ok(read('apps/api-go/model/tool_market_finish_mysql_test.go').includes(`func ${name}(t *testing.T)`),
+      `qualification filter must select the actual ${name} regression`);
+  }
+});

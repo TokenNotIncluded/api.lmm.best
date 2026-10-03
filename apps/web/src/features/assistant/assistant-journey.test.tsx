@@ -104,7 +104,10 @@ describe('assistant game-style progress', () => {
         data: {
           success: true,
           data: {
-            main: [{ id: 'ask_ai', status: 'completed' }],
+            main: [
+              { id: 'ask_ai', status: 'completed' },
+              { id: 'get_recommendation', status: 'completed' },
+            ],
             side: [
               { id: 'earn_ai_gift', status: 'failed' },
               { id: 'accept_bounty', status: 'pending' },
@@ -117,7 +120,9 @@ describe('assistant game-style progress', () => {
     const rendered = await render(<AssistantJourneyProgress />)
     try {
       const text = rendered.container.textContent ?? ''
-      assert.match(text, /Main quest 1\/1/)
+      assert.match(text, /Main quest 2\/2/)
+      assert.match(text, /Get L1 access/)
+      assert.doesNotMatch(text, /Get a recommendation/)
       assert.match(text, /Side quest 0\/2/)
       assert.match(
         text,

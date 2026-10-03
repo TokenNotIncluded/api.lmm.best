@@ -1,6 +1,7 @@
 package ollama
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -96,10 +97,33 @@ func toUnix(ts string) int64 {
 }
 
 func ollamaStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+	info.RateLimitStreamStatus = relaycommon.NewStreamStatus()
+	status := info.RateLimitStreamStatus
+	sawDone := false
+	defer func() {
+		if c.Request != nil && c.Request.Context().Err() != nil {
+			status.SetEndReason(relaycommon.StreamEndReasonClientGone, c.Request.Context().Err())
+			status.RecordError("Ollama stream request context ended")
+		} else if status.EndReason == relaycommon.StreamEndReasonNone {
+			if sawDone {
+				status.SetEndReason(relaycommon.StreamEndReasonDone, nil)
+			} else {
+				status.SetEndReason(relaycommon.StreamEndReasonEOF, nil)
+				status.RecordError("Ollama stream ended before its done frame")
+			}
+		}
+	}()
 	if resp == nil || resp.Body == nil {
-		return nil, types.NewOpenAIError(fmt.Errorf("empty response"), types.ErrorCodeBadResponse, http.StatusBadRequest)
+		err := fmt.Errorf("empty response")
+		status.SetEndReason(relaycommon.StreamEndReasonHandlerStop, err)
+		status.RecordError("empty Ollama stream response")
+		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusBadRequest)
 	}
 	defer service.CloseResponseBodyGracefully(resp)
+	if c.Request != nil {
+		stopClose := context.AfterFunc(c.Request.Context(), func() { _ = resp.Body.Close() })
+		defer stopClose()
+	}
 
 	helper.SetEventStreamHeaders(c)
 	scanner := helper.NewStreamScanner(resp.Body)
@@ -108,10 +132,26 @@ func ollamaStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	var responseId = common.GetUUID()
 	var created = time.Now().Unix()
 	var toolCallIndex int
-	start := helper.GenerateStartEmptyResponse(responseId, created, model, nil)
-	if data, err := common.Marshal(start); err == nil {
-		_ = helper.StringData(c, string(data))
+	writeFailed := false
+	writeChunk := func(chunk interface{}) {
+		if writeFailed {
+			return
+		}
+		data, err := common.Marshal(chunk)
+		if err != nil {
+			status.SetEndReason(relaycommon.StreamEndReasonHandlerStop, err)
+			status.RecordError("failed to encode Ollama stream response")
+			writeFailed = true
+			return
+		}
+		if err = ollamaWriteStreamData(c, string(data)); err != nil {
+			status.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
+			status.RecordError("failed to write Ollama stream response")
+			writeFailed = true
+		}
 	}
+	start := helper.GenerateStartEmptyResponse(responseId, created, model, nil)
+	writeChunk(start)
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -122,6 +162,8 @@ func ollamaStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		var chunk ollamaChatStreamChunk
 		if err := common.Unmarshal([]byte(line), &chunk); err != nil {
 			logger.LogError(c, "ollama stream json decode error: "+err.Error()+" line="+line)
+			status.SetEndReason(relaycommon.StreamEndReasonHandlerStop, err)
+			status.RecordError("failed to decode Ollama stream response")
 			return usage, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 		}
 		if chunk.Model != "" {
@@ -172,15 +214,14 @@ func ollamaStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 			if chunk.Message != nil && len(chunk.Message.ToolCalls) > 0 {
 				delta.Choices[0].Delta.ToolCalls, toolCallIndex = ollamaToolCallsToOpenAI(chunk.Message.ToolCalls, toolCallIndex, true)
 			}
-			if data, err := common.Marshal(delta); err == nil {
-				_ = helper.StringData(c, string(data))
-			}
+			writeChunk(delta)
 		}
 		if !chunk.Done {
 			continue
 		}
 		// done frame
 		// finalize once and break loop
+		sawDone = true
 		usage.PromptTokens = chunk.PromptEvalCount
 		usage.CompletionTokens = chunk.EvalCount
 		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
@@ -193,24 +234,43 @@ func ollamaStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		}
 		// emit stop delta
 		if stop := helper.GenerateStopResponse(responseId, created, model, finishReason); stop != nil {
-			if data, err := common.Marshal(stop); err == nil {
-				_ = helper.StringData(c, string(data))
-			}
+			writeChunk(stop)
 		}
 		// emit usage frame
 		if final := helper.GenerateFinalUsageResponse(responseId, created, model, *usage); final != nil {
-			if data, err := common.Marshal(final); err == nil {
-				_ = helper.StringData(c, string(data))
-			}
+			writeChunk(final)
 		}
 		// send [DONE]
-		helper.Done(c)
+		if !writeFailed {
+			if err := ollamaWriteStreamData(c, "[DONE]"); err != nil {
+				status.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
+				status.RecordError("failed to write Ollama stream completion")
+			}
+		}
 		break
 	}
 	if err := scanner.Err(); err != nil && err != io.EOF {
 		logger.LogError(c, "ollama stream scan error: "+err.Error())
+		if c.Request != nil && c.Request.Context().Err() != nil {
+			status.SetEndReason(relaycommon.StreamEndReasonClientGone, c.Request.Context().Err())
+		} else {
+			status.SetEndReason(relaycommon.StreamEndReasonScannerErr, err)
+		}
+		status.RecordError("failed to read Ollama stream response")
 	}
 	return usage, nil
+}
+
+// StringData reports flush failures; Gin records render failures separately.
+func ollamaWriteStreamData(c *gin.Context, data string) error {
+	errorCount := len(c.Errors)
+	if err := helper.StringData(c, data); err != nil {
+		return err
+	}
+	if len(c.Errors) > errorCount {
+		return c.Errors.Last().Err
+	}
+	return nil
 }
 
 // non-stream handler for chat/generate

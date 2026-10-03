@@ -12,7 +12,7 @@ import (
 // final outcome may complete settlement; an unconfirmed expired hold is freed.
 func RecoverToolMarketCalls(ctx context.Context) (int, error) {
 	var calls []ToolMarketCall
-	q := DB.WithContext(ctx).Where("settlement_status = ? AND (resolve_by <= ? OR id IN (?))", "held", common.GetTimestamp(), DB.Model(&ToolMarketResult{}).Select("call_id"))
+	q := DB.WithContext(ctx).Where("settlement_status = ? AND (resolve_by <= ? OR id IN (?))", "held", common.GetTimestamp(), DB.Model(&ToolMarketResult{}).Where("builtin_billing_pending = ?", false).Select("call_id"))
 	if err := q.Order("resolve_by, id").Limit(100).Find(&calls).Error; err != nil {
 		return 0, err
 	}
@@ -29,7 +29,7 @@ func RecoverToolMarketCalls(ctx context.Context) (int, error) {
 		}
 		if common.GetTimestamp() >= call.ResolveBy {
 			err = ExpireToolMarketCall(call.ID)
-		} else if err == nil {
+		} else if err == nil && !outcome.BuiltinBillingPending {
 			err = FinishToolMarketCall(call.ID, outcome.Success)
 		} else {
 			continue

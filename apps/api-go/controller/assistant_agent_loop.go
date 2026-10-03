@@ -71,7 +71,8 @@ func assistantErrorRetryable(status int, code string, workStarted bool) bool {
 	switch code {
 	case "ASSISTANT_REQUEST_TIMEOUT", "ASSISTANT_REQUEST_CANCELLED", "ASSISTANT_AGENT_MAX_STEPS",
 		"ASSISTANT_REQUIRED_TOOL_MISSING", "ASSISTANT_TOO_MANY_TOOL_CALLS", "ASSISTANT_RUN_FAILED",
-		"ASSISTANT_STREAM_INCOMPLETE", "ASSISTANT_INVALID_UPSTREAM_RESPONSE", "ASSISTANT_EMPTY_UPSTREAM_RESPONSE":
+		"ASSISTANT_STREAM_INCOMPLETE", "ASSISTANT_INVALID_UPSTREAM_RESPONSE", "ASSISTANT_EMPTY_UPSTREAM_RESPONSE",
+		assistantOutputIncompleteCode:
 		return false
 	}
 	return assistantRetryableUpstreamStatus(status)
@@ -197,6 +198,9 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 		maxSteps = minimum
 	}
 	if minimum := assistantCreateKeyWorkflowMinSteps(userContext); maxSteps < minimum {
+		maxSteps = minimum
+	}
+	if minimum := assistantKeyManagementWorkflowMinSteps(userContext); maxSteps < minimum {
 		maxSteps = minimum
 	}
 	if minimum := assistantImageGenerationWorkflowMinSteps(userContext); maxSteps < minimum {
@@ -346,6 +350,12 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 			return
 		}
 		message := response.Choices[0].Message
+		if assistantOutputLengthLimited(response) && len(message.ToolCalls) > 0 {
+			// Length-limited arguments are not a completed authorization or
+			// plan. Do not execute even an apparently valid partial tool call.
+			writeAssistantError(c, http.StatusBadGateway, assistantOutputIncompleteCode, errors.New("assistant output reached its length limit; the tool call was not executed"))
+			return
+		}
 		// A failed required read closes tool selection. An upstream must not
 		// turn that failure into a mutation by ignoring tool_choice=none.
 		if choice, ok := request.ToolChoice.(string); ok && choice == "none" && len(message.ToolCalls) > 0 {
@@ -355,6 +365,10 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 		if forceTaskWorkflow || forceRecommendationWorkflow || forceCreateKeyWorkflow || forceImageGenerationWorkflow || forcePublicActivityWorkflow || forceNewUserGiftWorkflow || forceWeeklyDiscountWorkflow || forceHumanSupportWorkflow || forceReadChain {
 			requiredTool := assistantNamedToolChoiceName(request.ToolChoice)
 			if requiredTool != "" && (len(message.ToolCalls) != 1 || strings.TrimSpace(message.ToolCalls[0].Function.Name) != requiredTool) {
+				if assistantOutputLengthLimited(response) {
+					writeAssistantError(c, http.StatusBadGateway, assistantOutputIncompleteCode, errors.New("assistant output reached its length limit before the required tool call completed"))
+					return
+				}
 				writeAssistantError(c, http.StatusBadGateway, "ASSISTANT_REQUIRED_TOOL_MISSING", errors.New("assistant did not follow the required tool workflow"))
 				return
 			}
@@ -365,11 +379,27 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 				writeAssistantUpstreamError(c, "ASSISTANT_EMPTY_UPSTREAM_RESPONSE", "AI assistant upstream returned no usable answer")
 				return
 			}
-			if !usedCacheSensitiveTool && cacheKey != "" {
+			if !assistantOutputLengthLimited(response) && !usedCacheSensitiveTool && cacheKey != "" {
 				storeAssistantCachedResponse(settings, cacheKey, status, normalizedBody, c.GetString(assistantConversationTitleDraftKey))
 				c.Header("X-LMM-Assistant-Cache", "STORE")
 			}
 			if streamSession != nil {
+				if assistantOutputLengthLimited(response) {
+					// Replace the tentative partial stream with the same explicit
+					// incomplete answer returned to non-streaming clients.
+					normalized, parseErr := parseAssistantResponse(normalizedBody)
+					if parseErr != nil || len(normalized.Choices) == 0 {
+						writeAssistantUpstreamError(c, "ASSISTANT_INVALID_UPSTREAM_RESPONSE", "AI assistant upstream returned an invalid response")
+						return
+					}
+					if err := streamSession.resetContent(); err != nil {
+						return
+					}
+					if err := streamSession.appendContent(assistantResponseContent(normalized.Choices[0].Message.Content)); err != nil {
+						return
+					}
+					streamTurn = true
+				}
 				enrichedBody := assistantHistoryResponseBody(c, status, normalizedBody)
 				if c.GetBool("assistant_turn_unavailable") {
 					writeAssistantError(c, http.StatusConflict, "ASSISTANT_TURN_UNAVAILABLE", errors.New("saved turn cannot be reused; send a new message"))

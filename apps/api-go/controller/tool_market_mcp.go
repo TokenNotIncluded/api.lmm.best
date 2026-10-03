@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -58,6 +59,86 @@ func marketMCPOutput(value any, err error) (*mcp.CallToolResult, error) {
 	return &mcp.CallToolResult{StructuredContent: value, Content: []mcp.Content{&mcp.TextContent{Text: string(data)}}}, nil
 }
 
+// The market is a tool bridge, not a text-only billing wrapper. Preserve the
+// provider's native content, output value and multi-round confirmation fields.
+// Only the namespaced metadata is written by the trusted market adapter.
+func marketMCPExecutionOutput(response *service.ToolMarketExecutionResponse, err error) (*mcp.CallToolResult, error) {
+	if err != nil {
+		return marketMCPOutput(nil, err)
+	}
+	if response == nil || response.Call == nil {
+		return marketMCPOutput(nil, model.ErrToolMarketConflict)
+	}
+	result := &mcp.CallToolResult{Content: []mcp.Content{}}
+	if len(response.Result) != 0 {
+		if json.Unmarshal(response.Result, result) != nil {
+			return marketMCPOutput(nil, service.ErrMarketRemoteResult)
+		}
+		// The SDK decodes arbitrary JSON values as float64. Keep the approved
+		// structured result and provider metadata exact when bridging them back
+		// onto the wire, including integers beyond JavaScript's safe range.
+		var native struct {
+			StructuredContent json.RawMessage             `json:"structuredContent"`
+			Meta              mcp.Meta                    `json:"_meta"`
+			Content           []toolMarketContentMetadata `json:"content"`
+		}
+		decoder := json.NewDecoder(bytes.NewReader(response.Result))
+		decoder.UseNumber()
+		if decoder.Decode(&native) != nil {
+			return marketMCPOutput(nil, service.ErrMarketRemoteResult)
+		}
+		if len(native.StructuredContent) != 0 {
+			result.StructuredContent = native.StructuredContent
+		}
+		result.Meta = native.Meta
+		restoreToolMarketContentMetadata(result.Content, native.Content)
+	} else {
+		result.Content = []mcp.Content{&mcp.TextContent{Text: "The original call has no final result available. Query lmm_market_call_status instead of starting another request."}}
+		result.IsError = true
+	}
+	if result.Meta == nil {
+		result.Meta = make(mcp.Meta)
+	}
+	result.Meta["lmm/market"] = map[string]any{"call": response.Call, "result_expired": response.ResultExpired, "result_expires_at": response.ResultExpiresAt, "error_code": response.ErrorCode}
+	if response.Call.ExecutionStatus == "failed" || response.Call.ExecutionStatus == "cancelled" {
+		result.IsError = true
+	}
+	return result, nil
+}
+
+type toolMarketContentMetadata struct {
+	Meta     mcp.Meta `json:"_meta"`
+	Resource *struct {
+		Meta mcp.Meta `json:"_meta"`
+	} `json:"resource"`
+}
+
+// Content remains in the SDK's native types; arbitrary nested provider metadata
+// uses the exact-number decoder instead of the SDK's generic float64 decoder.
+func restoreToolMarketContentMetadata(content []mcp.Content, native []toolMarketContentMetadata) {
+	for i, item := range content {
+		if i >= len(native) {
+			return
+		}
+		meta := native[i].Meta
+		switch item := item.(type) {
+		case *mcp.TextContent:
+			item.Meta = meta
+		case *mcp.ImageContent:
+			item.Meta = meta
+		case *mcp.AudioContent:
+			item.Meta = meta
+		case *mcp.ResourceLink:
+			item.Meta = meta
+		case *mcp.EmbeddedResource:
+			item.Meta = meta
+			if item.Resource != nil && native[i].Resource != nil {
+				item.Resource.Meta = native[i].Resource.Meta
+			}
+		}
+	}
+}
+
 func marketMCPSchema(properties map[string]any, required ...string) map[string]any {
 	return map[string]any{"type": "object", "properties": properties, "required": required, "additionalProperties": false}
 }
@@ -94,7 +175,7 @@ func newToolMarketMCPServer(identity marketMCPIdentity) (*mcp.Server, error) {
 		if json.Unmarshal(req.Params.Arguments, &input) != nil {
 			return marketMCPOutput(nil, model.ErrToolMarketInput)
 		}
-		response, err := service.GetToolMarketExecutionResponse(identity.userID, identity.clientID, input.ID)
+		response, err := GetToolMarketExecutionResponseWithBuiltins(identity.userID, identity.clientID, input.ID)
 		return marketMCPOutput(response, err)
 	})
 	if identity.manage {
@@ -119,18 +200,37 @@ func newToolMarketMCPServer(identity marketMCPIdentity) (*mcp.Server, error) {
 		return nil, err
 	}
 	for _, execution := range executions {
-		if execution.Version.ExecutionType != "remote" {
+		if execution.Version.ExecutionType != "remote" && execution.Version.ExecutionType != "builtin" {
 			continue
 		}
 		var args map[string]any
-		if json.Unmarshal([]byte(execution.Tool.InputSchema), &args) != nil {
+		decoder := json.NewDecoder(strings.NewReader(execution.Tool.InputSchema))
+		decoder.UseNumber()
+		if decoder.Decode(&args) != nil {
 			return nil, service.ErrMarketRemoteSchema
 		}
 		rewriteMarketSchemaRefs(args)
 		schema := marketMCPSchema(map[string]any{"request_id": marketMCPString(), "arguments": map[string]any{"$ref": "#/$defs/arguments"}}, "request_id", "arguments")
 		schema["$defs"] = map[string]any{"arguments": args}
+		var outputSchema any
+		if execution.Tool.OutputSchema != "" {
+			if !json.Valid([]byte(execution.Tool.OutputSchema)) {
+				return nil, service.ErrMarketRemoteSchema
+			}
+			outputSchema = json.RawMessage(execution.Tool.OutputSchema)
+		}
+		provider := fmt.Sprintf("Provider account: %d. Data recipient: %s.", execution.Service.OwnerID, execution.Version.Endpoint)
+		var annotations *mcp.ToolAnnotations
+		if execution.Version.ExecutionType == "builtin" {
+			key, definition, err := marketBuiltinDefinition(context.Background(), execution.Service.ID, execution.Tool.Name)
+			if err != nil || marketBuiltinVersionCurrent(context.Background(), key, execution.Version.ID) != nil {
+				continue
+			}
+			annotations = definition.Annotations
+			provider = "LMM built-in tool. Tool invocation is free; confirmed image generation, transfers and bounty funding retain their normal costs."
+		}
 		server.AddTool(&mcp.Tool{Name: "market_tool_" + strings.ReplaceAll(execution.Tool.ToolID, "-", ""), Title: execution.Version.Name + " / " + execution.Tool.Name,
-			Description: fmt.Sprintf("%s\nProvider account: %d. Data recipient: %s. Price: %d quota per successful call, capped by the explicit grant. Supply a unique request_id; reuse it only for the same call.", execution.Tool.Description, execution.Service.OwnerID, execution.Version.Endpoint, execution.Tool.PriceQuota), InputSchema: schema}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			Description: fmt.Sprintf("%s\n%s Price: %d quota per successful tool call, capped by the explicit grant. Supply a unique request_id; reuse it only for the same call. Continue confirmation with the same request_id and arguments, echoing requestState/inputResponses.", execution.Tool.Description, provider, execution.Tool.PriceQuota), InputSchema: schema, OutputSchema: outputSchema, Annotations: annotations}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			var input struct {
 				RequestID string          `json:"request_id"`
 				Arguments json.RawMessage `json:"arguments"`
@@ -138,12 +238,10 @@ func newToolMarketMCPServer(identity marketMCPIdentity) (*mcp.Server, error) {
 			if json.Unmarshal(req.Params.Arguments, &input) != nil {
 				return marketMCPOutput(nil, model.ErrToolMarketInput)
 			}
-			response, err := service.ExecuteToolMarketRemote(ctx, model.ToolMarketReserveInput{UserID: identity.userID, ClientID: identity.clientID, RequestKey: input.RequestID, ToolID: execution.Tool.ToolID, VersionID: execution.Tool.VersionID, GrantID: execution.Grant.ID, Arguments: input.Arguments})
-			result, err := marketMCPOutput(response, err)
-			if result != nil && response != nil && (response.Call.ExecutionStatus == "failed" || response.Call.ExecutionStatus == "cancelled") {
-				result.IsError = true
-			}
-			return result, err
+			// The request identity selects the original grant for continuations;
+			// a fresh request selects the current default grant at invocation.
+			response, err := ExecuteToolMarketWithBuiltins(ctx, model.ToolMarketReserveInput{UserID: identity.userID, ClientID: identity.clientID, RequestKey: input.RequestID, ToolID: execution.Tool.ToolID, VersionID: execution.Tool.VersionID, Arguments: input.Arguments}, req.Params.RequestState, req.Params.InputResponses)
+			return marketMCPExecutionOutput(response, err)
 		})
 	}
 	return server, nil

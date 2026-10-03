@@ -12,10 +12,11 @@ import {
   PackageSearch,
   PackageX,
   PauseCircle,
+  Search,
   Store,
   XCircle,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout/components/section-page-layout'
@@ -33,12 +34,14 @@ import {
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
   marketAPI,
+  MarketAPIError,
   type CallResponse,
   type Grant,
   type Installation,
@@ -46,7 +49,11 @@ import {
   type MarketService,
   type MarketSummary,
   type MarketTool,
+  type MarketToken,
+  type MarketDetail,
+  type MarketOAuthClient,
 } from './api'
+import { marketErrorKey } from './call-utils'
 import { MarketConnections } from './connections'
 import { marketStatus, marketPermissionList } from './copy'
 import { creditAmount } from './money'
@@ -70,6 +77,7 @@ function MarketStatusIcon({ value }: { value: string }) {
     case 'reserved':
     case 'held':
     case 'running':
+    case 'awaiting_confirmation':
       return (
         <Clock aria-hidden='true' className='text-warning size-3.5 shrink-0' />
       )
@@ -107,6 +115,13 @@ function MarketStatusIcon({ value }: { value: string }) {
 }
 
 export function ToolMarket() {
+  const userID = useAuthStore((state) => state.auth.user?.id)
+  return <ToolMarketWorkspace key={userID ?? 'signed-out'} />
+}
+
+// Discard drafts, provider secrets, arguments and results when the signed-in
+// account changes, even if the router preserves the market page component.
+function ToolMarketWorkspace() {
   const { t } = useTranslation()
   const user = useAuthStore((state) => state.auth.user)
   const cache = useQueryClient()
@@ -115,16 +130,21 @@ export function ToolMarket() {
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
   const [offset, setOffset] = useState(0)
+  const [executionType, setExecutionType] = useState('')
+  const [callsOffset, setCallsOffset] = useState(0)
+  const [incomeOffset, setIncomeOffset] = useState(0)
   const [selected, setSelected] = useState<{
     id: string
     mode: 'published' | 'draft' | 'review'
   } | null>(null)
   const [editor, setEditor] = useState(false)
+  const [editorInitial, setEditorInitial] = useState<MarketDetail>()
   const [client, setClient] = useState('web-market')
   const [grantTool, setGrantTool] = useState<MarketTool | null>(null)
   const [callTool, setCallTool] = useState<{
     tool: MarketTool
     grant: Grant
+    endpoint: string
   } | null>(null)
   const [reviewNote, setReviewNote] = useState('')
   const [record, setRecord] = useState<CallResponse | null>(null)
@@ -133,8 +153,8 @@ export function ToolMarket() {
     queryFn: marketAPI.config,
   })
   const catalog = useQuery({
-    queryKey: [...key, 'catalog', search, offset],
-    queryFn: () => marketAPI.list(search, offset),
+    queryKey: [...key, 'catalog', search, offset, executionType],
+    queryFn: () => marketAPI.list(search, offset, executionType),
     enabled: tab === 'market',
   })
   const mine = useQuery({
@@ -155,6 +175,25 @@ export function ToolMarket() {
     queryKey: [...key, 'grants'],
     queryFn: () => marketAPI.mine<Grant>('grants'),
   })
+  const tokens = useQuery({
+    queryKey: [...key, 'tokens'],
+    queryFn: () => marketAPI.mine<MarketToken>('tokens'),
+  })
+  const oauthClients = useQuery({
+    queryKey: [...key, 'oauth-clients'],
+    queryFn: () => marketAPI.mine<MarketOAuthClient>('oauth-clients'),
+  })
+  const eligibleOAuthIDs = oauthClients.data?.map((row) => row.client_id) ?? []
+  useEffect(() => {
+    if (
+      client.startsWith('oauth:') &&
+      oauthClients.isSuccess &&
+      !oauthClients.data.some((row) => row.client_id === client)
+    ) {
+      setClient('web-market')
+      setGrantTool(null)
+    }
+  }, [client, oauthClients.isSuccess, oauthClients.data])
   const detail = useQuery({
     queryKey: [...key, 'detail', selected?.id, selected?.mode],
     queryFn: () => {
@@ -164,13 +203,13 @@ export function ToolMarket() {
     enabled: !!selected && !editor,
   })
   const calls = useQuery({
-    queryKey: [...key, 'calls'],
-    queryFn: marketAPI.calls,
+    queryKey: [...key, 'calls', callsOffset],
+    queryFn: () => marketAPI.calls(callsOffset),
     enabled: tab === 'records',
   })
   const income = useQuery({
-    queryKey: [...key, 'income'],
-    queryFn: marketAPI.income,
+    queryKey: [...key, 'income', incomeOffset],
+    queryFn: () => marketAPI.income(incomeOffset),
     enabled: tab === 'records',
   })
   const reviews = useQuery({
@@ -193,40 +232,112 @@ export function ToolMarket() {
     action.reset()
   }
   const current = detail.data
-  const accessReady = installs.isSuccess && grants.isSuccess
+  const clients = [
+    ...new Set([
+      'web-market',
+      ...[
+        client,
+        ...(tokens.data ?? []).map((row) => row.client_id),
+        ...(installs.data ?? []).map((row) => row.client_id),
+        ...(grants.data ?? []).map((row) => row.client_id),
+      ].filter((id) => !id.startsWith('oauth:')),
+      ...eligibleOAuthIDs,
+    ]),
+  ]
+  const accessReady =
+    installs.isSuccess &&
+    grants.isSuccess &&
+    (!client.startsWith('oauth:') ||
+      (oauthClients.isSuccess && eligibleOAuthIDs.includes(client)))
   const openPublisher = () => {
     setSelected(null)
+    setEditorInitial(undefined)
     setEditor(true)
   }
+  const editDraft = async () => {
+    if (!current || !selected) return
+    let source = current
+    if (selected.mode === 'published') {
+      try {
+        source = await marketAPI.detail(current.service.id, 'draft')
+      } catch (error) {
+        if (
+          !(error instanceof MarketAPIError) ||
+          error.code !== 'TOOL_MARKET_NOT_FOUND'
+        ) {
+          throw error
+        }
+      }
+    }
+    if (source.version.status === 'pending') {
+      setSelected({ id: source.service.id, mode: 'draft' })
+      return
+    }
+    setEditorInitial(source)
+    setEditor(true)
+  }
+  const chooseClient = (id: string) => {
+    setClient(id)
+    setSearch('')
+    setSearchInput('')
+    setOffset(0)
+    setExecutionType('')
+    chooseTab('market')
+  }
   const browse = (items: MarketSummary[]) => (
-    <div className='divide-border divide-y'>
+    <div className='divide-border divide-y border-y'>
       {items.map((item) => (
         <button
           type='button'
           key={item.id}
-          className='hover:bg-muted/40 focus-visible:ring-ring group flex w-full flex-col items-start justify-between gap-3 rounded-sm px-2 py-5 text-left transition-colors outline-none focus-visible:ring-2 motion-safe:active:scale-[0.995] sm:flex-row sm:gap-4'
+          className='hover:bg-muted/40 focus-visible:ring-ring group grid w-full min-w-0 gap-3 px-3 py-5 text-left transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset sm:grid-cols-[minmax(0,1fr)_minmax(10rem,16rem)] sm:items-center sm:gap-6 sm:px-4'
           onClick={() => setSelected({ id: item.id, mode: 'published' })}
         >
           <span className='min-w-0'>
-            <strong className='block break-words group-hover:underline'>
+            <strong className='block text-base font-semibold break-words group-hover:underline group-hover:underline-offset-4'>
               {item.name}
             </strong>
-            <span className='text-muted-foreground mt-1 line-clamp-2 block max-w-3xl text-sm'>
+            <span className='text-muted-foreground mt-1.5 line-clamp-2 block max-w-[70ch] text-sm leading-6 break-words'>
               {item.description}
             </span>
             <span className='text-muted-foreground mt-2 block text-xs'>
-              {t('Provider account {{id}}', { id: item.owner_id })}
+              {item.execution_type === 'builtin'
+                ? t('Platform builtin')
+                : t('Provider account {{id}}', { id: item.owner_id })}
             </span>
           </span>
-          <span className='flex shrink-0 items-center gap-2'>
-            <Badge variant='outline'>
-              {item.execution_type === 'remote'
-                ? 'Remote MCP'
-                : 'Serverless MCP'}
-            </Badge>
+          <span className='flex min-w-0 items-center justify-between gap-3 sm:justify-end'>
+            <span className='flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 sm:justify-end'>
+              <Badge variant='outline' className='max-w-full whitespace-normal'>
+                {item.execution_type === 'builtin'
+                  ? t('Free tool calls')
+                  : item.execution_type === 'remote'
+                    ? 'Remote MCP'
+                    : 'Serverless MCP'}
+              </Badge>
+              {item.tool_count !== undefined && (
+                <span className='text-muted-foreground text-xs tabular-nums'>
+                  {t('{{count}} tools', { count: item.tool_count })}
+                </span>
+              )}
+              {item.execution_type !== 'builtin' &&
+                item.min_price_quota !== undefined &&
+                item.max_price_quota !== undefined && (
+                  <span className='basis-full text-sm font-medium break-words tabular-nums sm:text-right'>
+                    {item.max_price_quota === 0
+                      ? t('Free tool')
+                      : t('{{amount}} credits per successful call', {
+                          amount:
+                            item.min_price_quota === item.max_price_quota
+                              ? creditAmount(item.min_price_quota, units)
+                              : `${creditAmount(item.min_price_quota, units)} – ${creditAmount(item.max_price_quota, units)}`,
+                        })}
+                  </span>
+                )}
+            </span>
             <ChevronRight
               aria-hidden='true'
-              className='text-muted-foreground size-4 transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none'
+              className='text-muted-foreground size-4 shrink-0 transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none'
             />
           </span>
         </button>
@@ -237,19 +348,24 @@ export function ToolMarket() {
     <SectionPageLayout>
       <SectionPageLayout.Title>{t('Tool market')}</SectionPageLayout.Title>
       <SectionPageLayout.Actions>
-        <Button variant='outline' onClick={() => chooseTab('connections')}>
+        <Button
+          variant='outline'
+          className='min-h-11'
+          onClick={() => chooseTab('connections')}
+        >
           {t('Connect MCP')}
         </Button>
         <Button
           variant={selected || editor ? 'outline' : 'default'}
+          className='min-h-11'
           onClick={openPublisher}
         >
           {t('Publish a tool')}
         </Button>
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
-        <div className='space-y-6'>
-          <p className='text-muted-foreground max-w-3xl text-sm'>
+        <div className='mx-auto w-full max-w-6xl space-y-6'>
+          <p className='text-muted-foreground max-w-[70ch] text-sm leading-6'>
             {t(
               'Discover MCP tools, choose what each client can use, and pay only for successful calls.'
             )}
@@ -266,19 +382,29 @@ export function ToolMarket() {
           )}
           {config.data && !config.data.enabled && (
             <Alert>
-              <AlertTitle>{t('New tool calls are paused')}</AlertTitle>
+              <AlertTitle>{t('Remote tool calls are paused.')}</AlertTitle>
               <AlertDescription>
                 {t(
-                  'You can still browse tools and manage drafts, connections and existing records.'
+                  'Remote tool calls are paused. Free platform tools remain available; model generation and transfers keep their own charges.'
                 )}
               </AlertDescription>
+              {(user?.role ?? 0) >= 100 && (
+                <Button
+                  variant='outline'
+                  className='mt-3'
+                  onClick={() => chooseTab('review')}
+                >
+                  {t('Configure market')}
+                </Button>
+              )}
             </Alert>
           )}
           {editor ? (
             <ServiceEditor
               key={selected?.id ?? 'new'}
-              initial={selected ? current : undefined}
+              initial={editorInitial}
               units={units}
+              feeBps={config.data?.fee_bps}
               onCancel={() => setEditor(false)}
               onSaved={(id) => {
                 setEditor(false)
@@ -290,8 +416,8 @@ export function ToolMarket() {
               value={tab}
               onValueChange={(value) => chooseTab(String(value))}
             >
-              <div className='max-w-full overflow-x-auto'>
-                <TabsList variant='line'>
+              <div className='max-w-full overflow-x-auto border-b pb-1'>
+                <TabsList variant='line' className='min-h-11'>
                   <TabsTrigger value='market'>{t('Discover')}</TabsTrigger>
                   <TabsTrigger value='mine'>{t('My publications')}</TabsTrigger>
                   <TabsTrigger value='connections'>
@@ -327,17 +453,19 @@ export function ToolMarket() {
                   {current && (
                     <>
                       <div className='flex flex-wrap items-start justify-between gap-4'>
-                        <div className='min-w-0 space-y-2'>
+                        <div className='min-w-0 flex-1 basis-64 space-y-2'>
                           <h3 className='text-xl font-semibold break-words'>
                             {current.version.name}
                           </h3>
-                          <p className='text-muted-foreground max-w-3xl text-sm whitespace-pre-wrap'>
+                          <p className='text-muted-foreground max-w-[70ch] text-sm leading-6 break-words whitespace-pre-wrap'>
                             {current.version.description}
                           </p>
                           <p className='text-muted-foreground text-xs'>
-                            {t('Provider account {{id}}', {
-                              id: current.service.owner_id,
-                            })}
+                            {current.version.execution_type === 'builtin'
+                              ? t('Platform builtin')
+                              : t('Provider account {{id}}', {
+                                  id: current.service.owner_id,
+                                })}
                           </p>
                         </div>
                         <Badge variant='secondary'>
@@ -345,13 +473,14 @@ export function ToolMarket() {
                           {marketStatus(current.version.status, t)}
                         </Badge>
                       </div>
-                      <dl className='grid gap-3 text-sm sm:grid-cols-2'>
+                      <dl className='bg-muted/40 grid gap-4 rounded-lg p-4 text-sm sm:grid-cols-2'>
                         <div>
                           <dt className='text-muted-foreground'>
                             {t('Data recipient')}
                           </dt>
                           <dd className='break-all'>
-                            {current.version.endpoint}
+                            {current.version.endpoint ||
+                              t('Runs on this platform')}
                           </dd>
                         </div>
                         <div>
@@ -363,24 +492,46 @@ export function ToolMarket() {
                           </dd>
                         </div>
                       </dl>
+                      {current.version.execution_type === 'builtin' && (
+                        <Alert>
+                          <AlertTitle>{t('Free tool calls')}</AlertTitle>
+                          <AlertDescription>
+                            {t(
+                              'Platform tools do not charge a tool fee. Model generation and transfers still use their normal pricing and require confirmation.'
+                            )}
+                          </AlertDescription>
+                        </Alert>
+                      )}
                       {selected.mode === 'published' ? (
                         <>
                           <Field className='max-w-md'>
                             <FieldLabel htmlFor='market-active-client'>
                               {t('Client ID')}
                             </FieldLabel>
-                            <Input
+                            <select
                               id='market-active-client'
                               value={client}
-                              maxLength={128}
+                              className='border-input bg-background focus-visible:ring-ring min-h-11 w-full rounded-md border px-3 text-base outline-none focus-visible:ring-2 sm:text-sm'
                               onChange={(e) => setClient(e.target.value)}
-                            />
+                            >
+                              {clients.map((id) => (
+                                <option key={id} value={id}>
+                                  {id === 'web-market' ? t('This browser') : id}
+                                </option>
+                              ))}
+                            </select>
                             <p className='text-muted-foreground text-xs'>
                               {t(
-                                'Use web-market for this browser, or the client ID from your MCP connection.'
+                                'Choose this browser to try a tool, or a connected client to give it access.'
                               )}
                             </p>
                           </Field>
+                          <Button
+                            variant='outline'
+                            onClick={() => chooseTab('connections')}
+                          >
+                            {t('Connect another client')}
+                          </Button>
                           <Button
                             variant='outline'
                             disabled={action.isPending}
@@ -401,14 +552,16 @@ export function ToolMarket() {
                               ? t('Remove favorite')
                               : t('Favorite')}
                           </Button>
-                          {current.service.owner_id === user?.id && (
-                            <Button
-                              variant='outline'
-                              onClick={() => setEditor(true)}
-                            >
-                              {t('Edit draft')}
-                            </Button>
-                          )}
+                          {current.service.owner_id === user?.id &&
+                            current.version.execution_type !== 'builtin' && (
+                              <Button
+                                variant='outline'
+                                disabled={action.isPending}
+                                onClick={() => action.mutate(editDraft)}
+                              >
+                                {t('Edit draft')}
+                              </Button>
+                            )}
                         </>
                       ) : (
                         <div className='space-y-3'>
@@ -434,7 +587,7 @@ export function ToolMarket() {
                                   action.isPending ||
                                   current.version.status === 'pending'
                                 }
-                                onClick={() => setEditor(true)}
+                                onClick={() => action.mutate(editDraft)}
                               >
                                 {t('Edit draft')}
                               </Button>
@@ -466,6 +619,31 @@ export function ToolMarket() {
                               >
                                 {t('Submit for review')}
                               </Button>
+                              {current.version.visibility === 'private' &&
+                                current.tools.every(
+                                  (tool) => tool.price_quota === 0
+                                ) && (
+                                  <Button
+                                    disabled={
+                                      action.isPending ||
+                                      current.version.status === 'pending'
+                                    }
+                                    onClick={() =>
+                                      action.mutate(async () => {
+                                        await marketAPI.activate(
+                                          current.service.id,
+                                          current.version.id
+                                        )
+                                        setSelected({
+                                          id: current.service.id,
+                                          mode: 'published',
+                                        })
+                                      })
+                                    }
+                                  >
+                                    {t('Validate and enable only for me')}
+                                  </Button>
+                                )}
                             </div>
                           ) : (
                             <FieldGroup>
@@ -527,7 +705,9 @@ export function ToolMarket() {
                       )}
                       <Separator />
                       {selected.mode === 'published' &&
-                        (installs.isPending || grants.isPending) && (
+                        (installs.isPending ||
+                          grants.isPending ||
+                          oauthClients.isPending) && (
                           <p
                             role='status'
                             className='text-muted-foreground text-sm'
@@ -536,7 +716,9 @@ export function ToolMarket() {
                           </p>
                         )}
                       {selected.mode === 'published' &&
-                        (installs.isError || grants.isError) && (
+                        (installs.isError ||
+                          grants.isError ||
+                          oauthClients.isError) && (
                           <div role='alert' className='space-y-2 text-sm'>
                             <p className='text-destructive'>
                               {t(
@@ -549,6 +731,7 @@ export function ToolMarket() {
                                 void Promise.allSettled([
                                   installs.refetch(),
                                   grants.refetch(),
+                                  oauthClients.refetch(),
                                 ])
                               }
                             >
@@ -571,19 +754,34 @@ export function ToolMarket() {
                             !item.revoked_at &&
                             item.expires_at > Date.now() / 1000
                         )
+                        const availableGrant =
+                          !!grant &&
+                          grant.max_calls >
+                            grant.successful_calls +
+                              (grant.reserved_calls ?? 0) &&
+                          grant.max_total_quota -
+                            grant.spent_quota -
+                            grant.reserved_quota >=
+                            tool.price_quota &&
+                          grant.max_price_quota >= tool.price_quota
+                        const callsEnabled =
+                          !!config.data &&
+                          (current.version.execution_type === 'builtin'
+                            ? config.data.builtin_enabled !== false
+                            : config.data.enabled)
                         return (
                           <article
                             key={tool.tool_id}
-                            className='space-y-3 border-b pb-5'
+                            className='min-w-0 space-y-3 border-b py-5 first:pt-0'
                             data-tool-version={tool.version_id}
                           >
                             <div className='flex flex-wrap justify-between gap-3'>
-                              <h4 className='font-semibold break-all'>
+                              <h4 className='min-w-0 flex-1 basis-48 font-semibold break-all'>
                                 {tool.name}
                               </h4>
-                              <p className='text-sm tabular-nums'>
+                              <p className='text-sm font-medium tabular-nums'>
                                 {tool.price_quota === 0
-                                  ? t('Free')
+                                  ? t('Free tool')
                                   : t(
                                       '{{amount}} credits per successful call',
                                       {
@@ -595,7 +793,7 @@ export function ToolMarket() {
                                     )}
                               </p>
                             </div>
-                            <p className='text-muted-foreground text-sm whitespace-pre-wrap'>
+                            <p className='text-muted-foreground max-w-[70ch] text-sm leading-6 break-words whitespace-pre-wrap'>
                               {tool.description}
                             </p>
                             <p className='text-muted-foreground text-xs break-words'>
@@ -603,15 +801,15 @@ export function ToolMarket() {
                               {marketPermissionList(tool.permissions, t)}
                             </p>
                             <details className='text-sm'>
-                              <summary className='cursor-pointer'>
+                              <summary className='focus-visible:ring-ring w-fit cursor-pointer rounded-sm py-2 font-medium outline-none focus-visible:ring-2'>
                                 {t('Parameter schema')}
                               </summary>
-                              <pre className='bg-muted mt-2 max-h-56 overflow-auto p-3 text-xs'>
-                                {JSON.stringify(
-                                  JSON.parse(tool.input_schema),
-                                  null,
-                                  2
-                                )}
+                              <pre
+                                className='bg-muted mt-2 max-h-56 overflow-auto rounded-lg p-3 text-xs leading-5'
+                                tabIndex={0}
+                                aria-label={t('Parameter schema')}
+                              >
+                                {tool.input_schema}
                               </pre>
                             </details>
                             {selected.mode === 'published' && (
@@ -645,23 +843,60 @@ export function ToolMarket() {
                                 >
                                   {grant
                                     ? t('New authorization')
-                                    : t('Authorize')}
+                                    : t('Add and authorize tool')}
                                 </Button>
                                 {client === 'web-market' && (
                                   <Button
                                     disabled={
                                       !accessReady ||
                                       !loaded ||
-                                      !grant ||
-                                      !config.data?.enabled
+                                      !availableGrant ||
+                                      !callsEnabled
                                     }
                                     onClick={() =>
-                                      grant && setCallTool({ tool, grant })
+                                      grant &&
+                                      setCallTool({
+                                        tool,
+                                        grant,
+                                        endpoint: current.version.endpoint,
+                                      })
                                     }
                                   >
-                                    {t('Run tool')}
+                                    {tool.price_quota === 0
+                                      ? t('Run free tool')
+                                      : t('Run tool')}
                                   </Button>
                                 )}
+                                {grant && (
+                                  <Button
+                                    variant='ghost'
+                                    disabled={action.isPending || !accessReady}
+                                    onClick={() =>
+                                      action.mutate(() =>
+                                        marketAPI.revokeGrant(grant.id)
+                                      )
+                                    }
+                                  >
+                                    {t('Revoke authorization')}
+                                  </Button>
+                                )}
+                                <p className='text-muted-foreground basis-full text-xs'>
+                                  {!loaded
+                                    ? t(
+                                        'Add this tool to the selected client to make it available.'
+                                      )
+                                    : !availableGrant
+                                      ? t(
+                                          'Authorize this version with a remaining call and spending allowance.'
+                                        )
+                                      : !callsEnabled
+                                        ? t('Remote tool calls are paused.')
+                                        : client !== 'web-market'
+                                          ? t(
+                                              'Ready in this client. Refresh its tool list.'
+                                            )
+                                          : t('Ready to run in this browser.')}
+                                </p>
                               </div>
                             )}
                           </article>
@@ -672,37 +907,156 @@ export function ToolMarket() {
                 </section>
               ) : (
                 <>
-                  <TabsContent value='market' className='space-y-4 pt-4'>
-                    <form
-                      className='flex gap-2'
-                      onSubmit={(e) => {
-                        e.preventDefault()
-                        setSearch(searchInput)
-                        setOffset(0)
-                      }}
+                  <TabsContent value='market' className='space-y-5 pt-4'>
+                    <div className='grid items-end gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]'>
+                      <form
+                        className='min-w-0'
+                        onSubmit={(e) => {
+                          e.preventDefault()
+                          setSearch(searchInput)
+                          setOffset(0)
+                        }}
+                      >
+                        <Field>
+                          <FieldLabel htmlFor='market-search'>
+                            {t('Search tools')}
+                          </FieldLabel>
+                          <div className='flex gap-2'>
+                            <div className='relative min-w-0 flex-1'>
+                              <Search
+                                aria-hidden='true'
+                                className='text-muted-foreground pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2'
+                              />
+                              <Input
+                                id='market-search'
+                                placeholder={t('Search tools')}
+                                value={searchInput}
+                                maxLength={120}
+                                className='min-h-11 ps-9 text-base sm:text-sm'
+                                onChange={(e) => setSearchInput(e.target.value)}
+                              />
+                            </div>
+                            <Button
+                              variant='outline'
+                              type='submit'
+                              className='min-h-11'
+                            >
+                              {t('Search')}
+                            </Button>
+                          </div>
+                        </Field>
+                      </form>
+                      <Field>
+                        <FieldLabel htmlFor='market-catalog-client'>
+                          {t('Client ID')}
+                        </FieldLabel>
+                        <select
+                          id='market-catalog-client'
+                          className='border-input bg-background focus-visible:ring-ring min-h-11 w-full rounded-md border px-3 text-base outline-none focus-visible:ring-2 sm:text-sm'
+                          value={client}
+                          onChange={(event) => setClient(event.target.value)}
+                        >
+                          {clients.map((id) => (
+                            <option key={id} value={id}>
+                              {id === 'web-market' ? t('This browser') : id}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                    </div>
+                    <div
+                      className='flex flex-wrap items-center gap-2'
+                      role='group'
+                      aria-label={t('All tools')}
                     >
-                      <Input
-                        aria-label={t('Search tools')}
-                        placeholder={t('Search tools')}
-                        value={searchInput}
-                        maxLength={120}
-                        onChange={(e) => setSearchInput(e.target.value)}
-                      />
-                      <Button variant='outline' type='submit'>
-                        {t('Search')}
+                      <Button
+                        variant={executionType === '' ? 'secondary' : 'outline'}
+                        aria-pressed={executionType === ''}
+                        className='min-h-11'
+                        onClick={() => {
+                          setExecutionType('')
+                          setOffset(0)
+                        }}
+                      >
+                        {t('All tools')}
                       </Button>
-                    </form>
-                    {catalog.isPending && <p role='status'>{t('Loading…')}</p>}
+                      <Button
+                        variant={
+                          executionType === 'builtin' ? 'secondary' : 'outline'
+                        }
+                        aria-pressed={executionType === 'builtin'}
+                        className='min-h-11'
+                        onClick={() => {
+                          setExecutionType('builtin')
+                          setOffset(0)
+                        }}
+                      >
+                        {t('Platform builtin')}
+                      </Button>
+                      <Button
+                        variant={
+                          executionType === 'remote' ? 'secondary' : 'outline'
+                        }
+                        aria-pressed={executionType === 'remote'}
+                        className='min-h-11'
+                        onClick={() => {
+                          setExecutionType('remote')
+                          setOffset(0)
+                        }}
+                      >
+                        {t('Remote MCP')}
+                      </Button>
+                      {(search || executionType) && (
+                        <Button
+                          variant='ghost'
+                          className='min-h-11'
+                          onClick={() => {
+                            setSearch('')
+                            setSearchInput('')
+                            setExecutionType('')
+                            setOffset(0)
+                          }}
+                        >
+                          {t('Clear filters')}
+                        </Button>
+                      )}
+                    </div>
+                    {catalog.isPending && (
+                      <div
+                        role='status'
+                        className='divide-border divide-y border-y'
+                      >
+                        <span className='sr-only'>{t('Loading…')}</span>
+                        {[0, 1, 2].map((row) => (
+                          <div
+                            key={row}
+                            aria-hidden='true'
+                            className='space-y-3 px-3 py-5 sm:px-4'
+                          >
+                            <Skeleton className='h-5 w-40 rounded-sm' />
+                            <Skeleton className='h-4 w-full max-w-xl rounded-sm' />
+                            <Skeleton className='h-3 w-24 rounded-sm' />
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     {catalog.isError && (
-                      <p role='alert'>
-                        {t('Could not load tools.')}{' '}
+                      <div
+                        role='alert'
+                        className='bg-muted/40 flex flex-wrap items-center gap-3 rounded-lg p-4 text-sm'
+                      >
+                        <XCircle
+                          aria-hidden='true'
+                          className='text-destructive size-4 shrink-0'
+                        />
+                        <p className='flex-1'>{t('Could not load tools.')}</p>
                         <Button
                           variant='outline'
                           onClick={() => void catalog.refetch()}
                         >
                           {t('Retry')}
                         </Button>
-                      </p>
+                      </div>
                     )}
                     {catalog.data?.length === 0 && (
                       <Empty className='px-3 py-10'>
@@ -727,22 +1081,25 @@ export function ToolMarket() {
                           <Button
                             variant='outline'
                             onClick={
-                              search
+                              search || executionType
                                 ? () => {
                                     setSearch('')
                                     setSearchInput('')
+                                    setExecutionType('')
                                     setOffset(0)
                                   }
                                 : openPublisher
                             }
                           >
-                            {search ? t('Clear filters') : t('Publish a tool')}
+                            {search || executionType
+                              ? t('Clear filters')
+                              : t('Publish a tool')}
                           </Button>
                         </EmptyContent>
                       </Empty>
                     )}
-                    {catalog.data && browse(catalog.data)}
-                    <div className='flex justify-end gap-2'>
+                    {!!catalog.data?.length && browse(catalog.data)}
+                    <div className='flex justify-between gap-2 sm:justify-end'>
                       <Button
                         variant='outline'
                         disabled={offset === 0}
@@ -760,13 +1117,20 @@ export function ToolMarket() {
                     </div>
                     {!!favorites.data?.length && (
                       <>
-                        <h3 className='font-semibold'>{t('Favorites')}</h3>
+                        <h3 className='pt-4 font-semibold'>{t('Favorites')}</h3>
                         {browse(favorites.data)}
                       </>
                     )}
                   </TabsContent>
                   <TabsContent value='mine' className='space-y-4 pt-4'>
-                    {mine.isPending && <p>{t('Loading…')}</p>}
+                    {mine.isPending && (
+                      <p
+                        role='status'
+                        className='text-muted-foreground py-6 text-sm'
+                      >
+                        {t('Loading…')}
+                      </p>
+                    )}
                     {mine.isError && (
                       <div
                         role='alert'
@@ -805,9 +1169,9 @@ export function ToolMarket() {
                     {mine.data?.map((item) => (
                       <div
                         key={item.id}
-                        className='flex flex-wrap items-center justify-between gap-3 border-b py-4'
+                        className='flex flex-wrap items-center justify-between gap-4 border-b py-5'
                       >
-                        <div className='min-w-0'>
+                        <div className='min-w-0 flex-1 basis-48 space-y-1.5'>
                           <p className='font-medium break-all'>
                             {item.name || item.id}
                           </p>
@@ -816,7 +1180,7 @@ export function ToolMarket() {
                             {marketStatus(item.status, t)}
                           </p>
                         </div>
-                        <div className='flex gap-2'>
+                        <div className='flex flex-wrap gap-2'>
                           {item.draft_version_id && (
                             <Button
                               variant='outline'
@@ -863,7 +1227,12 @@ export function ToolMarket() {
                     ))}
                   </TabsContent>
                   <TabsContent value='connections' className='pt-4'>
-                    {config.data && <MarketConnections config={config.data} />}
+                    {config.data && (
+                      <MarketConnections
+                        config={config.data}
+                        onChooseClient={chooseClient}
+                      />
+                    )}
                   </TabsContent>
                   <TabsContent value='records' className='space-y-6 pt-4'>
                     {(calls.isPending || income.isPending) && (
@@ -934,6 +1303,24 @@ export function ToolMarket() {
                         </Button>
                       </div>
                     ))}
+                    <div className='flex justify-end gap-2'>
+                      <Button
+                        variant='outline'
+                        disabled={callsOffset === 0 || calls.isPending}
+                        onClick={() =>
+                          setCallsOffset(Math.max(0, callsOffset - 30))
+                        }
+                      >
+                        {t('Previous')}
+                      </Button>
+                      <Button
+                        variant='outline'
+                        disabled={calls.data?.length !== 30 || calls.isPending}
+                        onClick={() => setCallsOffset(callsOffset + 30)}
+                      >
+                        {t('Next')}
+                      </Button>
+                    </div>
                     {record && <CallResult response={record} units={units} />}
                     <h3 className='font-semibold'>{t('Income transfers')}</h3>
                     {income.data?.length === 0 && (
@@ -957,6 +1344,26 @@ export function ToolMarket() {
                         </span>
                       </div>
                     ))}
+                    <div className='flex justify-end gap-2'>
+                      <Button
+                        variant='outline'
+                        disabled={incomeOffset === 0 || income.isPending}
+                        onClick={() =>
+                          setIncomeOffset(Math.max(0, incomeOffset - 30))
+                        }
+                      >
+                        {t('Previous')}
+                      </Button>
+                      <Button
+                        variant='outline'
+                        disabled={
+                          income.data?.length !== 30 || income.isPending
+                        }
+                        onClick={() => setIncomeOffset(incomeOffset + 30)}
+                      >
+                        {t('Next')}
+                      </Button>
+                    </div>
                   </TabsContent>
                   {(user?.role ?? 0) >= 10 && (
                     <TabsContent value='review' className='space-y-6 pt-4'>
@@ -1022,11 +1429,20 @@ export function ToolMarket() {
             </p>
           )}
           {action.isError && (
-            <p role='alert' className='text-destructive text-sm'>
-              {t(
-                'The operation failed. Check the current status, permissions and configuration, then retry.'
-              )}
-            </p>
+            <div role='alert' className='space-y-2 text-sm'>
+              <p className='text-destructive'>
+                {t(marketErrorKey(action.error))}
+              </p>
+              <Button
+                variant='outline'
+                onClick={() => {
+                  action.reset()
+                  void cache.invalidateQueries({ queryKey: key })
+                }}
+              >
+                {t('Refresh')}
+              </Button>
+            </div>
           )}
           {grantTool && current && (
             <GrantDialog
@@ -1037,11 +1453,14 @@ export function ToolMarket() {
               onClose={() => setGrantTool(null)}
             />
           )}
-          {callTool && current && (
+          {callTool && (
             <CallDialog
               tool={callTool.tool}
-              grant={callTool.grant}
-              endpoint={current.version.endpoint}
+              grant={
+                grants.data?.find((row) => row.id === callTool.grant.id) ??
+                callTool.grant
+              }
+              endpoint={callTool.endpoint}
               units={units}
               onClose={() => setCallTool(null)}
             />
@@ -1055,9 +1474,12 @@ export function ToolMarket() {
 function MarketSettings({ config }: { config: MarketConfig }) {
   const { t } = useTranslation()
   const cache = useQueryClient()
+  const userID = useAuthStore((state) => state.auth.user?.id)
   const [enabled, setEnabled] = useState(config.enabled)
   const [fee, setFee] = useState(String(config.fee_bps / 100))
-  const [recipient, setRecipient] = useState(String(config.recipient_id || ''))
+  const [recipient, setRecipient] = useState(
+    String(config.recipient_id || userID || '')
+  )
   const save = useMutation({
     retry: false,
     mutationFn: () => {
@@ -1140,7 +1562,7 @@ function MarketSettings({ config }: { config: MarketConfig }) {
               )}
             </p>
           )}
-          <Button disabled={save.isPending}>
+          <Button type='submit' disabled={save.isPending}>
             {t('Confirm market settings')}
           </Button>
         </FieldGroup>

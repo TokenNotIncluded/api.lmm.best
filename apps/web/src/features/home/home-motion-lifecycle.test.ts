@@ -126,6 +126,17 @@ function fixture() {
       reduced.matches = value
       for (const listener of listeners) listener()
     },
+    resize(width: number, height: number) {
+      Object.defineProperty(view, 'innerWidth', {
+        configurable: true,
+        value: width,
+      })
+      Object.defineProperty(view, 'innerHeight', {
+        configurable: true,
+        value: height,
+      })
+      view.dispatchEvent(new view.Event('resize'))
+    },
     tick(now = 100) {
       const pending = [...frames.values()]
       frames.clear()
@@ -227,6 +238,81 @@ test('scene controls open a chapter without scrolling and preserve keyboard acce
     assert.equal(
       page.root.querySelector<HTMLElement>('[data-cinema-panel="0"]')?.inert,
       true
+    )
+  } finally {
+    page.close()
+  }
+})
+
+for (const [width, height] of [
+  [390, 844],
+  [360, 640],
+  [844, 390],
+]) {
+  test(`the ${width} by ${height} mobile content flow keeps every scene accessible`, () => {
+    const page = fixture()
+    try {
+      page.resize(width, height)
+      page.mount()
+      page.visible(true)
+      page.tick()
+      const panels = [
+        ...page.root.querySelectorAll<HTMLElement>('[data-cinema-panel]'),
+      ]
+      assert.equal(panels.length, 2)
+      assert.deepEqual(
+        panels.map((panel) => panel.inert),
+        [false, false]
+      )
+      assert.deepEqual(
+        panels.map((panel) => panel.getAttribute('aria-hidden')),
+        ['false', 'false']
+      )
+      page.root
+        .querySelector<HTMLButtonElement>('[data-cinema-jump="1"]')
+        ?.click()
+      page.tick(200)
+      assert.deepEqual(
+        panels.map((panel) => panel.inert),
+        [false, false],
+        'chapter selection must not hide phone content that remains in document flow'
+      )
+    } finally {
+      page.close()
+    }
+  })
+}
+
+test('resizing the desktop scene into a phone restores every scene to the reading flow', () => {
+  const page = fixture()
+  try {
+    page.resize(1280, 900)
+    page.mount()
+    page.visible(true)
+    page.tick()
+    const panels = [
+      ...page.root.querySelectorAll<HTMLElement>('[data-cinema-panel]'),
+    ]
+    assert.deepEqual(
+      panels.map((panel) => panel.inert),
+      [false, true]
+    )
+    page.resize(390, 844)
+    page.tick(200)
+    assert.deepEqual(
+      panels.map((panel) => panel.inert),
+      [false, false]
+    )
+    assert.deepEqual(
+      panels.map((panel) => panel.getAttribute('aria-hidden')),
+      ['false', 'false']
+    )
+    page.resize(1280, 900)
+    page.tick(300)
+    assert.deepEqual(
+      panels.map((panel) => panel.inert),
+      [false, true],
+      'returning to desktop preserves the existing one-scene interaction'
     )
   } finally {
     page.close()

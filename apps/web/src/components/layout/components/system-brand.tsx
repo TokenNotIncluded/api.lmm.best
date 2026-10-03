@@ -20,6 +20,7 @@ import { Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
 import { BrandLogo } from '@/components/brand-logo'
+import { LmmBrandWordmark } from '@/components/lmm-brand-wordmark'
 import {
   SidebarMenu,
   SidebarMenuButton,
@@ -28,6 +29,11 @@ import {
 import { useStatus } from '@/hooks/use-status'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { getBuildVersion } from '@/lib/build-metadata'
+import {
+  DEFAULT_SYSTEM_NAME,
+  isDefaultLogo,
+  resolveSystemName,
+} from '@/lib/constants'
 import { cn } from '@/lib/utils'
 
 type SystemBrandProps = {
@@ -41,7 +47,8 @@ export function SystemBrand(props: SystemBrandProps) {
   const { status } = useStatus()
   const { logo, systemName } = useSystemConfig()
   const variant = props.variant ?? 'sidebar'
-  const name = systemName || props.defaultName || 'LMM Best'
+  const name = resolveSystemName(systemName || props.defaultName)
+  const usesDefaultBrand = name === DEFAULT_SYSTEM_NAME && isDefaultLogo(logo)
   const apiVersion =
     status?.version || props.defaultVersion || t('Unknown version')
   const webVersion = getBuildVersion()
@@ -56,12 +63,29 @@ export function SystemBrand(props: SystemBrandProps) {
             tooltip={t('Go to home')}
             render={<Link to='/' aria-label={t('Go to home')} />}
           >
-            <span className='flex size-5 shrink-0 items-center justify-center'>
-              <BrandLogo src={logo} className='size-full object-contain' />
+            <span
+              className={cn(
+                'flex size-5 shrink-0 items-center justify-center',
+                usesDefaultBrand &&
+                  'md:hidden group-data-[collapsible=icon]:flex'
+              )}
+            >
+              <BrandLogo src={logo} className='size-full! object-contain' />
             </span>
-            <span className='truncate group-data-[collapsible=icon]:hidden'>
+            <span
+              className={cn(
+                'truncate group-data-[collapsible=icon]:hidden',
+                usesDefaultBrand && 'md:hidden'
+              )}
+            >
               {name}
             </span>
+            {usesDefaultBrand && (
+              <LmmBrandWordmark
+                title={name}
+                className='hidden h-[21px]! w-auto! group-data-[collapsible=icon]:hidden md:block'
+              />
+            )}
           </SidebarMenuButton>
         </SidebarMenuItem>
       </SidebarMenu>
@@ -78,10 +102,24 @@ export function SystemBrand(props: SystemBrandProps) {
           'hover:bg-accent focus-visible:ring-ring/40 focus-visible:ring-2'
         )}
       >
-        <div className='flex size-5 items-center justify-center'>
+        <div
+          className={cn(
+            'flex size-5 items-center justify-center',
+            usesDefaultBrand && 'sm:hidden'
+          )}
+        >
           <BrandLogo src={logo} className='size-full object-contain' />
         </div>
-        <span className='hidden max-w-[12rem] truncate sm:inline'>{name}</span>
+        {usesDefaultBrand ? (
+          <LmmBrandWordmark
+            title={name}
+            className='hidden h-[21px] w-auto sm:block'
+          />
+        ) : (
+          <span className='hidden max-w-[12rem] truncate sm:inline'>
+            {name}
+          </span>
+        )}
       </Link>
     )
   }
@@ -94,11 +132,26 @@ export function SystemBrand(props: SystemBrandProps) {
           className='hover:text-sidebar-foreground active:text-sidebar-foreground cursor-default hover:bg-transparent active:bg-transparent'
           render={<div />}
         >
-          <div className='flex aspect-square size-8 items-center justify-center'>
-            <BrandLogo src={logo} className='size-full object-contain' />
+          <div
+            className={cn(
+              'flex aspect-square size-8 items-center justify-center',
+              usesDefaultBrand && 'md:hidden group-data-[collapsible=icon]:flex'
+            )}
+          >
+            <BrandLogo src={logo} className='size-full! object-contain' />
           </div>
           <div className='grid flex-1 text-start text-sm leading-tight group-data-[collapsible=icon]:hidden'>
-            <span className='truncate font-semibold'>{name}</span>
+            {usesDefaultBrand ? (
+              <>
+                <LmmBrandWordmark
+                  title={name}
+                  className='hidden h-[21px]! w-auto! md:block'
+                />
+                <span className='truncate font-semibold md:hidden'>{name}</span>
+              </>
+            ) : (
+              <span className='truncate font-semibold'>{name}</span>
+            )}
             <span className='truncate text-xs'>{version}</span>
           </div>
         </SidebarMenuButton>

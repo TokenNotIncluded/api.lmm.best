@@ -100,7 +100,7 @@ describe('applyFaviconToDom', () => {
 })
 
 describe('entry favicon declaration', () => {
-  test('index.html declares the LMM Best mark as the initial icon', () => {
+  test('index.html declares the LMM Forge cut mark as the initial icon', () => {
     const html = readFileSync(
       join(import.meta.dirname, '../../index.html'),
       'utf8'
@@ -108,7 +108,7 @@ describe('entry favicon declaration', () => {
 
     assert.match(
       html,
-      /<link rel="icon" type="image\/svg\+xml" href="\/lmm-best-mark\.svg" \/>/
+      /<link rel="icon" type="image\/svg\+xml" href="\/lmm-cut-mark\.svg" \/>/
     )
   })
 })

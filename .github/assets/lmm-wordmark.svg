@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="718" height="104" viewBox="0 -2 718 104" role="img" aria-labelledby="lmm-wordmark-title lmm-wordmark-desc">
+  <title id="lmm-wordmark-title">LMM Forge</title>
+  <desc id="lmm-wordmark-desc">LMM Forge in original uppercase lettering with broad M counterforms, squared bowls, and diagonal terminal cuts.</desc>
+  <style>
+    .ink { fill: #000; }
+    @media (prefers-color-scheme: dark) { .ink { fill: #fff; } }
+  </style>
+  <g class="ink" fill-rule="evenodd">
+    <g id="lmm">
+      <path d="M0 0H20V80H62V88L50 100H0Z"/>
+      <path transform="translate(70 0)" d="M0 100V0H22L45 34L68 0H90V100H70V34L45 67L20 34V100Z"/>
+      <path transform="translate(172 0)" d="M0 100V0H22L45 34L68 0H90V100H70V34L45 67L20 34V100Z"/>
+    </g>
+    <g id="forge" transform="translate(302 0)">
+      <path d="M0 0H64V18H20V42H55V60H20V100H0Z"/>
+      <path transform="translate(76 0)" d="M14 -1H64L78 13V87L64 101H14L0 87V13Z M22 18L20 20V80L22 82H56L58 80V20L56 18Z"/>
+      <path transform="translate(168 0)" d="M0 0H55L74 19V42L59 57H45L78 100H54L20 57V100H0Z M20 18V39H47L54 32V25L47 18Z"/>
+      <path transform="translate(258 0)" d="M14 -1H64L78 13V29H58V20L56 18H22L20 20V80L22 82H56L58 80V64H43V46H78V87L64 101H14L0 87V13Z"/>
+      <path transform="translate(350 0)" d="M0 0H66V18H20V41H57V59H20V82H66V88L54 100H0Z"/>
+    </g>
+  </g>
+</svg>

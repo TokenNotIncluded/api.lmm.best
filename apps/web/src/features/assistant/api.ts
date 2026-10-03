@@ -35,9 +35,20 @@ import {
   consumeAssistantAISDKStream,
   isRetryableAssistantStatus,
 } from './assistant-ai-stream'
+import {
+  parseAssistantKeyManagementAction,
+  parseAssistantKeyManagementReceipt,
+  type AssistantKeyManagementAction,
+  type AssistantKeyManagementReceipt,
+} from './assistant-key-management-contract'
 import { redactAssistantMessageForRequest } from './assistant-message-safety'
 import { ASSISTANT_PROMPT_PRESET_COPY_VERSION } from './assistant-prompt-presets'
 import type { AssistantSupportRequest } from './assistant-support-api'
+
+export type {
+  AssistantKeyManagementAction,
+  AssistantKeyManagementReceipt,
+} from './assistant-key-management-contract'
 
 type AssistantChatPayload = {
   choices?: Array<{
@@ -414,6 +425,13 @@ export type AssistantUserPasswordChangeAction = AssistantUserTargetAction & {
   type: 'user_password_change'
 }
 
+export type AssistantUserDisplayNameChangeAction = AssistantUserTargetAction & {
+  type: 'user_display_name_change'
+  target_is_self: true
+  proposed_display_name: string
+  confirmation_token: string
+}
+
 export type AssistantUserOAuthUnbindAction = AssistantUserTargetAction & {
   type: 'user_oauth_unbind'
   provider: string
@@ -428,6 +446,7 @@ export type AssistantUserAccountAction = AssistantUserTargetAction & {
 
 export type AssistantUserAction =
   | AssistantUserPasswordChangeAction
+  | AssistantUserDisplayNameChangeAction
   | AssistantUserOAuthUnbindAction
   | AssistantUserAccountAction
 
@@ -445,6 +464,7 @@ export type AssistantAction =
   | AssistantAccountDisableAction
   | AssistantHumanSupportAction
   | AssistantCreateKeyAction
+  | AssistantKeyManagementAction
   | AssistantNewUserGiftAction
   | AssistantWeeklyDiscountAction
   | AssistantImageGenerationAction
@@ -891,6 +911,23 @@ function parseAssistantWeeklyDiscountAction(
   }
 }
 
+export function getAssistantDisplayNameValidationError(
+  value: string
+):
+  | 'Display name must be 1 to 20 characters'
+  | 'Display name cannot contain control characters'
+  | undefined {
+  const displayName = value.trim()
+  const length = [...displayName].length
+  if (length < 1 || length > 20) {
+    return 'Display name must be 1 to 20 characters'
+  }
+  if (/[\p{Cc}\p{Zl}\p{Zp}]/u.test(displayName)) {
+    return 'Display name cannot contain control characters'
+  }
+  return undefined
+}
+
 function parseAssistantUserAction(
   action: Record<string, unknown>
 ): AssistantUserAction | undefined {
@@ -932,6 +969,28 @@ function parseAssistantUserAction(
   }
   if (action.type === 'user_password_change') {
     return { type: action.type, ...target }
+  }
+  if (
+    action.type === 'user_display_name_change' &&
+    action.target_is_self === true &&
+    typeof action.proposed_display_name === 'string' &&
+    typeof action.confirmation_token === 'string'
+  ) {
+    const displayName = action.proposed_display_name.trim()
+    const confirmationToken = action.confirmation_token.trim()
+    if (
+      (displayName && getAssistantDisplayNameValidationError(displayName)) ||
+      !confirmationToken
+    ) {
+      return undefined
+    }
+    return {
+      type: action.type,
+      ...target,
+      target_is_self: true,
+      proposed_display_name: displayName,
+      confirmation_token: confirmationToken,
+    }
   }
   if (
     action.type === 'user_oauth_unbind' &&
@@ -1031,6 +1090,9 @@ export function parseAssistantAction(
 ): AssistantAction | undefined {
   if (!value || typeof value !== 'object') return undefined
   const action = value as Record<string, unknown>
+  if (action.type === 'api_key_action') {
+    return parseAssistantKeyManagementAction(value)
+  }
   const navigation = parseAssistantNavigationAction(action)
   if (navigation) return navigation
   const newUserGift = parseAssistantNewUserGiftAction(action)
@@ -1615,12 +1677,45 @@ export async function recordAssistantPreConversationPresetClick(
 
 export async function executeAssistantUserAction(
   action: AssistantUserAction,
-  input: { currentPassword?: string; newPassword?: string }
+  input: {
+    currentPassword?: string
+    newPassword?: string
+    displayName?: string
+  }
 ): Promise<{ selfDeleted: boolean }> {
   const skipOptions = {
     skipBusinessError: true,
     skipErrorHandler: true,
   } as const
+  if (action.type === 'user_display_name_change') {
+    const displayName = (input.displayName ?? '').trim()
+    if (!action.target_is_self || !action.confirmation_token.trim()) {
+      throw new Error('Unable to change display name')
+    }
+    const validationError = getAssistantDisplayNameValidationError(displayName)
+    if (validationError) throw new Error(validationError)
+    try {
+      const response = await api.put<AssistantAPIResponse<unknown>>(
+        '/api/assistant/profile/display-name',
+        {
+          display_name: displayName,
+          confirmation_token: action.confirmation_token,
+          confirmed: true,
+        },
+        skipOptions
+      )
+      requireAssistantData(response.data, 'Unable to change display name')
+      return { selfDeleted: false }
+    } catch (error) {
+      if (axios.isAxiosError<AssistantAPIResponse<never>>(error)) {
+        throw normalizeAssistantRequestError(
+          error,
+          'Unable to change display name'
+        )
+      }
+      throw error
+    }
+  }
   if (action.type === 'user_password_change') {
     const password = input.newPassword ?? ''
     if (action.target_is_self) {
@@ -1880,6 +1975,46 @@ export async function confirmAssistantDefaultKey(
   } catch (error) {
     if (axios.isAxiosError<AssistantAPIResponse<never>>(error)) {
       throw normalizeAssistantRequestError(error, 'Unable to create API key')
+    }
+    throw error
+  }
+}
+
+export async function confirmAssistantKeyAction(
+  action: AssistantKeyManagementAction,
+  twoFactorCode = ''
+): Promise<AssistantKeyManagementReceipt> {
+  const prepared = parseAssistantKeyManagementAction(action)
+  const fallback = 'Unable to confirm the key action'
+  if (!prepared) throw new AssistantRequestError(fallback)
+  try {
+    const response = await api.post<AssistantAPIResponse<unknown>>(
+      '/api/assistant/tools/key-action',
+      {
+        confirmation_token: prepared.confirmation_token,
+        two_factor_code: twoFactorCode.trim(),
+      },
+      { skipBusinessError: true, skipErrorHandler: true }
+    )
+    const payload = response.data
+    if (
+      !payload ||
+      typeof payload !== 'object' ||
+      Array.isArray(payload) ||
+      payload.success !== true ||
+      payload.data === undefined
+    ) {
+      throw new AssistantRequestError(
+        fallback,
+        typeof payload?.code === 'string' ? payload.code : undefined
+      )
+    }
+    const receipt = parseAssistantKeyManagementReceipt(payload.data, prepared)
+    if (!receipt) throw new AssistantRequestError(fallback)
+    return receipt
+  } catch (error) {
+    if (axios.isAxiosError<AssistantAPIResponse<never>>(error)) {
+      throw new AssistantRequestError(fallback, error.response?.data?.code)
     }
     throw error
   }

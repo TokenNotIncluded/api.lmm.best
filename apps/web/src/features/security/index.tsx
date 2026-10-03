@@ -118,7 +118,7 @@ function UnavailableState({
     <div className='border-border/70 bg-muted/20 rounded-xl border border-dashed p-6'>
       <div className='flex items-start gap-3'>
         <Icon className='text-muted-foreground mt-0.5 size-5 shrink-0' />
-        <div className='space-y-1'>
+        <div className='min-w-0 space-y-1 break-words'>
           <p className='text-sm font-medium'>{title}</p>
           <p className='text-muted-foreground text-sm leading-6'>
             {description}
@@ -240,8 +240,10 @@ function StatsBucketRow({
 }) {
   return (
     <div className='flex items-center justify-between gap-4 border-b pb-3 last:border-b-0 last:pb-0'>
-      <span className='text-sm'>{bucket.key}</span>
-      <span className='font-mono text-sm font-medium tabular-nums'>
+      <span className='min-w-0 text-sm [overflow-wrap:anywhere]'>
+        {bucket.key}
+      </span>
+      <span className='shrink-0 text-sm font-medium tabular-nums'>
         {formatCount(bucket.count, language)}
       </span>
     </div>
@@ -268,7 +270,7 @@ function PolicyMetadata({ policy }: { policy: SecurityPolicy }) {
         <dl className='grid gap-4 text-sm sm:grid-cols-2'>
           <div>
             <dt className='text-muted-foreground'>{t('Policy version')}</dt>
-            <dd className='mt-1 font-mono'>
+            <dd className='mt-1 font-mono [overflow-wrap:anywhere]'>
               {displayValue(policy.policy_version, t)}
             </dd>
           </div>
@@ -305,13 +307,16 @@ function PolicyMetadata({ policy }: { policy: SecurityPolicy }) {
             <dd className='mt-1'>
               {policy.reference_url?.trim() ? (
                 <a
-                  className='inline-flex items-center gap-1 underline underline-offset-4 hover:no-underline'
+                  className='focus-visible:ring-ring inline-flex max-w-full items-start gap-1 [overflow-wrap:anywhere] underline underline-offset-4 hover:no-underline focus-visible:ring-2 focus-visible:outline-none'
                   href={policy.reference_url}
                   target='_blank'
                   rel='noopener noreferrer'
                 >
                   {policy.reference_url}
-                  <ExternalLink className='size-3.5' aria-hidden='true' />
+                  <ExternalLink
+                    className='mt-1 size-3.5 shrink-0'
+                    aria-hidden='true'
+                  />
                 </a>
               ) : (
                 t('Not published')
@@ -350,7 +355,11 @@ function ProtectedGroupsSummary({ policy }: { policy: SecurityPolicy }) {
       {groups.length > 0 ? (
         <div className='flex flex-wrap gap-2'>
           {groups.map((group) => (
-            <Badge key={group} variant='outline' className='font-mono text-xs'>
+            <Badge
+              key={group}
+              variant='outline'
+              className='max-w-full font-mono text-xs break-all whitespace-normal'
+            >
               {group}
             </Badge>
           ))}
@@ -388,10 +397,10 @@ function RiskCategories({
       {categories.map((category) => (
         <Card key={category.id} size='sm'>
           <CardHeader>
-            <div className='flex items-start justify-between gap-3'>
-              <div className='flex items-start gap-3'>
+            <div className='flex flex-wrap items-start justify-between gap-3'>
+              <div className='flex min-w-0 flex-1 items-start gap-3'>
                 <Layers className='text-muted-foreground mt-0.5 size-5 shrink-0' />
-                <div>
+                <div className='min-w-0 [overflow-wrap:anywhere]'>
                   <CardTitle>{category.name}</CardTitle>
                   <CardDescription className='mt-1 font-mono text-xs'>
                     {category.id}
@@ -438,34 +447,73 @@ function RuleSummaries({ rules }: { rules: SecurityRuleSummary[] }) {
   }
 
   return (
-    <div className='overflow-x-auto rounded-xl border'>
-      <table className='w-full min-w-[52rem] text-left text-sm'>
+    <div className='rounded-xl border'>
+      <table
+        role='table'
+        className='block w-full text-left text-sm md:table md:table-fixed'
+      >
         <thead className='bg-muted/40 text-muted-foreground border-b text-xs'>
-          <tr>
-            <th className='px-4 py-3 font-medium'>{t('Rule')}</th>
-            <th className='px-4 py-3 font-medium'>{t('Category')}</th>
-            <th className='px-4 py-3 font-medium'>{t('Severity')}</th>
-            <th className='px-4 py-3 font-medium'>{t('Description')}</th>
+          <tr role='row' className='sr-only md:not-sr-only md:table-row'>
+            <th scope='col' className='px-4 py-3 font-medium md:w-1/4'>
+              {t('Rule')}
+            </th>
+            <th scope='col' className='px-4 py-3 font-medium md:w-1/5'>
+              {t('Category')}
+            </th>
+            <th scope='col' className='px-4 py-3 font-medium md:w-[15%]'>
+              {t('Severity')}
+            </th>
+            <th scope='col' className='px-4 py-3 font-medium'>
+              {t('Description')}
+            </th>
           </tr>
         </thead>
-        <tbody className='divide-border/70 divide-y'>
+        <tbody className='divide-border/70 block divide-y md:table-row-group'>
           {rules.map((rule) => (
-            <tr key={rule.id} className='hover:bg-muted/20 transition-colors'>
-              <td className='px-4 py-3 align-top'>
+            <tr
+              key={rule.id}
+              role='row'
+              className='hover:bg-muted/20 grid grid-cols-2 gap-x-4 px-4 py-4 transition-colors md:table-row md:p-0'
+            >
+              <td
+                role='cell'
+                className='col-span-2 min-w-0 pb-3 align-top [overflow-wrap:anywhere] md:px-4 md:py-4'
+              >
                 <div className='font-medium'>{rule.name}</div>
                 <div className='text-muted-foreground mt-1 font-mono text-xs'>
                   {rule.id} · {displayValue(rule.version, t)}
                 </div>
               </td>
-              <td className='text-muted-foreground px-4 py-3 align-top'>
+              <td
+                role='cell'
+                className='text-muted-foreground min-w-0 pb-3 align-top [overflow-wrap:anywhere] md:px-4 md:py-4'
+              >
+                <span
+                  aria-hidden='true'
+                  className='mb-1 block text-xs md:hidden'
+                >
+                  {t('Category')}
+                </span>
                 {displayValue(rule.category, t)}
               </td>
-              <td className='px-4 py-3 align-top'>
+              <td
+                role='cell'
+                className='min-w-0 pb-3 align-top md:px-4 md:py-4'
+              >
+                <span
+                  aria-hidden='true'
+                  className='text-muted-foreground mb-1 block text-xs md:hidden'
+                >
+                  {t('Severity')}
+                </span>
                 <Badge variant='outline'>
                   {displayValue(rule.severity, t)}
                 </Badge>
               </td>
-              <td className='text-muted-foreground px-4 py-3 align-top leading-6'>
+              <td
+                role='cell'
+                className='text-muted-foreground col-span-2 min-w-0 align-top leading-6 [overflow-wrap:anywhere] md:px-4 md:py-4'
+              >
                 {displayValue(rule.description, t)}
               </td>
             </tr>
@@ -619,7 +667,7 @@ function PolicyPanel({
       >
         <h3
           id='security-categories-title'
-          className='font-serif text-2xl font-normal tracking-tight'
+          className='scroll-mt-24 font-serif text-xl font-normal tracking-tight sm:text-2xl'
         >
           {t('Risk categories')}
         </h3>
@@ -629,7 +677,7 @@ function PolicyPanel({
       <section aria-labelledby='security-rules-title' className='space-y-4'>
         <h3
           id='security-rules-title'
-          className='font-serif text-2xl font-normal tracking-tight'
+          className='scroll-mt-24 font-serif text-xl font-normal tracking-tight sm:text-2xl'
         >
           {t('Configured rule summaries')}
         </h3>
@@ -640,7 +688,7 @@ function PolicyPanel({
         <div>
           <h3
             id='security-charges-title'
-            className='font-serif text-2xl font-normal tracking-tight'
+            className='scroll-mt-24 font-serif text-xl font-normal tracking-tight sm:text-2xl'
           >
             {t('Violation charges')}
           </h3>
@@ -677,15 +725,11 @@ export function SecurityContent() {
   const stats = statsQuery.data?.success ? statsQuery.data.data : undefined
 
   return (
-    <main className='mx-auto max-w-7xl px-5 pt-32 pb-24 md:px-10 md:pt-40'>
-      <div className='space-y-12'>
-        <header className='max-w-4xl space-y-6'>
-          <div className='flex items-center gap-3 text-xs font-bold tracking-[0.18em] uppercase'>
-            <span className='bg-foreground size-2 rounded-full' />
-            <span>{t('Safety center')}</span>
-          </div>
-          <div className='space-y-4'>
-            <h1 className='font-serif text-5xl leading-[1.02] font-normal tracking-tight md:text-7xl'>
+    <main className='mx-auto max-w-7xl px-5 pt-12 pb-20 sm:pt-16 md:px-10'>
+      <div className='space-y-10 sm:space-y-12'>
+        <header className='border-foreground/20 space-y-6 border-b pb-6 sm:pb-8'>
+          <div className='max-w-4xl space-y-4'>
+            <h1 className='font-serif text-4xl leading-[1.1] font-normal tracking-tight text-balance sm:text-5xl md:text-6xl'>
               {t('Security overview')}
             </h1>
             <p className='text-muted-foreground max-w-3xl text-base leading-7 md:text-lg'>
@@ -694,6 +738,24 @@ export function SecurityContent() {
               )}
             </p>
           </div>
+          <nav
+            aria-label={t('Security overview')}
+            className='flex flex-wrap gap-x-6 gap-y-1 text-sm'
+          >
+            {[
+              ['security-metrics-title', 'Risk detection overview'],
+              ['security-policy-title', 'Safety policy'],
+              ['security-enforcement-title', 'Detection and response'],
+            ].map(([id, label]) => (
+              <a
+                key={id}
+                href={`#${id}`}
+                className='text-muted-foreground hover:text-foreground focus-visible:ring-ring inline-flex min-h-11 items-center underline underline-offset-4 focus-visible:ring-2 focus-visible:outline-none'
+              >
+                {t(label)}
+              </a>
+            ))}
+          </nav>
         </header>
 
         <Alert className='border-foreground/20 bg-foreground/[0.04]'>
@@ -713,7 +775,7 @@ export function SecurityContent() {
               >
                 <h2
                   id='security-audit-loading-title'
-                  className='font-serif text-3xl font-normal tracking-tight'
+                  className='scroll-mt-24 font-serif text-2xl font-normal tracking-tight sm:text-3xl'
                 >
                   {t('Security audit details')}
                 </h2>
@@ -737,7 +799,7 @@ export function SecurityContent() {
           <div>
             <h2
               id='security-metrics-title'
-              className='font-serif text-3xl font-normal tracking-tight'
+              className='scroll-mt-24 font-serif text-2xl font-normal tracking-tight sm:text-3xl'
             >
               {t('Risk detection overview')}
             </h2>
@@ -758,7 +820,7 @@ export function SecurityContent() {
           <div>
             <h2
               id='security-policy-title'
-              className='font-serif text-3xl font-normal tracking-tight'
+              className='scroll-mt-24 font-serif text-2xl font-normal tracking-tight sm:text-3xl'
             >
               {t('Safety policy')}
             </h2>
@@ -776,7 +838,7 @@ export function SecurityContent() {
         >
           <h2
             id='security-enforcement-title'
-            className='font-serif text-3xl font-normal tracking-tight'
+            className='scroll-mt-24 font-serif text-2xl font-normal tracking-tight sm:text-3xl'
           >
             {t('Detection and response')}
           </h2>

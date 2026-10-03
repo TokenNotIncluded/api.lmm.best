@@ -24,3 +24,18 @@ export function marketQuota(raw: string, units: number): number {
   }
   return Number(quota)
 }
+
+export function marketNetQuota(priceQuota: number, feeBps: number): number {
+  if (
+    !Number.isSafeInteger(priceQuota) ||
+    priceQuota < 0 ||
+    !Number.isSafeInteger(feeBps) ||
+    feeBps < 0 ||
+    feeBps > 10000
+  ) {
+    throw new Error('Invalid amount')
+  }
+  const price = BigInt(priceQuota)
+  const fee = (price * BigInt(feeBps)) / 10000n
+  return Number(price - fee)
+}

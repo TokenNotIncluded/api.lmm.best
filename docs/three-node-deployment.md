@@ -1,20 +1,14 @@
 # Three-node deployment
 
-Inventory checked on 2026-09-19. Each host has one virtual CPU and about
-950 MiB usable RAM. Measurements are short production-safe samples, not
-capacity or sustained storage benchmarks.
+The deployment layout separates public ingress, shared state, and offsite
+backups. Verify each host's current resources and service identities before
+changing this layout.
 
-| Host | Available RAM at inspection | Root disk free | CPU sample, SHA-256 / 16 KiB | Role |
-| --- | ---: | ---: | ---: | --- |
-| ArchDmit | 388 MiB | 7.8 GiB | 1.69 GB/s | API, singleton jobs, PostgreSQL, shared Valkey |
-| DmitUbuntu | 712 MiB | 11 GiB | 1.67 GB/s | Public nginx ingress and API worker |
-| archczy | 351 MiB | 11 GiB | 1.97 GB/s | Existing test installation, status monitoring, offsite backups |
-
-The two DMIT hosts have about 0.38 ms round-trip latency. Both have about
-39 ms latency to archczy. The observed hour contained 164 consumption logs;
-142 had a positive charge. CPU was mostly idle. This design improves request
-distribution and maintenance isolation; it is not evidence of a CPU bottleneck.
-The 57-second p95 request duration includes upstream generation and streaming.
+| Host | Role |
+| --- | --- |
+| ArchDmit | API, singleton jobs, PostgreSQL, shared Valkey |
+| DmitUbuntu | Public nginx ingress and API worker |
+| archczy | Test installation, status monitoring, offsite backups |
 
 ```mermaid
 flowchart TD
@@ -90,13 +84,14 @@ are still single points of failure. This is application load balancing, not
 automatic database or site failover. An Arch reboot interrupts both APIs'
 database access. Do not promote archczy's independent test database as production.
 
-The existing daily PostgreSQL backup is received under
-`/var/backups/lmm-api/postgresql/production` on archczy. A fresh backup was taken
-on 2026-09-19. Full archive decoding was checked with `pg_restore --file=/dev/null`;
-this is not a restore rehearsal and does not establish a recovery-time guarantee.
-Daily backups permit up to about 24 hours of data loss. An asynchronous PostgreSQL
-standby with WAL retention and a tested manual promotion procedure is a separate
-next step; do not claim disaster failover from logical dumps alone.
+For PostgreSQL backups received under
+`/var/backups/lmm-api/postgresql/production` on archczy, check the latest capture
+time and validate full archive decoding with `pg_restore --file=/dev/null`.
+Archive validation does not replace a restore rehearsal or establish a
+recovery-time guarantee. A daily backup schedule permits up to about 24 hours
+of data loss. An asynchronous PostgreSQL standby with WAL retention and a
+tested manual promotion procedure is separate work; do not claim disaster
+failover from logical dumps alone.
 
 ## Public scripts and IP access rules
 

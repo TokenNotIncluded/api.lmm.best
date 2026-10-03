@@ -1,24 +1,24 @@
 # Production post-deploy acceptance
 
-`production-acceptance.mjs` performs a live, post-deploy acceptance run against
-exactly `https://api.lmm.best`. It is deliberately separate from the deployment
-transaction and does not modify release, service, database, payment, or Git
-state.
+`production-acceptance.mjs` captures a deployment-bound baseline and performs
+live post-deploy acceptance against exactly `https://api.lmm.best`. It does
+not publish releases, deploy services, or change Git state.
 
-Do not run it until the production release is ready for live acceptance. The
-workflow creates one isolated common user and one API key, makes low-cost real
-provider calls, then deletes the key and exact verified user. The isolated user
-receives one fixed 10,000-unit quota override, verified through its exact admin
-record and removed with the user during cleanup. Any retained identity is
-reported in the redacted summary.
+`baseline` logs in as root, records enabled channel identities, and logs out.
+`verify` checks the deployed backend/frontend and channel set, creates one
+isolated common user and API key, grants that user 10,000 quota units, and makes
+real provider calls. It then deletes the exact test key and user and logs out.
+These operations create authentication, usage, and billing records; acceptance
+is not read-only. Failed cleanup is reported with any retained test identity.
 
 ## Credential interface
 
-The command accepts no arguments. Set exactly one of:
+Set exactly one credential source:
 
 - `LMM_ACCEPTANCE_CREDENTIAL_FILE`: absolute path to a root-owned regular file
   with mode `0600`; symlinks are rejected.
-- `LMM_ACCEPTANCE_CREDENTIAL_FD`: inherited, already-open descriptor above 2.
+- `LMM_ACCEPTANCE_CREDENTIAL_FD`: inherited, already-open descriptor above 2,
+  referring to a root-owned mode-0600 regular file.
 
 The credential content is JSON:
 
@@ -32,23 +32,41 @@ The credential content is JSON:
 ```
 
 `totp_code` is required only when the root account requires 2FA.
+An optional `turnstile_token` supplies the challenge proof when login requires it.
 `completion_model` is required and must name a deliberately selected model
 known to support OpenAI-compatible chat completions. The runner verifies that
 the exact model is present in the created API key's `/v1/models` response and
 fails closed when it is unavailable. It never guesses from the model list.
 
-File example:
+## Invocation
+
+Both `baseline` and `verify` require the deployment ID, expected backend
+revision, frontend release and asset-manifest digest, and integer Unix-second
+deadlines. The lowercase SHA-256 digest is computed by `frontendManifestDigest`
+over the index at `/` and its referenced asset paths and bytes. The main deadline
+must be in the future, with time reserved before
+the later cleanup deadline. Use the same bindings for both runs. `verify` also
+requires a successful baseline from an absolute root-owned mode-0600 regular
+file through `--baseline-file`; this option is rejected in baseline mode.
+
+For example, capture the baseline using the credential file:
 
 ```sh
 sudo env LMM_ACCEPTANCE_CREDENTIAL_FILE=/etc/lmm-api/acceptance.json \
-  node apps/web/scripts/production-acceptance.mjs
+  node apps/web/scripts/production-acceptance.mjs baseline \
+  --deployment-id "$DEPLOYMENT_ID" \
+  --backend-revision "$BACKEND_REVISION" \
+  --frontend-release "$FRONTEND_RELEASE" \
+  --frontend-digest "$FRONTEND_DIGEST" \
+  --deadline-epoch "$ACCEPTANCE_DEADLINE_EPOCH" \
+  --cleanup-deadline-epoch "$CLEANUP_DEADLINE_EPOCH"
 ```
 
-Inherited descriptor example:
-
-```sh
-sudo sh -c 'exec 3</etc/lmm-api/acceptance.json; LMM_ACCEPTANCE_CREDENTIAL_FD=3 exec node apps/web/scripts/production-acceptance.mjs'
-```
+Capture the successful JSON output in the protected baseline file. After
+deployment, use `verify` with the same options and
+`--baseline-file /absolute/path/to/baseline.json`. An inherited descriptor uses
+the same invocation options with `LMM_ACCEPTANCE_CREDENTIAL_FD` instead of the
+file variable.
 
 Passwords, access tokens, cookies, 2FA codes, channel keys, and the created API
 key remain in memory only. They are never accepted as arguments or written to
@@ -60,7 +78,7 @@ Stdout contains exactly one JSON object. `success` is true only when all
 required checks and cleanup succeed; the process exits nonzero otherwise.
 The `funded_test_user` check is boolean and never exposes quota or balance
 values in the summary.
-Channel results contain only ID, name, type, enabled state, and redacted
+Channel results contain only ID, type, enabled state, and redacted
 pass/fail status. Disabled channels are enumerated with `passed: null` and are
 not called. Each enabled channel is tested exactly once, serially, through the
 backend's bounded `/api/channel/test/:id` real validation route. The bulk test

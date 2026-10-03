@@ -66,6 +66,7 @@ type textQuotaSummary struct {
 	AudioInputPrice        float64
 	ToolSurchargeItems     []ToolSurchargeItem
 	ToolCallSurchargeQuota decimal.Decimal
+	BillingExemptReason    string
 }
 
 // hasBillableUsage reports whether this request should incur any charge.
@@ -73,7 +74,18 @@ type textQuotaSummary struct {
 // surcharge (e.g. /v1/alpha/search returns no usage but bills one web_search
 // call), so token count alone is not sufficient to decide.
 func (s *textQuotaSummary) hasBillableUsage() bool {
-	return s.TotalTokens > 0 || !s.ToolCallSurchargeQuota.IsZero()
+	return s.BillingExemptReason == "" && (s.TotalTokens > 0 || !s.ToolCallSurchargeQuota.IsZero())
+}
+
+func textBillingExemptReason(ctx *gin.Context, usage *dto.Usage) string {
+	if usage == nil || usage.CompletionTokens != 0 {
+		return ""
+	}
+	reason := common.GetContextKeyString(ctx, constant.ContextKeyBillingExemptReason)
+	if reason == constant.BillingExemptReasonClaudeRefusalNoOutput {
+		return reason
+	}
+	return ""
 }
 
 func nonNegativeTokenCount(value int) int {
@@ -271,6 +283,7 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 		UsageSemantic:        usageSemanticFromUsage(relayInfo, usage),
 	}
 	summary.IsClaudeUsageSemantic = summary.UsageSemantic == "anthropic"
+	summary.BillingExemptReason = textBillingExemptReason(ctx, usage)
 
 	if usage == nil {
 		usage = &dto.Usage{}
@@ -296,6 +309,11 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 	})
 	summary.ImageTokens = nonNegativeTokenCount(usage.PromptTokensDetails.ImageTokens)
 	summary.AudioTokens = nonNegativeTokenCount(usage.PromptTokensDetails.AudioTokens)
+	if summary.BillingExemptReason != "" {
+		// Keep measured usage in the log, but resolve the exemption before
+		// ratio/fixed billing and tool composition. Client usage is untouched.
+		return summary
+	}
 	legacyClaudeDerived := isLegacyClaudeDerivedOpenAIUsage(relayInfo, usage)
 	isOpenRouterClaudeBilling := relayInfo.ChannelMeta != nil &&
 		relayInfo.ChannelType == constant.ChannelTypeOpenRouter &&
@@ -440,24 +458,29 @@ func canEstimateMissingTextUsage(ctx *gin.Context, info *relaycommon.RelayInfo) 
 }
 
 func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage, extraContent []string) {
+	_ = PostTextConsumeQuotaWithResult(ctx, relayInfo, usage, extraContent)
+}
+
+// The image delivery adapter needs the actual settlement outcome without
+// changing the existing response/logging behavior of other relay callers.
+func PostTextConsumeQuotaWithResult(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage, extraContent []string) error {
 	originUsage := usage
 	billingUsage := effectiveBillingUsage(usage)
 	if usage == nil {
 		extraContent = append(extraContent, "上游无计费信息")
 	}
-	if originUsage != nil {
-		ObserveChannelAffinityUsageCacheByRelayFormat(ctx, billingUsage, relayInfo.GetFinalRequestRelayFormat())
-	}
-
 	adminRejectReason := common.GetContextKeyString(ctx, constant.ContextKeyAdminRejectReason)
 	summary := calculateTextQuotaSummary(ctx, relayInfo, billingUsage)
+	if originUsage != nil && summary.BillingExemptReason == "" {
+		ObserveChannelAffinityUsageCacheByRelayFormat(ctx, billingUsage, relayInfo.GetFinalRequestRelayFormat())
+	}
 	estimatedMissingUsage := false
 	estimateSamples := 0
 	estimateBasis := ""
 
 	var tieredResult *billingexpr.TieredResult
 	tieredBillingApplied := false
-	if originUsage != nil {
+	if originUsage != nil && summary.BillingExemptReason == "" {
 		var tieredUsedVars map[string]bool
 		if snap := relayInfo.TieredBillingSnapshot; snap != nil {
 			tieredUsedVars = billingexpr.UsedVars(snap.ExprString)
@@ -495,7 +518,9 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		extraContent = append(extraContent, fmt.Sprintf("Audio Input 花费 %s", logger.LogQuota(common.QuotaFromDecimal(q))))
 	}
 
-	if !summary.hasBillableUsage() {
+	if summary.BillingExemptReason != "" {
+		extraContent = append(extraContent, "Claude 在输出前拒绝请求；按已启用的策略免计费")
+	} else if !summary.hasBillableUsage() {
 		estimatedCap := estimatedBillingQuotaCap(relayInfo)
 		if !canEstimateMissingTextUsage(ctx, relayInfo) {
 			// Unknown usage on an interrupted/failed request is not evidence
@@ -526,7 +551,7 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		}
 		logger.LogError(ctx, fmt.Sprintf("total tokens is 0, fallback billing applied=%t, userId %d, channelId %d, tokenId %d, model %s, pre-consumed quota %d, estimate cap %d", estimatedMissingUsage, relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, summary.ModelName, relayInfo.FinalPreConsumedQuota, estimatedCap))
 	}
-	if summary.hasBillableUsage() || estimatedMissingUsage {
+	if summary.BillingExemptReason != "" || summary.hasBillableUsage() || estimatedMissingUsage {
 		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, summary.Quota)
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, summary.Quota)
 	}
@@ -561,7 +586,9 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	} else {
 		other = GenerateTextOtherInfo(ctx, relayInfo, summary.ModelRatio, summary.GroupRatio, summary.CompletionRatio, summary.CacheTokens, summary.CacheRatio, summary.ModelPrice, relayInfo.PriceData.GroupRatioInfo.GroupSpecialRatio)
 	}
-	if !summary.hasBillableUsage() {
+	if summary.BillingExemptReason != "" {
+		other["billing_exempt_reason"] = summary.BillingExemptReason
+	} else if !summary.hasBillableUsage() {
 		other["upstream_empty_usage"] = true
 		if estimatedMissingUsage {
 			other["usage_estimated"] = true
@@ -572,7 +599,16 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	}
 	appendUsageBillingPathForLog(other, common.GetContextKeyBool(ctx, constant.ContextKeyLocalCountTokens), originUsage)
 	if adminRejectReason != "" {
-		other["reject_reason"] = adminRejectReason
+		if summary.BillingExemptReason != "" {
+			adminInfo, _ := other["admin_info"].(map[string]interface{})
+			if adminInfo == nil {
+				adminInfo = map[string]interface{}{}
+				other["admin_info"] = adminInfo
+			}
+			adminInfo["reject_reason"] = adminRejectReason
+		} else {
+			other["reject_reason"] = adminRejectReason
+		}
 	}
 	if summary.ImageTokens != 0 {
 		other["image"] = true
@@ -636,6 +672,7 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	gopool.Go(func() {
 		perfmetrics.RecordRelaySample(relayInfo, true, int64(summary.CompletionTokens))
 	})
+	return settlementErr
 }
 
 // Usage counters and Log.Quota continue to describe measured usage, not payment.

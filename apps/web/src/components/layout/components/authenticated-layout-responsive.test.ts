@@ -42,8 +42,10 @@ describe('authenticated layout responsive contract', () => {
     assert.match(source, /'min-h-0 min-w-0 flex-1 basis-0 overflow-hidden'/)
     assert.match(
       source,
-      /assistantPage[\s\S]*\? 'pb-0'[\s\S]*: 'pb-\[calc\(4\.5rem\+env\(safe-area-inset-bottom\)\)\] md:pb-16 xl:pb-0'/
+      /assistantPage[\s\S]*\? 'pb-0'[\s\S]*: 'pb-\[env\(safe-area-inset-bottom\)\] xl:pb-0'/
     )
+    assert.match(source, /showMobileAssistant=\{!assistantPage\}/)
+    assert.match(source, /<AssistantLauncher hideMobileLauncher \/>/)
     assert.match(documentSource, /interactive-widget=resizes-content/)
   })
 })

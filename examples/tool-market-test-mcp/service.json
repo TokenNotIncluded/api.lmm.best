@@ -1,0 +1,7 @@
+{
+  "name": "LMM Paid MCP Test Fixture",
+  "description": "TEST ONLY: deterministic MCP results; no real image model, wallet or payment provider is called.",
+  "execution_type": "remote",
+  "visibility": "private",
+  "endpoint": "https://replace-with-your-test-host.example/mcp"
+}

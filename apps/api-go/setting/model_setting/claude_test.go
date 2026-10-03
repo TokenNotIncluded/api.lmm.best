@@ -4,9 +4,24 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/LIghtJUNction/api.lmm.best/setting/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestClaudeRefusalNoChargePolicyDefaultsOffAndPersistsExplicitOptIn(t *testing.T) {
+	settings := defaultClaudeSettings
+	require.False(t, settings.RefusalNoOutputNoChargeEnabled)
+	manager := config.NewConfigManager()
+	manager.Register("claude", &settings)
+	saved := map[string]string{}
+	require.NoError(t, manager.SaveToDB(func(key, value string) error { saved[key] = value; return nil }))
+	require.Equal(t, "false", saved["claude.refusal_no_output_no_charge_enabled"])
+	require.NoError(t, manager.LoadFromDB(map[string]string{"claude.refusal_no_output_no_charge_enabled": "true"}))
+	require.True(t, settings.RefusalNoOutputNoChargeEnabled)
+	require.NoError(t, manager.LoadFromDB(map[string]string{"claude.refusal_no_output_no_charge_enabled": "false"}))
+	require.False(t, settings.RefusalNoOutputNoChargeEnabled)
+}
 
 func TestClaudeSettingsWriteHeadersMergesConfiguredValuesIntoSingleHeader(t *testing.T) {
 	settings := &ClaudeSettings{

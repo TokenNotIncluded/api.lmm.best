@@ -141,7 +141,7 @@ type ToolMarketEvent struct {
 func toolMarketModels() []interface{} {
 	return []interface{}{&ToolMarketService{}, &ToolMarketVersion{}, &ToolMarketTool{}, &ToolMarketToolVersion{}, &ToolMarketAccess{},
 		&ToolMarketFavorite{}, &ToolMarketInstallation{}, &ToolMarketGrant{}, &ToolMarketBudget{}, &ToolMarketConfig{},
-		&ToolMarketEvent{}, &ToolMarketCall{}, &ToolMarketTransfer{}, &ToolMarketResult{}, &ToolMarketToken{}}
+		&ToolMarketEvent{}, &ToolMarketCall{}, &ToolMarketTransfer{}, &ToolMarketResult{}, &ToolMarketToken{}, &ToolMarketBuiltinContinuation{}, &ToolMarketCredential{}}
 }
 
 type ToolMarketToolInput struct {
@@ -266,7 +266,7 @@ func SaveToolMarketDraft(actor int, serviceID string, in ToolMarketDraftInput) (
 		return nil, err
 	}
 	var service ToolMarketService
-	err := DB.Transaction(func(tx *gorm.DB) error {
+	err := marketTransaction(DB, func(tx *gorm.DB) error {
 		if err := marketUser(tx, actor, common.RoleCommonUser); err != nil {
 			return err
 		}
@@ -336,7 +336,7 @@ func SaveToolMarketDraft(actor int, serviceID string, in ToolMarketDraftInput) (
 }
 
 func SubmitToolMarketDraft(actor int, serviceID, versionID string) error {
-	return DB.Transaction(func(tx *gorm.DB) error {
+	return marketTransaction(DB, func(tx *gorm.DB) error {
 		if err := marketUser(tx, actor, common.RoleCommonUser); err != nil {
 			return err
 		}
@@ -365,13 +365,21 @@ func ReviewToolMarketVersion(actor int, serviceID, versionID string, approve boo
 	if strings.TrimSpace(note) == "" || len(note) > 1000 {
 		return ErrToolMarketInput
 	}
-	return DB.Transaction(func(tx *gorm.DB) error {
+	return marketTransaction(DB, func(tx *gorm.DB) error {
 		if err := marketUser(tx, actor, common.RoleAdminUser); err != nil {
 			return err
 		}
 		var service ToolMarketService
 		if err := lockForUpdate(tx).First(&service, "id = ?", serviceID).Error; err != nil {
 			return err
+		}
+		if service.OwnerID == 0 {
+			return ErrToolMarketDenied
+		}
+		// Administrative authority does not replace an independent approval.
+		// An administrator author may still reject their pending submission.
+		if approve && service.OwnerID == actor {
+			return ErrToolMarketDenied
 		}
 		if service.DraftVersionID != versionID {
 			return ErrToolMarketConflict

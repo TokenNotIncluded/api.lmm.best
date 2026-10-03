@@ -245,6 +245,51 @@ const GUIDE_SECTION_IDS = [
   'guide-support',
 ] as const
 
+function GuideContents({
+  copy,
+  compact = false,
+  disclosure = false,
+}: {
+  copy: (typeof COPY)['en']
+  compact?: boolean
+  disclosure?: boolean
+}) {
+  return (
+    <nav
+      aria-label={copy.sectionsTitle}
+      className={
+        disclosure
+          ? 'border-border/70 border-t py-3'
+          : compact
+            ? 'border-border/70 mt-8 hidden border-b pb-5 sm:block lg:hidden'
+            : 'border-border/70 hidden border-t pt-5 lg:block'
+      }
+    >
+      {!disclosure && (
+        <h2 className='text-sm font-semibold'>{copy.sectionsTitle}</h2>
+      )}
+      <ol
+        className={
+          compact || disclosure
+            ? 'mt-2 grid grid-cols-2 gap-x-4'
+            : 'mt-2 space-y-1'
+        }
+      >
+        {GUIDE_SECTION_IDS.map((id, index) => (
+          <li key={id}>
+            <a
+              href={`#${id}`}
+              className='hover:bg-muted focus-visible:outline-ring -mx-2 flex min-h-11 items-center rounded-lg px-2 py-2 text-sm leading-6 underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2'
+            >
+              {copy.sections[index]}
+            </a>
+          </li>
+        ))}
+      </ol>
+    </nav>
+  )
+}
+
 function GuideCode({
   label,
   value,
@@ -265,13 +310,14 @@ function GuideCode({
   }
 
   return (
-    <div className='bg-muted/35 overflow-hidden rounded-xl border'>
+    <div className='bg-muted/35 min-w-0 overflow-hidden rounded-xl border'>
       <div className='border-border/70 flex items-center justify-between gap-3 border-b px-4 py-2 text-xs'>
-        <span className='text-muted-foreground'>{label}</span>
+        <span className='text-muted-foreground min-w-0 leading-5'>{label}</span>
         <Button
           type='button'
           variant='ghost'
-          className='min-h-10'
+          className='min-h-11 shrink-0'
+          aria-label={`${copy.copy}: ${label}`}
           onClick={() => void copyValue()}
         >
           {status === 'copied' ? (
@@ -283,7 +329,7 @@ function GuideCode({
         </Button>
       </div>
       <pre
-        className='overflow-x-auto p-4 text-sm leading-7'
+        className='focus-visible:outline-ring overflow-x-auto p-4 text-xs leading-7 focus-visible:outline-2 focus-visible:-outline-offset-2 sm:text-sm'
         tabIndex={0}
         aria-label={label}
       >
@@ -399,24 +445,32 @@ curl ${rootUrl}/v1/chat/completions \
   -H "Authorization: Bearer $LMM_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"model":"your-model-id","messages":[{"role":"user","content":"Hello"}]}'`
+  const stageItems = stages.map((stage, index) => (
+    <li key={stage} className='flex items-baseline gap-3 text-sm leading-6'>
+      <span
+        className='text-muted-foreground font-mono text-xs'
+        aria-hidden='true'
+      >
+        {String(index + 1).padStart(2, '0')}
+      </span>
+      <span className='font-medium'>{stage}</span>
+    </li>
+  ))
 
   return (
     <ForgePublicShell>
       <main>
-        <div className='mx-auto max-w-6xl px-5 pt-12 pb-20 sm:px-8 sm:pt-16 lg:px-10 lg:pb-28'>
+        <div className='mx-auto max-w-6xl px-4 pt-6 pb-12 sm:px-8 sm:pt-16 sm:pb-20 lg:px-10 lg:pb-28'>
           <header className='max-w-3xl'>
-            <p className='text-muted-foreground text-xs font-semibold tracking-[0.18em]'>
-              {copy.eyebrow}
-            </p>
-            <h1 className='mt-5 font-serif text-5xl leading-[1.08] font-normal tracking-tight text-balance sm:text-6xl lg:text-7xl'>
+            <h1 className='font-serif text-3xl leading-[1.12] font-normal tracking-tight text-balance sm:text-5xl lg:text-6xl'>
               {copy.title}
             </h1>
-            <p className='text-muted-foreground mt-6 max-w-2xl text-base leading-8'>
+            <p className='text-muted-foreground mt-3 max-w-2xl text-base leading-7 sm:mt-6 sm:leading-8'>
               {assistantAvailable ? copy.intro : copy.manualIntro}
             </p>
-            <div className='mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap'>
+            <div className='mt-5 flex flex-col gap-2 sm:mt-8 sm:flex-row sm:flex-wrap sm:gap-3'>
               <Button
-                className='min-h-12 px-5'
+                className='min-h-11 px-5 sm:min-h-12'
                 render={<a href='#client-setup' />}
               >
                 {copy.start}
@@ -424,7 +478,7 @@ curl ${rootUrl}/v1/chat/completions \
               </Button>
               <Button
                 variant='outline'
-                className='min-h-12 px-5 whitespace-normal'
+                className='min-h-11 px-5 whitespace-normal sm:min-h-12'
                 onClick={
                   assistantAvailable
                     ? () => askAssistant(copy.setupQuestion)
@@ -441,25 +495,29 @@ curl ${rootUrl}/v1/chat/completions \
             </div>
           </header>
 
-          <ol className='border-border/70 mt-12 grid gap-x-6 gap-y-5 border-y py-7 sm:grid-cols-3 lg:mt-16 lg:grid-cols-5'>
-            {stages.map((stage, index) => (
-              <li
-                key={stage}
-                className='flex items-baseline gap-3 text-sm leading-6'
-              >
-                <span
-                  className='text-muted-foreground font-mono text-xs'
-                  aria-hidden='true'
-                >
-                  {String(index + 1).padStart(2, '0')}
-                </span>
-                <span className='font-medium'>{stage}</span>
-              </li>
-            ))}
+          <details
+            id='guide-overview'
+            className='group border-border/70 mt-5 border-y sm:hidden'
+          >
+            <summary className='focus-visible:outline-ring flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-sm py-2 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden'>
+              {copy.sectionsTitle}
+              <ChevronDown
+                className='text-muted-foreground size-4 shrink-0 transition-transform group-open:rotate-180 motion-reduce:transition-none'
+                aria-hidden='true'
+              />
+            </summary>
+            <ol className='grid gap-2 py-3'>{stageItems}</ol>
+            <GuideContents copy={copy} disclosure />
+          </details>
+
+          <ol className='border-border/70 mt-12 hidden gap-x-6 gap-y-5 border-y py-7 sm:grid sm:grid-cols-3 lg:mt-16 lg:grid-cols-5'>
+            {stageItems}
           </ol>
 
-          <div className='mt-12 grid items-start gap-10 lg:mt-16 lg:grid-cols-[minmax(0,1fr)_17rem] lg:gap-12'>
-            <div className='min-w-0 space-y-12'>
+          <GuideContents copy={copy} compact />
+
+          <div className='mt-6 grid items-start gap-8 sm:mt-12 sm:gap-10 lg:mt-16 lg:grid-cols-[minmax(0,1fr)_17rem] lg:gap-12'>
+            <div className='min-w-0 space-y-10 sm:space-y-12'>
               <section
                 id='client-setup'
                 className='scroll-mt-24'
@@ -467,14 +525,14 @@ curl ${rootUrl}/v1/chat/completions \
               >
                 <h2
                   id='client-setup-title'
-                  className='text-2xl font-semibold tracking-tight'
+                  className='text-xl font-semibold tracking-tight sm:text-2xl'
                 >
                   {copy.setupTitle}
                 </h2>
-                <p className='text-muted-foreground mt-3 text-sm leading-7'>
+                <p className='text-muted-foreground mt-2 text-sm leading-6 sm:mt-3 sm:leading-7'>
                   {copy.setupBody}
                 </p>
-                <div className='mt-6'>
+                <div className='mt-4 sm:mt-6'>
                   <AssistantSetupTool
                     publicGuide
                     onClientChange={setSelectedClient}
@@ -634,32 +692,7 @@ curl ${rootUrl}/v1/chat/completions \
             </div>
 
             <aside className='space-y-7 lg:sticky lg:top-24'>
-              <nav
-                aria-label={copy.sectionsTitle}
-                className='border-border/70 border-t pt-5'
-              >
-                <h2 className='text-xs font-semibold tracking-[0.16em] uppercase'>
-                  {copy.sectionsTitle}
-                </h2>
-                <ol className='mt-4 space-y-2.5 text-sm'>
-                  {GUIDE_SECTION_IDS.map((id, index) => (
-                    <li key={id}>
-                      <a
-                        href={`#${id}`}
-                        className='focus-visible:outline-ring inline-flex min-h-6 items-baseline gap-2.5 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2'
-                      >
-                        <span
-                          className='text-muted-foreground font-mono text-xs'
-                          aria-hidden='true'
-                        >
-                          {String(index + 1).padStart(2, '0')}
-                        </span>
-                        <span>{copy.sections[index]}</span>
-                      </a>
-                    </li>
-                  ))}
-                </ol>
-              </nav>
+              <GuideContents copy={copy} />
               <section className='bg-background rounded-2xl border p-6'>
                 <h2 className='text-base font-semibold'>{copy.accountTitle}</h2>
                 <p className='text-muted-foreground mt-3 text-sm leading-7'>

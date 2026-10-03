@@ -57,6 +57,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: lmm-release-mysql-password
+          MYSQL_ROOT_HOST: '%'
+          MYSQL_DATABASE: lmm_test_release
+        ports:
+          - "127.0.0.1:3306:3306"
+        options: >-
+          --health-cmd "MYSQL_PWD=lmm-release-mysql-password mysql --user=root --host=127.0.0.1 --silent --execute='SELECT 1'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
       postgres:
         image: postgres:18-alpine
         env:
@@ -119,6 +132,34 @@ jobs:
           TEST_POSTGRES_DSN: postgres://lmm_test_release:lmm-release-postgres-password@127.0.0.1:5432/lmm_test_release?sslmode=disable
           TEST_POSTGRES_ISOLATED_SCHEMA: '1'
         run: go test -race -count=1 -v ./model -run '^(TestRedPacketDeleteCannotEraseConcurrentClaimPostgres|TestReferralPostgres.*)$' -timeout 180s
+
+      - name: Protect paid tool-market authorization and ledger under PostgreSQL concurrency
+        working-directory: apps/api-go
+        env:
+          TEST_POSTGRES_DSN: postgres://lmm_test_release:lmm-release-postgres-password@127.0.0.1:5432/lmm_test_release?sslmode=disable
+          TEST_POSTGRES_ISOLATED_SCHEMA: '1'
+        run: go test -race -count=1 -v ./service -run '^(TestToolMarketPaidHTTPMCPUploadAndSettlementPostgres|TestToolMarketPaidPostgresBuyerIsolationAndConcurrentLedger)$' -timeout 180s
+
+      - name: Protect drawing expiry against MySQL repeatable-read snapshots
+        working-directory: apps/api-go
+        env:
+          TEST_MYSQL_DSN: root:lmm-release-mysql-password@tcp(127.0.0.1:3306)/lmm_test_release?parseTime=true
+          TEST_MYSQL_ISOLATED_DATABASE: '1'
+        run: go test -race -count=1 -v ./model -run '^TestToolMarketDrawingExpiryReadsCommittedBillingMySQL$' -timeout 180s
+
+      - name: Protect tool-market client boundaries against MySQL collation aliases
+        working-directory: apps/api-go
+        env:
+          TEST_MYSQL_DSN: root:lmm-release-mysql-password@tcp(127.0.0.1:3306)/lmm_test_release?parseTime=true
+          TEST_MYSQL_ISOLATED_DATABASE: '1'
+        run: go test -race -count=1 -v ./model -run '^TestToolMarketClientIdentityMySQL$' -timeout 180s
+
+      - name: Protect tool-market limits and settlement counters under MySQL lock contention
+        working-directory: apps/api-go
+        env:
+          TEST_MYSQL_DSN: root:lmm-release-mysql-password@tcp(127.0.0.1:3306)/lmm_test_release?parseTime=true
+          TEST_MYSQL_ISOLATED_DATABASE: '1'
+        run: go test -race -count=1 -v ./model -run '^(TestToolMarketConcurrentFinishCountersMySQL|TestToolMarketConcurrentReserveLimitsMySQL)$' -timeout 180s
 
       - name: Check Go formatting, vet, race tests, and relaykit
         env:

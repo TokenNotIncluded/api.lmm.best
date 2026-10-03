@@ -12,18 +12,41 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
+	"gorm.io/gorm/schema"
 )
 
 const ToolMarketWebClient = "web-market"
 
+const (
+	ToolMarketResultMaxBytes = 2 << 20
+	// Match the normal relay response ceiling, allowing the MCP wrapper.
+	ToolMarketDrawingResponseMaxBytes = 32 << 20
+	ToolMarketDrawingResultMaxBytes   = ToolMarketDrawingResponseMaxBytes + (64 << 10)
+)
+
+// TEXT is only 64 KiB on MySQL; delivery payloads need the same capacity as
+// their accepted envelopes. PostgreSQL and SQLite TEXT already support them.
+type ToolMarketDeliveryData string
+
+func (ToolMarketDeliveryData) GormDataType() string { return "text" }
+func (ToolMarketDeliveryData) GormDBDataType(db *gorm.DB, _ *schema.Field) string {
+	if db != nil && db.Dialector.Name() == "mysql" {
+		return "LONGTEXT"
+	}
+	return "TEXT"
+}
+
 // Results are short-lived delivery data, never author analytics or logs.
 type ToolMarketResult struct {
-	CallID    string `json:"call_id" gorm:"primaryKey;size:64"`
-	UserID    int    `json:"-" gorm:"index"`
-	Success   bool   `json:"success"`
-	Data      string `json:"-" gorm:"type:text"`
-	CreatedAt int64  `json:"created_at"`
-	ExpiresAt int64  `json:"expires_at" gorm:"index"`
+	CallID  string                 `json:"call_id" gorm:"primaryKey;size:64"`
+	UserID  int                    `json:"-" gorm:"index"`
+	Success bool                   `json:"success"`
+	Data    ToolMarketDeliveryData `json:"-"`
+	// A valid generated image is recoverable before normal model settlement.
+	// This flag keeps that delivery outcome from completing the market call.
+	BuiltinBillingPending bool  `json:"-" gorm:"not null;default:false"`
+	CreatedAt             int64 `json:"created_at"`
+	ExpiresAt             int64 `json:"expires_at" gorm:"index"`
 }
 
 type ToolMarketToken struct {
@@ -49,7 +72,7 @@ func CreateToolMarketToken(userID int, clientID string, invoke, manage bool, exp
 	}
 	raw := "lmm_market_" + base64.RawURLEncoding.EncodeToString(secret[:])
 	row := ToolMarketToken{ID: uuid.NewString(), UserID: userID, ClientID: clientID, Digest: marketDigest(raw), CanInvoke: invoke, CanManage: manage, CreatedAt: common.GetTimestamp(), ExpiresAt: expiresAt}
-	err := DB.Transaction(func(tx *gorm.DB) error {
+	err := marketTransaction(DB, func(tx *gorm.DB) error {
 		if err := marketLockUsers(tx, userID); err != nil {
 			return err
 		}
@@ -88,7 +111,7 @@ func VerifyToolMarketToken(raw string) (*ToolMarketToken, error) {
 }
 
 func RevokeToolMarketToken(userID int, id string) error {
-	return DB.Transaction(func(tx *gorm.DB) error {
+	return marketTransaction(DB, func(tx *gorm.DB) error {
 		if err := marketUser(tx, userID, common.RoleCommonUser); err != nil {
 			return err
 		}
@@ -104,13 +127,23 @@ func RevokeToolMarketToken(userID int, id string) error {
 }
 
 func RecordToolMarketValidation(actor int, serviceID, versionID, digest string, tools map[string]string) error {
-	return DB.Transaction(func(tx *gorm.DB) error {
+	return RecordToolMarketValidationWithCredential(actor, serviceID, versionID, digest, tools, "")
+}
+
+// Credential identity is captured before remote discovery and compared under
+// the service lock. Rotation/removal must invalidate an older validation even
+// if that network request finishes after the new credential was saved.
+func RecordToolMarketValidationWithCredential(actor int, serviceID, versionID, digest string, tools map[string]string, expectedCredentialID string) error {
+	return marketTransaction(DB, func(tx *gorm.DB) error {
 		if err := marketUser(tx, actor, common.RoleCommonUser); err != nil {
 			return err
 		}
 		var service ToolMarketService
 		if err := lockForUpdate(tx).First(&service, "id = ?", serviceID).Error; err != nil {
 			return err
+		}
+		if service.OwnerID == 0 {
+			return ErrToolMarketDenied
 		}
 		if service.OwnerID != actor {
 			if err := marketUser(tx, actor, common.RoleAdminUser); err != nil {
@@ -121,10 +154,21 @@ func RecordToolMarketValidation(actor int, serviceID, versionID, digest string, 
 			return ErrToolMarketConflict
 		}
 		var version ToolMarketVersion
-		if err := tx.First(&version, "id = ? AND service_id = ?", versionID, serviceID).Error; err != nil {
+		if err := lockForUpdate(tx).First(&version, "id = ? AND service_id = ?", versionID, serviceID).Error; err != nil {
 			return err
 		}
 		if version.Digest != digest || version.ExecutionType != "remote" || (version.Status != "draft" && version.Status != "pending") {
+			return ErrToolMarketConflict
+		}
+		var credential ToolMarketCredential
+		if err := tx.Select("id", "owner_id", "service_id").First(&credential, "version_id = ?", versionID).Error; err != nil {
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+		} else if credential.OwnerID != service.OwnerID || credential.ServiceID != service.ID {
+			return ErrToolMarketConflict
+		}
+		if credential.ID != expectedCredentialID {
 			return ErrToolMarketConflict
 		}
 		var definitions []ToolMarketToolVersion
@@ -190,7 +234,7 @@ func GetToolMarketExecution(userID int, clientID, toolID, versionID, grantID str
 		return nil, err
 	}
 	var grant ToolMarketGrant
-	q := DB.Where("user_id = ? AND client_id = ? AND tool_id = ? AND version_id = ? AND revoked_at = 0 AND expires_at > ?", userID, clientID, toolID, versionID, common.GetTimestamp())
+	q := DB.Where("user_id = ? AND tool_id = ? AND version_id = ? AND revoked_at = 0 AND expires_at > ?", userID, toolID, versionID, common.GetTimestamp()).Scopes(marketExactTextScope("client_id", clientID))
 	if grantID != "" {
 		q = q.Where("id = ?", grantID)
 	}
@@ -198,7 +242,7 @@ func GetToolMarketExecution(userID int, clientID, toolID, versionID, grantID str
 		return nil, err
 	}
 	var installation ToolMarketInstallation
-	if err := DB.First(&installation, "user_id = ? AND client_id = ? AND tool_id = ? AND version_id = ?", userID, clientID, toolID, versionID).Error; err != nil {
+	if err := DB.Scopes(marketExactTextScope("client_id", clientID)).First(&installation, "user_id = ? AND tool_id = ? AND version_id = ?", userID, toolID, versionID).Error; err != nil {
 		return nil, err
 	}
 	return &ToolMarketExecution{Service: *service, Version: version, Tool: *tool, Grant: grant}, nil
@@ -206,7 +250,7 @@ func GetToolMarketExecution(userID int, clientID, toolID, versionID, grantID str
 
 func ListToolMarketExecutions(userID int, clientID string) ([]ToolMarketExecution, error) {
 	var installs []ToolMarketInstallation
-	if err := DB.Where("user_id = ? AND client_id = ?", userID, clientID).Order("tool_id").Limit(101).Find(&installs).Error; err != nil {
+	if err := DB.Where("user_id = ?", userID).Scopes(marketExactTextScope("client_id", clientID)).Order("tool_id").Limit(101).Find(&installs).Error; err != nil {
 		return nil, err
 	}
 	if len(installs) > 100 {
@@ -229,7 +273,7 @@ func ListToolMarketExecutions(userID int, clientID string) ([]ToolMarketExecutio
 func GetToolMarketCall(userID int, clientID, id string) (*ToolMarketCall, error) {
 	q := DB.Where("id = ? AND user_id = ?", id, userID)
 	if clientID != "" {
-		q = q.Where("client_id = ?", clientID)
+		q = q.Scopes(marketExactTextScope("client_id", clientID))
 	}
 	var row ToolMarketCall
 	err := q.First(&row).Error
@@ -262,27 +306,94 @@ func LookupToolMarketReplay(in ToolMarketReserveInput) (*ToolMarketCall, error) 
 }
 
 func RecordToolMarketResult(callID string, success bool, data json.RawMessage) error {
-	if len(data) > 2<<20 || !json.Valid(data) {
+	return recordToolMarketResult(callID, success, data, false, false)
+}
+
+// Only the code-owned drawing adapter can use the larger delivery envelope.
+func RecordToolMarketBuiltinDrawingResult(callID string, data json.RawMessage) error {
+	return recordToolMarketResult(callID, true, data, true, false)
+}
+
+func PrepareToolMarketBuiltinDrawingResult(callID string, data json.RawMessage) error {
+	return recordToolMarketResult(callID, true, data, true, true)
+}
+
+func marketDrawingResultCall(tx *gorm.DB, call *ToolMarketCall) error {
+	if call.OwnerID != 0 || call.PriceQuota != 0 || call.ServiceID != ToolMarketBuiltinServiceID("drawing") {
+		return ErrToolMarketDenied
+	}
+	var version ToolMarketVersion
+	if err := tx.First(&version, "id = ? AND execution_type = ?", call.VersionID, "builtin").Error; err != nil {
+		return ErrToolMarketDenied
+	}
+	var tool ToolMarketToolVersion
+	if err := tx.First(&tool, "tool_id = ? AND version_id = ? AND name = ?", call.ToolID, call.VersionID, "drawing.generate").Error; err != nil {
+		return ErrToolMarketDenied
+	}
+	return nil
+}
+
+func CompleteToolMarketBuiltinDrawingBilling(callID string, settled bool) error {
+	return marketCallTx(callID, func(tx *gorm.DB, call *ToolMarketCall) error {
+		if err := marketDrawingResultCall(tx, call); err != nil {
+			return err
+		}
+		var result ToolMarketResult
+		if err := lockForUpdate(tx).Select("call_id", "builtin_billing_pending").First(&result, "call_id = ? AND success = ?", callID, true).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrToolMarketConflict
+			}
+			return err
+		}
+		if !settled {
+			return nil
+		}
+		if result.BuiltinBillingPending {
+			if err := tx.Model(&ToolMarketResult{}).Where("call_id = ?", callID).Update("builtin_billing_pending", false).Error; err != nil {
+				return err
+			}
+		}
+		if call.ExecutionStatus == "unknown" && call.SettlementStatus == "released" {
+			// Expiry released the market reservation while model billing was
+			// pending. Resolve only the now-known execution; preserve released
+			// budgets/slots and never repeat model or marketplace settlement.
+			return tx.Model(call).Update("execution_status", "succeeded").Error
+		}
+		return nil
+	})
+}
+
+func recordToolMarketResult(callID string, success bool, data json.RawMessage, drawing, billingPending bool) error {
+	limit := ToolMarketResultMaxBytes
+	if drawing {
+		limit = ToolMarketDrawingResultMaxBytes
+	}
+	if len(data) > limit || !json.Valid(data) {
 		return ErrToolMarketInput
 	}
 	return marketCallTx(callID, func(tx *gorm.DB, call *ToolMarketCall) error {
 		// Delivery payloads must not become SQL parameter dumps on an error.
 		tx = tx.Session(&gorm.Session{Logger: tx.Logger.LogMode(logger.Silent)})
+		if drawing {
+			if err := marketDrawingResultCall(tx, call); err != nil {
+				return err
+			}
+		}
 		if call.SettlementStatus != "held" || (call.ExecutionStatus != "running" && call.ExecutionStatus != "unknown") {
 			return ErrToolMarketConflict
 		}
 		now := common.GetTimestamp()
-		row := ToolMarketResult{CallID: callID, UserID: call.UserID, Success: success, Data: string(data), CreatedAt: now, ExpiresAt: now + 3600}
+		row := ToolMarketResult{CallID: callID, UserID: call.UserID, Success: success, Data: ToolMarketDeliveryData(data), BuiltinBillingPending: billingPending, CreatedAt: now, ExpiresAt: now + 3600}
 		q := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&row)
 		if q.Error != nil {
 			return q.Error
 		}
 		if q.RowsAffected == 0 {
 			var prior ToolMarketResult
-			if err := tx.First(&prior, "call_id = ?", callID).Error; err != nil {
+			if err := lockForUpdate(tx).First(&prior, "call_id = ?", callID).Error; err != nil {
 				return err
 			}
-			if prior.Success != success || prior.Data != string(data) {
+			if prior.Success != success || string(prior.Data) != string(data) || (!billingPending && prior.BuiltinBillingPending) {
 				return ErrToolMarketConflict
 			}
 		}

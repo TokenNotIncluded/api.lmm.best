@@ -21,7 +21,7 @@ import { getAssistantJourney, type AssistantJourneyStepId } from './api'
 
 const journeyLabels: Record<AssistantJourneyStepId, string> = {
   ask_ai: 'Ask AI for help',
-  get_recommendation: 'Get a recommendation',
+  get_recommendation: 'Get L1 access',
   create_api_key: 'Create an API key',
   install_client: 'Install a client',
   configure_client: 'Configure the API key',

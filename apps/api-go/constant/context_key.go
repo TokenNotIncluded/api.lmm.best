@@ -78,9 +78,16 @@ const (
 	// It is not returned to end users, but can be persisted into consume/error logs for debugging.
 	ContextKeyAdminRejectReason ContextKey = "admin_reject_reason"
 
+	// ContextKeyBillingExemptReason is set only by upstream response validation.
+	// It changes settlement, never the usage returned to the client.
+	ContextKeyBillingExemptReason ContextKey = "billing_exempt_reason"
+
 	// ContextKeyLanguage stores the user's language preference for i18n
 	ContextKeyLanguage ContextKey = "language"
 	ContextKeyIsStream ContextKey = "is_stream"
+	// ContextKeyRelayInfo exposes the active attempt's final protocol outcome to
+	// request middleware. Store the RelayInfo pointer because streams replace status.
+	ContextKeyRelayInfo ContextKey = "relay_info"
 
 	// ContextKeyAuditLogged marks that the current request has already recorded
 	// a manage/operation audit log inside the handler. When set, the admin-audit
@@ -88,3 +95,5 @@ const (
 	// duplicate entries.
 	ContextKeyAuditLogged ContextKey = "audit_logged"
 )
+
+const BillingExemptReasonClaudeRefusalNoOutput = "claude_refusal_no_output"

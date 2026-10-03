@@ -32,7 +32,7 @@ function UsersContent() {
 
   return (
     <>
-      <SectionPageLayout fixedContent>
+      <SectionPageLayout fixedContent className='users-page'>
         <SectionPageLayout.Title>{t('Users')}</SectionPageLayout.Title>
         <SectionPageLayout.Actions>
           <UsersPrimaryButtons />

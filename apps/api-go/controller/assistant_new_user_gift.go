@@ -88,6 +88,9 @@ func assistantConversationEvidence(c *gin.Context) (turns int, runes int) {
 }
 
 func executeAssistantNewUserGiftTool(c *gin.Context, userID int, input map[string]any) map[string]any {
+	if assistantRewardReadOnlyRequest(c) {
+		return assistantGiftReadOnlyRequestResult()
+	}
 	amount, ok := inputNumber(input, "amount_cents")
 	if !ok || math.IsNaN(amount) || math.IsInf(amount, 0) || math.Trunc(amount) != amount {
 		return map[string]any{"ok": false, "status": "invalid_decision", "error": "amount_cents must be an integer from 0 to 1000"}

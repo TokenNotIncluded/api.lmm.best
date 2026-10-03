@@ -16,7 +16,8 @@ import (
 )
 
 const (
-	assistantResponseCacheNamespace = "new-api:assistant-response:v2"
+	// v3 retires legacy cached answers whose normalization lost finish_reason.
+	assistantResponseCacheNamespace = "new-api:assistant-response:v3"
 	assistantCacheMaxEntries        = 256
 	assistantCacheMaxBytes          = 8 << 20
 	assistantCacheMaxValueBytes     = 256 << 10
@@ -161,7 +162,7 @@ func assistantCacheKey(settings setting.AssistantSettings, conversation []assist
 		UserContext      assistantCacheContext    `json:"user_context"`
 		Conversation     []assistantOpenAIMessage `json:"conversation"`
 	}{
-		Version:          "assistant-cache-v2",
+		Version:          "assistant-cache-v3",
 		Group:            settings.Group,
 		Model:            settings.Model,
 		SystemPrompt:     buildAssistantSystemPrompt(settings, cachePromptContext),
@@ -205,6 +206,9 @@ func getAssistantCachedResponse(key string) (assistantCachedResponse, bool) {
 	if !found || value.Status < 200 || value.Status >= 300 || len(value.Body) == 0 {
 		return assistantCachedResponse{}, false
 	}
+	if response, err := parseAssistantResponse(value.Body); err != nil || assistantOutputLengthLimited(response) {
+		return assistantCachedResponse{}, false
+	}
 
 	normalized, err := normalizeAssistantClientResponse(nil, value.Body)
 	if err != nil {
@@ -216,6 +220,9 @@ func getAssistantCachedResponse(key string) (assistantCachedResponse, bool) {
 
 func storeAssistantCachedResponse(settings setting.AssistantSettings, key string, status int, body []byte, conversationTitles ...string) {
 	if key == "" || !settings.CacheEnabled || settings.CacheTTLMinutes <= 0 || status < 200 || status >= 300 || len(body) == 0 || len(body) > assistantCacheMaxValueBytes {
+		return
+	}
+	if response, err := parseAssistantResponse(body); err != nil || assistantOutputLengthLimited(response) {
 		return
 	}
 	normalized, err := normalizeAssistantClientResponse(nil, body)

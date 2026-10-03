@@ -30,11 +30,32 @@ colors:
 
 ## Component Stylings
 
-- [observed] shadcn/ui is configured as `base-nova`, neutral, CSS-variable driven, with Hugeicons and an inverted subtle menu.
+- [observed] shadcn/ui is configured as `base-luma`, neutral, CSS-variable driven, with Hugeicons and an inverted subtle menu.
 - [observed] Existing primitives carry hover, focus, disabled, error, loading, light/dark, and reduced-motion behavior. Prefer them over page-local replacements.
 - [observed] Settings forms use a two-column desktop grid, full-span switch/textarea rows, square grouped control surfaces (`rounded-none border`), and compact spacing.
 - [observed] Error states combine a named icon, title, optional description, and an explicit retry/action; toast is not the only recovery path.
 - [inferred confidence=high] Cards represent true grouped tools or independently actionable objects, not every row or section. Badges represent state/count only; filters use controls with real selection semantics.
+
+### Component foundation
+
+Luma recipes are applied to the owned primitive source files on Base UI 1.8.0. Preserve existing exports, custom sizing, semantic colors, keyboard behavior, menu event adapters and page-level class overrides. `src/components/ui/luma-migration.json` records the component inventory and upstream CSS checksum; `src/components/ui/LUMA-LICENSE.txt` preserves source attribution.
+
+Drawer composes Base UI Portal, Backdrop, Viewport, Popup, Content and VirtualKeyboardProvider. Its trigger uses `render` instead of `asChild`. OTP renders actual Base UI inputs; its authentication consumer maps React Hook Form's value/onChange/ref, keeps numeric validation and backup-code mode, and sets `autoSubmit={false}`. OTPField is project-specific rather than the Luma registry's input-otp recipe. `vaul` and `input-otp` are not direct runtime dependencies.
+
+TanStack Table, React Hook Form, cmdk, Sonner and React Day Picker retain their own roles. Primitive updates do not replace charts, the editor, brand icons, the token cloud or every business layout. Preserve 44px native selects on phones, controlled multiline height, paper cards, line/vertical tabs and reduced-motion support. Component changes must preserve access permissions, payment, price locks and login endpoint behavior.
+
+### Component review
+
+Run from `apps/web`:
+
+```sh
+LMM_ENABLE_PERSONA_DEBUG=1 bun run dev --port 4174
+node scripts/ui-foundation-review.mjs
+```
+
+The loopback-only `/?ui_review=1` component gallery uses a separate debug entry and is not imported by production routes. The review script exercises tabs/drafts, switch geometry, OTP paste/validation/explicit submission, nested dialog select, drawer input/Escape/focus restoration and reduced motion at 1440, 834, 390 and 320 pixels. Set `CONSOLE_REVIEW_OUTPUT` for artifacts; `PLAYWRIGHT_MODULE` may point to an installed Playwright module.
+
+Also run the console page, interaction and navigation scripts and frontend quality gates. The gallery blocks external/API traffic and uses synthetic local data. It does not sign in to production, make payments, buy numbers or change management settings; its screenshots do not establish production service health.
 
 ## Layout Principles
 
@@ -57,32 +78,14 @@ colors:
 - [inferred confidence=high] Every icon-only action needs an accessible name and tooltip where recognition is not universal. Status requires text/icon in addition to color.
 - [inferred confidence=high] Preserve keyboard reachability, focus after dialogs/sheets, comfortable compact-screen hit targets, and readable light/dark contrast.
 
-## Source Evidence & Confidence
+## Source references
 
-- [observed] path: `components.json`
-  sha256: `bf0b375a3d805346e05a2226a2ff29cb5bb72e92662d938eda31c6282dcac053`
-  confidence: high
-- [observed] path: `src/styles/index.css`
-  sha256: `8b01fba83e33b6699f9873beba640e0bea3daf04c2d69838b8b1862166ab377e`
-  confidence: high
-- [observed] path: `src/styles/theme.css`
-  sha256: `feb9173866b51ca2fe8177974f2d5514c0c1cb951cf7a21c2d475ee4b10d9f94`
-  confidence: high
-- [observed] path: `src/styles/forge-tokens.css`
-  sha256: `83bae3f180421622a7e235a4c3c4c45ce9bfbf9702c117b2e5a2720a19a98ec7`
-  confidence: high
-- [observed] path: `src/components/layout/components/authenticated-layout.tsx`
-  sha256: `6130102eae35da3412e96e2491c3035e03833219b5110f3308a94ba8bf4a4c7a`
-  confidence: high
-- [observed] path: `src/components/layout/components/section-page-layout.tsx`
-  sha256: `c01116b8edecf578f324aaa27afc4daa220916f7bbcb2ceed605cfdf5e28443f`
-  confidence: high
-- [observed] path: `src/features/system-settings/components/settings-form-layout.tsx`
-  sha256: `ec38e8b80a48bba51062ab7d0b6f90018b82a3b92dabcccefe45b2b2579dca05`
-  confidence: high
-- [observed] path: `src/components/error-state.tsx`
-  sha256: `24542de766ffd190961f5ecb05b062cffff5180ceae109daad5bbb6f39b5a918`
-  confidence: high
+- `components.json`
+- `src/styles/index.css`, `src/styles/theme.css`, `src/styles/forge-tokens.css`
+- `src/components/layout/components/authenticated-layout.tsx`
+- `src/components/layout/components/section-page-layout.tsx`
+- `src/features/system-settings/components/settings-form-layout.tsx`
+- `src/components/error-state.tsx`
 
 ## Known Gaps & Exceptions
 
@@ -91,7 +94,7 @@ colors:
 
 ### L0 welcome surface exception
 
-- [observed] The unactivated-account branch of `/getting-started` uses a spacious welcome composition within the existing console editorial theme. It retains shared semantic colors and typography in light and dark modes; it does not establish a new palette or change other operational pages. Surface intent lives in `.impeccable/surfaces/ps-web-src-features-onboarding-getting-started-tsx.md`.
+- [observed] The unactivated-account branch of `/getting-started` uses a spacious welcome composition within the existing console editorial theme. It retains shared semantic colors and typography in light and dark modes; it does not establish a new palette or change other operational pages.
 - [observed] Content is a single centered column of at most 48rem on a 64rem composition. The order is fixed and reads top to bottom as one sentence: who you are and what is missing (the access rail), the token cloud, the three view tabs, then the active panel. Narrower screens keep that order and only tighten spacing; nothing is reordered off the first screen.
 - [observed] Depth comes from shared card/muted surfaces and dividers. The question form and access rail have softly rounded corners; exploration links are full-width divided rows. This composition is a local exception to routine console density, not a prescription to wrap other pages in welcome panels.
 - [observed] The access rail (`.l0-rail`) is a persistent first-screen element outside the tabpanels. Review status leads: pending requests show “Awaiting review”; rejected and approved requests retain their actual states; an account with no submitted request gets an application action. The rail has no payment progress ring or upgrade badge. Its primary action opens the application or refreshes confirmed account state. A secondary outlined top-up button stays directly reachable alongside a short, backend-derived amount when paid activation is available. The topbar also keeps `data-testid='l0-topbar-topup'` and links to `/wallet` in every scene.
@@ -101,3 +104,11 @@ colors:
 - [observed] Review and payment status are static. The welcome scene keeps its existing reduced-motion-aware cloud; account amounts and status never animate.
 - [observed] Pi setup stays behind a disclosure, with optional source feedback below. The welcome surface does not open or restore a sidebar conversation. Applications retain the existing confirmed request endpoint, validation, error recovery, and approval refresh; submitting never grants access in the browser. Existing activated-account onboarding remains a separate branch.
 - [observed] Implementation evidence: `src/features/onboarding/l0-welcome.tsx`, `src/features/onboarding/l0-welcome.css`, `src/features/onboarding/l0-access-copy.ts`, `src/features/onboarding/getting-started.tsx`, `src/components/layout/components/authenticated-layout.tsx`, and `src/features/assistant/assistant-launcher.tsx`. The persistent top-up action and its link to `/wallet` are asserted from the default chat scene in `src/features/onboarding/l0-paid-welcome.test.tsx`. The focused tests assert the review-first headline, backend-derived optional amount, secondary top-up styling, navigation from the default chat scene, inline application submission, and absence of the sidebar assistant for L0. Rendered verification must be repeated after layout changes; earlier screenshots are not evidence for the current revision.
+
+### Cut logo rollout
+
+- [observed] The default LMM Forge identity uses the original filled symbol and wordmark from `.github/assets/logo-geometry.json`. React components inherit neutral `currentColor`; typography and semantic colors for operational content remain unchanged.
+- [observed] Public navigation and expanded desktop sidebar use the horizontal wordmark when space allows. Narrow mobile navigation and collapsed sidebars use the compact symbol. The default home footer reuses the full wordmark; tenant-defined logos and names retain their own artwork.
+- [observed] Built-in cached names and logo URLs normalize to the default identity before rendering or preloading. The favicon and touch icon derive from the same symbol. They have explicit black backgrounds and white ink; transparent SVG placements select ink for the current surface.
+
+The platform-owned legacy name `lmm.best` also resolves to LMM Forge. Other tenant names stay as configured.

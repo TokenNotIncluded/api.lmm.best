@@ -31,7 +31,12 @@ func toolMarketRespond(c *gin.Context, value any, err error) {
 		status, code, message = http.StatusConflict, "TOOL_MARKET_BUDGET", err.Error()
 	case errors.Is(err, model.ErrToolMarketBalance):
 		status, code, message = http.StatusConflict, "TOOL_MARKET_BALANCE", err.Error()
-	case errors.Is(err, service.ErrMarketRemoteConnection), errors.Is(err, service.ErrMarketRemoteAuth), errors.Is(err, service.ErrMarketRemoteNetwork):
+	case errors.Is(err, model.ErrToolMarketCredentialUnavailable):
+		status, code, message = http.StatusServiceUnavailable, "TOOL_MARKET_CREDENTIALS_UNAVAILABLE", "secure tool market credential storage is unavailable"
+	case errors.Is(err, service.ErrMarketRemoteAuth):
+		// An upstream 401 does not mean the caller's LMM session expired.
+		status, code, message = http.StatusUnprocessableEntity, "TOOL_MARKET_REMOTE_AUTH", "the remote MCP service rejected its configured credential"
+	case errors.Is(err, service.ErrMarketRemoteConnection), errors.Is(err, service.ErrMarketRemoteNetwork):
 		status, code, message = http.StatusUnprocessableEntity, "TOOL_MARKET_REMOTE_CONNECTION", err.Error()
 	case errors.Is(err, service.ErrMarketRemoteSchema), errors.Is(err, service.ErrMarketRemoteChanged):
 		status, code, message = http.StatusConflict, "TOOL_MARKET_REMOTE_CHANGED", err.Error()
@@ -109,6 +114,17 @@ func ReviewToolMarketDraft(c *gin.Context) {
 		return
 	}
 	if input.Approve {
+		// Deny self-approval before remote validation, including administrators
+		// and root users. The model repeats this check under the service lock.
+		review, err := model.GetToolMarketReview(c.GetInt("id"), c.Param("id"))
+		if err != nil {
+			toolMarketRespond(c, nil, err)
+			return
+		}
+		if review.Service.OwnerID == c.GetInt("id") {
+			toolMarketRespond(c, nil, model.ErrToolMarketDenied)
+			return
+		}
 		if err := service.ValidateToolMarketRemote(c.Request.Context(), c.GetInt("id"), c.Param("id"), true); err != nil {
 			toolMarketRespond(c, nil, err)
 			return
@@ -194,13 +210,4 @@ func SetToolMarketConfig(c *gin.Context) {
 		return
 	}
 	toolMarketRespond(c, nil, model.SetToolMarketConfig(c.GetInt("id"), input))
-}
-
-func ListToolMarketAccountResources(c *gin.Context) {
-	offset, limit, ok := toolMarketPage(c)
-	if !ok {
-		return
-	}
-	rows, err := model.ListToolMarketAccountResources(c.GetInt("id"), c.Param("kind"), offset, limit)
-	toolMarketRespond(c, rows, err)
 }

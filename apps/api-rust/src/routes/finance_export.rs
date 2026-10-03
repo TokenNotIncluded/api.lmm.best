@@ -728,7 +728,7 @@ async fn export_finance(State(state): State<FinanceExportState>, request: Reques
                 .and_then(|context| context.client_ip)
                 .map(|ip| ip.to_string())
         })
-        .map_or_else(String::new, |value| value);
+        .unwrap_or_default();
     drop(request);
 
     let principal = match authenticated_admin(&state, &headers).await {
@@ -1549,16 +1549,13 @@ fn build_effective_pricing(
             },
             |price| (1, price, 0.0, 0.0),
         );
-        let billing_mode = billing_modes
-            .get(&model)
-            .cloned()
-            .map_or_else(String::new, |value| value);
+        let billing_mode = billing_modes.get(&model).cloned().unwrap_or_default();
         let billing_expr = if billing_mode == "tiered_expr" {
             billing_expressions
                 .get(&model)
                 .filter(|value| !value.trim().is_empty())
                 .cloned()
-                .map_or_else(String::new, |value| value)
+                .unwrap_or_default()
         } else {
             String::new()
         };
@@ -1674,7 +1671,7 @@ fn advanced_custom_endpoints(settings: &str, model: &str) -> Option<Vec<String>>
     let routes = config
         .get("advanced_routes")
         .and_then(|value| value.as_array().cloned())
-        .map_or_else(Vec::new, |value| value);
+        .unwrap_or_default();
     let mut endpoints = Vec::new();
     for route in routes {
         let models = route.get("models").and_then(Value::as_array);
@@ -1761,14 +1758,14 @@ fn float_map(options: &BTreeMap<String, String>, key: &str) -> BTreeMap<String, 
     options
         .get(key)
         .and_then(|value| serde_json::from_str(value).ok())
-        .map_or_else(BTreeMap::new, |value| value)
+        .unwrap_or_default()
 }
 
 fn string_map(options: &BTreeMap<String, String>, key: &str) -> BTreeMap<String, String> {
     options
         .get(key)
         .and_then(|value| serde_json::from_str(value).ok())
-        .map_or_else(BTreeMap::new, |value| value)
+        .unwrap_or_default()
 }
 
 fn sanitize_base_url(value: &str) -> Result<Option<String>, FinanceExportError> {

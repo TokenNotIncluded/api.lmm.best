@@ -99,6 +99,14 @@ export class LmmOAuth {
         resource.authorization_servers[0] === this.http.issuer,
       "LMM OAuth protected-resource metadata does not match the configured resource.",
     );
+    requireValue(
+      Array.isArray(authorization.lmm_client_ids_supported) &&
+        authorization.lmm_client_ids_supported.every(
+          (clientId) => typeof clientId === "string",
+        ) &&
+        authorization.lmm_client_ids_supported.includes(this.clientId),
+      "This LMM server has not enabled Zed sign-in yet. Update the LMM server, then run lmm-zed login again.",
+    );
   }
 
   async login(interaction: ProviderAuthInteraction): Promise<LmmCredential> {
@@ -128,7 +136,7 @@ export class LmmOAuth {
         code_challenge_method: "S256",
         state,
       }).toString();
-      // Pi's native OAuth UI owns opening the browser. The listener is already bound.
+      // The host owns opening the browser. The listener is already bound.
       interaction.notify({
         type: "auth_url",
         url: url.href,

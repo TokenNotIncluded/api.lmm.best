@@ -134,6 +134,7 @@ func SetRelayRouter(router *gin.Engine, sharedAdmission ...gin.HandlerFunc) {
 	assistantRouter.Use(middleware.UserAuth(), largeRequestAdmission)
 	{
 		assistantRouter.GET("/status", controller.GetAssistantStatus)
+		assistantRouter.PUT("/profile/display-name", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.UserCriticalRateLimit("assistant-display-name"), middleware.DisableCache(), controller.ConfirmAssistantDisplayName)
 		assistantRouter.GET("/registration-check", middleware.DisableCache(), controller.GetAssistantRegistrationState)
 		assistantRouter.GET("/models", middleware.AdminAuth(), controller.GetAssistantModels)
 		assistantRouter.GET("/offers", controller.GetAssistantPlanOffers)
@@ -152,6 +153,7 @@ func SetRelayRouter(router *gin.Engine, sharedAdmission ...gin.HandlerFunc) {
 		assistantRouter.POST("/handoffs", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.UserCriticalRateLimit("assistant-handoff"), middleware.DisableCache(), controller.SubmitAssistantHandoff)
 		assistantRouter.POST("/tools/prepare-key", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.ConsoleAccessGate(), middleware.UserCriticalRateLimit("assistant-prepare-key"), middleware.DisableCache(), controller.PrepareAssistantDefaultKey)
 		assistantRouter.POST("/tools/create-key", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.ConsoleAccessGate(), middleware.UserCriticalRateLimit("assistant-create-key"), middleware.DisableCache(), controller.CreateAssistantDefaultKey)
+		assistantRouter.POST("/tools/key-action", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.UserCriticalRateLimit("assistant-key-action"), middleware.DisableCache(), controller.ConfirmAssistantAPIKeyAction)
 		assistantRouter.POST("/runtime-key", middleware.RequestBodyLimit(1<<10), middleware.RootAuth(), middleware.UserCriticalRateLimit("assistant-runtime-key"), middleware.DisableCache(), controller.EnsureAssistantRuntimeKey)
 		assistantRouter.POST("/drawing/key", middleware.RequestBodyLimit(1<<10), middleware.ConsoleAccessGate(), middleware.UserCriticalRateLimit("assistant-drawing-key"), middleware.DisableCache(), controller.EnsureAssistantDrawingKey)
 		assistantRouter.POST("/drawing/generate", middleware.UserCriticalRateLimit("assistant-drawing"), middleware.RequestBodyLimit(8<<10), middleware.DisableCache(), controller.PrepareAssistantDrawing, middleware.ModelRequestRateLimit(), middleware.Distribute(), controller.GenerateAssistantDrawing)

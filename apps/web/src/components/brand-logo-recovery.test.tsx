@@ -89,6 +89,9 @@ for (const src of [
   undefined,
   '',
   '   ',
+  '/lmm-cut-mark.svg',
+  'https://console.example.test/lmm-cut-mark.svg?v=1#logo',
+  'https://api.lmm.best/lmm-best-mark.svg?v=old#logo',
   '/lmm-best-mark.svg',
   '/lmm-forge-mark.svg',
   '/logo.png',
@@ -183,25 +186,29 @@ test('failure is stable on rerender but resets for a new URL', async () => {
   })
 })
 
-test('external artwork is preserved even when named logo.png', async () => {
-  await withLogo(
-    { src: ' https://tenant.example/logo.png ', decoding: 'async' },
-    (container) => {
+test('external artwork is preserved even when its path matches a default', async () => {
+  for (const src of [
+    'https://tenant.example/logo.png',
+    'https://tenant.example/lmm-cut-mark.svg',
+    'https://tenant.example/lmm-best-mark.svg',
+  ]) {
+    await withLogo({ src: ` ${src} `, decoding: 'async' }, (container) => {
       const image = container.querySelector('img')
       assert.ok(image)
-      assert.equal(image.getAttribute('src'), 'https://tenant.example/logo.png')
+      assert.equal(image.getAttribute('src'), src)
       assert.equal(image.getAttribute('alt'), '')
       assert.equal(image.getAttribute('decoding'), 'async')
-    }
-  )
+    })
+  }
 })
 
-test('mark has visible color fallbacks outside the Forge theme', async () => {
+test('mark inherits monochrome ink outside the Forge theme', async () => {
   await withLogo({}, (container) => {
     assert.equal(
-      container.querySelector('path')?.getAttribute('stroke'),
-      'var(--forge-brand-mark-ink, currentColor)'
+      container.querySelector('path')?.getAttribute('fill'),
+      'currentColor'
     )
+    assert.equal(container.querySelector('[stroke]'), null)
   })
 })
 

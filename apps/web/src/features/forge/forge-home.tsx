@@ -49,6 +49,7 @@ import type { ConnectionMethod } from '@/features/onboarding/next-step'
 import { useAccountNextStep } from '@/features/onboarding/use-account-next-step'
 import { PublicScriptsPanel } from '@/features/scripts/scripts-panel'
 import { useStatus } from '@/hooks/use-status'
+import { useSystemConfig } from '@/hooks/use-system-config'
 import { useTopNavLinks } from '@/hooks/use-top-nav-links'
 import { isConsoleActivated } from '@/lib/console-activation'
 import { useAuthStore } from '@/stores/auth-store'
@@ -83,7 +84,7 @@ const EXPLORE_DESTINATIONS = [
     id: 'market',
     href: '/tool-market',
     label: 'Tool market',
-    description: 'Browse, publish, authorize and run tools.',
+    description: 'Use community tools, or publish your own.',
   },
   {
     id: 'pricing',
@@ -156,6 +157,7 @@ export function ForgeHome() {
     }[nextStep.label] ?? t(nextStep.label)
   const user = useAuthStore((state) => state.auth.user)
   const { status } = useStatus()
+  const { systemName, logo } = useSystemConfig()
   const securityLink = useTopNavLinks().find(
     (link) => link.href === '/security'
   )
@@ -236,6 +238,8 @@ export function ForgeHome() {
     <ForgePublicShell>
       <HomeLanding
         rootRef={rootRef}
+        brandName={systemName}
+        brandLogo={logo}
         language={presetLanguage}
         connectionMethod={connectionMethod}
         onConnectionMethodChange={setConnectionMethod}
@@ -476,8 +480,8 @@ export function ForgeHome() {
                         ? '/sign-in?redirect=%2Fsecurity'
                         : destination.href
                     }
-                    aria-current={
-                      activeExplore === destination.id ? 'page' : undefined
+                    data-preview-active={
+                      activeExplore === destination.id || undefined
                     }
                     onMouseEnter={() => setActiveExplore(destination.id)}
                     onFocus={() => setActiveExplore(destination.id)}
@@ -485,6 +489,9 @@ export function ForgeHome() {
                   >
                     <span>
                       <strong>{t(destination.label)}</strong>
+                      <span className='lmm-destination-description'>
+                        {t(destination.description)}
+                      </span>
                     </span>
                     <ArrowRight aria-hidden='true' />
                   </a>

@@ -50,6 +50,8 @@ import { UsersMobileBulkBar } from './users-mobile-bulk-bar'
 import { UsersMobileList } from './users-mobile-list'
 import { useUsers } from './users-provider'
 
+import '../users-mobile.css'
+
 const route = getRouteApi('/_authenticated/users/')
 
 const USER_SORTABLE_COLUMNS = new Set<UserSortBy>([
@@ -278,6 +280,17 @@ export function UsersTable() {
     ensurePageInRange,
   })
 
+  const sortControls = (
+    <UsersSort
+      search={search}
+      onChange={(patch) =>
+        navigate({
+          search: (previous) => ({ ...previous, ...patch, page: undefined }),
+        })
+      }
+    />
+  )
+
   return (
     <>
       {isError && (
@@ -332,6 +345,7 @@ export function UsersTable() {
         }
         mobile={
           <>
+            <UsersMobileBulkBar table={table} />
             <UsersMobileList
               table={table}
               isLoading={isLoading}
@@ -366,12 +380,12 @@ export function UsersTable() {
                 </div>
               }
             />
-            {/* DataTablePage gates the shared bulk-actions toolbar behind
-              !showMobile, so mobile selection needs its own bar. */}
-            <UsersMobileBulkBar table={table} />
           </>
         }
         toolbarProps={{
+          className: 'users-toolbar',
+          // Column visibility controls apply to the desktop table, not this list.
+          hideViewOptions: isMobile,
           searchPlaceholder: t('Filter by username, name or email...'),
           searchDebounceMs: 500,
           onReset: resetFilters,
@@ -448,22 +462,10 @@ export function UsersTable() {
                 )}
               </div>
             ) : undefined,
-          preActions: (
-            <UsersSort
-              search={search}
-              onChange={(patch) =>
-                navigate({
-                  search: (previous) => ({
-                    ...previous,
-                    ...patch,
-                    page: undefined,
-                  }),
-                })
-              }
-            />
-          ),
+          preActions: isMobile ? undefined : sortControls,
           additionalSearch: (
             <>
+              {isMobile && sortControls}
               <UsersGroupFilter
                 value={groupFilter}
                 onChange={(value) =>

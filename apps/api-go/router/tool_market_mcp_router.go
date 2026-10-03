@@ -7,7 +7,7 @@ import (
 )
 
 func SetToolMarketMCPRouter(router *gin.Engine) {
-	route := router.Group("/mcp/market", middleware.RouteTag("mcp"), middleware.GlobalAPIRateLimit())
+	route := router.Group("/mcp/market", middleware.RouteTag("mcp"), middleware.GlobalAPIRateLimit(), controller.PrepareDrawingMCPRequestContext)
 	handler := gin.WrapH(controller.NewToolMarketMCPHandler())
 	route.Any("", handler)
 	route.Any("/", handler)

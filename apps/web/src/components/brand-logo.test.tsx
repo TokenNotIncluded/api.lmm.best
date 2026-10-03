@@ -39,6 +39,8 @@ for (const key of [
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { BrandLogo } = await import('./brand-logo')
+const { DEFAULT_SYSTEM_NAME, resolveSystemName } =
+  await import('@/lib/constants')
 
 const reactTestGlobals = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean
@@ -62,8 +64,9 @@ describe('BrandLogo', () => {
     await act(async () => root.unmount())
   })
 
-  test('normalizes current and cached legacy defaults to the LMM Best mark', async () => {
+  test('normalizes current and cached legacy defaults to the LMM Forge mark', async () => {
     for (const src of [
+      '/lmm-cut-mark.svg',
       '/lmm-best-mark.svg',
       'https://api.lmm.best/logo.png?v=old',
       '/favicon.ico',
@@ -71,14 +74,32 @@ describe('BrandLogo', () => {
     ]) {
       const container = document.createElement('div')
       const root = createRoot(container)
-      await act(async () => root.render(<BrandLogo src={src} alt='LMM Best' />))
+      await act(async () =>
+        root.render(<BrandLogo src={src} alt='LMM Forge' />)
+      )
       assert.equal(container.querySelector('img'), null)
       assert.equal(
         container.querySelector('svg')?.getAttribute('aria-label'),
-        'LMM Best'
+        'LMM Forge'
       )
       await act(async () => root.unmount())
     }
+  })
+
+  test('migrates stock system names while preserving tenant names', () => {
+    for (const name of [
+      undefined,
+      '  ',
+      'LMM Best',
+      'lmm.best',
+      'LMM API',
+      'New API',
+      'NewAPI',
+      'LMM Forge',
+    ]) {
+      assert.equal(resolveSystemName(name), DEFAULT_SYSTEM_NAME)
+    }
+    assert.equal(resolveSystemName('  Example tenant  '), 'Example tenant')
   })
 
   test('keeps a tenant logo as an accessible image', async () => {

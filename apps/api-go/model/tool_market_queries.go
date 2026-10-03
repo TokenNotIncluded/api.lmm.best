@@ -25,7 +25,15 @@ type ToolMarketListItem struct {
 	Description   string `json:"description"`
 	ExecutionType string `json:"execution_type"`
 	PublishedAt   int64  `json:"published_at"`
+	ToolCount     int    `json:"tool_count"`
+	MinPriceQuota int    `json:"min_price_quota"`
+	MaxPriceQuota int    `json:"max_price_quota"`
 }
+
+const marketListColumns = `s.id, s.owner_id, v.id AS version_id, v.name, v.description, v.execution_type, v.published_at,
+	(SELECT COUNT(*) FROM tool_market_tool_versions tv WHERE tv.version_id = v.id) AS tool_count,
+	COALESCE((SELECT MIN(tv.price_quota) FROM tool_market_tool_versions tv WHERE tv.version_id = v.id), 0) AS min_price_quota,
+	COALESCE((SELECT MAX(tv.price_quota) FROM tool_market_tool_versions tv WHERE tv.version_id = v.id), 0) AS max_price_quota`
 
 func marketVisibleQuery(userID int) *gorm.DB {
 	return DB.Table("tool_market_services AS s").
@@ -43,7 +51,7 @@ func ListToolMarket(userID int, search, executionType string, offset, limit int)
 	}
 	q := marketVisibleQuery(userID)
 	if executionType != "" {
-		if executionType != "remote" && executionType != "serverless" {
+		if executionType != "remote" && executionType != "serverless" && executionType != "builtin" {
 			return nil, ErrToolMarketInput
 		}
 		q = q.Where("v.execution_type = ?", executionType)
@@ -51,10 +59,11 @@ func ListToolMarket(userID int, search, executionType string, offset, limit int)
 	if search != "" {
 		// Treat wildcard characters literally, not as a way to bypass filtering.
 		search = strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(strings.ToLower(search))
-		q = q.Where("LOWER(v.name) LIKE ? ESCAPE '!' OR LOWER(v.description) LIKE ? ESCAPE '!'", "%"+search+"%", "%"+search+"%")
+		pattern := "%" + search + "%"
+		q = q.Where("LOWER(v.name) LIKE ? ESCAPE '!' OR LOWER(v.description) LIKE ? ESCAPE '!' OR EXISTS (SELECT 1 FROM tool_market_tool_versions tv WHERE tv.version_id = v.id AND (LOWER(tv.name) LIKE ? ESCAPE '!' OR LOWER(tv.description) LIKE ? ESCAPE '!'))", pattern, pattern, pattern, pattern)
 	}
 	rows := []ToolMarketListItem{}
-	err := q.Select("s.id, s.owner_id, v.id AS version_id, v.name, v.description, v.execution_type, v.published_at").Order("v.published_at DESC, s.id ASC").Offset(offset).Limit(limit).Scan(&rows).Error
+	err := q.Select(marketListColumns).Order("CASE WHEN v.execution_type = 'builtin' THEN 0 ELSE 1 END, v.published_at DESC, s.id ASC").Offset(offset).Limit(limit).Scan(&rows).Error
 	return rows, err
 }
 
@@ -85,7 +94,7 @@ func GetToolMarketDetail(userID int, serviceID string, draft bool) (*ToolMarketD
 		// Draft identifiers are private author metadata, including on public services.
 		detail.Service.DraftVersionID = ""
 	}
-	detail.Validated = detail.Version.ValidationDigest != "" && detail.Version.ValidationDigest == detail.Version.Digest
+	detail.Validated = marketBuiltinVersion(detail.Service, detail.Version) || (detail.Version.ValidationDigest != "" && detail.Version.ValidationDigest == detail.Version.Digest)
 	if detail.Service.OwnerID == userID {
 		_ = json.Unmarshal([]byte(detail.Version.AllowedUsers), &detail.AllowedUsers)
 	}
@@ -170,7 +179,7 @@ func ListToolMarketAccountResources(userID int, kind string, offset, limit int) 
 		// Reapply current visibility, including revoked shared access.
 		rows := []ToolMarketListItem{}
 		err := marketVisibleQuery(userID).Joins("JOIN tool_market_favorites f ON f.service_id = s.id AND f.user_id = ?", userID).
-			Select("s.id, s.owner_id, v.id AS version_id, v.name, v.description, v.execution_type, v.published_at").
+			Select(marketListColumns).
 			Order("f.created_at DESC, s.id").Offset(offset).Limit(limit).Scan(&rows).Error
 		return rows, err
 	default:

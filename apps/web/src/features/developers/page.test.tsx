@@ -24,13 +24,16 @@ for (const key of [
 }
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
+const { QueryClient, QueryClientProvider } =
+  await import('@tanstack/react-query')
 const { createInstance } = await import('i18next')
 const { initReactI18next } = await import('react-i18next')
 await createInstance()
   .use(initReactI18next)
   .init({ lng: 'en', resources: { en: { translation: {} } } })
-const { IntegrationPrompt } = await import('./page')
-const { PRICING_PROMPT, OAUTH_PROMPT } = await import('./integration-prompts')
+const { DevelopersPage, IntegrationPrompt } = await import('./page')
+const { PRICING_EXAMPLE, PRICING_PROMPT, OAUTH_PROMPT } =
+  await import('./integration-prompts')
 after(() => dom.close())
 
 test('one click copies the complete pricing integration instructions', async () => {
@@ -104,3 +107,65 @@ test('blocked clipboard opens and selects the OAuth prompt instead of claiming s
     container.remove()
   }
 })
+
+for (const clipboardAvailable of [true, false]) {
+  test(`pricing example preserves the complete source and handles ${clipboardAvailable ? 'copy success' : 'blocked clipboard'}`, async () => {
+    let copied = ''
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: clipboardAvailable
+        ? {
+            writeText: async (value: string) => {
+              copied = value
+            },
+          }
+        : undefined,
+    })
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: () => false,
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { enabled: false } },
+    })
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+    try {
+      await act(async () =>
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <DevelopersPage />
+          </QueryClientProvider>
+        )
+      )
+      const example = container.querySelector<HTMLPreElement>(
+        'pre[aria-label="Fetch pricing from your backend."]'
+      )
+      assert.ok(example)
+      assert.equal(example.textContent, PRICING_EXAMPLE)
+      const exampleBlock = example.parentElement
+      assert.ok(exampleBlock)
+      const copyButton = exampleBlock.querySelector('button')
+      assert.ok(copyButton)
+      await act(async () => copyButton.click())
+      if (clipboardAvailable) {
+        assert.equal(copied, PRICING_EXAMPLE)
+        assert.equal(copyButton.textContent, 'Copied')
+        assert.equal(exampleBlock.querySelector('[role="alert"]'), null)
+      } else {
+        assert.equal(copied, '')
+        assert.equal(copyButton.textContent, 'Copy')
+        assert.equal(
+          exampleBlock.querySelector('[role="alert"]')?.textContent,
+          'Copy failed'
+        )
+        assert.equal(example.textContent, PRICING_EXAMPLE)
+      }
+    } finally {
+      await act(async () => root.unmount())
+      queryClient.clear()
+      container.remove()
+    }
+  })
+}

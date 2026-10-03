@@ -93,6 +93,55 @@ describe('assistant tool traces', () => {
     assert.doesNotMatch(markup, /Tool completed/)
   })
 
+  test('key deletion or disabling preparation never implies the mutation completed', () => {
+    for (const [status, outcome] of [
+      ['output-available', 'prepared'],
+      ['approval-requested', 'waiting'],
+      ['output-error', 'failed'],
+    ] as const) {
+      assert.equal(
+        assistantToolOutcome({ name: 'prepare_api_key_action', status }),
+        outcome
+      )
+    }
+    const markup = renderToStaticMarkup(
+      createElement(
+        I18nextProvider,
+        { i18n: testI18n },
+        createElement(AssistantToolCalls, {
+          traces: [
+            {
+              name: 'prepare_api_key_action',
+              status: 'output-available',
+              input: { action: 'delete', token_id: 7 },
+            },
+          ],
+        })
+      )
+    )
+    assert.match(markup, /Prepare API key deletion or disabling/)
+    assert.match(markup, /Prepared; confirmation required/)
+    assert.doesNotMatch(
+      markup,
+      /Tool completed|API key deleted|API key disabled/
+    )
+  })
+
+  test('reading your API key list has a readable completed summary', () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        I18nextProvider,
+        { i18n: testI18n },
+        createElement(AssistantToolCalls, {
+          traces: [{ name: 'list_my_api_keys', status: 'output-available' }],
+        })
+      )
+    )
+    assert.match(markup, /Read your API keys/)
+    assert.match(markup, /Your API key list loaded/)
+    assert.doesNotMatch(markup, /API key deleted|API key disabled/)
+  })
+
   test('collapses duplicate failures and hides failures recovered by success', () => {
     const traces = collapseAssistantToolTraces([
       {

@@ -24,7 +24,7 @@ import { PublicLayout } from '@/components/layout'
 import { LMM_BRAND_NAME } from '@/components/lmm-brand-mark'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { useTopNavLinks } from '@/hooks/use-top-nav-links'
-import { DEFAULT_SYSTEM_NAME } from '@/lib/constants'
+import { DEFAULT_LOGO, DEFAULT_SYSTEM_NAME } from '@/lib/constants'
 
 import { HomeDirectoryLink } from './home-directory-link'
 
@@ -36,8 +36,9 @@ type ForgePublicShellProps = {
 
 export function ForgePublicShell(props: ForgePublicShellProps) {
   const { systemName, logo } = useSystemConfig()
-  const siteName =
-    systemName === DEFAULT_SYSTEM_NAME ? LMM_BRAND_NAME : systemName
+  const usesDefaultBrand =
+    logo === DEFAULT_LOGO && systemName === DEFAULT_SYSTEM_NAME
+  const siteName = usesDefaultBrand ? LMM_BRAND_NAME : systemName
   const isHome = useRouterState({
     select: (state) => state.location.pathname === '/',
   })
@@ -56,8 +57,12 @@ export function ForgePublicShell(props: ForgePublicShellProps) {
   return (
     <PublicLayout
       showMainContainer={false}
-      siteName={siteName}
-      logo={<BrandLogo src={logo} className='size-7 object-contain' />}
+      siteName={usesDefaultBrand ? undefined : siteName}
+      logo={
+        usesDefaultBrand ? undefined : (
+          <BrandLogo src={logo} className='size-7 object-contain' />
+        )
+      }
       navLinks={[
         { title: 'Home', href: '/' },
         { title: 'AI directory', href: '/ai-directory' },

@@ -49,7 +49,7 @@ func marketRemoteTestDB(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 	pool.SetMaxOpenConns(1)
 	model.DB = db
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.ToolMarketService{}, &model.ToolMarketVersion{}, &model.ToolMarketTool{}, &model.ToolMarketToolVersion{}, &model.ToolMarketAccess{}, &model.ToolMarketFavorite{}, &model.ToolMarketInstallation{}, &model.ToolMarketGrant{}, &model.ToolMarketBudget{}, &model.ToolMarketCall{}, &model.ToolMarketTransfer{}, &model.ToolMarketEvent{}, &model.ToolMarketConfig{}, &model.ToolMarketResult{}, &model.ToolMarketToken{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.ToolMarketService{}, &model.ToolMarketVersion{}, &model.ToolMarketTool{}, &model.ToolMarketToolVersion{}, &model.ToolMarketAccess{}, &model.ToolMarketFavorite{}, &model.ToolMarketInstallation{}, &model.ToolMarketGrant{}, &model.ToolMarketBudget{}, &model.ToolMarketCall{}, &model.ToolMarketTransfer{}, &model.ToolMarketEvent{}, &model.ToolMarketConfig{}, &model.ToolMarketResult{}, &model.ToolMarketToken{}, &model.ToolMarketCredential{}))
 	t.Cleanup(func() {
 		model.DB = oldDB
 		common.RedisEnabled = oldRedis

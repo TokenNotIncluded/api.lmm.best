@@ -15,24 +15,25 @@ import (
 )
 
 const (
-	AuthFlowPurposeOAuth             = "oauth"
-	AuthFlowPurposeTwoFALogin        = "2fa_login"
-	AuthFlowPurposePasskeyLogin      = "passkey_login"
-	AuthFlowPurposePasskeyRegister   = "passkey_register"
-	AuthFlowPurposePasskeyStepUp     = "passkey_step_up"
-	AuthFlowPurposeWeChatLogin       = "wechat_login"
-	AuthFlowPurposeTelegramLogin     = "telegram_login"
-	AuthFlowPurposeTelegramBind      = "telegram_bind"
-	AuthFlowPurposeTelegramAssertion = "telegram_assertion"
-	AuthFlowPurposeAssistantL1       = "assistant_l1_recommendation"
-	AuthFlowPurposeAssistantAdmin    = "assistant_admin_change"
-	AuthFlowPurposeAssistantKey      = "assistant_key_creation"
-	AuthFlowPurposeAssistantDrawing  = "assistant_drawing_generation"
-	AuthFlowPurposeAssistantHandoff  = "assistant_handoff"
-	AuthFlowIntentLogin              = "login"
-	AuthFlowIntentBind               = "bind"
-	AuthFlowTokenBytes               = 32
-	AuthFlowDefaultCleanupRetention  = 24 * time.Hour
+	AuthFlowPurposeOAuth                  = "oauth"
+	AuthFlowPurposeTwoFALogin             = "2fa_login"
+	AuthFlowPurposePasskeyLogin           = "passkey_login"
+	AuthFlowPurposePasskeyRegister        = "passkey_register"
+	AuthFlowPurposePasskeyStepUp          = "passkey_step_up"
+	AuthFlowPurposeWeChatLogin            = "wechat_login"
+	AuthFlowPurposeTelegramLogin          = "telegram_login"
+	AuthFlowPurposeTelegramBind           = "telegram_bind"
+	AuthFlowPurposeTelegramAssertion      = "telegram_assertion"
+	AuthFlowPurposeAssistantL1            = "assistant_l1_recommendation"
+	AuthFlowPurposeAssistantAdmin         = "assistant_admin_change"
+	AuthFlowPurposeAssistantKey           = "assistant_key_creation"
+	AuthFlowPurposeAssistantKeyManagement = "assistant_key_management"
+	AuthFlowPurposeAssistantDrawing       = "assistant_drawing_generation"
+	AuthFlowPurposeAssistantHandoff       = "assistant_handoff"
+	AuthFlowIntentLogin                   = "login"
+	AuthFlowIntentBind                    = "bind"
+	AuthFlowTokenBytes                    = 32
+	AuthFlowDefaultCleanupRetention       = 24 * time.Hour
 )
 
 var (

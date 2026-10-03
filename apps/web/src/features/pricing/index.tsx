@@ -43,11 +43,7 @@ import { usePricingData } from './hooks/use-pricing-data'
 /** Models revealed per "Load more" click on the vendor grid. */
 const PAGE_SIZE = 48
 
-/**
- * Model Square, following the gpt.ge models-page structure: a centered page
- * title, a sticky translucent filter bar under the fixed header, and the
- * catalog grouped by vendor with soft card grids.
- */
+/** A searchable model catalog, grouped by vendor for price comparison. */
 export function Pricing() {
   const { t } = useTranslation()
   const funding = usePurchaseEntry()
@@ -166,7 +162,7 @@ export function Pricing() {
               <button
                 type='button'
                 onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}
-                className='border-foreground/25 hover:bg-muted/70 h-11 rounded-none border px-8 text-sm font-medium transition-colors'
+                className='border-foreground/25 hover:bg-muted/70 focus-visible:ring-ring/50 h-11 rounded-none border px-8 text-sm font-medium transition-colors outline-none focus-visible:ring-2 motion-reduce:transition-none'
               >
                 {t('Load more')}
               </button>
@@ -206,14 +202,13 @@ export function Pricing() {
     <ForgePublicShell>
       <div className='min-h-svh'>
         <div className='mx-auto w-full max-w-7xl px-5 pb-20 md:px-10'>
-          {/* Centered page title, gpt.ge-style. */}
-          <div className='border-foreground/20 mb-8 border-b pt-12 pb-8 sm:pt-16'>
-            <div className='flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between'>
+          <div className='border-foreground/20 mb-5 border-b pt-7 pb-5 sm:mb-8 sm:pt-14 sm:pb-8'>
+            <div className='flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between sm:gap-6'>
               <div className='min-w-0'>
-                <h1 className='font-serif text-5xl leading-[1.05] font-normal tracking-tight sm:text-6xl'>
+                <h1 className='font-serif text-3xl leading-[1.1] font-normal tracking-tight text-balance sm:text-5xl lg:text-6xl'>
                   {t('Models and pricing')}
                 </h1>
-                <p className='text-muted-foreground mt-4 max-w-2xl text-base leading-7'>
+                <p className='text-muted-foreground mt-3 max-w-2xl text-base leading-6 sm:mt-4 sm:leading-7'>
                   {t('This site currently has {{count}} models enabled', {
                     count: models?.length || 0,
                   })}
@@ -222,7 +217,7 @@ export function Pricing() {
               {/* The single most-asked question on this page: how do I pay? */}
               <Button
                 size='lg'
-                className='h-auto min-h-12 w-full shrink-0 px-6 py-3 text-base sm:w-auto'
+                className='h-auto min-h-11 w-full shrink-0 px-6 py-3 text-base sm:min-h-12 sm:w-auto'
                 render={
                   <Link
                     to={funding.to}
@@ -241,9 +236,8 @@ export function Pricing() {
             </div>
           </div>
 
-          {/* Sticky translucent filter bar: search + compact toolbar. */}
-          <div className='bg-background border-foreground/20 sticky top-16 z-40 -mx-5 mb-8 border-b py-3 md:-mx-10'>
-            <div className='flex flex-col gap-2 px-5 md:px-10'>
+          <div className='bg-background border-foreground/20 sticky top-16 z-40 -mx-5 mb-4 border-b py-3 sm:mb-8 sm:py-4 md:-mx-10'>
+            <div className='flex min-w-0 flex-col gap-2 px-5 sm:gap-3 md:px-10'>
               <SearchBar
                 value={searchInput}
                 onChange={setSearchInput}
@@ -251,7 +245,7 @@ export function Pricing() {
                 placeholder={t(
                   'Search model name, provider, endpoint, or tag...'
                 )}
-                className='mx-auto w-full max-w-2xl'
+                className='w-full'
               />
               <PricingToolbar
                 filteredCount={filteredModels.length}
@@ -290,6 +284,27 @@ export function Pricing() {
                 }}
               />
             </div>
+          </div>
+
+          <div className='mb-5 flex flex-col gap-2 sm:hidden'>
+            <div className='text-muted-foreground flex items-baseline gap-1 text-sm'>
+              <span className='text-foreground font-semibold tabular-nums'>
+                {filteredModels.length.toLocaleString()}
+              </span>
+              <span>
+                {filteredModels.length === 1 ? t('model') : t('models')}
+              </span>
+              {hasActiveFilters && models?.length ? (
+                <span className='text-xs'>
+                  / {models.length.toLocaleString()}
+                </span>
+              ) : null}
+            </div>
+            <p role='note' className='text-muted-foreground text-xs leading-5'>
+              {t(
+                'No group selected shows starting prices. Checkout confirms the final amount.'
+              )}
+            </p>
           </div>
 
           <VendorIconWall

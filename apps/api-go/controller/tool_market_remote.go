@@ -57,7 +57,7 @@ func GetToolMarketCallResult(c *gin.Context) {
 
 func GetToolMarketConfig(c *gin.Context) {
 	config, err := model.GetToolMarketConfig()
-	toolMarketRespond(c, gin.H{"enabled": config.Enabled, "fee_bps": config.FeeBPS, "recipient_id": config.RecipientID, "quota_per_unit": common.QuotaPerUnit, "web_client_id": model.ToolMarketWebClient, "mcp_path": "/mcp/market", "result_retention_seconds": 3600, "confirmation_timeout_seconds": 120}, err)
+	toolMarketRespond(c, gin.H{"enabled": config.Enabled, "builtin_enabled": true, "fee_bps": config.FeeBPS, "recipient_id": config.RecipientID, "quota_per_unit": common.QuotaPerUnit, "web_client_id": model.ToolMarketWebClient, "mcp_path": "/mcp/market", "result_retention_seconds": 3600, "confirmation_timeout_seconds": 120}, err)
 }
 
 func CreateToolMarketToken(c *gin.Context) {

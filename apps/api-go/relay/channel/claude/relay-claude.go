@@ -28,6 +28,8 @@ func maybeMarkClaudeRefusal(c *gin.Context, stopReason string) {
 	}
 	if strings.EqualFold(stopReason, "refusal") {
 		common.SetContextKey(c, constant.ContextKeyAdminRejectReason, "claude_stop_reason=refusal")
+	} else if common.GetContextKeyString(c, constant.ContextKeyAdminRejectReason) == "claude_stop_reason=refusal" {
+		common.SetContextKey(c, constant.ContextKeyAdminRejectReason, "")
 	}
 }
 
@@ -92,11 +94,14 @@ func HandleStreamResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 	if claudeError := claudeResponse.GetClaudeError(); claudeError != nil && claudeError.Type != "" {
 		return types.WithClaudeError(*claudeError, http.StatusInternalServerError)
 	}
-	if claudeResponse.StopReason != "" {
-		maybeMarkClaudeRefusal(c, claudeResponse.StopReason)
-	}
-	if claudeResponse.Delta != nil && claudeResponse.Delta.StopReason != nil {
-		maybeMarkClaudeRefusal(c, *claudeResponse.Delta.StopReason)
+	observeClaudeRefusal(c, &claudeResponse, data)
+	if info.RelayFormat == types.RelayFormatOpenAIResponses {
+		response := StreamResponseClaude2OpenAI(&claudeResponse)
+		if !FormatClaudeResponseInfo(&claudeResponse, response, claudeInfo) || response == nil {
+			return nil
+		}
+		countClaudeStreamBillableTools(c, info, &claudeResponse)
+		return sendClaudeResponsesStreamChunk(c, info, response)
 	}
 	if info.RelayFormat == types.RelayFormatClaude {
 		FormatClaudeResponseInfo(&claudeResponse, nil, claudeInfo)
@@ -150,10 +155,13 @@ func countClaudeStreamBillableTools(c *gin.Context, info *relaycommon.RelayInfo,
 }
 
 func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, claudeInfo *ClaudeResponseInfo) {
+	if claudeStreamCompleted(c, info, claudeInfo) {
+		markClaudeRefusalBillingExemption(c)
+	}
 	if claudeInfo.Usage.PromptTokens == 0 {
 		//上游出错
 	}
-	if claudeInfo.Usage.CompletionTokens == 0 || !claudeInfo.Done {
+	if common.GetContextKeyString(c, constant.ContextKeyBillingExemptReason) == "" && (claudeInfo.Usage.CompletionTokens == 0 || !claudeInfo.Done) {
 		if common.DebugEnabled {
 			common.SysLog("claude response usage is not complete, maybe upstream error")
 		}
@@ -191,6 +199,9 @@ func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, clau
 }
 
 func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (*dto.Usage, *types.NewAPIError) {
+	resetClaudeRefusalBilling(c)
+	c.Set(claudeResponsesStreamKey, nil)
+	c.Set(claudeResponsesWriteFailedKey, false)
 	claudeInfo := &ClaudeResponseInfo{
 		ResponseId:   helper.GetResponseID(c),
 		Created:      common.GetTimestamp(),
@@ -206,10 +217,18 @@ func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
 		}
 	})
 	if err != nil {
-		return nil, err
+		if info.RelayFormat != types.RelayFormatOpenAIResponses ||
+			(!c.Writer.Written() && c.Request.Context().Err() == nil && !c.GetBool(claudeResponsesWriteFailedKey)) {
+			return nil, err
+		}
 	}
 
 	HandleStreamFinalResponse(c, info, claudeInfo)
+	if info.RelayFormat == types.RelayFormatOpenAIResponses {
+		if err := finalizeClaudeResponsesStream(c, info, claudeInfo.Usage, claudeStreamCompleted(c, info, claudeInfo)); err != nil {
+			return nil, err
+		}
+	}
 	return claudeInfo.Usage, nil
 }
 
@@ -222,7 +241,9 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 	if claudeError := claudeResponse.GetClaudeError(); claudeError != nil && claudeError.Type != "" {
 		return types.WithClaudeError(*claudeError, http.StatusInternalServerError)
 	}
-	maybeMarkClaudeRefusal(c, claudeResponse.StopReason)
+	resetClaudeRefusalBilling(c)
+	observeClaudeRefusal(c, &claudeResponse, string(data))
+	markClaudeRefusalBillingExemption(c)
 	if claudeInfo.Usage == nil {
 		claudeInfo.Usage = &dto.Usage{}
 	}
@@ -248,6 +269,15 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 		}
 	case types.RelayFormatClaude:
 		responseData = data
+	case types.RelayFormatOpenAIResponses:
+		result, convertErr := relayconvert.ConvertResponse(c, info, types.RelayFormatOpenAIResponses, &claudeResponse)
+		if convertErr != nil {
+			return types.NewError(convertErr, types.ErrorCodeBadResponseBody)
+		}
+		responseData, err = common.Marshal(result.Value)
+		if err != nil {
+			return types.NewError(err, types.ErrorCodeBadResponseBody)
+		}
 	}
 
 	if claudeResponse.Usage != nil && claudeResponse.Usage.ServerToolUse != nil && claudeResponse.Usage.ServerToolUse.WebSearchRequests > 0 {
@@ -266,6 +296,7 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 
 func ClaudeHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (*dto.Usage, *types.NewAPIError) {
 	defer service.CloseResponseBodyGracefully(resp)
+	resetClaudeRefusalBilling(c)
 
 	claudeInfo := &ClaudeResponseInfo{
 		ResponseId:   helper.GetResponseID(c),

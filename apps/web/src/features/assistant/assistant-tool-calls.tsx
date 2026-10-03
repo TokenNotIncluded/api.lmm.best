@@ -48,12 +48,16 @@ const TOOL_TITLE_KEYS = {
   get_available_models: 'Read available models',
   get_model_pricing: 'Read model pricing',
   get_account_access: 'Read account access',
+  get_new_user_gift_status: 'New-user gift',
+  get_weekly_discount_status: 'Weekly recharge discount',
   get_setup_guide: 'Read setup guide',
   get_plan_offers: 'Read plan offers',
   calculate_math: 'Calculate math',
   calculate_cost: 'Calculate cost',
   set_conversation_title: 'Update conversation title',
   request_create_key: 'Prepare API key creation',
+  list_my_api_keys: 'Read your API keys',
+  prepare_api_key_action: 'Prepare API key deletion or disabling',
   request_human_support: 'Human technical support',
 } satisfies Record<string, string>
 
@@ -70,12 +74,16 @@ const TOOL_SUMMARY_KEYS = {
   get_available_models: 'Available models loaded',
   get_model_pricing: 'Model pricing loaded',
   get_account_access: 'Account access loaded',
+  get_new_user_gift_status: 'Tool completed',
+  get_weekly_discount_status: 'Tool completed',
   get_setup_guide: 'Setup guide loaded',
   get_plan_offers: 'Plan offers loaded',
   calculate_math: 'Calculation completed',
   calculate_cost: 'Cost estimate calculated',
   set_conversation_title: 'Conversation title updated',
   request_create_key: 'API key creation prepared',
+  list_my_api_keys: 'Your API key list loaded',
+  prepare_api_key_action: 'API key action prepared',
 } satisfies Record<string, string>
 
 function toolErrorText(

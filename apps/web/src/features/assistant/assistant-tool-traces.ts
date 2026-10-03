@@ -32,9 +32,14 @@ export function assistantToolOutcome(
 ): AssistantToolOutcome {
   if (trace.status === 'output-error') return 'failed'
   if (trace.status === 'approval-requested') return 'waiting'
-  // request_create_key only prepares a confirmation-bound draft. It never
-  // proves that a key was created, so it must not render as completed.
-  if (trace.name === 'request_create_key') return 'prepared'
+  // These tools only prepare confirmation-bound drafts. They never prove
+  // that a key was created, deleted, or disabled.
+  if (
+    trace.name === 'request_create_key' ||
+    trace.name === 'prepare_api_key_action'
+  ) {
+    return 'prepared'
+  }
   return 'completed'
 }
 
