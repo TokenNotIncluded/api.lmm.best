@@ -7,8 +7,8 @@ standalone Go installation on systemd, use
 [standalone systemd deployment](manual-systemd-deployment.md): `doctor`,
 `upgrade`, then explicit `confirm`. That workflow refuses package-owned
 providers and does not replace the signed package controller or its gates.
-Its software rollback does not restore a database, and it has no automatic
-rollback watchdog. Do not assume the package guarantees below apply to it.
+Its software rollback does not restore a database. The standalone workflow and
+signed package controller have separate transaction and recovery contracts.
 
 Packages install a real `lmm-api-go` or `lmm-api-rs` provider and a one-hop
 `/usr/bin/lmm-api` symlink. Service and native operator actions enter through
@@ -28,16 +28,15 @@ SSH is only the transport here. Host-level inspection (systemd, filesystem,
 memory, and journal reads) remains separate and read-only unless a guarded
 deployment transaction has been explicitly authorized.
 
-## Current production boundary
+## Verify the production boundary
 
-The 2026-08-14 read-only audit found `api.lmm.best` running the Go backend with
-PostgreSQL and dedicated Valkey. The canonical lowercase
-`pg-write-boundary` and `cutover-journal` agree on the transaction, schema and
-revision; the journal phase is `COMPLETE`; and `post-cutover-verify.json`
-attests the PostgreSQL historical migration as verified. Verify the native production transaction status and current host resource
-and health measurements before every mutation instead of treating this dated
-observation as permanent evidence. Rust remains internal-probe-only and does
-not own production business traffic.
+Before every production change, verify the installed provider/package/frontend
+identities, active PostgreSQL database and schema, forward-only write boundary,
+Valkey readiness, native transaction status, and authenticated canaries. Missing,
+failed, or stale evidence blocks the change. Follow the
+[PostgreSQL production boundary](postgresql-cutover.md) and normative
+[backend CLI deployment contract](backend-cli-deployment-contract.md);
+historical observations do not establish current acceptance.
 
 ## Frontend: zero-downtime static releases
 
@@ -61,9 +60,13 @@ Production uses resumable controller phases:
 ```
 
 `stage` only creates the marker-owned target workspace and transfers exact
-verified artifacts. `promote` performs the guarded package transaction,
-health observation, watchdog, and optional three-copy backup protocol. Remote
-mutation still requires current-turn authorization and exact host identity.
+verified artifacts. `promote` performs the guarded package transaction and
+health observation, then stops at `AWAITING_CONFIRMATION`. The operator must
+explicitly confirm or roll back the exact transaction; there is no scheduled
+or automatic rollback. Release plans select `disabled` or `controller-only`
+backup mode, as defined by the
+[controller-only backup evidence contract](controller-only-backup-format.md).
+Remote mutations require operator authorization and exact host identity.
 
 The frontend transaction validates `index.html` and local asset references,
 copies into same-filesystem staging, and atomically replaces
@@ -107,13 +110,15 @@ ExecStart=/usr/bin/lmm-api serve
 ```
 
 Status, diagnostics, HTTP probes, deployment, and GeoIP maintenance are all
-`lmm-api` subcommands. Production backend changes are autonomous, locked
-transactions with offline backup verification, health validation, persistent
-audit output, a ten-minute rollback watchdog, and explicit confirmation before
-the transaction is considered complete. The transaction continues without
-the initiating shell or API connection, but restarting the only process
-creates a bounded interruption. It is not a zero-downtime or blue/green
-deployment.
+`lmm-api` subcommands. The signed package controller holds the deployment lock
+and persists the immutable manifest, verified rollback artifacts, and recovery
+state before the first live mutation. A failure after that boundary becomes
+`ROLLBACK_REQUIRED`; healthy activation stops at `AWAITING_CONFIRMATION` after
+the observation gate. Only an explicit exact-ID `confirm` or `rollback` makes
+the transaction terminal. Lost replies require read-only status reconciliation
+before another action. See the
+[manual release acceptance flow](production-release-transaction.md).
+Restarting the sole backend interrupts active connections.
 
 Before invoking a subcommand on an unknown historical target, first classify
 the installed package and systemd `ExecStart` without executing an unproven
@@ -121,47 +126,39 @@ legacy binary. The supported service contract is
 `ExecStart=/usr/bin/lmm-api serve`; the canonical path must be owned by an
 approved Go package with zero altered files. Use package/systemd metadata, the
 running PID, sanitized process-environment scheme checks, and explicit HTTP
-probes for legacy classification, then move through the guarded T0 transaction
+probes for legacy classification, then follow the supported
+[legacy native CLI bootstrap](backend-cli-deployment-contract.md#staging-from-a-legacy-native-cli)
 before relying on the unified controller.
 
 Always read `apps/api-rust/tests/fixtures/routes/route-gate.tsv` for the
 current route ownership and approval state; prose is not an authority for
 route counts.
 
-## Rust internal-probe blue/green foundation
+## Rust provider boundary
 
-The native Rust blue/green deployment foundation uses blue on `127.0.0.1:3100`
-and green on `127.0.0.1:3101`. Nginx ownership remains only
-loopback-restricted GET/HEAD liveness, readiness, and build probes. Releases,
-per-slot symlinks, nginx upstream publication, PREPARED/COMMITTED journals,
-crash reconciliation, and bounded SIGTERM drain are independent of the Go
-process. Neither a mounted candidate nor a historical internal-probe rehearsal
-owns production traffic; see `docs/rust-blue-green.md` and the migration TSV.
-
-This foundation is not a production API cutover. Production business routes
-remain on the approved backend until every route passes independent
-differential gates and the PostgreSQL cutover is approved.
+Rust remains a migration candidate. Build, package, provider-link, and service
+operations follow the [Rust provider rollout contract](rust-blue-green.md).
+The old shell-managed blue/green slot framework is retired. A compiled binary,
+mounted route, successful readiness probe, or historical rehearsal does not
+transfer production business ownership. Ownership remains on the approved
+backend until the independent differential and deployment gates pass.
 
 ## PostgreSQL production migration and reconciliation prerequisite
 
-The verified SQLite-to-PostgreSQL copier and autonomous coordinator remain the
-only approved path for a new migration or reconciliation. A live target may
-already run Go on PostgreSQL and dedicated Valkey after a historical cutover;
-that runtime fact does not prove that the current boundary, schema contract,
-or authenticated canaries were accepted. When the active process is PostgreSQL
-but the current `PG_WRITE_BOUNDARY`/journal is absent or post-cutover
-verification failed, stop and reconcile before changing backend ownership.
-The coordinator stops the Go writer when a SQLite source is still involved,
-backs up and verifies the source, copies into a fresh versioned schema, durably
-marks the forward-only boundary before publishing PostgreSQL and Valkey
-configuration, and runs public plus authenticated canaries. The strict journal,
-immutable candidate hash, `--reconcile-only` path, and systemd boot gate make
-process death and reboot idempotently recoverable.
+The historical SQLite-to-PostgreSQL shell coordinator is retired. Production
+migration and verification use `/usr/bin/lmm-api migrate --apply|--verify`
+under the [PostgreSQL production boundary](postgresql-cutover.md).
+Use the [offline migration rehearsal](postgresql-migration.md) for fresh,
+isolated schema preparation and verification; it does not authorize traffic.
 
-The one-time database cutover is not zero downtime: the SQLite freeze stops
-the sole Go process and disconnects active HTTP, SSE, and WebSocket
-connections. Production remains prohibited until the isolated rehearsal passes
-and an operator explicitly approves the maintenance window.
+Verify the active schema, durable write boundary, signed package identities,
+N/N-1 compatibility, and authenticated canaries before a database-changing
+release or provider switch. Missing or failed evidence requires reconciliation.
+Once the PostgreSQL write boundary may have been crossed, application rollback
+restores only compatible N-1 code, provider link, frontend, and configuration.
+It never restores SQLite or a database snapshot. Database restoration requires
+a separate disaster-recovery operation, and connection interruption must be
+accounted for in the maintenance plan.
 
 Before business traffic moves to Rust, route/auth/quota/billing/streaming
 parity, expand/contract migrations compatible with N and N-1, singleton
@@ -169,8 +166,7 @@ background-job ownership, authenticated canaries, and graceful SSE/WebSocket
 draining and reconnection remain mandatory. Nginx must not automatically retry
 non-idempotent requests.
 
-The recommended release order is frontend-only publication (only when its API
-requests remain Go-compatible), observation and human confirmation, then Rust
-internal probes, Rust business canaries, and finally the guarded backend
-switch. A mounted Rust slot, a successful `/readyz`, or an old blue/green
-rehearsal is never a substitute for the route gate and paired listener evidence.
+An independent frontend release requires compatibility with the active Go
+backends. Rust internal probes and business canaries must pass before a guarded
+provider switch. A mounted candidate or a successful `/readyz` never replaces
+the route gate and paired listener evidence.

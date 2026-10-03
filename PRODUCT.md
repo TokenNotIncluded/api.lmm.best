@@ -36,7 +36,7 @@ LMM Forge combines a multi-provider AI API gateway, a versioned MCP tool marketp
 
 ## Evidence on Hand
 
-The root README, docs/tool-market-implementation.md, docs/tool-market-connections.md, docs/open-source-bounties.md, docs/release-architecture.md, and application configuration supply the product facts. The preceding published README screenshots are comparison evidence, not a quality target.
+The root README, docs/tool-market-guide.md, docs/tool-market-connections.md, docs/open-source-bounties.md, docs/release-architecture.md, and application configuration supply the product facts. The preceding published README screenshots are comparison evidence, not a quality target.
 
 ## Product Principles
 

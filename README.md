@@ -64,7 +64,7 @@ The super administrator configures the platform fee and recipient account. The s
 
 Built-in drawing, wallet, and bounty tools have no tool invocation fee. Drawing still incurs model usage costs, and wallet transfers move the specified balance. Publishing connects an existing Remote MCP service; serverless code uploads are not currently supported.
 
-[Marketplace implementation](docs/tool-market-implementation.md) · [Client connections and permissions](docs/tool-market-connections.md)
+[Marketplace guide](docs/tool-market-guide.md) · [Client connections and permissions](docs/tool-market-connections.md)
 
 ## Run locally
 
@@ -181,7 +181,7 @@ Use the explicit frontend command in [Run locally](#run-locally) to keep the fro
 | --- | --- |
 | Documentation index | [All guides](docs/README.md) |
 | Authentication and sessions | [Authentication](docs/authentication.md) |
-| Tools and permissions | [Marketplace implementation](docs/tool-market-implementation.md) · [Connections](docs/tool-market-connections.md) |
+| Tools and permissions | [Marketplace guide](docs/tool-market-guide.md) · [Connections](docs/tool-market-connections.md) |
 | Open-source work | [Bounties and settlement](docs/open-source-bounties.md) |
 | Editor integrations | [OpenCode](docs/opencode-provider.md) · [VS Code and Zed](docs/editor-providers.md) |
 | Releases and upgrades | [Architecture](docs/release-architecture.md) · [Signed upgrades](docs/seamless-upgrades.md) |

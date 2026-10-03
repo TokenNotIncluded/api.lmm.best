@@ -55,5 +55,3 @@ go test ./controller ./router ./middleware ./internal/agent ./internal/assistant
 ```
 
 新增管理端路由应继续使用现有 `AdminAuth` / `RootAuth` 注册方式，并重新生成请求字段说明。新增有副作用的 GET 接口需要保持为写操作分类；新增纯读取接口应加入经过审查的读取列表，以支持修改后的重复验证。
-
-这些更改作用于内置助手所在的 Go 服务；没有调用线上模型、修改生产配置或自动部署。
