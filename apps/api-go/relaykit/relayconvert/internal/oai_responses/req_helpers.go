@@ -102,7 +102,7 @@ func responsesRequestFunctionDeclarations(raw []byte) ([]dto.FunctionRequest, er
 	}
 
 	var tools []map[string]any
-	if err := kitutil.Unmarshal(raw, &tools); err != nil {
+	if err := kitutil.UnmarshalWithNumber(raw, &tools); err != nil {
 		return nil, fmt.Errorf("invalid tools: %w", err)
 	}
 
