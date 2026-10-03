@@ -568,6 +568,10 @@ jobs:
       - name: Run real integration suites
         run: bash apps/api-rust/tests/scripts/run-real-integration-gates.sh all
 
+      - name: Preserve token-log legacy and pagination HTTP contracts against PostgreSQL
+        working-directory: apps/api-rust
+        run: cargo test --locked -p lmm-api-rs --test observability_token_log_pagination -- --ignored --test-threads=1
+
   aur-package-matrix:
     needs: changes
     if: ${{ contains(fromJSON(needs.changes.outputs.required), 'aur-package-matrix') }}
