@@ -143,7 +143,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 				if !failed && !hasUsage && responseTextBuilder.Len() == 0 {
 					// Final output often repeats deltas. Only recover it when
 					// the successful terminal was the sole generated output.
-					responseTextBuilder.WriteString(responsesTerminalOutputText(data))
+					responseTextBuilder.WriteString(ResponsesTerminalOutputText(data))
 				}
 				if !imageCommitted {
 					if failed {

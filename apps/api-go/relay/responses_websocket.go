@@ -18,6 +18,7 @@ import (
 	appmodel "github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/pkg/wsmanager"
 	relaychannel "github.com/LIghtJUNction/api.lmm.best/relay/channel"
+	"github.com/LIghtJUNction/api.lmm.best/relay/channel/openai"
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
 	"github.com/LIghtJUNction/api.lmm.best/relay/helper"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
@@ -1150,25 +1151,40 @@ func (s *responsesWSSession) observeUpstreamMessageForState(state *responsesWSCa
 	requestSucceeded := false
 	state.dataMu.Lock()
 	state.info.SetFirstResponseTime()
-	if streamResponse.Response != nil && streamResponse.Response.ID != "" {
-		state.responseID = streamResponse.Response.ID
+	if streamResponse.Response != nil {
+		if streamResponse.Response.ID != "" {
+			state.responseID = streamResponse.Response.ID
+		}
+		if streamResponse.Response.Usage != nil {
+			candidate := &dto.Usage{}
+			service.ApplyResponsesUsage(candidate, streamResponse.Response.Usage)
+			if service.ValidUsage(candidate) {
+				*state.usage = *candidate
+				state.info.ResponsesUsageReported = true
+			}
+		}
 	}
 	switch streamResponse.Type {
 	case "response.completed", "response.done":
-		if streamResponse.Response != nil && relaycommon.IsNonBillableResponsesStatus(streamResponse.Response.Status) {
-			state.images.Reset()
-			terminal = true
-			break
-		}
 		s.applyTerminalResponseUsage(state, streamResponse.Response)
 		terminal = true
+		if streamResponse.Response != nil && (relaycommon.IsNonBillableResponsesStatus(streamResponse.Response.Status) || streamResponse.Response.Error != nil) {
+			if relaycommon.IsNonBillableResponsesStatus(streamResponse.Response.Status) {
+				state.images.Reset()
+			}
+			success = responsesWSHasBillablePartialLocked(state)
+			break
+		}
+		if !state.info.ResponsesUsageReported && state.outputText.Len() == 0 {
+			state.outputText.WriteString(s.c, openai.ResponsesTerminalOutputText(string(message)))
+		}
 		success = true
 		requestSucceeded = true
 	case "response.incomplete", "response.failed", "response.cancelled", "response.canceled", "response.error", "error":
 		s.applyTerminalResponseUsage(state, streamResponse.Response)
 		terminal = true
 		success = responsesWSHasBillablePartialLocked(state)
-	case "response.output_text.delta":
+	case "response.output_text.delta", "response.refusal.delta", "response.function_call_arguments.delta", "response.reasoning_text.delta", "response.reasoning_summary_text.delta":
 		state.outputText.WriteString(s.c, streamResponse.Delta)
 	case dto.ResponsesOutputTypeItemDone:
 		if streamResponse.Item != nil {
@@ -1195,7 +1211,14 @@ func (s *responsesWSSession) applyTerminalResponseUsage(state *responsesWSCallSt
 		return
 	}
 	if response.Usage != nil {
-		service.ApplyResponsesUsage(state.usage, response.Usage)
+		// Only terminal events call this helper. Reports, including explicit
+		// zero, remain authoritative on successful and failed turns alike.
+		if state.info != nil {
+			state.info.ResponsesUsageReported = true
+		}
+		candidate := &dto.Usage{}
+		service.ApplyResponsesUsage(candidate, response.Usage)
+		*state.usage = *candidate
 	}
 	for i := range response.Output {
 		output := &response.Output[i]
@@ -1303,13 +1326,22 @@ func finalizeResponsesWSUsage(state *responsesWSCallState) {
 	if state == nil || state.usage == nil || state.info == nil {
 		return
 	}
+	if state.info.ResponsesUsageReported {
+		return
+	}
 	if state.usage.CompletionTokens == 0 {
 		if output := state.outputText.String(); output != "" {
 			state.usage.CompletionTokens = service.CountTextToken(output, state.info.UpstreamModelName)
 		}
 	}
 	if state.usage.PromptTokens == 0 && state.usage.CompletionTokens != 0 {
-		state.usage.PromptTokens = state.info.GetEstimatePromptTokens()
+		estimated := state.info.GetEstimatePromptTokens()
+		if estimated < 0 {
+			estimated = 0
+		} else if estimated > openai.MaxUnverifiedResponsesInputTokens {
+			estimated = openai.MaxUnverifiedResponsesInputTokens
+		}
+		state.usage.PromptTokens = estimated
 	}
 	if state.usage.TotalTokens == 0 {
 		state.usage.TotalTokens = state.usage.PromptTokens + state.usage.CompletionTokens

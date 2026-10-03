@@ -5,9 +5,13 @@ import (
 	"strings"
 )
 
-// Observe generated content locally without expanding the DTO used by response
-// converters. Images, encrypted reasoning and tool metadata are not text usage.
-func responsesTerminalOutputText(data string) string {
+// MaxUnverifiedResponsesInputTokens bounds local estimates when a provider omits
+// usage. Reported token counts are authoritative and are not capped.
+const MaxUnverifiedResponsesInputTokens = maxUnverifiedResponsesInputTokens
+
+// ResponsesTerminalOutputText observes generated content without expanding the
+// converter DTO. Images, encrypted reasoning and tool metadata are not text usage.
+func ResponsesTerminalOutputText(data string) string {
 	type part struct {
 		Type    string `json:"type"`
 		Text    string `json:"text"`
