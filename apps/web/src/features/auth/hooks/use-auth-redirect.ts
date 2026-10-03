@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useNavigate } from '@tanstack/react-router'
 import i18n from 'i18next'
+import { useCallback } from 'react'
 
 import {
   getSavedLanguage,
@@ -60,9 +61,9 @@ export function useAuthRedirect() {
   /**
    * Redirect to 2FA page
    */
-  const redirectTo2FA = () => {
+  const redirectTo2FA = useCallback(() => {
     navigate({ to: '/otp', replace: true })
-  }
+  }, [navigate])
 
   /**
    * Redirect to login page

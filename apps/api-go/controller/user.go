@@ -208,6 +208,10 @@ func setupLoginAtAuthVersion(user *model.User, expectedAuthVersion int64, c *gin
 		writeAuthSessionError(c, err)
 		return
 	}
+	writeLoginBundle(user, currentUser, bundle, c)
+}
+
+func writeLoginBundle(user, currentUser *model.User, bundle *service.AuthBundle, c *gin.Context) {
 	model.UpdateUserLastLoginAt(user.Id)
 	service.WriteRefreshCookie(c, bundle.RefreshToken)
 	setAuthNoStore(c)

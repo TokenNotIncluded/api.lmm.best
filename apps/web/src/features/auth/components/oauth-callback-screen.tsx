@@ -19,11 +19,19 @@ For commercial licensing, please contact support@quantumnous.com
 /*
 Copyright (C) 2026 LIghtJUNction
 */
-import { Loader2, Send, Shield, UserRound, type LucideIcon } from 'lucide-react'
+import {
+  KeyRound,
+  Loader2,
+  Send,
+  Shield,
+  UserRound,
+  type LucideIcon,
+} from 'lucide-react'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { SiGithub, SiLinux, SiWechat } from 'react-icons/si'
 
+import { Button } from '@/components/ui/button'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -49,6 +57,11 @@ import { AuthLayout } from '../auth-layout'
 type OAuthCallbackScreenProps = {
   provider: string
   mode: 'login' | 'bind'
+  passkeyChallenge?: {
+    pending: boolean
+    onVerify: () => void
+    onCancel: () => void
+  }
 }
 
 type ProviderMeta = {
@@ -82,6 +95,7 @@ const providerDictionary: Record<string, ProviderMeta> = {
 export function OAuthCallbackScreen({
   provider,
   mode,
+  passkeyChallenge,
 }: OAuthCallbackScreenProps) {
   const { t } = useTranslation()
   const { label, Icon } = useMemo(() => {
@@ -97,13 +111,17 @@ export function OAuthCallbackScreen({
   const providerLabel = t(label)
   const isBindMode = mode === 'bind'
 
-  const headline = isBindMode
-    ? t('Binding your {{provider}} account', { provider: providerLabel })
-    : t('Signing you in with {{provider}}', { provider: providerLabel })
+  const headline = passkeyChallenge
+    ? t('Sign in with Passkey')
+    : isBindMode
+      ? t('Binding your {{provider}} account', { provider: providerLabel })
+      : t('Signing you in with {{provider}}', { provider: providerLabel })
 
-  const description = isBindMode
-    ? t('Hang tight while we securely link this account to your profile.')
-    : t('Hang tight while we finish connecting your account.')
+  const description = passkeyChallenge
+    ? t('Confirm this sign-in with your Passkey.')
+    : isBindMode
+      ? t('Hang tight while we securely link this account to your profile.')
+      : t('Hang tight while we finish connecting your account.')
 
   const secondaryNote = isBindMode
     ? t(
@@ -130,14 +148,40 @@ export function OAuthCallbackScreen({
           </div>
         </div>
 
-        <div className='space-y-4 text-center'>
-          <div className='flex items-center justify-center gap-2 text-sm font-medium'>
-            <Loader2 className='h-4 w-4 animate-spin' />
-            <span>{t('Processing OAuth response...')}</span>
+        {passkeyChallenge ? (
+          <div className='space-y-3'>
+            <Button
+              type='button'
+              className='w-full'
+              disabled={passkeyChallenge.pending}
+              onClick={passkeyChallenge.onVerify}
+            >
+              {passkeyChallenge.pending ? (
+                <Loader2 className='h-4 w-4 animate-spin' />
+              ) : (
+                <KeyRound className='h-4 w-4' />
+              )}
+              {t('Sign in with Passkey')}
+            </Button>
+            <Button
+              type='button'
+              variant='link'
+              className='w-full'
+              onClick={passkeyChallenge.onCancel}
+            >
+              {t('Back to login')}
+            </Button>
           </div>
-          <p className='text-muted-foreground text-sm'>{secondaryNote}</p>
-          <WaitCompanion pending className='items-center' />
-        </div>
+        ) : (
+          <div className='space-y-4 text-center'>
+            <div className='flex items-center justify-center gap-2 text-sm font-medium'>
+              <Loader2 className='h-4 w-4 animate-spin' />
+              <span>{t('Processing OAuth response...')}</span>
+            </div>
+            <p className='text-muted-foreground text-sm'>{secondaryNote}</p>
+            <WaitCompanion pending className='items-center' />
+          </div>
+        )}
       </div>
     </AuthLayout>
   )

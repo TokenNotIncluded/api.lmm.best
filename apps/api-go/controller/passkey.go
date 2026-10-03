@@ -406,6 +406,21 @@ func PasskeyLoginFinish(c *gin.Context) {
 		return
 	}
 
+	flow, err := model.GetAuthFlow(request.FlowToken, model.AuthFlowMatch{Purpose: model.AuthFlowPurposePasskeyLogin})
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	var migrationPayload githubPasskeyLoginPayload
+	if err := common.UnmarshalJsonStr(flow.Payload, &migrationPayload); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if migrationPayload.GitHubMigration != nil {
+		finishGitHubPasskeyMigration(c, request.FlowToken, flow, migrationPayload, wa, parsedCredential)
+		return
+	}
+
 	sessionData, _, err := passkeysvc.PopSessionDataFlow(
 		request.FlowToken,
 		model.AuthFlowPurposePasskeyLogin,

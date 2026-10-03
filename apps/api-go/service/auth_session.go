@@ -11,6 +11,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 const RefreshCookieName = "new_api_refresh"
@@ -54,6 +55,20 @@ func CreateLoginSessionAtAuthVersion(userID int, expectedAuthVersion int64, logi
 }
 
 func createLoginSession(userID int, expectedAuthVersion int64, loginMethod, ip, userAgent string) (*AuthBundle, error) {
+	return createLoginSessionWithAction(userID, expectedAuthVersion, loginMethod, ip, userAgent, nil)
+}
+
+// CreateLoginSessionWithAction commits the account-verification action and the
+// limited session insert in one transaction. Token signing also happens before
+// commit; no access or refresh token is returned for a failed transaction.
+func CreateLoginSessionWithAction(userID int, expectedAuthVersion int64, loginMethod, ip, userAgent string, action func(*gorm.DB) error) (*AuthBundle, error) {
+	if expectedAuthVersion <= 0 || action == nil {
+		return nil, ErrLoginSessionInvalid
+	}
+	return createLoginSessionWithAction(userID, expectedAuthVersion, loginMethod, ip, userAgent, action)
+}
+
+func createLoginSessionWithAction(userID int, expectedAuthVersion int64, loginMethod, ip, userAgent string, action func(*gorm.DB) error) (*AuthBundle, error) {
 	user, err := model.GetUserCache(userID)
 	if err != nil {
 		return nil, err
@@ -89,17 +104,23 @@ func createLoginSession(userID int, expectedAuthVersion int64, loginMethod, ip, 
 	if session.LoginMethod == "" {
 		session.LoginMethod = "unknown"
 	}
-	if err := model.CreateUserSessionWithLimits(
+	var bundle *AuthBundle
+	if err := model.CreateUserSessionWithLimitsAndAction(
 		session,
 		int64(common.UserSessionActiveLimit),
 		int64(common.UserSessionIssuanceLimit),
 		now-common.UserSessionIssuanceWindowSeconds,
+		func(tx *gorm.DB) error {
+			if action != nil {
+				if err := action(tx); err != nil {
+					return err
+				}
+			}
+			var issueErr error
+			bundle, issueErr = issueAuthBundle(session, session.SID+"."+refreshSecret, true)
+			return issueErr
+		},
 	); err != nil {
-		return nil, err
-	}
-	bundle, err := issueAuthBundle(session, session.SID+"."+refreshSecret, true)
-	if err != nil {
-		_, _ = model.RevokeUserSession(userID, session.SID, "token_issue_failed")
 		return nil, err
 	}
 	return bundle, nil

@@ -398,21 +398,61 @@ func (t *TwoFA) ValidateBackupCodeAndUpdateUsage(code string) (bool, error) {
 	return true, nil
 }
 
+var ErrTwoFALoginVerificationFailed = errors.New("2FA login verification failed")
+
+// CheckLoginTwoFactorCode records rejected attempts without spending a valid
+// backup code. Successful evidence is checked again by the issuing transaction.
+func CheckLoginTwoFactorCode(userID int, code string) (bool, error) {
+	var valid bool
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		// Authentication cleanup locks the user before removing factor and
+		// backup rows. Keep the same order to serialize with hard deletion.
+		var user User
+		if err := lockForUpdate(tx).Select("id", "status").Where("id = ?", userID).First(&user).Error; err != nil {
+			return err
+		}
+		if user.Status != common.UserStatusEnabled {
+			return ErrTwoFALoginVerificationFailed
+		}
+		var err error
+		valid, err = verifyTwoFactorTx(tx, userID, code, true, false)
+		return err
+	})
+	return valid, err
+}
+
+// ConsumeLoginTwoFactorCodeWithTx keeps successful backup-code consumption and
+// factor usage in the same transaction as the resulting login session.
+func ConsumeLoginTwoFactorCodeWithTx(tx *gorm.DB, userID int, code string) error {
+	valid, err := verifyTwoFactorTx(tx, userID, code, true, true)
+	if err != nil {
+		return err
+	}
+	if !valid {
+		return ErrTwoFALoginVerificationFailed
+	}
+	return nil
+}
+
 // verifyAssistantKeyTwoFactorTx verifies the current factor generation inside
 // the caller's authorization transaction. The factor and every unused backup
 // row are locked before evaluation, so rotation and backup-code consumption
 // serialize with credential creation. A false result is a domain rejection;
 // its failed-attempt update must be committed while the auth flow stays fresh.
 func verifyAssistantKeyTwoFactorTx(tx *gorm.DB, userID int, code string) (bool, error) {
+	return verifyTwoFactorTx(tx, userID, code, false, true)
+}
+
+func verifyTwoFactorTx(tx *gorm.DB, userID int, code string, requireEnabled, consume bool) (bool, error) {
 	var factor TwoFA
 	if err := lockForUpdate(tx).Where("user_id = ?", userID).First(&factor).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return true, nil
+			return !requireEnabled, nil
 		}
 		return false, err
 	}
 	if !factor.IsEnabled {
-		return true, nil
+		return !requireEnabled, nil
 	}
 
 	var backupCodes []TwoFABackupCode
@@ -438,6 +478,10 @@ func verifyAssistantKeyTwoFactorTx(tx *gorm.DB, userID int, code string) (bool, 
 			if !common.ValidatePasswordAndHash(normalized, backup.CodeHash) {
 				continue
 			}
+			if !consume {
+				valid = true
+				break
+			}
 			result := tx.Model(&TwoFABackupCode{}).
 				Where("id = ? AND is_used = ?", backup.Id, false).
 				Updates(map[string]interface{}{"is_used": true, "used_at": now})
@@ -452,6 +496,9 @@ func verifyAssistantKeyTwoFactorTx(tx *gorm.DB, userID int, code string) (bool, 
 		}
 	}
 
+	if valid && !consume {
+		return true, nil
+	}
 	updates := map[string]interface{}{}
 	if valid {
 		updates["failed_attempts"] = 0
