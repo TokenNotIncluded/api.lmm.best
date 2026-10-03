@@ -13,6 +13,7 @@ This directory contains operational, API, and legal documentation for LMM Forge.
 - [`release-architecture.md`](./release-architecture.md): component-scoped Go/Web release identities and Rust preview boundary.
 - [`model-price-locks.md`](./model-price-locks.md): model base price locks, ignored-change warnings, and API compatibility.
 - [`claude-refusal-billing.md`](./claude-refusal-billing.md): opt-in billing policy for Claude refusals without output.
+- [`responses-missing-usage.md`](./responses-missing-usage.md): provider-reported zero, generated output estimates and the unresolved explicit-failure policy in #373.
 - [`go-memory-management.md`](./go-memory-management.md): Go request memory, optional large-request admission, and small-host tuning.
 - [`postgresql-migration.md`](./postgresql-migration.md): migration rehearsal workflow.
 - [`postgresql-cutover.md`](./postgresql-cutover.md): production cutover transaction.

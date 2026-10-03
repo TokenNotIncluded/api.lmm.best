@@ -288,7 +288,7 @@ impl Price {
         if !evidence.usage.measured() && surcharge.is_zero() {
             // Only a normally completed response may use its prepayment as
             // missing-usage fallback. Failed empty streams always refund.
-            return Ok(if evidence.completed {
+            return Ok(if evidence.completed && !evidence.reported {
                 self.reservation
             } else {
                 0
@@ -761,6 +761,7 @@ impl UsageTracker {
             && matches!(
                 kind,
                 "response.output_text.delta"
+                    | "response.refusal.delta"
                     | "response.function_call_arguments.delta"
                     | "response.reasoning_text.delta"
                     | "response.reasoning_summary_text.delta"
@@ -837,8 +838,20 @@ impl UsageTracker {
                         "failed" | "incomplete" | "cancelled" | "canceled"
                     )
                 },
-            ) || value.get("error").is_some_and(|error| !error.is_null());
+            ) || response.get("error").is_some_and(|error| !error.is_null())
+                || value.get("error").is_some_and(|error| !error.is_null());
             self.evidence.completed = !failed;
+            if stream
+                && self.responses()
+                && !failed
+                && !self.evidence.reported
+                && self.output.is_empty()
+            {
+                // A successful final snapshot can be the only generated
+                // output. Use it only when no deltas were observed; snapshots
+                // usually repeat them and must not be counted twice.
+                self.output = responses_terminal_output(response);
+            }
         }
     }
 
@@ -849,6 +862,51 @@ impl UsageTracker {
         // A transport error/cancellation is never a normal completion.
         self.evidence.completed = clean && !self.invalid && !self.responses() && self.finish_reason;
     }
+}
+
+fn responses_terminal_output(response: &Value) -> String {
+    let mut text = String::new();
+    let Some(outputs) = response.get("output").and_then(Value::as_array) else {
+        return text;
+    };
+    for output in outputs {
+        match output.get("type").and_then(Value::as_str) {
+            Some("message") => {
+                if let Some(parts) = output.get("content").and_then(Value::as_array) {
+                    for part in parts {
+                        let key = match part.get("type").and_then(Value::as_str) {
+                            Some("output_text") => "text",
+                            Some("refusal") => "refusal",
+                            _ => continue,
+                        };
+                        if let Some(value) = part.get(key).and_then(Value::as_str) {
+                            text.push_str(value);
+                        }
+                    }
+                }
+            }
+            Some("function_call") => {
+                if let Some(arguments) = output.get("arguments").and_then(Value::as_str) {
+                    text.push_str(arguments);
+                }
+            }
+            Some("reasoning") => {
+                for (field, kind) in [("content", "reasoning_text"), ("summary", "summary_text")] {
+                    if let Some(parts) = output.get(field).and_then(Value::as_array) {
+                        for part in parts {
+                            if part.get("type").and_then(Value::as_str) == Some(kind)
+                                && let Some(value) = part.get("text").and_then(Value::as_str)
+                            {
+                                text.push_str(value);
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    text
 }
 
 #[cfg(test)]
