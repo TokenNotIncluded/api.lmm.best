@@ -16,8 +16,10 @@ unverified providers.
 
 The policy requires an explicit Claude refusal, no output content blocks, and
 upstream usage that explicitly reports zero output tokens. Missing usage is not
-proof of zero output. A refusal after output is produced does not qualify, and
-an empty response by itself is not a refusal. Qualifying requests consume no user
+proof of zero output. Streaming requests require this count in the final
+`message_delta`; an initial zero in `message_start` is not sufficient. A refusal
+after output is produced does not qualify, and an empty response by itself is
+not a refusal. Qualifying requests consume no user
 quota; disabling the policy keeps the normal billing rules.
 
 As of September 2026, Anthropic bills zero-output refusals when
