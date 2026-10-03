@@ -42,6 +42,7 @@ for (const key of [
 const { api } = await import('@/lib/http-client')
 const { refreshAuthentication } = await import('@/lib/auth-session')
 const { useAuthStore } = await import('@/stores/auth-store')
+const { withConsolePageFixtures } = await import('./console-page-fixtures')
 const {
   DEBUG_PERSONA_IDS,
   getActiveDebugPersona,
@@ -51,6 +52,69 @@ const {
 } = await import('./persona-runtime')
 
 const originalAdapter = api.defaults.adapter
+
+test('console review delegates sharing reads and writes to the same stateful persona adapter', async () => {
+  const previousPersona = getActiveDebugPersona()
+  installPersonaDebugRuntime()
+  setActiveDebugPersona('l1')
+  const personaAdapter = api.defaults.adapter
+  assert.equal(typeof personaAdapter, 'function')
+  api.defaults.adapter = withConsolePageFixtures(
+    personaAdapter as import('axios').AxiosAdapter
+  )
+  try {
+    const initial = (await api.get('/api/user/self/profile-share')).data.data
+    assert.equal(initial.linked_profiles?.length, 3)
+    const saved = (
+      await api.post('/api/user/self/profile-share', {
+        aggregate_usage_enabled: true,
+      })
+    ).data.data
+    assert.deepEqual(saved.linked_profiles, initial.linked_profiles)
+    assert.equal(saved.model_usage_enabled, false)
+    assert.deepEqual(
+      saved.aggregate_sources.map(
+        (source: { status: string }) => source.status
+      ),
+      ['live', 'live', 'snapshot', 'unsupported']
+    )
+    assert.equal(saved.aggregate_sources[0].label, 'LMM Best')
+    assert.equal(saved.aggregate_sources[0].tokens, 899_140_697)
+    assert.equal(saved.aggregate_sources[0].requests, 13_815)
+    assert.equal(
+      saved.aggregate_sources[0].period_start,
+      '2026-09-04T00:00:00Z'
+    )
+    assert.equal(saved.aggregate_sources[0].period_end, '2026-10-04T00:00:00Z')
+    assert.equal(saved.aggregate_sources[1].label, 'Cursor')
+    assert.equal(saved.aggregate_sources[1].tokens, 502_839_373)
+    assert.equal(saved.aggregate_sources[1].fetched_at, '2026-10-04T00:00:00Z')
+    assert.equal(saved.aggregate_sources[2].label, 'ChatGPT / Codex')
+    assert.equal(saved.aggregate_sources[2].tokens, 117_000_000_000)
+    assert.equal(saved.aggregate_sources[2].observed_at, '2026-10-03T18:46:00Z')
+    assert.equal(
+      saved.aggregate_sources[2].snapshot_source,
+      'Codex lifetime tokens; displayed 117B; owner-observed snapshot'
+    )
+    assert.equal(saved.aggregate_sources[3].label, 'Unavailable source')
+    assert.equal(saved.aggregate_sources[3].period, 'unknown')
+    assert.equal(saved.aggregate_sources[3].tokens, undefined)
+    const refreshed = (await api.get('/api/user/self/profile-share')).data.data
+    assert.deepEqual(refreshed, saved)
+    await api.delete('/api/user/self/profile-share')
+    const disabled = (await api.get('/api/user/self/profile-share')).data.data
+    assert.equal(disabled.enabled, false)
+    assert.equal(disabled.aggregate_usage_enabled, false)
+    assert.deepEqual(disabled.linked_profiles, initial.linked_profiles)
+    await assert.rejects(
+      api.post('/api/not-in-the-explicit-catalog'),
+      /PERSONA_DEBUG_UNMOCKED_REQUEST/
+    )
+  } finally {
+    api.defaults.adapter = personaAdapter
+    setActiveDebugPersona(previousPersona)
+  }
+})
 
 after(() => {
   api.defaults.adapter = originalAdapter

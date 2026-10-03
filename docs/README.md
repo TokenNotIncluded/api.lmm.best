@@ -27,6 +27,7 @@ This directory contains operational, API, and legal documentation for LMM Forge.
 - [`ionet-client.md`](./ionet-client.md): iNet client reference artifact.
 - [`channel/other_setting.md`](./channel/other_setting.md): additional channel JSON settings.
 - [`advanced-custom-balance.md`](./advanced-custom-balance.md): declarative Go balance requests, extraction, credential boundaries, and Rust support limits.
+- [`profile-usage-aggregation.md`](./profile-usage-aggregation.md): one revocable SVG for LMM, Cursor, and imported AI account usage.
 
 ## API contracts
 

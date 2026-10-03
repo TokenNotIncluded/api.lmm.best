@@ -24,7 +24,7 @@ import { normalizeInterfaceLanguage } from '@/i18n/languages'
 import { PROFILE_SHARE_URL } from './share-card'
 
 export type BadgeTheme = 'paper' | 'dark' | 'transparent'
-export type BadgeLayout = 'profile' | 'badge' | 'models'
+export type BadgeLayout = 'profile' | 'badge' | 'models' | 'aggregate'
 export type BadgePeriod = '7d' | '30d' | '365d' | 'all'
 export type BadgeAnimation = 'wave' | 'pulse' | 'none'
 export type BadgeFont = 'sans' | 'mono' | 'serif'
@@ -231,7 +231,7 @@ export function buildBadgeURL(
     layout: options.layout,
     theme: options.theme,
     period: options.period,
-    animation: options.animation,
+    animation: options.layout === 'aggregate' ? 'none' : options.animation,
     font: options.font,
     format: options.format,
     width: options.width,
@@ -291,16 +291,31 @@ export function changeBadgeLayout(
           ? '30d'
           : options.period,
     width: layout === 'badge' ? 800 : 1200,
-    height: layout === 'profile' ? 865 : layout === 'models' ? 900 : 240,
+    height:
+      layout === 'profile'
+        ? 865
+        : layout === 'models'
+          ? 900
+          : layout === 'aggregate'
+            ? 720
+            : 240,
   }
 }
 
 export function canShareBadge(
-  state: { enabled: boolean; model_usage_enabled?: boolean } | undefined,
+  state:
+    | {
+        enabled: boolean
+        model_usage_enabled?: boolean
+        aggregate_usage_enabled?: boolean
+      }
+    | undefined,
   layout: BadgeLayout
 ): boolean {
   return Boolean(
-    state?.enabled && (layout !== 'models' || state.model_usage_enabled)
+    state?.enabled &&
+    (layout !== 'models' || state.model_usage_enabled) &&
+    (layout !== 'aggregate' || state.aggregate_usage_enabled)
   )
 }
 
@@ -313,9 +328,11 @@ export function buildBadgeEmbedCode(url: string, options: BadgeOptions) {
       .replaceAll('<', '&lt;')
       .replaceAll('>', '&gt;')
   const alt =
-    options.layout === 'models'
-      ? 'LMM Best model usage'
-      : 'LMM Best token usage'
+    options.layout === 'aggregate'
+      ? 'AI usage across linked profiles'
+      : options.layout === 'models'
+        ? 'LMM Best model usage'
+        : 'LMM Best token usage'
   return {
     markdown: `[![${alt}](${url})](${PROFILE_SHARE_URL})`,
     html: `<a href="${PROFILE_SHARE_URL}" target="_blank" rel="noopener noreferrer"><img src="${escape(url)}" alt="${alt}" width="${options.width}" height="${options.height}"></a>`,

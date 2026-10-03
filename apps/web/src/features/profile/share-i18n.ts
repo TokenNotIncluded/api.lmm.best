@@ -1,6 +1,8 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
 import type { i18n } from 'i18next'
 
+import { aggregateTranslations } from './aggregate-i18n'
+
 const translations = {
   en: {
     'Turn on model sharing': 'Turn on model sharing',
@@ -89,7 +91,13 @@ const registered = new WeakSet<i18n>()
 export function registerProfileShareTranslations(instance: i18n) {
   if (registered.has(instance)) return
   for (const [language, resource] of Object.entries(translations)) {
-    instance.addResourceBundle(language, 'translation', resource, true, true)
+    instance.addResourceBundle(
+      language,
+      'translation',
+      { ...resource, ...aggregateTranslations[language] },
+      true,
+      true
+    )
   }
   registered.add(instance)
 }
