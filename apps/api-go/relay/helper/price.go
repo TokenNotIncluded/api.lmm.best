@@ -174,6 +174,9 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 			priceData.QuotaToPreConsume = quota
 		} else {
 			preConsumedTokens := common.Max(promptTokens, common.PreConsumedQuota)
+			if info.RelayFormat == types.RelayFormatSystemOne {
+				preConsumedTokens = promptTokens
+			}
 			if meta.MaxTokens != 0 {
 				preConsumedTokens += meta.MaxTokens
 			}
@@ -286,7 +289,7 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptT
 	}
 
 	estimatedCompletionTokens := meta.MaxTokens
-	if estimatedCompletionTokens == 0 && groupRatioInfo.GroupRatio != 0 {
+	if estimatedCompletionTokens == 0 && groupRatioInfo.GroupRatio != 0 && info.RelayFormat != types.RelayFormatSystemOne && info.NativeVoiceReserveSeconds == 0 {
 		estimatedCompletionTokens = defaultTieredPreConsumeMaxTokens
 	}
 
@@ -295,11 +298,20 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptT
 		return hosttypes.PriceData{}, err
 	}
 
-	rawCost, trace, err := billingexpr.RunExprWithRequest(exprStr, billingexpr.TokenParams{
-		P:   float64(promptTokens),
-		C:   float64(estimatedCompletionTokens),
-		Len: float64(promptTokens),
-	}, requestInput)
+	zeroCache := float64(0)
+	params := billingexpr.TokenParams{
+		P:       float64(promptTokens),
+		C:       float64(estimatedCompletionTokens),
+		Len:     float64(promptTokens),
+		CRText:  &zeroCache,
+		CRImg:   &zeroCache,
+		CRAudio: &zeroCache,
+	}
+	if info.NativeVoiceReserveSeconds > 0 {
+		seconds := info.NativeVoiceReserveSeconds
+		params.AudioSeconds = &seconds
+	}
+	rawCost, trace, err := billingexpr.RunExprWithRequest(exprStr, params, requestInput)
 	if err != nil {
 		return hosttypes.PriceData{}, fmt.Errorf("model %s tiered expr run failed: %w", info.OriginModelName, err)
 	}

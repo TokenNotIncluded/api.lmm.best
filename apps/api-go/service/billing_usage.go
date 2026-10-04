@@ -98,6 +98,19 @@ func usageFromBillingUsage(usage *dto.Usage) (*dto.Usage, bool) {
 
 func usageFromOpenAIBillingUsage(billingUsage *dto.BillingUsage) *dto.Usage {
 	usage := *billingUsage.OpenAIUsage
+	if usage.AudioSeconds != nil {
+		seconds := *usage.AudioSeconds
+		usage.AudioSeconds = &seconds
+	}
+	usage.PromptTokensDetails = dto.CloneInputTokenDetails(usage.PromptTokensDetails)
+	if usage.InputTokensDetails != nil {
+		inputDetails := dto.CloneInputTokenDetails(*usage.InputTokensDetails)
+		usage.InputTokensDetails = &inputDetails
+	}
+	if usage.OutputTokensDetails != nil {
+		outputDetails := *usage.OutputTokensDetails
+		usage.OutputTokensDetails = &outputDetails
+	}
 	if usage.PromptTokens == 0 && usage.InputTokens > 0 {
 		usage.PromptTokens = usage.InputTokens
 	}
@@ -114,6 +127,9 @@ func usageFromOpenAIBillingUsage(billingUsage *dto.BillingUsage) *dto.Usage {
 		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 	}
 	if inputDetails := usage.InputTokensDetails; inputDetails != nil {
+		if usage.PromptTokensDetails.CachedTokensDetails == nil && inputDetails.CachedTokensDetails != nil {
+			usage.PromptTokensDetails.CachedTokensDetails = dto.CloneInputTokenDetails(*inputDetails).CachedTokensDetails
+		}
 		if usage.PromptTokensDetails.CachedTokens == 0 && inputDetails.CachedTokens > 0 {
 			usage.PromptTokensDetails.CachedTokens = inputDetails.CachedTokens
 		}

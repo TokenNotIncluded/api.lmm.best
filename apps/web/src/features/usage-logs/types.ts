@@ -171,9 +171,15 @@ export interface LogOtherData {
   audio?: boolean
   audio_input?: number
   audio_output?: number
+  audio_seconds?: number | null
+  audio_usage_status?: 'reported' | 'estimated'
   text_input?: number
   text_output?: number
   cache_tokens?: number
+  cache_read_details_status?: 'unknown' | 'reported' | 'invalid'
+  cache_text_tokens?: number | null
+  cache_image_tokens?: number | null
+  cache_audio_tokens?: number | null
   cache_creation_tokens?: number
   cache_creation_tokens_5m?: number
   cache_creation_tokens_1h?: number

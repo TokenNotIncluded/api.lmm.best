@@ -21,6 +21,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -70,9 +71,11 @@ import {
   TIME_FUNCS,
   buildRequestRuleExpr,
   combineBillingExpr,
+  coefficientToDisplayPrice,
   createEmptyCondition,
   createEmptyRuleGroup,
   createEmptyTimeCondition,
+  displayPriceToCoefficient,
   getRequestRuleMatchOptions,
   splitBillingExprAndRequestRules,
   tryParseRequestRuleExpr,
@@ -85,6 +88,7 @@ import {
 import {
   CACHE_MODE_GENERIC,
   CACHE_MODE_TIMED,
+  ESTIMATOR_EXTRA_FIELDS,
   type CacheMode,
   type ExtraTokenValues,
   type TierConditionInput,
@@ -518,17 +522,26 @@ type PriceFieldProps = {
 }
 
 function PriceField({ label, hint, value, onChange }: PriceFieldProps) {
+  const inputId = useId()
   return (
     <div className='w-36 space-y-0.5'>
-      <Label className='text-muted-foreground text-xs'>{label}</Label>
+      <Label htmlFor={inputId} className='text-muted-foreground text-xs'>
+        {label}
+      </Label>
       <DraftNumberInput
+        id={inputId}
+        aria-describedby={hint ? `${inputId}-hint` : undefined}
         min={0}
         step={0.000001}
         value={Number.isFinite(value) ? value : 0}
         onValueChange={onChange}
         className='h-8 w-full'
       />
-      {hint && <p className='text-muted-foreground text-xs'>{hint}</p>}
+      {hint && (
+        <p id={`${inputId}-hint`} className='text-muted-foreground text-xs'>
+          {hint}
+        </p>
+      )}
     </div>
   )
 }
@@ -602,14 +615,20 @@ function VisualTierCard({
     variable: (typeof BILLING_EXTRA_VARS)[number]
   ) => {
     const fieldKey = variable.tierField as keyof VisualTier
-    const value = unitCostToPrice((tier[fieldKey] as number | undefined) ?? 0)
+    const value = coefficientToDisplayPrice(
+      variable,
+      (tier[fieldKey] as number | undefined) ?? 0
+    )
 
     return (
       <PriceField
         key={variable.key}
         label={t(variable.label)}
+        hint={variable.unit === 'minute' ? t('$/min') : PRICE_SUFFIX}
         value={value}
-        onChange={(next) => handlePriceChange(fieldKey, priceToUnitCost(next))}
+        onChange={(next) =>
+          handlePriceChange(fieldKey, displayPriceToCoefficient(variable, next))
+        }
       />
     )
   }
@@ -887,9 +906,10 @@ function RawExprEditor({ exprString, onChange }: RawExprEditorProps) {
         <AlertDescription className='space-y-1 text-xs'>
           <div>
             {t('Variables')}: <code>len</code>, <code>p</code>, <code>c</code>,{' '}
-            <code>cr</code>, <code>cc</code>, <code>cc1h</code>,{' '}
+            <code>cr</code>, <code>cr_text</code>, <code>cr_img</code>,{' '}
+            <code>cr_audio</code>, <code>cc</code>, <code>cc1h</code>,{' '}
             <code>img</code>, <code>img_o</code>, <code>ai</code>,{' '}
-            <code>ao</code>
+            <code>ao</code>, <code>audio_s</code>
           </div>
           <div>
             {t('Functions')}: <code>tier(name, value)</code>, <code>max</code>,{' '}
@@ -1351,6 +1371,7 @@ type EstimatorProps = {
 
 function CostEstimator({ effectiveExpr }: EstimatorProps) {
   const { t } = useTranslation()
+  const inputId = useId()
   const [promptTokens, setPromptTokens] = useState(0)
   const [completionTokens, setCompletionTokens] = useState(0)
   const [extras, setExtras] = useState<ExtraTokenValues>({
@@ -1361,6 +1382,10 @@ function CostEstimator({ effectiveExpr }: EstimatorProps) {
     imageOutputTokens: 0,
     audioInputTokens: 0,
     audioOutputTokens: 0,
+    cacheTextReadTokens: 0,
+    cacheImageReadTokens: 0,
+    cacheAudioReadTokens: 0,
+    audioDurationSeconds: 0,
   })
 
   const usesExtras = useMemo(
@@ -1377,25 +1402,31 @@ function CostEstimator({ effectiveExpr }: EstimatorProps) {
   return (
     <div className='bg-muted/30 space-y-3 rounded-none border p-3'>
       <div className='space-y-1'>
-        <h4 className='text-sm font-medium'>{t('Token estimator')}</h4>
+        <h4 className='text-sm font-medium'>{t('Cost estimator')}</h4>
         <p className='text-muted-foreground text-xs'>
           {t(
-            'Enter token counts to preview the estimated cost (excluding group multipliers).'
+            'Enter usage amounts to preview the estimated cost (excluding group multipliers).'
           )}
         </p>
       </div>
       <div className='grid grid-cols-2 gap-3'>
         <div className='space-y-1'>
-          <Label className='text-xs'>{t('Input tokens')}</Label>
+          <Label htmlFor={`${inputId}-input`} className='text-xs'>
+            {t('Input tokens')}
+          </Label>
           <DraftNumberInput
+            id={`${inputId}-input`}
             min={0}
             value={promptTokens}
             onValueChange={setPromptTokens}
           />
         </div>
         <div className='space-y-1'>
-          <Label className='text-xs'>{t('Output tokens')}</Label>
+          <Label htmlFor={`${inputId}-output`} className='text-xs'>
+            {t('Output tokens')}
+          </Label>
           <DraftNumberInput
+            id={`${inputId}-output`}
             min={0}
             value={completionTokens}
             onValueChange={setCompletionTokens}
@@ -1405,20 +1436,25 @@ function CostEstimator({ effectiveExpr }: EstimatorProps) {
       {usesExtras && (
         <div className='grid grid-cols-2 gap-3'>
           {BILLING_EXTRA_VARS.map((variable) => {
-            // BILLING_EXTRA_VARS only contains pricing variables; they are
-            // guaranteed to have a non-null `field` (the `len` condition-only
-            // variable is filtered out). Narrow the type here for safety.
-            if (!variable.field) return null
-            const stateKey = variable.field.replace(
-              'Price',
-              'Tokens'
-            ) as keyof ExtraTokenValues
+            const estimatorField = ESTIMATOR_EXTRA_FIELDS.find(
+              (field) => field.var === variable.key
+            )
+            if (!estimatorField) return null
+            const stateKey = estimatorField.stateKey
+            const isDuration = variable.unit === 'minute'
+            const fieldId = `${inputId}-${variable.key}`
             return (
               <div key={variable.key} className='space-y-1'>
-                <Label className='text-xs'>{t(variable.shortLabel)}</Label>
+                <Label htmlFor={fieldId} className='text-xs'>
+                  {isDuration
+                    ? t('Audio duration (seconds)')
+                    : t(variable.shortLabel)}
+                </Label>
                 <DraftNumberInput
+                  id={fieldId}
                   min={0}
-                  value={extras[stateKey]}
+                  step={isDuration ? 0.01 : undefined}
+                  value={extras[stateKey] ?? 0}
                   onValueChange={(value) =>
                     setExtras((prev) => ({
                       ...prev,
@@ -1441,7 +1477,7 @@ function CostEstimator({ effectiveExpr }: EstimatorProps) {
       >
         {result.error ? (
           <span>
-            {t('Expression error')}: {result.error}
+            {t('Expression error')}: {t(result.error)}
           </span>
         ) : (
           <div className='flex items-center gap-2'>
@@ -1476,10 +1512,12 @@ Input side:
 - p — input token count (for pricing). Automatically excludes sub-categories priced separately (e.g., if cr is used, cache tokens are deducted from p)
 - len — total input context length (for condition checks). Not affected by auto-exclusion; always reflects the full input length. Use in tier conditions
 - cr — cache-hit (read) token count
+- cr_text, cr_img, cr_audio — text, image, and audio cache-hit token counts; use these instead of cr for separate cache prices
 - cc — cache-create token count (5-min TTL)
 - cc1h — cache-create token count (1-hour TTL, Claude-specific)
 - img — image input token count
 - ai — audio input token count
+- audio_s — audio duration in seconds (not a token count)
 
 Output side:
 - c — output token count. Also auto-excludes sub-categories priced separately
@@ -1505,6 +1543,7 @@ Important: len is NOT affected by auto-exclusion. Tier conditions should use len
 ### Price Coefficients
 
 Numbers in the expression are $/1M tokens prices. For example, p * 2.5 means input $2.50/1M tokens.
+For audio_s, convert a USD/minute price to the expression coefficient with price * 1,000,000 / 60. For example, audio_s * 100 means $0.006/minute.
 
 ## Expression Examples
 
@@ -1525,6 +1564,9 @@ tier("base", p * 2 + c * 8 + img * 2.5)
 Multimodal with audio:
 tier("base", p * 0.43 + c * 3.06 + img * 0.78 + ai * 3.81 + ao * 15.11)
 
+Audio duration ($0.006/minute):
+tier("base", p * 0 + c * 0 + audio_s * 100)
+
 Three-tier example:
 len <= 128000
   ? tier("standard", p * 1.1 + c * 4.4)
@@ -1538,7 +1580,7 @@ len <= 128000
 2. Use English tier names, e.g. "base", "standard", "long_context"
 3. Use len for tier conditions (not p), supports <, <=, >, >=
 4. Multi-tier uses nested ternary: cond1 ? tier(...) : (cond2 ? tier(...) : tier(...))
-5. Price coefficients are the provider's official $/1M tokens prices
+5. Token price coefficients are the provider's official $/1M tokens prices; audio_s uses USD/minute * 1,000,000 / 60
 6. If cache/image/audio don't need separate pricing, omit those variables; their tokens are included in p/c automatically
 
 Please generate a billing expression based on the model information and pricing requirements provided.`

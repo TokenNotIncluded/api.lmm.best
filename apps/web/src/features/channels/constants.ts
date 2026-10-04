@@ -24,6 +24,8 @@ For commercial licensing, please contact support@quantumnous.com
 export const CHANNEL_TYPE_OPENAI = 1
 export const CHANNEL_TYPE_NEW_API = 60
 export const CHANNEL_TYPE_OPENHUMAN = 61
+export const CHANNEL_TYPE_TYPESAFE = 62
+export const TYPESAFE_MODELS = ['jev-1.13.0', 'jev-latest', 'jev-preview']
 
 export function isOpenAIChannelType(type: number): boolean {
   return type === CHANNEL_TYPE_OPENAI || type === CHANNEL_TYPE_OPENHUMAN
@@ -103,12 +105,13 @@ export const CHANNEL_TYPES = {
   59: 'Sub2API',
   60: 'Compatible Relay',
   61: 'OpenHuman',
+  62: 'TypeSafe (Jev)',
 } as const
 
 const CHANNEL_TYPE_DISPLAY_ORDER: number[] = [
-  1, 61, 14, 33, 24, 43, 3, 41, 48, 60, 58, 42, 34, 20, 4, 40, 27, 25, 17, 26,
-  15, 46, 23, 18, 45, 31, 35, 49, 19, 47, 37, 38, 39, 11, 8, 57, 59, 22, 21, 44,
-  2, 5, 36, 50, 51, 52, 53, 54, 55, 56,
+  1, 61, 14, 33, 24, 43, 3, 41, 48, 60, 58, 62, 42, 34, 20, 4, 40, 27, 25, 17,
+  26, 15, 46, 23, 18, 45, 31, 35, 49, 19, 47, 37, 38, 39, 11, 8, 57, 59, 22, 21,
+  44, 2, 5, 36, 50, 51, 52, 53, 54, 55, 56,
 ]
 
 export const CHANNEL_TYPE_OPTIONS: { value: number; label: string }[] = (() => {
@@ -425,10 +428,12 @@ export const TYPE_TO_KEY_PROMPT: Record<number, string> = {
   57: 'Paste Codex OAuth JSON credential (access_token / refresh_token / account_id)',
   59: 'Enter API key for this channel',
   60: 'Enter API key for this channel',
+  62: 'Enter API key for this channel',
 }
 
 export const CHANNEL_TYPE_WARNINGS: Record<number, string> = {
   3: 'For channels added after May 10, 2025, no need to remove "." from model names during deployment',
   8: 'If connecting to a relay project, use OpenAI type unless you know what you are doing',
   37: 'Dify channels only support chatflow and agent, and agent does not support images',
+  62: 'Jev uses state and questions for synchronous judgment requests.',
 }

@@ -4,11 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"strings"
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
-	"github.com/LIghtJUNction/api.lmm.best/constant"
 	"github.com/LIghtJUNction/api.lmm.best/logger"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/pkg/billingexpr"
@@ -86,137 +84,216 @@ func calculateAudioQuota(info QuotaInfo) (int, *common.QuotaClamp) {
 	return common.QuotaFromDecimalChecked(quota)
 }
 
+// realtimeUsageParts derives unclassified text from inclusive token totals,
+// while rejecting impossible or overflowing upstream counters. Missing totals
+// may be reconstructed from reported modality counts, never from audio bytes.
+func realtimeUsageParts(usage *dto.RealtimeUsage) (inputText, outputText, inputTokens, outputTokens int, err error) {
+	if usage == nil {
+		return
+	}
+	input := usage.InputTokenDetails
+	output := usage.OutputTokenDetails
+	counts := []int{usage.TotalTokens, usage.InputTokens, usage.OutputTokens,
+		input.TextTokens, input.AudioTokens, input.ImageTokens, input.CachedTokens,
+		input.CachedCreationTokens, input.CacheWriteTokens,
+		output.TextTokens, output.AudioTokens, output.ImageTokens, output.ReasoningTokens}
+	if input.CachedTokensDetails != nil {
+		counts = append(counts, input.CachedTokensDetails.TextTokens,
+			input.CachedTokensDetails.AudioTokens, input.CachedTokensDetails.ImageTokens)
+	}
+	for _, count := range counts {
+		if count < 0 {
+			return 0, 0, 0, 0, errors.New("realtime usage contains negative token counts")
+		}
+	}
+	parts := func(total, text, audio, image int) (int, int, error) {
+		if total == 0 {
+			total = text
+			for _, count := range []int{audio, image} {
+				if count > math.MaxInt-total {
+					return 0, 0, errors.New("realtime token counts overflow")
+				}
+				total += count
+			}
+		}
+		remaining := total
+		for _, count := range []int{audio, image, text} {
+			if count > remaining {
+				return 0, 0, errors.New("realtime modality counts exceed token total")
+			}
+			remaining -= count
+		}
+		return text + remaining, total, nil
+	}
+	inputText, inputTokens, err = parts(usage.InputTokens, input.TextTokens, input.AudioTokens, input.ImageTokens)
+	if err != nil {
+		return
+	}
+	outputText, outputTokens, err = parts(usage.OutputTokens, output.TextTokens, output.AudioTokens, output.ImageTokens)
+	if err != nil {
+		return
+	}
+	if inputTokens > math.MaxInt-outputTokens {
+		err = errors.New("realtime token total overflows")
+	} else if input.CachedTokens > inputTokens || output.ReasoningTokens > outputTokens {
+		err = errors.New("realtime token details exceed token total")
+	} else if input.CachedTokensDetails != nil {
+		_, status := input.ValidatedCachedTokenDetails(inputTokens)
+		if status == dto.CacheReadDetailsInvalid {
+			err = errors.New("realtime cached token details are invalid")
+		}
+	}
+	return
+}
+
+func realtimeHasUsage(usage *dto.RealtimeUsage) bool {
+	return usage != nil && (usage.TotalTokens > 0 || usage.InputTokens > 0 || usage.OutputTokens > 0 ||
+		usage.InputTokenDetails.TextTokens > 0 || usage.InputTokenDetails.AudioTokens > 0 || usage.InputTokenDetails.ImageTokens > 0 ||
+		usage.OutputTokenDetails.TextTokens > 0 || usage.OutputTokenDetails.AudioTokens > 0 || usage.OutputTokenDetails.ImageTokens > 0)
+}
+
+// ValidateRealtimeUsage validates one upstream measurement before a session
+// collector adds it to the cumulative usage that already incurred a cost.
+func ValidateRealtimeUsage(usage *dto.RealtimeUsage) error {
+	_, _, _, _, err := realtimeUsageParts(usage)
+	return err
+}
+
+// Every reservation and the final settlement use the same frozen request
+// prices. The caller supplies cumulative session usage, not a single response.
+func realtimeReservationQuota(info *relaycommon.RelayInfo, usage *dto.RealtimeUsage) (int, *billingexpr.TieredResult, error) {
+	if info == nil {
+		return 0, nil, errors.New("realtime relay info is nil")
+	}
+	inputText, outputText, inputTokens, outputTokens, err := realtimeUsageParts(usage)
+	if err != nil {
+		return 0, nil, err
+	}
+	if !realtimeHasUsage(usage) {
+		return 0, nil, nil
+	}
+	price := info.PriceData
+	if info.TieredBillingSnapshot != nil {
+		converted := &dto.Usage{PromptTokens: inputTokens, CompletionTokens: outputTokens,
+			PromptTokensDetails: usage.InputTokenDetails, CompletionTokenDetails: usage.OutputTokenDetails}
+		vars := billingexpr.UsedVars(info.TieredBillingSnapshot.ExprString)
+		if ok, quota, result := TryTieredSettle(info, BuildTieredTokenParams(converted, false, vars)); ok {
+			if info.QuotaClamp != nil {
+				return quota, result, info.QuotaClamp
+			}
+			return quota, result, nil
+		}
+	}
+	for _, value := range []float64{price.ModelPrice, price.ModelRatio, price.CompletionRatio,
+		price.AudioRatio, price.AudioCompletionRatio, price.ImageRatio, price.CacheRatio, price.GroupRatioInfo.GroupRatio} {
+		if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
+			return 0, nil, errors.New("realtime price snapshot is invalid")
+		}
+	}
+	group := decimal.NewFromFloat(price.GroupRatioInfo.GroupRatio)
+	var value decimal.Decimal
+	if price.UsePrice {
+		value = decimal.NewFromFloat(price.ModelPrice).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).Mul(group)
+	} else {
+		audio := decimal.NewFromFloat(price.AudioRatio)
+		image := decimal.NewFromFloat(price.ImageRatio)
+		input := decimal.NewFromInt(int64(inputText)).
+			Add(decimal.NewFromInt(int64(usage.InputTokenDetails.AudioTokens)).Mul(audio)).
+			Add(decimal.NewFromInt(int64(usage.InputTokenDetails.ImageTokens)).Mul(image))
+		cached, status := usage.InputTokenDetails.ValidatedCachedTokenDetails(inputTokens)
+		if status == dto.CacheReadDetailsReported {
+			// Only upstream-classified caches receive a modality discount. A
+			// bare aggregate cannot identify text versus audio cache tokens.
+			// Audio cache has its own official rate, which PriceData does not
+			// capture yet. Keep it at full audio price instead of reusing the
+			// text discount for a different modality.
+			cacheWeight := decimal.NewFromInt(int64(cached.TextTokens))
+			input = input.Add(cacheWeight.Mul(decimal.NewFromFloat(price.CacheRatio).Sub(decimal.NewFromInt(1))))
+		}
+		output := decimal.NewFromInt(int64(outputText)).Mul(decimal.NewFromFloat(price.CompletionRatio)).
+			Add(decimal.NewFromInt(int64(usage.OutputTokenDetails.AudioTokens)).Mul(audio).Mul(decimal.NewFromFloat(price.AudioCompletionRatio))).
+			Add(decimal.NewFromInt(int64(usage.OutputTokenDetails.ImageTokens)).Mul(image).Mul(decimal.NewFromFloat(price.CompletionRatio)))
+		value = input.Add(output).Mul(decimal.NewFromFloat(price.ModelRatio)).Mul(group)
+		if value.IsPositive() && value.LessThan(decimal.NewFromInt(1)) {
+			value = decimal.NewFromInt(1)
+		}
+	}
+	value = price.ApplyOtherRatiosToDecimal(value)
+	quota, clamp := common.QuotaFromDecimalChecked(value)
+	noteQuotaClamp(info, clamp)
+	if clamp != nil {
+		return quota, nil, clamp
+	}
+	return quota, nil, nil
+}
+
 func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.RealtimeUsage) error {
-	if relayInfo.UsePrice {
-		return nil
-	}
-	userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
+	quota, _, err := realtimeReservationQuota(relayInfo, usage)
 	if err != nil {
 		return err
 	}
-
-	token, err := model.GetRelayBillingToken(relayInfo.TokenId, strings.TrimPrefix(relayInfo.TokenKey, "sk-"))
-	if err != nil {
+	if relayInfo.Billing == nil {
+		if quota == 0 && relayInfo.PriceData.FreeModel {
+			return nil
+		}
+		return errors.New("realtime billing session is missing")
+	}
+	if err := relayInfo.Billing.Reserve(quota); err != nil {
 		return err
 	}
-
-	modelName := relayInfo.OriginModelName
-	textInputTokens := usage.InputTokenDetails.TextTokens
-	textOutTokens := usage.OutputTokenDetails.TextTokens
-	audioInputTokens := usage.InputTokenDetails.AudioTokens
-	audioOutTokens := usage.OutputTokenDetails.AudioTokens
-	groupRatio := ratio_setting.GetGroupRatio(relayInfo.UsingGroup)
-	modelRatio, _, _ := ratio_setting.GetModelRatio(modelName)
-
-	autoGroup, exists := common.GetContextKey(ctx, constant.ContextKeyAutoGroup)
-	if exists {
-		groupRatio = ratio_setting.GetGroupRatio(autoGroup.(string))
-		logger.LogDebug(ctx, "final group ratio: %f", groupRatio)
-		relayInfo.UsingGroup = autoGroup.(string)
-	}
-
-	actualGroupRatio := groupRatio
-	userGroupRatio, ok := ratio_setting.GetGroupGroupRatio(relayInfo.UserGroup, relayInfo.UsingGroup)
-	if ok {
-		actualGroupRatio = userGroupRatio
-	}
-
-	quotaInfo := QuotaInfo{
-		InputDetails: TokenDetails{
-			TextTokens:  textInputTokens,
-			AudioTokens: audioInputTokens,
-		},
-		OutputDetails: TokenDetails{
-			TextTokens:  textOutTokens,
-			AudioTokens: audioOutTokens,
-		},
-		ModelName:  modelName,
-		UsePrice:   relayInfo.UsePrice,
-		ModelRatio: modelRatio,
-		GroupRatio: actualGroupRatio,
-	}
-
-	quota, clamp := calculateAudioQuota(quotaInfo)
-	noteQuotaClamp(relayInfo, clamp)
-
-	if userQuota < quota {
-		return fmt.Errorf("user quota is not enough, user quota: %s, need quota: %s", logger.FormatQuota(userQuota), logger.FormatQuota(quota))
-	}
-
-	if !token.UnlimitedQuota && token.RemainQuota < quota {
-		return fmt.Errorf("token quota is not enough, token remain quota: %s, need quota: %s", logger.FormatQuota(token.RemainQuota), logger.FormatQuota(quota))
-	}
-
-	err = PostConsumeQuota(relayInfo, quota, 0, false)
-	if err != nil {
-		return err
-	}
-	logger.LogInfo(ctx, "realtime streaming consume quota success, quota: "+fmt.Sprintf("%d", quota))
+	logger.LogInfo(ctx, fmt.Sprintf("realtime cumulative quota reserved: %d", quota))
 	return nil
 }
 
 func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, modelName string,
 	usage *dto.RealtimeUsage, extraContent string) {
-
-	var tieredResult *billingexpr.TieredResult
-	tieredOk, tieredQuota, tieredRes := TryTieredSettle(relayInfo, billingexpr.TokenParams{
-		P:   float64(usage.InputTokens),
-		C:   float64(usage.OutputTokens),
-		Len: float64(usage.InputTokens),
-	})
-	if tieredOk {
-		tieredResult = tieredRes
+	if relayInfo == nil || (relayInfo.Billing == nil && !relayInfo.PriceData.FreeModel) {
+		logger.LogError(ctx, "realtime settlement requires a billing session")
+		return
 	}
-
+	if usage == nil {
+		usage = &dto.RealtimeUsage{}
+	}
+	quota, tieredResult, quotaErr := realtimeReservationQuota(relayInfo, usage)
+	usageEstimated := false
+	if quotaErr != nil {
+		// The collector validates each measurement before accumulation. For
+		// legacy callers with invalid final counters, preserve the existing
+		// budget as an explicit estimate; it may include the startup reserve
+		// and must never be described as reported consumption.
+		var clamp *common.QuotaClamp
+		if !errors.As(quotaErr, &clamp) {
+			usageEstimated = true
+			quota = 0
+			if relayInfo.Billing != nil {
+				quota = relayInfo.Billing.GetPreConsumedQuota()
+			}
+		}
+		logger.LogError(ctx, "invalid realtime final usage: "+quotaErr.Error())
+	}
 	useTimeSeconds := time.Now().Unix() - relayInfo.StartTime.Unix()
-	textInputTokens := usage.InputTokenDetails.TextTokens
-	textOutTokens := usage.OutputTokenDetails.TextTokens
-
-	audioInputTokens := usage.InputTokenDetails.AudioTokens
-	audioOutTokens := usage.OutputTokenDetails.AudioTokens
 
 	tokenName := ctx.GetString("token_name")
-	completionRatio := decimal.NewFromFloat(ratio_setting.GetCompletionRatio(modelName))
-	audioRatio := decimal.NewFromFloat(ratio_setting.GetAudioRatio(relayInfo.OriginModelName))
-	audioCompletionRatio := decimal.NewFromFloat(ratio_setting.GetAudioCompletionRatio(modelName))
+	completionRatio := relayInfo.PriceData.CompletionRatio
+	audioRatio := relayInfo.PriceData.AudioRatio
+	audioCompletionRatio := relayInfo.PriceData.AudioCompletionRatio
 
 	modelRatio := relayInfo.PriceData.ModelRatio
 	groupRatio := relayInfo.PriceData.GroupRatioInfo.GroupRatio
 	modelPrice := relayInfo.PriceData.ModelPrice
 	usePrice := relayInfo.PriceData.UsePrice
 
-	quotaInfo := QuotaInfo{
-		InputDetails: TokenDetails{
-			TextTokens:  textInputTokens,
-			AudioTokens: audioInputTokens,
-		},
-		OutputDetails: TokenDetails{
-			TextTokens:  textOutTokens,
-			AudioTokens: audioOutTokens,
-		},
-		ModelName:  modelName,
-		UsePrice:   usePrice,
-		ModelRatio: modelRatio,
-		GroupRatio: groupRatio,
-	}
-
-	quota, clamp := calculateAudioQuota(quotaInfo)
-	noteQuotaClamp(relayInfo, clamp)
-	if tieredOk {
-		quota = tieredQuota
-	}
-
-	totalTokens := usage.TotalTokens
+	hasUsage := realtimeHasUsage(usage)
 	var logContent string
 	if !usePrice {
 		logContent = fmt.Sprintf("模型倍率 %.2f，补全倍率 %.2f，音频倍率 %.2f，音频补全倍率 %.2f，分组倍率 %.2f",
-			modelRatio, completionRatio.InexactFloat64(), audioRatio.InexactFloat64(), audioCompletionRatio.InexactFloat64(), groupRatio)
+			modelRatio, completionRatio, audioRatio, audioCompletionRatio, groupRatio)
 	} else {
 		logContent = fmt.Sprintf("模型价格 %.2f，分组倍率 %.2f", modelPrice, groupRatio)
 	}
 
 	// record all the consume log even if quota is 0
-	if totalTokens == 0 {
+	if !hasUsage && quotaErr == nil {
 		// in this case, must be some error happened
 		// we cannot just return, because we may have to return the pre-consumed quota
 		quota = 0
@@ -240,9 +317,23 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 		logContent += ", " + extraContent
 	}
 	other := GenerateWssOtherInfo(ctx, relayInfo, usage, modelRatio, groupRatio,
-		completionRatio.InexactFloat64(), audioRatio.InexactFloat64(), audioCompletionRatio.InexactFloat64(), modelPrice, relayInfo.PriceData.GroupRatioInfo.GroupSpecialRatio)
-	if totalTokens == 0 {
+		completionRatio, audioRatio, audioCompletionRatio, modelPrice, relayInfo.PriceData.GroupRatioInfo.GroupSpecialRatio)
+	if !hasUsage && quotaErr == nil {
 		other["upstream_empty_usage"] = true
+	}
+	if usageEstimated {
+		other["usage_estimated"] = true
+		other["usage_estimate_basis"] = "realtime_session_reserved_budget"
+	}
+	other["cache_ratio"] = relayInfo.PriceData.CacheRatio
+	other["cache_tokens"] = usage.InputTokenDetails.CachedTokens
+	if usage.InputTokenDetails.CachedTokensDetails != nil {
+		other["cached_tokens_details"] = *usage.InputTokenDetails.CachedTokensDetails
+		if usage.InputTokenDetails.CachedTokensDetails.AudioTokens > 0 {
+			other["unsupported_audio_cache_pricing"] = true
+		}
+	} else if usage.InputTokenDetails.CachedTokens > 0 {
+		other["unclassified_cache_pricing"] = true
 	}
 	if tieredResult != nil {
 		InjectTieredBillingInfo(other, relayInfo, tieredResult)

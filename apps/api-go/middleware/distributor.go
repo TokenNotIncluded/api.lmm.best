@@ -199,6 +199,14 @@ func channelSupportsRequestPath(selected *model.Channel, requestPath string, req
 	if selected == nil {
 		return false
 	}
+	if requestPath == "/v1/live/sessions" || requestPath == "/v1/realtime/translations" || requestPath == "/v1/realtime/transcription_sessions" {
+		return selected.Type == constant.ChannelTypeOpenAI || selected.Type == constant.ChannelTypeNewAPI
+	}
+	if selected.Type == constant.ChannelTypeTypeSafe {
+		// This provider only accepts decisions, including when a channel is
+		// selected explicitly or by affinity. Never send a chat/image request.
+		return requestPath == "/v1/systemone" || requestPath == "/typesafe/v1/systemone"
+	}
 	if selected.Type == constant.ChannelTypeAdvancedCustom {
 		config := selected.GetOtherSettings().AdvancedCustom
 		if config == nil || !config.SupportsPathForModel(requestPath, requestModel) {
@@ -256,8 +264,12 @@ func getModelFromJSONBody(c *gin.Context) (*ModelRequest, error) {
 		return nil, errors.New("invalid JSON request body")
 	}
 
-	values := gjson.GetManyBytes(requestBody, "model", "group")
-	model, err := getJSONStringValue(values[0], "model")
+	modelPath := "model"
+	if c.Request.URL.Path == "/v1/live/sessions" {
+		modelPath = "session.model"
+	}
+	values := gjson.GetManyBytes(requestBody, modelPath, "group")
+	model, err := getJSONStringValue(values[0], modelPath)
 	if err != nil {
 		return nil, err
 	}
@@ -394,7 +406,7 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 	}
 	if strings.HasPrefix(c.Request.URL.Path, "/v1/moderations") {
 		if modelRequest.Model == "" {
-			modelRequest.Model = "text-moderation-stable"
+			modelRequest.Model = "omni-moderation-latest"
 		}
 	}
 	if strings.HasSuffix(c.Request.URL.Path, "embeddings") {

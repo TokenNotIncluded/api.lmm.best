@@ -483,7 +483,7 @@ func PostTextConsumeQuotaWithResult(ctx *gin.Context, relayInfo *relaycommon.Rel
 
 	var tieredResult *billingexpr.TieredResult
 	tieredBillingApplied := false
-	if originUsage != nil && summary.BillingExemptReason == "" {
+	if originUsage != nil && summary.BillingExemptReason == "" && relayInfo.SystemOneUsageStatus != "invalid" {
 		var tieredUsedVars map[string]bool
 		if snap := relayInfo.TieredBillingSnapshot; snap != nil {
 			tieredUsedVars = billingexpr.UsedVars(snap.ExprString)
@@ -523,9 +523,31 @@ func PostTextConsumeQuotaWithResult(ctx *gin.Context, relayInfo *relaycommon.Rel
 
 	if summary.BillingExemptReason != "" {
 		extraContent = append(extraContent, "Claude 在输出前拒绝请求；按已启用的策略免计费")
+	} else if relayInfo.SystemOneUsageStatus == "invalid" {
+		// Preserve the frozen request reservation, including deferred wallet
+		// overflow after a partial subscription reservation. No tokenizer,
+		// historical sample, or newly evaluated price replaces vendor usage.
+		summary.Quota = estimatedBillingQuotaCap(relayInfo)
+		estimatedMissingUsage = true
+		estimateBasis = "typesafe_context_reservation"
+		extraContent = append(extraContent, "TypeSafe 输入用量缺失或无效；保留本次预扣额度，输入上下文上限 65536 token")
 	} else if !summary.hasBillableUsage() {
 		estimatedCap := estimatedBillingQuotaCap(relayInfo)
-		if relayInfo.ResponsesUsageReported {
+		if relayInfo.RelayMode == relayconstant.RelayModeModerations {
+			// Moderation has no token usage contract. Respect configured fixed
+			// or tiered charges, and never invent token or historical usage.
+			if !tieredBillingApplied {
+				summary.Quota = systemOneReportedZeroQuota(relayInfo)
+			}
+			extraContent = append(extraContent, "审核接口不提供 token 用量；按已配置的固定或阶梯价格结算")
+		} else if relayInfo.SystemOneUsageStatus == "reported" {
+			// An explicit Jev zero replaces the token reservation. Configured
+			// per-call or expression pricing remains the administrator's policy.
+			if !tieredBillingApplied {
+				summary.Quota = systemOneReportedZeroQuota(relayInfo)
+			}
+			extraContent = append(extraContent, "上游已报告零输入用量；不使用历史或预扣额度估算")
+		} else if relayInfo.ResponsesUsageReported {
 			// Explicit Responses zero is a report, not missing usage. Keep
 			// separately priced actual tool calls in the branch above.
 			summary.Quota = 0
@@ -559,7 +581,7 @@ func PostTextConsumeQuotaWithResult(ctx *gin.Context, relayInfo *relaycommon.Rel
 		}
 		logger.LogError(ctx, fmt.Sprintf("total tokens is 0, fallback billing applied=%t, userId %d, channelId %d, tokenId %d, model %s, pre-consumed quota %d, estimate cap %d", estimatedMissingUsage, relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, summary.ModelName, relayInfo.FinalPreConsumedQuota, estimatedCap))
 	}
-	if summary.BillingExemptReason != "" || summary.hasBillableUsage() || estimatedMissingUsage {
+	if summary.BillingExemptReason != "" || summary.hasBillableUsage() || estimatedMissingUsage || (relayInfo.SystemOneUsageStatus == "reported" && summary.Quota > 0) || relayInfo.RelayMode == relayconstant.RelayModeModerations {
 		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, summary.Quota)
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, summary.Quota)
 	}
@@ -606,6 +628,15 @@ func PostTextConsumeQuotaWithResult(ctx *gin.Context, relayInfo *relaycommon.Rel
 		}
 	}
 	appendUsageBillingPathForLog(other, common.GetContextKeyBool(ctx, constant.ContextKeyLocalCountTokens), originUsage)
+	AppendMeasuredBillingDimensions(other, billingUsage)
+	if relayInfo.RelayMode == relayconstant.RelayModeModerations {
+		other["moderation_usage_status"] = "unmetered"
+		delete(other, "upstream_empty_usage")
+		delete(other, "usage_estimated")
+		if adminInfo, ok := other["admin_info"].(map[string]interface{}); ok {
+			adminInfo["usage_billing_path"] = "moderation-unmetered"
+		}
+	}
 	if adminRejectReason != "" {
 		if summary.BillingExemptReason != "" {
 			adminInfo, _ := other["admin_info"].(map[string]interface{})
@@ -657,6 +688,10 @@ func PostTextConsumeQuotaWithResult(ctx *gin.Context, relayInfo *relaycommon.Rel
 	}
 	if tieredBillingApplied {
 		InjectTieredBillingInfo(other, relayInfo, tieredResult)
+	} else if relayInfo.SystemOneUsageStatus == "invalid" && relayInfo.TieredBillingSnapshot != nil {
+		// Missing vendor usage retains the frozen reservation, so include its
+		// expression provenance without claiming an evaluated matching tier.
+		InjectTieredBillingInfo(other, relayInfo, nil)
 	}
 
 	attachQuotaSaturation(ctx, relayInfo, other)
@@ -681,6 +716,19 @@ func PostTextConsumeQuotaWithResult(ctx *gin.Context, relayInfo *relaycommon.Rel
 		perfmetrics.RecordRelaySample(relayInfo, true, int64(summary.CompletionTokens))
 	})
 	return settlementErr
+}
+
+func systemOneReportedZeroQuota(info *relaycommon.RelayInfo) int {
+	if info == nil || !info.PriceData.UsePrice || info.PriceData.FreeModel {
+		return 0
+	}
+	quota := decimal.NewFromFloat(info.PriceData.ModelPrice).
+		Mul(decimal.NewFromFloat(common.QuotaPerUnit)).
+		Mul(decimal.NewFromFloat(info.PriceData.GroupRatioInfo.GroupRatio))
+	quota = info.PriceData.ApplyOtherRatiosToDecimal(quota)
+	result, clamp := common.QuotaFromDecimalChecked(quota)
+	noteQuotaClamp(info, clamp)
+	return result
 }
 
 // Usage counters and Log.Quota continue to describe measured usage, not payment.

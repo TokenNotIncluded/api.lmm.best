@@ -44,6 +44,7 @@ import {
 import { redactAssistantMessageForRequest } from './assistant-message-safety'
 import { ASSISTANT_PROMPT_PRESET_COPY_VERSION } from './assistant-prompt-presets'
 import type { AssistantSupportRequest } from './assistant-support-api'
+import { getGuideEligibleModels } from './setup-guide'
 
 export type {
   AssistantKeyManagementAction,
@@ -1882,6 +1883,14 @@ export async function getAssistantAvailableModels(): Promise<string[]> {
     }
   )
   return requireAssistantData(response.data, 'Unable to load available models')
+}
+
+export async function getAssistantSetupModels(): Promise<string[]> {
+  const [models, pricing] = await Promise.all([
+    getAssistantAvailableModels(),
+    getAssistantPricing().catch(() => null),
+  ])
+  return getGuideEligibleModels(models, pricing?.data)
 }
 
 export async function getAssistantPricing(): Promise<PricingData> {

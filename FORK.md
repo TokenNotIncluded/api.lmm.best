@@ -27,3 +27,12 @@ focused patch, retain compatibility identifiers, and run root plus relaykit
 `go test ./...`, `go vet ./...`, the CGO-disabled production build, wallet and
 billing race tests, migration dry-run/rollback, and provider-path checks before
 accepting the update.
+
+## Native TypeSafe Jev support
+
+The Go System One decision relay is a native behavioral port of the official
+TypeSafe `1.0.0` task plugin at `QuantumNous/new-api-plugins` commit
+`97a16e9a8d98b73ffb76e1c5a00b4d0f855f4d0a` (Apache-2.0). It retains LMM's native
+relay and billing owners; it does not import the upstream JavaScript task host.
+See [`docs/jev-native-relay.md`](docs/jev-native-relay.md) for the protocol,
+configuration, and acceptance boundary.

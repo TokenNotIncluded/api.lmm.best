@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/base64"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -16,6 +17,31 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+// AppendMeasuredBillingDimensions preserves the distinction between missing
+// modality evidence and a provider-reported zero. Reservation estimates never
+// enter this helper.
+func AppendMeasuredBillingDimensions(other map[string]interface{}, usage *dto.Usage) {
+	if other == nil || usage == nil {
+		return
+	}
+	if usage.ImageOutputUsageSource != "" {
+		other["image_output_usage_source"] = usage.ImageOutputUsageSource
+	}
+	details, status := usage.PromptTokensDetails.ValidatedCachedTokenDetails(usage.PromptTokens)
+	other["cache_read_details_status"] = status
+	if status == dto.CacheReadDetailsReported {
+		other["cache_text_tokens"] = details.TextTokens
+		other["cache_image_tokens"] = details.ImageTokens
+		other["cache_audio_tokens"] = details.AudioTokens
+	}
+	if usage.AudioSeconds != nil {
+		seconds := *usage.AudioSeconds
+		if seconds >= 0 && !math.IsNaN(seconds) && !math.IsInf(seconds, 0) {
+			other["audio_seconds"] = seconds
+		}
+	}
+}
 
 // attachQuotaSaturationToOther nests a quota saturation marker under
 // other.admin_info.quota_saturation. Nesting under admin_info makes it
@@ -86,6 +112,15 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	other["cache_ratio"] = cacheRatio
 	other["model_price"] = modelPrice
 	other["user_group_ratio"] = userGroupRatio
+	if relayInfo.SystemOneUsageStatus != "" {
+		other["systemone_usage_status"] = relayInfo.SystemOneUsageStatus
+		other["output_tokens_free"] = true
+		if relayInfo.SystemOneUsageStatus == "invalid" {
+			other["usage_estimated"] = true
+			other["usage_estimate_basis"] = "typesafe_context_reservation"
+			other["usage_estimate_token_budget"] = dto.SystemOneMaxInputTokens
+		}
+	}
 	other["frt"] = float64(relayInfo.FirstResponseTime.UnixMilli() - relayInfo.StartTime.UnixMilli())
 	if relayInfo.ReasoningEffort != "" {
 		other["reasoning_effort"] = relayInfo.ReasoningEffort

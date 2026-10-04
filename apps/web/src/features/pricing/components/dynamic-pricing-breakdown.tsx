@@ -27,6 +27,7 @@ import { cn } from '@/lib/utils'
 
 import {
   BILLING_PRICING_VARS,
+  coefficientToDisplayPrice,
   MATCH_CONTAINS,
   MATCH_EQ,
   MATCH_EXISTS,
@@ -176,8 +177,11 @@ export function DynamicPricingBreakdown({
 }: DynamicPricingBreakdownProps) {
   const { t } = useTranslation()
   const expr = billingExpr || ''
-  const formatTierPrice = (value: number) =>
-    formatPlatformAmount(value, {
+  const formatTierPrice = (
+    value: number,
+    variable: (typeof BILLING_PRICING_VARS)[number]
+  ) =>
+    formatPlatformAmount(coefficientToDisplayPrice(variable, value), {
       digitsLarge: 4,
       digitsSmall: 6,
       abbreviate: false,
@@ -319,7 +323,10 @@ export function DynamicPricingBreakdown({
                       return (
                         <div key={v.field} className='min-w-0'>
                           <div className='text-muted-foreground truncate text-[10px] font-medium tracking-wider uppercase'>
-                            {t(v.shortLabel)}
+                            {t(v.shortLabel)} /{' '}
+                            {v.unit === 'minute'
+                              ? t('minute')
+                              : `1M ${t('tokens')}`}
                           </div>
                           <div
                             className={cn(
@@ -327,7 +334,7 @@ export function DynamicPricingBreakdown({
                               compact ? 'text-xs' : 'text-sm font-semibold'
                             )}
                           >
-                            {value > 0 ? formatTierPrice(value) : '-'}
+                            {value > 0 ? formatTierPrice(value, v) : '-'}
                           </div>
                         </div>
                       )
@@ -397,7 +404,7 @@ export function DynamicPricingBreakdown({
               },
               ...visiblePriceFields.map((v, index) => ({
                 id: v.field ?? `price-${index}`,
-                header: t(v.shortLabel),
+                header: `${t(v.shortLabel)} / ${v.unit === 'minute' ? t('minute') : `1M ${t('tokens')}`}`,
                 className: cn(
                   'text-muted-foreground py-2 text-right font-medium',
                   compact && 'h-8'
@@ -412,7 +419,7 @@ export function DynamicPricingBreakdown({
                   )
                   return value > 0 ? (
                     <span className={cn(!compact && 'font-semibold')}>
-                      {formatTierPrice(value)}
+                      {formatTierPrice(value, v)}
                     </span>
                   ) : (
                     '-'

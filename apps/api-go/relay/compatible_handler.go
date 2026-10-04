@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -31,7 +32,7 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 		return types.NewErrorWithStatusCode(fmt.Errorf("invalid request type, expected dto.GeneralOpenAIRequest, got %T", info.Request), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 	}
 
-	passThrough := model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled
+	passThrough := (model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled) && info.RelayMode != relayconstant.RelayModeModerations
 	request, err := copyRequestForRelay(textReq, passThrough)
 	if err != nil {
 		return types.NewError(fmt.Errorf("failed to copy request to GeneralOpenAIRequest: %w", err), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
@@ -112,7 +113,7 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 		}
 		relaycommon.AppendRequestConversionFromRequest(info, convertedRequest)
 
-		if req, ok := convertedRequest.(*dto.GeneralOpenAIRequest); ok {
+		if req, ok := convertedRequest.(*dto.GeneralOpenAIRequest); ok && info.RelayMode != relayconstant.RelayModeModerations {
 			applySystemPromptIfNeeded(c, info, req)
 		}
 
@@ -132,6 +133,13 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 			jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info)
 			if err != nil {
 				return newAPIErrorFromParamOverride(err)
+			}
+		}
+
+		if info.RelayMode == relayconstant.RelayModeModerations {
+			jsonData, err = nativeModerationRequestBody(jsonData)
+			if err != nil {
+				return types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 			}
 		}
 
@@ -181,4 +189,25 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 		service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), nil)
 	}
 	return nil
+}
+
+// Moderations has its own request schema. Shared channel settings must not add
+// chat-only parameters or a system prompt to the native input.
+func nativeModerationRequestBody(body []byte) ([]byte, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(body, &fields); err != nil {
+		return nil, err
+	}
+	if stream, exists := fields["stream"]; exists && string(stream) != "false" && string(stream) != "null" {
+		return nil, fmt.Errorf("moderation does not support streaming")
+	}
+	var model string
+	if err := json.Unmarshal(fields["model"], &model); err != nil || model == "" {
+		return nil, fmt.Errorf("moderation model is required")
+	}
+	input, exists := fields["input"]
+	if !exists || string(input) == "null" || string(input) == `""` {
+		return nil, fmt.Errorf("moderation input is required")
+	}
+	return json.Marshal(map[string]json.RawMessage{"model": fields["model"], "input": input})
 }

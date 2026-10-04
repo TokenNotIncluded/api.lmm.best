@@ -32,6 +32,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/relay/channel/sub2api"
 	"github.com/LIghtJUNction/api.lmm.best/relay/channel/submodel"
 	"github.com/LIghtJUNction/api.lmm.best/relay/channel/tencent"
+	"github.com/LIghtJUNction/api.lmm.best/relay/channel/typesafe"
 	"github.com/LIghtJUNction/api.lmm.best/relay/channel/vertex"
 	"github.com/LIghtJUNction/api.lmm.best/relay/channel/volcengine"
 	"github.com/LIghtJUNction/api.lmm.best/relay/channel/xai"
@@ -115,6 +116,8 @@ func GetAdaptor(apiType int) channel.Adaptor {
 		return &sub2api.Adaptor{}
 	case constant.APITypeNewAPI:
 		return &newapi.Adaptor{}
+	case constant.APITypeTypeSafe:
+		return &typesafe.Adaptor{}
 	default:
 		return nil
 	}
@@ -124,6 +127,9 @@ func GetAdaptor(apiType int) channel.Adaptor {
 // provider work. Tencent is initialized because its native and TokenHub key
 // formats dispatch to different concrete adaptors.
 func SupportsEndpoint(apiType int, apiKey string, endpoint channel.Endpoint) bool {
+	if endpoint == channel.EndpointSystemOne && apiType != constant.APITypeTypeSafe && apiType != constant.APITypeNewAPI {
+		return false
+	}
 	adaptor := GetAdaptor(apiType)
 	if adaptor == nil {
 		return false

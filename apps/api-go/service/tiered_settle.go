@@ -1,6 +1,8 @@
 package service
 
 import (
+	"fmt"
+	"math"
 	"net/http"
 
 	"github.com/LIghtJUNction/api.lmm.best/pkg/billingexpr"
@@ -23,16 +25,20 @@ type TieredResultWrapper = billingexpr.TieredResult
 // report them as text-only. This function normalizes to text-only when
 // sub-categories are separately priced.
 func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, usedVars map[string]bool) billingexpr.TokenParams {
+	if usage == nil {
+		return billingexpr.TokenParams{CacheClassificationStatus: dto.CacheReadDetailsUnknown}
+	}
 	p := float64(usage.PromptTokens)
 	c := float64(usage.CompletionTokens)
 	cr := float64(usage.PromptTokensDetails.CachedTokens)
-	cc5m := float64(usage.PromptTokensDetails.CacheCreationTokensTotal())
-	cc1h := float64(0)
+	cacheCreation5m := usage.PromptTokensDetails.CacheCreationTokensTotal()
+	cacheCreation1h := 0
 
 	if usage.UsageSemantic == "anthropic" {
-		cc1h = float64(usage.ClaudeCacheCreation1hTokens)
-		cc5m = float64(usage.ClaudeCacheCreation5mTokens)
+		cacheCreation1h = usage.ClaudeCacheCreation1hTokens
+		cacheCreation5m = usage.ClaudeCacheCreation5mTokens
 	}
+	cc5m, cc1h := float64(cacheCreation5m), float64(cacheCreation1h)
 
 	img := float64(usage.PromptTokensDetails.ImageTokens)
 	ai := float64(usage.PromptTokensDetails.AudioTokens)
@@ -80,7 +86,7 @@ func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, usedVa
 		c = 0
 	}
 
-	return billingexpr.TokenParams{
+	params := billingexpr.TokenParams{
 		P:    p,
 		C:    c,
 		Len:  inputLen,
@@ -92,6 +98,82 @@ func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, usedVa
 		AI:   ai,
 		AO:   ao,
 	}
+	if usage.AudioSeconds != nil {
+		seconds := *usage.AudioSeconds
+		params.AudioSeconds = &seconds
+	}
+
+	cacheInputLimit := usage.PromptTokens
+	if isClaudeUsageSemantic {
+		// Claude prompt tokens exclude cache reads and writes. Validate cache
+		// classifications against the inclusive input total without overflow.
+		for _, count := range []int{usage.PromptTokensDetails.CachedTokens, cacheCreation5m, cacheCreation1h} {
+			if count < 0 || cacheInputLimit < 0 || count > math.MaxInt-cacheInputLimit {
+				cacheInputLimit = -1
+				break
+			}
+			cacheInputLimit += count
+		}
+	}
+	cached, status := usage.PromptTokensDetails.ValidatedCachedTokenDetails(cacheInputLimit)
+	params.CacheClassificationStatus = status
+	if status == dto.CacheReadDetailsReported || (status == dto.CacheReadDetailsUnknown && usage.PromptTokensDetails.CachedTokens == 0 && cacheInputLimit >= 0) {
+		// A reported aggregate zero proves each cache cost is zero, while the
+		// upstream classification itself remains unknown for logging purposes.
+		text, image, audio := float64(cached.TextTokens), float64(cached.ImageTokens), float64(cached.AudioTokens)
+		params.CRText, params.CRImg, params.CRAudio = &text, &image, &audio
+	}
+	classified := usedVars["cr_text"] || usedVars["cr_img"] || usedVars["cr_audio"]
+	if !classified {
+		return params // Preserve all existing aggregate-cache expression semantics.
+	}
+	if params.CRText == nil || params.CRImg == nil || params.CRAudio == nil {
+		params.MeasurementError = "cache classification is " + status
+		return params
+	}
+
+	// Classified cache and media dimensions can overlap. Subtract their
+	// union once from p, and let each media variable retain cached tokens only
+	// when its cache modality is not priced separately by the expression.
+	cacheExcluded := float64(0)
+	if usedVars["cr"] {
+		cacheExcluded = cr
+	} else {
+		if usedVars["cr_text"] {
+			cacheExcluded += *params.CRText
+		}
+		if usedVars["cr_img"] {
+			cacheExcluded += *params.CRImg
+		}
+		if usedVars["cr_audio"] {
+			cacheExcluded += *params.CRAudio
+		}
+	}
+	if usedVars["cr"] || usedVars["cr_img"] {
+		params.Img -= *params.CRImg
+	}
+	if usedVars["cr"] || usedVars["cr_audio"] {
+		params.AI -= *params.CRAudio
+	}
+	if !isClaudeUsageSemantic {
+		params.P = float64(usage.PromptTokens) - cacheExcluded
+		if usedVars["cc"] {
+			params.P -= cc5m
+		}
+		if usedVars["cc1h"] {
+			params.P -= cc1h
+		}
+		if usedVars["img"] {
+			params.P -= params.Img
+		}
+		if usedVars["ai"] {
+			params.P -= params.AI
+		}
+	}
+	if params.P < 0 || params.Img < 0 || params.AI < 0 {
+		params.MeasurementError = "classified input token dimensions exceed their inclusive total"
+	}
+	return params
 }
 
 func refreshTieredBillingGroup(relayInfo *relaycommon.RelayInfo) (*billingexpr.BillingSnapshot, error) {
@@ -177,9 +259,26 @@ func estimatedBillingQuotaCap(info *relaycommon.RelayInfo) int {
 //   - ok=true, quota, result  when tiered billing applies
 //   - ok=false, 0, nil        when it doesn't (caller should fall through to existing logic)
 func TryTieredSettle(relayInfo *relaycommon.RelayInfo, params billingexpr.TokenParams) (ok bool, quota int, result *billingexpr.TieredResult) {
+	ok, quota, result, err := TryTieredSettleWithError(relayInfo, params)
+	if err != nil {
+		// Legacy callers retain their existing reservation fallback. New
+		// measured-dimension callers can use the error-returning variant to
+		// distinguish unavailable usage from an actual zero or a matched tier.
+		return true, estimatedBillingQuotaCap(relayInfo), nil
+	}
+	return ok, quota, result
+}
+
+// TryTieredSettleWithError exposes measurement/expression failures instead of
+// silently pricing a known duration or malformed cache breakdown at the frozen
+// pre-consume estimate. The caller owns the explicit failure/fallback policy.
+func TryTieredSettleWithError(relayInfo *relaycommon.RelayInfo, params billingexpr.TokenParams) (ok bool, quota int, result *billingexpr.TieredResult, err error) {
+	if relayInfo == nil {
+		return false, 0, nil, nil
+	}
 	snap := relayInfo.TieredBillingSnapshot
 	if snap == nil || snap.BillingMode != "tiered_expr" {
-		return false, 0, nil
+		return false, 0, nil, nil
 	}
 
 	requestInput := billingexpr.RequestInput{}
@@ -189,8 +288,7 @@ func TryTieredSettle(relayInfo *relaycommon.RelayInfo, params billingexpr.TokenP
 
 	tr, err := billingexpr.ComputeTieredQuotaWithRequest(snap, params, requestInput)
 	if err != nil {
-		quota = estimatedBillingQuotaCap(relayInfo)
-		return true, quota, nil
+		return true, 0, nil, fmt.Errorf("tiered usage settlement failed: %w", err)
 	}
 
 	// Surface any single-request saturation from settlement onto RelayInfo so the
@@ -201,7 +299,7 @@ func TryTieredSettle(relayInfo *relaycommon.RelayInfo, params billingexpr.TokenP
 	quota = tr.ActualQuotaAfterGroup
 	quota = enforceTieredMinimumQuota(quota, &tr, snap.GroupRatio)
 
-	return true, quota, &tr
+	return true, quota, &tr, nil
 }
 
 // enforceTieredMinimumQuota keeps a successful, positive-price tiered request

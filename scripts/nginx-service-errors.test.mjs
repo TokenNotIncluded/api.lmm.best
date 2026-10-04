@@ -67,10 +67,14 @@ http {
   for(const endpoint of ['/api/scripts/repository','/api/scripts/repository/pull','/api/status']) {
    response=await fetch(url+endpoint);assert.equal(response.status,503,endpoint);await response.text()
   }
-  response=await fetch(url+'/v1/chat/completions',{method:'POST',headers:{Accept:'text/html','Content-Type':'application/json'},body:'{}'})
-  assert.equal(response.status,503);assert.match(response.headers.get('content-type'),/application\/json/);assert.equal((await response.json()).error.code,'service_temporarily_unavailable')
-  response=await fetch(url+'/v1/chat/completions',{method:'POST',headers:{Accept:'application/json','X-Fixture-Allow':'1','Content-Type':'application/json'},body:'{}'})
-  assert.equal(response.status,500);assert.deepEqual(await response.json(),{error:{message:'upstream test failure'}})
+  for(const endpoint of ['/v1/chat/completions','/v1/systemone','/typesafe/v1/systemone']) {
+   response=await fetch(url+endpoint,{method:'POST',headers:{Accept:'text/html','Content-Type':'application/json'},body:'{}'})
+   assert.equal(response.status,503,endpoint);assert.match(response.headers.get('content-type'),/application\/json/);assert.equal((await response.json()).error.code,'service_temporarily_unavailable')
+   response=await fetch(url+endpoint,{method:'POST',headers:{Accept:'application/json','X-Fixture-Allow':'1','Content-Type':'application/json'},body:'{}'})
+   assert.equal(response.status,500,endpoint);assert.deepEqual(await response.json(),{error:{message:'upstream test failure'}})
+   response=await fetch(url+endpoint,{method:'POST',headers:{'X-Fixture-Reject':'1','Content-Type':'application/json'},body:'{}'})
+   assert.equal(response.status,403,endpoint);await response.text()
+  }
   for(const endpoint of ['/.well-known/oauth-authorization-server','/.well-known/oauth-protected-resource/api/oauth2']) {
    response=await fetch(url+endpoint,{headers:{'X-Fixture-Allow':'1'}});assert.equal(response.status,200);assert.match(response.headers.get('content-type'),/application\/json/);assert.equal((await response.json()).issuer,'https://api.lmm.best')
    response=await fetch(url+endpoint);assert.equal(response.status,503)

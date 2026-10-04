@@ -31,7 +31,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
-import { getAssistantAvailableModels } from '@/features/assistant/api'
+import { getAssistantSetupModels } from '@/features/assistant/api'
 import {
   requestAssistantOpen,
   type AssistantPresetId,
@@ -394,7 +394,7 @@ export function Guide() {
       : window.location.origin
   const modelsQuery = useQuery({
     queryKey: ['guide-available-models', user?.id],
-    queryFn: getAssistantAvailableModels,
+    queryFn: getAssistantSetupModels,
     enabled: developerAccessGranted,
     staleTime: 60_000,
     retry: false,

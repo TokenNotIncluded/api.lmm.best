@@ -177,6 +177,7 @@ func isBackendPath(requestURI string) bool {
 		"/mcp/",
 		"/v1/",
 		"/v1beta/",
+		"/typesafe/",
 		"/pg/",
 		"/mj/",
 		"/suno/",
@@ -189,7 +190,7 @@ func isBackendPath(requestURI string) bool {
 	}
 
 	switch path {
-	case "/api", "/assets", "/mcp", "/v1", "/v1beta", "/pg", "/mj", "/suno", "/kling/v1", "/jimeng", "/dashboard/billing/subscription", "/dashboard/billing/usage":
+	case "/api", "/assets", "/mcp", "/v1", "/v1beta", "/typesafe", "/pg", "/mj", "/suno", "/kling/v1", "/jimeng", "/dashboard/billing/subscription", "/dashboard/billing/usage":
 		return true
 	}
 

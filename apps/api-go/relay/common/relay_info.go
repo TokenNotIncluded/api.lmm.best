@@ -130,6 +130,9 @@ type RelayInfo struct {
 	// A provider report (including terminal zero) is distinct from absent
 	// Responses usage. Neither local tokens nor prepayment may replace it.
 	ResponsesUsageReported bool
+	// SystemOneUsageStatus is reported for validated upstream input_tokens, or
+	// invalid when the context reservation must be retained instead of guessed.
+	SystemOneUsageStatus string
 	// ForcePreConsume 为 true 时禁用 BillingSession 的信任额度旁路，
 	// 强制预扣全额。用于异步任务（视频/音乐生成等），因为请求返回后任务仍在运行，
 	// 必须在提交前锁定全额。
@@ -173,7 +176,10 @@ type RelayInfo struct {
 	// Auto-group retries refresh its group-dependent fields before each attempt
 	// and again before settlement. Non-nil only when billing mode is "tiered_expr".
 	TieredBillingSnapshot *billingexpr.BillingSnapshot
-	BillingRequestInput   *billingexpr.RequestInput
+	// NativeVoiceReserveSeconds is a request-side budget estimate. It is never
+	// recorded or settled as measured provider duration.
+	NativeVoiceReserveSeconds float64
+	BillingRequestInput       *billingexpr.RequestInput
 
 	Request dto.Request
 
@@ -230,6 +236,7 @@ func (info *RelayInfo) CompleteResponseOutcome(apiErr *types.NewAPIError) {
 func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
 	info.resetResponseModel()
 	info.ResponsesUsageReported = false
+	info.SystemOneUsageStatus = ""
 	channelType := common.GetContextKeyInt(c, constant.ContextKeyChannelType)
 	paramOverride := common.GetContextKeyStringMap(c, constant.ContextKeyChannelParamOverride)
 	headerOverride := common.GetContextKeyStringMap(c, constant.ContextKeyChannelHeaderOverride)
@@ -670,6 +677,15 @@ func GenRelayInfo(c *gin.Context, relayFormat types.RelayFormat, request dto.Req
 			return GenRelayInfoAlphaSearch(c, request), nil
 		}
 		return nil, errors.New("request is not a AlphaSearchRequest")
+	case types.RelayFormatSystemOne:
+		if request, ok := request.(*dto.SystemOneRequest); ok {
+			info = genBaseRelayInfo(c, request)
+			info.RelayFormat = types.RelayFormatSystemOne
+			info.RelayMode = relayconstant.RelayModeSystemOne
+			info.ForcePreConsume = true
+			break
+		}
+		return nil, errors.New("request is not a SystemOneRequest")
 	case types.RelayFormatTask:
 		info = genBaseRelayInfo(c, nil)
 		info.TaskRelayInfo = &TaskRelayInfo{}

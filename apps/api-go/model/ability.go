@@ -28,13 +28,14 @@ type Ability struct {
 
 type AbilityWithChannel struct {
 	Ability
-	ChannelType int `json:"channel_type"`
+	ChannelType         int    `json:"channel_type"`
+	ChannelModelMapping string `json:"-"`
 }
 
 func GetAllEnableAbilityWithChannels() ([]AbilityWithChannel, error) {
 	var abilities []AbilityWithChannel
 	err := DB.Table("abilities").
-		Select("abilities.*, channels.type as channel_type").
+		Select("abilities.*, channels.type as channel_type, channels.model_mapping as channel_model_mapping").
 		Joins("left join channels on abilities.channel_id = channels.id").
 		Where("abilities.enabled = ?", true).
 		Scan(&abilities).Error
@@ -179,7 +180,7 @@ func GetChannelExcluding(group string, model string, retry int, requestPath stri
 	var abilities []Ability
 
 	var err error
-	if len(excluded) == 0 {
+	if len(excluded) == 0 && !isSystemOneRequestPath(requestPath) && !isNativeVoiceRequestPath(requestPath) {
 		channelQuery, queryErr := getChannelQuery(group, model, retry)
 		if queryErr != nil {
 			return nil, queryErr
@@ -191,15 +192,29 @@ func GetChannelExcluding(group string, model string, retry int, requestPath stri
 		for channelID := range excluded {
 			excludedIDs = append(excludedIDs, channelID)
 		}
-		query := DB.Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true).
-			Where("channel_id NOT IN ?", excludedIDs)
+		query := DB.Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true)
+		if len(excludedIDs) > 0 {
+			query = query.Where("channel_id NOT IN ?", excludedIDs)
+		}
 		err = query.Order("priority DESC, weight DESC").Find(&abilities).Error
 	}
 	if err != nil {
 		return nil, err
 	}
-	abilities = filterAbilitiesByRequestPathAndModel(abilities, requestPath, model)
-	if len(excluded) > 0 && len(abilities) > 0 {
+	filterBeforePriority := len(excluded) > 0 || isSystemOneRequestPath(requestPath) || isNativeVoiceRequestPath(requestPath)
+	var containsTypeSafe bool
+	abilities, containsTypeSafe = filterAbilitiesByRequestPathAndModelWithNativePresence(abilities, requestPath, model)
+	if !filterBeforePriority && containsTypeSafe {
+		// A native-only channel at the chosen legacy priority must not hide
+		// otherwise eligible chat channels at a lower priority.
+		if err := DB.Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true).
+			Order("priority DESC, weight DESC").Find(&abilities).Error; err != nil {
+			return nil, err
+		}
+		abilities = filterAbilitiesByRequestPathAndModel(abilities, requestPath, model)
+		filterBeforePriority = true
+	}
+	if filterBeforePriority && len(abilities) > 0 {
 		priorities := make([]int64, 0)
 		seenPriorities := make(map[int64]struct{})
 		for _, ability := range abilities {
@@ -267,13 +282,17 @@ func GetChannelExcluding(group string, model string, retry int, requestPath stri
 }
 
 // filterAbilitiesByRequestPathAndModel restricts candidates by request path and
-// model for the DB (non-memory-cache) selection path. Only Advanced Custom
-// (type 58) channels are path-checked: kept only when one of their routes matches
-// requestPath and model; all other channel types always pass. When requestPath is
-// empty, filtering is skipped.
+// model for the DB (non-memory-cache) selection path. Native System One requests
+// require TypeSafe or compatible relay channels. Advanced Custom routes retain
+// their existing configured matching for other paths. Empty paths skip filtering.
 func filterAbilitiesByRequestPathAndModel(abilities []Ability, requestPath string, model string) []Ability {
+	filtered, _ := filterAbilitiesByRequestPathAndModelWithNativePresence(abilities, requestPath, model)
+	return filtered
+}
+
+func filterAbilitiesByRequestPathAndModelWithNativePresence(abilities []Ability, requestPath string, model string) ([]Ability, bool) {
 	if requestPath == "" || len(abilities) == 0 {
-		return abilities
+		return abilities, false
 	}
 
 	channelIds := make([]int, 0, len(abilities))
@@ -288,19 +307,42 @@ func filterAbilitiesByRequestPathAndModel(abilities []Ability, requestPath strin
 
 	var channels []*Channel
 	if err := DB.Where("id IN ?", channelIds).Find(&channels).Error; err != nil {
-		// On error, fall back to unfiltered candidates to avoid blocking selection
-		return abilities
+		if isSystemOneRequestPath(requestPath) || isNativeVoiceRequestPath(requestPath) {
+			return nil, false
+		}
+		// Preserve the legacy fallback for other protocols.
+		return abilities, false
 	}
 
 	advancedConfigs := make(map[int]*dto.AdvancedCustomConfig)
+	channelTypes := make(map[int]int, len(channels))
 	for _, channel := range channels {
+		channelTypes[channel.Id] = channel.Type
 		if channel.Type == constant.ChannelTypeAdvancedCustom {
 			advancedConfigs[channel.Id] = channel.GetOtherSettings().AdvancedCustom
 		}
 	}
 
 	filtered := make([]Ability, 0, len(abilities))
+	containsTypeSafe := false
 	for _, ability := range abilities {
+		channelType, found := channelTypes[ability.ChannelId]
+		containsTypeSafe = containsTypeSafe || (found && channelType == constant.ChannelTypeTypeSafe)
+		if isNativeVoiceRequestPath(requestPath) {
+			if found && (channelType == constant.ChannelTypeOpenAI || channelType == constant.ChannelTypeNewAPI) {
+				filtered = append(filtered, ability)
+			}
+			continue
+		}
+		if isSystemOneRequestPath(requestPath) {
+			if found && (channelType == constant.ChannelTypeTypeSafe || channelType == constant.ChannelTypeNewAPI) {
+				filtered = append(filtered, ability)
+			}
+			continue
+		}
+		if channelType == constant.ChannelTypeTypeSafe {
+			continue
+		}
 		config, isAdvancedCustom := advancedConfigs[ability.ChannelId]
 		if !isAdvancedCustom {
 			filtered = append(filtered, ability)
@@ -310,7 +352,15 @@ func filterAbilitiesByRequestPathAndModel(abilities []Ability, requestPath strin
 			filtered = append(filtered, ability)
 		}
 	}
-	return filtered
+	return filtered, containsTypeSafe
+}
+
+func isSystemOneRequestPath(requestPath string) bool {
+	return requestPath == "/v1/systemone" || requestPath == "/typesafe/v1/systemone"
+}
+
+func isNativeVoiceRequestPath(requestPath string) bool {
+	return requestPath == "/v1/live/sessions" || requestPath == "/v1/realtime/translations" || requestPath == "/v1/realtime/transcription_sessions"
 }
 
 func (channel *Channel) AddAbilities(tx *gorm.DB) error {

@@ -55,6 +55,7 @@ export function getChannelTypeIcon(type: number): string {
     59: 'Sub2API', // Sub2API
     60: 'OpenAI', // Compatible Relay
     61: 'OpenAI', // OpenHuman
+    62: 'TypeSafe', // TypeSafe
     3: 'Azure', // Azure
 
     // Anthropic

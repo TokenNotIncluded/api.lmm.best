@@ -28,7 +28,7 @@ import { GroupBadge } from '@/components/group-badge'
 import { StatusBadge } from '@/components/status-badge'
 import { getLobeIcon } from '@/lib/lobe-icon'
 
-import { DEFAULT_TOKEN_UNIT } from '../constants'
+import { DEFAULT_TOKEN_UNIT, getEndpointTypeLabel } from '../constants'
 import {
   getDynamicDisplayGroupRatio,
   getDynamicPricingSummary,
@@ -150,7 +150,10 @@ export function usePricingColumns(
             )
           }
 
-          const primaryEntries = dynamicSummary.primaryEntries.slice(0, 2)
+          const primaryEntries = dynamicSummary.primaryEntries.slice(0, 3)
+          const hasDurationPrice = primaryEntries.some(
+            (entry) => entry.unit === 'minute'
+          )
           if (primaryEntries.length === 0) {
             return (
               <span className='text-muted-foreground text-xs'>
@@ -168,11 +171,23 @@ export function usePricingColumns(
                       <span className='text-muted-foreground/40 mx-1'>/</span>
                     )}
                     {stripTrailingZeros(entry.formatted)}
+                    {hasDurationPrice && (
+                      <span className='text-muted-foreground/50 ml-1 text-[10px]'>
+                        /{' '}
+                        {entry.unit === 'minute'
+                          ? t('minute')
+                          : `${tokenUnitLabel} ${t('tokens')}`}
+                      </span>
+                    )}
                   </span>
                 ))}
               </span>
               <div className='text-muted-foreground/50 text-[10px]'>
-                / {tokenUnitLabel} {t('tokens')}
+                {!hasDurationPrice && (
+                  <>
+                    / {tokenUnitLabel} {t('tokens')}
+                  </>
+                )}
                 {dynamicSummary.tierCount > 1 &&
                   ` · ${t('{{count}} tiers', {
                     count: dynamicSummary.tierCount,
@@ -386,7 +401,7 @@ export function usePricingColumns(
             items={endpoints.map((ep) => (
               <StatusBadge
                 key={ep}
-                label={ep}
+                label={getEndpointTypeLabel(ep, t)}
                 autoColor={ep}
                 size='sm'
                 copyable={false}

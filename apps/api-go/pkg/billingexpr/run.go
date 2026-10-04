@@ -16,6 +16,9 @@ import (
 //   - p, c             — prompt / completion tokens (auto-excluding separately-priced sub-categories)
 //   - len              — total input context length for tier conditions (never reduced by sub-category exclusion)
 //   - cr, cc, cc1h     — cache read / creation / creation-1h tokens
+//   - cr_text, cr_img, cr_audio — optional measured cache-read modality tokens
+//   - audio_s          — optional measured audio/session seconds; a $/minute
+//     price uses coefficient price * 1,000,000 / 60 in the existing v1 units
 //   - tier(name, value) — trace callback that records which tier matched
 //   - max, min, abs, ceil, floor — standard math helpers
 //
@@ -30,7 +33,7 @@ func RunExprWithRequest(exprStr string, params TokenParams, request RequestInput
 	if err != nil {
 		return 0, TraceResult{}, err
 	}
-	return runProgram(entry.prog, entry.requestRules, params, request)
+	return runProgram(entry.prog, entry.requestRules, entry.usedVars, params, request)
 }
 
 // RunExprByHash is like RunExpr but accepts a pre-computed hash for the cache
@@ -45,26 +48,48 @@ func RunExprByHashWithRequest(exprStr, hash string, params TokenParams, request 
 	if err != nil {
 		return 0, TraceResult{}, err
 	}
-	return runProgram(entry.prog, entry.requestRules, params, request)
+	return runProgram(entry.prog, entry.requestRules, entry.usedVars, params, request)
 }
 
-func runProgram(prog *vm.Program, requestRules []RequestRuleTrace, params TokenParams, request RequestInput) (float64, TraceResult, error) {
+func runProgram(prog *vm.Program, requestRules []RequestRuleTrace, usedVars map[string]bool, params TokenParams, request RequestInput) (float64, TraceResult, error) {
 	trace := TraceResult{
 		RequestRules: append([]RequestRuleTrace(nil), requestRules...),
+	}
+	if params.MeasurementError != "" {
+		return 0, trace, fmt.Errorf("expr usage error: %s", params.MeasurementError)
+	}
+	measured := map[string]*float64{
+		"cr_text": params.CRText, "cr_img": params.CRImg, "cr_audio": params.CRAudio,
+		"audio_s": params.AudioSeconds,
+	}
+	for variable, value := range measured {
+		if !usedVars[variable] {
+			continue
+		}
+		if value == nil {
+			return 0, trace, fmt.Errorf("expr usage error: measured dimension %s is unavailable", variable)
+		}
+		if math.IsNaN(*value) || math.IsInf(*value, 0) || *value < 0 {
+			return 0, trace, fmt.Errorf("expr usage error: measured dimension %s must be finite and nonnegative", variable)
+		}
 	}
 	headers := normalizeHeaders(request.Headers)
 
 	env := map[string]interface{}{
-		"p":     params.P,
-		"c":     params.C,
-		"len":   params.Len,
-		"cr":    params.CR,
-		"cc":    params.CC,
-		"cc1h":  params.CC1h,
-		"img":   params.Img,
-		"img_o": params.ImgO,
-		"ai":    params.AI,
-		"ao":    params.AO,
+		"p":        params.P,
+		"c":        params.C,
+		"len":      params.Len,
+		"cr":       params.CR,
+		"cr_text":  measuredDimensionValue(params.CRText),
+		"cr_img":   measuredDimensionValue(params.CRImg),
+		"cr_audio": measuredDimensionValue(params.CRAudio),
+		"cc":       params.CC,
+		"cc1h":     params.CC1h,
+		"img":      params.Img,
+		"img_o":    params.ImgO,
+		"ai":       params.AI,
+		"ao":       params.AO,
+		"audio_s":  measuredDimensionValue(params.AudioSeconds),
 		"tier": func(name string, value float64) float64 {
 			trace.MatchedTier = name
 			trace.Cost = value
@@ -129,6 +154,13 @@ func runProgram(prog *vm.Program, requestRules []RequestRuleTrace, params TokenP
 		return 0, trace, fmt.Errorf("expr result is %T, want float64", out)
 	}
 	return f, trace, nil
+}
+
+func measuredDimensionValue(value *float64) float64 {
+	if value == nil {
+		return 0 // Only unused dimensions may reach evaluation without a value.
+	}
+	return *value
 }
 
 func timeInZone(tz string) time.Time {

@@ -257,7 +257,7 @@ func memoryRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) 
 // ModelRequestRateLimit 模型请求限流中间件
 func ModelRequestRateLimit() func(c *gin.Context) {
 	return func(c *gin.Context) {
-		if isResponsesWebSocketHandshake(c) {
+		if isResponsesWebSocketHandshake(c) || isNativeVoiceHandshake(c) {
 			c.Next()
 			return
 		}
@@ -270,4 +270,16 @@ func ModelRequestRateLimit() func(c *gin.Context) {
 		c.Next()
 		commit(modelRequestSucceeded(c))
 	}
+}
+
+// Voice protocols reveal their model in a session configuration. Their
+// controller applies CheckModelRequestRateLimit after that configuration has
+// passed model authorization, exactly once per admitted session.
+func isNativeVoiceHandshake(c *gin.Context) bool {
+	path := c.Request.URL.Path
+	return path == "/v1/live/sessions" ||
+		strings.HasPrefix(path, "/v1/realtime/translations") ||
+		path == "/v1/realtime/transcription_sessions" ||
+		path == "/v1/realtime/client_secrets" || path == "/v1/realtime/calls" ||
+		(path == "/v1/realtime" && c.Query("intent") == "transcription")
 }

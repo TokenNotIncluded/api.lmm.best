@@ -9,6 +9,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/relay/channel/claude"
 	"github.com/LIghtJUNction/api.lmm.best/relay/channel/gemini"
 	"github.com/LIghtJUNction/api.lmm.best/relay/channel/openai"
+	"github.com/LIghtJUNction/api.lmm.best/relay/channel/typesafe"
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
 	relayconstant "github.com/LIghtJUNction/api.lmm.best/relay/constant"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
@@ -30,6 +31,9 @@ func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
 }
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
+	if info.RelayMode == relayconstant.RelayModeSystemOne {
+		return typesafe.SystemOneURL(info.ChannelBaseUrl, true), nil
+	}
 	if info.RelayMode == relayconstant.RelayModeAlphaSearch {
 		return relaycommon.GetFullRequestURL(info.ChannelBaseUrl, "/v1/alpha/search", info.ChannelType), nil
 	}
@@ -39,6 +43,10 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *relaycommon.RelayInfo) error {
 	channel.SetupApiRequestHeader(info, c, req)
 	req.Set("Authorization", "Bearer "+info.ApiKey)
+	if info.RelayFormat == types.RelayFormatSystemOne {
+		req.Set("Content-Type", "application/json")
+		req.Set("Accept", "application/json")
+	}
 
 	switch info.RelayFormat {
 	case types.RelayFormatClaude:
@@ -61,6 +69,10 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 		return nil, errors.New("request is nil")
 	}
 	return request, nil
+}
+
+func (a *Adaptor) ConvertSystemOneRequest(_ *gin.Context, _ *relaycommon.RelayInfo, request *dto.SystemOneRequest) (any, error) {
+	return typesafe.ConvertSystemOneRequest(request)
 }
 
 func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.OpenAIResponsesRequest) (any, error) {
@@ -94,6 +106,9 @@ func (a *Adaptor) ConvertRerankRequest(c *gin.Context, relayMode int, request dt
 }
 
 func (a *Adaptor) SupportsEndpoint(endpoint channel.Endpoint) bool {
+	if endpoint == channel.EndpointSystemOne {
+		return true
+	}
 	return endpoint != channel.EndpointRerank
 }
 
@@ -107,6 +122,8 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
 	switch info.RelayFormat {
+	case types.RelayFormatSystemOne:
+		return typesafe.DoSystemOneResponse(c, resp, info)
 	case types.RelayFormatClaude:
 		return a.claudeAdaptor.DoResponse(c, resp, info)
 	case types.RelayFormatGemini:

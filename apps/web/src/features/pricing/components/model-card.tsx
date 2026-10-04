@@ -24,7 +24,7 @@ import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
 
-import { DEFAULT_TOKEN_UNIT } from '../constants'
+import { DEFAULT_TOKEN_UNIT, getEndpointTypeLabel } from '../constants'
 import {
   getDynamicDisplayGroupRatio,
   getDynamicPricingSummary,
@@ -80,9 +80,17 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         ),
       })
     : null
+  const hasDurationPrice = dynamicSummary?.entries.some(
+    (entry) => entry.unit === 'minute'
+  )
 
   const primaryGroup = getDisplayPriceGroup(props.model, props.selectedGroup)
-  const bottomTags = [...endpoints.slice(0, 2), ...tags.slice(0, 2)]
+  const bottomTags = [
+    ...endpoints
+      .slice(0, 2)
+      .map((endpoint) => getEndpointTypeLabel(endpoint, t)),
+    ...tags.slice(0, 2),
+  ]
   const hiddenCount =
     Math.max(groups.length - 1, 0) +
     Math.max(endpoints.length - 2, 0) +
@@ -117,6 +125,11 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
               {t(entry.shortLabel)}{' '}
               <span className='text-foreground font-mono font-semibold'>
                 {entry.formatted}
+                {hasDurationPrice && (
+                  <span className='text-muted-foreground ml-1 text-xs font-normal'>
+                    / {entry.unit === 'minute' ? t('minute') : tokenUnitLabel}
+                  </span>
+                )}
               </span>
             </span>
           ))}
@@ -250,9 +263,11 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
               {item}
             </span>
           ))}
-          <span className='text-muted-foreground text-xs'>
-            {tokenUnitLabel}
-          </span>
+          {!hasDurationPrice && (
+            <span className='text-muted-foreground text-xs'>
+              {tokenUnitLabel}
+            </span>
+          )}
           {hiddenCount > 0 && (
             <span className='text-muted-foreground text-xs'>
               +{hiddenCount}

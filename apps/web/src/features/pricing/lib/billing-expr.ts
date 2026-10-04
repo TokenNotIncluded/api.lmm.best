@@ -42,6 +42,7 @@ export type BillingVar = {
   isBase?: boolean
   isConditionOnly?: boolean
   group?: string
+  unit?: 'tokens' | 'minute'
 }
 
 export const BILLING_VARS: BillingVar[] = [
@@ -91,6 +92,33 @@ export const BILLING_VARS: BillingVar[] = [
     group: 'cache',
   },
   {
+    key: 'cr_text',
+    field: 'cacheTextReadPrice',
+    tierField: 'cache_text_read_unit_cost',
+    label: 'Text cache read price',
+    shortLabel: 'Text Cache Read',
+    side: 'input',
+    group: 'cache',
+  },
+  {
+    key: 'cr_img',
+    field: 'cacheImageReadPrice',
+    tierField: 'cache_image_read_unit_cost',
+    label: 'Image cache read price',
+    shortLabel: 'Image Cache Read',
+    side: 'input',
+    group: 'cache',
+  },
+  {
+    key: 'cr_audio',
+    field: 'cacheAudioReadPrice',
+    tierField: 'cache_audio_read_unit_cost',
+    label: 'Audio cache read price',
+    shortLabel: 'Audio Cache Read',
+    side: 'input',
+    group: 'cache',
+  },
+  {
     key: 'cc1h',
     field: 'cacheCreate1hPrice',
     tierField: 'cache_create_1h_unit_cost',
@@ -135,7 +163,31 @@ export const BILLING_VARS: BillingVar[] = [
     side: 'output',
     group: 'media',
   },
+  {
+    key: 'audio_s',
+    field: 'audioDurationPrice',
+    tierField: 'audio_duration_unit_cost',
+    label: 'Audio duration price',
+    shortLabel: 'Audio Duration',
+    side: 'input',
+    group: 'media',
+    unit: 'minute',
+  },
 ]
+
+export function coefficientToDisplayPrice(
+  variable: Pick<BillingVar, 'unit'>,
+  value: number
+): number {
+  return variable.unit === 'minute' ? (value * 60) / 1_000_000 : value
+}
+
+export function displayPriceToCoefficient(
+  variable: Pick<BillingVar, 'unit'>,
+  value: number
+): number {
+  return variable.unit === 'minute' ? (value * 1_000_000) / 60 : value
+}
 
 /** Vars that have real price fields (excludes condition-only vars like `len`) */
 export const BILLING_PRICING_VARS: BillingVar[] = BILLING_VARS.filter(
@@ -915,10 +967,16 @@ export function evaluateTextRequestExpression(
         break
     }
   }
+  if (variables.has('audio_s')) {
+    throw new Error('Audio duration is required')
+  }
   return evaluateBillingExpression(expression, {
-    p: variables.has('cr') ? input - cached : input,
+    p: variables.has('cr') || variables.has('cr_text') ? input - cached : input,
     c: output,
     cr: cached,
+    cr_text: cached,
+    cr_img: 0,
+    cr_audio: 0,
     len: input,
   }).value
 }

@@ -16,7 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { CHANNEL_TYPE_OPENHUMAN, CHANNEL_TYPES } from '../constants'
+import {
+  CHANNEL_TYPE_OPENHUMAN,
+  CHANNEL_TYPE_TYPESAFE,
+  CHANNEL_TYPES,
+  TYPESAFE_MODELS,
+} from '../constants'
 
 // ============================================================================
 // Channel Type Configuration
@@ -76,6 +81,17 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
     validation: {
       keyFormat: /^sk-/,
       keyMinLength: 20,
+    },
+  },
+  [CHANNEL_TYPE_TYPESAFE]: {
+    id: CHANNEL_TYPE_TYPESAFE,
+    name: CHANNEL_TYPES[CHANNEL_TYPE_TYPESAFE],
+    icon: 'TypeSafe',
+    defaultBaseUrl: 'https://api.typesafe.ai',
+    supportedModels: TYPESAFE_MODELS,
+    hints: {
+      key: 'Enter API key for this channel',
+      models: TYPESAFE_MODELS.join(','),
     },
   },
   3: {

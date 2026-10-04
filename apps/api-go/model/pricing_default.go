@@ -11,6 +11,7 @@ import (
 
 // 简化的供应商映射规则
 var defaultVendorRules = map[string]string{
+	"jev-":     "TypeSafe",
 	"gpt":      "OpenAI",
 	"dall-e":   "OpenAI",
 	"whisper":  "OpenAI",

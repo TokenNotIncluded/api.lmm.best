@@ -16,6 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
 import { ChevronRight, KeyRound, ScrollText, Zap } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -28,7 +31,10 @@ import {
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useStatus } from '@/hooks/use-status'
 
+import { getEndpointTypeLabel, isNativeSessionEndpointType } from '../constants'
 import { replaceModelInPath } from '../lib/model-helpers'
+import { buildModerationSample } from '../lib/moderation-samples'
+import { buildSystemoneSample } from '../lib/systemone-samples'
 import type { PricingModel } from '../types'
 
 // ---------------------------------------------------------------------------
@@ -410,6 +416,8 @@ function buildSample(
   endpointType: string,
   ctx: SampleContext
 ): string {
+  if (endpointType === 'systemone') return buildSystemoneSample(lang, ctx)
+  if (endpointType === 'moderation') return buildModerationSample(lang, ctx)
   if (endpointType === 'anthropic') return buildAnthropicSample(lang, ctx)
   if (endpointType === 'gemini') return buildGeminiSample(lang, ctx)
   if (endpointType === 'embeddings' || endpointType === 'jina-rerank') {
@@ -452,7 +460,12 @@ function CodeSamplesSection(props: {
         if (path && path.includes('{model}')) {
           path = replaceModelInPath(path, props.model.model_name || '')
         }
-        return { type, path, method: info.method || 'POST' }
+        return {
+          type,
+          path,
+          method:
+            info.method || (isNativeSessionEndpointType(type) ? 'GET' : 'POST'),
+        }
       })
       .filter((e) => Boolean(e.path))
   }, [props.model, props.endpointMap])
@@ -465,6 +478,35 @@ function CodeSamplesSection(props: {
   const activeEndpoint = useMemo(() => {
     return endpoints.find((e) => e.type === endpointType) ?? endpoints[0]
   }, [endpointType, endpoints])
+
+  const nativeSessionType = props.model.supported_endpoint_types?.find(
+    isNativeSessionEndpointType
+  )
+  if (nativeSessionType) {
+    const endpoint = endpoints.find((item) => item.type === nativeSessionType)
+    return (
+      <section>
+        <SectionTitle icon={ScrollText}>
+          {t('Native session client required')}
+        </SectionTitle>
+        <div className='text-muted-foreground space-y-2 text-xs leading-relaxed'>
+          <p>{getEndpointTypeLabel(nativeSessionType, t)}</p>
+          {endpoint && (
+            <p>
+              <code className='bg-muted rounded px-1 py-0.5 font-mono text-[11px]'>
+                {endpoint.method} {endpoint.path} (WebSocket)
+              </code>
+            </p>
+          )}
+          <p>
+            {t(
+              'This model requires a native session client. Synchronous channel tests do not apply.'
+            )}
+          </p>
+        </div>
+      </section>
+    )
+  }
 
   if (endpoints.length === 0 || !activeEndpoint) {
     return null
@@ -482,6 +524,19 @@ function CodeSamplesSection(props: {
     <section>
       <SectionTitle icon={ScrollText}>{t('Code samples')}</SectionTitle>
 
+      {['systemone', 'moderation'].includes(activeEndpoint.type) && (
+        <p className='text-muted-foreground mb-3 text-xs leading-relaxed'>
+          <code className='bg-muted rounded px-1 py-0.5 font-mono text-[11px]'>
+            {activeEndpoint.method} {activeEndpoint.path}
+          </code>{' '}
+          {activeEndpoint.type === 'systemone'
+            ? t(
+                'Jev uses state and questions for synchronous judgment requests.'
+              )
+            : t('Moderation uses input for synchronous content safety checks.')}
+        </p>
+      )}
+
       <div className='flex flex-wrap items-center gap-2'>
         {endpoints.length > 1 && (
           <Tabs value={endpointType} onValueChange={setEndpointType}>
@@ -492,7 +547,7 @@ function CodeSamplesSection(props: {
                   value={ep.type}
                   className='h-7 px-2.5 text-xs'
                 >
-                  {ep.type}
+                  {getEndpointTypeLabel(ep.type, t)}
                 </TabsTrigger>
               ))}
             </TabsList>

@@ -9,6 +9,7 @@ import (
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/logger"
+	"github.com/LIghtJUNction/api.lmm.best/pkg/billingexpr"
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
 	"github.com/LIghtJUNction/api.lmm.best/relay/helper"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
@@ -27,6 +28,39 @@ func updateOpenAIImageCount(info *relaycommon.RelayInfo, count int64) {
 	info.PriceData.AddOtherRatio("n", float64(count))
 }
 
+func openAIImageUsesClassifiedCachePricing(info *relaycommon.RelayInfo) bool {
+	if info == nil || info.TieredBillingSnapshot == nil || info.TieredBillingSnapshot.BillingMode != "tiered_expr" {
+		return false
+	}
+	usedVars := billingexpr.UsedVars(info.TieredBillingSnapshot.ExprString)
+	return usedVars["cr_text"] || usedVars["cr_img"] || usedVars["cr_audio"]
+}
+
+// Cache-specific prices require cache-specific measurements. A zero aggregate
+// needs no allocation; positive unclassified or inconsistent usage cannot be
+// delivered and then silently billed at the reservation estimate.
+func validateOpenAIImageCacheBillingUsage(info *relaycommon.RelayInfo, usage *dto.Usage) *types.NewAPIError {
+	if !openAIImageUsesClassifiedCachePricing(info) || usage == nil {
+		return nil
+	}
+	_, status := usage.PromptTokensDetails.ValidatedCachedTokenDetails(usage.PromptTokens)
+	if status == dto.CacheReadDetailsInvalid || usage.PromptTokensDetails.CachedTokens < 0 ||
+		(status == dto.CacheReadDetailsUnknown && usage.PromptTokensDetails.CachedTokens > 0) {
+		return types.NewOpenAIError(
+			fmt.Errorf("upstream image usage lacks a valid complete cache-read breakdown required by model pricing"),
+			types.ErrorCodeBadResponseBody, http.StatusBadGateway, types.ErrOptionWithSkipRetry(),
+		)
+	}
+	return nil
+}
+
+func openAIImageDecodeError(info *relaycommon.RelayInfo, err error) *types.NewAPIError {
+	if openAIImageUsesClassifiedCachePricing(info) {
+		return types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
+	}
+	return types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+}
+
 // OpenaiImageHandler handles non-streaming OpenAI image responses
 // (generations/edits), returning the parsed usage for billing.
 func OpenaiImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
@@ -40,20 +74,20 @@ func OpenaiImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 	var usageResp dto.SimpleResponse
 	err = common.Unmarshal(responseBody, &usageResp)
 	if err != nil {
-		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+		return nil, openAIImageDecodeError(info, err)
 	}
 
 	if oaiError := usageResp.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
 	}
 
-	updateOpenAIImageCount(info, openaiImageResponseCount(responseBody))
-
-	// 写入新的 response body
-	service.IOCopyBytesGracefully(c, resp, responseBody)
-
 	normalizeOpenAIUsage(&usageResp.Usage)
 	applyUsagePostProcessing(info, &usageResp.Usage, responseBody)
+	if billingErr := validateOpenAIImageCacheBillingUsage(info, &usageResp.Usage); billingErr != nil {
+		return nil, billingErr
+	}
+	updateOpenAIImageCount(info, openaiImageResponseCount(responseBody))
+	service.IOCopyBytesGracefully(c, resp, responseBody)
 	return &usageResp.Usage, nil
 }
 
@@ -112,15 +146,19 @@ func normalizeOpenAIUsage(usage *dto.Usage) {
 		usage.CompletionTokens = usage.OutputTokens
 	}
 	if usage.InputTokensDetails != nil {
-		usage.PromptTokensDetails.CachedTokens = usage.InputTokensDetails.CachedTokens
-		usage.PromptTokensDetails.CachedCreationTokens = usage.InputTokensDetails.CachedCreationTokens
-		usage.PromptTokensDetails.CacheWriteTokens = usage.InputTokensDetails.CacheWriteTokens
-		usage.PromptTokensDetails.ImageTokens = usage.InputTokensDetails.ImageTokens
-		usage.PromptTokensDetails.TextTokens = usage.InputTokensDetails.TextTokens
-		usage.PromptTokensDetails.AudioTokens = usage.InputTokensDetails.AudioTokens
+		usage.PromptTokensDetails = dto.CloneInputTokenDetails(*usage.InputTokensDetails)
 	}
 	if usage.OutputTokensDetails != nil {
 		usage.CompletionTokenDetails = *usage.OutputTokensDetails
+		usage.ImageOutputUsageSource = ""
+	} else if usage.OutputTokens > 0 && usage.CompletionTokenDetails == (dto.OutputTokenDetails{}) {
+		// The native Images completed-event schema defines output_tokens as
+		// image output. Older image responses omit output_tokens_details, so
+		// retain this measured count in the canonical image dimension. Keep
+		// the provider's absent details absent, and record the protocol source
+		// internally. This helper is deliberately exclusive to Images routes.
+		usage.CompletionTokenDetails.ImageTokens = usage.OutputTokens
+		usage.ImageOutputUsageSource = dto.ImageOutputUsageSourceImagesTokens
 	}
 	if usage.TotalTokens == 0 {
 		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
@@ -148,6 +186,7 @@ func OpenaiImageStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp 
 	usage := &dto.Usage{}
 	var lastStreamData []byte
 	var completedImages int64
+	var billingMeasurementErr *types.NewAPIError
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 		raw := common.StringToByteSlice(data)
@@ -163,17 +202,40 @@ func OpenaiImageStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp 
 		}
 		if err := common.Unmarshal(raw, &chunk); err == nil {
 			normalizeOpenAIUsage(&chunk.Usage)
+			applyUsagePostProcessing(info, &chunk.Usage, raw)
+			billingMeasurementErr = validateOpenAIImageCacheBillingUsage(info, &chunk.Usage)
+			if billingMeasurementErr != nil {
+				payload, _ := common.Marshal(gin.H{"type": "error", "error": billingMeasurementErr.ToOpenAIError()})
+				_ = writeOpenaiImageStreamChunk(c, payload)
+				sr.Stop(billingMeasurementErr)
+				return
+			}
 			if service.ValidUsage(&chunk.Usage) {
 				usage = &chunk.Usage
 			}
 			if chunk.Type == "image_generation.completed" || chunk.Type == "image_edit.completed" {
 				completedImages++
 			}
+		} else if openAIImageUsesClassifiedCachePricing(info) {
+			billingMeasurementErr = openAIImageDecodeError(info, err)
+			payload, _ := common.Marshal(gin.H{"type": "error", "error": billingMeasurementErr.ToOpenAIError()})
+			_ = writeOpenaiImageStreamChunk(c, payload)
+			sr.Stop(billingMeasurementErr)
+			return
 		}
 		if err := writeOpenaiImageStreamChunk(c, raw); err != nil {
 			sr.Stop(err)
 		}
 	})
+	if billingMeasurementErr != nil {
+		return nil, billingMeasurementErr
+	}
+	applyUsagePostProcessing(info, usage, lastStreamData)
+	if billingErr := validateOpenAIImageCacheBillingUsage(info, usage); billingErr != nil {
+		payload, _ := common.Marshal(gin.H{"type": "error", "error": billingErr.ToOpenAIError()})
+		_ = writeOpenaiImageStreamChunk(c, payload)
+		return nil, billingErr
+	}
 
 	// StreamScannerHandler consumes the upstream [DONE]; re-emit it so the
 	// client still receives a terminal data: [DONE].
@@ -181,7 +243,6 @@ func OpenaiImageStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp 
 		helper.Done(c)
 	}
 
-	applyUsagePostProcessing(info, usage, lastStreamData)
 	// Only trust completedImages when upstream finished the stream (done/eof).
 	// On client-side aborts (client_gone, or handler_stop from a failed client
 	// write) the counter undercounts what upstream actually generated and
@@ -280,13 +341,16 @@ func openaiImageJSONAsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo,
 	// re-marshaled for each SSE event.
 	var usageResp dto.SimpleResponse
 	if err := common.Unmarshal(responseBody, &usageResp); err != nil {
-		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+		return nil, openAIImageDecodeError(info, err)
 	}
 	if oaiError := usageResp.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
 	}
 	normalizeOpenAIUsage(&usageResp.Usage)
 	applyUsagePostProcessing(info, &usageResp.Usage, responseBody)
+	if billingErr := validateOpenAIImageCacheBillingUsage(info, &usageResp.Usage); billingErr != nil {
+		return nil, billingErr
+	}
 
 	updateOpenAIImageCount(info, openaiImageResponseCount(responseBody))
 

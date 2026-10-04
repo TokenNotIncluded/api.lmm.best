@@ -46,6 +46,10 @@ export type VisualTier = {
   image_output_unit_cost?: number
   audio_input_unit_cost?: number
   audio_output_unit_cost?: number
+  cache_text_read_unit_cost?: number
+  cache_image_read_unit_cost?: number
+  cache_audio_read_unit_cost?: number
+  audio_duration_unit_cost?: number
   [field: string]: unknown
 }
 
@@ -80,6 +84,10 @@ export function normalizeVisualTier(
     image_output_unit_cost: Number(tier.image_output_unit_cost) || 0,
     audio_input_unit_cost: Number(tier.audio_input_unit_cost) || 0,
     audio_output_unit_cost: Number(tier.audio_output_unit_cost) || 0,
+    cache_text_read_unit_cost: Number(tier.cache_text_read_unit_cost) || 0,
+    cache_image_read_unit_cost: Number(tier.cache_image_read_unit_cost) || 0,
+    cache_audio_read_unit_cost: Number(tier.cache_audio_read_unit_cost) || 0,
+    audio_duration_unit_cost: Number(tier.audio_duration_unit_cost) || 0,
   }
 }
 
@@ -228,12 +236,23 @@ const ESTIMATOR_VARS = [
   { var: 'img_o', stateKey: 'imageOutputTokens' },
   { var: 'ai', stateKey: 'audioInputTokens' },
   { var: 'ao', stateKey: 'audioOutputTokens' },
+  { var: 'cr_text', stateKey: 'cacheTextReadTokens' },
+  { var: 'cr_img', stateKey: 'cacheImageReadTokens' },
+  { var: 'cr_audio', stateKey: 'cacheAudioReadTokens' },
+  { var: 'audio_s', stateKey: 'audioDurationSeconds' },
 ] as const
 
+type NativeUsageField =
+  | 'cacheTextReadTokens'
+  | 'cacheImageReadTokens'
+  | 'cacheAudioReadTokens'
+  | 'audioDurationSeconds'
+
 export type ExtraTokenValues = Record<
-  (typeof ESTIMATOR_VARS)[number]['stateKey'],
+  Exclude<(typeof ESTIMATOR_VARS)[number]['stateKey'], NativeUsageField>,
   number
->
+> &
+  Partial<Record<NativeUsageField, number>>
 
 export type EvalResult = {
   cost: number
@@ -251,7 +270,26 @@ export function evalExprLocally(
     if (!exprStr || !exprStr.trim()) {
       return { cost: 0, matchedTier: '', error: null }
     }
-    const cacheReadTokens = extraTokenValues.cacheReadTokens || 0
+    const classifiedCache = [
+      extraTokenValues.cacheTextReadTokens,
+      extraTokenValues.cacheImageReadTokens,
+      extraTokenValues.cacheAudioReadTokens,
+    ]
+    const classifiedTotal = classifiedCache.reduce<number>(
+      (total, value) => total + (value ?? 0),
+      0
+    )
+    const cacheReadTokens = extraTokenValues.cacheReadTokens || classifiedTotal
+    if (
+      cacheReadTokens > 0 &&
+      /\bcr_(?:text|img|audio)\b/.test(exprStr) &&
+      (!classifiedCache.every(
+        (value) => Number.isSafeInteger(value) && Number(value) >= 0
+      ) ||
+        classifiedTotal !== cacheReadTokens)
+    ) {
+      throw new Error('Cache classification is unavailable')
+    }
     const cacheCreateTokens = extraTokenValues.cacheCreateTokens || 0
     const cacheCreate1hTokens = extraTokenValues.cacheCreate1hTokens || 0
     const len =

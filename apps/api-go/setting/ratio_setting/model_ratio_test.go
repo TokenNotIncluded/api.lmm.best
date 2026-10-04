@@ -18,7 +18,11 @@ For commercial licensing, please contact support@quantumnous.com
 */
 package ratio_setting
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestDefaultSonarLargeRatiosUseFloatingDivision(t *testing.T) {
 	defaults := GetDefaultModelRatioMap()
@@ -38,4 +42,35 @@ func TestDefaultSonarLargeRatiosUseFloatingDivision(t *testing.T) {
 			t.Fatalf("default ratio for %s = %v, want %v", name, ratio, want)
 		}
 	}
+}
+
+func TestJevDefaultRatiosAndAdministratorOverrides(t *testing.T) {
+	previousModels := ModelRatio2JSONString()
+	previousCompletions := CompletionRatio2JSONString()
+	t.Cleanup(func() {
+		require.NoError(t, UpdateModelRatioByJSONString(previousModels))
+		require.NoError(t, UpdateCompletionRatioByJSONString(previousCompletions))
+	})
+	for _, name := range []string{"jev-1.13.0", "jev-latest", "jev-preview"} {
+		require.Equal(t, 0.021, GetDefaultModelRatioMap()[name])
+		ratio, exists := defaultCompletionRatio[name]
+		require.True(t, exists)
+		require.Zero(t, ratio)
+	}
+	require.NoError(t, UpdateModelRatioByJSONString(DefaultModelRatio2JSONString()))
+	completionRatioMap.AddAll(defaultCompletionRatio)
+	for _, name := range []string{"jev-1.13.0", "jev-latest", "jev-preview"} {
+		ratio, found, _ := GetModelRatio(name)
+		require.True(t, found)
+		require.Equal(t, 0.021, ratio)
+		require.Equal(t, CompletionRatioInfo{Ratio: 0, Locked: false}, GetCompletionRatioInfo(name))
+	}
+
+	// New built-in defaults must not force an administrator's existing prices.
+	require.NoError(t, UpdateModelRatioByJSONString(`{"jev-latest":0.05}`))
+	require.NoError(t, UpdateCompletionRatioByJSONString(`{"jev-latest":1.5}`))
+	ratio, found, _ := GetModelRatio("jev-latest")
+	require.True(t, found)
+	require.Equal(t, 0.05, ratio)
+	require.Equal(t, CompletionRatioInfo{Ratio: 1.5, Locked: false}, GetCompletionRatioInfo("jev-latest"))
 }

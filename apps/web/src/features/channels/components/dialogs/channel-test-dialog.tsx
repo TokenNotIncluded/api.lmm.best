@@ -95,6 +95,11 @@ import {
   formatResponseTime,
   handleTestChannel,
 } from '../../lib'
+import {
+  getChannelTestEndpointOptions,
+  getDefaultChannelTestEndpoint,
+  supportsChannelStreamTest,
+} from '../../lib/channel-test-config'
 import type {
   Channel,
   GetChannelsResponse,
@@ -115,7 +120,7 @@ type ModelRow = {
   model: string
 }
 
-type TestStatus = 'idle' | 'testing' | 'success' | 'error'
+type TestStatus = 'idle' | 'testing' | 'success' | 'error' | 'skipped'
 
 type TestResult = {
   status: TestStatus
@@ -130,6 +135,7 @@ type BatchProgress = {
   completed: number
   success: number
   failed: number
+  skipped: number
 }
 
 type ChannelTestCachePatch = {
@@ -163,6 +169,7 @@ function getLatestChannelTestCachePatch(
 ): ChannelTestCachePatch | undefined {
   const latest = results.reduce<LatestChannelTestCachePatch | undefined>(
     (latestPatch, result) => {
+      if (result.status === 'skipped') return latestPatch
       const completedAt = result.completedAt ?? 0
       const patch = createChannelTestCachePatch(
         result.responseTime,
@@ -180,37 +187,9 @@ function getLatestChannelTestCachePatch(
   return latest?.patch
 }
 
-const endpointTypeOptions: Array<{ value: string; label: string }> = [
-  { value: 'auto', label: 'Auto detect (default)' },
-  { value: 'openai', label: 'OpenAI (/v1/chat/completions)' },
-  { value: 'openai-response', label: 'OpenAI Responses (/v1/responses)' },
-  {
-    value: 'openai-response-compact',
-    label: 'OpenAI Response Compaction (/v1/responses/compact)',
-  },
-  { value: 'anthropic', label: 'Anthropic (/v1/messages)' },
-  {
-    value: 'gemini',
-    label: 'Gemini (/v1beta/models/{model}:generateContent)',
-  },
-  { value: 'jina-rerank', label: 'Jina Rerank (/v1/rerank)' },
-  {
-    value: 'image-generation',
-    label: 'Image Generation (/v1/images/generations)',
-  },
-  { value: 'embeddings', label: 'Embeddings (/v1/embeddings)' },
-]
-
 const endpointSelectContentClass = 'w-[460px] max-w-[calc(100vw-2rem)]'
 const endpointSelectItemClass =
   'items-start py-2 [&_[data-slot=select-item-text]]:min-w-0 [&_[data-slot=select-item-text]]:shrink [&_[data-slot=select-item-text]]:whitespace-normal'
-
-const STREAM_INCOMPATIBLE_ENDPOINTS = new Set([
-  'embeddings',
-  'image-generation',
-  'jina-rerank',
-  'openai-response-compact',
-])
 
 const MODEL_PRICE_ERROR_CODE = 'model_price_error'
 const FAILURE_SUMMARY_MAX_LENGTH = 96
@@ -334,7 +313,9 @@ function ChannelTestDialogContent({
   const batchProgressToastIdRef = useRef<ReturnType<
     typeof toast.loading
   > | null>(null)
-  const [endpointType, setEndpointType] = useState('auto')
+  const [endpointType, setEndpointType] = useState(() =>
+    getDefaultChannelTestEndpoint(currentRow.type)
+  )
   const [isStreamTest, setIsStreamTest] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [testResults, setTestResults] = useState<Record<string, TestResult>>({})
@@ -359,11 +340,11 @@ function ChannelTestDialogContent({
   })
   const endpointSelectItems = useMemo(
     () =>
-      endpointTypeOptions.map((option) => ({
+      getChannelTestEndpointOptions(currentRow.type).map((option) => ({
         value: option.value,
         label: t(option.label),
       })),
-    [t]
+    [currentRow.type, t]
   )
 
   const dismissBatchProgressToast = useCallback(() => {
@@ -390,10 +371,13 @@ function ChannelTestDialogContent({
       success: batchProgress.success,
       failed: batchProgress.failed,
     })
+    const skippedText = batchProgress.skipped
+      ? ` · ${t('{{count}} skipped', { count: batchProgress.skipped })}`
+      : ''
 
     batchProgressToastIdRef.current = toast.loading(title, {
       id: batchProgressToastIdRef.current ?? undefined,
-      description: `${completedText} · ${resultText}`,
+      description: `${completedText} · ${resultText}${skippedText}`,
     })
   }, [batchProgress, dismissBatchProgressToast, isBatchStopRequested, t])
 
@@ -401,7 +385,7 @@ function ChannelTestDialogContent({
 
   const resetState = useCallback(() => {
     batchStopRequestedRef.current = true
-    setEndpointType('auto')
+    setEndpointType(getDefaultChannelTestEndpoint(currentRow.type))
     setIsStreamTest(false)
     setSearchTerm('')
     setTestResults({})
@@ -415,19 +399,25 @@ function ChannelTestDialogContent({
     setIsDeletingFailed(false)
     setFailureDetails(null)
     setPagination({ pageIndex: 0, pageSize: 30 })
-  }, [])
+  }, [currentRow.type])
 
-  const streamDisabled = STREAM_INCOMPATIBLE_ENDPOINTS.has(endpointType)
+  const streamDisabled = !supportsChannelStreamTest(
+    currentRow.type,
+    endpointType
+  )
   const effectiveStreamTest = !streamDisabled && isStreamTest
 
-  const handleEndpointTypeChange = useCallback((value: string | null) => {
-    if (value === null) return
+  const handleEndpointTypeChange = useCallback(
+    (value: string | null) => {
+      if (value === null) return
 
-    setEndpointType(value)
-    if (STREAM_INCOMPATIBLE_ENDPOINTS.has(value)) {
-      setIsStreamTest(false)
-    }
-  }, [])
+      setEndpointType(value)
+      if (!supportsChannelStreamTest(currentRow.type, value)) {
+        setIsStreamTest(false)
+      }
+    },
+    [currentRow.type]
+  )
 
   const handleSearchTermChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
@@ -566,14 +556,14 @@ function ChannelTestDialogContent({
             stream: effectiveStreamTest || undefined,
             silent,
           },
-          (success, responseTime, error, errorCode) => {
+          (success, responseTime, error, errorCode, skipped) => {
             const completedAt = Date.now()
             finalResult = {
-              status: success ? 'success' : 'error',
-              responseTime,
+              status: skipped ? 'skipped' : success ? 'success' : 'error',
+              responseTime: skipped ? undefined : responseTime,
               completedAt,
               error,
-              errorCode,
+              errorCode: skipped ? undefined : errorCode,
             }
             updateTestResult(model, finalResult)
           }
@@ -587,7 +577,7 @@ function ChannelTestDialogContent({
         updateTestResult(model, finalResult)
       } finally {
         markModelTesting(model, false)
-        if (refreshList) {
+        if (refreshList && finalResult?.status !== 'skipped') {
           refreshChannelLists(
             createChannelTestCachePatch(
               finalResult?.responseTime,
@@ -631,6 +621,7 @@ function ChannelTestDialogContent({
         completed: 0,
         success: 0,
         failed: 0,
+        skipped: 0,
       })
 
       let resultPatch: ChannelTestCachePatch | undefined
@@ -638,6 +629,7 @@ function ChannelTestDialogContent({
       let completedCount = 0
       let successCount = 0
       let failedCount = 0
+      let skippedCount = 0
 
       try {
         const createFallbackResult = (error?: unknown): TestResult => ({
@@ -651,14 +643,18 @@ function ChannelTestDialogContent({
           completedCount += 1
           if (result.status === 'success') {
             successCount += 1
+          } else if (result.status === 'skipped') {
+            skippedCount += 1
+          } else if (result.status === 'error') {
+            failedCount += 1
           }
-          failedCount = completedCount - successCount
 
           setBatchProgress({
             total: uniqueModels.length,
             completed: completedCount,
             success: successCount,
             failed: failedCount,
+            skipped: skippedCount,
           })
         }
 
@@ -707,6 +703,9 @@ function ChannelTestDialogContent({
         resultPatch = getLatestChannelTestCachePatch(results)
         const stopped =
           batchStopRequestedRef.current && completedCount < uniqueModels.length
+        const skippedDescription = skippedCount
+          ? { description: t('{{count}} skipped', { count: skippedCount }) }
+          : undefined
 
         dismissBatchProgressToast()
         if (stopped) {
@@ -719,7 +718,8 @@ function ChannelTestDialogContent({
                 success: successCount,
                 failed: failedCount,
               }
-            )
+            ),
+            skippedDescription
           )
         } else if (failedCount > 0) {
           toast.error(
@@ -729,7 +729,15 @@ function ChannelTestDialogContent({
                 success: successCount,
                 failed: failedCount,
               }
-            )
+            ),
+            skippedDescription
+          )
+        } else if (skippedCount > 0) {
+          toast.info(
+            t('Batch test completed: {{count}} succeeded', {
+              count: successCount,
+            }),
+            skippedDescription
           )
         } else {
           toast.success(
@@ -1214,6 +1222,12 @@ function TestStatusCell({ result }: { result?: TestResult }) {
     )
   }
 
+  if (result.status === 'skipped') {
+    return (
+      <StatusBadge label={t('Skipped')} variant='neutral' copyable={false} />
+    )
+  }
+
   return <StatusBadge label={t('Failed')} variant='danger' copyable={false} />
 }
 
@@ -1248,6 +1262,14 @@ function TestResultCell({
       </span>
     ) : (
       <span className='text-muted-foreground text-sm'>-</span>
+    )
+  }
+
+  if (result.status === 'skipped') {
+    return (
+      <p className='text-muted-foreground text-xs leading-snug wrap-break-word'>
+        {result.error || t('Skipped')}
+      </p>
     )
   }
 

@@ -82,7 +82,7 @@ import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { DEFAULT_TOKEN_UNIT } from '../constants'
+import { DEFAULT_TOKEN_UNIT, getEndpointTypeLabel } from '../constants'
 import { useModelRuntime } from '../hooks/use-model-runtime'
 import { usePricingData } from '../hooks/use-pricing-data'
 import {
@@ -512,7 +512,9 @@ function ModelBackendProviderSection(props: { model: PricingModel }) {
   if (endpoints.length > 0) {
     cells.push(
       <CatalogInfoCell key='endpoints' label={t('Endpoints')}>
-        <CatalogPillList items={endpoints} />
+        <CatalogPillList
+          items={endpoints.map((endpoint) => getEndpointTypeLabel(endpoint, t))}
+        />
       </CatalogInfoCell>
     )
   }
@@ -712,7 +714,7 @@ function PriceSection(props: {
                 <div className='text-foreground mt-1 font-mono text-base font-semibold tabular-nums'>
                   {entry.formatted}
                   <span className='text-muted-foreground ml-1 text-xs font-normal'>
-                    / {tokenUnitLabel}
+                    / {entry.unit === 'minute' ? t('minute') : tokenUnitLabel}
                   </span>
                 </div>
               </div>
@@ -735,7 +737,7 @@ function PriceSection(props: {
                   <span className='text-muted-foreground font-mono text-sm tabular-nums'>
                     {entry.formatted}
                     <span className='text-muted-foreground ml-1 text-xs font-normal'>
-                      / {tokenUnitLabel}
+                      / {entry.unit === 'minute' ? t('minute') : tokenUnitLabel}
                     </span>
                   </span>
                 </div>
@@ -1045,7 +1047,10 @@ function GroupPricingSection(props: {
                     },
                     ...priceFields.map((fieldEntry) => ({
                       id: fieldEntry.field,
-                      header: t(fieldEntry.shortLabel),
+                      header:
+                        fieldEntry.unit === 'minute'
+                          ? `${t(fieldEntry.shortLabel)} / ${t('minute')}`
+                          : t(fieldEntry.shortLabel),
                       className: `${thClass} text-right`,
                       cellClassName: 'py-2.5 text-right font-mono',
                       cell: (tier: (typeof dynamicTiers)[number]) =>
@@ -1059,7 +1064,18 @@ function GroupPricingSection(props: {
             )
           })}
           <p className='text-muted-foreground mt-2 text-xs leading-5'>
-            {t('Prices shown per')} {tokenUnitLabel} {t('tokens')}
+            {priceFields.some((entry) => entry.unit === 'minute') ? (
+              t(
+                'Token prices use {{unit}} tokens; audio duration prices are per minute.',
+                {
+                  unit: tokenUnitLabel,
+                }
+              )
+            ) : (
+              <>
+                {t('Prices shown per')} {tokenUnitLabel} {t('tokens')}
+              </>
+            )}
           </p>
         </div>
       </section>

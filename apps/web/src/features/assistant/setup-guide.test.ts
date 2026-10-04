@@ -46,6 +46,101 @@ describe('assistant setup guide', () => {
     assert.equal(selectGuideModel(models, 'claude-sonnet-4'), 'claude-sonnet-4')
     assert.equal(selectGuideModel(['gpt-image-2']), '')
   })
+  test('excludes native judgment models and mapped aliases from chat client setup', () => {
+    const models = [
+      'gpt-5',
+      'jev-latest',
+      'typesafe/jev-preview',
+      'account-judge',
+    ]
+    assert.deepEqual(getGuideEligibleModels(models), ['gpt-5', 'account-judge'])
+    assert.deepEqual(
+      getGuideEligibleModels(models, [
+        {
+          model_name: 'account-judge',
+          supported_endpoint_types: ['systemone'],
+        },
+      ]),
+      ['gpt-5']
+    )
+    assert.equal(selectGuideModel(['jev-1.13.0']), '')
+    assert.deepEqual(
+      getGuideEligibleModels(
+        ['jev-chat'],
+        [{ model_name: 'jev-chat', supported_endpoint_types: ['openai'] }]
+      ),
+      ['jev-chat']
+    )
+  })
+  test('excludes native moderation models and mapped aliases from chat client setup', () => {
+    const models = [
+      'gpt-5',
+      'omni-moderation-latest',
+      'openai/text-moderation-stable',
+      'safety-alias',
+    ]
+    assert.deepEqual(getGuideEligibleModels(models), ['gpt-5', 'safety-alias'])
+    assert.deepEqual(
+      getGuideEligibleModels(models, [
+        {
+          model_name: 'safety-alias',
+          supported_endpoint_types: ['moderation'],
+        },
+      ]),
+      ['gpt-5']
+    )
+    assert.equal(selectGuideModel(['omni-moderation-latest']), '')
+    assert.deepEqual(
+      getGuideEligibleModels(
+        ['moderation-chat'],
+        [
+          {
+            model_name: 'moderation-chat',
+            supported_endpoint_types: ['openai'],
+          },
+        ]
+      ),
+      ['moderation-chat']
+    )
+  })
+  test('excludes native session models and mapped aliases from chat client setup', () => {
+    const models = [
+      'gpt-5',
+      'gpt-live-1',
+      'gpt-live-transcribe',
+      'gpt-realtime-whisper',
+      'gpt-realtime-translate',
+      'session-alias',
+    ]
+    assert.deepEqual(getGuideEligibleModels(models), ['gpt-5', 'session-alias'])
+    for (const endpoint of [
+      'live',
+      'realtime_transcription',
+      'realtime_translation',
+    ]) {
+      assert.deepEqual(
+        getGuideEligibleModels(models, [
+          {
+            model_name: 'session-alias',
+            supported_endpoint_types: [endpoint],
+          },
+        ]),
+        ['gpt-5']
+      )
+    }
+    assert.deepEqual(
+      getGuideEligibleModels(
+        ['gpt-live-chat'],
+        [
+          {
+            model_name: 'gpt-live-chat',
+            supported_endpoint_types: ['openai'],
+          },
+        ]
+      ),
+      ['gpt-live-chat']
+    )
+  })
   test('detects desktop, Android and iOS platforms including desktop-mode iPads', () => {
     assert.equal(detectAssistantSetupPlatform('Windows', ''), 'windows')
     assert.equal(detectAssistantSetupPlatform('macOS', ''), 'macos')

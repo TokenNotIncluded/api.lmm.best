@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 
+import { isNativeSessionEndpointType } from '../constants'
 import { getAvailableGroups } from '../lib/model-helpers'
 import { formatModelPrice } from '../lib/price-display'
 import { estimateRequestCost } from '../lib/request-estimate'
@@ -17,6 +18,10 @@ const PRESETS = [
   { key: 'Code review', input: '20000', output: '8000' },
 ] as const
 
+const SYSTEMONE_PRESETS = [
+  { key: 'Long document', input: '50000', output: '0' },
+] as const
+
 export function RequestEstimator(props: ModelDetailsContentProps) {
   const { t } = useTranslation()
   const id = useId()
@@ -24,6 +29,14 @@ export function RequestEstimator(props: ModelDetailsContentProps) {
   const [input, setInput] = useState('10000')
   const [output, setOutput] = useState('2000')
   const [cached, setCached] = useState('0')
+  const isSystemone =
+    props.model.supported_endpoint_types?.includes('systemone') ?? false
+  const endpoints = props.model.supported_endpoint_types
+  const isNativeSession = endpoints?.length
+    ? endpoints.some(isNativeSessionEndpointType)
+    : /(^|\/)gpt-(?:live|realtime)(?:-|$)/.test(props.model.model_name)
+  if (isNativeSession) return null
+  const presets = isSystemone ? SYSTEMONE_PRESETS : PRESETS
   const groups = getAvailableGroups(props.model, props.usableGroup)
   const group = groups.includes(selected) ? selected : (groups[0] ?? '')
   const parse = (value: string) =>
@@ -32,8 +45,8 @@ export function RequestEstimator(props: ModelDetailsContentProps) {
     props.model,
     props.groupRatio[group],
     parse(input),
-    parse(output),
-    parse(cached)
+    isSystemone ? 0 : parse(output),
+    isSystemone ? 0 : parse(cached)
   )
   return (
     <section
@@ -64,8 +77,10 @@ export function RequestEstimator(props: ModelDetailsContentProps) {
       {props.model.quota_type === 0 && (
         <>
           <div className='flex flex-wrap gap-1.5'>
-            {PRESETS.map((preset) => {
-              const active = input === preset.input && output === preset.output
+            {presets.map((preset) => {
+              const active =
+                input === preset.input &&
+                (isSystemone || output === preset.output)
               return (
                 <button
                   key={preset.key}
@@ -88,7 +103,7 @@ export function RequestEstimator(props: ModelDetailsContentProps) {
               )
             })}
           </div>
-          <div className='grid gap-3 sm:grid-cols-3'>
+          <div className={cn('grid gap-3', !isSystemone && 'sm:grid-cols-3')}>
             {[
               {
                 key: 'input',
@@ -96,18 +111,22 @@ export function RequestEstimator(props: ModelDetailsContentProps) {
                 value: input,
                 set: setInput,
               },
-              {
-                key: 'output',
-                label: t('Output Tokens'),
-                value: output,
-                set: setOutput,
-              },
-              {
-                key: 'cached',
-                label: t('Cached input tokens'),
-                value: cached,
-                set: setCached,
-              },
+              ...(isSystemone
+                ? []
+                : [
+                    {
+                      key: 'output',
+                      label: t('Output Tokens'),
+                      value: output,
+                      set: setOutput,
+                    },
+                    {
+                      key: 'cached',
+                      label: t('Cached input tokens'),
+                      value: cached,
+                      set: setCached,
+                    },
+                  ]),
             ].map((field) => (
               <label
                 key={field.key}
@@ -143,7 +162,9 @@ export function RequestEstimator(props: ModelDetailsContentProps) {
         </summary>
         <p className='text-muted-foreground mt-1 text-xs leading-relaxed'>
           {t(
-            'One request, selected group multiplier included. Cached tokens are part of input. Excludes cache writes, media and tool fees; actual charges may differ.'
+            isSystemone
+              ? 'One request, input tokens and selected group multiplier included. Actual charges may differ.'
+              : 'One request, selected group multiplier included. Cached tokens are part of input. Excludes cache writes, media and tool fees; actual charges may differ.'
           )}
           {amount === null
             ? ` ${t('Check token counts and group prices. Dynamic or special billing requires the pricing rules above.')}`

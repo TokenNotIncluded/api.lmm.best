@@ -23,12 +23,16 @@ import (
 // BillingSession 封装单次请求的预扣费/结算/退款生命周期。
 // 实现 relaycommon.BillingSettler 接口。
 type BillingSession struct {
-	relayInfo           *relaycommon.RelayInfo
-	funding             FundingSource
-	preConsumedQuota    int  // 实际预扣额度（信任用户可能为 0）
-	tokenConsumed       int  // 令牌额度实际扣减量
-	extraReserved       int  // 发送前补充预扣的额度（订阅退款时需要单独回滚）
-	trusted             bool // 是否命中信任额度旁路
+	relayInfo        *relaycommon.RelayInfo
+	funding          FundingSource
+	preConsumedQuota int  // 实际预扣额度（信任用户可能为 0）
+	tokenConsumed    int  // 令牌额度实际扣减量
+	extraReserved    int  // 发送前补充预扣的额度（订阅退款时需要单独回滚）
+	trusted          bool // 是否命中信任额度旁路
+	// hardBudget only applies to NewBudgetBillingSession. Reservation growth
+	// must authorize the complete next window without overdrawing a balance.
+	hardBudget          bool
+	reservedBudget      int  // complete authorized target, including subscription wallet holds
 	fundingSettled      bool // funding.Settle 已成功，资金来源已提交
 	settled             bool // Settle 全部完成（资金 + 令牌）
 	refunded            bool // Refund 已调用
@@ -42,6 +46,17 @@ type BillingSession struct {
 func (s *BillingSession) Settle(actualQuota int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.hardBudget {
+		if actualQuota < 0 || s.refunded {
+			return errors.New("invalid billing budget settlement")
+		}
+		if err := common.ValidateWalletQuota(actualQuota); err != nil {
+			return err
+		}
+		// Once accepted usage is submitted for settlement, no new upstream
+		// window or admission refund may race a failed, retryable settlement.
+		s.settlementAttempted = true
+	}
 	if sub, ok := s.funding.(*SubscriptionFunding); ok && sub.managed {
 		if actualQuota < 0 || s.refunded {
 			return errors.New("invalid subscription settlement")
@@ -121,6 +136,17 @@ func (s *BillingSession) SubscriptionSettlement() *model.SubscriptionBillingResu
 func (s *BillingSession) Refund(c *gin.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if wallet, ok := s.funding.(*WalletFunding); ok && s.hardBudget {
+		if s.settled || s.refunded || s.fundingSettled || s.settlementAttempted {
+			return
+		}
+		if err := wallet.RefundBudget(s.budgetTokenID()); err != nil {
+			common.SysLog("error refunding wallet billing budget: " + err.Error())
+			return
+		}
+		s.refunded = true
+		return
+	}
 	if sub, ok := s.funding.(*SubscriptionFunding); ok && sub.managed {
 		if s.settled || s.refunded || s.settlementAttempted {
 			return
@@ -198,6 +224,11 @@ func (s *BillingSession) needsRefundLocked() bool {
 	if s.tokenConsumed > 0 {
 		return true
 	}
+	if wallet, ok := s.funding.(*WalletFunding); ok && s.hardBudget && wallet.consumed > 0 {
+		// Internal requests have no token reservation, but their guarded
+		// wallet admission still belongs to the refundable session.
+		return true
+	}
 	// 订阅可能在 tokenConsumed=0 时仍预扣了额度
 	if sub, ok := s.funding.(*SubscriptionFunding); ok && sub.preConsumed > 0 {
 		return true
@@ -212,20 +243,87 @@ func (s *BillingSession) GetPreConsumedQuota() int {
 	return s.preConsumedQuota
 }
 
+// GetReservedBudget returns the complete budget authorized before sending the
+// next window. A subscription's GetPreConsumedQuota may include only its grant,
+// while its ledger also holds capacity for later wallet overflow.
+func (s *BillingSession) GetReservedBudget() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.hardBudget {
+		return s.reservedBudget
+	}
+	return s.preConsumedQuota
+}
+
+func (s *BillingSession) budgetTokenID() int {
+	if s.relayInfo == nil || s.relayInfo.IsPlayground || s.relayInfo.IsAssistant {
+		return 0
+	}
+	return s.relayInfo.TokenId
+}
+
+func budgetReservationAPIError(err error) *types.NewAPIError {
+	if errors.Is(err, model.ErrSubscriptionBillingTokenQuota) {
+		return types.NewErrorWithStatusCode(err, types.ErrorCodePreConsumeTokenQuotaFailed, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+	}
+	if errors.Is(err, model.ErrWalletBillingBudgetQuota) || errors.Is(err, model.ErrSubscriptionBillingWalletQuota) || errors.Is(err, model.ErrSubscriptionQuotaInsufficient) {
+		return types.NewErrorWithStatusCode(err, types.ErrorCodeInsufficientUserQuota, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+	}
+	return types.NewError(err, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
+}
+
 func (s *BillingSession) Reserve(targetQuota int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.hardBudget {
+		if targetQuota < 0 {
+			return errors.New("budget target must not be negative")
+		}
+		if err := common.ValidateWalletQuota(targetQuota); err != nil {
+			return err
+		}
+		if s.settled || s.refunded || s.fundingSettled || s.settlementAttempted {
+			return errors.New("billing budget is no longer reservable")
+		}
+		if targetQuota <= s.reservedBudget {
+			return nil
+		}
+	}
 	if sub, ok := s.funding.(*SubscriptionFunding); ok && sub.managed {
 		if s.settlementAttempted || s.refunded {
 			return errors.New("subscription billing is no longer reservable")
 		}
 		result, err := model.ReserveSubscriptionBilling(sub.requestId, sub.userId, int64(targetQuota))
 		if err != nil {
+			if s.hardBudget {
+				return budgetReservationAPIError(err)
+			}
 			return err
 		}
 		s.preConsumedQuota = int(result.ReservedQuota)
 		s.tokenConsumed = int(result.TokenQuota)
 		s.extraReserved = int(result.ReservedQuota - sub.preConsumed)
+		if s.hardBudget {
+			s.reservedBudget = targetQuota
+		}
+		s.syncRelayInfo()
+		return nil
+	}
+	if s.hardBudget {
+		wallet, ok := s.funding.(*WalletFunding)
+		if !ok {
+			return errors.New("funding source does not support billing budgets")
+		}
+		delta := targetQuota - s.reservedBudget
+		if err := wallet.ReserveBudget(delta, s.budgetTokenID()); err != nil {
+			return budgetReservationAPIError(err)
+		}
+		s.preConsumedQuota += delta
+		if s.budgetTokenID() != 0 {
+			s.tokenConsumed += delta
+		}
+		s.extraReserved += delta
+		s.reservedBudget = targetQuota
 		s.syncRelayInfo()
 		return nil
 	}
@@ -270,6 +368,21 @@ func (s *BillingSession) preConsume(c *gin.Context, quota int) *types.NewAPIErro
 		logger.LogInfo(c, fmt.Sprintf("用户 %d 额度充足, 信任且不需要预扣费 (funding=%s)", s.relayInfo.UserId, s.funding.Source()))
 	} else if effectiveQuota > 0 {
 		logger.LogInfo(c, fmt.Sprintf("用户 %d 需要预扣费 %s (funding=%s)", s.relayInfo.UserId, logger.FormatQuota(effectiveQuota), s.funding.Source()))
+	}
+	if wallet, ok := s.funding.(*WalletFunding); ok && s.hardBudget {
+		if !s.relayInfo.IsPlayground && !s.relayInfo.IsAssistant && s.relayInfo.TokenId <= 0 {
+			return types.NewErrorWithStatusCode(errors.New("billing budget token is missing"), types.ErrorCodePreConsumeTokenQuotaFailed, http.StatusForbidden, types.ErrOptionWithSkipRetry())
+		}
+		if err := wallet.ReserveBudget(effectiveQuota, s.budgetTokenID()); err != nil {
+			return budgetReservationAPIError(err)
+		}
+		s.preConsumedQuota = effectiveQuota
+		if s.budgetTokenID() != 0 {
+			s.tokenConsumed = effectiveQuota
+		}
+		s.reservedBudget = effectiveQuota
+		s.syncRelayInfo()
+		return nil
 	}
 
 	// ---- 1) 预扣令牌额度 ----
@@ -328,6 +441,20 @@ func (s *BillingSession) preConsume(c *gin.Context, quota int) *types.NewAPIErro
 		s.preConsumedQuota = int(sub.preConsumed)
 		if sub.tokenId != 0 {
 			s.tokenConsumed = int(sub.tokenConsumed)
+		}
+	}
+	if s.hardBudget {
+		s.reservedBudget = effectiveQuota
+		if subscriptionManaged {
+			// A repeated request ID returns its existing ledger admission, not
+			// the newly requested amount. Never advertise unreserved capacity.
+			s.reservedBudget = int(sub.preConsumed)
+			if sub.tokenId != 0 {
+				s.reservedBudget = int(sub.tokenConsumed)
+			}
+			if s.reservedBudget != effectiveQuota {
+				return types.NewErrorWithStatusCode(errors.New("subscription billing budget replay mismatch"), types.ErrorCodeInvalidRequest, http.StatusConflict, types.ErrOptionWithSkipRetry())
+			}
 		}
 	}
 
@@ -413,7 +540,7 @@ func NewAssistantBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo
 // shouldTrust 统一信任额度检查，适用于钱包和订阅。
 func (s *BillingSession) shouldTrust(c *gin.Context) bool {
 	// 异步任务（ForcePreConsume=true）必须预扣全额，不允许信任旁路
-	if s.relayInfo.ForcePreConsume {
+	if s.hardBudget || s.relayInfo.ForcePreConsume {
 		return false
 	}
 
@@ -481,6 +608,29 @@ func newWebDrawingMinimumBalanceError() *types.NewAPIError {
 
 // NewBillingSession 根据用户计费偏好创建 BillingSession，处理 subscription_first / wallet_first 的回退。
 func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preConsumedQuota int) (*BillingSession, *types.NewAPIError) {
+	return newBillingSession(c, relayInfo, preConsumedQuota, false)
+}
+
+// NewBudgetBillingSession opts an ongoing session into atomic, guarded budget
+// reservation. Final settlement still accounts for usage already served, even
+// if a provider's final report includes an unexpected trailing overage.
+func NewBudgetBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, initialQuota int) (*BillingSession, *types.NewAPIError) {
+	if initialQuota < 0 {
+		return nil, types.NewErrorWithStatusCode(errors.New("initial billing budget must not be negative"), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
+	if err := common.ValidateWalletQuota(initialQuota); err != nil {
+		return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
+	if initialQuota == 0 && relayInfo != nil && !relayInfo.PriceData.FreeModel {
+		// A rounded-down paid estimate still needs funding authorization before
+		// upstream work. Only the frozen server-side free-model policy skips it.
+		initialQuota = 1
+		relayInfo.PriceData.QuotaToPreConsume = 1
+	}
+	return newBillingSession(c, relayInfo, initialQuota, true)
+}
+
+func newBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preConsumedQuota int, hardBudget bool) (*BillingSession, *types.NewAPIError) {
 	if relayInfo == nil {
 		return nil, types.NewError(fmt.Errorf("relayInfo is nil"), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
 	}
@@ -497,6 +647,18 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 		if balance < minimumQuota {
 			return nil, newWebDrawingMinimumBalanceError()
 		}
+	}
+	if hardBudget && preConsumedQuota == 0 && relayInfo.PriceData.FreeModel {
+		// Free duration sessions need an owner even with a zero wallet. Avoid
+		// creating the managed subscription path's one-unit admission record.
+		session := &BillingSession{
+			relayInfo: relayInfo, hardBudget: true,
+			funding: &WalletFunding{userId: relayInfo.UserId, minimumQuota: minimumQuota},
+		}
+		if apiErr := session.preConsume(c, 0); apiErr != nil {
+			return nil, apiErr
+		}
+		return session, nil
 	}
 
 	pref := common.NormalizeBillingPreference(relayInfo.UserSetting.BillingPreference)
@@ -525,8 +687,9 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 		relayInfo.UserQuota = userQuota
 
 		session := &BillingSession{
-			relayInfo: relayInfo,
-			funding:   &WalletFunding{userId: relayInfo.UserId, minimumQuota: minimumQuota},
+			relayInfo:  relayInfo,
+			funding:    &WalletFunding{userId: relayInfo.UserId, minimumQuota: minimumQuota},
+			hardBudget: hardBudget,
 		}
 		if apiErr := session.preConsume(c, preConsumedQuota); apiErr != nil {
 			return nil, apiErr
@@ -540,7 +703,8 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 			subConsume = 1
 		}
 		session := &BillingSession{
-			relayInfo: relayInfo,
+			relayInfo:  relayInfo,
+			hardBudget: hardBudget,
 			funding: &SubscriptionFunding{
 				requestId: relayInfo.RequestId,
 				userId:    relayInfo.UserId,
@@ -550,7 +714,7 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 				// Async task refunds currently persist only one funding source.
 				// Keep their existing no-split policy until task bookkeeping can
 				// carry and refund both committed funding amounts.
-				walletOverflow: pref == "subscription_first" && relayInfo.TaskRelayInfo == nil && !relayInfo.IsPlayground,
+				walletOverflow: pref == "subscription_first" && relayInfo.TaskRelayInfo == nil && !relayInfo.IsPlayground && (!hardBudget || !relayInfo.IsAssistant),
 			},
 		}
 		if !relayInfo.IsPlayground && !relayInfo.IsAssistant {

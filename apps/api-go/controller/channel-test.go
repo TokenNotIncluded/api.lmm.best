@@ -20,6 +20,8 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/pkg/billingexpr"
 	"github.com/LIghtJUNction/api.lmm.best/relay"
+	relaychannel "github.com/LIghtJUNction/api.lmm.best/relay/channel"
+	"github.com/LIghtJUNction/api.lmm.best/relay/channel/openai"
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
 	relayconstant "github.com/LIghtJUNction/api.lmm.best/relay/constant"
 	"github.com/LIghtJUNction/api.lmm.best/relay/helper"
@@ -39,6 +41,7 @@ type testResult struct {
 	context     *gin.Context
 	localErr    error
 	newAPIError *types.NewAPIError
+	skipped     bool
 }
 
 func normalizeChannelTestEndpoint(channel *model.Channel, endpointType string) string {
@@ -46,10 +49,74 @@ func normalizeChannelTestEndpoint(channel *model.Channel, endpointType string) s
 	if normalized != "" {
 		return normalized
 	}
+	if channel != nil && channel.Type == constant.ChannelTypeTypeSafe {
+		return string(constant.EndpointTypeSystemOne)
+	}
 	if channel != nil && channel.Type == constant.ChannelTypeCodex {
 		return string(constant.EndpointTypeOpenAIResponse)
 	}
 	return normalized
+}
+
+func channelTestUsesSystemOne(channel *model.Channel, modelName string) bool {
+	if channel != nil && channel.Type == constant.ChannelTypeTypeSafe {
+		return true
+	}
+	if dto.IsSystemOneModel(modelName) {
+		return true
+	}
+	if channel != nil && channel.Type == constant.ChannelTypeNewAPI {
+		upstreamModel, err := model.ResolveChannelModelName(modelName, channel.GetModelMapping())
+		return err == nil && dto.IsSystemOneModel(upstreamModel)
+	}
+	return false
+}
+
+func channelTestUsesModeration(channel *model.Channel, modelName string) bool {
+	if channel != nil {
+		if channel.Type == constant.ChannelTypeTypeSafe {
+			return false
+		}
+		if upstreamModel, err := model.ResolveChannelModelName(modelName, channel.GetModelMapping()); err == nil {
+			modelName = upstreamModel
+		}
+	}
+	return common.IsModerationModel(modelName)
+}
+
+func channelTestNativeVoiceEndpoint(channel *model.Channel, modelName string) (constant.EndpointType, bool) {
+	if channel != nil {
+		if channel.Type == constant.ChannelTypeTypeSafe {
+			return "", false
+		}
+		if upstreamModel, err := model.ResolveChannelModelName(modelName, channel.GetModelMapping()); err == nil {
+			modelName = upstreamModel
+		}
+	}
+	return common.NativeVoiceEndpointType(modelName)
+}
+
+func isNativeVoiceChannelTestEndpoint(endpointType string) bool {
+	switch constant.EndpointType(endpointType) {
+	case constant.EndpointTypeLive, constant.EndpointTypeRealtimeTranscription, constant.EndpointTypeRealtimeTranslation:
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeChannelTestModelEndpoint(channel *model.Channel, modelName, endpointType string) string {
+	if endpoint, nativeVoice := channelTestNativeVoiceEndpoint(channel, modelName); strings.TrimSpace(endpointType) == "" && nativeVoice {
+		return string(endpoint)
+	}
+	if strings.TrimSpace(endpointType) == "" && channelTestUsesModeration(channel, modelName) {
+		return string(constant.EndpointTypeModeration)
+	}
+	endpointType = normalizeChannelTestEndpoint(channel, endpointType)
+	if endpointType == "" && channelTestUsesSystemOne(channel, modelName) {
+		return string(constant.EndpointTypeSystemOne)
+	}
+	return endpointType
 }
 
 func isChannelTestImageGenerationModel(channel *model.Channel, modelName string) bool {
@@ -58,6 +125,7 @@ func isChannelTestImageGenerationModel(channel *model.Channel, modelName string)
 }
 
 func resolveChannelTestRequestPath(channel *model.Channel, modelName, endpointType string) string {
+	endpointType = normalizeChannelTestModelEndpoint(channel, modelName, endpointType)
 	requestPath := "/v1/chat/completions"
 	if endpointType != "" {
 		if endpointInfo, ok := common.GetDefaultEndpointInfo(constant.EndpointType(endpointType)); ok {
@@ -108,6 +176,8 @@ func channelTestRelayFormat(endpointType, requestPath string) types.RelayFormat 
 			relayFormat = types.RelayFormatOpenAIImage
 		case constant.EndpointTypeEmbeddings:
 			relayFormat = types.RelayFormatEmbedding
+		case constant.EndpointTypeSystemOne:
+			relayFormat = types.RelayFormatSystemOne
 		default:
 			relayFormat = types.RelayFormatOpenAI
 		}
@@ -134,6 +204,9 @@ func channelTestRelayFormat(endpointType, requestPath string) types.RelayFormat 
 		}
 		if strings.HasPrefix(requestPath, "/v1/responses/compact") {
 			relayFormat = types.RelayFormatOpenAIResponsesCompaction
+		}
+		if requestPath == "/typesafe/v1/systemone" || requestPath == "/v1/systemone" {
+			relayFormat = types.RelayFormatSystemOne
 		}
 	}
 	return relayFormat
@@ -193,12 +266,34 @@ func testChannelWithRecoveryKey(ctx context.Context, channel *model.Channel, tes
 				testModel = strings.TrimSpace(models[0])
 			}
 			if testModel == "" {
-				testModel = "gpt-4o-mini"
+				if channel.Type == constant.ChannelTypeTypeSafe {
+					testModel = "jev-latest"
+				} else {
+					testModel = "gpt-4o-mini"
+				}
 			}
 		}
 	}
 
-	endpointType = normalizeChannelTestEndpoint(channel, endpointType)
+	endpointType = normalizeChannelTestModelEndpoint(channel, testModel, endpointType)
+	if _, nativeVoice := channelTestNativeVoiceEndpoint(channel, testModel); nativeVoice || isNativeVoiceChannelTestEndpoint(endpointType) {
+		return testResult{
+			localErr: errors.New("该模型需要实时会话客户端，不支持同步渠道测试；本次测试已跳过"),
+			skipped:  true,
+		}
+	}
+	if channelTestUsesSystemOne(channel, testModel) && endpointType != string(constant.EndpointTypeSystemOne) {
+		return testResult{localErr: errors.New("TypeSafe Jev channel tests require the System One endpoint")}
+	}
+	if endpointType == string(constant.EndpointTypeSystemOne) && isStream {
+		return testResult{localErr: errors.New("TypeSafe System One does not support streaming")}
+	}
+	if channelTestUsesModeration(channel, testModel) && endpointType != string(constant.EndpointTypeModeration) {
+		return testResult{localErr: errors.New("moderation channel tests require the Moderation endpoint")}
+	}
+	if endpointType == string(constant.EndpointTypeModeration) && isStream {
+		return testResult{localErr: errors.New("moderation does not support streaming")}
+	}
 
 	requestPath := resolveChannelTestRequestPath(channel, testModel, endpointType)
 	// Gemini 原生流式通过 URL action（:streamGenerateContent）表达而非请求体字段，
@@ -255,6 +350,10 @@ func testChannelWithRecoveryKey(ctx context.Context, channel *model.Channel, tes
 
 	info.IsChannelTest = true
 	info.InitChannelMeta(c)
+	if relayFormat == types.RelayFormatSystemOne {
+		// Jev's tokenizer is proprietary; never use a chat tokenizer estimate.
+		info.SetEstimatePromptTokens(dto.SystemOneMaxInputTokens)
+	}
 
 	err = attachTestBillingRequestInput(info, request)
 	if err != nil {
@@ -301,7 +400,11 @@ func testChannelWithRecoveryKey(ctx context.Context, channel *model.Channel, tes
 	//logInfo.ApiKey = ""
 	common.SysLog(fmt.Sprintf("testing channel %d with model %s , info %+v ", channel.Id, testModel, info.ToString()))
 
-	priceData, err := helper.ModelPriceHelper(c, info, 0, request.GetTokenCountMeta())
+	pricePromptTokens := 0
+	if info.RelayMode == relayconstant.RelayModeSystemOne {
+		pricePromptTokens = dto.SystemOneMaxInputTokens
+	}
+	priceData, err := helper.ModelPriceHelper(c, info, pricePromptTokens, request.GetTokenCountMeta())
 	if err != nil {
 		return testResult{
 			context:     c,
@@ -315,6 +418,14 @@ func testChannelWithRecoveryKey(ctx context.Context, channel *model.Channel, tes
 	var convertedRequest any
 	// 根据 RelayMode 选择正确的转换函数
 	switch info.RelayMode {
+	case relayconstant.RelayModeSystemOne:
+		systemOneReq, ok := request.(*dto.SystemOneRequest)
+		converter, supported := adaptor.(relaychannel.SystemOneConverter)
+		if !ok || !supported {
+			err = errors.New("System One channel test is not supported by this adaptor")
+		} else {
+			convertedRequest, err = converter.ConvertSystemOneRequest(c, info, systemOneReq)
+		}
 	case relayconstant.RelayModeEmbeddings:
 		// Embedding 请求 - request 已经是正确的类型
 		if embeddingReq, ok := request.(*dto.EmbeddingRequest); ok {
@@ -437,6 +548,41 @@ func testChannelWithRecoveryKey(ctx context.Context, channel *model.Channel, tes
 			}
 		}
 	}
+	if info.RelayMode == relayconstant.RelayModeSystemOne {
+		// Overrides must pass the same native validation as a production relay.
+		// Decoding and converting again also strips gateway-only body fields.
+		var overridden dto.SystemOneRequest
+		if err = common.Unmarshal(jsonData, &overridden); err == nil {
+			if overridden.Model != info.UpstreamModelName {
+				err = errors.New("System One model overrides must use channel model mapping")
+			} else if converter, ok := adaptor.(relaychannel.SystemOneConverter); ok {
+				convertedRequest, err = converter.ConvertSystemOneRequest(c, info, &overridden)
+				if err == nil {
+					jsonData, err = common.Marshal(convertedRequest)
+				}
+			} else {
+				err = errors.New("System One channel test is not supported by this adaptor")
+			}
+		}
+		if err != nil {
+			return testResult{
+				context:     c,
+				localErr:    err,
+				newAPIError: types.NewError(err, types.ErrorCodeChannelParamOverrideInvalid),
+			}
+		}
+		request = &overridden
+		info.Request = request
+		// Billing retains the client request snapshot captured before model
+		// mapping and overrides, matching the production System One relay.
+	}
+	if info.RelayMode == relayconstant.RelayModeModerations {
+		stream := gjson.GetBytes(jsonData, "stream")
+		if stream.Exists() && stream.Type != gjson.False {
+			err = errors.New("moderation does not support streaming")
+			return testResult{context: c, localErr: err, newAPIError: types.NewError(err, types.ErrorCodeChannelParamOverrideInvalid)}
+		}
+	}
 
 	requestBody := bytes.NewBuffer(jsonData)
 	c.Request.Body = io.NopCloser(bytes.NewBuffer(jsonData))
@@ -502,7 +648,23 @@ func testChannelWithRecoveryKey(ctx context.Context, channel *model.Channel, tes
 			newAPIError: types.NewOpenAIError(bodyErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError),
 		}
 	}
-	info.SetEstimatePromptTokens(usage.PromptTokens)
+	if systemOneReq, ok := request.(*dto.SystemOneRequest); ok {
+		if _, bodyErr := dto.ValidateSystemOneResponse(respBody, systemOneReq.Questions); bodyErr != nil {
+			return testResult{
+				context:     c,
+				localErr:    bodyErr,
+				newAPIError: types.NewOpenAIError(bodyErr, types.ErrorCodeBadResponseBody, http.StatusBadGateway),
+			}
+		}
+	}
+	if info.RelayMode == relayconstant.RelayModeModerations {
+		if _, bodyErr := openai.ValidateModerationResponse(respBody); bodyErr != nil {
+			return testResult{context: c, localErr: bodyErr, newAPIError: types.NewOpenAIError(bodyErr, types.ErrorCodeBadResponseBody, http.StatusBadGateway)}
+		}
+	}
+	if info.SystemOneUsageStatus != "invalid" {
+		info.SetEstimatePromptTokens(usage.PromptTokens)
+	}
 
 	quota, tieredResult := settleTestQuota(info, priceData, usage)
 	tok := time.Now()
@@ -550,6 +712,11 @@ func noteChannelTestQuotaClamp(info *relaycommon.RelayInfo, clamp *common.QuotaC
 }
 
 func settleTestQuota(info *relaycommon.RelayInfo, priceData hosttypes.PriceData, usage *dto.Usage) (int, *billingexpr.TieredResult) {
+	if info != nil && info.SystemOneUsageStatus == "invalid" {
+		// Preserve the frozen reservation without claiming estimated tokens as
+		// actual upstream usage. Fixed prices and tiered reservations also apply.
+		return priceData.QuotaToPreConsume, nil
+	}
 	if usage != nil && info != nil && info.TieredBillingSnapshot != nil {
 		isClaudeUsageSemantic := usage.UsageSemantic == "anthropic" || info.GetFinalRequestRelayFormat() == types.RelayFormatClaude
 		usedVars := billingexpr.UsedVars(info.TieredBillingSnapshot.ExprString)
@@ -566,7 +733,9 @@ func settleTestQuota(info *relaycommon.RelayInfo, priceData hosttypes.PriceData,
 		noteChannelTestQuotaClamp(info, clamp)
 		quota, clamp = common.QuotaRoundChecked(float64(quota) * priceData.ModelRatio)
 		noteChannelTestQuotaClamp(info, clamp)
-		if priceData.ModelRatio != 0 && quota <= 0 {
+		if priceData.ModelRatio != 0 && quota <= 0 &&
+			!(info != nil && ((info.RelayMode == relayconstant.RelayModeSystemOne && info.SystemOneUsageStatus == "reported" && usage.PromptTokens == 0) ||
+				(info.RelayMode == relayconstant.RelayModeModerations && usage.PromptTokens == 0 && usage.CompletionTokens == 0))) {
 			quota = 1
 		}
 		return quota, nil
@@ -719,10 +888,30 @@ func detectErrorMessageFromJSONBytes(jsonBytes []byte) string {
 
 func buildTestRequest(model string, endpointType string, channel *model.Channel, isStream bool) dto.Request {
 	testResponsesInput := json.RawMessage(`[{"role":"user","content":"hi"}]`)
+	endpointType = normalizeChannelTestModelEndpoint(channel, model, endpointType)
 
 	// 根据端点类型构建不同的测试请求
 	if endpointType != "" {
 		switch constant.EndpointType(endpointType) {
+		case constant.EndpointTypeLive, constant.EndpointTypeRealtimeTranscription, constant.EndpointTypeRealtimeTranslation:
+			return nil
+		case constant.EndpointTypeModeration:
+			return &dto.GeneralOpenAIRequest{Model: model, Input: "hello world"}
+		case constant.EndpointTypeSystemOne:
+			request := &dto.SystemOneRequest{
+				Model: model,
+				State: json.RawMessage(`{"message":"hello world"}`),
+				Questions: map[string]dto.SystemOneQuestion{
+					"greeting": {
+						Type:         "noul",
+						Instructions: json.RawMessage(`"Does the message contain a greeting?"`),
+					},
+				},
+			}
+			if isStream {
+				request.Stream = json.RawMessage(`true`)
+			}
+			return request
 		case constant.EndpointTypeEmbeddings:
 			// 返回 EmbeddingRequest
 			return &dto.EmbeddingRequest{
@@ -912,6 +1101,9 @@ func TestChannel(c *gin.Context) {
 		if result.newAPIError != nil {
 			resp["error_code"] = result.newAPIError.GetErrorCode()
 		}
+		if result.skipped {
+			resp["skipped"] = true
+		}
 		c.JSON(http.StatusOK, resp)
 		return
 	}
@@ -964,6 +1156,10 @@ func testChannelForHealthCheck(ctx context.Context, channel *model.Channel, test
 	result := testChannel(ctx, channel, testUserID, "", "", shouldUseStreamForAutomaticChannelTest(channel))
 	milliseconds := time.Since(tik).Milliseconds()
 	if ctx.Err() != nil {
+		return summary
+	}
+	if result.skipped {
+		common.SysLog(fmt.Sprintf("skipping channel #%d synchronous test: %v", channel.Id, result.localErr))
 		return summary
 	}
 
@@ -1024,6 +1220,10 @@ func recoverChannelKeys(ctx context.Context, channel *model.Channel, userID int)
 		result := testChannelWithRecoveryKey(ctx, channel, userID, "", "", shouldUseStreamForAutomaticChannelTest(channel), &index)
 		if ctx.Err() != nil {
 			break
+		}
+		if result.skipped {
+			common.SysLog(fmt.Sprintf("skipping channel #%d synchronous key recovery test: %v", channel.Id, result.localErr))
+			return summary
 		}
 		summary.Tested++
 		if result.localErr != nil || result.newAPIError != nil {

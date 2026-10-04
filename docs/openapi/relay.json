@@ -71,6 +71,60 @@
     }
   ],
   "paths": {
+    "/v1/systemone": {
+      "post": {
+        "summary": "Jev 结构化判断",
+        "operationId": "evaluateSystemOne",
+        "description": "同步 TypeSafe Jev 接口。仅转发 model、state、questions；不支持流式。使用正常 API 令牌鉴权及输入 token 计费。OAuth 授权不支持此接口。",
+        "tags": ["TypeSafe (Jev)"],
+        "security": [{"BearerAuth": []}],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {"schema": {"$ref": "#/components/schemas/SystemOneRequest"}}
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "同步判断结果及输入用量",
+            "content": {
+              "application/json": {"schema": {"$ref": "#/components/schemas/SystemOneResponse"}}
+            }
+          },
+          "400": {"description": "问题格式、模型或渠道不支持"},
+          "401": {"description": "API 令牌无效"},
+          "403": {"description": "模型权限或额度不足"},
+          "502": {"description": "上游响应无效"}
+        }
+      }
+    },
+    "/typesafe/v1/systemone": {
+      "post": {
+        "summary": "Jev 结构化判断（上游兼容路径）",
+        "operationId": "evaluateTypeSafeSystemOne",
+        "description": "与 /v1/systemone 相同的请求、响应、鉴权及计费。TypeSafe SDK 可使用 https://YOUR_GATEWAY/typesafe 作为 Base URL。",
+        "tags": ["TypeSafe (Jev)"],
+        "security": [{"BearerAuth": []}],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {"schema": {"$ref": "#/components/schemas/SystemOneRequest"}}
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "同步判断结果及输入用量",
+            "content": {
+              "application/json": {"schema": {"$ref": "#/components/schemas/SystemOneResponse"}}
+            }
+          },
+          "400": {"description": "问题格式、模型或渠道不支持"},
+          "401": {"description": "API 令牌无效"},
+          "403": {"description": "模型权限或额度不足"},
+          "502": {"description": "上游响应无效"}
+        }
+      }
+    },
     "/v1/models": {
       "get": {
         "summary": "获取模型列表",
@@ -2309,6 +2363,50 @@
   },
   "components": {
     "schemas": {
+      "SystemOneRequest": {
+        "type": "object",
+        "required": ["model", "state", "questions"],
+        "properties": {
+          "model": {"type": "string", "description": "jev-1.13.0、jev-latest、jev-preview，或映射到这些模型的本地别名"},
+          "state": {
+            "description": "待判断的文本、JSON 对象或数组；允许 null",
+            "oneOf": [{"type": "string", "nullable": true}, {"type": "object"}, {"type": "array", "items": {}}]
+          },
+          "questions": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": {
+              "type": "object",
+              "required": ["type"],
+              "properties": {
+                "type": {"type": "string", "enum": ["noul", "choice", "score"]},
+                "instructions": {"description": "文本或结构化判断说明", "nullable": true},
+                "criteria": {"description": "choice 为含 1–255 个选项的对象；score 为 2–10 项数组；noul 可含 true/false 键"}
+              }
+            }
+          },
+          "stream": {"type": "boolean", "enum": [false], "default": false}
+        },
+        "example": {
+          "model": "jev-1.13.0",
+          "state": "用户忘记密码，申请重置。",
+          "questions": {"account_support": {"type": "noul", "instructions": "这是否是账号支持请求？"}}
+        }
+      },
+      "SystemOneResponse": {
+        "type": "object",
+        "required": ["model", "answers"],
+        "properties": {
+          "model": {"type": "string"},
+          "answers": {"type": "object", "additionalProperties": {"type": "object", "description": "与请求问题名称和类型对应的结构化答案"}},
+          "usage": {
+            "type": "object",
+            "properties": {"input_tokens": {"type": "integer", "minimum": 0, "maximum": 65536}},
+            "description": "缺失或非法输入用量会按预留额度结算，并在网关日志标记为估计用量"
+          }
+        },
+        "additionalProperties": true
+      },
       "ErrorResponse": {
         "type": "object",
         "properties": {

@@ -32,6 +32,11 @@ type Adaptor interface {
 	ConvertGeminiRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.GeminiChatRequest) (any, error)
 }
 
+// SystemOneConverter opts a provider into Jev's native typed-decision protocol.
+type SystemOneConverter interface {
+	ConvertSystemOneRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.SystemOneRequest) (any, error)
+}
+
 type TaskAdaptor interface {
 	Init(info *relaycommon.RelayInfo)
 

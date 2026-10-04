@@ -23,6 +23,7 @@ import { TOKEN_UNIT_DIVISORS } from '../constants'
 import type { PricingModel, TokenUnit } from '../types'
 import {
   BILLING_PRICING_VARS,
+  coefficientToDisplayPrice,
   parseTiersFromExpr,
   splitBillingExprAndRequestRules,
   tryParseRequestRuleExpr,
@@ -66,6 +67,7 @@ export type DynamicPriceEntry = {
   value: number
   formatted: string
   variable: BillingVar
+  unit: 'tokens' | 'minute'
 }
 
 export type DynamicPricingSummary = {
@@ -80,7 +82,11 @@ export type DynamicPricingSummary = {
   secondaryEntries: DynamicPriceEntry[]
 }
 
-const PRIMARY_DYNAMIC_FIELDS = new Set(['inputPrice', 'outputPrice'])
+const PRIMARY_DYNAMIC_FIELDS = new Set([
+  'inputPrice',
+  'outputPrice',
+  'audioDurationPrice',
+])
 
 export function isDynamicPricingModel(model: PricingModel): boolean {
   return model.billing_mode === 'tiered_expr' && Boolean(model.billing_expr)
@@ -95,13 +101,14 @@ export function getDynamicDisplayGroupRatio(
 
 export function formatDynamicUnitPrice(
   valuePerMillionTokens: number,
-  options: DynamicPriceOptions
+  options: DynamicPriceOptions,
+  unit: 'tokens' | 'minute' = 'tokens'
 ): string {
   const groupRatio = options.groupRatioMultiplier ?? 1
   const priceRate = options.priceRate ?? 1
   const platformPrice =
     (valuePerMillionTokens * groupRatio) /
-    TOKEN_UNIT_DIVISORS[options.tokenUnit]
+    (unit === 'minute' ? 1 : TOKEN_UNIT_DIVISORS[options.tokenUnit])
   return formatModelPrice(
     platformPrice,
     options.showRechargePrice ?? false,
@@ -143,8 +150,13 @@ export function getDynamicPriceEntries(
         label: variable.label,
         shortLabel: variable.shortLabel,
         value,
-        formatted: formatDynamicUnitPrice(value, options),
+        formatted: formatDynamicUnitPrice(
+          coefficientToDisplayPrice(variable, value),
+          options,
+          variable.unit
+        ),
         variable,
+        unit: variable.unit ?? 'tokens',
       },
     ]
   }).sort((a, b) => {

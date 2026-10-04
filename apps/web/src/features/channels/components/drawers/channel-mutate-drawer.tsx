@@ -142,10 +142,12 @@ import {
   CHANNEL_STATUS_LABELS,
   CHANNEL_TYPE_OPTIONS,
   CHANNEL_TYPE_WARNINGS,
+  CHANNEL_TYPE_TYPESAFE,
   ERROR_MESSAGES,
   FIELD_DESCRIPTIONS,
   FIELD_PLACEHOLDERS,
   MODEL_FETCHABLE_TYPES,
+  TYPESAFE_MODELS,
   isOpenAIChannelType,
   getDefaultResponsesWebSocketEnabled,
   supportsResponsesWebSocket,
@@ -161,6 +163,7 @@ import {
   type ChannelFormValues,
   deduplicateKeys,
   getChannelTypeIcon,
+  getDefaultBaseUrl,
   getKeyPromptForType,
   parseModelsString,
   formatModelsArray,
@@ -932,6 +935,7 @@ export function ChannelMutateDrawer({
 
   // Get basic models for the current channel type
   const basicModels = useMemo(() => {
+    if (currentType === CHANNEL_TYPE_TYPESAFE) return TYPESAFE_MODELS
     if (!allModelsList.length) return []
     // Filter models based on common patterns for specific types
     if (isOpenAIChannelType(currentType)) {
@@ -1321,6 +1325,15 @@ export function ChannelMutateDrawer({
   // Handle type change - set default values for specific types
   useEffect(() => {
     if (isEditing) return // Don't auto-set defaults when editing
+
+    if (currentType === CHANNEL_TYPE_TYPESAFE) {
+      if (!form.getValues('base_url')?.trim()) {
+        form.setValue('base_url', getDefaultBaseUrl(currentType))
+      }
+      if (!form.getValues('models')?.trim()) {
+        form.setValue('models', TYPESAFE_MODELS.join(','))
+      }
+    }
 
     // Type 45 (VolcEngine) - set default base_url
     if (currentType === 45) {

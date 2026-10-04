@@ -35,6 +35,7 @@ import { dshGuideCopy } from './dsh-guide-copy.mjs'
 import { forgeRefreshCopy } from './forge-refresh-copy.mjs'
 import { homeEditorialCopy } from './home-editorial-copy.mjs'
 import { homeTokenCopy } from './home-token-copy.mjs'
+import { nativeBillingCopy } from './native-billing-copy.mjs'
 import { passkeyCopy } from './passkey-copy.mjs'
 import { paymentPricingCopy } from './payment-pricing-copy.mjs'
 import { piGuideCopy } from './pi-guide-copy.mjs'
@@ -44,6 +45,7 @@ import { remoteControlCopy } from './remote-control-copy.mjs'
 import { responsesWebSocketCopy } from './responses-websocket-copy.mjs'
 import { rssCopy } from './rss-copy.mjs'
 import { toolMarketCopy } from './tool-market-copy.mjs'
+import { typeSafeCopy } from './typesafe-copy.mjs'
 import { waitCompanionCopy } from './wait-companion-copy.mjs'
 
 const LOCALES_DIR = path.resolve('src/i18n/locales')
@@ -11867,12 +11869,16 @@ async function main() {
   const passkeyOnly = process.argv.includes('--only-passkey')
   const forgeRefreshOnly = process.argv.includes('--only-forge-refresh')
   const balanceOnly = process.argv.includes('--only-balance-query')
+  const typeSafeOnly = process.argv.includes('--only-typesafe')
+  const nativeBillingOnly = process.argv.includes('--only-native-billing')
   const rssOnly = process.argv.includes('--only-rss')
   const responseModelOnly = process.argv.includes('--only-response-model')
   const responsesWebSocketOnly = process.argv.includes(
     '--only-responses-websocket'
   )
   const scoped =
+    nativeBillingOnly ||
+    typeSafeOnly ||
     balanceOnly ||
     responsesWebSocketOnly ||
     responseModelOnly ||
@@ -11953,19 +11959,23 @@ async function main() {
                                           : assistantToolOnly
                                             ? assistantToolCopy
                                             : newKeys
-  const selectedEntries = balanceOnly
-    ? balanceQueryCopy
-    : responsesWebSocketOnly
-      ? responsesWebSocketCopy
-      : responseModelOnly
-        ? responseModelCopy
-        : rssOnly
-          ? rssCopy
-          : forgeRefreshOnly
-            ? forgeRefreshCopy
-            : passkeyOnly
-              ? passkeyCopy
-              : entries
+  const selectedEntries = nativeBillingOnly
+    ? nativeBillingCopy
+    : typeSafeOnly
+      ? typeSafeCopy
+      : balanceOnly
+        ? balanceQueryCopy
+        : responsesWebSocketOnly
+          ? responsesWebSocketCopy
+          : responseModelOnly
+            ? responseModelCopy
+            : rssOnly
+              ? rssCopy
+              : forgeRefreshOnly
+                ? forgeRefreshCopy
+                : passkeyOnly
+                  ? passkeyCopy
+                  : entries
   let totalAdded = 0
   for (const [locale, baseTranslations] of Object.entries(selectedEntries)) {
     const translations = scoped
@@ -13011,6 +13021,14 @@ for (const [locale, values] of Object.entries(responsesWebSocketCopy)) {
 }
 
 for (const [locale, values] of Object.entries(balanceQueryCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(typeSafeCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(nativeBillingCopy)) {
   Object.assign(newKeys[locale], values)
 }
 

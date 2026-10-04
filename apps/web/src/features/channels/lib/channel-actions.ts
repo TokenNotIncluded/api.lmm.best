@@ -280,7 +280,8 @@ export async function handleTestChannel(
     success: boolean,
     responseTime?: number,
     error?: string,
-    errorCode?: string
+    errorCode?: string,
+    skipped?: boolean
   ) => void
 ): Promise<void> {
   const payload =
@@ -299,7 +300,15 @@ export async function handleTestChannel(
     const responseTime = getChannelTestResponseTime(response)
     const duration = formatChannelTestDuration(responseTime)
     const target = getChannelTestLabel(options)
-    if (response.success) {
+    if (response.skipped) {
+      const message = response.message || i18next.t('Skipped')
+      if (!options?.silent) {
+        toast.info(i18next.t('{{target}} test skipped', { target }), {
+          description: message,
+        })
+      }
+      onTestComplete?.(false, undefined, message, undefined, true)
+    } else if (response.success) {
       if (!options?.silent) {
         toast.success(
           i18next.t('{{target}} test succeeded', { target }),

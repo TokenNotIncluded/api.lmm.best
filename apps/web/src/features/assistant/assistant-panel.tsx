@@ -111,6 +111,7 @@ import './assistant-surface.css'
 import {
   assistantRunFailureDetails,
   getAssistantAvailableModels,
+  getAssistantSetupModels,
   getAssistantErrorInfo,
   getAssistantPreConversationPresets,
   getAssistantStatus,
@@ -1355,8 +1356,16 @@ function AssistantPanelSession(props: AssistantPanelProps) {
   const superAdministratorFunded =
     statusQuery.data?.funding?.mode === 'super_administrator'
   const connectionModelsQuery = useQuery({
-    queryKey: ['assistant-available-models', authUser?.id, authSessionId],
-    queryFn: getAssistantAvailableModels,
+    queryKey: [
+      'assistant-available-models',
+      authUser?.id,
+      authSessionId,
+      activeTool,
+    ],
+    queryFn:
+      activeTool === 'setup'
+        ? getAssistantSetupModels
+        : getAssistantAvailableModels,
     enabled:
       props.open &&
       developerAccessGranted &&

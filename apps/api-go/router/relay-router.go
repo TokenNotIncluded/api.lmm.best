@@ -199,10 +199,25 @@ func SetRelayRouter(router *gin.Engine, sharedAdmission ...gin.HandlerFunc) {
 	{
 		// WebSocket 路由（统一到 Relay）
 		wsRouter := relayV1Router.Group("")
-		wsRouter.Use(middleware.Distribute())
 		wsRouter.GET("/realtime", func(c *gin.Context) {
+			if c.Query("intent") == "transcription" {
+				controller.NativeVoiceWebSocket(c)
+				c.Abort()
+				return
+			}
+			c.Next()
+		}, middleware.Distribute(), func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatOpenAIRealtime)
 		})
+	}
+	{
+		voiceRouter := relayV1Router.Group("")
+		voiceRouter.GET("/live/sessions", controller.NativeVoiceWebSocket)
+		voiceRouter.POST("/live/sessions", controller.NativeVoiceWebRTC)
+		voiceRouter.GET("/realtime/translations", controller.NativeVoiceWebSocket)
+		for _, path := range []string{"/realtime/calls", "/realtime/client_secrets", "/realtime/translations/calls", "/realtime/translations/client_secrets", "/realtime/transcription_sessions"} {
+			voiceRouter.POST(path, controller.UnsupportedNativeVoiceWebRTC)
+		}
 	}
 	{
 		//http router
@@ -233,6 +248,11 @@ func SetRelayRouter(router *gin.Engine, sharedAdmission ...gin.HandlerFunc) {
 		// alpha search related routes (Codex standalone web search)
 		httpRouter.POST("/alpha/search", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatOpenAIAlphaSearch)
+		})
+
+		// TypeSafe's synchronous decision API uses the normal relay owners.
+		httpRouter.POST("/systemone", func(c *gin.Context) {
+			controller.Relay(c, types.RelayFormatSystemOne)
 		})
 
 		// image related routes
@@ -294,6 +314,18 @@ func SetRelayRouter(router *gin.Engine, sharedAdmission ...gin.HandlerFunc) {
 		httpRouter.GET("/fine-tunes/:id/events", controller.RelayNotImplemented)
 		httpRouter.DELETE("/models/:model", controller.RelayNotImplemented)
 	}
+
+	// Preserve the upstream New API plugin's public path for existing SDKs.
+	typesafeRouter := router.Group("/typesafe/v1")
+	typesafeRouter.Use(middleware.RouteTag("relay"))
+	typesafeRouter.Use(middleware.SystemPerformanceCheck())
+	typesafeRouter.Use(middleware.TokenAuth())
+	typesafeRouter.Use(largeRequestAdmission)
+	typesafeRouter.Use(middleware.ModelRequestRateLimit())
+	typesafeRouter.Use(middleware.Distribute())
+	typesafeRouter.POST("/systemone", func(c *gin.Context) {
+		controller.Relay(c, types.RelayFormatSystemOne)
+	})
 
 	relayMjRouter := router.Group("/mj")
 	relayMjRouter.Use(middleware.RouteTag("relay"))

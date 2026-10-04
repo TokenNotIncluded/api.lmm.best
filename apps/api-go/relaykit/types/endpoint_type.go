@@ -15,7 +15,12 @@ const (
 	EndpointTypeJinaRerank            EndpointType = "jina-rerank"
 	EndpointTypeImageGeneration       EndpointType = "image-generation"
 	EndpointTypeEmbeddings            EndpointType = "embeddings"
+	EndpointTypeModeration            EndpointType = "moderation"
+	EndpointTypeLive                  EndpointType = "live"
+	EndpointTypeRealtimeTranscription EndpointType = "realtime_transcription"
+	EndpointTypeRealtimeTranslation   EndpointType = "realtime_translation"
 	EndpointTypeOpenAIVideo           EndpointType = "openai-video"
+	EndpointTypeSystemOne             EndpointType = "systemone"
 )
 
 // Finish reasons shared by the OpenAI-compatible response formats.

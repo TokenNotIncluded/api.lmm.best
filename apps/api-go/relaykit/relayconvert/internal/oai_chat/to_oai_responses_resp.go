@@ -123,6 +123,11 @@ func UsageFromChatUsage(src *dto.Usage) *dto.Usage {
 		usage.BillingUsage = dto.NewOpenAIChatBillingUsage(src)
 	}
 	usage.Cost = src.Cost
+	usage.ImageOutputUsageSource = src.ImageOutputUsageSource
+	if src.AudioSeconds != nil {
+		seconds := *src.AudioSeconds
+		usage.AudioSeconds = &seconds
+	}
 	if src.PromptTokens != 0 {
 		usage.PromptTokens = src.PromptTokens
 		usage.InputTokens = src.PromptTokens
@@ -137,12 +142,13 @@ func UsageFromChatUsage(src *dto.Usage) *dto.Usage {
 		usage.TotalTokens = usage.InputTokens + usage.OutputTokens
 	}
 	if src.PromptTokensDetails.CachedTokens != 0 ||
+		src.PromptTokensDetails.CachedTokensDetails != nil ||
 		src.PromptTokensDetails.ImageTokens != 0 ||
 		src.PromptTokensDetails.AudioTokens != 0 ||
 		src.PromptTokensDetails.CachedCreationTokens != 0 ||
 		src.PromptTokensDetails.CacheWriteTokens != 0 ||
 		src.PromptTokensDetails.TextTokens != 0 {
-		details := src.PromptTokensDetails
+		details := dto.CloneInputTokenDetails(src.PromptTokensDetails)
 		usage.InputTokensDetails = &details
 	}
 	if src.CompletionTokenDetails.ReasoningTokens != 0 ||

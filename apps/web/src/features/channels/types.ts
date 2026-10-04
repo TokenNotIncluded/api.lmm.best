@@ -193,6 +193,7 @@ export interface ChannelOpsResponse {
 
 export interface ChannelTestResponse {
   success: boolean
+  skipped?: boolean
   message?: string
   error_code?: string
   time?: number

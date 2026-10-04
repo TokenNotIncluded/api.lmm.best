@@ -28,6 +28,8 @@ import {
   buildAssistantConversation,
   executeAssistantUserAction,
   getAssistantConversationHistory,
+  getAssistantAvailableModels,
+  getAssistantSetupModels,
   isAssistantRequestAborted,
   parseAssistantAction,
   parseAssistantIntent,
@@ -45,6 +47,71 @@ function retryableAxiosError(status: number) {
     response: { status },
   })
 }
+
+describe('assistant chat setup model discovery', () => {
+  test('excludes native aliases using endpoint metadata while retaining key model access', async () => {
+    const originalGet = api.get
+    const models = ['gpt-5', 'jev-latest', 'account-judge']
+    api.get = (async (url: string) => ({
+      data:
+        url === '/api/user/models'
+          ? { success: true, data: models }
+          : {
+              success: true,
+              data: [
+                { model_name: 'gpt-5', supported_endpoint_types: ['openai'] },
+                {
+                  model_name: 'jev-latest',
+                  supported_endpoint_types: ['systemone'],
+                },
+                {
+                  model_name: 'account-judge',
+                  supported_endpoint_types: ['systemone'],
+                },
+              ],
+            },
+    })) as typeof api.get
+    try {
+      assert.deepEqual(await getAssistantAvailableModels(), models)
+      assert.deepEqual(await getAssistantSetupModels(), ['gpt-5'])
+    } finally {
+      api.get = originalGet
+    }
+  })
+
+  test('falls back to Jev model names when pricing metadata is unavailable', async () => {
+    const originalGet = api.get
+    api.get = (async (url: string) => {
+      if (url !== '/api/user/models') {
+        throw new Error('metadata unavailable')
+      }
+      return { data: { success: true, data: ['jev-preview', 'gpt-5'] } }
+    }) as typeof api.get
+    try {
+      assert.deepEqual(await getAssistantSetupModels(), ['gpt-5'])
+    } finally {
+      api.get = originalGet
+    }
+  })
+
+  test('preserves unavailable-model errors instead of inferring access from pricing', async () => {
+    const originalGet = api.get
+    api.get = (async (url: string) => {
+      if (url === '/api/user/models') {
+        throw new Error('model access unavailable')
+      }
+      return { data: { success: true, data: [] } }
+    }) as typeof api.get
+    try {
+      await assert.rejects(
+        getAssistantSetupModels(),
+        /model access unavailable/
+      )
+    } finally {
+      api.get = originalGet
+    }
+  })
+})
 
 const displayNameAction: AssistantUserDisplayNameChangeAction = {
   type: 'user_display_name_change',

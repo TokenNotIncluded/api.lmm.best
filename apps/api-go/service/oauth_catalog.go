@@ -64,10 +64,11 @@ type OAuthCatalogNativeCost struct {
 }
 
 type oauthAbility struct {
-	Group       string
-	Model       string
-	ChannelType int
-	ChannelID   int
+	Group               string
+	Model               string
+	ChannelType         int
+	ChannelID           int
+	ChannelModelMapping string
 }
 
 func (s *OAuthIntegration) liveAbilities(ctx context.Context, groups []string, name string) ([]oauthAbility, error) {
@@ -75,7 +76,7 @@ func (s *OAuthIntegration) liveAbilities(ctx context.Context, groups []string, n
 	if len(groups) == 0 {
 		return rows, nil
 	}
-	query := s.DB.WithContext(ctx).Table("abilities").Select(`DISTINCT abilities."group", abilities.model, channels.type AS channel_type, channels.id AS channel_id`).
+	query := s.DB.WithContext(ctx).Table("abilities").Select(`DISTINCT abilities."group", abilities.model, channels.type AS channel_type, channels.id AS channel_id, channels.model_mapping AS channel_model_mapping`).
 		Joins("JOIN channels ON channels.id = abilities.channel_id").Where(`abilities."group" IN ? AND abilities.enabled = ? AND channels.status = ?`, groups, true, common.ChannelStatusEnabled)
 	if name != "" {
 		query = query.Where("abilities.model = ?", name)
@@ -112,6 +113,18 @@ func oauthAPIs(channelType int, name string) []string {
 	return apis
 }
 
+func (row oauthAbility) APIs() []string {
+	name := row.Model
+	if row.ChannelType == constant.ChannelTypeNewAPI || row.ChannelType == constant.ChannelTypeOpenAI {
+		var err error
+		name, err = model.ResolveChannelModelName(name, row.ChannelModelMapping)
+		if err != nil {
+			return nil
+		}
+	}
+	return oauthAPIs(row.ChannelType, name)
+}
+
 func OAuthAPIForPath(path string) string {
 	switch path {
 	case "/v1/chat/completions":
@@ -138,7 +151,7 @@ func (s *OAuthIntegration) ValidateModel(ctx context.Context, user *model.User, 
 		return err
 	}
 	for _, row := range rows {
-		if slices.Contains(oauthAPIs(row.ChannelType, row.Model), api) {
+		if slices.Contains(row.APIs(), api) {
 			return nil
 		}
 	}
@@ -234,7 +247,7 @@ func (s *OAuthIntegration) Catalog(ctx context.Context, user *model.User, grant 
 	}
 	entries := make(map[string]*OAuthCatalogModel)
 	for _, row := range rows {
-		apis := oauthAPIs(row.ChannelType, row.Model)
+		apis := row.APIs()
 		if len(apis) == 0 || row.Model == "" || len(row.Model) > 512 {
 			continue
 		}

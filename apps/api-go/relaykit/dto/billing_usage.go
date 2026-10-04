@@ -77,6 +77,7 @@ func HasOpenAIUsageTokens(usage *Usage) bool {
 		return false
 	}
 	if usage.PromptTokens != 0 ||
+		usage.AudioSeconds != nil ||
 		usage.CompletionTokens != 0 ||
 		usage.TotalTokens != 0 ||
 		usage.InputTokens != 0 ||
@@ -87,6 +88,7 @@ func HasOpenAIUsageTokens(usage *Usage) bool {
 		return true
 	}
 	if usage.PromptTokensDetails.CachedTokens != 0 ||
+		usage.PromptTokensDetails.CachedTokensDetails != nil ||
 		usage.PromptTokensDetails.CachedCreationTokens != 0 ||
 		usage.PromptTokensDetails.CacheWriteTokens != 0 ||
 		usage.PromptTokensDetails.TextTokens != 0 ||
@@ -155,9 +157,18 @@ func cloneOpenAIUsage(usage *Usage) *Usage {
 	}
 	clone := *usage
 	clone.BillingUsage = nil
+	if usage.AudioSeconds != nil {
+		seconds := *usage.AudioSeconds
+		clone.AudioSeconds = &seconds
+	}
+	clone.PromptTokensDetails = CloneInputTokenDetails(usage.PromptTokensDetails)
 	if usage.InputTokensDetails != nil {
-		inputTokensDetails := *usage.InputTokensDetails
+		inputTokensDetails := CloneInputTokenDetails(*usage.InputTokensDetails)
 		clone.InputTokensDetails = &inputTokensDetails
+	}
+	if usage.OutputTokensDetails != nil {
+		outputTokensDetails := *usage.OutputTokensDetails
+		clone.OutputTokensDetails = &outputTokensDetails
 	}
 	return &clone
 }

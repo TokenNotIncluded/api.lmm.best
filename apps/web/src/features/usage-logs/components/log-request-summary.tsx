@@ -39,6 +39,32 @@ export function LogRequestSummary({
   const { t } = useTranslation()
   const { copyToClipboard } = useCopyToClipboard()
   if (![2, 5, 6].includes(log.type)) return null
+  const cacheReadDetails = [
+    { label: t('Text cache read tokens'), tokens: other?.cache_text_tokens },
+    { label: t('Image cache read tokens'), tokens: other?.cache_image_tokens },
+    { label: t('Audio cache read tokens'), tokens: other?.cache_audio_tokens },
+  ]
+  const formatCacheReadDetail = (tokens: number | null | undefined) =>
+    other?.cache_read_details_status === 'reported' &&
+    typeof tokens === 'number' &&
+    Number.isSafeInteger(tokens) &&
+    tokens >= 0
+      ? tokens === 0
+        ? '0'
+        : formatTokens(tokens)
+      : t('Not recorded')
+  const audioSeconds = other?.audio_seconds
+  const audioUsageLabel =
+    other?.audio_usage_status === 'reported'
+      ? t('Reported')
+      : other?.audio_usage_status === 'estimated'
+        ? t('Estimated')
+        : null
+  const hasAudioDuration =
+    audioUsageLabel != null &&
+    typeof audioSeconds === 'number' &&
+    Number.isFinite(audioSeconds) &&
+    audioSeconds >= 0
   const failed =
     log.type === 5 ||
     other?.stream_status?.status === 'error' ||
@@ -95,6 +121,13 @@ export function LogRequestSummary({
               : formatTokens(other.cache_tokens)}
           </dd>
         </div>
+        {other?.cache_read_details_status != null &&
+          cacheReadDetails.map(({ label, tokens }) => (
+            <div key={label}>
+              <dt className='text-muted-foreground'>{label}</dt>
+              <dd className='tabular-nums'>{formatCacheReadDetail(tokens)}</dd>
+            </div>
+          ))}
         <div>
           <dt className='text-muted-foreground'>{t('Cache write tokens')}</dt>
           <dd>
@@ -103,6 +136,19 @@ export function LogRequestSummary({
               : formatTokens(other.cache_creation_tokens)}
           </dd>
         </div>
+        {(other?.audio_usage_status != null || audioSeconds != null) && (
+          <div>
+            <dt className='text-muted-foreground'>
+              {t('Audio duration (seconds)')}
+              {audioUsageLabel && (
+                <span className='text-xs'> ({audioUsageLabel})</span>
+              )}
+            </dt>
+            <dd className='tabular-nums'>
+              {hasAudioDuration ? audioSeconds : t('Not recorded')}
+            </dd>
+          </div>
+        )}
         <div>
           <dt className='text-muted-foreground'>
             {t(
