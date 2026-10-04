@@ -20,6 +20,7 @@ import { z } from 'zod'
 
 import {
   CHANNEL_TYPE_NEW_API,
+  CHANNEL_TYPE_OPENHUMAN,
   CHANNEL_STATUS,
   isOpenAIChannelType,
   supportsResponsesWebSocket,
@@ -199,7 +200,13 @@ function addRequiredIssue(
 export const channelFormSchema = z
   .object({
     name: z.string().min(1, ERROR_MESSAGES.REQUIRED_NAME),
-    type: z.number().min(0, ERROR_MESSAGES.REQUIRED_TYPE),
+    type: z
+      .number()
+      .min(0, ERROR_MESSAGES.REQUIRED_TYPE)
+      .refine(
+        (type) => type !== CHANNEL_TYPE_OPENHUMAN,
+        ERROR_MESSAGES.REQUIRED_TYPE
+      ),
     base_url: z.string().optional(),
     key: z.string(),
     openai_organization: z.string().optional(),
@@ -703,8 +710,8 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
   }
 
   // Field passthrough controls:
-  // - OpenAI/OpenHuman and Anthropic (type 14): allow_service_tier
-  // - OpenAI/OpenHuman only: disable_store, allow_safety_identifier
+  // - OpenAI and Anthropic (type 14): allow_service_tier
+  // - OpenAI only: disable_store, allow_safety_identifier
   if (
     isOpenAIChannelType(formData.type) ||
     formData.type === 14 ||

@@ -16,6 +16,7 @@ export const TODO_CATEGORY_LABELS: Record<TodoCategory, string> = {
   account_action: 'Account actions',
   security_incident: 'Security incidents',
   security_review: 'Security reviews',
+  moderation: 'Moderation notifications',
   human_support: 'Human technical support',
 }
 

@@ -102,7 +102,7 @@ func TestResponsesWSIneligibleSettingsNeverPrepareBillOrDial(t *testing.T) {
 		code        types.ErrorCode
 	}
 	cases := []testCase{}
-	for _, channelType := range []int{1, 57, 58, 59, 60, 61} {
+	for _, channelType := range []int{1, 57, 58, 59, 60} {
 		cases = append(cases, testCase{fmt.Sprintf("disabled-%d", channelType), channelType, func(ch *appmodel.Channel) {
 			ch.SetSetting(dto.ChannelSettings{ResponsesWebSocketEnabled: common.GetPointer(false)})
 		}, "responses_websocket_disabled"})
@@ -152,7 +152,7 @@ func TestResponsesWSIneligibleSettingsNeverPrepareBillOrDial(t *testing.T) {
 }
 
 func TestResponsesWSChannelEligibilityDefaultsAndRouteRestrictions(t *testing.T) {
-	for _, channelType := range []int{1, 57, 58, 59, 60, 61} {
+	for _, channelType := range []int{1, 57, 58, 59, 60} {
 		for _, enabled := range []*bool{nil, common.GetPointer(false), common.GetPointer(true)} {
 			channel := responsesWSNativeTestChannel(channelType, "https://example.com")
 			channel.SetSetting(dto.ChannelSettings{ResponsesWebSocketEnabled: enabled})
@@ -286,7 +286,7 @@ func responsesWSNativeTestTurn(t *testing.T, session *responsesWSSession, peer *
 }
 
 func TestResponsesWSSupportedChannelsUseNativeProtocolAndCredentialPlacement(t *testing.T) {
-	for _, channelType := range []int{1, 57, 61, 58, 59, 60} {
+	for _, channelType := range []int{1, 57, 58, 59, 60} {
 		t.Run(strconv.Itoa(channelType), func(t *testing.T) {
 			upstream, handshakes, connections := responsesWSNativeTestProvider(t)
 			channel := responsesWSNativeTestChannel(channelType, upstream.URL)
@@ -658,4 +658,17 @@ func TestResponsesWSSelectionFiltersCapabilityBeforeUsedChannelTracking(t *testi
 	selected, apiErr = selectResponsesWSChannel(c, responsesWSChannelTestModel, retry)
 	require.Nil(t, apiErr)
 	require.Equal(t, lower.Id, selected.Id)
+}
+
+func TestRetiredOpenHumanResponsesWSCannotOptIn(t *testing.T) {
+	for _, enabled := range []*bool{nil, common.GetPointer(false), common.GetPointer(true)} {
+		channel := responsesWSNativeTestChannel(appconstant.ChannelTypeOpenHuman, "https://example.com")
+		channel.SetSetting(dto.ChannelSettings{ResponsesWebSocketEnabled: enabled})
+		apiErr := responsesWSChannelEligibility(channel, "/v1/responses", responsesWSChannelTestModel)
+		require.NotNil(t, apiErr)
+		require.True(t, types.IsSkipRetryError(apiErr))
+		require.False(t, responsesWSChannelSupportsType(channel.Type))
+		require.False(t, responsesWSChannelDefaultEnabled(channel.Type))
+	}
+	require.Nil(t, GetTaskAdaptor(appconstant.TaskPlatform("61")))
 }

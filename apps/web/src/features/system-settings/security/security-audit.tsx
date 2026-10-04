@@ -34,6 +34,7 @@ import { formatTimestampToDate } from '@/lib/format'
 
 import { getAssistantReviewRun, listAssistantReviewRuns } from '../api'
 import type { SystemTask } from '../types'
+import { ModerationAuditPanel } from './moderation-audit-panel'
 import {
   getAdminSecurityPolicy,
   getAdminSecurityStats,
@@ -736,7 +737,7 @@ export function AuditRow({ event }: { event: SecurityAuditEvent }) {
   )
 }
 
-export function SecurityAuditPanel() {
+function LegacySecurityAuditPanel() {
   const { t } = useTranslation()
   const [filters, setFilters] = useState<AuditFilterState>({})
   const [page, setPage] = useState(1)
@@ -1064,5 +1065,20 @@ export function SecurityAuditPanel() {
         </div>
       ) : null}
     </section>
+  )
+}
+
+export function SecurityAuditPanel() {
+  const { t } = useTranslation()
+  return (
+    <div className='space-y-6'>
+      <ModerationAuditPanel />
+      <details>
+        <summary className='text-muted-foreground cursor-pointer text-sm'>
+          {t('Historical safety audits and business summaries')}
+        </summary>
+        <LegacySecurityAuditPanel />
+      </details>
+    </div>
   )
 }

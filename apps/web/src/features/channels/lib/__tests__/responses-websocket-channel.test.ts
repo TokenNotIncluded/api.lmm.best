@@ -16,7 +16,7 @@ import {
   type ChannelFormValues,
 } from '../channel-form'
 
-const supportedTypes = [1, 57, 58, 59, 60, 61]
+const supportedTypes = [1, 57, 58, 59, 60]
 
 function channelForm(type: number): ChannelFormValues {
   return {
@@ -99,7 +99,7 @@ describe('Responses WebSocket channel settings', () => {
     }
 
     test(`type ${type} keeps its unset compatibility default`, () => {
-      const expected = [1, 57, 61].includes(type)
+      const expected = [1, 57].includes(type)
       const form = channelFormSchema.parse(channelForm(type))
       assert.equal(websocketEnabled(buildSettingJSON(form)), expected)
       const created = transformFormDataToCreatePayload(form).channel

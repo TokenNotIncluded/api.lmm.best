@@ -3,10 +3,14 @@ package service
 import (
 	"errors"
 	"math"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/model"
+	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/types"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
@@ -28,4 +32,20 @@ func TestNormalizeViolationFeeErrorIsProviderAgnostic(t *testing.T) {
 	normalized := NormalizeViolationFeeError(err)
 	require.Equal(t, types.ErrorCodeViolationFeeUsagePolicy, normalized.GetErrorCode())
 	require.True(t, IsViolationFeeCode(normalized.GetErrorCode()))
+}
+
+func TestUpstreamViolationMarkersNeverChargeTheLegacyWalletPath(t *testing.T) {
+	db, userID := setupAssistantFundingTestDB(t, 1_000_000)
+	require.NoError(t, db.AutoMigrate(&model.ViolationFeeRecord{}, &model.ViolationFeeState{}))
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Set(common.RequestIdKey, "legacy-upstream-violation")
+	info := &relaycommon.RelayInfo{UserId: userID, UserGroup: "default", UsingGroup: "default"}
+	err := NormalizeViolationFeeError(types.NewErrorWithStatusCode(errors.New("Content violates usage guidelines"), types.ErrorCodeBadResponse, 400))
+	require.False(t, ChargeViolationFeeIfNeeded(c, info, err))
+	var user model.User
+	require.NoError(t, db.First(&user, userID).Error)
+	require.Equal(t, 1_000_000, user.Quota)
+	var records int64
+	require.NoError(t, db.Model(&model.ViolationFeeRecord{}).Count(&records).Error)
+	require.Zero(t, records)
 }

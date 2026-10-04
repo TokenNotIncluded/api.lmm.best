@@ -58,7 +58,7 @@ const (
 	ChannelTypeAdvancedCustom = 58
 	ChannelTypeSub2API        = 59
 	ChannelTypeNewAPI         = 60
-	ChannelTypeOpenHuman      = 61
+	ChannelTypeOpenHuman      = 61 // Retired: reserve the ID for historical records; never reuse it.
 	ChannelTypeTypeSafe       = 62
 	ChannelTypeDummy          // this one is only for count, do not add any channel after this
 
@@ -126,7 +126,7 @@ var ChannelBaseURLs = []string{
 	"",                                          //58
 	"",                                          //59
 	"",                                          //60
-	"https://api.openai.com",                    //61
+	"",                                          //61: retired OpenHuman
 	"https://api.typesafe.ai",                   //62
 }
 

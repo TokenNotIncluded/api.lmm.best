@@ -34,8 +34,17 @@ func isPositiveOptionValue(value string) bool {
 }
 
 func GetOptions(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	snapshot, err := model.RefreshOptionsSnapshot(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"success": false,
+			"message": "Failed to load current settings; please retry.",
+		})
+		return
+	}
 	var options []*model.Option
-	for k, v := range model.GetOptionsSnapshot() {
+	for k, v := range snapshot {
 		if k == "theme.frontend" {
 			continue
 		}

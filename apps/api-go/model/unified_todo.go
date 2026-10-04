@@ -21,6 +21,7 @@ const (
 	UnifiedTodoCategoryAccountAction    = "account_action"
 	UnifiedTodoCategorySecurityIncident = "security_incident"
 	UnifiedTodoCategorySecurityReview   = "security_review"
+	UnifiedTodoCategoryModeration       = "moderation"
 
 	maxUnifiedTodoPage     = 100
 	maxUnifiedTodoPageSize = 50
@@ -99,6 +100,7 @@ var unifiedTodoCategories = []string{
 	UnifiedTodoCategoryDeveloperAccess,
 	UnifiedTodoCategoryAccountAction,
 	UnifiedTodoCategorySecurityReview,
+	UnifiedTodoCategoryModeration,
 }
 
 type unifiedAssistantSecurityIncidentView struct {
@@ -334,6 +336,10 @@ func todoRefs(db *gorm.DB, userID, role int, category string, offset, limit int)
 		}
 		add(query, values...)
 	}
+	if selected[UnifiedTodoCategoryModeration] && db.Migrator().HasTable(&ModerationNotice{}) {
+		add(`SELECT notice.id AS source_id, ? AS category, notice.updated_at AS updated_at
+			FROM moderation_notices AS notice WHERE notice.user_id = ?`, UnifiedTodoCategoryModeration, userID)
+	}
 	if len(parts) == 0 {
 		return []todoRef{}, nil
 	}
@@ -368,6 +374,8 @@ func loadTodoCandidates(db *gorm.DB, userID, role int, refs []todoRef) ([]unifie
 			items, err = unifiedSecurityIncidentCandidates(db, role, ids[category])
 		case UnifiedTodoCategorySecurityReview:
 			items, err = unifiedSecurityReviewCandidates(db, role, ids[category])
+		case UnifiedTodoCategoryModeration:
+			items, err = unifiedModerationNoticeCandidates(db, userID, ids[category])
 		case UnifiedTodoCategoryBountyReview:
 			items, err = unifiedTodoBountyReviewCandidates(db, userID, ids[category])
 		case UnifiedTodoCategoryBounty:
@@ -756,6 +764,11 @@ func readTodoPage(db *gorm.DB, userID, role int, category string, page, pageSize
 			if err == nil {
 				unread, err = unifiedSecurityReviewCount(db, userID, role, true)
 			}
+		case UnifiedTodoCategoryModeration:
+			total, err = unifiedModerationNoticeCount(db, userID, false)
+			if err == nil {
+				unread, err = unifiedModerationNoticeCount(db, userID, true)
+			}
 		case UnifiedTodoCategoryBountyReview:
 			total, err = unifiedBountyReviewCount(db, userID, false)
 			if err == nil {
@@ -839,6 +852,8 @@ func visibleTodoQuery(db *gorm.DB, userID, role int, category string) (*gorm.DB,
 		return unifiedSecurityIncidentQuery(db, role).Select("incident.id"), "incident.id", nil
 	case UnifiedTodoCategorySecurityReview:
 		return unifiedSecurityReviewNoticeQuery(db, role).Select("notice.id"), "notice.id", nil
+	case UnifiedTodoCategoryModeration:
+		return unifiedModerationNoticeQuery(db, userID).Select("notice.id"), "notice.id", nil
 	case UnifiedTodoCategoryBountyReview:
 		query := db.Table("open_source_bounty_challenges AS c").
 			Select("c.id").

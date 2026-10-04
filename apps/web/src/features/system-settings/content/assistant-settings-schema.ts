@@ -27,6 +27,12 @@ export const assistantSettingsSchema = z.object({
   AssistantEnabled: z.boolean(),
   AssistantGroup: z.string().trim().min(1).max(64),
   AssistantModel: z.string().trim().min(1).max(128),
+  AssistantModerationEnabled: z.boolean(),
+  AssistantModerationGroup: z.string().trim().min(1).max(64),
+  AssistantModerationModel: z.enum([
+    'omni-moderation-latest',
+    'omni-moderation-2024-09-26',
+  ]),
   AssistantReasoningEffort: z.enum(ASSISTANT_REASONING_EFFORTS),
   AssistantStreamEnabled: z.boolean(),
   AssistantTemperature: z.number().min(0).max(2),

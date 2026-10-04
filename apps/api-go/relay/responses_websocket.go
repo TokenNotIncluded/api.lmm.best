@@ -644,22 +644,7 @@ func (s *responsesWSSession) prepareCall(create responsesWSCreateRequest, commit
 			return nil, nil, types.NewError(fmt.Errorf("user sensitive words detected: %s", strings.Join(words, ", ")), types.ErrorCodeSensitiveWordsDetected, types.ErrOptionWithSkipRetry())
 		}
 	}
-	if setting.ShouldCheckAdvancedSecurityPrompt() {
-		securityText := dto.SecurityTextForRequest(&req)
-		evaluation := service.EvaluateAdvancedSecurityText(s.c, relayInfo, securityText)
-		if len(evaluation.Matches) > 0 {
-			matchIDs := make([]string, 0, len(evaluation.Matches))
-			for _, match := range evaluation.Matches {
-				matchIDs = append(matchIDs, match.RuleID)
-			}
-			logger.LogWarn(s.c, fmt.Sprintf("advanced security rules matched: %s", strings.Join(matchIDs, ", ")))
-			if evaluation.Blocked() {
-				apiErr := service.NewAdvancedSecurityAPIError()
-				apiErr.SetMessage(common.MessageWithRequestId(apiErr.Error(), relayInfo.RequestId))
-				return nil, nil, apiErr
-			}
-		}
-	}
+	service.EvaluateAdvancedSecurityText(s.c, relayInfo, dto.ModerationTextForRequest(&req))
 	tokens, err := service.EstimateRequestToken(s.c, meta, relayInfo)
 	if err != nil {
 		return nil, nil, types.NewError(err, types.ErrorCodeCountTokenFailed)

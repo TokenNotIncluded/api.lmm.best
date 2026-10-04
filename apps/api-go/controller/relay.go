@@ -159,7 +159,6 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 
 	needSensitiveCheck := setting.ShouldCheckPromptSensitive()
-	needAdvancedSecurityCheck := setting.ShouldCheckAdvancedSecurityPrompt()
 	needCountToken := constant.CountToken
 	// Avoid building huge CombineText (strings.Join) when token counting and sensitive check are both disabled.
 	var meta *types.TokenCountMeta
@@ -186,21 +185,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 	}
 
-	if needAdvancedSecurityCheck {
-		securityText := dto.SecurityTextForRequest(request)
-		evaluation := service.EvaluateAdvancedSecurityText(c, relayInfo, securityText)
-		if len(evaluation.Matches) > 0 {
-			matchIDs := make([]string, 0, len(evaluation.Matches))
-			for _, match := range evaluation.Matches {
-				matchIDs = append(matchIDs, match.RuleID)
-			}
-			logger.LogWarn(c, fmt.Sprintf("advanced security rules matched: %s", strings.Join(matchIDs, ", ")))
-			if evaluation.Blocked() {
-				newAPIError = service.NewAdvancedSecurityAPIError()
-				return
-			}
-		}
-	}
+	service.EvaluateAdvancedSecurityText(c, relayInfo, dto.ModerationTextForRequest(request))
 
 	tokens, err := service.EstimateRequestToken(c, meta, relayInfo)
 	if err != nil {

@@ -26,6 +26,10 @@ import {
 } from './section-registry.tsx'
 
 const defaultSecuritySettings: SecuritySettings = {
+  ModerationEnabled: false,
+  ModerationGroup: 'default',
+  ModerationModel: 'omni-moderation-latest',
+  ModerationGroupPolicies: '{}',
   ModelRequestRateLimitEnabled: false,
   ModelRequestRateLimitCount: 0,
   ModelRequestRateLimitSuccessCount: 1000,

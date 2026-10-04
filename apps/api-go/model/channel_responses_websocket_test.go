@@ -11,7 +11,7 @@ import (
 )
 
 func TestResponsesWebSocketChannelSettingCreateUpdateReload(t *testing.T) {
-	for _, channelType := range []int{constant.ChannelTypeOpenAI, constant.ChannelTypeCodex, constant.ChannelTypeOpenHuman, constant.ChannelTypeAdvancedCustom, constant.ChannelTypeSub2API, constant.ChannelTypeNewAPI} {
+	for _, channelType := range []int{constant.ChannelTypeOpenAI, constant.ChannelTypeCodex, constant.ChannelTypeAdvancedCustom, constant.ChannelTypeSub2API, constant.ChannelTypeNewAPI} {
 		t.Run(fmt.Sprint(channelType), func(t *testing.T) {
 			preserveChannelTestState(t)
 			DB = openCacheTestDB(t, &Channel{}, &Ability{})

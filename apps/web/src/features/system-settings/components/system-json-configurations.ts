@@ -173,6 +173,31 @@ export const SYSTEM_JSON_CONFIGURATIONS = {
       },
     ]
   ),
+  ModerationGroupPolicies: configuration(
+    { default: { mode: 'off', category_fines_usd: {} } },
+    'Record<string, ModerationGroupPolicy>',
+    [
+      {
+        path: '<userGroup>',
+        type: 'object',
+        rules: 'explicit group; no wildcard',
+        example: '"default"',
+      },
+      {
+        path: '<userGroup>.mode',
+        type: 'string',
+        required: true,
+        rules: 'off | tolerant | strict',
+        example: '"off"',
+      },
+      {
+        path: '<userGroup>.category_fines_usd.<category>',
+        type: 'number',
+        rules: 'minimum: 0; finite: true; precision: 6',
+        example: '0.01',
+      },
+    ]
+  ),
   AssistantReviewGroupPolicies: configuration(
     { default: { probability: 1, intensity: 'standard' } },
     'Record<string, AssistantReviewGroupPolicy>',

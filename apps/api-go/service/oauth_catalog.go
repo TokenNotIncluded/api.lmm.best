@@ -77,7 +77,7 @@ func (s *OAuthIntegration) liveAbilities(ctx context.Context, groups []string, n
 		return rows, nil
 	}
 	query := s.DB.WithContext(ctx).Table("abilities").Select(`DISTINCT abilities."group", abilities.model, channels.type AS channel_type, channels.id AS channel_id, channels.model_mapping AS channel_model_mapping`).
-		Joins("JOIN channels ON channels.id = abilities.channel_id").Where(`abilities."group" IN ? AND abilities.enabled = ? AND channels.status = ?`, groups, true, common.ChannelStatusEnabled)
+		Joins("JOIN channels ON channels.id = abilities.channel_id").Where(`abilities."group" IN ? AND abilities.enabled = ? AND channels.status = ?`, groups, true, common.ChannelStatusEnabled).Where("channels.type <> ?", constant.ChannelTypeOpenHuman)
 	if name != "" {
 		query = query.Where("abilities.model = ?", name)
 	}

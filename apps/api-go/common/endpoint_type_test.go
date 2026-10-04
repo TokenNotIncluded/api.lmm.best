@@ -35,7 +35,7 @@ func TestSystemOneEndpointMetadata(t *testing.T) {
 
 func TestModerationEndpointMetadata(t *testing.T) {
 	for _, modelName := range []string{"omni-moderation-latest", "omni-moderation-2024-09-26", "text-moderation-latest", "text-moderation-stable"} {
-		for _, channelType := range []int{constant.ChannelTypeOpenAI, constant.ChannelTypeOpenHuman, constant.ChannelTypeAzure, constant.ChannelTypeNewAPI, constant.ChannelTypeSub2API} {
+		for _, channelType := range []int{constant.ChannelTypeOpenAI, constant.ChannelTypeAzure, constant.ChannelTypeNewAPI, constant.ChannelTypeSub2API} {
 			assert.Equal(t, []constant.EndpointType{constant.EndpointTypeModeration}, GetEndpointTypesByChannelType(channelType, modelName))
 		}
 	}
@@ -77,4 +77,14 @@ func TestNativeVoiceEndpointMetadata(t *testing.T) {
 	assert.False(t, nativeVoice)
 	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAI}, GetEndpointTypesByChannelType(constant.ChannelTypeOpenAI, "gpt-realtime"))
 	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeSystemOne}, GetEndpointTypesByChannelType(constant.ChannelTypeTypeSafe, "gpt-live-1"))
+}
+
+func TestRetiredOpenHumanAdvertisesNoEndpoints(t *testing.T) {
+	for _, modelName := range []string{"gpt-4o", "omni-moderation-latest", "chatgpt-image-latest", "gpt-live-1", "jev-latest"} {
+		assert.Empty(t, GetEndpointTypesByChannelType(constant.ChannelTypeOpenHuman, modelName))
+	}
+	apiType, supported := ChannelType2APIType(constant.ChannelTypeOpenHuman)
+	assert.False(t, supported)
+	assert.Equal(t, -1, apiType)
+	assert.False(t, SupportsResponsesCompact(constant.ChannelTypeOpenHuman, constant.APITypeOpenAI))
 }

@@ -29,6 +29,10 @@ type AdvancedSecurityMatch struct {
 
 const AdvancedSecurityBlockedMessage = "prompt blocked by advanced security guardrail"
 
+// Internal assistant relays carry a platform billing identity and a system/tool
+// transcript. They submit only the human's current turn through their own hook.
+const ModerationRelaySkipContextKey = "moderation_skip_relay_input"
+
 type AdvancedSecurityEvaluation struct {
 	Matches  []AdvancedSecurityMatch
 	Decision string
@@ -38,10 +42,9 @@ func (evaluation AdvancedSecurityEvaluation) Blocked() bool {
 	return evaluation.Decision == model.AdvancedSecurityDecisionBlocked
 }
 
-// CheckAdvancedSecurityText applies the configured literal rule library to
-// the default group. Production callers should use
-// CheckAdvancedSecurityTextForGroup or EvaluateAdvancedSecurityText so a
-// rule can never silently become global.
+// CheckAdvancedSecurityText remains available for historical literal-rule
+// inspection. Runtime relay audits use EvaluateAdvancedSecurityText's async
+// Moderation lane; literal matches no longer block or charge relay requests.
 func CheckAdvancedSecurityText(text string) []AdvancedSecurityMatch {
 	return CheckAdvancedSecurityTextForGroup(text, "default")
 }
@@ -112,29 +115,33 @@ func checkAdvancedSecurityTextWithSettings(text, group string, settings setting.
 	return matches
 }
 
-// EvaluateAdvancedSecurityText performs matching, resolves the configured
-// block/audit action, and records the result through one shared path. Keeping
-// those steps together prevents protocol-specific relays from drifting apart.
+// EvaluateAdvancedSecurityText keeps the existing relay ingress contract while
+// retiring synchronous literal-rule decisions. It persists only a background
+// Moderation job; no OpenAI request or verdict is awaited by a user request.
 func EvaluateAdvancedSecurityText(c *gin.Context, relayInfo *relaycommon.RelayInfo, text string) AdvancedSecurityEvaluation {
-	settings := setting.GetAdvancedSecuritySettings()
-	group := ""
-	if relayInfo != nil {
-		group = strings.TrimSpace(relayInfo.UsingGroup)
-		if group == "" {
-			group = strings.TrimSpace(relayInfo.UserGroup)
-		}
-	}
-	matches := checkAdvancedSecurityTextWithSettings(text, group, settings)
-	if len(matches) == 0 {
+	if relayInfo == nil || strings.TrimSpace(text) == "" || (c != nil && c.GetBool(ModerationRelaySkipContextKey)) {
 		return AdvancedSecurityEvaluation{}
 	}
-
-	decision := model.AdvancedSecurityDecisionAudited
-	if settings.Action == setting.AdvancedSecurityActionBlock {
-		decision = model.AdvancedSecurityDecisionBlocked
+	requestID := strings.TrimSpace(relayInfo.RequestId)
+	ctx := context.Background()
+	if c != nil {
+		if requestID == "" {
+			requestID = strings.TrimSpace(c.GetString(common.RequestIdKey))
+		}
+		if c.Request != nil {
+			ctx = c.Request.Context()
+		}
 	}
-	RecordAdvancedSecurityDetection(c, relayInfo, text, matches, decision)
-	return AdvancedSecurityEvaluation{Matches: matches, Decision: decision}
+	if requestID == "" || relayInfo.UserId <= 0 || strings.TrimSpace(relayInfo.UserGroup) == "" {
+		return AdvancedSecurityEvaluation{}
+	}
+	if err := QueueModeration(ctx, ModerationSubmission{
+		UserID: relayInfo.UserId, Source: ModerationSourceRelayInput, RequestID: requestID,
+		Group: relayInfo.UserGroup, Text: text,
+	}); err != nil {
+		common.SysError("relay_moderation_enqueue_unavailable")
+	}
+	return AdvancedSecurityEvaluation{}
 }
 
 func NewAdvancedSecurityAPIError() *types.NewAPIError {

@@ -28,6 +28,7 @@ This directory contains operational, API, and legal documentation for LMM Forge.
 - [`channel/other_setting.md`](./channel/other_setting.md): additional channel JSON settings.
 - [`advanced-custom-balance.md`](./advanced-custom-balance.md): declarative Go balance requests, extraction, credential boundaries, and Rust support limits.
 - [`profile-usage-aggregation.md`](./profile-usage-aggregation.md): one revocable SVG for LMM, Cursor, and imported AI account usage.
+- [`moderation-security-review.md`](./moderation-security-review.md): opt-in asynchronous OpenAI Moderation, group modes, wallet penalties, risk attribution, and public disclosure.
 
 ## API contracts
 

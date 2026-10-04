@@ -42,6 +42,13 @@ const STATUS_RELATED_KEYS = new Set([
   'general_setting.custom_currency_exchange_rate',
   'oidc.display_name',
   'OAuthRegisterEnabled',
+  'ModerationEnabled',
+  'ModerationGroup',
+  'ModerationModel',
+  'ModerationGroupPolicies',
+  'AssistantModerationEnabled',
+  'AssistantModerationGroup',
+  'AssistantModerationModel',
   'AssistantEnabled',
   'AssistantGroup',
   'AssistantModel',
@@ -88,6 +95,22 @@ async function invalidateOptionQueries(
   if (changedKeys.some((key) => key.startsWith('Assistant'))) {
     refreshes.push(
       queryClient.invalidateQueries({ queryKey: ['assistant-status'] })
+    )
+  }
+  if (
+    changedKeys.some(
+      (key) =>
+        key.startsWith('Moderation') || key.startsWith('AssistantModeration')
+    )
+  ) {
+    refreshes.push(
+      queryClient.invalidateQueries({ queryKey: ['security-policy'] }),
+      queryClient.invalidateQueries({ queryKey: ['admin-security-policy'] }),
+      queryClient.invalidateQueries({
+        queryKey: ['moderation-routing-models'],
+      }),
+      queryClient.invalidateQueries({ queryKey: ['admin-moderation-reviews'] }),
+      queryClient.invalidateQueries({ queryKey: ['admin-moderation-stats'] })
     )
   }
   if (changedKeys.includes('AIDirectoryLinks')) {

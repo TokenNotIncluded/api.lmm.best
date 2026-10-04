@@ -48,7 +48,23 @@ export type SecurityViolationFeeRule = {
   local_guardrail_fee: boolean
 }
 
+export type SecurityModerationGroupPolicy = {
+  mode: 'off' | 'tolerant' | 'strict'
+  category_fines_usd: Record<string, number>
+}
+
+export type SecurityModerationPolicy = {
+  enabled: boolean
+  assistant_enabled: boolean
+  engine: 'openai_moderation'
+  async: true
+  group_policies: Record<string, SecurityModerationGroupPolicy>
+  supported_inputs: string[]
+  notice_only: boolean
+}
+
 export type SecurityPolicy = {
+  historical?: boolean
   policy_version: string
   reference_effective_date: string
   reference_url: string
@@ -56,17 +72,29 @@ export type SecurityPolicy = {
   enforcement: {
     enabled: boolean
     on_prompt: boolean
-    action: 'block' | 'audit'
+    action: 'block' | 'audit' | 'retired'
   }
   protected_groups?: string[]
   risk_categories: SecurityRiskCategory[]
   rules: SecurityRuleSummary[]
   violation_fees: SecurityViolationFeeRule[]
+  moderation?: SecurityModerationPolicy
 }
 
 export type SecurityStatsBucket = {
   key: string
   count: number
+}
+
+export type SecurityModerationStats = {
+  pending: number
+  running: number
+  completed: number
+  failed: number
+  cancelled: number
+  flagged: number
+  fined: number
+  charged_quota: number
 }
 
 export type SecurityStats = {
@@ -79,6 +107,7 @@ export type SecurityStats = {
   affected_users: number
   by_category: SecurityStatsBucket[]
   by_rule?: SecurityStatsBucket[]
+  moderation?: SecurityModerationStats
 }
 
 export type SecurityPolicyResponse = {

@@ -71,6 +71,7 @@ import {
 } from '../types'
 import { safeNumberFieldProps } from '../utils/numeric-field'
 import { AssistantL1ReviewSettings } from './assistant-l1-review-settings'
+import { AssistantModerationSettings } from './assistant-moderation-settings'
 
 import './assistant-settings-workspace.css'
 import {
@@ -705,6 +706,7 @@ export function AssistantSettingsSection(props: {
     ...new Set([
       props.defaultValues.AssistantGroup || 'default',
       props.defaultValues.AssistantReviewGroup || 'default',
+      props.defaultValues.AssistantModerationGroup || 'default',
       ...(groupsQuery.data ?? []),
     ]),
   ].sort((left, right) => left.localeCompare(right))
@@ -1717,6 +1719,20 @@ export function AssistantSettingsSection(props: {
                       </div>
                     </div>
                   </div>
+                </SettingsDisclosure>
+              </section>
+              <section
+                role='tabpanel'
+                id='assistant-panel-moderation'
+                aria-labelledby='assistant-tab-moderation'
+                hidden={panel !== 'moderation'}
+                className='assistant-settings-panel'
+              >
+                <SettingsDisclosure
+                  title={t('Content safety review')}
+                  defaultOpen
+                >
+                  <AssistantModerationSettings groups={assistantGroups} />
                 </SettingsDisclosure>
               </section>
               <section

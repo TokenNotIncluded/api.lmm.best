@@ -11,7 +11,7 @@ separate work; this change does not enable it.
 ## Rust channel capability boundary (#375)
 
 Rust keeps `GET /v1/responses` closed for every channel type, including OpenAI,
-OpenHuman, Codex, Advanced Custom (58), Sub2API (59), and New API (60). The
+Codex, Advanced Custom (58), Sub2API (59), and New API (60). OpenHuman (61) is retired and no longer eligible. The
 production listener still mounts `UnconfiguredResponsesWebSocketService`.
 A complete, valid WebSocket upgrade request receives HTTP 503 with
 `error.code=service_unavailable` before upgrade, channel selection, upstream

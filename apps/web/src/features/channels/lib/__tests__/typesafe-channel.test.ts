@@ -62,7 +62,7 @@ describe('native TypeSafe judgment channels', () => {
     )
     assert.equal(isOpenAIChannelType(CHANNEL_TYPE_TYPESAFE), false)
     assert.equal(supportsResponsesWebSocket(CHANNEL_TYPE_TYPESAFE), false)
-    assert.equal(MODEL_FETCHABLE_TYPES.has(CHANNEL_TYPE_TYPESAFE), false)
+    assert.equal(MODEL_FETCHABLE_TYPES.has(CHANNEL_TYPE_TYPESAFE), true)
 
     const config = getChannelTypeConfig(CHANNEL_TYPE_TYPESAFE)
     assert.equal(config.defaultBaseUrl, 'https://api.typesafe.ai')
@@ -96,6 +96,53 @@ describe('native TypeSafe judgment channels', () => {
       undefined
     )
     assert.equal(JSON.parse(channel.settings || '{}').disable_store, undefined)
+  })
+
+  test('saves upstream model checks and auto sync for native TypeSafe channels', () => {
+    const form = channelFormSchema.parse({
+      ...CHANNEL_FORM_DEFAULT_VALUES,
+      name: 'TypeSafe',
+      type: CHANNEL_TYPE_TYPESAFE,
+      key: 'typesafe-test-key',
+      models: 'jev-latest',
+      upstream_model_update_check_enabled: true,
+      upstream_model_update_auto_sync_enabled: true,
+      upstream_model_update_ignored_models: ' jev-preview,jev-preview, ',
+      settings: JSON.stringify({
+        upstream_model_update_check_enabled: false,
+        upstream_model_update_auto_sync_enabled: false,
+        upstream_model_update_ignored_models: ['old-model'],
+        upstream_model_update_last_check_time: 123,
+        upstream_model_update_last_detected_models: ['jev-preview'],
+      }),
+    })
+    const channel = transformFormDataToCreatePayload(form).channel
+    const settings = JSON.parse(channel.settings || '{}')
+    assert.equal(settings.upstream_model_update_check_enabled, true)
+    assert.equal(settings.upstream_model_update_auto_sync_enabled, true)
+    assert.deepEqual(settings.upstream_model_update_ignored_models, [
+      'jev-preview',
+    ])
+    assert.equal(settings.upstream_model_update_last_check_time, 123)
+    assert.deepEqual(settings.upstream_model_update_last_detected_models, [
+      'jev-preview',
+    ])
+
+    const disabled = transformFormDataToCreatePayload({
+      ...form,
+      settings: channel.settings || '',
+      upstream_model_update_check_enabled: false,
+    }).channel
+    const disabledSettings = JSON.parse(disabled.settings || '{}')
+    assert.equal(disabledSettings.upstream_model_update_check_enabled, false)
+    assert.equal(
+      disabledSettings.upstream_model_update_auto_sync_enabled,
+      false
+    )
+    assert.deepEqual(
+      disabledSettings.upstream_model_update_last_detected_models,
+      []
+    )
   })
 
   test('uses synchronous judgment testing for native channels and relay chains', () => {

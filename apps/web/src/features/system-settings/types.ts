@@ -262,6 +262,11 @@ export type ContentSettings = {
   AssistantEnabled: boolean
   AssistantGroup: string
   AssistantModel: string
+  AssistantModerationEnabled: boolean
+  AssistantModerationGroup: string
+  AssistantModerationModel:
+    | 'omni-moderation-latest'
+    | 'omni-moderation-2024-09-26'
   AssistantReasoningEffort: AssistantReasoningEffort
   AssistantStreamEnabled: boolean
   AssistantTemperature: number
@@ -502,6 +507,10 @@ export type OperationsSettings = {
 }
 
 export type SecuritySettings = {
+  ModerationEnabled: boolean
+  ModerationGroup: string
+  ModerationModel: 'omni-moderation-latest' | 'omni-moderation-2024-09-26'
+  ModerationGroupPolicies: string
   ModelRequestRateLimitEnabled: boolean
   ModelRequestRateLimitCount: number
   ModelRequestRateLimitSuccessCount: number

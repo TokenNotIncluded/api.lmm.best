@@ -38,6 +38,7 @@ const reasonLabels: Record<string, string> = {
     'Transfers exceed consumption by more than four times',
   checkin_without_usage: 'Check-ins without consumption',
   received_from_high_risk: 'Received funds from a high-risk sender',
+  moderation_violations: 'Moderation violations in user input',
 }
 export function UserRiskCell({ user }: { user: User }) {
   const { t } = useTranslation()
@@ -111,10 +112,31 @@ export function UserRiskCell({ user }: { user: User }) {
           </dd>
           <dt>{t('High-risk senders')}</dt>
           <dd className='text-right tabular-nums'>{risk.high_risk_senders}</dd>
+          {risk.moderation_reviewed_count !== undefined ? (
+            <>
+              <dt>{t('Moderation reviews')}</dt>
+              <dd className='text-right tabular-nums'>
+                {risk.moderation_reviewed_count}
+              </dd>
+            </>
+          ) : null}
+          {risk.moderation_flagged_count !== undefined ? (
+            <>
+              <dt>{t('Flagged user inputs')}</dt>
+              <dd className='text-right tabular-nums'>
+                {risk.moderation_flagged_count}
+              </dd>
+            </>
+          ) : null}
         </dl>
         <p className='text-muted-foreground text-xs'>
           {t(
             'Pending transfers count as sent; cancelled transfers are excluded. High risk starts at 0.8. No automatic bans.'
+          )}
+        </p>
+        <p className='text-muted-foreground text-xs'>
+          {t(
+            'Only flagged user input contributes to Moderation risk. Model output is excluded.'
           )}
         </p>
       </PopoverContent>

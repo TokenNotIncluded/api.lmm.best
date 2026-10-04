@@ -75,6 +75,20 @@ describe('todo list categories', () => {
     ])
     assert.deepEqual(visibleTodoCategories(summaries, 'all', false), ['all'])
   })
+  test('makes owner Moderation notifications available to ordinary users', () => {
+    assert.deepEqual(
+      visibleTodoCategories(
+        [{ key: 'moderation', total: 1, unread: 1 }],
+        'all',
+        false
+      ),
+      ['all', 'moderation']
+    )
+    assert.deepEqual(visibleTodoCategories([], 'moderation', false), [
+      'all',
+      'moderation',
+    ])
+  })
 })
 
 describe('todo pagination', () => {
@@ -161,5 +175,16 @@ describe('todo dates and destinations', () => {
       todoItemHasDestination(item('security_incident', { username: '   ' })),
       false
     )
+  })
+  test('does not route owner Moderation warnings into administrator workflows', () => {
+    const warning = item('moderation', {
+      username: 'customer',
+      project_id: 12,
+      request_id: 'reviewed-request',
+    })
+    assert.equal(todoItemHasDestination(warning), false)
+    assert.equal(todoItemCanOpen(warning, false), false)
+    assert.equal(todoItemCanOpen(warning, true), false)
+    assert.equal(todoSecurityReviewDestination(warning), undefined)
   })
 })

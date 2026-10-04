@@ -18,6 +18,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/internal/agent"
 	"github.com/LIghtJUNction/api.lmm.best/middleware"
 	"github.com/LIghtJUNction/api.lmm.best/model"
+	"github.com/LIghtJUNction/api.lmm.best/service"
 	"github.com/LIghtJUNction/api.lmm.best/setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/system_setting"
 	"github.com/gin-gonic/gin"
@@ -519,6 +520,7 @@ func assistantHistoryConversationID(c *gin.Context) int64 {
 
 func recordAssistantHistoryResponse(c *gin.Context, status int, body []byte) {
 	if c.GetBool("assistant_history_pre_recorded") {
+		queueAssistantModerationResponse(c, status, body)
 		return
 	}
 	if status < http.StatusOK || status >= http.StatusMultipleChoices {
@@ -568,9 +570,13 @@ func recordAssistantHistoryResponse(c *gin.Context, status int, body []byte) {
 		// History is a support feature, not a reason to drop a successful
 		// answer.  The failure is still observable to operators.
 		common.SysError(fmt.Sprintf("failed to record assistant conversation %d: %v", conversationID, recordErr))
+		// This answer is still delivered. A history storage outage must not
+		// silently exclude its natural-language content from async review.
+		queueAssistantModerationResponse(c, status, body)
 		return
 	}
 	c.Set("assistant_history_conversation_id", recordedConversationID)
+	queueAssistantModerationResponse(c, status, body)
 	countPromptPresetConversation(c, recordedConversationID)
 	if title := strings.TrimSpace(c.GetString(assistantConversationTitleDraftKey)); title != "" {
 		if titleErr := model.UpdateAssistantConversationTitle(actorUserID, recordedConversationID, title); titleErr != nil {
@@ -726,6 +732,7 @@ func PrepareAssistantRequest(c *gin.Context) {
 	conversation = []assistantOpenAIMessage{{Role: "user", Content: latestMessage}}
 	policyConversation := conversation
 	actorUserID := c.GetInt("id")
+	c.Set(assistantActorUserIDKey, actorUserID)
 	// Risk observations belong to the signed-in actor, NEVER the root relay payer.
 	if actorUserID > 0 {
 		if err := model.ObserveAssistantRegistration(actorUserID, c.ClientIP(), latestMessage); err != nil {
@@ -773,6 +780,7 @@ func PrepareAssistantRequest(c *gin.Context) {
 					return
 				}
 				c.Set("assistant_history_pre_recorded", true)
+				queueAssistantModerationText(c, service.ModerationSourceAssistantInput, latestMessage)
 				body, _ := json.Marshal(gin.H{"choices": []gin.H{{"message": gin.H{"role": "assistant", "content": saved.Content}}}})
 				c.Abort()
 				writeAssistantHistoryResponse(c, http.StatusOK, body)
@@ -843,6 +851,7 @@ func PrepareAssistantRequest(c *gin.Context) {
 			c.Set("assistant_history_replay", true)
 		}
 	}
+	queueAssistantModerationText(c, service.ModerationSourceAssistantInput, latestMessage)
 	firstTurnAttempt := input.ConversationID == 0 && assistantRequestAttempt(c) == 1
 	if firstTurnAttempt {
 		capturePromptPresetRef(c, input.PresetID, latestMessage)
@@ -997,6 +1006,7 @@ func PrepareAssistantRequest(c *gin.Context) {
 		return
 	}
 	c.Set(assistantActorUserIDKey, actorUserID)
+	c.Set(service.ModerationRelaySkipContextKey, true)
 	// Keep the signed-in actor in assistantActorUserIDKey for tool
 	// authorization, but make the relay context explicitly belong to the
 	// selected root account. RelayInfo and consume logs derive their billing
@@ -1043,7 +1053,6 @@ func AssistantChat(c *gin.Context) {
 		usingGroup = common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
 	}
 	common.SetContextKey(c, constant.ContextKeyUsingGroup, usingGroup)
-	c.Set(assistantActorGroupKey, usingGroup)
 	runtimeToken, _, err := ensureAssistantRuntimeToken(userId, usingGroup)
 	if err != nil {
 		writeAssistantError(c, http.StatusServiceUnavailable, "ASSISTANT_RUNTIME_KEY_UNAVAILABLE", errors.New("assistant runtime key is unavailable"))
@@ -1088,11 +1097,8 @@ func AssistantChat(c *gin.Context) {
 	if !recorder.Written() {
 		return
 	}
-	// The sampled policy review is intentionally enqueued after the model turn
-	// has completed. It has a bounded, parallel worker pool and never delays the
-	// response or exposes its result to the caller.
-	// Admission review is performed by this assistant's evidence-gated tools;
-	// never send the completed transcript to a separate reviewing agent.
+	// Only the current user turn and saved natural-language answer enter the
+	// asynchronous Moderation lane. Tool payloads and historical turns stay out.
 	copyAssistantClientHeaders(originalWriter.Header(), recorder.Header())
 	writeAssistantHistoryResponse(c, recorder.Status(), recorder.body.Bytes())
 }

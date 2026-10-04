@@ -1,16 +1,11 @@
 package service
 
 import (
-	"fmt"
 	"strings"
-	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
-	"github.com/LIghtJUNction/api.lmm.best/logger"
-	"github.com/LIghtJUNction/api.lmm.best/model"
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/types"
-	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
 )
@@ -110,81 +105,10 @@ func calcViolationFeeQuota(amount, groupRatio float64) int {
 	return quota
 }
 
-// ChargeViolationFeeIfNeeded charges an additional fee after the normal flow finishes (including refund).
-// It uses the group-selected global violation policy. Only the user's wallet
-// quota is touched; token and subscription balances are not used for this
-// punishment path.
-func ChargeViolationFeeIfNeeded(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, apiErr *types.NewAPIError) bool {
-	if ctx == nil || relayInfo == nil || apiErr == nil {
-		return false
-	}
-	//if relayInfo.IsPlayground {
-	//	return false
-	//}
-	if !shouldChargeViolationFee(apiErr) {
-		return false
-	}
-
-	userGroup := strings.TrimSpace(relayInfo.UserGroup)
-	if userGroup == "" {
-		userGroup = strings.TrimSpace(relayInfo.UsingGroup)
-	}
-	policy, ok := operation_setting.ResolveViolationFeePolicy(userGroup)
-	if !ok {
-		return false
-	}
-
-	charge, err := model.ApplyViolationFee(model.ViolationFeeChargeInput{
-		UserID:    relayInfo.UserId,
-		RequestID: ctx.GetString(common.RequestIdKey),
-		Policy:    policy,
-		Group:     userGroup,
-		ErrorCode: string(types.ErrorCodeViolationFeeUsagePolicy),
-	})
-	if err != nil {
-		logger.LogError(ctx, fmt.Sprintf("failed to charge violation fee: %s", err.Error()))
-		return false
-	}
-	if charge.AlreadyExist {
-		return charge.Record.ChargedQuota > 0
-	}
-	if charge.Record.ChargedQuota <= 0 {
-		return false
-	}
-	model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, charge.Record.ChargedQuota)
-
-	useTimeSeconds := time.Now().Unix() - relayInfo.StartTime.Unix()
-	tokenName := ctx.GetString("token_name")
-	oai := apiErr.ToOpenAIError()
-
-	other := map[string]any{
-		"violation_fee":        true,
-		"violation_fee_code":   string(types.ErrorCodeViolationFeeUsagePolicy),
-		"fee_quota":            charge.Record.ChargedQuota,
-		"requested_fee_quota":  charge.Record.RequestedQuota,
-		"base_amount":          charge.Record.RequestedAmountUSD,
-		"charged_amount":       charge.Record.ChargedAmountUSD,
-		"group":                relayInfo.UsingGroup,
-		"occurrence":           charge.Record.Occurrence,
-		"period_ends_at":       charge.Record.PeriodEndsAt,
-		"status_code":          apiErr.StatusCode,
-		"upstream_error_type":  oai.Type,
-		"upstream_error_code":  fmt.Sprintf("%v", oai.Code),
-		"violation_fee_marker": CSAMViolationMarker,
-	}
-
-	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
-		ChannelId:      relayInfo.ChannelId,
-		ModelName:      relayInfo.OriginModelName,
-		TokenName:      tokenName,
-		Quota:          charge.Record.ChargedQuota,
-		Content:        "Violation fee charged",
-		TokenId:        relayInfo.TokenId,
-		UseTimeSeconds: int(useTimeSeconds),
-		IsStream:       relayInfo.IsStream,
-		Group:          relayInfo.UsingGroup,
-		Other:          other,
-	})
-
-	return true
+// ChargeViolationFeeIfNeeded remains a compatibility hook for protocol relays.
+// Provider error strings are not moderation decisions. Content penalties now
+// come exclusively from a completed asynchronous official moderation job and
+// its explicit account-group policy; this old path never changes a balance.
+func ChargeViolationFeeIfNeeded(_ *gin.Context, _ *relaycommon.RelayInfo, _ *types.NewAPIError) bool {
+	return false
 }

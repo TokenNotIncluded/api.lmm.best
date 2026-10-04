@@ -40,6 +40,7 @@ import {
 } from '@/components/ui/tooltip'
 
 import { fetchUpstreamModels, updateChannel } from '../../api'
+import { CHANNEL_TYPE_TYPESAFE } from '../../constants'
 import {
   categorizeModels,
   channelsQueryKeys,
@@ -47,11 +48,8 @@ import {
   normalizeModelName,
   parseModelsString,
 } from '../../lib'
+import { getModelsMissingFromUpstream } from '../../lib/upstream-model-list'
 import { useChannels } from '../channels-provider'
-
-function normalizeModelNameList(models: readonly string[]): string[] {
-  return [...new Set(models.map((m) => normalizeModelName(m)).filter(Boolean))]
-}
 
 type FetchModelsDialogBaseProps = {
   open: boolean
@@ -60,6 +58,7 @@ type FetchModelsDialogBaseProps = {
   redirectSourceModels?: string[]
   customFetcher?: () => Promise<string[]>
   channelName?: string | null
+  channelType?: number
 }
 
 type FetchModelsDialogProps = FetchModelsDialogBaseProps &
@@ -83,10 +82,12 @@ export function FetchModelsDialog({
   customFetcher,
   existingModelsOverride,
   channelName,
+  channelType,
 }: FetchModelsDialogProps) {
   const { t } = useTranslation()
   const { currentRow } = useChannels()
   const activeChannel = customFetcher ? null : currentRow
+  const activeChannelType = channelType ?? activeChannel?.type
   const queryClient = useQueryClient()
   const [isFetching, setIsFetching] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
@@ -109,28 +110,21 @@ export function FetchModelsDialog({
 
   const { classificationSet, redirectOnlySet } = modelCategories
 
-  const fetchedModelSet = useMemo(
-    () => new Set(normalizeModelNameList(fetchedModels)),
-    [fetchedModels]
-  )
-
-  // Source keys in model_mapping are aliases, not real upstream IDs, so we
-  // must skip them when computing "removed upstream" entries to avoid false
-  // positives.
-  const redirectSourceKeysSet = useMemo(
-    () => new Set(normalizeModelNameList(redirectSourceModels)),
-    [redirectSourceModels]
-  )
-
   const removedModels = useMemo(() => {
     const kw = searchKeyword.toLowerCase().trim()
-    return normalizeModelNameList(selectedModels).filter((model) => {
-      if (fetchedModelSet.has(model)) return false
-      if (redirectSourceKeysSet.has(model)) return false
-      if (!kw) return true
-      return model.toLowerCase().includes(kw)
-    })
-  }, [fetchedModelSet, redirectSourceKeysSet, searchKeyword, selectedModels])
+    return getModelsMissingFromUpstream({
+      selectedModels,
+      fetchedModels,
+      redirectSourceModels,
+      channelType: activeChannelType,
+    }).filter((model) => !kw || model.toLowerCase().includes(kw))
+  }, [
+    activeChannelType,
+    fetchedModels,
+    redirectSourceModels,
+    searchKeyword,
+    selectedModels,
+  ])
 
   useEffect(() => {
     if (open && (activeChannel || customFetcher)) {
@@ -386,6 +380,16 @@ export function FetchModelsDialog({
         ) : null
       }
     >
+      {activeChannelType === CHANNEL_TYPE_TYPESAFE && (
+        <p
+          role='note'
+          className='bg-muted/50 text-muted-foreground rounded-lg border p-3 text-sm'
+        >
+          {t(
+            'TypeSafe currently lists aliases only. Supported version IDs such as jev-1.13.0 can still be entered manually and kept selected.'
+          )}
+        </p>
+      )}
       {!activeChannel && !customFetcher ? (
         <div className='text-muted-foreground py-8 text-center'>
           {t('No channel selected')}

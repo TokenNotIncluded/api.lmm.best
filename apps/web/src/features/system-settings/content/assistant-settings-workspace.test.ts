@@ -55,6 +55,9 @@ test('save acknowledgement retains edits made during saving and clears acknowled
 test('invalid fields reveal the group that owns the input', () => {
   for (const [field, group] of [
     ['AssistantModel', 'model'],
+    ['AssistantModerationEnabled', 'moderation'],
+    ['AssistantModerationGroup', 'moderation'],
+    ['AssistantModerationModel', 'moderation'],
     ['AssistantTemperature', 'model'],
     ['AssistantPreConversationPresets', 'conversation'],
     ['AssistantPersona', 'conversation'],

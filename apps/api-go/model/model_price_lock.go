@@ -324,6 +324,9 @@ func updateOptionsWithPriceLocks(values map[string]string, lockModel string, loc
 	var pricingSnapshot map[string]string
 	var keys []string
 	err := DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockModerationOptions(tx, values); err != nil {
+			return err
+		}
 		if err := lockAssistantL1AutoReviewOptions(tx, values); err != nil {
 			return err
 		}
@@ -390,11 +393,14 @@ func updateOptionsWithPriceLocks(values map[string]string, lockModel string, loc
 	if err != nil {
 		return result, err
 	}
+	if err := applyModerationOptionMap(accepted); err != nil {
+		return result, err
+	}
 	if err := applyAssistantL1AutoReviewOptionMap(accepted); err != nil {
 		return result, err
 	}
 	for _, key := range keys {
-		if setting.IsAssistantL1AutoReviewOption(key) {
+		if setting.IsAssistantL1AutoReviewOption(key) || setting.IsModerationOption(key) {
 			continue
 		}
 		if err := updateOptionMap(key, accepted[key]); err != nil {

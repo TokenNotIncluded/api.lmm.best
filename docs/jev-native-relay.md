@@ -16,7 +16,7 @@ appropriate group, and enable any of these models:
 
 The default upstream is `https://api.typesafe.ai`. A trailing `/v1` in the
 configured address is accepted. Local channel type 62 identifies TypeSafe;
-existing OpenHuman channels keep type 61.
+type 61 is reserved for historical OpenHuman records. OpenHuman creation and relay support have been removed; existing records are never renumbered or converted automatically.
 
 For a second New API or LMM gateway, use **Compatible Relay** (type 60) and
 that gateway's base URL and API token. Jev requests on this channel use the

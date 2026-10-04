@@ -28,7 +28,7 @@ func AcknowledgeSelfAnnouncement(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid announcement acknowledgement"})
 		return
 	}
-	err := model.AcknowledgeAnnouncement(c.GetInt("id"), input.ID, input.Revision)
+	items, err := model.AcknowledgeAnnouncementStatus(c.GetInt("id"), input.ID, input.Revision)
 	if errors.Is(err, model.ErrAnnouncementOrder) {
 		c.AbortWithStatusJSON(http.StatusConflict, gin.H{"success": false, "message": err.Error()})
 		return
@@ -37,7 +37,7 @@ func AcknowledgeSelfAnnouncement(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	GetSelfAnnouncementStatus(c)
+	common.ApiSuccess(c, items)
 }
 
 func GetUserAnnouncementStatus(c *gin.Context) {

@@ -562,12 +562,15 @@ func updateChannelBalanceContext(ctx context.Context, channel *model.Channel) (c
 }
 
 func updateStandardChannelBalance(ctx context.Context, channel *model.Channel) (float64, error) {
+	if channel.Type == constant.ChannelTypeOpenHuman {
+		return 0, model.ErrRetiredChannelType
+	}
 	baseURL := constant.ChannelBaseURLs[channel.Type]
 	if channel.GetBaseURL() == "" {
 		channel.BaseURL = &baseURL
 	}
 	switch channel.Type {
-	case constant.ChannelTypeOpenAI, constant.ChannelTypeOpenHuman:
+	case constant.ChannelTypeOpenAI:
 		if channel.GetBaseURL() != "" {
 			baseURL = channel.GetBaseURL()
 		}

@@ -239,6 +239,7 @@ func testChannelWithRecoveryKey(ctx context.Context, channel *model.Channel, tes
 	}
 	tik := time.Now()
 	var unsupportedTestChannelTypes = []int{
+		constant.ChannelTypeOpenHuman,
 		constant.ChannelTypeMidjourney,
 		constant.ChannelTypeMidjourneyPlus,
 		constant.ChannelTypeSunoAPI,

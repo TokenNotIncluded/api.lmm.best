@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
 import { type ReactNode, useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -36,9 +36,18 @@ export type MandatoryAnnouncement = {
   read_at: number
 }
 
-async function loadAnnouncements() {
+async function loadAnnouncements(
+  userID: number | undefined,
+  signal: AbortSignal
+) {
+  if (!userID) throw new Error('Unable to load announcements')
   try {
     const response = await api.get('/api/user/self/announcements', {
+      signal,
+      authScope: {
+        userId: userID,
+        sessionId: useAuthStore.getState().auth.session?.sid,
+      },
       skipErrorHandler: true,
       skipBusinessError: true,
     })
@@ -63,9 +72,11 @@ async function loadAnnouncements() {
 export function MandatoryAnnouncements({ children }: { children: ReactNode }) {
   const { t } = useTranslation()
   const userID = useAuthStore((state) => state.auth.user?.id)
+  const queryClient = useQueryClient()
+  const queryKey = ['mandatory-announcements', userID] as const
   const query = useQuery({
-    queryKey: ['mandatory-announcements', userID],
-    queryFn: loadAnnouncements,
+    queryKey,
+    queryFn: ({ signal }) => loadAnnouncements(userID, signal),
     enabled: !!userID,
     retry: false,
     staleTime: (query) =>
@@ -117,15 +128,34 @@ export function MandatoryAnnouncements({ children }: { children: ReactNode }) {
           const response = await api.post(
             '/api/user/self/announcements/read',
             { id: next.id, revision: next.revision },
-            { skipErrorHandler: true, skipBusinessError: true }
+            {
+              authScope: {
+                userId: userID,
+                sessionId: useAuthStore.getState().auth.session?.sid,
+              },
+              skipErrorHandler: true,
+              skipBusinessError: true,
+            }
           )
-          if (!response.data.success) {
+          if (!response.data.success || !Array.isArray(response.data.data)) {
             throw new Error('Unable to confirm reading')
           }
-          await query.refetch({ throwOnError: true })
+          // The acknowledgement response is the server's committed snapshot.
+          // A second GET can fail or reach a stale node after the write succeeds.
+          await queryClient.cancelQueries({ queryKey, exact: true })
+          // A response from the previous account must not repopulate its cache
+          // after a sign-out or account switch.
+          if (useAuthStore.getState().auth.user?.id !== userID) return
+          queryClient.setQueryData(queryKey, {
+            supported: true,
+            items: response.data.data as MandatoryAnnouncement[],
+          })
         } catch (error) {
-          // A conflict can mean the publication changed while it was being read.
-          await query.refetch()
+          // Only a version/order conflict needs fresh publication metadata.
+          // Other failures keep the current notice visible for an explicit retry.
+          if (isAxiosError(error) && error.response?.status === 409) {
+            await query.refetch()
+          }
           throw error
         }
       }}
@@ -149,6 +179,7 @@ export function AnnouncementReader({
   const content = useRef<HTMLDivElement>(null)
   const [progress, setProgress] = useState(0)
   const [saving, setSaving] = useState(false)
+  const savingRef = useRef(false)
   const [failed, setFailed] = useState(false)
   const measure = () => {
     const node = viewport.current
@@ -168,7 +199,8 @@ export function AnnouncementReader({
     return () => observer.disconnect()
   }, [])
   const confirm = async () => {
-    if (progress < 100 || saving) return
+    if (savingRef.current) return
+    savingRef.current = true
     setSaving(true)
     setFailed(false)
     try {
@@ -176,6 +208,7 @@ export function AnnouncementReader({
     } catch {
       setFailed(true)
     } finally {
+      savingRef.current = false
       setSaving(false)
     }
   }
@@ -190,7 +223,7 @@ export function AnnouncementReader({
           })}
         </p>
         <p className='text-muted-foreground text-sm'>
-          {t('Read to the bottom, then confirm to continue.')}
+          {t('Confirm this announcement to continue.')}
         </p>
       </header>
       <div
@@ -216,10 +249,10 @@ export function AnnouncementReader({
         )}
         <Button
           className='min-h-11 w-full'
-          disabled={progress < 100 || saving}
+          disabled={saving}
           onClick={() => void confirm()}
         >
-          {t(saving ? 'Saving' : 'I have read and continue')}
+          {t(saving ? 'Saving' : 'Confirm and continue')}
         </Button>
       </footer>
     </main>

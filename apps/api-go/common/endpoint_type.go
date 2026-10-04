@@ -14,7 +14,7 @@ func IsModerationModel(modelName string) bool {
 
 func supportsNativeModeration(channelType int) bool {
 	switch channelType {
-	case constant.ChannelTypeOpenAI, constant.ChannelTypeOpenHuman, constant.ChannelTypeAzure,
+	case constant.ChannelTypeOpenAI, constant.ChannelTypeAzure,
 		constant.ChannelTypeNewAPI, constant.ChannelTypeSub2API:
 		return true
 	default:
@@ -39,6 +39,9 @@ func NativeVoiceEndpointType(modelName string) (constant.EndpointType, bool) {
 
 // GetEndpointTypesByChannelType 获取渠道最优先端点类型。
 func GetEndpointTypesByChannelType(channelType int, modelName string) []constant.EndpointType {
+	if channelType == constant.ChannelTypeOpenHuman {
+		return []constant.EndpointType{}
+	}
 	if endpoint, nativeVoice := NativeVoiceEndpointType(modelName); nativeVoice && channelType != constant.ChannelTypeTypeSafe {
 		if channelType == constant.ChannelTypeOpenAI || channelType == constant.ChannelTypeNewAPI {
 			return []constant.EndpointType{endpoint}

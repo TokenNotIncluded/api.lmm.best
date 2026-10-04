@@ -14,6 +14,7 @@ import (
 )
 
 func TestSecurityPolicySeparatesPublicAndAdminRuleDetails(t *testing.T) {
+	setupSecurityModerationDB(t)
 	original := setting.GetAdvancedSecuritySettings()
 	originalRules := setting.AdvancedSecurityRulesToJSONString()
 	t.Cleanup(func() {
@@ -37,7 +38,7 @@ func TestSecurityPolicySeparatesPublicAndAdminRuleDetails(t *testing.T) {
 	assert.Contains(t, publicRecorder.Body.String(), "prompt_injection")
 	assert.Contains(t, publicRecorder.Body.String(), "violation_fee.usage_policy")
 	assert.NotContains(t, publicRecorder.Body.String(), "Grok / xAI upstream")
-	assert.Contains(t, publicRecorder.Body.String(), setting.AdvancedSecurityPolicyReferenceDate)
+	assert.Contains(t, publicRecorder.Body.String(), "https://developers.openai.com/api/docs/guides/moderation")
 
 	adminRecorder := httptest.NewRecorder()
 	adminContext, _ := gin.CreateTestContext(adminRecorder)
@@ -66,9 +67,9 @@ func TestSecurityPolicySeparatesPublicAndAdminRuleDetails(t *testing.T) {
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(adminRecorder.Body.Bytes(), &payload))
-	assert.True(t, payload.Data.Public.Enforcement.Enabled)
-	assert.True(t, payload.Data.Public.Enforcement.OnPrompt)
-	assert.Equal(t, setting.AdvancedSecurityActionBlock, payload.Data.Public.Enforcement.Action)
+	assert.False(t, payload.Data.Public.Enforcement.Enabled)
+	assert.False(t, payload.Data.Public.Enforcement.OnPrompt)
+	assert.Equal(t, "retired", payload.Data.Public.Enforcement.Action)
 	require.Len(t, payload.Data.Public.Rules, 1)
 	assert.Empty(t, payload.Data.Public.Rules[0].Patterns)
 	require.Len(t, payload.Data.Rules, 1)

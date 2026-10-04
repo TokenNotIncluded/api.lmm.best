@@ -84,7 +84,9 @@ func TestAssistantChatUsesPersistedSuperAdministratorRuntimeKey(t *testing.T) {
 	ctx.Set("id", root.Id)
 	ctx.Set(assistantRouteGroupContextKey, "default")
 	ctx.Set(assistantRouteModelContextKey, "assistant-model")
+	ctx.Set(assistantActorGroupKey, "actual-human-group")
 	AssistantChat(ctx)
+	assert.Equal(t, "actual-human-group", ctx.GetString(assistantActorGroupKey), "review targeting must not use the relay route group")
 
 	assert.Equal(t, http.StatusInternalServerError, response.Code, "the deliberately absent conversation should stop before relay")
 	var token model.Token

@@ -13,6 +13,7 @@ export const ASSISTANT_SETTINGS_GROUPS = [
   { id: 'conversation', label: 'Assistant conversation' },
   { id: 'tools', label: 'Assistant tools' },
   { id: 'runtime', label: 'Assistant runtime' },
+  { id: 'moderation', label: 'Content safety review' },
   { id: 'review', label: 'Assistant review' },
   { id: 'retention', label: 'Assistant data' },
 ] as const
@@ -22,6 +23,7 @@ export type AssistantSettingsGroup =
 export function getAssistantSettingsGroup(
   field: string
 ): AssistantSettingsGroup {
+  if (/Moderation/.test(field)) return 'moderation'
   if (/Retention/.test(field)) return 'retention'
   if (/Review|Registration|Approval/.test(field)) return 'review'
   if (/Search|Skills|SkillFiles/.test(field)) return 'tools'

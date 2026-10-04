@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/constant"
 	"github.com/LIghtJUNction/api.lmm.best/setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/config"
 	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
@@ -18,6 +20,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/system_setting"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type Option struct {
@@ -55,6 +58,8 @@ func AllOption() ([]*Option, error) {
 }
 
 func InitOptionMap() {
+	optionUpdateMutex.Lock()
+	defer optionUpdateMutex.Unlock()
 	common.OptionMapRWMutex.Lock()
 	common.OptionMap = make(map[string]string)
 	common.OptionMap[AssistantRegistrationAutoSuspendOption] = "true"
@@ -184,6 +189,9 @@ func InitOptionMap() {
 	common.OptionMap[setting.AssistantReviewModelOptionKey] = assistantSettings.ReviewModel
 	common.OptionMap[setting.AssistantReviewReasoningEffortOptionKey] = assistantSettings.ReviewReasoningEffort
 	common.OptionMap[setting.AssistantReviewGroupPoliciesOptionKey] = setting.AssistantReviewGroupPoliciesJSON(assistantSettings.ReviewGroupPolicies)
+	for key, value := range setting.GetModerationSettings().OptionValues() {
+		common.OptionMap[key] = value
+	}
 	common.OptionMap[setting.AssistantRetentionEnabledOptionKey] = strconv.FormatBool(assistantSettings.RetentionEnabled)
 	common.OptionMap[setting.AssistantActiveRetentionDaysOptionKey] = strconv.Itoa(assistantSettings.ActiveRetentionDays)
 	common.OptionMap[setting.AssistantArchivedRetentionDaysOptionKey] = strconv.Itoa(assistantSettings.ArchivedRetentionDays)
@@ -271,38 +279,19 @@ func InitOptionMap() {
 		common.OptionMap[k] = v
 	}
 
+	optionDefaultValues = make(map[string]string, len(common.OptionMap))
+	for key, value := range common.OptionMap {
+		optionDefaultValues[key] = value
+	}
 	common.OptionMapRWMutex.Unlock()
-	loadOptionsFromDatabase()
+	if _, err := refreshOptionsSnapshotLocked(context.Background()); err != nil {
+		common.SysLog("failed to load option map: " + err.Error())
+	}
 }
 
 func loadOptionsFromDatabase() {
-	optionUpdateMutex.Lock()
-	defer optionUpdateMutex.Unlock()
-	options, err := AllOption()
-	if err != nil {
+	if _, err := RefreshOptionsSnapshot(context.Background()); err != nil {
 		common.SysLog("failed to load option map: " + err.Error())
-		return
-	}
-	l1Values := setting.DefaultAssistantL1AutoReviewSettings().OptionValues()
-	advancedSecurityValues := currentAdvancedSecurityOptionValues()
-	for _, option := range options {
-		if setting.IsAssistantL1AutoReviewOption(option.Key) {
-			l1Values[option.Key] = option.Value
-			continue
-		}
-		if isAdvancedSecurityOptionKey(option.Key) {
-			advancedSecurityValues[option.Key] = option.Value
-			continue
-		}
-		if err := updateOptionMap(option.Key, option.Value); err != nil {
-			common.SysLog("failed to update option map: " + err.Error())
-		}
-	}
-	if err := applyAdvancedSecurityOptionValues(advancedSecurityValues); err != nil {
-		common.SysLog("failed to update advanced security settings: " + err.Error())
-	}
-	if err := applyAssistantL1AutoReviewOptionMap(l1Values); err != nil {
-		common.SysLog("failed to update L1 automatic review settings: " + err.Error())
 	}
 }
 
@@ -322,12 +311,17 @@ func SyncOptionsContext(ctx context.Context, frequency int) {
 			return
 		case <-ticker.C:
 			common.SysLog("syncing options from database")
-			loadOptionsFromDatabase()
+			if _, err := RefreshOptionsSnapshot(ctx); err != nil && ctx.Err() == nil {
+				common.SysLog("failed to sync option map: " + err.Error())
+			}
 		}
 	}
 }
 
 func validateOptionValue(key string, value string) error {
+	if setting.IsModerationOption(key) {
+		return validateModerationOptionValues(DB, map[string]string{key: value})
+	}
 	if key == AIDirectoryLinksOptionKey {
 		return ValidateAIDirectoryLinks(value)
 	}
@@ -448,6 +442,262 @@ func validateAbsoluteHTTPURLOption(key string, value string) error {
 	return nil
 }
 
+// IsOfficialModerationChannel validates metadata only. Reviewers use a fixed
+// official endpoint and never apply model, parameter or header overrides.
+func IsOfficialModerationChannel(channel *Channel) bool {
+	if channel == nil || channel.Type != constant.ChannelTypeOpenAI || channel.Status != common.ChannelStatusEnabled {
+		return false
+	}
+	baseURL := ""
+	if channel.BaseURL != nil {
+		baseURL = strings.TrimRight(strings.TrimSpace(*channel.BaseURL), "/")
+	}
+	if baseURL != "" && baseURL != "https://api.openai.com" && baseURL != "https://api.openai.com/v1" {
+		return false
+	}
+	if !emptyModerationOverride(channel.ModelMapping) || !emptyModerationOverride(channel.ParamOverride) || !emptyModerationOverride(channel.HeaderOverride) {
+		return false
+	}
+	if channel.Setting != nil && strings.TrimSpace(*channel.Setting) != "" {
+		var settings struct {
+			Proxy string `json:"proxy"`
+		}
+		if err := json.Unmarshal([]byte(*channel.Setting), &settings); err != nil || strings.TrimSpace(settings.Proxy) != "" {
+			return false
+		}
+	}
+	return true
+}
+
+func emptyModerationOverride(value *string) bool {
+	if value == nil || strings.TrimSpace(*value) == "" {
+		return true
+	}
+	var object map[string]any
+	return json.Unmarshal([]byte(*value), &object) == nil && object != nil && len(object) == 0
+}
+
+// ListOfficialModerationChannels deliberately excludes Key and credential
+// metadata. The worker fetches a selected channel's key only when dispatching.
+func ListOfficialModerationChannels(ctx context.Context, group, model string) ([]Channel, error) {
+	if DB == nil {
+		return nil, errors.New("moderation database is unavailable")
+	}
+	return listOfficialModerationChannels(DB.WithContext(ctx), group, model)
+}
+
+func listOfficialModerationChannels(db *gorm.DB, group, model string) ([]Channel, error) {
+	if !setting.IsModerationModel(model) || group == "" || group == "*" {
+		return nil, errors.New("a moderation model and explicit routing group are required")
+	}
+	if db == nil {
+		return nil, errors.New("moderation database is unavailable")
+	}
+	groupColumn := commonGroupCol
+	if groupColumn == "" {
+		groupColumn = `"group"`
+	}
+	var channels []Channel
+	err := db.Table("channels").
+		Select("channels.id, channels.type, channels.status, channels.name, channels.base_url, channels.model_mapping, channels.setting, channels.param_override, channels.header_override, channels.priority, channels.weight").
+		Joins("JOIN abilities ON abilities.channel_id = channels.id").
+		Where("abilities."+groupColumn+" = ? AND abilities.model = ? AND abilities.enabled = ? AND channels.status = ?", group, model, true, common.ChannelStatusEnabled).
+		Order("channels.priority DESC, channels.weight DESC, channels.id ASC").
+		Find(&channels).Error
+	if err != nil {
+		return nil, err
+	}
+	eligible := make([]Channel, 0, len(channels))
+	for _, channel := range channels {
+		if IsOfficialModerationChannel(&channel) {
+			eligible = append(eligible, channel)
+		}
+	}
+	return eligible, nil
+}
+
+func ValidateModerationRoute(group, model string) error {
+	return validateModerationRoute(DB, group, model)
+}
+
+func validateModerationRoute(db *gorm.DB, group, model string) error {
+	channels, err := listOfficialModerationChannels(db, group, model)
+	if err != nil {
+		return err
+	}
+	if len(channels) == 0 {
+		return errors.New("moderation requires an enabled official OpenAI channel without proxy or overrides in the selected group")
+	}
+	return nil
+}
+
+func validateModerationSettings(db *gorm.DB, candidate setting.ModerationSettings, values map[string]string) error {
+	// Turning reviewers off must remain possible after a group/channel has
+	// disappeared. A newly supplied policy still requires existing target groups.
+	if _, changed := values[setting.ModerationGroupPoliciesOptionKey]; changed {
+		for group := range candidate.GroupPolicies {
+			if !ratio_setting.ContainsGroupRatio(group) {
+				return fmt.Errorf("moderation target group %s must be an existing group", group)
+			}
+		}
+	}
+	for _, route := range []struct {
+		enabled    bool
+		group      string
+		model      string
+		key        string
+		enabledKey string
+		modelKey   string
+	}{
+		{candidate.Enabled, candidate.Group, candidate.Model, setting.ModerationGroupOptionKey, setting.ModerationEnabledOptionKey, setting.ModerationModelOptionKey},
+		{candidate.AssistantEnabled, candidate.AssistantGroup, candidate.AssistantModel, setting.AssistantModerationGroupOptionKey, setting.AssistantModerationEnabledOptionKey, setting.AssistantModerationModelOptionKey},
+	} {
+		_, routeGroupChanged := values[route.key]
+		_, enabledChanged := values[route.enabledKey]
+		_, modelChanged := values[route.modelKey]
+		routeChanged := routeGroupChanged || enabledChanged || modelChanged
+		if ((route.enabled && routeChanged) || routeGroupChanged) && !ratio_setting.ContainsGroupRatio(route.group) {
+			return errors.New("moderation routing group must be an existing group")
+		}
+		if route.enabled && routeChanged {
+			if err := validateModerationRoute(db, route.group, route.model); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validateModerationOptionValues(db *gorm.DB, values map[string]string) error {
+	candidate, err := setting.ParseModerationSettings(setting.GetModerationSettings(), values)
+	if err != nil {
+		return err
+	}
+	return validateModerationSettings(db, candidate, values)
+}
+
+var errInvalidStoredModerationSettings = errors.New("invalid stored moderation settings")
+
+func readModerationSettings(db *gorm.DB) (setting.ModerationSettings, error) {
+	defaults := setting.DefaultModerationSettings()
+	if db == nil {
+		return defaults, errors.New("moderation database is unavailable")
+	}
+	values := defaults.OptionValues()
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	var rows []Option
+	if err := db.Where("key IN ?", keys).Find(&rows).Error; err != nil {
+		return defaults, err
+	}
+	for _, row := range rows {
+		values[row.Key] = row.Value
+	}
+	settings, err := setting.ParseModerationSettings(defaults, values)
+	if err != nil {
+		return defaults, fmt.Errorf("%w: %v", errInvalidStoredModerationSettings, err)
+	}
+	return settings, nil
+}
+
+// ReadModerationSettingsContext reads exactly the seven moderation options.
+// It is used before HTTP dispatch so a stale node cannot submit newly disabled
+// content, and holds no database lock during the upstream request.
+func ReadModerationSettingsContext(ctx context.Context) (setting.ModerationSettings, error) {
+	if DB == nil {
+		return setting.DefaultModerationSettings(), errors.New("moderation database is unavailable")
+	}
+	return readModerationSettings(DB.WithContext(ctx))
+}
+
+// LockModerationSettings fences effects against every configuration writer
+// across Go nodes. Acquire this lock before job or account-row locks.
+func LockModerationSettings(tx *gorm.DB) (setting.ModerationSettings, error) {
+	defaults := setting.DefaultModerationSettings()
+	if tx == nil {
+		return defaults, errors.New("moderation transaction is required")
+	}
+	policy := Option{Key: setting.ModerationEnabledOptionKey, Value: "false"}
+	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&policy).Error; err != nil {
+		return defaults, err
+	}
+	if err := lockForUpdate(tx).Where("key = ?", policy.Key).First(&policy).Error; err != nil {
+		return defaults, err
+	}
+	return readModerationSettings(tx)
+}
+
+func lockModerationOptions(tx *gorm.DB, values map[string]string) error {
+	changed := false
+	for key := range values {
+		if setting.IsModerationOption(key) {
+			changed = true
+			break
+		}
+	}
+	if !changed {
+		return nil
+	}
+	stored, err := LockModerationSettings(tx)
+	if err != nil {
+		// A malformed stored policy must not prevent an explicit complete repair.
+		complete := true
+		for key := range setting.DefaultModerationSettings().OptionValues() {
+			if _, ok := values[key]; !ok {
+				complete = false
+			}
+		}
+		if !complete || !errors.Is(err, errInvalidStoredModerationSettings) {
+			return err
+		}
+		stored = setting.DefaultModerationSettings()
+	}
+	candidate, err := setting.ParseModerationSettings(stored, values)
+	if err != nil {
+		return err
+	}
+	if err := validateModerationSettings(tx, candidate, values); err != nil {
+		return err
+	}
+	// Publish what was committed under the shared row lock, rather than merging
+	// the write with a potentially stale local settings cache after commit.
+	for key, value := range candidate.OptionValues() {
+		values[key] = value
+	}
+	return nil
+}
+
+func applyModerationOptionMap(values map[string]string) error {
+	updates := make(map[string]string)
+	for key, value := range values {
+		if setting.IsModerationOption(key) {
+			updates[key] = value
+		}
+	}
+	if len(updates) == 0 {
+		return nil
+	}
+	common.OptionMapRWMutex.Lock()
+	defer common.OptionMapRWMutex.Unlock()
+	if err := setting.UpdateModerationSettings(updates); err != nil {
+		if common.OptionMap == nil {
+			common.OptionMap = make(map[string]string)
+		}
+		common.OptionMap[setting.ModerationEnabledOptionKey] = "false"
+		common.OptionMap[setting.AssistantModerationEnabledOptionKey] = "false"
+		return err
+	}
+	if common.OptionMap == nil {
+		common.OptionMap = make(map[string]string)
+	}
+	for key, value := range setting.GetModerationSettings().OptionValues() {
+		common.OptionMap[key] = value
+	}
+	return nil
+}
+
 func UpdateOption(key string, value string) error {
 	_, err := UpdateOptionWithWarnings(key, value)
 	return err
@@ -480,7 +730,12 @@ func validateOptionValues(values map[string]string) error {
 	assistantRouteChanged := false
 	assistantReviewRouteChanged := false
 	l1AutoReviewValues := make(map[string]string)
+	moderationValues := make(map[string]string)
 	for key, value := range values {
+		if setting.IsModerationOption(key) {
+			moderationValues[key] = value
+			continue
+		}
 		if setting.IsAssistantL1AutoReviewOption(key) {
 			l1AutoReviewValues[key] = value
 			continue
@@ -535,6 +790,11 @@ func validateOptionValues(values map[string]string) error {
 	}
 	if len(l1AutoReviewValues) > 0 {
 		if err := validateAssistantL1AutoReviewValues(l1AutoReviewValues); err != nil {
+			return err
+		}
+	}
+	if len(moderationValues) > 0 {
+		if err := validateModerationOptionValues(DB, moderationValues); err != nil {
 			return err
 		}
 	}
@@ -604,6 +864,8 @@ func UpdateOptionsBulk(values map[string]string) error {
 // settings as a unit. Database readers see one transaction, while request
 // handlers see one runtime settings swap instead of four intermediate states.
 func UpdateAdvancedSecurityOptions(enabled, onPrompt bool, action, rules string) error {
+	optionUpdateMutex.Lock()
+	defer optionUpdateMutex.Unlock()
 	values := map[string]string{
 		setting.AdvancedSecurityEnabledOptionKey:  strconv.FormatBool(enabled),
 		setting.AdvancedSecurityOnPromptOptionKey: strconv.FormatBool(onPrompt),
@@ -655,6 +917,9 @@ func UpdateAdvancedSecurityOptions(enabled, onPrompt bool, action, rules string)
 }
 
 func updateOptionMap(key string, value string) (err error) {
+	if setting.IsModerationOption(key) {
+		return applyModerationOptionMap(map[string]string{key: value})
+	}
 	if isRetiredDynamicPricingOption(key) {
 		common.OptionMapRWMutex.Lock()
 		delete(common.OptionMap, key)

@@ -311,8 +311,12 @@ func ReviewViolationFeeAppeal(adminUserID int, appealID uint, approve bool, note
 				}).Error; err != nil {
 					return err
 				}
-				if err := tx.Model(&User{}).Where("id = ?", record.UserID).Update("used_quota", gorm.Expr("CASE WHEN used_quota >= ? THEN used_quota - ? ELSE 0 END", record.ChargedQuota, record.ChargedQuota)).Error; err != nil {
-					return err
+				// Background moderation penalties do not count as normal model
+				// consumption. Their reversal must leave real usage untouched.
+				if !strings.HasPrefix(record.ErrorCode, "moderation.") {
+					if err := tx.Model(&User{}).Where("id = ?", record.UserID).Update("used_quota", gorm.Expr("CASE WHEN used_quota >= ? THEN used_quota - ? ELSE 0 END", record.ChargedQuota, record.ChargedQuota)).Error; err != nil {
+						return err
+					}
 				}
 				reversedQuota = record.ChargedQuota
 				reversedUserID = record.UserID

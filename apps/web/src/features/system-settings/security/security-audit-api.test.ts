@@ -29,6 +29,8 @@ import { api } from '@/lib/api'
 import {
   ADMIN_ASSISTANT_REVIEW_CLEANUP_PREVIEW_ENDPOINT,
   ADMIN_ASSISTANT_REVIEW_RUNS_ENDPOINT,
+  getModerationModels,
+  listModerationReviews,
   deleteAssistantReviewRuns,
   previewAssistantReviewRunCleanup,
 } from './security-audit-api'
@@ -98,5 +100,40 @@ describe('assistant review cleanup API', () => {
     assert.deepEqual(captured?.params, { keep: 30, expected_count: 5 })
     assert.equal(captured?.headers?.['X-Security-Proof'], 'proof-token')
     assert.equal(result.data?.deleted_count, 5)
+  })
+})
+
+describe('Moderation metadata API', () => {
+  test('keeps target user group filters separate from model routing group', async () => {
+    const captured: Parameters<AxiosAdapter>[0][] = []
+    api.defaults.adapter = async (config) => {
+      captured.push(config)
+      return response(config, {
+        success: true,
+        data: config.url?.endsWith('/models')
+          ? { group: 'review-route', models: ['omni-moderation-latest'] }
+          : { rows: [], total: 0, page: 2, page_size: 20 },
+      })
+    }
+    assert.deepEqual(await getModerationModels('review-route'), [
+      'omni-moderation-latest',
+    ])
+    const reviews = await listModerationReviews({
+      page: 2,
+      page_size: 20,
+      group: 'target-users',
+      status: 'completed',
+      source: 'assistant_input',
+    })
+    assert.deepEqual(reviews.data?.rows, [])
+    assert.deepEqual(captured[0].params, { group: 'review-route' })
+    assert.deepEqual(captured[1].params, {
+      p: 2,
+      page_size: 20,
+      group: 'target-users',
+      status: 'completed',
+      source: 'assistant_input',
+    })
+    assert.equal(captured[1].url, '/api/security/admin/moderation-reviews')
   })
 })

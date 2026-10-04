@@ -11,7 +11,7 @@ identifiers and defaults are:
 | Advanced Custom | 58 | Disabled; explicit opt-in required | Disabled |
 | Sub2API | 59 | Disabled; explicit opt-in required | Disabled |
 | New API | 60 | Disabled; explicit opt-in required | Disabled |
-| OpenHuman | 61 | Enabled, preserving existing behavior | Disabled |
+| OpenHuman (removed) | 61 (reserved) | Unsupported | Unsupported |
 
 The field belongs to the channel's `setting` JSON. Go uses an optional boolean so
 omission remains distinguishable from `false`; database create/update/reload

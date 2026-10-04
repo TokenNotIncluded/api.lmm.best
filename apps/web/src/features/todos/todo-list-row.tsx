@@ -15,6 +15,7 @@ import { formatTimestampRelative, formatTimestampToDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import type { TodoItem } from './api'
+import { ModerationNoticeDetails } from './moderation-notice-details'
 import { TodoBurst } from './todo-burst'
 import { todoItemTitleKey } from './todo-labels'
 import { TODO_CATEGORY_LABELS, todoTimestamp } from './todo-list-model'
@@ -210,6 +211,7 @@ export function TodoListRow({
                 {item.summary}
               </span>
             ) : null}
+            <ModerationNoticeDetails item={item} />
             <span className='text-muted-foreground mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs leading-5'>
               <span>
                 {t(TODO_CATEGORY_LABELS[item.category] ?? 'Notification')}

@@ -37,7 +37,7 @@ func GetAllEnableAbilityWithChannels() ([]AbilityWithChannel, error) {
 	err := DB.Table("abilities").
 		Select("abilities.*, channels.type as channel_type, channels.model_mapping as channel_model_mapping").
 		Joins("left join channels on abilities.channel_id = channels.id").
-		Where("abilities.enabled = ?", true).
+		Where("abilities.enabled = ? AND (channels.type IS NULL OR channels.type <> ?)", true, constant.ChannelTypeOpenHuman).
 		Scan(&abilities).Error
 	return abilities, err
 }
@@ -54,7 +54,7 @@ func GetGroupEnabledModelsWithError(group string) ([]string, error) {
 	}
 	err := DB.Table("abilities").
 		Joins("JOIN channels ON abilities.channel_id = channels.id").
-		Where("abilities."+groupColumn+" = ? AND abilities.enabled = ? AND channels.status = ?", group, true, common.ChannelStatusEnabled).
+		Where("abilities."+groupColumn+" = ? AND abilities.enabled = ? AND channels.status = ? AND channels.type <> ?", group, true, common.ChannelStatusEnabled, constant.ChannelTypeOpenHuman).
 		Distinct("abilities.model").
 		Pluck("abilities.model", &models).Error
 	return models, err
@@ -202,10 +202,10 @@ func GetChannelExcluding(group string, model string, retry int, requestPath stri
 		return nil, err
 	}
 	filterBeforePriority := len(excluded) > 0 || isSystemOneRequestPath(requestPath) || isNativeVoiceRequestPath(requestPath)
-	var containsTypeSafe bool
-	abilities, containsTypeSafe = filterAbilitiesByRequestPathAndModelWithNativePresence(abilities, requestPath, model)
-	if !filterBeforePriority && containsTypeSafe {
-		// A native-only channel at the chosen legacy priority must not hide
+	var requiresPriorityRefilter bool
+	abilities, requiresPriorityRefilter = filterAbilitiesByRequestPathAndModelWithPriorityFilter(abilities, requestPath, model)
+	if !filterBeforePriority && requiresPriorityRefilter {
+		// A native-only or retired channel at the chosen legacy priority must not hide
 		// otherwise eligible chat channels at a lower priority.
 		if err := DB.Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true).
 			Order("priority DESC, weight DESC").Find(&abilities).Error; err != nil {
@@ -284,14 +284,14 @@ func GetChannelExcluding(group string, model string, retry int, requestPath stri
 // filterAbilitiesByRequestPathAndModel restricts candidates by request path and
 // model for the DB (non-memory-cache) selection path. Native System One requests
 // require TypeSafe or compatible relay channels. Advanced Custom routes retain
-// their existing configured matching for other paths. Empty paths skip filtering.
+// their existing configured matching for other paths. Empty paths still exclude retired providers.
 func filterAbilitiesByRequestPathAndModel(abilities []Ability, requestPath string, model string) []Ability {
-	filtered, _ := filterAbilitiesByRequestPathAndModelWithNativePresence(abilities, requestPath, model)
+	filtered, _ := filterAbilitiesByRequestPathAndModelWithPriorityFilter(abilities, requestPath, model)
 	return filtered
 }
 
-func filterAbilitiesByRequestPathAndModelWithNativePresence(abilities []Ability, requestPath string, model string) ([]Ability, bool) {
-	if requestPath == "" || len(abilities) == 0 {
+func filterAbilitiesByRequestPathAndModelWithPriorityFilter(abilities []Ability, requestPath string, model string) ([]Ability, bool) {
+	if len(abilities) == 0 {
 		return abilities, false
 	}
 
@@ -324,10 +324,17 @@ func filterAbilitiesByRequestPathAndModelWithNativePresence(abilities []Ability,
 	}
 
 	filtered := make([]Ability, 0, len(abilities))
-	containsTypeSafe := false
+	requiresPriorityRefilter := false
 	for _, ability := range abilities {
 		channelType, found := channelTypes[ability.ChannelId]
-		containsTypeSafe = containsTypeSafe || (found && channelType == constant.ChannelTypeTypeSafe)
+		requiresPriorityRefilter = requiresPriorityRefilter || (found && (channelType == constant.ChannelTypeTypeSafe || channelType == constant.ChannelTypeOpenHuman))
+		if found && channelType == constant.ChannelTypeOpenHuman {
+			continue
+		}
+		if requestPath == "" {
+			filtered = append(filtered, ability)
+			continue
+		}
 		if isNativeVoiceRequestPath(requestPath) {
 			if found && (channelType == constant.ChannelTypeOpenAI || channelType == constant.ChannelTypeNewAPI) {
 				filtered = append(filtered, ability)
@@ -352,7 +359,7 @@ func filterAbilitiesByRequestPathAndModelWithNativePresence(abilities []Ability,
 			filtered = append(filtered, ability)
 		}
 	}
-	return filtered, containsTypeSafe
+	return filtered, requiresPriorityRefilter
 }
 
 func isSystemOneRequestPath(requestPath string) bool {

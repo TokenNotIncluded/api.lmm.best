@@ -40,6 +40,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { ForgePublicShell } from '@/features/forge/forge-public-shell'
 import { toIntlLocale } from '@/i18n/languages'
+import { formatQuotaWithCurrency } from '@/lib/currency'
 import { formatNumber, formatTimestampToDate } from '@/lib/format'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
@@ -50,8 +51,10 @@ import {
   getSecurityPolicy,
   getSecurityStats,
 } from './api'
+import { ModerationPolicySection } from './moderation-policy-section'
 import type {
   SecurityPolicy,
+  SecurityModerationStats,
   SecurityRiskCategory,
   SecurityRuleSummary,
   SecurityStats,
@@ -68,21 +71,21 @@ const SecurityAuditPanel = lazy(() =>
 const DETECTION_PRINCIPLES = [
   {
     icon: Activity,
-    title: 'Detection and enforcement',
+    title: 'Historical rule matching',
     description:
-      'The platform may combine rule matching, request context, and service signals to identify risk.',
+      'Earlier safety rules used literal pattern matching. Their saved rules remain available for historical reference.',
   },
   {
     icon: ShieldCheck,
-    title: 'Block before upstream',
+    title: 'Retired blocking rules',
     description:
-      'Requests can be stopped before an upstream model call when a rule is triggered.',
+      'Saved legacy block settings do not describe current enforcement. OpenAI Moderation reviews run asynchronously.',
   },
   {
     icon: BookOpenCheck,
     title: 'Review and appeal',
     description:
-      'If you believe a request was blocked incorrectly, contact support with the request ID. Do not include secrets in a support ticket.',
+      'If you believe a safety review was incorrect, contact support with the request ID. Do not include secrets in a support ticket.',
   },
 ]
 
@@ -179,6 +182,10 @@ function StatsPanel({
 
   return (
     <div className='space-y-5'>
+      <ModerationStatsPanel stats={stats.moderation} />
+      <h3 className='font-medium'>
+        {t('Historical rule matching statistics')}
+      </h3>
       <div className='grid gap-3 sm:grid-cols-2 xl:grid-cols-5'>
         {cards.map((card) => (
           <Card key={card.label} size='sm'>
@@ -227,6 +234,75 @@ function StatsPanel({
           )}
         </CardContent>
       </Card>
+    </div>
+  )
+}
+
+function ModerationStatsPanel({ stats }: { stats?: SecurityModerationStats }) {
+  const { t, i18n } = useTranslation()
+  if (!stats) {
+    return (
+      <UnavailableState
+        title={t('Moderation statistics are not available yet.')}
+        description={t(
+          'The server has not published Moderation counts. No totals are estimated.'
+        )}
+      />
+    )
+  }
+  const cards = [
+    { label: 'Completed Moderation reviews', value: stats.completed },
+    { label: 'Flagged Moderation reviews', value: stats.flagged },
+    { label: 'Reviews with wallet deductions', value: stats.fined },
+    { label: 'Failed Moderation reviews', value: stats.failed },
+  ]
+  return (
+    <div className='space-y-3'>
+      <h3 className='font-medium'>{t('All-time Moderation statistics')}</h3>
+      <div className='grid gap-3 sm:grid-cols-2 xl:grid-cols-4'>
+        {cards.map((card) => (
+          <Card key={card.label} size='sm'>
+            <CardHeader>
+              <CardDescription>{t(card.label)}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className='text-3xl font-semibold tracking-tight tabular-nums'>
+                {formatCount(card.value, i18n.language)}
+              </p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+      <dl className='text-muted-foreground flex flex-wrap gap-x-6 gap-y-2 text-sm'>
+        {[
+          ['Pending reviews', stats.pending],
+          ['Running reviews', stats.running],
+          ['Cancelled reviews', stats.cancelled],
+        ].map(([label, value]) => (
+          <div key={label} className='flex gap-2'>
+            <dt>{t(String(label))}</dt>
+            <dd className='tabular-nums'>
+              {formatCount(Number(value), i18n.language)}
+            </dd>
+          </div>
+        ))}
+        <div className='flex gap-2'>
+          <dt>{t('Total Moderation wallet deductions')}</dt>
+          <dd className='tabular-nums'>
+            {formatQuotaWithCurrency(stats.charged_quota, {
+              digitsLarge: 6,
+              digitsSmall: 6,
+              abbreviate: false,
+              locale: toIntlLocale(i18n.language),
+            })}
+          </dd>
+        </div>
+      </dl>
+      <p className='text-muted-foreground text-xs leading-5'>
+        {t(
+          'Flagged reviews include user input and assistant output. Only user input contributes to account risk.'
+        )}
+      </p>
     </div>
   )
 }
@@ -280,28 +356,6 @@ function PolicyMetadata({ policy }: { policy: SecurityPolicy }) {
               {displayValue(policy.reference_effective_date, t)}
             </dd>
           </div>
-          <div>
-            <dt className='text-muted-foreground'>{t('Advanced Security')}</dt>
-            <dd className='mt-1'>
-              {policy.enforcement.enabled ? t('Enabled') : t('Disabled')}
-            </dd>
-          </div>
-          <div>
-            <dt className='text-muted-foreground'>
-              {t('Inspect prompts before upstream')}
-            </dt>
-            <dd className='mt-1'>
-              {policy.enforcement.on_prompt ? t('Enabled') : t('Disabled')}
-            </dd>
-          </div>
-          <div className='sm:col-span-2'>
-            <dt className='text-muted-foreground'>{t('Response action')}</dt>
-            <dd className='mt-1'>
-              {policy.enforcement.action === 'block'
-                ? t('Block matching requests')
-                : t('Audit matches without blocking')}
-            </dd>
-          </div>
           <div className='sm:col-span-2'>
             <dt className='text-muted-foreground'>{t('Reference')}</dt>
             <dd className='mt-1'>
@@ -344,10 +398,10 @@ function ProtectedGroupsSummary({ policy }: { policy: SecurityPolicy }) {
       <div className='flex items-start gap-3'>
         <ShieldCheck className='text-muted-foreground mt-0.5 size-5 shrink-0' />
         <div>
-          <h3 className='font-medium'>{t('Protected groups')}</h3>
+          <h3 className='font-medium'>{t('Historical rule groups')}</h3>
           <p className='text-muted-foreground mt-1 text-sm leading-6'>
             {t(
-              'Only explicitly listed groups are covered by advanced security rules; rules do not apply globally.'
+              'These groups belong to the retired literal rules and do not enable current Moderation reviews.'
             )}
           </p>
         </div>
@@ -658,7 +712,12 @@ function PolicyPanel({
 
   return (
     <div className='space-y-8'>
-      <PolicyMetadata policy={policy} />
+      <p className='text-muted-foreground max-w-3xl text-sm leading-6'>
+        {t(
+          'The following legacy rules and settings are kept for historical reference. Current safety reviews use asynchronous OpenAI Moderation.'
+        )}
+      </p>
+      <Badge variant='outline'>{t('Retired')}</Badge>
       <ProtectedGroupsSummary policy={policy} />
 
       <section
@@ -669,7 +728,7 @@ function PolicyPanel({
           id='security-categories-title'
           className='scroll-mt-24 font-serif text-xl font-normal tracking-tight sm:text-2xl'
         >
-          {t('Risk categories')}
+          {t('Historical risk categories')}
         </h3>
         <RiskCategories categories={policy.risk_categories ?? []} />
       </section>
@@ -679,7 +738,7 @@ function PolicyPanel({
           id='security-rules-title'
           className='scroll-mt-24 font-serif text-xl font-normal tracking-tight sm:text-2xl'
         >
-          {t('Configured rule summaries')}
+          {t('Historical rule summaries')}
         </h3>
         <RuleSummaries rules={policy.rules ?? []} />
       </section>
@@ -690,14 +749,21 @@ function PolicyPanel({
             id='security-charges-title'
             className='scroll-mt-24 font-serif text-xl font-normal tracking-tight sm:text-2xl'
           >
-            {t('Violation charges')}
+            {t('Historical violation fees')}
           </h3>
           <p className='text-muted-foreground mt-2 text-sm leading-6'>
-            {t('Only fees published by the live server policy are shown.')}
+            {t(
+              'These retired fee entries are kept for reference. Current Moderation fees are published in the group policies above.'
+            )}
           </p>
         </div>
         <ViolationFees fees={policy.violation_fees ?? []} />
       </section>
+      <p className='text-muted-foreground max-w-3xl text-xs leading-5'>
+        {t(
+          "This is a public summary of this site's configured safety rules. It is not official Anthropic policy, authorization, endorsement, or legal advice."
+        )}
+      </p>
     </div>
   )
 }
@@ -743,9 +809,10 @@ export function SecurityContent() {
             className='flex flex-wrap gap-x-6 gap-y-1 text-sm'
           >
             {[
+              ['security-moderation-title', 'OpenAI Moderation'],
               ['security-metrics-title', 'Risk detection overview'],
-              ['security-policy-title', 'Safety policy'],
-              ['security-enforcement-title', 'Detection and response'],
+              ['security-policy-title', 'Historical safety rules and fees'],
+              ['security-enforcement-title', 'Legacy detection and response'],
             ].map(([id, label]) => (
               <a
                 key={id}
@@ -765,6 +832,12 @@ export function SecurityContent() {
             {t('Live metrics and charge schedules come from the server.')}
           </AlertDescription>
         </Alert>
+
+        <ModerationPolicySection
+          policy={policy?.moderation}
+          isLoading={policyQuery.isLoading}
+        />
+        {policy ? <PolicyMetadata policy={policy} /> : null}
 
         {isAdministrator ? (
           <Suspense
@@ -788,12 +861,6 @@ export function SecurityContent() {
             <SecurityAuditPanel />
           </Suspense>
         ) : null}
-
-        <p className='text-muted-foreground max-w-3xl text-xs leading-5'>
-          {t(
-            "This is a public summary of this site's configured safety rules. It is not official Anthropic policy, authorization, endorsement, or legal advice."
-          )}
-        </p>
 
         <section aria-labelledby='security-metrics-title' className='space-y-5'>
           <div>
@@ -822,7 +889,7 @@ export function SecurityContent() {
               id='security-policy-title'
               className='scroll-mt-24 font-serif text-2xl font-normal tracking-tight sm:text-3xl'
             >
-              {t('Safety policy')}
+              {t('Historical safety rules and fees')}
             </h2>
             <p className='text-muted-foreground mt-2 max-w-3xl text-sm leading-6'>
               {t('Read from the public server policy, which takes precedence.')}
@@ -840,8 +907,13 @@ export function SecurityContent() {
             id='security-enforcement-title'
             className='scroll-mt-24 font-serif text-2xl font-normal tracking-tight sm:text-3xl'
           >
-            {t('Detection and response')}
+            {t('Legacy detection and response')}
           </h2>
+          <p className='text-muted-foreground max-w-3xl text-sm leading-6'>
+            {t(
+              'This section describes retired rule matching for reference. Current safety reviews do not use these blocking rules.'
+            )}
+          </p>
           <div className='grid gap-3 md:grid-cols-3'>
             {DETECTION_PRINCIPLES.map((principle) => {
               const Icon = principle.icon

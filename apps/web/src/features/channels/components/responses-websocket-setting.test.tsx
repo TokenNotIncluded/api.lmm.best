@@ -66,13 +66,10 @@ function renderSetting(
 
 describe('Responses WebSocket channel control', () => {
   test('shows only supported types and uses their unset defaults', () => {
-    for (const type of [1, 57, 58, 59, 60, 61]) {
+    for (const type of [1, 57, 58, 59, 60]) {
       const { html } = renderSetting(type, supportedBackend)
       assert.match(html, /role="switch"/)
-      assert.match(
-        html,
-        new RegExp(`aria-checked="${[1, 57, 61].includes(type)}"`)
-      )
+      assert.match(html, new RegExp(`aria-checked="${[1, 57].includes(type)}"`))
       assert.doesNotMatch(html, /data-disabled=""/)
     }
     assert.doesNotMatch(

@@ -94,6 +94,9 @@ const baseValues = {
   AssistantEnabled: true,
   AssistantGroup: 'default',
   AssistantModel: 'deepseek-v4-flash',
+  AssistantModerationEnabled: false,
+  AssistantModerationGroup: 'default',
+  AssistantModerationModel: 'omni-moderation-latest',
   AssistantReasoningEffort: 'auto',
   AssistantStreamEnabled: true,
   AssistantTemperature: 0.2,
@@ -803,7 +806,7 @@ describe('assistant settings workspace', () => {
           '[data-settings-tab]'
         ),
       ]
-      assert.equal(tabs.length, 6)
+      assert.equal(tabs.length, 7)
       assert.equal(
         page.container.querySelectorAll('[role="tabpanel"]:not([hidden])')
           .length,
@@ -920,6 +923,78 @@ describe('assistant settings workspace', () => {
       await page.cleanup()
       api.post = originalPost
       restore()
+    }
+  })
+})
+
+describe('assistant asynchronous Moderation settings', () => {
+  test('starts off and saves opt-in through a single bulk transaction using only the moderation catalog', async () => {
+    const originalGet = api.get
+    const originalPost = api.post
+    const catalogs: unknown[] = []
+    const saves: Array<{ url: string; payload: unknown }> = []
+    api.get = (async (url: string, config?: { params?: unknown }) => {
+      if (url === '/api/group/') {
+        return { data: { success: true, data: ['default', 'premium'] } }
+      }
+      if (url === '/api/assistant/models') {
+        return { data: { success: true, data: ['deepseek-v4-flash'] } }
+      }
+      if (url === '/api/security/admin/moderation/models') {
+        catalogs.push(config?.params)
+        return {
+          data: {
+            success: true,
+            data: { group: 'default', models: ['omni-moderation-latest'] },
+          },
+        }
+      }
+      if (url === '/api/assistant/admin/registration-events') {
+        return { data: { success: true, data: [] } }
+      }
+      throw new Error(`Unexpected read: ${url}`)
+    }) as typeof api.get
+    api.post = (async (url: string, payload: unknown) => {
+      saves.push({ url, payload })
+      return { data: { success: true } }
+    }) as typeof api.post
+    const rendered = await renderSettings('none')
+    try {
+      await act(flushEffects)
+      assert.equal(catalogs.length, 0)
+      const panel = rendered.container.querySelector(
+        '[data-testid="assistant-moderation-settings"]'
+      )
+      assert.ok(panel)
+      const toggle = panel.querySelector<HTMLButtonElement>('[role="switch"]')
+      assert.ok(toggle)
+      assert.equal(toggle.getAttribute('aria-checked'), 'false')
+      await act(async () => {
+        toggle.click()
+        await flushEffects()
+      })
+      assert.deepEqual(catalogs, [{ group: 'default' }])
+      const form = rendered.container.querySelector('form')
+      assert.ok(form)
+      await act(async () => {
+        form.dispatchEvent(
+          new Event('submit', { bubbles: true, cancelable: true })
+        )
+        await flushEffects()
+        await flushEffects()
+      })
+      assert.deepEqual(saves, [
+        {
+          url: '/api/option/bulk',
+          payload: { values: { AssistantModerationEnabled: 'true' } },
+        },
+      ])
+      assert.match(panel.textContent ?? '', /omni-moderation-latest/)
+      assert.match(panel.textContent ?? '', /Groups without a policy stay off/)
+    } finally {
+      api.get = originalGet
+      api.post = originalPost
+      await rendered.cleanup()
     }
   })
 })

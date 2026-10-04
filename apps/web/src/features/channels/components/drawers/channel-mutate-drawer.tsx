@@ -141,6 +141,7 @@ import {
   ADD_MODE_OPTIONS,
   CHANNEL_STATUS_LABELS,
   CHANNEL_TYPE_OPTIONS,
+  CHANNEL_TYPES,
   CHANNEL_TYPE_WARNINGS,
   CHANNEL_TYPE_TYPESAFE,
   ERROR_MESSAGES,
@@ -971,7 +972,9 @@ export function ChannelMutateDrawer({
   const currentTypeLabel = useMemo(
     () =>
       CHANNEL_TYPE_OPTIONS.find((option) => option.value === currentType)
-        ?.label || `#${currentType}`,
+        ?.label ||
+      CHANNEL_TYPES[currentType as keyof typeof CHANNEL_TYPES] ||
+      `#${currentType}`,
     [currentType]
   )
 
@@ -984,7 +987,10 @@ export function ChannelMutateDrawer({
     if (!options.some((option) => Number(option.value) === currentType)) {
       options.push({
         value: String(currentType),
-        label: `#${currentType}`,
+        label: t(
+          CHANNEL_TYPES[currentType as keyof typeof CHANNEL_TYPES] ||
+            `#${currentType}`
+        ),
         icon: <ChannelTypeLogo type={currentType} size={16} />,
       })
     }
@@ -4960,6 +4966,7 @@ export function ChannelMutateDrawer({
       <FetchModelsDialog
         open={fetchModelsDialogOpen}
         onOpenChange={setFetchModelsDialogOpen}
+        channelType={currentType}
         onModelsSelected={(models) => {
           form.setValue('models', formatModelsArray(models))
         }}

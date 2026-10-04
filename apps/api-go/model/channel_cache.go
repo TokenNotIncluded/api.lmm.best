@@ -120,8 +120,8 @@ func refreshChannelCache() error {
 		newGroup2model2channels[group] = make(map[string][]int)
 	}
 	for _, channel := range channels {
-		if channel.Status != common.ChannelStatusEnabled {
-			continue // skip disabled channels
+		if channel.Status != common.ChannelStatusEnabled || channel.Type == constant.ChannelTypeOpenHuman {
+			continue // skip disabled or retired channels
 		}
 		groups := strings.Split(channel.Group, ",")
 		for _, group := range groups {
@@ -343,17 +343,21 @@ func GetRandomSatisfiedChannelExcluding(group string, model string, retry int, r
 // filterChannelsByRequestPathAndModel restricts candidates by request path and
 // model. System One requires a TypeSafe or compatible relay channel, while
 // TypeSafe only accepts that native protocol. Advanced Custom keeps configured
-// route matching for other paths. Empty request paths skip filtering.
+// route matching for other paths. Empty request paths still exclude retired providers.
 // Caller must hold channelSyncLock (read lock). The cached slice is never mutated.
 func filterChannelsByRequestPathAndModel(channels []int, requestPath string, model string) []int {
-	if requestPath == "" || len(channels) == 0 {
+	if len(channels) == 0 {
 		return channels
 	}
 	var filtered []int
 	for index, channelId := range channels {
 		channel, ok := channelsIDM[channelId]
 		keep := true
-		if isNativeVoiceRequestPath(requestPath) {
+		if ok && channel.Type == constant.ChannelTypeOpenHuman {
+			keep = false
+		} else if requestPath == "" {
+			keep = true
+		} else if isNativeVoiceRequestPath(requestPath) {
 			keep = ok && (channel.Type == constant.ChannelTypeOpenAI || channel.Type == constant.ChannelTypeNewAPI)
 		} else if isSystemOneRequestPath(requestPath) {
 			keep = ok && (channel.Type == constant.ChannelTypeTypeSafe || channel.Type == constant.ChannelTypeNewAPI)

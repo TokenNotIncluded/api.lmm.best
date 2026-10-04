@@ -134,3 +134,48 @@ function compactFilters(
   if (filters.source) params.source = filters.source
   return params
 }
+
+export type ModerationModelCatalog = {
+  group: string
+  models: string[]
+}
+
+export async function getModerationModels(group: string) {
+  const response = await api.get<SecurityAuditEnvelope<ModerationModelCatalog>>(
+    '/api/security/admin/moderation/models',
+    { params: { group }, skipBusinessError: true, skipErrorHandler: true }
+  )
+  if (!response.data.success) {
+    throw new Error(response.data.message || 'Unable to load moderation models')
+  }
+  return response.data.data?.models ?? []
+}
+
+export async function listModerationReviews(
+  filters: import('./security-audit-types').ModerationReviewFilters
+) {
+  const response = await api.get<
+    SecurityAuditEnvelope<import('./security-audit-types').ModerationReviewPage>
+  >('/api/security/admin/moderation-reviews', {
+    params: {
+      p: filters.page,
+      page_size: filters.page_size,
+      ...(filters.group ? { group: filters.group } : {}),
+      ...(filters.status ? { status: filters.status } : {}),
+      ...(filters.source ? { source: filters.source } : {}),
+    },
+    skipBusinessError: true,
+    skipErrorHandler: true,
+  })
+  return response.data
+}
+
+export async function getModerationStats() {
+  const response = await api.get<
+    SecurityAuditEnvelope<import('./security-audit-types').ModerationQueueStats>
+  >('/api/security/admin/moderation-stats', {
+    skipBusinessError: true,
+    skipErrorHandler: true,
+  })
+  return response.data
+}

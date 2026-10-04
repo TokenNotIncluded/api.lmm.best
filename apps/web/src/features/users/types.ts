@@ -91,6 +91,8 @@ export const userSchema = z.object({
       pending_quota: z.number(),
       received_quota: z.number(),
       high_risk_senders: z.number(),
+      moderation_reviewed_count: z.number().int().nonnegative().optional(),
+      moderation_flagged_count: z.number().int().nonnegative().optional(),
     })
     .optional(),
   topup_summary: z

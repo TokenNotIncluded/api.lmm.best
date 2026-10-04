@@ -18,6 +18,7 @@ const ITEM_LABELS: Record<string, string> = {
   'account_action.request': 'Account action request',
   'assistant.security_incident': 'Assistant safety incident',
   'assistant.security_review': 'assistant.security_review',
+  'moderation.warning': 'Safety review warning',
 }
 
 export function todoItemTitleKey(title: string) {

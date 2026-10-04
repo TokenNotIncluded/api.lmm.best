@@ -6,19 +6,21 @@ import (
 	"gorm.io/gorm"
 )
 
-// Version 1 is an explainable review heuristic, not a calibrated probability.
+// Version 2 is an explainable review heuristic, not a calibrated probability.
 // Risk is recomputed from committed activity; it never blocks or bans accounts.
 type UserWalletRisk struct {
-	Score            float64  `json:"score"`
-	HighRisk         bool     `json:"high_risk"`
-	Version          int      `json:"version"`
-	Reasons          []string `json:"reasons"`
-	CheckinQuota     int64    `json:"checkin_quota"`
-	CheckinCount     int64    `json:"checkin_count"`
-	TransferredQuota int64    `json:"transferred_quota"`
-	PendingQuota     int64    `json:"pending_quota"`
-	ReceivedQuota    int64    `json:"received_quota"`
-	HighRiskSenders  int64    `json:"high_risk_senders"`
+	Score                   float64  `json:"score"`
+	HighRisk                bool     `json:"high_risk"`
+	Version                 int      `json:"version"`
+	Reasons                 []string `json:"reasons"`
+	CheckinQuota            int64    `json:"checkin_quota"`
+	CheckinCount            int64    `json:"checkin_count"`
+	TransferredQuota        int64    `json:"transferred_quota"`
+	PendingQuota            int64    `json:"pending_quota"`
+	ReceivedQuota           int64    `json:"received_quota"`
+	HighRiskSenders         int64    `json:"high_risk_senders"`
+	ModerationReviewedCount int64    `json:"moderation_reviewed_count"`
+	ModerationFlaggedCount  int64    `json:"moderation_flagged_count"`
 }
 
 type UserListFilters struct {
@@ -30,7 +32,27 @@ type UserListFilters struct {
 	Checkin   string
 }
 
-const userWalletRiskScoreSQL = "CASE WHEN COALESCE(user_wallet_risk_received.score, 0) > user_wallet_risk_base.score THEN COALESCE(user_wallet_risk_received.score, 0) ELSE user_wallet_risk_base.score END"
+const userWalletRiskExistingScoreSQL = "CASE WHEN COALESCE(user_wallet_risk_received.score, 0) > user_wallet_risk_base.score THEN COALESCE(user_wallet_risk_received.score, 0) ELSE user_wallet_risk_base.score END"
+const userWalletRiskScoreSQL = "CASE WHEN COALESCE(user_moderation_risk.score, 0) > (" + userWalletRiskExistingScoreSQL + ") THEN COALESCE(user_moderation_risk.score, 0) ELSE (" + userWalletRiskExistingScoreSQL + ") END"
+
+// Content-review risk is kept separate from wallet-source risk. In particular,
+// receiving a transfer never propagates a sender's moderation classifications.
+// Duplicate sources for one real request count once; resets affect this view
+// without deleting the historical review and charging receipts.
+func userModerationRisk(tx *gorm.DB) *gorm.DB {
+	if !tx.Migrator().HasTable(&ModerationJob{}) {
+		return tx.Model(&User{}).Select("users.id AS user_id, 0 AS score, 0 AS reviewed_count, 0 AS flagged_count").Where("1 = 0")
+	}
+	requests := tx.Model(&ModerationJob{}).
+		Select("moderation_jobs.user_id, moderation_jobs.request_id, MAX(CASE WHEN moderation_jobs.flagged THEN 1 ELSE 0 END) AS flagged").
+		Where("moderation_jobs.status = ? AND moderation_jobs.source IN ?", ModerationJobCompleted, []string{ModerationSourceRelayInput, ModerationSourceAssistantInput})
+	if tx.Migrator().HasTable(&AssistantReviewReset{}) {
+		requests = requests.Joins("LEFT JOIN assistant_review_resets AS moderation_reset ON moderation_reset.user_id = moderation_jobs.user_id").Where("moderation_jobs.created_at > COALESCE(moderation_reset.reset_at, 0)")
+	}
+	requests = requests.Group("moderation_jobs.user_id, moderation_jobs.request_id")
+	return tx.Table("(?) AS moderation_requests", requests).
+		Select("user_id, COUNT(*) AS reviewed_count, SUM(flagged) AS flagged_count, CASE WHEN SUM(flagged) >= 10 THEN 0.95 WHEN SUM(flagged) >= 5 THEN 0.8 WHEN SUM(flagged) >= 2 THEN 0.6 WHEN SUM(flagged) >= 1 THEN 0.4 ELSE 0 END AS score").Group("user_id")
+}
 
 // Aggregate in SQL before pagination. Cancelled transfers neither count as
 // money sent nor produce a risk association; pending funds are still debited.
@@ -68,7 +90,8 @@ func joinUserWalletRisk(tx, query *gorm.DB) *gorm.DB {
 		received = tx.Model(&User{}).Select("users.id AS user_id, 0 AS score, 0 AS senders").Where("1 = 0")
 	}
 	return query.Joins("LEFT JOIN (?) AS user_wallet_risk_base ON user_wallet_risk_base.user_id = users.id", base).
-		Joins("LEFT JOIN (?) AS user_wallet_risk_received ON user_wallet_risk_received.user_id = users.id", received)
+		Joins("LEFT JOIN (?) AS user_wallet_risk_received ON user_wallet_risk_received.user_id = users.id", received).
+		Joins("LEFT JOIN (?) AS user_moderation_risk ON user_moderation_risk.user_id = users.id", userModerationRisk(tx))
 }
 
 func (filters UserListFilters) Apply(query *gorm.DB) *gorm.DB {
@@ -120,20 +143,22 @@ func PopulateUserWalletRiskContext(ctx context.Context, users []*User) error {
 		return nil
 	}
 	type aggregate struct {
-		UserID           int
-		Score            float64
-		BaseScore        float64
-		CheckinQuota     int64
-		CheckinCount     int64
-		TransferredQuota int64
-		PendingQuota     int64
-		ReceivedQuota    int64
-		HighRiskSenders  int64
+		UserID                  int
+		Score                   float64
+		BaseScore               float64
+		CheckinQuota            int64
+		CheckinCount            int64
+		TransferredQuota        int64
+		PendingQuota            int64
+		ReceivedQuota           int64
+		HighRiskSenders         int64
+		ModerationReviewedCount int64
+		ModerationFlaggedCount  int64
 	}
 	var rows []aggregate
 	tx := DB.WithContext(ctx)
 	query := joinUserWalletRisk(tx, tx.Unscoped().Model(&User{})).Where("users.id IN ?", ids)
-	if err := query.Select("users.id AS user_id, (" + userWalletRiskScoreSQL + ") AS score, user_wallet_risk_base.score AS base_score, user_wallet_risk_base.checkin_quota, user_wallet_risk_base.checkin_count, user_wallet_risk_base.transferred_quota, user_wallet_risk_base.pending_quota, user_wallet_risk_base.received_quota, COALESCE(user_wallet_risk_received.senders, 0) AS high_risk_senders").Scan(&rows).Error; err != nil {
+	if err := query.Select("users.id AS user_id, (" + userWalletRiskScoreSQL + ") AS score, user_wallet_risk_base.score AS base_score, user_wallet_risk_base.checkin_quota, user_wallet_risk_base.checkin_count, user_wallet_risk_base.transferred_quota, user_wallet_risk_base.pending_quota, user_wallet_risk_base.received_quota, COALESCE(user_wallet_risk_received.senders, 0) AS high_risk_senders, COALESCE(user_moderation_risk.reviewed_count, 0) AS moderation_reviewed_count, COALESCE(user_moderation_risk.flagged_count, 0) AS moderation_flagged_count").Scan(&rows).Error; err != nil {
 		return err
 	}
 	for _, row := range rows {
@@ -151,7 +176,10 @@ func PopulateUserWalletRiskContext(ctx context.Context, users []*User) error {
 		if row.HighRiskSenders > 0 {
 			reasons = append(reasons, "received_from_high_risk")
 		}
-		byID[row.UserID].WalletRisk = &UserWalletRisk{Score: row.Score, HighRisk: row.Score >= 0.8, Version: 1, Reasons: reasons, CheckinQuota: row.CheckinQuota, CheckinCount: row.CheckinCount, TransferredQuota: row.TransferredQuota, PendingQuota: row.PendingQuota, ReceivedQuota: row.ReceivedQuota, HighRiskSenders: row.HighRiskSenders}
+		if row.ModerationFlaggedCount > 0 {
+			reasons = append(reasons, "moderation_violations")
+		}
+		byID[row.UserID].WalletRisk = &UserWalletRisk{Score: row.Score, HighRisk: row.Score >= 0.8, Version: 2, Reasons: reasons, CheckinQuota: row.CheckinQuota, CheckinCount: row.CheckinCount, TransferredQuota: row.TransferredQuota, PendingQuota: row.PendingQuota, ReceivedQuota: row.ReceivedQuota, HighRiskSenders: row.HighRiskSenders, ModerationReviewedCount: row.ModerationReviewedCount, ModerationFlaggedCount: row.ModerationFlaggedCount}
 	}
 	return nil
 }

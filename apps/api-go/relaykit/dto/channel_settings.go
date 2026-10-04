@@ -17,7 +17,7 @@ type ChannelSettings struct {
 	PassThroughBodyEnabled bool   `json:"pass_through_body_enabled,omitempty"`
 	SystemPrompt           string `json:"system_prompt,omitempty"`
 	SystemPromptOverride   bool   `json:"system_prompt_override,omitempty"`
-	// Nil preserves the original OpenAI/OpenHuman/Codex behavior. Newly supported
+	// Nil preserves the original OpenAI/Codex behavior. Newly supported
 	// channel types require an explicit opt-in; false always disables WebSocket.
 	ResponsesWebSocketEnabled *bool `json:"responses_websocket_enabled,omitempty"`
 	// HTTPProtocol controls outbound HTTP version negotiation for this channel.

@@ -49,7 +49,26 @@ const IPAccessRoutingSection = lazyNamedSection(
   'IPAccessRoutingSection'
 )
 
+const ModerationSettingsSection = lazyNamedSection(
+  () => import('./moderation-settings-section'),
+  'ModerationSettingsSection'
+)
+
 const SECURITY_SECTIONS = [
+  {
+    id: 'moderation',
+    titleKey: 'Content safety review',
+    build: (settings: SecuritySettings) => (
+      <ModerationSettingsSection
+        defaultValues={{
+          ModerationEnabled: settings.ModerationEnabled,
+          ModerationGroup: settings.ModerationGroup,
+          ModerationModel: settings.ModerationModel,
+          ModerationGroupPolicies: settings.ModerationGroupPolicies,
+        }}
+      />
+    ),
+  },
   {
     id: 'rate-limit',
     titleKey: 'Rate Limiting',
@@ -82,7 +101,7 @@ const SECURITY_SECTIONS = [
   },
   {
     id: 'advanced-security',
-    titleKey: 'Advanced Security',
+    titleKey: 'Historical safety rules',
     build: (settings: SecuritySettings) => (
       <AdvancedSecuritySection
         defaultValues={{

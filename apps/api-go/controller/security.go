@@ -23,10 +23,20 @@ import (
 const publicSecurityStatsWindow = 30 * 24 * time.Hour
 
 func GetPublicSecurityPolicy(c *gin.Context) {
-	common.ApiSuccess(c, buildPublicSecurityPolicy())
+	moderationSettings, err := model.ReadModerationSettingsContext(c.Request.Context())
+	if err != nil {
+		common.ApiErrorMsg(c, "security policy is unavailable")
+		return
+	}
+	common.ApiSuccess(c, buildPublicSecurityPolicy(moderationSettings))
 }
 
 func GetAdminSecurityPolicy(c *gin.Context) {
+	moderationSettings, err := model.ReadModerationSettingsContext(c.Request.Context())
+	if err != nil {
+		common.ApiErrorMsg(c, "security policy is unavailable")
+		return
+	}
 	settings := setting.GetAdvancedSecuritySettings()
 	adminRules := make([]dto.SecurityAdminRule, 0, len(settings.RuleSet.Rules))
 	for _, rule := range settings.RuleSet.Rules {
@@ -40,19 +50,16 @@ func GetAdminSecurityPolicy(c *gin.Context) {
 				Source:      rule.Source,
 				Version:     rule.Version,
 				Description: rule.Description,
+				Historical:  true,
 			},
-			Enabled:  rule.Enabled,
+			Enabled:  false,
 			Groups:   append([]string(nil), rule.Groups...),
 			Patterns: append([]string(nil), rule.Patterns...),
 		})
 	}
 	common.ApiSuccess(c, dto.AdminSecurityPolicy{
-		Public: buildPublicSecurityPolicy(),
-		Settings: dto.SecuritySettings{
-			Enabled:  settings.Enabled,
-			OnPrompt: settings.OnPrompt,
-			Action:   settings.Action,
-		},
+		Public:       buildPublicSecurityPolicy(moderationSettings),
+		Settings:     dto.SecuritySettings{Action: "retired", Retired: true},
 		Rules:        adminRules,
 		ViolationFee: violationFeeSettingsDTO(),
 	})
@@ -104,7 +111,15 @@ func GetPublicSecurityStats(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	common.ApiSuccess(c, buildSecurityStatsDTO(stats, start, end, false))
+	moderationStats, err := model.ModerationStats(c.Request.Context())
+	if err != nil {
+		common.ApiErrorMsg(c, "moderation statistics are unavailable")
+		return
+	}
+	result := buildSecurityStatsDTO(stats, start, end, false)
+	moderation := moderationStatsDTO(moderationStats)
+	result.Moderation = &moderation
+	common.ApiSuccess(c, result)
 }
 
 func GetAdminSecurityStats(c *gin.Context) {
@@ -118,7 +133,15 @@ func GetAdminSecurityStats(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	common.ApiSuccess(c, buildSecurityStatsDTO(stats, filter.StartTimestamp, filter.EndTimestamp, true))
+	moderationStats, err := model.ModerationStats(c.Request.Context())
+	if err != nil {
+		common.ApiErrorMsg(c, "moderation statistics are unavailable")
+		return
+	}
+	result := buildSecurityStatsDTO(stats, filter.StartTimestamp, filter.EndTimestamp, true)
+	moderation := moderationStatsDTO(moderationStats)
+	result.Moderation = &moderation
+	common.ApiSuccess(c, result)
 }
 
 func ListAdminSecurityEvents(c *gin.Context) {
@@ -422,7 +445,7 @@ func GetAdminAssistantReviewTask(c *gin.Context) {
 	common.ApiSuccess(c, task.ToResponse())
 }
 
-func buildPublicSecurityPolicy() dto.PublicSecurityPolicy {
+func buildPublicSecurityPolicy(moderationSettings setting.ModerationSettings) dto.PublicSecurityPolicy {
 	settings := setting.GetAdvancedSecuritySettings()
 	categories := setting.GetAdvancedSecurityRiskCategories()
 	categoryDTOs := make([]dto.SecurityRiskCategory, 0, len(categories))
@@ -451,6 +474,7 @@ func buildPublicSecurityPolicy() dto.PublicSecurityPolicy {
 			Source:      rule.Source,
 			Version:     rule.Version,
 			Description: rule.Description,
+			Historical:  true,
 		})
 	}
 
@@ -466,8 +490,8 @@ func buildPublicSecurityPolicy() dto.PublicSecurityPolicy {
 				Code:              string(types.ErrorCodeViolationFeeUsagePolicy),
 				Provider:          "",
 				Groups:            append([]string(nil), policy.Groups...),
-				Trigger:           "Any upstream usage-policy violation marker, regardless of model or provider.",
-				Enabled:           violationSettings.Enabled && policy.Enabled,
+				Trigger:           "Historical upstream usage-policy violation marker; this policy is retired.",
+				Enabled:           false,
 				AmountUSD:         amount,
 				AmountsUSD:        append([]float64(nil), policy.AmountsUSD...),
 				Multiplier:        policy.Multiplier,
@@ -475,49 +499,37 @@ func buildPublicSecurityPolicy() dto.PublicSecurityPolicy {
 				PeriodSeconds:     policy.PeriodSeconds,
 				ChargeUnit:        "per violating request",
 				Retryable:         false,
-				Description:       "The configured group policy charges an escalating penalty after a usage-policy violation.",
-				ChargingNotes:     "The penalty is deducted from wallet quota only, never below zero. The counter resets after the configured period. Users may appeal and administrators may reverse an approved penalty.",
+				Description:       "Historical escalating penalty configuration retained for reference; it no longer charges requests.",
+				ChargingNotes:     "Existing penalty records remain available for appeal. Current asynchronous Moderation category rules are published separately.",
 				LocalGuardrailFee: false,
+				Historical:        true,
 			})
 		}
 	}
 
 	return dto.PublicSecurityPolicy{
-		PolicyVersion:          setting.AdvancedSecurityPolicyVersion,
-		ReferenceEffectiveDate: setting.AdvancedSecurityPolicyReferenceDate,
-		ReferenceURL:           setting.AdvancedSecurityPolicyReferenceURL,
-		Alignment:              "Anthropic public Usage Policy risk areas, adapted for this relay; not an official equivalent",
-		Enforcement: dto.SecuritySettings{
-			Enabled:  settings.Enabled,
-			OnPrompt: settings.OnPrompt,
-			Action:   settings.Action,
-		},
-		ProtectedGroups: advancedSecurityProtectedGroups(settings),
-		RiskCategories:  categoryDTOs,
-		Rules:           publicRules,
-		ViolationFees:   violationFees,
+		PolicyVersion:          "openai-moderation-v1",
+		ReferenceEffectiveDate: "",
+		ReferenceURL:           "https://developers.openai.com/api/docs/guides/moderation",
+		Alignment:              "OpenAI Moderation content classification; historical literal rules are retained for reference only",
+		Enforcement:            dto.SecuritySettings{Action: "retired", Retired: true},
+		ProtectedGroups:        moderationProtectedGroups(moderationSettings),
+		RiskCategories:         categoryDTOs,
+		Rules:                  publicRules,
+		ViolationFees:          violationFees,
+		Moderation:             publicModerationPolicy(moderationSettings),
 	}
 }
 
-func advancedSecurityProtectedGroups(settings setting.AdvancedSecuritySettings) []string {
-	if !settings.Enabled {
+func moderationProtectedGroups(settings setting.ModerationSettings) []string {
+	if !settings.Enabled && !settings.AssistantEnabled {
 		return []string{}
 	}
-	seen := make(map[string]struct{})
-	for _, rule := range settings.RuleSet.Rules {
-		if !rule.Enabled {
-			continue
+	groups := make([]string, 0, len(settings.GroupPolicies))
+	for group, policy := range settings.GroupPolicies {
+		if policy.Mode != setting.ModerationModeOff {
+			groups = append(groups, group)
 		}
-		for _, group := range rule.Groups {
-			group = strings.TrimSpace(group)
-			if group != "" {
-				seen[group] = struct{}{}
-			}
-		}
-	}
-	groups := make([]string, 0, len(seen))
-	for group := range seen {
-		groups = append(groups, group)
 	}
 	sort.Strings(groups)
 	return groups
@@ -529,11 +541,10 @@ func violationFeeSettingsDTO() dto.SecurityViolationFeeSettings {
 	if settings == nil {
 		return result
 	}
-	result.Enabled = settings.Enabled
 	result.Policies = make([]dto.SecurityViolationFeePolicy, 0, len(settings.Policies))
 	for _, policy := range settings.Policies {
 		result.Policies = append(result.Policies, dto.SecurityViolationFeePolicy{
-			Name: policy.Name, Groups: append([]string(nil), policy.Groups...), Enabled: policy.Enabled,
+			Name: policy.Name, Groups: append([]string(nil), policy.Groups...), Enabled: false,
 			AmountsUSD: append([]float64(nil), policy.AmountsUSD...), InitialAmountUSD: policy.InitialAmountUSD,
 			Multiplier: policy.Multiplier, MaxAmountUSD: policy.MaxAmountUSD, PeriodSeconds: policy.PeriodSeconds,
 			DrainBalanceWhenShort: policy.DrainBalanceWhenShort,

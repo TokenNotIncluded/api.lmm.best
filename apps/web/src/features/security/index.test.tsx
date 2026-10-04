@@ -178,6 +178,53 @@ afterEach(() => {
 after(() => domWindow.close())
 
 describe('SecurityContent', () => {
+  test('distinguishes live Moderation totals from historical rule statistics', async () => {
+    api.get = (async (url: string) => {
+      if (url === '/api/security/policy') return { data: policyResponse }
+      if (url === '/api/security/stats') {
+        return {
+          data: {
+            ...statsResponse,
+            data: {
+              ...statsResponse.data,
+              moderation: {
+                pending: 2,
+                running: 1,
+                completed: 34,
+                failed: 3,
+                cancelled: 4,
+                flagged: 7,
+                fined: 2,
+                charged_quota: 100000,
+              },
+            },
+          },
+        }
+      }
+      throw new Error(`Unexpected GET ${url}`)
+    }) as typeof api.get
+    const rendered = await renderSecurityContent()
+    try {
+      await waitForText(rendered.container, 'All-time Moderation statistics')
+      const content = rendered.container.textContent ?? ''
+      assert.match(content, /Completed Moderation reviews/)
+      assert.match(content, /Flagged Moderation reviews/)
+      assert.match(content, /Reviews with wallet deductions/)
+      assert.match(content, /34/)
+      assert.match(content, /Historical rule matching statistics/)
+      assert.match(
+        content,
+        /Flagged reviews include user input and assistant output/
+      )
+      assert.doesNotMatch(
+        content,
+        /Moderation statistics are not available yet/
+      )
+    } finally {
+      await act(async () => rendered.root.unmount())
+    }
+  })
+
   test('renders policy categories, rule summaries, real stats, and fee rules', async () => {
     const requestedUrls: string[] = []
     api.get = (async (url: string) => {
@@ -193,9 +240,12 @@ describe('SecurityContent', () => {
       const content = rendered.container.textContent ?? ''
 
       assert.match(content, /Privacy and identity rights/)
-      assert.match(content, /Advanced Security/)
+      assert.match(content, /Policy metadata/)
       assert.match(content, /default/)
-      assert.match(content, /Block matching requests/)
+      assert.match(content, /Historical safety rules and fees/)
+      assert.doesNotMatch(content, /Block matching requests/)
+      assert.match(content, /retired literal rules/)
+      assert.match(content, /OpenAI Moderation/)
       assert.match(content, /17/)
       assert.match(content, /11/)
       assert.match(content, /violation_fee\.grok\.csam/)

@@ -225,6 +225,9 @@ func runServer() {
 	// switch are enforced inside the runner and each handler's Enabled().
 	controller.RegisterScheduledSystemTasks()
 	loops.Go(service.RunSystemTaskRunner)
+	// Moderation uses durable, per-request leases across all API nodes. Its
+	// provider calls run only in these cancellation-aware background workers.
+	loops.Go(service.RunModerationWorker)
 
 	if os.Getenv("BATCH_UPDATE_ENABLED") == "true" {
 		common.BatchUpdateEnabled = true

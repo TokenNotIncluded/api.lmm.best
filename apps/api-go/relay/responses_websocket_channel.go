@@ -20,7 +20,7 @@ import (
 // Keep initial selection and locked-channel reuse on the same capability rule.
 func responsesWSChannelSupportsType(channelType int) bool {
 	switch channelType {
-	case appconstant.ChannelTypeOpenAI, appconstant.ChannelTypeOpenHuman, appconstant.ChannelTypeCodex,
+	case appconstant.ChannelTypeOpenAI, appconstant.ChannelTypeCodex,
 		appconstant.ChannelTypeAdvancedCustom, appconstant.ChannelTypeSub2API, appconstant.ChannelTypeNewAPI:
 		return true
 	default:
@@ -29,7 +29,7 @@ func responsesWSChannelSupportsType(channelType int) bool {
 }
 
 func responsesWSChannelDefaultEnabled(channelType int) bool {
-	return channelType == appconstant.ChannelTypeOpenAI || channelType == appconstant.ChannelTypeOpenHuman || channelType == appconstant.ChannelTypeCodex
+	return channelType == appconstant.ChannelTypeOpenAI || channelType == appconstant.ChannelTypeCodex
 }
 
 func responsesWSChannelEligibility(channel *appmodel.Channel, requestPath, modelName string) *types.NewAPIError {

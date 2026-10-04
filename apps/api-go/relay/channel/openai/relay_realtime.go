@@ -114,7 +114,7 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (apiErro
 				return nil, finishRealtimeUsage(c, info, sumUsage, localUsage, localOutputDelivered)
 			}
 			if frame.fromClient {
-				evaluation := service.EvaluateAdvancedSecurityText(c, info, dto.SecurityTextFromRealtimeJSON(frame.message))
+				evaluation := service.EvaluateAdvancedSecurityText(c, info, dto.ModerationTextFromRealtimeJSON(frame.message))
 				if len(evaluation.Matches) > 0 {
 					matchIDs := make([]string, 0, len(evaluation.Matches))
 					for _, match := range evaluation.Matches {

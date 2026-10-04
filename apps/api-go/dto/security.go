@@ -20,6 +20,7 @@ type SecurityRuleSummary struct {
 	Source      string `json:"source"`
 	Version     string `json:"version"`
 	Description string `json:"description"`
+	Historical  bool   `json:"historical,omitempty"`
 }
 
 type SecurityViolationFeeRule struct {
@@ -38,6 +39,7 @@ type SecurityViolationFeeRule struct {
 	Description       string    `json:"description"`
 	ChargingNotes     string    `json:"charging_notes"`
 	LocalGuardrailFee bool      `json:"local_guardrail_fee"`
+	Historical        bool      `json:"historical,omitempty"`
 }
 
 type SecurityViolationFeePolicy struct {
@@ -70,12 +72,32 @@ type PublicSecurityPolicy struct {
 	RiskCategories  []SecurityRiskCategory     `json:"risk_categories"`
 	Rules           []SecurityRuleSummary      `json:"rules"`
 	ViolationFees   []SecurityViolationFeeRule `json:"violation_fees"`
+	Moderation      SecurityModerationPolicy   `json:"moderation"`
+}
+
+// SecurityModerationPolicy publishes account-group rules only. Review routing
+// groups, channel metadata and credentials remain administrator-only.
+type SecurityModerationPolicy struct {
+	Enabled          bool                                     `json:"enabled"`
+	AssistantEnabled bool                                     `json:"assistant_enabled"`
+	Engine           string                                   `json:"engine"`
+	Async            bool                                     `json:"async"`
+	GroupPolicies    map[string]SecurityModerationGroupPolicy `json:"group_policies"`
+	SupportedInputs  []string                                 `json:"supported_inputs"`
+	// NoticeOnly describes in-site delivery, not whether a strict policy fines.
+	NoticeOnly bool `json:"notice_only"`
+}
+
+type SecurityModerationGroupPolicy struct {
+	Mode             string             `json:"mode"`
+	CategoryFinesUSD map[string]float64 `json:"category_fines_usd"`
 }
 
 type SecuritySettings struct {
 	Enabled  bool   `json:"enabled"`
 	OnPrompt bool   `json:"on_prompt"`
 	Action   string `json:"action"`
+	Retired  bool   `json:"retired,omitempty"`
 }
 
 type SecurityAdminRule struct {
@@ -108,6 +130,48 @@ type SecurityStats struct {
 	ByCategory       []SecurityStatBucket   `json:"by_category"`
 	ByRule           []SecurityStatBucket   `json:"by_rule,omitempty"`
 	AIReview         *AISecurityReviewStats `json:"ai_review,omitempty"`
+	// Moderation is an all-time queue aggregate, independent of the legacy
+	// event window above. No user, group or request metadata is public here.
+	Moderation *ModerationSecurityStats `json:"moderation,omitempty"`
+}
+
+type ModerationSecurityStats struct {
+	Pending      int64 `json:"pending"`
+	Running      int64 `json:"running"`
+	Completed    int64 `json:"completed"`
+	Failed       int64 `json:"failed"`
+	Cancelled    int64 `json:"cancelled"`
+	Flagged      int64 `json:"flagged"`
+	Fined        int64 `json:"fined"`
+	ChargedQuota int64 `json:"charged_quota"`
+}
+
+// SecurityModerationReview is a bounded administrative projection. It never
+// includes submitted text, provider bodies, leases or captured policy data.
+type SecurityModerationReview struct {
+	ID             int64    `json:"id"`
+	SourceKind     string   `json:"source_kind"`
+	Source         string   `json:"source"`
+	UserID         int      `json:"user_id,omitempty"`
+	RequestID      string   `json:"request_id,omitempty"`
+	Group          string   `json:"group,omitempty"`
+	ReviewModel    string   `json:"review_model"`
+	Mode           string   `json:"mode"`
+	Status         string   `json:"status"`
+	Attempts       int      `json:"attempts"`
+	InputTruncated bool     `json:"input_truncated"`
+	Flagged        bool     `json:"flagged"`
+	Categories     []string `json:"categories"`
+	ResponseModel  string   `json:"response_model"`
+	ReviewID       int64    `json:"review_id,omitempty"`
+	FeeRecordID    uint     `json:"fee_record_id,omitempty"`
+	FeeCategory    string   `json:"fee_category,omitempty"`
+	FeeStatus      string   `json:"fee_status"`
+	RequestedQuota int      `json:"requested_quota"`
+	ChargedQuota   int      `json:"charged_quota"`
+	CreatedAt      int64    `json:"created_at"`
+	UpdatedAt      int64    `json:"updated_at"`
+	CompletedAt    int64    `json:"completed_at"`
 }
 
 // AISecurityReviewStats summarizes the asynchronous assistant review lane.

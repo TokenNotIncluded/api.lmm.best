@@ -59,7 +59,7 @@ func TestModerationChannelTestHTTP(t *testing.T) {
 		{name: "omni automatic", channelType: constant.ChannelTypeOpenAI, modelName: "omni-moderation-latest", body: channelTestModerationResponse},
 		{name: "omni snapshot automatic", channelType: constant.ChannelTypeOpenAI, modelName: "omni-moderation-2024-09-26", body: channelTestModerationResponse},
 		{name: "text native endpoint", channelType: constant.ChannelTypeOpenAI, modelName: "text-moderation-stable", endpoint: string(constant.EndpointTypeModeration), body: channelTestModerationResponse},
-		{name: "openhuman force format", channelType: constant.ChannelTypeOpenHuman, modelName: "omni-moderation-latest", forceFormat: true, body: channelTestModerationResponse},
+		{name: "retired openhuman", channelType: constant.ChannelTypeOpenHuman, modelName: "omni-moderation-latest", forceFormat: true, wantError: "channel test is not supported"},
 		{name: "gateway mapped alias", channelType: constant.ChannelTypeNewAPI, modelName: "moderation-alias", mapping: `{"moderation-alias":"intermediate","intermediate":"omni-moderation-latest"}`, body: channelTestModerationResponse},
 		{name: "chat payload rejected", channelType: constant.ChannelTypeOpenAI, modelName: "omni-moderation-latest", body: `{"id":"chat-test","model":"omni-moderation-latest","choices":[]}`, wantError: "results"},
 		{name: "empty results rejected", channelType: constant.ChannelTypeOpenAI, modelName: "omni-moderation-latest", body: `{"id":"mod-test","model":"omni-moderation-latest","results":[]}`, wantError: "results"},

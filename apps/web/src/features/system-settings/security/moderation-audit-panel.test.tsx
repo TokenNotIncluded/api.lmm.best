@@ -1,0 +1,88 @@
+/*
+Copyright (C) 2026 LIghtJUNction
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+*/
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+
+import { createInstance } from 'i18next'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { I18nextProvider, initReactI18next } from 'react-i18next'
+
+import { ModerationReviewRow } from './moderation-audit-panel'
+import type { ModerationReview } from './security-audit-types'
+
+const i18n = createInstance()
+await i18n
+  .use(initReactI18next)
+  .init({ lng: 'en', resources: { en: { translation: {} } } })
+const base: ModerationReview = {
+  id: 1,
+  created_at: 1,
+  user_id: 7,
+  group: 'default',
+  source_kind: 'openai_moderation',
+  source: 'relay_input',
+  mode: 'strict',
+  status: 'completed',
+  flagged: true,
+  categories: ['harassment'],
+  review_model: 'omni-moderation-latest',
+  request_id: 'req-test',
+  fee_status: 'charged',
+  fee_category: 'harassment',
+  requested_quota: 100,
+  charged_quota: 100,
+  fee_record_id: 3,
+  input_truncated: false,
+  attempts: 1,
+  completed_at: 2,
+}
+const render = (review: ModerationReview) =>
+  renderToStaticMarkup(
+    <I18nextProvider i18n={i18n}>
+      <ModerationReviewRow review={review} />
+    </I18nextProvider>
+  )
+
+test('shows durable metadata and category effects without rendering request text', () => {
+  const html = render({
+    ...base,
+    payload: 'PRIVATE_REQUEST_TEXT',
+  } as ModerationReview)
+  assert.match(html, /API input/)
+  assert.match(html, /Flagged/)
+  assert.match(html, /Strict mode/)
+  assert.match(html, /Harassment/)
+  assert.match(html, /req-test/)
+  assert.match(html, /Wallet deduction/)
+  assert.match(html, /Fee record ID/)
+  assert.doesNotMatch(html, /PRIVATE_REQUEST_TEXT/)
+})
+
+test('does not label failed or pending reviews as clear or violating', () => {
+  for (const status of ['pending', 'failed'] as const) {
+    const html = render({ ...base, status, flagged: false })
+    assert.match(html, new RegExp(status === 'pending' ? 'Pending' : 'Failed'))
+    assert.doesNotMatch(html, />Clear<|>Flagged</)
+  }
+})
+
+test('output warnings state that users are excluded from penalties and risk scoring', () => {
+  const html = render({
+    ...base,
+    source: 'assistant_output',
+    mode: 'tolerant',
+    requested_quota: 0,
+    charged_quota: 0,
+    fee_record_id: 0,
+    fee_status: 'none',
+  })
+  assert.match(html, /Assistant output/)
+  assert.match(html, /excluded from user penalties and risk scoring/)
+  assert.doesNotMatch(html, /Fee record ID/)
+})
