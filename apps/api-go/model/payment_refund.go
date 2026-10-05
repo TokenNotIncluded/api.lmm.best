@@ -124,8 +124,14 @@ func ApplyPaymentRefund(
 				}
 				creditedQuota := normalizedTopUpCreditedQuota(&topUp)
 				refundQuota := int64(0)
+				originalRefundQuota := int64(0)
 				if !alreadyApplied {
-					refundQuota = proportionalRefundDelta(creditedQuota, paidMicros, topUp.RefundedQuota, topUp.RefundedAmountMicros, appliedAmount)
+					originalRefundQuota = proportionalRefundDelta(creditedQuota, paidMicros, topUp.RefundedQuota, topUp.RefundedAmountMicros, appliedAmount)
+					var err error
+					refundQuota, err = rebasedTopUpRefundDeltaTx(tx, &topUp, creditedQuota, paidMicros, appliedAmount, originalRefundQuota)
+					if err != nil {
+						return err
+					}
 				}
 				if refundQuota > 0 {
 					// Refunds must never silently create a negative wallet. Keep
@@ -152,7 +158,7 @@ func ApplyPaymentRefund(
 				if !alreadyApplied {
 					updates := map[string]interface{}{
 						"refunded_amount_micros": topUp.RefundedAmountMicros + appliedAmount,
-						"refunded_quota":         topUp.RefundedQuota + refundQuota,
+						"refunded_quota":         topUp.RefundedQuota + originalRefundQuota,
 					}
 					if err := refundReferralTx(tx, &topUp, topUp.RefundedAmountMicros+appliedAmount); err != nil {
 						return err

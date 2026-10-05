@@ -1,0 +1,87 @@
+package model
+
+import (
+	"fmt"
+	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/stretchr/testify/require"
+	"testing"
+)
+
+func TestPaymentRefundRebase(t *testing.T) {
+	for _, snapshot := range []bool{true, false} {
+		t.Run(fmt.Sprint(snapshot), func(t *testing.T) {
+			db := setupConsoleActivationTestDB(t)
+			require.NoError(t, db.AutoMigrate(&SubscriptionOrder{}, &User{}, &TopUp{}, &FinanceLedgerEntry{}, &WalletTopUpCreditRebase{}))
+			user := User{Username: "refund-rebase", Password: "password", Quota: 10, Status: common.UserStatusEnabled}
+			require.NoError(t, db.Create(&user).Error)
+			order := TopUp{UserId: user.Id, TradeNo: "rebased-partial", PaymentProvider: PaymentProviderWaffoPancake, PaymentMethod: PaymentMethodWaffoPancake, Status: common.TopUpStatusSuccess, CreditedQuota: 100, SettledAmountMicros: 100, RefundedAmountMicros: 20, RefundedQuota: 20}
+			require.NoError(t, db.Create(&order).Error)
+			base := WalletTopUpCreditRebase{TopUpID: order.Id, UserID: user.Id, MigrationID: "test", OriginalCreditedQuota: 100, OriginalRefundedQuota: 20, OriginalRefundedAmountMicros: 20, OriginalPaidAmountMicros: 100, RefundableQuota: 12}
+			if snapshot {
+				require.NoError(t, db.Create(&base).Error)
+			}
+			refund := func(amount int64, event string) (PaymentRefundResult, error) {
+				return ApplyPaymentRefund(order.TradeNo, false, amount, FinanceCurrencyUSD, event, PaymentMethodWaffoPancake, PaymentProviderWaffoPancake, "test", user.Id)
+			}
+			for i := 0; i < 5; i++ {
+				result, err := refund(1, fmt.Sprint(i))
+				require.NoError(t, err)
+				expected := int64(1)
+				if snapshot {
+					expected = 0
+					if i == 3 {
+						expected = 1
+					}
+				}
+				require.Equal(t, expected, result.QuotaDebited)
+			}
+			replay, err := refund(1, "3")
+			require.NoError(t, err)
+			require.False(t, replay.Created)
+			require.Zero(t, replay.QuotaDebited)
+			require.NoError(t, db.First(&order, order.Id).Error)
+			require.EqualValues(t, 25, order.RefundedQuota)
+			require.EqualValues(t, 25, order.RefundedAmountMicros)
+			_, err = refund(75, "full")
+			require.ErrorIs(t, err, ErrRefundWalletQuotaInsufficient)
+			if snapshot {
+				require.NoError(t, db.First(&base, "top_up_id = ?", order.Id).Error)
+				require.EqualValues(t, 1, base.RebasedDebitedQuota)
+			}
+			required := 11
+			if !snapshot {
+				required = 75
+			}
+			require.NoError(t, db.Model(&User{}).Where("id = ?", user.Id).Update("quota", required).Error)
+			result, err := refund(75, "full")
+			require.NoError(t, err)
+			require.EqualValues(t, required, result.QuotaDebited)
+			require.NoError(t, db.First(&order, order.Id).Error)
+			require.EqualValues(t, 100, order.RefundedQuota)
+			require.Zero(t, getUserQuotaForRefundTest(t, db, user.Id))
+		})
+	}
+}
+
+func TestPaymentRefundRebaseRejectsCorruptBaseline(t *testing.T) {
+	db := setupConsoleActivationTestDB(t)
+	require.NoError(t, db.AutoMigrate(&SubscriptionOrder{}, &User{}, &TopUp{}, &FinanceLedgerEntry{}, &WalletTopUpCreditRebase{}))
+	user := User{Username: "corrupt-rebase", Password: "password", Quota: 100, Status: common.UserStatusEnabled}
+	require.NoError(t, db.Create(&user).Error)
+	order := TopUp{UserId: user.Id, TradeNo: "corrupt", PaymentProvider: PaymentProviderWaffoPancake, PaymentMethod: PaymentMethodWaffoPancake, Status: common.TopUpStatusSuccess, CreditedQuota: 100, SettledAmountMicros: 100}
+	require.NoError(t, db.Create(&order).Error)
+	require.NoError(t, db.Create(&WalletTopUpCreditRebase{TopUpID: order.Id, UserID: user.Id, MigrationID: "test", OriginalCreditedQuota: 100, OriginalPaidAmountMicros: 100, RefundableQuota: 15, RebasedDebitedQuota: 1}).Error)
+	_, err := ApplyPaymentRefund(order.TradeNo, false, 10, FinanceCurrencyUSD, "corrupt", PaymentMethodWaffoPancake, PaymentProviderWaffoPancake, "test", user.Id)
+	require.ErrorIs(t, err, ErrRefundAmountInvalid)
+	require.Equal(t, 100, getUserQuotaForRefundTest(t, db, user.Id))
+	var count int64
+	require.NoError(t, db.Model(&FinanceLedgerEntry{}).Count(&count).Error)
+	require.Zero(t, count)
+}
+
+func TestRebasedRefundTargetExactHalfCreditBoundary(t *testing.T) {
+	// A 16-digit decimal division can round this fraction to exactly 0.5.
+	require.EqualValues(t, 0, rebasedRefundTarget(1, 9_000_000_000_000_000, 4_499_999_999_999_999))
+	require.EqualValues(t, 1, rebasedRefundTarget(1, 9_000_000_000_000_000, 4_500_000_000_000_000))
+	require.EqualValues(t, 9_000_000_000_000_000, rebasedRefundTarget(9_000_000_000_000_000, 9_000_000_000_000_000, 9_000_000_000_000_000))
+}
