@@ -65,6 +65,13 @@ func ListAdminModerationReviews(c *gin.Context) {
 			ReviewID: row.ReviewID, FeeRecordID: row.FeeRecordID, FeeCategory: row.FeeCategory,
 			FeeStatus: row.FeeStatus, RequestedQuota: row.RequestedQuota, ChargedQuota: row.ChargedQuota,
 			CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt, CompletedAt: row.CompletedAt,
+			SubjectIdentifier: model.ModerationSubjectIdentifier(row.SubjectIdentifier),
+			ProviderCalls:     []dto.SecurityModerationProviderCall{},
+		}
+		for _, call := range row.ProviderCalls() {
+			item.ProviderCalls = append(item.ProviderCalls, dto.SecurityModerationProviderCall{
+				Attempt: call.Attempt, BatchIndex: call.BatchIndex, ResponseID: call.ResponseID, RequestID: call.RequestID,
+			})
 		}
 		if item.Categories == nil {
 			item.Categories = []string{}
@@ -75,6 +82,8 @@ func ListAdminModerationReviews(c *gin.Context) {
 			item.UserID, item.RequestID, item.Group = 0, "", ""
 			item.ReviewID, item.FeeRecordID = 0, 0
 			item.RequestedQuota, item.ChargedQuota = 0, 0
+			item.SubjectIdentifier = ""
+			item.ProviderCalls = []dto.SecurityModerationProviderCall{}
 		}
 		items = append(items, item)
 	}

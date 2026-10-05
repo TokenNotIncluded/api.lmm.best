@@ -238,6 +238,10 @@ func TestSecurityModerationReviewsRespectAdministratorHierarchy(t *testing.T) {
 	require.NoError(t, db.Create(&users).Error)
 	for _, user := range users {
 		seedSecurityModerationJob(t, db, int64(user.Id), user.Id, "private-group", model.ModerationSourceRelayInput, model.ModerationJobCompleted, 100)
+		require.NoError(t, db.Model(&model.ModerationJob{}).Where("id = ?", user.Id).Updates(map[string]any{
+			"subject_identifier":  strings.Repeat("a", 64),
+			"provider_calls_json": `[{"attempt":1,"batch_index":1,"response_id":"modr-fixture","request_id":"req_fixture"}]`,
+		}).Error)
 	}
 	var response struct {
 		Success bool `json:"success"`
@@ -253,11 +257,17 @@ func TestSecurityModerationReviewsRespectAdministratorHierarchy(t *testing.T) {
 		if row.ID == 101 {
 			assert.Equal(t, 101, row.UserID)
 			assert.Equal(t, "private-group", row.Group)
+			assert.Equal(t, strings.Repeat("a", 64), row.SubjectIdentifier)
+			require.Len(t, row.ProviderCalls, 1)
+			assert.Equal(t, "modr-fixture", row.ProviderCalls[0].ResponseID)
+			assert.Equal(t, "req_fixture", row.ProviderCalls[0].RequestID)
 		} else {
 			assert.Zero(t, row.UserID)
 			assert.Empty(t, row.RequestID)
 			assert.Empty(t, row.Group)
 			assert.Zero(t, row.FeeRecordID)
+			assert.Empty(t, row.SubjectIdentifier)
+			assert.Empty(t, row.ProviderCalls)
 		}
 	}
 }

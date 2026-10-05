@@ -132,6 +132,28 @@ func TestOfficialModerationFailureDoesNotExposeCredentialOrBody(t *testing.T) {
 	}
 }
 
+func TestModerationProviderTraceUsesOnlyBoundedIDsWithoutChangingTheVerdict(t *testing.T) {
+	for _, test := range []struct {
+		responseID, requestID, expectedResponse, expectedRequest string
+	}{
+		{"modr-safe", "req_safe", "modr-safe", "req_safe"},
+		{"modr-safe", "", "modr-safe", ""},
+		{"sk-secret", "Bearer-secret", "", ""},
+		{strings.Repeat("a", 129), "req_safe", "", "req_safe"},
+	} {
+		client := &http.Client{Transport: moderationRoundTripper(func(*http.Request) (*http.Response, error) {
+			body := strings.Replace(moderationFixture, "modr-offline-test", test.responseID, 1)
+			return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"X-Request-Id": []string{test.requestID}}, Body: io.NopCloser(strings.NewReader(body))}, nil
+		})}
+		decision, err := requestOfficialModeration(context.Background(), client, setting.DefaultModerationModel, []string{"text"}, "dummy-offline-test-key", "")
+		require.NoError(t, err)
+		require.True(t, decision.Flagged)
+		require.Equal(t, []string{"violence"}, decision.Categories)
+		require.Equal(t, test.expectedResponse, decision.ResponseID)
+		require.Equal(t, test.expectedRequest, decision.RequestID)
+	}
+}
+
 func TestModerationKeySelectionSkipsDisabledKeysWithoutDatabaseWrites(t *testing.T) {
 	channel := &model.Channel{Key: "disabled-dummy-key\nenabled-dummy-key\n", ChannelInfo: model.ChannelInfo{IsMultiKey: true, MultiKeyMode: constant.MultiKeyModePolling, MultiKeyStatusList: map[int]int{0: common.ChannelStatusAutoDisabled}}}
 	previous := model.DB
@@ -146,7 +168,7 @@ func TestModerationKeySelectionSkipsDisabledKeysWithoutDatabaseWrites(t *testing
 
 func TestQueueModerationPersistsWithoutWaitingForProvider(t *testing.T) {
 	db, userID := setupAssistantFundingTestDB(t, 1000)
-	require.NoError(t, db.AutoMigrate(&model.Option{}, &model.ModerationJob{}))
+	require.NoError(t, db.AutoMigrate(&model.Option{}, &model.ModerationJob{}, &model.AssistantGiftRiskKey{}))
 	settings := setting.DefaultModerationSettings()
 	settings.Enabled = true
 	settings.GroupPolicies = map[string]setting.ModerationGroupPolicy{
@@ -173,13 +195,20 @@ func TestQueueModerationPersistsWithoutWaitingForProvider(t *testing.T) {
 	require.True(t, utf8.ValidString(job.Payload))
 	require.Equal(t, "default", job.Group)
 	require.Equal(t, "omni-moderation-latest", job.ReviewModel)
+	require.Len(t, job.SubjectIdentifier, 64)
+	require.False(t, settings.SafetyIdentifierEnabled, "local trace is independent from the upstream-send switch")
 	require.NoError(t, QueueModeration(context.Background(), submission))
 	var count int64
 	require.NoError(t, db.Model(&model.ModerationJob{}).Count(&count).Error)
 	require.EqualValues(t, 1, count)
+	submission.RequestID = "another-real-request"
+	require.NoError(t, QueueModeration(context.Background(), submission))
+	var second model.ModerationJob
+	require.NoError(t, db.Where("request_id = ?", submission.RequestID).First(&second).Error)
+	require.Equal(t, job.SubjectIdentifier, second.SubjectIdentifier)
 	require.NoError(t, QueueModeration(context.Background(), ModerationSubmission{UserID: userID, Source: ModerationSourceRelayInput, RequestID: "unconfigured-group", Group: "other", Text: "text"}))
 	require.NoError(t, db.Model(&model.ModerationJob{}).Count(&count).Error)
-	require.EqualValues(t, 1, count)
+	require.EqualValues(t, 2, count)
 }
 
 func TestModerationMaximumASCIIInputEnqueuesWithinLatencyBudget(t *testing.T) {
@@ -345,7 +374,7 @@ func offlineModerationBatchResponse(t *testing.T, request *http.Request, flagTai
 	}
 	body, err := json.Marshal(map[string]any{"id": "modr-offline-batch", "model": "omni-moderation-2024-09-26", "results": results})
 	require.NoError(t, err)
-	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(string(body)))}
+	return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"X-Request-Id": []string{"req_offline_batch"}}, Body: io.NopCloser(strings.NewReader(string(body)))}
 }
 
 func TestModerationWorkerReviewsLongTailBeforeCommittingOneWarning(t *testing.T) {
@@ -366,6 +395,10 @@ func TestModerationWorkerReviewsLongTailBeforeCommittingOneWarning(t *testing.T)
 	require.True(t, stored.Flagged)
 	require.Empty(t, stored.Payload)
 	require.Zero(t, stored.ChargedQuota)
+	require.Len(t, stored.ProviderCalls(), requests)
+	for index, call := range stored.ProviderCalls() {
+		require.Equal(t, model.ModerationProviderCall{Attempt: 1, BatchIndex: index + 1, ResponseID: "modr-offline-batch", RequestID: "req_offline_batch"}, call)
+	}
 	var notices int64
 	require.NoError(t, db.Model(&model.ModerationNotice{}).Count(&notices).Error)
 	require.EqualValues(t, 1, notices)
@@ -390,6 +423,7 @@ func TestModerationBatchFailureNeverCommitsPartialClassification(t *testing.T) {
 	require.False(t, stored.Flagged)
 	require.Zero(t, stored.ChargedQuota)
 	require.Equal(t, "moderation_provider_rejected", stored.ErrorMessage)
+	require.Equal(t, []model.ModerationProviderCall{{Attempt: 1, BatchIndex: 1, ResponseID: "modr-offline-batch", RequestID: "req_offline_batch"}}, stored.ProviderCalls(), "the successful first batch survives the second-batch failure")
 	var notices int64
 	require.NoError(t, db.Model(&model.ModerationNotice{}).Count(&notices).Error)
 	require.Zero(t, notices)
@@ -407,6 +441,7 @@ func TestModerationDisabledDuringProviderCallCancelsWithoutEffects(t *testing.T)
 	var stored model.ModerationJob
 	require.NoError(t, db.First(&stored, job.ID).Error)
 	require.Equal(t, model.ModerationJobCancelled, stored.Status)
+	require.Len(t, stored.ProviderCalls(), 1, "the returned upstream receipt survives policy cancellation without effects")
 	require.Zero(t, stored.ChargedQuota)
 	var notices int64
 	require.NoError(t, db.Model(&model.ModerationNotice{}).Count(&notices).Error)

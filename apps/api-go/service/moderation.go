@@ -102,11 +102,15 @@ func QueueModeration(ctx context.Context, submission ModerationSubmission) error
 	if err != nil {
 		return errors.New("moderation_policy_invalid")
 	}
+	// This local trace does not depend on whether upstream safety identifiers
+	// are enabled. Failed identity initialization must not block normal ingress.
+	subjectIdentifier, _ := model.OpenAIPrivateSafetyIdentifier(ctx, submission.UserID)
 	created, err := model.EnqueueModerationJob(ctx, &model.ModerationJob{
 		UserID: submission.UserID, Source: submission.Source, RequestID: strings.TrimSpace(submission.RequestID),
 		Group: strings.TrimSpace(submission.Group), ReviewGroup: reviewGroup, ReviewModel: reviewModel,
 		PolicyScope: policyScope, PolicyGroup: policyGroup, RelayGroup: strings.TrimSpace(submission.RelayGroup),
-		InputDigest: hex.EncodeToString(digest[:]), Payload: text, CapturedMode: policy.Mode,
+		SubjectIdentifier: subjectIdentifier,
+		InputDigest:       hex.EncodeToString(digest[:]), Payload: text, CapturedMode: policy.Mode,
 		CapturedCategoryFinesJSON: string(fines),
 		CapturedAmountCurrency:    setting.ResolveModerationAmountCurrency(policy.AmountCurrency),
 		InputTruncated:            truncated,
@@ -213,8 +217,22 @@ func processModerationJob(parent context.Context, owner string, job *model.Moder
 	}
 	decision, err := callOfficialModeration(ctx, job.ReviewGroup, job.ReviewModel, job.Payload, func(ctx context.Context) error {
 		return moderationDispatchAllowed(ctx, job)
+	}, func(ctx context.Context, batchIndex int, decision moderationDecision) error {
+		if decision.ResponseID == "" && decision.RequestID == "" {
+			return nil
+		}
+		err := model.AppendModerationProviderCall(ctx, job.ID, owner, model.ModerationProviderCall{
+			Attempt: job.Attempts, BatchIndex: batchIndex, ResponseID: decision.ResponseID, RequestID: decision.RequestID,
+		}, time.Now().Unix())
+		if err != nil && !errors.Is(err, model.ErrModerationLeaseLost) {
+			return errors.New("moderation_trace_unavailable")
+		}
+		return err
 	})
 	if err != nil {
+		if errors.Is(err, model.ErrModerationLeaseLost) {
+			return
+		}
 		if parent.Err() != nil {
 			// Preserve a recoverable job on process shutdown; no notification,
 			// risk change or penalty is based on an interrupted request.
@@ -286,6 +304,8 @@ type moderationDecision struct {
 	Categories    []string
 	Scores        map[string]float64
 	ResponseModel string
+	ResponseID    string
+	RequestID     string
 }
 
 var moderationHTTPClient = newModerationHTTPClient()
@@ -301,7 +321,7 @@ func newModerationHTTPClient() *http.Client {
 	}
 }
 
-func callOfficialModeration(ctx context.Context, group, reviewModel, text string, preflight func(context.Context) error) (moderationDecision, error) {
+func callOfficialModeration(ctx context.Context, group, reviewModel, text string, preflight func(context.Context) error, onBatch func(context.Context, int, moderationDecision) error) (moderationDecision, error) {
 	channel, key, err := officialModerationCredential(ctx, group, reviewModel)
 	if err != nil {
 		return moderationDecision{}, err
@@ -329,6 +349,11 @@ func callOfficialModeration(ctx context.Context, group, reviewModel, text string
 		decision, err := requestOfficialModeration(ctx, moderationHTTPClient, reviewModel, chunks[start:end], key, organization)
 		if err != nil {
 			return moderationDecision{}, err
+		}
+		if onBatch != nil {
+			if err := onBatch(ctx, start/moderationBatchMaxChunks+1, decision); err != nil {
+				return moderationDecision{}, err
+			}
 		}
 		if combined.ResponseModel != "" && combined.ResponseModel != decision.ResponseModel {
 			return moderationDecision{}, errors.New("moderation_response_invalid")
@@ -408,7 +433,11 @@ func requestOfficialModeration(ctx context.Context, client *http.Client, reviewM
 	if err != nil || len(data) > moderationResponseMaxBytes {
 		return moderationDecision{}, errors.New("moderation_response_invalid")
 	}
-	return parseModerationBatchResponse(data, len(chunks))
+	decision, err := parseModerationBatchResponse(data, len(chunks))
+	if err == nil {
+		decision.RequestID = model.ModerationProviderIdentifier(response.Header.Get("x-request-id"))
+	}
+	return decision, err
 }
 
 func officialModerationCredential(ctx context.Context, group, reviewModel string) (*model.Channel, string, error) {
@@ -473,7 +502,7 @@ func parseModerationBatchResponse(body []byte, expectedResults int) (moderationD
 	if json.Unmarshal(body, &response) != nil || strings.TrimSpace(response.ID) == "" || !setting.IsModerationModel(response.Model) || len(response.Results) != expectedResults || expectedResults < 1 {
 		return invalid()
 	}
-	decision := moderationDecision{ResponseModel: response.Model, Scores: make(map[string]float64)}
+	decision := moderationDecision{ResponseModel: response.Model, ResponseID: model.ModerationProviderIdentifier(response.ID), Scores: make(map[string]float64)}
 	categories := map[string]bool{}
 	for _, result := range response.Results {
 		if result.Flagged == nil || len(result.Categories) == 0 || len(result.Scores) != len(result.Categories) {

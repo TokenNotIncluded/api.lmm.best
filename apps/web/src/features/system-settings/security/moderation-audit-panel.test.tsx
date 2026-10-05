@@ -72,6 +72,37 @@ test('does not label failed or pending reviews as clear or violating', () => {
   }
 })
 
+test('shows captured private and paired upstream IDs while empty historical or restricted rows stay empty', () => {
+  const html = render({
+    ...base,
+    subject_identifier: 'a'.repeat(64),
+    provider_calls: [
+      {
+        attempt: 1,
+        batch_index: 1,
+        response_id: 'modr-first',
+        request_id: 'req_first',
+      },
+      { attempt: 2, batch_index: 1, response_id: 'modr-retry', request_id: '' },
+    ],
+  })
+  assert.match(html, /Private user identifier/)
+  assert.match(html, /Upstream moderation calls/)
+  assert.match(html, /modr-first/)
+  assert.match(html, /req_first/)
+  assert.match(html, /Attempt 2, batch 1/)
+  assert.match(html, /modr-retry/)
+  const historical = render({
+    ...base,
+    subject_identifier: '',
+    provider_calls: [],
+  })
+  assert.doesNotMatch(
+    historical,
+    /Private user identifier|Upstream moderation calls|modr-first|req_first/
+  )
+})
+
 test('output warnings state that users are excluded from penalties and risk scoring', () => {
   const html = render({
     ...base,
