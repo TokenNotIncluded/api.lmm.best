@@ -1196,14 +1196,17 @@ const scopeChanges = {
     })),
 }
 
+// Fixed denomination with synthetic fiat parity for locale-only UI changes.
 function useRealUsdAnchor() {
   useSystemConfigStore.setState((state) => ({
     config: {
       ...state.config,
       currency: {
         ...state.config.currency,
-        creditsPerUsd: 3500000,
-        creditsPerUsdExact: '3500000',
+        creditsPerUsd: 500000,
+        creditsPerUsdExact: '500000',
+        cnyPerUsd: 1,
+        cnyPerUsdExact: '1',
       },
     },
   }))
@@ -1240,7 +1243,7 @@ test('changing locale retains the selected raw credits, requotes the same paymen
   await act(async () => i18n.changeLanguage('en'))
   const input = container.querySelector<HTMLInputElement>('#topup-amount')
   assert.ok(input)
-  assert.equal(input.value, '≈14.29')
+  assert.equal(input.value, '100')
   await act(async () => input.focus())
   const { displayAmountToQuota } = await import('@/lib/currency')
   assert.equal(displayAmountToQuota(input.value, 'USD'), 50000000)
@@ -2072,8 +2075,8 @@ for (const quotaPerUnit of [300000, 500000]) {
           currency: {
             ...state.config.currency,
             quotaPerUnit,
-            creditsPerUsd: 3500000,
-            creditsPerUsdExact: '3500000',
+            creditsPerUsd: 500000,
+            creditsPerUsdExact: '500000',
             cnyPerUsd: 8,
             cnyPerUsdExact: '8',
           },

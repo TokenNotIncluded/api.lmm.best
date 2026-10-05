@@ -149,6 +149,8 @@ function TopupInfoProbe() {
 
 let paymentDisplayFixture: 'CNY' | 'USD' = 'USD'
 
+// Synthetic fiat parity keeps the 50M raw-Credit UI fixture at 100 CNY.
+// Non-parity FX is covered by the explicit bridges and amount-arrow scenarios.
 function setCnyBillingAndPaymentDisplay() {
   paymentDisplayFixture = 'CNY'
   useWalletCurrencyPreferenceStore.getState().setPreference('CNY')
@@ -160,10 +162,10 @@ function setCnyBillingAndPaymentDisplay() {
         quotaDisplayType: 'CNY',
         usdExchangeRate: 7,
         currencyUnit: 'credit',
-        creditsPerUsd: 3500000,
-        creditsPerUsdExact: '3500000',
-        cnyPerUsd: 7,
-        cnyPerUsdExact: '7',
+        creditsPerUsd: 500000,
+        creditsPerUsdExact: '500000',
+        cnyPerUsd: 1,
+        cnyPerUsdExact: '1',
       },
     },
   }))
@@ -962,7 +964,7 @@ describe('wallet payment clarity', () => {
     await unmount(rendered)
   })
 
-  test('shows the prescribed 100-credit, 20%-discount payment breakdown', async () => {
+  test('shows the 100 CNY recharge, 20%-discount payment breakdown', async () => {
     await i18n.changeLanguage('en')
     setCnyBillingAndPaymentDisplay()
     const rendered = await render(
@@ -1641,8 +1643,8 @@ test('one Credit survives currency switches and quote requests keep their origin
         ...state.config.currency,
         currencyUnit: 'credit',
         quotaPerUnit: 500000,
-        creditsPerUsd: 3400000,
-        creditsPerUsdExact: '3400000',
+        creditsPerUsd: 500000,
+        creditsPerUsdExact: '500000',
         cnyPerUsd: 6.8,
         cnyPerUsdExact: '6.8',
       },
@@ -1655,7 +1657,7 @@ test('one Credit survives currency switches and quote requests keep their origin
       data: {
         success: true,
         data: '0.01',
-        ...creditGrant(Number(body.amount), 3400000),
+        ...creditGrant(Number(body.amount), 500000),
         settlement_currency: 'USD',
       },
     }
@@ -1716,7 +1718,7 @@ test('one Credit survives currency switches and quote requests keep their origin
   const input =
     rendered.container.querySelector<HTMLInputElement>('#topup-amount')
   assert.ok(input)
-  assert.equal(input.value, '≈0.00000029')
+  assert.equal(input.value, '0.000002')
   assert.equal(document.body.textContent?.includes('1 Credits'), false)
   const originalInput = input.value
   for (const preference of ['USD', 'CNY', 'CREDIT'] as const) {
@@ -1738,7 +1740,7 @@ test('one Credit survives currency switches and quote requests keep their origin
       'display preferences do not requote raw selection'
     )
   }
-  await editInput(input, '0.00000058823529411764705882353')
+  await editInput(input, '0.000004')
   assert.deepEqual(requests, [
     {
       amount: 2,
@@ -1750,10 +1752,10 @@ test('one Credit survives currency switches and quote requests keep their origin
   await act(async () => {
     useWalletCurrencyPreferenceStore.getState().setPreference('CNY')
   })
-  assert.equal(input.value, '0.00000058823529411764705882353')
+  assert.equal(input.value, '0.000004')
   await editInput(input, '1')
   assert.deepEqual(requests.at(-1), {
-    amount: 3400000,
+    amount: 500000,
     payment_method: 'card',
     amount_unit: 'LEDGER_QUOTA',
     credit_metadata_version: 2,
@@ -1853,8 +1855,8 @@ test('a one-Credit private transfer keeps raw quota when its display currency ch
 })
 
 for (const scenario of [
-  { currency: 'USD', initial: 1000000, expected: 4500000 },
-  { currency: 'CNY', initial: 1, expected: 437501 },
+  { currency: 'USD', initial: 1000000, expected: 1500000 },
+  { currency: 'CNY', initial: 1, expected: 62501 },
 ] as const) {
   test(`amount arrows add to raw credit without round-tripping current ${scenario.currency} float`, async () => {
     await i18n.changeLanguage('en')
@@ -1865,8 +1867,8 @@ for (const scenario of [
         ...state.config,
         currency: {
           ...state.config.currency,
-          creditsPerUsd: 3500000,
-          creditsPerUsdExact: '3500000',
+          creditsPerUsd: 500000,
+          creditsPerUsdExact: '500000',
           cnyPerUsd: 8,
           cnyPerUsdExact: '8',
         },
@@ -2005,8 +2007,8 @@ test('dedicated Waffo enforces complete 3.5M / 8.75M raw limits at a 300k legacy
       currency: {
         ...state.config.currency,
         quotaPerUnit: 300000,
-        creditsPerUsd: 3500000,
-        creditsPerUsdExact: '3500000',
+        creditsPerUsd: 500000,
+        creditsPerUsdExact: '500000',
       },
     },
   }))
