@@ -36,6 +36,20 @@ choose CREDIT, CNY or USD. It does not alter payment `settlement_currency`,
 balances, prices or charges. OpenAI-compatible billing fields and token quota
 queries always return real USD, regardless of display choice or current FX.
 
+Public relay `amount_usd` tips also name real USD: convert with `CreditsPerUSD`,
+round half away from zero to integer credits, and reject out-of-domain amounts.
+The retained tip ceiling and withdrawal minimum remain the historical integer
+credit policies (`LegacyPricingQuotaPerUnit × 100` and `× 10`), rather than
+silently increasing either by the migration exchange rate. The config endpoint
+returns both raw credit thresholds and their real USD equivalents. Historical
+pending tips and withdrawals keep their original integer ledger entries; a
+withdrawal transfers only the unwithdrawn credits and cannot be repeated.
+
+Model-usage SVG amounts use the same immutable anchor. The models layout accepts
+`currency=CREDIT`, `CNY` or `USD`; without it, `lang=zh` and `zh-TW` choose CNY
+and other languages choose USD. Displaying CNY uses the current exchange rate.
+An unavailable anchor or required exchange rate rejects the monetary response.
+
 Focused validation:
 
 ```sh
