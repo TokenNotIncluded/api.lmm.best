@@ -16,6 +16,7 @@ class RebaseTests(unittest.TestCase):
             {"id": 2, "quota": -86911, "aff_quota": 0}], "tokens": [
             {"id": 1, "user_id": 1, "remain_quota": 680, "unlimited_quota": False},
             {"id": 2, "user_id": 1, "remain_quota": 680, "unlimited_quota": True}]}
+        self.snapshot["topups"] = []
         self.snapshot["target"] = {"database": "fixture", "schema": "fixture_money", "system_identifier": "123456"}
         self.snapshot["options"] = {"CreditsPerUSD": "3359744", "PublicCreditsPerUSD": "100000", "LegacyPricingQuotaPerUnit": "500000", "QuotaPerUnit": "500000"}
         self.snapshot["price_review"] = {"status": "verified", "evidence": "synthetic fixture without synced prices", "option_corrections": []}

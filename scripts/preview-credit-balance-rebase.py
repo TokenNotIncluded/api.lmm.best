@@ -59,6 +59,35 @@ def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
     for table in ("users", "tokens"):
         if not isinstance(snapshot.get(table), list):
             raise ValueError(f"snapshot must include {table} array")
+    refund_bases = []
+    if restore_fixed_anchors:
+        sources = snapshot.get("topups")
+        if not isinstance(sources, list):
+            raise ValueError("combined SQL requires complete paid wallet topups snapshot (possibly empty)")
+        seen_topups = set()
+        for source in sources:
+            tid = integer(source["id"], "topup id", positive=True)
+            uid = integer(source["user_id"], "topup user id", positive=True)
+            if tid in seen_topups or uid not in selected or source.get("status") != "success":
+                raise ValueError("duplicate, unselected or unpaid topup in refund snapshot")
+            seen_topups.add(tid)
+            source = dict(source)
+            for key in ("credited_quota", "amount", "platform_amount_micros", "settled_amount_micros", "expected_amount_micros", "refunded_quota", "refunded_amount_micros", "effective_credited_quota", "paid_amount_micros"):
+                integer(source[key], "topup " + key)
+            if not isinstance(source.get("money"), str) or not re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", source["money"]):
+                raise ValueError("topup money must be the exact nonnegative database decimal string")
+            for key in ("payment_provider", "payment_method", "settlement_currency"):
+                if not isinstance(source.get(key), str) or "\x00" in source[key]:
+                    raise ValueError("topup source requires exact " + key)
+            credited, refunded = source["effective_credited_quota"], source["refunded_quota"]
+            if credited <= 0 or refunded < 0 or refunded > credited or source["paid_amount_micros"] <= 0 or not 0 <= source["refunded_amount_micros"] <= source["paid_amount_micros"]:
+                raise ValueError("invalid refund basis; resolve historical inconsistent topup before migration")
+            refund_bases.append({"source": source, "top_up_id": tid, "user_id": uid,
+                "original_credited_quota": credited, "original_refunded_quota": refunded,
+                "original_refunded_amount_micros": source["refunded_amount_micros"],
+                "original_paid_amount_micros": source["paid_amount_micros"],
+                "refundable_quota": scale_credit(credited - refunded, divisor, rounding), "rebased_debited_quota": 0})
+        refund_bases.sort(key=lambda e: e["top_up_id"])
     option_entries = []
     if restore_fixed_anchors:
         options = snapshot.get("options", {})
@@ -82,6 +111,21 @@ def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
             if not isinstance(correction.get("before"), str) or not isinstance(correction.get("after"), str):
                 raise ValueError("price correction before/after must be exact option strings")
             option_entries.append({"key": key, "before": correction["before"], "after": correction["after"]})
+    option_guards = []
+    if restore_fixed_anchors:
+        unchanged = review.get("unchanged_option_values", {})
+        absent = review.get("absent_unchanged_options", [])
+        if not isinstance(unchanged, dict) or not isinstance(absent, list):
+            raise ValueError("price preservation guards must be mapping and list")
+        for key, value in unchanged.items():
+            if not isinstance(key, str) or not isinstance(value, str) or "\x00" in key or "\x00" in value:
+                raise ValueError("invalid unchanged option guard")
+            option_guards.append({"key": key, "value": value, "absent": False})
+        for key in absent:
+            if not isinstance(key, str) or "\x00" in key or key in unchanged:
+                raise ValueError("invalid absent option guard")
+            option_guards.append({"key": key, "absent": True})
+        option_guards.sort(key=lambda e: e["key"])
     entries = []
     seen_users, seen_tokens = set(), set()
 
@@ -125,7 +169,7 @@ def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
             "rounding": rounding, "user_ids": sorted(selected),
             "include_affiliate": include_affiliate, "include_token_limits": include_token_limits,
             "price_review_evidence": snapshot.get("price_review", {}).get("evidence") if restore_fixed_anchors else None,
-            "entries": entries, "option_entries": option_entries, "restore_fixed_anchors": restore_fixed_anchors, "wallet_totals": {
+            "entries": entries, "refund_bases": refund_bases, "option_guards": option_guards, "option_entries": option_entries, "restore_fixed_anchors": restore_fixed_anchors, "wallet_totals": {
                 k: sum(e[k] for e in entries if e["table"] == "users" and e["field"] == "quota")
                 for k in ("before_credit", "after_credit", "delta_credit")},
             "production_apply_supported": "reviewed_postgres_sql_only",
@@ -171,6 +215,32 @@ def postgres_sql(plan):
                        f"WHERE key = {sql_literal(e['key'])} AND value = {sql_literal(e['before'])};\n"
                        "GET DIAGNOSTICS changed = ROW_COUNT;\n"
                        f"IF changed <> 1 THEN RAISE EXCEPTION 'option before-value mismatch: {e['key']}'; END IF;")
+    preservation_checks = []
+    for guard in plan["option_guards"]:
+        key = sql_literal(guard["key"])
+        if guard["absent"]:
+            condition = f"EXISTS (SELECT 1 FROM {schema}.options WHERE key={key})"
+        else:
+            condition = f"NOT EXISTS (SELECT 1 FROM {schema}.options WHERE key={key} AND value={sql_literal(guard['value'])})"
+        preservation_checks.append(f"IF {condition} THEN RAISE EXCEPTION 'price preservation guard mismatch'; END IF;")
+    preservation_checks_sql = "\n".join(preservation_checks)
+    refund_checks = []
+    refund_inserts = []
+    for b in plan["refund_bases"]:
+        source = b["source"]
+        clauses = [f"id = {b['top_up_id']}", f"user_id = {b['user_id']}", "status = 'success'"]
+        for key in ("credited_quota", "amount", "platform_amount_micros", "settled_amount_micros", "expected_amount_micros", "refunded_quota", "refunded_amount_micros"):
+            clauses.append(f"{key} = {source[key]}")
+        for key in ("payment_provider", "payment_method", "settlement_currency"):
+            clauses.append(f"{key} = {sql_literal(source[key])}")
+        clauses.append(f"money = {sql_literal(source['money'])}::double precision")
+        refund_checks.append(f"IF NOT EXISTS (SELECT 1 FROM {schema}.top_ups WHERE " + " AND ".join(clauses) + ") THEN RAISE EXCEPTION 'topup source fact mismatch'; END IF;")
+        fields = ["top_up_id", "user_id", "original_credited_quota", "original_refunded_quota", "original_refunded_amount_micros", "original_paid_amount_micros", "refundable_quota", "rebased_debited_quota"]
+        refund_inserts.append(f"INSERT INTO {schema}.wallet_topup_credit_rebases (migration_id, " + ",".join(fields) + ") VALUES (" + mid + "," + ",".join(str(b[k]) for k in fields) + ");")
+    expected_count = len(plan["refund_bases"])
+    refund_checks.insert(0, f"IF (SELECT count(*) FROM {schema}.top_ups WHERE status='success' AND user_id=ANY(ARRAY[{user_ids}]::bigint[]) AND (credited_quota<>0 OR amount<>0)) <> {expected_count} THEN RAISE EXCEPTION 'paid wallet topup snapshot incomplete'; END IF;")
+    refund_checks_sql = "\n".join(refund_checks)
+    refund_inserts_sql = "\n".join(refund_inserts)
     statements = "\n".join(updates)
     return f"""-- OFFLINE operation: reviewed plan; stop ALL writers and drain/cache reset first.
 -- No application startup or deployment hook may execute this artifact.
@@ -190,12 +260,23 @@ BEGIN
 END
 {delimiter};
 SELECT pg_advisory_xact_lock(500000, 680001);
-LOCK TABLE {schema}.users, {schema}.tokens, {schema}.options IN ACCESS EXCLUSIVE MODE;
+LOCK TABLE {schema}.users, {schema}.tokens, {schema}.options, {schema}.top_ups IN ACCESS EXCLUSIVE MODE;
 CREATE TABLE IF NOT EXISTS {schema}.wallet_credit_rebases (
     migration_id text PRIMARY KEY,
     plan_sha256 text NOT NULL,
     plan jsonb NOT NULL,
     applied_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS {schema}.wallet_topup_credit_rebases (
+    top_up_id bigint PRIMARY KEY,
+    user_id bigint NOT NULL,
+    migration_id text NOT NULL REFERENCES {schema}.wallet_credit_rebases(migration_id),
+    original_credited_quota bigint NOT NULL,
+    original_refunded_quota bigint NOT NULL,
+    original_refunded_amount_micros bigint NOT NULL,
+    original_paid_amount_micros bigint NOT NULL,
+    refundable_quota bigint NOT NULL,
+    rebased_debited_quota bigint NOT NULL DEFAULT 0
 );
 DO {delimiter}
 DECLARE existing_hash text; changed bigint;
@@ -211,9 +292,12 @@ BEGIN
         LATERAL jsonb_array_elements_text(r.plan->'user_ids') AS u(id)
         WHERE u.id::bigint = ANY(ARRAY[{user_ids}]::bigint[])
     ) THEN RAISE EXCEPTION 'selected user already rebased under another migration id'; END IF;
+{preservation_checks_sql}
+{refund_checks_sql}
 {statements}
     INSERT INTO {schema}.wallet_credit_rebases (migration_id, plan_sha256, plan)
     VALUES ({mid}, {digest}, {plan_json}::jsonb);
+{refund_inserts_sql}
 END
 {delimiter};
 COMMIT;

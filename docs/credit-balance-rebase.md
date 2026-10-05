@@ -17,6 +17,7 @@ credit（数据库整数 quota）是唯一余额真相源。1 USD 永远对应 5
   "target": {"database": "实际数据库名", "schema": "实际schema名", "system_identifier": "实际PostgreSQL集群整数标识"},
   "applied_migration_ids": [],
   "users": [{"id": 1, "quota": 500000000, "aff_quota": 680}],
+  "topups": [],
   "tokens": [{"id": 10, "user_id": 1, "remain_quota": 680, "unlimited_quota": false}]
 }
 ```
@@ -103,7 +104,7 @@ python scripts/preview-credit-balance-rebase.py \
 
 实际执行前必须确认生产目标、完成停写/结算、创建完整可恢复备份，并在隔离恢复副本上验证计划。SQL 在一个事务中锁住 users/tokens/options，按每项原始余额作比较后更新，token 同时核对 user_id 归属；任意不符整笔回滚，禁止根据新余额再次自动除汇率。
 
-SQL 只新增一个有明确用途的持久审计表 `wallet_credit_rebases`，记录 migration id、完整原始/目标余额计划、计划摘要和时间。这个表不是临时垃圾，不能清理掉。同 id 和同 hash 重跑无修改；同 id 换计划失败；即使换 id，也拒绝再次迁移已经调整过的用户。
+SQL 新增有明确用途的持久审计表 `wallet_credit_rebases`，记录 migration id、完整原始/目标余额计划、计划摘要和时间；另一个 `wallet_topup_credit_rebases` 保存旧成功充值的独立剩余退款池。两个表不是临时垃圾，不能清理掉。同 id 和同 hash 重跑无修改；同 id 换计划失败；即使换 id，也拒绝再次迁移已经调整过的用户。
 
 事务写锁只覆盖执行期间，不能替代全平台停写；缓存里的旧余额必须在恢复服务前清除/重建。执行后按计划核对用户与审计、验证总变化、确认固定 USD/credit 锚点和上游模型价格，再恢复写入。分组倍率调整是单独的后续价格决策，不在余额迁移里自动修改。
 
@@ -134,6 +135,16 @@ SQL 设置 standard_conforming_strings，DO 使用不出现在嵌入内容中的
 | `user_subscriptions` / orders | active 套餐 `amount_total-amount_used`；余额购订阅 charged_quota；provider退款主要撤销订阅权益 | 套餐额度不是钱包，是否缩减剩余套餐须单独确认；禁止缩减 amount_used 历史。provider退款测试保证不直接扣钱包，不能把它和钱包TopUp退款混用 |
 | `hero_sms_sms_orders` | 未终结或投诉未结的 `reserved_quota/charge_quota/refunded_quota` | 核对上游订单和投诉后通过已有业务流程退还/结算；已终结 ledger 保留，不能仅看钱包余额 |
 
-仅排空当前在途订单还不够：`payment_refund.go` 对旧成功充值的**以后新发起退款**仍以 `normalizedTopUpCreditedQuota` 及历史 `refunded_quota` 作比例扣点。迁移后不能继续扣旧额度，也不能篡改历史到账数解决。需要增加订单对应的独立纠正基准/迁移关联，并从该基准计算未来实际扣点与新增退款审计；这种业务修正尚不包含在当前 SQL 生成器里。
+仅排空当前在途订单还不够：`payment_refund.go` 对旧成功充值的**以后新发起退款**仍以 `normalizedTopUpCreditedQuota` 及历史 `refunded_quota` 作比例扣点。迁移后不能继续扣旧额度，也不能篡改历史到账数解决。需要增加订单对应的独立纠正基准/迁移关联，并从该基准计算未来实际扣点与新增退款审计；SQL 生成器现在会在同一事务写入独立退款基准，运行时退款处理必须同步发布使用这些基准，不能只执行余额 SQL 后继续旧退款代码。
 
 未来入账来源还包括 `QuotaForNewUser/QuotaForInviter/QuotaForInvitee`、签到策略、管理员调整、兑换码、支付回调和工具/悬赏收入。它们应以确认的整数 credit 政策配置，不能再从错误美元账面值恢复用户余额。分组倍率属于消费价格政策，单独调整。
+
+## 已付充值的退款快照
+
+联合计划必须包含 `topups` 数组。覆盖选中用户全部 `success` 且 credited_quota 或 amount 非零的充值，哪怕已全额退款也保留其零剩余池；SQL 比较总行数和每条事实，拒绝漏订单。非钱包订阅镜像的零 credited/amount 行不纳入。若出现无法明确计算权益的老数据，须先人工核实，不能忽略当作已处理。
+
+每条快照包含原始 `id/user_id/status/credited_quota/amount/platform_amount_micros/money/settled_amount_micros/expected_amount_micros/refunded_quota/refunded_amount_micros/payment_provider/payment_method/settlement_currency`；`money` 用数据库精确文本，其他金额字段用整数。额外的 `effective_credited_quota` 和 `paid_amount_micros` 必须由现有权威充值归一化逻辑读出：这是历史点数事实和实际支付金额，不能从当前显示美元值重新推钱包。
+
+独立表记录原始到账、原始已退点数/金额、原始支付金额，以及按同一确认除数/舍入规则计算的剩余可退款池；新 `rebased_debited_quota` 起始为零。旧 TopUp 历史字段不重写；未来退款分别维护旧单位事实和纠正后实际扣点。二次迁移同用户当前一律拒绝，不会重置已有退款基准。
+
+`price_review.unchanged_option_values` 可以记录要求保留的完整 ModelRatio/ModelPrice/mode/locks 字符串；`absent_unchanged_options` 可记录原本不存在的工具价配置。联合事务先核对这些保留项，任意变化整笔失败，不会创建本来不存在的无关配置。
