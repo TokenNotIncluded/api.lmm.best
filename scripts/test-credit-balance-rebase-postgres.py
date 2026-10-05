@@ -27,7 +27,11 @@ try:
  assert run(base,input=sql).returncode!=0
  assert ok(base,input='SELECT quota FROM users WHERE id=1;')=='500000000'
  assert ok(base,input='SELECT count(*) FROM wallet_credit_rebases;')=='0'
- print('Isolated PostgreSQL passed: real apply, negative debt, same-plan rerun, different-id double-debit rejection, before-value conflict transaction rollback.')
+ ok(base,input="UPDATE users SET quota=-86911 WHERE id=2; UPDATE options SET value='unexpected-anchor' WHERE key='CreditsPerUSD';")
+ assert run(base,input=sql).returncode!=0
+ assert ok(base,input='SELECT quota FROM users WHERE id=1;')=='500000000'
+ assert ok(base,input='SELECT count(*) FROM wallet_credit_rebases;')=='0'
+ print('Isolated PostgreSQL passed: real apply, negative debt, same-plan rerun, different-id double-debit rejection, user/anchor conflicts roll back all wallet changes.')
 finally:
  ok(['pg_ctl','-D',str(data),'-m','immediate','-w','stop'])
  shutil.rmtree(root)

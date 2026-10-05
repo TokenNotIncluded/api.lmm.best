@@ -53,6 +53,18 @@ class RebaseTests(unittest.TestCase):
             with self.subTest(overrides=overrides), self.assertRaises(ValueError):
                 r.make_plan(snapshot, **(self.kw | overrides))
 
+    def test_fixed_anchor_requires_price_review_and_sql_requires_combined_plan(self):
+        with self.assertRaises(ValueError):
+            r.postgres_sql(r.make_plan(self.snapshot, **self.kw))
+        bad = copy.deepcopy(self.snapshot)
+        bad["price_review"] = {"status": "verified", "evidence": "", "option_corrections": []}
+        with self.assertRaises(ValueError):
+            r.make_plan(bad, **self.kw, restore_fixed_anchors=True)
+        bad["price_review"] = {"status": "verified", "evidence": "fixture", "option_corrections": [
+            {"key": "GroupRatio", "before": "{}", "after": "{}"}]}
+        with self.assertRaises(ValueError):
+            r.make_plan(bad, **self.kw, restore_fixed_anchors=True)
+
     def test_sql_is_atomic_guarded_and_does_not_rewrite_prices_history(self):
         sql = r.postgres_sql(r.make_plan(self.snapshot, **self.kw, restore_fixed_anchors=True))
         self.assertIn("BEGIN;", sql)
