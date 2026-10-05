@@ -1025,3 +1025,137 @@ test('changing the display unit mid-editor retains one-credit prices and metered
     requests.restore()
   }
 })
+
+function usagePricingDraftFixture(): MarketDetail {
+  const detail = structuredClone(initial)
+  detail.tools[0].input_schema = JSON.stringify(discovered[0].input_schema)
+  detail.tools[0].available_metering_metrics = ['cpu_core_milliseconds']
+  detail.tools[0].billing_mode = 'metered'
+  detail.tools[0].billing_rules = [
+    { metric: 'cpu_core_milliseconds', rate_quota: 500000, max_quantity: 1000 },
+  ]
+  detail.tools[0].price_quota = 500000
+  return detail
+}
+
+const usageRateSelector = '[id$="-rate-0"]'
+
+function usageRateInput(view: Awaited<ReturnType<typeof renderEditor>>) {
+  const input =
+    view.container.querySelector<HTMLInputElement>(usageRateSelector)
+  assert.ok(input)
+  return input
+}
+
+test('usage rates retain every decimal keystroke and trailing dot in CNY, USD, and Credits', async () => {
+  const requests = pricingRequests()
+  const detail = usagePricingDraftFixture()
+  const before = JSON.stringify(detail)
+  const view = await renderEditor(detail)
+  try {
+    await view.click('Read tool definitions')
+    await acknowledgePricingDefinitions(view)
+    assert.equal(usageRateInput(view).type, 'text')
+    for (const currency of ['CNY', 'USD', 'CREDIT'] as const) {
+      await act(async () =>
+        useWalletCurrencyPreferenceStore.getState().setPreference(currency)
+      )
+      for (const input of ['0', '0.', '0.0', '0.01']) {
+        await view.input(usageRateSelector, input)
+        assert.equal(usageRateInput(view).value, input, `${currency}: ${input}`)
+        assert.equal(
+          view.button('Save draft').disabled,
+          input !== '0.01' || currency === 'CREDIT'
+        )
+      }
+      for (const input of ['1', '1.', '1.0']) {
+        await view.input(usageRateSelector, input)
+        assert.equal(usageRateInput(view).value, input, `${currency}: ${input}`)
+        assert.equal(view.button('Save draft').disabled, input === '1.')
+      }
+    }
+    await view.click('Save draft')
+    assert.equal(requests.drafts.length, 1)
+    assert.equal(requests.drafts[0].tools[0].billing_rules?.[0].rate_quota, 1)
+    assert.equal(requests.drafts[0].tools[0].price_quota, 1)
+    assert.equal(JSON.stringify(detail), before)
+  } finally {
+    await view.dispose()
+    requests.restore()
+  }
+})
+
+test('usage rate currency switches reproject the chosen Credits and retain the real save payload', async () => {
+  const requests = pricingRequests()
+  const detail = usagePricingDraftFixture()
+  const view = await renderEditor(detail)
+  try {
+    await view.click('Read tool definitions')
+    await acknowledgePricingDefinitions(view)
+    await view.input(usageRateSelector, '0.01')
+    for (const [currency, expected] of [
+      ['USD', '0.001428571428571428571428571429'],
+      ['CREDIT', '5000'],
+      ['CNY', '0.01'],
+    ] as const) {
+      await act(async () =>
+        useWalletCurrencyPreferenceStore.getState().setPreference(currency)
+      )
+      assert.equal(usageRateInput(view).value, expected)
+      assert.equal(view.button('Save draft').disabled, false)
+    }
+    await view.click('Save draft')
+    assert.equal(requests.drafts.length, 1)
+    assert.deepEqual(requests.drafts[0].tools[0].billing_rules, [
+      { metric: 'cpu_core_milliseconds', rate_quota: 5000, max_quantity: 1000 },
+    ])
+    assert.equal(requests.drafts[0].tools[0].price_quota, 5000)
+    assert.equal(detail.tools[0].billing_rules?.[0].rate_quota, 500000)
+  } finally {
+    await view.dispose()
+    requests.restore()
+  }
+})
+
+test('invalid usage drafts block real form submissions instead of saving the old valid rate', async () => {
+  const requests = pricingRequests()
+  const view = await renderEditor(usagePricingDraftFixture())
+  try {
+    await view.click('Read tool definitions')
+    await acknowledgePricingDefinitions(view)
+    for (const currency of ['CNY', 'USD', 'CREDIT'] as const) {
+      await act(async () =>
+        useWalletCurrencyPreferenceStore.getState().setPreference(currency)
+      )
+      await view.input(usageRateSelector, '1')
+      assert.equal(view.button('Save draft').disabled, false)
+      for (const input of [
+        '',
+        '0',
+        '1.',
+        '-1',
+        'junk',
+        '1e4',
+        '9007199254740992',
+      ]) {
+        await view.input(usageRateSelector, input)
+        assert.equal(usageRateInput(view).value, input)
+        assert.equal(usageRateInput(view).getAttribute('aria-invalid'), 'true')
+        assert.equal(view.button('Save draft').disabled, true)
+        await view.submit()
+        assert.equal(requests.drafts.length, 0, `${currency}: ${input}`)
+      }
+      if (currency === 'CREDIT') {
+        await view.input(usageRateSelector, '1.5')
+        await view.submit()
+        assert.equal(requests.drafts.length, 0)
+      }
+    }
+    await view.input(usageRateSelector, '2')
+    await view.click('Save draft')
+    assert.equal(requests.drafts[0].tools[0].billing_rules?.[0].rate_quota, 2)
+  } finally {
+    await view.dispose()
+    requests.restore()
+  }
+})

@@ -2,7 +2,7 @@
 Copyright (C) 2026 LIghtJUNction
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
-import { useId } from 'react'
+import { useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -25,8 +25,18 @@ export function UsagePricingEditor({
   onChange: (rules: BillingRule[]) => void
 }) {
   const { t } = useTranslation()
-  const { quotaToInput, amountToQuota, formatQuota, label, step } =
+  const { quotaToInput, amountToQuota, formatQuota, label, currency } =
     useWalletCurrency()
+  const inputCurrencyKey = `${currency}:${quotaToInput(1)}`
+  const [rateDrafts, setRateDrafts] = useState<
+    Record<string, { key: string; input: string; quota: number }>
+  >({})
+  const clearRateDraft = (metric: string) =>
+    setRateDrafts((current) => {
+      const next = { ...current }
+      delete next[metric]
+      return next
+    })
   const prefix = useId()
   const available = usageMetrics.filter((m) => metrics.includes(m.metric))
   const remaining = available.filter(
@@ -65,6 +75,8 @@ export function UsagePricingEditor({
                     (m) => m.metric === e.target.value
                   )
                   if (next) {
+                    clearRateDraft(r.metric)
+                    clearRateDraft(next.metric)
                     update(index, {
                       metric: next.metric,
                       max_quantity: next.scale,
@@ -87,18 +99,32 @@ export function UsagePricingEditor({
               </FieldLabel>
               <Input
                 id={`${prefix}-rate-${index}`}
-                type='number'
-                min='0'
-                step={step}
-                value={r.rate_quota ? quotaToInput(r.rate_quota) : ''}
+                type='text'
+                inputMode='decimal'
+                value={
+                  rateDrafts[r.metric]?.key === inputCurrencyKey &&
+                  rateDrafts[r.metric]?.quota === r.rate_quota
+                    ? rateDrafts[r.metric].input
+                    : r.rate_quota
+                      ? quotaToInput(r.rate_quota)
+                      : ''
+                }
+                aria-invalid={
+                  !Number.isSafeInteger(r.rate_quota) || r.rate_quota <= 0
+                }
                 disabled={disabled}
                 onChange={(e) => {
+                  const input = e.target.value
                   let rate = 0
                   try {
-                    rate = marketQuota(e.target.value, amountToQuota)
+                    rate = marketQuota(input, amountToQuota)
                   } catch {
-                    /* incomplete price */
+                    // Incomplete or invalid text cannot submit the previous valid rate.
                   }
+                  setRateDrafts((current) => ({
+                    ...current,
+                    [r.metric]: { input, key: inputCurrencyKey, quota: rate },
+                  }))
                   update(index, { rate_quota: rate })
                 }}
               />
@@ -127,7 +153,10 @@ export function UsagePricingEditor({
               type='button'
               variant='outline'
               disabled={disabled}
-              onClick={() => onChange(rules.filter((_, i) => i !== index))}
+              onClick={() => {
+                clearRateDraft(r.metric)
+                onChange(rules.filter((_, i) => i !== index))
+              }}
             >
               {t('Remove usage unit')}
             </Button>
