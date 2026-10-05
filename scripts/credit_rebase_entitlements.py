@@ -14,6 +14,10 @@ SPECS = {
         "write": ("reward_quota",),
         "int": ("project_id", "participant_user_id", "reward_quota", "tip_quota", "accepted_at", "submitted_at", "reviewed_at", "rejected_at", "paid_at", "created_at", "updated_at"),
         "text": ("status",), "null": ()},
+    "open_source_bounty_disputes": {
+        "write": (),
+        "int": ("challenge_id", "project_id", "opened_by_user_id", "against_user_id", "project_escrow_quota_snapshot", "reward_quota_snapshot", "tip_quota_snapshot", "resolved_by_user_id", "created_at", "updated_at", "resolved_at"),
+        "text": ("challenge_status_snapshot", "status"), "null": ()},
 }
 
 
@@ -69,9 +73,9 @@ def make_entities(snapshot, selected, scale, *, include_redemptions=False, inclu
                 raise ValueError("redemption is not a usable selected issuer's credit right")
 
     if include_bounties:
-        projects, challenges = entities.get("bounty_projects"), entities.get("bounty_challenges")
-        if not isinstance(projects, list) or not isinstance(challenges, list):
-            raise ValueError("explicit active bounty projects and unpaid challenges arrays are required")
+        projects, challenges, disputes = entities.get("bounty_projects"), entities.get("bounty_challenges"),entities.get("bounty_disputes")
+        if not isinstance(projects, list) or not isinstance(challenges, list) or not isinstance(disputes,list):
+            raise ValueError("explicit active bounty projects, unpaid challenges and all related disputes are required")
         pmap, owed = {}, {}
         for row in projects:
             e = add("open_source_bounty_projects", row)
@@ -80,12 +84,30 @@ def make_entities(snapshot, selected, scale, *, include_redemptions=False, inclu
                 raise ValueError("bounty is not an active selected owner's future right")
             pmap[s["id"]] = e
             owed[s["id"]] = 0
+        claims = {}
+        for row in disputes:
+            e = add("open_source_bounty_disputes",row)
+            s = e["source"]
+            if s["project_id"] not in pmap or s["opened_by_user_id"] not in selected or s["against_user_id"] not in selected:
+                raise ValueError("bounty dispute ownership or project snapshot incomplete")
+            claims.setdefault(s["challenge_id"],[]).append(s)
         for row in challenges:
             e = add("open_source_bounty_challenges", row)
             s = e["source"]
-            if s["project_id"] not in pmap or s["participant_user_id"] not in selected or s["paid_at"] != 0 or s["status"] not in ("accepted", "submitted", "rejected"):
+            cases = claims.get(s["id"],[])
+            open_claim = any(case["status"] == "open" for case in cases)
+            resolved = any(case["status"] in ("resolved_paid","resolved_denied") for case in cases)
+            active = s["status"] in ("accepted","submitted") or open_claim or (s["status"]=="rejected" and s["rejected_at"]>at-7*24*60*60 and not resolved)
+            if s["project_id"] not in pmap or s["participant_user_id"] not in selected or s["paid_at"] != 0 or (s["status"] not in ("accepted", "submitted", "rejected") and not open_claim):
                 raise ValueError("bounty challenge must be an unpaid selected participant's future right")
-            owed[s["project_id"]] += e["updates"]["reward_quota"]["after_credit"]
+            if any(case["project_id"] != s["project_id"] for case in cases):
+                raise ValueError("bounty dispute/challenge project identity mismatch")
+            if active:
+                e["rights_status"] = "active_future_reward"
+                owed[s["project_id"]] += e["updates"]["reward_quota"]["after_credit"]
+            else:
+                e["rights_status"] = "historical_rejection_guard_only"
+                e["updates"] = {}
         for pid, project in pmap.items():
             if owed[pid] > project["updates"]["escrow_quota"]["after_credit"]:
                 raise ValueError("rounded bounty escrow cannot cover unpaid commitments; explicitly resolve tail allocation")
@@ -123,10 +145,12 @@ def render_entities(plan, schema, literal):
         checks.append(f"IF (SELECT count(*) FROM {schema}.open_source_bounty_projects WHERE owner_user_id=ANY(ARRAY[{selected}]::bigint[]) AND status IN ('published','paused')) <> {len(projects)} THEN RAISE EXCEPTION 'active bounty snapshot incomplete'; END IF;")
         if projects:
             count = sum(e["table"] == "open_source_bounty_challenges" for e in plan["entity_updates"])
-            checks.append(f"IF (SELECT count(*) FROM {schema}.open_source_bounty_challenges WHERE project_id=ANY(ARRAY[{pids}]::bigint[]) AND status IN ('accepted','submitted','rejected') AND paid_at=0) <> {count} THEN RAISE EXCEPTION 'unpaid bounty snapshot incomplete'; END IF;")
+            checks.append(f"IF (SELECT count(*) FROM {schema}.open_source_bounty_challenges c WHERE project_id=ANY(ARRAY[{pids}]::bigint[]) AND paid_at=0 AND (status IN ('accepted','submitted','rejected') OR EXISTS (SELECT 1 FROM {schema}.open_source_bounty_disputes d WHERE d.challenge_id=c.id AND d.status='open'))) <> {count} THEN RAISE EXCEPTION 'unpaid bounty snapshot incomplete'; END IF;")
+            dcount = sum(e["table"] == "open_source_bounty_disputes" for e in plan["entity_updates"])
+            checks.append(f"IF (SELECT count(*) FROM {schema}.open_source_bounty_disputes WHERE project_id=ANY(ARRAY[{pids}]::bigint[])) <> {dcount} THEN RAISE EXCEPTION 'all related bounty dispute snapshot incomplete'; END IF;")
     locks = []
     if plan["include_redemptions"]:
         locks.append(f"{schema}.redemptions")
     if plan["include_bounties"]:
-        locks += [f"{schema}.open_source_bounty_projects", f"{schema}.open_source_bounty_challenges"]
+        locks += [f"{schema}.open_source_bounty_projects", f"{schema}.open_source_bounty_challenges",f"{schema}.open_source_bounty_disputes"]
     return checks, updates, (", " + ", ".join(locks)) if locks else ""

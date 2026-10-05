@@ -89,7 +89,9 @@ ALTER TABLE fixture_money.tokens ADD COLUMN used_quota bigint DEFAULT 0,ADD COLU
         values = ["NULL" if value is None else r.sql_literal(value) if isinstance(value, str) else str(value) for value in row.values()]
         ok(base, input=f"CREATE TABLE fixture_money.{table} (" + ",".join(columns) + "); INSERT INTO fixture_money." + table + " (" + ",".join(row.keys()) + ") VALUES (" + ",".join(values) + ");")
     snapshot["snapshot_at"] = 100
-    snapshot["entities"] = {"redemptions":[red], "bounty_projects":[bounty], "bounty_challenges":[challenge]}
+    snapshot["entities"] = {"redemptions":[red], "bounty_projects":[bounty], "bounty_challenges":[challenge],"bounty_disputes":[]}
+    dispute_spec=SPECS["open_source_bounty_disputes"]
+    ok(base,input="CREATE TABLE fixture_money.open_source_bounty_disputes (id bigint PRIMARY KEY,"+",".join(key+" bigint" for key in dispute_spec["int"])+","+",".join(key+" text" for key in dispute_spec["text"])+");")
     import credit_rebase_subscriptions as subscriptions
     def subscription_source(ints,texts,**overrides):
         return {key:0 for key in ints} | {key:"" for key in texts} | overrides

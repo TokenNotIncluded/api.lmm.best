@@ -75,7 +75,7 @@ class RebaseTests(unittest.TestCase):
         snapshot["entities"] = {
             "redemptions": [source("redemptions", id=30, user_id=1, quota=680, status=1, reward_type="quota")],
             "bounty_projects": [source("open_source_bounty_projects", id=50, owner_user_id=1, escrow_quota=6800, reward_quota=680, net_reward_quota=612, platform_fee_quota=68, status="published")],
-            "bounty_challenges": [source("open_source_bounty_challenges", id=60, project_id=50, participant_user_id=2, reward_quota=612, tip_quota=125, status="accepted")]}
+            "bounty_challenges": [source("open_source_bounty_challenges", id=60, project_id=50, participant_user_id=2, reward_quota=612, tip_quota=125, status="accepted")],"bounty_disputes":[]}
         plan = r.make_plan(snapshot, **self.kw, include_redemptions=True, include_bounties=True)
         self.assertEqual(len(plan["entity_updates"]), 3)
         for e in plan["entity_updates"]:
@@ -88,6 +88,29 @@ class RebaseTests(unittest.TestCase):
         snapshot["entities"]["bounty_challenges"][0]["paid_at"] = 1
         with self.assertRaises(ValueError):
             r.make_plan(snapshot, **self.kw, include_bounties=True)
+
+    def test_bounty_rejection_window_and_dispute_liabilities(self):
+        from credit_rebase_entitlements import SPECS,make_entities
+        def source(table,**changes):
+            return {key:0 for key in SPECS[table]["int"]} | {key:"" for key in SPECS[table]["text"]} | changes
+        project=source("open_source_bounty_projects",id=50,owner_user_id=1,escrow_quota=680,reward_quota=680,net_reward_quota=680,status="published")
+        active=source("open_source_bounty_challenges",id=60,project_id=50,participant_user_id=2,reward_quota=680,status="accepted")
+        rejected=active|{"id":61,"status":"rejected","rejected_at":395200}
+        snapshot={"snapshot_at":1000000,"entities":{"bounty_projects":[project],"bounty_challenges":[active,rejected],"bounty_disputes":[]}}
+        plan=make_entities(snapshot,{1,2},lambda q:q//6,include_bounties=True)
+        old=[e for e in plan if e["id"]==61][0]
+        self.assertEqual(old["updates"],{})
+        self.assertEqual(old["rights_status"],"historical_rejection_guard_only")
+        rejected["rejected_at"] += 1
+        with self.assertRaises(ValueError):make_entities(snapshot,{1,2},lambda q:q//6,include_bounties=True)
+        rejected["rejected_at"] -= 1
+        dispute=source("open_source_bounty_disputes",id=90,challenge_id=61,project_id=50,opened_by_user_id=2,against_user_id=1,status="open")
+        snapshot["entities"]["bounty_disputes"]=[dispute]
+        with self.assertRaises(ValueError):make_entities(snapshot,{1,2},lambda q:q//6,include_bounties=True)
+        dispute["status"]="resolved_denied"
+        rejected["rejected_at"] += 1
+        plan=make_entities(snapshot,{1,2},lambda q:q//6,include_bounties=True)
+        self.assertEqual([e for e in plan if e["id"]==61][0]["updates"],{})
 
     def test_noncash_classification_and_auxiliary_bases_are_explicit(self):
         from credit_rebase_auxiliary import REFERRAL_NUMBERS

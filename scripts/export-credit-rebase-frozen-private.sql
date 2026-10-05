@@ -49,12 +49,18 @@ pending AS (
         platform_fee_quota,platform_fee_rate_bps,created_at,updated_at,published_at,
         closed_at,archived_at,status
  FROM :"target_schema".open_source_bounty_projects WHERE status IN ('published','paused')
+), bounty_disputes AS (
+ SELECT d.id,d.challenge_id,d.project_id,d.opened_by_user_id,d.against_user_id,
+        d.project_escrow_quota_snapshot,d.reward_quota_snapshot,d.tip_quota_snapshot,
+        d.resolved_by_user_id,d.created_at,d.updated_at,d.resolved_at,
+        d.challenge_status_snapshot,d.status
+ FROM :"target_schema".open_source_bounty_disputes d JOIN projects p ON p.id=d.project_id
 ), challenges AS (
  SELECT c.id,c.project_id,c.participant_user_id,c.reward_quota,c.tip_quota,
         c.accepted_at,c.submitted_at,c.reviewed_at,c.rejected_at,c.paid_at,
         c.created_at,c.updated_at,c.status
  FROM :"target_schema".open_source_bounty_challenges c JOIN projects p ON p.id=c.project_id
- WHERE c.status IN ('accepted','submitted','rejected') AND c.paid_at=0
+ WHERE c.paid_at=0 AND (c.status IN ('accepted','submitted','rejected') OR EXISTS (SELECT 1 FROM bounty_disputes d WHERE d.challenge_id=c.id AND d.status='open'))
 ), subscriptions AS (
  SELECT id,user_id,plan_id,amount_total,amount_used,quota_version,start_time,end_time,
         status,source,last_reset_time,next_reset_time,created_at,updated_at,
@@ -140,7 +146,8 @@ SELECT jsonb_build_object('version',1,
  'entities',jsonb_build_object(
    'redemptions',COALESCE((SELECT jsonb_agg(to_jsonb(r) ORDER BY id) FROM redemptions r),'[]'::jsonb),
    'bounty_projects',COALESCE((SELECT jsonb_agg(to_jsonb(p) ORDER BY id) FROM projects p),'[]'::jsonb),
-   'bounty_challenges',COALESCE((SELECT jsonb_agg(to_jsonb(c) ORDER BY id) FROM challenges c),'[]'::jsonb)),
+   'bounty_challenges',COALESCE((SELECT jsonb_agg(to_jsonb(c) ORDER BY id) FROM challenges c),'[]'::jsonb),
+   'bounty_disputes',COALESCE((SELECT jsonb_agg(to_jsonb(d) ORDER BY id) FROM bounty_disputes d),'[]'::jsonb)),
  'subscriptions',COALESCE((SELECT jsonb_agg(to_jsonb(s) ORDER BY id) FROM subscriptions s),'[]'::jsonb),
  'subscription_orders',COALESCE((SELECT jsonb_agg(to_jsonb(o) ORDER BY id) FROM subscription_orders o),'[]'::jsonb),
  'subscription_plans',COALESCE((SELECT jsonb_agg(to_jsonb(p) ORDER BY id) FROM subscription_plans p),'[]'::jsonb),

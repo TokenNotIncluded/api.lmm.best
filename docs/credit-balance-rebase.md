@@ -166,9 +166,13 @@ SQL 设置 standard_conforming_strings，DO 使用不出现在嵌入内容中的
 
 用户已确认尚未使用的点数权益也一起纠正。生成对应预览时必须明确传 `--include-redemptions --include-bounties`；快照增加停写捕获的 `snapshot_at` 与 `entities.redemptions/bounty_projects/bounty_challenges` 数组。字段清单以 `scripts/credit_rebase_entitlements.py` 的 `SPECS` 为准，原始权利人、状态、时间戳和所有相关点数事实均必须齐全。
 
-只允许更新可用兑换码 `quota`、published/paused 悬赏的剩余 `escrow_quota` 和未来 gross/net reward、尚未支付挑战的 `reward_quota`。已付挑战不能混入；累计 tip 和发布时已付 platform fee 永远不在写入白名单。所有旧状态、归属、时间戳和金额在同一加锁事务核验，完整数量校验拒绝遗漏仍可兑现权益。
+只允许更新可用兑换码 `quota`、published/paused 悬赏的剩余 `escrow_quota` 和未来 gross/net reward、仍有效的未支付挑战 `reward_quota`。已付挑战不能混入；累计 tip 和发布时已付 platform fee 永远不在写入白名单。所有旧状态、归属、时间戳和金额在同一加锁事务核验，完整数量校验拒绝遗漏仍可兑现权益。
 
 每个悬赏迁移后的 escrow 必须足以覆盖计划中尚未支付的挑战承诺；整数舍入若造成不足，预览会拒绝并要求明确尾差分配方案，不会静默削减任意参与者权益。订阅和 pending 支付采用独立扩展，不用这一白名单冒充已覆盖。
+
+悬赏有效承诺按现有 `AcceptOpenSourceBounty/CloseOpenSourceBounty` 源码计算：accepted/submitted；rejected 且 `rejected_at > snapshot_at - 7*24*60*60`、没有 resolved_paid/resolved_denied；或者存在任何 open dispute。恰好到七天边界为过期。完整捕获 active 项目的全部关联 dispute 财务事实并锁定/CAS/count，不把 appealable 或 open claim 剪掉。
+
+过期或已 resolved 的 rejected 没有当前可兑现承诺，保存 `historical_rejection_guard_only` 和完整原事实，`updates` 为空，原 reward_quota 不改；它们不重复占用 escrow。有效挑战标记 `active_future_reward` 并同比纠正其待付额度。dispute 的旧 RewardQuotaSnapshot/ProjectEscrowQuotaSnapshot/tip、角色与时间都是证据，不更新；真正 open 且满足原 pay 角色/状态约束的纠纷使用父审计里的独立 `bounty_dispute_reward` 基准，不能用旧 snapshot 再发旧单位奖励。
 
 ## 保留待支付订单与非现金事实
 
