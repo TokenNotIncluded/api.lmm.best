@@ -221,14 +221,15 @@ type HeroSMSProviderPurchaseLease struct {
 }
 
 type HeroSMSEmailQuotaLedger struct {
-	ID             int64  `json:"id" gorm:"primaryKey;autoIncrement"`
-	UserID         int    `json:"user_id" gorm:"index;not null"`
-	OrderID        string `json:"order_id" gorm:"size:64;index;not null"`
-	ActivationID   string `json:"activation_id" gorm:"size:64;index"`
-	EntryType      string `json:"entry_type" gorm:"size:32;index;not null"`
-	AmountQuota    int    `json:"amount_quota" gorm:"not null"`
-	IdempotencyKey string `json:"idempotency_key" gorm:"size:128;uniqueIndex;not null"`
-	CreatedAt      int64  `json:"created_at" gorm:"index"`
+	ID                  int64  `json:"id" gorm:"primaryKey;autoIncrement"`
+	UserID              int    `json:"user_id" gorm:"index;not null"`
+	OrderID             string `json:"order_id" gorm:"size:64;index;not null"`
+	ActivationID        string `json:"activation_id" gorm:"size:64;index"`
+	EntryType           string `json:"entry_type" gorm:"size:32;index;not null"`
+	AmountQuota         int    `json:"amount_quota" gorm:"not null"`
+	OriginalAmountQuota *int   `json:"original_amount_quota,omitempty"`
+	IdempotencyKey      string `json:"idempotency_key" gorm:"size:128;uniqueIndex;not null"`
+	CreatedAt           int64  `json:"created_at" gorm:"index"`
 }
 
 func (o *HeroSMSEmailOrder) BeforeCreate(_ *gorm.DB) error {
@@ -1223,57 +1224,11 @@ func failHeroSMSEmailOrder(order *HeroSMSEmailOrder, cause error) error {
 }
 
 func heroSMSRefundOrderTx(tx *gorm.DB, order *HeroSMSEmailOrder, quota int, refundKey string) error {
-	if quota <= 0 {
-		return nil
-	}
-	ledger := HeroSMSEmailQuotaLedger{UserID: order.UserID, OrderID: order.ID, EntryType: HeroSMSEmailLedgerRefund, AmountQuota: quota, IdempotencyKey: "hero_sms:refund:" + order.ID + ":" + refundKey}
-	insert := tx.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "idempotency_key"}},
-		DoNothing: true,
-	}).Create(&ledger)
-	if insert.Error != nil {
-		return insert.Error
-	}
-	if insert.RowsAffected == 0 {
-		return nil
-	}
-	orderUpdate := tx.Model(&HeroSMSEmailOrder{}).
-		Where("id = ? AND refunded_quota + ? <= charge_quota", order.ID, quota).
-		UpdateColumn("refunded_quota", gorm.Expr("refunded_quota + ?", quota))
-	if orderUpdate.Error != nil {
-		return orderUpdate.Error
-	}
-	if orderUpdate.RowsAffected != 1 {
-		return errors.New("HeroSMS refund exceeds reserved quota")
-	}
-	return ApplyWalletQuotaDelta(tx, order.UserID, quota)
+	return heroSMSRefundQuotaTx(tx, order, "", quota, "hero_sms:refund:"+order.ID+":"+refundKey)
 }
 
 func heroSMSRefundActivationTx(tx *gorm.DB, order *HeroSMSEmailOrder, activation *HeroSMSEmailActivation, quota int, refundKey string) error {
-	if quota <= 0 {
-		return nil
-	}
-	ledger := HeroSMSEmailQuotaLedger{UserID: order.UserID, OrderID: order.ID, ActivationID: activation.ID, EntryType: HeroSMSEmailLedgerRefund, AmountQuota: quota, IdempotencyKey: "hero_sms:refund:" + activation.ID + ":" + refundKey}
-	insert := tx.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "idempotency_key"}},
-		DoNothing: true,
-	}).Create(&ledger)
-	if insert.Error != nil {
-		return insert.Error
-	}
-	if insert.RowsAffected == 0 {
-		return nil
-	}
-	orderUpdate := tx.Model(&HeroSMSEmailOrder{}).
-		Where("id = ? AND refunded_quota + ? <= charge_quota", order.ID, quota).
-		UpdateColumn("refunded_quota", gorm.Expr("refunded_quota + ?", quota))
-	if orderUpdate.Error != nil {
-		return orderUpdate.Error
-	}
-	if orderUpdate.RowsAffected != 1 {
-		return errors.New("HeroSMS refund exceeds reserved quota")
-	}
-	return ApplyWalletQuotaDelta(tx, order.UserID, quota)
+	return heroSMSRefundQuotaTx(tx, order, activation.ID, quota, "hero_sms:refund:"+activation.ID+":"+refundKey)
 }
 
 func markHeroSMSEmailOrderStatus(orderID string, status string, errorCode string, errorMessage string, activationStatus string) error {
