@@ -42,6 +42,15 @@ def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
     selected = {integer(i, "user id", positive=True) for i in user_ids}
     if not isinstance(snapshot, dict) or snapshot.get("version") != 1:
         raise ValueError("snapshot version must be 1")
+    target = snapshot.get("target")
+    if not isinstance(target, dict):
+        raise ValueError("snapshot requires explicit target database/schema/system_identifier")
+    if not isinstance(target.get("schema"), str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,62}", target["schema"]):
+        raise ValueError("target schema must be an explicit valid PostgreSQL identifier")
+    if not isinstance(target.get("database"), str) or not target["database"] or "\x00" in target["database"]:
+        raise ValueError("target database must be explicit")
+    if not isinstance(target.get("system_identifier"), str) or not re.fullmatch(r"[0-9]{1,20}", target["system_identifier"]):
+        raise ValueError("target PostgreSQL system_identifier must be an exact decimal string")
     applied = snapshot.get("applied_migration_ids")
     if not isinstance(applied, list) or any(not isinstance(i, str) for i in applied):
         raise ValueError("snapshot must include applied_migration_ids (verified audit ids)")
@@ -106,10 +115,11 @@ def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
                 raise ValueError("token unlimited_quota must be a boolean")
             if not token["unlimited_quota"]:
                 entry("tokens", tid, "remain_quota", token["remain_quota"])
+                entries[-1]["user_id"] = uid
     entries.sort(key=lambda e: (e["table"], e["id"], e["field"]))
     source_digest = hashlib.sha256(json.dumps(snapshot, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     plan = {"version": 1, "kind": "offline_credit_balance_rebase_preview",
-            "migration_id": migration_id, "source_sha256": source_digest,
+            "migration_id": migration_id, "target": dict(target), "source_sha256": source_digest,
             "usd_credit_conversion": 500000, "divisor": divisor_text,
             "exact_factor": {"numerator": divisor.denominator, "denominator": divisor.numerator},
             "rounding": rounding, "user_ids": sorted(selected),
@@ -138,19 +148,26 @@ def postgres_sql(plan):
     """Render guarded SQL only; no connection or automatic invocation exists."""
     if not plan.get("restore_fixed_anchors"):
         raise ValueError("SQL requires a combined fixed-anchor and reviewed-price plan")
+    schema = '"' + plan["target"]["schema"] + '"'
+    database = sql_literal(plan["target"]["database"])
+    system_id = sql_literal(plan["target"]["system_identifier"])
     plan_json = sql_literal(json.dumps(plan, sort_keys=True, separators=(",", ":")))
     mid, digest = sql_literal(plan["migration_id"]), sql_literal(plan["plan_sha256"])
     user_ids = ",".join(str(uid) for uid in plan["user_ids"])
+    delimiter = "$credit_rebase_" + plan["plan_sha256"] + "$"
+    while delimiter in plan_json:
+        delimiter = delimiter[:-1] + "x$"
     updates = []
     for e in plan["entries"]:
         # All table/column identifiers come exclusively from make_plan's allowlist.
         table, field = e["table"], e["field"]
-        updates.append(f'UPDATE public."{table}" SET "{field}" = {e["after_credit"]} '
-                       f'WHERE id = {e["id"]} AND "{field}" = {e["before_credit"]};\n'
+        updates.append(f'UPDATE {schema}."{table}" SET "{field}" = {e["after_credit"]} '
+                       f'WHERE id = {e["id"]} AND "{field}" = {e["before_credit"]}'
+                       + (f' AND user_id = {e["user_id"]}' if table == "tokens" else "") + ";\n"
                        "GET DIAGNOSTICS changed = ROW_COUNT;\n"
                        f"IF changed <> 1 THEN RAISE EXCEPTION 'before-value mismatch: {table} id {e['id']} {field}'; END IF;")
     for e in plan["option_entries"]:
-        updates.append(f"UPDATE public.options SET value = {sql_literal(e['after'])} "
+        updates.append(f"UPDATE {schema}.options SET value = {sql_literal(e['after'])} "
                        f"WHERE key = {sql_literal(e['key'])} AND value = {sql_literal(e['before'])};\n"
                        "GET DIAGNOSTICS changed = ROW_COUNT;\n"
                        f"IF changed <> 1 THEN RAISE EXCEPTION 'option before-value mismatch: {e['key']}'; END IF;")
@@ -161,34 +178,44 @@ def postgres_sql(plan):
 BEGIN;
 SET LOCAL lock_timeout = '10s';
 SET LOCAL statement_timeout = '60s';
-SET LOCAL search_path = pg_catalog, public;
+SET LOCAL standard_conforming_strings = on;
+SET LOCAL search_path = pg_catalog;
+DO {delimiter}
+BEGIN
+    IF pg_catalog.current_database() <> {database} THEN RAISE EXCEPTION 'target database mismatch'; END IF;
+    IF (SELECT system_identifier::text FROM pg_catalog.pg_control_system()) <> {system_id}
+        THEN RAISE EXCEPTION 'target PostgreSQL system_identifier mismatch'; END IF;
+    IF pg_catalog.to_regnamespace({sql_literal(plan["target"]["schema"])}) IS NULL
+        THEN RAISE EXCEPTION 'target schema missing'; END IF;
+END
+{delimiter};
 SELECT pg_advisory_xact_lock(500000, 680001);
-LOCK TABLE public.users, public.tokens, public.options IN ACCESS EXCLUSIVE MODE;
-CREATE TABLE IF NOT EXISTS public.wallet_credit_rebases (
+LOCK TABLE {schema}.users, {schema}.tokens, {schema}.options IN ACCESS EXCLUSIVE MODE;
+CREATE TABLE IF NOT EXISTS {schema}.wallet_credit_rebases (
     migration_id text PRIMARY KEY,
     plan_sha256 text NOT NULL,
     plan jsonb NOT NULL,
     applied_at timestamptz NOT NULL DEFAULT now()
 );
-DO $credit_rebase$
+DO {delimiter}
 DECLARE existing_hash text; changed bigint;
 BEGIN
-    SELECT plan_sha256 INTO existing_hash FROM public.wallet_credit_rebases WHERE migration_id = {mid};
+    SELECT plan_sha256 INTO existing_hash FROM {schema}.wallet_credit_rebases WHERE migration_id = {mid};
     IF FOUND THEN
         IF existing_hash <> {digest} THEN RAISE EXCEPTION 'migration id already bound to a different plan'; END IF;
         RAISE NOTICE 'migration already applied; no balances changed';
         RETURN;
     END IF;
     IF EXISTS (
-        SELECT 1 FROM public.wallet_credit_rebases r,
+        SELECT 1 FROM {schema}.wallet_credit_rebases r,
         LATERAL jsonb_array_elements_text(r.plan->'user_ids') AS u(id)
         WHERE u.id::bigint = ANY(ARRAY[{user_ids}]::bigint[])
     ) THEN RAISE EXCEPTION 'selected user already rebased under another migration id'; END IF;
 {statements}
-    INSERT INTO public.wallet_credit_rebases (migration_id, plan_sha256, plan)
+    INSERT INTO {schema}.wallet_credit_rebases (migration_id, plan_sha256, plan)
     VALUES ({mid}, {digest}, {plan_json}::jsonb);
 END
-$credit_rebase$;
+{delimiter};
 COMMIT;
 -- Keep writers stopped: reset affected wallet/token caches, verify balance/audit, then reopen.
 """

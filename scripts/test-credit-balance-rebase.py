@@ -16,6 +16,7 @@ class RebaseTests(unittest.TestCase):
             {"id": 2, "quota": -86911, "aff_quota": 0}], "tokens": [
             {"id": 1, "user_id": 1, "remain_quota": 680, "unlimited_quota": False},
             {"id": 2, "user_id": 1, "remain_quota": 680, "unlimited_quota": True}]}
+        self.snapshot["target"] = {"database": "fixture", "schema": "fixture_money", "system_identifier": "123456"}
         self.snapshot["options"] = {"CreditsPerUSD": "3359744", "PublicCreditsPerUSD": "100000", "LegacyPricingQuotaPerUnit": "500000", "QuotaPerUnit": "500000"}
         self.snapshot["price_review"] = {"status": "verified", "evidence": "synthetic fixture without synced prices", "option_corrections": []}
         self.kw = dict(divisor_text="6.8", migration_id="rmb-balance-v1", user_ids=[1, 2], rounding="half-away-from-zero")
@@ -73,7 +74,7 @@ class RebaseTests(unittest.TestCase):
         self.assertIn("selected user already rebased", sql)
         self.assertIn("migration already applied; no balances changed", sql)
         self.assertNotIn("used_quota", sql)
-        self.assertIn("UPDATE public.options SET value = '500000'", sql)
+        self.assertIn('UPDATE "fixture_money".options SET value = \'500000\'', sql)
 
 
 if __name__ == "__main__":

@@ -14,11 +14,14 @@ credit（数据库整数 quota）是唯一余额真相源。1 USD 永远对应 5
 ```json
 {
   "version": 1,
+  "target": {"database": "实际数据库名", "schema": "实际schema名", "system_identifier": "实际PostgreSQL集群整数标识"},
   "applied_migration_ids": [],
   "users": [{"id": 1, "quota": 500000000, "aff_quota": 680}],
   "tokens": [{"id": 10, "user_id": 1, "remain_quota": 680, "unlimited_quota": false}]
 }
 ```
+
+`target` 必须来自生产只读核验（`current_database()`、目标 schema、`pg_control_system().system_identifier`），没有默认 public schema。生成的 SQL 在任何表修改前校验数据库与集群标识，所有表名都明确带目标 schema，不依赖 search_path。若执行角色无权读取集群标识，校验失败并回滚，不能删除校验绕过。
 
 `applied_migration_ids` 必须来自已核对的迁移审计，而不是为重跑清空；首次迁移为 `[]`。完整快照应同时包含选中用户的全部 token（即使保留 token 限额），并包含软删除用户的余额，以便明确决定是否纳入。
 
@@ -98,7 +101,7 @@ python scripts/preview-credit-balance-rebase.py \
 
 仍然只是文件生成，不执行 SQL。不提供默认生产连接。生成文件必须保密，其中包含用户 id 和真实余额。
 
-实际执行前必须确认生产目标、完成停写/结算、创建完整可恢复备份，并在隔离恢复副本上验证计划。SQL 在一个事务中锁住 users/tokens/options，按每项原始余额作比较后更新；任意不符整笔回滚，禁止根据新余额再次自动除汇率。
+实际执行前必须确认生产目标、完成停写/结算、创建完整可恢复备份，并在隔离恢复副本上验证计划。SQL 在一个事务中锁住 users/tokens/options，按每项原始余额作比较后更新，token 同时核对 user_id 归属；任意不符整笔回滚，禁止根据新余额再次自动除汇率。
 
 SQL 只新增一个有明确用途的持久审计表 `wallet_credit_rebases`，记录 migration id、完整原始/目标余额计划、计划摘要和时间。这个表不是临时垃圾，不能清理掉。同 id 和同 hash 重跑无修改；同 id 换计划失败；即使换 id，也拒绝再次迁移已经调整过的用户。
 
@@ -112,3 +115,5 @@ python scripts/test-credit-balance-rebase-postgres.py
 ```
 
 第二条仅建立新本地 PostgreSQL 集群，禁用 TCP、使用私有 Unix socket，测试结束删除自己的 fixture；不读取生产 DSN，不连接现有数据库。
+
+SQL 设置 standard_conforming_strings，DO 使用不出现在嵌入内容中的动态 delimiter，来源证据和价格字符串中的引号、反斜杠或 `$credit_rebase$` 文本不能截断 SQL。
