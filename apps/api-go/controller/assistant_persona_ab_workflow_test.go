@@ -9,7 +9,9 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/setting"
+	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -327,6 +329,25 @@ func TestPersonaABLatestExplicitPaymentIntentWins(t *testing.T) {
 }
 
 func TestPersonaAAgentChain(t *testing.T) {
+	oldQ := common.QuotaPerUnit
+	oldK, oldKErr := common.CreditsPerUSD()
+	oldBaseline, oldBaselineErr := common.LegacyPricingQuotaPerUnit()
+	if oldKErr == nil {
+		require.NoError(t, oldBaselineErr)
+	}
+	t.Cleanup(func() {
+		common.QuotaPerUnit = oldQ
+		if oldKErr != nil {
+			common.ClearCreditsPerUSD()
+		} else {
+			require.NoError(t, common.SetCreditCurrencyBasis(oldK, oldBaseline))
+		}
+	})
+	common.QuotaPerUnit = 500000
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(2500000), decimal.NewFromInt(500000)))
+	oldGroups := ratio_setting.GroupRatio2JSONString()
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1}`))
+	t.Cleanup(func() { require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(oldGroups)) })
 	withAssistantModelRatios(t, "gpt-5.6-sol")
 	gin.SetMode(gin.TestMode)
 	db := setupTokenControllerTestDB(t)
@@ -377,6 +398,28 @@ func TestPersonaAAgentChain(t *testing.T) {
 			encoded := string(mustAssistantJSON(t, request.Messages))
 			assert.Contains(t, encoded, `\"model_ids\":[\"gpt-5.6-sol\"]`)
 			assert.Contains(t, encoded, `\"pricing_scope\":\"public_preview_reference\"`)
+			foundPricing := false
+			for _, message := range request.Messages {
+				if message.Role != "tool" || message.ToolCallID != "pricing" {
+					continue
+				}
+				foundPricing = true
+				var pricing struct {
+					Currency string `json:"pricing_currency"`
+					Schema   int    `json:"pricing_schema_version"`
+					Prices   []struct {
+						Input  float64 `json:"input_usd_per_million"`
+						Output float64 `json:"output_usd_per_million"`
+					} `json:"prices"`
+				}
+				require.NoError(t, json.Unmarshal([]byte(message.Content), &pricing))
+				require.Equal(t, "USD", pricing.Currency)
+				require.Equal(t, 2, pricing.Schema)
+				require.Len(t, pricing.Prices, 1)
+				require.Equal(t, .5, pricing.Prices[0].Input)
+				require.Equal(t, 2.0, pricing.Prices[0].Output)
+			}
+			require.True(t, foundPricing)
 			return http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","content":"已核对实时连接、模型目录和参考价格；不会推荐中转、付费或法币路径。"}}]}`), nil
 		default:
 			return http.StatusInternalServerError, nil, nil
