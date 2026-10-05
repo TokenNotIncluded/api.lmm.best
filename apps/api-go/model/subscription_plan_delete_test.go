@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
@@ -253,9 +255,30 @@ func TestSubscriptionPlanDeleteRacesOrderPersistenceAndPreservesOrderSnapshot(t 
 
 func TestSubscriptionPlanDeleteRacesBalancePurchaseWithoutOrphan(t *testing.T) {
 	truncateTables(t)
+	// The purchase-winning path needs its own initialized currency basis;
+	// deletion winning first can return NotFound before reaching conversion.
+	previousAnchor, anchorErr := common.CreditsPerUSD()
+	previousLegacy, legacyErr := common.LegacyPricingQuotaPerUnit()
+	previousQ := common.QuotaPerUnit
+	previousFX, previousBonus := operation_setting.USDExchangeRate, operation_setting.TopUpPlatformUnitsPerCNY
+	t.Cleanup(func() {
+		common.QuotaPerUnit = previousQ
+		operation_setting.USDExchangeRate, operation_setting.TopUpPlatformUnitsPerCNY = previousFX, previousBonus
+		if anchorErr != nil || legacyErr != nil {
+			common.ClearCreditsPerUSD()
+		} else {
+			require.NoError(t, common.SetCreditCurrencyBasis(previousAnchor, previousLegacy))
+		}
+	})
+	common.QuotaPerUnit = 500000
+	operation_setting.USDExchangeRate, operation_setting.TopUpPlatformUnitsPerCNY = 7, 1
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3500000), decimal.NewFromInt(500000)))
 	const planId = 9620
 	const userId = 9621
-	seedDeletableSubscriptionPlan(t, planId)
+	require.NoError(t, DB.Create(&SubscriptionPlan{
+		Id: planId, Title: "Disposable CNY plan", PriceAmount: 1, Currency: "CNY",
+		DurationUnit: SubscriptionDurationMonth, DurationValue: 1, TotalAmount: 100, Enabled: true,
+	}).Error)
 	require.NoError(t, DB.Create(&User{
 		Id: userId, Username: "delete-balance-race", Password: "password", Status: 1, Quota: 10_000_000,
 	}).Error)
@@ -268,13 +291,24 @@ func TestSubscriptionPlanDeleteRacesBalancePurchaseWithoutOrphan(t *testing.T) {
 		func() error { return PurchaseSubscriptionWithBalance(userId, planId) },
 	)
 	require.NoError(t, deleteErr)
+	var user User
+	require.NoError(t, DB.First(&user, userId).Error)
 	if persistErr == nil {
 		var plan SubscriptionPlan
 		require.NoError(t, DB.Where("id = ?", planId).First(&plan).Error)
 		require.Positive(t, plan.ArchivedAt)
 		require.False(t, plan.Enabled)
+		require.EqualValues(t, 9_500_000, user.Quota)
+		var order SubscriptionOrder
+		require.NoError(t, DB.Where("user_id = ? AND plan_id = ?", userId, planId).First(&order).Error)
+		require.EqualValues(t, 500_000, order.ChargedQuota)
+		require.Equal(t, "CNY", order.PlanCurrency)
+		require.Equal(t, common.TopUpStatusSuccess, order.Status)
+		t.Log("balance purchase committed before plan deletion")
 	} else {
 		require.ErrorIs(t, persistErr, gorm.ErrRecordNotFound)
+		require.EqualValues(t, 10_000_000, user.Quota)
+		t.Log("plan deletion committed before balance purchase")
 	}
 
 	var orphanSubscriptions int64
