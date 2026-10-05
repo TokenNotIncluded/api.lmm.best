@@ -153,7 +153,7 @@ class NewIntegrationSuiteGuards(unittest.TestCase):
                 commands = [event for event in self.events() if event["command"] == "cargo"]
                 self.assertTrue(commands)
                 self.assertTrue(all(event["target"] == target or (suite == "relay-settlement" and event["target"] == "lib") for event in commands))
-                expected = [(True,4),(True,1),(False,1),(False,4)] if suite == "catalog" else [(True,len(commands[0]["names"])),(False,len(commands[0]["names"]))]
+                expected = [(True,5),(True,1),(False,1),(False,5)] if suite == "catalog" else [(True,len(commands[0]["names"])),(False,len(commands[0]["names"]))]
                 if suite == "relay-settlement": expected = [(True,36),(False,36),(True,1),(False,1)]
                 self.assertEqual([(event["listing"],len(event["names"])) for event in commands],expected)
                 if suite == "relay-settlement":
