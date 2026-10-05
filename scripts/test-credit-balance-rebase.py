@@ -20,6 +20,7 @@ class RebaseTests(unittest.TestCase):
         self.snapshot["referrals"] = []
         import credit_rebase_other_rights as other
         self.snapshot["obligations"] = {key:0 for key in other.OBLIGATIONS}
+        self.snapshot["other_rights"]={entry[0]:[] for entry in other.SPECS.values()}|{"hero_sms_email_activations":[]}
         for key in ("subscriptions", "subscription_orders", "subscription_plans", "subscription_payment_events", "subscription_payment_refunds"):
             self.snapshot[key] = []
         self.snapshot["target"] = {"database": "fixture", "schema": "fixture_money", "system_identifier": "123456"}
@@ -76,7 +77,7 @@ class RebaseTests(unittest.TestCase):
             "redemptions": [source("redemptions", id=30, user_id=1, quota=680, status=1, reward_type="quota")],
             "bounty_projects": [source("open_source_bounty_projects", id=50, owner_user_id=1, escrow_quota=6800, reward_quota=680, net_reward_quota=612, platform_fee_quota=68, status="published")],
             "bounty_challenges": [source("open_source_bounty_challenges", id=60, project_id=50, participant_user_id=2, reward_quota=612, tip_quota=125, status="accepted")],"bounty_disputes":[]}
-        plan = r.make_plan(snapshot, **self.kw, include_redemptions=True, include_bounties=True)
+        plan = r.make_plan(snapshot, **self.kw, include_redemptions=True, include_bounties=True, include_other_rights=True)
         self.assertEqual(len(plan["entity_updates"]), 3)
         for e in plan["entity_updates"]:
             self.assertNotIn("tip_quota", e["updates"])
@@ -87,7 +88,7 @@ class RebaseTests(unittest.TestCase):
         self.assertIn('"reward_type" IS NULL',r.postgres_sql(null_plan))
         snapshot["entities"]["bounty_challenges"][0]["paid_at"] = 1
         with self.assertRaises(ValueError):
-            r.make_plan(snapshot, **self.kw, include_bounties=True)
+            r.make_plan(snapshot, **self.kw, include_bounties=True, include_other_rights=True)
 
     def test_bounty_rejection_window_and_dispute_liabilities(self):
         from credit_rebase_entitlements import SPECS,make_entities

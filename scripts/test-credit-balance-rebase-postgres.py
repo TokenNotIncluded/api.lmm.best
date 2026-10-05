@@ -95,6 +95,10 @@ ALTER TABLE fixture_money.tokens ADD COLUMN used_quota bigint DEFAULT 0,ADD COLU
     snapshot["entities"] = {"redemptions":[red], "bounty_projects":[bounty], "bounty_challenges":[challenge,historical_rejection],"bounty_disputes":[]}
     dispute_spec=SPECS["open_source_bounty_disputes"]
     ok(base,input="CREATE TABLE fixture_money.open_source_bounty_disputes (id bigint PRIMARY KEY,"+",".join(key+" bigint" for key in dispute_spec["int"])+","+",".join(key+" text" for key in dispute_spec["text"])+");")
+    dispute=entity_source("open_source_bounty_disputes",id=62,challenge_id=60,project_id=50,opened_by_user_id=2,against_user_id=1,project_escrow_quota_snapshot=6800,reward_quota_snapshot=612,created_at=1,challenge_status_snapshot="accepted",status="open")
+    snapshot["entities"]["bounty_disputes"].append(dispute)
+    dispute_insert="INSERT INTO fixture_money.open_source_bounty_disputes ("+",".join(dispute)+") VALUES ("+",".join(r.sql_literal(v) if isinstance(v,str) else str(v) for v in dispute.values())+");"
+    ok(base,input=dispute_insert)
     import credit_rebase_subscriptions as subscriptions
     def subscription_source(ints,texts,**overrides):
         return {key:0 for key in ints} | {key:"" for key in texts} | overrides
@@ -165,6 +169,7 @@ TRUNCATE fixture_money.open_source_bounty_disputes;
 
 """)
         ok(base,input="UPDATE fixture_money.subscription_orders SET plan_snapshot=" + r.sql_literal(order["plan_snapshot"]) + " WHERE id IN (80,81); UPDATE fixture_money.subscription_orders SET plan_snapshot='' WHERE id=82;")
+        ok(base,input=dispute_insert)
 
     sql = render()
     original = wallet()
@@ -186,6 +191,8 @@ TRUNCATE fixture_money.open_source_bounty_disputes;
     assert ok(base, input="SELECT escrow_quota,platform_fee_quota FROM fixture_money.open_source_bounty_projects WHERE id=50;") == "1000|68"
     assert ok(base, input="SELECT reward_quota,tip_quota FROM fixture_money.open_source_bounty_challenges WHERE id=60;") == "90|125"
     assert ok(base,input="SELECT reward_quota FROM fixture_money.open_source_bounty_challenges WHERE id=61;") == "68000"
+    assert ok(base,input="SELECT reward_quota_snapshot,project_escrow_quota_snapshot FROM fixture_money.open_source_bounty_disputes WHERE id=62;")=="612|6800"
+    assert ok(base,input="SELECT basis->>'rebased_quota' FROM fixture_money.wallet_credit_rebases r CROSS JOIN LATERAL jsonb_array_elements(r.plan->'other_credit_bases') basis WHERE basis->>'kind'='bounty_dispute_reward';")=="90"
     assert ok(base,input="SELECT rebased_quota,rebased_revoked_quota,rebased_penalty_quota,rounding FROM fixture_money.wallet_referral_credit_rebases;") == "100|100|10|half-away-from-zero"
     assert ok(base,input="SELECT pending_credit_rebase_original_quota,pending_credit_rebase_effective_quota,credited_quota FROM fixture_money.top_ups WHERE id=21;") == "680|100|680"
     assert ok(base,input="SELECT pending_credit_rebase_key,pending_credit_rebase_original_quota,pending_credit_rebase_effective_quota FROM fixture_money.top_ups WHERE id=23;") == "fixture-v1|0|0"
@@ -219,6 +226,7 @@ TRUNCATE fixture_money.open_source_bounty_disputes;
                      "UPDATE fixture_money.open_source_bounty_challenges SET participant_user_id=1 WHERE id=60;",
                      "UPDATE fixture_money.open_source_bounty_challenges SET rejected_at=395201 WHERE id=61;",
                      "INSERT INTO fixture_money.open_source_bounty_disputes (id,challenge_id,project_id,status) VALUES (90,61,50,'open');",
+                     "UPDATE fixture_money.open_source_bounty_disputes SET reward_quota_snapshot=613 WHERE id=62;",
                      "UPDATE fixture_money.referral_rewards SET revision=2 WHERE id=9;",
                      "UPDATE fixture_money.top_ups SET payment_provider='stripe' WHERE id=22;",
                      "UPDATE fixture_money.top_ups SET expected_amount_micros=1 WHERE id=22;",
@@ -252,7 +260,7 @@ TRUNCATE fixture_money.open_source_bounty_disputes;
         reset()
         ok(base,input=conflict)
         before=wallet()
-        assert run(base,input=render(include_other_rights=False)).returncode != 0
+        assert run(base,input=render(include_other_rights=False,include_bounties=False)).returncode != 0
         assert wallet()==before
         assert ok(base,input="SELECT count(*) FROM fixture_money.wallet_credit_rebases;") == "0"
     print("Isolated PostgreSQL passed: non-public schema, target identity, delimiter data, four fixed anchors, token ownership, negative debt, idempotency, all conflict rollbacks.")

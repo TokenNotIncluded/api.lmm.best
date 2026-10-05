@@ -11,6 +11,7 @@ from credit_rebase_auxiliary import legacy_noncash, legacy_noncash_sql, make_aux
 from credit_rebase_entitlements import make_entities, render_entities
 from credit_rebase_subscriptions import make_subscriptions, render_subscriptions
 import credit_rebase_other_rights as other_rights
+import credit_rebase_bounty_disputes as bounty_disputes
 import credit_rebase_history as history
 
 MAX_QUOTA = (1 << 53) - 1
@@ -54,6 +55,8 @@ def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
     if snapshot_state not in ("unspecified","provisional_live_not_frozen","frozen_writers_stopped"):
         raise ValueError("invalid snapshot state attestation")
     obligations = other_rights.validate_obligations(snapshot)
+    if include_bounties and not include_other_rights:
+        raise ValueError("bounty dispute future payouts require the other rights audit scope")
     target = snapshot.get("target")
     if not isinstance(target, dict):
         raise ValueError("snapshot requires explicit target database/schema/system_identifier")
@@ -210,6 +213,8 @@ def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
         include_pending=include_pending_topups, include_affiliate=include_affiliate and restore_fixed_anchors)
     subscription_plan = make_subscriptions(snapshot, selected, lambda value: scale_credit(value, divisor, rounding), include=include_subscriptions)
     other_credit_bases = other_rights.prepare(snapshot,selected,lambda value:scale_credit(value,divisor,rounding),include=include_other_rights)
+    other_credit_bases.extend(bounty_disputes.prepare(snapshot,selected,lambda value:scale_credit(value,divisor,rounding),include=include_bounties))
+    other_credit_bases.sort(key=lambda e:(e["kind"],e["source_id"]))
     plan = {"version": 1, "kind": "offline_credit_balance_rebase_preview",
             "snapshot_state":snapshot_state,
             "migration_id": migration_id, "target": dict(target), "source_sha256": source_digest,
@@ -325,6 +330,10 @@ END
     refund_inserts_sql = "\n".join(refund_inserts)
     entity_checks, entity_statements, entity_locks = render_entities(plan, schema, sql_literal)
     other_ddl,other_checks,other_locks = other_rights.sql(plan,schema,sql_literal)
+    dispute_ddl,dispute_checks,dispute_locks = bounty_disputes.sql(plan,schema,sql_literal)
+    other_ddl += dispute_ddl
+    other_checks += dispute_checks
+    other_locks += dispute_locks
     other_checks += other_rights.obligation_guards(schema)
     other_locks += other_rights.obligation_locks(schema)
     entity_checks += other_checks

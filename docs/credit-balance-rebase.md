@@ -174,6 +174,8 @@ SQL 设置 standard_conforming_strings，DO 使用不出现在嵌入内容中的
 
 过期或已 resolved 的 rejected 没有当前可兑现承诺，保存 `historical_rejection_guard_only` 和完整原事实，`updates` 为空，原 reward_quota 不改；它们不重复占用 escrow。有效挑战标记 `active_future_reward` 并同比纠正其待付额度。dispute 的旧 RewardQuotaSnapshot/ProjectEscrowQuotaSnapshot/tip、角色与时间都是证据，不更新；真正 open 且满足原 pay 角色/状态约束的纠纷使用父审计里的独立 `bounty_dispute_reward` 基准，不能用旧 snapshot 再发旧单位奖励。
 
+悬赏 scope 同时要求 `--include-other-rights` 来保存争议独立付款基准。包含参与者发起、针对项目所有者、未付且 accepted/submitted/rejected 的 open claim；accepted 之后仍可提交工作并获得判付，不能遗漏。所有者发起的争议不能授权参与者领款，仅保存原事实守卫；已解决争议也保留原证据，不要求其已付历史 challenge 混入未付权益快照。
+
 ## 保留待支付订单与非现金事实
 
 `--include-pending-topups` 要求完整 `pending_topups` 数组，包含与成功订单相同的原始报价事实、Go 权威 `effective_credited_quota`，以及原本为空/零的三个 pending rebase 字段。原报价与实际支付金额不改，只保存独立的纠正后入账额，未来 callback 必须使用它并保持幂等。正的有限报价若舍入为零仍拒绝，不允许靠零触发旧 fallback。
