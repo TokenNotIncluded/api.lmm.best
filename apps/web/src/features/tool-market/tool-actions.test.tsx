@@ -239,7 +239,7 @@ async function advancedArguments(q = 'original query') {
   await setValue(input, JSON.stringify({ q }))
   return input
 }
-const runLabel = 'Run for up to 0.03571429 USD'
+const runLabel = 'Run for up to 0.25 USD'
 
 beforeEach(async () => {
   resetMarketCurrencyTest()
@@ -277,17 +277,17 @@ test('grant currency and language changes preserve the exact one-credit payload'
   await act(async () => {
     useWalletCurrencyPreferenceStore.getState().setPreference('USD')
   })
-  assert.equal(input.value, '0.000000285714285714285714285715')
+  assert.equal(input.value, '0.000002')
   assert.equal(input.step, 'any')
   await act(async () => {
     useWalletCurrencyPreferenceStore.getState().setPreference('CNY')
     await i18n.changeLanguage('zh-CN')
   })
-  assert.equal(input.value, '0.000002')
+  assert.equal(input.value, '0.000014')
   await act(async () => {
     await i18n.changeLanguage('en')
   })
-  assert.equal(input.value, '0.000002')
+  assert.equal(input.value, '0.000014')
   assert.match(document.body.textContent ?? '', /Total spending limit \(CNY\)/)
   await click(button('Add and authorize tool'))
   await waitFor(() => payload !== undefined)
