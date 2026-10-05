@@ -38,8 +38,11 @@ func (runtime *productionReleaseRuntime) bootstrapRemoteWorkspace(ctx context.Co
 	if exists {
 		return runtime.inspectBootstrapWorkspace(ctx, plan)
 	}
-	output, createErr := runtime.ssh(ctx, plan.TargetAlias, 2*time.Minute,
-		productionOperatorBinary, protocol, "production", "workspace", "create", "--deployment-id", plan.DeploymentID)
+	createArgs := []string{productionOperatorBinary, protocol, "production", "workspace", "create", "--deployment-id", plan.DeploymentID}
+	if plan.MaintenanceHandoff != nil && plan.MaintenanceHandoff.StoppedWriter != nil {
+		createArgs = append(createArgs, "--maintenance-handoff", productionRemoteHandoffPath(*plan.MaintenanceHandoff), "--maintenance-handoff-sha256", plan.MaintenanceHandoff.SHA256)
+	}
+	output, createErr := runtime.ssh(ctx, plan.TargetAlias, 2*time.Minute, createArgs...)
 	if createErr != nil {
 		// The server may have completed before SSH disconnected. Read the exact
 		// native markers instead of dispatching create twice or inventing state.

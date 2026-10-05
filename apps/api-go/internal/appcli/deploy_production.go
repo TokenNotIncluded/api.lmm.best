@@ -76,7 +76,7 @@ func runProductionDeploy(args []string, stdout, stderr io.Writer) int {
 		return runProductionDispatchEvidence(args[1:], stdout, stderr)
 	case "apply":
 		return runProductionTransaction(args[0], args[1:], stdout, stderr)
-	case "status", "confirm", "rollback":
+	case "status", "confirm", "rollback", "maintenance-release", "maintenance-close", "maintenance-stop", "maintenance-capture", "maintenance-retry":
 		if productionControllerPlanMode(args[1:]) {
 			return runProductionReleaseControllerAction(args[0], args[1:], stdout, stderr)
 		}
@@ -275,6 +275,12 @@ func inspectMemoryOverrides(root string, retire bool) error {
 		content, err := os.ReadFile(path)
 		if err != nil {
 			return err
+		}
+		if entry.Name() == productionMaintenanceDropIn {
+			if err := validateMaintenanceServiceDropIn(path, content); err != nil {
+				return err
+			}
+			continue
 		}
 		if conservativeGoMemoryOverride(content) {
 			continue

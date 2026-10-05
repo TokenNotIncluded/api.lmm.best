@@ -575,6 +575,9 @@ func (runtime *productionRuntime) runMigration(
 			break
 		}
 	}
+	if manifest.MaintenanceHandoff != nil && manifest.MaintenanceHandoff.Stage == "prebridge" && strings.HasPrefix(run.name, "candidate-") {
+		childEnvironment = append(childEnvironment, "LMM_CREDIT_TRANSITION_PLAN="+manifest.MaintenanceHandoff.PrepareConfigPath, "LMM_CREDIT_TRANSITION_SHA256="+manifest.MaintenanceHandoff.PrepareConfigSHA256)
+	}
 	migrationWorkdir, err := prepareMigrationDir(workspace, run.name)
 	if err != nil {
 		return err

@@ -112,6 +112,9 @@ func runProductionWorkspace(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet(DeployProgramName+" production workspace create", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	deploymentID := ""
+	handoffPath, handoffSHA := "", ""
+	flags.StringVar(&handoffPath, "maintenance-handoff", "", "immutable maintenance handoff")
+	flags.StringVar(&handoffSHA, "maintenance-handoff-sha256", "", "exact maintenance handoff digest")
 	flags.StringVar(&deploymentID, "deployment-id", "", "unique release-scoped deployment ID")
 	flags.Usage = func() { writeDeployUsage(stderr) }
 	if err := flags.Parse(args[1:]); errors.Is(err, flag.ErrHelp) {
@@ -124,6 +127,10 @@ func runProductionWorkspace(args []string, stdout, stderr io.Writer) int {
 		return ExitUsage
 	}
 	runtime := defaultProductionRuntime()
+	if err := runtime.setMaintenanceHandoff(handoffPath, handoffSHA); err != nil {
+		_, _ = fmt.Fprintln(stderr, err)
+		return ExitError
+	}
 	result, err := runtime.createWorkspace(context.Background(), deploymentID)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "%s production workspace create: %v\n", DeployProgramName, err)
@@ -253,10 +260,7 @@ func (runtime *productionRuntime) withGlobalLock(ctx context.Context, operation 
 	if err != nil {
 		return err
 	}
-	defer func() {
-		_ = unlockDeploymentFile(lock)
-		_ = lock.Close()
-	}()
+	defer runtime.releaseGlobalLock(lock)
 	return operation()
 }
 
@@ -303,8 +307,12 @@ func (runtime *productionRuntime) createWorkspace(ctx context.Context, deploymen
 		if _, err := os.Lstat(workspace); !errors.Is(err, os.ErrNotExist) {
 			return errors.New("release-scoped production workspace already exists or is unsafe")
 		}
+		transactionExists := false
 		if _, err := os.Lstat(runtime.paths.TransactionLock); !errors.Is(err, os.ErrNotExist) {
-			return errors.New("another release owns the production transaction lock")
+			if !runtime.maintenanceStopped() {
+				return errors.New("another release owns the production transaction lock")
+			}
+			transactionExists = true
 		}
 		if err := os.Mkdir(workspace, 0o700); err != nil {
 			return err
@@ -332,13 +340,22 @@ func (runtime *productionRuntime) createWorkspace(ctx context.Context, deploymen
 		if err := writeAtomicRegularFile(filepath.Join(workspace, productionWorkspaceMarker), []byte(marker), 0o600); err != nil {
 			return err
 		}
-		if err := os.Mkdir(runtime.paths.TransactionLock, 0o700); err != nil {
-			return fmt.Errorf("claim production transaction lock: %w", err)
-		}
-		transactionCreated = true
-		transaction := fmt.Sprintf("format=1\ndeployment_id=%s\nstatus=ACTIVE\n", deploymentID)
-		if err := writeAtomicRegularFile(filepath.Join(runtime.paths.TransactionLock, productionTransactionMarker), []byte(transaction), 0o600); err != nil {
-			return err
+		if transactionExists {
+			if err := runtime.transferMaintenanceTransaction(ctx, deploymentID); err != nil {
+				return err
+			}
+		} else {
+			if runtime.maintenanceStopped() {
+				return errors.New("post handoff requires the bridge transaction to transfer")
+			}
+			if err := os.Mkdir(runtime.paths.TransactionLock, 0o700); err != nil {
+				return err
+			}
+			transactionCreated = true
+			transaction := fmt.Sprintf("format=1\ndeployment_id=%s\nstatus=ACTIVE\n", deploymentID)
+			if err := writeAtomicRegularFile(filepath.Join(runtime.paths.TransactionLock, productionTransactionMarker), []byte(transaction), 0o600); err != nil {
+				return err
+			}
 		}
 		result = productionWorkspaceResult{
 			DeploymentID: deploymentID, Workspace: workspace,

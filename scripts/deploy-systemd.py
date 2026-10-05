@@ -7,8 +7,11 @@ The granular stage/apply/status/rollback commands remain available.
 after the old writer stops, before applying migrations.
 """
 import argparse
+import importlib.util
+import contextlib
 import fcntl
 import hashlib
+import grp
 import json
 import os
 from pathlib import Path
@@ -19,6 +22,7 @@ import subprocess
 import sys
 import time
 import urllib.request
+import urllib.error
 import urllib.parse
 
 ROOT = Path('/var/lib/lmm-api-deploy-systemd')
@@ -28,9 +32,14 @@ FRONTEND = Path('/srv/lmm-api-frontend')
 SERVICE = 'lmm-api.service'
 ENVIRONMENT = Path('/etc/lmm-api-go/lmm-api-go.env')
 RELEASE_PATTERN = r'[A-Za-z0-9][A-Za-z0-9._-]{0,70}'
-PHASES = {'STAGED', 'MUTATION_PENDING', 'AWAITING_CONFIRMATION', 'CONFIRMED', 'ROLLED_BACK'}
+PHASES = {'STAGED', 'MUTATION_PENDING', 'AWAITING_CONFIRMATION', 'MAINTENANCE_CONFIRMED', 'CONFIRMED', 'ROLLED_BACK', 'ROLLBACK_REQUIRED', 'CAPTURED', 'ADMISSION_CLOSED', 'FROZEN'}
 BASE_TOOLS = ('systemctl', 'systemd-run', 'journalctl', 'nginx')
 BACKUP_TOOLS = ('psql', 'pg_dump', 'pg_restore')
+NGINX_LOCATIONS = Path('/etc/nginx/lmm-api-locations.conf')
+PREPARE_DROP_IN = Path('/etc/systemd/system/lmm-api.service.d/90-credit-transition-prepare.conf')
+_guardian_spec = importlib.util.spec_from_file_location('maintenance_deploy_guardian', Path(__file__).with_name('maintenance-deploy-guardian.py'))
+guardian = importlib.util.module_from_spec(_guardian_spec)
+_guardian_spec.loader.exec_module(guardian)
 
 
 def run(*args, log=None):
@@ -116,7 +125,7 @@ def service_environment_files():
     return files
 
 
-def verify(work, label, mode='verify'):
+def verify(work, label, mode='verify', maintenance=None):
     args = ['systemd-run', '--quiet', '--wait', '--collect', '--pipe',
             '--unit=lmm-schema-' + work.name + '-' + label,
             '-p', 'Type=oneshot', '-p', 'TimeoutStartSec=180',
@@ -126,6 +135,8 @@ def verify(work, label, mode='verify'):
             '-p', 'ProtectSystem=strict', '-p', 'PrivateTmp=yes',
             '-p', 'WorkingDirectory=' + str(work), '-p', 'ReadWritePaths=' + str(work),
             str(work / 'lmm-api'), 'migrate', '--' + mode]
+    if maintenance and maintenance['stage'] == 'prebridge':
+        args[-3:-3] = ['-p', 'Environment=LMM_CREDIT_TRANSITION_PLAN=' + maintenance['prepare_config_path'], '-p', 'Environment=LMM_CREDIT_TRANSITION_SHA256=' + maintenance['prepare_config_sha256']]
     run(*args, log=work / ('verify-' + label + '.log'))
 
 
@@ -164,6 +175,21 @@ def database_environment_from_values(env):
     return result
 
 
+def read_environment_file(path):
+    values = {}
+    for line in Path(path).read_text().splitlines():
+        if not line.strip() or line.lstrip().startswith('#'):
+            continue
+        fields = shlex.split(line)
+        if len(fields) != 1 or '=' not in fields[0]:
+            raise RuntimeError('sealed environment has an unsupported assignment')
+        key, value = fields[0].split('=', 1)
+        if key.encode() in values:
+            raise RuntimeError('sealed environment contains duplicate assignments')
+        values[key.encode()] = value.encode()
+    return values
+
+
 def backup(work, env, schema_only=False, exclude=(), all_schemas=False):
     path = work / ('preflight-schema.sql' if schema_only else 'database.dump')
     command = ['pg_dump', '--no-password', '--file', str(path)]
@@ -187,23 +213,234 @@ def backup(work, env, schema_only=False, exclude=(), all_schemas=False):
         return digest(path)
 
 
-def healthy(version):
+def health_json(route, base='http://127.0.0.1:3000', token=None):
+    headers = {'Authorization': 'Bearer ' + token} if token else {}
+    with urllib.request.urlopen(urllib.request.Request(base + route, headers=headers), timeout=10) as response:
+        return json.load(response)
+
+
+def healthy_prepare(version, maintenance):
     for route in ('/api/livez', '/api/status'):
-        with urllib.request.urlopen('http://127.0.0.1:3000' + route, timeout=10) as response:
-            body = json.load(response)
-        if body.get('success') is not True:
-            raise RuntimeError('health response was not successful')
-        if route == '/api/status' and body.get('data', {}).get('version') != version:
-            raise RuntimeError('running version does not match candidate')
+        body = health_json(route)
+        binding = body.get('data', {}).get('credit_transition', {})
+        expected = {'format': 'lmm-credit-transition-prepare-v1',
+                    'transition_id': maintenance['transition_id'],
+                    'transition_intent_sha256': maintenance['transition_intent_sha256'],
+                    'prepare_config_sha256': maintenance['prepare_config_sha256'],
+                    'provider_sha256': maintenance['provider_sha256'],
+                    'target_credits_per_usd': 500000}
+        if body.get('success') is not True or body.get('maintenance') is not True or body.get('business_enabled') is not False or body.get('data', {}).get('version') != version or any(binding.get(key) != value for key, value in expected.items()) or (route == '/api/status' and body.get('ready') is not True) or (route == '/api/livez' and body.get('live') is not True):
+            raise RuntimeError('maintenance health differs from the frozen prepare binding')
 
 
-def stop(work):
+def healthy(version, maintenance=None):
+    if maintenance and maintenance['stage'] == 'prebridge':
+        healthy_prepare(version, maintenance)
+        return
+    for route in ('/api/livez', '/api/status'):
+        body = health_json(route)
+        if body.get('success') is not True or body.get('maintenance') is True or body.get('business_enabled') is False:
+            raise RuntimeError('normal health response is not business-ready')
+        if route == '/api/status' and (body.get('ready') is not True or body.get('data', {}).get('version') != version):
+            raise RuntimeError('running version/readiness does not match candidate')
+        if route == '/api/livez' and body.get('live') is not True:
+            raise RuntimeError('normal liveness response is not live')
+    if maintenance:
+        token = guardian.bound_file(maintenance['probe_token_path'], maintenance['probe_token_sha256']).decode().strip()
+        if not token or not isinstance(health_json('/v1/models', token=token).get('data'), list):
+            raise RuntimeError('strict local authenticated business probe failed')
+
+
+def maintenance_admission(maintenance):
+    expected = ('lmm-credit-transition:' + maintenance['transition_id']).encode()
+    for route, method in (('/api/status', 'GET'), ('/v1/models', 'GET'), ('/api/user/self', 'GET'), ('/v1/chat/completions', 'POST')):
+        request = urllib.request.Request(maintenance['public_base_url'] + route, data=b'{}' if method == 'POST' else None, method=method)
+        try:
+            response = urllib.request.urlopen(request, timeout=10)
+        except urllib.error.HTTPError as error:
+            response = error
+        with response:
+            if response.status != 503 or response.read() != expected:
+                raise RuntimeError('public ingress is not the bound maintenance 503 barrier')
+
+
+def immutable_write(path, body, mode=0o644):
+    pending = path.with_name(path.name + '.maintenance-next')
+    if pending.exists() or pending.is_symlink():
+        raise RuntimeError('unexpected maintenance pending file')
+    with pending.open('xb') as output:
+        os.fchmod(output.fileno(), mode)
+        output.write(body)
+        output.flush()
+        os.fsync(output.fileno())
+    pending.replace(path)
+
+
+def maintenance_barrier(maintenance, original):
+    if original.count(b'location @lmm_api_backend {') != 1 or b'lmm-credit-transition:' in original or b'lmm-billing-drain:' in original:
+        raise RuntimeError('unrecognized LMM-only ingress locations')
+    return ('return 503 \'lmm-credit-transition:' + maintenance['transition_id'] + '\';\n').encode() + original
+
+
+def close_maintenance_admission(work, state, maintenance):
+    evidence = work / 'previous-nginx-locations'
+    if not evidence.exists():
+        original = NGINX_LOCATIONS.read_bytes()
+        immutable_write(evidence, original, 0o600)
+        state['ingress_original_sha256'] = digest(evidence)
+        save(work, state)
+    original = guardian.bound_file(evidence, state['ingress_original_sha256'])
+    barrier = maintenance_barrier(maintenance, original)
+    if NGINX_LOCATIONS.read_bytes() not in (original, barrier):
+        raise RuntimeError('maintenance ingress changed outside the owner transaction')
+    immutable_write(NGINX_LOCATIONS, barrier)
+    run('nginx', '-t', log=work / 'maintenance-nginx.log')
+    run('systemctl', 'reload', 'nginx', log=work / 'maintenance-reload.log')
+    maintenance_admission(maintenance)
+    state['maintenance_admission_closed'] = True
+    save(work, state)
+
+
+def reopen_maintenance_admission(work, state, maintenance):
+    original = guardian.bound_file(work / 'previous-nginx-locations', state['ingress_original_sha256'])
+    if NGINX_LOCATIONS.read_bytes() != maintenance_barrier(maintenance, original):
+        raise RuntimeError('bound maintenance barrier changed before release')
+    immutable_write(NGINX_LOCATIONS, original)
+    run('nginx', '-t', log=work / 'maintenance-release-nginx.log')
+    run('systemctl', 'reload', 'nginx', log=work / 'maintenance-release-reload.log')
+
+
+def configure_maintenance_service(maintenance, rollback=False):
+    if maintenance['stage'] == 'prebridge' and not rollback:
+        validate_prepare_service_reader(maintenance)
+        PREPARE_DROP_IN.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+        for value in (maintenance['prepare_config_path'], maintenance['prepare_config_sha256']):
+            if any(character in value for character in '\r\n"%\\ '):
+                raise RuntimeError('unsafe systemd prepare binding syntax')
+        immutable_write(PREPARE_DROP_IN, ('[Service]\nSupplementaryGroups=lmm-credit-transition\nEnvironment=LMM_CREDIT_TRANSITION_PLAN=' + maintenance['prepare_config_path'] + '\nEnvironment=LMM_CREDIT_TRANSITION_SHA256=' + maintenance['prepare_config_sha256'] + '\n').encode())
+    elif PREPARE_DROP_IN.exists():
+        if PREPARE_DROP_IN.is_symlink() or ('LMM_CREDIT_TRANSITION_SHA256=' + maintenance['prepare_config_sha256'] + '\n').encode() not in PREPARE_DROP_IN.read_bytes():
+            raise RuntimeError('prepare service drop-in differs from frozen binding')
+        PREPARE_DROP_IN.unlink()
+    run('systemctl', 'daemon-reload')
+
+
+def validate_prepare_service_reader(maintenance):
+    try:
+        gid = grp.getgrnam('lmm-credit-transition').gr_gid
+    except KeyError:
+        raise RuntimeError('provision the static lmm-credit-transition service reader group')
+    path = Path(maintenance['prepare_config_path'])
+    info = path.lstat()
+    if gid == 0 or info.st_uid != 0 or info.st_gid != gid or info.st_mode & 0o777 != 0o640:
+        raise RuntimeError('prepare plan requires root:lmm-credit-transition mode 0640')
+    for parent in path.parents:
+        info = parent.lstat()
+        if parent.is_symlink() or not parent.is_dir() or info.st_mode & 0o022 or (not info.st_mode & 0o001 and (info.st_gid != gid or not info.st_mode & 0o010)):
+            raise RuntimeError('prepare service reader cannot traverse a sealed plan directory')
+
+
+def persist_capture(work, state, maintenance):
+    receipt = {'format': 'lmm-credit-maintenance-capture-v1',
+               'phase': state['phase'], 'transition_id': maintenance['transition_id'],
+               'transition_intent_sha256': maintenance['transition_intent_sha256'],
+               'provider_sha256': state['previous_sha256'], 'version': state['previous_version'],
+               'pid': state['captured_pid'], 'invocation_id': state['captured_invocation_id'],
+               'archived_environment_path': str(work / 'previous.env'),
+               'archived_environment_sha256': digest(work / 'previous.env'),
+               'process_environment_path': state.get('process_environment_path'),
+               'process_environment_sha256': state.get('process_environment_sha256'),
+               'frontend_target': 'releases/' + state['previous_frontend'],
+               'frontend_sha256': state['frontend_sha256'],
+               'was_maintenance_confirmed': state.get('was_maintenance_confirmed', False)}
+    if state['phase'] == 'FROZEN':
+        receipt.update(shutdown_journal_path=str(work / 'shutdown.log'), shutdown_journal_sha256=state['shutdown_journal_sha256'])
+    destination = work / ('maintenance-capture.' + state['phase'] + '.json')
+    immutable_write(destination, json.dumps(receipt, indent=2).encode() + b'\n', 0o600)
+    state.update(capture_receipt_path=str(destination), capture_receipt_sha256=digest(destination),
+                 maintenance_stage=maintenance['stage'], transition_id=maintenance['transition_id'],
+                 transition_intent_sha256=maintenance['transition_intent_sha256'], provider_sha256=maintenance['provider_sha256'])
+    save(work, state)
+
+
+def verify_stopped_maintenance(maintenance):
+    stopped = maintenance.get('stopped_writer', {})
+    if not stopped or property_value('MainPID') != '0' or property_value('ExecMainPID') != str(stopped['pid']) or property_value('InvocationID') != stopped['invocation_id'] or property_value('Result') != 'success' or property_value('ExecMainCode') != '1' or property_value('ExecMainStatus') != '0' or property_value('ActiveState') != 'inactive' or property_value('SubState') != 'dead' or property_value('ControlGroup') or Path('/proc', str(stopped['pid'])).exists():
+        raise RuntimeError('sealed maintenance writer is not verifiably stopped')
+    journal = guardian.bound_file(stopped['shutdown_journal_path'], stopped['shutdown_journal_sha256'])
+    if maintenance['stage'] == 'post':
+        if b'credit_transition_prepare shutdown_complete=true business_enabled=false' not in journal or b'server exited' not in journal:
+            raise RuntimeError('real prepare shutdown evidence is missing')
+    else:
+        reports = re.findall(rb'refund_tasks execution_complete=true accepted=(\d+) finished=(\d+) active=0 failed=0', journal)
+        if not reports or reports[-1][0] != reports[-1][1] or b'server exited' not in journal:
+            raise RuntimeError('ordinary owner shutdown evidence is missing')
+    environment = guardian.bound_file(maintenance['archived_environment_path'], maintenance['archived_environment_sha256'])
+    captured = json.loads(guardian.bound_file(maintenance['capture_receipt_path'], maintenance['capture_receipt_sha256']))
+    if captured.get('format') != 'lmm-credit-maintenance-capture-v1' or captured.get('phase') != 'FROZEN' or any(captured.get(key) != maintenance[key] for key in ('transition_id', 'transition_intent_sha256')) or captured.get('pid') != stopped['pid'] or captured.get('invocation_id') != stopped['invocation_id'] or captured.get('archived_environment_sha256') != maintenance['archived_environment_sha256'] or captured.get('shutdown_journal_sha256') != stopped['shutdown_journal_sha256']:
+        raise RuntimeError('stopped handoff differs from the normal owner FROZEN capture receipt')
+    if environment != ENVIRONMENT.read_bytes():
+        raise RuntimeError('sealed environment differs from current rollback configuration')
+    values = {}
+    for line in environment.decode().splitlines():
+        if not line.strip() or line.lstrip().startswith('#'):
+            continue
+        fields = shlex.split(line)
+        if len(fields) != 1 or '=' not in fields[0]:
+            raise RuntimeError('sealed environment has an unsupported assignment')
+        key, value = fields[0].split('=', 1)
+        values[key.encode()] = value.encode()
+    return database_environment_from_values(values)
+
+
+def verify_maintenance_database(maintenance, env, post):
+    prepared = json.loads(guardian.bound_file(maintenance['prepare_config_path'], maintenance['prepare_config_sha256']))
+    query = "SELECT json_build_object('database',json_build_object('system_identifier',(SELECT system_identifier::text FROM pg_control_system()),'database',current_database(),'database_oid',(SELECT oid::bigint FROM pg_database WHERE datname=current_database()),'schema',current_schema(),'server_version_num',current_setting('server_version_num')::int,'database_user',current_user),'options',(SELECT json_object_agg(key,value) FROM options WHERE key IN ('CreditsPerUSD','LegacyPricingQuotaPerUnit','QuotaPerUnit','PublicCreditsPerUSD','USDExchangeRate')))"
+    result = subprocess.run(['psql', '-X', '-v', 'ON_ERROR_STOP=1', '--no-align', '--tuples-only', '--command', query], env=env, capture_output=True)
+    if result.returncode:
+        raise RuntimeError('maintenance database identity/options verification failed')
+    current = json.loads(result.stdout)
+    expected = dict(prepared['options'])
+    if post:
+        expected.update({key: '500000' for key in expected if key != 'USDExchangeRate'})
+    if current.get('database') != prepared['database'] or current.get('options') != expected:
+        raise RuntimeError('maintenance database identity or exact five-option snapshot changed')
+
+
+@contextlib.contextmanager
+def deployment_lock(maintenance=None, digest_value=None):
+    if maintenance:
+        descriptor, lease = guardian.adopt(maintenance, digest_value, ROOT / 'lock')
+        try:
+            yield
+        finally:
+            os.close(descriptor)  # Close only: LOCK_UN would also unlock guardian.
+            lease.close()
+    else:
+        if (ROOT / 'lock').is_symlink():
+            raise RuntimeError('deployment lock may not be a symlink')
+        with (ROOT / 'lock').open('a') as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise RuntimeError('another deployment operation holds the lock; inspect status') from None
+            yield
+
+
+def stop(work, maintenance=None):
     invocation = property_value('InvocationID')
+    prepare = maintenance and maintenance['stage'] == 'prebridge' and digest(BINARY) == maintenance['provider_sha256']
+    if prepare:
+        healthy_prepare(run(str(ENTRY), 'version'), maintenance)
     run('systemctl', 'stop', SERVICE, log=work / 'stop.log')
     if property_value('MainPID') != '0' or property_value('Result') != 'success' or property_value('ExecMainStatus') != '0':
         raise RuntimeError('old writer did not exit cleanly; activation refused')
     journal = run('journalctl', '--no-pager', '-o', 'cat', '_SYSTEMD_INVOCATION_ID=' + invocation)
     (work / 'shutdown.log').write_text(journal)
+    if prepare:
+        if 'credit_transition_prepare shutdown_complete=true business_enabled=false' not in journal or 'server exited' not in journal:
+            raise RuntimeError('bound prepare shutdown evidence is missing')
+        return
     reports = re.findall(r'refund_tasks execution_complete=true accepted=(\d+) finished=(\d+) active=0 failed=0', journal)
     if not reports or reports[-1][0] != reports[-1][1] or 'server exited' not in journal:
         raise RuntimeError('graceful shutdown/refund completion evidence is missing')
@@ -344,22 +581,31 @@ def progress(args, message):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['doctor', 'upgrade', 'stage', 'apply', 'status', 'confirm', 'rollback'])
+    parser.add_argument('action', choices=['doctor', 'upgrade', 'stage', 'apply', 'status', 'confirm', 'rollback', 'maintenance-release', 'maintenance-capture', 'maintenance-close', 'maintenance-stop'])
     parser.add_argument('--release', help='explicit transaction ID; omit for status to list all transactions')
     parser.add_argument('--binary', type=Path)
     parser.add_argument('--frontend', type=Path)
     parser.add_argument('--confirm')
+    parser.add_argument('--maintenance-handoff', type=Path)
+    parser.add_argument('--maintenance-handoff-sha256')
+    parser.add_argument('--global-confirmation', type=Path)
+    parser.add_argument('--global-confirmation-sha256')
+    parser.add_argument('--all-admission-closed', type=Path)
+    parser.add_argument('--all-admission-closed-sha256')
+    parser.add_argument('--wait', action='store_true', help='confirm: observe healthy candidate until the existing 120-second deadline')
     parser.add_argument('--migrate', action='store_true', help='back up PostgreSQL and apply schema migrations after stopping the writer')
     parser.add_argument('--backup-exclude-table', action='append', default=[], help='exact schema.table of an unrelated archive table to exclude; recorded in the plan')
     output = parser.add_mutually_exclusive_group()
     output.add_argument('--json', action='store_true', help='machine-readable output without progress messages')
     output.add_argument('--human', action='store_true', help='readable status and next commands')
     args = parser.parse_args(argv)
+    if args.wait and args.action != 'confirm':
+        parser.error('--wait is only valid for confirm')
     if args.release is not None and not re.fullmatch(RELEASE_PATTERN, args.release):
         parser.error('invalid release ID')
     if args.action not in ('doctor', 'status') and not args.release:
         parser.error('--release is required for this action')
-    if args.action in ('upgrade', 'apply', 'confirm', 'rollback') and args.confirm != 'api.lmm.best':
+    if args.action in ('upgrade', 'apply', 'confirm', 'rollback', 'maintenance-release', 'maintenance-capture', 'maintenance-close', 'maintenance-stop') and args.confirm != 'api.lmm.best':
         parser.error('mutations require --confirm api.lmm.best')
     if args.action not in ('stage', 'upgrade') and (args.binary or args.frontend or args.backup_exclude_table):
         parser.error('artifact and backup-exclusion arguments are only valid for stage/upgrade')
@@ -367,6 +613,10 @@ def main(argv=None):
         parser.error('--backup-exclude-table requires --migrate')
     if args.migrate and args.action not in ('doctor', 'stage', 'upgrade', 'apply'):
         parser.error('--migrate is only valid for doctor/stage/upgrade/apply')
+    if bool(args.maintenance_handoff) != bool(args.maintenance_handoff_sha256):
+        parser.error('maintenance handoff path and digest must be supplied together')
+    if args.action == 'maintenance-release' and not (args.global_confirmation and args.global_confirmation_sha256):
+        parser.error('maintenance release requires exact global owner confirmation receipt')
     if os.geteuid() != 0:
         parser.error('run on the target as root')
     # Preserve JSON for existing non-interactive granular commands.
@@ -405,13 +655,21 @@ def execute(args, parser):
     if ROOT.is_symlink():
         raise RuntimeError('deployment root may not be a symlink')
     ROOT.mkdir(mode=0o700, exist_ok=True)
-    if (ROOT / 'lock').is_symlink():
-        raise RuntimeError('deployment lock may not be a symlink')
-    with (ROOT / 'lock').open('a') as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            raise RuntimeError('another deployment operation holds the lock; inspect status') from None
+    maintenance = None
+    handoff_sha = args.maintenance_handoff_sha256
+    if args.maintenance_handoff:
+        maintenance = guardian.handoff(args.maintenance_handoff, handoff_sha)
+    elif args.action not in ('stage', 'upgrade'):
+        existing = read_state(ROOT / args.release)
+        if existing.get('maintenance_handoff'):
+            frozen = existing['maintenance_handoff']
+            handoff_sha = frozen['sha256']
+            maintenance = guardian.handoff(frozen['path'], handoff_sha)
+    if maintenance and maintenance['deployment_tool'] != 'systemd':
+        raise RuntimeError('maintenance handoff belongs to a different deployment tool')
+    if maintenance and maintenance['stage'] == 'prebridge' and args.action in ('stage', 'upgrade', 'apply', 'maintenance-capture'):
+        validate_prepare_service_reader(maintenance)
+    with deployment_lock(maintenance, handoff_sha):
         work = ROOT / args.release
         if args.action in ('stage', 'upgrade'):
             progress(args, 'Checking prerequisites and preparing immutable artifacts...')
@@ -434,20 +692,77 @@ def execute(args, parser):
             run(str(work / 'lmm-api'), 'operator', 'help')
             if args.migrate:
                 backup(work, database_environment(), schema_only=True, exclude=args.backup_exclude_table)
-            else:
+            elif not maintenance:
                 verify(work, 'stage')
             state = {'release': args.release, 'version': version, 'sha256': digest(work / 'lmm-api-go'),
                      'frontend_sha256': tree_digest(work / 'frontend'), 'migrate': args.migrate,
                      'backup_exclude_tables': args.backup_exclude_table, 'phase': 'STAGED'}
+            if maintenance:
+                if tree_digest(FRONTEND / 'current') != state['frontend_sha256']:
+                    raise RuntimeError('maintenance frontend must exactly match the frozen active frontend tree')
+                state['maintenance_handoff'] = {'path': str(args.maintenance_handoff), 'sha256': handoff_sha}
+                if digest(work / 'lmm-api-go') != maintenance['provider_sha256']:
+                    raise RuntimeError('candidate provider differs from frozen maintenance identity')
             save(work, state)
         if args.action != 'stage':
             state = read_state(work)
+            if maintenance:
+                state.update(maintenance_stage=maintenance['stage'], transition_id=maintenance['transition_id'], transition_intent_sha256=maintenance['transition_intent_sha256'], provider_sha256=maintenance['provider_sha256'])
             check_layout()
             if digest(work / 'lmm-api-go') != state['sha256']:
                 raise RuntimeError('staged binary changed')
             if tree_digest(work / 'frontend') != state['frontend_sha256']:
                 raise RuntimeError('staged frontend changed')
-            if args.action in ('apply', 'upgrade'):
+            if args.action == 'maintenance-capture':
+                if not maintenance or maintenance['stage'] != 'prebridge' or maintenance.get('stopped_writer') or state['phase'] != 'STAGED':
+                    raise RuntimeError('maintenance capture requires live ordinary STAGED owner')
+                healthy(run(str(ENTRY), 'version'))
+                pid, invocation = property_value('MainPID'), property_value('InvocationID')
+                if not pid.isdecimal() or int(pid) <= 1 or len(invocation) != 32:
+                    raise RuntimeError('ordinary writer capture identity unavailable')
+                process_env = Path('/proc', pid, 'environ').read_bytes()
+                process_path = work / ('captured-process.' + invocation + '.environment')
+                immutable_write(process_path, process_env, 0o600)
+                shutil.copy2(BINARY, work / 'previous-binary')
+                shutil.copy2(ENVIRONMENT, work / 'previous.env')
+                (work / 'previous.env').chmod(0o600)
+                db_env = database_environment_from_values(dict(item.split(b'=', 1) for item in process_env.split(b'\0') if b'=' in item))
+                verify_maintenance_database(maintenance, db_env, False)
+                if digest(Path('/proc', pid, 'exe')) != digest(BINARY) or property_value('MainPID') != pid or property_value('InvocationID') != invocation:
+                    raise RuntimeError('captured ordinary writer executable or generation changed')
+                archived = database_environment_from_values(read_environment_file(work / 'previous.env'))
+                if db_env != archived:
+                    raise RuntimeError('captured process database differs from archived configuration')
+                state.update(previous_version=run(str(ENTRY), 'version'), previous_sha256=digest(BINARY), previous_frontend=os.readlink(FRONTEND / 'current').split('/')[1], captured_pid=int(pid), captured_invocation_id=invocation, process_environment_path=str(process_path), process_environment_sha256=digest(process_path), archived_environment_sha256=digest(work / 'previous.env'), phase='CAPTURED')
+                persist_capture(work, state, maintenance)
+            elif args.action == 'maintenance-close':
+                if not maintenance or state['phase'] != 'CAPTURED' or property_value('MainPID') != str(state['captured_pid']) or property_value('InvocationID') != state['captured_invocation_id']:
+                    raise RuntimeError('admission close requires the captured ordinary writer generation')
+                healthy(state['previous_version'])
+                close_maintenance_admission(work, state, maintenance)
+                state['phase'] = 'ADMISSION_CLOSED'
+                persist_capture(work, state, maintenance)
+            elif args.action == 'maintenance-stop':
+                if not maintenance or state['phase'] not in ('ADMISSION_CLOSED', 'MAINTENANCE_CONFIRMED'):
+                    raise RuntimeError('writer stop requires closed captured admission')
+                receipt = json.loads(guardian.bound_file(args.all_admission_closed, args.all_admission_closed_sha256))
+                if receipt.get('format') != 'lmm-credit-all-admission-closed-v1' or receipt.get('transition_id') != maintenance['transition_id'] or receipt.get('transition_intent_sha256') != maintenance['transition_intent_sha256'] or receipt.get('all_origins_closed') is not True:
+                    raise RuntimeError('all-origin admission closure receipt differs from this transition')
+                maintenance_admission(maintenance)
+                prepared = state['phase'] == 'MAINTENANCE_CONFIRMED'
+                if prepared:
+                    healthy_prepare(state['version'], maintenance)
+                    state.update(captured_pid=int(property_value('MainPID')), captured_invocation_id=property_value('InvocationID'), was_maintenance_confirmed=True, previous_version=state['version'], previous_sha256=state['sha256'])
+                    process_path = work / ('captured-process.' + state['captured_invocation_id'] + '.environment')
+                    immutable_write(process_path, Path('/proc', str(state['captured_pid']), 'environ').read_bytes(), 0o600)
+                    state.update(process_environment_path=str(process_path), process_environment_sha256=digest(process_path))
+                if property_value('MainPID') != str(state['captured_pid']) or property_value('InvocationID') != state['captured_invocation_id']:
+                    raise RuntimeError('captured writer generation changed before stop')
+                stop(work, maintenance if prepared else None)
+                state['phase'] = 'FROZEN'
+                state['shutdown_journal_sha256'] = digest(work / 'shutdown.log')
+                persist_capture(work, state, maintenance)
+            elif args.action in ('apply', 'upgrade'):
                 progress(args, 'Verifying staged plan, schema and rollback inputs...')
                 check_tools(args.migrate)
                 if state['migrate'] != args.migrate:
@@ -456,12 +771,24 @@ def execute(args, parser):
                     raise RuntimeError('apply requires STAGED; use status or explicit rollback')
                 for other in ROOT.glob('*/state.json'):
                     value = read_state(other.parent)
-                    if other.parent != work and value['phase'] not in ('STAGED', 'CONFIRMED', 'ROLLED_BACK'):
+                    if other.parent != work and value['phase'] not in ('STAGED', 'CONFIRMED', 'ROLLED_BACK') and not (maintenance and maintenance.get('stopped_writer') and value['phase'] == 'FROZEN' and value['release'] == maintenance['previous_deployment_id']):
                         raise RuntimeError('another deployment needs recovery')
+                if maintenance and maintenance.get('stopped_writer'):
+                    db_env = verify_stopped_maintenance(maintenance)
+                    verify_maintenance_database(maintenance, db_env, maintenance['stage'] == 'post')
+                    previous = read_state(ROOT / maintenance['previous_deployment_id'])
+                    frozen = guardian.handoff(previous['maintenance_handoff']['path'], previous['maintenance_handoff']['sha256'])
+                    if previous['phase'] != 'FROZEN' or any(frozen[key] != maintenance[key] for key in ('transition_id', 'transition_intent_sha256', 'provider_sha256', 'prepare_config_sha256')) or (maintenance['stage'] == 'post' and (digest(BINARY) != maintenance['provider_sha256'] or state['sha256'] != previous['sha256'])):
+                        raise RuntimeError('post handoff requires the installed confirmed bridge as true N-1')
+                    source = ROOT / previous['release'] / 'previous-nginx-locations'
+                    original = guardian.bound_file(source, previous['ingress_original_sha256'])
+                    immutable_write(work / 'previous-nginx-locations', original, 0o600)
+                    state['ingress_original_sha256'] = previous['ingress_original_sha256']
                 if state['migrate']:
-                    db_env = database_environment()
+                    if not (maintenance and maintenance.get('stopped_writer')):
+                        db_env = database_environment()
                     backup(work, db_env, schema_only=True, exclude=state['backup_exclude_tables'])
-                else:
+                elif not maintenance:
                     verify(work, 'apply')
                 run('nginx', '-t', log=work / 'nginx.log')
                 old_frontend = os.readlink(FRONTEND / 'current')
@@ -473,55 +800,108 @@ def execute(args, parser):
                              previous_version=run(str(ENTRY), 'version'), phase='MUTATION_PENDING')
                 save(work, state)
                 progress(args, 'Stopping the writer after preflight; preserving rollback evidence...')
-                stop(work)
+                if maintenance:
+                    close_maintenance_admission(work, state, maintenance)
+                if maintenance and not maintenance.get('stopped_writer'):
+                    raise RuntimeError('maintenance apply requires official all-stopped owner handoff')
+                if not maintenance:
+                    stop(work)
                 if state['migrate']:
                     state['database_backup_sha256'] = backup(work, db_env, exclude=state['backup_exclude_tables'])
                     save(work, state)
-                    verify(work, 'migrate', mode='apply')
-                    verify(work, 'post-migrate')
+                    verify(work, 'migrate', mode='apply', maintenance=maintenance)
+                    verify(work, 'post-migrate', maintenance=maintenance)
+                if maintenance and maintenance['stage'] == 'prebridge':
+                    verify(work, 'prepare', mode='apply', maintenance=maintenance)
+                    verify(work, 'prepare-verify', maintenance=maintenance)
                 install(work / 'lmm-api-go', BINARY)
-                run(str(ENTRY), 'operator', 'frontend', 'publish', '--source', str(work / 'frontend'),
-                    '--release', args.release, '--keep', '10', log=work / 'frontend.log')
+                if not maintenance:
+                    run(str(ENTRY), 'operator', 'frontend', 'publish', '--source', str(work / 'frontend'),
+                        '--release', args.release, '--keep', '10', log=work / 'frontend.log')
+                elif tree_digest(FRONTEND / 'current') != state['frontend_sha256']:
+                    raise RuntimeError('frozen active frontend tree changed')
+                if maintenance:
+                    configure_maintenance_service(maintenance)
                 run('systemctl', 'start', SERVICE, log=work / 'start.log')
                 progress(args, 'Waiting for the selected version to pass readiness...')
                 deadline = time.monotonic() + 120
                 while True:
                     try:
-                        healthy(state['version'])
+                        healthy(state['version'], maintenance)
                         break
                     except Exception:
                         if time.monotonic() >= deadline:
                             raise RuntimeError('candidate failed readiness; explicit rollback required')
                         time.sleep(2)
+                if maintenance:
+                    maintenance_admission(maintenance)
                 state['phase'] = 'AWAITING_CONFIRMATION'
                 state['ready_at'] = time.time()
             elif args.action == 'confirm':
                 if state['phase'] != 'AWAITING_CONFIRMATION':
                     raise RuntimeError('confirm requires AWAITING_CONFIRMATION')
+                while args.wait and time.time() - state['ready_at'] < 120:
+                    healthy(state['version'], maintenance)
+                    if maintenance:
+                        maintenance_admission(maintenance)
+                    time.sleep(min(2, max(0, state['ready_at'] + 120 - time.time())))
                 if time.time() - state['ready_at'] < 120:
                     raise RuntimeError('observe the candidate for at least 120 seconds before confirming')
-                healthy(state['version'])
+                healthy(state['version'], maintenance)
                 if digest(BINARY) != state['sha256']:
                     raise RuntimeError('installed binary changed')
-                if os.readlink(FRONTEND / 'current') != 'releases/' + args.release:
+                if os.readlink(FRONTEND / 'current') != 'releases/' + (state['previous_frontend'] if maintenance else args.release) or (maintenance and tree_digest(FRONTEND / 'current') != state['frontend_sha256']):
                     raise RuntimeError('active frontend changed; confirmation refused')
+                if maintenance:
+                    maintenance_admission(maintenance)
+                    state['maintenance_confirmation'] = True
+                    state['phase'] = 'MAINTENANCE_CONFIRMED'
+                else:
+                    state['phase'] = 'CONFIRMED'
+            elif args.action == 'maintenance-release':
+                if not maintenance or maintenance['stage'] != 'post' or state['phase'] != 'MAINTENANCE_CONFIRMED':
+                    raise RuntimeError('maintenance release requires post owner confirmation')
+                receipt = json.loads(guardian.bound_file(args.global_confirmation, args.global_confirmation_sha256))
+                if receipt.get('format') != 'lmm-credit-maintenance-release-v1' or receipt.get('transition_id') != maintenance['transition_id'] or receipt.get('transition_intent_sha256') != maintenance['transition_intent_sha256'] or receipt.get('all_nodes_confirmed') is not True:
+                    raise RuntimeError('global owner confirmation does not authorize ingress release')
+                healthy(state['version'], maintenance)
+                maintenance_admission(maintenance)
+                reopen_maintenance_admission(work, state, maintenance)
+                try:
+                    healthy(state['version'])
+                    public = health_json('/api/status', maintenance['public_base_url'])
+                    token = guardian.bound_file(maintenance['probe_token_path'], maintenance['probe_token_sha256']).decode().strip()
+                    models = health_json('/v1/models', maintenance['public_base_url'], token)
+                    if public.get('success') is not True or public.get('ready') is not True or public.get('maintenance') is True or public.get('business_enabled') is False or public.get('data', {}).get('version') != state['version'] or not isinstance(models.get('data'), list):
+                        raise RuntimeError('public business gates failed after admission release')
+                except BaseException:
+                    close_maintenance_admission(work, state, maintenance)
+                    state['phase'] = 'ROLLBACK_REQUIRED'
+                    save(work, state)
+                    raise
                 state['phase'] = 'CONFIRMED'
+                state['maintenance_admission_reopened'] = True
             else:
-                if state['phase'] not in ('MUTATION_PENDING', 'AWAITING_CONFIRMATION'):
+                if state['phase'] not in ('MUTATION_PENDING', 'AWAITING_CONFIRMATION', 'MAINTENANCE_CONFIRMED', 'ROLLBACK_REQUIRED'):
                     raise RuntimeError('rollback requires a pending deployment')
                 if digest(work / 'previous-binary') != state['previous_sha256']:
                     raise RuntimeError('rollback binary changed')
                 if property_value('MainPID') != '0':
-                    stop(work)
-                run(str(work / 'lmm-api'), 'operator', 'frontend', 'rollback', '--release', state['previous_frontend'],
-                    '--keep', '10', log=work / 'rollback-frontend.log')
+                    stop(work, maintenance)
+                if not maintenance:
+                    run(str(work / 'lmm-api'), 'operator', 'frontend', 'rollback', '--release', state['previous_frontend'],
+                        '--keep', '10', log=work / 'rollback-frontend.log')
+                elif tree_digest(FRONTEND / 'current') != state['frontend_sha256']:
+                    raise RuntimeError('frozen frontend changed before rollback')
                 install(work / 'previous-binary', BINARY)
+                if maintenance:
+                    configure_maintenance_service(maintenance, rollback=True)
                 run('systemctl', 'start', SERVICE, log=work / 'rollback-start.log')
                 progress(args, 'Waiting for the selected version to pass readiness...')
                 deadline = time.monotonic() + 120
                 while True:
                     try:
-                        healthy(state['previous_version'])
+                        healthy(state['previous_version'], maintenance if maintenance and maintenance['stage'] == 'post' else None)
                         break
                     except Exception:
                         if time.monotonic() >= deadline:

@@ -94,6 +94,34 @@ class DeploymentTests(unittest.TestCase):
                 deploy.install(source, target)
             self.assertEqual('old', target.read_text())
 
+    def test_ordinary_health_rejects_ready_maintenance(self):
+        body = {'success': True, 'ready': True, 'live': True, 'maintenance': True,
+                'business_enabled': False, 'data': {'version': '0.2.83'}}
+        with patch.object(deploy, 'health_json', return_value=body):
+            with self.assertRaisesRegex(RuntimeError, 'business-ready'):
+                deploy.healthy('0.2.83')
+
+    def test_bound_prepare_health_rejects_changed_intent(self):
+        handoff = {'transition_id': 'fixture', 'transition_intent_sha256': 'a' * 64,
+                   'provider_sha256': 'b' * 64, 'prepare_config_sha256': 'c' * 64}
+        binding = dict(handoff, format='lmm-credit-transition-prepare-v1', target_credits_per_usd=500000)
+        body = {'success': True, 'ready': True, 'live': True, 'maintenance': True,
+                'business_enabled': False, 'data': {'version': '0.2.83', 'credit_transition': binding}}
+        with patch.object(deploy, 'health_json', return_value=body):
+            deploy.healthy_prepare('0.2.83', handoff)
+            binding['transition_intent_sha256'] = 'changed'
+            with self.assertRaisesRegex(RuntimeError, 'frozen prepare binding'):
+                deploy.healthy_prepare('0.2.83', handoff)
+
+    def test_barrier_preserves_original_and_rejects_nested_owner(self):
+        original = b'location @lmm_api_backend { proxy_pass http://127.0.0.1:3000; }\n'
+        handoff = {'transition_id': 'fixture'}
+        barrier = deploy.maintenance_barrier(handoff, original)
+        self.assertTrue(barrier.endswith(original))
+        self.assertIn(b'return 503', barrier)
+        with self.assertRaises(RuntimeError):
+            deploy.maintenance_barrier(handoff, barrier)
+
 
 if __name__ == '__main__':
     unittest.main()

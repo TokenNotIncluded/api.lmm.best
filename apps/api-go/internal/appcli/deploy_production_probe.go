@@ -13,6 +13,9 @@ import (
 )
 
 type productionStatusResponse struct {
+	Maintenance     bool  `json:"maintenance"`
+	BusinessEnabled *bool `json:"business_enabled"`
+
 	Success bool `json:"success"`
 	Ready   bool `json:"ready"`
 	Data    struct {
@@ -21,6 +24,9 @@ type productionStatusResponse struct {
 }
 
 type productionLiveResponse struct {
+	Maintenance     bool  `json:"maintenance"`
+	BusinessEnabled *bool `json:"business_enabled"`
+
 	Success bool `json:"success"`
 	Live    bool `json:"live"`
 }
@@ -52,7 +58,7 @@ func (runtime *productionRuntime) probeStatus(ctx context.Context, binary, baseU
 	if err := json.Unmarshal(body, &response); err != nil {
 		return "", fmt.Errorf("decode status response: %w", err)
 	}
-	if !response.Success || !response.Ready || !productionVersionPattern.MatchString(response.Data.Version) {
+	if !response.Success || !response.Ready || response.Maintenance || response.BusinessEnabled != nil && !*response.BusinessEnabled || !productionVersionPattern.MatchString(response.Data.Version) {
 		return "", errors.New("status response is not ready or has an invalid version")
 	}
 	if expectedVersion != "" && response.Data.Version != expectedVersion {
@@ -70,7 +76,7 @@ func (runtime *productionRuntime) probeLive(ctx context.Context, binary string) 
 	if err := json.Unmarshal(body, &response); err != nil {
 		return fmt.Errorf("decode live response: %w", err)
 	}
-	if !response.Success || !response.Live {
+	if !response.Success || !response.Live || response.Maintenance || response.BusinessEnabled != nil && !*response.BusinessEnabled {
 		return errors.New("live response is unhealthy")
 	}
 	return nil
@@ -89,11 +95,15 @@ func (runtime *productionRuntime) probeFrontend(ctx context.Context, binary, exp
 }
 
 func (runtime *productionRuntime) probeModels(ctx context.Context, binary, tokenFile string) error {
+	return runtime.probeModelsAt(ctx, binary, runtime.paths.PublicBaseURL, tokenFile)
+}
+
+func (runtime *productionRuntime) probeModelsAt(ctx context.Context, binary, baseURL, tokenFile string) error {
 	info, err := os.Lstat(tokenFile)
 	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || info.Size() == 0 {
 		return errors.New("protected production probe token is missing or unsafe")
 	}
-	body, err := runtime.runNativeRequest(ctx, binary, runtime.paths.PublicBaseURL, "/v1/models", tokenFile)
+	body, err := runtime.runNativeRequest(ctx, binary, baseURL, "/v1/models", tokenFile)
 	if err != nil {
 		return err
 	}
@@ -117,6 +127,9 @@ func (runtime *productionRuntime) probeBackendLocal(ctx context.Context, workspa
 }
 
 func (runtime *productionRuntime) probeBackendLocalWithBinary(ctx context.Context, binary, version string) error {
+	if runtime.maintenanceHandoff != nil && runtime.maintenanceHandoff.Stage == "prebridge" && !runtime.billingRollback {
+		return runtime.probeBoundMaintenanceLocal(ctx, binary, version)
+	}
 	if _, err := runtime.probeStatus(ctx, binary, runtime.paths.LocalBaseURL, version); err != nil {
 		return fmt.Errorf("local status probe: %w", err)
 	}
@@ -135,6 +148,9 @@ func (runtime *productionRuntime) probeRelease(ctx context.Context, workspace pr
 }
 
 func (runtime *productionRuntime) probeReleaseWithBinary(ctx context.Context, workspace productionWorkspace, binary, version, frontendSHA256 string) error {
+	if runtime.maintenanceHandoff != nil {
+		return runtime.probeMaintenanceRelease(ctx, workspace, binary, version)
+	}
 	attempts := runtime.probeAttempts
 	if attempts < 1 {
 		attempts = 1

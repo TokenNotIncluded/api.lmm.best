@@ -590,11 +590,22 @@ func providerLinkState(path string) (string, error) {
 }
 
 func (runtime *productionRuntime) apply(ctx context.Context, workspace productionWorkspace, options productionTransactionOptions) (result productionStatus, returnErr error) {
-	if !options.GoChanged && !options.WebChanged {
+	if runtime.maintenanceHandoff != nil && options.Action != "maintenance-capture" && !runtime.maintenanceStopped() {
+		return productionStatus{}, errors.New("maintenance apply requires official all-stopped owner handoff")
+	}
+	if runtime.maintenanceHandoff != nil && options.WebChanged {
+		return productionStatus{}, errors.New("maintenance handoff requires unchanged exact frontend identity while guardian holds frontend lock")
+	}
+	if !options.GoChanged && !options.WebChanged && !runtime.maintenanceStopped() {
 		return productionStatus{}, errors.New("at least one of --go-changed or --web-changed is required")
 	}
 	if err := validateControllerBackupTransactionOptions(options); err != nil {
 		return productionStatus{}, err
+	}
+	if options.Action == "maintenance-retry" {
+		if err := runtime.archiveMaintenancePrearmFailure(ctx, workspace); err != nil {
+			return productionStatus{}, err
+		}
 	}
 	if _, err := os.Lstat(workspace.manifestPath); !errors.Is(err, os.ErrNotExist) {
 		return productionStatus{}, errors.New("deployment manifest already exists")
@@ -623,6 +634,12 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 			}
 			return
 		}
+		if runtime.maintenanceHandoff != nil {
+			if statusErr := runtime.writeStatus(workspace, productionStatus{Phase: "MAINTENANCE_PREARM_FAILED", Version: options.ExpectedVersion, Reason: "maintenance-preparation-failed", Failure: returnErr.Error()}); statusErr != nil {
+				returnErr = errors.Join(returnErr, statusErr)
+			}
+			return
+		}
 		_ = os.Remove(workspace.probeToken)
 		if statusErr := runtime.writeStatus(workspace, productionStatus{Phase: "FAILED_PREARM", Version: options.ExpectedVersion, Reason: "activation-preparation-failed", Failure: returnErr.Error()}); statusErr != nil {
 			returnErr = errors.Join(returnErr, fmt.Errorf("persist FAILED_PREARM status: %w", statusErr))
@@ -631,6 +648,11 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 			returnErr = errors.Join(returnErr, fmt.Errorf("release pre-mutation transaction lock: %w", lockErr))
 		}
 	}()
+	if runtime.maintenanceHandoff != nil && runtime.maintenanceHandoff.Stage == "prebridge" {
+		if err := validateMaintenanceServiceReader(runtime.maintenanceHandoff.PrepareConfigPath); err != nil {
+			return productionStatus{}, err
+		}
+	}
 
 	if options.OperatorBinary == "" {
 		options.OperatorBinary = options.ProbeBinary
@@ -677,6 +699,9 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 	}
 
 	archivedEnvironment, err := runtime.loadRollbackEnvironment(ctx, workspace, options.BackupDir)
+	if runtime.maintenanceStopped() {
+		archivedEnvironment, err = runtime.maintenanceEnvironment()
+	}
 	if err != nil {
 		return productionStatus{}, err
 	}
@@ -696,7 +721,11 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 			return productionStatus{}, errors.New("target backup changed after controller verification")
 		}
 	}
-	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"is-active", "--quiet", runtime.paths.Service}}); err != nil {
+	if runtime.maintenanceStopped() {
+		if err := runtime.validateStoppedMaintenanceWriter(ctx); err != nil {
+			return productionStatus{}, err
+		}
+	} else if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"is-active", "--quiet", runtime.paths.Service}}); err != nil {
 		return productionStatus{}, errors.New("pre-upgrade lmm-api service is not active")
 	}
 	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"is-enabled", "--quiet", runtime.paths.Service}}); err != nil {
@@ -739,7 +768,17 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 	if goCandidate.BinarySHA256 != options.ProbeBinarySHA256 {
 		return productionStatus{}, errors.New("candidate probe binary is not the binary contained in the Go package")
 	}
-	if err := validateChangedIdentity(options.GoChanged, goCandidate, goRollback, options.GoPackageSHA256, options.GoRollbackSHA256); err != nil {
+	goIdentityChanged := options.GoChanged
+	if runtime.maintenancePost() {
+		if options.ProbeBinarySHA256 != runtime.maintenanceHandoff.ProviderSHA256 || goRollback.BinarySHA256 != runtime.maintenanceHandoff.ProviderSHA256 || options.GoPackageSHA256 != options.GoRollbackSHA256 {
+			return productionStatus{}, errors.New("post handoff requires the exact installed bridge as candidate and true N-1")
+		}
+		goIdentityChanged = false
+	}
+	if runtime.maintenanceHandoff != nil && options.ProbeBinarySHA256 != runtime.maintenanceHandoff.ProviderSHA256 {
+		return productionStatus{}, errors.New("candidate provider differs from maintenance identity")
+	}
+	if err := validateChangedIdentity(goIdentityChanged, goCandidate, goRollback, options.GoPackageSHA256, options.GoRollbackSHA256); err != nil {
 		return productionStatus{}, fmt.Errorf("Go package pair: %w", err)
 	}
 	if err := validateChangedIdentity(options.WebChanged, webCandidate, webRollback, options.WebPackageSHA256, options.WebRollbackSHA256); err != nil {
@@ -766,22 +805,32 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 	if err != nil || strings.TrimSpace(string(probeVersion)) != options.ExpectedVersion {
 		return productionStatus{}, errors.New("candidate probe binary version mismatch")
 	}
-	oldVersion, err := runtime.probeStatus(ctx, candidateEntrypoint, runtime.paths.LocalBaseURL, "")
+	oldVersion := ""
+	if !runtime.maintenanceStopped() {
+		oldVersion, err = runtime.probeStatus(ctx, candidateEntrypoint, runtime.paths.LocalBaseURL, "")
+	}
+	if runtime.maintenanceStopped() {
+		var output []byte
+		output, err = runVerifiedBinary(ctx, runtime.runner, runtime.paths.InstalledBinary, []string{"version"}, nil, "", productionCommandTimeout, false)
+		oldVersion = strings.TrimSpace(string(output))
+	}
 	if err != nil {
 		return productionStatus{}, fmt.Errorf("pre-upgrade local status probe failed: %w", err)
 	}
 	if !productionPackageMatches(goRollback.Version, oldVersion) {
 		return productionStatus{}, errors.New("rollback Go package version does not match the running service")
 	}
-	if _, err := runtime.probeStatus(ctx, candidateEntrypoint, runtime.paths.PublicBaseURL, oldVersion); err != nil {
-		return productionStatus{}, fmt.Errorf("pre-upgrade public status probe failed: %w", err)
+	if !runtime.maintenanceStopped() {
+		if _, err := runtime.probeStatus(ctx, candidateEntrypoint, runtime.paths.PublicBaseURL, oldVersion); err != nil {
+			return productionStatus{}, fmt.Errorf("pre-upgrade public status probe failed: %w", err)
+		}
 	}
 	comparisonOutput, err := runtime.runner.Run(ctx, productionCommand{Name: commandVercmp, Args: []string{oldVersion, options.ExpectedVersion}})
 	if err != nil {
 		return productionStatus{}, fmt.Errorf("compare release versions: %w", err)
 	}
 	comparison, err := strconv.Atoi(strings.TrimSpace(string(comparisonOutput)))
-	if err != nil || (options.GoChanged && comparison >= 0) {
+	if err != nil || (options.GoChanged && comparison >= 0 && !(runtime.maintenancePost() && comparison == 0)) {
 		return productionStatus{}, fmt.Errorf("candidate is not an upgrade: %s -> %s", oldVersion, options.ExpectedVersion)
 	}
 	oldTarget, err := currentFrontendTarget(runtime.paths.FrontendRoot)
@@ -792,8 +841,10 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 	if err != nil || oldIndexSHA != webRollback.IndexSHA256 || oldTarget != frontendTargetFor(webRollback) {
 		return productionStatus{}, fmt.Errorf("active frontend does not exactly match rollback Web package: active target=%q index_sha256=%q; rollback package=%q target=%q index_sha256=%q; read_error=%v", oldTarget, oldIndexSHA, webRollback.Identity, frontendTargetFor(webRollback), webRollback.IndexSHA256, err)
 	}
-	if err := runtime.probeFrontend(ctx, candidateEntrypoint, oldIndexSHA); err != nil {
-		return productionStatus{}, fmt.Errorf("pre-upgrade public frontend probe failed: %w", err)
+	if !runtime.maintenanceStopped() {
+		if err := runtime.probeFrontend(ctx, candidateEntrypoint, oldIndexSHA); err != nil {
+			return productionStatus{}, fmt.Errorf("pre-upgrade public frontend probe failed: %w", err)
+		}
 	}
 	newTarget := frontendTargetFor(webCandidate)
 	if !options.WebChanged && newTarget != oldTarget {
@@ -814,11 +865,17 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 	if err != nil {
 		return productionStatus{}, err
 	}
-	if err := runtime.probeModels(ctx, candidateEntrypoint, workspace.probeToken); err != nil {
-		return productionStatus{}, fmt.Errorf("pre-upgrade authenticated business probe failed: %w", err)
-	}
-	if err := runtime.probeLive(ctx, candidateEntrypoint); err != nil {
-		return productionStatus{}, fmt.Errorf("pre-upgrade live probe failed: %w", err)
+	if runtime.maintenanceStopped() {
+		if err := runtime.verifyMaintenanceDatabase(ctx, archivedEnvironment, runtime.maintenancePost()); err != nil {
+			return productionStatus{}, err
+		}
+	} else {
+		if err := runtime.probeModels(ctx, candidateEntrypoint, workspace.probeToken); err != nil {
+			return productionStatus{}, fmt.Errorf("pre-upgrade authenticated business probe failed: %w", err)
+		}
+		if err := runtime.probeLive(ctx, candidateEntrypoint); err != nil {
+			return productionStatus{}, fmt.Errorf("pre-upgrade live probe failed: %w", err)
+		}
 	}
 
 	previousProviderTarget, err := providerLinkState(runtime.paths.InstalledBinary)
@@ -832,7 +889,8 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		}
 	}
 	manifest := productionManifest{
-		Format: productionTransactionFormat, DeploymentID: workspace.id,
+		MaintenanceHandoff: runtime.maintenanceHandoff,
+		Format:             productionTransactionFormat, DeploymentID: workspace.id,
 		OperatorUser: options.OperatorUser,
 		Go:           transitionFromMetadata(options.GoChanged, options.GoPackage, options.GoRollbackPackage, options.GoPackageSHA256, options.GoRollbackSHA256, goCandidate, goRollback),
 		Web:          transitionFromMetadata(options.WebChanged, options.WebPackage, options.WebRollbackPackage, options.WebPackageSHA256, options.WebRollbackSHA256, webCandidate, webRollback),
@@ -865,13 +923,46 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 			return productionStatus{}, err
 		}
 	}
-	if options.GoChanged {
+	if options.GoChanged && !runtime.maintenanceStopped() {
 		if err := runtime.preflightBillingWriter(ctx, &manifest); err != nil {
 			return productionStatus{}, fmt.Errorf("billing writer preflight: %w", err)
 		}
 	}
+	if runtime.maintenanceStopped() {
+		if err := runtime.adoptMaintenanceBarrier(workspace, &manifest); err != nil {
+			return productionStatus{}, err
+		}
+	}
 	if err := runtime.writeManifest(workspace, manifest); err != nil {
 		return productionStatus{}, fmt.Errorf("write deployment manifest: %w", err)
+	}
+	if options.Action == "maintenance-capture" {
+		if runtime.maintenanceHandoff == nil || runtime.maintenanceStopped() {
+			return productionStatus{}, errors.New("maintenance capture requires live unactivated prebridge binding")
+		}
+		unit, err := runtime.billingUnitState(ctx, runtime.paths.Service)
+		if err != nil {
+			return productionStatus{}, err
+		}
+		pid, err := strconv.Atoi(unit["MainPID"])
+		if err != nil || pid <= 1 || unit["ActiveState"] != "active" || len(unit["InvocationID"]) != 32 {
+			return productionStatus{}, errors.New("capture writer identity unavailable")
+		}
+		if err := runtime.verifyMaintenanceDatabase(ctx, archivedEnvironment, false); err != nil {
+			return productionStatus{}, err
+		}
+		installedSHA, err := sha256File(runtime.paths.InstalledBinary)
+		if err != nil {
+			return productionStatus{}, err
+		}
+		manifest.MaintenanceCapture = &productionMaintenanceCapture{Format: "lmm-credit-maintenance-capture-v1", TransitionID: runtime.maintenanceHandoff.TransitionID, TransitionIntentSHA256: runtime.maintenanceHandoff.TransitionIntentSHA256, ProviderSHA256: installedSHA, Version: oldVersion, PID: pid, InvocationID: unit["InvocationID"], ArchivedEnvironmentPath: filepath.Join(workspace.configRestore, "lmm-api-go.env"), ArchivedEnvironmentSHA256: environmentRestoreSHA256, DatabaseSchema: databaseSchema, FrontendTarget: oldTarget, FrontendSHA256: oldIndexSHA}
+		if err := runtime.captureMaintenanceProcessEnvironment(ctx, workspace, manifest.MaintenanceCapture, archivedEnvironment); err != nil {
+			return productionStatus{}, err
+		}
+		if err := runtime.writeManifest(workspace, manifest); err != nil {
+			return productionStatus{}, err
+		}
+		return runtime.persistMaintenanceCapture(workspace, manifest, "CAPTURED")
 	}
 	// Persist complete rollback evidence and an eligible state before the first
 	// live mutation. A later status-write failure therefore still leaves this
@@ -893,7 +984,11 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		if err := runtime.closeBillingAdmission(ctx, workspace, &manifest); err != nil {
 			return productionStatus{}, err
 		}
-		if err := runtime.stopBillingWriter(ctx, workspace, &manifest); err != nil {
+		if runtime.maintenanceStopped() {
+			if err := runtime.validateStoppedMaintenanceWriter(ctx); err != nil {
+				return productionStatus{}, err
+			}
+		} else if err := runtime.stopBillingWriter(ctx, workspace, &manifest); err != nil {
 			return productionStatus{}, err
 		}
 		if err := runtime.writeStatus(workspace, productionStatus{Phase: "MIGRATING", Version: options.ExpectedVersion, Previous: oldVersion}); err != nil {
@@ -921,6 +1016,9 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 			return productionStatus{}, err
 		}
 		if err := hardenProductionConfiguration(productionHardenOptions{EnvFile: filepath.Join(runtime.paths.ConfigDir, "lmm-api-go.env"), DropInDir: runtime.paths.PackagedDropInDir, OverrideDropInDir: runtime.paths.DropInDir}); err != nil {
+			return productionStatus{}, err
+		}
+		if err := runtime.configureMaintenanceService(workspace, manifest, false); err != nil {
 			return productionStatus{}, err
 		}
 		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"daemon-reload"}}); err != nil {
@@ -982,7 +1080,7 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 	if err := runtime.reopenBillingAdmission(ctx, workspace, &manifest); err != nil {
 		return productionStatus{}, err
 	}
-	if manifest.Go.Changed && manifest.NginxEdgeRestoreSHA256 != "" && !manifest.PreserveEdgePolicy {
+	if manifest.MaintenanceHandoff == nil && manifest.Go.Changed && manifest.NginxEdgeRestoreSHA256 != "" && !manifest.PreserveEdgePolicy {
 		if err := runtime.applyEdgePolicyAssets(ctx, runtime.paths.EdgeAssetRoot, filepath.Join(workspace.configRestore, "nginx-edge"), true); err != nil {
 			return productionStatus{}, fmt.Errorf("install managed nginx edge policy: %w", err)
 		}
@@ -1094,7 +1192,7 @@ func (runtime *productionRuntime) confirmLoaded(ctx context.Context, workspace p
 		}
 		return status, nil
 	}
-	if status.Phase != "AWAITING_CONFIRMATION" && status.Phase != "CONFIRMING" {
+	if status.Phase != "AWAITING_CONFIRMATION" && status.Phase != "CONFIRMING" && status.Phase != productionMaintenanceConfirmedPhase {
 		return productionStatus{}, fmt.Errorf("deployment phase %s is not awaiting confirmation", status.Phase)
 	}
 	if err := runtime.validateTransactionLock(workspace); err != nil {
@@ -1151,11 +1249,18 @@ func (runtime *productionRuntime) confirmLoaded(ctx context.Context, workspace p
 		Phase: "CONFIRMED", Version: manifest.ExpectedVersion, Previous: manifest.OldVersion,
 		Reason: "native-cli-health-and-identity-gates-passed",
 	}
+	if manifest.MaintenanceHandoff != nil {
+		confirmed.Phase = productionMaintenanceConfirmedPhase
+		confirmed.Reason = "bound-maintenance-health-and-identity-gates-passed"
+		confirmed.MaintenanceConfirmation = true
+	}
 	if err := runtime.writeStatus(workspace, confirmed); err != nil {
 		return productionStatus{}, err
 	}
-	if err := runtime.finalizeTransactionFiles(workspace); err != nil {
-		return productionStatus{}, err
+	if manifest.MaintenanceHandoff == nil {
+		if err := runtime.finalizeTransactionFiles(workspace); err != nil {
+			return productionStatus{}, err
+		}
 	}
 	return confirmed, nil
 }
@@ -1187,7 +1292,7 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 		return status, nil
 	}
 	switch status.Phase {
-	case "MUTATION_PENDING", "MIGRATING", "DEPLOYING", "DEPLOYING_GO", "DEPLOYING_WEB", "OBSERVING", "AWAITING_CONFIRMATION", "CONFIRMING", "ROLLBACK_REQUIRED", "ROLLING_BACK":
+	case "MUTATION_PENDING", "MIGRATING", "DEPLOYING", "DEPLOYING_GO", "DEPLOYING_WEB", "OBSERVING", "AWAITING_CONFIRMATION", "CONFIRMING", "ROLLBACK_REQUIRED", "ROLLING_BACK", productionMaintenanceConfirmedPhase:
 	default:
 		return productionStatus{}, fmt.Errorf("deployment phase %s is not rollback-eligible", status.Phase)
 	}
@@ -1249,6 +1354,9 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 				return fail(err)
 			}
 		}
+		if err := runtime.configureMaintenanceService(workspace, manifest, true); err != nil {
+			return fail(err)
+		}
 		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"daemon-reload"}}); err != nil {
 			return fail(fmt.Errorf("reload systemd for rollback: %w", err))
 		}
@@ -1288,7 +1396,7 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 	if err := runtime.reopenBillingAdmission(ctx, workspace, &manifest); err != nil {
 		return fail(err)
 	}
-	if manifest.NginxEdgeRestoreSHA256 != "" {
+	if manifest.MaintenanceHandoff == nil && manifest.NginxEdgeRestoreSHA256 != "" {
 		if err := runtime.restoreEdgePolicyBackup(ctx, filepath.Join(workspace.configRestore, "nginx-edge"), manifest.NginxEdgeRestoreSHA256); err != nil {
 			return fail(fmt.Errorf("restore nginx edge policy: %w", err))
 		}

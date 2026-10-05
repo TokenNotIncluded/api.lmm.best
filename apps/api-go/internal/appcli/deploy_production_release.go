@@ -57,6 +57,9 @@ func productionReleaseIdentity(assetSHA256, component, workflow, tag string) str
 }
 
 type productionReleasePlanOptions struct {
+	MaintenanceHandoffPath   string
+	MaintenanceHandoffSHA256 string
+
 	Repo                     string
 	Workspace                string
 	DeploymentID             string
@@ -104,6 +107,8 @@ type productionReleaseFilePlan struct {
 }
 
 type productionReleasePlan struct {
+	MaintenanceHandoff *productionMaintenanceHandoff `json:"maintenance_handoff,omitempty"`
+
 	Format                    int                          `json:"format"`
 	DeploymentID              string                       `json:"deployment_id"`
 	CreatedUTC                time.Time                    `json:"created_utc"`
@@ -167,6 +172,8 @@ func parseProductionReleasePlanOptions(args []string, stderr io.Writer) (product
 	flags := flag.NewFlagSet(DeployProgramName+" production plan", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&options.Repo, "repo", "", "clean api.lmm.best source checkout with fetched release tags")
+	flags.StringVar(&options.MaintenanceHandoffPath, "maintenance-handoff", "", "immutable root-owned maintenance handoff")
+	flags.StringVar(&options.MaintenanceHandoffSHA256, "maintenance-handoff-sha256", "", "exact maintenance handoff digest")
 	flags.StringVar(&options.Workspace, "workspace", "", "marker-owned controller workspace")
 	flags.StringVar(&options.DeploymentID, "deployment-id", "", "unique release-scoped deployment ID")
 	flags.StringVar(&options.GoPackage, "go-package", "", "candidate lmm-api-go-bin package")
@@ -305,9 +312,13 @@ func (runtime *productionReleaseRuntime) createPlan(ctx context.Context, options
 	if err != nil {
 		return productionReleasePlanResult{}, fmt.Errorf("rollback Web evidence: %w", err)
 	}
+	handoff, err := loadProductionMaintenanceHandoff(options.MaintenanceHandoffPath, options.MaintenanceHandoffSHA256, uint32(os.Geteuid()))
+	if err != nil {
+		return productionReleasePlanResult{}, err
+	}
 	goChanged := goCandidate.PackageSHA256 != goRollback.PackageSHA256
 	webChanged := webCandidate.PackageSHA256 != webRollback.PackageSHA256
-	if !goChanged && !webChanged {
+	if !goChanged && !webChanged && (handoff == nil || handoff.Stage != "post") {
 		return productionReleasePlanResult{}, errors.New("candidate release is byte-identical to both rollback packages")
 	}
 	if err := validateChangedIdentity(goChanged, releasePlanMetadata(goCandidate), releasePlanMetadata(goRollback), goCandidate.PackageSHA256, goRollback.PackageSHA256); err != nil {
@@ -340,7 +351,14 @@ func (runtime *productionReleaseRuntime) createPlan(ctx context.Context, options
 	if operatorSHA256 != goCandidate.PayloadSHA256 {
 		return productionReleasePlanResult{}, errors.New("operator binary is not the binary in the signed candidate Go release and package")
 	}
+	if handoff != nil && (handoff.DeploymentTool != "native" || handoff.ProviderSHA256 != probeSHA256 || webChanged) {
+		return productionReleasePlanResult{}, errors.New("maintenance provider/tool/frontend differs from frozen release evidence")
+	}
+	if handoff != nil && handoff.Stage == "post" {
+		goChanged = true
+	}
 	plan := productionReleasePlan{
+		MaintenanceHandoff:  handoff,
 		Format:              productionReleasePlanFormat,
 		DeploymentID:        options.DeploymentID,
 		CreatedUTC:          utcSecond(runtime.now()),
@@ -1315,7 +1333,20 @@ func validateProductionReleasePlan(plan productionReleasePlan) error {
 	if !productionPackageMatches(plan.GoCandidate.Version, plan.ExpectedVersion) || plan.GoCandidate.ContractRevision != plan.WebCandidate.ContractRevision || plan.GoRollback.ContractRevision != plan.WebRollback.ContractRevision {
 		return errors.New("release plan version or route-contract pairing is invalid")
 	}
-	if err := validateChangedIdentity(plan.GoChanged, releasePlanMetadata(plan.GoCandidate), releasePlanMetadata(plan.GoRollback), plan.GoCandidate.PackageSHA256, plan.GoRollback.PackageSHA256); err != nil {
+	goChanged := plan.GoChanged
+	if plan.MaintenanceHandoff != nil {
+		h := plan.MaintenanceHandoff
+		if h.Format != productionMaintenanceHandoffFormat || h.DeploymentTool != "native" || h.ProviderSHA256 != plan.ProbeBinary.SHA256 || !productionSHA256Pattern.MatchString(h.SHA256) || h.Path == "" || plan.WebChanged || (h.Stage != "prebridge" && h.Stage != "post") {
+			return errors.New("release plan maintenance binding is invalid")
+		}
+		if h.Stage == "post" {
+			if h.ProviderSHA256 != plan.GoRollback.PayloadSHA256 || plan.GoCandidate.PackageSHA256 != plan.GoRollback.PackageSHA256 || !plan.GoChanged {
+				return errors.New("post release requires exact same installed bridge candidate and N-1")
+			}
+			goChanged = false
+		}
+	}
+	if err := validateChangedIdentity(goChanged, releasePlanMetadata(plan.GoCandidate), releasePlanMetadata(plan.GoRollback), plan.GoCandidate.PackageSHA256, plan.GoRollback.PackageSHA256); err != nil {
 		return fmt.Errorf("release plan Go pair: %w", err)
 	}
 	if err := validateChangedIdentity(plan.WebChanged, releasePlanMetadata(plan.WebCandidate), releasePlanMetadata(plan.WebRollback), plan.WebCandidate.PackageSHA256, plan.WebRollback.PackageSHA256); err != nil {
