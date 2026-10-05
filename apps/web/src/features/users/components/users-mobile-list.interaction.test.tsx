@@ -156,11 +156,11 @@ async function renderList(
     currency: {
       ...DEFAULT_CURRENCY_CONFIG,
       currencyUnit: 'credit',
-      creditsPerUsd: 3000000,
-      creditsPerUsdExact: '3000000',
+      creditsPerUsd: 500000,
+      creditsPerUsdExact: '500000',
       cnyPerUsd: 7.2,
       cnyPerUsdExact: '7.2',
-      legacyPricingUnitsPerUsd: 6,
+      legacyPricingUnitsPerUsd: 1,
       quotaPerUnit: 500000,
     },
   })
@@ -253,7 +253,7 @@ test('the collapsed row keeps complete identity, status, balance, and fiat top-u
       'Enabled',
       'mobile-fixture',
       'Admin',
-      '2.06 USD',
+      '12.35 USD',
       '98.76 CNY',
       'Edit user',
     ]) {
@@ -403,12 +403,12 @@ test('multiple settlement currencies retain method amounts without presenting th
     await view.click(paymentButton)
     assert.equal(payment.open, true)
     for (const [label, fiat, quota, orders] of [
-      ['Card · USD provider', '12.34 USD', '0.333333 USD', '2'],
-      ['Bank · CNY provider', '56.78 CNY', '0.666667 USD', '3'],
+      ['Card · USD provider', '12.34 USD', '2 USD', '2'],
+      ['Bank · CNY provider', '56.78 CNY', '4 USD', '3'],
       [
         'Legacy · Unknown provider',
         '9.876543 (Currency unavailable)',
-        '2 USD',
+        '12 USD',
         '1',
       ],
     ]) {

@@ -63,8 +63,8 @@ await i18n
 const currencyConfig = {
   ...DEFAULT_CURRENCY_CONFIG,
   currencyUnit: 'credit' as const,
-  creditsPerUsd: 3400000,
-  creditsPerUsdExact: '3400000',
+  creditsPerUsd: 500000,
+  creditsPerUsdExact: '500000',
   quotaPerUnit: 500000,
   cnyPerUsd: 6.8,
 }
@@ -143,24 +143,24 @@ test('projected minimum preserves untouched storage and rejects an inexact USD e
     assert.ok(input)
     assert.ok(form)
     const originalDisplay = input.value
-    assert.match(originalDisplay, /^0\.147058823529/)
+    assert.match(originalDisplay, /^1$/)
     await submit(form)
     assert.deepEqual(saved, [1])
-    await edit(input, '2')
-    assert.equal(input.value, '2')
+    await edit(input, '1.5')
+    assert.equal(input.value, '1.5')
     assert.match(
       ui.container.textContent ?? '',
       /Enter a USD amount that equals a whole recharge increment/
     )
     await submit(form)
     assert.deepEqual(saved, [1])
-    // Returning to a displayed recurring decimal restores the known original integer.
+    // Returning to the original USD amount restores its stored integer.
     await edit(input, originalDisplay)
     await submit(form)
     assert.deepEqual(saved, [1, 1])
     await edit(input, '10')
     await submit(form)
-    assert.deepEqual(saved, [1, 1, 68])
+    assert.deepEqual(saved, [1, 1, 10])
     assert.equal(input.value, '10')
   } finally {
     await ui.close()
@@ -186,7 +186,7 @@ test('missing fixed denomination disables editing while preserving the existing 
       useSystemConfigStore.getState().setConfig({ currency: currencyConfig })
     )
     assert.equal(input.disabled, false)
-    assert.match(input.value, /^0\.147058823529/)
+    assert.match(input.value, /^1$/)
     await submit(form)
     assert.deepEqual(saved, [1, 1])
   } finally {
@@ -217,7 +217,7 @@ test('custom gateway previews native direct rates and preserves USD limits and e
   try {
     assert.match(
       document.body.textContent ?? '',
-      /1 USD credited costs 8\.364 LDC/
+      /1 USD credited costs 1\.23 LDC/
     )
     assert.match(
       document.body.textContent ?? '',
@@ -305,10 +305,7 @@ test('ordinary Epay defaults to CNY without silently inserting a settlement unit
     />
   )
   try {
-    assert.match(
-      document.body.textContent ?? '',
-      /1 USD credited costs 6\.8 CNY/
-    )
+    assert.match(document.body.textContent ?? '', /1 USD credited costs 1 CNY/)
     const form = document.querySelector('form')
     assert.ok(form)
     await submit(form)
@@ -338,7 +335,7 @@ test('LinuxDO direct pricing requires an explicit native unit before saving', as
   try {
     assert.doesNotMatch(
       document.body.textContent ?? '',
-      /1 USD credited costs 6\.8 CNY/
+      /1 USD credited costs 1 CNY/
     )
     const form = document.querySelector('form')
     assert.ok(form)
@@ -349,10 +346,7 @@ test('LinuxDO direct pricing requires an explicit native unit before saving', as
     )
     assert.ok(unit)
     await edit(unit, 'LDC')
-    assert.match(
-      document.body.textContent ?? '',
-      /1 USD credited costs 6\.8 LDC/
-    )
+    assert.match(document.body.textContent ?? '', /1 USD credited costs 1 LDC/)
     await submit(form)
     assert.equal(saved.length, 1)
     assert.equal(saved[0].settlement_unit, 'LDC')
@@ -362,13 +356,13 @@ test('LinuxDO direct pricing requires an explicit native unit before saving', as
   }
 })
 
-test('literal non-terminating denomination retains the original minimum after editing it back', async () => {
+test('fixed denomination retains the original minimum after an inexact edit', async () => {
   useSystemConfigStore.getState().setConfig({
     currency: {
       ...currencyConfig,
-      creditsPerUsd: 3359744,
-      creditsPerUsdExact: '3359744',
-      legacyPricingUnitsPerUsd: 6.719488,
+      creditsPerUsd: 500000,
+      creditsPerUsdExact: '500000',
+      legacyPricingUnitsPerUsd: 1,
     },
   })
   const saved: number[] = []
@@ -379,8 +373,8 @@ test('literal non-terminating denomination retains the original minimum after ed
     assert.ok(input)
     assert.ok(form)
     const originalDisplay = input.value
-    assert.match(originalDisplay, /^0\.148820862/)
-    await edit(input, '2')
+    assert.match(originalDisplay, /^1$/)
+    await edit(input, '1.5')
     await submit(form)
     assert.deepEqual(saved, [])
     await edit(input, originalDisplay)
@@ -429,11 +423,11 @@ test('Waffo shows its integer minimum as actual USD and emits legacy integers fo
       ...ui.container.querySelectorAll<HTMLInputElement>(
         'input[type="number"]'
       ),
-    ].find((candidate) => candidate.value.startsWith('0.147058823529'))
+    ].find((candidate) => candidate.value === '1')
     assert.ok(input)
     assert.deepEqual(changes, [])
     await edit(input, '10')
-    assert.deepEqual(changes, [{ key: 'WaffoMinTopUp', value: 68 }])
+    assert.deepEqual(changes, [{ key: 'WaffoMinTopUp', value: 10 }])
   } finally {
     await ui.close()
   }

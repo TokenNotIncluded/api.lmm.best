@@ -43,11 +43,11 @@ beforeEach(async () => {
     currency: {
       ...originalConfig.currency,
       currencyUnit: 'credit',
-      creditsPerUsd: 3_600_000,
-      creditsPerUsdExact: '3600000',
+      creditsPerUsd: 500000,
+      creditsPerUsdExact: '500000',
       cnyPerUsd: 7.2,
       cnyPerUsdExact: '7.2',
-      legacyPricingUnitsPerUsd: 14,
+      legacyPricingUnitsPerUsd: 1,
     },
   })
   useWalletCurrencyPreferenceStore.getState().setPreference('USD')
@@ -212,5 +212,5 @@ test('public category fees remain real USD independently of legacy calibration',
   useWalletCurrencyPreferenceStore.getState().setPreference('CNY')
   assert.match(render(published), /1\.8 CNY/)
   useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
-  assert.match(render(published), /900,000 Credits/)
+  assert.match(render(published), /125,000 Credits/)
 })

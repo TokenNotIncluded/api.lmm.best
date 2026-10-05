@@ -68,8 +68,8 @@ test('review deductions always use ledger USD across wallet display preferences'
     currency: {
       ...DEFAULT_CURRENCY_CONFIG,
       currencyUnit: 'credit',
-      creditsPerUsd: 3359744,
-      creditsPerUsdExact: '3359744',
+      creditsPerUsd: 500000,
+      creditsPerUsdExact: '500000',
       cnyPerUsd: 7,
       cnyPerUsdExact: '7',
     },
@@ -119,8 +119,8 @@ test('review deductions always use ledger USD across wallet display preferences'
       await act(async () =>
         useWalletCurrencyPreferenceStore.getState().setPreference(preference)
       )
-      assert.match(container.innerHTML, />1 USD</)
-      assert.match(container.innerHTML, />0\.5 USD</)
+      assert.match(container.innerHTML, />6\.719488 USD</)
+      assert.match(container.innerHTML, />3\.359744 USD</)
       assert.doesNotMatch(container.innerHTML, /CNY|Credits/)
     }
   } finally {

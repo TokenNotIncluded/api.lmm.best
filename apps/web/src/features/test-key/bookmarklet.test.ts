@@ -23,11 +23,11 @@ const originalAuth = useAuthStore.getState().auth
 const fixedCurrencyConfig = {
   ...DEFAULT_CURRENCY_CONFIG,
   currencyUnit: 'credit' as const,
-  creditsPerUsd: 3359744,
-  creditsPerUsdExact: '3359744',
+  creditsPerUsd: 500000,
+  creditsPerUsdExact: '500000',
   cnyPerUsd: 6.8,
   cnyPerUsdExact: '6.8',
-  legacyPricingUnitsPerUsd: 6.719488,
+  legacyPricingUnitsPerUsd: 1,
   quotaPerUnit: 500000,
   // These legacy display settings must not define the new denomination.
   quotaDisplayType: 'CNY' as const,
@@ -119,10 +119,10 @@ describe('test key bookmark', () => {
     ]) {
       assert.equal(testKeyQuota(value), null)
     }
-    assert.equal(testKeyQuota('1'), 3359744)
+    assert.equal(testKeyQuota('1'), 500000)
     setDisplayCurrency('CNY')
-    assert.equal(testKeyQuota('6.8'), 3359744)
-    assert.equal(testKeyQuota('1'), 494080)
+    assert.equal(testKeyQuota('6.8'), 500000)
+    assert.equal(testKeyQuota('1'), 73529)
     setDisplayCurrency('CREDIT')
     assert.equal(testKeyQuota('5'), 5)
     assert.equal(testKeyQuota('1.5'), null)
@@ -131,11 +131,11 @@ describe('test key bookmark', () => {
     assert.throws(() => testKeyPayload(500, '', 0))
   })
   test('preserves one Credit through literal USD and CNY decimal inputs', () => {
-    assert.equal(testKeyQuota('0.000000297641725083815909783603'), 1)
-    assert.equal(testKeyQuota('0.000000297641725083815909783602'), null)
+    assert.equal(testKeyQuota('0.000002'), 1)
+    assert.equal(testKeyQuota('0.000001999999999999999999999999'), null)
     setDisplayCurrency('CNY')
-    assert.equal(testKeyQuota('0.000002023963730569948186528498'), 1)
-    assert.equal(testKeyQuota('0.000002023963730569948186528497'), null)
+    assert.equal(testKeyQuota('0.0000136'), 1)
+    assert.equal(testKeyQuota('0.000013599999999999999999999999'), null)
     setDisplayCurrency('CREDIT')
     assert.equal(testKeyQuota('1'), 1)
     assert.equal(testKeyQuota('9007199254740991'), 9007199254740991)

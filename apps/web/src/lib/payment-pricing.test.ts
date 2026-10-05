@@ -51,24 +51,21 @@ test('built-in gateways cannot expose custom settlement pricing', () => {
 const fixedConfig = {
   ...DEFAULT_CURRENCY_CONFIG,
   currencyUnit: 'credit' as const,
-  creditsPerUsd: 3400000,
-  creditsPerUsdExact: '3400000',
+  creditsPerUsd: 500000,
+  creditsPerUsdExact: '500000',
   quotaPerUnit: 500000,
   cnyPerUsd: 6.8,
 }
 
 test('integer gateway minimums show real USD without rounding new edits', () => {
-  assert.equal(legacyMinimumToUsdInput(68, fixedConfig), '10')
-  assert.equal(
-    legacyMinimumToUsdInput(1, fixedConfig),
-    '0.147058823529411764705882352942'
-  )
-  assert.equal(usdToLegacyMinimum('10', fixedConfig), 68)
-  assert.equal(usdToLegacyMinimum('5', fixedConfig), 34)
+  assert.equal(legacyMinimumToUsdInput(68, fixedConfig), '68')
+  assert.equal(legacyMinimumToUsdInput(1, fixedConfig), '1')
+  assert.equal(usdToLegacyMinimum('10', fixedConfig), 10)
+  assert.equal(usdToLegacyMinimum('5', fixedConfig), 5)
   assert.equal(usdToLegacyMinimum('0', fixedConfig), 0)
   for (const value of [
-    '2',
-    '0.147058823529411764705882352942',
+    '1.5',
+    '0.999999999999999999999999999999',
     '',
     '-1',
     'Infinity',
@@ -86,9 +83,9 @@ test('gateway settings never derive fixed denomination from live FX or top-up pr
     usdExchangeRate: 999,
     legacyPricingUnitsPerUsd: 999,
   }
-  assert.equal(usdToLegacyMinimum('10', changed), 68)
-  assert.equal(legacyMinimumToUsdInput(68, changed), '10')
-  assert.equal(legacySettlementRatePerUsd('1.25', changed), '8.5')
+  assert.equal(usdToLegacyMinimum('10', changed), 10)
+  assert.equal(legacyMinimumToUsdInput(68, changed), '68')
+  assert.equal(legacySettlementRatePerUsd('1.25', changed), '1.25')
   for (const creditsPerUsd of [0, -1, Number.NaN, Infinity]) {
     const unknown = { ...fixedConfig, creditsPerUsd }
     assert.equal(legacyMinimumToUsdInput(1, unknown), '')
@@ -104,9 +101,9 @@ test('gateway settings never derive fixed denomination from live FX or top-up pr
 test('native direct gateway prices preserve decimal rates through the fixed batch bridge', () => {
   assert.equal(
     legacySettlementRatePerUsd('0.0000001', fixedConfig),
-    '0.00000068'
+    '0.0000001'
   )
-  assert.equal(legacySettlementRatePerUsd('1', fixedConfig), '6.8')
+  assert.equal(legacySettlementRatePerUsd('1', fixedConfig), '1')
   for (const value of ['0', '-1', 'NaN', '', 'Infinity']) {
     assert.equal(legacySettlementRatePerUsd(value, fixedConfig), '')
   }

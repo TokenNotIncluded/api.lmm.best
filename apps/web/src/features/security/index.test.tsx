@@ -62,9 +62,9 @@ useSystemConfigStore.getState().setConfig({
   currency: {
     ...DEFAULT_CURRENCY_CONFIG,
     currencyUnit: 'credit',
-    creditsPerUsd: 2500000,
+    creditsPerUsd: 500000,
     cnyPerUsd: 7.2,
-    legacyPricingUnitsPerUsd: 5,
+    legacyPricingUnitsPerUsd: 1,
   },
 })
 useWalletCurrencyPreferenceStore.getState().setPreference('USD')
@@ -263,7 +263,7 @@ describe('SecurityContent', () => {
       assert.match(content, /17/)
       assert.match(content, /11/)
       assert.match(content, /violation_fee\.grok\.csam/)
-      assert.match(content, /0\.05 USD/)
+      assert.match(content, /0\.25 USD/)
       assert.deepEqual(
         requestedUrls.filter((url) => url.startsWith('/api/security/')).sort(),
         ['/api/security/policy', '/api/security/stats']
@@ -297,7 +297,7 @@ describe('SecurityContent', () => {
       )
       assert.match(content, /\/api\/security\/policy/)
       assert.match(content, /\/api\/security\/stats/)
-      assert.doesNotMatch(content, /0\.05 USD/)
+      assert.doesNotMatch(content, /0\.25 USD/)
     } finally {
       await act(async () => rendered.root.unmount())
     }

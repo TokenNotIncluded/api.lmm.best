@@ -134,9 +134,9 @@ async function render(component: 'subscription' | 'bounty') {
     currency: {
       ...DEFAULT_CURRENCY_CONFIG,
       currencyUnit: 'credit',
-      creditsPerUsd: 3000000,
+      creditsPerUsd: 500000,
       cnyPerUsd: 7.2,
-      legacyPricingUnitsPerUsd: 6,
+      legacyPricingUnitsPerUsd: 1,
     },
   })
   useWalletCurrencyPreferenceStore.getState().setPreference('USD')
@@ -145,9 +145,9 @@ async function render(component: 'subscription' | 'bounty') {
     if (url === '/api/status') {
       data = {
         currency_unit: 'credit',
-        credits_per_usd: 3000000,
+        credits_per_usd: 500000,
         cny_per_usd: 7.2,
-        legacy_pricing_units_per_usd: 6,
+        legacy_pricing_units_per_usd: 1,
         backend_capabilities: { bounty_public_read: true },
       }
     } else if (url.includes('open-source-bounties?')) {
@@ -205,7 +205,7 @@ test('subscription submit keeps fiat list price and exact raw quota after USD to
     })
     assert.equal(rendered.requests[0]?.url, '/api/subscription/admin/plans')
     const plan = rendered.requests[0]?.data.plan as Record<string, unknown>
-    assert.equal(plan.total_amount, 3750000)
+    assert.equal(plan.total_amount, 625000)
     assert.equal(plan.price_amount, 6.8)
     assert.equal(plan.currency, 'CNY')
   } finally {
@@ -253,7 +253,7 @@ test('bounty draft submit keeps its literal raw reward after USD to CNY display 
       await flush()
     })
     assert.equal(rendered.requests[0]?.url, '/api/open-source-bounties')
-    assert.equal(rendered.requests[0]?.data.reward_quota, 3750000)
+    assert.equal(rendered.requests[0]?.data.reward_quota, 625000)
     assert.equal(rendered.requests[0]?.data.reward_slots, 1)
   } finally {
     await act(async () => rendered.root.unmount())

@@ -70,9 +70,9 @@ test('model catalog drawer reads real USD and saves zero only through the versio
     currency: 'USD',
     storage_basis: 'legacy_pricing_unit',
     revision: 'a'.repeat(64),
-    credits_per_usd: 3_600_000,
-    legacy_pricing_units_per_usd: 7.2,
-    model_ratio_usd_per_million: 1_000_000 / 3_600_000,
+    credits_per_usd: 500000,
+    legacy_pricing_units_per_usd: 1,
+    model_ratio_usd_per_million: 2,
     tool_price_defaults: {},
     values: {
       ...Object.fromEntries(USD_PRICING_KEYS.map((key) => [key, '{}'])),
