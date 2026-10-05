@@ -97,20 +97,56 @@ test('assistant model reads are explicit, cloned fixtures and never authorize wr
   )
 })
 
-test('wallet review exposes a local Alipay form with explicit USD units but no payment writes', async () => {
+test('wallet review exposes versioned raw Credits and correct Alipay CNY limits without payment writes', async () => {
   const response = consolePageFixture(config('/api/user/topup/info')) as {
     data: {
       enable_online_topup: boolean
       payment_available: boolean
+      amount_unit: string
+      credit_metadata_available: boolean
+      credit_metadata_version: number
+      credit_amount_options: number[]
+      credit_discount: Record<string, number>
+      credit_min_topup: number
+      stripe_credit_min_topup: number
+      waffo_credit_min_topup: number
+      pancake_credit_min_topup: number
+      stripe_credit_max_topup: number | null
+      waffo_credit_max_topup: number | null
+      pancake_credit_max_topup: number | null
       pay_methods: Array<Record<string, unknown>>
     }
   }
   assert.equal(response.data.enable_online_topup, true)
   assert.equal(response.data.payment_available, true)
   assert.equal(response.data.pay_methods[0]?.type, 'alipay')
-  assert.equal(response.data.pay_methods[0]?.settlement_currency, 'USD')
-  assert.equal(response.data.pay_methods[0]?.platform_units_per_usd, 1)
-  assert.equal(response.data.pay_methods[0]?.settlement_units_per_usd, 1)
+  assert.equal(response.data.amount_unit, 'LEGACY')
+  assert.equal(response.data.credit_metadata_available, true)
+  assert.equal(response.data.credit_metadata_version, 1)
+  assert.deepEqual(
+    response.data.credit_amount_options,
+    [5000000, 25000000, 50000000, 100000000]
+  )
+  assert.deepEqual(response.data.credit_discount, {})
+  assert.equal(response.data.credit_min_topup, 500000)
+  assert.equal(response.data.stripe_credit_min_topup, 500000)
+  assert.equal(response.data.waffo_credit_min_topup, 0)
+  assert.equal(response.data.pancake_credit_min_topup, 0)
+  assert.equal(response.data.stripe_credit_max_topup, 5000000000)
+  assert.equal(response.data.waffo_credit_max_topup, null)
+  assert.equal(response.data.pancake_credit_max_topup, null)
+  assert.equal(response.data.pay_methods[0]?.min_topup_credit, 3500000)
+  assert.equal(response.data.pay_methods[0]?.max_topup_credit, 350000000)
+  assert.equal(response.data.pay_methods[0]?.min_topup_unit, 'USD')
+  assert.equal(response.data.pay_methods[0]?.min_topup, 1)
+  assert.equal(response.data.pay_methods[0]?.max_topup, '100')
+  assert.equal(response.data.pay_methods[0]?.settlement_currency, 'CNY')
+  assert.equal(response.data.pay_methods[0]?.platform_units_per_usd, 7)
+  assert.equal(response.data.pay_methods[0]?.settlement_units_per_usd, 7)
+  assert.equal(
+    response.data.pay_methods[0]?.settlement_units_per_platform_unit,
+    1
+  )
   const wrapped = withConsolePageFixtures(async () => {
     throw new Error('blocked')
   })
@@ -118,6 +154,10 @@ test('wallet review exposes a local Alipay form with explicit USD units but no p
     '/api/user/topup',
     '/api/user/pay',
     '/api/user/stripe/pay',
+    '/api/user/topup/currency/pay',
+    '/api/user/topup/currency/stripe/pay',
+    '/api/user/topup/currency/waffo/pay',
+    '/api/user/topup/currency/waffo-pancake/pay',
     '/api/subscription/balance/pay',
   ]) {
     await assert.rejects(wrapped(config(path, 'post')), /blocked/, path)

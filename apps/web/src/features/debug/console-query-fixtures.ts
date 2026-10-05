@@ -18,6 +18,47 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type { AxiosAdapter } from 'axios'
 
+import {
+  DEBUG_CURRENCY_STATUS,
+  DEBUG_WALLET_TOPUP_INFO,
+  debugCreditQuoteAmount,
+} from './wallet-review-fixtures'
+
+const creditQuoteRoutes: Record<
+  string,
+  {
+    currency: 'CNY' | 'USD'
+    paymentMethod: string
+    minimum: number
+    maximum: number | null
+  }
+> = {
+  '/api/user/topup/currency/amount': {
+    currency: 'CNY',
+    paymentMethod: 'alipay',
+    minimum: 3500000,
+    maximum: 350000000,
+  },
+  '/api/user/topup/currency/stripe/amount': {
+    currency: 'USD',
+    paymentMethod: 'stripe',
+    minimum: DEBUG_WALLET_TOPUP_INFO.stripe_credit_min_topup,
+    maximum: DEBUG_WALLET_TOPUP_INFO.stripe_credit_max_topup,
+  },
+  '/api/user/topup/currency/waffo/amount': {
+    currency: 'USD',
+    paymentMethod: 'waffo',
+    minimum: DEBUG_WALLET_TOPUP_INFO.waffo_credit_min_topup,
+    maximum: DEBUG_WALLET_TOPUP_INFO.waffo_credit_max_topup,
+  },
+  '/api/user/topup/currency/waffo-pancake/amount': {
+    currency: 'USD',
+    paymentMethod: 'waffo_pancake',
+    minimum: DEBUG_WALLET_TOPUP_INFO.pancake_credit_min_topup,
+    maximum: DEBUG_WALLET_TOPUP_INFO.pancake_credit_max_topup,
+  },
+}
+
 // Some read-only queries use POST for model lists or a local payment quote. Keep
 // these exact paths separate from the general GET fixtures; no purchase,
 // payment, reset, refund, or administrative mutation is permitted.
@@ -25,12 +66,18 @@ export function withConsoleQueryFixtures(fallback: AxiosAdapter): AxiosAdapter {
   return async (config) => {
     const url = new URL(config.url ?? '', window.location.origin)
     const method = (config.method ?? 'get').toUpperCase()
-    if (url.origin !== window.location.origin) return fallback(config)
+    if (url.origin !== window.location.origin || url.username || url.password) {
+      return fallback(config)
+    }
 
     let data: unknown
     if (method === 'POST' && url.pathname === '/api/pricing/runtime') {
       data = { success: true, data: {} }
-    } else if (method === 'POST' && url.pathname === '/api/user/amount') {
+    } else if (
+      method === 'POST' &&
+      Object.hasOwn(creditQuoteRoutes, url.pathname)
+    ) {
+      const route = creditQuoteRoutes[url.pathname]
       let body: unknown = config.data
       if (typeof body === 'string') {
         try {
@@ -46,24 +93,38 @@ export function withConsoleQueryFixtures(fallback: AxiosAdapter): AxiosAdapter {
       const amount = request.amount
       if (
         typeof amount !== 'number' ||
-        !Number.isFinite(amount) ||
-        amount < 1 ||
-        amount > 1_000_000 ||
+        !Number.isSafeInteger(amount) ||
+        amount <= 0 ||
+        amount < route.minimum ||
+        (route.maximum !== null && amount > route.maximum) ||
+        request.amount_unit !== 'CREDIT' ||
         (request.payment_method !== undefined &&
-          request.payment_method !== 'alipay') ||
+          request.payment_method !== route.paymentMethod) ||
         (request.discount_code !== undefined && request.discount_code !== '') ||
         Object.keys(request).some(
-          (key) => !['amount', 'payment_method', 'discount_code'].includes(key)
+          (key) =>
+            ![
+              'amount',
+              'amount_unit',
+              'payment_method',
+              'discount_code',
+            ].includes(key)
         )
       ) {
         return fallback(config)
       }
-      // The review method uses a fixed 1:1 USD unit. This only reads a quote;
-      // /pay, /topup and every other mutation still use the blocking adapter.
+      // Exactly four synthetic amount queries. Checkout and payment writes
+      // still reach the blocking adapter; no URL, key or provider is involved.
       data = {
         success: true,
-        data: amount.toFixed(2),
-        settlement_currency: 'USD',
+        data: debugCreditQuoteAmount(amount, route.currency),
+        settlement_currency: route.currency,
+        credited_quota: amount,
+        credit_amount: amount,
+        amount_unit: 'CREDIT',
+        legacy_batch_units: String(
+          amount / DEBUG_CURRENCY_STATUS.quota_per_unit
+        ),
       }
     } else if (
       method === 'GET' &&

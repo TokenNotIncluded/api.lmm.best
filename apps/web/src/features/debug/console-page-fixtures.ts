@@ -20,6 +20,8 @@ import type { AxiosAdapter, InternalAxiosRequestConfig } from 'axios'
 
 import { useAuthStore } from '@/stores/auth-store'
 
+import { DEBUG_WALLET_TOPUP_INFO } from './wallet-review-fixtures'
+
 const stamp = 1790035200
 const page = { items: [], total: 0, page: 1, page_size: 20, size: 20 }
 const modelNames = ['gpt-5-mini', 'claude-sonnet']
@@ -29,31 +31,7 @@ const modelNames = ['gpt-5-mini', 'claude-sonnet']
 // is added here. Activated only by console_review=1 in the development entry.
 const reads: Record<string, unknown> = {
   '/api/user/company-billing-profile': null,
-  '/api/user/topup/info': {
-    enable_online_topup: true,
-    enable_stripe_topup: false,
-    enable_creem_topup: false,
-    enable_waffo_topup: false,
-    pay_methods: [
-      {
-        name: 'Alipay · local preview',
-        type: 'alipay',
-        min_topup: 1,
-        settlement_currency: 'CNY',
-        platform_units_per_usd: 7,
-        settlement_units_per_usd: 7,
-        settlement_units_per_platform_unit: 1,
-      },
-    ],
-    amount_options: [10, 50, 100, 200],
-    min_topup: 1,
-    stripe_min_topup: 1,
-    discount: {},
-    topup_group_ratio: 1,
-    payment_compliance_confirmed: true,
-    developer_access_granted: true,
-    payment_available: true,
-  },
+  '/api/user/topup/info': DEBUG_WALLET_TOPUP_INFO,
   '/api/user/aff': 'local-preview-referral',
   '/api/user/2fa/status': {
     enabled: false,

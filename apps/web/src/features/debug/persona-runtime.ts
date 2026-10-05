@@ -35,6 +35,8 @@ import { api } from '@/lib/http-client'
 import { ROLE } from '@/lib/roles'
 import type { AuthBundle, AuthUser, TrustLevelInfo } from '@/stores/auth-store'
 
+import { DEBUG_CURRENCY_STATUS } from './wallet-review-fixtures'
+
 export const DEBUG_PERSONA_IDS = ['l0', 'b', 'e', 'f', 'l1', 'admin'] as const
 export type DebugPersonaId = (typeof DEBUG_PERSONA_IDS)[number]
 
@@ -70,15 +72,6 @@ type DebugEvent = {
 const DEBUG_EVENT = 'lmm:persona-debug-change'
 const BLOCKED_DEBUG_REQUEST = 'PERSONA_DEBUG_UNMOCKED_REQUEST'
 const now = Math.floor(Date.now() / 1000)
-// Synthetic denomination for local interface review; never a production default.
-const DEBUG_CURRENCY_STATUS = {
-  currency_unit: 'credit',
-  credits_per_usd: 3500000,
-  cny_per_usd: 7,
-  quota_per_unit: 500000,
-  legacy_pricing_units_per_usd: 7,
-  usd_exchange_rate: 7,
-}
 const debugAnnouncementReads = new Set<string>()
 const debugAssistantRuntimeKeys = new Set<DebugPersonaId>()
 type DebugProfileShare = {
