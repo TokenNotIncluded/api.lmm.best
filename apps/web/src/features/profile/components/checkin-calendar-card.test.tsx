@@ -56,6 +56,12 @@ const { QueryClient, QueryClientProvider } =
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
+const { toast } = await import('sonner')
+const { useAuthStore } = await import('@/stores/auth-store')
+const { DEFAULT_CURRENCY_CONFIG, useSystemConfigStore } =
+  await import('@/stores/system-config-store')
+const { useWalletCurrencyPreferenceStore } =
+  await import('@/stores/wallet-currency-preference-store')
 const { CheckinCalendarCard } = await import('./checkin-calendar-card')
 
 const originalGet = api.get
@@ -187,4 +193,102 @@ describe('check-in calendar accessibility', () => {
     await act(async () => root.unmount())
     queryClient.clear()
   })
+})
+
+test('check-in success uses the newly selected currency without remounting', async () => {
+  const previousAuth = useAuthStore.getState().auth
+  const previousCurrency = useSystemConfigStore.getState().config.currency
+  const previousPreference =
+    useWalletCurrencyPreferenceStore.getState().preference
+  const previousPost = api.post
+  const previousSuccess = toast.success
+  let successMessage = ''
+  toast.success = ((message: unknown) => {
+    successMessage = String(message)
+    return 1
+  }) as typeof toast.success
+  useAuthStore.getState().auth.setUser(null)
+  useWalletCurrencyPreferenceStore.getState().setPreference('USD')
+  useSystemConfigStore.getState().setConfig({
+    currency: {
+      ...DEFAULT_CURRENCY_CONFIG,
+      currencyUnit: 'credit',
+      creditsPerUsd: 3_500_000,
+      creditsPerUsdExact: '3500000',
+      cnyPerUsd: 7,
+      cnyPerUsdExact: '7',
+    },
+  })
+  api.get = (async () => ({
+    data: {
+      success: true,
+      data: {
+        enabled: true,
+        stats: {
+          checked_in_today: false,
+          total_checkins: 0,
+          total_quota: 0,
+          checkin_count: 0,
+          records: [],
+        },
+      },
+    },
+  })) as typeof api.get
+  api.post = (async () => ({
+    data: { success: true, data: { quota_awarded: 3_500_000 } },
+  })) as typeof api.post
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={client}>
+          <I18nextProvider i18n={i18n}>
+            <CheckinCalendarCard
+              checkinEnabled
+              turnstileEnabled={false}
+              turnstileSiteKey=''
+            />
+          </I18nextProvider>
+        </QueryClientProvider>
+      )
+    )
+    await act(async () =>
+      waitForCondition(
+        () => host.querySelector('[role="grid"]') !== null,
+        'calendar not loaded'
+      )
+    )
+    await act(async () =>
+      useWalletCurrencyPreferenceStore.getState().setPreference('CNY')
+    )
+    const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+      (element) => element.textContent?.trim() === 'Check in now'
+    )
+    assert.ok(button, 'check-in button not found')
+    await act(async () => {
+      button.click()
+      await waitForCondition(
+        () => Boolean(successMessage),
+        'check-in success not shown'
+      )
+    })
+    assert.match(successMessage, /7 CNY/)
+    assert.doesNotMatch(successMessage, /1 USD|Platform|\$/)
+  } finally {
+    await act(async () => root.unmount())
+    client.clear()
+    host.remove()
+    api.post = previousPost
+    toast.success = previousSuccess
+    useAuthStore.setState({ auth: previousAuth })
+    useSystemConfigStore.getState().setConfig({ currency: previousCurrency })
+    useWalletCurrencyPreferenceStore
+      .getState()
+      .setPreference(previousPreference)
+  }
 })

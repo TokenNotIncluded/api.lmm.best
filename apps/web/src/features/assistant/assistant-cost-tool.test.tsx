@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
-import { after, afterEach, describe, test } from 'node:test'
+import { after, afterEach, beforeEach, describe, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 
@@ -59,6 +59,8 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
 const { AssistantCostTool } = await import('./assistant-cost-tool')
+const { resetAssistantCurrencyTest, useWalletCurrencyPreferenceStore } =
+  await import('./assistant-currency-test-support')
 
 const originalGet = api.get
 const reactTestGlobals = globalThis as typeof globalThis & {
@@ -81,6 +83,10 @@ const pricingFixture = {
       quota_type: 0,
       model_ratio: 1.5,
       completion_ratio: 2,
+      input_price: 3,
+      output_price: 6,
+      pricing_schema_version: 2,
+      pricing_currency: 'USD',
       enable_groups: ['all'],
     },
   ],
@@ -134,9 +140,11 @@ async function unmount(rendered: Awaited<ReturnType<typeof renderTool>>) {
   rendered.container.remove()
 }
 
-afterEach(() => {
+beforeEach(resetAssistantCurrencyTest)
+afterEach(async () => {
   api.get = originalGet
   document.body.replaceChildren()
+  await i18n.changeLanguage('en')
 })
 after(() => domWindow.close())
 
@@ -150,7 +158,7 @@ describe('AssistantCostTool', () => {
     await i18n.changeLanguage('zhCN')
     const rendered = await renderTool(true)
     try {
-      assert.match(rendered.container.textContent ?? '', /\$0\.36 \(Platform\)/)
+      assert.match(rendered.container.textContent ?? '', /2\.52 CNY/)
     } finally {
       await unmount(rendered)
       await i18n.changeLanguage('en')
@@ -204,15 +212,83 @@ describe('AssistantCostTool', () => {
       [...groupSelect.options].map((option) => option.textContent),
       ['Default', 'VIP']
     )
-    assert.match(rendered.container.textContent ?? '', /\$0\.36 \(Platform\)/)
+    assert.match(rendered.container.textContent ?? '', /0\.36 USD/)
 
     await act(async () => {
       groupSelect.value = 'vip'
       groupSelect.dispatchEvent(new Event('change', { bubbles: true }))
       await flushQueries()
     })
-    assert.match(rendered.container.textContent ?? '', /\$0\.18 \(Platform\)/)
+    assert.match(rendered.container.textContent ?? '', /0\.18 USD/)
     assert.equal(calls, 2)
     await unmount(rendered)
+  })
+
+  test('reacts to manual currency changes without refetching or changing token inputs', async () => {
+    let calls = 0
+    api.get = (async () => {
+      calls += 1
+      return { data: pricingFixture }
+    }) as typeof api.get
+    const rendered = await renderTool(true)
+    try {
+      assert.match(rendered.container.textContent ?? '', /0\.36 USD/)
+      await act(async () => {
+        useWalletCurrencyPreferenceStore.getState().setPreference('CNY')
+      })
+      assert.match(rendered.container.textContent ?? '', /2\.52 CNY/)
+      await act(async () => {
+        useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
+      })
+      assert.match(rendered.container.textContent ?? '', /1,260,000 Credits/)
+      const input = rendered.container.querySelector<HTMLInputElement>(
+        '#assistant-input-tokens'
+      )
+      assert.equal(input?.value, '100000')
+      await act(async () => i18n.changeLanguage('zhCN'))
+      assert.match(rendered.container.textContent ?? '', /1,260,000 Credits/)
+      assert.equal(calls, 1)
+      assert.doesNotMatch(rendered.container.textContent ?? '', /\(Platform\)/)
+    } finally {
+      await unmount(rendered)
+    }
+  })
+
+  test('keeps an unversioned catalog unavailable and refreshes to canonical USD rates', async () => {
+    let calls = 0
+    api.get = (async () => {
+      calls += 1
+      return {
+        data: {
+          ...pricingFixture,
+          data: pricingFixture.data.map((model) =>
+            calls === 1
+              ? { ...model, pricing_schema_version: undefined }
+              : model
+          ),
+        },
+      }
+    }) as typeof api.get
+    const rendered = await renderTool(true)
+    try {
+      assert.match(
+        rendered.container.textContent ?? '',
+        /Current USD pricing is unavailable/
+      )
+      assert.equal(
+        rendered.container.querySelector('#assistant-input-tokens'),
+        null
+      )
+      assert.doesNotMatch(rendered.container.textContent ?? '', /0\.36 USD/)
+      await act(async () => {
+        findButton('Retry').click()
+        await flushQueries()
+      })
+      await act(flushQueries)
+      assert.match(rendered.container.textContent ?? '', /0\.36 USD/)
+      assert.equal(calls, 2)
+    } finally {
+      await unmount(rendered)
+    }
   })
 })

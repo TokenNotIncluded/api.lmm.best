@@ -18,8 +18,9 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { useTheme } from '@/context/theme-provider'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { toIntlLocale } from '@/i18n/languages'
-import { formatNumber, formatLogQuota } from '@/lib/format'
+import { formatNumber } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import { useModelUsage } from '../hooks/use-model-usage'
@@ -48,7 +49,7 @@ interface ModelUsageReportProps {
 }
 
 function escapeMarkdownCell(value: string): string {
-  return value.replaceAll('|', '\\|').replace(/[\r\n]+/g, ' ')
+  return value.replaceAll('|', '\\|').replaceAll(/[\r\n]+/g, ' ')
 }
 
 export function ModelUsageReport({
@@ -58,6 +59,9 @@ export function ModelUsageReport({
   onCopySnapshotChange,
 }: ModelUsageReportProps) {
   const { t, i18n } = useTranslation()
+  const { formatQuota } = useWalletCurrency()
+  const formatLogQuota = (value: number) =>
+    formatQuota(value, { digitsLarge: 4, digitsSmall: 8, abbreviate: false })
   const { resolvedTheme } = useTheme()
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language) ?? 'en'
   const [localRange, setLocalRange] = useState<ModelUsageRangeKey>('30d')
@@ -113,7 +117,13 @@ export function ModelUsageReport({
     const displayNumber = (value: number) =>
       hideNumbers ? '••••' : formatNumber(value, locale)
     const displayQuota = (value: number) =>
-      hideNumbers ? '••••' : String(formatLogQuota(value))
+      hideNumbers
+        ? '••••'
+        : formatQuota(value, {
+            digitsLarge: 4,
+            digitsSmall: 8,
+            abbreviate: false,
+          })
     const rows = models.map(
       (model) =>
         `| ${escapeMarkdownCell(model.modelName === 'unknown' ? t('Unknown model') : model.modelName)} | ${displayNumber(model.tokens)} | ${displayNumber(model.requests)} | ${displayQuota(model.quota)} | ${shareFormatter.format(model.share)} |`
@@ -133,6 +143,7 @@ export function ModelUsageReport({
     ].join('\n')
   }, [
     failed,
+    formatQuota,
     shareFormatter,
     hideNumbers,
     loading,

@@ -21,7 +21,14 @@ import type {
   ProcessedChartData,
   ProcessedUserChartData,
 } from '@/features/dashboard/types'
-import { getCurrencyDisplay } from '@/lib/currency'
+import {
+  formatCreditAmount,
+  formatFiatCurrencyAmount,
+  getWalletDisplayCurrency,
+  formatQuotaWithCurrency,
+  quotaToDisplayAmount,
+  type CurrencyFormatOptions,
+} from '@/lib/currency'
 import { formatChartTime, type TimeGranularity } from '@/lib/time'
 
 type TFunction = (key: string) => string
@@ -188,18 +195,21 @@ export function getDashboardChartHoverColor(): string {
   return '#faf9f5'
 }
 
-function renderQuotaCompat(rawQuota: number, digits = 4): string {
-  const { config, meta } = getCurrencyDisplay()
-  if (meta.kind === 'tokens') return rawQuota.toLocaleString()
-  const usd = rawQuota / config.quotaPerUnit
-  const rate = 'exchangeRate' in meta ? meta.exchangeRate : 1
-  const symbol = 'symbol' in meta ? meta.symbol : '$'
-  const value = usd * rate
-  const fixed = value.toFixed(digits)
-  if (Number.parseFloat(fixed) === 0 && rawQuota > 0 && value > 0) {
-    return symbol + Math.pow(10, -digits).toFixed(digits)
-  }
-  return symbol + fixed
+export interface ChartCurrencyFormatter {
+  formatQuota: (rawQuota: number, options?: CurrencyFormatOptions) => string
+  quotaToAmount: (rawQuota: number) => number
+  formatAmount: (amount: number, options?: CurrencyFormatOptions) => string
+}
+
+const defaultChartCurrency: ChartCurrencyFormatter = {
+  formatQuota: formatQuotaWithCurrency,
+  quotaToAmount: quotaToDisplayAmount,
+  formatAmount: (amount, options) => {
+    const currency = getWalletDisplayCurrency()
+    return currency === 'CREDIT'
+      ? formatCreditAmount(Math.round(amount), options)
+      : formatFiatCurrencyAmount(amount, currency, options)
+  },
 }
 
 /**
@@ -209,15 +219,32 @@ export function processChartData(
   data: QuotaDataItem[],
   timeGranularity: TimeGranularity = 'day',
   t?: TFunction,
-  chartCornerRadius?: number
+  chartCornerRadius?: number,
+  currency: ChartCurrencyFormatter = defaultChartCurrency
 ): ProcessedChartData {
   const tt: TFunction = t ?? ((x) => x)
   const otherLabel = tt('Other')
 
   const formatInt = (value: number) =>
     Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(value)
-  const formatQuotaValue = (value: number) => renderQuotaCompat(value, 4)
-  const formatQuotaTotal = (value: number) => renderQuotaCompat(value, 2)
+  const formatQuotaValue = (value: number) =>
+    currency.formatQuota(value, {
+      digitsLarge: 4,
+      digitsSmall: 8,
+      abbreviate: false,
+    })
+  const formatQuotaTotal = (value: number) =>
+    currency.formatQuota(value, {
+      digitsLarge: 2,
+      digitsSmall: 8,
+      abbreviate: false,
+    })
+  const formatAmount = (value: number) =>
+    currency.formatAmount(value, {
+      digitsLarge: 4,
+      digitsSmall: 8,
+      abbreviate: false,
+    })
 
   const MAX_TOOLTIP_MODELS = 15
   const isOtherTooltipKey = (key: string) =>
@@ -352,9 +379,6 @@ export function processChartData(
     }
   }
 
-  const { config } = getCurrencyDisplay()
-  const quotaPerUnit = config.quotaPerUnit
-
   // Aggregate all metrics by time and model
   const timeModelMap = new Map<
     string,
@@ -436,7 +460,7 @@ export function processChartData(
     }))
     .sort((a, b) => b.value - a.value)
 
-  // Stacked bar: model quota distribution (quota -> USD)
+  // Stacked bar: model quota distribution in the selected currency
   const lineValues: Array<{
     Time: string
     Model: string
@@ -449,9 +473,7 @@ export function processChartData(
     const timeData = sortedModels.map((model) => {
       const stats = timeModelMap.get(time)?.get(model)
       const rawQuota = Number(stats?.quota) || 0
-      const usd = rawQuota ? rawQuota / quotaPerUnit : 0
-      // Match legacy frontend getQuotaWithUnit(..., 4)
-      const usage = usd ? Number(usd.toFixed(4)) : 0
+      const usage = currency.quotaToAmount(rawQuota)
       return {
         Time: time,
         Model: model,
@@ -491,14 +513,12 @@ export function processChartData(
     sortedModels.forEach((model) => {
       const stats = modelMap?.get(model)
       const rawQuota = Number(stats?.quota) || 0
-      const usd = rawQuota ? rawQuota / quotaPerUnit : 0
-      const usage = usd ? Number(usd.toFixed(4)) : 0
       timeSum += rawQuota
       const key = topAreaModels.has(model) ? model : otherLabel
       const prev = buckets.get(key) || { rawQuota: 0, usage: 0 }
       buckets.set(key, {
         rawQuota: prev.rawQuota + rawQuota,
-        usage: Number((prev.usage + usage).toFixed(4)),
+        usage: currency.quotaToAmount(prev.rawQuota + rawQuota),
       })
     })
     for (const [model, vals] of buckets) {
@@ -629,9 +649,22 @@ export function processChartData(
     },
     spec_line: {
       type: 'bar',
-      data: [{ id: 'barData', values: sortedLineValues }],
+      data: [
+        {
+          id: 'barData',
+          values: sortedLineValues.filter((row) => Number.isFinite(row.Usage)),
+        },
+      ],
       xField: 'Time',
       yField: 'Usage',
+      axes: [
+        { orient: 'bottom', type: 'band' },
+        {
+          orient: 'left',
+          type: 'linear',
+          label: { formatMethod: formatAmount },
+        },
+      ],
       seriesField: 'Model',
       stack: true,
       legends: { visible: true, selectMode: 'single' },
@@ -667,9 +700,22 @@ export function processChartData(
     },
     spec_area: {
       type: 'area',
-      data: [{ id: 'areaData', values: sortedAreaValues }],
+      data: [
+        {
+          id: 'areaData',
+          values: sortedAreaValues.filter((row) => Number.isFinite(row.Usage)),
+        },
+      ],
       xField: 'Time',
       yField: 'Usage',
+      axes: [
+        { orient: 'bottom', type: 'band' },
+        {
+          orient: 'left',
+          type: 'linear',
+          label: { formatMethod: formatAmount },
+        },
+      ],
       seriesField: 'Model',
       stack: false,
       legends: { visible: true, selectMode: 'single' },
@@ -831,13 +877,22 @@ export function processUserChartData(
   data: QuotaDataItem[],
   timeGranularity: TimeGranularity = 'day',
   t?: TFunction,
-  limit = 10
+  limit = 10,
+  currency: ChartCurrencyFormatter = defaultChartCurrency
 ): ProcessedUserChartData {
   const tt: TFunction = t ?? ((x) => x)
-  const { config } = getCurrencyDisplay()
-  const quotaPerUnit = config.quotaPerUnit
-
-  const formatVal = (raw: number) => renderQuotaCompat(raw, 2)
+  const formatVal = (raw: number) =>
+    currency.formatQuota(raw, {
+      digitsLarge: 2,
+      digitsSmall: 8,
+      abbreviate: false,
+    })
+  const formatAmount = (amount: number) =>
+    currency.formatAmount(amount, {
+      digitsLarge: 2,
+      digitsSmall: 8,
+      abbreviate: false,
+    })
   const userColors = getDashboardChartColors(10)
   const chartHoverColor = getDashboardChartHoverColor()
 
@@ -845,7 +900,7 @@ export function processUserChartData(
     spec_user_rank: {
       type: 'bar',
       data: [{ id: 'userRankData', values: [] }],
-      xField: 'rawQuota',
+      xField: 'Usage',
       yField: 'User',
       seriesField: 'User',
       direction: 'horizontal',
@@ -862,7 +917,7 @@ export function processUserChartData(
       type: 'area',
       data: [{ id: 'userTrendData', values: [] }],
       xField: 'Time',
-      yField: 'rawQuota',
+      yField: 'Usage',
       seriesField: 'User',
       title: {
         visible: true,
@@ -893,7 +948,7 @@ export function processUserChartData(
   const rankValues = sorted.slice(0, limit).map(([username, quota]) => ({
     User: username,
     rawQuota: quota,
-    Usage: Number((quota / quotaPerUnit).toFixed(4)),
+    Usage: currency.quotaToAmount(quota),
   }))
 
   const userColorMap = topUsers.reduce<Record<string, string>>(
@@ -938,7 +993,7 @@ export function processUserChartData(
         Time: time,
         User: user,
         rawQuota: q,
-        Usage: Number((q / quotaPerUnit).toFixed(4)),
+        Usage: currency.quotaToAmount(q),
       })
     })
   })
@@ -946,8 +1001,13 @@ export function processUserChartData(
   return {
     spec_user_rank: {
       type: 'bar',
-      data: [{ id: 'userRankData', values: rankValues }],
-      xField: 'rawQuota',
+      data: [
+        {
+          id: 'userRankData',
+          values: rankValues.filter((row) => Number.isFinite(row.Usage)),
+        },
+      ],
+      xField: 'Usage',
       yField: 'User',
       seriesField: 'User',
       direction: 'horizontal',
@@ -965,7 +1025,7 @@ export function processUserChartData(
       label: {
         visible: true,
         position: 'outside',
-        formatMethod: (value: number) => formatVal(value),
+        formatMethod: (value: number) => formatAmount(value),
         style: { fontSize: 11 },
       },
       axes: [
@@ -1004,9 +1064,14 @@ export function processUserChartData(
     },
     spec_user_trend: {
       type: 'area',
-      data: [{ id: 'userTrendData', values: trendValues }],
+      data: [
+        {
+          id: 'userTrendData',
+          values: trendValues.filter((row) => Number.isFinite(row.Usage)),
+        },
+      ],
       xField: 'Time',
-      yField: 'rawQuota',
+      yField: 'Usage',
       seriesField: 'User',
       stack: false,
       title: {
@@ -1021,7 +1086,7 @@ export function processUserChartData(
           orient: 'left',
           type: 'linear',
           label: {
-            formatMethod: (value: number) => formatVal(value),
+            formatMethod: (value: number) => formatAmount(value),
           },
         },
       ],

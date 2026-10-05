@@ -35,9 +35,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
-import { formatPlatformAmount } from '@/lib/currency'
-import { formatLogQuota, formatTimestampToDate } from '@/lib/format'
+import { formatTimestampToDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import { LOG_TYPE_ALL_VALUE } from '../../constants'
@@ -50,6 +50,11 @@ import {
   isViolationFeeLog,
   renderAuditContent,
 } from '../../lib/format'
+import {
+  formatLogPrice,
+  formatLogTokenPrice,
+  type LogCurrencyFormatter,
+} from '../../lib/money'
 import {
   isDisplayableLogType,
   isTimingLogType,
@@ -106,9 +111,10 @@ function buildDetailSegments(
   log: UsageLog,
   other: LogOtherData | null,
   t: (key: string, opts?: Record<string, unknown>) => string,
-  isAdmin: boolean
+  isAdmin: boolean,
+  currency: LogCurrencyFormatter
 ): DetailSegment[] {
-  const segments = buildTypeDetailSegments(log, other, t)
+  const segments = buildTypeDetailSegments(log, other, t, currency)
   // Quota saturation is a rare, admin-only anomaly marker; surface it first
   // and in danger styling so it stands out on the related billing log. The
   // backend already strips admin_info for non-admins; gate on isAdmin too as
@@ -122,7 +128,8 @@ function buildDetailSegments(
 function buildTypeDetailSegments(
   log: UsageLog,
   other: LogOtherData | null,
-  t: (key: string, opts?: Record<string, unknown>) => string
+  t: (key: string, opts?: Record<string, unknown>) => string,
+  currency: LogCurrencyFormatter
 ): DetailSegment[] {
   // Audit (type=3) and login (type=7) logs: render localized content from the
   // structured op descriptor instead of the raw (English-fallback) content.
@@ -148,7 +155,7 @@ function buildTypeDetailSegments(
       })
     }
     segments.push({
-      text: `${t('Fee')}: ${formatLogQuota(other?.fee_quota ?? log.quota)}`,
+      text: `${t('Fee')}: ${currency.formatQuota(other?.fee_quota ?? log.quota, { digitsLarge: 4, digitsSmall: 8, abbreviate: false })}`,
       muted: true,
     })
     return segments
@@ -165,11 +172,10 @@ function buildTypeDetailSegments(
     })
   }
 
-  const priceOpts = { digitsLarge: 4, digitsSmall: 6, abbreviate: false }
-  const formatPrice = (price: number) =>
-    `${formatPlatformAmount(price, priceOpts)}/M`
+  const isExpression = other.billing_mode === 'tiered_expr'
   const formatPriceCompact = (price: number) =>
-    formatPlatformAmount(price, priceOpts)
+    formatLogPrice(price, other, currency, isExpression)
+  const formatPrice = (price: number) => `${formatPriceCompact(price)}/M`
   const formatPriceList = (prices: string[], showUnit: boolean) => {
     const text = prices.join(' / ')
     return showUnit ? `${text}/M` : text
@@ -233,15 +239,14 @@ function buildTypeDetailSegments(
     const isPerCall = isPerCallBilling(modelPrice)
     if (isPerCall && modelPrice != null) {
       segments.push({
-        text: `${t('Per-call')} · ${formatPlatformAmount(modelPrice, priceOpts)}`,
+        text: `${t('Per-call')} · ${formatPriceCompact(modelPrice)}`,
       })
     } else if (other.model_ratio != null) {
-      const inputPriceUSD = other.model_ratio * 2.0
-      const baseEntries = [formatPriceCompact(inputPriceUSD)]
+      const tokenPrice = (multiplier: number) =>
+        formatLogTokenPrice(other.model_ratio ?? 0, multiplier, currency)
+      const baseEntries = [tokenPrice(1)]
       if (other.completion_ratio != null) {
-        baseEntries.push(
-          formatPriceCompact(inputPriceUSD * other.completion_ratio)
-        )
+        baseEntries.push(tokenPrice(other.completion_ratio))
       }
       segments.push({
         text: `${t('Standard')} · ${formatPriceList(baseEntries, true)}`,
@@ -250,14 +255,14 @@ function buildTypeDetailSegments(
       if (hasAnyCacheTokens(other)) {
         const cacheEntries = [
           other.cache_ratio != null && other.cache_ratio !== 1
-            ? formatPriceCompact(inputPriceUSD * other.cache_ratio)
+            ? tokenPrice(other.cache_ratio)
             : null,
           other.cache_creation_ratio != null && other.cache_creation_ratio !== 1
-            ? formatPriceCompact(inputPriceUSD * other.cache_creation_ratio)
+            ? tokenPrice(other.cache_creation_ratio)
             : null,
           other.cache_creation_ratio_1h != null &&
           other.cache_creation_ratio_1h !== 0
-            ? formatPriceCompact(inputPriceUSD * other.cache_creation_ratio_1h)
+            ? tokenPrice(other.cache_creation_ratio_1h)
             : null,
         ].filter(Boolean) as string[]
 
@@ -300,6 +305,7 @@ function buildTypeDetailSegments(
 
 export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
   const { t } = useTranslation()
+  const currency = useWalletCurrency()
   const columns: ColumnDef<UsageLog>[] = [
     {
       accessorKey: 'created_at',
@@ -762,7 +768,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         const log = row.original
         const other = parseLogOther(log.other)
 
-        const segments = buildDetailSegments(log, other, t, isAdmin)
+        const segments = buildDetailSegments(log, other, t, isAdmin, currency)
         const primary = segments[0]
         const hasMore = segments.length > 1
         let primaryTextClass = 'text-foreground'

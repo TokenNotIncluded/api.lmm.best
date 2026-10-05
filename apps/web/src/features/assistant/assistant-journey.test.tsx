@@ -7,7 +7,7 @@ the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 */
 import assert from 'node:assert/strict'
-import { after, afterEach, describe, test } from 'node:test'
+import { after, afterEach, beforeEach, describe, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 import type { ReactNode } from 'react'
@@ -41,24 +41,12 @@ const { QueryClient, QueryClientProvider } =
   await import('@tanstack/react-query')
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
-const { useSystemConfigStore, DEFAULT_CURRENCY_CONFIG } =
-  await import('@/stores/system-config-store')
-const { useWalletCurrencyPreferenceStore } =
-  await import('@/stores/wallet-currency-preference-store')
-useSystemConfigStore.getState().setConfig({
-  currency: {
-    ...DEFAULT_CURRENCY_CONFIG,
-    currencyUnit: 'credit',
-    creditsPerUsd: 500000,
-    cnyPerUsd: 7.2,
-    legacyPricingUnitsPerUsd: 1,
-  },
-})
-useWalletCurrencyPreferenceStore.getState().setPreference('USD')
 const { api } = await import('@/lib/api')
 const { AssistantJourneyProgress } = await import('./assistant-journey')
 const { AssistantNewUserGift } = await import('./assistant-new-user-gift')
 const { AssistantWeeklyDiscount } = await import('./assistant-weekly-discount')
+const { resetAssistantCurrencyTest, useWalletCurrencyPreferenceStore } =
+  await import('./assistant-currency-test-support')
 
 const originalGet = api.get
 const originalPost = api.post
@@ -102,10 +90,12 @@ async function unmount(rendered: Awaited<ReturnType<typeof render>>) {
   rendered.container.remove()
 }
 
-afterEach(() => {
+beforeEach(resetAssistantCurrencyTest)
+afterEach(async () => {
   api.get = originalGet
   api.post = originalPost
   document.body.replaceChildren()
+  await i18n.changeLanguage('en')
 })
 
 after(() => domWindow.close())
@@ -138,7 +128,7 @@ describe('assistant game-style progress', () => {
       assert.match(text, /Get L1 access/)
       assert.doesNotMatch(text, /Get a recommendation/)
       assert.match(text, /Side quest 0\/2/)
-      assert.match(text, /Chat with AI to earn a 0 USD–10 USD new-user gift/)
+      assert.match(text, /Chat with AI to earn a 0 USD–1\.43 USD new-user gift/)
       assert.match(text, /Accept an open-source bounty/)
     } finally {
       await unmount(rendered)
@@ -240,6 +230,44 @@ describe('assistant game-style progress', () => {
       })
       assert.equal(claims, 1)
       assert.match(rendered.container.textContent ?? '', /Claimed/)
+    } finally {
+      await unmount(rendered)
+    }
+  })
+
+  test('shows the persisted gift credits in all units without reinterpreting legacy cents', async () => {
+    let calls = 0
+    api.get = (async () => {
+      calls += 1
+      return {
+        data: {
+          success: true,
+          data: {
+            amount_cents: 999,
+            quota: 3_500_000,
+            status: 'offered',
+            reason: 'A historical credit award.',
+            created_at: 1,
+            claimed_at: 0,
+          },
+        },
+      }
+    }) as typeof api.get
+    await i18n.changeLanguage('zhCN')
+    const rendered = await render(<AssistantNewUserGift enabled />)
+    try {
+      assert.match(rendered.container.textContent ?? '', /7 CNY/)
+      await act(async () => i18n.changeLanguage('en'))
+      assert.match(rendered.container.textContent ?? '', /1 USD/)
+      await act(async () => {
+        useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
+      })
+      assert.match(rendered.container.textContent ?? '', /3,500,000 Credits/)
+      assert.equal(calls, 1)
+      assert.doesNotMatch(
+        rendered.container.textContent ?? '',
+        /9\.99|\(Platform\)/
+      )
     } finally {
       await unmount(rendered)
     }

@@ -56,9 +56,8 @@ import {
   ProgressValue,
 } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
-import { formatCreditBalance as formatCreditBalanceBase } from '@/features/wallet/lib/format'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { toIntlLocale } from '@/i18n/languages'
-import { getCurrencyDisplay } from '@/lib/currency'
 
 import { getAssistantUsageData } from './api'
 import { summarizeAssistantUsage } from './usage-summary'
@@ -69,8 +68,7 @@ const USAGE_DAY_OPTIONS: UsageDays[] = [7, 30, 90]
 
 export function AssistantUsageTool(props: { developerAccessGranted: boolean }) {
   const { t, i18n } = useTranslation()
-  const formatCreditBalance = (amount: number) =>
-    formatCreditBalanceBase(amount, t('Platform'))
+  const { formatQuota } = useWalletCurrency()
   const [days, setDays] = useState<UsageDays>(30)
   const usageQuery = useQuery({
     queryKey: ['assistant-usage', days],
@@ -79,10 +77,9 @@ export function AssistantUsageTool(props: { developerAccessGranted: boolean }) {
     staleTime: 60_000,
     retry: false,
   })
-  const quotaPerUnit = getCurrencyDisplay().config.quotaPerUnit
   const summary = useMemo(
-    () => summarizeAssistantUsage(usageQuery.data ?? [], quotaPerUnit),
-    [quotaPerUnit, usageQuery.data]
+    () => summarizeAssistantUsage(usageQuery.data ?? []),
+    [usageQuery.data]
   )
   const compactNumber = useMemo(
     () =>
@@ -150,7 +147,7 @@ export function AssistantUsageTool(props: { developerAccessGranted: boolean }) {
             {t('Total consumed')}
           </p>
           <p className='mt-1 truncate font-mono text-sm font-semibold tabular-nums'>
-            {formatCreditBalance(summary.creditUSD)}
+            {formatQuota(summary.credits)}
           </p>
         </div>
       </div>
@@ -175,7 +172,7 @@ export function AssistantUsageTool(props: { developerAccessGranted: boolean }) {
                 </ProgressValue>
               </Progress>
               <p className='text-muted-foreground text-xs'>
-                {formatCreditBalance(model.creditUSD)} ·{' '}
+                {formatQuota(model.credits)} ·{' '}
                 {compactNumber.format(model.requests)} {t('Requests')}
               </p>
             </div>
