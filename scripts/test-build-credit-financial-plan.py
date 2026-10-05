@@ -21,7 +21,9 @@ spec.loader.exec_module(builder)
 
 class BuilderTests(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix='financial-plan-', dir=Path.home() / '.cache')
+        cache = Path.home() / '.cache'
+        cache.mkdir(mode=0o700, exist_ok=True)
+        self.temporary = tempfile.TemporaryDirectory(prefix='financial-plan-', dir=cache)
         self.addCleanup(self.temporary.cleanup)
         self.work = Path(self.temporary.name)
         self.seed = json.loads((HERE / 'fixtures/credit-financial-plan-seed.example.json').read_text())
