@@ -36,7 +36,7 @@ GitHub 默认配置的 CodeQL 是仓库设置管理的动态工作流，不是�
 
 `deploy-web-frontend.yml` 是唯一持有生产凭据的工作流，只能通过 `workflow_dispatch` 手动触发。Web 签名发布本身不部署；在区分配套发布与独立热修的兼容契约实现前，操作者须先核两台现役 Go 后端，再手动发布独立兼容的 Web 更新。它的密钥在服务器侧被 `authorized_keys` 的强制命令 `/usr/local/sbin/lmm-web-deploy` 限制，只能执行前端 `frontend publish`，无法开 shell、无法执行任意命令、无法触达后端。撤销该密钥并在两台服务器移除对应的 `authorized_keys` 行即可关闭前端部署工作流。
 
-`release-go.yml` 和 `release-web.yml` 的路径是签名身份的一部分，因此不为减少文件数量而合并。所有必须的 main-push 检查、CodeQL 和 `Server release qualification gate` 仍需真实通过，不能用 PR 的部分检查、旧提交或手动绿色状态替代。
+`release-go.yml` 和 `release-web.yml` 的路径是签名身份的一部分，因此不为减少文件数量而合并。它们显式选择 Go/Web 发布清单：所有 Go/Web CI 任务、混合路由契约、非 Rust CodeQL 和 `Server release qualification gate` 仍需真实通过，不能用 PR 的部分检查、旧提交或手动绿色状态替代。纯 Rust 检查不阻断 Go/Web 发布；默认的完整发布检查与 `CI Quality Gate` 继续要求原有全部组件通过。
 
 ## 修改和验证
 
