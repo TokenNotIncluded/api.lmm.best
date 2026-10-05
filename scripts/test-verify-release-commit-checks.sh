@@ -4,13 +4,14 @@ set -Eeuo pipefail
 ROOT=$(git rev-parse --show-toplevel)
 SCRIPT="$ROOT/scripts/verify-release-commit-checks.sh"
 REQUIRED="$ROOT/.github/required-release-checks.txt"
+COMPONENT_REQUIRED="$ROOT/.github/required-go-web-release-checks.txt"
 REVISION=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-readonly ROOT SCRIPT REQUIRED REVISION
+readonly ROOT SCRIPT REQUIRED COMPONENT_REQUIRED REVISION
 
-for workflow in release-go release-web; do
+for component in go web; do
+  workflow=release-$component
   # Both component publishers must invoke the same immutable-commit gate.
-  # shellcheck disable=SC2016
-  grep -Fq 'run: bash scripts/verify-release-commit-checks.sh "${GITHUB_SHA}"' \
+  grep -Fq "run: bash scripts/verify-release-commit-checks.sh \"\${GITHUB_SHA}\" --component $component" \
     "$ROOT/.github/workflows/$workflow.yml" || {
     printf '%s does not enforce the required commit checks\n' "$workflow" >&2
     exit 1
@@ -20,8 +21,10 @@ done
 tmp=$(mktemp -d)
 cleanup() { rm -rf -- "$tmp"; }
 trap cleanup EXIT
+verification_cases=0
 
 write_success_fixtures() {
+  local inventory=${1:-$REQUIRED}
   local checks='[]' runs='[]' id=100 run_id=1000
   local name workflow event branch extra key
   declare -A workflow_run_ids=()
@@ -68,23 +71,27 @@ write_success_fixtures() {
         app: {slug: "github-actions"}
       }]' <<<"$checks")
     ((id += 1))
-  done <"$REQUIRED"
+  done <"$inventory"
 
   jq -cn --argjson check_runs "$checks" '{check_runs:$check_runs}' >"$tmp/checks.json"
   jq -cn --argjson workflow_runs "$runs" '{workflow_runs:$workflow_runs}' >"$tmp/runs.json"
 }
 
 verify_fixture() {
+  ((verification_cases += 1))
   local checks_file=${1:-$tmp/checks.json} runs_file=${2:-$tmp/runs.json}
+  local component=${3:-full}
+  local arguments=()
+  [[ $component == full ]] || arguments=(--component "$component")
   LMM_CHECK_RUNS_FILE="$checks_file" \
     LMM_WORKFLOW_RUNS_FILE="$runs_file" \
     LMM_CHECK_MAX_ATTEMPTS=1 \
-    bash "$SCRIPT" "$REVISION"
+    bash "$SCRIPT" "$REVISION" "${arguments[@]}"
 }
 
 expect_rejected() {
-  local label=$1 expected=$2 checks_file=${3:-$tmp/checks.json} runs_file=${4:-$tmp/runs.json}
-  if verify_fixture "$checks_file" "$runs_file" >"$tmp/rejected.out" 2>&1; then
+  local label=$1 expected=$2 checks_file=${3:-$tmp/checks.json} runs_file=${4:-$tmp/runs.json} component=${5:-full}
+  if verify_fixture "$checks_file" "$runs_file" "$component" >"$tmp/rejected.out" 2>&1; then
     printf 'negative governance fixture unexpectedly accepted %s\n' "$label" >&2
     exit 1
   fi
@@ -191,4 +198,82 @@ jq 'del(.check_runs[] | select(.name == "Release artifact contract"))' \
 expect_rejected 'missing selected-run check' 'Release artifact contract (selected workflow run' \
   "$tmp/missing.json" "$tmp/runs.json"
 
-printf 'release governance workflow/event and latest-completed fixtures verified\n'
+[[ $(wc -l <"$REQUIRED") -eq 14 && $(wc -l <"$COMPONENT_REQUIRED") -eq 12 ]]
+{
+  grep -Fv \
+    -e 'Rust backend formatting, lint, and tests|' \
+    -e 'Rust root-route acceptance lockfile|' \
+    -e 'Analyze (rust)|' "$REQUIRED"
+  printf 'Go/Web release qualification gate|.github/workflows/ci.yml|push|main\n'
+} >"$tmp/expected-component.txt"
+cmp "$tmp/expected-component.txt" "$COMPONENT_REQUIRED"
+awk '!seen[$0]++' "$REQUIRED" "$COMPONENT_REQUIRED" >"$tmp/all-required.txt"
+
+write_success_fixtures
+verify_fixture "$tmp/checks.json" "$tmp/runs.json" rust >/dev/null
+for rust_check in 'Rust backend formatting, lint, and tests' 'Rust root-route acceptance lockfile' 'Analyze (rust)'; do
+  write_success_fixtures
+  jq --arg name "$rust_check" '(.check_runs[] | select(.name == $name).conclusion) = "failure"' \
+    "$tmp/checks.json" >"$tmp/rust-failed.json"
+  for component in full rust; do
+    expect_rejected "$component retains $rust_check" "$rust_check (failure)" \
+      "$tmp/rust-failed.json" "$tmp/runs.json" "$component"
+  done
+done
+
+for component in go web; do
+  write_success_fixtures "$COMPONENT_REQUIRED"
+  verify_fixture "$tmp/checks.json" "$tmp/runs.json" "$component" >/dev/null
+  write_success_fixtures "$tmp/all-required.txt"
+  jq '(.check_runs[] | select(.name == "Rust backend formatting, lint, and tests" or .name == "Rust root-route acceptance lockfile" or .name == "Analyze (rust)").conclusion) = "failure"' \
+    "$tmp/checks.json" >"$tmp/rust-failed.json"
+  jq '(.workflow_runs[] | select(.path == ".github/workflows/ci.yml" or .path == "dynamic/github-code-scanning/codeql").conclusion) = "failure"' \
+    "$tmp/runs.json" >"$tmp/rust-parent-failed.json"
+  verify_fixture "$tmp/rust-failed.json" "$tmp/rust-parent-failed.json" "$component" >/dev/null
+
+  while IFS='|' read -r name _; do
+    jq --arg name "$name" 'del(.check_runs[] | select(.name == $name))' \
+      "$tmp/rust-failed.json" >"$tmp/component-missing.json"
+    expect_rejected "$component missing $name" "$name (selected workflow run" \
+      "$tmp/component-missing.json" "$tmp/rust-parent-failed.json" "$component"
+    jq --arg name "$name" '(.check_runs[] | select(.name == $name).conclusion) = "failure"' \
+      "$tmp/rust-failed.json" >"$tmp/component-failed.json"
+    expect_rejected "$component failed $name" "$name (failure)" \
+      "$tmp/component-failed.json" "$tmp/rust-parent-failed.json" "$component"
+  done <"$COMPONENT_REQUIRED"
+
+  for state in cancelled timed_out skipped unknown in_progress; do
+    jq --arg state "$state" '(.workflow_runs[] | select(.path == ".github/workflows/ci.yml")) |=
+      (if $state == "in_progress" then .status=$state | .conclusion=null else .conclusion=$state end)' \
+      "$tmp/rust-parent-failed.json" >"$tmp/disallowed-parent.json"
+    expect_rejected "$component rejects parent $state" ".github/workflows/ci.yml $state" \
+      "$tmp/rust-failed.json" "$tmp/disallowed-parent.json" "$component"
+  done
+  jq '(.workflow_runs[] | select(.path == ".github/workflows/server-release-qualification.yml").conclusion) = "failure"' \
+    "$tmp/rust-parent-failed.json" >"$tmp/server-failed.json"
+  expect_rejected "$component rejects failed Go-only server workflow" 'server-release-qualification.yml failure' \
+    "$tmp/rust-failed.json" "$tmp/server-failed.json" "$component"
+
+  for field in head_sha event head_branch id; do
+    jq --arg field "$field" '(.workflow_runs[] | select(.path == ".github/workflows/ci.yml")) |=
+      (if $field == "id" then .id=99999 else .[$field]="wrong-binding" end)' \
+      "$tmp/rust-parent-failed.json" >"$tmp/wrong-run-binding.json"
+    expect_rejected "$component wrong workflow $field" 'Workflow and resource-safety contracts (' \
+      "$tmp/rust-failed.json" "$tmp/wrong-run-binding.json" "$component"
+  done
+  for field in app details_url name; do
+    jq --arg field "$field" '(.check_runs[] | select(.name == "Go/Web release qualification gate")) |=
+      (if $field == "app" then .app.slug="other-app" elif $field == "details_url" then .details_url="https://github.example/actions/runs/99999/job/1" else .name="replayed-bad-label" end)' \
+      "$tmp/rust-failed.json" >"$tmp/wrong-check-binding.json"
+    expect_rejected "$component wrong check $field" 'Go/Web release qualification gate (selected workflow run' \
+      "$tmp/wrong-check-binding.json" "$tmp/rust-parent-failed.json" "$component"
+  done
+  jq '(.workflow_runs[] | select(.path == ".github/workflows/ci.yml")) as $old |
+      .workflow_runs += [$old | .id=99999 | .completed_at="2026-08-24T01:00:00Z"]' \
+    "$tmp/rust-parent-failed.json" >"$tmp/latest-run.json"
+  expect_rejected "$component old success cannot replay into latest completed run" 'selected workflow run 99999 missing' \
+    "$tmp/rust-failed.json" "$tmp/latest-run.json" "$component"
+done
+expect_rejected 'unknown component' 'unsupported release component' "$tmp/checks.json" "$tmp/runs.json" unknown
+
+printf 'release governance component, workflow/event and latest-completed fixtures verified: %s cases\n' "$verification_cases"
