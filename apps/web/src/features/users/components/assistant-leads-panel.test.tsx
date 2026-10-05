@@ -114,11 +114,11 @@ describe('AssistantLeadsPanel', () => {
       currency: {
         ...DEFAULT_CURRENCY_CONFIG,
         currencyUnit: 'credit',
-        creditsPerUsd: 3000000,
-        creditsPerUsdExact: '3000000',
+        creditsPerUsd: 500000,
+        creditsPerUsdExact: '500000',
         cnyPerUsd: 7.2,
         cnyPerUsdExact: '7.2',
-        legacyPricingUnitsPerUsd: 30,
+        legacyPricingUnitsPerUsd: 1,
         quotaPerUnit: 100000,
       },
     })
@@ -342,8 +342,8 @@ describe('AssistantLeadsPanel', () => {
     assert.match(container.textContent ?? '', /Insufficient signals: 2/)
     assert.match(container.textContent ?? '', /Guided buyer: 3/)
     assert.match(container.textContent ?? '', /AI usage and cost/)
-    assert.match(container.textContent ?? '', /0\.0001 USD/)
-    assert.match(container.textContent ?? '', /0\.0333 USD/)
+    assert.match(container.textContent ?? '', /0\.0006 USD/)
+    assert.match(container.textContent ?? '', /0\.2 USD/)
     assert.match(container.textContent ?? '', /100,000 Remaining quota units/)
 
     await act(async () => {
