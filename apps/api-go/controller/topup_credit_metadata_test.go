@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"fmt"
 	"math"
 	"testing"
 
@@ -196,7 +197,107 @@ func TestTopUpCreditMetadataRoundsFractionalLegacyScaleAtLedgerBoundary(t *testi
 	require.Equal(t, map[string]float64{"1": 0.9, "12": 1.2}, metadata["credit_discount"])
 	requireTopUpCreditMetadataMinima(t, metadata, 2, 3, 4, 5)
 	require.Equal(t, "3", methods[0]["min_topup_credit"])
-	require.NotContains(t, methods[0], "max_topup_credit", "an automatic method has no configured USD maximum")
+	require.Equal(t, "12500", methods[0]["max_topup_credit"], "Stripe's retained 10000-batch cap is part of its complete policy")
+}
+
+func TestTopUpCreditMetadataDedicatedAliasesContainCompletePolicies(t *testing.T) {
+	preserveTopUpCreditMetadataConfig(t)
+	common.QuotaPerUnit = 300000
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3500000), decimal.NewFromInt(300000)))
+	operation_setting.MinTopUp = 20
+	operation_setting.PayMethods = []map[string]string{
+		{"name": "Waffo first", "type": model.PaymentMethodWaffo, "min_topup": "1", "max_topup": "5"},
+		{"name": "Waffo strictest", "type": model.PaymentMethodWaffo, "min_topup": "0.5", "max_topup": "2.5"},
+		{"name": "Pancake", "type": model.PaymentMethodWaffoPancake, "min_topup": "2", "max_topup": "3"},
+		{"name": "Creem", "type": model.PaymentMethodCreem, "min_topup": "1", "max_topup": "2.5"},
+	}
+	for _, withCatalog := range []bool{false, true} {
+		var methods []map[string]string
+		if withCatalog {
+			methods = sanitizedPaymentMethods(operation_setting.PayMethods)
+			require.Len(t, methods, 4)
+		}
+		metadata, err := topUpCreditMetadata(methods)
+		require.NoError(t, err)
+		requireTopUpCreditMetadataMinima(t, metadata, 6000000, 600000, 3500000, 7000000)
+		require.EqualValues(t, 3000000000, metadata["stripe_credit_max_topup"])
+		require.EqualValues(t, 8750000, metadata["waffo_credit_max_topup"])
+		require.EqualValues(t, 10500000, metadata["pancake_credit_max_topup"])
+		if withCatalog {
+			for _, method := range methods {
+				switch method["type"] {
+				case model.PaymentMethodWaffo:
+					require.Equal(t, "3500000", method["min_topup_credit"])
+					require.Equal(t, "8750000", method["max_topup_credit"])
+				case model.PaymentMethodWaffoPancake:
+					require.Equal(t, "7000000", method["min_topup_credit"])
+					require.Equal(t, "10500000", method["max_topup_credit"])
+				case model.PaymentMethodCreem:
+					require.Equal(t, "3500000", method["min_topup_credit"], "fixed products do not inherit the 6000000 Epay minimum")
+				}
+			}
+		}
+	}
+	operation_setting.USDExchangeRate, operation_setting.TopUpPlatformUnitsPerCNY = 8, 99
+	metadata, err := topUpCreditMetadata(nil)
+	require.NoError(t, err)
+	require.EqualValues(t, 3500000, metadata["waffo_credit_min_topup"])
+	require.EqualValues(t, 8750000, metadata["waffo_credit_max_topup"])
+}
+
+func TestTopUpCreditMetadataDedicatedMaximumIsExplicitWhenUnlimited(t *testing.T) {
+	preserveTopUpCreditMetadataConfig(t)
+	metadata, err := topUpCreditMetadata(nil)
+	require.NoError(t, err)
+	require.EqualValues(t, 5000000000, metadata["stripe_credit_max_topup"])
+	for _, key := range []string{"waffo_credit_max_topup", "pancake_credit_max_topup"} {
+		require.Contains(t, metadata, key)
+		require.Nil(t, metadata[key], "null is unlimited; absence would mean incomplete metadata")
+	}
+}
+
+func TestTopUpCreditMetadataStripeMaximumUsesMostRestrictiveCap(t *testing.T) {
+	preserveTopUpCreditMetadataConfig(t)
+	common.QuotaPerUnit = 300000
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3500000), decimal.NewFromInt(300000)))
+	for _, tc := range []struct {
+		name, configuredMaximum string
+		maximum                 int64
+	}{
+		{"retained gateway cap", "", 3000000000},
+		{"configured smaller cap", "2.5", 8750000},
+		{"configured larger cap", "1000", 3000000000},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			operation_setting.PayMethods = []map[string]string{{"name": "Stripe", "type": model.PaymentMethodStripe}}
+			if tc.configuredMaximum != "" {
+				operation_setting.PayMethods[0]["max_topup"] = tc.configuredMaximum
+			}
+			methods := sanitizedPaymentMethods(operation_setting.PayMethods)
+			require.Len(t, methods, 1)
+			metadata, err := topUpCreditMetadata(methods)
+			require.NoError(t, err)
+			require.Equal(t, tc.maximum, metadata["stripe_credit_max_topup"])
+			require.Equal(t, fmt.Sprint(tc.maximum), methods[0]["max_topup_credit"])
+		})
+	}
+}
+
+func TestTopUpCreditMetadataDedicatedInvalidPoliciesFailWithoutVisibleRows(t *testing.T) {
+	preserveTopUpCreditMetadataConfig(t)
+	for _, method := range []map[string]string{
+		{"type": model.PaymentMethodWaffo, "min_topup": "1", "max_topup": "0.5"},
+		{"type": model.PaymentMethodWaffoPancake, "max_topup": "bad"},
+		{"type": model.PaymentMethodStripe, "min_topup": "2000"},
+	} {
+		operation_setting.PayMethods = []map[string]string{method}
+		methods := []map[string]string{{"type": "alipay", "min_topup_credit": "unchanged"}}
+		before := cloneTopUpCreditMetadataMethods(methods)
+		metadata, err := topUpCreditMetadata(methods)
+		require.Error(t, err)
+		require.Nil(t, metadata)
+		require.Equal(t, before, methods)
+	}
 }
 
 func TestTopUpCreditMetadataUsesCompleteMinimumForEachProvider(t *testing.T) {

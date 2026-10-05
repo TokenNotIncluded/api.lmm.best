@@ -96,6 +96,66 @@ func topUpCreditMetadata(payMethods []map[string]string) (gin.H, error) {
 		maximum    int64
 		hasMaximum bool
 	}
+	// Dedicated checkout views may synthesize their payment method instead of
+	// retaining the public catalog row. Publish their entire effective policy,
+	// including configured limits, even when no row is present in payMethods.
+	providerPolicies := make(map[string]methodCreditPolicy, 3)
+	providerKeys := []struct {
+		paymentType string
+		minimumKey  string
+		maximumKey  string
+	}{
+		{model.PaymentMethodStripe, "stripe_credit_min_topup", "stripe_credit_max_topup"},
+		{model.PaymentMethodWaffo, "waffo_credit_min_topup", "waffo_credit_max_topup"},
+		{model.PaymentMethodWaffoPancake, "pancake_credit_min_topup", "pancake_credit_max_topup"},
+	}
+	for _, provider := range providerKeys {
+		policy := methodCreditPolicy{minimum: providerMinima[provider.minimumKey]}
+		minimum, configured, err := configuredPaymentMethodMinTopUp(provider.paymentType)
+		if err != nil {
+			return nil, err
+		}
+		if configured {
+			credits, err := topUpMetadataCreditInteger(minimum.Mul(anchor).Ceil())
+			if err != nil {
+				return nil, fmt.Errorf("payment method %q has invalid credit minimum: %w", provider.paymentType, err)
+			}
+			if credits > policy.minimum {
+				policy.minimum = credits
+			}
+		}
+		maximum, configured, err := configuredPaymentMethodMaxTopUp(provider.paymentType)
+		if err != nil {
+			return nil, err
+		}
+		if configured {
+			policy.maximum, err = topUpMetadataCreditInteger(maximum.Mul(anchor).Floor())
+			if err != nil {
+				return nil, fmt.Errorf("payment method %q has invalid credit maximum: %w", provider.paymentType, err)
+			}
+			policy.hasMaximum = true
+		}
+		if provider.paymentType == model.PaymentMethodStripe {
+			// Both Stripe quote and checkout retain the 10000 legacy-batch cap.
+			// Clamp it to the wallet domain before publishing its integer alias.
+			cap := decimal.NewFromInt(10000).Mul(quotaPerBatch).Floor()
+			if cap.GreaterThan(decimal.NewFromInt(common.MaxWalletQuota)) {
+				cap = decimal.NewFromInt(common.MaxWalletQuota)
+			}
+			maximum, err := topUpMetadataCreditInteger(cap)
+			if err != nil {
+				return nil, err
+			}
+			if !policy.hasMaximum || maximum < policy.maximum {
+				policy.maximum = maximum
+			}
+			policy.hasMaximum = true
+		}
+		if policy.hasMaximum && policy.minimum > policy.maximum {
+			return nil, fmt.Errorf("payment method %q has credit minimum above maximum", provider.paymentType)
+		}
+		providerPolicies[provider.paymentType] = policy
+	}
 	policies := make([]methodCreditPolicy, len(payMethods))
 	for i, method := range payMethods {
 		paymentType := strings.TrimSpace(method["type"])
@@ -149,10 +209,31 @@ func topUpCreditMetadata(payMethods []map[string]string) (gin.H, error) {
 			if err != nil {
 				return nil, fmt.Errorf("payment method %q has invalid credit maximum: %w", paymentType, err)
 			}
-			if policies[i].minimum > maximum {
-				return nil, fmt.Errorf("payment method %q has credit minimum above maximum", paymentType)
-			}
 			policies[i].maximum, policies[i].hasMaximum = maximum, true
+		}
+		if providerPolicy, dedicated := providerPolicies[paymentType]; dedicated {
+			if providerPolicy.minimum > policies[i].minimum {
+				policies[i].minimum = providerPolicy.minimum
+			}
+			if providerPolicy.hasMaximum && (!policies[i].hasMaximum || providerPolicy.maximum < policies[i].maximum) {
+				policies[i].maximum, policies[i].hasMaximum = providerPolicy.maximum, true
+			}
+			// Preserve any stricter validated automatic legacy minimum too.
+			if policies[i].minimum > providerPolicy.minimum {
+				providerPolicy.minimum = policies[i].minimum
+				providerPolicies[paymentType] = providerPolicy
+			}
+		}
+		if policies[i].hasMaximum && policies[i].minimum > policies[i].maximum {
+			return nil, fmt.Errorf("payment method %q has credit minimum above maximum", paymentType)
+		}
+	}
+	for _, provider := range providerKeys {
+		policy := providerPolicies[provider.paymentType]
+		metadata[provider.minimumKey] = policy.minimum
+		metadata[provider.maximumKey] = nil // Explicitly unlimited; absence is incomplete metadata.
+		if policy.hasMaximum {
+			metadata[provider.maximumKey] = policy.maximum
 		}
 	}
 	for i, method := range payMethods {
