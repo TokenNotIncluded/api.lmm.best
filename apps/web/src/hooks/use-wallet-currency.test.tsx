@@ -81,8 +81,8 @@ function configure() {
     currency: {
       ...DEFAULT_CURRENCY_CONFIG,
       currencyUnit: 'credit',
-      creditsPerUsd: 10,
-      creditsPerUsdExact: '10',
+      creditsPerUsd: 500000,
+      creditsPerUsdExact: '500000',
       cnyPerUsd: 7,
       cnyPerUsdExact: '7',
       quotaPerUnit: 2,
@@ -95,14 +95,14 @@ test('reacts to language, anonymous preference and FX while prior closures retai
   await i18n.changeLanguage('en')
   const rendered = await render()
   try {
-    assert.equal(rendered.container.textContent, '1 USD')
+    assert.equal(rendered.container.textContent, '0.00002 USD')
     const first = rendered.current()
     await act(async () => {
       await i18n.changeLanguage('zhCN')
     })
     assert.equal(rendered.current().currency, 'CNY')
-    assert.equal(rendered.container.textContent, '7 CNY')
-    assert.equal(first.formatQuota(10), '1 USD')
+    assert.equal(rendered.container.textContent, '0.00014 CNY')
+    assert.equal(first.formatQuota(10), '0.00002 USD')
     const cny = rendered.current()
     await act(async () => {
       useSystemConfigStore.getState().setConfig({
@@ -113,9 +113,9 @@ test('reacts to language, anonymous preference and FX while prior closures retai
         },
       })
     })
-    assert.equal(rendered.container.textContent, '8 CNY')
-    assert.equal(cny.amountToQuota('7'), 10)
-    assert.equal(cny.formatQuota(10), '7 CNY')
+    assert.equal(rendered.container.textContent, '0.00016 CNY')
+    assert.equal(cny.amountToQuota('7'), 500000)
+    assert.equal(cny.formatQuota(10), '0.00014 CNY')
     await act(async () => {
       await rendered.current().setPreference('CREDIT')
     })
@@ -227,18 +227,18 @@ test('failed account saves retain the previous unit and permit a successful retr
   }
 })
 
-test('public credit face value updates balances and inputs immediately while fiat and old closures preserve ledger value', async () => {
+test('fixed Credits reject changed face values while fiat and captured closures preserve raw ledger value', async () => {
   configure()
   await i18n.changeLanguage('en')
   const { mapStatusDataToConfig } = await import('./use-system-config')
   useSystemConfigStore.getState().setConfig(
     mapStatusDataToConfig({
       currency_unit: 'credit',
-      credits_per_usd: 3359744,
-      ledger_quota_per_usd: 3359744,
-      ledger_quota_per_usd_exact: '3359744',
-      public_credits_per_usd: 100000,
-      public_credits_per_usd_exact: '100000',
+      credits_per_usd: 500000,
+      ledger_quota_per_usd: 500000,
+      ledger_quota_per_usd_exact: '500000',
+      public_credits_per_usd: 500000,
+      public_credits_per_usd_exact: '500000',
       credit_unit_schema_version: 2,
       quota_unit: 'LEDGER_QUOTA',
       public_credit_unit: 'CREDIT',
@@ -249,45 +249,59 @@ test('public credit face value updates balances and inputs immediately while fia
   )
   const rendered = await render(3359744)
   try {
-    assert.equal(rendered.container.textContent, '1 USD')
-    assert.equal(rendered.current().amountToQuota('1'), 3359744)
+    assert.equal(rendered.container.textContent, '6.72 USD')
+    assert.equal(rendered.current().amountToQuota('1'), 500000)
     await act(async () => {
       await rendered.current().setPreference('CREDIT')
     })
-    assert.equal(rendered.container.textContent, '100,000 Credits')
+    assert.equal(rendered.container.textContent, '3,359,744 Credits')
     const first = rendered.current()
-    assert.equal(first.amountToQuota('100000'), 3359744)
-    assert.equal(first.formatUSD(4), '400,000 Credits')
+    assert.equal(first.amountToQuota('3359744'), 3359744)
+    assert.equal(first.formatUSD(4), '2,000,000 Credits')
     assert.equal(first.step, 'any')
     assert.equal(first.amountToQuota(first.quotaToInput(1)), 1)
-    assert.equal(first.formatQuota(1), '0.029764 Credits')
+    assert.equal(first.formatQuota(1), '1 Credits')
     await act(async () => {
       useSystemConfigStore.getState().setConfig({
         currency: {
           ...useSystemConfigStore.getState().config.currency,
-          publicCreditsPerUsd: 200000,
-          publicCreditsPerUsdExact: '200000',
+          publicCreditsPerUsd: 100000,
+          publicCreditsPerUsdExact: '100000',
         },
       })
     })
-    assert.equal(rendered.container.textContent, '200,000 Credits')
-    assert.equal(rendered.current().amountToQuota('200000'), 3359744)
-    assert.equal(first.formatQuota(3359744), '100,000 Credits')
-    assert.equal(first.amountToQuota('100000'), 3359744)
+    assert.equal(rendered.container.textContent, '-')
+    assert.ok(Number.isNaN(rendered.current().amountToQuota('100000')))
+    assert.equal(first.formatQuota(3359744), '3,359,744 Credits')
+    assert.equal(first.amountToQuota('3359744'), 3359744)
     await act(async () => {
       await rendered.current().setPreference('CNY')
     })
-    assert.equal(rendered.container.textContent, '6.72 CNY')
-    assert.equal(rendered.current().amountToQuota('6.719488'), 3359744)
+    assert.equal(rendered.container.textContent, '45.15 CNY')
+    assert.equal(rendered.current().amountToQuota('6.719488'), 500000)
     await act(async () => {
       await rendered.current().setPreference('')
     })
-    assert.equal(rendered.container.textContent, '1 USD')
+    assert.equal(rendered.container.textContent, '6.72 USD')
     await act(async () => {
       await i18n.changeLanguage('zhCN')
     })
     assert.equal(rendered.current().currency, 'CNY')
     assert.equal(rendered.current().legacyAmountToQuota('1'), 500000)
+    await act(async () => {
+      useSystemConfigStore.getState().setConfig({
+        currency: {
+          ...useSystemConfigStore.getState().config.currency,
+          creditsPerUsd: 3359744,
+          creditsPerUsdExact: '3359744',
+          ledgerQuotaPerUsd: 3359744,
+          ledgerQuotaPerUsdExact: '3359744',
+        },
+      })
+    })
+    assert.equal(rendered.container.textContent, '-')
+    assert.ok(Number.isNaN(rendered.current().amountToQuota('1')))
+    assert.equal(first.formatQuota(3359744), '3,359,744 Credits')
   } finally {
     await rendered.close()
   }
