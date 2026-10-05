@@ -40,6 +40,16 @@ jobs:
         run: python3 -B scripts/test-production-release-transaction.py
       - name: Exercise shared PostgreSQL maintenance failures offline
         run: python3 -B scripts/test-deploy-shared-postgres.py
+      - name: Verify financial plans and owner handoffs offline
+        run: |
+          set -euo pipefail
+          python3 -B scripts/test-credit-balance-rebase.py
+          python3 -B scripts/test-verify-credit-rebase-plan.py
+          python3 -B scripts/test-credit-original-fingerprints.py
+          python3 -B scripts/test-credit-financial-maintenance.py
+          python3 -B scripts/test-build-credit-financial-plan.py
+          python3 -B scripts/test-deploy-systemd.py
+          python3 -B scripts/test-maintenance-deploy-guardian.py
       - name: Validate qualification harnesses
         run: |
           set -euo pipefail
@@ -111,7 +121,44 @@ jobs:
       - name: Install live qualification tooling
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends postgresql-client jq libarchive-tools
+          sudo apt-get install --yes --no-install-recommends postgresql postgresql-client jq libarchive-tools
+          postgres_binary_dir=
+          mapfile -t postgres_binary_candidates < <(printf '%s\n' /usr/lib/postgresql/*/bin | sort -V -r)
+          for postgres_binary_candidate in "${postgres_binary_candidates[@]}"; do
+            if [[ -x "$postgres_binary_candidate/initdb" && -x "$postgres_binary_candidate/pg_ctl" && -x "$postgres_binary_candidate/postgres" ]]; then
+              postgres_binary_dir="$postgres_binary_candidate"
+              break
+            fi
+          done
+          test -n "$postgres_binary_dir"
+          for postgres_tool in initdb pg_ctl; do
+            test -x "$postgres_binary_dir/$postgres_tool"
+            if [[ ! -e "/usr/bin/$postgres_tool" ]]; then
+              sudo ln -s "$postgres_binary_dir/$postgres_tool" "/usr/bin/$postgres_tool"
+            fi
+            test -x "/usr/bin/$postgres_tool"
+          done
+      - name: Create the isolated credit preparation database
+        env:
+          PGPASSWORD: lmm-release-postgres-password
+        run: psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -p 5432 -U lmm_test_release -d lmm_test_release -c 'CREATE DATABASE credit_transition_test'
+      - name: Rehearse financial changes and preserve original rows in private PostgreSQL fixtures
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.cache"
+          python3 -B scripts/test-credit-balance-rebase-postgres.py
+          python3 -B scripts/test-credit-rebase-other-rights.py
+          python3 -B scripts/test-credit-rebase-bounty-disputes.py
+          python3 -B scripts/test-verify-credit-rebase-plan-postgres.py
+          python3 -B scripts/test-credit-original-fingerprints-postgres.py
+          CREDIT_FINANCIAL_RUNNER_REAL_PG=1 python3 -B scripts/test-credit-financial-maintenance.py
+      - name: Verify fixed credit quotes and transition preparation against disposable PostgreSQL
+        working-directory: apps/api-go
+        env:
+          TEST_POSTGRES_DSN: postgres://lmm_test_release:lmm-release-postgres-password@127.0.0.1:5432/lmm_test_release?sslmode=disable
+          TEST_POSTGRES_ISOLATED_SCHEMA: '1'
+          CREDIT_TRANSITION_TEST_DSN: postgres://lmm_test_release:lmm-release-postgres-password@127.0.0.1:5432/credit_transition_test?sslmode=disable
+        run: GOMAXPROCS=2 go test -race -p 1 -count=1 -v ./model ./controller -run '^(TestCreditPreparationPostgresPreservesEveryExistingValue|TestPaymentCreditInvariantsPostgres|TestSubscriptionWalletFixedUSDAndDynamicCNYPostgres|TestPublicCreditConfigPostgresConcurrentCASAndReadOnlySnapshot|TestWalletTransferPublicCreditPostgres|TestPublicTopUpQuoteCheckoutAndHistoricalRefundKeepFrozenMoneyPostgres)$' -timeout 180s
       - name: Require authenticated Valkey
         env:
           VALKEY_CONTAINER_ID: ${{ job.services.valkey.id }}
