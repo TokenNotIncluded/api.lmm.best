@@ -626,6 +626,48 @@ jobs:
         run: |
           runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp bash packaging/aur/test-bin-makepkg.sh
 
+  go-web-release-gate:
+    name: Go/Web release qualification gate
+    # Main-push publication evidence; the full CI gate still includes Rust.
+    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    needs:
+      - changes
+      - repository-contracts
+      - release-artifact-contract
+      - pi-lmm-provider
+      - web
+      - go
+      - route-coverage-contract
+      - aur-package-matrix
+      - translations
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every Go/Web qualification job to succeed
+        env:
+          CI_GO_WEB_NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 -B - <<'PYTHON'
+          import json
+          import os
+
+          required = (
+              "changes", "repository-contracts", "release-artifact-contract",
+              "pi-lmm-provider", "web", "go", "route-coverage-contract",
+              "aur-package-matrix", "translations",
+          )
+          needs = json.loads(os.environ["CI_GO_WEB_NEEDS"])
+          if not isinstance(needs, dict) or set(needs) != set(required):
+              raise SystemExit("Go/Web qualification dependency inventory is invalid.")
+          failed = [
+              name for name in required
+              if not isinstance(needs[name], dict) or needs[name].get("result") != "success"
+          ]
+          if failed:
+              raise SystemExit("Go/Web qualification requires success: " + ", ".join(failed))
+          print("All Go/Web release qualification jobs succeeded.")
+          PYTHON
+
   quality-gate:
     name: CI Quality Gate
     # Only explicitly unselected jobs may skip; all failures/cancellations still fail.

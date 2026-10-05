@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { test } from 'node:test';
 
 const root = new URL('../', import.meta.url);
@@ -14,6 +15,12 @@ function job(source, id) {
   const found = jobs.split(/\n(?=  [\w-]+:\n)/).find((part) => part.startsWith(`  ${id}:\n`));
   assert.ok(found, `missing job: ${id}`);
   return found;
+}
+
+function jobNeeds(source) {
+  const block = source.match(/^    needs:\n((?:      - [\w-]+\n)+)/m);
+  assert.ok(block, 'job must declare its dependencies');
+  return [...block[1].matchAll(/      - ([\w-]+)/g)].map((match) => match[1]);
 }
 
 test('backend and release workflows do not have server access', () => {
@@ -96,6 +103,65 @@ test('CI keeps every original quality gate and the translation check name', () =
   assert.match(ci, /types: \[opened, reopened, synchronize, ready_for_review\]/);
   assert.match(ci, /workflow_dispatch:\n    inputs:\n      base-ref:/);
   assert.doesNotMatch(ci, /pull_request_target|secrets\./);
+});
+
+test('Go/Web publication aggregates every non-Rust CI dependency only on main pushes', () => {
+  const ci = workflow('ci');
+  const gate = job(ci, 'go-web-release-gate');
+  const required = [
+    'changes', 'repository-contracts', 'release-artifact-contract',
+    'pi-lmm-provider', 'web', 'go', 'route-coverage-contract',
+    'aur-package-matrix', 'translations',
+  ];
+  const rustOnly = new Set([
+    'rust-preview', 'rust-real-integration', 'root-route-acceptance-lockfile', 'rustsec',
+  ]);
+  const allJobs = [...ci.split('\njobs:\n')[1].matchAll(/^  ([\w-]+):\n/gm)]
+    .map((match) => match[1]);
+  assert.deepEqual(allJobs.filter((id) =>
+    !rustOnly.has(id) && !['quality-gate', 'go-web-release-gate'].includes(id)).sort(),
+  [...required].sort(), 'new non-Rust jobs must join the publication gate');
+  assert.deepEqual(jobNeeds(gate).sort(), [...required].sort());
+  assert.match(gate, /name: Go\/Web release qualification gate\n/);
+  assert.ok(gate.includes("    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}\n"));
+  assert.ok(gate.includes('CI_GO_WEB_NEEDS: ${{ toJSON(needs) }}'));
+  assert.doesNotMatch(gate, /continue-on-error:|CI_SELECTED|secrets\./);
+  assert.deepEqual(jobNeeds(job(ci, 'quality-gate')).sort(),
+    [...required, ...rustOnly].sort(), 'full CI must still require every Rust job');
+
+  const script = gate.match(/          python3 -B - <<'PYTHON'\n([\s\S]*?)          PYTHON\n/);
+  assert.ok(script, 'publication gate must explicitly validate every dependency result');
+  const python = script[1].replace(/^          /gm, '');
+  const success = () => Object.fromEntries(required.map((id) => [id, { result: 'success' }]));
+  const run = (needs) => spawnSync('python3', ['-B', '-c', python], {
+    env: { ...process.env, CI_GO_WEB_NEEDS: JSON.stringify(needs) }, encoding: 'utf8',
+  });
+  const passed = run(success());
+  assert.equal(passed.status, 0, passed.stderr);
+  for (const id of required) {
+    for (const result of ['failure', 'cancelled', 'skipped', 'neutral', '', null]) {
+      const needs = success();
+      needs[id] = { result, outputs: { result: 'success' } };
+      assert.notEqual(run(needs).status, 0, `${id}: ${result} must block publication`);
+    }
+    const needs = success();
+    delete needs[id];
+    assert.notEqual(run(needs).status, 0, `${id}: missing evidence must block publication`);
+  }
+  for (const needs of [null, [], {}, { ...success(), 'unexpected-job': { result: 'success' } }]) {
+    assert.notEqual(run(needs).status, 0, 'invalid dependency inventory must block publication');
+  }
+});
+
+test('Go/Web publication explicitly selects its component without changing server qualification', () => {
+  for (const component of ['go', 'web']) {
+    assert.ok(workflow(`release-${component}`).includes(
+      `bash scripts/verify-release-commit-checks.sh "\${GITHUB_SHA}" --component ${component}`),
+    `${component} publication must request the Go/Web evidence inventory explicitly`);
+  }
+  const gate = job(workflow('server-release-qualification'), 'release-gate');
+  assert.match(gate, /name: Server release qualification gate\n/);
+  assert.deepEqual(jobNeeds(gate).sort(), ['go-server', 'harness-contracts']);
 });
 
 test('PR formatting checks stay removed while code checks remain', () => {
