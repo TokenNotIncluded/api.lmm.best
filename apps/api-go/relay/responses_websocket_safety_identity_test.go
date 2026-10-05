@@ -64,3 +64,56 @@ func TestResponsesWebSocketPrivateIdentityAfterFinalOverrides(t *testing.T) {
 		}
 	}
 }
+
+func TestResponsesWebSocketPrivateIdentityUsesCapturedAssistantActor(t *testing.T) {
+	oldDB, oldSecret, oldSettings := appmodel.DB, common.CryptoSecret, setting.GetModerationSettings()
+	t.Cleanup(func() {
+		appmodel.DB, common.CryptoSecret = oldDB, oldSecret
+		require.NoError(t, setting.UpdateModerationSettings(oldSettings.OptionValues()))
+	})
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "assistant-websocket.sqlite")), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&appmodel.AssistantGiftRiskKey{}))
+	appmodel.DB, common.CryptoSecret = db, "synthetic-assistant-websocket-key"
+	settings := setting.DefaultModerationSettings()
+	settings.AssistantEnabled, settings.SafetyIdentifierEnabled = true, true
+	settings.PolicyScope = setting.ModerationPolicyScopeRequestGroup
+	settings.GroupPolicies = map[string]setting.ModerationGroupPolicy{
+		"actor": {Mode: setting.ModerationModeTolerant},
+		"payer": {Mode: setting.ModerationModeOff},
+	}
+	require.NoError(t, setting.UpdateModerationSettings(settings.OptionValues()))
+	identifiers := map[int]string{}
+	for _, actorID := range []int{42, 84, 0} {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
+		c.Set("assistant_request", true)
+		common.SetContextKey(c, appconstant.ContextKeyUserId, 987)
+		common.SetContextKey(c, appconstant.ContextKeyUserGroup, "payer")
+		common.SetContextKey(c, appconstant.ContextKeyUsingGroup, "payer")
+		common.SetContextKey(c, appconstant.ContextKeyAssistantActorUserID, actorID)
+		common.SetContextKey(c, appconstant.ContextKeyAssistantActorGroup, "actor")
+		common.SetContextKey(c, appconstant.ContextKeyChannelType, appconstant.ChannelTypeOpenAI)
+		common.SetContextKey(c, appconstant.ContextKeyChannelBaseUrl, "https://api.openai.com")
+		common.SetContextKey(c, appconstant.ContextKeyChannelParamOverride, map[string]any{"safety_identifier": "channel-forgery"})
+		request := dto.OpenAIResponsesRequest{Model: "fixture", Input: common.RawMessage(`"hello"`)}
+		info, err := relaycommon.GenRelayInfo(c, types.RelayFormatOpenAIResponses, &request, nil)
+		require.NoError(t, err)
+		require.Equal(t, 987, info.UserId)
+		out, apiErr := buildResponsesWSCreatePayload(c, info, request, nil, "stream-fixture")
+		require.Nil(t, apiErr)
+		var fields map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(out, &fields))
+		var identifier string
+		require.NoError(t, json.Unmarshal(fields["safety_identifier"], &identifier))
+		if actorID == 0 {
+			require.Equal(t, "channel-forgery", identifier, "missing actor must not bind the websocket to its payer")
+			continue
+		}
+		want, err := appmodel.OpenAIPrivateSafetyIdentifier(context.Background(), actorID)
+		require.NoError(t, err)
+		require.Equal(t, want, identifier)
+		identifiers[actorID] = identifier
+	}
+	require.NotEqual(t, identifiers[42], identifiers[84])
+}

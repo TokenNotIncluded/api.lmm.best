@@ -31,7 +31,7 @@ const (
 )
 
 const assistantIntentHeader = "X-LMM-Assistant-Intent"
-const assistantActorUserIDKey = "assistant_actor_user_id"
+const assistantActorUserIDKey = string(constant.ContextKeyAssistantActorUserID)
 const assistantClientActionKey = "assistant_client_action"
 const assistantConversationTitleNeededKey = "assistant_conversation_title_needed"
 const assistantConversationTitleDraftKey = "assistant_conversation_title_draft"
@@ -40,7 +40,7 @@ const assistantRouteGroupContextKey = "assistant_route_group"
 const assistantRouteModelContextKey = "assistant_route_model"
 const assistantClientToolsKey = "assistant_client_tools"
 const assistantAttemptHeader = "X-LMM-Assistant-Attempt"
-const assistantActorGroupKey = "assistant_actor_group"
+const assistantActorGroupKey = string(constant.ContextKeyAssistantActorGroup)
 const assistantPolicyConversationKey = "assistant_policy_conversation"
 const assistantRetryConversationWindow = 5 * time.Minute
 

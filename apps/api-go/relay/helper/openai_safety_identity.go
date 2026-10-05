@@ -15,18 +15,29 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/setting"
 )
 
-// privateSafetyIdentityEnabled uses authenticated account/request metadata;
-// body fields, model names, channel IDs and credentials never choose identity.
-func privateSafetyIdentityEnabled(info *relaycommon.RelayInfo) bool {
-	if info == nil || info.UserId <= 0 || info.ChannelMeta == nil || info.ChannelType != appconstant.ChannelTypeOpenAI {
-		return false
+// privateSafetyIdentitySubject selects identity and policy together from the
+// authenticated actor. An assistant's relay payer is never a fallback actor.
+// Body fields, model names, channel IDs and credentials cannot choose identity.
+func privateSafetyIdentitySubject(info *relaycommon.RelayInfo) (int, bool) {
+	if info == nil || info.ChannelMeta == nil || info.ChannelType != appconstant.ChannelTypeOpenAI {
+		return 0, false
+	}
+	userID, accountGroup := info.UserId, info.UserGroup
+	if info.IsAssistant {
+		userID, accountGroup = info.AssistantActorUserID, info.AssistantActorGroup
+		if strings.TrimSpace(accountGroup) == "" {
+			return 0, false
+		}
+	}
+	if userID <= 0 {
+		return 0, false
 	}
 	settings := setting.GetModerationSettings()
 	if !settings.SafetyIdentifierEnabled || (!info.IsAssistant && !settings.Enabled) || (info.IsAssistant && !settings.AssistantEnabled) {
-		return false
+		return 0, false
 	}
-	_, _, policy, configured := setting.ResolveModerationRequestPolicy(settings, info.UserGroup, info.UsingGroup, info.IsAssistant)
-	return configured && (policy.Mode == setting.ModerationModeTolerant || policy.Mode == setting.ModerationModeStrict)
+	_, _, policy, configured := setting.ResolveModerationRequestPolicy(settings, accountGroup, info.UsingGroup, info.IsAssistant)
+	return userID, configured && (policy.Mode == setting.ModerationModeTolerant || policy.Mode == setting.ModerationModeStrict)
 }
 
 // officialSafetyIdentityOrigin checks the final destination, not a channel
@@ -49,10 +60,11 @@ func officialSafetyIdentityOrigin(upstreamURL, effectiveHost string) bool {
 // remove any supplied identifier and continue the request without one. The
 // optional feature must neither trust a client identity nor block API calls.
 func ApplyOpenAIPrivateSafetyIdentifier(ctx context.Context, info *relaycommon.RelayInfo, upstreamURL, effectiveHost string, body []byte) []byte {
-	if !privateSafetyIdentityEnabled(info) || !officialSafetyIdentityOrigin(upstreamURL, effectiveHost) {
+	userID, enabled := privateSafetyIdentitySubject(info)
+	if !enabled || !officialSafetyIdentityOrigin(upstreamURL, effectiveHost) {
 		return body
 	}
-	return applyPrivateSafetyIdentity(ctx, info.UserId, body)
+	return applyPrivateSafetyIdentity(ctx, userID, body)
 }
 
 func applyPrivateSafetyIdentity(ctx context.Context, userID int, body []byte) []byte {
@@ -84,8 +96,11 @@ func (reader safetyIdentityReadError) Read([]byte) (int, error) { return 0, read
 // boundary. It also protects direct/raw request paths and makes the rewritten
 // body replayable with accurate length for transport/compatibility retries.
 func ApplyOpenAIPrivateSafetyIdentifierToRequest(req *http.Request, info *relaycommon.RelayInfo) {
-	if req == nil || req.URL == nil || req.Body == nil || req.Method != http.MethodPost ||
-		!privateSafetyIdentityEnabled(info) || !officialSafetyIdentityOrigin(req.URL.String(), req.Host) {
+	if req == nil || req.URL == nil || req.Body == nil || req.Method != http.MethodPost {
+		return
+	}
+	userID, enabled := privateSafetyIdentitySubject(info)
+	if !enabled || !officialSafetyIdentityOrigin(req.URL.String(), req.Host) {
 		return
 	}
 	oldBody := req.Body
@@ -98,7 +113,7 @@ func ApplyOpenAIPrivateSafetyIdentifierToRequest(req *http.Request, info *relayc
 	}
 	// Keep the original policy decision for this send: a concurrent settings
 	// refresh must not restore a client-supplied identity between two reads.
-	patched := applyPrivateSafetyIdentity(req.Context(), info.UserId, body)
+	patched := applyPrivateSafetyIdentity(req.Context(), userID, body)
 	_ = oldBody.Close()
 	req.Body = io.NopCloser(bytes.NewReader(patched))
 	req.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(patched)), nil }

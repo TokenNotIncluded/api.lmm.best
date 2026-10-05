@@ -122,6 +122,11 @@ type RelayInfo struct {
 	ReceivedResponseCount  int
 	FinalPreConsumedQuota  int // 最终预消耗的配额
 
+	// Assistant identity/policy belongs to the authenticated actor, while
+	// UserId/UserGroup remain the relay payer for accounting and settlement.
+	AssistantActorUserID int    `json:"-"`
+	AssistantActorGroup  string `json:"-"`
+
 	ResponseModel               *ResponseModel
 	responseModelRequestedModel string
 	responseModelSelectedModel  string
@@ -604,6 +609,8 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 	}
 	if c.GetBool("assistant_request") {
 		info.IsAssistant = true
+		info.AssistantActorUserID = common.GetContextKeyInt(c, constant.ContextKeyAssistantActorUserID)
+		info.AssistantActorGroup = common.GetContextKeyString(c, constant.ContextKeyAssistantActorGroup)
 	}
 
 	userSetting, ok := common.GetContextKeyType[dto.UserSetting](c, constant.ContextKeyUserSetting)

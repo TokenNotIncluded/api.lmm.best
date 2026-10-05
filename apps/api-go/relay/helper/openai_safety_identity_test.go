@@ -104,6 +104,7 @@ func TestPrivateSafetyIdentityUsesConfiguredTrustedPolicyScope(t *testing.T) {
 	info.UsingGroup = "request"
 	require.NotEqual(t, body, apply())
 	info.IsAssistant, info.UsingGroup = true, "off"
+	info.AssistantActorUserID, info.AssistantActorGroup = info.UserId, info.UserGroup
 	require.NotEqual(t, body, apply(), "assistant always uses account policy")
 	require.NoError(t, setting.UpdateModerationSettings(map[string]string{setting.AssistantModerationEnabledOptionKey: "false"}))
 	require.Equal(t, body, apply())
