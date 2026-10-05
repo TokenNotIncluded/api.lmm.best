@@ -231,14 +231,14 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
                       min={1}
                       max={Number.MAX_SAFE_INTEGER}
                       step={1}
-                      disabled={!publicCreditsSupported}
+                      disabled
                       {...safeNumberFieldProps(field)}
                     />
                   </FormControl>
                   <FormDescription>
                     {publicCreditsSupported
                       ? t(
-                          'Changes credit display only. USD balances and charges stay the same.'
+                          'Used for stored balances and billing. This value is fixed.'
                         )
                       : t(
                           'Public credit settings are unavailable on this server.'

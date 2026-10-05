@@ -19,7 +19,7 @@ function quotaString(value: unknown): number | null {
   return quota(parsed) ? parsed : null
 }
 
-/** Capture one v2 basis; the public denomination never replaces the USD ledger bridge. */
+/** Credit aliases must equal raw wallet points at the fixed 500,000/USD basis. */
 export function creditProjection(
   value: unknown
 ): ((rawQuota: number) => string) | null {
@@ -37,6 +37,8 @@ export function creditProjection(
     public_credits_per_usd_exact: publicUnit,
   } = value
   if (
+    ledger !== '500000' ||
+    publicUnit !== '500000' ||
     typeof ledger !== 'string' ||
     ledger.length > 80 ||
     !/^(0|[1-9]\d*)(?:\.\d{1,18})?$/.test(ledger) ||

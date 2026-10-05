@@ -1,7 +1,7 @@
-//! Exact public denominations over the unchanged legacy wallet ledger.
+//! Credit compatibility metadata over the raw integer wallet ledger.
 //!
 //! This module reads an options snapshot; it never initializes options or writes
-//! balances. Public display strings are projections, not lossless debit inputs.
+//! balances. One USD is always 500,000 raw credits; incompatible old bases fail closed.
 
 use std::collections::BTreeMap;
 
@@ -19,6 +19,7 @@ pub const PUBLIC_CREDIT_OPTION_KEYS: [&str; 4] = [
     "QuotaPerUnit",
     "PublicCreditsPerUSD",
 ];
+pub const CREDITS_PER_USD: i64 = 500_000;
 const PROJECTION_PRECISION: u32 = 64;
 
 /// New monetary log text is always real USD. Public P and UI/FX preferences
@@ -30,6 +31,10 @@ pub fn format_ledger_usd(quota: i64, ledger_per_usd: &str) -> Result<String, Pub
     let ledger = ExactDecimal::parse(ledger_per_usd, 80)
         .and_then(ExactDecimal::positive_safe_rate)
         .map_err(|_| PublicCreditError::UnitsUnavailable)?;
+    let fixed = ExactDecimal::parse(&CREDITS_PER_USD.to_string(), 80)?;
+    if !ledger.equal_value(&fixed) {
+        return Err(PublicCreditError::UnitsUnavailable);
+    }
     let (ledger_num, ledger_den) = ledger.ratio();
     let scaled = round_quotient_away(
         BigInt::from(quota) * ledger_den * BigInt::from(10_u8).pow(PROJECTION_PRECISION),
@@ -141,6 +146,15 @@ impl PublicCreditDenomination {
             // option that would silently reinterpret legacy quota integers.
             None => ledger.clone(),
         };
+        // A denomination change must migrate raw balances, never reinterpret
+        // their USD value or introduce a different displayed credit unit.
+        let fixed = ExactDecimal::parse(&CREDITS_PER_USD.to_string(), 80)?;
+        if [&ledger, &public, &legacy, &current]
+            .iter()
+            .any(|rate| !rate.equal_value(&fixed))
+        {
+            return Err(PublicCreditError::UnitsUnavailable);
+        }
         let metadata = CreditDenominationMetadata {
             credit_unit_schema_version: 2,
             quota_unit: LEDGER_QUOTA_UNIT,
@@ -401,301 +415,116 @@ mod tests {
     use super::*;
 
     fn options() -> BTreeMap<String, String> {
-        BTreeMap::from([
-            ("CreditsPerUSD".into(), "3359744".into()),
-            ("LegacyPricingQuotaPerUnit".into(), "500000".into()),
-            ("QuotaPerUnit".into(), "500000".into()),
-            ("PublicCreditsPerUSD".into(), "100000".into()),
-        ])
+        PUBLIC_CREDIT_OPTION_KEYS
+            .into_iter()
+            .map(|key| (key.to_owned(), "500000".to_owned()))
+            .collect()
     }
 
     #[test]
-    fn go_projection_vectors_preserve_signed_ledger_and_dust() {
+    fn fixed_credits_preserve_raw_integer_balances_and_model_prices() {
         let units = PublicCreditDenomination::from_options(&options()).unwrap();
-        assert_eq!(units.project_ledger_quota(3_359_744).unwrap(), "100000");
-        let dust = "0.0297641725083815909783602560195062480950929594635781773849436148";
-        assert_eq!(units.project_ledger_quota(1).unwrap(), dust);
-        assert_eq!(units.project_ledger_quota(-1).unwrap(), format!("-{dust}"));
-        assert_eq!(units.project_ledger_quota(0).unwrap(), "0");
-        assert!(units.project_ledger_quota(MAX_WALLET_QUOTA + 1).is_err());
-        assert!(units.project_ledger_quota(-MAX_WALLET_QUOTA - 1).is_err());
+        for quota in [0, 1, -1, 500_000, 5_000_000, MAX_WALLET_QUOTA] {
+            assert_eq!(
+                units.project_ledger_quota(quota).unwrap(),
+                quota.to_string()
+            );
+        }
+        for amount in [1, 500_000, 5_000_000, MAX_WALLET_QUOTA] {
+            assert_eq!(
+                units.resolve_public_credits(&amount.to_string()).unwrap(),
+                amount
+            );
+            assert_eq!(
+                units
+                    .resolve_amount("CREDIT", &amount.to_string(), Some("500000"))
+                    .unwrap(),
+                amount
+            );
+            assert_eq!(
+                units
+                    .resolve_amount("LEDGER_QUOTA", &amount.to_string(), None)
+                    .unwrap(),
+                amount
+            );
+        }
+        assert_eq!(units.metadata().ledger_quota_per_usd_exact, "500000");
+        assert_eq!(units.metadata().public_credits_per_usd_exact, "500000");
     }
 
     #[test]
-    fn large_products_do_not_overflow_decimal_storage() {
-        let mut values = options();
-        values.insert("CreditsPerUSD".into(), "1".into());
-        values.insert("PublicCreditsPerUSD".into(), MAX_WALLET_QUOTA.to_string());
-        let units = PublicCreditDenomination::from_options(&values).unwrap();
+    fn old_revalued_or_public_denominations_are_explicitly_unavailable() {
+        for key in PUBLIC_CREDIT_OPTION_KEYS {
+            for value in ["100000", "3359744", "500001", "0", "NaN"] {
+                let mut values = options();
+                values.insert(key.to_owned(), value.to_owned());
+                assert!(
+                    matches!(
+                        PublicCreditDenomination::from_options(&values),
+                        Err(PublicCreditError::UnitsUnavailable)
+                    ),
+                    "{key}={value}"
+                );
+            }
+        }
+        let mut legacy = options();
+        legacy.remove("PublicCreditsPerUSD");
+        let before = legacy.clone();
         assert_eq!(
-            units.project_ledger_quota(MAX_WALLET_QUOTA).unwrap(),
-            "81129638414606663681390495662081"
+            PublicCreditDenomination::from_options(&legacy)
+                .unwrap()
+                .project_ledger_quota(123)
+                .unwrap(),
+            "123"
         );
-        assert_eq!(
-            units.project_ledger_quota(-MAX_WALLET_QUOTA).unwrap(),
-            "-81129638414606663681390495662081"
-        );
+        assert_eq!(legacy, before);
+        legacy.insert("CreditsPerUSD".into(), "3359744".into());
+        assert!(PublicCreditDenomination::from_options(&legacy).is_err());
     }
 
     #[test]
-    fn public_input_floors_and_guard_matches_captured_metadata() {
+    fn explicit_credit_inputs_retain_guards_and_wallet_domain() {
         let units = PublicCreditDenomination::from_options(&options()).unwrap();
-        assert_eq!(units.resolve_public_credits("100000").unwrap(), 3_359_744);
-        assert_eq!(units.resolve_public_credits("1").unwrap(), 33);
-        assert_eq!(units.resolve_public_credits("1.001").unwrap(), 33);
+        assert_eq!(units.resolve_public_credits("1.9").unwrap(), 1);
         assert_eq!(
-            units.resolve_amount("CREDIT", "1", Some("100000")).unwrap(),
-            33
-        );
-        assert_eq!(
-            units.resolve_amount("LEDGER_QUOTA", "33", None).unwrap(),
-            33
-        );
-        assert_eq!(
-            units.resolve_amount("LEDGER_QUOTA", "33.0", None).unwrap(),
-            33
-        );
-        assert_eq!(
-            units.resolve_amount("CREDIT", "1", Some("200000")),
+            units.resolve_amount("CREDIT", "1", Some("100000")),
             Err(PublicCreditError::DenominationChanged)
         );
         for (unit, amount, expected) in [
             ("CREDIT", "1", None),
             ("CREDIT", "1", Some("")),
-            ("LEDGER_QUOTA", "33.5", None),
-            ("LEDGER_QUOTA", "33", Some("100000")),
-            ("credit", "1", Some("100000")),
+            ("LEDGER_QUOTA", "1.5", None),
+            ("LEDGER_QUOTA", "1", Some("500000")),
         ] {
             assert_eq!(
                 units.resolve_amount(unit, amount, expected),
                 Err(PublicCreditError::InvalidAmount)
             );
         }
-    }
-
-    #[test]
-    fn invalid_and_unrepresentable_inputs_fail_closed() {
-        let units = PublicCreditDenomination::from_options(&options()).unwrap();
-        for amount in [
-            "0",
-            "-0",
-            "-1",
-            "0.000000000000000001",
-            "1.0000000000000000000",
-            "1e19",
-            "1e100000",
-            "NaN",
-            "inf",
-            " 1",
-            "1 ",
-            "1e",
-            ".",
-            "++1",
-            "1e1e1",
-            "9007199254740991",
-        ] {
+        for amount in ["0", "-1", "0.5", "NaN", "1e100000", "9007199254740992"] {
             assert_eq!(
                 units.resolve_public_credits(amount),
-                Err(PublicCreditError::InvalidAmount),
-                "{amount}"
+                Err(PublicCreditError::InvalidAmount)
             );
         }
-        assert!(units.resolve_public_credits(&"1".repeat(81)).is_err());
-        assert!(units.resolve_public_credits(&"1".repeat(129)).is_err());
-        assert!(
-            units
-                .resolve_amount("LEDGER_QUOTA", "9007199254740992", None)
-                .is_err()
-        );
+        assert!(units.project_ledger_quota(MAX_WALLET_QUOTA + 1).is_err());
     }
 
     #[test]
-    fn floor_maximum_and_public_display_are_not_lossless_debit_inputs() {
-        let mut values = options();
-        values.insert("CreditsPerUSD".into(), "1".into());
-        values.insert("PublicCreditsPerUSD".into(), "1".into());
-        let units = PublicCreditDenomination::from_options(&values).unwrap();
+    fn usd_log_text_uses_fixed_credit_basis() {
         assert_eq!(
-            units.resolve_public_credits("9007199254740991.9").unwrap(),
-            MAX_WALLET_QUOTA
-        );
-        assert!(units.resolve_public_credits("9007199254740992").is_err());
-        values.insert("CreditsPerUSD".into(), "3".into());
-        values.insert("PublicCreditsPerUSD".into(), "2".into());
-        let units = PublicCreditDenomination::from_options(&values).unwrap();
-        assert_eq!(
-            units.project_ledger_quota(2).unwrap(),
-            "1.3333333333333333333333333333333333333333333333333333333333333333"
-        );
-        assert_eq!(
-            units
-                .resolve_public_credits("1.333333333333333333")
-                .unwrap(),
-            1
-        );
-        assert!(
-            units
-                .resolve_public_credits(&units.project_ledger_quota(2).unwrap())
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn option_changes_do_not_mix_one_snapshots_metadata_and_amounts() {
-        let mut values = options();
-        let before = PublicCreditDenomination::from_options(&values).unwrap();
-        values.insert("PublicCreditsPerUSD".into(), "200000".into());
-        let after = PublicCreditDenomination::from_options(&values).unwrap();
-        for (units, expected) in [(&before, "100000"), (&after, "200000")] {
-            assert_eq!(units.metadata().public_credits_per_usd_exact, expected);
-            assert_eq!(units.project_ledger_quota(3_359_744).unwrap(), expected);
-        }
-        let metadata = serde_json::to_value(before.metadata()).unwrap();
-        assert_eq!(metadata["credit_unit_schema_version"], 2);
-        assert_eq!(metadata["quota_unit"], "LEDGER_QUOTA");
-        assert_eq!(metadata["legacy_credit_unit"], "LEDGER_QUOTA");
-        assert_eq!(metadata["public_credit_unit"], "CREDIT");
-        assert_eq!(metadata["ledger_quota_per_usd"], 3_359_744.0);
-        assert_eq!(metadata["ledger_quota_per_usd_exact"], "3359744");
-        assert_eq!(metadata["public_credits_per_usd"], 100_000.0);
-        assert_eq!(metadata["public_credits_per_usd_exact"], "100000");
-    }
-
-    #[test]
-    fn absent_public_option_is_read_only_legacy_compatibility() {
-        let mut values = options();
-        values.remove("PublicCreditsPerUSD");
-        let before = values.clone();
-        let units = PublicCreditDenomination::from_options(&values).unwrap();
-        assert_eq!(units.metadata().public_credits_per_usd_exact, "3359744");
-        assert_eq!(units.project_ledger_quota(123).unwrap(), "123");
-        assert_eq!(units.resolve_public_credits("123").unwrap(), 123);
-        assert_eq!(values, before);
-        values.insert("CreditsPerUSD".into(), "0.125".into());
-        let fractional = PublicCreditDenomination::from_options(&values).unwrap();
-        assert_eq!(fractional.metadata().public_credits_per_usd_exact, "0.125");
-        assert_eq!(fractional.project_ledger_quota(123).unwrap(), "123");
-        assert_eq!(fractional.project_ledger_quota(-123).unwrap(), "-123");
-        assert_eq!(fractional.resolve_public_credits("123").unwrap(), 123);
-    }
-
-    #[test]
-    fn invalid_options_and_calibration_drift_fail_closed() {
-        for key in ["CreditsPerUSD", "LegacyPricingQuotaPerUnit"] {
-            let mut values = options();
-            values.remove(key);
-            assert!(matches!(
-                PublicCreditDenomination::from_options(&values),
-                Err(PublicCreditError::UnitsUnavailable)
-            ));
-        }
-        for (key, value) in [
-            ("PublicCreditsPerUSD", "0"),
-            ("PublicCreditsPerUSD", "-1"),
-            ("PublicCreditsPerUSD", "1.5"),
-            ("PublicCreditsPerUSD", "nonnumeric"),
-            ("PublicCreditsPerUSD", "9007199254740992"),
-            ("CreditsPerUSD", "0"),
-            ("CreditsPerUSD", "NaN"),
-            ("LegacyPricingQuotaPerUnit", "499999"),
-            ("QuotaPerUnit", "500001"),
-        ] {
-            let mut values = options();
-            values.insert(key.into(), value.into());
-            assert!(
-                matches!(
-                    PublicCreditDenomination::from_options(&values),
-                    Err(PublicCreditError::UnitsUnavailable)
-                ),
-                "{key}={value}"
-            );
-        }
-        let mut values = options();
-        for key in ["LegacyPricingQuotaPerUnit", "QuotaPerUnit"] {
-            values.insert(key.into(), "1.0000000000000001".into());
-        }
-        assert!(matches!(
-            PublicCreditDenomination::from_options(&values),
-            Err(PublicCreditError::UnitsUnavailable)
-        ));
-        values.insert("LegacyPricingQuotaPerUnit".into(), "12.500".into());
-        values.insert("QuotaPerUnit".into(), "1.25e1".into());
-        values.insert("PublicCreditsPerUSD".into(), "1e5".into());
-        assert!(PublicCreditDenomination::from_options(&values).is_ok());
-        let mut values = options();
-        values.remove("QuotaPerUnit");
-        assert!(PublicCreditDenomination::from_options(&values).is_ok());
-        values.insert("LegacyPricingQuotaPerUnit".into(), "500001".into());
-        assert!(matches!(
-            PublicCreditDenomination::from_options(&values),
-            Err(PublicCreditError::UnitsUnavailable)
-        ));
-    }
-
-    #[test]
-    fn extreme_small_ledger_basis_preserves_large_exact_public_amounts() {
-        let mut values = options();
-        values.insert("CreditsPerUSD".into(), "1e-18".into());
-        values.insert("PublicCreditsPerUSD".into(), MAX_WALLET_QUOTA.to_string());
-        let units = PublicCreditDenomination::from_options(&values).unwrap();
-        let expected = "81129638414606663681390495662081000000000000000000";
-        assert_eq!(
-            units.project_ledger_quota(MAX_WALLET_QUOTA).unwrap(),
-            expected
-        );
-        assert_eq!(
-            units.resolve_public_credits(expected).unwrap(),
-            MAX_WALLET_QUOTA
-        );
-        assert_eq!(
-            units.metadata().ledger_quota_per_usd_exact,
-            "0.000000000000000001"
-        );
-    }
-
-    #[test]
-    fn complete_projection_rounds_sixty_four_place_half_ties_away() {
-        let mut values = options();
-        // K=2^83/10^18 yields a half at the 65th fractional place.
-        values.insert("CreditsPerUSD".into(), "9671406.556917033397649408".into());
-        values.insert("PublicCreditsPerUSD".into(), "1".into());
-        let units = PublicCreditDenomination::from_options(&values).unwrap();
-        let expected = "0.0000001033975765691284593589260865087453566957265138626098632813";
-        assert_eq!(units.project_ledger_quota(1).unwrap(), expected);
-        assert_eq!(
-            units.project_ledger_quota(-1).unwrap(),
-            format!("-{expected}")
-        );
-    }
-
-    #[test]
-    fn signed_division_rounds_half_away_from_zero() {
-        for (numerator, expected) in [(1, 1), (-1, -1), (3, 2), (-3, -2)] {
-            assert_eq!(
-                round_quotient_away(BigInt::from(numerator), BigInt::from(2)),
-                BigInt::from(expected)
-            );
-        }
-    }
-
-    #[test]
-    fn usd_log_text_uses_immutable_ledger_basis_and_preserves_small_nonzero_amounts() {
-        assert_eq!(
-            format_ledger_usd(7_300_000, "7300000").unwrap(),
+            format_ledger_usd(500_000, "500000").unwrap(),
             "1.000000 USD"
         );
         assert_eq!(
-            format_ledger_usd(-7_300_000, "7300000").unwrap(),
+            format_ledger_usd(5_000_000, "500000").unwrap(),
+            "10.000000 USD"
+        );
+        assert_eq!(
+            format_ledger_usd(-500_000, "500000").unwrap(),
             "-1.000000 USD"
         );
-        assert_eq!(format_ledger_usd(0, "7300000").unwrap(), "0.000000 USD");
-        assert_eq!(
-            format_ledger_usd(1, "7300000").unwrap(),
-            "0.0000001369863013698630136986301369863013698630136986301369863014 USD"
-        );
-        assert!(format_ledger_usd(1, "").is_err());
-        assert!(format_ledger_usd(1, "0").is_err());
-        // This API accepts no PublicP, UI display preference, or FX input.
         assert_eq!(format_ledger_usd(1, "500000").unwrap(), "0.000002 USD");
+        assert!(format_ledger_usd(1, "3359744").is_err());
     }
 }

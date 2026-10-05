@@ -21,7 +21,7 @@ const silent = { skipBusinessError: true, skipErrorHandler: true }
 export function parsePublicCreditOption(value: unknown): number | undefined {
   if (typeof value !== 'string' || !/^\d+$/.test(value)) return undefined
   const number = Number(value)
-  return Number.isSafeInteger(number) && number > 0 ? number : undefined
+  return number === 500000 ? number : undefined
 }
 
 function decodeCreditUnit(data: unknown) {
@@ -67,7 +67,7 @@ export async function updatePublicCreditUnitOption(
     baseline.ledgerQuotaPerUsd <= 0
   ) {
     throw new Error(
-      i18n.t('Public credits per USD must be a positive whole number.')
+      i18n.t('Used for stored balances and billing. This value is fixed.')
     )
   }
   const before = await api.get(endpoint, silent).catch(() => {

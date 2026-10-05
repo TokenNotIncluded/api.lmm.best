@@ -100,12 +100,9 @@ export function quotaUnitsToEditableAmount(units: number): number {
 }
 
 export function getEditableQuotaStep(): number | 'any' {
-  const { currency, config } = getCurrencyDisplay()
+  const { currency } = getCurrencyDisplay()
   if (currency !== 'CREDIT') return 1e-15
-  return config.creditUnitSchemaVersion === undefined &&
-    quotaToDisplayAmount(1, 'CREDIT') === 1
-    ? 1
-    : 'any'
+  return quotaToDisplayAmount(1, 'CREDIT') === 1 ? 1 : 'any'
 }
 
 // ============================================================================

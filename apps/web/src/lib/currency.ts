@@ -142,8 +142,8 @@ function getConfig(
     config.legacyCreditUnit,
   ].some((value) => value !== undefined)
   const legacyK =
-    config.currencyUnit === 'credit'
-      ? positive(config.creditsPerUsd)
+    config.currencyUnit === 'credit' && config.creditsPerUsd === 500000
+      ? 500000
       : Number.NaN
   const exactMatches = (value: number, exact?: string) => {
     if (exact === undefined) return true
@@ -184,6 +184,7 @@ function getConfig(
           publicCreditsPerUsd:
             Number.isFinite(ledgerK) &&
             config.publicCreditUnit === 'CREDIT' &&
+            publicK === 500000 &&
             exactMatches(publicK, config.publicCreditsPerUsdExact)
               ? publicK
               : Number.NaN,

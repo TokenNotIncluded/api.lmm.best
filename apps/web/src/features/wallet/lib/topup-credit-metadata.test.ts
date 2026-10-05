@@ -13,10 +13,10 @@ const units = {
   quota_unit: 'LEDGER_QUOTA',
   legacy_credit_unit: 'LEDGER_QUOTA',
   public_credit_unit: 'CREDIT',
-  ledger_quota_per_usd: 5,
-  ledger_quota_per_usd_exact: '5',
-  public_credits_per_usd: 2,
-  public_credits_per_usd_exact: '2',
+  ledger_quota_per_usd: 500000,
+  ledger_quota_per_usd_exact: '500000',
+  public_credits_per_usd: 500000,
+  public_credits_per_usd_exact: '500000',
 }
 const catalog = {
   ...units,
@@ -26,16 +26,16 @@ const catalog = {
   public_credit_amount_unit: 'CREDIT',
   credit_amount_options: [10, 20],
   ledger_quota_amount_options: [10, 20],
-  public_credit_amount_options: ['4', '8'],
+  public_credit_amount_options: ['10', '20'],
   credit_discount: { '10': 0.9 },
   ledger_quota_discount: { '10': 0.9 },
-  public_credit_discount: { '4': 0.9 },
+  public_credit_discount: { '10': 0.9 },
   credit_min_topup: 1,
   ledger_quota_min_topup: 1,
-  public_credit_min_topup: '0.4',
+  public_credit_min_topup: '1',
   stripe_credit_min_topup: 10,
   stripe_ledger_quota_min_topup: 10,
-  stripe_public_credit_min_topup: '4',
+  stripe_public_credit_min_topup: '10',
   waffo_credit_min_topup: 0,
   waffo_ledger_quota_min_topup: 0,
   waffo_public_credit_min_topup: '0',
@@ -44,7 +44,7 @@ const catalog = {
   pancake_public_credit_min_topup: '0',
   stripe_credit_max_topup: 100,
   stripe_ledger_quota_max_topup: 100,
-  stripe_public_credit_max_topup: '40',
+  stripe_public_credit_max_topup: '100',
   waffo_credit_max_topup: null,
   waffo_ledger_quota_max_topup: null,
   waffo_public_credit_max_topup: null,
@@ -58,23 +58,21 @@ const catalog = {
       credit_amount_unit: 'LEDGER_QUOTA',
       min_topup_credit: '1',
       min_topup_ledger_quota: '1',
-      min_topup_public_credit: '0.4',
+      min_topup_public_credit: '1',
     },
   ],
 }
 
-test('captures exact units and preserves large raw quotas and noninteger public projections', () => {
+test('captures fixed units, preserves raw points, and rejects nonidentity projections', () => {
   const project = creditProjection(units)
   assert.ok(project)
-  assert.equal(project(Number.MAX_SAFE_INTEGER), '3602879701896396.4')
+  assert.equal(project(Number.MAX_SAFE_INTEGER), '9007199254740991')
   const repeating = creditProjection({
     ...units,
     ledger_quota_per_usd: 3,
     ledger_quota_per_usd_exact: '3',
   })
-  assert.ok(repeating)
-  assert.equal(repeating(1), `0.${'6'.repeat(63)}7`)
-  assert.equal(repeating(2), `1.${'3'.repeat(64)}`)
+  assert.equal(repeating, null)
   assert.equal(hasCompletePublicCreditCatalog(catalog), true)
 })
 
@@ -122,7 +120,7 @@ test('rejects old, partial, unknown and mixed-basis metadata instead of using le
   ]) {
     assert.equal(
       hasCompletePublicCreditCatalog({ ...catalog, ...override }),
-      false
+      false,
     )
   }
 })
@@ -140,7 +138,7 @@ test('method raw limits and public projections must be paired; unlimited caps ne
         ...catalog,
         pay_methods: [{ ...catalog.pay_methods[0], ...override }],
       }),
-      false
+      false,
     )
   }
   assert.equal(
@@ -148,7 +146,7 @@ test('method raw limits and public projections must be paired; unlimited caps ne
       ...catalog,
       pay_methods: JSON.stringify(catalog.pay_methods),
     }),
-    true
+    true,
   )
 })
 
@@ -160,11 +158,11 @@ test('successful grant metadata identifies the immutable quota and captured publ
     credit_amount: 10,
     credit_amount_unit: 'LEDGER_QUOTA',
     public_credit_amount_unit: 'CREDIT',
-    public_credit_amount: '4',
+    public_credit_amount: '10',
   }
   assert.equal(hasCompleteCreditGrant(grant, 10), true)
   assert.equal(hasCompleteCreditGrant(grant, 4), false)
-  assert.equal(hasCompleteCreditGrant(grant, undefined, 4), true)
+  assert.equal(hasCompleteCreditGrant(grant, undefined, 10), true)
   assert.equal(hasCompleteCreditGrant(grant, undefined, 3), false)
   const fractionalLedger = {
     ...grant,
@@ -174,7 +172,7 @@ test('successful grant metadata identifies the immutable quota and captured publ
     credit_amount: 3,
     public_credit_amount: '2.4',
   }
-  assert.equal(hasCompleteCreditGrant(fractionalLedger, undefined, 3), true)
+  assert.equal(hasCompleteCreditGrant(fractionalLedger, undefined, 3), false)
   assert.equal(
     hasCompleteCreditGrant(
       {
@@ -184,12 +182,12 @@ test('successful grant metadata identifies the immutable quota and captured publ
         public_credit_amount: '3.2',
       },
       undefined,
-      3
+      3,
     ),
-    false
+    false,
   )
   for (const override of [
-    { public_credit_amount: '10' },
+    { public_credit_amount: '4' },
     { credit_amount: 4 },
     { public_credit_metadata_version: undefined },
     { public_credit_amount_unit: 'LEDGER_QUOTA' },

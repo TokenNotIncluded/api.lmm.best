@@ -71,6 +71,9 @@ pub(super) async fn currency_basis(
         return Ok(None);
     };
     let current = options.get("QuotaPerUnit").map_or("500000", String::as_str);
+    if crate::public_credit_units::PublicCreditDenomination::from_options(options).is_err() {
+        return Ok(None);
+    }
     let row = sqlx::query_as::<_, (bool, String)>(
         "SELECT $1::TEXT::NUMERIC>0 AND $1::TEXT::NUMERIC<=9007199254740991 AND $2::TEXT::NUMERIC>0 AND $2::TEXT::NUMERIC<=9007199254740991 AND $2::TEXT::NUMERIC=$3::TEXT::NUMERIC AND ROUND($1::TEXT::NUMERIC/$2::TEXT::NUMERIC(1000,500),64)>0,trim_scale(ROUND($1::TEXT::NUMERIC/$2::TEXT::NUMERIC(1000,500),64))::TEXT",
     )
