@@ -12,6 +12,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import socket
 import stat
@@ -205,6 +206,10 @@ def serve(path, expected, uid=0, lock_paths_override=None):
 
 def inspect_writer(path, expected):
     value = handoff(path, expected)
+    return inspect_writer_value(value)
+
+
+def inspect_writer_value(value, uid=0):
     stopped = value.get('stopped_writer')
     if not stopped:
         raise RuntimeError('writer inspection requires a sealed stopped writer receipt')
@@ -216,24 +221,105 @@ def inspect_writer(path, expected):
                        'Result': 'success', 'ControlGroup': '', 'InvocationID': stopped['invocation_id']}
     if any(unit.get(key) != expected for key, expected in expected_values.items()) or Path('/proc', str(stopped['pid'])).exists():
         raise RuntimeError('writer stopped identity, cgroup or exit evidence changed')
-    journal = bound_file(stopped['shutdown_journal_path'], stopped['shutdown_journal_sha256'])
-    if b'server exited' not in journal:
+    journal = bound_file(stopped['shutdown_journal_path'], stopped['shutdown_journal_sha256'], uid)
+    if b'server exited' not in journal or re.search(rb'\b(?:panic|fatal)\b', journal.lower()):
         raise RuntimeError('writer shutdown evidence is incomplete')
+    if value['stage'] == 'post':
+        if b'credit_transition_prepare shutdown_complete=true business_enabled=false' not in journal:
+            raise RuntimeError('prepared bridge shutdown receipt is missing')
+    else:
+        reports = re.findall(rb'refund_tasks execution_complete=true accepted=(\d+) finished=(\d+) active=0 failed=0', journal)
+        if not reports or reports[-1][0] != reports[-1][1]:
+            raise RuntimeError('ordinary writer refund shutdown receipt is missing')
     return {'format': 'lmm-credit-maintenance-writer-v1',
             'transition_id': value['transition_id'], 'transition_intent_sha256': value['transition_intent_sha256'],
             'provider_sha256': value['provider_sha256'], 'prepare_config_sha256': value['prepare_config_sha256'],
             'stopped': True, 'pid': stopped['pid'], 'invocation_id': stopped['invocation_id'], 'unit': unit}
 
 
+def seal_stopped(path, expected, workspace, stage, output, uid=0, lock_paths_override=None):
+    value = handoff(path, expected, uid)
+    descriptor, lease = adopt(value, expected, (lock_paths_override or LOCKS)[value['deployment_tool']], uid)
+    try:
+        workspace = Path(workspace)
+        state_path = workspace / ('state/status.json' if value['deployment_tool'] == 'native' else 'state.json')
+        # The state is produced by the normal owner under this guardian lease;
+        # the caller does not supply or guess its evolving digest.
+        state_bytes = state_path.read_bytes()
+        state = json.loads(bound_file(state_path, hashlib.sha256(state_bytes).hexdigest(), uid))
+        previous_id = state.get('deployment_id') if value['deployment_tool'] == 'native' else state.get('release')
+        if workspace.name != previous_id or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,70}', previous_id or '') or state.get('phase') != 'FROZEN':
+            raise RuntimeError('seal-stopped requires the actual normal owner FROZEN workspace')
+        for key in ('transition_id', 'transition_intent_sha256', 'provider_sha256'):
+            if state.get(key) != value[key]:
+                raise RuntimeError('FROZEN owner differs from guardian transition binding')
+        if stage == 'post' and state.get('maintenance_confirmation') is not True:
+            raise RuntimeError('post seal requires a truly installed and confirmed bridge')
+        receipt_path = Path(state['capture_receipt_path'])
+        if not receipt_path.is_relative_to(workspace):
+            raise RuntimeError('normal owner capture receipt escaped its workspace')
+        receipt = json.loads(bound_file(receipt_path, state['capture_receipt_sha256'], uid))
+        if receipt.get('format') != 'lmm-credit-maintenance-capture-v1' or receipt.get('phase') != 'FROZEN' or any(receipt.get(key) != value[key] for key in ('transition_id', 'transition_intent_sha256')):
+            raise RuntimeError('FROZEN receipt is not the same transition')
+        if stage == 'post' and (receipt.get('was_maintenance_confirmed') is not True or receipt.get('provider_sha256') != value['provider_sha256']):
+            raise RuntimeError('post N-1 is not the actual confirmed bridge provider')
+        for name in ('archived_environment', 'process_environment', 'shutdown_journal'):
+            if not Path(receipt[name + '_path']).is_relative_to(workspace):
+                raise RuntimeError('normal owner frozen evidence escaped its workspace')
+            bound_file(receipt[name + '_path'], receipt[name + '_sha256'], uid)
+        enriched = {key: item for key, item in value.items() if not key.startswith('_') and key not in ('path', 'sha256')}
+        enriched.update(stage=stage, previous_deployment_id=previous_id,
+                        capture_receipt_path=str(receipt_path), capture_receipt_sha256=state['capture_receipt_sha256'],
+                        archived_environment_path=receipt['archived_environment_path'], archived_environment_sha256=receipt['archived_environment_sha256'],
+                        stopped_writer={'pid': receipt['pid'], 'invocation_id': receipt['invocation_id'],
+                                        'shutdown_journal_path': receipt['shutdown_journal_path'], 'shutdown_journal_sha256': receipt['shutdown_journal_sha256']})
+        inspect_writer_value(enriched, uid)
+        target = Path(output)
+        if not target.is_absolute() or str(target) != os.path.normpath(str(target)):
+            raise RuntimeError('new handoff path must be absolute and canonical')
+        for parent in target.parents:
+            info = parent.lstat()
+            if not stat.S_ISDIR(info.st_mode) or info.st_uid not in (0, uid) or info.st_mode & 0o022:
+                raise RuntimeError('new handoff directory must be sealed and root owned')
+        content = json.dumps(enriched, indent=2).encode() + b'\n'
+        digest = hashlib.sha256(content).hexdigest()
+        reused = False
+        try:
+            fd = os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+        except FileExistsError:
+            if bound_file(target, digest, uid) != content:
+                raise RuntimeError('existing handoff output differs from reverified FROZEN owner')
+            reused = True
+        else:
+            with os.fdopen(fd, 'wb') as stream:
+                stream.write(content); stream.flush(); os.fsync(stream.fileno())
+        parent_fd = os.open(target.parent, os.O_DIRECTORY | os.O_CLOEXEC)
+        try: os.fsync(parent_fd)
+        finally: os.close(parent_fd)
+        return {'format': 'lmm-credit-maintenance-handoff-seal-v1', 'handoff_path': str(target), 'handoff_sha256': digest,
+                'transition_id': enriched['transition_id'], 'transition_intent_sha256': enriched['transition_intent_sha256'],
+                'provider_sha256': enriched['provider_sha256'], 'prepare_config_sha256': enriched['prepare_config_sha256'],
+                'previous_deployment_id': previous_id, 'stage': stage, 'reused': reused}
+    finally:
+        os.close(descriptor); lease.close()
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['serve', 'inspect', 'inspect-writer'])
+    parser.add_argument('action', choices=['serve', 'inspect', 'inspect-writer', 'seal-stopped'])
     parser.add_argument('--handoff', required=True)
     parser.add_argument('--handoff-sha256', required=True)
+    parser.add_argument('--workspace')
+    parser.add_argument('--stage', choices=['prebridge', 'post'])
+    parser.add_argument('--output')
     args = parser.parse_args(argv)
     if os.geteuid() != 0:
         parser.error('guardian must run as root')
-    if args.action == 'inspect-writer':
+    if args.action == 'seal-stopped':
+        if not args.workspace or not args.stage or not args.output:
+            parser.error('seal-stopped requires --workspace --stage --output')
+        print(json.dumps(seal_stopped(args.handoff, args.handoff_sha256, args.workspace, args.stage, args.output)))
+    elif args.action == 'inspect-writer':
         print(json.dumps(inspect_writer(args.handoff, args.handoff_sha256)))
     elif args.action == 'inspect':
         print(json.dumps(inspect(args.handoff, args.handoff_sha256)))
