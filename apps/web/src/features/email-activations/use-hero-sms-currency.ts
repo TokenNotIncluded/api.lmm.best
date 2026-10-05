@@ -5,12 +5,14 @@ import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 
 import { formatHeroSmsPlatformAmount } from './api'
 import { SMS_MINIMUM_BALANCE_LEGACY_UNITS } from './sms-balance'
+import type { HeroSmsPricingMetadata } from './types'
 
 /** Subscribe every quote and charge view to the same captured wallet denomination. */
 export function useHeroSmsCurrency() {
   const wallet = useWalletCurrency()
   const formatPrice = useCallback(
-    (value: number) => formatHeroSmsPlatformAmount(value, wallet),
+    (value: number, pricing?: HeroSmsPricingMetadata, quantity = 1) =>
+      formatHeroSmsPlatformAmount(value, wallet, pricing, quantity),
     [wallet]
   )
   const formatQuota = useCallback(

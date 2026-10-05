@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { api } from '@/lib/api'
 import {
   formatUSDInCurrency,
+  formatQuotaInCurrency,
   getCurrencyDisplay,
   getWalletDisplayCurrency,
   type CurrencyFormatOptions,
@@ -35,6 +36,7 @@ import type {
   HeroSmsListProductsParams,
   HeroSmsParsedError,
   HeroSmsProduct,
+  HeroSmsPricingMetadata,
   HeroSmsProductsPage,
   HeroSmsReorderInput,
 } from './types'
@@ -134,18 +136,32 @@ function normalizeCreateResult(raw: unknown): HeroSmsCreateActivationsResult {
 interface HeroSmsPriceCurrency {
   config: { quotaPerUnit: number; creditsPerUsd?: number }
   formatUSD: (amount: number, options?: CurrencyFormatOptions) => string
+  formatQuota?: (quota: number, options?: CurrencyFormatOptions) => string
 }
 
-/** HeroSMS customer_price_usd is a legacy quote; settlement separately ceils raw Credits. */
+/** New DTOs project the immutable charge as USD; older cache entries retain legacy quotes. */
+export function isHeroSmsPriceAvailable(pricing?: HeroSmsPricingMetadata) {
+  return (
+    pricing?.pricing_schema_version === undefined ||
+    pricing.pricing_schema_version < 2 ||
+    (pricing.pricing_schema_version === 2 &&
+      pricing.pricing_currency === 'USD' &&
+      pricing.pricing_available === true)
+  )
+}
+
 export function formatHeroSmsPlatformAmount(
   value: number,
-  currency?: HeroSmsPriceCurrency
+  currency?: HeroSmsPriceCurrency,
+  pricing?: HeroSmsPricingMetadata,
+  quantity = 1
 ) {
+  if (!isHeroSmsPriceAvailable(pricing)) return '-'
   if (!Number.isFinite(value)) return '—'
   const config = currency?.config ?? getCurrencyDisplay().config
   if (
-    !Number.isFinite(config.quotaPerUnit) ||
-    config.quotaPerUnit <= 0 ||
+    (pricing?.pricing_schema_version !== 2 &&
+      (!Number.isFinite(config.quotaPerUnit) || config.quotaPerUnit <= 0)) ||
     !Number.isFinite(config.creditsPerUsd) ||
     Number(config.creditsPerUsd) <= 0
   ) {
@@ -153,11 +169,31 @@ export function formatHeroSmsPlatformAmount(
   }
   // Do not pass this continuous quote through the integral ledger conversion:
   // 0.000011 * 500000 is 5.5 quoted Credits, while charge_quota is 6.
-  const usd = (value * config.quotaPerUnit) / Number(config.creditsPerUsd)
+  const usd =
+    pricing?.pricing_schema_version === 2
+      ? value
+      : (value * config.quotaPerUnit) / Number(config.creditsPerUsd)
   const options = {
     abbreviate: false,
     digitsLarge: 8,
     digitsSmall: 8,
+  }
+  if (
+    pricing?.pricing_schema_version === 2 &&
+    pricing.charge_quota !== undefined
+  ) {
+    const quota = pricing.charge_quota * quantity
+    if (
+      !Number.isSafeInteger(quantity) ||
+      quantity < 1 ||
+      !Number.isSafeInteger(quota) ||
+      quota < 0
+    ) {
+      return '-'
+    }
+    return currency?.formatQuota
+      ? currency.formatQuota(quota, options)
+      : formatQuotaInCurrency(quota, getWalletDisplayCurrency(), options)
   }
   return currency
     ? currency.formatUSD(usd, options)
@@ -229,13 +265,20 @@ export async function listHeroSmsProducts(
       id: item.id,
       domain: String(item.domain ?? ''),
       site: String(item.site ?? ''),
-      customer_price_usd: Number(item.customer_price_usd ?? 0),
+      pricing_schema_version: item.pricing_schema_version,
+      pricing_currency: item.pricing_currency,
+      pricing_available: item.pricing_available,
+      customer_price_usd:
+        String(item.customer_price_usd ?? '').trim() === ''
+          ? Number.NaN
+          : Number(item.customer_price_usd),
       charge_quota: Number(item.charge_quota ?? 0),
       count: Number(item.count ?? 0),
       available:
-        typeof item.available === 'boolean'
+        isHeroSmsPriceAvailable(item) &&
+        (typeof item.available === 'boolean'
           ? item.available
-          : Number(item.available ?? item.count ?? 0) > 0,
+          : Number(item.available ?? item.count ?? 0) > 0),
     })) as HeroSmsProduct[],
     page: Number(result.page ?? 1),
     size: Number(result.size ?? 0),

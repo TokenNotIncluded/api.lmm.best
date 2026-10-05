@@ -204,7 +204,11 @@ export function SmsPriceTierPicker({
     [offer?.tiers]
   )
   if (tiers.length === 0) return null
-  const selected = selectedTierPrice || tiers[0]?.customer_price_usd || ''
+  const selected =
+    selectedTierPrice ||
+    tiers[0]?.price_tier_key ||
+    tiers[0]?.customer_price_usd ||
+    ''
   const value = bidEnabled ? '__custom_bid__' : selected
   return (
     <div className='space-y-2'>
@@ -230,16 +234,19 @@ export function SmsPriceTierPicker({
         }}
       >
         {tiers.map((tier) => {
-          const id = `hero-sms-price-${tier.customer_price_usd}`
+          const id = `hero-sms-price-${tier.price_tier_key ?? tier.customer_price_usd}`
           return (
             <Label
               key={tier.id}
               htmlFor={id}
               className='hover:bg-muted/50 flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2'
             >
-              <RadioGroupItem id={id} value={tier.customer_price_usd} />
+              <RadioGroupItem
+                id={id}
+                value={tier.price_tier_key ?? tier.customer_price_usd}
+              />
               <span className='min-w-0 flex-1 text-sm font-medium tabular-nums'>
-                ≤ {formatPrice(Number(tier.customer_price_usd))}
+                ≤ {formatPrice(Number(tier.customer_price_usd), tier)}
               </span>
               <span className='text-muted-foreground text-xs tabular-nums'>
                 {t('{{count}} available', { count: tier.inventory })}
@@ -442,13 +449,13 @@ export function SmsQuoteSummary({
             {t('Maximum unit price')}
           </p>
           <p className='mt-1 font-medium tabular-nums'>
-            {formatPrice(unitPrice)}
+            {formatPrice(unitPrice, offer)}
           </p>
         </div>
         <div>
           <p className='text-muted-foreground text-xs'>{t('Maximum total')}</p>
           <p className='mt-1 font-semibold tabular-nums'>
-            {formatPrice(unitPrice * quantity)}
+            {formatPrice(unitPrice * quantity, offer, quantity)}
           </p>
         </div>
       </div>

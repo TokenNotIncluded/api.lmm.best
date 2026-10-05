@@ -344,3 +344,88 @@ describe('email activation api', () => {
     assert.equal(receivedHeaders?.['Idempotency-Key'], 'reorder-idem')
   })
 })
+
+test('schema 2 email prices retain metadata and never repeat the legacy Q/K bridge', async () => {
+  const previous = useSystemConfigStore.getState().config.currency
+  const preference = useWalletCurrencyPreferenceStore.getState().preference
+  const config = {
+    ...DEFAULT_CURRENCY_CONFIG,
+    quotaPerUnit: 500_000,
+    creditsPerUsd: 3_500_000,
+    creditsPerUsdExact: '3500000',
+    cnyPerUsd: 7,
+    cnyPerUsdExact: '7',
+    currencyUnit: 'credit' as const,
+  }
+  useSystemConfigStore.getState().setConfig({ currency: config })
+  api.get = (async () => ({
+    data: {
+      success: true,
+      data: {
+        items: [
+          {
+            id: 'modern',
+            domain: 'mail.test',
+            site: 'demo.com',
+            customer_price_usd: String(1 / 7),
+            charge_quota: 500_000,
+            count: 4,
+            available: true,
+            pricing_schema_version: 2,
+            pricing_currency: 'USD',
+            pricing_available: true,
+          },
+        ],
+      },
+    },
+  })) as typeof api.get
+  try {
+    const product = (await listHeroSmsProducts()).items[0]
+    assert.ok(product)
+    for (const [currency, unit, total] of [
+      ['CNY', '1 CNY', '2 CNY'],
+      ['USD', '0.14285714 USD', '0.28571429 USD'],
+      ['CREDIT', '500,000 Credits', '1,000,000 Credits'],
+    ] as const) {
+      useWalletCurrencyPreferenceStore.getState().setPreference(currency)
+      assert.equal(
+        formatHeroSmsPlatformAmount(
+          product.customer_price_usd,
+          undefined,
+          product
+        ),
+        unit
+      )
+      assert.equal(
+        formatHeroSmsPlatformAmount(
+          product.customer_price_usd * 2,
+          undefined,
+          product,
+          2
+        ),
+        total
+      )
+    }
+    assert.equal(
+      formatHeroSmsPlatformAmount(1, undefined, {
+        ...product,
+        pricing_available: false,
+      }),
+      '-'
+    )
+    useSystemConfigStore.getState().setConfig({
+      currency: { ...config, creditsPerUsd: 0, creditsPerUsdExact: '' },
+    })
+    assert.equal(
+      formatHeroSmsPlatformAmount(
+        product.customer_price_usd,
+        undefined,
+        product
+      ),
+      '-'
+    )
+  } finally {
+    useSystemConfigStore.getState().setConfig({ currency: previous })
+    useWalletCurrencyPreferenceStore.getState().setPreference(preference)
+  }
+})

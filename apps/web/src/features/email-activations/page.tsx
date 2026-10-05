@@ -1016,7 +1016,8 @@ export function EmailActivationsPage() {
                         <MetaItem
                           label={t('Quote')}
                           value={formatPrice(
-                            selectedProduct?.customer_price_usd ?? 0
+                            selectedProduct?.customer_price_usd ?? 0,
+                            selectedProduct ?? undefined
                           )}
                         />
                         <MetaItem
@@ -1059,6 +1060,10 @@ export function EmailActivationsPage() {
                       disabled={
                         !selectedProduct ||
                         !selectedProduct.available ||
+                        formatPrice(
+                          selectedProduct.customer_price_usd,
+                          selectedProduct
+                        ) === '-' ||
                         selectedProduct.count < quantity ||
                         createMutation.isPending ||
                         productsLoading
@@ -1476,13 +1481,22 @@ export function EmailActivationsPage() {
                     ),
                     price: formatPrice(
                       purchaseTarget.product.customer_price_usd *
-                        purchaseTarget.quantity
+                        purchaseTarget.quantity,
+                      purchaseTarget.product,
+                      purchaseTarget.quantity
                     ),
                   }
                 )
               : ''
           }
           confirmText={t('Confirm purchase')}
+          disabled={
+            !purchaseTarget ||
+            formatPrice(
+              purchaseTarget.product.customer_price_usd,
+              purchaseTarget.product
+            ) === '-'
+          }
           isLoading={createMutation.isPending}
           handleConfirm={() =>
             purchaseTarget && void handlePurchase(purchaseTarget)
@@ -1514,13 +1528,21 @@ export function EmailActivationsPage() {
                     domain: reorderTarget.product.domain,
                     quota: formatQuota(reorderTarget.product.charge_quota),
                     price: formatPrice(
-                      reorderTarget.product.customer_price_usd
+                      reorderTarget.product.customer_price_usd,
+                      reorderTarget.product
                     ),
                   }
                 )
               : ''
           }
           confirmText={t('Confirm reorder')}
+          disabled={
+            !reorderTarget ||
+            formatPrice(
+              reorderTarget.product.customer_price_usd,
+              reorderTarget.product
+            ) === '-'
+          }
           isLoading={reorderMutation.isPending}
           handleConfirm={() => void handleConfirmReorder()}
         />

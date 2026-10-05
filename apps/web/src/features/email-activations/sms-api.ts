@@ -23,6 +23,7 @@ import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { createHeroSmsIdempotencyKey } from './api.js'
+import type { HeroSmsPricingMetadata } from './types'
 
 interface HeroSmsEnvelope<T> {
   success: boolean
@@ -45,21 +46,23 @@ export interface HeroSmsSmsService {
   popularity: number
 }
 
-export interface HeroSmsSmsPriceTier {
+export interface HeroSmsSmsPriceTier extends HeroSmsPricingMetadata {
+  price_tier_key?: string
   id: string
   inventory: number
-  /** Legacy quote units; actual ledger settlement is the integer charge_quota. */
+  /** Schema 2 is real USD; earlier cached quotes retain legacy units. */
   customer_price_usd: string
   charge_quota: number
 }
 
-export interface HeroSmsSmsOffer {
+export interface HeroSmsSmsOffer extends HeroSmsPricingMetadata {
+  price_tier_key?: string
   id: string
   country_id: number
   service: string
   operator: string
   inventory: number
-  /** Legacy quote units; actual ledger settlement is the integer charge_quota. */
+  /** Schema 2 is real USD; earlier cached quotes retain legacy units. */
   customer_price_usd: string
   charge_quota: number
   bid?: boolean
@@ -76,13 +79,13 @@ export type HeroSmsSmsComplaintReason =
   | 'INCOMING_CALL_NUMBER'
   | 'INCOMING_CALL_VOICE'
 
-export interface HeroSmsSmsOrder {
+export interface HeroSmsSmsOrder extends HeroSmsPricingMetadata {
   id: string
   country_id: number
   service: string
   operator: string
   status: string
-  /** Legacy quote units; actual ledger settlement is the integer charge_quota. */
+  /** Schema 2 is real USD; earlier cached quotes retain legacy units. */
   customer_price_usd: string
   charge_quota: number
   refunded_quota: number

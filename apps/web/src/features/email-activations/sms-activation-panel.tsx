@@ -818,6 +818,7 @@ function resolveSmsQuantity(quantity: number, offer?: HeroSmsSmsOffer) {
 function createSmsPanelView({
   effectiveQuantity,
   offer,
+  currencyAvailable,
   purchasePending,
   batchResult,
   selectedCountry,
@@ -828,6 +829,7 @@ function createSmsPanelView({
 }: {
   effectiveQuantity: number
   offer?: HeroSmsSmsOffer
+  currencyAvailable: boolean
   purchasePending: boolean
   batchResult: HeroSmsBatchPurchaseResult | null
   selectedCountry?: HeroSmsSmsCountry
@@ -840,8 +842,15 @@ function createSmsPanelView({
     effectiveQuantity,
     totalPrice: Number(offer?.customer_price_usd ?? 0) * effectiveQuantity,
     canPurchase: Boolean(
+      currencyAvailable &&
       offer &&
       offer.inventory >= effectiveQuantity &&
+      offer.pricing_available !== false &&
+      (offer.pricing_schema_version === undefined ||
+        offer.pricing_schema_version < 2 ||
+        (offer.pricing_schema_version === 2 &&
+          offer.pricing_currency === 'USD' &&
+          offer.pricing_available === true)) &&
       !purchasePending &&
       !batchResult?.failure?.ambiguous
     ),
@@ -856,7 +865,7 @@ function createSmsPanelView({
 // pi-lens-ignore: high-fan-out -- composition root delegates domain and rendering responsibilities.
 export function HeroSmsSmsActivationPanel() {
   const { t, i18n } = useTranslation()
-  const { formatPrice, minimumBalance } = useHeroSmsCurrency()
+  const { formatPrice, minimumBalance, config } = useHeroSmsCurrency()
   const queryClient = useQueryClient()
   const purchaseBalance = useSmsPurchaseBalance()
   const recovery = useSmsPurchaseRecovery()
@@ -1113,6 +1122,8 @@ export function HeroSmsSmsActivationPanel() {
   })
 
   const view = createSmsPanelView({
+    currencyAvailable:
+      Number.isFinite(config.creditsPerUsd) && Number(config.creditsPerUsd) > 0,
     effectiveQuantity,
     offer: effectiveOffer,
     purchasePending: ownPurchasePending,
@@ -1364,7 +1375,11 @@ export function HeroSmsSmsActivationPanel() {
             quantity: view.effectiveQuantity,
             service: selectedService?.name ?? service,
             country: view.selectedCountryName,
-            price: formatPrice(view.totalPrice),
+            price: formatPrice(
+              view.totalPrice,
+              effectiveOffer,
+              view.effectiveQuantity
+            ),
           }
         )}
         confirmText={t('Confirm purchase')}

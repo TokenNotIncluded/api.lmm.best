@@ -182,3 +182,69 @@ describe('phone activation quantity purchases', () => {
     assert.deepEqual(keys, ['batch-d-1', 'batch-d-1'])
   })
 })
+
+test('an unavailable modern SMS quote never sends a new paid purchase', async () => {
+  let requests = 0
+  const initialOffer = {
+    ...offer('unavailable'),
+    pricing_schema_version: 2,
+    pricing_currency: '',
+    pricing_available: false,
+  }
+  const result = await purchaseHeroSmsBatch({
+    initialOffer,
+    quantity: 2,
+    idempotencyKey: 'denied-modern',
+    getFreshOffer: async () => initialOffer,
+    createOrder: async () => {
+      requests += 1
+      return { order: order('never'), quota: 1 }
+    },
+    isAmbiguousNetworkError: () => false,
+  })
+  assert.equal(requests, 0)
+  assert.equal(result.failure?.code, 'PRICE_CHANGED')
+  assert.equal(result.orders.length, 0)
+})
+
+test('equal ceiled Credit charges retain independent SMS tier selection across fresh quote tokens', () => {
+  const initial: HeroSmsSmsOffer = {
+    ...offer('first-token', 1),
+    pricing_schema_version: 2,
+    pricing_currency: 'USD',
+    pricing_available: true,
+    customer_price_usd: String(1 / 3_500_000),
+    price_tier_key: 'legacy-price-a',
+    tiers: [
+      {
+        id: 'first-token',
+        inventory: 2,
+        customer_price_usd: String(1 / 3_500_000),
+        charge_quota: 1,
+        price_tier_key: 'legacy-price-a',
+      },
+      {
+        id: 'second-token',
+        inventory: 3,
+        customer_price_usd: String(1 / 3_500_000),
+        charge_quota: 1,
+        price_tier_key: 'legacy-price-b',
+      },
+    ],
+  }
+  const selected = selectHeroSmsPriceTier(initial, 'legacy-price-b')
+  assert.equal(selected?.id, 'second-token')
+  assert.equal(selected?.inventory, 3)
+  const fresh = {
+    ...initial,
+    tiers: initial.tiers?.map((tier) => ({ ...tier, id: tier.id + '-fresh' })),
+  }
+  assert.equal(
+    selectHeroSmsPriceTier(fresh, 'legacy-price-b')?.id,
+    'second-token-fresh'
+  )
+  assert.equal(
+    initial.tiers?.[0]?.customer_price_usd,
+    initial.tiers?.[1]?.customer_price_usd
+  )
+})

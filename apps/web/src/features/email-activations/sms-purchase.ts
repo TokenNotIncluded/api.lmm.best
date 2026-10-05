@@ -68,11 +68,14 @@ export function selectHeroSmsPriceTier(
           inventory: offer.inventory,
           customer_price_usd: offer.customer_price_usd,
           charge_quota: offer.charge_quota,
+          price_tier_key: offer.price_tier_key,
         },
       ]
   const tier = customerPriceUSD
     ? tiers.find(
-        (candidate) => candidate.customer_price_usd === customerPriceUSD
+        (candidate) =>
+          (candidate.price_tier_key ?? candidate.customer_price_usd) ===
+          customerPriceUSD
       )
     : tiers[0]
   if (!tier) return undefined
@@ -82,6 +85,7 @@ export function selectHeroSmsPriceTier(
     inventory: tier.inventory,
     customer_price_usd: tier.customer_price_usd,
     charge_quota: tier.charge_quota,
+    price_tier_key: tier.price_tier_key,
     bid: false,
   }
 }
@@ -176,6 +180,19 @@ export async function purchaseHeroSmsBatch(
       }
     }
 
+    if (
+      offer.pricing_schema_version !== undefined &&
+      offer.pricing_schema_version >= 2 &&
+      (offer.pricing_schema_version !== 2 ||
+        offer.pricing_currency !== 'USD' ||
+        offer.pricing_available !== true)
+    ) {
+      return {
+        requested,
+        orders,
+        failure: { code: 'PRICE_CHANGED', item: index + 1 },
+      }
+    }
     if (!isSamePurchaseQuote(dependencies.initialOffer, offer)) {
       return {
         requested,

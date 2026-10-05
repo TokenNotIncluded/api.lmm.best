@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 )
 
 const (
@@ -130,55 +132,41 @@ func logHelper(ctx context.Context, level string, msg string) {
 }
 
 func LogQuota(quota int) string {
-	// 新逻辑：根据额度展示类型输出
-	q := float64(quota)
-	switch operation_setting.GetQuotaDisplayType() {
-	case operation_setting.QuotaDisplayTypeCNY:
-		usd := q / common.QuotaPerUnit
-		cny := usd * operation_setting.USDExchangeRate
-		return fmt.Sprintf("¥%.6f 额度", cny)
-	case operation_setting.QuotaDisplayTypeCustom:
-		usd := q / common.QuotaPerUnit
-		rate := operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate
-		symbol := operation_setting.GetGeneralSetting().CustomCurrencySymbol
-		if symbol == "" {
-			symbol = "¤"
-		}
-		if rate <= 0 {
-			rate = 1
-		}
-		v := usd * rate
-		return fmt.Sprintf("%s%.6f 额度", symbol, v)
-	case operation_setting.QuotaDisplayTypeTokens:
-		return fmt.Sprintf("%d 点额度", quota)
-	default: // USD
-		return fmt.Sprintf("＄%.6f 额度", q/common.QuotaPerUnit)
-	}
+	return FormatQuota(quota)
 }
 
 func FormatQuota(quota int) string {
-	q := float64(quota)
+	raw := fmt.Sprintf("%d Credits", quota)
+	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
+		return raw
+	}
+	anchor, err := common.CreditsPerUSD()
+	if err != nil {
+		return raw
+	}
+	usd := decimal.NewFromInt(int64(quota)).DivRound(anchor, 64)
+	format := func(amount decimal.Decimal, unit string) string {
+		text := amount.StringFixed(6)
+		if !amount.IsZero() && amount.Round(6).IsZero() {
+			text = amount.String()
+		}
+		return text + " " + unit
+	}
 	switch operation_setting.GetQuotaDisplayType() {
 	case operation_setting.QuotaDisplayTypeCNY:
-		usd := q / common.QuotaPerUnit
-		cny := usd * operation_setting.USDExchangeRate
-		return fmt.Sprintf("¥%.6f", cny)
+		rate := operation_setting.USDExchangeRate
+		if rate <= 0 || math.IsNaN(rate) || math.IsInf(rate, 0) {
+			return raw
+		}
+		return format(usd.Mul(decimal.NewFromFloat(rate)), "CNY")
 	case operation_setting.QuotaDisplayTypeCustom:
-		usd := q / common.QuotaPerUnit
 		rate := operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate
-		symbol := operation_setting.GetGeneralSetting().CustomCurrencySymbol
-		if symbol == "" {
-			symbol = "¤"
+		if rate <= 0 || math.IsNaN(rate) || math.IsInf(rate, 0) {
+			return raw
 		}
-		if rate <= 0 {
-			rate = 1
-		}
-		v := usd * rate
-		return fmt.Sprintf("%s%.6f", symbol, v)
-	case operation_setting.QuotaDisplayTypeTokens:
-		return fmt.Sprintf("%d", quota)
+		return format(usd.Mul(decimal.NewFromFloat(rate)), operation_setting.GetGeneralSetting().CustomCurrencyCode)
 	default:
-		return fmt.Sprintf("＄%.6f", q/common.QuotaPerUnit)
+		return format(usd, "USD")
 	}
 }
 

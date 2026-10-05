@@ -96,6 +96,7 @@ type HeroSMSSettingsUpdate struct {
 }
 
 type HeroSMSEmailProduct struct {
+	HeroSMSPricingMetadata
 	ID               string `json:"id"`
 	Site             string `json:"site"`
 	Domain           string `json:"domain"`
@@ -118,6 +119,7 @@ type HeroSMSEmailPurchaseRequest struct {
 }
 
 type HeroSMSEmailOrderView struct {
+	HeroSMSPricingMetadata
 	ID               string                       `json:"id"`
 	Operation        string                       `json:"operation"`
 	Status           string                       `json:"status"`
@@ -576,15 +578,17 @@ func ListHeroSMSEmailProducts(ctx context.Context, page int, size int, site stri
 		if tokenErr != nil {
 			return nil, newHeroSMSError(http.StatusServiceUnavailable, "NOT_CONFIGURED", "HeroSMS encryption is unavailable")
 		}
+		priceUSD, pricing := heroSMSPriceProjection(chargeQuota, 1)
 		// pi-lens-ignore: ast-grep:gorm-n-plus-one
 		allProducts = append(allProducts, HeroSMSEmailProduct{
-			ID:               productID,
-			Site:             normalizedSite,
-			Domain:           domain,
-			Count:            item.Count,
-			Available:        item.Count > 0,
-			CustomerPriceUSD: customerPrice.String(),
-			ChargeQuota:      chargeQuota,
+			ID:                     productID,
+			Site:                   normalizedSite,
+			Domain:                 domain,
+			Count:                  item.Count,
+			Available:              item.Count > 0,
+			HeroSMSPricingMetadata: pricing,
+			CustomerPriceUSD:       priceUSD,
+			ChargeQuota:            chargeQuota,
 		})
 	}
 	start := (page - 1) * size
@@ -1952,6 +1956,7 @@ func getHeroSMSEmailOrder(userID int, orderID string) (*HeroSMSEmailOrder, error
 }
 
 func heroSMSEmailOrderView(order *HeroSMSEmailOrder) (*HeroSMSEmailOrderView, error) {
+	priceUSD, pricing := heroSMSPriceProjection(order.ChargeQuota, order.Quantity)
 	views := make([]HeroSMSEmailActivationView, 0, len(order.Activations))
 	for i := range order.Activations {
 		view, err := heroSMSEmailActivationView(&order.Activations[i])
@@ -1961,19 +1966,20 @@ func heroSMSEmailOrderView(order *HeroSMSEmailOrder) (*HeroSMSEmailOrderView, er
 		views = append(views, *view)
 	}
 	return &HeroSMSEmailOrderView{
-		ID:               order.ID,
-		Operation:        order.Operation,
-		Status:           order.Status,
-		DomainID:         order.DomainID,
-		Site:             order.Site,
-		Domain:           order.Domain,
-		Quantity:         order.Quantity,
-		CustomerPriceUSD: microsToDecimal(order.CustomerUnitPriceMicros).StringFixed(6),
-		ChargeQuota:      order.ChargeQuota,
-		RefundedQuota:    order.RefundedQuota,
-		CreatedAt:        order.CreatedAt,
-		UpdatedAt:        order.UpdatedAt,
-		Activations:      views,
+		ID:                     order.ID,
+		Operation:              order.Operation,
+		Status:                 order.Status,
+		DomainID:               order.DomainID,
+		Site:                   order.Site,
+		Domain:                 order.Domain,
+		Quantity:               order.Quantity,
+		HeroSMSPricingMetadata: pricing,
+		CustomerPriceUSD:       priceUSD,
+		ChargeQuota:            order.ChargeQuota,
+		RefundedQuota:          order.RefundedQuota,
+		CreatedAt:              order.CreatedAt,
+		UpdatedAt:              order.UpdatedAt,
+		Activations:            views,
 	}, nil
 }
 

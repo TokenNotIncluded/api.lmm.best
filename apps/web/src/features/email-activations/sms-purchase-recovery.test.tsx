@@ -20,7 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 Copyright (C) 2026 LIghtJUNction
 */
 import assert from 'node:assert/strict'
-import { after, afterEach, test } from 'node:test'
+import { after, afterEach, beforeEach, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 
@@ -63,6 +63,8 @@ const { QueryClient, QueryClientProvider } =
   await import('@tanstack/react-query')
 const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
+const { DEFAULT_CURRENCY_CONFIG, useSystemConfigStore } =
+  await import('@/stores/system-config-store')
 const { useSmsPurchaseBalance } =
   await import('@/features/email-activations/sms-use-purchase-balance')
 const { HeroSmsSmsActivationPanel } =
@@ -80,6 +82,20 @@ await i18n.init({
 })
 const originalGet = api.get
 const originalPost = api.post
+
+beforeEach(() => {
+  useSystemConfigStore.getState().setConfig({
+    currency: {
+      ...DEFAULT_CURRENCY_CONFIG,
+      currencyUnit: 'credit',
+      creditsPerUsd: 3_500_000,
+      creditsPerUsdExact: '3500000',
+      cnyPerUsd: 7,
+      cnyPerUsdExact: '7',
+      quotaPerUnit: 500_000,
+    },
+  })
+})
 
 function createSerialLocks() {
   const tails = new Map<string, Promise<unknown>>()
@@ -2060,5 +2076,41 @@ test('an unmounted publisher cannot remove a pair another context has already st
   } finally {
     release.resolve()
     await second.close()
+  }
+})
+
+test('missing fiat calibration disables a new SMS purchase without sending a paid request', async () => {
+  login(1)
+  useSystemConfigStore.getState().setConfig({
+    currency: {
+      ...DEFAULT_CURRENCY_CONFIG,
+      quotaPerUnit: 500_000,
+      creditsPerUsd: 0,
+      creditsPerUsdExact: '',
+    },
+  })
+  mockPanelApi(async () => response(1, 5_000_000))
+  let paidRequests = 0
+  api.post = (async () => {
+    paidRequests += 1
+    return createdOrder()
+  }) as typeof api.post
+  const probe = await mount(true)
+  try {
+    await settle(() => probe.balance.canPurchase)
+    await act(async () => findButton('Favorites').click())
+    await settle(() =>
+      Array.from(document.querySelectorAll('button')).some(
+        (item) => item.textContent?.includes('Telegram') && !item.disabled
+      )
+    )
+    await act(async () => findButton('Telegram').click())
+    await settle(
+      () => document.body.textContent?.includes('Maximum unit price') === true
+    )
+    assert.equal(findButton('Buy phone activation').disabled, true)
+    assert.equal(paidRequests, 0)
+  } finally {
+    await probe.close()
   }
 })

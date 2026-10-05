@@ -86,7 +86,7 @@ function Charge() {
   return <output data-actual-charge>{formatQuota(offer.charge_quota)}</output>
 }
 
-async function mount() {
+async function mount(nextOffer = offer) {
   const container = document.createElement('div')
   document.body.append(container)
   root = createRoot(container)
@@ -96,7 +96,7 @@ async function mount() {
       <I18nextProvider i18n={i18n}>
         <section data-quote>
           <SmsQuoteSummary
-            offer={offer}
+            offer={nextOffer}
             quantity={2}
             isFetching={false}
             isError={false}
@@ -354,4 +354,26 @@ test('custom bid input changes denomination without changing the legacy API pric
     container.querySelector('[data-api-bid]')?.textContent,
     '0.000012'
   )
+})
+
+test('schema 2 mounted SMS unit and quantity quotes use real USD exactly once', async () => {
+  const modern: HeroSmsSmsOffer = {
+    ...offer,
+    customer_price_usd: String(1 / 7),
+    charge_quota: 500_000,
+    pricing_schema_version: 2,
+    pricing_currency: 'USD',
+    pricing_available: true,
+  }
+  const container = await mount(modern)
+  for (const [currency, unit, total] of [
+    ['CNY', '1 CNY', '2 CNY'],
+    ['USD', '0.14285714 USD', '0.28571429 USD'],
+    ['CREDIT', '500,000 Credits', '1,000,000 Credits'],
+  ] as const) {
+    await act(async () =>
+      useWalletCurrencyPreferenceStore.getState().setPreference(currency)
+    )
+    assert.deepEqual(quoteAmounts(container).slice(1), [unit, total])
+  }
 })

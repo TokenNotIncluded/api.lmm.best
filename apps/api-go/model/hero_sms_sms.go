@@ -162,6 +162,8 @@ type heroSMSSMSServicePopularity struct {
 var heroSMSSMSIdempotencyMissHook func()
 
 type HeroSMSSMSPriceTierView struct {
+	HeroSMSPricingMetadata
+	PriceTierKey     string `json:"price_tier_key"`
 	ID               string `json:"id"`
 	Inventory        int    `json:"inventory"`
 	CustomerPriceUSD string `json:"customer_price_usd"`
@@ -169,6 +171,8 @@ type HeroSMSSMSPriceTierView struct {
 }
 
 type HeroSMSSMSOfferView struct {
+	HeroSMSPricingMetadata
+	PriceTierKey     string                    `json:"price_tier_key"`
 	ID               string                    `json:"id"`
 	CountryID        int                       `json:"country_id"`
 	Service          string                    `json:"service"`
@@ -185,6 +189,7 @@ type HeroSMSSMSPurchaseRequest struct {
 }
 
 type HeroSMSSMSOrderView struct {
+	HeroSMSPricingMetadata
 	ID                   string  `json:"id"`
 	CountryID            int     `json:"country_id"`
 	Service              string  `json:"service"`
@@ -485,11 +490,14 @@ func getHeroSMSSMSOffer(ctx context.Context, userID int, countryID int, service 
 		if quoteErr != nil {
 			return nil, newHeroSMSError(http.StatusServiceUnavailable, "NOT_CONFIGURED", "HeroSMS encryption is unavailable")
 		}
+		priceUSD, pricing := heroSMSPriceProjection(chargeQuota, 1)
 		tiers = append(tiers, HeroSMSSMSPriceTierView{
-			ID:               quoteID,
-			Inventory:        tier.Count,
-			CustomerPriceUSD: customerPrice.String(),
-			ChargeQuota:      chargeQuota,
+			ID:                     quoteID,
+			Inventory:              tier.Count,
+			HeroSMSPricingMetadata: pricing,
+			PriceTierKey:           hashString(customerPrice.String()),
+			CustomerPriceUSD:       priceUSD,
+			ChargeQuota:            chargeQuota,
 		})
 	}
 	if len(tiers) == 0 {
@@ -532,24 +540,29 @@ func getHeroSMSSMSOffer(ctx context.Context, userID int, countryID int, service 
 		if quoteErr != nil {
 			return nil, newHeroSMSError(http.StatusServiceUnavailable, "NOT_CONFIGURED", "HeroSMS encryption is unavailable")
 		}
+		priceUSD, pricing := heroSMSPriceProjection(chargeQuota, 1)
 		selected = HeroSMSSMSPriceTierView{
-			ID:               quoteID,
-			Inventory:        inventory,
-			CustomerPriceUSD: maxCustomerPrice.String(),
-			ChargeQuota:      chargeQuota,
+			ID:                     quoteID,
+			Inventory:              inventory,
+			HeroSMSPricingMetadata: pricing,
+			PriceTierKey:           hashString(maxCustomerPrice.String()),
+			CustomerPriceUSD:       priceUSD,
+			ChargeQuota:            chargeQuota,
 		}
 	}
 
 	return &HeroSMSSMSOfferView{
-		ID:               selected.ID,
-		CountryID:        countryID,
-		Service:          service,
-		Operator:         operator,
-		Inventory:        selected.Inventory,
-		CustomerPriceUSD: selected.CustomerPriceUSD,
-		ChargeQuota:      selected.ChargeQuota,
-		Bid:              bid,
-		Tiers:            tiers,
+		HeroSMSPricingMetadata: selected.HeroSMSPricingMetadata,
+		PriceTierKey:           selected.PriceTierKey,
+		ID:                     selected.ID,
+		CountryID:              countryID,
+		Service:                service,
+		Operator:               operator,
+		Inventory:              selected.Inventory,
+		CustomerPriceUSD:       selected.CustomerPriceUSD,
+		ChargeQuota:            selected.ChargeQuota,
+		Bid:                    bid,
+		Tiers:                  tiers,
 	}, nil
 }
 
@@ -787,7 +800,7 @@ func CheckHeroSMSSMSPurchaseBalance(ctx context.Context, userID int) error {
 
 func heroSMSSMSMinimumBalanceError(quota, minimumQuota int) error {
 	if quota < minimumQuota {
-		return newHeroSMSError(http.StatusPaymentRequired, "TEMPORARY_SMS_MINIMUM_BALANCE", "Temporary SMS purchases require a balance of at least USD 10")
+		return newHeroSMSError(http.StatusPaymentRequired, "TEMPORARY_SMS_MINIMUM_BALANCE", fmt.Sprintf("Temporary SMS purchases require a balance of at least %d Credits", minimumQuota))
 	}
 	return nil
 }
@@ -1680,17 +1693,19 @@ func ListHeroSMSSMSOrders(userID int, page int, size int) (*HeroSMSSMSOrderPage,
 }
 
 func heroSMSSMSOrderSummaryView(order *HeroSMSSMSOrder) (*HeroSMSSMSOrderView, error) {
+	priceUSD, pricing := heroSMSPriceProjection(order.ChargeQuota, 1)
 	view := &HeroSMSSMSOrderView{
-		ID:               order.ID,
-		CountryID:        order.CountryID,
-		Service:          order.Service,
-		Operator:         order.Operator,
-		Status:           order.Status,
-		CustomerPriceUSD: order.CustomerPriceUSD,
-		ChargeQuota:      order.ChargeQuota,
-		RefundedQuota:    order.RefundedQuota,
-		CreatedAt:        order.CreatedAt,
-		UpdatedAt:        order.UpdatedAt,
+		HeroSMSPricingMetadata: pricing,
+		ID:                     order.ID,
+		CountryID:              order.CountryID,
+		Service:                order.Service,
+		Operator:               order.Operator,
+		Status:                 order.Status,
+		CustomerPriceUSD:       priceUSD,
+		ChargeQuota:            order.ChargeQuota,
+		RefundedQuota:          order.RefundedQuota,
+		CreatedAt:              order.CreatedAt,
+		UpdatedAt:              order.UpdatedAt,
 	}
 	if order.PhoneCiphertext == "" {
 		return view, nil
@@ -1779,27 +1794,29 @@ func ClearHeroSMSSMSOrderHistory(userID int) (int64, error) {
 }
 
 func heroSMSSMSOrderView(order *HeroSMSSMSOrder) (*HeroSMSSMSOrderView, error) {
+	priceUSD, pricing := heroSMSPriceProjection(order.ChargeQuota, 1)
 	complaintRetryable := order.ComplaintStatus == "" || order.ComplaintStatus == HeroSMSSMSComplaintStatusFailed
 	view := &HeroSMSSMSOrderView{
-		ID:                   order.ID,
-		CountryID:            order.CountryID,
-		Service:              order.Service,
-		Operator:             order.Operator,
-		Status:               order.Status,
-		CustomerPriceUSD:     order.CustomerPriceUSD,
-		ChargeQuota:          order.ChargeQuota,
-		RefundedQuota:        order.RefundedQuota,
-		ProviderID:           order.ProviderID,
-		CanCancel:            order.Status == HeroSMSSMSOrderStatusActive && order.ProviderID != nil,
-		CanComplain:          order.Status == HeroSMSSMSOrderStatusActive && order.ProviderID != nil && order.CodeCiphertext == "" && complaintRetryable && !time.Now().Before(time.Unix(order.CreatedAt, 0).Add(heroSMSSMSComplaintWait)),
-		ComplaintType:        order.ComplaintType,
-		ComplaintStatus:      order.ComplaintStatus,
-		ComplaintSubmittedAt: order.ComplaintSubmittedAt,
-		LastErrorCode:        order.LastErrorCode,
-		LastErrorMessage:     order.LastErrorMessage,
-		CreatedAt:            order.CreatedAt,
-		UpdatedAt:            order.UpdatedAt,
-		ExpiresAt:            order.ProviderExpiresAt,
+		HeroSMSPricingMetadata: pricing,
+		ID:                     order.ID,
+		CountryID:              order.CountryID,
+		Service:                order.Service,
+		Operator:               order.Operator,
+		Status:                 order.Status,
+		CustomerPriceUSD:       priceUSD,
+		ChargeQuota:            order.ChargeQuota,
+		RefundedQuota:          order.RefundedQuota,
+		ProviderID:             order.ProviderID,
+		CanCancel:              order.Status == HeroSMSSMSOrderStatusActive && order.ProviderID != nil,
+		CanComplain:            order.Status == HeroSMSSMSOrderStatusActive && order.ProviderID != nil && order.CodeCiphertext == "" && complaintRetryable && !time.Now().Before(time.Unix(order.CreatedAt, 0).Add(heroSMSSMSComplaintWait)),
+		ComplaintType:          order.ComplaintType,
+		ComplaintStatus:        order.ComplaintStatus,
+		ComplaintSubmittedAt:   order.ComplaintSubmittedAt,
+		LastErrorCode:          order.LastErrorCode,
+		LastErrorMessage:       order.LastErrorMessage,
+		CreatedAt:              order.CreatedAt,
+		UpdatedAt:              order.UpdatedAt,
+		ExpiresAt:              order.ProviderExpiresAt,
 	}
 	var err error
 	if order.PhoneCiphertext != "" {
@@ -2099,5 +2116,5 @@ func sha256Hex(value string) string {
 }
 
 func HeroSMSSMSPricingExplanation() string {
-	return fmt.Sprintf("HeroSMS 1 CNY × %s = platform USD balance charge; quota conversion uses the platform 1:1 simplified balance model", heroSMSOptionValue(setting.HeroSMSOptionMultiplier, setting.HeroSMSPriceMultiplier))
+	return "HeroSMS charges retain their integer Credits; customer USD prices are projected from the immutable charge using Credits per USD."
 }
