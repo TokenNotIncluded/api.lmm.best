@@ -5,7 +5,7 @@ SPECS = {
     "redemptions": {
         "write": ("quota",),
         "int": ("user_id", "used_user_id", "quota", "status", "created_time", "redeemed_time", "expired_time"),
-        "text": ("reward_type",), "null": ("deleted_at",)},
+        "text": ("reward_type",), "nullable_text": ("reward_type",), "null": ("deleted_at",)},
     "open_source_bounty_projects": {
         "write": ("escrow_quota", "reward_quota", "net_reward_quota"),
         "int": ("owner_user_id", "escrow_quota", "reward_quota", "net_reward_quota", "reward_slots", "platform_fee_quota", "platform_fee_rate_bps", "created_at", "updated_at", "published_at", "closed_at", "archived_at"),
@@ -42,6 +42,9 @@ def make_entities(snapshot, selected, scale, *, include_redemptions=False, inclu
             source[key] = value
         for key in spec["text"]:
             value = row.get(key)
+            if key in spec.get("nullable_text",()) and value is None and key in row:
+                source[key] = None
+                continue
             if not isinstance(value, str) or "\x00" in value:
                 raise ValueError(f"entitlement {table}.{key} must be exact text")
             source[key] = value
@@ -62,7 +65,7 @@ def make_entities(snapshot, selected, scale, *, include_redemptions=False, inclu
         for row in rows:
             e = add("redemptions", row)
             s = e["source"]
-            if s["status"] != 1 or s["used_user_id"] != 0 or s["reward_type"] not in ("", "quota") or s["user_id"] not in selected or (s["expired_time"] and s["expired_time"] < at):
+            if s["status"] != 1 or s["used_user_id"] != 0 or s["reward_type"] not in (None,"", "quota") or s["user_id"] not in selected or (s["expired_time"] and s["expired_time"] < at):
                 raise ValueError("redemption is not a usable selected issuer's credit right")
 
     if include_bounties:

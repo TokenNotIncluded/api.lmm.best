@@ -81,6 +81,10 @@ class RebaseTests(unittest.TestCase):
         for e in plan["entity_updates"]:
             self.assertNotIn("tip_quota", e["updates"])
             self.assertNotIn("platform_fee_quota", e["updates"])
+        snapshot["entities"]["redemptions"][0]["reward_type"] = None
+        null_plan = r.make_plan(snapshot,**self.kw,restore_fixed_anchors=True,include_redemptions=True)
+        self.assertIsNone(null_plan["entity_updates"][0]["source"]["reward_type"])
+        self.assertIn('"reward_type" IS NULL',r.postgres_sql(null_plan))
         snapshot["entities"]["bounty_challenges"][0]["paid_at"] = 1
         with self.assertRaises(ValueError):
             r.make_plan(snapshot, **self.kw, include_bounties=True)

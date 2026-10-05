@@ -40,7 +40,7 @@ pending AS (
  FROM :"target_schema".referral_rewards
 ), redemptions AS (
  SELECT id,user_id,used_user_id,quota,status,created_time,redeemed_time,expired_time,
-        COALESCE(reward_type,'quota') AS reward_type,deleted_at
+        reward_type,deleted_at
  FROM :"target_schema".redemptions, frozen
  WHERE status=1 AND deleted_at IS NULL AND COALESCE(reward_type,'quota') IN ('','quota')
    AND (expired_time=0 OR expired_time>=frozen.at)
