@@ -230,8 +230,8 @@ describe('dashboard chart monetary units', () => {
   const config = {
     ...DEFAULT_CURRENCY_CONFIG,
     currencyUnit: 'credit' as const,
-    creditsPerUsd: 3_500_000,
-    creditsPerUsdExact: '3500000',
+    creditsPerUsd: 500_000,
+    creditsPerUsdExact: '500000',
     cnyPerUsd: 7,
     cnyPerUsdExact: '7',
   }
@@ -283,9 +283,9 @@ describe('dashboard chart monetary units', () => {
       )
       const user = processUserChartData(rows, 'day', undefined, 10, currency)
       const values = model.spec_line.data[0].values
-      const expectedLarge = unit === 'USD' ? 1 : unit === 'CNY' ? 7 : 3_500_000
+      const expectedLarge = unit === 'USD' ? 7 : unit === 'CNY' ? 49 : 3_500_000
       const expectedSmall =
-        unit === 'USD' ? 1 / 3_500_000 : unit === 'CNY' ? 1 / 500_000 : 1
+        unit === 'USD' ? 1 / 500_000 : unit === 'CNY' ? 7 / 500_000 : 1
       assert.equal(values[0].Usage, expectedLarge)
       assert.equal(values[1].Usage, expectedSmall)
       assert.equal(
@@ -363,8 +363,8 @@ describe('dashboard chart monetary units', () => {
       (row: { Model: string }) => row.Model === 'Other'
     )
     assert.equal(other.rawQuota, 2)
-    assert.equal(other.Usage, 2 / 3_500_000)
-    assert.equal(result.totalQuotaDisplay, '0.00004343 USD')
+    assert.equal(other.Usage, 2 / 500_000)
+    assert.equal(result.totalQuotaDisplay, '0.000304 USD')
   })
 
   test('unknown denomination suppresses monetary series instead of plotting NaN', () => {

@@ -251,11 +251,11 @@ test('tip display uses real currency and withdrawal uses remaining Credits', asy
     currency: {
       ...DEFAULT_CURRENCY_CONFIG,
       currencyUnit: 'credit',
-      creditsPerUsd: 3_500_000,
-      creditsPerUsdExact: '3500000',
+      creditsPerUsd: 500_000,
+      creditsPerUsdExact: '500000',
       cnyPerUsd: 7,
       cnyPerUsdExact: '7',
-      legacyPricingUnitsPerUsd: 7,
+      legacyPricingUnitsPerUsd: 1,
       quotaPerUnit: 500_000,
     },
   })
@@ -269,8 +269,8 @@ test('tip display uses real currency and withdrawal uses remaining Credits', asy
     )
   try {
     for (const fixture of [
-      { preference: 'USD', language: 'en', amount: '2 USD', withdraw: true },
-      { preference: '', language: 'zh', amount: '14 CNY', withdraw: true },
+      { preference: 'USD', language: 'en', amount: '14 USD', withdraw: true },
+      { preference: '', language: 'zh', amount: '98 CNY', withdraw: true },
       {
         preference: 'CREDIT',
         language: 'en',
@@ -280,14 +280,14 @@ test('tip display uses real currency and withdrawal uses remaining Credits', asy
       {
         preference: 'USD',
         language: 'en',
-        amount: '2 USD',
+        amount: '14 USD',
         withdraw: false,
         withdrawn: 3_000_000,
       },
       {
         preference: 'USD',
         language: 'en',
-        amount: '2 USD',
+        amount: '14 USD',
         withdraw: false,
         missing: true,
       },

@@ -37,11 +37,11 @@ function renderSmsCurrencyFixture(element: ReactElement) {
       currency: {
         ...DEFAULT_CURRENCY_CONFIG,
         currencyUnit: 'credit',
-        creditsPerUsd: 3_500_000,
-        creditsPerUsdExact: '3500000',
+        creditsPerUsd: 500_000,
+        creditsPerUsdExact: '500000',
         cnyPerUsd: 7,
         cnyPerUsdExact: '7',
-        legacyPricingUnitsPerUsd: 7,
+        legacyPricingUnitsPerUsd: 1,
         quotaPerUnit: 500_000,
       },
     })
@@ -135,7 +135,7 @@ for (const [language, locale] of [
     const balance = new Intl.NumberFormat(locale, {
       minimumFractionDigits: 0,
       maximumFractionDigits: 8,
-    }).format(currency === 'CNY' ? 1.25 : 625_000 / 3_500_000)
+    }).format(currency === 'CNY' ? 8.75 : 625_000 / 500_000)
     assert.ok(html.includes(`Current balance: ${balance} ${currency}`))
     assert.ok(!html.includes('{{balance}}'))
     assert.ok(html.includes('Refresh balance'))
