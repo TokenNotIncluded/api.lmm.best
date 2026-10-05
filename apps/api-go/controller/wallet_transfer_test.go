@@ -11,6 +11,7 @@ import (
 )
 
 func TestWalletTransferReceiptDoesNotExposeIdentityOrBearerToken(t *testing.T) {
+	installIdentityCurrencyFixture(t)
 	gin.SetMode(gin.TestMode)
 	writer := httptest.NewRecorder()
 	context, _ := gin.CreateTestContext(writer)

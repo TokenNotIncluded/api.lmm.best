@@ -57,11 +57,18 @@ func GetToolMarketCallResult(c *gin.Context) {
 
 func GetToolMarketConfig(c *gin.Context) {
 	config, err := model.GetToolMarketConfig()
-	anchor := ""
-	if value, anchorErr := common.CreditsPerUSD(); anchorErr == nil {
-		anchor = value.String()
+	if err != nil {
+		toolMarketRespond(c, nil, err)
+		return
 	}
-	toolMarketRespond(c, gin.H{"enabled": config.Enabled, "builtin_enabled": true, "fee_bps": config.FeeBPS, "recipient_id": config.RecipientID, "quota_per_unit": common.QuotaPerUnit, "credits_per_usd": anchor, "usage_policy": "tool_reported", "web_client_id": model.ToolMarketWebClient, "mcp_path": "/mcp/market", "result_retention_seconds": 3600, "confirmation_timeout_seconds": 120}, err)
+	basis, err := captureCreditBoundaryBasis()
+	if err != nil {
+		toolMarketRespond(c, nil, err)
+		return
+	}
+	data := gin.H{"enabled": config.Enabled, "builtin_enabled": true, "fee_bps": config.FeeBPS, "recipient_id": config.RecipientID, "quota_per_unit": common.QuotaPerUnit, "credits_per_usd": basis.Metadata.LedgerQuotaPerUSDExact, "usage_policy": "tool_reported", "web_client_id": model.ToolMarketWebClient, "mcp_path": "/mcp/market", "result_retention_seconds": 3600, "confirmation_timeout_seconds": 120}
+	basis.addMetadata(data)
+	toolMarketRespond(c, data, nil)
 }
 
 func CreateToolMarketToken(c *gin.Context) {
