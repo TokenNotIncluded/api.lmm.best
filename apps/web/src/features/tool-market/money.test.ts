@@ -10,8 +10,8 @@ import { marketNetQuota, marketQuota } from './money'
 const config = {
   ...DEFAULT_CURRENCY_CONFIG,
   currencyUnit: 'credit' as const,
-  creditsPerUsd: 3500000,
-  creditsPerUsdExact: '3500000',
+  creditsPerUsd: 500000,
+  creditsPerUsdExact: '500000',
   cnyPerUsd: 7,
   cnyPerUsdExact: '7',
 }
@@ -30,11 +30,11 @@ test('market inputs preserve native raw Credits across all display currencies', 
   }
   assert.equal(
     marketQuota('7', (input) => displayAmountToQuota(input, 'CNY', config)),
-    3500000
+    500000
   )
   assert.equal(
     marketQuota('1', (input) => displayAmountToQuota(input, 'USD', config)),
-    3500000
+    500000
   )
   assert.equal(marketQuota('1', Number), 1)
 })

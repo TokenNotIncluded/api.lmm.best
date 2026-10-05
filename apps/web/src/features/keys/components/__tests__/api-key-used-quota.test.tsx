@@ -39,11 +39,11 @@ beforeEach(async () => {
     currency: {
       ...DEFAULT_CURRENCY_CONFIG,
       currencyUnit: 'credit',
-      creditsPerUsd: 3_500_000,
-      creditsPerUsdExact: '3500000',
+      creditsPerUsd: 500_000,
+      creditsPerUsdExact: '500000',
       cnyPerUsd: 7,
       cnyPerUsdExact: '7',
-      legacyPricingUnitsPerUsd: 7,
+      legacyPricingUnitsPerUsd: 1,
       quotaPerUnit: 500_000,
     },
   })
@@ -64,8 +64,8 @@ after(async () => {
 })
 
 for (const [currency, amounts] of [
-  ['USD', ['0 USD', '0.142857 USD', '0.000000286 USD']],
-  ['CNY', ['0 CNY', '1 CNY', '0.000002 CNY']],
+  ['USD', ['0 USD', '1 USD', '0.000002 USD']],
+  ['CNY', ['0 CNY', '7 CNY', '0.000014 CNY']],
   ['CREDIT', ['0 Credits', '500,000 Credits', '1 Credits']],
 ] as const) {
   test(`renders zero, 500,000 credits and one credit literally in ${currency}`, async () => {
@@ -95,9 +95,9 @@ test('mounted usage cells react to currency changes without a parent render', as
     )
   )
   for (const [currency, expected] of [
-    ['CNY', ['0 CNY', '1 CNY', '0.000002 CNY']],
+    ['CNY', ['0 CNY', '7 CNY', '0.000014 CNY']],
     ['CREDIT', ['0 Credits', '500,000 Credits', '1 Credits']],
-    ['USD', ['0 USD', '0.142857 USD', '0.000000286 USD']],
+    ['USD', ['0 USD', '1 USD', '0.000002 USD']],
   ] as const) {
     await act(async () => {
       useWalletCurrencyPreferenceStore.getState().setPreference(currency)
@@ -115,19 +115,19 @@ test('mounted usage follows language defaults and retains a manual USD preferenc
   const container = document.createElement('div')
   root = createRoot(container)
   await act(async () => root?.render(<ApiKeyUsedQuota used={500_000} />))
-  assert.equal(container.textContent, '0.142857 USD')
+  assert.equal(container.textContent, '1 USD')
   await act(async () => {
     await i18n.changeLanguage('zhCN')
   })
-  assert.equal(container.textContent, '1 CNY')
+  assert.equal(container.textContent, '7 CNY')
   await act(async () => {
     useWalletCurrencyPreferenceStore.getState().setPreference('USD')
   })
-  assert.equal(container.textContent, '0.142857 USD')
+  assert.equal(container.textContent, '1 USD')
   await act(async () => {
     await i18n.changeLanguage('en')
   })
-  assert.equal(container.textContent, '0.142857 USD')
+  assert.equal(container.textContent, '1 USD')
 })
 
 test('legacy quota-per-unit alone does not imply a fiat denomination', async () => {

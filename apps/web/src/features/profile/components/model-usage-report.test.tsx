@@ -67,8 +67,8 @@ test('model usage and copied report update units and FX without refetching or ch
     currency: {
       ...DEFAULT_CURRENCY_CONFIG,
       currencyUnit: 'credit',
-      creditsPerUsd: 3_500_000,
-      creditsPerUsdExact: '3500000',
+      creditsPerUsd: 500_000,
+      creditsPerUsdExact: '500000',
       cnyPerUsd: 7,
       cnyPerUsdExact: '7',
     },
@@ -121,14 +121,14 @@ test('model usage and copied report update units and FX without refetching or ch
       })
     }
     assert.ok(markdown, 'the copied report did not become available')
-    assert.match(markdown, /1 USD/)
+    assert.match(markdown, /7 USD/)
     await act(async () =>
       useAuthStore
         .getState()
         .auth.setUser({ ...user, setting: { wallet_display_currency: 'CNY' } })
     )
-    assert.match(markdown, /7 CNY/)
-    assert.match(host.textContent ?? '', /7 CNY/)
+    assert.match(markdown, /49 CNY/)
+    assert.match(host.textContent ?? '', /49 CNY/)
     await act(async () =>
       useSystemConfigStore.getState().setConfig({
         currency: {
@@ -138,7 +138,7 @@ test('model usage and copied report update units and FX without refetching or ch
         },
       })
     )
-    assert.match(markdown, /8 CNY/)
+    assert.match(markdown, /56 CNY/)
     await act(async () =>
       useAuthStore.getState().auth.setUser({
         ...user,

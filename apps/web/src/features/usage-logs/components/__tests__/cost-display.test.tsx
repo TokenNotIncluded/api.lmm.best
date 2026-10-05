@@ -116,8 +116,8 @@ describe('log cost display', () => {
       currency: {
         ...DEFAULT_CURRENCY_CONFIG,
         currencyUnit: 'credit',
-        creditsPerUsd: 3_500_000,
-        creditsPerUsdExact: '3500000',
+        creditsPerUsd: 500_000,
+        creditsPerUsdExact: '500000',
         cnyPerUsd: 7,
         cnyPerUsdExact: '7',
       },
@@ -138,7 +138,7 @@ describe('log cost display', () => {
 
     assert.equal(
       normalizedText(rendered.container.textContent).includes(
-        normalizedText('0.00357143 USD')
+        normalizedText('0.025 USD')
       ),
       true
     )
@@ -173,7 +173,7 @@ describe('log cost display', () => {
     assert.ok(subscriptionBadge)
     assert.equal(
       normalizedText(subscriptionBadge.textContent),
-      normalizedText('Subscription (0.00071429 USD)')
+      normalizedText('Subscription (0.005 USD)')
     )
     assert.ok(
       rendered.container.querySelector('[data-tool-surcharge-indicator="true"]')
@@ -194,7 +194,7 @@ describe('log cost display', () => {
     assert.ok(subscriptionBadge)
     assert.equal(
       normalizedText(subscriptionBadge.textContent),
-      normalizedText('Subscription (0.00142857 USD)')
+      normalizedText('Subscription (0.01 USD)')
     )
 
     await unmountCost(rendered)
@@ -203,15 +203,15 @@ describe('log cost display', () => {
     await i18n.changeLanguage('zhTW')
     const rendered = await renderCost({ quota: 3_500_000, other: null })
     try {
-      assert.match(rendered.container.textContent ?? '', /1 USD/)
+      assert.match(rendered.container.textContent ?? '', /7 USD/)
       await act(async () => i18n.changeLanguage('en'))
-      assert.match(rendered.container.textContent ?? '', /1 USD/)
+      assert.match(rendered.container.textContent ?? '', /7 USD/)
       await act(async () =>
         useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
       )
-      assert.match(rendered.container.textContent ?? '', /1 USD/)
+      assert.match(rendered.container.textContent ?? '', /7 USD/)
       await act(async () => i18n.changeLanguage('zhCN'))
-      assert.match(rendered.container.textContent ?? '', /1 USD/)
+      assert.match(rendered.container.textContent ?? '', /7 USD/)
       await act(async () =>
         useWalletCurrencyPreferenceStore.getState().setPreference('CNY')
       )
@@ -224,7 +224,7 @@ describe('log cost display', () => {
           },
         })
       )
-      assert.match(rendered.container.textContent ?? '', /1 USD/)
+      assert.match(rendered.container.textContent ?? '', /7 USD/)
       assert.doesNotMatch(
         rendered.container.textContent ?? '',
         /Platform|Credits|CNY|\$/

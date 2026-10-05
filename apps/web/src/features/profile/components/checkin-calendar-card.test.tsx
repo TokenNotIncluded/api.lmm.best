@@ -213,8 +213,8 @@ test('check-in success uses the newly selected currency without remounting', asy
     currency: {
       ...DEFAULT_CURRENCY_CONFIG,
       currencyUnit: 'credit',
-      creditsPerUsd: 3_500_000,
-      creditsPerUsdExact: '3500000',
+      creditsPerUsd: 500_000,
+      creditsPerUsdExact: '500000',
       cnyPerUsd: 7,
       cnyPerUsdExact: '7',
     },
@@ -277,7 +277,7 @@ test('check-in success uses the newly selected currency without remounting', asy
         'check-in success not shown'
       )
     })
-    assert.match(successMessage, /7 CNY/)
+    assert.match(successMessage, /49 CNY/)
     assert.doesNotMatch(successMessage, /1 USD|Platform|\$/)
   } finally {
     await act(async () => root.unmount())

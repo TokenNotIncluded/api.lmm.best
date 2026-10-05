@@ -103,9 +103,9 @@ function installApiFixtures(createdPayloads: Array<Record<string, unknown>>) {
             data: {
               default_use_auto_group: true,
               currency_unit: 'credit',
-              credits_per_usd: 3000000,
+              credits_per_usd: 500000,
               cny_per_usd: 7.2,
-              legacy_pricing_units_per_usd: 6,
+              legacy_pricing_units_per_usd: 1,
               quota_per_unit: 500000,
             },
           },
@@ -543,9 +543,10 @@ test('a limited key uses a fixed Credit basis after changing the display currenc
     currency: {
       ...DEFAULT_CURRENCY_CONFIG,
       currencyUnit: 'credit',
-      creditsPerUsd: 3000000,
+      creditsPerUsd: 500000,
+      creditsPerUsdExact: '500000',
       cnyPerUsd: 7.2,
-      legacyPricingUnitsPerUsd: 6,
+      legacyPricingUnitsPerUsd: 1,
     },
   })
   useWalletCurrencyPreferenceStore.getState().setPreference('USD')
@@ -569,6 +570,6 @@ test('a limited key uses a fixed Credit basis after changing the display currenc
   await act(async () =>
     waitForCondition(() => created.length === 1, 'limited key not submitted')
   )
-  assert.equal(created[0]?.remain_quota, 3750000)
+  assert.equal(created[0]?.remain_quota, 625000)
   assert.equal(created[0]?.unlimited_quota, false)
 })
