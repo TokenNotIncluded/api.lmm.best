@@ -25,6 +25,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -43,8 +44,28 @@ type oauthHTTPTest struct {
 	query       string
 }
 
+func installRouterCurrencyFixture(t *testing.T) {
+	t.Helper()
+	oldK, oldBasisErr := common.CreditsPerUSD()
+	oldLegacyQ, _ := common.LegacyPricingQuotaPerUnit()
+	oldRuntimeQ := common.QuotaPerUnit
+	// Initialize this historical site's independent immutable K/Q without
+	// changing any raw wallet, payment-snapshot or access-policy fixture.
+	common.QuotaPerUnit = 500000
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3500000), decimal.NewFromInt(500000)))
+	t.Cleanup(func() {
+		common.QuotaPerUnit = oldRuntimeQ
+		if oldBasisErr != nil {
+			common.ClearCreditsPerUSD()
+		} else {
+			require.NoError(t, common.SetCreditCurrencyBasis(oldK, oldLegacyQ))
+		}
+	})
+}
+
 func setupOAuthHTTP(t *testing.T) *oauthHTTPTest {
 	t.Helper()
+	installRouterCurrencyFixture(t)
 	oldDB, oldLogDB, oldRedis, oldSecret, oldType := model.DB, model.LOG_DB, common.RedisEnabled, common.SessionSecret, common.MainDatabaseType()
 	oldGroups, oldRatios := setting.UserUsableGroups2JSONString(), ratio_setting.GroupRatio2JSONString()
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "oauth.db")+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
