@@ -10,6 +10,8 @@ import sys
 from credit_rebase_auxiliary import legacy_noncash, legacy_noncash_sql, make_auxiliary, render_auxiliary
 from credit_rebase_entitlements import make_entities, render_entities
 from credit_rebase_subscriptions import make_subscriptions, render_subscriptions
+import credit_rebase_other_rights as other_rights
+import credit_rebase_history as history
 
 MAX_QUOTA = (1 << 53) - 1
 
@@ -30,7 +32,7 @@ def scale_credit(value, divisor, rounding):
 
 
 def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
-              include_affiliate=False, include_token_limits=False, restore_fixed_anchors=False, include_redemptions=False, include_bounties=False, include_pending_topups=False, include_subscriptions=False):
+              include_affiliate=False, include_token_limits=False, restore_fixed_anchors=False, include_redemptions=False, include_bounties=False, include_pending_topups=False, include_subscriptions=False,include_other_rights=False):
     if not re.fullmatch(r"[0-9]+(?:\.[0-9]{1,18})?", divisor_text):
         raise ValueError("divisor must be an explicit positive decimal, not a float or expression")
     divisor = Fraction(divisor_text)
@@ -48,6 +50,7 @@ def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
     selected = {integer(i, "user id", positive=True) for i in user_ids}
     if not isinstance(snapshot, dict) or snapshot.get("version") != 1:
         raise ValueError("snapshot version must be 1")
+    obligations = other_rights.validate_obligations(snapshot)
     target = snapshot.get("target")
     if not isinstance(target, dict):
         raise ValueError("snapshot requires explicit target database/schema/system_identifier")
@@ -57,6 +60,9 @@ def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
         raise ValueError("target database must be explicit")
     if not isinstance(target.get("system_identifier"), str) or not re.fullmatch(r"[0-9]{1,20}", target["system_identifier"]):
         raise ValueError("target PostgreSQL system_identifier must be an exact decimal string")
+    for key in ("database_oid","schema_oid"):
+        if key in target and (not isinstance(target[key],str) or not re.fullmatch(r"[1-9][0-9]{0,19}",target[key])):
+            raise ValueError("target OID must be an exact positive decimal string")
     applied = snapshot.get("applied_migration_ids")
     if not isinstance(applied, list) or any(not isinstance(i, str) for i in applied):
         raise ValueError("snapshot must include applied_migration_ids (verified audit ids)")
@@ -122,6 +128,8 @@ def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
             seen_options.add(key)
             if not isinstance(correction.get("before"), str) or not isinstance(correction.get("after"), str):
                 raise ValueError("price correction before/after must be exact option strings")
+            if options.get(key) != correction["before"]:
+                raise ValueError("price recovery candidate differs from frozen source option")
             option_entries.append({"key": key, "before": correction["before"], "after": correction["after"]})
     option_guards = [{"key": "USDExchangeRate", "value": fx, "absent": False}]
     if restore_fixed_anchors:
@@ -142,6 +150,17 @@ def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
                 raise ValueError("invalid absent option guard")
             option_guards.append({"key": key, "absent": True})
         option_guards.sort(key=lambda e: e["key"])
+        written = {entry["key"] for entry in option_entries}
+        guarded = {guard["key"] for guard in option_guards}
+        for key,value in options.items():
+            if key not in written and key not in guarded:
+                if not isinstance(key,str) or not isinstance(value,str) or "\x00" in key or "\x00" in value:
+                    raise ValueError("all frozen pricing option sources must be exact text")
+                option_guards.append({"key":key,"value":value,"absent":False})
+        for key in snapshot.get("audited_option_keys",[]):
+            if key not in options and key not in written and key not in guarded:
+                option_guards.append({"key":key,"absent":True})
+        option_guards.sort(key=lambda e:e["key"])
     entries = []
     seen_users, seen_tokens = set(), set()
 
@@ -178,25 +197,32 @@ def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
                 entries[-1]["user_id"] = uid
     entries.sort(key=lambda e: (e["table"], e["id"], e["field"]))
     source_digest = hashlib.sha256(json.dumps(snapshot, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    business_source = dict(snapshot)
+    business_source.pop("target",None)
+    business_source_digest = hashlib.sha256(json.dumps(business_source,sort_keys=True,separators=(",",":")).encode()).hexdigest()
+    user_sources,token_sources,has_complete_history = history.prepare(snapshot,selected,integer)
     entity_updates = make_entities(snapshot, selected, lambda value: scale_credit(value, divisor, rounding),
                                    include_redemptions=include_redemptions, include_bounties=include_bounties)
-    pending_bases, referral_bases = make_auxiliary(snapshot, selected, lambda value: scale_credit(value, divisor, rounding),
+    pending_bases, referral_bases, blocked_pending_bases = make_auxiliary(snapshot, selected, lambda value: scale_credit(value, divisor, rounding),
         include_pending=include_pending_topups, include_affiliate=include_affiliate and restore_fixed_anchors)
     subscription_plan = make_subscriptions(snapshot, selected, lambda value: scale_credit(value, divisor, rounding), include=include_subscriptions)
+    other_credit_bases = other_rights.prepare(snapshot,selected,lambda value:scale_credit(value,divisor,rounding),include=include_other_rights)
     plan = {"version": 1, "kind": "offline_credit_balance_rebase_preview",
             "migration_id": migration_id, "target": dict(target), "source_sha256": source_digest,
+            "business_source_sha256":business_source_digest,"user_sources":user_sources,"token_sources":token_sources,"has_complete_history":has_complete_history,
+            "obligations":obligations,
             "usd_credit_conversion": 500000, "divisor": divisor_text,
             "exact_factor": {"numerator": divisor.denominator, "denominator": divisor.numerator},
             "fx_source": {"kind": "frozen_production_option", "key": "USDExchangeRate", "value": fx},
             "rounding": rounding, "user_ids": sorted(selected),
-            "include_affiliate": include_affiliate, "include_token_limits": include_token_limits, "include_subscriptions": include_subscriptions,
+            "include_affiliate": include_affiliate, "include_token_limits": include_token_limits, "include_subscriptions": include_subscriptions,"include_other_rights":include_other_rights,"other_credit_bases":other_credit_bases,
             "price_review_evidence": snapshot.get("price_review", {}).get("evidence") if restore_fixed_anchors else None,
-            "pending_bases": pending_bases, "referral_bases": referral_bases, "include_pending_topups": include_pending_topups,
+            "pending_bases": pending_bases, "blocked_pending_bases":blocked_pending_bases,"referral_bases": referral_bases, "include_pending_topups": include_pending_topups,
             "entity_updates": entity_updates, "include_redemptions": include_redemptions, "include_bounties": include_bounties, "snapshot_at": snapshot.get("snapshot_at"),
             "entries": entries, "refund_bases": refund_bases, "noncash_topups": noncash_topups, "option_guards": option_guards, "option_entries": option_entries, "restore_fixed_anchors": restore_fixed_anchors, "wallet_totals": {
                 k: sum(e[k] for e in entries if e["table"] == "users" and e["field"] == "quota")
                 for k in ("before_credit", "after_credit", "delta_credit")},
-            "production_apply_supported": "reviewed_postgres_sql_only",
+            "production_apply_supported": "reviewed_postgres_sql_only" if restore_fixed_anchors else False,
             "required_before_apply": ["Confirm affected users, exact divisor, rounding and non-wallet rights scope",
                 "Stop all writers; drain reservations, pending settlement and refunds",
                 "Resolve pending legacy payment callbacks and escrow rights",
@@ -204,6 +230,8 @@ def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
                 "Compare every planned before value; abort transaction on any mismatch",
                 "Invalidate affected user/token caches before reopening writers"]}
     plan.update(subscription_plan)
+    business_plan = {key:value for key,value in plan.items() if key not in ("target","source_sha256","plan_sha256","business_plan_sha256")}
+    plan["business_plan_sha256"] = hashlib.sha256(json.dumps(business_plan,sort_keys=True,separators=(",",":")).encode()).hexdigest()
     plan["plan_sha256"] = hashlib.sha256(json.dumps(plan, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     return plan
 
@@ -217,9 +245,17 @@ def postgres_sql(plan):
     """Render guarded SQL only; no connection or automatic invocation exists."""
     if not plan.get("restore_fixed_anchors"):
         raise ValueError("SQL requires a combined fixed-anchor and reviewed-price plan")
+    if not plan.get("has_complete_history"):
+        raise ValueError("SQL requires complete user_sources and token_sources to preserve historical facts")
     schema = '"' + plan["target"]["schema"] + '"'
     database = sql_literal(plan["target"]["database"])
     system_id = sql_literal(plan["target"]["system_identifier"])
+    oid_checks = []
+    if "database_oid" in plan["target"]:
+        oid_checks.append("IF (SELECT oid::text FROM pg_catalog.pg_database WHERE datname=pg_catalog.current_database())<>"+sql_literal(plan["target"]["database_oid"])+" THEN RAISE EXCEPTION 'target database OID mismatch'; END IF;")
+    if "schema_oid" in plan["target"]:
+        oid_checks.append("IF pg_catalog.to_regnamespace("+sql_literal(plan["target"]["schema"])+")::oid::text<>"+sql_literal(plan["target"]["schema_oid"])+" THEN RAISE EXCEPTION 'target schema OID mismatch'; END IF;")
+    oid_checks_sql="\n".join(oid_checks)
     plan_json = sql_literal(json.dumps(plan, sort_keys=True, separators=(",", ":")))
     mid, digest = sql_literal(plan["migration_id"]), sql_literal(plan["plan_sha256"])
     user_ids = ",".join(str(uid) for uid in plan["user_ids"])
@@ -250,6 +286,7 @@ def postgres_sql(plan):
         preservation_checks.append(f"IF {condition} THEN RAISE EXCEPTION 'price preservation guard mismatch'; END IF;")
     preservation_checks_sql = "\n".join(preservation_checks)
     refund_checks = []
+    refund_checks.extend(history.sql(plan,schema,sql_literal))
     if plan["include_token_limits"]:
         finite_count = sum(e["table"] == "tokens" for e in plan["entries"])
         refund_checks.append(f"IF (SELECT count(*) FROM {schema}.tokens WHERE user_id=ANY(ARRAY[{user_ids}]::bigint[]) AND unlimited_quota=false) <> {finite_count} THEN RAISE EXCEPTION 'finite token snapshot incomplete'; END IF;")
@@ -275,12 +312,18 @@ def postgres_sql(plan):
     refund_checks_sql = "\n".join(refund_checks)
     refund_inserts_sql = "\n".join(refund_inserts)
     entity_checks, entity_statements, entity_locks = render_entities(plan, schema, sql_literal)
+    other_ddl,other_checks,other_locks = other_rights.sql(plan,schema,sql_literal)
+    other_checks += other_rights.obligation_guards(schema)
+    other_locks += other_rights.obligation_locks(schema)
+    entity_checks += other_checks
+    entity_locks += other_locks
     refund_checks.extend(entity_checks)
     refund_checks_sql = "\n".join(refund_checks)
     updates.extend(entity_statements)
     auxiliary_ddl, auxiliary_checks, auxiliary_updates, auxiliary_inserts, auxiliary_locks = render_auxiliary(plan, schema, sql_literal)
     sub_ddl, sub_checks, sub_updates, sub_inserts, sub_locks = render_subscriptions(plan, schema, sql_literal)
     auxiliary_ddl += sub_ddl
+    auxiliary_ddl += other_ddl
     auxiliary_checks += sub_checks
     auxiliary_updates += sub_updates
     auxiliary_inserts += sub_inserts
@@ -306,6 +349,7 @@ BEGIN
         THEN RAISE EXCEPTION 'target PostgreSQL system_identifier mismatch'; END IF;
     IF pg_catalog.to_regnamespace({sql_literal(plan["target"]["schema"])}) IS NULL
         THEN RAISE EXCEPTION 'target schema missing'; END IF;
+{oid_checks_sql}
 END
 {delimiter};
 SELECT pg_advisory_xact_lock(500000, 680001);
@@ -367,6 +411,7 @@ def main():
     parser.add_argument("--include-redemptions", action="store_true")
     parser.add_argument("--include-pending-topups", action="store_true")
     parser.add_argument("--include-subscriptions", action="store_true")
+    parser.add_argument("--include-other-rights", action="store_true")
     parser.add_argument("--include-bounties", action="store_true")
     parser.add_argument("--restore-fixed-anchors", action="store_true", help="Combine anchors and independently reviewed price corrections")
     parser.add_argument("--emit-postgres-sql", action="store_true", help="Render SQL only; never execute it")
@@ -377,7 +422,7 @@ def main():
         plan = make_plan(snapshot, divisor_text=args.divisor, migration_id=args.migration_id,
                          user_ids=args.user_id, rounding=args.rounding,
                          include_affiliate=args.include_affiliate, include_token_limits=args.include_token_limits, restore_fixed_anchors=args.restore_fixed_anchors,
-                         include_redemptions=args.include_redemptions, include_bounties=args.include_bounties, include_pending_topups=args.include_pending_topups, include_subscriptions=args.include_subscriptions)
+                         include_redemptions=args.include_redemptions, include_bounties=args.include_bounties, include_pending_topups=args.include_pending_topups, include_subscriptions=args.include_subscriptions,include_other_rights=args.include_other_rights)
     except (ValueError, KeyError, TypeError, OSError) as error:
         parser.exit(2, f"error: {error}\n")
     if args.emit_postgres_sql:

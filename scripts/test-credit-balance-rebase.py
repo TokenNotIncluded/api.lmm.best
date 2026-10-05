@@ -18,11 +18,16 @@ class RebaseTests(unittest.TestCase):
             {"id": 2, "user_id": 1, "remain_quota": 680, "unlimited_quota": True}]}
         self.snapshot["topups"] = []
         self.snapshot["referrals"] = []
+        import credit_rebase_other_rights as other
+        self.snapshot["obligations"] = {key:0 for key in other.OBLIGATIONS}
         for key in ("subscriptions", "subscription_orders", "subscription_plans", "subscription_payment_events", "subscription_payment_refunds"):
             self.snapshot[key] = []
         self.snapshot["target"] = {"database": "fixture", "schema": "fixture_money", "system_identifier": "123456"}
         self.snapshot["options"] = {"USDExchangeRate": "6.8","CreditsPerUSD": "3359744", "PublicCreditsPerUSD": "100000", "LegacyPricingQuotaPerUnit": "500000", "QuotaPerUnit": "500000"}
         self.snapshot["price_review"] = {"status": "verified", "evidence": "synthetic fixture without synced prices", "option_corrections": []}
+        from credit_rebase_history import USER_INTS,TOKEN_INTS
+        self.snapshot["user_sources"] = [{key:0 for key in USER_INTS} | u | {"deleted_at":None} for u in self.snapshot["users"]]
+        self.snapshot["token_sources"] = [{key:0 for key in TOKEN_INTS} | t | {"deleted_at":None} for t in self.snapshot["tokens"]]
         self.kw = dict(divisor_text="6.8", migration_id="rmb-balance-v1", user_ids=[1, 2], rounding="half-away-from-zero")
 
     def test_exact_integer_math_preserves_history_and_defaults(self):
@@ -101,6 +106,15 @@ class RebaseTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             r.make_plan(snapshot, **self.kw, restore_fixed_anchors=True)
 
+    def test_blocked_authority_zero_pending_quotes_remain_explicit(self):
+        snapshot = copy.deepcopy(self.snapshot)
+        snapshot["pending_topups"] = [dict(id=21,user_id=1,status="pending",failure_reason_code="",credited_quota=0,amount=2,platform_amount_micros=0,settled_amount_micros=0,expected_amount_micros=0,refunded_quota=0,refunded_amount_micros=0,money="0.28",payment_provider="fastpay",payment_method="alipay",settlement_currency="",effective_credited_quota=0,paid_amount_micros=280000,is_legacy_linuxdo_credit_topup=False,pending_credit_rebase_key="",pending_credit_rebase_original_quota=0,pending_credit_rebase_effective_quota=0)]
+        plan = r.make_plan(snapshot,**self.kw,restore_fixed_anchors=True,include_pending_topups=True)
+        self.assertEqual(plan["pending_bases"],[])
+        self.assertEqual(plan["blocked_pending_bases"][0]["reason"],"authority_zero_not_settleable")
+        self.assertEqual(len(plan["blocked_pending_bases"]),1)
+        self.assertIn("pending_credit_rebase_original_quota=0, pending_credit_rebase_effective_quota=0",r.postgres_sql(plan))
+
     def test_divisor_is_frozen_production_fx(self):
         bad = copy.deepcopy(self.snapshot)
         bad["options"]["USDExchangeRate"] = "6.710363"
@@ -111,6 +125,22 @@ class RebaseTests(unittest.TestCase):
             r.make_plan(bad, **self.kw)
         plan = r.make_plan(self.snapshot, **(self.kw | {"divisor_text": "6.80"}))
         self.assertEqual(plan["fx_source"]["value"], "6.8")
+
+    def test_clone_changes_target_only_and_retains_business_hashes(self):
+        plan = r.make_plan(self.snapshot,**self.kw)
+        clone = copy.deepcopy(self.snapshot)
+        clone["target"] = {"database":"clone","schema":"clone_money","system_identifier":"789"}
+        cloned = r.make_plan(clone,**self.kw)
+        self.assertNotEqual(plan["plan_sha256"],cloned["plan_sha256"])
+        self.assertNotEqual(plan["source_sha256"],cloned["source_sha256"])
+        self.assertEqual(plan["business_plan_sha256"],cloned["business_plan_sha256"])
+        self.assertEqual(plan["business_source_sha256"],cloned["business_source_sha256"])
+
+    def test_obligations_cannot_be_skipped_with_other_scope_disabled(self):
+        snapshot = copy.deepcopy(self.snapshot)
+        snapshot["obligations"]["tasks_refund_pending"] = 1
+        with self.assertRaises(ValueError):
+            r.make_plan(snapshot,**self.kw,include_other_rights=False)
 
     def subscription_fixture(self):
         import credit_rebase_subscriptions as s
@@ -156,6 +186,12 @@ class RebaseTests(unittest.TestCase):
         snapshot["subscription_orders"][0]["plan_snapshot"] = ""
         with self.assertRaises(ValueError):
             r.make_plan(snapshot,**self.kw,include_subscriptions=True)
+        snapshot["subscription_orders"][0].update(status="pending",user_subscription_id=0)
+        snapshot["subscriptions"] = []
+        plan = r.make_plan(snapshot,**self.kw,include_subscriptions=True)
+        self.assertEqual(plan["subscription_order_updates"][0]["plan_snapshot"],"")
+        self.assertEqual(plan["subscription_order_updates"][0]["grant_source_kind"],"runtime_current_catalog_fallback")
+        self.assertEqual(plan["subscription_order_updates"][0]["effective_grant"],1000)
 
     def test_fixed_anchor_requires_price_review_and_sql_requires_combined_plan(self):
         with self.assertRaises(ValueError):
@@ -176,7 +212,7 @@ class RebaseTests(unittest.TestCase):
         self.assertIn("GET DIAGNOSTICS changed = ROW_COUNT", sql)
         self.assertIn("selected user already rebased", sql)
         self.assertIn("migration already applied; no balances changed", sql)
-        self.assertNotIn("used_quota", sql)
+        self.assertNotIn('SET "used_quota"', sql)
         self.assertIn('UPDATE "fixture_money".options SET value = \'500000\'', sql)
 
 

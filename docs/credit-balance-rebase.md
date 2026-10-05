@@ -172,7 +172,9 @@ SQL 设置 standard_conforming_strings，DO 使用不出现在嵌入内容中的
 
 ## 保留待支付订单与非现金事实
 
-`--include-pending-topups` 要求完整 `pending_topups` 数组，包含与成功订单相同的原始报价事实、Go 权威 `effective_credited_quota`，以及原本为空/零的三个 pending rebase 字段。原报价与实际支付金额不改，只保存独立的纠正后入账额，未来 callback 必须使用它并保持幂等。舍入后为零的有限报价拒绝，不允许靠零触发旧 fallback。
+`--include-pending-topups` 要求完整 `pending_topups` 数组，包含与成功订单相同的原始报价事实、Go 权威 `effective_credited_quota`，以及原本为空/零的三个 pending rebase 字段。原报价与实际支付金额不改，只保存独立的纠正后入账额，未来 callback 必须使用它并保持幂等。正的有限报价若舍入为零仍拒绝，不允许靠零触发旧 fallback。
+
+现有 Go authority 已经返回零、当前 callback 本就不能入账的旧来源，不推测其过去报价。完整保存在 `blocked_pending_bases`，记录 `reason`、原事实和权威分类；metadata 写入迁移 key、original/effective 均为零。SQL 对正常与 blocked 的全部行一起做数量、状态、归属、分类和事实 CAS，原 status/fiat 保留。部署后的 callback 必须按父审计持续拒绝，即使三列 metadata 丢失也不能猜出到账额。以后只有独立核实支付事实的审计调解才能解锁，余额迁移本身不冒充支付争议结论。
 
 非现金旧 LinuxDO 订单必须显式保留在 `noncash_topups`，不能删掉零有效到账行。记录原始事实、Go 的 `is_legacy_linuxdo_credit_topup` 和分类原因；生成器独立复核其事实分类，SQL 同时校验原字段、分类 predicate 及完整数量。它们不建立现金退款池，完整父审计供运行时拒绝错误的现金退款请求。
 
@@ -188,8 +190,22 @@ SQL 设置 standard_conforming_strings，DO 使用不出现在嵌入内容中的
 
 有限套餐本期上限设为 `old_used + round(max(old_total-old_used,0)/divisor)`；`reset_amount=round(old_total/divisor)`；`renewal_amount=round(original sold plan_snapshot.total_amount/divisor)`。原余额购或管理员绑定且没有支付订单的合同，完整 grant 来自自身原 `amount_total`。已用消费事实不改；递增 quota_version 并更新 updated_at 使旧预览失效。明确的非 NULL 零 grant 表示有限套餐已耗尽；原无限套餐双 NULL 保持无限。
 
-未来 catalog 的 `total_amount` 和 pending 订单 `plan_snapshot.total_amount` 同比纠正，真实价格、支付金额、已完成订单快照不改。有限未来报价若舍入为零则拒绝，因为旧创建入口把零解释为无限。pending 缺少原始快照时拒绝，不能拿今天 catalog 当历史售出报价。
+未来 catalog 的 `total_amount` 和有冻结快照的 pending 订单 `plan_snapshot.total_amount` 同比纠正，真实价格、支付金额、已完成订单快照不改。有限未来报价若舍入为零则拒绝，因为旧创建入口把零解释为无限。pending 空快照保留原字符串，并在审计注明 `runtime_current_catalog_fallback`、绑定完整当前 catalog 原事实与纠正后 grant；这是现有 complete 路径的明确 fallback，通过同事务修正 catalog 获得新 grant，不补造历史报价。非空但无法解析的快照仍拒绝。
 
 有未退实付金额的已售合同在同事务写入 `subscription_order_credit_rebases`，绑定订单、合同、用户、支付周期/到期、纠正后的 version、原始付款与退款事实。本期剩余额和重置 grant 独立记录；未来退款使用此基准，实际撤回剩余额与名义削减本期 grant 分开累计，完整续费 grant 保持。原本期额度加历史 refunded_quota 必须等于冻结售出快照 grant，不一致时拒绝。必须同步发布使用父/子审计的退款代码，审计丢失不能默默恢复旧单位退款。
 
 SQL 明确锁定全部套餐、订单、catalog、付款和退款表，核对全量数量及每条归属、状态、时间戳、quota_version、原始快照和实付事实；任意不符整个钱包/权益/价格事务回滚。父审计保存全部原 facts 和新 grants，已付奖励及历史使用量不在写入白名单。
+
+## 单事务冻结快照与完整历史守恒
+
+正式快照使用 `scripts/export-credit-rebase-frozen-private.sql`：同一个 REPEATABLE READ READ ONLY 事务导出目标 cluster/database/schema/OID、全部用户（含软删）、全部 token（含无限额）、成功/可恢复待支付 topup、全部权益/套餐/邀请、金融定价原字符串及审计 id。审计表尚不存在时只读探测返回空 id 列表，不创建表。所有金融来源列明确列出，排除身份凭证和 provider payload。
+
+从 api-go 模块目录运行 `go run -p 1 /absolute/path/scripts/enrich-credit-rebase-facts-private.go --input PRIVATE_RAW --output PRIVATE_NEW`，只对文件中的成功与待支付 topup 调用现有 Go authority，并保留原始 facts。工具没有数据库初始化、连接或执行 SQL，输出新文件以 0600 创建并 fsync，拒绝覆盖旧文件。原始 `QuotaPerUnit` 仅用于还原旧 authority 的归一化行为，不能改变迁移的永久 500000 USD anchor 或冻结 FX 除数。
+
+`user_sources/token_sources` 记录完整钱包与 token 的金融/使用历史、归属、状态和软删标记。联合 SQL 要求两份数组完整；只读 CAS/count 比较 used_quota、request_count、aff_history、时间戳及无限额 flag，不更新任何历史字段。快照选项中所有不写入的金融定价原字符串均受保留保护，恢复候选的 before 必须与同一冻结快照精确一致。
+
+全量运行同时选择 `--include-affiliate --include-token-limits --include-redemptions --include-bounties --include-pending-topups --include-subscriptions --include-other-rights --restore-fixed-anchors`。其它未来点数的 `other_credit_bases` 保存在父审计，原始 tip/withdrawn、礼包、广告、违规扣费、邮件退款历史字段不改；运行时使用独立纠正基准。邮件 ledger 只增加 nullable `original_amount_quota`，无 default 或历史回填。
+
+`obligations` 的九个只读计数必须精确齐全且均为零。SQL 无条件再次核验匹配的在途/待退款任务并加锁，不能通过关闭 `--include-other-rights` 绕过；包括 FAILED 空退款 marker 的近期旧任务，以及 progress 仍未达到 100% 的 Midjourney。缺表或缺列是失败，不是零。
+
+`business_source_sha256` 是去掉 target 的快照摘要；`business_plan_sha256` 是去掉 target/source_sha256/plan_sha256/business_plan_sha256 的计划摘要。均使用排序 key、紧凑 JSON 与 SHA-256。克隆演练只允许替换 target，并保持两个业务摘要一致；目标数据库/集群/schema/OID 的检查仍必须指向真实克隆。异时补导只能用于现状预演，不能签封成正式生产计划。

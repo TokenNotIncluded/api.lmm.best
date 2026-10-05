@@ -11,6 +11,14 @@
 BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;
 SET LOCAL statement_timeout = '30s';
 WITH frozen AS (SELECT EXTRACT(EPOCH FROM CURRENT_TIMESTAMP)::bigint AS at),
+user_sources AS (
+ SELECT id,quota,aff_quota,used_quota,request_count,aff_history,aff_count,status,deleted_at
+ FROM :"target_schema".users
+), token_sources AS (
+ SELECT id,user_id,remain_quota,used_quota,unlimited_quota,status,created_time,
+        accessed_time,expired_time,deleted_at
+ FROM :"target_schema".tokens
+),
 pending AS (
  SELECT id,user_id,status,credited_quota,amount,platform_amount_micros,
         settled_amount_micros,expected_amount_micros,refunded_quota,
@@ -78,6 +86,8 @@ pending AS (
 )
 SELECT jsonb_build_object(
  'snapshot_at',(SELECT at FROM frozen),
+ 'user_sources',COALESCE((SELECT jsonb_agg(to_jsonb(u) ORDER BY id) FROM user_sources u),'[]'::jsonb),
+ 'token_sources',COALESCE((SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM token_sources t),'[]'::jsonb),
  'pending_topups',COALESCE((SELECT jsonb_agg(to_jsonb(p) ORDER BY id) FROM pending p),'[]'::jsonb),
  'referrals',COALESCE((SELECT jsonb_agg(to_jsonb(r) ORDER BY id) FROM referrals r),'[]'::jsonb),
  'entities',jsonb_build_object(

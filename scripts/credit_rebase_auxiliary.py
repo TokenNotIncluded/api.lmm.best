@@ -38,7 +38,7 @@ def safe_int(value, label):
 
 
 def make_auxiliary(snapshot, selected, scale, *, include_pending=False, include_affiliate=False):
-    pending, referrals = [], []
+    pending, referrals, blocked = [], [], []
     if include_pending:
         rows = snapshot.get("pending_topups")
         if not isinstance(rows, list):
@@ -64,11 +64,16 @@ def make_auxiliary(snapshot, selected, scale, *, include_pending=False, include_
             if not money.is_finite() or money < 0:
                 raise ValueError("invalid pending money value")
             old = safe_int(source.get("effective_credited_quota"), "normalized pending quote")
-            if old <= 0:
-                raise ValueError("pending quote cannot be normalized; classify legacy source explicitly")
+            noncash = legacy_noncash(source)
             for key, expected in (("pending_credit_rebase_key", ""), ("pending_credit_rebase_original_quota", 0), ("pending_credit_rebase_effective_quota", 0)):
                 if source.get(key) != expected:
                     raise ValueError("pending quote already rebased or metadata snapshot incomplete")
+            if old == 0:
+                blocked.append({"source":source,"top_up_id":tid,"user_id":uid,
+                                "original_credited_quota":0,"effective_credited_quota":0,
+                                "reason":"legacy_noncash_without_immutable_grant" if noncash else "authority_zero_not_settleable",
+                                "future_settlement":"blocked_until_separate_audited_payment_reconciliation"})
+                continue
             if scale(old) <= 0:
                 raise ValueError("pending grant rounds to zero; resolve this payment quote explicitly")
             pending.append({"source": source, "top_up_id": tid, "user_id": uid,
@@ -95,7 +100,7 @@ def make_auxiliary(snapshot, selected, scale, *, include_pending=False, include_
                               "original_quota": source["quota"], "rebased_quota": scale(source["quota"]),
                               "rebased_revoked_quota": scale(source["revoked_quota"]),
                               "rebased_penalty_quota": scale(source["penalty_quota"])})
-    return sorted(pending, key=lambda e: e["top_up_id"]), sorted(referrals, key=lambda e: e["reward_id"])
+    return sorted(pending, key=lambda e: e["top_up_id"]), sorted(referrals, key=lambda e: e["reward_id"]), sorted(blocked,key=lambda e:e["top_up_id"])
 
 
 def render_auxiliary(plan, schema, literal):
@@ -106,13 +111,15 @@ def render_auxiliary(plan, schema, literal):
     if plan["include_pending_topups"]:
         for key, kind, default in (("pending_credit_rebase_key", "varchar(128)", "''"), ("pending_credit_rebase_original_quota", "bigint", "0"), ("pending_credit_rebase_effective_quota", "bigint", "0")):
             ddl.append(f"ALTER TABLE {schema}.top_ups ADD COLUMN IF NOT EXISTS {key} {kind} NOT NULL DEFAULT {default};")
-        checks.append(f"IF (SELECT count(*) FROM {schema}.top_ups WHERE {RECOVERABLE_TOPUP_SQL} AND user_id=ANY(ARRAY[{selected}]::bigint[])) <> {len(plan['pending_bases'])} THEN RAISE EXCEPTION 'pending or recoverable failed topup snapshot incomplete'; END IF;")
-        for b in plan["pending_bases"]:
+        count = len(plan['pending_bases']) + len(plan['blocked_pending_bases'])
+        checks.append(f"IF (SELECT count(*) FROM {schema}.top_ups WHERE {RECOVERABLE_TOPUP_SQL} AND user_id=ANY(ARRAY[{selected}]::bigint[])) <> {count} THEN RAISE EXCEPTION 'pending or recoverable failed topup snapshot incomplete'; END IF;")
+        for b in plan["pending_bases"] + plan["blocked_pending_bases"]:
             s = b["source"]
             clauses = [f"id={b['top_up_id']}", f"user_id={b['user_id']}", f"status={literal(s['status'])}", f"failure_reason_code={literal(s['failure_reason_code'])}"]
             clauses += [f"{key}={s[key]}" for key in TOPUP_NUMBERS]
             clauses += [f"{key}={literal(s[key])}" for key in TOPUP_TEXT]
             clauses += [f"money={literal(s['money'])}::double precision", "pending_credit_rebase_key=''", "pending_credit_rebase_original_quota=0", "pending_credit_rebase_effective_quota=0"]
+            clauses.append(legacy_noncash_sql(literal) + ("" if s["is_legacy_linuxdo_credit_topup"] else " IS FALSE"))
             checks.append(f"IF NOT EXISTS (SELECT 1 FROM {schema}.top_ups WHERE " + " AND ".join(clauses) + ") THEN RAISE EXCEPTION 'pending quote fact or rebase metadata changed'; END IF;")
             updates.append(f"UPDATE {schema}.top_ups SET pending_credit_rebase_key={mid}, pending_credit_rebase_original_quota={b['original_credited_quota']}, pending_credit_rebase_effective_quota={b['effective_credited_quota']} WHERE id={b['top_up_id']};")
     if plan["include_affiliate"]:

@@ -16,7 +16,7 @@ REFUND_INT = ("subscription_order_id", "subscription_payment_event_id", "amount_
 REFUND_TEXT = ("payment_provider", "provider_event_id", "currency")
 
 
-def rows(snapshot, key, ints, texts, *, nullable=(), booleans=()):
+def rows(snapshot, key, ints, texts, *, nullable=(), booleans=(),nullable_text=()):
     sources = snapshot.get(key)
     if not isinstance(sources, list):
         raise ValueError("subscription plan requires complete " + key + " array")
@@ -27,9 +27,14 @@ def rows(snapshot, key, ints, texts, *, nullable=(), booleans=()):
             raise ValueError("invalid or duplicate " + key + " id")
         seen.add(source["id"])
         for field in ints:
+            if field in nullable:
+                continue
             source[field] = safe_int(row.get(field), key + " " + field)
         for field in texts:
             value = row.get(field)
+            if field in nullable_text and value is None and field in row:
+                source[field] = None
+                continue
             if not isinstance(value, str) or "\x00" in value:
                 raise ValueError(key + " requires exact text " + field)
             source[field] = value
@@ -78,15 +83,25 @@ def make_subscriptions(snapshot, selected, scale, *, include=False):
     if at <= 0:
         raise ValueError("subscription plan requires frozen snapshot_at")
     subs = rows(snapshot, "subscriptions", SUB_INT, SUB_TEXT, nullable=("reset_amount", "renewal_amount"))
-    orders = rows(snapshot, "subscription_orders", ORDER_INT, ORDER_TEXT)
+    orders = rows(snapshot, "subscription_orders", ORDER_INT, ORDER_TEXT,nullable=("current_period_start","current_period_end"),nullable_text=("plan_snapshot","plan_currency","settlement_currency","provider_subscription_state"))
     plans = rows(snapshot, "subscription_plans", PLAN_INT, PLAN_TEXT, booleans=("enabled",))
     payments = rows(snapshot, "subscription_payment_events", PAYMENT_INT, PAYMENT_TEXT, nullable=("period_start", "period_end"))
     refunds = rows(snapshot, "subscription_payment_refunds", REFUND_INT, REFUND_TEXT)
     by_sub = {}
     pending = []
+    by_plan = {p["id"]: p for p in plans}
     for order in orders:
         if order["user_id"] not in selected or order["status"] not in ("pending", "success", "failed"):
             raise ValueError("unselected or unsupported subscription order")
+        if order["status"] == "pending" and not (order["plan_snapshot"] or "").strip():
+            catalog = by_plan.get(order["plan_id"])
+            if catalog is None:
+                raise ValueError("legacy pending subscription fallback has no complete current catalog")
+            pending.append({"id":order["id"],"source":order,"plan_snapshot":order["plan_snapshot"],
+                            "grant_source_kind":"runtime_current_catalog_fallback","catalog_plan_id":catalog["id"],
+                            "catalog_source":catalog,"original_grant":catalog["total_amount"],
+                            "effective_grant":scale(catalog["total_amount"])})
+            continue
         sold = plan_snapshot(order)
         if order["status"] == "success":
             by_sub.setdefault(order["user_subscription_id"], []).append(order)
@@ -98,6 +113,8 @@ def make_subscriptions(snapshot, selected, scale, *, include=False):
                 raise ValueError("finite pending subscription grant rounds to unlimited sentinel")
             sold["total_amount"] = grant
             pending.append({"id": order["id"], "source": order,
+                            "grant_source_kind":"frozen_order_plan_snapshot",
+                            "original_grant":plan_snapshot(order)["total_amount"],"effective_grant":grant,
                             "plan_snapshot": json.dumps(sold, separators=(",", ":"), ensure_ascii=False)})
     result, bases = [], []
     for sub in subs:
@@ -139,13 +156,13 @@ def make_subscriptions(snapshot, selected, scale, *, include=False):
                     raise ValueError("fully refunded sold subscription retains spendable credits")
                 continue
             current_events = [p for p in payments if p["subscription_order_id"] == order["id"] and
-                (p["period_start"] or 0) == order["current_period_start"] and
-                (p["period_end"] or 0) == order["current_period_end"]]
+                (p["period_start"] or 0) == (order["current_period_start"] or 0) and
+                (p["period_end"] or 0) == (order["current_period_end"] or 0)]
             if len(current_events) > 1 or any(p["settlement_amount_micros"] != paid for p in current_events):
                 raise ValueError("subscription current receipt payment basis is ambiguous")
             bases.append({"subscription_order_id": order["id"], "user_subscription_id": sub["id"],
-                "user_id": sub["user_id"], "period_start": order["current_period_start"],
-                "period_end": order["current_period_end"], "subscription_end_time": sub["end_time"],
+                "user_id": sub["user_id"], "period_start": order["current_period_start"] or 0,
+                "period_end": order["current_period_end"] or 0, "subscription_end_time": sub["end_time"],
                 "original_quota_version": entry["quota_version"],
                 "original_credit_quota": safe_int(sub["amount_total"] + order["refunded_quota"], "original subscription refund grant"),
                 "original_refunded_quota": order["refunded_quota"],
@@ -198,7 +215,8 @@ def render_subscriptions(plan, schema, literal):
     for source in plan["subscription_order_sources"]:
         cas("subscription_orders", source)
     for entry in plan["subscription_order_updates"]:
-        updates.append(f"UPDATE {schema}.subscription_orders SET plan_snapshot={literal(entry['plan_snapshot'])} WHERE id={entry['id']};")
+        if entry["grant_source_kind"] == "frozen_order_plan_snapshot":
+            updates.append(f"UPDATE {schema}.subscription_orders SET plan_snapshot={literal(entry['plan_snapshot'])} WHERE id={entry['id']};")
     for entry in plan["subscription_plan_updates"]:
         cas("subscription_plans", entry["source"])
         updates.append(f"UPDATE {schema}.subscription_plans SET total_amount={entry['total_amount']},updated_at={entry['updated_at']} WHERE id={entry['id']};")
