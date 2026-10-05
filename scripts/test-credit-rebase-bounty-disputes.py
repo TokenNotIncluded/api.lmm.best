@@ -30,7 +30,7 @@ source.update(id=1, challenge_id=1, project_id=1, opened_by_user_id=2, against_u
 project = {"id": 1, "owner_user_id": 1, "escrow_quota": 6_710_363, "status": "published"}
 challenge = {"id": 1, "project_id": 1, "participant_user_id": 2, "reward_quota": 6_710_363, "paid_at": 0, "status": "accepted"}
 owner_claim = source | {"id": 2, "opened_by_user_id": 1, "against_user_id": 2}
-resolved = source | {"id": 3, "status": "resolved_denied", "resolved_at": 95, "resolved_by_user_id": 3, "updated_at": 95}
+resolved = source | {"id": 3, "challenge_id": 99, "status": "resolved_paid", "resolved_at": 95, "resolved_by_user_id": 3, "updated_at": 95}
 snapshot = {"snapshot_at": 100, "entities": {"bounty_projects": [project], "bounty_challenges": [challenge], "bounty_disputes": [source, owner_claim, resolved]}}
 original_snapshot = copy.deepcopy(snapshot)
 bases = disputes.prepare(snapshot, {1, 2}, scale, include=True)

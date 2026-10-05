@@ -31,12 +31,16 @@ def prepare(snapshot, selected, scale, *, include=False):
     bases = []
     for row in maps["bounty_disputes"].values():
         source = exact_source(row, SOURCE_INTS, SOURCE_TEXT)
-        challenge = maps["bounty_challenges"].get(source["challenge_id"])
         project = maps["bounty_projects"].get(source["project_id"])
-        if not challenge or not project or challenge.get("project_id") != source["project_id"]:
-            raise ValueError("bounty dispute source must bind its captured project and challenge")
+        if not project:
+            raise ValueError("bounty dispute source must bind its captured project")
         if source["status"] != "open":
-            continue  # Resolved cases retain evidence but cannot pay again.
+            # A resolved paid case can refer to a historical challenge omitted
+            # from the unpaid-right snapshot. Its raw dispute remains a guard.
+            continue
+        challenge = maps["bounty_challenges"].get(source["challenge_id"])
+        if not challenge or challenge.get("project_id") != source["project_id"]:
+            raise ValueError("open bounty dispute must bind its captured challenge")
         uid, owner = challenge.get("participant_user_id"), project.get("owner_user_id")
         if type(uid) is not int or type(owner) is not int or uid <= 0 or owner <= 0 or uid == owner or uid not in selected or owner not in selected:
             raise ValueError("bounty dispute parties must be distinct selected users")
