@@ -128,6 +128,13 @@ restarted a writer, stop that service normally first; the next attempt must
 prove its fresh PID/InvocationID shutdown and drain. Use a new recovery ID and
 new controller evidence directory:
 
+Recovery reads the complete PID/Invocation journal, retains its SHA256, and
+validates the unique received-signal through server-exited window. Earlier
+periodic quota flushes are not shutdown reports; duplicate shutdown/refund/flush
+reports, missing completion or a different PID/Invocation remain failures.
+Like the normal native gate, an empty dashboard batch may emit no flush report;
+zero or one valid report is accepted, and no `persisted=0` report is invented.
+
 ```sh
 scripts/lmm-api-deploy.sh shared-postgres recover \
   --plan /private/plan.json --plan-sha256 PLAN_SHA256 \

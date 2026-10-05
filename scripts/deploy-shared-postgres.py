@@ -202,7 +202,7 @@ def validate_shutdown(text):
                     'malformed-shutdown-report')
             others.append(line)
     require(len(reports) == 1 and reports[0][0] == reports[0][1] and
-            len(flushes) == 1, 'shutdown-completion-missing')
+            len(flushes) <= 1, 'shutdown-completion-missing')
     rest = '\n'.join(others)
     require('received signal:' in rest and 'server exited' in rest and
             rest.count('batch update started') <= rest.count('batch update finished') and
@@ -684,10 +684,64 @@ def recovery_stopped(original):
     # A partial recovery may have restarted an old writer. Operators first
     # stop it normally; freshly prove its actual last shutdown, never reuse the
     # original PID as evidence for a later invocation.
-    journal_text = command(['journalctl', '--no-pager', '-o', 'cat', '-u', 'lmm-api.service',
+    full_journal = command(['journalctl', '--no-pager', '--all', '-o', 'json', '-u', 'lmm-api.service',
                             '_PID=' + pid, '_SYSTEMD_INVOCATION_ID=' + invocation])
-    validate_shutdown(journal_text.decode())
-    return {'pid': pid, 'invocation': invocation, 'shutdown_sha256': hashlib.sha256(journal_text).hexdigest()}
+    _, evidence = shutdown_window(full_journal, pid, invocation)
+    return {'pid': pid, 'invocation': invocation, **evidence}
+
+
+def shutdown_window(full_journal, pid, invocation):
+    """Qualify one actual stop, retaining the hash of its complete invocation.
+
+    Running services periodically flush quota. Those earlier reports cannot be
+    shutdown evidence; neither can another PID/Invocation or a second stop.
+    """
+    messages, starts, exits, timestamps, boots = [], [], [], [], set()
+    for line in full_journal.splitlines():
+        try:
+            record = decode(line)
+        except (ValueError, TypeError):
+            raise GateFailed('recovery-journal-json-invalid') from None
+        require(isinstance(record, dict), 'recovery-journal-record-invalid')
+        require(record.get('_PID') == pid and record.get('_SYSTEMD_INVOCATION_ID') == invocation,
+                'recovery-journal-binding-mismatch')
+        text = journal_message(record)
+        timestamp, boot = record.get('__MONOTONIC_TIMESTAMP'), record.get('_BOOT_ID')
+        require(isinstance(text, str) and isinstance(timestamp, str) and timestamp.isdigit() and
+                isinstance(boot, str) and re.fullmatch(r'[0-9a-f]{32}', boot), 'recovery-journal-record-invalid')
+        timestamps.append(int(timestamp)); boots.add(boot)
+        normalized = re.sub(r'^\[sys\] [0-9/ -:]+ \| ', '', text.strip().lower())
+        if normalized.startswith('received signal:'):
+            starts.append(len(messages))
+        if normalized == 'server exited':
+            exits.append(len(messages))
+        messages.append(text)
+    require(len(boots) == 1 and timestamps == sorted(timestamps) and
+            len(starts) == len(exits) == 1 and starts[0] < exits[0], 'recovery-shutdown-window-missing-or-duplicated')
+    start, end = starts[0], exits[0]
+    require(not any('refund_tasks' in v.lower() for v in messages[:start] + messages[end+1:]),
+            'recovery-refund-report-outside-shutdown')
+    window = ('\n'.join(messages[start:end+1]) + '\n').encode()
+    validate_shutdown(window.decode())
+    return window, {'full_invocation_journal_sha256': hashlib.sha256(full_journal).hexdigest(),
+                    'shutdown_sha256': hashlib.sha256(window).hexdigest(),
+                    'shutdown_start_monotonic_us': timestamps[start],
+                    'shutdown_end_monotonic_us': timestamps[end], 'boot_id': next(iter(boots)),
+                    'dashboard_flush_reports': sum('quota dashboard flush:' in m.lower() for m in messages[start:end+1])}
+
+
+def journal_message(record):
+    text = record.get('MESSAGE')
+    # journalctl JSON represents non-printable UTF-8 messages as byte arrays
+    # (for example GORM's ANSI colours); preserve their exact decoded text.
+    if isinstance(text, list):
+        require(all(type(v) is int and 0 <= v <= 255 for v in text), 'recovery-journal-message-invalid')
+        try:
+            text = bytes(text).decode('utf-8')
+        except UnicodeDecodeError:
+            raise GateFailed('recovery-journal-message-invalid') from None
+    require(isinstance(text, str), 'recovery-journal-message-invalid')
+    return text
 
 
 def recovery_check(p, n, attempt):

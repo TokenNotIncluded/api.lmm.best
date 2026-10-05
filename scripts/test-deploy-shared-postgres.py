@@ -137,6 +137,35 @@ class CoordinatorTests(unittest.TestCase):
         self.assertFalse(any(a=='release' for _,a in events))
 
 class PrimitiveTests(unittest.TestCase):
+    def test_full_invocation_periodic_flush_is_not_shutdown_evidence(self):
+        messages=['quota dashboard flush: persisted=9 failed=0 dropped=0',
+                  'quota dashboard flush: persisted=8 failed=0 dropped=0',
+                  'received signal: terminated',
+                  'refund_tasks execution_complete=true accepted=2 finished=2 active=0 failed=0 (execution completion is not financial success)',
+                  'quota dashboard flush: persisted=1 failed=0 dropped=0','server exited']
+        def records(values):
+            return [dict(MESSAGE=m,_PID='456',_SYSTEMD_INVOCATION_ID='e'*32,
+                         _BOOT_ID='a'*32,__MONOTONIC_TIMESTAMP=str(100+i)) for i,m in enumerate(values)]
+        def raw(rows):return b'\n'.join(c.encode(v) for v in rows)+b'\n'
+        original=raw(records(messages))
+        window,evidence=c.shutdown_window(original,'456','e'*32)
+        self.assertNotIn(b'persisted=9',window)
+        self.assertEqual(__import__('hashlib').sha256(original).hexdigest(),evidence['full_invocation_journal_sha256'])
+        self.assertEqual(102,evidence['shutdown_start_monotonic_us'])
+        coloured=records(messages)
+        coloured[0]['MESSAGE']=list(b'\x1b[32mnon-financial runtime entry\x1b[0m')
+        c.shutdown_window(raw(coloured),'456','e'*32)
+        for bad_message in (None,[256],[-1],[True],[255]):
+            rows=records(messages);rows[3]['MESSAGE']=bad_message
+            with self.subTest(message=bad_message),self.assertRaises(c.GateFailed):c.shutdown_window(raw(rows),'456','e'*32)
+        bads=[messages[:2]+messages[3:],messages[:-1],messages+[messages[2]],messages+[messages[-1]],
+              messages[:4]+[messages[3]]+messages[4:],messages[:5]+[messages[4]]+messages[5:]]
+        for bad in bads:
+            with self.subTest(messages=bad),self.assertRaises(c.GateFailed):c.shutdown_window(raw(records(bad)),'456','e'*32)
+        for field,value in [('_PID','789'),('_SYSTEMD_INVOCATION_ID','f'*32),('_BOOT_ID','b'*32),('__MONOTONIC_TIMESTAMP','1')]:
+            rows=records(messages);rows[3][field]=value
+            with self.subTest(field=field),self.assertRaises(c.GateFailed):c.shutdown_window(raw(rows),'456','e'*32)
+
     def test_real_fd_transfer_retains_all_locks_after_sender_eof(self):
         with tempfile.TemporaryDirectory() as d:
             paths = [str(Path(d)/str(i)) for i in range(3)]
@@ -234,9 +263,16 @@ class PrimitiveTests(unittest.TestCase):
     def test_shutdown_requires_refunds_flush_and_clean_completion(self):
         good='received signal: terminated\nrefund_tasks execution_complete=true accepted=2 finished=2 active=0 failed=0 (execution completion is not financial success)\nquota dashboard flush: persisted=1 failed=0 dropped=0\nserver exited'
         c.validate_shutdown(good)
+        # Normal native accepts no flush report when the dashboard batch is
+        # empty. No synthetic persisted=0 report is added to the evidence.
+        empty=good.replace('quota dashboard flush: persisted=1 failed=0 dropped=0\n','')
+        c.validate_shutdown(empty)
         for bad in [good.replace('finished=2','finished=1'),good.replace('dropped=0','dropped=1'),
                     good.replace('server exited',''),good+'\n'+good,
-                    good+'\nbatch update started',good+'\npanic']:
+                    good+'\nbatch update started',good+'\npanic',
+                    good.replace('failed=0 dropped=0','failed=1 dropped=0'),
+                    good+'\nquota dashboard flush: persisted=2 failed=0 dropped=0',
+                    empty.replace('refund_tasks execution_complete=true accepted=2 finished=2 active=0 failed=0 (execution completion is not financial success)\n','')]:
             with self.assertRaises(c.GateFailed):c.validate_shutdown(bad)
 
     def test_apply_dispatch_is_irreversible_even_after_failed_tool(self):
