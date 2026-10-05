@@ -15,6 +15,8 @@ import (
 
 const CreditsPerUSDOptionKey = "CreditsPerUSD"
 const LegacyPricingQuotaPerUnitOptionKey = "LegacyPricingQuotaPerUnit"
+const PublicCreditsPerUSDOptionKey = common.PublicCreditsPerUSDOptionKey
+const DefaultPublicCreditsPerUSD = "100000"
 
 // InitializeCreditUnits creates the immutable anchor without rewriting any
 // balance, price, paid order, pending order or refund snapshot. The unique
@@ -38,7 +40,8 @@ func initializeCreditUnits(ctx context.Context, allowCreate bool) error {
 		common.ClearCreditsPerUSD()
 		return common.ErrCreditUnitsUnavailable
 	}
-	var anchor, legacy decimal.Decimal
+	var anchor, legacy, public decimal.Decimal
+	var publicConfigured bool
 	var err error
 	for attempt := 0; attempt < 6; attempt++ {
 		err = DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -54,7 +57,7 @@ func initializeCreditUnits(ctx context.Context, allowCreate bool) error {
 				}
 			}
 			var options []Option
-			keys := []string{CreditsPerUSDOptionKey, LegacyPricingQuotaPerUnitOptionKey, "QuotaPerUnit", "USDExchangeRate", "TopUpPlatformUnitsPerCNY"}
+			keys := []string{CreditsPerUSDOptionKey, LegacyPricingQuotaPerUnitOptionKey, "QuotaPerUnit", "USDExchangeRate", "TopUpPlatformUnitsPerCNY", PublicCreditsPerUSDOptionKey}
 			// A single authoritative snapshot avoids mixing different nodes' caches.
 			query := tx
 			if allowCreate {
@@ -122,6 +125,30 @@ func initializeCreditUnits(ctx context.Context, allowCreate bool) error {
 				}
 				values[LegacyPricingQuotaPerUnitOptionKey] = baseline.Value
 			}
+			if value, exists := values[PublicCreditsPerUSDOptionKey]; exists {
+				publicConfigured = true
+				public, err = parsePublicCreditRate(value)
+				if err != nil {
+					return err
+				}
+			} else if allowCreate {
+				publicConfigured = true
+				if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&Option{Key: PublicCreditsPerUSDOptionKey, Value: DefaultPublicCreditsPerUSD}).Error; err != nil {
+					return err
+				}
+				var denomination Option
+				if err := tx.Where("key = ?", PublicCreditsPerUSDOptionKey).First(&denomination).Error; err != nil {
+					return err
+				}
+				public, err = parsePublicCreditRate(denomination.Value)
+				if err != nil {
+					return err
+				}
+			} else {
+				// Verification of a pre-public-denomination database stays read-only.
+				public = anchor
+				publicConfigured = false
+			}
 			var err error
 			legacy, err = parsePositiveCreditRate(values[LegacyPricingQuotaPerUnitOptionKey])
 			if err != nil {
@@ -138,10 +165,19 @@ func initializeCreditUnits(ctx context.Context, allowCreate bool) error {
 				common.ClearCreditsPerUSD()
 				return err
 			}
+			if publicConfigured {
+				if err := common.SetPublicCreditsPerUSD(public); err != nil {
+					common.ClearCreditsPerUSD()
+					return err
+				}
+			} else {
+				common.ClearPublicCreditsPerUSD()
+			}
 			common.OptionMapRWMutex.Lock()
 			common.QuotaPerUnit = legacy.InexactFloat64()
 			if common.OptionMap != nil {
 				common.OptionMap["QuotaPerUnit"] = legacy.String()
+				common.OptionMap[PublicCreditsPerUSDOptionKey] = public.String()
 			}
 			common.OptionMapRWMutex.Unlock()
 			return nil
@@ -232,4 +268,12 @@ func isCreditInitBusy(err error) bool {
 	return strings.Contains(message, "database is locked") || strings.Contains(message, "database table is locked") || strings.Contains(message, "sqlite_busy") ||
 		strings.Contains(message, "deadlock") || strings.Contains(message, "serialization failure") ||
 		strings.Contains(message, "sqlstate 40001") || strings.Contains(message, "sqlstate 40p01") || strings.Contains(message, "lock wait timeout")
+}
+
+func parsePublicCreditRate(value string) (decimal.Decimal, error) {
+	result, err := parsePositiveCreditRate(value)
+	if err != nil {
+		return decimal.Zero, err
+	}
+	return result, common.ValidatePublicCreditsPerUSD(result)
 }

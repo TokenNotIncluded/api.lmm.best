@@ -319,8 +319,12 @@ func SyncOptionsContext(ctx context.Context, frequency int) {
 }
 
 func validateOptionValue(key string, value string) error {
+	if key == PublicCreditsPerUSDOptionKey {
+		_, err := parsePublicCreditRate(value)
+		return err
+	}
 	if key == CreditsPerUSDOptionKey || key == LegacyPricingQuotaPerUnitOptionKey {
-		return errors.New("credits per USD is immutable and cannot be changed through options")
+		return errors.New("ledger quota valuation is immutable; configure PublicCreditsPerUSD for the public credit denomination")
 	}
 	if setting.IsModerationOption(key) {
 		return validateModerationOptionValues(DB, map[string]string{key: value})
@@ -920,6 +924,15 @@ func UpdateAdvancedSecurityOptions(enabled, onPrompt bool, action, rules string)
 }
 
 func updateOptionMap(key string, value string) (err error) {
+	if key == PublicCreditsPerUSDOptionKey {
+		denomination, parseErr := parsePublicCreditRate(value)
+		if parseErr != nil {
+			return parseErr
+		}
+		if err := common.SetPublicCreditsPerUSD(denomination); err != nil {
+			return err
+		}
+	}
 	if key == "QuotaPerUnit" {
 		candidate, parseErr := parsePositiveCreditRate(value)
 		if parseErr != nil {

@@ -9,7 +9,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// Credits are the integer wallet ledger. This anchor is initialized from the
+// Legacy quota integers are the wallet ledger. This anchor is initialized from the
 // durable option once at startup, independently of subsequent exchange rates.
 type creditCurrencyBasis struct{ usd, legacy decimal.Decimal }
 
@@ -45,7 +45,10 @@ func SetCreditCurrencyBasis(value, legacy decimal.Decimal) error {
 	return nil
 }
 
-func ClearCreditsPerUSD() { creditsPerUSD.Store(nil) }
+func ClearCreditsPerUSD() {
+	creditsPerUSD.Store(nil)
+	ClearPublicCreditsPerUSD()
+}
 
 func CreditsPerUSD() (decimal.Decimal, error) {
 	value := creditsPerUSD.Load()
@@ -141,7 +144,7 @@ func CreditsToFiat(credits int64, currency string, cnyPerUSD decimal.Decimal) (d
 	}
 	switch strings.ToUpper(strings.TrimSpace(currency)) {
 	case "CREDIT":
-		return decimal.NewFromInt(credits), nil
+		return LedgerQuotaToPublicCredits(credits)
 	case "USD":
 		return usd, nil
 	case "CNY":
