@@ -147,7 +147,7 @@ func TestProfileShareModelsConsentAndIsolation(t *testing.T) {
 	require.Contains(t, response.Body.String(), "owned-model")
 	common.ClearCreditsPerUSD()
 	require.Equal(t, http.StatusServiceUnavailable, request(http.MethodGet, path, "").Code)
-	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3500000), decimal.NewFromInt(500000)))
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(500000), decimal.NewFromInt(500000)))
 	for _, secret := range []string{"private-other-user", "too-old", "future-record", "password"} {
 		require.NotContains(t, response.Body.String(), secret)
 	}

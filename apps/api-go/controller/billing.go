@@ -94,14 +94,10 @@ func GetUsage(c *gin.Context) {
 		writeBillingOpenAIError(c, err, "billing_unavailable")
 		return
 	}
-	amount, err := billingUSDFromCredits(decimal.NewFromInt(int64(quota)), anchor)
+	// Convert raw credits to SDK cents before the single float conversion.
+	amount, err := billingUSDFromCredits(decimal.NewFromInt(int64(quota)).Mul(decimal.NewFromInt(100)), anchor)
 	if err != nil {
 		writeBillingOpenAIError(c, err, "billing_unavailable")
-		return
-	}
-	amount *= 100
-	if math.IsNaN(amount) || math.IsInf(amount, 0) {
-		writeBillingOpenAIError(c, common.ErrCreditUnitsUnavailable, "billing_unavailable")
 		return
 	}
 	usage := OpenAIUsageResponse{

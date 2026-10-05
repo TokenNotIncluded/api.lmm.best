@@ -21,7 +21,7 @@ func TestAccountBalanceConsentAndScope(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&model.Token{}))
 	preserveAccountBalanceBasis(t)
 	common.QuotaPerUnit = 500000
-	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3500000), decimal.NewFromInt(500000)))
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(500000), decimal.NewFromInt(500000)))
 	user := model.User{Username: "balance-owner", Status: common.UserStatusEnabled, Quota: 3500000}
 	require.NoError(t, db.Create(&user).Error)
 	token := model.Token{UserId: user.Id, Key: "balance-fixture", ExpiredTime: -1, UnlimitedQuota: true, UsedQuota: 98765}
@@ -65,7 +65,7 @@ func TestAccountBalanceConsentAndScope(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	require.Equal(t, "account", body["scope"])
 	require.Equal(t, "USD", body["currency"])
-	require.Equal(t, 1.0, body["remaining"])
+	require.Equal(t, 7.0, body["remaining"])
 	require.NotContains(t, body, "used_total")
 	require.NotContains(t, w.Body.String(), token.Key)
 	for _, quota := range []int{0, -3500000} {
@@ -73,7 +73,7 @@ func TestAccountBalanceConsentAndScope(t *testing.T) {
 		w = query()
 		require.Equal(t, 200, w.Code)
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-		require.Equal(t, float64(quota)/3500000, body["remaining"])
+		require.Equal(t, float64(quota)/500000, body["remaining"])
 	}
 	require.Equal(t, 200, grant(user.Id, `{"enabled":false}`).Code)
 	require.Equal(t, 403, query().Code)

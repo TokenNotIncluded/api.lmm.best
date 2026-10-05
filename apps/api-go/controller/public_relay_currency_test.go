@@ -34,7 +34,7 @@ func installPublicMoneyCurrencyFixture(t *testing.T) {
 	})
 	common.QuotaPerUnit, operation_setting.USDExchangeRate = 500000, 7
 	operation_setting.GetPublicRelaySetting().Group = "FREE"
-	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3500000), decimal.NewFromInt(500000)))
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(500000), decimal.NewFromInt(500000)))
 }
 
 func TestPublicRelayConfigRealUSDAndPreservedRawThreshold(t *testing.T) {
@@ -59,8 +59,8 @@ func TestPublicRelayConfigRealUSDAndPreservedRawThreshold(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
 	require.EqualValues(t, 5000000, response.Data.Minimum)
 	require.EqualValues(t, 50000000, response.Data.Maximum)
-	require.InDelta(t, 10.0/7, response.Data.MinimumUSD, 1e-14)
-	require.InDelta(t, 100.0/7, response.Data.MaximumUSD, 1e-14)
+	require.InDelta(t, 10.0, response.Data.MinimumUSD, 1e-14)
+	require.InDelta(t, 100.0, response.Data.MaximumUSD, 1e-14)
 	operation_setting.USDExchangeRate = 9.9
 	require.JSONEq(t, w.Body.String(), invoke().Body.String())
 	common.ClearCreditsPerUSD()
@@ -94,25 +94,25 @@ func TestPublicRelayTipChargesRealUSDAndRejectsUnsafeMoney(t *testing.T) {
 	path := "/api/public-relays/" + common.GetJsonString(contribution.Id) + "/tip"
 	w := request(http.MethodPost, path, `{"amount_usd":1,"message":"thanks"}`)
 	require.Equal(t, http.StatusOK, w.Code)
-	require.Contains(t, w.Body.String(), `"quota":3500000`)
+	require.Contains(t, w.Body.String(), `"quota":500000`)
 	var current model.User
 	require.NoError(t, db.First(&current, tipper.Id).Error)
-	require.Equal(t, 16500000, current.Quota)
+	require.Equal(t, 19500000, current.Quota)
 	operation_setting.USDExchangeRate = 9.9
 	w = request(http.MethodPost, path, `{"amount_usd":1}`)
 	require.Equal(t, http.StatusOK, w.Code)
 	require.NoError(t, db.First(&current, tipper.Id).Error)
-	require.Equal(t, 13000000, current.Quota)
-	for _, body := range []string{`{"amount_usd":1e100}`, `{"amount_usd":1e999}`, `{"amount_usd":0.0000000001}`, `{"amount_usd":-1}`, `{"amount_usd":"1"}`, `{"amount_usd":15}`} {
+	require.Equal(t, 19000000, current.Quota)
+	for _, body := range []string{`{"amount_usd":1e100}`, `{"amount_usd":1e999}`, `{"amount_usd":0.0000000001}`, `{"amount_usd":-1}`, `{"amount_usd":"1"}`, `{"amount_usd":101}`} {
 		require.Equal(t, http.StatusUnprocessableEntity, request(http.MethodPost, path, body).Code, body)
 	}
 	require.NoError(t, db.First(&current, tipper.Id).Error)
-	require.Equal(t, 13000000, current.Quota)
+	require.Equal(t, 19000000, current.Quota)
 	var rows []model.PublicRelayTip
 	require.NoError(t, db.Find(&rows).Error)
 	require.Len(t, rows, 2)
-	require.EqualValues(t, 3500000, rows[0].Quota)
-	require.EqualValues(t, 3500000, rows[1].Quota)
+	require.EqualValues(t, 500000, rows[0].Quota)
+	require.EqualValues(t, 500000, rows[1].Quota)
 	list := request(http.MethodGet, "/api/public-relays", "")
 	require.Equal(t, http.StatusOK, list.Code)
 	require.Contains(t, list.Body.String(), `"tip_quota_usd":2`)
@@ -126,14 +126,14 @@ func TestPublicRelayTipChargesRealUSDAndRejectsUnsafeMoney(t *testing.T) {
 	require.Equal(t, http.StatusServiceUnavailable, request(http.MethodGet, "/api/public-relays/mine", "").Code)
 	require.Equal(t, http.StatusServiceUnavailable, request(http.MethodGet, "/api/admin/public-relays", "").Code)
 	require.NoError(t, db.First(&current, tipper.Id).Error)
-	require.Equal(t, 13000000, current.Quota)
+	require.Equal(t, 19000000, current.Quota)
 }
 
 func TestProfileShareModelsMoneyUsesRealUSDAndLanguageCurrency(t *testing.T) {
 	installPublicMoneyCurrencyFixture(t)
 	for _, tc := range []struct{ lang, currency, displayed string }{
-		{"en", "", "1.0000 USD"}, {"zh", "", "7.0000 CNY"}, {"zh-TW", "", "7.0000 CNY"},
-		{"zh", "USD", "1.0000 USD"}, {"en", "CNY", "7.0000 CNY"}, {"en", "CREDIT", "3500000 Credit"},
+		{"en", "", "7.0000 USD"}, {"zh", "", "49.0000 CNY"}, {"zh-TW", "", "49.0000 CNY"},
+		{"zh", "USD", "7.0000 USD"}, {"en", "CNY", "49.0000 CNY"}, {"en", "CREDIT", "3500000 Credit"},
 	} {
 		options, _, err := parseProfileShareModelsSVGOptions(url.Values{"layout": {"models"}, "lang": {tc.lang}, "currency": {tc.currency}})
 		require.NoError(t, err)
@@ -147,10 +147,10 @@ func TestProfileShareModelsMoneyUsesRealUSDAndLanguageCurrency(t *testing.T) {
 	operation_setting.USDExchangeRate = 9.9
 	usd, err := profileShareModelQuota(3500000, "USD")
 	require.NoError(t, err)
-	require.Equal(t, "1.0000 USD", usd)
+	require.Equal(t, "7.0000 USD", usd)
 	cny, err := profileShareModelQuota(3500000, "CNY")
 	require.NoError(t, err)
-	require.Equal(t, "9.9000 CNY", cny)
+	require.Equal(t, "69.3000 CNY", cny)
 	for _, invalid := range []float64{0, math.NaN(), math.Inf(1)} {
 		operation_setting.USDExchangeRate = invalid
 		_, err = profileShareModelQuota(3500000, "CNY")
@@ -171,10 +171,10 @@ func TestPublicRelayTipPreservesExactDecimalAtHalfCreditBoundary(t *testing.T) {
 		amount string
 		quota  int
 	}{
-		{"0.000000142857142857142857142857142857", 0},
-		{"0.000000142857142857142857142857142858", 1},
-		{"1.000000142857142857142857142857142857", 3500000},
-		{"1.000000142857142857142857142857142858", 3500001},
+		{"0.000000999999999999999999999999999999", 0},
+		{"0.000001000000000000000000000000000000", 1},
+		{"1.000000999999999999999999999999999999", 500000},
+		{"1.000001000000000000000000000000000000", 500001},
 	} {
 		var input publicRelayTipInput
 		require.NoError(t, json.Unmarshal([]byte(`{"amount_usd":`+tc.amount+`}`), &input))

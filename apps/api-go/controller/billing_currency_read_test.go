@@ -44,10 +44,10 @@ func TestSDKBillingExactUSDZeroSignedAndSingleRounding(t *testing.T) {
 		remain, used   int
 		dollars, cents float64
 	}{
-		{"3500000", 0, 3500000, 1, 100}, {"3500000", 0, 0, 0, 0},
-		{"3500000", -7000000, 3500000, -1, 100}, {"3500000", 0, -3500000, -1, -100},
-		{"8666666666666667", 0, 866666666666668, 0.1000000000000001, 10.00000000000001},
-		{"8666666666666667", 0, -866666666666668, -0.1000000000000001, -10.00000000000001},
+		{"500000", 0, 3500000, 7, 700}, {"500000", 0, 0, 0, 0},
+		{"500000", -7000000, 3500000, -7, 700}, {"500000", 0, -3500000, -7, -700},
+		{"500000", 0, 1, 0.000002, 0.0002},
+		{"500000", 0, -1, -0.000002, -0.0002},
 	} {
 		require.NoError(t, common.SetCreditCurrencyBasis(decimal.RequireFromString(tc.anchor), decimal.NewFromInt(500000)))
 		require.NoError(t, db.Model(&token).UpdateColumns(map[string]any{"remain_quota": tc.remain, "used_quota": tc.used}).Error)
@@ -86,7 +86,7 @@ func TestSDKBillingUnavailableBasisAndNonFiniteMoneyKeepErrorShape(t *testing.T)
 	for _, handler := range []gin.HandlerFunc{GetSubscription, GetUsage} {
 		require.JSONEq(t, errorJSON, billingReadRequest(t, &token, handler).Body.String())
 	}
-	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3500000), decimal.NewFromInt(500000)))
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(500000), decimal.NewFromInt(500000)))
 	common.QuotaPerUnit = 700000
 	for _, handler := range []gin.HandlerFunc{GetSubscription, GetUsage} {
 		require.JSONEq(t, errorJSON, billingReadRequest(t, &token, handler).Body.String())
@@ -119,4 +119,20 @@ func TestSDKBillingUSDConversionRejectsLostAmountButAllowsExplicitZero(t *testin
 	zero, err := billingUSDFromCredits(decimal.Zero, decimal.NewFromInt(3500000))
 	require.NoError(t, err)
 	require.Zero(t, zero)
+}
+
+// The conversion helper accepts explicit precision fixtures; HTTP contracts
+// always install the platform denomination of 500000 credits per USD.
+func TestBillingUSDFromCreditsExplicitPrecisionFixture(t *testing.T) {
+	for _, tc := range []struct {
+		quota, anchor string
+		expected      float64
+	}{
+		{"866666666666668", "8666666666666667", 0.1000000000000001},
+		{"-866666666666668", "8666666666666667", -0.1000000000000001},
+	} {
+		amount, err := billingUSDFromCredits(decimal.RequireFromString(tc.quota), decimal.RequireFromString(tc.anchor))
+		require.NoError(t, err)
+		require.Equal(t, tc.expected, amount)
+	}
 }

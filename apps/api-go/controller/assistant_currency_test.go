@@ -33,7 +33,7 @@ func setupAssistantCurrencyTest(t *testing.T) {
 	})
 	common.QuotaPerUnit = 500000
 	operation_setting.USDExchangeRate, operation_setting.TopUpPlatformUnitsPerCNY = 7, 1
-	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3500000), decimal.NewFromInt(500000)))
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(500000), decimal.NewFromInt(500000)))
 	setupTokenControllerTestDB(t)
 }
 
@@ -43,20 +43,20 @@ func TestAssistantCurrencyWalletAndGiftUsePersistedCreditAmounts(t *testing.T) {
 	for _, fx := range []float64{7, 7.2, 8} {
 		operation_setting.USDExchangeRate, operation_setting.TopUpPlatformUnitsPerCNY = fx, 99
 		fields := assistantWalletBalanceFields(3500000)
-		assert.Equal(t, float64(1), fields["wallet_balance_usd"])
-		assert.Equal(t, float64(3500000), fields["credits_per_usd"])
+		assert.Equal(t, float64(7), fields["wallet_balance_usd"])
+		assert.Equal(t, float64(500000), fields["credits_per_usd"])
 		dto, err := assistantGiftResponse(gift)
 		require.NoError(t, err)
 		assert.Equal(t, "LEGACY_CENTS", dto.AmountUnit)
 		assert.Equal(t, 999, dto.AmountCents)
 		assert.Equal(t, 3500000, dto.CreditAmount)
 		require.NotNil(t, dto.AmountUSD)
-		assert.Equal(t, float64(1), *dto.AmountUSD)
+		assert.Equal(t, float64(7), *dto.AmountUSD)
 		encoded, err := json.Marshal(dto)
 		require.NoError(t, err)
 		assert.Contains(t, string(encoded), `"amount_cents":999`)
 		assert.Contains(t, string(encoded), `"credit_amount":3500000`)
-		assert.Contains(t, string(encoded), `"amount_usd":1`)
+		assert.Contains(t, string(encoded), `"amount_usd":7`)
 	}
 	common.ClearCreditsPerUSD()
 	_, err := assistantGiftResponse(gift)
@@ -97,10 +97,10 @@ func TestAssistantInvitationRewardsUseActualUSDWithoutChangingCreditRewards(t *t
 		require.Equal(t, true, result["ok"])
 		assert.Equal(t, 3500000, result["pending_reward_credit"])
 		assert.Equal(t, 7000000, result["total_reward_credit"])
-		assert.Equal(t, float64(1), result["pending_reward_usd"])
-		assert.Equal(t, float64(2), result["total_reward_usd"])
-		assert.Equal(t, float64(0.5), result["reward_per_inviter_usd"])
-		assert.Equal(t, float64(1), result["reward_per_invitee_usd"])
+		assert.Equal(t, float64(7), result["pending_reward_usd"])
+		assert.Equal(t, float64(14), result["total_reward_usd"])
+		assert.Equal(t, float64(3.5), result["reward_per_inviter_usd"])
+		assert.Equal(t, float64(7), result["reward_per_invitee_usd"])
 	}
 	common.ClearCreditsPerUSD()
 	result := executeAssistantInvitationTool(user.Id)

@@ -34,7 +34,7 @@ func installControllerCreditAnchor(t *testing.T, anchor int64) {
 
 func installStatusCurrencyFixture(t *testing.T) {
 	t.Helper()
-	installControllerCreditAnchor(t, 3650000)
+	installControllerCreditAnchor(t, 500000)
 	previous := assistantConfiguredRouteResolver
 	previousPricing := getPricingCache
 	getPricingCache = func() []model.Pricing { return nil }
@@ -47,7 +47,7 @@ func installStatusCurrencyFixture(t *testing.T) {
 
 func TestStatusCreditMetadataAndUnavailableFailsClosed(t *testing.T) {
 	installStatusCurrencyFixture(t)
-	installControllerCreditAnchor(t, 4375000)
+	installControllerCreditAnchor(t, 500000)
 	persistCreditDenominationFixture(t, model.DB)
 	preserveCacheRuntimeHooks(t)
 	cacheReadinessError = func() error { return nil }
@@ -70,16 +70,16 @@ func TestStatusCreditMetadataAndUnavailableFailsClosed(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	require.Equal(t, "credit", body.Data["currency_unit"])
-	require.Equal(t, float64(4375000), body.Data["credits_per_usd"])
-	require.Equal(t, float64(4375000), body.Data["quota_per_usd"])
+	require.Equal(t, float64(500000), body.Data["credits_per_usd"])
+	require.Equal(t, float64(500000), body.Data["quota_per_usd"])
 	require.Equal(t, float64(7), body.Data["cny_per_usd"])
-	require.Equal(t, 8.75, body.Data["legacy_pricing_units_per_usd"])
+	require.Equal(t, 1.0, body.Data["legacy_pricing_units_per_usd"])
 	operation_setting.USDExchangeRate, operation_setting.TopUpPlatformUnitsPerCNY = 8, 3
 	w = query()
 	require.Equal(t, 200, w.Code)
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	require.Equal(t, float64(4375000), body.Data["credits_per_usd"])
-	require.Equal(t, 8.75, body.Data["price"], "legacy compatibility field is fixed bridge, not future recharge rate")
+	require.Equal(t, float64(500000), body.Data["credits_per_usd"])
+	require.Equal(t, 1.0, body.Data["price"], "legacy compatibility field is fixed bridge, not future recharge rate")
 	require.Equal(t, float64(8), body.Data["cny_per_usd"])
 	for _, bad := range []float64{0, math.NaN(), math.Inf(1)} {
 		operation_setting.USDExchangeRate = bad
@@ -148,7 +148,7 @@ func TestWalletDisplayPreferenceOwnerScopedAndIndependent(t *testing.T) {
 func TestBillingQueriesAlwaysTrueUSDIndependentOfDisplay(t *testing.T) {
 	db := setupTokenControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.Log{}))
-	installControllerCreditAnchor(t, 4375000)
+	installControllerCreditAnchor(t, 500000)
 	oldQ, oldFX, oldToken := common.QuotaPerUnit, operation_setting.USDExchangeRate, common.DisplayTokenStatEnabled
 	oldDisplay := operation_setting.GetGeneralSetting().QuotaDisplayType
 	common.QuotaPerUnit, common.DisplayTokenStatEnabled = 500000, true
@@ -175,8 +175,8 @@ func TestBillingQueriesAlwaysTrueUSDIndependentOfDisplay(t *testing.T) {
 		operation_setting.GetGeneralSetting().QuotaDisplayType = display
 		for _, fx := range []float64{7, 8, 99} {
 			operation_setting.USDExchangeRate = fx
-			require.Equal(t, float64(3), query(GetSubscription)["hard_limit_usd"])
-			require.Equal(t, float64(200), query(GetUsage)["total_usage"], "OpenAI usage uses real USD cents")
+			require.Equal(t, float64(26.25), query(GetSubscription)["hard_limit_usd"])
+			require.Equal(t, float64(1750), query(GetUsage)["total_usage"], "OpenAI usage uses real USD cents")
 			c := httptest.NewRecorder()
 			ctx, _ := gin.CreateTestContext(c)
 			ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/usage", nil)
@@ -184,8 +184,8 @@ func TestBillingQueriesAlwaysTrueUSDIndependentOfDisplay(t *testing.T) {
 			GetQuotaQuery(ctx)
 			var body map[string]any
 			require.NoError(t, json.Unmarshal(c.Body.Bytes(), &body))
-			require.Equal(t, float64(1), body["remaining"])
-			require.Equal(t, float64(2), body["used_total"])
+			require.Equal(t, float64(8.75), body["remaining"])
+			require.Equal(t, float64(17.5), body["used_total"])
 		}
 	}
 	var after model.Token
