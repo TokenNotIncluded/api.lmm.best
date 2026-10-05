@@ -323,7 +323,12 @@ test('each discovered tool can be priced independently and switching back to fre
       assert.equal(mode.value, 'free')
       assert.deepEqual(
         [...mode.options].map((option) => option.textContent),
-        ['Free tool', 'Paid tool', 'Input token usage']
+        [
+          'Free tool',
+          'Paid tool',
+          'Input token usage',
+          'Combined usage pricing',
+        ]
       )
     }
     await view.select('#billing-mode-search', 'paid')
@@ -849,15 +854,31 @@ test('an unsafe legacy inspection fails visibly and invalidates the earlier save
   }
 })
 
+async function acknowledgePricingDefinitions(
+  view: Awaited<ReturnType<typeof renderEditor>>
+) {
+  const label = [...view.container.querySelectorAll('label')].find((item) =>
+    item.textContent?.includes('I reviewed the endpoint')
+  )
+  const checkbox = label?.querySelector<HTMLInputElement>(
+    'input[type="checkbox"]'
+  )
+  if (checkbox && !checkbox.checked) await act(async () => checkbox.click())
+}
+
 test('metered pricing keeps the actual input rate and a separate refundable cap through discovery', async () => {
   const requests = pricingRequests()
-  const view = await renderEditor()
+  const authorized = structuredClone(initial)
+  authorized.tools[0].available_metering_metrics = ['input_tokens']
+  authorized.tools[0].input_schema = JSON.stringify(discovered[0].input_schema)
+  const view = await renderEditor(authorized)
   try {
-    await readNewService(view)
+    await view.click('Read tool definitions')
     await view.select('#billing-mode-search', 'input_tokens')
     await view.input('#price-search', '2.94')
     await view.input('#token-limit-search', '65536')
     await view.click('Read tool definitions')
+    await acknowledgePricingDefinitions(view)
     await view.click('Save draft')
     assert.equal(requests.drafts.length, 1)
     const tool = requests.drafts[0].tools.find(({ name }) => name === 'search')
@@ -866,6 +887,67 @@ test('metered pricing keeps the actual input rate and a separate refundable cap 
     assert.equal(tool.input_token_price_quota, 1470000)
     assert.equal(tool.max_input_tokens, 65536)
     assert.equal(tool.price_quota, 96338)
+  } finally {
+    await view.dispose()
+    requests.restore()
+  }
+})
+
+test('ordinary publishers cannot select unverified usage pricing', async () => {
+  const requests = pricingRequests()
+  const view = await renderEditor()
+  try {
+    await readNewService(view)
+    const mode = view.container.querySelector<HTMLSelectElement>(
+      '#billing-mode-search'
+    )
+    assert.ok(mode)
+    assert.equal(
+      mode.querySelector<HTMLOptionElement>('[value="input_tokens"]')?.disabled,
+      true
+    )
+    assert.equal(
+      mode.querySelector<HTMLOptionElement>('[value="metered"]')?.disabled,
+      true
+    )
+    assert.match(view.container.textContent ?? '', /platform-controlled meter/)
+    await view.select('#billing-mode-search', 'input_tokens')
+    await view.input('#price-search', '2.94')
+    assert.equal(view.button('Save draft').disabled, true)
+  } finally {
+    await view.dispose()
+    requests.restore()
+  }
+})
+
+test('authorized resource pricing saves a combination and refundable cap', async () => {
+  const requests = pricingRequests()
+  const authorized = structuredClone(initial)
+  authorized.tools[0].input_schema = JSON.stringify(discovered[0].input_schema)
+  authorized.tools[0].available_metering_metrics = [
+    'cpu_core_milliseconds',
+    'memory_mib_seconds',
+  ]
+  authorized.tools[0].billing_mode = 'metered'
+  authorized.tools[0].billing_rules = [
+    { metric: 'cpu_core_milliseconds', rate_quota: 500000, max_quantity: 2000 },
+    { metric: 'memory_mib_seconds', rate_quota: 250000, max_quantity: 1024 },
+  ]
+  authorized.tools[0].price_quota = 1250000
+  const view = await renderEditor(authorized)
+  try {
+    await view.click('Read tool definitions')
+    assert.match(view.container.textContent ?? '', /CPU core-second/)
+    assert.match(view.container.textContent ?? '', /Memory GiB-second/)
+    await acknowledgePricingDefinitions(view)
+    await view.click('Save draft')
+    assert.equal(requests.drafts.length, 1)
+    const tool = requests.drafts[0].tools[0]
+    assert.equal(tool.billing_mode, 'metered')
+    assert.deepEqual(tool.billing_rules, authorized.tools[0].billing_rules)
+    assert.equal(tool.price_quota, 1250000)
+    assert.equal(tool.input_token_price_quota, 0)
+    assert.equal(tool.max_input_tokens, 0)
   } finally {
     await view.dispose()
     requests.restore()
