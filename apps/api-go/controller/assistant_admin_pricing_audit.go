@@ -35,7 +35,7 @@ func assistantAdminPricingAuditRow(pricing model.Pricing, ratios, prices, groups
 	_, hasRatio := ratios[matched]
 	_, hasPrice := prices[matched]
 	issues := make([]string, 0)
-	row := map[string]any{"model_id": pricing.ModelName, "matched_pricing_key": matched}
+	row := map[string]any{"model_id": pricing.ModelName, "matched_pricing_key": matched, "pricing_currency": "USD", "pricing_schema_version": 2}
 	if hasRatio && hasPrice {
 		issues = append(issues, "both_fixed_and_token_rates_configured")
 	}
@@ -53,8 +53,10 @@ func assistantAdminPricingAuditRow(pricing model.Pricing, ratios, prices, groups
 		}
 		if !assistantAuditNonNegative(pricing.ModelPrice) {
 			issues = append(issues, "invalid_fixed_price")
+		} else if usdPrice, err := model.LegacyPricingAmountUSD(pricing.ModelPrice); err != nil {
+			issues = append(issues, "pricing_currency_units_unavailable")
 		} else {
-			row["base_usd_per_request"] = pricing.ModelPrice
+			row["base_usd_per_request"] = usdPrice
 			if pricing.ModelPrice == 0 {
 				issues = append(issues, "zero_price_review_intent")
 			}
@@ -64,9 +66,9 @@ func assistantAdminPricingAuditRow(pricing model.Pricing, ratios, prices, groups
 		if !hasRatio {
 			issues = append(issues, "missing_configured_token_ratio")
 		}
-		inputRate := pricing.ModelRatio * 2
+		inputRate, currencyErr := model.ModelRatioUSDPerMillion(pricing.ModelRatio)
 		outputRate := inputRate * pricing.CompletionRatio
-		if !assistantAuditNonNegative(pricing.ModelRatio) || !assistantAuditNonNegative(pricing.CompletionRatio) || !assistantAuditNonNegative(inputRate) || !assistantAuditNonNegative(outputRate) {
+		if currencyErr != nil || !assistantAuditNonNegative(pricing.ModelRatio) || !assistantAuditNonNegative(pricing.CompletionRatio) || !assistantAuditNonNegative(inputRate) || !assistantAuditNonNegative(outputRate) {
 			issues = append(issues, "invalid_token_ratio")
 		} else {
 			row["base_input_usd_per_million"] = inputRate

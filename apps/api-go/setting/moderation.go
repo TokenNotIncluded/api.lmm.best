@@ -25,13 +25,29 @@ const (
 	ModerationModeTolerant              = "tolerant"
 	ModerationModeStrict                = "strict"
 	ModerationMaxCategoryFineUSD        = 1000
+	ModerationAmountCurrencyLegacy      = "legacy_pricing_unit"
+	ModerationAmountCurrencyUSD         = "USD"
 	moderationMaxGroupPolicies          = 64
 	moderationMaxPoliciesJSONBytes      = 65536
 )
 
 type ModerationGroupPolicy struct {
-	Mode             string             `json:"mode"`
+	Mode string `json:"mode"`
+	// Absence preserves the unit of historical numeric maps. USD is explicit
+	// for newly edited policies; loading old policies never rewrites their sums.
+	AmountCurrency   string             `json:"amount_currency,omitempty"`
 	CategoryFinesUSD map[string]float64 `json:"category_fines_usd,omitempty"`
+}
+
+func IsModerationAmountCurrency(currency string) bool {
+	return currency == "" || currency == ModerationAmountCurrencyLegacy || currency == ModerationAmountCurrencyUSD
+}
+
+func ResolveModerationAmountCurrency(currency string) string {
+	if currency == "" {
+		return ModerationAmountCurrencyLegacy
+	}
+	return currency
 }
 
 // ModerationSettings keeps assistant and API routing independent. Policies
@@ -134,6 +150,7 @@ func ParseModerationGroupPolicies(value string) (map[string]ModerationGroupPolic
 	// encoding/json otherwise converts an explicit null float to zero. Treat
 	// a missing fine as zero, but require every supplied amount to be numeric.
 	var rawPolicies map[string]struct {
+		AmountCurrency   json.RawMessage            `json:"amount_currency"`
 		CategoryFinesUSD map[string]json.RawMessage `json:"category_fines_usd"`
 	}
 	if err := json.Unmarshal([]byte(value), &rawPolicies); err != nil {
@@ -142,6 +159,9 @@ func ParseModerationGroupPolicies(value string) (map[string]ModerationGroupPolic
 	for group, policy := range policies {
 		if strings.TrimSpace(group) != group || group == "" || group == "*" || utf8.RuneCountInString(group) > 64 {
 			return nil, errors.New("moderation policies require explicit account groups; wildcards are not supported")
+		}
+		if !IsModerationAmountCurrency(policy.AmountCurrency) || strings.TrimSpace(string(rawPolicies[group].AmountCurrency)) == "null" {
+			return nil, errors.New("moderation amount_currency must be USD or legacy_pricing_unit")
 		}
 		switch policy.Mode {
 		case ModerationModeOff, ModerationModeTolerant, ModerationModeStrict:

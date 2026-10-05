@@ -443,6 +443,9 @@ func SetApiRouter(router *gin.Engine) {
 		optionRoute.Use(middleware.RootAuth())
 		{
 			optionRoute.GET("/", controller.GetOptions)
+			optionRoute.GET("/pricing", middleware.DisableCache(), controller.GetUSDPriceOptions)
+			optionRoute.POST("/pricing/validate", middleware.RequestBodyLimit(rawOptionMutationRequestMaxBytes), controller.USDPriceOptionsValidate)
+			optionRoute.POST("/pricing/bulk", middleware.RequestBodyLimit(rawOptionMutationRequestMaxBytes), controller.USDPriceOptionsBulk)
 			optionRoute.GET("/updates", middleware.DisableCache(), controller.GetUpdates)
 			optionRoute.GET("/exchange-rate", middleware.DisableCache(), controller.GetUsdExchangeRate)
 			optionRoute.PUT("/", controller.UpdateOption)

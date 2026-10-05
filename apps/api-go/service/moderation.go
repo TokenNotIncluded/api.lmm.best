@@ -105,6 +105,7 @@ func QueueModeration(ctx context.Context, submission ModerationSubmission) error
 		Group: strings.TrimSpace(submission.Group), ReviewGroup: reviewGroup, ReviewModel: reviewModel,
 		InputDigest: hex.EncodeToString(digest[:]), Payload: text, CapturedMode: policy.Mode,
 		CapturedCategoryFinesJSON: string(fines),
+		CapturedAmountCurrency:    setting.ResolveModerationAmountCurrency(policy.AmountCurrency),
 		InputTruncated:            truncated,
 	})
 	if err != nil {
@@ -229,7 +230,8 @@ func processModerationJob(parent context.Context, owner string, job *model.Moder
 	err = model.CompleteModerationJob(ctx, job.ID, owner, model.ModerationCompletion{
 		Flagged: decision.Flagged, Categories: decision.Categories, Scores: decision.Scores,
 		ResponseModel: decision.ResponseModel, CurrentMode: policy.Mode, CategoryFinesUSD: policy.CategoryFinesUSD,
-		Now: time.Now().Unix(),
+		AmountCurrency: policy.AmountCurrency,
+		Now:            time.Now().Unix(),
 	})
 	if err != nil {
 		// A failed commit may have already reached the database. Reclaiming the

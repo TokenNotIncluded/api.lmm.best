@@ -317,10 +317,12 @@ func (b *NativeVoiceBilling) Finalize(seconds float64, estimated, finalized bool
 func (b *NativeVoiceBilling) logMetadata(seconds float64, estimated, finalized bool, reason string, quota int, tier *billingexpr.TieredResult, settlementErr error) map[string]interface{} {
 	other := map[string]interface{}{
 		"billing_mode": "audio_duration", "audio_seconds": seconds, "group_ratio": b.groupRatio,
-		"price_unit": "expression", "pricing_currency": "USD", "audio_usage_status": "reported",
+		"price_unit": "expression", "pricing_currency": "legacy_pricing_unit", "audio_usage_status": "reported",
 		"usage_estimated": estimated, "usage_finalized": finalized, "session_end_reason": reason,
 		"initial_reserved_seconds": b.initialSeconds, "reserved_quota": b.session.GetReservedBudget(),
 	}
+	AppendLegacyPricingBasis(other, b.quotaPerUnit)
+	other["billing_expr_currency_basis"] = "legacy_pricing_unit"
 	if !finalized {
 		other["usage_finalization_pending"] = true
 	}

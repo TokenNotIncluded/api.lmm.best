@@ -17,6 +17,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/setting"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -25,6 +26,10 @@ import (
 
 func setupSecurityModerationDB(t *testing.T) *gorm.DB {
 	t.Helper()
+	if _, err := common.CreditsPerUSD(); err != nil {
+		require.NoError(t, common.SetCreditsPerUSD(decimal.NewFromInt(500000)))
+		t.Cleanup(common.ClearCreditsPerUSD)
+	}
 	oldGinMode := gin.Mode()
 	gin.SetMode(gin.TestMode)
 	t.Cleanup(func() { gin.SetMode(oldGinMode) })
@@ -44,6 +49,43 @@ func setupSecurityModerationDB(t *testing.T) *gorm.DB {
 		require.NoError(t, sqlDB.Close())
 	})
 	return db
+}
+
+func TestSecurityModerationPolicyPublishesTrueUSDWithoutRewritingLegacy(t *testing.T) {
+	previousAnchor, previousError := common.CreditsPerUSD()
+	previousUnit := common.QuotaPerUnit
+	t.Cleanup(func() {
+		common.QuotaPerUnit = previousUnit
+		if previousError != nil {
+			common.ClearCreditsPerUSD()
+		} else {
+			require.NoError(t, common.SetCreditsPerUSD(previousAnchor))
+		}
+	})
+	require.NoError(t, common.SetCreditsPerUSD(decimal.NewFromInt(500000)))
+	common.QuotaPerUnit = 3000000
+	settings := setting.DefaultModerationSettings()
+	settings.GroupPolicies = map[string]setting.ModerationGroupPolicy{
+		"historical": {Mode: "strict", CategoryFinesUSD: map[string]float64{"hate": .5}},
+		"legacy":     {Mode: "strict", AmountCurrency: "legacy_pricing_unit", CategoryFinesUSD: map[string]float64{"hate": .5}},
+		"fiat":       {Mode: "strict", AmountCurrency: "USD", CategoryFinesUSD: map[string]float64{"hate": .5}},
+	}
+	storedBefore := settings.OptionValues()
+	policy := publicModerationPolicy(settings)
+	for _, group := range []string{"historical", "legacy", "fiat"} {
+		require.Equal(t, "USD", policy.GroupPolicies[group].AmountCurrency)
+	}
+	require.Equal(t, 3.0, policy.GroupPolicies["historical"].CategoryFinesUSD["hate"])
+	require.Equal(t, 3.0, policy.GroupPolicies["legacy"].CategoryFinesUSD["hate"])
+	require.Equal(t, .5, policy.GroupPolicies["fiat"].CategoryFinesUSD["hate"])
+	require.Equal(t, storedBefore, settings.OptionValues())
+	common.QuotaPerUnit = 0
+	policy = publicModerationPolicy(settings)
+	require.Nil(t, policy.GroupPolicies["historical"].CategoryFinesUSD, "invalid basis must never relabel legacy amounts as USD")
+	require.Equal(t, .5, policy.GroupPolicies["fiat"].CategoryFinesUSD["hate"], "explicit USD is independent of the legacy scale")
+	common.ClearCreditsPerUSD()
+	policy = publicModerationPolicy(settings)
+	require.Nil(t, policy.GroupPolicies["fiat"].CategoryFinesUSD, "uninitialized monetary state must not quote a charge")
 }
 
 func securityModerationRequest(t *testing.T, handler gin.HandlerFunc, query string, role, id int) *httptest.ResponseRecorder {

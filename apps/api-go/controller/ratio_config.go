@@ -18,8 +18,9 @@ func GetRatioConfig(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data":    ratio_setting.GetExposedData(),
+		"success":               true,
+		"pricing_storage_basis": "legacy_pricing_unit",
+		"message":               "",
+		"data":                  ratio_setting.GetExposedData(),
 	})
 }

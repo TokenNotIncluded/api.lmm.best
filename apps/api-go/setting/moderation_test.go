@@ -99,6 +99,24 @@ func TestModerationFinePrecisionAndLimit(t *testing.T) {
 	}
 }
 
+func TestModerationAmountCurrencyPreservesLegacyMapsAndRequiresExplicitUSD(t *testing.T) {
+	for _, currency := range []string{"", ModerationAmountCurrencyLegacy, ModerationAmountCurrencyUSD} {
+		policy := ModerationGroupPolicy{Mode: ModerationModeStrict, AmountCurrency: currency, CategoryFinesUSD: map[string]float64{"hate": 0.5}}
+		encoded := ModerationGroupPoliciesJSON(map[string]ModerationGroupPolicy{"default": policy})
+		parsed, err := ParseModerationGroupPolicies(encoded)
+		require.NoError(t, err)
+		require.Equal(t, policy, parsed["default"], "currency metadata must never rewrite numeric amounts")
+		if currency == "" {
+			require.NotContains(t, encoded, "amount_currency")
+			require.Equal(t, ModerationAmountCurrencyLegacy, ResolveModerationAmountCurrency(parsed["default"].AmountCurrency))
+		}
+	}
+	for _, currency := range []string{`"CNY"`, `"usd"`, `"USD "`, `null`, `1`, `[]`} {
+		_, err := ParseModerationGroupPolicies(`{"default":{"mode":"strict","amount_currency":` + currency + `,"category_fines_usd":{"hate":0.5}}}`)
+		require.Error(t, err)
+	}
+}
+
 func TestModerationMalformedReloadFailsClosed(t *testing.T) {
 	preserveModerationSettings(t)
 	require.NoError(t, UpdateModerationSettings(map[string]string{

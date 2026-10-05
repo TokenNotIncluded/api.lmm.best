@@ -1170,6 +1170,7 @@ func TestAssistantPlanOffersKeepLinuxDOPaymentHiddenForL1(t *testing.T) {
 }
 
 func TestAssistantModelPricingUsesAccountGroupsAndLiveRates(t *testing.T) {
+	pricingUSDTestAnchor(t)
 	db := setupTokenControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.TopUp{}))
 	previousModelRatios := ratio_setting.ModelRatio2JSONString()
@@ -1281,6 +1282,7 @@ func TestAssistantPricingEndpointRejectsL0(t *testing.T) {
 }
 
 func TestAssistantPricingEndpointAppliesTrustDiscountToGroupRatios(t *testing.T) {
+	pricingUSDTestAnchor(t)
 	db := setupTokenControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.TopUp{}))
 	levelTwo := model.TrustLevelMinUser + 2

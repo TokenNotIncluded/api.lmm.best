@@ -16,6 +16,7 @@ import (
 	hosttypes "github.com/LIghtJUNction/api.lmm.best/types"
 
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 )
 
 // AppendMeasuredBillingDimensions preserves the distinction between missing
@@ -83,7 +84,28 @@ func AttachQuotaSaturation(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, o
 	attachQuotaSaturation(ctx, relayInfo, other)
 }
 
+// AppendLegacyPricingBasis labels raw stored/logged money; settlement and
+// expression snapshots retain their calibrated legacy units.
+func AppendLegacyPricingBasis(other map[string]interface{}, creditsPerUnit float64) {
+	if other == nil {
+		return
+	}
+	other["pricing_schema_version"] = 2
+	other["pricing_currency"] = "legacy_pricing_unit"
+	other["pricing_currency_basis"] = "legacy_pricing_unit"
+	if math.IsNaN(creditsPerUnit) || math.IsInf(creditsPerUnit, 0) || creditsPerUnit <= 0 {
+		return
+	}
+	other["pricing_unit_credits_per_unit"] = creditsPerUnit
+	if anchor, err := common.CreditsPerUSD(); err == nil {
+		other["pricing_credits_per_usd"] = anchor.InexactFloat64()
+		other["billing_expr_usd_multiplier"] = decimal.NewFromFloat(creditsPerUnit).DivRound(anchor, 64).InexactFloat64()
+		other["model_ratio_usd_per_million_multiplier"] = decimal.NewFromInt(1_000_000).DivRound(anchor, 64).InexactFloat64()
+	}
+}
+
 func appendRequestPath(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, other map[string]interface{}) {
+	AppendLegacyPricingBasis(other, common.QuotaPerUnit)
 	if other == nil {
 		return
 	}
@@ -366,6 +388,9 @@ func InjectTieredBillingInfo(other map[string]interface{}, relayInfo *relaycommo
 	if snap == nil {
 		return
 	}
+	AppendLegacyPricingBasis(other, snap.QuotaPerUnit)
+	other["billing_expr_currency_basis"] = "legacy_pricing_unit"
+	other["expr_hash"] = snap.ExprHash
 	other["billing_mode"] = "tiered_expr"
 	other["expr_b64"] = base64.StdEncoding.EncodeToString([]byte(snap.ExprString))
 	if result != nil {

@@ -178,15 +178,25 @@ func buildPricingResponse(c *gin.Context, applyTrustDiscount bool) (int, gin.H) 
 	}
 	view := buildPricingView(pricing, groupRatio, groupDescriptions, exists)
 
+	usdPricing, err := model.NormalizePricingUSD(view.pricing)
+	if err != nil {
+		return http.StatusServiceUnavailable, gin.H{"success": false, "message": "pricing currency units are unavailable"}
+	}
+	anchor, _ := common.CreditsPerUSD()
+	scale, _ := common.LegacyPricingUnitsPerUSD()
 	response := gin.H{
-		"success":            true,
-		"data":               view.pricing,
-		"vendors":            model.GetVendors(),
-		"group_ratio":        view.groupRatio,
-		"usable_group":       view.usableGroup,
-		"supported_endpoint": model.GetSupportedEndpointMap(),
-		"auto_groups":        service.GetUserAutoGroup(group),
-		"pricing_version":    "a42d372ccf0b5dd13ecf71203521f9d2",
+		"pricing_schema_version":       model.PricingSchemaUSD,
+		"pricing_currency":             model.PricingCurrencyUSD,
+		"credits_per_usd":              anchor.InexactFloat64(),
+		"legacy_pricing_units_per_usd": scale.InexactFloat64(),
+		"success":                      true,
+		"data":                         usdPricing,
+		"vendors":                      model.GetVendors(),
+		"group_ratio":                  view.groupRatio,
+		"usable_group":                 view.usableGroup,
+		"supported_endpoint":           model.GetSupportedEndpointMap(),
+		"auto_groups":                  service.GetUserAutoGroup(group),
+		"pricing_version":              "a42d372ccf0b5dd13ecf71203521f9d2",
 	}
 	if applyTrustDiscount && user != nil {
 		trust, err := model.GetTrustLevelInfoForUserBase(user)
