@@ -22,6 +22,8 @@ import { test } from 'node:test'
 import { AxiosHeaders, type InternalAxiosRequestConfig } from 'axios'
 import { Window } from 'happy-dom'
 
+import { hasCompletePublicCreditCatalog } from '@/features/wallet/lib/topup-credit-metadata'
+
 const domWindow = new Window({ url: 'http://127.0.0.1:4174/' })
 Object.defineProperty(globalThis, 'window', {
   configurable: true,
@@ -127,7 +129,8 @@ test('wallet review exposes versioned raw Credits and correct Alipay CNY limits 
     response.data.credit_amount_options,
     [5000000, 25000000, 50000000, 100000000]
   )
-  assert.deepEqual(response.data.credit_discount, {})
+  assert.deepEqual(response.data.credit_discount, { 50000000: 0.9 })
+  assert.ok(hasCompletePublicCreditCatalog(response.data))
   assert.equal(response.data.credit_min_topup, 500000)
   assert.equal(response.data.stripe_credit_min_topup, 500000)
   assert.equal(response.data.waffo_credit_min_topup, 0)
@@ -135,8 +138,8 @@ test('wallet review exposes versioned raw Credits and correct Alipay CNY limits 
   assert.equal(response.data.stripe_credit_max_topup, 5000000000)
   assert.equal(response.data.waffo_credit_max_topup, null)
   assert.equal(response.data.pancake_credit_max_topup, null)
-  assert.equal(response.data.pay_methods[0]?.min_topup_credit, 3500000)
-  assert.equal(response.data.pay_methods[0]?.max_topup_credit, 350000000)
+  assert.equal(response.data.pay_methods[0]?.min_topup_credit, '3500000')
+  assert.equal(response.data.pay_methods[0]?.max_topup_credit, '350000000')
   assert.equal(response.data.pay_methods[0]?.min_topup_unit, 'USD')
   assert.equal(response.data.pay_methods[0]?.min_topup, 1)
   assert.equal(response.data.pay_methods[0]?.max_topup, '100')
@@ -158,6 +161,10 @@ test('wallet review exposes versioned raw Credits and correct Alipay CNY limits 
     '/api/user/topup/currency/stripe/pay',
     '/api/user/topup/currency/waffo/pay',
     '/api/user/topup/currency/waffo-pancake/pay',
+    '/api/user/topup/currency/v2/pay',
+    '/api/user/topup/currency/v2/stripe/pay',
+    '/api/user/topup/currency/v2/waffo/pay',
+    '/api/user/topup/currency/v2/waffo-pancake/pay',
     '/api/subscription/balance/pay',
   ]) {
     await assert.rejects(wrapped(config(path, 'post')), /blocked/, path)

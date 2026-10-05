@@ -11,6 +11,14 @@ import type { TopupInfo } from '@/features/wallet/types'
 // Synthetic local review data. These constants never configure production money.
 export const DEBUG_CURRENCY_STATUS = {
   currency_unit: 'credit',
+  credit_unit_schema_version: 2,
+  quota_unit: 'LEDGER_QUOTA',
+  legacy_credit_unit: 'LEDGER_QUOTA',
+  public_credit_unit: 'CREDIT',
+  ledger_quota_per_usd: 3500000,
+  ledger_quota_per_usd_exact: '3500000',
+  public_credits_per_usd: 100000,
+  public_credits_per_usd_exact: '100000',
   credits_per_usd: 3500000,
   cny_per_usd: 7,
   quota_per_unit: 500000,
@@ -18,12 +26,12 @@ export const DEBUG_CURRENCY_STATUS = {
   usd_exchange_rate: 7,
 } as const
 
-export const DEBUG_WALLET_TOPUP_INFO = {
+const rawWalletCatalog = {
   amount_unit: 'LEGACY',
   credit_metadata_available: true,
   credit_metadata_version: 1,
   credit_amount_options: [5000000, 25000000, 50000000, 100000000],
-  credit_discount: {},
+  credit_discount: { 50000000: 0.9 },
   credit_min_topup: 500000,
   stripe_credit_min_topup: 500000,
   waffo_credit_min_topup: 0,
@@ -72,6 +80,112 @@ export const DEBUG_WALLET_TOPUP_INFO = {
   stripe_credit_max_topup: number | null
   waffo_credit_max_topup: number | null
   pancake_credit_max_topup: number | null
+}
+
+function publicCredits(raw: number): string {
+  const precision = 10n ** 64n
+  const numerator =
+    BigInt(raw) *
+    BigInt(DEBUG_CURRENCY_STATUS.public_credits_per_usd) *
+    precision
+  const denominator = BigInt(DEBUG_CURRENCY_STATUS.ledger_quota_per_usd)
+  const projected = (numerator + denominator / 2n) / denominator
+  const digits = projected.toString().padStart(65, '0')
+  const tail = digits.slice(-64).replace(/0+$/, '')
+  return digits.slice(0, -64) + (tail ? `.${tail}` : '')
+}
+export function debugCreditGrant(raw: number) {
+  return {
+    ...DEBUG_CURRENCY_STATUS,
+    credit_amount: raw,
+    credited_quota: raw,
+    credit_amount_unit: 'LEDGER_QUOTA',
+    public_credit_metadata_version: 2,
+    public_credit_amount_unit: 'CREDIT',
+    public_credit_amount: publicCredits(raw),
+  }
+}
+export const DEBUG_WALLET_TOPUP_INFO = {
+  ...rawWalletCatalog,
+  ...DEBUG_CURRENCY_STATUS,
+  public_credit_metadata_version: 2,
+  public_credit_amount_unit: 'CREDIT',
+  ledger_quota_amount_options: rawWalletCatalog.credit_amount_options,
+  public_credit_amount_options:
+    rawWalletCatalog.credit_amount_options.map(publicCredits),
+  ledger_quota_discount: rawWalletCatalog.credit_discount,
+  public_credit_discount: { [publicCredits(50000000)]: 0.9 },
+  ledger_quota_min_topup: rawWalletCatalog.credit_min_topup,
+  public_credit_min_topup: publicCredits(rawWalletCatalog.credit_min_topup),
+  ...Object.fromEntries(
+    ['stripe_', 'waffo_', 'pancake_'].flatMap((prefix) => {
+      const catalog = rawWalletCatalog as Record<string, unknown>
+      const min = Number(catalog[`${prefix}credit_min_topup`])
+      const max = catalog[`${prefix}credit_max_topup`] as number | null
+      return [
+        [`${prefix}ledger_quota_min_topup`, min],
+        [`${prefix}public_credit_min_topup`, publicCredits(min)],
+        [`${prefix}ledger_quota_max_topup`, max],
+        [
+          `${prefix}public_credit_max_topup`,
+          max === null ? null : publicCredits(max),
+        ],
+      ]
+    })
+  ),
+  pay_methods: rawWalletCatalog.pay_methods.map((method) => ({
+    ...method,
+    credit_amount_unit: 'LEDGER_QUOTA',
+    min_topup_credit: String(method.min_topup_credit),
+    max_topup_credit: String(method.max_topup_credit),
+    min_topup_ledger_quota: String(method.min_topup_credit),
+    max_topup_ledger_quota: String(method.max_topup_credit),
+    min_topup_public_credit: publicCredits(method.min_topup_credit),
+    max_topup_public_credit: publicCredits(method.max_topup_credit),
+  })),
+} satisfies TopupInfo
+
+/** Only this explicit synthetic coupon is accepted in the existing review controls. */
+export const DEBUG_DISCOUNT_CODE = 'PREVIEW20'
+export function debugSettlementQuote(
+  raw: number,
+  currency: 'USD' | 'CNY',
+  code = ''
+) {
+  const numerator =
+    BigInt(raw) *
+    BigInt(currency === 'CNY' ? DEBUG_CURRENCY_STATUS.cny_per_usd : 1) *
+    100n
+  const denominator = BigInt(DEBUG_CURRENCY_STATUS.ledger_quota_per_usd)
+  const round = (numerator: bigint, denominator: bigint) =>
+    (numerator + denominator / 2n) / denominator
+  const original = round(numerator, denominator)
+  const preset = raw === 50000000 ? 90n : 100n
+  const coupon = code === DEBUG_DISCOUNT_CODE ? 80n : 100n
+  const paid = round(numerator * preset * coupon, denominator * 10000n)
+  const fixed2 = (value: bigint) =>
+    `${value / 100n}.${(value % 100n).toString().padStart(2, '0')}`
+  if (original === 0n || paid === 0n) {
+    return { data: debugCreditQuoteAmount(raw, currency) }
+  }
+  const data = fixed2(paid)
+  const savings = original - paid
+  return {
+    data,
+    ...(savings > 0n
+      ? {
+          settlement_quote: {
+            schema_version: 1,
+            currency,
+            original_amount: fixed2(original),
+            paid_amount: data,
+            savings_amount: fixed2(savings),
+            discount_percent: fixed2(round(savings * 10000n, original)),
+            basis: 'amount_preset_and_code',
+          },
+        }
+      : {}),
+  }
 }
 
 /** Read-only decimal projection, without creating an order or applying provider cents. */

@@ -20,8 +20,10 @@ import type { AxiosAdapter } from 'axios'
 
 import {
   DEBUG_CURRENCY_STATUS,
+  DEBUG_DISCOUNT_CODE,
+  debugCreditGrant,
+  debugSettlementQuote,
   DEBUG_WALLET_TOPUP_INFO,
-  debugCreditQuoteAmount,
 } from './wallet-review-fixtures'
 
 const creditQuoteRoutes: Record<
@@ -33,25 +35,25 @@ const creditQuoteRoutes: Record<
     maximum: number | null
   }
 > = {
-  '/api/user/topup/currency/amount': {
+  '/api/user/topup/currency/v2/amount': {
     currency: 'CNY',
     paymentMethod: 'alipay',
     minimum: 3500000,
     maximum: 350000000,
   },
-  '/api/user/topup/currency/stripe/amount': {
+  '/api/user/topup/currency/v2/stripe/amount': {
     currency: 'USD',
     paymentMethod: 'stripe',
     minimum: DEBUG_WALLET_TOPUP_INFO.stripe_credit_min_topup,
     maximum: DEBUG_WALLET_TOPUP_INFO.stripe_credit_max_topup,
   },
-  '/api/user/topup/currency/waffo/amount': {
+  '/api/user/topup/currency/v2/waffo/amount': {
     currency: 'USD',
     paymentMethod: 'waffo',
     minimum: DEBUG_WALLET_TOPUP_INFO.waffo_credit_min_topup,
     maximum: DEBUG_WALLET_TOPUP_INFO.waffo_credit_max_topup,
   },
-  '/api/user/topup/currency/waffo-pancake/amount': {
+  '/api/user/topup/currency/v2/waffo-pancake/amount': {
     currency: 'USD',
     paymentMethod: 'waffo_pancake',
     minimum: DEBUG_WALLET_TOPUP_INFO.pancake_credit_min_topup,
@@ -97,15 +99,19 @@ export function withConsoleQueryFixtures(fallback: AxiosAdapter): AxiosAdapter {
         amount <= 0 ||
         amount < route.minimum ||
         (route.maximum !== null && amount > route.maximum) ||
-        request.amount_unit !== 'CREDIT' ||
+        request.amount_unit !== 'LEDGER_QUOTA' ||
+        request.credit_metadata_version !== 2 ||
         (request.payment_method !== undefined &&
           request.payment_method !== route.paymentMethod) ||
-        (request.discount_code !== undefined && request.discount_code !== '') ||
+        (request.discount_code !== undefined &&
+          request.discount_code !== '' &&
+          request.discount_code !== DEBUG_DISCOUNT_CODE) ||
         Object.keys(request).some(
           (key) =>
             ![
               'amount',
               'amount_unit',
+              'credit_metadata_version',
               'payment_method',
               'discount_code',
             ].includes(key)
@@ -117,15 +123,66 @@ export function withConsoleQueryFixtures(fallback: AxiosAdapter): AxiosAdapter {
       // still reach the blocking adapter; no URL, key or provider is involved.
       data = {
         success: true,
-        data: debugCreditQuoteAmount(amount, route.currency),
+        ...debugCreditGrant(amount),
+        ...debugSettlementQuote(
+          amount,
+          route.currency,
+          String(request.discount_code ?? '')
+        ),
         settlement_currency: route.currency,
         credited_quota: amount,
         credit_amount: amount,
-        amount_unit: 'CREDIT',
+        amount_unit: 'LEDGER_QUOTA',
         legacy_batch_units: String(
           amount / DEBUG_CURRENCY_STATUS.quota_per_unit
         ),
       }
+    } else if (
+      method === 'POST' &&
+      url.pathname === '/api/user/topup/currency/v2/discount-code/validate'
+    ) {
+      let request: unknown = config.data
+      if (typeof request === 'string') {
+        try {
+          request = JSON.parse(request)
+        } catch {
+          return fallback(config)
+        }
+      }
+      if (!request || typeof request !== 'object' || Array.isArray(request)) {
+        return fallback(config)
+      }
+      const row = request as Record<string, unknown>
+      if (
+        row.amount_unit !== 'LEDGER_QUOTA' ||
+        row.credit_metadata_version !== 2 ||
+        typeof row.amount !== 'number' ||
+        !Number.isSafeInteger(row.amount) ||
+        row.amount < 3500000 ||
+        row.amount > 350000000 ||
+        Object.keys(row).some(
+          (key) =>
+            ![
+              'amount',
+              'amount_unit',
+              'credit_metadata_version',
+              'code',
+            ].includes(key)
+        )
+      ) {
+        return fallback(config)
+      }
+      data =
+        row.code === DEBUG_DISCOUNT_CODE
+          ? {
+              success: true,
+              data: {
+                code: DEBUG_DISCOUNT_CODE,
+                discount_percent: 20,
+                min_amount: 0,
+              },
+            }
+          : { success: false, message: 'Invalid code' }
     } else if (
       method === 'GET' &&
       url.pathname === '/api/subscription/root/reset-targets'

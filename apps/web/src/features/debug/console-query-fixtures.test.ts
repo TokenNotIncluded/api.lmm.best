@@ -22,6 +22,9 @@ import { test } from 'node:test'
 import { AxiosHeaders, type InternalAxiosRequestConfig } from 'axios'
 import { Window } from 'happy-dom'
 
+import { parsePaymentDiscount } from '@/features/wallet/lib/payment-discount'
+import { hasCompleteCreditGrant } from '@/features/wallet/lib/topup-credit-metadata'
+
 import { withConsoleQueryFixtures } from './console-query-fixtures'
 
 const dom = new Window({ url: 'http://127.0.0.1:4174/' })
@@ -48,10 +51,11 @@ test('only the named local read queries are handled; every mutation stays blocke
     '/api/user/stripe/pay',
     '/api/user/waffo/pay',
     '/api/user/waffo-pancake/pay',
+    '/api/user/topup/currency/v2/pay',
     '/api/user/topup/currency/pay',
-    '/api/user/topup/currency/stripe/pay',
-    '/api/user/topup/currency/waffo/pay',
-    '/api/user/topup/currency/waffo-pancake/pay',
+    '/api/user/topup/currency/v2/stripe/pay',
+    '/api/user/topup/currency/v2/waffo/pay',
+    '/api/user/topup/currency/v2/waffo-pancake/pay',
     '/api/user/amount',
     '/api/subscription/balance/pay',
     '/api/subscription/root/reset-targets',
@@ -67,67 +71,92 @@ test('four synthetic raw-credit quote routes return native pricing ISO without p
   })
   for (const example of [
     {
-      path: '/api/user/topup/currency/amount',
+      path: '/api/user/topup/currency/v2/amount',
       currency: 'CNY',
-      nativeAmount: '14',
+      nativeAmount: '14.00',
       payment_method: 'alipay',
     },
     {
-      path: '/api/user/topup/currency/stripe/amount',
+      path: '/api/user/topup/currency/v2/stripe/amount',
       currency: 'USD',
-      nativeAmount: '2',
+      nativeAmount: '2.00',
       payment_method: undefined,
     },
     {
-      path: '/api/user/topup/currency/waffo/amount',
+      path: '/api/user/topup/currency/v2/waffo/amount',
       currency: 'USD',
-      nativeAmount: '2',
+      nativeAmount: '2.00',
       payment_method: undefined,
     },
     {
-      path: '/api/user/topup/currency/waffo-pancake/amount',
+      path: '/api/user/topup/currency/v2/waffo-pancake/amount',
       currency: 'USD',
-      nativeAmount: '2',
+      nativeAmount: '2.00',
       payment_method: undefined,
     },
   ]) {
     const request = config(example.path, 'post')
     request.data = JSON.stringify({
       amount: 7000000,
-      amount_unit: 'CREDIT',
+      amount_unit: 'LEDGER_QUOTA',
+      credit_metadata_version: 2,
       ...(example.payment_method
         ? { payment_method: example.payment_method }
         : {}),
     })
     const response = await wrapped(request)
     assert.equal(response.status, 200)
-    assert.deepEqual(response.data, {
-      success: true,
-      data: example.nativeAmount,
-      settlement_currency: example.currency,
-      credited_quota: 7000000,
-      credit_amount: 7000000,
-      amount_unit: 'CREDIT',
-      legacy_batch_units: '14',
-    })
+    assert.ok(hasCompleteCreditGrant(response.data, 7000000))
+    assert.equal(response.data.public_credit_amount, '200000')
+    const {
+      success,
+      data,
+      settlement_currency,
+      credited_quota,
+      credit_amount,
+      amount_unit,
+      legacy_batch_units,
+    } = response.data
+    assert.deepEqual(
+      {
+        success,
+        data,
+        settlement_currency,
+        credited_quota,
+        credit_amount,
+        amount_unit,
+        legacy_batch_units,
+      },
+      {
+        success: true,
+        data: example.nativeAmount,
+        settlement_currency: example.currency,
+        credited_quota: 7000000,
+        credit_amount: 7000000,
+        amount_unit: 'LEDGER_QUOTA',
+        legacy_batch_units: '14',
+      }
+    )
     assert.equal('url' in response.data, false)
     assert.equal('checkout_url' in response.data, false)
     assert.equal('pay_link' in response.data, false)
   }
   const smallest = config(
-    '/api/user/topup/currency/waffo-pancake/amount',
+    '/api/user/topup/currency/v2/waffo-pancake/amount',
     'post'
   )
-  smallest.data = { amount: 1, amount_unit: 'CREDIT' }
-  assert.deepEqual((await wrapped(smallest)).data, {
-    success: true,
-    data: '0.000000285714285714285714285714',
-    settlement_currency: 'USD',
-    credited_quota: 1,
-    credit_amount: 1,
-    amount_unit: 'CREDIT',
-    legacy_batch_units: '0.000002',
-  })
+  smallest.data = {
+    amount: 1,
+    amount_unit: 'LEDGER_QUOTA',
+    credit_metadata_version: 2,
+  }
+  const minimum = (await wrapped(smallest)).data
+  assert.ok(hasCompleteCreditGrant(minimum, 1))
+  assert.equal(minimum.data, '0.000000285714285714285714285714')
+  assert.equal(minimum.settlement_currency, 'USD')
+  assert.equal(minimum.credited_quota, 1)
+  assert.equal(minimum.amount_unit, 'LEDGER_QUOTA')
+  assert.equal(minimum.legacy_batch_units, '0.000002')
 })
 
 test('raw-credit preview body guards reject invalid, legacy, remote and mutation requests', async () => {
@@ -135,55 +164,174 @@ test('raw-credit preview body guards reject invalid, legacy, remote and mutation
     throw new Error('blocked')
   })
   for (const body of [
-    { amount: 0, amount_unit: 'CREDIT' },
-    { amount: -1, amount_unit: 'CREDIT' },
-    { amount: 1.5, amount_unit: 'CREDIT' },
-    { amount: Number.POSITIVE_INFINITY, amount_unit: 'CREDIT' },
-    { amount: 9007199254740992, amount_unit: 'CREDIT' },
-    { amount: 3499999, amount_unit: 'CREDIT' },
-    { amount: 350000001, amount_unit: 'CREDIT' },
-    { amount: '7000000', amount_unit: 'CREDIT' },
+    { amount: 0, amount_unit: 'LEDGER_QUOTA', credit_metadata_version: 2 },
+    { amount: -1, amount_unit: 'LEDGER_QUOTA', credit_metadata_version: 2 },
+    { amount: 1.5, amount_unit: 'LEDGER_QUOTA', credit_metadata_version: 2 },
+    {
+      amount: Number.POSITIVE_INFINITY,
+      amount_unit: 'LEDGER_QUOTA',
+      credit_metadata_version: 2,
+    },
+    {
+      amount: 9007199254740992,
+      amount_unit: 'LEDGER_QUOTA',
+      credit_metadata_version: 2,
+    },
+    {
+      amount: 3499999,
+      amount_unit: 'LEDGER_QUOTA',
+      credit_metadata_version: 2,
+    },
+    {
+      amount: 350000001,
+      amount_unit: 'LEDGER_QUOTA',
+      credit_metadata_version: 2,
+    },
+    {
+      amount: '7000000',
+      amount_unit: 'LEDGER_QUOTA',
+      credit_metadata_version: 2,
+    },
     { amount: 7000000 },
     { amount: 7000000, amount_unit: 'LEGACY' },
     { amount: 7000000, amount_unit: 'USD' },
-    { amount: 7000000, amount_unit: 'CREDIT', payment_method: 'stripe' },
+    { amount: 7000000, amount_unit: 'CREDIT', credit_metadata_version: 2 },
+    { amount: 7000000, amount_unit: 'LEDGER_QUOTA' },
     {
       amount: 7000000,
-      amount_unit: 'CREDIT',
+      amount_unit: 'LEDGER_QUOTA',
+      credit_metadata_version: 2,
+      payment_method: 'stripe',
+    },
+    {
+      amount: 7000000,
+      amount_unit: 'LEDGER_QUOTA',
+      credit_metadata_version: 2,
       discount_code: 'NOT-A-PREVIEW-CODE',
     },
-    { amount: 7000000, amount_unit: 'CREDIT', create_order: true },
+    {
+      amount: 7000000,
+      amount_unit: 'LEDGER_QUOTA',
+      credit_metadata_version: 2,
+      create_order: true,
+    },
     '{broken-json',
     null,
     [],
   ]) {
-    const request = config('/api/user/topup/currency/amount', 'post')
+    const request = config('/api/user/topup/currency/v2/amount', 'post')
     request.data = body
     await assert.rejects(wrapped(request), /blocked/)
   }
   for (const path of [
-    'https://example.invalid/api/user/topup/currency/amount',
-    'http://user:pass@127.0.0.1:4174/api/user/topup/currency/amount',
+    'https://example.invalid/api/user/topup/currency/v2/amount',
+    'http://user:pass@127.0.0.1:4174/api/user/topup/currency/v2/amount',
     '/api/user/amount',
-    '/api/user/topup/currency/unknown/amount',
+    '/api/user/topup/currency/v2/unknown/amount',
+    '/api/user/topup/currency/v2/pay',
     '/api/user/topup/currency/pay',
   ]) {
     const request = config(path, 'post')
     request.data = {
       amount: 7000000,
-      amount_unit: 'CREDIT',
+      amount_unit: 'LEDGER_QUOTA',
+      credit_metadata_version: 2,
       payment_method: 'alipay',
     }
     await assert.rejects(wrapped(request), /blocked/, path)
   }
   const stripeAboveMax = config(
-    '/api/user/topup/currency/stripe/amount',
+    '/api/user/topup/currency/v2/stripe/amount',
     'post'
   )
-  stripeAboveMax.data = { amount: 5000000001, amount_unit: 'CREDIT' }
+  stripeAboveMax.data = {
+    amount: 5000000001,
+    amount_unit: 'LEDGER_QUOTA',
+    credit_metadata_version: 2,
+  }
   await assert.rejects(wrapped(stripeAboveMax), /blocked/)
   await assert.rejects(
-    wrapped(config('/api/user/topup/currency/amount', 'get')),
+    wrapped(config('/api/user/topup/currency/v2/amount', 'get')),
     /blocked/
   )
+})
+
+test('normal preview preset and coupon controls expose only synthetic same-ISO 100→90→72 quotes', async () => {
+  const wrapped = withConsoleQueryFixtures(async () => {
+    throw new Error('blocked')
+  })
+  const baseBody = {
+    amount: 50000000,
+    amount_unit: 'LEDGER_QUOTA',
+    credit_metadata_version: 2,
+    payment_method: 'alipay',
+  }
+  const request = config('/api/user/topup/currency/v2/amount', 'post')
+  request.data = baseBody
+  const preset = (await wrapped(request)).data
+  assert.equal(preset.data, '90.00')
+  assert.deepEqual(preset.settlement_quote, {
+    schema_version: 1,
+    currency: 'CNY',
+    original_amount: '100.00',
+    paid_amount: '90.00',
+    savings_amount: '10.00',
+    discount_percent: '10.00',
+    basis: 'amount_preset_and_code',
+  })
+  assert.ok(hasCompleteCreditGrant(preset, 50000000))
+  assert.ok(
+    parsePaymentDiscount(
+      preset.settlement_quote,
+      preset.data,
+      preset.settlement_currency
+    )
+  )
+  const validation = config(
+    '/api/user/topup/currency/v2/discount-code/validate',
+    'post'
+  )
+  validation.data = {
+    amount: 50000000,
+    amount_unit: 'LEDGER_QUOTA',
+    credit_metadata_version: 2,
+    code: 'PREVIEW20',
+  }
+  assert.deepEqual((await wrapped(validation)).data, {
+    success: true,
+    data: { code: 'PREVIEW20', discount_percent: 20, min_amount: 0 },
+  })
+  request.data = { ...baseBody, discount_code: 'PREVIEW20' }
+  const combined = (await wrapped(request)).data
+  assert.equal(combined.data, '72.00')
+  assert.deepEqual(combined.settlement_quote, {
+    schema_version: 1,
+    currency: 'CNY',
+    original_amount: '100.00',
+    paid_amount: '72.00',
+    savings_amount: '28.00',
+    discount_percent: '28.00',
+    basis: 'amount_preset_and_code',
+  })
+  assert.ok(hasCompleteCreditGrant(combined, 50000000))
+  assert.ok(
+    parsePaymentDiscount(
+      combined.settlement_quote,
+      combined.data,
+      combined.settlement_currency
+    )
+  )
+  for (const suffix of [
+    'pay',
+    'stripe/pay',
+    'waffo/pay',
+    'waffo-pancake/pay',
+    'unknown/amount',
+  ]) {
+    const payment = config(`/api/user/topup/currency/v2/${suffix}`, 'post')
+    payment.data = baseBody
+    await assert.rejects(wrapped(payment), /blocked/)
+  }
+  validation.data = { ...validation.data, create_order: true }
+  await assert.rejects(wrapped(validation), /blocked/)
 })

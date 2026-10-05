@@ -109,8 +109,8 @@ test('real wallet hooks accept the review raw catalog and keep quote ISO indepen
     assert.equal(latest.topupInfo?.amount_unit, 'CREDIT')
     assert.equal(latest.topupInfo?.min_topup, 500000)
     assert.equal(latest.topupInfo?.stripe_min_topup, 500000)
-    assert.equal(latest.topupInfo?.pay_methods[0].min_topup_credit, 3500000)
-    assert.equal(latest.topupInfo?.pay_methods[0].max_topup_credit, 350000000)
+    assert.equal(latest.topupInfo?.pay_methods[0].min_topup_credit, '3500000')
+    assert.equal(latest.topupInfo?.pay_methods[0].max_topup_credit, '350000000')
     assert.deepEqual(
       latest.presetAmounts.map((preset) => preset.value),
       [5000000, 25000000, 50000000, 100000000]
@@ -118,7 +118,7 @@ test('real wallet hooks accept the review raw catalog and keep quote ISO indepen
     for (const example of [
       { currency: 'USD', input: '1', output: '1 USD' },
       { currency: 'CNY', input: '7', output: '7 CNY' },
-      { currency: 'CREDIT', input: '3500000', output: '3,500,000 Credits' },
+      { currency: 'CREDIT', input: '100000', output: '100,000 Credits' },
     ]) {
       await act(async () =>
         useAuthStore.getState().auth.setUser({
@@ -139,10 +139,10 @@ test('real wallet hooks accept the review raw catalog and keep quote ISO indepen
         amount: quota,
         payment_method: 'alipay',
       })
-      assert.equal(quote.data, '7')
+      assert.equal(quote.data, '7.00')
       assert.equal(quote.settlement_currency, 'CNY')
       assert.equal(quote.credited_quota, 3500000)
-      assert.equal(quote.amount_unit, 'CREDIT')
+      assert.equal(quote.amount_unit, 'LEDGER_QUOTA')
       assert.equal('url' in quote, false)
     }
   } finally {
