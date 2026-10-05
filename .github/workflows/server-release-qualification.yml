@@ -43,6 +43,7 @@ jobs:
       - name: Verify financial plans and owner handoffs offline
         run: |
           set -euo pipefail
+          mkdir -p "$HOME/.cache"
           python3 -B scripts/test-credit-balance-rebase.py
           python3 -B scripts/test-verify-credit-rebase-plan.py
           python3 -B scripts/test-credit-original-fingerprints.py
