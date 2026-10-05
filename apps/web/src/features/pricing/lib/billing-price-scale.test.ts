@@ -3,8 +3,11 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
 import {
+  combineBillingExpr,
   evaluateBillingExpression,
   parseTiersFromExpr,
+  splitBillingExprAndRequestRules,
+  tryParseRequestRuleExpr,
   unwrapBillingPriceScale,
 } from './billing-expr'
 
@@ -65,4 +68,31 @@ describe('whole-expression USD conversion', () => {
       []
     )
   })
+})
+
+test('whole USD wrappers keep request-rule multipliers and literal factors separate', () => {
+  const base = 'tier("default", p * 28 + c * 112)'
+  const rules = '(header("x-rate") == "special" ? 3 : 1)'
+  const wrapped = `v1:(((${base}) * ${rules}) / (14)) * (7)`
+  const split = splitBillingExprAndRequestRules(wrapped)
+  assert.equal(split.requestRuleExpr, rules)
+  assert.match(split.billingExpr, /^v1:/)
+  assert.match(split.billingExpr, /\/ \(\(14\)\)/)
+  assert.equal(
+    tryParseRequestRuleExpr(split.requestRuleExpr)?.[0].multiplier,
+    '3'
+  )
+  const [tier] = parseTiersFromExpr(split.billingExpr)
+  assert.equal(tier.inputPrice, 14)
+  assert.equal(tier.outputPrice, 56)
+  assert.equal(unwrapBillingPriceScale(split.billingExpr).scale, 0.5)
+  const combined = combineBillingExpr(split.billingExpr, split.requestRuleExpr)
+  assert.match(combined, /^v1:/)
+  assert.doesNotMatch(combined, /\(v1:/)
+  const reopened = splitBillingExprAndRequestRules(combined)
+  assert.equal(reopened.requestRuleExpr, rules)
+  assert.deepEqual(
+    parseTiersFromExpr(reopened.billingExpr),
+    parseTiersFromExpr(split.billingExpr)
+  )
 })

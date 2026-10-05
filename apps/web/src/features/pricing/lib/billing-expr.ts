@@ -794,14 +794,20 @@ function collectParsedTiers(node: ExprNode, tiers: ParsedTier[]): void {
 }
 
 /** Preserve tier conditions while peeling constant whole-price currency wrappers. */
-export function unwrapBillingPriceScale(exprStr: string): {
+function peelBillingPriceScale(exprStr: string): {
   expression: string
   scale: number
+  rewrap: (expression: string) => string
 } {
   const versioned = /^v\d+:/.test(exprStr.trim())
   const { version, body: rawBody } = stripExprVersion(exprStr.trim())
   let body = rawBody.trim()
   let scale = 1
+  const wrappers: {
+    operator: string
+    scalar: string
+    scalarOnLeft: boolean
+  }[] = []
 
   const topLevelOperators = (expression: string): number[] => {
     const operators: number[] = []
@@ -863,12 +869,38 @@ export function unwrapBillingPriceScale(exprStr: string): {
     if (!Number.isFinite(scale) || scale <= 0) {
       throw new Error('invalid price wrapper scale')
     }
+    wrappers.push({
+      operator: root.op,
+      scalar: (right !== null
+        ? body.slice(operator + 1)
+        : body.slice(0, operator)
+      ).trim(),
+      scalarOnLeft: right === null,
+    })
     body = right !== null ? body.slice(0, operator) : body.slice(operator + 1)
   }
+  const prefix = versioned ? `v${version}:` : ''
   return {
-    expression: `${versioned ? `v${version}:` : ''}${body.trim()}`,
+    expression: `${prefix}${body.trim()}`,
     scale,
+    rewrap: (expression) => {
+      let wrapped = expression
+      for (const wrapper of wrappers.slice().reverse()) {
+        wrapped = wrapper.scalarOnLeft
+          ? `(${wrapper.scalar}) ${wrapper.operator} (${wrapped})`
+          : `(${wrapped}) ${wrapper.operator} (${wrapper.scalar})`
+      }
+      return `${prefix}${wrapped}`
+    },
   }
+}
+
+export function unwrapBillingPriceScale(exprStr: string): {
+  expression: string
+  scale: number
+} {
+  const { expression, scale } = peelBillingPriceScale(exprStr)
+  return { expression, scale }
 }
 
 export function parseTiersFromExpr(exprStr: string): ParsedTier[] {
@@ -1322,7 +1354,14 @@ export function splitBillingExprAndRequestRules(expr: string): {
   const trimmed = (expr || '').trim()
   if (!trimmed) return { billingExpr: '', requestRuleExpr: '' }
 
-  const parts = splitTopLevelMultiply(trimmed)
+  let peeled: ReturnType<typeof peelBillingPriceScale>
+  try {
+    peeled = peelBillingPriceScale(trimmed)
+  } catch {
+    return { billingExpr: trimmed, requestRuleExpr: '' }
+  }
+  const { body } = stripExprVersion(peeled.expression)
+  const parts = splitTopLevelMultiply(body)
   if (parts.length <= 1) return { billingExpr: trimmed, requestRuleExpr: '' }
 
   const ruleParts: string[] = []
@@ -1342,7 +1381,7 @@ export function splitBillingExprAndRequestRules(expr: string): {
   }
 
   return {
-    billingExpr: unwrapOuterParens(baseParts[0]),
+    billingExpr: peeled.rewrap(unwrapOuterParens(baseParts[0])),
     requestRuleExpr: ruleParts.join(' * '),
   }
 }
@@ -1355,7 +1394,9 @@ export function combineBillingExpr(
   const rules = (requestRuleExpr || '').trim()
   if (!base) return ''
   if (!rules) return base
-  return `(${base}) * ${rules}`
+  const { version, body } = stripExprVersion(base)
+  const prefix = /^v\d+:/.test(base) ? `v${version}:` : ''
+  return `${prefix}(${body}) * ${rules}`
 }
 
 // ---------------------------------------------------------------------------
