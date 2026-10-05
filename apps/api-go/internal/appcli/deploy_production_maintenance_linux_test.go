@@ -17,7 +17,11 @@ import (
 )
 
 func TestMaintenanceAllSCMRightsAdoptionRetainsEveryLockAfterGuardianExit(t *testing.T) {
-	root := t.TempDir()
+	root, err := os.MkdirTemp(maintenanceFixtureCache(t), "maint-scm-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(root) })
 	paths := map[string]string{}
 	originals := []*os.File{}
 	locks := []map[string]any{}
@@ -107,7 +111,11 @@ func TestMaintenanceAllSCMRightsAdoptionRetainsEveryLockAfterGuardianExit(t *tes
 }
 
 func TestMaintenanceSCMRightsAdoptionClosesWithoutUnlockingGuardian(t *testing.T) {
-	root := t.TempDir()
+	root, err := os.MkdirTemp(maintenanceFixtureCache(t), "maint-scm-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(root) })
 	path := filepath.Join(root, "lock")
 	original, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
