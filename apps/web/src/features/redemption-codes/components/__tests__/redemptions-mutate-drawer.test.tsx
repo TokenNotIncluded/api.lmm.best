@@ -72,6 +72,8 @@ const i18n = (await import('i18next')).default
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { Toaster, toast } = await import('sonner')
 const { api } = await import('@/lib/api')
+const { useWalletCurrencyPreferenceStore } =
+  await import('@/stores/wallet-currency-preference-store')
 const { useSystemConfigStore } = await import('@/stores/system-config-store')
 const { RedemptionsProvider } = await import('../redemptions-provider')
 const { RedemptionsMutateDrawer } = await import('../redemptions-mutate-drawer')
@@ -174,6 +176,10 @@ async function renderDrawer(
 ): Promise<void> {
   useSystemConfigStore.getState().setConfig({
     currency: {
+      currencyUnit: 'credit',
+      creditsPerUsd: 500000,
+      cnyPerUsd: currency.usdExchangeRate,
+      legacyPricingUnitsPerUsd: 1,
       displayInCurrency: true,
       quotaDisplayType: currency.quotaDisplayType,
       quotaPerUnit: 500000,
@@ -184,6 +190,9 @@ async function renderDrawer(
     },
   })
 
+  useWalletCurrencyPreferenceStore
+    .getState()
+    .setPreference(currency.quotaDisplayType)
   const host = document.createElement('div')
   document.body.append(host)
   const root = createRoot(host)
@@ -316,8 +325,8 @@ test('redemption drawer shows the reported CNY quota without floating-point nois
   await waitForLoadedForm()
 
   assert.equal(
-    getControlByLabel<HTMLInputElement>('Quota ($ (Platform))').value,
-    '200'
+    getControlByLabel<HTMLInputElement>('Quota (CNY)').value,
+    '200.0000016'
   )
 })
 
@@ -376,8 +385,8 @@ test('redemption drawer keeps the original quota when another field changes', as
   await renderDrawer(original)
   await waitForLoadedForm()
   assert.equal(
-    getControlByLabel<HTMLInputElement>('Quota ($ (Platform))').value,
-    '1'
+    getControlByLabel<HTMLInputElement>('Quota (USD)').value,
+    '1.000002'
   )
 
   await changeInput(getControlByLabel<HTMLInputElement>('Name'), 'renamed')
@@ -402,10 +411,7 @@ test('redemption drawer recalculates quota when the quota field changes', async 
 
   await renderDrawer(original)
   await waitForLoadedForm()
-  await changeInput(
-    getControlByLabel<HTMLInputElement>('Quota ($ (Platform))'),
-    '2'
-  )
+  await changeInput(getControlByLabel<HTMLInputElement>('Quota (USD)'), '2')
   await submitForm()
   await act(async () =>
     waitForCondition(() => updates.length === 1, 'update was not submitted')
@@ -459,4 +465,32 @@ test('redemption drawer ignores an older response after switching records', asyn
 
   assert.equal(updates[0]?.id, 2)
   assert.equal(updates[0]?.quota, 1000001)
+})
+
+test('currency switches preserve an unedited one-credit remainder in the real update request', async () => {
+  const original = redemption(1, 500001)
+  const updates: Array<Record<string, unknown>> = []
+  apiClient.get = async () => ({ data: { success: true, data: original } })
+  apiClient.put = async (_url, data) => {
+    updates.push(data as Record<string, unknown>)
+    return { data: { success: true, data: original } }
+  }
+  await renderDrawer(original, {
+    quotaDisplayType: 'CNY',
+    usdExchangeRate: 7.2,
+  })
+  await waitForLoadedForm()
+  await act(async () =>
+    useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
+  )
+  assert.equal(
+    getControlByLabel<HTMLInputElement>('Quota (Credits)').value,
+    '500001'
+  )
+  await changeInput(getControlByLabel<HTMLInputElement>('Name'), 'switched')
+  await submitForm()
+  await act(async () =>
+    waitForCondition(() => updates.length === 1, 'update missing')
+  )
+  assert.equal(updates[0]?.quota, 500001)
 })

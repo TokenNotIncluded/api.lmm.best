@@ -30,7 +30,8 @@ var stripeAdaptor = &StripeAdaptor{}
 // StripePayRequest represents a payment request for Stripe checkout.
 type StripePayRequest struct {
 	// Amount is the quantity of units to purchase.
-	Amount float64 `json:"amount"`
+	Amount     float64 `json:"amount"`
+	AmountUnit string  `json:"amount_unit,omitempty"`
 	// PaymentMethod specifies the payment method (e.g., "stripe").
 	PaymentMethod string `json:"payment_method"`
 	DiscountCode  string `json:"discount_code,omitempty"`
@@ -46,7 +47,8 @@ type StripeAdaptor struct {
 }
 
 func (*StripeAdaptor) RequestAmount(c *gin.Context, req *StripePayRequest) {
-	requestedAmount, err := parseRequestedTopUpAmount(req.Amount)
+	resolvedAmount, err := resolveTopUpRequestAmount(c, req.Amount, req.AmountUnit)
+	requestedAmount := resolvedAmount.LegacyBatch
 	if err != nil {
 		common.ApiErrorMsg(c, err.Error())
 		return
@@ -54,11 +56,11 @@ func (*StripeAdaptor) RequestAmount(c *gin.Context, req *StripePayRequest) {
 	if !requirePaymentMethodAvailable(c, model.PaymentMethodStripe) {
 		return
 	}
-	if requestedAmount.LessThan(decimal.NewFromInt(getStripeMinTopup())) {
+	if requestedAmount.LessThan(decimal.NewFromInt(int64(setting.StripeMinTopUp))) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": fmt.Sprintf("充值数量不能小于 %d", getStripeMinTopup())})
 		return
 	}
-	if !requirePaymentMethodTopUpDecimalWithinLimit(c, model.PaymentMethodStripe, requestedAmount) {
+	if !requirePaymentMethodCreditedQuotaWithinLimit(c, model.PaymentMethodStripe, resolvedAmount.CreditedQuota) {
 		return
 	}
 	if requestedAmount.GreaterThan(decimal.NewFromInt(10000)) {
@@ -71,11 +73,11 @@ func (*StripeAdaptor) RequestAmount(c *gin.Context, req *StripePayRequest) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "获取用户分组失败"})
 		return
 	}
-	_, _, creditedQuota, err := topUpOrderAmountsDecimal(requestedAmount)
+	_, _, creditedQuota, err := topUpOrderAmountsResolved(resolvedAmount)
 	if err != nil || !requireTopUpCreditCapacity(c, id, creditedQuota) {
 		return
 	}
-	payMoney, _, err := applyDiscountCodeQuoteDecimal(getStripePayMoneyDecimal(requestedAmount, group), requestedAmount, req.DiscountCode, id)
+	payMoney, _, err := quoteStandardTopUpRequestWithDiscount(c, resolvedAmount, group, "USD", req.DiscountCode, id)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "优惠码无效"})
 		return
@@ -85,11 +87,12 @@ func (*StripeAdaptor) RequestAmount(c *gin.Context, req *StripePayRequest) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "充值金额过低"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "success", "data": strconv.FormatFloat(monetaryMicrosToFloat(expectedAmountMicros), 'f', 2, 64)})
+	c.JSON(http.StatusOK, withTopUpCreditFields(gin.H{"message": "success", "data": strconv.FormatFloat(monetaryMicrosToFloat(expectedAmountMicros), 'f', 2, 64)}, req.AmountUnit, requestedAmount, creditedQuota, "USD"))
 }
 
 func (*StripeAdaptor) RequestPay(c *gin.Context, req *StripePayRequest) {
-	requestedAmount, err := parseRequestedTopUpAmount(req.Amount)
+	resolvedAmount, err := resolveTopUpRequestAmount(c, req.Amount, req.AmountUnit)
+	requestedAmount := resolvedAmount.LegacyBatch
 	if err != nil {
 		common.ApiErrorMsg(c, err.Error())
 		return
@@ -101,11 +104,11 @@ func (*StripeAdaptor) RequestPay(c *gin.Context, req *StripePayRequest) {
 	if !requirePaymentMethodAvailable(c, model.PaymentMethodStripe) {
 		return
 	}
-	if requestedAmount.LessThan(decimal.NewFromInt(getStripeMinTopup())) {
-		c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("充值数量不能小于 %d", getStripeMinTopup()), "data": 10})
+	if requestedAmount.LessThan(decimal.NewFromInt(int64(setting.StripeMinTopUp))) {
+		c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("充值数量不能小于 %d", int64(setting.StripeMinTopUp)), "data": 10})
 		return
 	}
-	if !requirePaymentMethodTopUpDecimalWithinLimit(c, model.PaymentMethodStripe, requestedAmount) {
+	if !requirePaymentMethodCreditedQuotaWithinLimit(c, model.PaymentMethodStripe, resolvedAmount.CreditedQuota) {
 		return
 	}
 	if requestedAmount.GreaterThan(decimal.NewFromInt(10000)) {
@@ -134,7 +137,7 @@ func (*StripeAdaptor) RequestPay(c *gin.Context, req *StripePayRequest) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "获取用户分组失败"})
 		return
 	}
-	payMoney, discountCode, err := applyDiscountCodeQuoteDecimal(getStripePayMoneyDecimal(requestedAmount, group), requestedAmount, req.DiscountCode, id)
+	payMoney, discountCode, err := quoteStandardTopUpRequestWithDiscount(c, resolvedAmount, group, "USD", req.DiscountCode, id)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "优惠码无效"})
 		return
@@ -144,7 +147,7 @@ func (*StripeAdaptor) RequestPay(c *gin.Context, req *StripePayRequest) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "充值金额过低"})
 		return
 	}
-	amount, platformAmountMicros, creditedQuota, err := topUpOrderAmountsDecimal(requestedAmount)
+	amount, platformAmountMicros, creditedQuota, err := topUpOrderAmountsResolved(resolvedAmount)
 	if err != nil || !requireTopUpCreditCapacity(c, id, creditedQuota) {
 		return
 	}
@@ -164,20 +167,22 @@ func (*StripeAdaptor) RequestPay(c *gin.Context, req *StripePayRequest) {
 		return
 	}
 	topUp := &model.TopUp{
-		UserId:               id,
-		Amount:               amount,
-		PlatformAmountMicros: platformAmountMicros,
-		CreditedQuota:        creditedQuota,
-		ExpectedAmountMicros: expectedAmountMicros,
-		SettlementCurrency:   settlementCurrency,
-		Money:                monetaryMicrosToFloat(expectedAmountMicros),
-		TradeNo:              referenceId,
-		PaymentMethod:        model.PaymentMethodStripe,
-		PaymentProvider:      model.PaymentProviderStripe,
-		DiscountCodeId:       discountCodeID(discountCode),
-		DiscountPercent:      discountPercent(discountCode),
-		CreateTime:           time.Now().Unix(),
-		Status:               common.TopUpStatusPending,
+		UserId:                   id,
+		Amount:                   amount,
+		PlatformAmountMicros:     platformAmountMicros,
+		CreditedQuota:            creditedQuota,
+		ExpectedAmountMicros:     expectedAmountMicros,
+		SettlementCurrency:       settlementCurrency,
+		Money:                    monetaryMicrosToFloat(expectedAmountMicros),
+		TradeNo:                  referenceId,
+		PaymentMethod:            model.PaymentMethodStripe,
+		PaymentProvider:          model.PaymentProviderStripe,
+		DiscountQualifyingAmount: topUpDiscountQualifyingAmount(requestedAmount, creditedQuota),
+		DiscountQualifyingUnit:   topUpRequestUnit(""),
+		DiscountCodeId:           discountCodeID(discountCode),
+		DiscountPercent:          discountPercent(discountCode),
+		CreateTime:               time.Now().Unix(),
+		Status:                   common.TopUpStatusPending,
 	}
 	err = topUp.Insert()
 	if err != nil {
@@ -198,15 +203,17 @@ func (*StripeAdaptor) RequestPay(c *gin.Context, req *StripePayRequest) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "success",
 		"data": gin.H{
-			"trade_no": referenceId,
-			"pay_link": payLink,
+			"trade_no":       referenceId,
+			"pay_link":       payLink,
+			"credited_quota": creditedQuota, "credit_amount": creditedQuota, "currency_unit": "credit",
+			"amount_unit": topUpRequestUnit(req.AmountUnit), "legacy_batch_units": requestedAmount.String(), "settlement_currency": settlementCurrency,
 		},
 	})
 }
 
 func RequestStripeAmount(c *gin.Context) {
 	var req StripePayRequest
-	err := c.ShouldBindJSON(&req)
+	err := bindTopUpRequest(c, &req)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "参数错误"})
 		return
@@ -216,7 +223,7 @@ func RequestStripeAmount(c *gin.Context) {
 
 func RequestStripePay(c *gin.Context) {
 	var req StripePayRequest
-	err := c.ShouldBindJSON(&req)
+	err := bindTopUpRequest(c, &req)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "参数错误"})
 		return
@@ -848,4 +855,16 @@ func getStripeMinTopup() int64 {
 		minTopup = converted
 	}
 	return minTopup
+}
+
+func getStripePayMoneyForLegacyAmount(amount decimal.Decimal, group string) decimal.Decimal {
+	pricing, err := standardSettlementPricing("USD")
+	if err != nil {
+		return decimal.Zero
+	}
+	quote, err := quoteTopUpLegacyDecimalWithSettlementPricing(amount, group, pricing, decimal.NewFromInt(1))
+	if err != nil {
+		return decimal.Zero
+	}
+	return quote
 }

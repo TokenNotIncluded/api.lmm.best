@@ -29,6 +29,7 @@ import {
   getEpayMethods,
   getTopupAvailability,
   getTopupRecordPlatformAmount,
+  getTopupRecordQuota,
   isSafeHttpCheckoutUrl,
   isPaymentMethodCurrencySupported,
   isStripePayment,
@@ -703,4 +704,19 @@ describe('payment checkout navigation', () => {
       }
     }
   })
+})
+
+test('billing history uses the immutable raw credit snapshot over legacy projections', () => {
+  assert.equal(
+    getTopupRecordQuota({
+      credited_quota: 1,
+      amount: 10,
+      platform_amount_micros: 10000000,
+    }),
+    1
+  )
+  assert.equal(
+    getTopupRecordQuota({ credited_quota: 500001, amount: 10 }),
+    500001
+  )
 })

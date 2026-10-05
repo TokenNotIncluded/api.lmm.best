@@ -169,7 +169,7 @@ test('audio duration price displays USD per minute and round-trips its coefficie
     const duration = ctx.input('Audio duration price')
     assert.equal(duration.value, '0.006')
     const hint = required(duration.getAttribute('aria-describedby'))
-    assert.equal(required(document.getElementById(hint)).textContent, '$/min')
+    assert.equal(required(document.getElementById(hint)).textContent, 'USD/min')
 
     await ctx.change('Audio duration price', '0.012')
     assert.equal(ctx.tier().audio_duration_unit_cost, 200)
@@ -187,6 +187,26 @@ test('audio duration price displays USD per minute and round-trips its coefficie
     assert.equal(restored.tier().audio_duration_unit_cost, 200)
   } finally {
     await restored.cleanup()
+  }
+})
+
+test('USD-normalized wrappers preserve thresholds and remain untouched until an edit', async () => {
+  const expr = `(${fixtureExpr()}) / 7.2`
+  const ctx = await setup(expr)
+  try {
+    assert.deepEqual(ctx.changes, [])
+    assert.equal(ctx.expression(), expr)
+    assert.equal(Number(ctx.input('Input price').value), 2 / 7.2)
+    assert.ok(
+      Math.abs(Number(ctx.input('Audio duration price').value) - 0.006 / 7.2) <
+        1e-15
+    )
+    await ctx.change('Input price', '0')
+    assert.equal(ctx.tier().input_unit_cost, 0)
+    assert.ok(Math.abs(ctx.tier().output_unit_cost - 3 / 7.2) < 1e-15)
+    assert.ok(!ctx.expression().includes('/ 7.2'))
+  } finally {
+    await ctx.cleanup()
   }
 })
 
@@ -212,7 +232,7 @@ test('estimator maps separate cache counts and decimal audio seconds independent
     assert.equal(ctx.input('Audio duration (seconds)').value, '60.5')
     assert.ok(
       ctx.container.textContent?.includes(
-        `Estimated quota cost: ${(8650).toLocaleString()}`
+        `Estimated cost (USD): ${(0.00865).toLocaleString(undefined, { maximumFractionDigits: 12 })}`
       )
     )
     assert.deepEqual(ctx.changes, [])

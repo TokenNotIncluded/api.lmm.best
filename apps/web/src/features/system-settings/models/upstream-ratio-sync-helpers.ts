@@ -24,6 +24,9 @@ import {
   OFFICIAL_CHANNEL_NAME,
   RATIO_TYPE_OPTIONS,
 } from './constants'
+import type { ModelPricingConfig } from './model-pricing-api'
+import { ratioToUsdPerMillion } from './model-pricing-units'
+import { formatPricingNumber } from './pricing-format'
 
 export type RatioDifferenceEntry = {
   current: number | string | null
@@ -79,6 +82,28 @@ export const NUMERIC_SYNC_FIELDS = new Set<string>([
   ...RATIO_SYNC_FIELDS,
   'model_price',
 ])
+
+// Import selections retain their provider's legacy storage units. Convert only
+// the label; the original value must still be sent through the import path.
+export function getSyncFieldDisplayValue(
+  field: string,
+  value: number | string,
+  config?: ModelPricingConfig
+): string {
+  if (!config || value === 'same') return String(value)
+  if (field === 'model_price') {
+    return `USD ${formatPricingNumber(Number(value) / config.legacy_pricing_units_per_usd)}`
+  }
+  if (field === 'model_ratio') {
+    return `USD ${formatPricingNumber(ratioToUsdPerMillion(Number(value), config.credits_per_usd))} /1M`
+  }
+  if (field === 'billing_expr' && config.legacy_pricing_units_per_usd !== 1) {
+    const expression = String(value)
+    const version = /^v\d+:/.exec(expression)?.[0] || ''
+    return `${version}(${expression.slice(version.length)}) / ${config.legacy_pricing_units_per_usd}`
+  }
+  return String(value)
+}
 
 export function getSyncFieldLabel(
   ratioType: string,

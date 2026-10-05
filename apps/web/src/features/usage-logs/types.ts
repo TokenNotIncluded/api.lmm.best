@@ -112,9 +112,22 @@ export interface ToolSurchargeItem {
   name: string
   count: number
   price: number
+  price_currency_basis?: 'legacy_pricing_unit' | 'USD'
+  pricing_unit_credits_per_unit?: number
 }
 
 export interface LogOtherData {
+  // Pricing snapshots record their engine unit separately from true USD.
+  pricing_schema_version?: number
+  pricing_currency?: string
+  pricing_currency_basis?: 'legacy_pricing_unit' | 'USD'
+  pricing_unit_credits_per_unit?: number
+  tool_pricing_unit_credits_per_unit?: number
+  audio_input_pricing_unit_credits_per_unit?: number
+  model_ratio_usd_per_million_multiplier?: number
+  pricing_credits_per_usd?: number
+  billing_expr_currency_basis?: 'legacy_pricing_unit' | 'USD'
+  billing_expr_usd_multiplier?: number
   status_code?: number
   error_code?: string
   error_type?: string

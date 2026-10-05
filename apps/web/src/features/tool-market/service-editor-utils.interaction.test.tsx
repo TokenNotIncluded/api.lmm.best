@@ -54,6 +54,8 @@ const { QueryClient, QueryClientProvider } =
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
+const { resetMarketCurrencyTest, useWalletCurrencyPreferenceStore } =
+  await import('./currency-test-support')
 const { ServiceEditor } = await import('./service-editor')
 type MarketDetail = import('./api').MarketDetail
 type DraftInput = import('./api').DraftInput
@@ -87,6 +89,8 @@ function submitForm(container: HTMLElement) {
 }
 
 async function renderEditor(initial?: MarketDetail, feeBps = 1000) {
+  resetMarketCurrencyTest()
+  useWalletCurrencyPreferenceStore.getState().setPreference('CNY')
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   })
@@ -408,12 +412,12 @@ test('net earnings use the current platform fee and refreshing definitions prese
     await view.input('#price-search', '1')
     assert.match(
       view.container.textContent ?? '',
-      /You receive 0\.9 credits per successful call after the 10% platform fee\./
+      /You receive 0\.9 CNY per successful call after the 10% platform fee\./
     )
     await view.rerenderFee(2500)
     assert.match(
       view.container.textContent ?? '',
-      /You receive 0\.75 credits per successful call after the 25% platform fee\./
+      /You receive 0\.75 CNY per successful call after the 25% platform fee\./
     )
     await view.click('Read tool definitions')
     assert.equal(
@@ -427,7 +431,7 @@ test('net earnings use the current platform fee and refreshing definitions prese
     )
     assert.match(
       view.container.textContent ?? '',
-      /You receive 0\.75 credits per successful call after the 25% platform fee\./
+      /You receive 0\.75 CNY per successful call after the 25% platform fee\./
     )
     await view.click('Save draft')
     assert.equal(requests.drafts.length, 1)
@@ -948,6 +952,74 @@ test('authorized resource pricing saves a combination and refundable cap', async
     assert.equal(tool.price_quota, 1250000)
     assert.equal(tool.input_token_price_quota, 0)
     assert.equal(tool.max_input_tokens, 0)
+  } finally {
+    await view.dispose()
+    requests.restore()
+  }
+})
+
+test('changing the display unit mid-editor retains one-credit prices and metered rate payloads', async () => {
+  const requests = pricingRequests()
+  const authorized = structuredClone(initial)
+  authorized.tools[0].available_metering_metrics = ['input_tokens']
+  authorized.tools[0].input_schema = JSON.stringify(discovered[0].input_schema)
+  const view = await renderEditor(authorized)
+  try {
+    await view.click('Read tool definitions')
+    await view.select('#billing-mode-search', 'input_tokens')
+    await view.input('#price-search', '2.94')
+    await view.input('#token-limit-search', '65536')
+    await act(async () =>
+      view.container
+        .querySelector<HTMLInputElement>('#select-new_tool')
+        ?.click()
+    )
+    await acknowledgePricingDefinitions(view)
+    await view.select('#billing-mode-new_tool', 'paid')
+    await view.input('#price-new_tool', '0.000002')
+    for (const unit of ['USD', 'CREDIT', 'CNY'] as const) {
+      await act(async () =>
+        useWalletCurrencyPreferenceStore.getState().setPreference(unit)
+      )
+      const rate =
+        view.container.querySelector<HTMLInputElement>('#price-search')
+      const smallest =
+        view.container.querySelector<HTMLInputElement>('#price-new_tool')
+      assert.ok(rate)
+      assert.ok(smallest)
+      assert.equal(
+        rate.value,
+        unit === 'USD' ? '0.42' : unit === 'CREDIT' ? '1470000' : '2.94'
+      )
+      assert.equal(
+        smallest.value,
+        unit === 'USD'
+          ? '0.000000285714285714285714285715'
+          : unit === 'CREDIT'
+            ? '1'
+            : '0.000002'
+      )
+      assert.equal(view.button('Save draft').disabled, false)
+    }
+    await act(async () =>
+      useWalletCurrencyPreferenceStore.getState().setPreference('USD')
+    )
+    const smallestInput =
+      view.container.querySelector<HTMLInputElement>('#price-new_tool')
+    assert.ok(smallestInput)
+    await view.input('#price-new_tool', smallestInput.value)
+    await view.click('Read tool definitions')
+    await view.click('Save draft')
+    const rate = requests.drafts[0].tools.find((tool) => tool.name === 'search')
+    assert.ok(rate)
+    assert.equal(rate.input_token_price_quota, 1470000)
+    assert.equal(rate.price_quota, 96338)
+    assert.equal(rate.max_input_tokens, 65536)
+    const smallestTool = requests.drafts[0].tools.find(
+      (tool) => tool.name === 'new_tool'
+    )
+    assert.ok(smallestTool)
+    assert.equal(smallestTool.price_quota, 1)
   } finally {
     await view.dispose()
     requests.restore()

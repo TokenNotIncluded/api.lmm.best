@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
-import { after, afterEach, describe, test } from 'node:test'
+import { after, afterEach, beforeEach, describe, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 
@@ -63,6 +63,11 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
 const { AssistantPlanTool } = await import('./assistant-plan-tool')
+const {
+  resetAssistantCurrencyTest,
+  useSystemConfigStore,
+  useWalletCurrencyPreferenceStore,
+} = await import('./assistant-currency-test-support')
 
 const originalGet = api.get
 const reactTestGlobals = globalThis as typeof globalThis & {
@@ -105,7 +110,7 @@ const assistantOffersFixture = {
           allow_balance_pay: true,
           allow_wallet_overflow: true,
           max_purchase_per_user: 0,
-          total_amount: 5_000_000,
+          total_amount: 35_000_000,
         },
       },
       {
@@ -122,7 +127,7 @@ const assistantOffersFixture = {
           allow_balance_pay: true,
           allow_wallet_overflow: true,
           max_purchase_per_user: 0,
-          total_amount: 15_000_000,
+          total_amount: 105_000_000,
         },
       },
     ],
@@ -186,9 +191,11 @@ async function unmount(rendered: Awaited<ReturnType<typeof renderTool>>) {
   rendered.container.remove()
 }
 
-afterEach(() => {
+beforeEach(resetAssistantCurrencyTest)
+afterEach(async () => {
   api.get = originalGet
   document.body.replaceChildren()
+  await i18n.changeLanguage('en')
 })
 
 after(() => domWindow.close())
@@ -236,7 +243,7 @@ describe('AssistantPlanTool', () => {
     assert.match(rendered.container.textContent ?? '', /save 20%/)
     assert.match(
       rendered.container.textContent ?? '',
-      /Estimated discounted base amount80 \(Platform\)/
+      /Estimated discounted base amount11\.43 USD/
     )
     assert.doesNotMatch(
       rendered.container.textContent ?? '',
@@ -319,7 +326,7 @@ describe('AssistantPlanTool', () => {
     assert.match(rendered.container.textContent ?? '', /Closest fit/)
     assert.match(
       rendered.container.textContent ?? '',
-      /lowest monthly-equivalent cost that covers your 20 \(Platform\) monthly estimate/
+      /lowest monthly-equivalent cost that covers your 20 USD monthly estimate/
     )
     assert.match(rendered.container.textContent ?? '', /save 20%/)
     assert.equal(calls, 2)
@@ -340,7 +347,7 @@ describe('AssistantPlanTool', () => {
     })
     assert.match(
       rendered.container.textContent ?? '',
-      /No plan fully covers your 40 \(Platform\) monthly estimate/
+      /No plan fully covers your 40 USD monthly estimate/
     )
 
     await unmount(rendered)
@@ -378,5 +385,161 @@ describe('AssistantPlanTool', () => {
     assert.doesNotMatch(rendered.container.textContent ?? '', /save 20%/)
 
     await unmount(rendered)
+  })
+
+  test('converts legacy top-up offers while keeping USD budget inputs and original fiat plan prices', async () => {
+    let calls = 0
+    api.get = (async () => {
+      calls += 1
+      return { data: assistantOffersFixture }
+    }) as typeof api.get
+    const rendered = await renderTool(true)
+    try {
+      assert.match(rendered.container.textContent ?? '', /14\.29 USD/)
+      const budget = rendered.container.querySelector<HTMLInputElement>(
+        '#assistant-expected-credit'
+      )
+      const topup = rendered.container.querySelector<HTMLInputElement>(
+        '#assistant-topup-credit'
+      )
+      assert.equal(budget?.value, '20')
+      assert.equal(topup?.value, '100')
+      assert.match(
+        rendered.container.textContent ?? '',
+        /Expected monthly API budget \(USD\)/
+      )
+      await act(async () => {
+        useWalletCurrencyPreferenceStore.getState().setPreference('CNY')
+      })
+      assert.match(rendered.container.textContent ?? '', /100 CNY/)
+      assert.match(rendered.container.textContent ?? '', /80 CNY/)
+      assert.match(
+        rendered.container.textContent ?? '',
+        /140 CNY monthly estimate/
+      )
+      assert.match(rendered.container.textContent ?? '', /8 USD/)
+      assert.equal(budget?.value, '20')
+      assert.equal(topup?.value, '100')
+      await act(async () => {
+        useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
+      })
+      assert.match(rendered.container.textContent ?? '', /50,000,000 Credits/)
+      assert.match(rendered.container.textContent ?? '', /40,000,000 Credits/)
+      assert.equal(budget?.value, '20')
+      assert.equal(calls, 1)
+      assert.doesNotMatch(rendered.container.textContent ?? '', /\(Platform\)/)
+    } finally {
+      await unmount(rendered)
+    }
+  })
+
+  test('keeps budget comparisons unavailable until the fixed credit denomination is known', async () => {
+    api.get = (async () => ({ data: assistantOffersFixture })) as typeof api.get
+    const store = useSystemConfigStore.getState()
+    store.setConfig({
+      currency: { ...store.config.currency, currencyUnit: 'unknown' },
+    })
+    const rendered = await renderTool(true)
+    try {
+      assert.match(
+        rendered.container.textContent ?? '',
+        /Plan recommendations unavailable/
+      )
+      assert.match(
+        rendered.container.textContent ?? '',
+        /Current currency rates are unavailable/
+      )
+      assert.doesNotMatch(
+        rendered.container.textContent ?? '',
+        /Closest fit|lowest monthly-equivalent cost|No subscription plans/
+      )
+      assert.equal(
+        rendered.container.querySelector<HTMLInputElement>(
+          '#assistant-expected-credit'
+        )?.value,
+        '20'
+      )
+      await act(async () => resetAssistantCurrencyTest())
+      assert.match(rendered.container.textContent ?? '', /Closest fit/)
+    } finally {
+      await unmount(rendered)
+    }
+  })
+
+  test('preserves CNY checkout prices without claiming an unknown exchange rate comparison', async () => {
+    api.get = (async () => ({
+      data: {
+        ...assistantOffersFixture,
+        data: {
+          ...assistantOffersFixture.data,
+          plans: assistantOffersFixture.data.plans.map((record) => ({
+            plan: { ...record.plan, currency: 'CNY', price_amount: 35 },
+          })),
+        },
+      },
+    })) as typeof api.get
+    const store = useSystemConfigStore.getState()
+    store.setConfig({ currency: { ...store.config.currency, cnyPerUsd: 0 } })
+    const rendered = await renderTool(true)
+    try {
+      assert.match(rendered.container.textContent ?? '', /35 CNY/)
+      assert.match(
+        rendered.container.textContent ?? '',
+        /Some payment currencies cannot currently be compared/
+      )
+      assert.doesNotMatch(
+        rendered.container.textContent ?? '',
+        /lowest monthly-equivalent cost/
+      )
+    } finally {
+      await unmount(rendered)
+    }
+  })
+
+  test('keeps legacy global token discount keys as raw credits in every display currency', async () => {
+    api.get = (async () => ({
+      data: {
+        ...assistantOffersFixture,
+        data: {
+          ...assistantOffersFixture.data,
+          topup_discounts: { 3500000: 0.8 },
+        },
+      },
+    })) as typeof api.get
+    const store = useSystemConfigStore.getState()
+    store.setConfig({
+      currency: { ...store.config.currency, quotaDisplayType: 'TOKENS' },
+    })
+    const rendered = await renderTool(true)
+    try {
+      assert.match(
+        rendered.container.textContent ?? '',
+        /Credited balance1 USD/
+      )
+      assert.match(
+        rendered.container.textContent ?? '',
+        /Estimated discounted base amount0\.8 USD/
+      )
+      await act(async () => {
+        useWalletCurrencyPreferenceStore.getState().setPreference('CNY')
+      })
+      assert.match(
+        rendered.container.textContent ?? '',
+        /Credited balance7 CNY/
+      )
+      await act(async () => {
+        useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
+      })
+      assert.match(
+        rendered.container.textContent ?? '',
+        /Credited balance3,500,000 Credits/
+      )
+      assert.doesNotMatch(
+        rendered.container.textContent ?? '',
+        /1,750,000,000,000/
+      )
+    } finally {
+      await unmount(rendered)
+    }
   })
 })

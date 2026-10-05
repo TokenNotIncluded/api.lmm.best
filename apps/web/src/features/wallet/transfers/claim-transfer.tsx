@@ -27,13 +27,15 @@ import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { ForgePublicShell } from '@/features/forge/forge-public-shell'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { claimTransfer, inspectTransfer, formatTransferQuota } from './api'
+import { claimTransfer, inspectTransfer } from './api'
 
 const pendingTransferKey = 'wallet-transfer-login'
 export function ClaimTransfer() {
   const { t } = useTranslation()
+  const { formatQuota: formatTransferQuota } = useWalletCurrency()
   const user = useAuthStore((state) => state.auth.user)
   const location = useLocation()
   const hash = location.hash.replace(/^#/, '')

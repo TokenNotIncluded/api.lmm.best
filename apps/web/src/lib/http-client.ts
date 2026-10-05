@@ -25,7 +25,10 @@ import {
   clearAuthentication,
   refreshAuthentication,
 } from '@/lib/auth-session'
-import { getServerErrorMessageKey } from '@/lib/server-error-message'
+import {
+  getServerErrorMessageKey,
+  getServerErrorToastId,
+} from '@/lib/server-error-message'
 import { useAuthStore } from '@/stores/auth-store'
 
 declare module 'axios' {
@@ -180,7 +183,7 @@ api.interceptors.response.use(
         : error?.response?.data?.message ||
           error?.message ||
           t('Request failed')
-      toast.error(message)
+      toast.error(message, { id: getServerErrorToastId(error) })
     }
     throw error
   }

@@ -42,8 +42,8 @@ import {
   TooltipTrigger,
   TooltipProvider,
 } from '@/components/ui/tooltip'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { toIntlLocale } from '@/i18n/languages'
-import { formatQuotaWithCurrency } from '@/lib/currency'
 import { cn } from '@/lib/utils'
 
 import { getCheckinStatus, performCheckin } from '../api'
@@ -61,6 +61,7 @@ export function CheckinCalendarCard({
   turnstileSiteKey,
 }: CheckinCalendarCardProps) {
   const { t, i18n } = useTranslation()
+  const { formatQuota } = useWalletCurrency()
   const [today] = useState(() => new Date())
   const [currentMonth, setCurrentMonth] = useState(
     () => new Date(today.getFullYear(), today.getMonth(), 1)
@@ -194,7 +195,7 @@ export function CheckinCalendarCard({
         const res = await performCheckin(token)
         if (res.success && res.data) {
           toast.success(
-            `${t('Check-in successful! Received')} ${formatQuotaWithCurrency(res.data.quota_awarded)}`
+            `${t('Check-in successful! Received')} ${formatQuota(res.data.quota_awarded)}`
           )
           void refetch()
           setTurnstileModalVisible(false)
@@ -218,7 +219,14 @@ export function CheckinCalendarCard({
         setCheckinLoading(false)
       }
     },
-    [refetch, shouldTriggerTurnstile, t, turnstileEnabled, turnstileSiteKey]
+    [
+      refetch,
+      shouldTriggerTurnstile,
+      t,
+      turnstileEnabled,
+      turnstileSiteKey,
+      formatQuota,
+    ]
   )
 
   const handleCheckinClick = useCallback(() => {
@@ -379,7 +387,7 @@ export function CheckinCalendarCard({
                 </div>
                 <p className='text-muted-foreground mt-1 line-clamp-2 text-xs sm:text-sm'>
                   {checkedToday && todayAward !== undefined
-                    ? `${t('Today')} +${formatQuotaWithCurrency(todayAward)}`
+                    ? `${t('Today')} +${formatQuota(todayAward)}`
                     : t('Check in daily to receive random quota rewards')}
                 </p>
                 {checkinData?.trust_level !== undefined &&
@@ -388,8 +396,8 @@ export function CheckinCalendarCard({
                   <p className='text-muted-foreground mt-1 text-[11px] sm:text-xs'>
                     {t('Reward range for level {{level}}: {{min}}–{{max}}', {
                       level: checkinData.trust_level,
-                      min: formatQuotaWithCurrency(checkinData.min_quota),
-                      max: formatQuotaWithCurrency(checkinData.max_quota),
+                      min: formatQuota(checkinData.min_quota),
+                      max: formatQuota(checkinData.max_quota),
                     })}
                   </p>
                 ) : null}
@@ -421,7 +429,7 @@ export function CheckinCalendarCard({
               </div>
               <div className='bg-card p-3 text-center sm:p-5'>
                 <div className='text-base leading-tight font-semibold tracking-tight whitespace-nowrap tabular-nums sm:text-xl xl:text-base 2xl:text-lg'>
-                  {formatQuotaWithCurrency(monthlyQuota, { digitsLarge: 0 })}
+                  {formatQuota(monthlyQuota, { digitsLarge: 0 })}
                 </div>
                 <div className='text-muted-foreground mt-0.5 text-[10px] font-medium sm:mt-1 sm:text-xs'>
                   {t('This month')}
@@ -429,12 +437,9 @@ export function CheckinCalendarCard({
               </div>
               <div className='bg-card p-3 text-center sm:p-5'>
                 <div className='text-base leading-tight font-semibold tracking-tight whitespace-nowrap tabular-nums sm:text-xl xl:text-base 2xl:text-lg'>
-                  {formatQuotaWithCurrency(
-                    checkinData?.stats?.total_quota || 0,
-                    {
-                      digitsLarge: 0,
-                    }
-                  )}
+                  {formatQuota(checkinData?.stats?.total_quota || 0, {
+                    digitsLarge: 0,
+                  })}
                 </div>
                 <div className='text-muted-foreground mt-0.5 text-[10px] font-medium sm:mt-1 sm:text-xs'>
                   {t('Total earned')}
@@ -506,7 +511,7 @@ export function CheckinCalendarCard({
                       dayObj.date
                     )
                     const formattedAward = isCheckedIn
-                      ? formatQuotaWithCurrency(quotaAwarded)
+                      ? formatQuota(quotaAwarded)
                       : undefined
                     const accessibleLabel = dayObj.isCurrentMonth
                       ? [

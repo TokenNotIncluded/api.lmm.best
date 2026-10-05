@@ -62,8 +62,8 @@ import { IconBadge, type IconBadgeTone } from '@/components/ui/icon-badge'
 import { Label } from '@/components/ui/label'
 import { DynamicPricingBreakdown } from '@/features/pricing/components/dynamic-pricing-breakdown'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
-import { formatPlatformAmount } from '@/lib/currency'
-import { formatLogQuota, formatTokens, formatUseTime } from '@/lib/format'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
+import { formatTokens, formatUseTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import type { UsageLog } from '../../data/schema'
@@ -80,6 +80,13 @@ import {
   getResponseTimeColor,
   renderAuditContent,
 } from '../../lib/format'
+import {
+  buildLogCopyText,
+  formatLogPrice,
+  formatLogAddonPrice,
+  formatLogTokenPrice,
+  logExpressionCurrency,
+} from '../../lib/money'
 import { safeLogDiagnostic } from '../../lib/recovery'
 import {
   getLogTypeConfig,
@@ -245,15 +252,26 @@ function BillingBreakdown(props: {
 }) {
   const { t } = useTranslation()
   const { log, other, isAdmin } = props
+  const currency = useWalletCurrency()
+  const formatLogQuota = (raw: number) =>
+    currency.formatQuota(raw, {
+      digitsLarge: 4,
+      digitsSmall: 8,
+      abbreviate: false,
+    })
   const isPerCall = isPerCallBilling(other.model_price)
   const isClaude = other.claude === true
   const isTieredExpr = other.billing_mode === 'tiered_expr'
   const tieredSummary = getTieredBillingSummary(other)
 
   const rows: Array<{ label: string; value: string }> = []
-  const priceOpts = { digitsLarge: 4, digitsSmall: 6, abbreviate: false }
-  const fmtPrice = (amount: number) => formatPlatformAmount(amount, priceOpts)
-  const baseInputUSD = other.model_ratio != null ? other.model_ratio * 2.0 : 0
+  const fmtPrice = (amount: number) =>
+    formatLogPrice(amount, other, currency, isTieredExpr)
+  const fmtAbsolutePrice = (amount: number) =>
+    formatLogAddonPrice(amount, other, currency)
+  const structuredTools = other.tool_surcharges ?? []
+  const fmtTokenPrice = (multiplier: number) =>
+    formatLogTokenPrice(other.model_ratio ?? 0, multiplier, currency)
 
   if (isTieredExpr) {
     rows.push({
@@ -292,13 +310,13 @@ function BillingBreakdown(props: {
     if (other.model_ratio != null) {
       rows.push({
         label: t('Input'),
-        value: `${fmtPrice(baseInputUSD)}/M`,
+        value: `${fmtTokenPrice(1)}/M`,
       })
     }
     if (other.completion_ratio != null && other.model_ratio != null) {
       rows.push({
         label: t('Output'),
-        value: `${fmtPrice(baseInputUSD * other.completion_ratio)}/M`,
+        value: `${fmtTokenPrice(other.completion_ratio)}/M`,
       })
     }
   }
@@ -317,7 +335,7 @@ function BillingBreakdown(props: {
     if (other.cache_ratio != null && other.cache_ratio !== 1) {
       rows.push({
         label: t('Cache Read'),
-        value: `${fmtPrice(baseInputUSD * other.cache_ratio)}/M`,
+        value: `${fmtTokenPrice(other.cache_ratio)}/M`,
       })
     }
     if (
@@ -326,7 +344,7 @@ function BillingBreakdown(props: {
     ) {
       rows.push({
         label: t('Cache Creation'),
-        value: `${fmtPrice(baseInputUSD * other.cache_creation_ratio)}/M`,
+        value: `${fmtTokenPrice(other.cache_creation_ratio)}/M`,
       })
     }
     if (
@@ -335,7 +353,7 @@ function BillingBreakdown(props: {
     ) {
       rows.push({
         label: t('Cache Creation (5m)'),
-        value: `${fmtPrice(baseInputUSD * other.cache_creation_ratio_5m)}/M`,
+        value: `${fmtTokenPrice(other.cache_creation_ratio_5m)}/M`,
       })
     }
     if (
@@ -344,7 +362,7 @@ function BillingBreakdown(props: {
     ) {
       rows.push({
         label: t('Cache Creation (1h)'),
-        value: `${fmtPrice(baseInputUSD * other.cache_creation_ratio_1h)}/M`,
+        value: `${fmtTokenPrice(other.cache_creation_ratio_1h)}/M`,
       })
     }
   }
@@ -353,7 +371,7 @@ function BillingBreakdown(props: {
     if (other.audio_ratio != null && other.audio_ratio !== 1) {
       rows.push({
         label: t('Audio input'),
-        value: `${fmtPrice(baseInputUSD * other.audio_ratio)}/M`,
+        value: `${fmtTokenPrice(other.audio_ratio)}/M`,
       })
     }
 
@@ -363,43 +381,71 @@ function BillingBreakdown(props: {
     ) {
       rows.push({
         label: t('Audio output'),
-        value: `${fmtPrice(baseInputUSD * other.audio_completion_ratio)}/M`,
+        value: `${fmtTokenPrice(other.audio_completion_ratio)}/M`,
       })
     }
 
     if (other.image_ratio != null && other.image_ratio !== 1) {
       rows.push({
         label: t('Image input'),
-        value: `${fmtPrice(baseInputUSD * other.image_ratio)}/M`,
+        value: `${fmtTokenPrice(other.image_ratio)}/M`,
       })
     }
   }
 
-  if (other.web_search && other.web_search_call_count) {
+  for (const item of structuredTools) {
     rows.push({
-      label: t('Web Search'),
-      value: `${other.web_search_call_count}x${other.web_search_price ? ` (${fmtPrice(other.web_search_price)})` : ''}`,
+      label: item.name,
+      value: `${item.count}x (${formatLogPrice(
+        item.price,
+        {
+          pricing_schema_version: other.pricing_schema_version,
+          pricing_currency_basis: item.price_currency_basis,
+          pricing_unit_credits_per_unit: item.pricing_unit_credits_per_unit,
+        },
+        currency
+      )}/1K)`,
     })
   }
 
-  if (other.file_search && other.file_search_call_count) {
+  if (
+    !structuredTools.length &&
+    other.web_search &&
+    other.web_search_call_count
+  ) {
+    rows.push({
+      label: t('Web Search'),
+      value: `${other.web_search_call_count}x${other.web_search_price ? ` (${fmtAbsolutePrice(other.web_search_price)})` : ''}`,
+    })
+  }
+
+  if (
+    !structuredTools.length &&
+    other.file_search &&
+    other.file_search_call_count
+  ) {
     rows.push({
       label: t('File Search'),
-      value: `${other.file_search_call_count}x${other.file_search_price ? ` (${fmtPrice(other.file_search_price)})` : ''}`,
+      value: `${other.file_search_call_count}x${other.file_search_price ? ` (${fmtAbsolutePrice(other.file_search_price)})` : ''}`,
     })
   }
 
   if (other.image_generation_call && other.image_generation_call_price) {
     rows.push({
       label: t('Image Generation'),
-      value: fmtPrice(other.image_generation_call_price),
+      value: fmtAbsolutePrice(other.image_generation_call_price),
     })
   }
 
   if (other.audio_input_seperate_price && other.audio_input_price) {
     rows.push({
       label: t('Audio Input Price'),
-      value: fmtPrice(other.audio_input_price),
+      value: formatLogAddonPrice(
+        other.audio_input_price,
+        other,
+        currency,
+        'audio'
+      ),
     })
   }
 
@@ -501,6 +547,13 @@ interface DetailsDialogProps {
 
 export function DetailsDialog(props: DetailsDialogProps) {
   const { t } = useTranslation()
+  const currency = useWalletCurrency()
+  const formatLogQuota = (raw: number) =>
+    currency.formatQuota(raw, {
+      digitsLarge: 4,
+      digitsSmall: 8,
+      abbreviate: false,
+    })
   const { copiedText, copyToClipboard } = useCopyToClipboard({ notify: false })
   const details =
     props.log.type === 5
@@ -1121,6 +1174,8 @@ export function DetailsDialog(props: DetailsDialogProps) {
           <DetailSection label={t('Tiered pricing')}>
             <DynamicPricingBreakdown
               compact
+              {...logExpressionCurrency(other, currency.config.creditsPerUsd)}
+              displayCurrency={currency.currency}
               billingExpr={decodeBillingExprB64(other.expr_b64)}
               matchedTierLabel={other.matched_tier}
               requestRules={other.request_rules}
@@ -1279,7 +1334,11 @@ export function DetailsDialog(props: DetailsDialogProps) {
                 variant='ghost'
                 size='sm'
                 className='absolute top-1.5 right-1.5 h-5 w-5 p-0'
-                onClick={() => copyToClipboard(details)}
+                onClick={() =>
+                  copyToClipboard(
+                    buildLogCopyText(details, props.log, other, currency, t)
+                  )
+                }
                 title={t('Copy to clipboard')}
                 aria-label={t('Copy to clipboard')}
               >

@@ -16,57 +16,35 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-/**
- * Currency terminology contract:
- *
- * - Platform amounts are virtual credits. Format them with
- *   `formatPlatformAmount()` as `$… (Platform)`; never label them USD.
- * - Fiat amounts are real settlement money. Format them with
- *   `formatFiatCurrencyAmount()` and an ISO code such as `1 USD` or `6.8 CNY`.
- * - Raw quota becomes a platform amount through `formatQuotaWithCurrency()`.
- * - Conversion is not formatting. Checkout converts with
- *   `platform / platformUnitsPerUsd * settlementUnitsPerUsd` before calling a
- *   formatter.
- *
- * `formatCurrencyFromUSD()`, `formatBillingCurrencyFromUSD()`, and
- * `formatLocalCurrencyAmount()` remain only for legacy call sites. New code
- * must choose platform or fiat semantics explicitly.
- */
+/** Ledger balances are integer Credits. USD values use a fixed backend denomination, never a live recharge ratio. */
 import i18n from '@/i18n/config'
+import { normalizeInterfaceLanguage } from '@/i18n/languages'
+import { useAuthStore } from '@/stores/auth-store'
 import {
-  useSystemConfigStore,
   DEFAULT_CURRENCY_CONFIG,
+  useSystemConfigStore,
   type CurrencyConfig,
   type CurrencyDisplayType,
 } from '@/stores/system-config-store'
+import {
+  useWalletCurrencyPreferenceStore,
+  type WalletDisplayCurrency,
+  type WalletDisplayCurrencyPreference,
+} from '@/stores/wallet-currency-preference-store'
 
 export interface CurrencyFormatOptions {
-  /** Fraction digits to use when |value| >= 1 */
   digitsLarge?: number
-  /** Fraction digits to use when |value| < 1 */
   digitsSmall?: number
-  /** Whether to abbreviate thousands with k suffix */
   abbreviate?: boolean
-  /** Minimal absolute value to display when rounding would produce zero */
   minimumNonZero?: number
-  /**
-   * Use locale-aware compact notation for large values (e.g. "$28万" in zh,
-   * "$280K" in en). The currency symbol is preserved.
-   */
   compact?: boolean
-  /** Whether to include the currency/custom symbol. Token displays are unchanged. */
   showSymbol?: boolean
-  /** Locale used for number formatting (defaults to the runtime locale) */
-  locale?: Intl.LocalesArgument | undefined
+  locale?: Intl.LocalesArgument
+  /** Captured translation supplied by reactive consumers. */
+  creditLabel?: string
 }
 
-type ResolvedCurrencyFormatOptions = Omit<
-  Required<CurrencyFormatOptions>,
-  'locale'
-> & {
-  locale: Intl.LocalesArgument | undefined
-}
-
+type Rational = { numerator: bigint; denominator: bigint }
 type DisplayMeta =
   | {
       kind: 'currency'
@@ -74,36 +52,65 @@ type DisplayMeta =
       currencyCode: string
       exchangeRate: number
     }
-  | {
-      kind: 'custom'
-      symbol: string
-      exchangeRate: number
-    }
-  | {
-      kind: 'tokens'
-      /** Number of tokens per USD */
-      quotaPerUnit: number
-    }
+  | { kind: 'tokens'; quotaPerUnit: number }
+const MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER)
 
-const DEFAULT_FORMAT_OPTIONS: ResolvedCurrencyFormatOptions = {
-  digitsLarge: 2,
-  digitsSmall: 4,
-  abbreviate: true,
-  minimumNonZero: 0,
-  compact: false,
-  showSymbol: true,
-  locale: undefined,
+export function normalizeWalletDisplayCurrencyPreference(
+  value: unknown
+): WalletDisplayCurrencyPreference {
+  return value === 'CREDIT' || value === 'CNY' || value === 'USD' ? value : ''
 }
 
-const DISPLAY_TYPE_VALUES = ['USD', 'CNY', 'TOKENS', 'CUSTOM'] as const
-type DisplayTypeLiteral = (typeof DISPLAY_TYPE_VALUES)[number]
+export function resolveWalletDisplayCurrency(
+  preference: unknown,
+  language?: string
+): WalletDisplayCurrency {
+  const explicit = normalizeWalletDisplayCurrencyPreference(preference)
+  if (explicit) return explicit
+  const locale = normalizeInterfaceLanguage(language || '')
+  return locale === 'zhCN' || locale === 'zhTW' ? 'CNY' : 'USD'
+}
+
+export function parseWalletCurrencySettings(
+  setting: unknown
+): Record<string, unknown> {
+  try {
+    const parsed: unknown =
+      typeof setting === 'string' ? JSON.parse(setting) : setting
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {}
+  } catch {
+    return {}
+  }
+}
+
+export function getWalletDisplayCurrencyPreference(): WalletDisplayCurrencyPreference {
+  const user = useAuthStore.getState().auth.user
+  return user
+    ? normalizeWalletDisplayCurrencyPreference(
+        parseWalletCurrencySettings(user.setting).wallet_display_currency
+      )
+    : normalizeWalletDisplayCurrencyPreference(
+        useWalletCurrencyPreferenceStore.getState().preference
+      )
+}
+
+export function getWalletDisplayCurrency(): WalletDisplayCurrency {
+  return resolveWalletDisplayCurrency(
+    getWalletDisplayCurrencyPreference(),
+    i18n.resolvedLanguage || i18n.language
+  )
+}
 
 export function isCurrencyDisplayType(
   value: unknown
 ): value is CurrencyDisplayType {
   return (
-    typeof value === 'string' &&
-    DISPLAY_TYPE_VALUES.includes(value as DisplayTypeLiteral)
+    value === 'USD' ||
+    value === 'CNY' ||
+    value === 'TOKENS' ||
+    value === 'CUSTOM'
   )
 }
 
@@ -114,507 +121,374 @@ export function parseCurrencyDisplayType(
   return isCurrencyDisplayType(value) ? value : fallback
 }
 
-function getConfig(): CurrencyConfig {
-  const { config } = useSystemConfigStore.getState()
-  const currency = config?.currency ?? DEFAULT_CURRENCY_CONFIG
+function positive(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? value
+    : Number.NaN
+}
+
+function getConfig(
+  input = useSystemConfigStore.getState().config.currency
+): CurrencyConfig {
+  const config = { ...DEFAULT_CURRENCY_CONFIG, ...input }
   return {
-    ...DEFAULT_CURRENCY_CONFIG,
-    ...currency,
-    quotaPerUnit:
-      currency?.quotaPerUnit && currency.quotaPerUnit > 0
-        ? currency.quotaPerUnit
-        : DEFAULT_CURRENCY_CONFIG.quotaPerUnit,
-    usdExchangeRate:
-      currency?.usdExchangeRate && currency.usdExchangeRate > 0
-        ? currency.usdExchangeRate
-        : DEFAULT_CURRENCY_CONFIG.usdExchangeRate,
-    customCurrencyExchangeRate:
-      currency?.customCurrencyExchangeRate &&
-      currency.customCurrencyExchangeRate > 0
-        ? currency.customCurrencyExchangeRate
-        : DEFAULT_CURRENCY_CONFIG.customCurrencyExchangeRate,
-    customCurrencySymbol:
-      currency?.customCurrencySymbol?.trim() ||
-      DEFAULT_CURRENCY_CONFIG.customCurrencySymbol,
+    ...config,
+    quotaPerUnit: positive(config.quotaPerUnit),
+    creditsPerUsd:
+      config.currencyUnit === 'credit'
+        ? positive(config.creditsPerUsd)
+        : Number.NaN,
+    cnyPerUsd: positive(config.cnyPerUsd),
+    legacyPricingUnitsPerUsd: positive(config.legacyPricingUnitsPerUsd),
   }
 }
 
-function getDisplayMeta(config: CurrencyConfig): DisplayMeta {
-  switch (config.quotaDisplayType) {
-    case 'CNY':
-      return {
-        kind: 'currency',
-        symbol: '¥',
-        currencyCode: 'CNY',
-        exchangeRate: config.usdExchangeRate,
-      }
-    case 'CUSTOM':
-      return {
-        kind: 'custom',
-        symbol: config.customCurrencySymbol,
-        exchangeRate: config.customCurrencyExchangeRate,
-      }
-    case 'TOKENS':
-      return {
-        kind: 'tokens',
-        quotaPerUnit: config.quotaPerUnit,
-      }
-    case 'USD':
-    default:
-      return {
-        kind: 'currency',
-        symbol: '$',
-        currencyCode: 'USD',
-        exchangeRate: 1,
-      }
-  }
+export function getCurrencyDisplay(input?: CurrencyConfig) {
+  const config = getConfig(input)
+  const currency = getWalletDisplayCurrency()
+  const meta: DisplayMeta =
+    currency === 'CREDIT'
+      ? { kind: 'tokens', quotaPerUnit: Number(config.creditsPerUsd) }
+      : {
+          kind: 'currency',
+          symbol: currency === 'CNY' ? '¥' : '$',
+          currencyCode: currency,
+          exchangeRate: currency === 'CNY' ? Number(config.cnyPerUsd) : 1,
+        }
+  return { config, meta, currency }
 }
 
-function getBillingDisplayMeta(config: CurrencyConfig): DisplayMeta {
-  const meta = getDisplayMeta(config)
-  if (meta.kind === 'tokens') {
-    return {
-      kind: 'currency',
-      symbol: '$',
-      currencyCode: 'USD',
-      exchangeRate: 1,
-    }
-  }
-  return meta
+/** Parse decimal text exactly; reject non-finite values and oversized input. */
+function decimal(value: number | string): Rational | null {
+  if (typeof value === 'number' && !Number.isFinite(value)) return null
+  const source = String(value).trim()
+  if (!source || source.length > 512) return null
+  const match = source.match(/^([+-]?)(\d*)(?:\.(\d*))?(?:e([+-]?\d+))?$/i)
+  if (!match || !(match[2] || match[3])) return null
+  const exponent = Number(match[4] || 0) - (match[3]?.length || 0)
+  if (!Number.isInteger(exponent) || Math.abs(exponent) > 400) return null
+  let numerator = BigInt((match[2] || '0') + (match[3] || ''))
+  if (match[1] === '-') numerator = -numerator
+  return exponent >= 0
+    ? { numerator: numerator * 10n ** BigInt(exponent), denominator: 1n }
+    : { numerator, denominator: 10n ** BigInt(-exponent) }
 }
 
-function mergeOptions(
-  options?: CurrencyFormatOptions
-): ResolvedCurrencyFormatOptions {
-  if (!options) return DEFAULT_FORMAT_OPTIONS
+function rate(value: number | undefined, exact?: string): Rational | null {
+  if (!Number.isFinite(value) || !value || value <= 0) return null
+  const parsed = decimal(exact && Number(exact) === value ? exact : value)
+  return parsed && parsed.numerator > 0n ? parsed : null
+}
+
+function multiply(left: Rational, right: Rational): Rational {
   return {
-    digitsLarge: options.digitsLarge ?? DEFAULT_FORMAT_OPTIONS.digitsLarge,
-    digitsSmall: options.digitsSmall ?? DEFAULT_FORMAT_OPTIONS.digitsSmall,
-    abbreviate: options.abbreviate ?? DEFAULT_FORMAT_OPTIONS.abbreviate,
-    minimumNonZero:
-      options.minimumNonZero ?? DEFAULT_FORMAT_OPTIONS.minimumNonZero,
-    compact: options.compact ?? DEFAULT_FORMAT_OPTIONS.compact,
-    showSymbol: options.showSymbol ?? DEFAULT_FORMAT_OPTIONS.showSymbol,
-    locale: options.locale ?? DEFAULT_FORMAT_OPTIONS.locale,
+    numerator: left.numerator * right.numerator,
+    denominator: left.denominator * right.denominator,
   }
 }
 
-function getFractionDigits(
-  value: number,
-  digitsLarge: number,
-  digitsSmall: number
+function divide(left: Rational, right: Rational): Rational {
+  return {
+    numerator: left.numerator * right.denominator,
+    denominator: left.denominator * right.numerator,
+  }
+}
+
+function floor(rational: Rational): bigint {
+  const quotient = rational.numerator / rational.denominator
+  return rational.numerator < 0n &&
+    rational.numerator % rational.denominator !== 0n
+    ? quotient - 1n
+    : quotient
+}
+
+function safeInteger(rational: Rational | null): number {
+  if (!rational) return Number.NaN
+  const integer = floor(rational)
+  return integer >= -MAX_SAFE && integer <= MAX_SAFE
+    ? Number(integer)
+    : Number.NaN
+}
+
+function displayRational(
+  quota: number,
+  currency: WalletDisplayCurrency,
+  config = getConfig()
+): Rational | null {
+  if (!Number.isSafeInteger(quota)) return null
+  const raw = { numerator: BigInt(quota), denominator: 1n }
+  if (currency === 'CREDIT') return raw
+  const denomination = rate(config.creditsPerUsd, config.creditsPerUsdExact)
+  if (!denomination) return null
+  const usd = divide(raw, denomination)
+  if (currency === 'USD') return usd
+  const fx = rate(config.cnyPerUsd, config.cnyPerUsdExact)
+  return fx ? multiply(usd, fx) : null
+}
+
+export function quotaToDisplayAmount(
+  quota: number,
+  currency = getWalletDisplayCurrency(),
+  config = getConfig()
 ): number {
-  return Math.abs(value) >= 1 ? digitsLarge : digitsSmall
+  const rational = displayRational(quota, currency, config)
+  if (!rational) return Number.NaN
+  return Number(rational.numerator) / Number(rational.denominator)
 }
 
-/** Return the configured fraction digits for a plain currency value. */
+export function displayAmountToQuota(
+  amount: number | string,
+  currency = getWalletDisplayCurrency(),
+  config = getConfig()
+): number {
+  let rational = decimal(amount)
+  if (!rational) return Number.NaN
+  if (currency === 'CREDIT') {
+    return rational.numerator % rational.denominator === 0n
+      ? safeInteger(rational)
+      : Number.NaN
+  }
+  const denomination = rate(config.creditsPerUsd, config.creditsPerUsdExact)
+  if (!denomination) return Number.NaN
+  if (currency === 'CNY') {
+    const fx = rate(config.cnyPerUsd, config.cnyPerUsdExact)
+    if (!fx) return Number.NaN
+    rational = divide(rational, fx)
+  }
+  return safeInteger(multiply(rational, denomination))
+}
+
+/** Editable decimal text rounds upward at 30 decimal places, so parsing cannot erase the last Credit. */
+export function quotaToDisplayInput(
+  quota: number,
+  currency = getWalletDisplayCurrency(),
+  config = getConfig()
+): string {
+  const rational = displayRational(quota, currency, config)
+  if (!rational) return ''
+  const scale = 10n ** 30n
+  const scaled = rational.numerator * scale
+  let value = scaled / rational.denominator
+  if (scaled > 0n && scaled % rational.denominator !== 0n) value += 1n
+  const sign = value < 0n ? '-' : ''
+  const digits = (value < 0n ? -value : value).toString().padStart(31, '0')
+  const text = `${sign}${digits.slice(0, -30)}.${digits.slice(-30)}`
+  const result = text.replace(/0+$/, '').replace(/\.$/, '')
+  return displayAmountToQuota(result, currency, config) === quota ? result : ''
+}
+
+/** Compatibility bridge for historical batch-price values. This never changes an order body. */
+export function legacyPlatformAmountToQuota(
+  amount: number | string,
+  config = getConfig()
+): number {
+  const input = decimal(amount)
+  const units = rate(config.quotaPerUnit)
+  return input && units ? safeInteger(multiply(input, units)) : Number.NaN
+}
+
+export function quotaToLegacyPlatformAmount(
+  quota: number,
+  config = getConfig()
+): number {
+  const units = config.quotaPerUnit
+  return Number.isSafeInteger(quota) && Number.isFinite(units)
+    ? quota / units
+    : Number.NaN
+}
+
+export function getCurrencyFormattingLocale(
+  activeLanguage = i18n.resolvedLanguage || i18n.language
+): Intl.LocalesArgument {
+  const language = normalizeInterfaceLanguage(activeLanguage)
+  return (
+    {
+      zhCN: 'zh-CN',
+      zhTW: 'zh-TW',
+      en: 'en',
+      fr: 'fr',
+      ja: 'ja',
+      ru: 'ru',
+      vi: 'vi',
+    } as const
+  )[language]
+}
+
 export function getCurrencyFractionDigits(
   value: number,
   options?: CurrencyFormatOptions
 ): number {
-  const merged = mergeOptions(options)
-  return getFractionDigits(value, merged.digitsLarge, merged.digitsSmall)
+  return Math.abs(value) >= 1
+    ? (options?.digitsLarge ?? 2)
+    : (options?.digitsSmall ?? 6)
 }
 
-function removeTrailingZeros(str: string): string {
-  if (!str.includes('.')) return str
-  return str.replace(/(\.[0-9]*?)0+$/, '$1').replace(/\.$/, '')
-}
-
-function formatNumberWithSuffix(
+function numberText(
   value: number,
-  digitsLarge: number,
-  digitsSmall: number,
-  abbreviate: boolean
+  options?: CurrencyFormatOptions,
+  integer = false
 ): string {
-  const abs = Math.abs(value)
-  if (abbreviate && abs >= 1000) {
-    const result = value / 1000
-    return `${removeTrailingZeros(result.toFixed(1))}k`
-  }
-
-  const digits = getFractionDigits(value, digitsLarge, digitsSmall)
-  return removeTrailingZeros(value.toFixed(digits))
-}
-
-function adjustForMinimum(
-  value: number,
-  digits: number,
-  minimumNonZero: number
-): number {
-  if (value === 0) return value
-
-  const threshold = minimumNonZero > 0 ? minimumNonZero : Math.pow(10, -digits)
-  const abs = Math.abs(value)
-  if (abs > 0 && abs < threshold) {
-    return value > 0 ? threshold : -threshold
-  }
-  return value
-}
-
-function formatCurrencyValue(
-  value: number,
-  options: ResolvedCurrencyFormatOptions,
-  meta: DisplayMeta
-): string {
-  if (meta.kind === 'tokens') {
-    if (options.compact) {
-      return new Intl.NumberFormat(options.locale, {
-        notation: 'compact',
-        maximumFractionDigits: 1,
-      }).format(value)
-    }
-    return formatNumberWithSuffix(
-      value,
-      options.digitsLarge,
-      options.digitsSmall,
-      options.abbreviate
-    )
-  }
-
-  const digits = getFractionDigits(
-    value,
-    options.digitsLarge,
-    options.digitsSmall
-  )
-  const adjustedValue = adjustForMinimum(value, digits, options.minimumNonZero)
-
-  if (meta.kind === 'currency') {
-    if (!options.showSymbol) {
-      return new Intl.NumberFormat(options.locale, {
-        notation: options.compact ? 'compact' : 'standard',
-        minimumFractionDigits: 0,
-        maximumFractionDigits: options.compact ? 1 : digits,
-      }).format(adjustedValue)
-    }
-
-    const formatted = new Intl.NumberFormat(options.locale, {
-      style: 'currency',
-      currency: meta.currencyCode,
-      currencyDisplay: 'narrowSymbol',
-      notation: options.compact ? 'compact' : 'standard',
+  const requested = getCurrencyFractionDigits(value, options)
+  const digits = integer
+    ? 0
+    : value !== 0 && Math.abs(value) < 10 ** -requested
+      ? Math.min(
+          20,
+          Math.max(requested, Math.ceil(-Math.log10(Math.abs(value))) + 2)
+        )
+      : requested
+  return new Intl.NumberFormat(
+    options?.locale ?? getCurrencyFormattingLocale(),
+    {
+      notation:
+        !integer && (options?.compact || options?.abbreviate)
+          ? 'compact'
+          : 'standard',
       minimumFractionDigits: 0,
-      maximumFractionDigits: options.compact ? 1 : digits,
-    }).format(adjustedValue)
-    return formatted
-  }
-
-  const decimal = new Intl.NumberFormat(options.locale, {
-    notation: options.compact ? 'compact' : 'standard',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: options.compact ? 1 : digits,
-  }).format(adjustedValue)
-
-  return options.showSymbol ? `${meta.symbol} ${decimal}` : decimal
+      maximumFractionDigits:
+        !integer && (options?.compact || options?.abbreviate)
+          ? 6
+          : Math.min(20, digits),
+    }
+  ).format(value)
 }
 
-/**
- * Get the current currency configuration and display metadata.
- *
- * @returns Object containing config and display metadata
- *
- * @internal
- * This is primarily for internal use. Most consumers should use the
- * higher-level formatting functions instead.
- */
-export function getCurrencyDisplay() {
-  const config = getConfig()
-  const meta = getDisplayMeta(config)
-  return { config, meta }
-}
-
-/**
- * Format a USD amount according to the legacy admin-configured display
- * settings. New user-facing credit displays should use
- * formatPlatformAmount(); fiat payments should use
- * formatFiatCurrencyAmount().
- *
- * @param amountUSD - Amount in system USD units
- * @param options - Optional formatting configuration
- * @returns Formatted string with currency symbol or token count
- *
- * @example
- * // With quotaDisplayType: 'USD'
- * formatCurrencyFromUSD(10) → "$10"
- *
- * @example
- * // With quotaDisplayType: 'CNY', usdExchangeRate: 7
- * formatCurrencyFromUSD(10) → "¥70"
- *
- * @example
- * // With quotaDisplayType: 'TOKENS', quotaPerUnit: 500000
- * formatCurrencyFromUSD(10) → "5,000,000"
- *
- * @example
- * // With quotaDisplayType: 'CUSTOM', customCurrencySymbol: '€', customCurrencyExchangeRate: 0.9
- * formatCurrencyFromUSD(10) → "€9"
- *
- * @remarks
- * Use this function for:
- * - User balance/quota display
- * - Recharge option amounts (before exchange rate applied)
- * - Transaction amounts in billing history
- * - Any value stored in database as USD
- *
- * DO NOT use for:
- * - Virtual platform credits → use formatPlatformAmount()
- * - Fiat payment amounts → use formatFiatCurrencyAmount()
- * - Raw token values → use formatQuotaWithCurrency()
- */
-export function formatCurrencyFromUSD(
-  amountUSD: number | null | undefined,
+/** Raw, integral smallest ledger units; never labelled tokens or dollars. */
+export function formatCreditAmount(
+  quota: number | null | undefined,
   options?: CurrencyFormatOptions
 ): string {
-  if (amountUSD == null || Number.isNaN(amountUSD)) return '-'
-
-  const { config, meta } = getCurrencyDisplay()
-  const merged = mergeOptions(options)
-
-  if (meta.kind === 'tokens') {
-    const tokens = amountUSD * config.quotaPerUnit
-    if (merged.compact) {
-      return new Intl.NumberFormat(merged.locale, {
-        notation: 'compact',
-        maximumFractionDigits: 1,
-      }).format(tokens)
-    }
-    return formatNumberWithSuffix(
-      tokens,
-      0,
-      merged.digitsSmall,
-      merged.abbreviate
-    )
-  }
-
-  const value =
-    meta.kind === 'currency'
-      ? amountUSD * meta.exchangeRate
-      : amountUSD * meta.exchangeRate
-
-  return formatCurrencyValue(value, merged, meta)
+  if (quota == null || !Number.isSafeInteger(quota)) return '-'
+  const number = numberText(quota, options, true)
+  return options?.showSymbol === false
+    ? number
+    : `${number} ${options?.creditLabel ?? i18n.t('Credits')}`
 }
 
-function formatPlainCurrencyNumber(
-  value: number,
-  options: ResolvedCurrencyFormatOptions
-): string {
-  const digits = getFractionDigits(
-    value,
-    options.digitsLarge,
-    options.digitsSmall
-  )
-  const adjustedValue = adjustForMinimum(value, digits, options.minimumNonZero)
-  const compact = options.abbreviate || options.compact
-
-  return new Intl.NumberFormat(options.locale, {
-    notation: compact ? 'compact' : 'standard',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: compact ? 1 : digits,
-  }).format(adjustedValue)
-}
-
-/** Return the localized label used after the platform currency symbol. */
-export function getPlatformCurrencyLabel(platformLabel?: string): string {
-  const label = platformLabel?.trim() || i18n.t('Platform')
-  return `$ (${label || 'Platform'})`
-}
-
-/**
- * Format virtual platform credits. These are not fiat funds, even though the
- * underlying accounting value is normalized to USD.
- */
-export function formatPlatformAmount(
-  amount: number | null | undefined,
-  options?: CurrencyFormatOptions,
-  platformLabel?: string
-): string {
-  if (amount == null || Number.isNaN(amount)) return '-'
-
-  const merged = mergeOptions(options)
-  const sign = amount < 0 ? '-' : ''
-  const number = formatPlainCurrencyNumber(Math.abs(amount), merged)
-  const label = platformLabel?.trim() || i18n.t('Platform') || 'Platform'
-  return `${sign}$${number} (${label})`
-}
-
-/**
- * Format an amount in a fiat settlement currency. USD is deliberately written
- * as the ISO code instead of relying on the ambiguous `$` symbol.
- */
+/** Amount is already in this fiat currency. Formatting never converts it. */
 export function formatFiatCurrencyAmount(
   amount: number | null | undefined,
   currencyCode = 'USD',
   options?: CurrencyFormatOptions
 ): string {
-  if (amount == null || Number.isNaN(amount)) return '-'
-
-  const merged = mergeOptions(options)
+  if (amount == null || !Number.isFinite(amount)) return '-'
   const code = currencyCode.trim().toUpperCase() || 'USD'
-  const number = formatPlainCurrencyNumber(amount, merged)
-  // Fiat amounts always carry their ISO code; `$` alone is reserved for
-  // virtual platform credits.
-  return `${number} ${code}`
+  const number = numberText(amount, options)
+  return options?.showSymbol === false ? number : `${number} ${code}`
 }
 
-/**
- * Format USD amounts for billing/payment contexts (never shows tokens).
- *
- * Similar to formatCurrencyFromUSD, but NEVER displays in token units.
- * Always shows real currency values (USD, CNY, etc.) even when the system
- * is configured to display quotas as tokens elsewhere.
- *
- * @param amountUSD - Amount in system USD units
- * @param options - Optional formatting configuration
- * @returns Formatted string with currency symbol (never tokens)
- *
- * @example
- * // With quotaDisplayType: 'TOKENS' - still shows currency
- * formatBillingCurrencyFromUSD(10) → "$10"  (not "5,000,000 tokens")
- *
- * @example
- * // With quotaDisplayType: 'CNY', usdExchangeRate: 7
- * formatBillingCurrencyFromUSD(10) → "¥70"
- *
- * @remarks
- * Use this function for:
- * - Model pricing displays
- * - API usage costs
- * - Billing/invoice amounts
- * - Any monetary value where tokens don't make sense
- *
- * DO NOT use for:
- * - User balance/quota → use formatCurrencyFromUSD()
- * - Payment amounts already in local currency → use formatLocalCurrencyAmount()
- */
-export function formatBillingCurrencyFromUSD(
+/** The input is canonical real USD. CREDIT rates retain fractional units with K, CNY uses fiat FX only. */
+export function formatUSDInCurrency(
   amountUSD: number | null | undefined,
-  options?: CurrencyFormatOptions
+  currency: WalletDisplayCurrency,
+  options?: CurrencyFormatOptions,
+  config = getConfig()
 ): string {
-  if (amountUSD == null || Number.isNaN(amountUSD)) return '-'
-
-  const { config } = getCurrencyDisplay()
-  const meta = getBillingDisplayMeta(config)
-  const merged = mergeOptions(options)
-  const value =
-    meta.kind === 'currency' || meta.kind === 'custom'
-      ? amountUSD * meta.exchangeRate
-      : amountUSD
-
-  return formatCurrencyValue(value, merged, meta)
+  if (amountUSD == null || !Number.isFinite(amountUSD)) return '-'
+  if (currency === 'USD') {
+    return formatFiatCurrencyAmount(amountUSD, 'USD', options)
+  }
+  if (currency === 'CREDIT') {
+    const value = amountUSD * positive(config.creditsPerUsd)
+    if (
+      !Number.isFinite(positive(config.creditsPerUsd)) ||
+      !Number.isFinite(value)
+    ) {
+      return '-'
+    }
+    const text = numberText(value, options)
+    return options?.showSymbol === false
+      ? text
+      : `${text} ${options?.creditLabel ?? i18n.t('Credits')}`
+  }
+  const fx = positive(config.cnyPerUsd)
+  return Number.isFinite(fx)
+    ? formatFiatCurrencyAmount(amountUSD * Number(fx), 'CNY', options)
+    : '-'
 }
 
-/**
- * Format raw quota values (token units) as virtual platform dollars.
- *
- * Converts raw quota/token amounts to the platform's USD-denominated unit and
- * marks the result as platform currency so it cannot be mistaken for fiat.
- *
- * @param quota - Raw quota amount in token units (e.g., 5000000)
- * @param options - Optional formatting configuration
- * @returns Formatted string such as `$10 (Platform)`
- *
- * @remarks
- * Use this function for:
- * - Raw quota values from database (stored as tokens)
- * - When you need to convert tokens → USD → display currency
- *
- * DO NOT use for:
- * - Fiat payment amounts → use formatFiatCurrencyAmount()
- * - Values already in fiat settlement currency → use formatFiatCurrencyAmount()
- */
 export function formatQuotaWithCurrency(
   quota: number | null | undefined,
   options?: CurrencyFormatOptions
 ): string {
-  if (quota == null || Number.isNaN(quota)) return '-'
-
-  const { config } = getCurrencyDisplay()
-  const amountUSD = quota / config.quotaPerUnit
-  return formatPlatformAmount(amountUSD, options)
+  if (quota == null || !Number.isSafeInteger(quota)) return '-'
+  return formatQuotaInCurrency(quota, getWalletDisplayCurrency(), options)
 }
 
-/**
- * Get the label for the virtual platform currency.
- *
- * Platform credits are USD-denominated internally, but they are not fiat
- * money. Keep the `$ (Platform)` marker in field labels and table headers;
- * fiat settlement amounts must use their ISO currency code instead.
- */
-export function getCurrencyLabel(): string {
-  return getPlatformCurrencyLabel()
+export function formatQuotaInCurrency(
+  quota: number,
+  currency: WalletDisplayCurrency,
+  options?: CurrencyFormatOptions,
+  config = getConfig()
+): string {
+  return currency === 'CREDIT'
+    ? formatCreditAmount(quota, options)
+    : formatFiatCurrencyAmount(
+        quotaToDisplayAmount(quota, currency, config),
+        currency,
+        options
+      )
 }
 
-/**
- * Check if currency display is enabled (not in token-only mode).
- *
- * @returns True if displaying in actual currency (USD/CNY/etc), false if tokens only
- *
- * @example
- * // With quotaDisplayType: 'USD' or 'CNY'
- * isCurrencyDisplayEnabled() → true
- *
- * // With quotaDisplayType: 'TOKENS'
- * isCurrencyDisplayEnabled() → false
- *
- * @remarks
- * Use this to conditionally show currency-specific UI elements
- */
-export function isCurrencyDisplayEnabled(): boolean {
-  const { meta } = getCurrencyDisplay()
-  return meta.kind !== 'tokens'
+/** Legacy batch values are explicitly bridged through raw Credits. */
+export function formatPlatformAmount(
+  amount: number | null | undefined,
+  options?: CurrencyFormatOptions,
+  _legacyPlatformLabel?: string
+): string {
+  return amount == null
+    ? '-'
+    : formatQuotaWithCurrency(legacyPlatformAmountToQuota(amount), options)
 }
 
-/**
- * Format an amount that is ALREADY in local currency.
- *
- * ⚠️ CRITICAL: This function does NOT apply exchange rate conversion.
- * Only use this for values that have already been converted to local currency
- * via priceRatio or other means.
- *
- * @param amount - Amount already in local currency units
- * @param options - Optional formatting configuration
- * @returns Formatted string with appropriate currency symbol
- *
- * @example
- * // Payment amount already calculated: 10 USD × priceRatio(5) = 50 CNY
- * // With quotaDisplayType: 'CNY'
- * formatLocalCurrencyAmount(50) → "¥50"
- * // NOT "¥350" (which would be 50 × 7 exchangeRate)
- *
- * @example
- * // With quotaDisplayType: 'USD'
- * formatLocalCurrencyAmount(10) → "$10"
- *
- * @remarks
- * Use this function for:
- * - Payment amounts calculated via priceRatio (amount × price)
- * - Actual money charged to user's payment method
- * - Values that are already in the target currency
- *
- * DO NOT use for:
- * - USD values that need conversion → use formatCurrencyFromUSD()
- * - Raw quota values → use formatQuotaWithCurrency()
- *
- * Common mistake:
- * ```ts
- * // ❌ WRONG - Double conversion
- * const payment = usdAmount * exchangeRate
- * formatLocalCurrencyAmount(payment) // Will apply exchange rate again!
- *
- * // ✅ CORRECT - Already in local currency
- * const payment = usdAmount * priceRatio
- * formatLocalCurrencyAmount(payment) // Just formats with symbol
- * ```
- */
+export function formatCurrencyFromUSD(
+  amountUSD: number | null | undefined,
+  options?: CurrencyFormatOptions
+): string {
+  return formatUSDInCurrency(amountUSD, getWalletDisplayCurrency(), options)
+}
+
+/** Billing values are actual USD; a raw balance unit preference does not relabel fiat invoices. */
+export function formatBillingCurrencyFromUSD(
+  amountUSD: number | null | undefined,
+  options?: CurrencyFormatOptions
+): string {
+  const preferred = getWalletDisplayCurrency()
+  return formatUSDInCurrency(
+    amountUSD,
+    preferred === 'CREDIT' ? 'USD' : preferred,
+    options
+  )
+}
+
 export function formatLocalCurrencyAmount(
   amount: number | null | undefined,
   options?: CurrencyFormatOptions
 ): string {
-  if (amount == null || Number.isNaN(amount)) return '-'
-
-  const { config } = getCurrencyDisplay()
-  const meta = getBillingDisplayMeta(config)
-  const merged = mergeOptions(options)
-
-  return formatCurrencyValue(amount, merged, meta)
+  const preferred = getWalletDisplayCurrency()
+  return formatFiatCurrencyAmount(
+    amount,
+    preferred === 'CREDIT' ? 'USD' : preferred,
+    options
+  )
 }
+
+export function getCurrencyLabel(): string {
+  const currency = getWalletDisplayCurrency()
+  return currency === 'CREDIT' ? i18n.t('Credits') : currency
+}
+
+export function getPlatformCurrencyLabel(
+  _legacyPlatformLabel?: string
+): string {
+  return getCurrencyLabel()
+}
+
+export function isCurrencyDisplayEnabled(): boolean {
+  return getWalletDisplayCurrency() !== 'CREDIT'
+}
+
+export type {
+  WalletDisplayCurrency,
+  WalletDisplayCurrencyPreference,
+} from '@/stores/wallet-currency-preference-store'

@@ -24,6 +24,7 @@ import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { CreditAmountInput } from '@/components/credit-amount-input'
 import {
   SideDrawerSection,
   sideDrawerContentClassName,
@@ -64,6 +65,7 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { UserSourceDetails } from '@/features/acquisition/user-sources'
 import { useMediaQuery } from '@/hooks'
+import { useCreditInputDisplay } from '@/hooks/use-credit-input-display'
 import {
   ADMIN_PERMISSION_ACTIONS,
   ADMIN_PERMISSION_RESOURCES,
@@ -71,8 +73,7 @@ import {
   hasPermission,
   normalizeAdminPermissions,
 } from '@/lib/admin-permissions'
-import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
-import { formatQuota, parseQuotaFromDollars } from '@/lib/format'
+import { formatQuota } from '@/lib/format'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -156,11 +157,9 @@ export function UsersMutateDrawer({
     }
   }, [open, isUpdate, currentRow, form])
 
-  const { meta: currencyMeta } = getCurrencyDisplay()
-  const currencyLabel = getCurrencyLabel()
-  const tokensOnly = currencyMeta.kind === 'tokens'
+  const { label: currencyLabel } = useCreditInputDisplay()
 
-  const currentQuotaRaw = form.watch('quota_dollars') || 0
+  const currentQuotaRaw = form.watch('quota_credits') || 0
   const selectedRole = form.watch('role')
   const canEditAdminPermissions = currentUser?.role === ROLE.SUPER_ADMIN
   const targetIsAdmin = (selectedRole ?? currentRow?.role ?? 0) >= ROLE.ADMIN
@@ -420,7 +419,7 @@ export function UsersMutateDrawer({
 
                   <FormField
                     control={form.control}
-                    name='quota_dollars'
+                    name='quota_credits'
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>
@@ -430,12 +429,10 @@ export function UsersMutateDrawer({
                         </FormLabel>
                         <div className='flex flex-col gap-2 sm:flex-row'>
                           <FormControl>
-                            <Input
-                              value={
-                                tokensOnly
-                                  ? String(field.value || 0)
-                                  : (field.value || 0).toFixed(6)
-                              }
+                            <CreditAmountInput
+                              value={field.value}
+                              onValueChange={field.onChange}
+                              allowNegative
                               readOnly
                               className='min-w-0 flex-1 tabular-nums'
                             />
@@ -450,7 +447,7 @@ export function UsersMutateDrawer({
                           </Button>
                         </div>
                         <FormDescription>
-                          {formatQuota(parseQuotaFromDollars(field.value || 0))}
+                          {formatQuota(field.value || 0)}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -639,7 +636,7 @@ export function UsersMutateDrawer({
           open={quotaDialogOpen}
           onOpenChange={setQuotaDialogOpen}
           userId={currentRow.id}
-          currentQuota={parseQuotaFromDollars(currentQuotaRaw || 0)}
+          currentQuota={currentQuotaRaw || 0}
           onSuccess={refreshUserData}
         />
       )}

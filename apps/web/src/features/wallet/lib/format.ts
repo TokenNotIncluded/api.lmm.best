@@ -16,7 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { formatFiatCurrencyAmount } from '@/lib/currency'
+import {
+  formatFiatCurrencyAmount,
+  formatPlatformAmount,
+  getCurrencyLabel,
+} from '@/lib/currency'
 
 import { DEFAULT_DISCOUNT_RATE } from '../constants'
 
@@ -69,24 +73,20 @@ export function getPaymentCurrencyLabel(): string {
   return 'USD'
 }
 
-/** API top-up credits use a virtual unit label without a fiat symbol. */
-export function getCreditCurrencyLabel(platformLabel = 'Platform'): string {
-  const label = platformLabel.trim() || 'Platform'
-  return `(${label})`
+/** The selected display unit for the stored credit balance. */
+export function getCreditCurrencyLabel(_platformLabel?: string): string {
+  return getCurrencyLabel()
 }
 
-/** Format a wallet platform credit as a virtual unit, never fiat money. */
+/** Bridge a legacy recharge batch amount to the selected wallet display unit. */
 export function formatPlatformCreditBalance(
   amount: number,
   platformLabel?: string
 ): string {
-  const formattedAmount = formatCurrency(amount)
-  return formattedAmount === '-'
-    ? formattedAmount
-    : `${formattedAmount} ${getCreditCurrencyLabel(platformLabel)}`
+  return formatPlatformAmount(amount, { abbreviate: false }, platformLabel)
 }
 
-/** Format a visible top-up credit amount (never fiat USD). */
+/** Format a legacy recharge amount without changing its stored credit value. */
 export function formatCreditBalance(
   amount: number,
   platformLabel?: string

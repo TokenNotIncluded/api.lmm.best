@@ -103,6 +103,7 @@ func TestMonetaryMicrosConversionsAreExact(t *testing.T) {
 }
 
 func TestStripeQuoteAndCheckoutLineItemUseSameCanonicalAmount(t *testing.T) {
+	preservePaymentCreditAnchor(t, "3400000")
 	previousDisplayType := operation_setting.GetGeneralSetting().QuotaDisplayType
 	previousQuotaPerUnit := common.QuotaPerUnit
 	previousUnitPrice := setting.StripeUnitPrice
@@ -148,7 +149,7 @@ func TestTopUpSelfRecordDoesNotExposeSettlementEvidence(t *testing.T) {
 	require.NoError(t, err)
 	jsonText := string(payload)
 	assert.Contains(t, jsonText, `"currency":"USD"`)
-	for _, forbidden := range []string{"credited_quota", "expected_amount_micros", "settled_amount_micros", "settlement_currency", "provider_product_id", "provider_store_id", "provider_event_id", "provider_transaction_id"} {
+	for _, forbidden := range []string{"expected_amount_micros", "settled_amount_micros", "settlement_currency", "provider_product_id", "provider_store_id", "provider_event_id", "provider_transaction_id"} {
 		assert.NotContains(t, jsonText, forbidden)
 	}
 }
@@ -328,6 +329,7 @@ func TestRequestCreemPayRejectsConfiguredProductWithoutCurrency(t *testing.T) {
 }
 
 func TestRequestWaffoPayFailsWhenGroupLookupFails(t *testing.T) {
+	preservePaymentCreditAnchor(t, "3400000")
 	previousDB := model.DB
 	previousRedis := common.RedisEnabled
 	previousEnabled := setting.WaffoEnabled

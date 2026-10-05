@@ -70,6 +70,16 @@ const {
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
+const { useSystemConfigStore } = await import('@/stores/system-config-store')
+useSystemConfigStore.getState().setConfig({
+  currency: {
+    ...useSystemConfigStore.getState().config.currency,
+    currencyUnit: 'credit',
+    creditsPerUsd: 3500000,
+    creditsPerUsdExact: '3500000',
+    cnyPerUsd: 7,
+  },
+})
 const { SettingsPageProvider } =
   await import('../components/settings-page-context')
 const { PricingSection } = await import('./pricing-section')
@@ -207,21 +217,6 @@ async function flushAsyncWork() {
   })
 }
 
-async function setNumberInput(input: HTMLInputElement, value: number) {
-  const setValue = Object.getOwnPropertyDescriptor(
-    HTMLInputElement.prototype,
-    'value'
-  )?.set
-  assert.ok(setValue)
-
-  await act(async () => {
-    setValue.call(input, String(value))
-    input.dispatchEvent(new Event('input', { bubbles: true }))
-    input.dispatchEvent(new Event('change', { bubbles: true }))
-    await new Promise((resolve) => setTimeout(resolve, 20))
-  })
-}
-
 test('loads CNY 6.8, exposes loading state, and marks the form dirty', async () => {
   const originalGet = api.get
   let resolveRequest:
@@ -266,7 +261,7 @@ test('loads CNY 6.8, exposes loading state, and marks the form dirty', async () 
   }
 })
 
-test('reads a second live FX rate and saves B independently in USD display mode', async () => {
+test('saves only FX, preserving the immutable anchor and legacy settings', async () => {
   const originalGet = api.get
   const originalPut = api.put
   const updates: Array<{ key: string; value: string }> = []
@@ -294,20 +289,26 @@ test('reads a second live FX rate and saves B independently in USD display mode'
       rendered.container.querySelector<HTMLInputElement>(
         'input[name="USDExchangeRate"]'
       )
-    const rechargeRatioInput =
-      rendered.container.querySelector<HTMLInputElement>(
-        'input[name="TopUpPlatformUnitsPerCNY"]'
-      )
     const form = rendered.container.querySelector('form')
     assert.ok(exchangeRateInput)
-    assert.ok(rechargeRatioInput)
     assert.ok(form)
     assert.equal(exchangeRateInput.value, '7.2')
-    assert.equal(rechargeRatioInput.value, '1.1')
-
-    await setNumberInput(rechargeRatioInput, 1.35)
-    assert.equal(exchangeRateInput.value, '7.2')
-    assert.equal(rechargeRatioInput.value, '1.35')
+    assert.equal(
+      rendered.container.querySelector(
+        'input[name="TopUpPlatformUnitsPerCNY"]'
+      ),
+      null
+    )
+    assert.equal(
+      rendered.container.querySelector<HTMLInputElement>('#credits-per-usd')
+        ?.value,
+      '3500000'
+    )
+    assert.equal(
+      rendered.container.querySelector<HTMLInputElement>('#credits-per-usd')
+        ?.readOnly,
+      true
+    )
 
     await act(async () => {
       form.dispatchEvent(
@@ -316,10 +317,7 @@ test('reads a second live FX rate and saves B independently in USD display mode'
       await new Promise((resolve) => setTimeout(resolve, 40))
     })
 
-    assert.deepEqual(updates, [
-      { key: 'USDExchangeRate', value: '7.2' },
-      { key: 'TopUpPlatformUnitsPerCNY', value: '1.35' },
-    ])
+    assert.deepEqual(updates, [{ key: 'USDExchangeRate', value: '7.2' }])
   } finally {
     api.get = originalGet
     api.put = originalPut
@@ -327,34 +325,53 @@ test('reads a second live FX rate and saves B independently in USD display mode'
   }
 })
 
-test('uses the explicit CUSTOM ISO code instead of guessing from its symbol', async () => {
+test('obsolete CUSTOM settings do not block saving FX or expose a virtual currency', async () => {
   const originalGet = api.get
-  api.get = (async (url: string) => {
-    assert.equal(url, '/api/option/exchange-rate?currency=JPY')
-    return exchangeRatePayload('JPY', 149.5)
-  }) as typeof api.get
-
-  const rendered = await renderPricing(
-    pricingDefaults('CUSTOM', {
-      general_setting: {
-        quota_display_type: 'CUSTOM',
-        custom_currency_symbol: '$',
-        custom_currency_code: 'JPY',
-        custom_currency_exchange_rate: 120,
-      },
-    })
-  )
+  const originalPut = api.put
+  const updates: Array<{ key: string; value: string }> = []
+  api.get = (async () => exchangeRatePayload('CNY', 8)) as typeof api.get
+  api.put = (async (_url: string, request: { key: string; value: string }) => {
+    updates.push(request)
+    return { data: { success: true, message: '' } }
+  }) as typeof api.put
+  const rendered = await renderPricing(pricingDefaults('CUSTOM'))
   try {
-    await clickSync(rendered.container, 1)
-    await flushAsyncWork()
-
-    const input = rendered.container.querySelector<HTMLInputElement>(
-      'input[name="general_setting.custom_currency_exchange_rate"]'
+    assert.equal(
+      rendered.container.querySelector(
+        'input[name="general_setting.custom_currency_code"]'
+      ),
+      null
     )
-    assert.ok(input)
-    assert.equal(input.value, '149.5')
+    assert.equal(
+      rendered.container.querySelector('input[name="QuotaPerUnit"]'),
+      null
+    )
+    assert.match(
+      rendered.container.textContent ?? '',
+      /Chinese users default to CNY/
+    )
+    assert.doesNotMatch(
+      rendered.container.textContent ?? '',
+      /Platform units per CNY|Tokens Only/
+    )
+    await clickSync(rendered.container)
+    await flushAsyncWork()
+    const form = rendered.container.querySelector('form')
+    assert.ok(form)
+    await act(async () => {
+      form.dispatchEvent(
+        new Event('submit', { bubbles: true, cancelable: true })
+      )
+      await new Promise((resolve) => setTimeout(resolve, 40))
+    })
+    assert.deepEqual(updates, [{ key: 'USDExchangeRate', value: '8' }])
+    assert.equal(
+      useSystemConfigStore.getState().config.currency.creditsPerUsd,
+      3500000
+    )
   } finally {
     api.get = originalGet
+    api.put = originalPut
     await rendered.cleanup()
   }
 })

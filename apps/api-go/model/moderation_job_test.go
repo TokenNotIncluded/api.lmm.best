@@ -13,6 +13,7 @@ import (
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/setting"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -21,12 +22,37 @@ import (
 
 func setupModerationEffectsTestDB(t *testing.T) (*gorm.DB, *User) {
 	t.Helper()
+	ensureModerationTestCreditAnchor(t)
 	db := setupConsoleActivationTestDB(t)
 	require.NoError(t, db.AutoMigrate(&Option{}, &ModerationJob{}, &ModerationNotice{}, &ViolationFeeRecord{}, &ViolationFeeAppeal{}, &AssistantRequestReview{}, &AssistantReviewReset{}, &UnifiedTodoRead{}))
 	user := &User{Username: "moderation-owner", AffCode: "moderation-owner", Group: "default", Quota: int(10 * common.QuotaPerUnit), UsedQuota: 123, RequestCount: 7, Status: common.UserStatusEnabled}
 	require.NoError(t, db.Create(user).Error)
 	writeModerationTestPolicy(t, db, true, "strict", map[string]float64{"violence": 2, "hate": 1})
 	return db, user
+}
+
+func ensureModerationTestCreditAnchor(t *testing.T) {
+	t.Helper()
+	if _, err := common.CreditsPerUSD(); err != nil {
+		require.NoError(t, common.SetCreditsPerUSD(decimal.NewFromInt(500000)))
+		t.Cleanup(common.ClearCreditsPerUSD)
+	}
+}
+
+func moderationTestCurrencyBasis(t *testing.T, anchor, legacyUnit int64) {
+	t.Helper()
+	previousAnchor, previousError := common.CreditsPerUSD()
+	previousUnit := common.QuotaPerUnit
+	t.Cleanup(func() {
+		common.QuotaPerUnit = previousUnit
+		if previousError != nil {
+			common.ClearCreditsPerUSD()
+		} else {
+			require.NoError(t, common.SetCreditsPerUSD(previousAnchor))
+		}
+	})
+	require.NoError(t, common.SetCreditsPerUSD(decimal.NewFromInt(anchor)))
+	common.QuotaPerUnit = float64(legacyUnit)
 }
 
 func writeModerationTestPolicy(t *testing.T, db *gorm.DB, enabled bool, mode string, fines map[string]float64) {
@@ -302,6 +328,7 @@ func TestModerationRiskOnlyCommittedUserInputsBeforePagination(t *testing.T) {
 }
 
 func TestModerationEffectsPostgres(t *testing.T) {
+	ensureModerationTestCreditAnchor(t)
 	db := openIsolatedPostgresCacheTestDB(t, &User{}, &Option{}, &ModerationJob{}, &ModerationNotice{}, &ViolationFeeRecord{}, &AssistantRequestReview{}, &AssistantReviewReset{})
 	previousDB, previousLog, previousRedis := DB, LOG_DB, common.RedisEnabled
 	DB, LOG_DB, common.RedisEnabled = db, db, false
@@ -360,6 +387,144 @@ func TestModerationEffectsPostgres(t *testing.T) {
 	require.Empty(t, final.Payload)
 	require.NoError(t, db.First(&stored, user.Id).Error)
 	require.Equal(t, int(8*common.QuotaPerUnit), stored.Quota)
+}
+
+func TestModerationFineCurrencyBasesPreserveDebitsAndWriteTrueUSD(t *testing.T) {
+	for _, test := range []struct {
+		name                                                  string
+		capturedCurrency, currentCurrency, completionCurrency string
+		captured, current, completion                         float64
+		anchor, legacyUnit                                    int64
+		balance, requested, charged                           int
+		requestedUSD                                          float64
+	}{
+		{"missing currency stays legacy", "", "", "", 2, 1.5, 1.25, 500000, 3000000, 10000000, 3750000, 3750000, 7.5},
+		{"explicit legacy stays legacy", "legacy_pricing_unit", "legacy_pricing_unit", "legacy_pricing_unit", 2, 1.5, 1.25, 500000, 3000000, 10000000, 3750000, 3750000, 7.5},
+		{"USD ignores changed legacy scale", "USD", "USD", "USD", 2, 1.5, 1.25, 500000, 3000000, 10000000, 625000, 625000, 1.25},
+		{"USD requires no legacy scale", "USD", "USD", "USD", 2, 1.5, 1.25, 500000, 0, 10000000, 625000, 625000, 1.25},
+		{"legacy capture USD current", "", "USD", "USD", .2, .7, .8, 500000, 3000000, 1000000, 350000, 350000, .7},
+		{"USD capture legacy current", "USD", "", "USD", .7, .2, .8, 500000, 3000000, 1000000, 350000, 350000, .7},
+		{"legacy completion lowers USD ceiling", "USD", "USD", "", .7, .8, .1, 500000, 3000000, 1000000, 300000, 300000, .6},
+		{"legacy floor avoids USD roundtrip", "", "", "", .000014, .000014, .000014, 3000000, 500000, 10, 7, 7, 7.0 / 3000000},
+		{"mixed floor avoids USD roundtrip", "", "USD", "USD", .000014, .000003, .000003, 3000000, 500000, 10, 7, 7, 7.0 / 3000000},
+		{"USD below credit remains warning", "USD", "USD", "USD", .000001, .000001, .000001, 500000, 3000000, 10, 0, 0, .000001},
+		{"partial wallet keeps USD receipt", "", "USD", "USD", .000014, .000003, .000003, 3000000, 500000, 3, 7, 3, 7.0 / 3000000},
+		{"empty wallet creates no debt", "USD", "USD", "USD", .000002, .000002, .000002, 500000, 3000000, 0, 1, 0, .000002},
+		{"old debt is preserved", "USD", "USD", "USD", .000002, .000002, .000002, 500000, 3000000, -123, 1, 0, .000002},
+		{"legacy ceiling is not reinterpreted", "", "", "", 1000, 1000, 1000, 500000, 3000000, 3000000000, 3000000000, 3000000000, 6000},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			moderationTestCurrencyBasis(t, test.anchor, test.legacyUnit)
+			db, user := setupModerationEffectsTestDB(t)
+			require.NoError(t, db.Model(user).Update("quota", test.balance).Error)
+			policy := setting.ModerationGroupPolicy{Mode: "strict", AmountCurrency: test.currentCurrency, CategoryFinesUSD: map[string]float64{"violence": test.current}}
+			require.NoError(t, db.Model(&Option{}).Where("key = ?", setting.ModerationGroupPoliciesOptionKey).Update("value", setting.ModerationGroupPoliciesJSON(map[string]setting.ModerationGroupPolicy{"default": policy})).Error)
+			job := moderationTestJob(user.Id, test.name, ModerationSourceRelayInput, "strict")
+			job.CapturedAmountCurrency = test.capturedCurrency
+			capturedJSON, err := json.Marshal(map[string]float64{"violence": test.captured})
+			require.NoError(t, err)
+			job.CapturedCategoryFinesJSON = string(capturedJSON)
+			claimed := claimModerationTestJob(t, job, "worker")
+			require.Equal(t, test.capturedCurrency, claimed.CapturedAmountCurrency)
+			require.JSONEq(t, string(capturedJSON), claimed.CapturedCategoryFinesJSON)
+			completion := flaggedModerationCompletion()
+			completion.Categories = []string{"violence"}
+			completion.AmountCurrency = test.completionCurrency
+			completion.CategoryFinesUSD = map[string]float64{"violence": test.completion}
+			require.NoError(t, CompleteModerationJob(t.Context(), claimed.ID, "worker", completion))
+			require.NoError(t, CompleteModerationJob(t.Context(), claimed.ID, "worker", completion), "replay must not debit twice")
+			var stored User
+			require.NoError(t, db.First(&stored, user.Id).Error)
+			require.Equal(t, test.balance-test.charged, stored.Quota)
+			require.Equal(t, 123, stored.UsedQuota)
+			require.Equal(t, 7, stored.RequestCount)
+			var records []ViolationFeeRecord
+			require.NoError(t, db.Find(&records).Error)
+			if test.requested == 0 {
+				require.Empty(t, records)
+			} else {
+				require.Len(t, records, 1)
+				require.Equal(t, "USD", records[0].AmountCurrency)
+				require.Equal(t, test.requested, records[0].RequestedQuota)
+				require.Equal(t, test.charged, records[0].ChargedQuota)
+				require.InDelta(t, float64(test.charged)/float64(test.anchor), records[0].ChargedAmountUSD, 1e-12)
+				require.InDelta(t, test.requestedUSD, records[0].RequestedAmountUSD, 1e-12)
+			}
+			var notice ModerationNotice
+			require.NoError(t, db.First(&notice).Error)
+			require.Equal(t, test.charged, notice.ChargedQuota)
+		})
+	}
+}
+
+func TestModerationCurrencyFailureKeepsWalletAndJobUnchanged(t *testing.T) {
+	for _, test := range []string{"uninitialized anchor", "invalid completion currency", "invalid captured currency", "invalid legacy unit"} {
+		t.Run(test, func(t *testing.T) {
+			moderationTestCurrencyBasis(t, 500000, 3000000)
+			db, user := setupModerationEffectsTestDB(t)
+			job := claimModerationTestJob(t, moderationTestJob(user.Id, test, ModerationSourceRelayInput, "strict"), "worker")
+			completion := flaggedModerationCompletion()
+			switch test {
+			case "uninitialized anchor":
+				common.ClearCreditsPerUSD()
+			case "invalid completion currency":
+				completion.AmountCurrency = "CNY"
+			case "invalid captured currency":
+				require.NoError(t, db.Model(job).Update("captured_amount_currency", "CNY").Error)
+			case "invalid legacy unit":
+				common.QuotaPerUnit = 0
+			}
+			require.Error(t, CompleteModerationJob(t.Context(), job.ID, "worker", completion))
+			var stored User
+			require.NoError(t, db.First(&stored, user.Id).Error)
+			require.Equal(t, user.Quota, stored.Quota)
+			var pending ModerationJob
+			require.NoError(t, db.First(&pending, job.ID).Error)
+			require.Equal(t, ModerationJobRunning, pending.Status)
+			require.NotEmpty(t, pending.Payload)
+			for _, table := range []any{&ViolationFeeRecord{}, &ModerationNotice{}} {
+				var count int64
+				require.NoError(t, db.Model(table).Count(&count).Error)
+				require.Zero(t, count)
+			}
+		})
+	}
+}
+
+func TestModerationUSDRecordDoesNotRewriteHistoricalAmounts(t *testing.T) {
+	moderationTestCurrencyBasis(t, 500000, 3000000)
+	db, user := setupModerationEffectsTestDB(t)
+	old := ViolationFeeRecord{UserID: user.Id, RequestID: "old-fee", RequestedAmountUSD: 2, ChargedAmountUSD: .5, RequestedQuota: 1000000, ChargedQuota: 250000, Status: ViolationFeeRecordStatusCharged}
+	require.NoError(t, db.Create(&old).Error)
+	job := claimModerationTestJob(t, moderationTestJob(user.Id, "new-fee", ModerationSourceRelayInput, "strict"), "worker")
+	require.NoError(t, CompleteModerationJob(t.Context(), job.ID, "worker", flaggedModerationCompletion()))
+	var persisted ViolationFeeRecord
+	require.NoError(t, db.First(&persisted, old.ID).Error)
+	require.Equal(t, old, persisted)
+	var fresh ViolationFeeRecord
+	require.NoError(t, db.Where("request_id = ?", "new-fee").First(&fresh).Error)
+	require.Equal(t, "USD", fresh.AmountCurrency)
+	require.Equal(t, 12.0, fresh.RequestedAmountUSD)
+	require.Equal(t, 12.0, fresh.ChargedAmountUSD)
+}
+
+func TestModerationWarningOnlyNeedsNoMonetaryBasis(t *testing.T) {
+	moderationTestCurrencyBasis(t, 500000, 3000000)
+	db, user := setupModerationEffectsTestDB(t)
+	writeModerationTestPolicy(t, db, true, "strict", map[string]float64{})
+	job := claimModerationTestJob(t, moderationTestJob(user.Id, "zero-fine", ModerationSourceRelayInput, "strict"), "worker")
+	common.ClearCreditsPerUSD()
+	common.QuotaPerUnit = 0
+	require.NoError(t, CompleteModerationJob(t.Context(), job.ID, "worker", flaggedModerationCompletion()))
+	var stored User
+	require.NoError(t, db.First(&stored, user.Id).Error)
+	require.Equal(t, user.Quota, stored.Quota)
+	var notice ModerationNotice
+	require.NoError(t, db.First(&notice).Error)
+	require.Zero(t, notice.ChargedQuota)
+	var records int64
+	require.NoError(t, db.Model(&ViolationFeeRecord{}).Count(&records).Error)
+	require.Zero(t, records)
 }
 
 func TestModerationOwnerDeletionErasesPendingPrivateData(t *testing.T) {

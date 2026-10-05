@@ -103,9 +103,16 @@ func publicModerationPolicy(settings setting.ModerationSettings) dto.SecurityMod
 	for group, policy := range settings.GroupPolicies {
 		fines := make(map[string]float64, len(policy.CategoryFinesUSD))
 		for category, amount := range policy.CategoryFinesUSD {
-			fines[category] = amount
+			usd, err := model.ModerationAmountToUSD(amount, policy.AmountCurrency)
+			if err != nil {
+				// An unavailable currency basis must not expose raw legacy
+				// numbers under the public USD label.
+				fines = nil
+				break
+			}
+			fines[category] = usd.InexactFloat64()
 		}
-		policies[group] = dto.SecurityModerationGroupPolicy{Mode: policy.Mode, CategoryFinesUSD: fines}
+		policies[group] = dto.SecurityModerationGroupPolicy{Mode: policy.Mode, AmountCurrency: setting.ModerationAmountCurrencyUSD, CategoryFinesUSD: fines}
 	}
 	return dto.SecurityModerationPolicy{
 		Enabled: settings.Enabled, AssistantEnabled: settings.AssistantEnabled,

@@ -302,6 +302,19 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.POST("/waffo/pay", middleware.RequestBodyLimit(topUpMutationRequestMaxBytes), middleware.PaymentMethodAccessGate(), middleware.CriticalRateLimit(), controller.RequestWaffoPay)
 				selfRoute.POST("/waffo-pancake/amount", middleware.RequestBodyLimit(waffoPancakeMutationRequestMaxBytes), middleware.PaymentMethodAccessGate(), controller.RequestWaffoPancakeAmount)
 				selfRoute.POST("/waffo-pancake/pay", middleware.RequestBodyLimit(waffoPancakeMutationRequestMaxBytes), middleware.PaymentMethodAccessGate(), middleware.CriticalRateLimit(), controller.RequestWaffoPancakePay)
+				// Distinct currency routes carry integer Credits. Never alias these to
+				// legacy routes: an N-1 server must reject the new path, not multiply
+				// an integer-credit amount as historical recharge batches.
+				currencyTopUpRoute := selfRoute.Group("/topup/currency")
+				currencyTopUpRoute.POST("/amount", middleware.RequestBodyLimit(topUpMutationRequestMaxBytes), middleware.PaymentMethodAccessGate(), controller.RequireCanonicalTopUpCredit, controller.RequestAmount)
+				currencyTopUpRoute.POST("/pay", middleware.RequestBodyLimit(topUpMutationRequestMaxBytes), middleware.PaymentMethodAccessGate(), controller.RequireCanonicalTopUpCredit, middleware.CriticalRateLimit(), controller.RequestEpay)
+				currencyTopUpRoute.POST("/stripe/amount", middleware.RequestBodyLimit(topUpMutationRequestMaxBytes), middleware.PaymentMethodAccessGate(), controller.RequireCanonicalTopUpCredit, controller.RequestStripeAmount)
+				currencyTopUpRoute.POST("/stripe/pay", middleware.RequestBodyLimit(topUpMutationRequestMaxBytes), middleware.PaymentMethodAccessGate(), controller.RequireCanonicalTopUpCredit, middleware.CriticalRateLimit(), controller.RequestStripePay)
+				currencyTopUpRoute.POST("/waffo/amount", middleware.RequestBodyLimit(topUpMutationRequestMaxBytes), middleware.PaymentMethodAccessGate(), controller.RequireCanonicalTopUpCredit, controller.RequestWaffoAmount)
+				currencyTopUpRoute.POST("/waffo/pay", middleware.RequestBodyLimit(topUpMutationRequestMaxBytes), middleware.PaymentMethodAccessGate(), controller.RequireCanonicalTopUpCredit, middleware.CriticalRateLimit(), controller.RequestWaffoPay)
+				currencyTopUpRoute.POST("/waffo-pancake/amount", middleware.RequestBodyLimit(waffoPancakeMutationRequestMaxBytes), middleware.PaymentMethodAccessGate(), controller.RequireCanonicalTopUpCredit, controller.RequestWaffoPancakeAmount)
+				currencyTopUpRoute.POST("/waffo-pancake/pay", middleware.RequestBodyLimit(waffoPancakeMutationRequestMaxBytes), middleware.PaymentMethodAccessGate(), controller.RequireCanonicalTopUpCredit, middleware.CriticalRateLimit(), controller.RequestWaffoPancakePay)
+				currencyTopUpRoute.POST("/discount-code/validate", middleware.RequestBodyLimit(topUpMutationRequestMaxBytes), middleware.DisableCache(), controller.RequireCanonicalTopUpCredit, controller.ValidateDiscountCode)
 				selfRoute.POST("/aff_transfer", middleware.RequestBodyLimit(topUpMutationRequestMaxBytes), middleware.UserCriticalRateLimit("aff-transfer"), controller.TransferAffQuota)
 				selfRoute.PUT("/setting", middleware.RequestBodyLimit(userSelfMutationRequestMaxBytes), controller.UpdateUserSetting)
 
@@ -443,6 +456,9 @@ func SetApiRouter(router *gin.Engine) {
 		optionRoute.Use(middleware.RootAuth())
 		{
 			optionRoute.GET("/", controller.GetOptions)
+			optionRoute.GET("/pricing", middleware.DisableCache(), controller.GetUSDPriceOptions)
+			optionRoute.POST("/pricing/validate", middleware.RequestBodyLimit(rawOptionMutationRequestMaxBytes), controller.USDPriceOptionsValidate)
+			optionRoute.POST("/pricing/bulk", middleware.RequestBodyLimit(rawOptionMutationRequestMaxBytes), controller.USDPriceOptionsBulk)
 			optionRoute.GET("/updates", middleware.DisableCache(), controller.GetUpdates)
 			optionRoute.GET("/exchange-rate", middleware.DisableCache(), controller.GetUsdExchangeRate)
 			optionRoute.PUT("/", controller.UpdateOption)

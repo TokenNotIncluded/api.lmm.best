@@ -57,10 +57,10 @@ import {
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
-import { safeNumberFieldProps } from '../utils/numeric-field'
 import { AmountDiscountVisualEditor } from './amount-discount-visual-editor'
 import { AmountOptionsVisualEditor } from './amount-options-visual-editor'
 import { CreemProductsVisualEditor } from './creem-products-visual-editor'
+import { LegacyUsdMinimumInput } from './legacy-usd-minimum-input'
 import { PaymentMethodsVisualEditor } from './payment-methods-visual-editor'
 import {
   formatJsonForEditor,
@@ -102,7 +102,7 @@ const paymentSchema = z.object({
   }, 'Provide a valid callback URL starting with http:// or https://'),
   EpayId: z.string(),
   EpayKey: z.string(),
-  MinTopUp: z.coerce.number().min(0),
+  MinTopUp: z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
   CustomCallbackAddress: z
     .string()
     .refine(
@@ -144,7 +144,7 @@ const paymentSchema = z.object({
   StripeWebhookSecret: z.string(),
   StripePriceId: z.string(),
   StripeUnitPrice: z.coerce.number().min(0),
-  StripeMinTopUp: z.coerce.number().min(0),
+  StripeMinTopUp: z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
   StripePromotionCodesEnabled: z.boolean(),
   CreemApiKey: z.string(),
   CreemWebhookSecret: z.string(),
@@ -169,7 +169,7 @@ const paymentSchema = z.object({
   WaffoMerchantId: z.string(),
   WaffoCurrency: z.string(),
   WaffoUnitPrice: z.coerce.number().min(0),
-  WaffoMinTopUp: z.coerce.number().min(1),
+  WaffoMinTopUp: z.coerce.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
   WaffoNotifyUrl: z.string(),
   WaffoReturnUrl: z.string(),
   WaffoPancakeMerchantID: z.string(),
@@ -926,12 +926,7 @@ export function PaymentSettingsSection({
                       <FormItem>
                         <FormLabel>{t('Minimum top-up (USD)')}</FormLabel>
                         <FormControl>
-                          <Input
-                            type='number'
-                            step='0.01'
-                            min={0}
-                            {...safeNumberFieldProps(field)}
-                          />
+                          <LegacyUsdMinimumInput {...field} />
                         </FormControl>
                         <FormDescription>
                           {t('Smallest USD amount users can recharge (Epay)')}
@@ -1377,20 +1372,13 @@ export function PaymentSettingsSection({
                     name='StripeMinTopUp'
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>
-                          {t('Minimum platform top-up amount')}
-                        </FormLabel>
+                        <FormLabel>{t('Minimum top-up (USD)')}</FormLabel>
                         <FormControl>
-                          <Input
-                            type='number'
-                            step='0.01'
-                            min={0}
-                            {...safeNumberFieldProps(field)}
-                          />
+                          <LegacyUsdMinimumInput {...field} />
                         </FormControl>
                         <FormDescription>
                           {t(
-                            'Minimum platform amount a user may add before fiat conversion'
+                            'Minimum real USD value credited by this method. Payment currency is configured separately.'
                           )}
                         </FormDescription>
                         <FormMessage />

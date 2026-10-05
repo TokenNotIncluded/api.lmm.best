@@ -39,7 +39,6 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { WaitCompanion } from '@/components/wait-companion'
 import { formatTimestampToDate } from '@/lib/format'
 
-import { formatHeroSmsPlatformAmount } from './api.js'
 import type {
   HeroSmsSmsCountry,
   HeroSmsSmsComplaintReason,
@@ -50,6 +49,7 @@ import { SmsComplaintDialog } from './sms-complaint-dialog.js'
 import { SmsCountryIdentity, SmsServiceIdentity } from './sms-identities.js'
 import { resolveHeroSmsPhoneNumber } from './sms-phone-number.js'
 import { getHeroSmsCountryName } from './sms-selection.js'
+import { useHeroSmsCurrency } from './use-hero-sms-currency'
 
 interface SmsOrderCatalog {
   countries: Map<number, HeroSmsSmsCountry>
@@ -469,6 +469,7 @@ export function SmsOrderHistoryCard({
   ...state
 }: SmsOrderHistoryCardProps) {
   const { t } = useTranslation()
+  const { formatQuota } = useHeroSmsCurrency()
   const catalog = { countries, services, language }
   const content = resolveOrderSectionContent({
     ...state,
@@ -500,7 +501,7 @@ export function SmsOrderHistoryCard({
                 {t(order.status)}
               </Badge>
               <span className='font-medium tabular-nums'>
-                {formatHeroSmsPlatformAmount(Number(order.customer_price_usd))}
+                {formatQuota(order.charge_quota)}
               </span>
               <div className='flex items-center gap-1 justify-self-start sm:justify-self-end'>
                 <Button
@@ -590,6 +591,7 @@ export function SmsOrderDetailDialog({
   onRetry,
 }: SmsOrderDetailDialogProps) {
   const { t } = useTranslation()
+  const { formatQuota } = useHeroSmsCurrency()
   const resolved = order
     ? resolveOrderCatalog(order, { countries, services, language })
     : null
@@ -650,10 +652,8 @@ export function SmsOrderDetailDialog({
                 value={order.operator || '—'}
               />
               <SmsOrderDetailMeta
-                label={t('Price')}
-                value={formatHeroSmsPlatformAmount(
-                  Number(order.customer_price_usd)
-                )}
+                label={t('Platform balance charge')}
+                value={formatQuota(order.charge_quota)}
               />
               <SmsOrderDetailMeta
                 label={t('Created')}

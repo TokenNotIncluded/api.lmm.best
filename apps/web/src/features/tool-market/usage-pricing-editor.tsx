@@ -8,25 +8,25 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 
 import { marketQuota, type BillingRule } from './api'
-import { creditAmount } from './money'
 import { usageMetrics, maximumUsageQuota } from './usage-pricing'
 
 export function UsagePricingEditor({
   rules,
   metrics,
-  units,
   disabled,
   onChange,
 }: {
   rules: BillingRule[]
   metrics: string[]
-  units: number
   disabled: boolean
   onChange: (rules: BillingRule[]) => void
 }) {
   const { t } = useTranslation()
+  const { quotaToInput, amountToQuota, formatQuota, label, step } =
+    useWalletCurrency()
   const prefix = useId()
   const available = usageMetrics.filter((m) => metrics.includes(m.metric))
   const remaining = available.filter(
@@ -83,19 +83,19 @@ export function UsagePricingEditor({
             </Field>
             <Field>
               <FieldLabel htmlFor={`${prefix}-rate-${index}`}>
-                {t('Price per unit (credits)')}
+                {t('Price per unit')} ({label})
               </FieldLabel>
               <Input
                 id={`${prefix}-rate-${index}`}
                 type='number'
                 min='0'
-                step='any'
-                value={r.rate_quota / units || ''}
+                step={step}
+                value={r.rate_quota ? quotaToInput(r.rate_quota) : ''}
                 disabled={disabled}
                 onChange={(e) => {
                   let rate = 0
                   try {
-                    rate = marketQuota(e.target.value, units)
+                    rate = marketQuota(e.target.value, amountToQuota)
                   } catch {
                     /* incomplete price */
                   }
@@ -154,8 +154,8 @@ export function UsagePricingEditor({
         {cap === undefined
           ? t('Set a positive rate and maximum for every usage unit.')
           : t(
-              'Reserve up to {{amount}} credits; settle verified usage and release the remainder.',
-              { amount: creditAmount(cap, units) }
+              'Reserve up to {{amount}}; settle verified usage and release the remainder.',
+              { amount: formatQuota(cap) }
             )}
       </p>
     </div>

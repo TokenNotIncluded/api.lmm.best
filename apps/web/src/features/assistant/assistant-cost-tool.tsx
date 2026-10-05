@@ -52,10 +52,13 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
-import { formatPlatformAmount } from '@/lib/currency'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 
 import { getAssistantPricing } from './api'
-import { calculateAssistantTextCost } from './cost-calculator'
+import {
+  calculateAssistantTextCost,
+  hasAssistantUSDTextRates,
+} from './cost-calculator'
 
 function parseTokenCount(value: string): number {
   const parsed = Number(value)
@@ -64,6 +67,7 @@ function parseTokenCount(value: string): number {
 
 export function AssistantCostTool(props: { developerAccessGranted: boolean }) {
   const { t } = useTranslation()
+  const { formatUSD } = useWalletCurrency()
   const [modelName, setModelName] = useState('')
   const [group, setGroup] = useState('')
   const [inputTokens, setInputTokens] = useState('100000')
@@ -79,10 +83,7 @@ export function AssistantCostTool(props: { developerAccessGranted: boolean }) {
   const models = useMemo(
     () =>
       (pricingQuery.data?.data ?? [])
-        .filter(
-          (model) =>
-            model.quota_type === 0 && model.billing_mode !== 'tiered_expr'
-        )
+        .filter(hasAssistantUSDTextRates)
         .sort((left, right) => left.model_name.localeCompare(right.model_name)),
     [pricingQuery.data?.data]
   )
@@ -111,15 +112,11 @@ export function AssistantCostTool(props: { developerAccessGranted: boolean }) {
       )
     : null
   const formatCost = (amount: number) =>
-    formatPlatformAmount(
-      amount,
-      {
-        abbreviate: false,
-        digitsLarge: 4,
-        digitsSmall: 6,
-      },
-      t('Platform')
-    )
+    formatUSD(amount, {
+      abbreviate: false,
+      digitsLarge: 4,
+      digitsSmall: 6,
+    })
 
   let calculatorContent: ReactNode
   if (!props.developerAccessGranted) {
@@ -167,6 +164,33 @@ export function AssistantCostTool(props: { developerAccessGranted: boolean }) {
               data-icon='inline-start'
               aria-hidden='true'
             />
+            {t('Retry')}
+          </Button>
+        </AlertAction>
+      </Alert>
+    )
+  } else if (
+    !selectedModel &&
+    pricingQuery.data?.data.some(
+      (model) => model.quota_type === 0 && model.billing_mode !== 'tiered_expr'
+    )
+  ) {
+    calculatorContent = (
+      <Alert>
+        <HugeiconsIcon icon={Alert02Icon} strokeWidth={2} aria-hidden='true' />
+        <AlertTitle>{t('Unable to load live pricing')}</AlertTitle>
+        <AlertDescription>
+          {t(
+            'Current USD pricing is unavailable. Refresh after the server pricing update.'
+          )}
+        </AlertDescription>
+        <AlertAction>
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            onClick={() => void pricingQuery.refetch()}
+          >
             {t('Retry')}
           </Button>
         </AlertAction>

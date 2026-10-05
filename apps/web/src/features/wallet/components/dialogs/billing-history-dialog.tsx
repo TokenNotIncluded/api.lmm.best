@@ -45,7 +45,8 @@ import {
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
-import { formatFiatCurrencyAmount, formatPlatformAmount } from '@/lib/currency'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
+import { formatFiatCurrencyAmount } from '@/lib/currency'
 
 import { useBillingHistory } from '../../hooks/use-billing-history'
 import {
@@ -53,7 +54,7 @@ import {
   getPaymentMethodName,
   formatTimestamp,
 } from '../../lib/billing'
-import { getTopupRecordPlatformAmount } from '../../lib/payment'
+import { getTopupRecordQuota } from '../../lib/payment'
 import type { BillingHistorySortBy } from '../../types'
 
 interface BillingHistoryDialogProps {
@@ -66,6 +67,7 @@ export function BillingHistoryDialog({
   onOpenChange,
 }: BillingHistoryDialogProps) {
   const { t } = useTranslation()
+  const { formatQuota } = useWalletCurrency()
   const {
     records,
     total,
@@ -94,7 +96,7 @@ export function BillingHistoryDialog({
     label: string
   }> = [
     { value: 'create_time', label: t('Creation time') },
-    { value: 'amount', label: t('Platform credit') },
+    { value: 'amount', label: t('Credited balance') },
     { value: 'money', label: t('Actual payment') },
     { value: 'status', label: t('Status') },
     { value: 'payment_method', label: t('Payment Method') },
@@ -312,19 +314,11 @@ export function BillingHistoryDialog({
                         </div>
                         <div className='space-y-1'>
                           <Label className='text-muted-foreground text-xs'>
-                            {t('Amount')}
+                            {t('Credited balance')}
                           </Label>
                           <div className='text-sm font-semibold'>
-                            {/* Prefer the immutable micros snapshot for fractional orders. */}
-                            {formatPlatformAmount(
-                              getTopupRecordPlatformAmount(record),
-                              {
-                                digitsLarge: 2,
-                                digitsSmall: 2,
-                                abbreviate: false,
-                              },
-                              t('Platform')
-                            )}
+                            {/* Prefer immutable credited quota; bridge old batch snapshots when absent. */}
+                            {formatQuota(getTopupRecordQuota(record))}
                           </div>
                         </div>
                         <div className='space-y-1'>
@@ -332,10 +326,10 @@ export function BillingHistoryDialog({
                             {t('Payment')}
                           </Label>
                           <div className='text-destructive text-sm font-semibold'>
-                            {record.currency
+                            {record.settlement_currency || record.currency
                               ? formatFiatCurrencyAmount(
                                   record.money,
-                                  record.currency,
+                                  record.settlement_currency || record.currency,
                                   {
                                     digitsLarge: 2,
                                     digitsSmall: 2,

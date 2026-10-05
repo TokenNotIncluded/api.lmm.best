@@ -29,6 +29,7 @@ import {
 } from 'axios'
 import { toast } from 'sonner'
 
+import i18n from '@/i18n/config'
 import {
   applyAuthBundle,
   bindAuthCache,
@@ -245,6 +246,68 @@ describe('route navigation request cancellation', () => {
         /Network failure/
       )
       assert.equal(messages.length, 1)
+    } finally {
+      toast.error = originalToast
+    }
+  })
+
+  test('concurrent outage reads use one notification identity and never retry a save', async () => {
+    const originalToast = toast.error
+    const notifications: Array<{ message: unknown; id?: unknown }> = []
+    const requests: string[] = []
+    toast.error = ((message: unknown, options?: { id?: unknown }) => {
+      notifications.push({ message, id: options?.id })
+      return 'outage-test'
+    }) as typeof toast.error
+    api.defaults.adapter = async (config) => {
+      requests.push(`${config.method}:${config.url}`)
+      const rejected = response(config, 503, {
+        error: {
+          code: 'service_temporarily_unavailable',
+          message: 'private diagnostic',
+        },
+      })
+      throw new AxiosError(
+        'Request failed with status code 503',
+        'ERR_BAD_RESPONSE',
+        config,
+        undefined,
+        rejected
+      )
+    }
+    try {
+      const results = await Promise.allSettled([
+        api.get('/api/outage-settings-test'),
+        api.get('/api/outage-models-test'),
+        api.post('/api/outage-save-test', { value: 'changed' }),
+      ])
+      assert.deepEqual(
+        results.map((result) => result.status),
+        ['rejected', 'rejected', 'rejected']
+      )
+      assert.equal(requests.length, 3)
+      assert.equal(
+        requests.filter((request) => request.startsWith('post:')).length,
+        1
+      )
+      assert.deepEqual(
+        notifications.map(({ id }) => id),
+        Array(3).fill('service-temporarily-unavailable')
+      )
+      for (const { message } of notifications) {
+        assert.equal(typeof message, 'string')
+        assert.equal(
+          message,
+          i18n.t(
+            'The service is temporarily unavailable. Please try again later.'
+          )
+        )
+      }
+      notifications.length = 0
+      await assert.rejects(
+        api.get('/api/outage-silent-test', { skipErrorHandler: true })
+      )
+      assert.equal(notifications.length, 0)
     } finally {
       toast.error = originalToast
     }

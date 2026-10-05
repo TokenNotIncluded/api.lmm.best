@@ -17,32 +17,34 @@ import (
 )
 
 type TopUp struct {
-	ReferralExcluded      bool    `json:"-" gorm:"not null;default:false"`
-	Id                    int     `json:"id"`
-	UserId                int     `json:"user_id" gorm:"index"`
-	Amount                int64   `json:"amount"` // deprecated integer projection
-	PlatformAmountMicros  int64   `json:"platform_amount_micros" gorm:"not null;default:0"`
-	CreditedQuota         int64   `json:"credited_quota" gorm:"not null;default:0"`
-	ExpectedAmountMicros  int64   `json:"expected_amount_micros" gorm:"not null;default:0"`
-	SettledAmountMicros   int64   `json:"settled_amount_micros" gorm:"not null;default:0"`
-	SettlementCurrency    string  `json:"settlement_currency" gorm:"type:varchar(16);not null;default:''"`
-	Money                 float64 `json:"money"`
-	RefundedAmountMicros  int64   `json:"refunded_amount_micros" gorm:"not null;default:0"`
-	RefundedQuota         int64   `json:"refunded_quota" gorm:"not null;default:0"`
-	TradeNo               string  `json:"trade_no" gorm:"unique;type:varchar(255);index"`
-	PaymentMethod         string  `json:"payment_method" gorm:"type:varchar(50)"`
-	PaymentProvider       string  `json:"payment_provider" gorm:"type:varchar(50);default:'';uniqueIndex:idx_topup_provider_event,priority:1;uniqueIndex:idx_topup_provider_transaction,priority:1"`
-	DiscountCodeId        int     `json:"discount_code_id,omitempty" gorm:"index"`
-	DiscountPercent       int     `json:"discount_percent,omitempty"`
-	ProviderProductId     string  `json:"provider_product_id" gorm:"type:varchar(255);not null;default:''"`
-	ProviderStoreId       string  `json:"provider_store_id" gorm:"type:varchar(255);not null;default:''"`
-	ProviderEventId       *string `json:"provider_event_id,omitempty" gorm:"type:varchar(255);uniqueIndex:idx_topup_provider_event,priority:2"`
-	ProviderTransactionId *string `json:"provider_transaction_id,omitempty" gorm:"type:varchar(255);uniqueIndex:idx_topup_provider_transaction,priority:2"`
-	FailureReasonCode     string  `json:"failure_reason_code,omitempty" gorm:"type:varchar(64);not null;default:''"`
-	PaymentCheckedAt      int64   `json:"-" gorm:"not null;default:0"`
-	CreateTime            int64   `json:"create_time"`
-	CompleteTime          int64   `json:"complete_time"`
-	Status                string  `json:"status"`
+	ReferralExcluded         bool    `json:"-" gorm:"not null;default:false"`
+	Id                       int     `json:"id"`
+	UserId                   int     `json:"user_id" gorm:"index"`
+	Amount                   int64   `json:"amount"` // deprecated integer projection
+	PlatformAmountMicros     int64   `json:"platform_amount_micros" gorm:"not null;default:0"`
+	CreditedQuota            int64   `json:"credited_quota" gorm:"not null;default:0"`
+	ExpectedAmountMicros     int64   `json:"expected_amount_micros" gorm:"not null;default:0"`
+	SettledAmountMicros      int64   `json:"settled_amount_micros" gorm:"not null;default:0"`
+	SettlementCurrency       string  `json:"settlement_currency" gorm:"type:varchar(16);not null;default:''"`
+	Money                    float64 `json:"money"`
+	RefundedAmountMicros     int64   `json:"refunded_amount_micros" gorm:"not null;default:0"`
+	RefundedQuota            int64   `json:"refunded_quota" gorm:"not null;default:0"`
+	TradeNo                  string  `json:"trade_no" gorm:"unique;type:varchar(255);index"`
+	PaymentMethod            string  `json:"payment_method" gorm:"type:varchar(50)"`
+	PaymentProvider          string  `json:"payment_provider" gorm:"type:varchar(50);default:'';uniqueIndex:idx_topup_provider_event,priority:1;uniqueIndex:idx_topup_provider_transaction,priority:1"`
+	DiscountQualifyingAmount string  `json:"discount_qualifying_amount,omitempty" gorm:"type:varchar(64);not null;default:''"`
+	DiscountQualifyingUnit   string  `json:"discount_qualifying_unit,omitempty" gorm:"type:varchar(16);not null;default:''"`
+	DiscountCodeId           int     `json:"discount_code_id,omitempty" gorm:"index"`
+	DiscountPercent          int     `json:"discount_percent,omitempty"`
+	ProviderProductId        string  `json:"provider_product_id" gorm:"type:varchar(255);not null;default:''"`
+	ProviderStoreId          string  `json:"provider_store_id" gorm:"type:varchar(255);not null;default:''"`
+	ProviderEventId          *string `json:"provider_event_id,omitempty" gorm:"type:varchar(255);uniqueIndex:idx_topup_provider_event,priority:2"`
+	ProviderTransactionId    *string `json:"provider_transaction_id,omitempty" gorm:"type:varchar(255);uniqueIndex:idx_topup_provider_transaction,priority:2"`
+	FailureReasonCode        string  `json:"failure_reason_code,omitempty" gorm:"type:varchar(64);not null;default:''"`
+	PaymentCheckedAt         int64   `json:"-" gorm:"not null;default:0"`
+	CreateTime               int64   `json:"create_time"`
+	CompleteTime             int64   `json:"complete_time"`
+	Status                   string  `json:"status"`
 }
 
 const (

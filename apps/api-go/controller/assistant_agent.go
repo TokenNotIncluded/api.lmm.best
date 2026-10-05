@@ -2652,12 +2652,13 @@ func executeAssistantCostTool(input map[string]any) map[string]any {
 	inputCost := inputTokens / 1_000_000 * inputPrice
 	outputCost := outputTokens / 1_000_000 * outputPrice
 	return map[string]any{
-		"ok":              true,
-		"input_cost_usd":  inputCost * ratio,
-		"output_cost_usd": outputCost * ratio,
-		"total_cost_usd":  (inputCost + outputCost) * ratio,
-		"group_ratio":     ratio,
-		"formula":         "(input_tokens / 1,000,000 × input price + output_tokens / 1,000,000 × output price) × group ratio",
+		"ok":               true,
+		"input_cost_usd":   inputCost * ratio,
+		"output_cost_usd":  outputCost * ratio,
+		"total_cost_usd":   (inputCost + outputCost) * ratio,
+		"pricing_currency": "USD", "pricing_schema_version": 2,
+		"group_ratio": ratio,
+		"formula":     "(input_tokens / 1,000,000 × input price + output_tokens / 1,000,000 × output price) × group ratio",
 	}
 }
 
@@ -2969,7 +2970,10 @@ func executeAssistantModelPricingTool(userID int, input map[string]any) map[stri
 			"group_ratio":          groupRatio,
 		}
 		if selected.QuotaType == 0 && selected.BillingMode != "tiered_expr" {
-			inputRate := selected.ModelRatio * 2 * groupRatio
+			inputRate, err := model.ModelRatioUSDPerMillion(selected.ModelRatio * groupRatio)
+			if err != nil {
+				return map[string]any{"ok": false, "error": "pricing currency units are unavailable"}
+			}
 			entry["input_usd_per_million"] = inputRate
 			entry["output_usd_per_million"] = inputRate * selected.CompletionRatio
 			if selected.CacheRatio != nil {
@@ -2979,7 +2983,11 @@ func executeAssistantModelPricingTool(userID int, input map[string]any) map[stri
 				entry["cache_write_usd_per_million"] = inputRate * *selected.CreateCacheRatio
 			}
 		} else if selected.QuotaType == 1 {
-			entry["request_usd"] = selected.ModelPrice * groupRatio
+			price, err := model.LegacyPricingAmountUSD(selected.ModelPrice * groupRatio)
+			if err != nil {
+				return map[string]any{"ok": false, "error": "pricing currency units are unavailable"}
+			}
+			entry["request_usd"] = price
 		}
 		prices = append(prices, entry)
 	}
@@ -2993,14 +3001,19 @@ func executeAssistantModelPricingTool(userID int, input map[string]any) map[stri
 		calculationInstruction = "The returned USD reference prices include the public default-group ratio and no account-specific discount. Pass group_ratio=1 to calculate_cost and explain that L1 access is still required to use the model."
 	}
 
+	usdExpression, err := model.USDExpression(selected.BillingExpr)
+	if err != nil {
+		return map[string]any{"ok": false, "error": "pricing currency units are unavailable"}
+	}
 	return map[string]any{
+		"pricing_currency": "USD", "pricing_schema_version": 2,
 		"ok":                          true,
 		"model_id":                    selected.ModelName,
 		"trust_level":                 trustLevel,
 		"trust_discount_ratio":        trustDiscountRatio,
 		"quota_type":                  selected.QuotaType,
 		"billing_mode":                selected.BillingMode,
-		"billing_expression":          selected.BillingExpr,
+		"billing_expression":          usdExpression,
 		"prices":                      prices,
 		"supported_endpoint_types":    selected.SupportedEndpointTypes,
 		"administrator_scope":         isAdministrator,

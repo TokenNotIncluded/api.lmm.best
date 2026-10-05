@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { api } from '@/lib/api'
 import type { CustomOAuthBinding } from '@/lib/oauth'
 import type { LoginSession } from '@/stores/auth-store'
+import type { WalletDisplayCurrencyPreference } from '@/stores/wallet-currency-preference-store'
 
 import type { ProfileUsageQueryRange, ProfileUsageRow } from './lib/activity'
 import type {
@@ -167,6 +168,19 @@ export async function updateSettlementCurrency(
   const res = await api.put(
     '/api/user/self',
     { settlement_currency: settlementCurrency },
+    { signal, skipBusinessError: true, skipErrorHandler: true }
+  )
+  return res.data
+}
+
+/** Save only the display preference; settlement and stored quota are unchanged. */
+export async function updateWalletDisplayCurrency(
+  walletDisplayCurrency: WalletDisplayCurrencyPreference,
+  signal?: AbortSignal
+): Promise<ApiResponse> {
+  const res = await api.put(
+    '/api/user/self',
+    { wallet_display_currency: walletDisplayCurrency },
     { signal, skipBusinessError: true, skipErrorHandler: true }
   )
   return res.data

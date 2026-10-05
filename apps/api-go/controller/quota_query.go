@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"math"
 	"net/http"
 	"time"
 
@@ -20,12 +19,12 @@ func GetQuotaQuery(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"valid": false, "error": "invalid_api_key"})
 		return
 	}
-	if common.QuotaPerUnit <= 0 || math.IsNaN(common.QuotaPerUnit) || math.IsInf(common.QuotaPerUnit, 0) {
+	divisor, err := common.CreditsPerUSD()
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"valid": false, "error": "quota_query_unavailable"})
 		return
 	}
 	now := time.Now().UTC()
-	divisor := decimal.NewFromFloat(common.QuotaPerUnit)
 	amount := func(quota decimal.Decimal) float64 { value, _ := quota.Div(divisor).Float64(); return value }
 	var remaining, total, today any
 	if !token.UnlimitedQuota {

@@ -11,10 +11,8 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/constant"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/oauthserver"
-	"github.com/LIghtJUNction/api.lmm.best/pkg/paymentpricing"
 	"github.com/LIghtJUNction/api.lmm.best/setting/billing_setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
-	"github.com/shopspring/decimal"
 )
 
 type OAuthCatalog struct {
@@ -42,6 +40,7 @@ type OAuthCatalogModel struct {
 }
 type OAuthCatalogPricing struct {
 	Currency                string                  `json:"currency"`
+	PricingSchemaVersion    int                     `json:"pricing_schema_version"`
 	Unit                    string                  `json:"unit"`
 	PriceBasis              string                  `json:"price_basis"`
 	GroupMultiplier         *float64                `json:"group_multiplier"`
@@ -177,7 +176,7 @@ func oauthGroupRatio(user *model.User, group string) *float64 {
 }
 
 func oauthPricing(name string, groupRatio, trustRatio *float64, updated int64) OAuthCatalogPricing {
-	p := OAuthCatalogPricing{Currency: "USD", Unit: "unknown", PriceBasis: "unknown", GroupMultiplier: groupRatio, TrustMultiplier: trustRatio, FinalCostDependsOnUsage: true, UpdatedAt: updated}
+	p := OAuthCatalogPricing{Currency: "USD", PricingSchemaVersion: 2, Unit: "unknown", PriceBasis: "unknown", GroupMultiplier: groupRatio, TrustMultiplier: trustRatio, FinalCostDependsOnUsage: true, UpdatedAt: updated}
 	if billing_setting.GetBillingMode(name) == billing_setting.BillingModeTieredExpr {
 		p.Unit, p.PriceBasis = "expression", "tiered_expression"
 		return p
@@ -188,19 +187,15 @@ func oauthPricing(name string, groupRatio, trustRatio *float64, updated int64) O
 	}
 	factor := *groupRatio * *trustRatio
 
-	rates, err := paymentpricing.CurrentRates()
-	if err != nil {
+	if _, err := common.CreditsPerUSD(); err != nil {
 		return p
 	}
-	toUSD := func(platformUnits float64) *float64 {
-		if platformUnits < 0 || math.IsNaN(platformUnits) || math.IsInf(platformUnits, 0) {
-			return nil
-		}
-		amount, err := rates.FiatForPlatformUnits(decimal.NewFromFloat(platformUnits), paymentpricing.CurrencyUSD)
+	toUSD := func(legacy float64) *float64 {
+		value, err := model.LegacyPricingAmountUSD(legacy)
 		if err != nil {
 			return nil
 		}
-		return oauthNumber(amount.InexactFloat64())
+		return oauthNumber(value)
 	}
 	if price, exists := ratio_setting.GetModelPrice(name, false); exists {
 		p.Unit, p.PriceBasis = "request", "configured_base_rates"
@@ -213,16 +208,19 @@ func oauthPricing(name string, groupRatio, trustRatio *float64, updated int64) O
 	if !exists {
 		return p
 	}
-	input := inputRatio * factor * 1_000_000 / common.QuotaPerUnit
+	input, err := model.ModelRatioUSDPerMillion(inputRatio * factor)
+	if err != nil {
+		return p
+	}
 	p.Unit = "million_tokens"
 	p.PriceBasis = "configured_base_rates"
-	p.Input, p.Output = toUSD(input), toUSD(input*ratio_setting.GetCompletionRatio(name))
+	p.Input, p.Output = oauthNumber(input), oauthNumber(input*ratio_setting.GetCompletionRatio(name))
 	// The bool reports whether an override exists; the returned defaults are
 	// also the values used by relay/helper/price.go during settlement.
 	cacheRead, _ := ratio_setting.GetCacheRatio(name)
-	p.CacheRead = toUSD(input * cacheRead)
+	p.CacheRead = oauthNumber(input * cacheRead)
 	cacheWrite, _ := ratio_setting.GetCreateCacheRatio(name)
-	p.CacheWrite = toUSD(input * cacheWrite)
+	p.CacheWrite = oauthNumber(input * cacheWrite)
 	if p.Input != nil && p.Output != nil && p.CacheRead != nil && p.CacheWrite != nil {
 		p.NativeCost = &OAuthCatalogNativeCost{Input: *p.Input, Output: *p.Output, CacheRead: *p.CacheRead, CacheWrite: *p.CacheWrite}
 	}

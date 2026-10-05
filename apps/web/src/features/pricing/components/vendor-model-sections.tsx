@@ -22,16 +22,14 @@ import { useTranslation } from 'react-i18next'
 import { getLobeIcon } from '@/lib/lobe-icon'
 
 import type { ModelPerfBadgeData } from '../lib/model-perf'
-import type { PricingModel, TokenUnit } from '../types'
+import type { PricingModel, TokenUnit, PriceDisplayCurrency } from '../types'
 import { ModelCard } from './model-card'
 
 export interface VendorModelSectionProps {
   models: PricingModel[]
   onModelClick: (modelName: string) => void
-  priceRate?: number
-  usdExchangeRate?: number
   tokenUnit?: TokenUnit
-  showRechargePrice?: boolean
+  displayCurrency?: PriceDisplayCurrency
   selectedGroup?: string
   perfMap?: ReadonlyMap<string, ModelPerfBadgeData>
 }
@@ -117,9 +115,7 @@ export function VendorModelSections(props: VendorModelSectionProps) {
                   key={model.id ?? model.model_name}
                   model={model}
                   tokenUnit={props.tokenUnit}
-                  priceRate={props.priceRate}
-                  usdExchangeRate={props.usdExchangeRate}
-                  showRechargePrice={props.showRechargePrice}
+                  displayCurrency={props.displayCurrency}
                   selectedGroup={props.selectedGroup}
                   perf={props.perfMap?.get(model.model_name || '')}
                   onClick={() => props.onModelClick(model.model_name || '')}

@@ -32,8 +32,9 @@ import type {
   QuotaDataItem,
   DashboardFilters,
 } from '@/features/dashboard/types'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { toIntlLocale } from '@/i18n/languages'
-import { formatCompactNumber, formatNumber, formatQuota } from '@/lib/format'
+import { formatCompactNumber, formatNumber } from '@/lib/format'
 import { computeTimeRange } from '@/lib/time'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
@@ -60,6 +61,7 @@ function formatStatNumber(value: number, locale: Intl.LocalesArgument) {
 
 export function LogStatCards(props: LogStatCardsProps) {
   const { i18n } = useTranslation()
+  const { formatQuota } = useWalletCurrency()
   const statCardsConfig = useModelStatCardsConfig()
   const user = useAuthStore((state) => state.auth.user)
   const isAdmin = !!(user?.role && user.role >= 10)

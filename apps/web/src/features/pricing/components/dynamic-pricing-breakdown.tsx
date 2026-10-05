@@ -22,9 +22,10 @@ import { useTranslation } from 'react-i18next'
 
 import { StaticDataTable } from '@/components/data-table'
 import { Badge } from '@/components/ui/badge'
-import { formatPlatformAmount } from '@/lib/currency'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { cn } from '@/lib/utils'
 
+import { TOKEN_UNIT_DIVISORS } from '../constants'
 import {
   BILLING_PRICING_VARS,
   coefficientToDisplayPrice,
@@ -46,9 +47,16 @@ import {
   type RequestRuleTrace,
   type TierCondition,
 } from '../lib/billing-expr'
+import { formatModelPrice } from '../lib/price-display'
+import type { PriceDisplayCurrency, TokenUnit } from '../types'
 
 type DynamicPricingBreakdownProps = {
   billingExpr: string | null | undefined
+  /** Required monetary basis; old log expressions need their frozen factor. */
+  expressionCurrencyBasis?: 'USD' | 'legacy_pricing_unit'
+  expressionUsdMultiplier?: number
+  displayCurrency?: PriceDisplayCurrency
+  tokenUnit?: TokenUnit
   /**
    * Label of the tier that fired for the current request. When provided,
    * the corresponding row is highlighted and tagged as "Matched". Used by
@@ -170,22 +178,42 @@ function nextOccurrenceKey(
 
 export function DynamicPricingBreakdown({
   billingExpr,
+  expressionCurrencyBasis,
+  expressionUsdMultiplier,
+  displayCurrency,
+  tokenUnit = 'M',
   matchedTierLabel,
   requestRules,
   hideCacheColumns = false,
   compact = false,
 }: DynamicPricingBreakdownProps) {
   const { t } = useTranslation()
+  const walletCurrency = useWalletCurrency()
+  const currency = displayCurrency ?? walletCurrency.currency
+  const usdMultiplier =
+    expressionCurrencyBasis === 'USD'
+      ? 1
+      : expressionCurrencyBasis === 'legacy_pricing_unit' &&
+          typeof expressionUsdMultiplier === 'number' &&
+          Number.isFinite(expressionUsdMultiplier) &&
+          expressionUsdMultiplier > 0
+        ? expressionUsdMultiplier
+        : Number.NaN
   const expr = billingExpr || ''
   const formatTierPrice = (
     value: number,
     variable: (typeof BILLING_PRICING_VARS)[number]
   ) =>
-    formatPlatformAmount(coefficientToDisplayPrice(variable, value), {
-      digitsLarge: 4,
-      digitsSmall: 6,
-      abbreviate: false,
-    })
+    formatModelPrice(
+      (coefficientToDisplayPrice(variable, value) * usdMultiplier) /
+        (variable.unit === 'minute' ? 1 : TOKEN_UNIT_DIVISORS[tokenUnit]),
+      currency,
+      {
+        digitsLarge: 4,
+        digitsSmall: 6,
+        abbreviate: false,
+      }
+    )
 
   const { tiers, ruleGroups } = useMemo(() => {
     const split = splitBillingExprAndRequestRules(expr)
@@ -259,6 +287,8 @@ export function DynamicPricingBreakdown({
             </div>
             <div className='text-muted-foreground text-xs'>
               {t('Prices vary by usage tier and request conditions')}
+              {!Number.isFinite(usdMultiplier) &&
+                ` · ${t('Price conversion unavailable')}`}
             </div>
           </div>
         </div>
@@ -326,7 +356,7 @@ export function DynamicPricingBreakdown({
                             {t(v.shortLabel)} /{' '}
                             {v.unit === 'minute'
                               ? t('minute')
-                              : `1M ${t('tokens')}`}
+                              : `1${tokenUnit} ${t('tokens')}`}
                           </div>
                           <div
                             className={cn(
@@ -404,7 +434,7 @@ export function DynamicPricingBreakdown({
               },
               ...visiblePriceFields.map((v, index) => ({
                 id: v.field ?? `price-${index}`,
-                header: `${t(v.shortLabel)} / ${v.unit === 'minute' ? t('minute') : `1M ${t('tokens')}`}`,
+                header: `${t(v.shortLabel)} / ${v.unit === 'minute' ? t('minute') : `1${tokenUnit} ${t('tokens')}`}`,
                 className: cn(
                   'text-muted-foreground py-2 text-right font-medium',
                   compact && 'h-8'

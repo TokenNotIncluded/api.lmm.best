@@ -51,6 +51,7 @@ export const MODERATION_CATEGORY_LABELS: Record<
 export type ModerationMode = 'off' | 'tolerant' | 'strict'
 export type ModerationGroupPolicy = {
   mode: ModerationMode
+  amount_currency?: 'USD' | 'legacy_pricing_unit'
   category_fines_usd: Partial<
     Record<(typeof MODERATION_CATEGORIES)[number], number>
   >
@@ -84,6 +85,12 @@ export function parseModerationGroupPolicies(
       if (!['off', 'tolerant', 'strict'].includes(String(policy.mode))) {
         return null
       }
+      if (
+        policy.amount_currency !== undefined &&
+        !['USD', 'legacy_pricing_unit'].includes(String(policy.amount_currency))
+      ) {
+        return null
+      }
       const fines = policy.category_fines_usd ?? {}
       if (!fines || typeof fines !== 'object' || Array.isArray(fines)) {
         return null
@@ -97,7 +104,7 @@ export function parseModerationGroupPolicies(
           !Number.isFinite(amount) ||
           amount < 0 ||
           amount > MODERATION_MAX_CATEGORY_FINE_USD ||
-          amount !== Math.round(amount * 1000000) / 1000000
+          !isModerationFineUsd(amount)
         ) {
           return null
         }
@@ -105,10 +112,75 @@ export function parseModerationGroupPolicies(
       result[group] = {
         mode: policy.mode as ModerationMode,
         category_fines_usd: fines,
+        ...(policy.amount_currency === undefined
+          ? {}
+          : {
+              amount_currency: policy.amount_currency as
+                | 'USD'
+                | 'legacy_pricing_unit',
+            }),
       }
     }
     return result
   } catch {
     return null
   }
+}
+
+// Decimal arithmetic prevents binary floating-point rounding from changing a fine.
+function decimalRatio(value: number): [bigint, bigint] | null {
+  if (!Number.isFinite(value)) return null
+  const match = String(value).match(
+    /^([+-]?)(\d+)(?:\.(\d+))?(?:e([+-]?\d+))?$/i
+  )
+  if (!match) return null
+  const fraction = match[3] ?? ''
+  const exponent = Number(match[4] ?? 0) - fraction.length
+  let numerator = BigInt(match[2] + fraction) * (match[1] === '-' ? -1n : 1n)
+  let denominator = 1n
+  if (exponent >= 0) numerator *= 10n ** BigInt(exponent)
+  else denominator = 10n ** BigInt(-exponent)
+  return [numerator, denominator]
+}
+
+export function isModerationFineUsd(amount: number): boolean {
+  const ratio = decimalRatio(amount)
+  return Boolean(
+    ratio &&
+    amount >= 0 &&
+    amount <= MODERATION_MAX_CATEGORY_FINE_USD &&
+    (ratio[0] * 1_000_000n) % ratio[1] === 0n
+  )
+}
+
+export function moderationFineDisplayUsd(
+  amount: number,
+  policy: ModerationGroupPolicy,
+  legacyUnitsPerUsd: number
+): number {
+  return policy.amount_currency === 'USD' ? amount : amount / legacyUnitsPerUsd
+}
+
+/** Conversion is all-or-nothing. Never round existing category prices to fit USD. */
+export function normalizeModerationPolicyUsd(
+  policy: ModerationGroupPolicy,
+  legacyUnitsPerUsd: number
+): ModerationGroupPolicy | null {
+  if (policy.amount_currency === 'USD') {
+    return { ...policy, category_fines_usd: { ...policy.category_fines_usd } }
+  }
+  const scale = decimalRatio(legacyUnitsPerUsd)
+  if (!scale || scale[0] <= 0n) return null
+  const fines: ModerationGroupPolicy['category_fines_usd'] = {}
+  for (const [category, amount] of Object.entries(policy.category_fines_usd)) {
+    const ratio = decimalRatio(amount)
+    if (!ratio) return null
+    const numerator = ratio[0] * scale[1] * 1_000_000n
+    const denominator = ratio[1] * scale[0]
+    if (numerator % denominator !== 0n) return null
+    const usd = Number(numerator / denominator) / 1_000_000
+    if (!isModerationFineUsd(usd)) return null
+    fines[category as keyof typeof fines] = usd
+  }
+  return { ...policy, amount_currency: 'USD', category_fines_usd: fines }
 }

@@ -22,12 +22,12 @@ import {
   FieldLabel,
 } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
   MarketAPIError,
   marketAPI,
-  marketQuota,
   type Budget,
   type Grant,
   type Installation,
@@ -47,7 +47,7 @@ import {
   isPersonalMarketClient,
   marketEndpoint,
 } from './connection-utils'
-import { creditAmount } from './money'
+import { useMarketMoneyDraft } from './money'
 
 type IssuedToken = { token: string; record: MarketToken }
 type ClientAccess = {
@@ -86,6 +86,9 @@ function ConnectionWorkspace({
   onChooseClient?: (clientID: string) => void
 }) {
   const { t, i18n } = useTranslation()
+  const { formatQuota: formatRawQuota, label, step } = useWalletCurrency()
+  const formatQuota = (quota: number) =>
+    formatRawQuota(quota, { digitsLarge: 8, digitsSmall: 8 })
   registerMarketConnectionTranslations(i18n)
   const m = (
     key: MarketConnectionCopyKey,
@@ -119,7 +122,7 @@ function ConnectionWorkspace({
   const [disconnect, setDisconnect] = useState<string | null>(null)
   const [scope, setScope] = useState('account')
   const [scopeID, setScopeID] = useState('')
-  const [limit, setLimit] = useState('0')
+  const limit = useMarketMoneyDraft(0)
   const [now, setNow] = useState(Date.now)
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30000)
@@ -178,12 +181,7 @@ function ConnectionWorkspace({
     cursor: 'cursorSetup',
     http: 'httpSetup',
   }
-  let budgetQuota: number | undefined
-  try {
-    budgetQuota = marketQuota(limit, config.quota_per_unit)
-  } catch {
-    // Keep invalid draft input local; no budget mutation is sent.
-  }
+  const budgetQuota = limit.quota
   const readError =
     tokens.isError || grants.isError || installations.isError || budgets.isError
   const accessReady =
@@ -221,7 +219,7 @@ function ConnectionWorkspace({
   const editBudget = (budget: Budget) => {
     setScope(budget.scope)
     setScopeID(budget.scope_id)
-    setLimit(String(budget.limit_quota / config.quota_per_unit))
+    limit.setQuota(budget.limit_quota)
     action.reset()
     document.getElementById('budget-limit')?.focus()
   }
@@ -643,17 +641,10 @@ function ConnectionWorkspace({
                                 {m(connectionStatus(grant, now))}
                               </Badge>
                               <p className='tabular-nums'>
-                                {t('{{amount}} credits', {
-                                  amount: creditAmount(
-                                    grant.spent_quota + grant.reserved_quota,
-                                    config.quota_per_unit
-                                  ),
-                                })}{' '}
-                                /{' '}
-                                {creditAmount(
-                                  grant.max_total_quota,
-                                  config.quota_per_unit
-                                )}
+                                {formatQuota(
+                                  grant.spent_quota + grant.reserved_quota
+                                )}{' '}
+                                / {formatQuota(grant.max_total_quota)}
                               </p>
                               <p className='text-muted-foreground text-xs'>
                                 {t('Remaining successful calls')}:{' '}
@@ -754,15 +745,17 @@ function ConnectionWorkspace({
           )}
           <Field>
             <FieldLabel htmlFor='budget-limit'>
-              {t('Total spending limit')}
+              {t('Total spending limit')} ({label})
             </FieldLabel>
             <Input
               id='budget-limit'
               inputMode='decimal'
+              min={0}
+              step={step}
               required
-              value={limit}
+              value={limit.input}
               aria-invalid={budgetQuota === undefined}
-              onChange={(event) => setLimit(event.target.value)}
+              onChange={(event) => limit.setInput(event.target.value)}
             />
           </Field>
           <Button
@@ -812,8 +805,7 @@ function ConnectionWorkspace({
                   </Button>
                 </div>
                 <p className='tabular-nums'>
-                  {creditAmount(used, config.quota_per_unit)} /{' '}
-                  {creditAmount(budget.limit_quota, config.quota_per_unit)}
+                  {formatQuota(used)} / {formatQuota(budget.limit_quota)}
                 </p>
                 <progress
                   aria-label={t('Total spending limit')}

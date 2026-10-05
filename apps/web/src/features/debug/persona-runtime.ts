@@ -35,6 +35,8 @@ import { api } from '@/lib/http-client'
 import { ROLE } from '@/lib/roles'
 import type { AuthBundle, AuthUser, TrustLevelInfo } from '@/stores/auth-store'
 
+import { DEBUG_CURRENCY_STATUS } from './wallet-review-fixtures'
+
 export const DEBUG_PERSONA_IDS = ['l0', 'b', 'e', 'f', 'l1', 'admin'] as const
 export type DebugPersonaId = (typeof DEBUG_PERSONA_IDS)[number]
 
@@ -56,7 +58,10 @@ type DebugState = {
   activePersona: DebugPersonaId
   conversations: MockConversation[]
   preferences?: Partial<
-    Record<DebugPersonaId, Pick<AuthUser, 'language' | 'sidebar_modules'>>
+    Record<
+      DebugPersonaId,
+      Pick<AuthUser, 'language' | 'sidebar_modules' | 'setting'>
+    >
   >
 }
 
@@ -471,6 +476,7 @@ function installBlockedDebugFetch(): void {
       return new Response(
         JSON.stringify(
           envelope({
+            ...DEBUG_CURRENCY_STATUS,
             system_name: 'LMM Persona Lab',
             logo: '/logo.png',
             assistant: { enabled: true },
@@ -692,20 +698,49 @@ const debugAdapter: AxiosAdapter = async (config) => {
       Array.isArray(data) ||
       Object.keys(data).length === 0 ||
       Object.keys(data).some(
-        (key) => !['language', 'sidebar_modules'].includes(key)
+        (key) =>
+          !['language', 'sidebar_modules', 'wallet_display_currency'].includes(
+            key
+          )
       )
     ) {
       rejectRequest(
         config,
         400,
-        'This preview only saves language and sidebar preferences locally'
+        'This preview only saves language, balance display and sidebar preferences locally'
       )
     }
-    const preferences: Pick<AuthUser, 'language' | 'sidebar_modules'> = {}
+    const preferences: Pick<
+      AuthUser,
+      'language' | 'sidebar_modules' | 'setting'
+    > = {}
+    if (data.wallet_display_currency !== undefined) {
+      if (
+        !['', 'CREDIT', 'CNY', 'USD'].includes(
+          String(data.wallet_display_currency)
+        ) ||
+        typeof data.wallet_display_currency !== 'string'
+      ) {
+        rejectRequest(
+          config,
+          400,
+          'Invalid local preview balance display currency'
+        )
+      }
+      const settings = activeUser().setting
+      preferences.setting = JSON.stringify({
+        ...(typeof settings === 'string'
+          ? JSON.parse(settings || '{}')
+          : settings || {}),
+        wallet_display_currency: data.wallet_display_currency,
+      })
+    }
     if (data.language !== undefined) {
       if (
         typeof data.language !== 'string' ||
-        !['en', 'zh', 'zh-TW', 'fr', 'ja', 'ru', 'vi'].includes(data.language)
+        !['en', 'zh', 'zh-TW', 'zhCN', 'zhTW', 'fr', 'ja', 'ru', 'vi'].includes(
+          data.language
+        )
       ) {
         rejectRequest(config, 400, 'Invalid local preview language')
       }
@@ -995,6 +1030,7 @@ const debugAdapter: AxiosAdapter = async (config) => {
     return response(
       config,
       envelope({
+        ...DEBUG_CURRENCY_STATUS,
         system_name: 'LMM Persona Lab',
         logo: '/logo.png',
         assistant: { enabled: true },

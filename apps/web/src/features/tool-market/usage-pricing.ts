@@ -5,7 +5,6 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 import type { TFunction } from 'i18next'
 
 import type { BillingRule, MarketTool } from './api'
-import { creditAmount } from './money'
 
 export const usageMetrics = [
   {
@@ -127,17 +126,25 @@ export function maximumUsageQuota(rules: BillingRule[]): number {
 }
 export function usagePriceLabel(
   tool: Pick<MarketTool, 'billing_rules'>,
-  units: number,
+  units: number | ((quota: number) => string),
   t: TFunction
 ): string {
   return (tool.billing_rules ?? [])
     .map((r) =>
-      t('{{amount}} credits per {{unit}}', {
-        amount: creditAmount(r.rate_quota, units),
-        unit: t(
-          usageMetrics.find((m) => m.metric === r.metric)?.label ?? r.metric
-        ),
-      })
+      t(
+        typeof units === 'number'
+          ? '{{amount}} credits per {{unit}}'
+          : '{{amount}} per {{unit}}',
+        {
+          amount:
+            typeof units === 'number'
+              ? String(r.rate_quota / units)
+              : units(r.rate_quota),
+          unit: t(
+            usageMetrics.find((m) => m.metric === r.metric)?.label ?? r.metric
+          ),
+        }
+      )
     )
     .join(' + ')
 }

@@ -29,16 +29,14 @@ import {
 
 import { DEFAULT_PRICING_PAGE_SIZE, DEFAULT_TOKEN_UNIT } from '../constants'
 import type { ModelPerfBadgeData } from '../lib/model-perf'
-import type { PricingModel, TokenUnit } from '../types'
+import type { PricingModel, TokenUnit, PriceDisplayCurrency } from '../types'
 import { usePricingColumns } from './pricing-columns'
 
 export interface PricingTableProps {
   models: PricingModel[]
   isLoading?: boolean
-  priceRate?: number
-  usdExchangeRate?: number
   tokenUnit?: TokenUnit
-  showRechargePrice?: boolean
+  displayCurrency?: PriceDisplayCurrency
   selectedGroup?: string
   perfMap?: ReadonlyMap<string, ModelPerfBadgeData>
   onModelClick?: (modelName: string) => void
@@ -49,10 +47,8 @@ export function PricingTable(props: PricingTableProps) {
   const {
     models,
     isLoading = false,
-    priceRate = 1,
-    usdExchangeRate = 1,
     tokenUnit = DEFAULT_TOKEN_UNIT,
-    showRechargePrice = false,
+    displayCurrency = 'USD',
     selectedGroup,
     perfMap,
     onModelClick,
@@ -65,9 +61,7 @@ export function PricingTable(props: PricingTableProps) {
 
   const columns = usePricingColumns({
     tokenUnit,
-    priceRate,
-    usdExchangeRate,
-    showRechargePrice,
+    displayCurrency,
     selectedGroup,
     perfMap,
   })

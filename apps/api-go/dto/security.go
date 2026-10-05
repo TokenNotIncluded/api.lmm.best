@@ -90,6 +90,7 @@ type SecurityModerationPolicy struct {
 
 type SecurityModerationGroupPolicy struct {
 	Mode             string             `json:"mode"`
+	AmountCurrency   string             `json:"amount_currency"`
 	CategoryFinesUSD map[string]float64 `json:"category_fines_usd"`
 }
 

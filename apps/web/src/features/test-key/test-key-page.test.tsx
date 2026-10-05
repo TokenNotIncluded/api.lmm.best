@@ -49,6 +49,9 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
+const { useSystemConfigStore } = await import('@/stores/system-config-store')
+const { useWalletCurrencyPreferenceStore } =
+  await import('@/stores/wallet-currency-preference-store')
 const { TestKeyPage } = await import('./test-key-page')
 const { BookmarkletInstall } = await import('./bookmarklet-install')
 const i18n = createInstance()
@@ -58,6 +61,10 @@ await i18n
 const originalGet = api.get
 const originalPost = api.post
 const originalOpen = window.open
+const originalConfig = useSystemConfigStore.getState().config
+const originalPreference =
+  useWalletCurrencyPreferenceStore.getState().preference
+const cleanups = new Set<() => Promise<void>>()
 const flush = () => new Promise((resolve) => setTimeout(resolve, 25))
 const user = {
   id: 77,
@@ -66,11 +73,14 @@ const user = {
   developer_access_granted: true,
 }
 let copies: string[] = []
-afterEach(() => {
+afterEach(async () => {
+  for (const cleanup of cleanups) await cleanup()
   api.get = originalGet
   api.post = originalPost
   window.open = originalOpen
   useAuthStore.getState().auth.reset('complete')
+  useSystemConfigStore.setState({ config: originalConfig })
+  useWalletCurrencyPreferenceStore.getState().setPreference(originalPreference)
   window.localStorage.clear()
   window.sessionStorage.clear()
   document.body.replaceChildren()
@@ -84,15 +94,22 @@ async function mount(
     inactive?: boolean
     warning?: number
     component?: typeof TestKeyPage
+    displayCurrency?: '' | 'CREDIT' | 'CNY' | 'USD'
+    language?: string
+    status?: Record<string, unknown>
   } = {}
 ) {
-  useAuthStore
-    .getState()
-    .auth.setUser(
-      options.anonymous
-        ? null
-        : { ...user, developer_access_granted: !options.inactive }
-    )
+  await i18n.changeLanguage(options.language ?? 'en')
+  useWalletCurrencyPreferenceStore.getState().setPreference('')
+  useAuthStore.getState().auth.setUser(
+    options.anonymous
+      ? null
+      : {
+          ...user,
+          developer_access_granted: !options.inactive,
+          setting: { wallet_display_currency: options.displayCurrency ?? '' },
+        }
+  )
   if (options.checking) {
     useAuthStore.getState().auth.setBootstrapState('checking')
   }
@@ -125,8 +142,15 @@ async function mount(
       data: {
         success: true,
         data: {
+          currency_unit: 'credit',
+          credits_per_usd: '3359744',
+          cny_per_usd: '6.8',
+          legacy_pricing_units_per_usd: '6.719488',
           quota_per_unit: 500000,
+          quota_display_type: 'CNY',
+          usd_exchange_rate: 99,
           server_address: 'https://api.lmm.best',
+          ...options.status,
         },
       },
     }
@@ -180,9 +204,25 @@ async function mount(
   })
   await act(flush)
   const unmount = async () => {
+    cleanups.delete(unmount)
     await act(async () => root.unmount())
     client.clear()
     container.remove()
+  }
+  cleanups.add(unmount)
+  const editBudget = async (value: string) => {
+    const input = container.querySelector<HTMLInputElement>('#test-key-budget')
+    assert.ok(input)
+    const setValue = Object.getOwnPropertyDescriptor(
+      dom.HTMLInputElement.prototype,
+      'value'
+    )?.set
+    assert.ok(setValue)
+    await act(async () => {
+      setValue.call(input, value)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      await flush()
+    })
   }
   const chooseGroup = async () => {
     const select = container.querySelector('select')
@@ -203,7 +243,7 @@ async function mount(
       await flush()
     })
   }
-  return { container, posts, client, unmount, chooseGroup, submit }
+  return { container, posts, client, unmount, chooseGroup, submit, editBudget }
 }
 
 describe('test key popup', () => {
@@ -254,6 +294,7 @@ describe('test key popup', () => {
     })
     assert.equal(page.posts.length, 1)
     const payload = page.posts[0] as Record<string, unknown>
+    assert.equal(payload.remain_quota, 3359744)
     assert.equal(payload.one_time_reveal, true)
     assert.equal(payload.expired_time, -1)
     assert.equal(payload.model_limits_enabled, false)
@@ -442,6 +483,179 @@ describe('test key popup', () => {
       await flush()
     })
     assert.equal(page.container.querySelector('#test-key-secret'), null)
+    await page.unmount()
+  })
+  test('creates literal integer quota for USD, CNY and Credit budget input', async () => {
+    for (const example of [
+      {
+        displayCurrency: 'USD' as const,
+        amount: '1.25',
+        expectedQuota: 4199680,
+        label: 'USD',
+      },
+      {
+        displayCurrency: 'CNY' as const,
+        amount: '6.8',
+        expectedQuota: 3359744,
+        label: 'CNY',
+      },
+      {
+        displayCurrency: 'CREDIT' as const,
+        amount: '1',
+        expectedQuota: 1,
+        label: 'Credits',
+      },
+    ]) {
+      const page = await mount({ displayCurrency: example.displayCurrency })
+      assert.equal(
+        page.container.querySelector('label[for="test-key-budget"]')
+          ?.textContent,
+        `Spending limit (${example.label})`
+      )
+      await page.chooseGroup()
+      await page.editBudget(example.amount)
+      assert.equal(page.posts.length, 0)
+      await page.submit()
+      assert.equal(page.posts.length, 1)
+      assert.equal(
+        (page.posts[0] as Record<string, unknown>).remain_quota,
+        example.expectedQuota
+      )
+      await page.unmount()
+    }
+  })
+  test('uses the provider language for automatic budget units', async () => {
+    for (const example of [
+      { language: 'en', expectedQuota: 3359744, label: 'Spending limit (USD)' },
+      { language: 'zhCN', expectedQuota: 494080, label: '额度上限（CNY）' },
+      { language: 'zhTW', expectedQuota: 494080, label: '額度上限（CNY）' },
+    ]) {
+      const page = await mount({ language: example.language })
+      assert.equal(
+        page.container.querySelector('label[for="test-key-budget"]')
+          ?.textContent,
+        example.label
+      )
+      assert.equal(
+        page.container.querySelector<HTMLInputElement>('#test-key-budget')
+          ?.value,
+        '1'
+      )
+      await page.chooseGroup()
+      await page.submit()
+      assert.equal(page.posts.length, 1)
+      assert.equal(
+        (page.posts[0] as Record<string, unknown>).remain_quota,
+        example.expectedQuota
+      )
+      await page.unmount()
+    }
+  })
+  test('keeps one Credit through exact micro input, reactive currency, FX and language changes', async () => {
+    const page = await mount({
+      displayCurrency: 'USD',
+      status: {
+        credits_per_usd: '3400000',
+        legacy_pricing_units_per_usd: '6.8',
+      },
+    })
+    await page.chooseGroup()
+    await page.editBudget('0.000000294117647058823529411765')
+    assert.equal(page.posts.length, 0)
+    await act(async () => {
+      useAuthStore
+        .getState()
+        .auth.setUser({ ...user, setting: { wallet_display_currency: 'CNY' } })
+      await flush()
+    })
+    assert.equal(
+      page.container.querySelector<HTMLInputElement>('#test-key-budget')?.value,
+      '0.000002'
+    )
+    assert.equal(
+      page.container.querySelector('label[for="test-key-budget"]')?.textContent,
+      'Spending limit (CNY)'
+    )
+    await act(async () => {
+      useSystemConfigStore.getState().setConfig({
+        currency: {
+          ...useSystemConfigStore.getState().config.currency,
+          cnyPerUsd: 13.6,
+          cnyPerUsdExact: '13.6',
+        },
+      })
+      await flush()
+    })
+    assert.equal(
+      page.container.querySelector<HTMLInputElement>('#test-key-budget')?.value,
+      '0.000004'
+    )
+    await act(async () => {
+      useAuthStore.getState().auth.setUser({
+        ...user,
+        setting: { wallet_display_currency: 'CREDIT' },
+      })
+      await i18n.changeLanguage('zhCN')
+      await flush()
+    })
+    assert.equal(
+      page.container.querySelector<HTMLInputElement>('#test-key-budget')?.value,
+      '1'
+    )
+    assert.equal(
+      page.container.querySelector<HTMLInputElement>('#test-key-budget')?.step,
+      '1'
+    )
+    assert.equal(
+      page.container.querySelector('label[for="test-key-budget"]')?.textContent,
+      '额度上限（Credits）'
+    )
+    await page.editBudget('1.000000000000000000000000000001')
+    await page.submit()
+    assert.equal(page.posts.length, 0)
+    await page.editBudget('1')
+    await page.submit()
+    assert.equal(page.posts.length, 1)
+    assert.equal((page.posts[0] as Record<string, unknown>).remain_quota, 1)
+    await page.unmount()
+  })
+  test('rejects invalid budget values and unknown fiat metadata without creating a key', async () => {
+    for (const example of [
+      { displayCurrency: 'USD' as const, status: { credits_per_usd: 0 } },
+      {
+        displayCurrency: 'USD' as const,
+        status: {
+          currency_unit: undefined,
+          credits_per_usd: undefined,
+          cny_per_usd: undefined,
+        },
+      },
+      { displayCurrency: 'CNY' as const, status: { cny_per_usd: 0 } },
+    ]) {
+      const page = await mount(example)
+      await page.chooseGroup()
+      await page.editBudget('1')
+      await page.submit()
+      assert.equal(page.posts.length, 0)
+      assert.match(
+        page.container.textContent ?? '',
+        /Enter a positive, finite quota/
+      )
+      assert.equal(page.container.querySelector('#test-key-secret'), null)
+      await page.unmount()
+    }
+    const page = await mount({ displayCurrency: 'CREDIT' })
+    await page.chooseGroup()
+    for (const invalid of ['', '0', '-1', '1.5', '9007199254740992']) {
+      await page.editBudget(invalid)
+      await page.submit()
+      assert.equal(page.posts.length, 0)
+      assert.equal(page.container.querySelector('#test-key-secret'), null)
+    }
+    await page.editBudget('1')
+    await page.submit()
+    assert.equal(page.posts.length, 1)
+    assert.equal((page.posts[0] as Record<string, unknown>).remain_quota, 1)
     await page.unmount()
   })
   test('installs a real draggable script URL and opens a popup without a false blocked fallback', async () => {

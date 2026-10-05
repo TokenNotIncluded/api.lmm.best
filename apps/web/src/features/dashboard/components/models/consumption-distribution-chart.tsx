@@ -35,6 +35,11 @@ import type {
   ConsumptionDistributionChartType,
   QuotaDataItem,
 } from '@/features/dashboard/types'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
+import {
+  formatFiatCurrencyAmount,
+  getCurrencyFormattingLocale,
+} from '@/lib/currency'
 import { useThemeRadiusPx } from '@/lib/theme-radius'
 import type { TimeGranularity } from '@/lib/time'
 import { VCHART_OPTION } from '@/lib/vchart'
@@ -53,7 +58,25 @@ interface ConsumptionDistributionChartProps {
 export function ConsumptionDistributionChart(
   props: ConsumptionDistributionChartProps
 ) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const { currency: unit, formatQuota, quotaToAmount } = useWalletCurrency()
+  const locale = getCurrencyFormattingLocale(
+    i18n.resolvedLanguage || i18n.language
+  )
+  const currency = useMemo(
+    () => ({
+      formatQuota,
+      quotaToAmount,
+      formatAmount: (
+        amount: number,
+        options?: import('@/lib/currency').CurrencyFormatOptions
+      ) =>
+        unit === 'CREDIT'
+          ? formatQuota(Math.round(amount), options)
+          : formatFiatCurrencyAmount(amount, unit, { ...options, locale }),
+    }),
+    [formatQuota, quotaToAmount, unit, locale]
+  )
   const { resolvedTheme } = useTheme()
   const { customization } = useThemeCustomization()
   const chartRadius = useThemeRadiusPx(
@@ -98,9 +121,10 @@ export function ConsumptionDistributionChart(
         props.loading ? [] : props.data,
         timeGranularity,
         t,
-        chartRadius
+        chartRadius,
+        currency
       ),
-    [props.data, props.loading, timeGranularity, t, chartRadius]
+    [props.data, props.loading, timeGranularity, t, chartRadius, currency]
   )
   const spec = chartType === 'bar' ? chartData.spec_line : chartData.spec_area
   const specType = typeof spec?.type === 'string' ? spec.type : chartType
@@ -110,6 +134,9 @@ export function ConsumptionDistributionChart(
     props.loading ? 'loading' : 'ready',
     props.data.length,
     resolvedTheme,
+    unit,
+    locale,
+    quotaToAmount(1),
     customization.preset,
   ].join('-')
 

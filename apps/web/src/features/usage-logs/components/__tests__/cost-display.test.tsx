@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
-import { after, describe, test } from 'node:test'
+import { after, beforeEach, describe, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 import type React from 'react'
@@ -66,7 +66,11 @@ await i18n.use(initReactI18next).init({
 })
 
 const { LogCostDisplay } = await import('../log-cost-display')
-const { formatLogQuota } = await import('@/lib/format')
+const { useAuthStore } = await import('@/stores/auth-store')
+const { DEFAULT_CURRENCY_CONFIG, useSystemConfigStore } =
+  await import('@/stores/system-config-store')
+const { useWalletCurrencyPreferenceStore } =
+  await import('@/stores/wallet-currency-preference-store')
 const reactTestGlobals = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean
 }
@@ -105,6 +109,21 @@ function normalizedText(value: string | null): string {
 }
 
 describe('log cost display', () => {
+  beforeEach(async () => {
+    useAuthStore.getState().auth.setUser(null)
+    useWalletCurrencyPreferenceStore.getState().setPreference('')
+    useSystemConfigStore.getState().setConfig({
+      currency: {
+        ...DEFAULT_CURRENCY_CONFIG,
+        currencyUnit: 'credit',
+        creditsPerUsd: 3_500_000,
+        creditsPerUsdExact: '3500000',
+        cnyPerUsd: 7,
+        cnyPerUsdExact: '7',
+      },
+    })
+    await i18n.changeLanguage('en')
+  })
   after(() => {
     domWindow.close()
   })
@@ -119,7 +138,7 @@ describe('log cost display', () => {
 
     assert.equal(
       normalizedText(rendered.container.textContent).includes(
-        normalizedText(formatLogQuota(12500))
+        normalizedText('0.00357143 USD')
       ),
       true
     )
@@ -154,7 +173,7 @@ describe('log cost display', () => {
     assert.ok(subscriptionBadge)
     assert.equal(
       normalizedText(subscriptionBadge.textContent),
-      normalizedText(`Subscription (${formatLogQuota(2500)})`)
+      normalizedText('Subscription (0.00071429 USD)')
     )
     assert.ok(
       rendered.container.querySelector('[data-tool-surcharge-indicator="true"]')
@@ -175,9 +194,40 @@ describe('log cost display', () => {
     assert.ok(subscriptionBadge)
     assert.equal(
       normalizedText(subscriptionBadge.textContent),
-      normalizedText(`Subscription (${formatLogQuota(5000)})`)
+      normalizedText('Subscription (0.00142857 USD)')
     )
 
     await unmountCost(rendered)
+  })
+  test('updates mounted costs for language defaults, manual preference and FX changes', async () => {
+    await i18n.changeLanguage('zhTW')
+    const rendered = await renderCost({ quota: 3_500_000, other: null })
+    try {
+      assert.match(rendered.container.textContent ?? '', /7 CNY/)
+      await act(async () => i18n.changeLanguage('en'))
+      assert.match(rendered.container.textContent ?? '', /1 USD/)
+      await act(async () =>
+        useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
+      )
+      assert.match(rendered.container.textContent ?? '', /3,500,000 Credits/)
+      await act(async () => i18n.changeLanguage('zhCN'))
+      assert.match(rendered.container.textContent ?? '', /3,500,000 Credits/)
+      await act(async () =>
+        useWalletCurrencyPreferenceStore.getState().setPreference('CNY')
+      )
+      await act(async () =>
+        useSystemConfigStore.getState().setConfig({
+          currency: {
+            ...useSystemConfigStore.getState().config.currency,
+            cnyPerUsd: 8,
+            cnyPerUsdExact: '8',
+          },
+        })
+      )
+      assert.match(rendered.container.textContent ?? '', /8 CNY/)
+      assert.doesNotMatch(rendered.container.textContent ?? '', /Platform|\$/)
+    } finally {
+      await unmountCost(rendered)
+    }
   })
 })

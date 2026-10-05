@@ -66,7 +66,7 @@ import type {
   PlanRecord,
   UserSubscriptionRecord,
 } from '@/features/subscriptions/types'
-import { formatQuota } from '@/lib/format'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { cn } from '@/lib/utils'
 
 import { useCheckoutScope } from '../hooks/use-checkout-scope'
@@ -161,6 +161,7 @@ function ScopedSubscriptionPlansCard({
   onPurchaseSuccess,
 }: SubscriptionPlansCardProps) {
   const { t } = useTranslation()
+  const { formatQuota } = useWalletCurrency()
 
   const { isCurrent } = useCheckoutScope()
   const plansQuery = usePublicPlans()

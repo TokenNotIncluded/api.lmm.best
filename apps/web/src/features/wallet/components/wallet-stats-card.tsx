@@ -22,7 +22,7 @@ import { useTranslation } from 'react-i18next'
 
 import { IconBadge, type IconBadgeTone } from '@/components/ui/icon-badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { formatQuota } from '@/lib/format'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { cn } from '@/lib/utils'
 import {
   DEFAULT_CURRENCY_CONFIG,
@@ -47,6 +47,7 @@ interface WalletStatsCardProps {
 
 export function WalletStatsCard(props: WalletStatsCardProps) {
   const { t } = useTranslation()
+  const { formatQuota } = useWalletCurrency()
   const configuredQuotaPerUnit = useSystemConfigStore(
     (state) => state.config.currency.quotaPerUnit
   )

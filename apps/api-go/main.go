@@ -486,6 +486,15 @@ func InitResources() (returnErr error) {
 		}
 	}
 	model.InitOptionMap()
+	if migrationSession.Applies() {
+		if err := model.InitializeCreditUnits(context.Background()); err != nil {
+			return err
+		}
+	} else {
+		if err := model.VerifyCreditUnits(context.Background()); err != nil {
+			return err
+		}
+	}
 	if common.IsMasterNode && migrationSession.Applies() {
 		if err := controller.EnsureToolMarketBuiltinCatalog(context.Background()); err != nil {
 			return fmt.Errorf("failed to register built-in tool market catalog: %w", err)

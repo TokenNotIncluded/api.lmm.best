@@ -92,6 +92,7 @@ import {
   type HeroSmsFavoritePair,
 } from './sms-selection.js'
 import { useSmsPurchaseBalance } from './sms-use-purchase-balance.js'
+import { useHeroSmsCurrency } from './use-hero-sms-currency'
 
 const smsKeys = {
   countries: (service = 'all') =>
@@ -162,7 +163,10 @@ function batchFailureMessage(result: HeroSmsBatchPurchaseResult, t: Translate) {
     })
   }
   if (isSmsMinimumBalanceError(result.failure.error)) {
-    return t('Temporary SMS purchases require a balance of at least USD 10')
+    return t(
+      'Temporary SMS purchases require a balance of at least {{amount}}',
+      { amount: formatHeroSmsPlatformAmount(10) }
+    )
   }
   return t(parseHeroSmsError(result.failure.error).message)
 }
@@ -309,7 +313,8 @@ function useSmsPurchaseMutation(options: SmsPurchaseMutationOptions) {
         attempt.balance.markDenied()
         toast.error(
           attempt.t(
-            'Temporary SMS purchases require a balance of at least USD 10'
+            'Temporary SMS purchases require a balance of at least {{amount}}',
+            { amount: formatHeroSmsPlatformAmount(10) }
           )
         )
       } else {
@@ -851,6 +856,7 @@ function createSmsPanelView({
 // pi-lens-ignore: high-fan-out -- composition root delegates domain and rendering responsibilities.
 export function HeroSmsSmsActivationPanel() {
   const { t, i18n } = useTranslation()
+  const { formatPrice, minimumBalance } = useHeroSmsCurrency()
   const queryClient = useQueryClient()
   const purchaseBalance = useSmsPurchaseBalance()
   const recovery = useSmsPurchaseRecovery()
@@ -1120,7 +1126,7 @@ export function HeroSmsSmsActivationPanel() {
   const catalogError = queries.services.error ?? queries.allCountries.error
   const catalogFeedback =
     purchaseBalance.canPurchase && catalogError
-      ? describeSmsAccessError(catalogError, t)
+      ? describeSmsAccessError(catalogError, t, minimumBalance)
       : null
 
   return (
@@ -1358,7 +1364,7 @@ export function HeroSmsSmsActivationPanel() {
             quantity: view.effectiveQuantity,
             service: selectedService?.name ?? service,
             country: view.selectedCountryName,
-            price: formatHeroSmsPlatformAmount(view.totalPrice),
+            price: formatPrice(view.totalPrice),
           }
         )}
         confirmText={t('Confirm purchase')}

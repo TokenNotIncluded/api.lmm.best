@@ -15,6 +15,7 @@ import { HugeiconsIcon } from '@hugeicons/react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { cn } from '@/lib/utils'
 
 import { getAssistantJourney, type AssistantJourneyStepId } from './api'
@@ -26,7 +27,7 @@ const journeyLabels: Record<AssistantJourneyStepId, string> = {
   install_client: 'Install a client',
   configure_client: 'Configure the API key',
   first_api_call: 'Complete a real API call',
-  earn_ai_gift: 'Chat with AI to earn a $0–$10 (Platform) new-user gift',
+  earn_ai_gift: 'Chat with AI to earn a new-user gift',
   accept_bounty: 'Accept an open-source bounty',
 }
 
@@ -34,6 +35,7 @@ export function AssistantJourneyProgress(props: {
   presentation?: 'page' | 'popover'
 }) {
   const { t } = useTranslation()
+  const money = useWalletCurrency()
   const journeyQuery = useQuery({
     queryKey: ['assistant-journey'],
     queryFn: getAssistantJourney,
@@ -114,7 +116,11 @@ export function AssistantJourneyProgress(props: {
                         complete || failed ? 'line-through opacity-70' : ''
                       }
                     >
-                      {t(journeyLabels[step.id])}
+                      {step.id === 'earn_ai_gift'
+                        ? t('Chat with AI to earn a {{range}} new-user gift', {
+                            range: `${money.formatQuota(0)}–${money.formatQuota(money.legacyAmountToQuota(10))}`,
+                          })
+                        : t(journeyLabels[step.id])}
                     </span>
                   </li>
                 )

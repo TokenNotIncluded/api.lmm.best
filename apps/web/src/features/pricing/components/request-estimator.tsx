@@ -150,11 +150,7 @@ export function RequestEstimator(props: ModelDetailsContentProps) {
       <p className='text-2xl font-semibold tabular-nums' aria-live='polite'>
         {amount === null
           ? t('Estimate unavailable')
-          : formatModelPrice(
-              amount,
-              props.showRechargePrice ?? false,
-              props.priceRate
-            )}
+          : formatModelPrice(amount, props.displayCurrency ?? 'USD')}
       </p>
       <details className='group/estimate'>
         <summary className='text-muted-foreground hover:text-foreground cursor-pointer list-none text-xs'>

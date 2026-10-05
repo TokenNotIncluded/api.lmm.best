@@ -329,7 +329,7 @@ describe('persona debug runtime', () => {
         { quota: 999999999 },
         { skipErrorHandler: true }
       ),
-      /only saves language and sidebar preferences locally/
+      /only saves language, balance display and sidebar preferences locally/
     )
     resetPersonaDebugRuntime()
     setActiveDebugPersona('l1')
@@ -337,6 +337,47 @@ describe('persona debug runtime', () => {
       (await api.get('/api/user/self')).data.data.language,
       undefined
     )
+  })
+
+  test('reviews real currency denominations and isolates balance display preferences', async () => {
+    setActiveDebugPersona('l1')
+    const status = (await api.get('/api/status')).data.data
+    assert.equal(status.currency_unit, 'credit')
+    assert.equal(status.credits_per_usd, 3500000)
+    assert.equal(status.cny_per_usd, 7)
+    const before = (await api.get('/api/user/self')).data.data
+    for (const currency of ['CNY', 'USD', 'CREDIT', '']) {
+      await api.put('/api/user/self', { wallet_display_currency: currency })
+      const after = (await api.get('/api/user/self')).data.data
+      assert.equal(JSON.parse(after.setting).wallet_display_currency, currency)
+      assert.equal(after.quota, before.quota)
+      assert.equal(
+        after.developer_access_granted,
+        before.developer_access_granted
+      )
+    }
+    await api.put('/api/user/self', { wallet_display_currency: 'CNY' })
+    setActiveDebugPersona('b')
+    const other = (await api.get('/api/user/self')).data.data
+    assert.notEqual(
+      JSON.parse(other.setting || '{}').wallet_display_currency,
+      'CNY'
+    )
+    await assert.rejects(
+      api.put(
+        '/api/user/self',
+        { wallet_display_currency: 'TOKENS' },
+        { skipErrorHandler: true }
+      ),
+      /Invalid local preview balance display currency/
+    )
+    setActiveDebugPersona('l1')
+    assert.equal(
+      JSON.parse((await api.get('/api/user/self')).data.data.setting)
+        .wallet_display_currency,
+      'CNY'
+    )
+    resetPersonaDebugRuntime()
   })
 
   test('blocks unmocked axios and fetch API traffic', async () => {

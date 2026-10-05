@@ -23,6 +23,20 @@ import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
+  validateDiscountCode,
+  calculateAmount,
+  calculateStripeAmount,
+  calculateWaffoAmount,
+  calculateWaffoPancakeAmount,
+  calculateCreditAmount,
+  calculateCreditStripeAmount,
+  calculateCreditWaffoAmount,
+  calculateCreditPancakeAmount,
+  validateCreditDiscountCode,
+  requestCreditPayment,
+  requestCreditStripePayment,
+  requestCreditWaffoPayment,
+  requestCreditPancakePayment,
   requestPayment,
   requestStripePayment,
   requestCreemPayment,
@@ -94,21 +108,21 @@ test('sendAffiliateInvitation posts only the recipient to the SMTP-backed route'
   assert.equal(capturedConfig?.skipBusinessError, true)
 })
 
-test('all five gateways bind the server order before returning to redirect hooks', async () => {
+test('canonical money gateways and Creem bind the server order before returning to redirect hooks', async () => {
   useAuthStore.getState().auth.setUser({ id: 7, username: 'test', role: 1 })
   const calls = [
-    () => requestPayment({ amount: 10, payment_method: 'alipay' }),
-    () => requestStripePayment({ amount: 10, payment_method: 'stripe' }),
+    () => requestCreditPayment({ amount: 1, payment_method: 'alipay' }),
+    () => requestCreditStripePayment({ amount: 1, payment_method: 'stripe' }),
     () =>
       requestCreemPayment({
         product_id: 'test-product',
         payment_method: 'creem',
       }),
-    () => requestWaffoPayment({ amount: 10 }),
-    () => requestWaffoPancakePayment({ amount: 10 }),
+    () => requestCreditWaffoPayment({ amount: 1 }),
+    () => requestCreditPancakePayment({ amount: 1 }),
   ]
   for (const [index, invoke] of calls.entries()) {
-    const intent = prepareTopup(7, 0, 10)
+    const intent = prepareTopup(7, 0, 1)
     const order = `gateway-order-${index}`
     api.post = (async () => ({
       data: { success: true, data: { trade_no: order } },
@@ -124,7 +138,7 @@ test('all five gateways bind the server order before returning to redirect hooks
 
 test('a late gateway response cannot bind a receipt after account switch', async () => {
   useAuthStore.getState().auth.setUser({ id: 7, username: 'first', role: 1 })
-  prepareTopup(7, 0, 10)
+  prepareTopup(7, 0, 1)
   let resolve!: (response: {
     data: { success: boolean; trade_no: string }
   }) => void
@@ -134,10 +148,262 @@ test('a late gateway response cannot bind a receipt after account switch', async
     }
   )
   api.post = (() => delayed) as typeof api.post
-  const response = requestPayment({ amount: 10, payment_method: 'alipay' })
+  const response = requestCreditPayment({ amount: 1, payment_method: 'alipay' })
   useAuthStore.getState().auth.setUser({ id: 8, username: 'second', role: 1 })
   resolve({ data: { success: true, trade_no: 'first-users-order' } })
   await response
   assert.equal(readPendingTopups(7)[0]?.tradeNo, undefined)
   assert.deepEqual(readPendingTopups(8), [])
 })
+
+test('quote and checkout keep fractional legacy batches explicit, with the payment ISO unchanged', async () => {
+  const captured: Array<{ url: string; body: Record<string, unknown> }> = []
+  api.post = (async (url: string, body: Record<string, unknown>) => {
+    captured.push({ url, body })
+    return { data: { success: true, data: '0.01' } }
+  }) as typeof api.post
+  const amount = 0.000002 // Exactly one raw Credit at QPU=500000.
+  await calculateAmount({ amount, payment_method: 'alipay' })
+  await calculateStripeAmount({ amount })
+  await calculateWaffoAmount({ amount })
+  await calculateWaffoPancakeAmount({ amount })
+  await requestPayment({ amount, payment_method: 'alipay' })
+  await requestStripePayment({ amount, payment_method: 'stripe' })
+  await requestWaffoPayment({ amount })
+  await requestWaffoPancakePayment({
+    amount,
+    settlement_amount: '0.01',
+    settlement_currency: 'USD',
+  })
+  assert.equal(captured.length, 8)
+  for (const call of captured) {
+    assert.equal(call.body.amount, 0.000002, call.url)
+    assert.equal(call.body.amount_unit, 'LEGACY', call.url)
+  }
+  assert.equal(captured.at(-1)?.body.settlement_amount, '0.01')
+  assert.equal(captured.at(-1)?.body.settlement_currency, 'USD')
+})
+
+test('discount validation uses the same fractional batch unit as quote and checkout', async () => {
+  let body: unknown
+  api.post = (async (_url: string, request: unknown) => {
+    body = request
+    return {
+      data: {
+        success: true,
+        data: { code: 'SAVE', discount_percent: 10, min_amount: 3500000 },
+      },
+    }
+  }) as typeof api.post
+  await validateDiscountCode({
+    code: 'SAVE',
+    amount: 7.3,
+    payment_method: 'card',
+  })
+  assert.deepEqual(body, {
+    code: 'SAVE',
+    amount: 7.3,
+    payment_method: 'card',
+    amount_unit: 'LEGACY',
+  })
+})
+
+const creditRoutes = [
+  {
+    path: '/api/user/topup/currency/amount',
+    invoke: (amount: number) =>
+      calculateCreditAmount({ amount, payment_method: 'alipay' }),
+  },
+  {
+    path: '/api/user/topup/currency/stripe/amount',
+    invoke: (amount: number) => calculateCreditStripeAmount({ amount }),
+  },
+  {
+    path: '/api/user/topup/currency/waffo/amount',
+    invoke: (amount: number) => calculateCreditWaffoAmount({ amount }),
+  },
+  {
+    path: '/api/user/topup/currency/waffo-pancake/amount',
+    invoke: (amount: number) => calculateCreditPancakeAmount({ amount }),
+  },
+  {
+    path: '/api/user/topup/currency/discount-code/validate',
+    invoke: (amount: number) =>
+      validateCreditDiscountCode({
+        amount,
+        code: 'SAVE',
+        payment_method: 'card',
+      }),
+  },
+  {
+    path: '/api/user/topup/currency/pay',
+    invoke: (amount: number) =>
+      requestCreditPayment({ amount, payment_method: 'alipay' }),
+  },
+  {
+    path: '/api/user/topup/currency/stripe/pay',
+    invoke: (amount: number) =>
+      requestCreditStripePayment({ amount, payment_method: 'stripe' }),
+  },
+  {
+    path: '/api/user/topup/currency/waffo/pay',
+    invoke: (amount: number) => requestCreditWaffoPayment({ amount }),
+  },
+  {
+    path: '/api/user/topup/currency/waffo-pancake/pay',
+    invoke: (amount: number) => requestCreditPancakePayment({ amount }),
+  },
+] as const
+
+for (const amount of [
+  1,
+  4503599627370497,
+  9007199254740987,
+  Number.MAX_SAFE_INTEGER,
+]) {
+  test(`all nine CREDIT routes preserve raw ${amount} as an exact JSON integer`, async () => {
+    const captured: Array<{
+      url: string
+      body: Record<string, unknown>
+      wire: string
+    }> = []
+    api.post = (async (url: string, body: Record<string, unknown>) => {
+      const wire = JSON.stringify(body)
+      captured.push({ url, body: JSON.parse(wire), wire })
+      return { data: { success: true, data: '0.01' } }
+    }) as typeof api.post
+    for (const route of creditRoutes) await route.invoke(amount)
+
+    assert.deepEqual(
+      captured.map((call) => call.url),
+      creditRoutes.map((route) => route.path)
+    )
+    for (const call of captured) {
+      assert.equal(typeof call.body.amount, 'number', call.url)
+      assert.equal(call.body.amount, amount, call.url)
+      assert.ok(Number.isSafeInteger(call.body.amount), call.url)
+      assert.equal(call.body.amount_unit, 'CREDIT', call.url)
+      assert.match(call.wire, new RegExp(`"amount":${amount}(?:,|})`), call.url)
+    }
+    assert.equal(captured[0].body.payment_method, 'alipay')
+    assert.deepEqual(captured[4].body, {
+      amount,
+      code: 'SAVE',
+      payment_method: 'card',
+      amount_unit: 'CREDIT',
+    })
+    assert.equal(captured[5].body.payment_method, 'alipay')
+    assert.equal(captured[6].body.payment_method, 'stripe')
+  })
+}
+
+test('all nine CREDIT routes reject nonpositive, fractional and unsafe amounts before HTTP', async () => {
+  let calls = 0
+  api.post = (async () => {
+    calls++
+    throw new Error('Invalid amount reached HTTP')
+  }) as typeof api.post
+  for (const route of creditRoutes) {
+    for (const amount of [
+      0,
+      -1,
+      0.000002,
+      1.5,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+      Number.MAX_SAFE_INTEGER + 1,
+      Number.MAX_VALUE,
+    ]) {
+      await assert.rejects(
+        () => route.invoke(amount),
+        /Invalid top-up amount/,
+        route.path
+      )
+    }
+  }
+  assert.equal(calls, 0)
+})
+
+test('a missing CREDIT route surfaces HTTP 404 without falling back to a legacy money route', async () => {
+  const captured: string[] = []
+  const notFound = { isAxiosError: true, response: { status: 404 } }
+  api.post = (async (url: string) => {
+    captured.push(url)
+    throw notFound
+  }) as typeof api.post
+  for (const route of creditRoutes) {
+    await assert.rejects(
+      () => route.invoke(1),
+      (error) => error === notFound,
+      route.path
+    )
+  }
+  assert.deepEqual(
+    captured,
+    creditRoutes.map((route) => route.path)
+  )
+})
+
+for (const currency of ['CNY', 'USD'] as const) {
+  test(`canonical Pancake checkout preserves the quoted ${currency} decimal and binds its order`, async () => {
+    useAuthStore.getState().auth.setUser({ id: 7, username: 'test', role: 1 })
+    const intent = prepareTopup(7, 0, 1)
+    const captured: Array<{ url: string; body: unknown }> = []
+    const quoteResponse = {
+      success: true,
+      data: '0.0100',
+      settlement_currency: currency,
+      original_settlement_amount: '0.0200',
+      savings_settlement_amount: '0.0100',
+      credited_quota: 1,
+    }
+    api.post = (async (url: string, body: unknown) => {
+      captured.push({ url, body })
+      return {
+        data: url.endsWith('/amount')
+          ? quoteResponse
+          : {
+              success: true,
+              data: { trade_no: `credit-${currency}-order` },
+            },
+      }
+    }) as typeof api.post
+    const quote = await calculateCreditPancakeAmount({
+      amount: 1,
+      discount_code: 'SAVE',
+    })
+    assert.deepEqual(quote, quoteResponse)
+    await requestCreditPancakePayment({
+      amount: 1,
+      discount_code: 'SAVE',
+      settlement_amount: quote.data,
+      settlement_currency: currency,
+    })
+    assert.deepEqual(captured, [
+      {
+        url: '/api/user/topup/currency/waffo-pancake/amount',
+        body: {
+          amount: 1,
+          discount_code: 'SAVE',
+          amount_unit: 'CREDIT',
+        },
+      },
+      {
+        url: '/api/user/topup/currency/waffo-pancake/pay',
+        body: {
+          amount: 1,
+          discount_code: 'SAVE',
+          settlement_amount: '0.0100',
+          settlement_currency: currency,
+          amount_unit: 'CREDIT',
+        },
+      },
+    ])
+    assert.equal(
+      readPendingTopups(7).find((entry) => entry.attemptId === intent.attemptId)
+        ?.tradeNo,
+      `credit-${currency}-order`
+    )
+  })
+}

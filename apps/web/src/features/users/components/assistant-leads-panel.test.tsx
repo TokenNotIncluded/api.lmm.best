@@ -57,6 +57,10 @@ const { QueryClient, QueryClientProvider } =
   await import('@tanstack/react-query')
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
+const { DEFAULT_CURRENCY_CONFIG, useSystemConfigStore } =
+  await import('@/stores/system-config-store')
+const { useWalletCurrencyPreferenceStore } =
+  await import('@/stores/wallet-currency-preference-store')
 const { api } = await import('@/lib/api')
 const { AssistantLeadsPanel } = await import('./assistant-leads-panel')
 
@@ -106,6 +110,19 @@ after(() => domWindow.close())
 
 describe('AssistantLeadsPanel', () => {
   test('prioritizes pending work and moves a completed task to history', async () => {
+    useSystemConfigStore.getState().setConfig({
+      currency: {
+        ...DEFAULT_CURRENCY_CONFIG,
+        currencyUnit: 'credit',
+        creditsPerUsd: 3000000,
+        creditsPerUsdExact: '3000000',
+        cnyPerUsd: 7.2,
+        cnyPerUsdExact: '7.2',
+        legacyPricingUnitsPerUsd: 30,
+        quotaPerUnit: 100000,
+      },
+    })
+    useWalletCurrencyPreferenceStore.getState().setPreference('USD')
     let pending = [
       {
         id: 1,
@@ -325,8 +342,24 @@ describe('AssistantLeadsPanel', () => {
     assert.match(container.textContent ?? '', /Insufficient signals: 2/)
     assert.match(container.textContent ?? '', /Guided buyer: 3/)
     assert.match(container.textContent ?? '', /AI usage and cost/)
-    assert.match(container.textContent ?? '', /\$0\.003/)
+    assert.match(container.textContent ?? '', /0\.0001 USD/)
+    assert.match(container.textContent ?? '', /0\.0333 USD/)
     assert.match(container.textContent ?? '', /100,000 Remaining quota units/)
+
+    await act(async () => {
+      useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <I18nextProvider i18n={i18n}>
+            <AssistantLeadsPanel />
+          </I18nextProvider>
+        </QueryClientProvider>
+      )
+      await flushQueries()
+    })
+    assert.match(container.textContent ?? '', /300 Credits/)
+    assert.match(container.textContent ?? '', /100,000 Credits/)
+    assert.doesNotMatch(container.textContent ?? '', /USD|\$0\.003/)
 
     await act(async () => {
       findButton('Resolved history').click()

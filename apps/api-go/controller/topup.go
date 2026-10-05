@@ -106,19 +106,30 @@ func parseRequestedTopUpAmount(value float64) (decimal.Decimal, error) {
 }
 
 // topUpOrderAmountsDecimal snapshots fractional platform units without float-derived authority.
-func topUpOrderAmountsDecimal(requestedAmount decimal.Decimal) (storedAmount int64, platformAmountMicros int64, creditedQuota int64, err error) {
+func topUpOrderAmountsDecimal(requestedAmount decimal.Decimal) (int64, int64, int64, error) {
+	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
+		if !validQuotaPerUnit() {
+			return 0, 0, 0, errors.New("充值额度配置无效")
+		}
+		integer, err := validateCreditedQuota(requestedAmount)
+		if err != nil {
+			return 0, 0, 0, err
+		}
+		return topUpOrderAmountsResolved(resolvedTopUpAmount{LegacyBatch: requestedAmount.Div(decimal.NewFromFloat(common.QuotaPerUnit)), CreditedQuota: int64(integer)})
+	}
+	return topUpOrderAmountsLegacyDecimal(requestedAmount)
+}
+
+func topUpOrderAmountsLegacyDecimal(requestedAmount decimal.Decimal) (storedAmount int64, platformAmountMicros int64, creditedQuota int64, err error) {
+	if !validQuotaPerUnit() {
+		return 0, 0, 0, errors.New("充值额度配置无效")
+	}
 	if !requestedAmount.IsPositive() {
 		return 0, 0, 0, errors.New("充值数量无效")
 	}
 	platformAmount := requestedAmount
 	credited := requestedAmount.Mul(decimal.NewFromFloat(common.QuotaPerUnit))
-	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
-		if !validQuotaPerUnit() {
-			return 0, 0, 0, errors.New("充值额度配置无效")
-		}
-		platformAmount = requestedAmount.Div(decimal.NewFromFloat(common.QuotaPerUnit))
-		credited = requestedAmount
-	}
+
 	storedAmount, ok := decimalInt64Truncated(platformAmount)
 	if !ok {
 		return 0, 0, 0, errors.New("充值数量超出系统可表示范围")
@@ -178,7 +189,7 @@ func GetTopUpInfo(c *gin.Context) {
 	subscriptionAvailability := subscriptionPaymentAvailabilityForUser(user, complianceConfirmed, time.Now())
 	pancakeCurrency := userSettlementCurrency(user, settlementLanguageHint(c))
 	if model.IsPaymentRestricted(user) && !gatewayAvailability.hasPayment() && !subscriptionAvailability.hasPayment() {
-		common.ApiSuccess(c, neutralTopUpInfo{
+		common.ApiSuccess(c, neutralTopUpInfo{AmountUnit: topUpRequestUnit(""), CurrencyUnit: "credit", LegacyAmountUnit: "LEGACY", LegacyAmountOptions: []float64{}, LegacyDiscount: map[string]float64{},
 			DeveloperAccessGranted:         access.Granted,
 			ActivationRequired:             !access.Granted,
 			PaymentAvailable:               false,
@@ -197,7 +208,7 @@ func GetTopUpInfo(c *gin.Context) {
 	}
 	if !access.Granted {
 		paymentAvailable, minPayment := neutralTopUpAvailability(gatewayAvailability)
-		common.ApiSuccess(c, neutralTopUpInfo{
+		common.ApiSuccess(c, withTopUpPublicCreditMetadata(neutralTopUpInfo{AmountUnit: topUpRequestUnit(""), CurrencyUnit: "credit", LegacyAmountUnit: "LEGACY", LegacyAmountOptions: legacyTopUpPresetOptions(), LegacyDiscount: legacyTopUpDiscountOptions(),
 			DeveloperAccessGranted:         false,
 			ActivationRequired:             true,
 			PaymentAvailable:               paymentAvailable,
@@ -230,7 +241,7 @@ func GetTopUpInfo(c *gin.Context) {
 			TopUpLink:                     common.TopUpLink,
 			PaymentComplianceConfirmed:    complianceConfirmed,
 			PaymentComplianceTermsVersion: operation_setting.CurrentComplianceTermsVersion,
-		})
+		}))
 		return
 	}
 
@@ -244,6 +255,11 @@ func GetTopUpInfo(c *gin.Context) {
 
 	data := gin.H{
 		"developer_access_granted":          true,
+		"amount_unit":                       topUpRequestUnit(""),
+		"legacy_amount_unit":                "LEGACY",
+		"legacy_amount_options":             legacyTopUpPresetOptions(),
+		"legacy_discount":                   legacyTopUpDiscountOptions(),
+		"currency_unit":                     "credit",
 		"enable_online_topup":               gatewayAvailability.Online,
 		"enable_stripe_topup":               gatewayAvailability.Stripe,
 		"enable_creem_topup":                gatewayAvailability.Creem,
@@ -275,10 +291,15 @@ func GetTopUpInfo(c *gin.Context) {
 		"discount":                operation_setting.GetPaymentSetting().AmountDiscount,
 		"topup_link":              common.TopUpLink,
 	}
-	common.ApiSuccess(c, data)
+	common.ApiSuccess(c, withTopUpPublicCreditMetadata(data))
 }
 
 type neutralTopUpInfo struct {
+	LegacyAmountUnit               string              `json:"legacy_amount_unit"`
+	LegacyAmountOptions            []float64           `json:"legacy_amount_options"`
+	LegacyDiscount                 map[string]float64  `json:"legacy_discount"`
+	AmountUnit                     string              `json:"amount_unit"`
+	CurrencyUnit                   string              `json:"currency_unit"`
 	DeveloperAccessGranted         bool                `json:"developer_access_granted"`
 	ActivationRequired             bool                `json:"activation_required"`
 	PaymentAvailable               bool                `json:"payment_available"`
@@ -472,6 +493,26 @@ func sanitizedPaymentMethods(methods []map[string]string) []map[string]string {
 		// from configuration or inferred from the method's settlement rate.
 		if maximum, configured, err := paymentMethodMaxTopUpAmount(public["type"]); err == nil && configured {
 			public["max_topup_amount"] = maximum.String()
+			public["max_topup_amount_unit"] = topUpRequestUnit("")
+			legacyMaximum := maximum
+			if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens && validQuotaPerUnit() {
+				legacyMaximum = maximum.Div(decimal.NewFromFloat(common.QuotaPerUnit))
+			}
+			public["legacy_max_topup_amount"] = legacyMaximum.String()
+		}
+		if rawMinimum := strings.TrimSpace(public["min_topup"]); rawMinimum != "" {
+			minimum, configured, err := configuredPaymentMethodMinTopUp(public["type"])
+			if err == nil && configured {
+				public["min_topup_unit"] = "USD"
+				if legacy, err := common.USDToLegacyAmount(minimum); err == nil {
+					public["legacy_min_topup"] = legacy.String()
+				}
+			} else if err == nil {
+				public["min_topup_unit"] = "LEGACY"
+				if minimum, err := decimal.NewFromString(rawMinimum); err == nil && !minimum.IsNegative() {
+					public["legacy_min_topup"] = minimum.String()
+				}
+			}
 		}
 		hasExplicitPricing := strings.TrimSpace(public["platform_units_per_usd"]) != "" ||
 			strings.TrimSpace(public["settlement_units_per_usd"]) != "" ||
@@ -598,14 +639,16 @@ func getTopupUserGroup(id int) (string, error) {
 
 type EpayRequest struct {
 	Amount        float64 `json:"amount"`
+	AmountUnit    string  `json:"amount_unit,omitempty"`
 	PaymentMethod string  `json:"payment_method"`
 	DiscountCode  string  `json:"discount_code,omitempty"`
 }
 
 type AmountRequest struct {
-	Amount        int64  `json:"amount"`
-	PaymentMethod string `json:"payment_method"`
-	DiscountCode  string `json:"discount_code,omitempty"`
+	Amount        float64 `json:"amount"`
+	AmountUnit    string  `json:"amount_unit,omitempty"`
+	PaymentMethod string  `json:"payment_method"`
+	DiscountCode  string  `json:"discount_code,omitempty"`
 }
 
 func GetEpayClient() *epay.Client {
@@ -626,7 +669,16 @@ var positiveDecimalPattern = regexp.MustCompile(`^[0-9]+(?:\.[0-9]+)?$`)
 var nonNegativeDecimalPattern = regexp.MustCompile(`^[0-9]+(?:\.[0-9]+)?$`)
 var settlementUnitPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,16}$`)
 
-func parsePayRequest(c *gin.Context, amount *float64, paymentMethod, discountCode *string) error {
+func parsePayRequest(c *gin.Context, amount *float64, paymentMethod, discountCode *string, amountUnits ...*string) error {
+	var amountUnit *string
+	if len(amountUnits) > 0 {
+		amountUnit = amountUnits[0]
+	}
+	if amountUnit != nil {
+		if value, ok := c.Get("parsed_amount_unit"); ok {
+			*amountUnit, _ = value.(string)
+		}
+	}
 	if value, exists := c.Get("parsed_amount"); exists {
 		if parsed, ok := value.(float64); ok && parsed > 0 {
 			*amount = parsed
@@ -642,16 +694,30 @@ func parsePayRequest(c *gin.Context, amount *float64, paymentMethod, discountCod
 			*discountCode = parsed
 		}
 	}
-	if *amount > 0 && *paymentMethod != "" {
+	if *amount > 0 && *paymentMethod != "" && amountUnit == nil {
 		return nil
 	}
 
 	var request struct {
 		Amount        float64 `json:"amount" form:"amount"`
+		AmountUnit    string  `json:"amount_unit" form:"amount_unit"`
 		PaymentMethod string  `json:"payment_method" form:"payment_method"`
 		DiscountCode  string  `json:"discount_code" form:"discount_code"`
 	}
-	_ = c.ShouldBind(&request)
+	if c.ContentType() == "application/json" {
+		_ = bindTopUpRequest(c, &request)
+	} else {
+		_ = c.ShouldBind(&request)
+	}
+	if amountUnit != nil && *amountUnit == "" {
+		*amountUnit = request.AmountUnit
+		if *amountUnit == "" {
+			*amountUnit = c.PostForm("amount_unit")
+		}
+		if *amountUnit == "" {
+			*amountUnit = c.Query("amount_unit")
+		}
+	}
 	if *amount <= 0 && request.Amount > 0 {
 		*amount = request.Amount
 	}
@@ -735,6 +801,7 @@ type payMethodSettlementPricing struct {
 	settlementUnitsPerUSD              decimal.Decimal
 	settlementUnitsPerPlatformUnit     decimal.Decimal
 	usesSettlementUnitsPerPlatformUnit bool
+	usesFixedCreditDenomination        bool
 }
 
 func parsePositivePaymentRate(paymentMethod, field, raw string) (decimal.Decimal, error) {
@@ -748,14 +815,8 @@ func parsePositivePaymentRate(paymentMethod, field, raw string) (decimal.Decimal
 	return rate, nil
 }
 
-// configuredPlatformUnitsPerUSD derives the purchase rate from two independent
-// global facts:
-//
-//   - USDExchangeRate: real CNY per fiat USD
-//   - TopUpPlatformUnitsPerCNY: platform units bought by one CNY
-//
-// Display mode is deliberately irrelevant. Platform units are accounting
-// credits, not fiat USD, even when the UI uses a dollar-like symbol.
+// configuredPlatformUnitsPerUSD is the immutable compatibility batch ratio K/QPU.
+// Current FX and recharge discounts never redefine credit purchasing power.
 func configuredPlatformUnitsPerUSD() (decimal.Decimal, error) {
 	rates, err := paymentpricing.CurrentRates()
 	if err != nil {
@@ -783,8 +844,9 @@ func standardSettlementPricing(settlementCurrency string) (payMethodSettlementPr
 		return payMethodSettlementPricing{}, fmt.Errorf("unsupported standard settlement currency %q", settlementCurrency)
 	}
 	return payMethodSettlementPricing{
-		platformUnitsPerUSD:   platformUnitsPerUSD,
-		settlementUnitsPerUSD: settlementUnitsPerUSD,
+		platformUnitsPerUSD:         platformUnitsPerUSD,
+		settlementUnitsPerUSD:       settlementUnitsPerUSD,
+		usesFixedCreditDenomination: true,
 	}, nil
 }
 
@@ -933,14 +995,29 @@ func quoteTopUpWithSettlementPricing(amount int64, group string, pricing payMeth
 }
 
 func quoteTopUpDecimalWithSettlementPricing(requestedAmount decimal.Decimal, group string, pricing payMethodSettlementPricing, dPaymentRatio decimal.Decimal) (decimal.Decimal, error) {
-	dAmount := requestedAmount
-	// 充值金额以“展示类型”为准：
-	// - USD/CNY: 前端传 amount 为金额单位；TOKENS: 前端传 tokens，需要换成 USD 金额
+	discountAmount := requestedAmount
 	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
-		dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
-		dAmount = dAmount.Div(dQuotaPerUnit)
+		if !validQuotaPerUnit() {
+			return decimal.Zero, errors.New("充值额度配置无效")
+		}
+		requestedAmount = requestedAmount.Div(decimal.NewFromFloat(common.QuotaPerUnit))
 	}
+	return quoteTopUpLegacyDecimalWithDiscountAmount(requestedAmount, discountAmount, group, pricing, dPaymentRatio)
+}
 
+func quoteTopUpLegacyDecimalWithSettlementPricing(requestedAmount decimal.Decimal, group string, pricing payMethodSettlementPricing, dPaymentRatio decimal.Decimal) (decimal.Decimal, error) {
+	return quoteTopUpLegacyDecimalWithDiscountAmount(requestedAmount, topUpConfigAmountFromLegacy(requestedAmount), group, pricing, dPaymentRatio)
+}
+
+func quoteTopUpLegacyDecimalWithDiscountAmount(requestedAmount, discountAmount decimal.Decimal, group string, pricing payMethodSettlementPricing, dPaymentRatio decimal.Decimal) (decimal.Decimal, error) {
+	settlementAmount, err := settlementAmountForPlatformAmount(requestedAmount, pricing)
+	if err != nil {
+		return decimal.Zero, err
+	}
+	return applyTopUpSettlementRatios(settlementAmount, discountAmount, group, dPaymentRatio), nil
+}
+
+func applyTopUpSettlementRatios(settlementAmount, discountAmount decimal.Decimal, group string, dPaymentRatio decimal.Decimal) decimal.Decimal {
 	topupGroupRatio := common.GetTopupGroupRatio(group)
 	if topupGroupRatio == 0 {
 		topupGroupRatio = 1
@@ -949,8 +1026,8 @@ func quoteTopUpDecimalWithSettlementPricing(requestedAmount decimal.Decimal, gro
 	dTopupGroupRatio := decimal.NewFromFloat(topupGroupRatio)
 	// apply optional preset discount by the original request amount (if configured), default 1.0
 	discount := 1.0
-	if requestedAmount.Equal(requestedAmount.Truncate(0)) && requestedAmount.IsInteger() {
-		if key, ok := decimalInt64Truncated(requestedAmount); ok {
+	if discountAmount.Equal(discountAmount.Truncate(0)) && discountAmount.IsInteger() {
+		if key, ok := decimalInt64Truncated(discountAmount); ok {
 			if ds, exists := operation_setting.GetPaymentSetting().AmountDiscount[int(key)]; exists && ds > 0 {
 				discount = ds
 			}
@@ -958,15 +1035,11 @@ func quoteTopUpDecimalWithSettlementPricing(requestedAmount decimal.Decimal, gro
 	}
 	dDiscount := decimal.NewFromFloat(discount)
 
-	settlementAmount, err := settlementAmountForPlatformAmount(dAmount, pricing)
-	if err != nil {
-		return decimal.Zero, err
-	}
 	return settlementAmount.
 		Mul(dTopupGroupRatio).
 		Mul(dPaymentRatio).
 		Mul(dDiscount).
-		Round(2), nil
+		Round(2)
 }
 
 func getMinTopup() int64 {
@@ -1082,24 +1155,25 @@ func rejectInvalidTopUpQuota(c *gin.Context, userId int, amount int64) bool {
 
 func RequestEpay(c *gin.Context) {
 	var req EpayRequest
-	if err := parsePayRequest(c, &req.Amount, &req.PaymentMethod, &req.DiscountCode); err != nil {
+	if err := parsePayRequest(c, &req.Amount, &req.PaymentMethod, &req.DiscountCode, &req.AmountUnit); err != nil {
 		logger.LogWarn(c.Request.Context(), fmt.Sprintf("Epay 参数解包失败 error=%q", err.Error()))
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": fmt.Sprintf("参数错误: %s", err.Error())})
 		return
 	}
-	requestedAmount, err := parseRequestedTopUpAmount(req.Amount)
+	resolvedAmount, err := resolveTopUpRequestAmount(c, req.Amount, req.AmountUnit)
+	requestedAmount := resolvedAmount.LegacyBatch
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": err.Error()})
 		return
 	}
-	if requestedAmount.LessThan(decimal.NewFromInt(getMinTopup())) {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": fmt.Sprintf("充值数量不能小于 %d", getMinTopup())})
+	if requestedAmount.LessThan(decimal.NewFromInt(int64(operation_setting.MinTopUp))) {
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": fmt.Sprintf("充值数量不能小于 %d", int64(operation_setting.MinTopUp))})
 		return
 	}
 	if !requirePaymentMethodAvailable(c, req.PaymentMethod) {
 		return
 	}
-	if !requirePaymentMethodTopUpDecimalWithinLimit(c, req.PaymentMethod, requestedAmount) {
+	if !requirePaymentMethodCreditedQuotaWithinLimit(c, req.PaymentMethod, resolvedAmount.CreditedQuota) {
 		return
 	}
 	settlementCurrency, err := getPayMethodSettlementUnit(req.PaymentMethod)
@@ -1109,7 +1183,7 @@ func RequestEpay(c *gin.Context) {
 	}
 
 	id := c.GetInt("id")
-	amount, platformAmountMicros, creditedQuota, err := topUpOrderAmountsDecimal(requestedAmount)
+	amount, platformAmountMicros, creditedQuota, err := topUpOrderAmountsResolved(resolvedAmount)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": err.Error()})
 		return
@@ -1122,7 +1196,7 @@ func RequestEpay(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "获取用户分组失败"})
 		return
 	}
-	payMoney, discountCode, err := quoteTopUpDecimalWithDiscount(requestedAmount, group, req.PaymentMethod, req.DiscountCode, id)
+	payMoney, discountCode, err := quoteTopUpRequestWithDiscount(c, resolvedAmount, group, req.PaymentMethod, req.DiscountCode, id)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "支付方式配置无效"})
 		return
@@ -1148,20 +1222,22 @@ func RequestEpay(c *gin.Context) {
 		return
 	}
 	topUp := &model.TopUp{
-		UserId:               id,
-		Amount:               amount,
-		PlatformAmountMicros: platformAmountMicros,
-		CreditedQuota:        creditedQuota,
-		ExpectedAmountMicros: expectedAmountMicros,
-		Money:                monetaryMicrosToFloat(expectedAmountMicros),
-		TradeNo:              tradeNo,
-		PaymentMethod:        req.PaymentMethod,
-		PaymentProvider:      model.PaymentProviderEpay,
-		SettlementCurrency:   settlementCurrency,
-		DiscountCodeId:       discountCodeID(discountCode),
-		DiscountPercent:      discountPercent(discountCode),
-		CreateTime:           time.Now().Unix(),
-		Status:               common.TopUpStatusPending,
+		UserId:                   id,
+		Amount:                   amount,
+		PlatformAmountMicros:     platformAmountMicros,
+		CreditedQuota:            creditedQuota,
+		ExpectedAmountMicros:     expectedAmountMicros,
+		Money:                    monetaryMicrosToFloat(expectedAmountMicros),
+		TradeNo:                  tradeNo,
+		PaymentMethod:            req.PaymentMethod,
+		PaymentProvider:          model.PaymentProviderEpay,
+		SettlementCurrency:       settlementCurrency,
+		DiscountQualifyingAmount: topUpDiscountQualifyingAmount(requestedAmount, creditedQuota),
+		DiscountQualifyingUnit:   topUpRequestUnit(""),
+		DiscountCodeId:           discountCodeID(discountCode),
+		DiscountPercent:          discountPercent(discountCode),
+		CreateTime:               time.Now().Unix(),
+		Status:                   common.TopUpStatusPending,
 	}
 	if err := topUp.Insert(); err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("易支付 创建充值订单失败 user_id=%d trade_no=%s payment_method=%s amount=%s error=%q", id, tradeNo, req.PaymentMethod, requestedAmount.String(), err.Error()))
@@ -1186,7 +1262,7 @@ func RequestEpay(c *gin.Context) {
 		return
 	}
 	logger.LogInfo(c.Request.Context(), fmt.Sprintf("易支付 充值订单创建成功 user_id=%d trade_no=%s payment_method=%s amount=%s money=%s", id, tradeNo, req.PaymentMethod, requestedAmount.String(), payMoney.StringFixed(2)))
-	c.JSON(http.StatusOK, gin.H{"message": "success", "data": params, "url": uri, "trade_no": tradeNo})
+	c.JSON(http.StatusOK, withTopUpCreditFields(gin.H{"message": "success", "data": params, "url": uri, "trade_no": tradeNo}, req.AmountUnit, requestedAmount, creditedQuota, settlementCurrency))
 }
 
 // tradeNo lock
@@ -1367,49 +1443,62 @@ func validateEpayCallback(topUp *model.TopUp, verifyInfo *epay.VerifyRes) (bool,
 
 func RequestAmount(c *gin.Context) {
 	var req AmountRequest
-	err := c.ShouldBindJSON(&req)
+	if err := bindTopUpRequest(c, &req); err != nil {
+		common.ApiErrorMsg(c, "参数错误")
+		return
+	}
+	if req.AmountUnit == "" {
+		if integer, ok := decimalInt64Truncated(decimal.NewFromFloat(req.Amount)); ok && decimal.NewFromFloat(req.Amount).IsInteger() && rejectInvalidTopUpQuota(c, c.GetInt("id"), integer) {
+			return
+		}
+	}
+	resolvedAmount, err := resolveTopUpRequestAmount(c, req.Amount, req.AmountUnit)
+	amount := resolvedAmount.LegacyBatch
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "参数错误"})
+		common.ApiErrorMsg(c, err.Error())
+		return
+	}
+	if amount.LessThan(decimal.NewFromInt(int64(operation_setting.MinTopUp))) {
+		common.ApiErrorMsg(c, "充值数量低于最低要求")
 		return
 	}
 
-	if req.Amount < getMinTopup() {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": fmt.Sprintf("充值数量不能小于 %d", getMinTopup())})
-		return
-	}
-	id := c.GetInt("id")
-	if req.PaymentMethod != "" && !requirePaymentMethodAvailable(c, req.PaymentMethod) {
-		return
-	}
-	if req.PaymentMethod != "" && !requirePaymentMethodTopUpWithinLimit(c, req.PaymentMethod, req.Amount) {
-		return
-	}
-	if rejectInvalidTopUpQuota(c, id, req.Amount) {
-		return
-	}
-	group, err := getTopupUserGroup(id)
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "获取用户分组失败"})
-		return
-	}
-	_, creditedQuota := topUpOrderAmounts(req.Amount)
-	if !requireTopUpCreditCapacity(c, id, creditedQuota) {
-		return
-	}
 	if req.PaymentMethod == "" {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "payment_method is required"})
 		return
 	}
-	payMoney, _, err := quoteTopUpWithDiscount(req.Amount, group, req.PaymentMethod, req.DiscountCode, id)
+	if !requirePaymentMethodAvailable(c, req.PaymentMethod) || !requirePaymentMethodCreditedQuotaWithinLimit(c, req.PaymentMethod, resolvedAmount.CreditedQuota) {
+		return
+	}
+	_, _, credited, err := topUpOrderAmountsResolved(resolvedAmount)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "支付方式配置无效"})
+		common.ApiErrorMsg(c, err.Error())
+		return
+	}
+	id := c.GetInt("id")
+	if !requireTopUpCreditCapacity(c, id, credited) {
+		return
+	}
+	group, err := getTopupUserGroup(id)
+	if err != nil {
+		common.ApiErrorMsg(c, "获取用户分组失败")
+		return
+	}
+	payMoney, _, err := quoteTopUpRequestWithDiscount(c, resolvedAmount, group, req.PaymentMethod, req.DiscountCode, id)
+	if err != nil {
+		common.ApiErrorMsg(c, "支付方式配置无效")
 		return
 	}
 	if payMoney.LessThanOrEqual(decimal.NewFromFloat(0.01)) {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "充值金额过低"})
+		common.ApiErrorMsg(c, "充值金额过低")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "success", "data": payMoney.StringFixed(2)})
+	currency, err := getPayMethodSettlementUnit(req.PaymentMethod)
+	if err != nil {
+		common.ApiErrorMsg(c, "支付方式配置无效")
+		return
+	}
+	c.JSON(http.StatusOK, withTopUpCreditFields(gin.H{"message": "success", "data": payMoney.StringFixed(2)}, req.AmountUnit, amount, credited, currency))
 }
 
 func GetUserTopUps(c *gin.Context) {
@@ -1446,23 +1535,29 @@ func GetUserTopUps(c *gin.Context) {
 }
 
 type topUpSelfRecord struct {
-	Id            int     `json:"id"`
-	UserId        int     `json:"user_id"`
-	Amount        int64   `json:"amount"`
-	Money         float64 `json:"money"`
-	Currency      string  `json:"currency,omitempty"`
-	TradeNo       string  `json:"trade_no"`
-	PaymentMethod string  `json:"payment_method"`
-	CreateTime    int64   `json:"create_time"`
-	CompleteTime  int64   `json:"complete_time"`
-	Status        string  `json:"status"`
+	Id                   int     `json:"id"`
+	UserId               int     `json:"user_id"`
+	Amount               int64   `json:"amount"`
+	AmountUnit           string  `json:"amount_unit"`
+	CurrencyUnit         string  `json:"currency_unit"`
+	CreditedQuota        int64   `json:"credited_quota"`
+	PlatformAmountMicros int64   `json:"platform_amount_micros"`
+	Money                float64 `json:"money"`
+	Currency             string  `json:"currency,omitempty"`
+	TradeNo              string  `json:"trade_no"`
+	PaymentMethod        string  `json:"payment_method"`
+	CreateTime           int64   `json:"create_time"`
+	CompleteTime         int64   `json:"complete_time"`
+	Status               string  `json:"status"`
 }
 
 func newTopUpSelfRecord(topUp *model.TopUp) topUpSelfRecord {
 	return topUpSelfRecord{
-		Id:            topUp.Id,
-		UserId:        topUp.UserId,
-		Amount:        topUp.Amount,
+		Id:           topUp.Id,
+		UserId:       topUp.UserId,
+		Amount:       topUp.Amount,
+		AmountUnit:   topUpHistoryAmountUnit(topUp),
+		CurrencyUnit: "credit", CreditedQuota: topUp.CreditedQuota, PlatformAmountMicros: topUp.PlatformAmountMicros,
 		Money:         topUp.Money,
 		Currency:      topUp.SettlementCurrency,
 		TradeNo:       topUp.TradeNo,
@@ -1539,4 +1634,11 @@ func AdminCompleteTopUp(c *gin.Context) {
 		return
 	}
 	common.ApiSuccess(c, nil)
+}
+
+func topUpHistoryAmountUnit(topUp *model.TopUp) string {
+	if topUp.PaymentMethod == model.PaymentMethodCreem {
+		return "CREDIT"
+	}
+	return topUpLegacyUnit
 }

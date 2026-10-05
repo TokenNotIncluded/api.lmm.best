@@ -32,6 +32,7 @@ import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
 
 import { SettingsSwitchField } from '../components/settings-form-layout'
+import { LegacyUsdMinimumInput } from './legacy-usd-minimum-input'
 
 export interface WaffoSettingsValues {
   WaffoEnabled: boolean
@@ -264,22 +265,15 @@ export function WaffoSettingsSection({
             <Input value='USD' disabled />
             <p className='text-muted-foreground text-xs'>
               {t(
-                'Waffo always settles in real USD; configure CNY/USD and the wallet recharge ratio in Currency & Display.'
+                'Waffo settles in real USD. The fixed Credit denomination converts credited value to USD; display currency is separate.'
               )}
             </p>
           </div>
           <div className='grid gap-1.5'>
-            <Label>{t('Minimum top-up quantity')}</Label>
-            <Input
-              type='number'
-              min={1}
+            <Label>{t('Minimum top-up (USD)')}</Label>
+            <LegacyUsdMinimumInput
               value={values.WaffoMinTopUp}
-              onChange={(event) =>
-                onValueChange(
-                  'WaffoMinTopUp',
-                  event.target.value === '' ? 1 : event.target.valueAsNumber
-                )
-              }
+              onChange={(value) => onValueChange('WaffoMinTopUp', value)}
             />
           </div>
         </div>

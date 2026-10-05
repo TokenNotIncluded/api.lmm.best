@@ -66,6 +66,10 @@ const { createRoot } = await import('react-dom/client')
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
+const { useSystemConfigStore, DEFAULT_CURRENCY_CONFIG } =
+  await import('@/stores/system-config-store')
+const { useWalletCurrencyPreferenceStore } =
+  await import('@/stores/wallet-currency-preference-store')
 const { UserQuotaDialog } = await import('./user-quota-dialog')
 
 const originalPost = api.post
@@ -113,6 +117,16 @@ async function setInputValue(input: HTMLInputElement, value: string) {
 }
 
 async function renderDialog() {
+  useSystemConfigStore.getState().setConfig({
+    currency: {
+      ...DEFAULT_CURRENCY_CONFIG,
+      currencyUnit: 'credit',
+      creditsPerUsd: 500000,
+      cnyPerUsd: 7.2,
+      legacyPricingUnitsPerUsd: 1,
+    },
+  })
+  useWalletCurrencyPreferenceStore.getState().setPreference('USD')
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
@@ -252,4 +266,66 @@ describe('UserQuotaDialog amount validation', () => {
       },
     ])
   })
+})
+
+test('changing USD to CNY after typing keeps the same literal raw-credit request', async () => {
+  const requests: unknown[] = []
+  api.post = (async (url: string, data: unknown) => {
+    requests.push({ url, data })
+    return { data: { success: true } }
+  }) as typeof api.post
+  const { root } = await renderDialog()
+  try {
+    await setInputValue(findAmountInput(), '1.000002')
+    await act(async () => {
+      useWalletCurrencyPreferenceStore.getState().setPreference('CNY')
+      await flushEffects()
+    })
+    assert.equal(
+      document.querySelector('label[for="user-quota-amount"]')?.textContent,
+      'Amount (CNY)'
+    )
+    assert.equal(findAmountInput().value, '7.2000144')
+    await act(async () => {
+      findButton('Confirm').click()
+      await flushEffects()
+    })
+    assert.deepEqual(requests, [
+      {
+        url: '/api/user/manage',
+        data: { id: 41, action: 'add_quota', mode: 'add', value: 500001 },
+      },
+    ])
+  } finally {
+    await act(async () => root.unmount())
+  }
+})
+test('credit-mode submissions preserve one credit and reject overflow, fractional, negative additions and zero', async () => {
+  const requests: Array<{ data: { value: number } }> = []
+  api.post = (async (_url: string, data: unknown) => {
+    requests.push({ data: data as { value: number } })
+    return { data: { success: true } }
+  }) as typeof api.post
+  const { root } = await renderDialog()
+  try {
+    await act(async () => {
+      useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
+      await flushEffects()
+    })
+    for (const invalid of ['-1', '0', '1.5', '9007199254740992', '1e309']) {
+      await setInputValue(findAmountInput(), invalid)
+      assert.equal(findButton('Confirm').disabled, true, invalid)
+    }
+    await setInputValue(findAmountInput(), '1')
+    await act(async () => {
+      findButton('Confirm').click()
+      await flushEffects()
+    })
+    assert.deepEqual(
+      requests.map((request) => request.data.value),
+      [1]
+    )
+  } finally {
+    await act(async () => root.unmount())
+  }
 })

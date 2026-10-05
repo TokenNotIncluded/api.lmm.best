@@ -57,6 +57,7 @@ type ModerationJob struct {
 	Payload                   string `json:"-" gorm:"size:262144;not null"`
 	CapturedMode              string `json:"mode" gorm:"type:varchar(16);not null"`
 	CapturedCategoryFinesJSON string `json:"-" gorm:"type:text;not null"`
+	CapturedAmountCurrency    string `json:"-" gorm:"type:varchar(24);not null;default:''"`
 	Status                    string `json:"status" gorm:"type:varchar(16);not null;index:idx_moderation_queue,priority:1"`
 	Attempts                  int    `json:"attempts" gorm:"not null;default:0"`
 	NextAttemptAt             int64  `json:"-" gorm:"not null;index:idx_moderation_queue,priority:2"`
@@ -111,6 +112,9 @@ func EnqueueModerationJob(ctx context.Context, job *ModerationJob) (bool, error)
 		return false, nil
 	}
 	if job.CapturedMode != setting.ModerationModeTolerant && job.CapturedMode != setting.ModerationModeStrict {
+		return false, ErrModerationJobInvalid
+	}
+	if !setting.IsModerationAmountCurrency(job.CapturedAmountCurrency) {
 		return false, ErrModerationJobInvalid
 	}
 	job.RequestID = strings.TrimSpace(job.RequestID)
@@ -285,7 +289,62 @@ type ModerationCompletion struct {
 	ResponseModel    string
 	CurrentMode      string
 	CategoryFinesUSD map[string]float64
+	AmountCurrency   string
 	Now              int64
+}
+
+// One completion uses one conversion basis. Legacy ceilings are still priced
+// with the current legacy quota unit; explicit USD never depends on that unit.
+type moderationAmountBasis struct {
+	creditsPerUSD      decimal.Decimal
+	legacyQuotaPerUnit decimal.Decimal
+}
+
+func newModerationAmountBasis(needsLegacy bool) (moderationAmountBasis, error) {
+	credits, err := common.CreditsPerUSD()
+	if err != nil {
+		return moderationAmountBasis{}, err
+	}
+	basis := moderationAmountBasis{creditsPerUSD: credits}
+	if needsLegacy {
+		unit := common.QuotaPerUnit
+		if unit <= 0 || math.IsNaN(unit) || math.IsInf(unit, 0) {
+			return moderationAmountBasis{}, ErrModerationJobInvalid
+		}
+		basis.legacyQuotaPerUnit = decimal.NewFromFloat(unit)
+	}
+	return basis, nil
+}
+
+func (basis moderationAmountBasis) amountUSD(amount float64, currency string) (decimal.Decimal, error) {
+	credits, err := basis.amountCredits(amount, currency)
+	if err != nil {
+		return decimal.Zero, err
+	}
+	return credits.Div(basis.creditsPerUSD), nil
+}
+
+// This is the exact numerator of the amount in the shared USD basis. Keeping
+// USD*K during comparisons avoids division rounding before the single floor.
+func (basis moderationAmountBasis) amountCredits(amount float64, currency string) (decimal.Decimal, error) {
+	if !setting.IsModerationAmountCurrency(currency) || setting.ValidateModerationFineUSD(amount) != nil {
+		return decimal.Zero, ErrModerationJobInvalid
+	}
+	value := decimal.NewFromFloat(amount)
+	if setting.ResolveModerationAmountCurrency(currency) == setting.ModerationAmountCurrencyUSD {
+		return value.Mul(basis.creditsPerUSD), nil
+	}
+	return value.Mul(basis.legacyQuotaPerUnit), nil
+}
+
+// ModerationAmountToUSD projects raw policy amounts without mutating their
+// stored values or treating historical fields named *_usd as real fiat.
+func ModerationAmountToUSD(amount float64, currency string) (decimal.Decimal, error) {
+	basis, err := newModerationAmountBasis(setting.ResolveModerationAmountCurrency(currency) != setting.ModerationAmountCurrencyUSD)
+	if err != nil {
+		return decimal.Zero, err
+	}
+	return basis.amountUSD(amount, currency)
 }
 
 func (job ModerationJob) Categories() []string {
@@ -307,6 +366,9 @@ func CompleteModerationJob(ctx context.Context, id int64, owner string, completi
 		completion.Now = common.GetTimestamp()
 	}
 	if completion.CurrentMode != setting.ModerationModeOff && completion.CurrentMode != setting.ModerationModeTolerant && completion.CurrentMode != setting.ModerationModeStrict {
+		return ErrModerationJobInvalid
+	}
+	if !setting.IsModerationAmountCurrency(completion.AmountCurrency) {
 		return ErrModerationJobInvalid
 	}
 	for category, amount := range completion.CategoryFinesUSD {
@@ -400,20 +462,62 @@ func CompleteModerationJob(ctx context.Context, id int64, owner string, completi
 			if json.Unmarshal([]byte(job.CapturedCategoryFinesJSON), &captured) != nil {
 				return ErrModerationJobInvalid
 			}
-			amount, category := 0.0, ""
+			capturedCurrency := setting.ResolveModerationAmountCurrency(job.CapturedAmountCurrency)
+			policyCurrency := setting.ResolveModerationAmountCurrency(policy.AmountCurrency)
+			completionCurrency := setting.ResolveModerationAmountCurrency(completion.AmountCurrency)
+			allLegacy := capturedCurrency == setting.ModerationAmountCurrencyLegacy && policyCurrency == setting.ModerationAmountCurrencyLegacy && completionCurrency == setting.ModerationAmountCurrencyLegacy
+			needsLegacy := capturedCurrency == setting.ModerationAmountCurrencyLegacy || policyCurrency == setting.ModerationAmountCurrencyLegacy || completionCurrency == setting.ModerationAmountCurrencyLegacy
+			var basis moderationAmountBasis
 			for _, match := range categories {
-				candidate := math.Min(captured[match], math.Min(policy.CategoryFinesUSD[match], completion.CategoryFinesUSD[match]))
-				if candidate > amount && candidate <= setting.ModerationMaxCategoryFineUSD && !math.IsInf(candidate, 0) && !math.IsNaN(candidate) {
-					amount, category = candidate, match
+				if captured[match] > 0 && policy.CategoryFinesUSD[match] > 0 && completion.CategoryFinesUSD[match] > 0 {
+					basis, err = newModerationAmountBasis(needsLegacy)
+					if err != nil {
+						return err
+					}
+					break
 				}
 			}
-			if amount > 0 {
-				if common.QuotaPerUnit <= 0 || math.IsNaN(common.QuotaPerUnit) || math.IsInf(common.QuotaPerUnit, 0) {
-					return ErrModerationJobInvalid
+			quotaAmount, legacyAmount, category := decimal.Zero, decimal.Zero, ""
+			for _, match := range categories {
+				// Warning-only categories never need monetary authorization.
+				if captured[match] <= 0 || policy.CategoryFinesUSD[match] <= 0 || completion.CategoryFinesUSD[match] <= 0 {
+					continue
 				}
+				if allLegacy {
+					candidate := math.Min(captured[match], math.Min(policy.CategoryFinesUSD[match], completion.CategoryFinesUSD[match]))
+					if setting.ValidateModerationFineUSD(candidate) != nil {
+						return ErrModerationJobInvalid
+					}
+					value := decimal.NewFromFloat(candidate)
+					if value.GreaterThan(legacyAmount) {
+						legacyAmount, category = value, match
+					}
+					continue
+				}
+				capturedCredits, err := basis.amountCredits(captured[match], capturedCurrency)
+				if err != nil {
+					return err
+				}
+				policyCredits, err := basis.amountCredits(policy.CategoryFinesUSD[match], policyCurrency)
+				if err != nil {
+					return err
+				}
+				completionCredits, err := basis.amountCredits(completion.CategoryFinesUSD[match], completionCurrency)
+				if err != nil {
+					return err
+				}
+				candidate := decimal.Min(capturedCredits, policyCredits, completionCredits)
+				if candidate.GreaterThan(quotaAmount) {
+					quotaAmount, category = candidate, match
+				}
+			}
+			if allLegacy {
+				quotaAmount = legacyAmount.Mul(basis.legacyQuotaPerUnit)
+			}
+			if quotaAmount.IsPositive() {
 				// A configured fine is a ceiling. Round down in decimal arithmetic
 				// to wallet units; a sub-unit amount remains warning-only.
-				requested, conversionErr := common.WalletQuotaFromDecimalStrict(decimal.NewFromFloat(amount).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).Floor())
+				requested, conversionErr := common.WalletQuotaFromDecimalStrict(quotaAmount.Floor())
 				if conversionErr != nil {
 					return conversionErr
 				}
@@ -441,8 +545,8 @@ func CompleteModerationJob(ctx context.Context, id int64, owner string, completi
 							}
 							cacheUser = user.Id
 						}
-						chargedAmount := float64(charged) / common.QuotaPerUnit
-						fresh := ViolationFeeRecord{UserID: user.Id, RequestID: job.RequestID, PolicyKey: "moderation:" + job.Group, Group: job.Group, Occurrence: 1, PeriodStartedAt: completion.Now, PeriodEndsAt: completion.Now, RequestedAmountUSD: amount, ChargedAmountUSD: chargedAmount, RequestedQuota: requested, ChargedQuota: charged, ErrorCode: "moderation." + category, Status: ViolationFeeRecordStatusCharged, CreatedAt: completion.Now}
+						chargedAmount := decimal.NewFromInt(int64(charged)).Div(basis.creditsPerUSD).InexactFloat64()
+						fresh := ViolationFeeRecord{UserID: user.Id, RequestID: job.RequestID, PolicyKey: "moderation:" + job.Group, Group: job.Group, Occurrence: 1, PeriodStartedAt: completion.Now, PeriodEndsAt: completion.Now, AmountCurrency: setting.ModerationAmountCurrencyUSD, RequestedAmountUSD: quotaAmount.Div(basis.creditsPerUSD).InexactFloat64(), ChargedAmountUSD: chargedAmount, RequestedQuota: requested, ChargedQuota: charged, ErrorCode: "moderation." + category, Status: ViolationFeeRecordStatusCharged, CreatedAt: completion.Now}
 						if err := tx.Create(&fresh).Error; err != nil {
 							return err
 						}

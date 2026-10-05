@@ -319,6 +319,9 @@ func SyncOptionsContext(ctx context.Context, frequency int) {
 }
 
 func validateOptionValue(key string, value string) error {
+	if key == CreditsPerUSDOptionKey || key == LegacyPricingQuotaPerUnitOptionKey {
+		return errors.New("credits per USD is immutable and cannot be changed through options")
+	}
 	if setting.IsModerationOption(key) {
 		return validateModerationOptionValues(DB, map[string]string{key: value})
 	}
@@ -917,6 +920,15 @@ func UpdateAdvancedSecurityOptions(enabled, onPrompt bool, action, rules string)
 }
 
 func updateOptionMap(key string, value string) (err error) {
+	if key == "QuotaPerUnit" {
+		candidate, parseErr := parsePositiveCreditRate(value)
+		if parseErr != nil {
+			return parseErr
+		}
+		if baseline, basisErr := common.LegacyPricingQuotaPerUnit(); basisErr == nil && !candidate.Equal(baseline) {
+			return errors.New("refusing legacy QuotaPerUnit drift from immutable credit currency basis")
+		}
+	}
 	if setting.IsModerationOption(key) {
 		return applyModerationOptionMap(map[string]string{key: value})
 	}
@@ -1365,7 +1377,11 @@ func updateOptionMap(key string, value string) (err error) {
 	case "ChannelDisableThreshold":
 		common.ChannelDisableThreshold, _ = strconv.ParseFloat(value, 64)
 	case "QuotaPerUnit":
-		common.QuotaPerUnit, _ = strconv.ParseFloat(value, 64)
+		// Once initialized, refreshes and idempotent saves keep the published
+		// calibration untouched, including avoiding concurrent scalar writes.
+		if _, basisErr := common.LegacyPricingQuotaPerUnit(); basisErr != nil {
+			common.QuotaPerUnit, _ = strconv.ParseFloat(value, 64)
+		}
 	case "SensitiveWords":
 		setting.SensitiveWordsFromString(value)
 	case setting.AdvancedSecurityActionOptionKey:

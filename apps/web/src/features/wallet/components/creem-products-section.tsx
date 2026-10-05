@@ -20,7 +20,7 @@ import { useTranslation } from 'react-i18next'
 
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import { formatNumber } from '@/lib/format'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 
 import { formatCreemPrice } from '../lib/format'
 import type { CreemProduct } from '../types'
@@ -39,6 +39,7 @@ export function CreemProductsSection({
   neutralMode = false,
 }: CreemProductsSectionProps) {
   const { t } = useTranslation()
+  const { formatQuota } = useWalletCurrency()
 
   if (loading) {
     return (
@@ -71,7 +72,7 @@ export function CreemProductsSection({
             </div>
             {!neutralMode ? (
               <div className='text-muted-foreground mb-2 text-sm'>
-                {t('Quota')}: {formatNumber(product.quota)}
+                {t('Quota')}: {formatQuota(product.quota)}
               </div>
             ) : null}
             <div className='text-primary text-lg font-semibold'>

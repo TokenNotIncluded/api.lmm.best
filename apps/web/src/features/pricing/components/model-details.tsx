@@ -98,12 +98,17 @@ import {
   getConfiguredGroupRatio,
   isTokenBasedModel,
 } from '../lib/model-helpers'
-import { formatFixedPrice, formatGroupPrice } from '../lib/price'
+import {
+  formatFixedPrice,
+  formatGroupPrice,
+  hasCanonicalPricing,
+} from '../lib/price'
 import type {
   ModelCapability,
   PriceType,
   PricingModel,
   TokenUnit,
+  PriceDisplayCurrency,
 } from '../types'
 import { DynamicPricingBreakdown } from './dynamic-pricing-breakdown'
 import { ModelAvailability } from './model-availability'
@@ -617,10 +622,8 @@ function ModelHeader(props: { model: PricingModel }) {
 
 function PriceSection(props: {
   model: PricingModel
-  priceRate: number
-  usdExchangeRate: number
   tokenUnit: TokenUnit
-  showRechargePrice: boolean
+  displayCurrency: PriceDisplayCurrency
 }) {
   const { t } = useTranslation()
   const isTokenBased = isTokenBasedModel(props.model)
@@ -629,9 +632,7 @@ function PriceSection(props: {
   const baseGroupRatioMap = { [baseGroupKey]: 1 }
   const dynamicSummary = getDynamicPricingSummary(props.model, {
     tokenUnit: props.tokenUnit,
-    showRechargePrice: props.showRechargePrice,
-    priceRate: props.priceRate,
-    usdExchangeRate: props.usdExchangeRate,
+    displayCurrency: props.displayCurrency,
     groupRatioMultiplier: 1,
   })
 
@@ -647,29 +648,29 @@ function PriceSection(props: {
     {
       label: t('Cached input'),
       type: 'cache',
-      available: props.model.cache_ratio != null,
+      available: props.model.cache_read_price != null,
     },
     {
       label: t('Cache write'),
       type: 'create_cache',
-      available: props.model.create_cache_ratio != null,
+      available: props.model.cache_write_price != null,
     },
     {
       label: t('Image input'),
       type: 'image',
-      available: props.model.image_ratio != null,
+      available: props.model.image_price != null,
     },
     {
       label: t('Audio input'),
       type: 'audio_input',
-      available: props.model.audio_ratio != null,
+      available: props.model.audio_input_price != null,
     },
     {
       label: t('Audio output'),
       type: 'audio_output',
       available:
-        props.model.audio_ratio != null &&
-        props.model.audio_completion_ratio != null,
+        props.model.audio_input_price != null &&
+        props.model.audio_output_price != null,
     },
   ]
 
@@ -761,9 +762,7 @@ function PriceSection(props: {
             {formatFixedPrice(
               props.model,
               baseGroupKey,
-              props.showRechargePrice,
-              props.priceRate,
-              props.usdExchangeRate,
+              props.displayCurrency,
               baseGroupRatioMap
             )}
           </span>
@@ -780,9 +779,7 @@ function PriceSection(props: {
         baseGroupKey,
         type,
         props.tokenUnit,
-        props.showRechargePrice,
-        props.priceRate,
-        props.usdExchangeRate,
+        props.displayCurrency,
         baseGroupRatioMap
       )}
       <span className='text-muted-foreground ml-1 text-xs font-normal'>
@@ -901,13 +898,11 @@ function GroupPricingSection(props: {
   groupRatio: Record<string, number>
   usableGroup: Record<string, { desc: string; ratio: number }>
   autoGroups: string[]
-  priceRate: number
-  usdExchangeRate: number
   tokenUnit: TokenUnit
-  showRechargePrice?: boolean
+  displayCurrency?: PriceDisplayCurrency
 }) {
   const { t } = useTranslation()
-  const showRechargePrice = props.showRechargePrice ?? false
+  const displayCurrency = props.displayCurrency ?? 'USD'
 
   const availableGroups = useMemo(
     () => getAvailableGroups(props.model, props.usableGroup || {}),
@@ -919,21 +914,21 @@ function GroupPricingSection(props: {
 
   const extraPriceTypes = useMemo(() => {
     const types: { label: string; type: PriceType }[] = []
-    if (props.model.cache_ratio != null) {
+    if (props.model.cache_read_price != null) {
       types.push({ label: t('Cache'), type: 'cache' })
     }
-    if (props.model.create_cache_ratio != null) {
+    if (props.model.cache_write_price != null) {
       types.push({ label: t('Cache Write'), type: 'create_cache' })
     }
-    if (props.model.image_ratio != null) {
+    if (props.model.image_price != null) {
       types.push({ label: t('Image'), type: 'image' })
     }
-    if (props.model.audio_ratio != null) {
+    if (props.model.audio_input_price != null) {
       types.push({ label: t('Audio In'), type: 'audio_input' })
     }
     if (
-      props.model.audio_ratio != null &&
-      props.model.audio_completion_ratio != null
+      props.model.audio_input_price != null &&
+      props.model.audio_output_price != null
     ) {
       types.push({ label: t('Audio Out'), type: 'audio_output' })
     }
@@ -989,9 +984,7 @@ function GroupPricingSection(props: {
 
     const priceFields = getDynamicPriceFields(dynamicTiers, {
       tokenUnit: props.tokenUnit,
-      showRechargePrice,
-      priceRate: props.priceRate,
-      usdExchangeRate: props.usdExchangeRate,
+      displayCurrency,
       groupRatioMultiplier: 1,
     })
     const formattedPricesByGroup = new Map(
@@ -1001,9 +994,7 @@ function GroupPricingSection(props: {
           group,
           getDynamicFormattedPricesByTier(dynamicTiers, {
             tokenUnit: props.tokenUnit,
-            showRechargePrice,
-            priceRate: props.priceRate,
-            usdExchangeRate: props.usdExchangeRate,
+            displayCurrency,
             groupRatioMultiplier: ratio,
           }),
         ] as const
@@ -1088,20 +1079,11 @@ function GroupPricingSection(props: {
       group,
       type,
       props.tokenUnit,
-      showRechargePrice,
-      props.priceRate,
-      props.usdExchangeRate,
+      displayCurrency,
       props.groupRatio
     )
   const renderFixedGroupPrice = (group: string) =>
-    formatFixedPrice(
-      props.model,
-      group,
-      showRechargePrice,
-      props.priceRate,
-      props.usdExchangeRate,
-      props.groupRatio
-    )
+    formatFixedPrice(props.model, group, displayCurrency, props.groupRatio)
 
   return (
     <section>
@@ -1193,10 +1175,8 @@ export interface ModelDetailsContentProps {
   usableGroup: Record<string, { desc: string; ratio: number }>
   endpointMap: Record<string, { path?: string; method?: string }>
   autoGroups: string[]
-  priceRate: number
-  usdExchangeRate: number
   tokenUnit: TokenUnit
-  showRechargePrice?: boolean
+  displayCurrency?: PriceDisplayCurrency
 }
 
 function ModelDetailsPublicShell({ children }: { children: React.ReactNode }) {
@@ -1211,7 +1191,7 @@ function ModelDetailsPublicShell({ children }: { children: React.ReactNode }) {
 
 export function ModelDetailsContent(props: ModelDetailsContentProps) {
   const { t } = useTranslation()
-  const showRechargePrice = props.showRechargePrice ?? false
+  const displayCurrency = props.displayCurrency ?? 'USD'
 
   const isDynamic =
     props.model.billing_mode === 'tiered_expr' &&
@@ -1246,23 +1226,26 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
             <SectionTitle>{t('Pricing')}</SectionTitle>
             <PriceSection
               model={props.model}
-              priceRate={props.priceRate}
-              usdExchangeRate={props.usdExchangeRate}
               tokenUnit={props.tokenUnit}
-              showRechargePrice={showRechargePrice}
+              displayCurrency={displayCurrency}
             />
             {isDynamic && (
-              <DynamicPricingBreakdown billingExpr={props.model.billing_expr} />
+              <DynamicPricingBreakdown
+                billingExpr={props.model.billing_expr}
+                expressionCurrencyBasis={
+                  hasCanonicalPricing(props.model) ? 'USD' : undefined
+                }
+                displayCurrency={displayCurrency}
+                tokenUnit={props.tokenUnit}
+              />
             )}
             <GroupPricingSection
               model={props.model}
               groupRatio={props.groupRatio}
               usableGroup={props.usableGroup}
               autoGroups={props.autoGroups}
-              priceRate={props.priceRate}
-              usdExchangeRate={props.usdExchangeRate}
               tokenUnit={props.tokenUnit}
-              showRechargePrice={showRechargePrice}
+              displayCurrency={displayCurrency}
             />
             <RequestEstimator {...props} />
           </section>
@@ -1334,8 +1317,7 @@ export function ModelDetails() {
     isLoading,
     error,
     refetch,
-    priceRate,
-    usdExchangeRate,
+    displayCurrency,
   } = usePricingData()
 
   const tokenUnit: TokenUnit =
@@ -1456,10 +1438,8 @@ export function ModelDetails() {
           groupRatio={groupRatio || {}}
           usableGroup={usableGroup || {}}
           autoGroups={autoGroups || []}
-          priceRate={priceRate ?? 1}
-          usdExchangeRate={usdExchangeRate ?? 1}
           tokenUnit={tokenUnit}
-          showRechargePrice={search.rechargePrice ?? false}
+          displayCurrency={displayCurrency}
           endpointMap={
             (endpointMap as Record<
               string,

@@ -54,6 +54,20 @@ const { QueryClient, QueryClientProvider } =
   await import('@tanstack/react-query')
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
+const { useSystemConfigStore, DEFAULT_CURRENCY_CONFIG } =
+  await import('@/stores/system-config-store')
+const { useWalletCurrencyPreferenceStore } =
+  await import('@/stores/wallet-currency-preference-store')
+useSystemConfigStore.getState().setConfig({
+  currency: {
+    ...DEFAULT_CURRENCY_CONFIG,
+    currencyUnit: 'credit',
+    creditsPerUsd: 2500000,
+    cnyPerUsd: 7.2,
+    legacyPricingUnitsPerUsd: 5,
+  },
+})
+useWalletCurrencyPreferenceStore.getState().setPreference('USD')
 const { api } = await import('@/lib/api')
 const { SecurityContent } = await import('./index')
 
@@ -249,7 +263,7 @@ describe('SecurityContent', () => {
       assert.match(content, /17/)
       assert.match(content, /11/)
       assert.match(content, /violation_fee\.grok\.csam/)
-      assert.match(content, /\$0\.25/)
+      assert.match(content, /0\.05 USD/)
       assert.deepEqual(
         requestedUrls.filter((url) => url.startsWith('/api/security/')).sort(),
         ['/api/security/policy', '/api/security/stats']
@@ -283,9 +297,38 @@ describe('SecurityContent', () => {
       )
       assert.match(content, /\/api\/security\/policy/)
       assert.match(content, /\/api\/security\/stats/)
-      assert.doesNotMatch(content, /\$0\.25/)
+      assert.doesNotMatch(content, /0\.05 USD/)
     } finally {
       await act(async () => rendered.root.unmount())
     }
   })
+})
+
+test('an explicit USD provider fee bypasses the legacy pricing-unit bridge', async () => {
+  api.get = (async (url: string) => {
+    if (url === '/api/security/policy') {
+      return {
+        data: {
+          ...policyResponse,
+          data: {
+            ...policyResponse.data,
+            violation_fees: policyResponse.data.violation_fees.map((fee) => ({
+              ...fee,
+              amount_currency: 'USD',
+            })),
+          },
+        },
+      }
+    }
+    if (url === '/api/security/stats') return { data: statsResponse }
+    throw new Error(`Unexpected GET ${url}`)
+  }) as typeof api.get
+  const rendered = await renderSecurityContent()
+  try {
+    await waitForText(rendered.container, 'violation_fee.grok.csam')
+    assert.match(rendered.container.textContent ?? '', /0\.25 USD/)
+    assert.doesNotMatch(rendered.container.textContent ?? '', /0\.05 USD/)
+  } finally {
+    await act(async () => rendered.root.unmount())
+  }
 })

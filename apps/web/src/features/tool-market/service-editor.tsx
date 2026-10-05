@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 
 import {
   marketAPI,
@@ -26,7 +27,7 @@ import {
   type MarketService,
   type ToolInput,
 } from './api'
-import { creditAmount, marketNetQuota } from './money'
+import { marketNetQuota } from './money'
 import {
   editorCredentialWrite,
   refreshToolDefinitions,
@@ -38,13 +39,12 @@ import { UsagePricingEditor } from './usage-pricing-editor'
 
 export function ServiceEditor({
   initial: initialDetail,
-  units,
   feeBps,
   onSaved,
   onCancel,
 }: {
   initial?: MarketDetail
-  units: number
+  units?: number
   feeBps?: number
   onSaved: (id: string) => void
   onCancel: () => void
@@ -53,6 +53,20 @@ export function ServiceEditor({
   // source version or reset the owner's in-progress editor session.
   const initial = useRef(initialDetail).current
   const { t } = useTranslation()
+  const {
+    formatQuota: formatRawQuota,
+    quotaToInput,
+    amountToQuota,
+    currency,
+    label,
+    step,
+  } = useWalletCurrency()
+  const formatQuota = (quota: number) =>
+    formatRawQuota(quota, { digitsLarge: 8, digitsSmall: 8 })
+  const inputCurrencyKey = `${currency}:${quotaToInput(1)}`
+  const [priceDrafts, setPriceDrafts] = useState<
+    Record<string, { key: string; input: string }>
+  >({})
   const cache = useQueryClient()
   const [name, setName] = useState(initial?.version.name ?? '')
   const [description, setDescription] = useState(
@@ -87,9 +101,9 @@ export function ServiceEditor({
       tools.map((tool) => [
         tool.name,
         String(
-          (tool.billing_mode === 'input_tokens'
+          tool.billing_mode === 'input_tokens'
             ? (tool.input_token_price_quota ?? 0)
-            : tool.price_quota) / units
+            : tool.price_quota
         ),
       ])
     )
@@ -170,11 +184,8 @@ export function ServiceEditor({
           return [tool.name, maximumUsageQuota(tool.billing_rules ?? [])]
         }
         const raw = prices[tool.name] ?? '0'
-        const quota = marketQuota(raw, units)
-        if (
-          Number(raw) > 1000000 ||
-          (billingModes[tool.name] !== 'free' ? quota <= 0 : quota !== 0)
-        ) {
+        const quota = marketQuota(raw, Number)
+        if (billingModes[tool.name] !== 'free' ? quota <= 0 : quota !== 0) {
           throw new Error('Invalid price')
         }
         if (billingModes[tool.name] === 'input_tokens') {
@@ -341,7 +352,7 @@ export function ServiceEditor({
                 : undefined,
             input_token_price_quota:
               billingModes[tool.name] === 'input_tokens'
-                ? marketQuota(prices[tool.name] ?? '0', units)
+                ? marketQuota(prices[tool.name] ?? '0', Number)
                 : 0,
             max_input_tokens:
               billingModes[tool.name] === 'input_tokens'
@@ -701,6 +712,13 @@ export function ServiceEditor({
                               ...current,
                               [tool.name]: mode,
                             }))
+                            setPriceDrafts((current) => ({
+                              ...current,
+                              [tool.name]: {
+                                key: inputCurrencyKey,
+                                input: mode === 'free' ? '0' : '',
+                              },
+                            }))
                             setPrices((current) => ({
                               ...current,
                               [tool.name]: mode === 'free' ? '0' : '',
@@ -734,23 +752,44 @@ export function ServiceEditor({
                               billingModes[tool.name] === 'input_tokens'
                                 ? 'Price per million input tokens'
                                 : 'Price per successful call'
-                            )}
+                            )}{' '}
+                            ({label})
                           </FieldLabel>
                           <Input
                             id={`price-${tool.name}`}
                             inputMode='decimal'
                             type='number'
                             min='0'
-                            max='1000000'
-                            step='0.000001'
-                            value={prices[tool.name] ?? '0'}
+                            step={step}
+                            value={
+                              priceDrafts[tool.name]?.key === inputCurrencyKey
+                                ? priceDrafts[tool.name].input
+                                : prices[tool.name] === ''
+                                  ? ''
+                                  : quotaToInput(
+                                      Number(prices[tool.name] ?? '0')
+                                    )
+                            }
                             aria-invalid={priceQuota === undefined}
                             disabled={pending}
                             onChange={(e) => {
                               const raw = e.target.value
+                              setPriceDrafts((current) => ({
+                                ...current,
+                                [tool.name]: {
+                                  key: inputCurrencyKey,
+                                  input: raw,
+                                },
+                              }))
+                              let quota = ''
+                              try {
+                                quota = String(marketQuota(raw, amountToQuota))
+                              } catch {
+                                /* Invalid draft cannot be submitted. */
+                              }
                               setPrices((current) => ({
                                 ...current,
-                                [tool.name]: raw,
+                                [tool.name]: quota,
                               }))
                               if (
                                 Number(raw) > 0 &&
@@ -777,11 +816,10 @@ export function ServiceEditor({
                             feeBps <= 10000 && (
                               <FieldDescription>
                                 {t(
-                                  'You receive {{amount}} credits per successful call after the {{fee}}% platform fee.',
+                                  'You receive {{amount}} per successful call after the {{fee}}% platform fee.',
                                   {
-                                    amount: creditAmount(
-                                      marketNetQuota(priceQuota, feeBps),
-                                      units
+                                    amount: formatQuota(
+                                      marketNetQuota(priceQuota, feeBps)
                                     ),
                                     fee: feeBps / 100,
                                   }
@@ -801,7 +839,6 @@ export function ServiceEditor({
                         <UsagePricingEditor
                           rules={tool.billing_rules ?? []}
                           metrics={tool.available_metering_metrics ?? []}
-                          units={units}
                           disabled={pending}
                           onChange={(rules) =>
                             setTools((current) =>
@@ -844,8 +881,8 @@ export function ServiceEditor({
                           />
                           <FieldDescription>
                             {t(
-                              'Reserve up to {{amount}} credits; charge actual input usage and release the remainder.',
-                              { amount: creditAmount(priceQuota ?? 0, units) }
+                              'Reserve up to {{amount}}; charge actual input usage and release the remainder.',
+                              { amount: formatQuota(priceQuota ?? 0) }
                             )}
                           </FieldDescription>
                         </Field>

@@ -20,7 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 Copyright (C) 2026 LIghtJUNction
 */
 import { TOKEN_UNIT_DIVISORS } from '../constants'
-import type { PricingModel, TokenUnit } from '../types'
+import type { PricingModel, TokenUnit, PriceDisplayCurrency } from '../types'
 import {
   BILLING_PRICING_VARS,
   coefficientToDisplayPrice,
@@ -31,6 +31,7 @@ import {
   type ParsedTier,
 } from './billing-expr'
 import { getDisplayGroupRatio } from './model-helpers'
+import { hasCanonicalPricing } from './price'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -53,9 +54,7 @@ import { formatModelPrice } from './price-display'
 
 type DynamicPriceOptions = {
   tokenUnit: TokenUnit
-  showRechargePrice?: boolean
-  priceRate?: number
-  usdExchangeRate?: number
+  displayCurrency?: PriceDisplayCurrency
   groupRatioMultiplier?: number
 }
 
@@ -89,7 +88,11 @@ const PRIMARY_DYNAMIC_FIELDS = new Set([
 ])
 
 export function isDynamicPricingModel(model: PricingModel): boolean {
-  return model.billing_mode === 'tiered_expr' && Boolean(model.billing_expr)
+  return (
+    hasCanonicalPricing(model) &&
+    model.billing_mode === 'tiered_expr' &&
+    Boolean(model.billing_expr)
+  )
 }
 
 export function getDynamicDisplayGroupRatio(
@@ -105,15 +108,10 @@ export function formatDynamicUnitPrice(
   unit: 'tokens' | 'minute' = 'tokens'
 ): string {
   const groupRatio = options.groupRatioMultiplier ?? 1
-  const priceRate = options.priceRate ?? 1
-  const platformPrice =
+  const amountUSD =
     (valuePerMillionTokens * groupRatio) /
     (unit === 'minute' ? 1 : TOKEN_UNIT_DIVISORS[options.tokenUnit])
-  return formatModelPrice(
-    platformPrice,
-    options.showRechargePrice ?? false,
-    priceRate
-  )
+  return formatModelPrice(amountUSD, options.displayCurrency ?? 'USD')
 }
 
 export function getDynamicPricingTiers(model: PricingModel): ParsedTier[] {

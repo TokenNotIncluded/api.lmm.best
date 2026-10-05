@@ -17,10 +17,10 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 
 import {
   marketAPI,
-  marketQuota,
   MarketAPIError,
   type CallResponse,
   type Grant,
@@ -33,7 +33,7 @@ import {
   marketErrorKey,
 } from './call-utils'
 import { marketStatus, marketPermissionList } from './copy'
-import { creditAmount } from './money'
+import { useMarketMoneyDraft } from './money'
 import {
   drawingResultImages,
   resultImage,
@@ -51,18 +51,20 @@ export function GrantDialog({
   tool,
   endpoint,
   clientID,
-  units,
   onClose,
 }: {
   tool: MarketTool
   endpoint: string
   clientID: string
-  units: number
+  units?: number
   onClose: () => void
 }) {
   const { t } = useTranslation()
+  const { formatQuota: formatRawQuota, label, step } = useWalletCurrency()
+  const formatQuota = (quota: number) =>
+    formatRawQuota(quota, { digitsLarge: 8, digitsSmall: 8 })
   const cache = useQueryClient()
-  const [total, setTotal] = useState(String(tool.price_quota / units))
+  const total = useMarketMoneyDraft(tool.price_quota)
   const [count, setCount] = useState('1')
   const [hours, setHours] = useState('1')
   const grant = useMutation({
@@ -76,7 +78,8 @@ export function GrantDialog({
         calls > 1000000 ||
         !Number.isSafeInteger(duration) ||
         duration < 1 ||
-        duration > 720
+        duration > 720 ||
+        total.quota === undefined
       ) {
         throw new Error('Invalid limit')
       }
@@ -85,7 +88,7 @@ export function GrantDialog({
         tool_id: tool.tool_id,
         version_id: tool.version_id,
         max_price_quota: tool.price_quota,
-        max_total_quota: marketQuota(total, units),
+        max_total_quota: total.quota,
         max_calls: calls,
         expires_at: Math.floor(Date.now() / 1000) + duration * 3600,
       })
@@ -149,20 +152,16 @@ export function GrantDialog({
           </div>
           <div>
             <dt className='text-muted-foreground'>{t('Single-call limit')}</dt>
-            <dd>
-              {t('{{amount}} credits', {
-                amount: creditAmount(tool.price_quota, units),
-              })}
-            </dd>
+            <dd>{formatQuota(tool.price_quota)}</dd>
           </div>
         </dl>
         {tool.billing_mode === 'metered' && (
-          <p className='text-sm'>{usagePriceLabel(tool, units, t)}</p>
+          <p className='text-sm'>{usagePriceLabel(tool, formatQuota, t)}</p>
         )}
         {tool.billing_mode === 'input_tokens' && (
           <p className='text-sm'>
-            {t('{{amount}} credits per million input tokens', {
-              amount: creditAmount(tool.input_token_price_quota ?? 0, units),
+            {t('{{amount}} per million input tokens', {
+              amount: formatQuota(tool.input_token_price_quota ?? 0),
             })}
           </p>
         )}
@@ -175,13 +174,16 @@ export function GrantDialog({
           <FieldGroup>
             <Field>
               <FieldLabel htmlFor='grant-total'>
-                {t('Total spending limit')}
+                {t('Total spending limit')} ({label})
               </FieldLabel>
               <Input
                 id='grant-total'
                 inputMode='decimal'
-                value={total}
-                onChange={(e) => setTotal(e.target.value)}
+                min={0}
+                step={step}
+                value={total.input}
+                aria-invalid={total.quota === undefined}
+                onChange={(e) => total.setInput(e.target.value)}
                 required
               />
             </Field>
@@ -227,7 +229,10 @@ export function GrantDialog({
                       )}
               </p>
             )}
-            <Button type='submit' disabled={grant.isPending}>
+            <Button
+              type='submit'
+              disabled={grant.isPending || total.quota === undefined}
+            >
               {t('Add and authorize tool')}
             </Button>
           </FieldGroup>
@@ -239,12 +244,14 @@ export function GrantDialog({
 
 export function CallResult({
   response,
-  units,
 }: {
   response: CallResponse
-  units: number
+  units?: number
 }) {
   const { t } = useTranslation()
+  const { formatQuota: formatRawQuota } = useWalletCurrency()
+  const formatQuota = (quota: number) =>
+    formatRawQuota(quota, { digitsLarge: 8, digitsSmall: 8 })
   return (
     <div className='min-w-0 space-y-3 text-sm' aria-live='polite'>
       <dl className='grid grid-cols-2 gap-3'>
@@ -263,14 +270,11 @@ export function CallResult({
               : t('Amount')}
           </dt>
           <dd>
-            {t('{{amount}} credits', {
-              amount: creditAmount(
-                response.call.settlement_status === 'released'
-                  ? 0
-                  : response.call.price_quota,
-                units
-              ),
-            })}
+            {formatQuota(
+              response.call.settlement_status === 'released'
+                ? 0
+                : response.call.price_quota
+            )}
           </dd>
         </div>
         <div>
@@ -291,9 +295,9 @@ export function CallResult({
       {response.call.settlement_status === 'held' && (
         <p>
           {t(
-            'The result is not settled. {{amount}} credits remain reserved until {{time}}. Check this request instead of starting it again.',
+            'The result is not settled. {{amount}} remain reserved until {{time}}. Check this request instead of starting it again.',
             {
-              amount: creditAmount(response.call.price_quota, units),
+              amount: formatQuota(response.call.price_quota),
               time: new Date(response.call.resolve_by * 1000).toLocaleString(),
             }
           )}
@@ -460,16 +464,18 @@ export function CallDialog({
   tool,
   grant,
   endpoint,
-  units,
   onClose,
 }: {
   tool: MarketTool
   grant: Grant
   endpoint: string
-  units: number
+  units?: number
   onClose: () => void
 }) {
   const { t } = useTranslation()
+  const { formatQuota: formatRawQuota } = useWalletCurrency()
+  const formatQuota = (quota: number) =>
+    formatRawQuota(quota, { digitsLarge: 8, digitsSmall: 8 })
   const cache = useQueryClient()
   const [args, setArgs] = useState(() => initialArguments(tool.input_schema))
   const [requestID, setRequestID] = useState(() => crypto.randomUUID())
@@ -593,28 +599,21 @@ export function CallDialog({
               <dt className='text-muted-foreground'>
                 {t('Single-call limit')}
               </dt>
-              <dd>
-                {t('{{amount}} credits', {
-                  amount: creditAmount(grant.max_price_quota, units),
-                })}
-              </dd>
+              <dd>{formatQuota(grant.max_price_quota)}</dd>
             </div>
             <div>
               <dt className='text-muted-foreground'>
                 {t('Remaining spending limit')}
               </dt>
               <dd>
-                {t('{{amount}} credits', {
-                  amount: creditAmount(
-                    Math.max(
-                      0,
-                      grant.max_total_quota -
-                        grant.spent_quota -
-                        grant.reserved_quota
-                    ),
-                    units
-                  ),
-                })}
+                {formatQuota(
+                  Math.max(
+                    0,
+                    grant.max_total_quota -
+                      grant.spent_quota -
+                      grant.reserved_quota
+                  )
+                )}
               </dd>
             </div>
             <div>
@@ -667,14 +666,14 @@ export function CallDialog({
                 ? t('Retry same request')
                 : tool.price_quota === 0
                   ? t('Run free tool')
-                  : t('Run for up to {{amount}} credits', {
-                      amount: creditAmount(tool.price_quota, units),
+                  : t('Run for up to {{amount}}', {
+                      amount: formatQuota(tool.price_quota),
                     })}
           </Button>
         )}
         {response && (
           <>
-            <CallResult response={response} units={units} />
+            <CallResult response={response} />
             {confirmation && (
               <section className='space-y-3 rounded-lg border p-4'>
                 <h4 className='font-medium'>{t('Confirm tool action')}</h4>
