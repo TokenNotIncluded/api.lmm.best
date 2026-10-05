@@ -147,7 +147,7 @@ func NormalizePricingUSD(pricing []Pricing) ([]Pricing, error) {
 		for _, field := range []struct {
 			ratio *float64
 			price **float64
-		}{{p.ImageRatio, &p.ImagePrice}, {p.AudioRatio, &p.AudioInputPrice}, {p.AudioCompletionRatio, &p.AudioOutputPrice}} {
+		}{{p.ImageRatio, &p.ImagePrice}, {p.AudioRatio, &p.AudioInputPrice}} {
 			if field.ratio != nil {
 				v, err := USDPriceProduct(input, *field.ratio)
 				if err != nil {
@@ -155,6 +155,22 @@ func NormalizePricingUSD(pricing []Pricing) ([]Pricing, error) {
 				}
 				*field.price = &v
 			}
+		}
+		if p.AudioRatio != nil || p.AudioCompletionRatio != nil {
+			// Audio completion is relative to audio input, not text input.
+			// Settlement defaults either absent audio multiplier to one.
+			audioInput, audioCompletion := input, 1.0
+			if p.AudioRatio != nil {
+				audioInput = *p.AudioInputPrice
+			}
+			if p.AudioCompletionRatio != nil {
+				audioCompletion = *p.AudioCompletionRatio
+			}
+			v, err := USDPriceProduct(audioInput, audioCompletion)
+			if err != nil {
+				return nil, err
+			}
+			p.AudioOutputPrice = &v
 		}
 	}
 	return result, nil
