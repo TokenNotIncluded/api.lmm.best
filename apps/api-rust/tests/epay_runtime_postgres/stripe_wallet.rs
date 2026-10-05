@@ -122,7 +122,7 @@ impl StripeHarness {
             fixture.option(key, value).await;
         }
         sqlx::raw_sql("CREATE TABLE subscription_plans(id BIGINT PRIMARY KEY,title TEXT NOT NULL DEFAULT 'Plan',price_amount NUMERIC NOT NULL DEFAULT 1,currency TEXT NOT NULL DEFAULT 'USD',duration_unit TEXT NOT NULL DEFAULT 'day',duration_value BIGINT NOT NULL DEFAULT 1,custom_seconds BIGINT NOT NULL DEFAULT 0,total_amount BIGINT NOT NULL DEFAULT 1000,max_purchase_per_user BIGINT NOT NULL DEFAULT 0,upgrade_group TEXT NOT NULL DEFAULT '',downgrade_group TEXT NOT NULL DEFAULT '',quota_reset_period TEXT NOT NULL DEFAULT 'never',quota_reset_custom_seconds BIGINT NOT NULL DEFAULT 0,allow_wallet_overflow BOOLEAN NOT NULL DEFAULT TRUE); INSERT INTO subscription_plans(id) VALUES(3);
-            CREATE TABLE user_subscriptions(id BIGSERIAL PRIMARY KEY,user_id BIGINT,plan_id BIGINT,amount_total BIGINT,amount_used BIGINT,quota_version BIGINT NOT NULL DEFAULT 0,start_time BIGINT,end_time BIGINT,status TEXT,source TEXT,last_reset_time BIGINT,next_reset_time BIGINT,upgrade_group TEXT,prev_user_group TEXT,downgrade_group TEXT,allow_wallet_overflow BOOLEAN,created_at BIGINT,updated_at BIGINT)")
+            CREATE TABLE user_subscriptions(id BIGSERIAL PRIMARY KEY,user_id BIGINT,plan_id BIGINT,amount_total BIGINT,reset_amount BIGINT,renewal_amount BIGINT,amount_used BIGINT,quota_version BIGINT NOT NULL DEFAULT 0,start_time BIGINT,end_time BIGINT,status TEXT,source TEXT,last_reset_time BIGINT,next_reset_time BIGINT,upgrade_group TEXT,prev_user_group TEXT,downgrade_group TEXT,allow_wallet_overflow BOOLEAN,created_at BIGINT,updated_at BIGINT)")
             .execute(&fixture.pg).await.unwrap();
         let provider = Provider {
             pg: fixture.pg.clone(),

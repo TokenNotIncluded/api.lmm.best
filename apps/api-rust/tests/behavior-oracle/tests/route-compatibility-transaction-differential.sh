@@ -388,6 +388,12 @@ createdb -h 127.0.0.1 -p "$pg_port" "$database"
 admin_sql "CREATE ROLE $go_role LOGIN; CREATE ROLE $rust_role LOGIN; CREATE SCHEMA $go_schema; CREATE SCHEMA $rust_schema;"
 for schema in "$go_schema" "$rust_schema"; do
   sed "s/public\./$schema./g" "$repo_root/apps/api-rust/crates/lmm-db-migrate/schema/postgresql-baseline.sql" >"$runtime/$schema.sql"
+  if [[ $schema == "$rust_schema" ]]; then
+    # Expand only the disposable Rust schema after the frozen baseline.
+    sed "s/__LMM_APP_SCHEMA__/$schema/g" \
+      "$repo_root/apps/api-rust/migrations/0018_subscription_amount_snapshots.sql" \
+      >>"$runtime/$schema.sql"
+  fi
   PGOPTIONS="-c search_path=$schema" psql -h 127.0.0.1 -p "$pg_port" -d "$database" -q -v ON_ERROR_STOP=1 -f "$runtime/$schema.sql" >/dev/null
   admin_schema_sql "$schema" "CREATE TABLE lmm_schema_contract (singleton BOOLEAN PRIMARY KEY, min_reader_version BIGINT NOT NULL, max_reader_version BIGINT NOT NULL); INSERT INTO lmm_schema_contract VALUES(TRUE,1,1);"
 done

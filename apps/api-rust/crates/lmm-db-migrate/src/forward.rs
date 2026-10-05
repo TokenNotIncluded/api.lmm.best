@@ -13,13 +13,14 @@ use crate::{
         COMPANY_BILLING_PROFILE_SCHEMA_CONTRACT_ID, CURRENT_CATALOG_SCHEMA_CONTRACT_ID,
         CURRENT_DASHBOARD_SCHEMA_CONTRACT_ID, MANDATORY_ANNOUNCEMENT_SCHEMA_CONTRACT_ID,
         PAYMENT_EXTENSIONS_SCHEMA_CONTRACT_ID, PAYMENT_RUNTIME_SCHEMA_CONTRACT_ID,
-        RELAY_SETTLEMENT_SCHEMA_CONTRACT_ID, SUBSCRIPTION_PAYMENT_REFUND_SCHEMA_CONTRACT_ID,
-        SUBSCRIPTION_RESET_SCHEMA_CONTRACT_ID, TOKEN_MANAGEMENT_SCHEMA_CONTRACT_ID,
-        WAFFO_SUBSCRIPTION_SCHEMA_CONTRACT_ID, verify_account_balance_access_schema,
-        verify_company_billing_profile_schema, verify_current_catalog_schema,
-        verify_current_dashboard_schema, verify_mandatory_announcement_schema,
-        verify_open_source_bounty_schema, verify_payment_extensions_schema,
-        verify_payment_runtime_schema, verify_relay_settlement_schema,
+        RELAY_SETTLEMENT_SCHEMA_CONTRACT_ID, SUBSCRIPTION_AMOUNT_SNAPSHOTS_SCHEMA_CONTRACT_ID,
+        SUBSCRIPTION_PAYMENT_REFUND_SCHEMA_CONTRACT_ID, SUBSCRIPTION_RESET_SCHEMA_CONTRACT_ID,
+        TOKEN_MANAGEMENT_SCHEMA_CONTRACT_ID, WAFFO_SUBSCRIPTION_SCHEMA_CONTRACT_ID,
+        verify_account_balance_access_schema, verify_company_billing_profile_schema,
+        verify_current_catalog_schema, verify_current_dashboard_schema,
+        verify_mandatory_announcement_schema, verify_open_source_bounty_schema,
+        verify_payment_extensions_schema, verify_payment_runtime_schema,
+        verify_relay_settlement_schema, verify_subscription_amount_snapshots_schema,
         verify_subscription_payment_refund_schema, verify_subscription_reset_schema,
         verify_token_management_schema, verify_waffo_subscription_schema,
     },
@@ -113,6 +114,9 @@ pub fn forward(options: &ForwardOptions<'_>) -> Result<ForwardReport, MigrationE
     }
     if options.release.contract_id().as_i64() >= TOKEN_MANAGEMENT_SCHEMA_CONTRACT_ID {
         verify_token_management_schema(&mut transaction, options.schema)?;
+    }
+    if options.release.contract_id().as_i64() >= SUBSCRIPTION_AMOUNT_SNAPSHOTS_SCHEMA_CONTRACT_ID {
+        verify_subscription_amount_snapshots_schema(&mut transaction, options.schema)?;
     }
     transaction.commit()?;
     Ok(ForwardReport {

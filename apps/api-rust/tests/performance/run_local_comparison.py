@@ -134,10 +134,11 @@ def main():
                 INSERT INTO lmm_schema_contract VALUES (TRUE, 1, 1)
                     ON CONFLICT(singleton) DO UPDATE SET min_reader_version=1, max_reader_version=1;
             """)
-            # Current Go creates the common schema. Rust's durable settlement
-            # extension is also required by the ordinary recovery worker.
-            migration = Path(__file__).parents[2] / "migrations/0014_relay_settlement.sql"
-            services.sql(migration.read_text().replace("__LMM_APP_SCHEMA__", "public"))
+            # Current Go creates the common schema. Rust also needs durable
+            # settlement state and subscription amount snapshots.
+            for migration_name in ("0014_relay_settlement.sql", "0018_subscription_amount_snapshots.sql"):
+                migration = Path(__file__).parents[2] / "migrations" / migration_name
+                services.sql(migration.read_text().replace("__LMM_APP_SCHEMA__", "public"))
             relay_keys = None
             provider_url = None
             if args.relay_provider is not None:
@@ -183,7 +184,7 @@ def main():
                 "database_max_open_connections_each": 10,
                 "database_max_lifetime_seconds_each": 1800,
                 "normal_listeners": True, "shared_database": True, "separate_cache_databases": True,
-                "schema": "current Go schema plus real Rust migration 0014 settlement extension",
+                "schema": "current Go schema plus real Rust migrations 0014 relay settlement and 0018 subscription amount snapshots",
                 "access_logging_required": True,
                 "logging_sinks": "one redirected stdout/stderr file per process; Go --log-dir= disables its additional duplicate log file",
                 "logging_formats": "Go text and Rust JSON retain each implementation's normal completed-request fields",
