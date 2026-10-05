@@ -61,7 +61,10 @@ import {
   useWaffoPayment,
   useWaffoPancakePayment,
 } from './hooks'
-import { useCheckoutScope } from './hooks/use-checkout-scope'
+import {
+  useCheckoutOwnerKey,
+  useCheckoutScope,
+} from './hooks/use-checkout-scope'
 import { useTopupCloudSuccess } from './hooks/use-topup-cloud-success'
 import {
   getDefaultPaymentType,
@@ -106,11 +109,32 @@ const PAYMENT_REFRESH_INTERVAL_MS = 3_000
 const PAYMENT_REFRESH_DEADLINE_MS = 2 * 60 * 1_000
 
 export function Wallet(props: WalletProps) {
-  const { key } = useCheckoutScope()
-  return <WalletCheckout key={key} {...props} />
+  const ownerKey = useCheckoutOwnerKey()
+  return <WalletAmountDraft key={ownerKey} {...props} />
 }
 
-function WalletCheckout(props: WalletProps) {
+function WalletAmountDraft(props: WalletProps) {
+  const [rawTopupDraft, setRawTopupDraft] = useState<number | null>(null)
+  const { key } = useCheckoutScope()
+  // Only the raw selection survives a preference/locale change. Checkout,
+  // quote, coupon authorization and confirmation still use the full scope.
+  return (
+    <WalletCheckout
+      key={key}
+      {...props}
+      rawTopupDraft={rawTopupDraft}
+      onRawTopupDraftChange={setRawTopupDraft}
+    />
+  )
+}
+
+function WalletCheckout(
+  props: WalletProps & {
+    rawTopupDraft: number | null
+    onRawTopupDraftChange: (amount: number) => void
+  }
+) {
+  const { rawTopupDraft, onRawTopupDraftChange } = props
   const { t, i18n } = useTranslation()
   const currency = useWalletCurrency()
   const { isCurrent } = useCheckoutScope()
@@ -355,12 +379,15 @@ function WalletCheckout(props: WalletProps) {
           ? currency.legacyAmountToQuota(10)
           : currency.legacyAmountToQuota(legacyPrefill)
       const initialAmount =
-        Number.isSafeInteger(prefill) && prefill > 0
-          ? Math.max(prefill, minTopup)
-          : minTopup
+        rawTopupDraft !== null
+          ? rawTopupDraft
+          : Number.isSafeInteger(prefill) && prefill > 0
+            ? Math.max(prefill, minTopup)
+            : minTopup
       setTopupAmount(initialAmount)
-      if (legacyPrefill !== null) return
-      // Calculate initial payment amount with default payment type
+      onRawTopupDraftChange(initialAmount)
+      if (legacyPrefill !== null && rawTopupDraft === null) return
+      // Requote the retained raw selection within the new checkout scope.
       calculatePaymentAmount(
         initialAmount,
         defaultPaymentType,
@@ -375,6 +402,8 @@ function WalletCheckout(props: WalletProps) {
     enteredTopupAmount,
     calculatePaymentAmount,
     appliedDiscountCode,
+    rawTopupDraft,
+    onRawTopupDraftChange,
   ])
 
   // Get current payment type (selected or default)
@@ -539,6 +568,7 @@ function WalletCheckout(props: WalletProps) {
       amount
     )
     setTopupAmount(amount)
+    onRawTopupDraftChange(amount)
     setSelectedPreset(preset)
     if (nextDiscount.code !== appliedDiscountCode) {
       setAppliedDiscountCode(nextDiscount.code)

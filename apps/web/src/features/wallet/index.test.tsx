@@ -172,6 +172,7 @@ afterEach(async () => {
   window.sessionStorage.removeItem('wallet-pending-topup-cloud')
   window.localStorage.removeItem('wallet-topup-cloud:7')
   window.history.replaceState({}, '', '/wallet?discount_code=SAVE')
+  await i18n.changeLanguage('en')
 })
 after(() => {
   useSystemConfigStore.setState({ config: originalConfig })
@@ -1055,6 +1056,199 @@ const scopeChanges = {
       },
     })),
 }
+
+function useRealUsdAnchor() {
+  useSystemConfigStore.setState((state) => ({
+    config: {
+      ...state.config,
+      currency: {
+        ...state.config.currency,
+        creditsPerUsd: 3500000,
+        creditsPerUsdExact: '3500000',
+      },
+    },
+  }))
+}
+
+test('changing locale retains the selected raw credits, requotes the same payment and closes confirmation', async () => {
+  window.history.replaceState({}, '', '/wallet')
+  useRealUsdAnchor()
+  await i18n.changeLanguage('zh')
+  const requests: AmountRequest[] = []
+  api.post = (async (url, body) => {
+    assert.equal(url, '/api/user/topup/currency/amount')
+    const request = body as AmountRequest
+    requests.push(request)
+    return quoteResponse(String(request.amount / 500000))
+  }) as typeof api.post
+  const { container, queryClient } = await renderWallet(false, {
+    setting: { wallet_display_currency: '' },
+  })
+  const preset = container.querySelector<HTMLButtonElement>(
+    'button[aria-label^="Preset amount: 100 "]'
+  )
+  assert.ok(preset)
+  await act(async () => preset.click())
+  assert.equal(
+    container.querySelector<HTMLInputElement>('#topup-amount')?.value,
+    '100'
+  )
+  assert.ok(container.textContent?.includes('Amount due: 100 CNY'))
+  await act(async () => paymentButton().click())
+  assert.ok(document.querySelector('[role="alertdialog"]'))
+  const beforeLanguageChange = requests.length
+
+  await act(async () => i18n.changeLanguage('en'))
+  const input = container.querySelector<HTMLInputElement>('#topup-amount')
+  assert.ok(input)
+  const { displayAmountToQuota } = await import('@/lib/currency')
+  assert.equal(displayAmountToQuota(input.value, 'USD'), 50000000)
+  assert.equal(requests.length, beforeLanguageChange + 1)
+  assert.deepEqual(requests.at(-1), {
+    amount: 50000000,
+    amount_unit: 'CREDIT',
+    payment_method: 'alipay',
+  })
+  assert.ok(container.textContent?.includes('Amount due: 100 CNY'))
+  assert.equal(document.querySelector('[role="alertdialog"]'), null)
+
+  // Saving the profile language can update its scope separately from i18n.
+  await act(async () => {
+    const { auth } = useAuthStore.getState()
+    assert.ok(auth.user)
+    auth.setUser({ ...auth.user, language: 'en' })
+  })
+  assert.equal(requests.at(-1)?.amount, 50000000)
+  assert.ok(container.textContent?.includes('Amount due: 100 CNY'))
+  await act(async () => i18n.changeLanguage('zh'))
+  assert.equal(
+    container.querySelector<HTMLInputElement>('#topup-amount')?.value,
+    '100'
+  )
+  assert.equal(requests.at(-1)?.amount, 50000000)
+  queryClient.clear()
+})
+
+test('a locale change cannot restore a late quote from the previous checkout scope', async () => {
+  window.history.replaceState({}, '', '/wallet')
+  useRealUsdAnchor()
+  await i18n.changeLanguage('zh')
+  const oldQuote = deferred<ReturnType<typeof quoteResponse>>()
+  const newQuote = deferred<ReturnType<typeof quoteResponse>>()
+  const requests: AmountRequest[] = []
+  api.post = (async (url, body) => {
+    assert.equal(url, '/api/user/topup/currency/amount')
+    requests.push(body as AmountRequest)
+    if (requests.length === 2) return oldQuote.promise
+    if (requests.length === 3) return newQuote.promise
+    return quoteResponse('10')
+  }) as typeof api.post
+  const { container, queryClient } = await renderWallet(false, {
+    setting: { wallet_display_currency: '' },
+  })
+  const preset = container.querySelector<HTMLButtonElement>(
+    'button[aria-label^="Preset amount: 100 "]'
+  )
+  assert.ok(preset)
+  await act(async () => preset.click())
+  await act(async () => i18n.changeLanguage('en'))
+  assert.equal(requests.at(-1)?.amount, 50000000)
+  await act(async () => oldQuote.resolve(quoteResponse('999')))
+  assert.equal(container.textContent?.includes('999 CNY'), false)
+  assert.equal(container.textContent?.includes('Amount due: 100 CNY'), false)
+  assert.equal(document.querySelector('[role="alertdialog"]'), null)
+  await act(async () => newQuote.resolve(quoteResponse('100')))
+  assert.ok(container.textContent?.includes('Amount due: 100 CNY'))
+  assert.equal(container.textContent?.includes('999 CNY'), false)
+  queryClient.clear()
+})
+
+test('a locale change retains the amount without retaining manual coupon authorization', async () => {
+  window.history.replaceState({}, '', '/wallet')
+  useRealUsdAnchor()
+  await i18n.changeLanguage('zh')
+  const requests: AmountRequest[] = []
+  api.post = (async (url, body) => {
+    if (url === '/api/user/topup/currency/discount-code/validate') {
+      return validDiscount
+    }
+    assert.equal(url, '/api/user/topup/currency/amount')
+    const request = body as AmountRequest
+    requests.push(request)
+    return quoteResponse(
+      String((request.amount / 500000) * (request.discount_code ? 0.9 : 1))
+    )
+  }) as typeof api.post
+  const { container, queryClient } = await renderWallet(false, {
+    setting: { wallet_display_currency: '' },
+  })
+  const preset = container.querySelector<HTMLButtonElement>(
+    'button[aria-label^="Preset amount: 100 "]'
+  )
+  assert.ok(preset)
+  await act(async () => preset.click())
+  const input = container.querySelector<HTMLInputElement>('#discount-code')
+  assert.ok(input)
+  const setter = Object.getOwnPropertyDescriptor(
+    domWindow.HTMLInputElement.prototype,
+    'value'
+  )?.set
+  assert.ok(setter)
+  await act(async () => {
+    setter.call(input, 'SAVE')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  const apply = [...container.querySelectorAll('button')].find(
+    (button) => button.textContent?.trim() === 'Apply'
+  )
+  assert.ok(apply)
+  await act(async () => apply.click())
+  assert.equal(requests.at(-1)?.discount_code, 'SAVE')
+  assert.ok(container.textContent?.includes('Amount due: 90 CNY'))
+
+  await act(async () => i18n.changeLanguage('en'))
+  assert.equal(requests.at(-1)?.amount, 50000000)
+  assert.equal(requests.at(-1)?.discount_code, undefined)
+  assert.ok(container.textContent?.includes('Amount due: 100 CNY'))
+  assert.equal(
+    container.textContent?.includes('Discount applied: 10% off'),
+    false
+  )
+  assert.equal(
+    container.querySelector<HTMLInputElement>('#discount-code')?.value,
+    ''
+  )
+  queryClient.clear()
+})
+
+for (const scope of ['account', 'session'] as const) {
+  test(`a ${scope} change discards the previous owner's raw amount draft`, async () => {
+    window.history.replaceState({}, '', '/wallet')
+    const requests: AmountRequest[] = []
+    api.post = (async (url, body) => {
+      assert.equal(url, '/api/user/topup/currency/amount')
+      const request = body as AmountRequest
+      requests.push(request)
+      return quoteResponse(String(request.amount / 500000))
+    }) as typeof api.post
+    const { container, queryClient } = await renderWallet(false)
+    const preset = container.querySelector<HTMLButtonElement>(
+      'button[aria-label^="Preset amount: 100 "]'
+    )
+    assert.ok(preset)
+    await act(async () => preset.click())
+    assert.equal(requests.at(-1)?.amount, 50000000)
+    await act(async () => scopeChanges[scope]())
+    assert.equal(requests.at(-1)?.amount, 5000000)
+    assert.equal(
+      container.querySelector<HTMLInputElement>('#topup-amount')?.value,
+      '10'
+    )
+    assert.ok(container.textContent?.includes('Amount due: 10 CNY'))
+    queryClient.clear()
+  })
+}
+
 for (const [scope, changeScope] of Object.entries(scopeChanges)) {
   test(`a ${scope} change hides confirmation and isolates the late quote`, async () => {
     window.history.replaceState({}, '', '/wallet')
