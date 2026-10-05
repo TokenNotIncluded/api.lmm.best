@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { RefreshCw } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import type { Resolver } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -36,8 +36,6 @@ import {
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
-import { getCurrencyDisplay } from '@/lib/currency'
-import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import { getUsdExchangeRate } from '../api'
 import { FormDirtyIndicator } from '../components/form-dirty-indicator'
@@ -55,16 +53,6 @@ import { safeNumberFieldProps } from '../utils/numeric-field'
 
 const createPricingSchema = (t: (key: string) => string) =>
   z.object({
-    PublicCreditsPerUSD: z.coerce
-      .number()
-      .finite(t('Public credits per USD must be a positive whole number.'))
-      .int(t('Public credits per USD must be a positive whole number.'))
-      .min(1, t('Public credits per USD must be a positive whole number.'))
-      .max(
-        Number.MAX_SAFE_INTEGER,
-        t('Public credits per USD must be a positive whole number.')
-      )
-      .optional(),
     USDExchangeRate: z.coerce
       .number()
       .finite(t('Payment rate must be finite'))
@@ -89,27 +77,6 @@ type PricingSectionProps = { defaultValues: PricingFormValues }
 export function PricingSection({ defaultValues }: PricingSectionProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
-  const currency = useSystemConfigStore((state) => state.config.currency)
-  const verifiedCurrency = getCurrencyDisplay(currency).config
-  const publicBaseline = useRef(defaultValues.PublicCreditsPerUSD)
-  useEffect(() => {
-    publicBaseline.current = defaultValues.PublicCreditsPerUSD
-  }, [defaultValues.PublicCreditsPerUSD])
-  const publicCreditsSupported =
-    verifiedCurrency.creditUnitSchemaVersion === 2 &&
-    Number.isFinite(verifiedCurrency.creditsPerUsd) &&
-    Number(verifiedCurrency.creditsPerUsd) > 0 &&
-    Number.isSafeInteger(verifiedCurrency.publicCreditsPerUsd) &&
-    Number(verifiedCurrency.publicCreditsPerUsd) > 0 &&
-    Number.isSafeInteger(defaultValues.PublicCreditsPerUSD) &&
-    Number(defaultValues.PublicCreditsPerUSD) > 0
-  const creditAnchor =
-    verifiedCurrency.currencyUnit === 'credit' &&
-    Number.isFinite(verifiedCurrency.creditsPerUsd) &&
-    Number(verifiedCurrency.creditsPerUsd) > 0
-      ? verifiedCurrency.creditsPerUsdExact ||
-        String(verifiedCurrency.creditsPerUsd)
-      : t('Credit conversion unavailable')
   const [isSyncingExchangeRate, setIsSyncingExchangeRate] = useState(false)
   const { form, handleSubmit, handleReset, isDirty, isSubmitting } =
     useSettingsForm<PricingFormValues>({
@@ -120,17 +87,8 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
       >,
       defaultValues,
       onSubmit: async (_data, changedFields) => {
-        if ('PublicCreditsPerUSD' in changedFields && !publicCreditsSupported) {
-          throw new Error(
-            t('Public credit settings are unavailable on this server.')
-          )
-        }
         for (const [key, value] of Object.entries(changedFields)) {
-          if (
-            key !== 'USDExchangeRate' &&
-            key !== 'DisplayTokenStatEnabled' &&
-            key !== 'PublicCreditsPerUSD'
-          ) {
+          if (key !== 'USDExchangeRate' && key !== 'DisplayTokenStatEnabled') {
             continue
           }
           if (
@@ -143,18 +101,7 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
           await updateOption.mutateAsync({
             key,
             value: String(value),
-            ...(key === 'PublicCreditsPerUSD'
-              ? {
-                  publicCreditUnitBaseline: {
-                    publicCreditsPerUsd: Number(publicBaseline.current),
-                    ledgerQuotaPerUsd: Number(verifiedCurrency.creditsPerUsd),
-                  },
-                }
-              : {}),
           })
-          if (key === 'PublicCreditsPerUSD') {
-            publicBaseline.current = Number(value)
-          }
         }
       },
     })
@@ -216,43 +163,11 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
                 'Display balances in CNY, USD, or credits. Chinese users default to CNY and English users to USD.'
               )}
             </p>
-            <FormField
-              control={form.control}
-              name='PublicCreditsPerUSD'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel htmlFor='public-credits-per-usd'>
-                    {t('Public credits per USD')}
-                  </FormLabel>
-                  <FormControl>
-                    <Input
-                      id='public-credits-per-usd'
-                      type='number'
-                      min={1}
-                      max={Number.MAX_SAFE_INTEGER}
-                      step={1}
-                      disabled
-                      {...safeNumberFieldProps(field)}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {publicCreditsSupported
-                      ? t(
-                          'Used for stored balances and billing. This value is fixed.'
-                        )
-                      : t(
-                          'Public credit settings are unavailable on this server.'
-                        )}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
             <FormItem>
               <FormLabel htmlFor='credits-per-usd'>
-                {t('Internal ledger units per USD')}
+                {t('Credits per USD')}
               </FormLabel>
-              <Input id='credits-per-usd' value={creditAnchor} readOnly />
+              <Input id='credits-per-usd' value={500000} readOnly />
               <FormDescription>
                 {t(
                   'Used for stored balances and billing. This value is fixed.'

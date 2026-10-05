@@ -432,23 +432,6 @@ const publicMetadata = (publicCredits = 500000) => ({
   cny_per_usd: '6.719488',
   quota_per_unit: 500000,
 })
-async function enterPublicCredits(container: HTMLElement, value: string) {
-  const input = container.querySelector<HTMLInputElement>(
-    'input[name="PublicCreditsPerUSD"]'
-  )
-  assert.ok(input)
-  const setValue = Object.getOwnPropertyDescriptor(
-    HTMLInputElement.prototype,
-    'value'
-  )?.set
-  assert.ok(setValue)
-  await act(async () => {
-    setValue.call(input, value)
-    input.dispatchEvent(new Event('input', { bubbles: true }))
-    input.dispatchEvent(new Event('change', { bubbles: true }))
-    await new Promise((resolve) => setTimeout(resolve, 20))
-  })
-}
 async function submitPricing(container: HTMLElement) {
   const form = container.querySelector('form')
   assert.ok(form)
@@ -471,16 +454,12 @@ test('pricing form keeps the 500000 credit anchor read-only without saving a den
     writes += 1
     return { data: { success: true } }
   }) as typeof api.put
-  const rendered = await renderPricing(
-    pricingDefaults('USD', { PublicCreditsPerUSD: 500000 }),
-    true
-  )
+  const rendered = await renderPricing(pricingDefaults('USD'), true)
   try {
-    const input = rendered.container.querySelector<HTMLInputElement>(
-      '#public-credits-per-usd'
-    )
+    const input =
+      rendered.container.querySelector<HTMLInputElement>('#credits-per-usd')
     assert.ok(input)
-    assert.equal(input.disabled, true)
+    assert.equal(input.readOnly, true)
     assert.equal(input.value, '500000')
     assert.match(
       rendered.container.textContent ?? '',
@@ -494,10 +473,23 @@ test('pricing form keeps the 500000 credit anchor read-only without saving a den
       rendered.container.querySelector('[data-usd-balance]')?.textContent,
       '1 USD'
     )
-    const ledger =
-      rendered.container.querySelector<HTMLInputElement>('#credits-per-usd')
-    assert.equal(ledger?.value, '500000')
-    assert.equal(ledger?.readOnly, true)
+    assert.equal(
+      rendered.container.querySelector('#public-credits-per-usd'),
+      null
+    )
+    assert.equal(
+      rendered.container.querySelector('[name=PublicCreditsPerUSD]'),
+      null
+    )
+    assert.equal(
+      rendered.container.querySelectorAll('#credits-per-usd').length,
+      1
+    )
+    assert.match(rendered.container.textContent ?? '', /Credits per USD/)
+    assert.doesNotMatch(
+      rendered.container.textContent ?? '',
+      /Public credits per USD|Internal ledger units per USD/
+    )
     await submitPricing(rendered.container)
     assert.equal(writes, 0)
     assert.equal(rendered.titleStatusContainer.textContent, '')
@@ -509,26 +501,23 @@ test('pricing form keeps the 500000 credit anchor read-only without saving a den
   }
 })
 
-test('old servers and missing options expose no invented editable public denomination', async () => {
+test('the fixed credit rule has one read-only field even without public metadata', async () => {
   const originalConfig = useSystemConfigStore.getState().config
-  for (const [metadata, option] of [
-    [{ currency_unit: 'credit', credits_per_usd: 500000 }, undefined],
-    [publicMetadata(), undefined],
-  ] as const) {
+  for (const metadata of [
+    { currency_unit: 'credit', credits_per_usd: 500000 },
+    publicMetadata(),
+  ]) {
     useSystemConfigStore.getState().setConfig(mapStatusDataToConfig(metadata))
-    const rendered = await renderPricing(
-      pricingDefaults('USD', { PublicCreditsPerUSD: option })
-    )
+    const rendered = await renderPricing(pricingDefaults('USD'))
     try {
-      const input = rendered.container.querySelector<HTMLInputElement>(
-        '#public-credits-per-usd'
-      )
+      const input =
+        rendered.container.querySelector<HTMLInputElement>('#credits-per-usd')
       assert.ok(input)
-      assert.equal(input.disabled, true)
-      assert.equal(input.value, '')
-      assert.match(
-        rendered.container.textContent || '',
-        /unavailable on this server/
+      assert.equal(input.readOnly, true)
+      assert.equal(input.value, '500000')
+      assert.equal(
+        rendered.container.querySelector('#public-credits-per-usd'),
+        null
       )
     } finally {
       await rendered.cleanup()
@@ -537,31 +526,34 @@ test('old servers and missing options expose no invented editable public denomin
   useSystemConfigStore.setState({ config: originalConfig })
 })
 
-test('fractional public denomination is rejected by the real form without a write', async () => {
-  const originalConfig = useSystemConfigStore.getState().config,
+test('stale public denomination defaults cannot block or join an FX save', async () => {
+  const originalGet = api.get,
     originalPut = api.put
-  useSystemConfigStore
-    .getState()
-    .setConfig(mapStatusDataToConfig(publicMetadata()))
-  let writes = 0
-  api.put = (async () => {
-    writes++
+  const writes: Array<{ key: string; value: string }> = []
+  api.get = (async () => exchangeRatePayload('CNY', 7.2)) as typeof api.get
+  api.put = (async (_url: string, body: { key: string; value: string }) => {
+    writes.push(body)
     return { data: { success: true } }
   }) as typeof api.put
-  const rendered = await renderPricing(
-    pricingDefaults('USD', { PublicCreditsPerUSD: 500000 })
-  )
+  const legacyDefaults = {
+    ...pricingDefaults('USD'),
+    PublicCreditsPerUSD: 100000.5,
+  }
+  const rendered = await renderPricing(legacyDefaults)
   try {
-    await enterPublicCredits(rendered.container, '100000.5')
+    assert.equal(rendered.titleStatusContainer.textContent, '')
+    await clickSync(rendered.container)
+    await flushAsyncWork()
     await submitPricing(rendered.container)
-    assert.equal(writes, 0)
-    assert.match(
-      rendered.container.textContent || '',
-      /must be a positive whole number/
+    assert.deepEqual(writes, [{ key: 'USDExchangeRate', value: '7.2' }])
+    assert.equal(
+      rendered.container.querySelector('[name=PublicCreditsPerUSD]'),
+      null
     )
+    assert.equal(rendered.titleStatusContainer.textContent, '')
   } finally {
     await rendered.cleanup()
+    api.get = originalGet
     api.put = originalPut
-    useSystemConfigStore.setState({ config: originalConfig })
   }
 })
