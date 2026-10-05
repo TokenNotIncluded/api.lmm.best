@@ -60,6 +60,8 @@ func TestRustStripeCurrentGoOracle(t *testing.T) {
 	common.QuotaForInviter = 75
 	operation_setting.USDExchangeRate = 7.3
 	operation_setting.TopUpPlatformUnitsPerCNY = 2
+	// Match the legacy fixture calibration; changed-FX Credit invariants have separate coverage.
+	preservePaymentCreditAnchor(t, "7300000")
 	operation_setting.PayMethods = []map[string]string{{"type": "alipay"}}
 	operation_setting.GetGeneralSetting().QuotaDisplayType = operation_setting.QuotaDisplayTypeUSD
 	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{}
