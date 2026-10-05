@@ -85,6 +85,9 @@ await i18n.use(initReactI18next).init({
 const { useEffect, useState } = await import('react')
 const { RechargeFormCard } = await import('./recharge-form-card')
 const { Wallet } = await import('../index')
+const { walletCatalog, creditGrant } =
+  await import('../lib/wallet-fixtures.test-support')
+const { parsePaymentDiscount } = await import('../lib/payment-discount')
 const { useTopupInfo } = await import('../hooks/use-topup-info')
 const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
@@ -248,7 +251,7 @@ after(() => {
   domWindow.close()
 })
 
-const topupInfo = {
+const topupInfo = walletCatalog({
   credit_metadata_version: 1,
   stripe_credit_max_topup: 5000000000,
   waffo_credit_max_topup: null,
@@ -274,7 +277,7 @@ const topupInfo = {
   stripe_min_topup: 5000000,
   amount_options: [100],
   discount: {},
-}
+})
 
 describe('wallet payment clarity', () => {
   test('clears stale top-up configuration and presets when a refresh fails', async () => {
@@ -785,7 +788,7 @@ describe('wallet payment clarity', () => {
     const text = recharge.container.textContent ?? ''
     assert.ok(
       recharge.container.querySelector(
-        '[aria-label="Preset amount: 6.8 CNY. Actual payment: 1 USD. Original payment: 1 USD. Platform discount 0%"]'
+        '[aria-label="Preset amount: 6.8 CNY. Actual payment: 1 USD."]'
       )
     )
     assert.equal(
@@ -794,7 +797,7 @@ describe('wallet payment clarity', () => {
         ?.textContent?.trim(),
       '6.8 CNY'
     )
-    assert.equal(text.includes('Estimated payment: 1 USD'), true)
+    assert.equal(text.includes('Estimated payment: 1 USD'), false)
     assert.equal(text.includes('Amount due: 1 USD (actual payment)'), true)
     assert.equal(text.includes('$1'), false)
     assert.equal(
@@ -860,7 +863,7 @@ describe('wallet payment clarity', () => {
     const text = rendered.container.textContent ?? ''
     assert.ok(
       rendered.container.querySelector(
-        '[aria-label="Preset amount: 6.8 USD. Actual payment: 6.8 CNY. Original payment: 6.8 CNY. Platform discount 0%"]'
+        '[aria-label="Preset amount: 6.8 USD. Actual payment: 6.8 CNY."]'
       )
     )
     assert.equal(
@@ -869,7 +872,7 @@ describe('wallet payment clarity', () => {
         ?.textContent?.trim(),
       '6.8 USD'
     )
-    assert.equal(text.includes('Estimated payment: 6.8 CNY'), true)
+    assert.equal(text.includes('Estimated payment: 6.8 CNY'), false)
     assert.equal(text.includes('Amount due: 6.8 CNY (actual payment)'), true)
     assert.equal(text.includes('6.8 CNY / 6.8 USD'), true)
     await unmount(rendered)
@@ -902,7 +905,7 @@ describe('wallet payment clarity', () => {
     )
 
     const noDiscountPreset = rendered.container.querySelector(
-      '[aria-label="Preset amount: 100 CNY. Actual payment: 540 CNY. Original payment: 540 CNY. Platform discount 0%"]'
+      '[aria-label="Preset amount: 100 CNY. Select to get the current payment quote."]'
     )
     assert.ok(noDiscountPreset)
     assert.equal(
@@ -917,12 +920,12 @@ describe('wallet payment clarity', () => {
     )
 
     const discountPreset = rendered.container.querySelector(
-      '[aria-label="Preset amount: 200 CNY. Actual payment: 864 CNY. Original payment: 1,080 CNY. Platform discount 20%. Discount applied 216 CNY"]'
+      '[aria-label="Preset amount: 200 CNY. Select to get the current payment quote."]'
     )
     assert.ok(discountPreset)
     assert.equal(
       discountPreset?.textContent?.includes('Platform discount 20%'),
-      true
+      false
     )
     assert.equal(
       discountPreset?.textContent?.includes('Estimated actual payment'),
@@ -953,7 +956,7 @@ describe('wallet payment clarity', () => {
     )
     assert.equal(
       rendered.container.textContent?.includes('Platform discount 0%'),
-      true
+      false
     )
 
     await unmount(rendered)
@@ -971,6 +974,20 @@ describe('wallet payment clarity', () => {
         topupAmount={50000000}
         onTopupAmountChange={() => undefined}
         paymentAmount={80}
+        paymentCurrency='CNY'
+        paymentDiscount={parsePaymentDiscount(
+          {
+            schema_version: 1,
+            currency: 'CNY',
+            basis: 'amount_preset_and_code',
+            original_amount: '100.00',
+            paid_amount: '80.00',
+            savings_amount: '20.00',
+            discount_percent: '20.00',
+          },
+          '80.00',
+          'CNY'
+        )}
         calculating={false}
         onPaymentMethodSelect={() => undefined}
         paymentLoading={null}
@@ -991,23 +1008,18 @@ describe('wallet payment clarity', () => {
     )
     assert.equal(
       text.includes(
-        'Selected method: Alipay · Estimated payment: 80 CNY (original 100 CNY)'
+        'Selected method: Alipay · Amount due: 80 CNY (actual payment)'
       ),
       true
     )
-    assert.equal(text.includes('Platform discount 20%'), true)
+    assert.equal(text.includes('Discount applied: 20% off'), true)
     assert.equal(text.includes('Discount applied 20 CNY'), true)
 
-    const paymentBreakdown = text.match(
-      /Estimated payment: ([\d,.]+) CNY \(original ([\d,.]+) CNY\)/
+    assert.equal(
+      rendered.container.querySelector('.line-through')?.textContent,
+      '100 CNY'
     )
-    const savingsBreakdown = text.match(/Discount applied ([\d,.]+) CNY/)
-    assert.ok(paymentBreakdown)
-    assert.ok(savingsBreakdown)
-    const actual = Number(paymentBreakdown[1]?.replaceAll(',', ''))
-    const original = Number(paymentBreakdown[2]?.replaceAll(',', ''))
-    const saved = Number(savingsBreakdown[1]?.replaceAll(',', ''))
-    assert.equal(original - actual, saved)
+    assert.ok(text.includes('You save: 20 CNY'))
 
     await unmount(rendered)
   })
@@ -1337,7 +1349,7 @@ describe('wallet payment clarity', () => {
 
     assert.equal(
       rendered.container.textContent?.includes(
-        'Selected method: Alipay · Estimated payment: 0.14 CNY (original 0.14 CNY)'
+        'Selected method: Alipay · Amount due: 0.14 CNY (actual payment)'
       ),
       true
     )
@@ -1470,7 +1482,10 @@ describe('wallet payment clarity', () => {
         ?.getAttribute('aria-pressed'),
       'false'
     )
-    assert.equal(rendered.container.textContent?.includes('平台优惠 20%'), true)
+    assert.equal(
+      rendered.container.textContent?.includes('平台优惠 20%'),
+      false
+    )
     assert.equal(
       rendered.container.textContent?.includes('已优惠 108 CNY'),
       false
@@ -1481,7 +1496,7 @@ describe('wallet payment clarity', () => {
       ),
       true
     )
-    assert.equal(rendered.container.textContent?.includes('平台优惠 0%'), true)
+    assert.equal(rendered.container.textContent?.includes('平台优惠 0%'), false)
     assert.equal(
       cards.some((card) => card.textContent?.includes('平台优惠 0%') ?? false),
       false
@@ -1515,6 +1530,20 @@ describe('wallet payment clarity', () => {
         topupAmount={50000000}
         onTopupAmountChange={() => undefined}
         paymentAmount={80}
+        paymentCurrency='CNY'
+        paymentDiscount={parsePaymentDiscount(
+          {
+            schema_version: 1,
+            currency: 'CNY',
+            basis: 'amount_preset_and_code',
+            original_amount: '100.00',
+            paid_amount: '80.00',
+            savings_amount: '20.00',
+            discount_percent: '20.00',
+          },
+          '80.00',
+          'CNY'
+        )}
         calculating={false}
         onPaymentMethodSelect={() => undefined}
         paymentLoading={null}
@@ -1532,7 +1561,7 @@ describe('wallet payment clarity', () => {
       false
     )
     assert.equal(
-      text.includes('所选方式：Alipay · 预计支付：80 CNY（原价 100 CNY）'),
+      text.includes('所选方式：Alipay · 待支付金额：80 CNY（实际付款）'),
       true
     )
     assert.equal(text.includes('已优惠 20 CNY'), true)
@@ -1550,6 +1579,20 @@ describe('wallet payment clarity', () => {
         onConfirm={() => undefined}
         topupAmount={50000000}
         paymentAmount={8.47}
+        paymentCurrency='USD'
+        paymentDiscount={parsePaymentDiscount(
+          {
+            schema_version: 1,
+            currency: 'USD',
+            basis: 'amount_preset_and_code',
+            original_amount: '14.12',
+            paid_amount: '8.4700',
+            savings_amount: '5.65',
+            discount_percent: '40.01',
+          },
+          '8.4700',
+          'USD'
+        )}
         settlementQuote={{ amount: '8.4700', currency: 'USD' }}
         paymentMethod={{
           name: 'Waffo Pancake',
@@ -1571,13 +1614,10 @@ describe('wallet payment clarity', () => {
     )
     assert.ok(text.includes('SAVE40'), 'discount code should be displayed')
     assert.ok(
-      text.includes('Discount applied: 40% off'),
+      text.includes('Discount applied: 40.01% off'),
       'discount percent should be displayed'
     )
-    assert.ok(
-      text.includes('Discount code saves'),
-      'savings line should be displayed'
-    )
+    assert.ok(text.includes('You save'), 'savings line should be displayed')
     assert.ok(
       text.includes('14.12 USD'),
       'pre-discount strikethrough amount should be rendered'
@@ -1615,7 +1655,7 @@ test('one Credit survives currency switches and quote requests keep their origin
       data: {
         success: true,
         data: '0.01',
-        credited_quota: 1,
+        ...creditGrant(Number(body.amount), 3400000),
         settlement_currency: 'USD',
       },
     }
@@ -1676,7 +1716,7 @@ test('one Credit survives currency switches and quote requests keep their origin
   const input =
     rendered.container.querySelector<HTMLInputElement>('#topup-amount')
   assert.ok(input)
-  assert.equal(input.value, '0.000000294117647058823529411765')
+  assert.equal(input.value, '≈0.00000029')
   assert.equal(document.body.textContent?.includes('1 Credits'), false)
   const originalInput = input.value
   for (const preference of ['USD', 'CNY', 'CREDIT'] as const) {
@@ -1700,7 +1740,12 @@ test('one Credit survives currency switches and quote requests keep their origin
   }
   await editInput(input, '0.00000058823529411764705882353')
   assert.deepEqual(requests, [
-    { amount: 2, payment_method: 'card', amount_unit: 'CREDIT' },
+    {
+      amount: 2,
+      payment_method: 'card',
+      amount_unit: 'LEDGER_QUOTA',
+      credit_metadata_version: 2,
+    },
   ])
   await act(async () => {
     useWalletCurrencyPreferenceStore.getState().setPreference('CNY')
@@ -1710,7 +1755,8 @@ test('one Credit survives currency switches and quote requests keep their origin
   assert.deepEqual(requests.at(-1), {
     amount: 3400000,
     payment_method: 'card',
-    amount_unit: 'CREDIT',
+    amount_unit: 'LEDGER_QUOTA',
+    credit_metadata_version: 2,
   })
   await act(async () => {
     useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')

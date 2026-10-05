@@ -66,6 +66,8 @@ const { PaymentCurrencyProvider } =
   await import('../hooks/payment-currency-provider')
 const { WalletStatsCard } = await import('./wallet-stats-card')
 const { RechargeFormCard } = await import('./recharge-form-card')
+const { parsePaymentDiscount } = await import('../lib/payment-discount')
+const { walletCatalog } = await import('../lib/wallet-fixtures.test-support')
 const { PaymentConfirmDialog } =
   await import('./dialogs/payment-confirm-dialog')
 const i18n = createInstance()
@@ -75,6 +77,8 @@ await i18n.use(initReactI18next).init({
     en: { translation: {} },
     zh: { translation: {} },
     'zh-TW': { translation: {} },
+    zhCN: { translation: {} },
+    zhTW: { translation: {} },
   },
 })
 const originalConfig = useSystemConfigStore.getState().config
@@ -103,8 +107,20 @@ const method = {
   unit_price: '1',
 }
 
-function Harness() {
-  const [quota, setQuota] = useState(50000000)
+function Harness({
+  amount = 100,
+  paymentDiscount = null,
+  calculating = false,
+  couponPercent,
+  rawQuota = 50000000,
+}: {
+  amount?: number
+  paymentDiscount?: ReturnType<typeof parsePaymentDiscount>
+  calculating?: boolean
+  couponPercent?: number
+  rawQuota?: number
+} = {}) {
+  const [quota, setQuota] = useState(rawQuota)
   const [confirm, setConfirm] = useState(false)
   return (
     <>
@@ -122,19 +138,22 @@ function Harness() {
         }}
       />
       <RechargeFormCard
-        topupInfo={{
-          enable_online_topup: true,
-          enable_stripe_topup: false,
-          stripe_min_topup: 1,
-          amount_options: [],
-          discount: {},
-          min_topup: 1,
-          pay_methods: [method],
-          credit_metadata_version: 1,
-          credit_min_topup: 1,
-          credit_amount_options: [50000000],
-          credit_discount: {},
-        }}
+        topupInfo={walletCatalog(
+          {
+            enable_online_topup: true,
+            enable_stripe_topup: false,
+            stripe_min_topup: 1,
+            amount_options: [],
+            discount: {},
+            min_topup: 1,
+            pay_methods: [method],
+            credit_metadata_version: 1,
+            credit_min_topup: 1,
+            credit_amount_options: [50000000],
+            credit_discount: {},
+          },
+          3359744
+        )}
         presetAmounts={[{ value: 50000000, discount: 1 }]}
         selectedPreset={50000000}
         onSelectPreset={(preset) => {
@@ -146,10 +165,13 @@ function Harness() {
           edits.push(value)
           setQuota(value)
         }}
-        paymentAmount={100}
+        paymentAmount={amount}
+        paymentDiscount={paymentDiscount}
         paymentCurrency='CNY'
+        discountCode={couponPercent === undefined ? '' : 'SAVE10'}
+        discountPercent={couponPercent}
         selectedPaymentMethod={method}
-        calculating={false}
+        calculating={calculating}
         onPaymentMethodSelect={() => setConfirm(true)}
         paymentLoading={null}
         redemptionCode=''
@@ -163,17 +185,20 @@ function Harness() {
         onConfirm={() => undefined}
         topupAmount={quota}
         creditedQuota={50000000}
-        paymentAmount={100}
+        paymentAmount={amount}
+        paymentDiscount={paymentDiscount}
         paymentCurrency='CNY'
+        discountCode={couponPercent === undefined ? '' : 'SAVE10'}
+        discountPercent={couponPercent}
         paymentMethod={method}
-        calculating={false}
+        calculating={calculating}
         processing={false}
       />
     </>
   )
 }
 
-async function render() {
+async function render(props: Parameters<typeof Harness>[0] = {}) {
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
@@ -186,7 +211,7 @@ async function render() {
       <QueryClientProvider client={client}>
         <I18nextProvider i18n={i18n}>
           <PaymentCurrencyProvider>
-            <Harness />
+            <Harness {...props} />
           </PaymentCurrencyProvider>
         </I18nextProvider>
       </QueryClientProvider>
@@ -311,7 +336,7 @@ test('balance CNY/USD/Credit selector updates balance and total usage without ch
   )
   assert.ok(updates.every((update) => update.path === '/api/user/self'))
   await choose(container, 'Recharge display currency', 'USD')
-  assert.equal(input(container).value, '14.882086254190795489180128009754')
+  assert.equal(input(container).value, '≈14.88')
   assert.ok(container.textContent?.includes('3,359,744 Credits'))
   assert.equal(edits.length, 0)
   assert.equal(updates.length, 4)
@@ -331,7 +356,7 @@ test('balance CNY/USD/Credit selector updates balance and total usage without ch
   assert.equal(dialog?.textContent?.includes('Credits'), false)
 })
 
-for (const language of ['en', 'zh', 'zh-TW']) {
+for (const language of ['en', 'zh', 'zh-TW', 'zhCN', 'zhTW']) {
   test(`recharge defaults to ${language === 'en' ? 'USD' : 'CNY'} by language even with saved balance Credit preference (${language})`, async () => {
     const auth = useAuthStore.getState().auth
     assert.ok(auth.user)
@@ -348,10 +373,7 @@ for (const language of ['en', 'zh', 'zh-TW']) {
         ?.textContent?.trim(),
       unit
     )
-    assert.equal(
-      input(container).value,
-      language === 'en' ? '14.882086254190795489180128009754' : '100'
-    )
+    assert.equal(input(container).value, language === 'en' ? '≈14.88' : '100')
     assert.equal(
       input(container)
         .closest('[data-slot="input-group"]')
@@ -477,4 +499,147 @@ test('public credit face value changes balance display while 100 CNY recharge re
   await act(async () => preset.click())
   assert.deepEqual(selections, [50000000])
   assert.equal(edits.length, 0)
+})
+
+test('short recharge display restores the exact draft on focus and never changes the selected ledger amount on blur', async () => {
+  const container = await render()
+  const field = input(container)
+  assert.equal(field.value, '≈14.88')
+  await act(async () => field.focus())
+  assert.equal(field.value, '14.882086254190795489180128009754')
+  await act(async () => field.blur())
+  assert.equal(field.value, '≈14.88')
+  assert.deepEqual(edits, [])
+  const micro = await render({ rawQuota: 1 })
+  const microField = input(micro)
+  assert.equal(microField.value, '≈0.0000003')
+  await act(async () => microField.focus())
+  assert.equal(microField.value, '0.000000297641725083815909783603')
+  await act(async () => microField.blur())
+  assert.equal(microField.value, '≈0.0000003')
+  assert.deepEqual(edits, [])
+})
+
+for (const quote of [
+  {
+    original: '100.00',
+    paid: '90.00',
+    savings: '10.00',
+    percent: '10.00',
+    displayedPercent: '10',
+    code: false,
+  },
+  {
+    original: '100.00',
+    paid: '72.00',
+    savings: '28.00',
+    percent: '28.00',
+    displayedPercent: '28',
+    code: true,
+  },
+  {
+    original: '2.00',
+    paid: '1.49',
+    savings: '0.51',
+    percent: '25.50',
+    displayedPercent: '25.5',
+    code: true,
+  },
+]) {
+  test(`recharge and confirmation show the same authoritative CNY original, ${quote.displayedPercent}% discount, paid amount and savings`, async () => {
+    await i18n.changeLanguage('zh')
+    const discount = parsePaymentDiscount(
+      {
+        schema_version: 1,
+        currency: 'CNY',
+        basis: 'amount_preset_and_code',
+        original_amount: quote.original,
+        paid_amount: quote.paid,
+        savings_amount: quote.savings,
+        discount_percent: quote.percent,
+      },
+      quote.paid,
+      'CNY'
+    )
+    assert.ok(discount)
+    const container = await render({
+      amount: Number(quote.paid),
+      paymentDiscount: discount,
+      couponPercent: quote.code ? 10 : undefined,
+    })
+    assert.ok(
+      container.textContent?.includes(
+        `Discount applied: ${quote.displayedPercent}% off`
+      )
+    )
+    assert.ok(
+      container.textContent?.includes(`You save: ${Number(quote.savings)} CNY`)
+    )
+    const original = [...container.querySelectorAll('.line-through')]
+    assert.ok(
+      original.length >= 2,
+      'preset and checkout both show the real original'
+    )
+    assert.ok(
+      original.every(
+        (element) => element.textContent === `${Number(quote.original)} CNY`
+      )
+    )
+    await choose(container, 'Balance display currency', 'Credits')
+    assert.equal(input(container).value, '100')
+    assert.ok(container.textContent?.includes(`${Number(quote.paid)} CNY`))
+    const pay = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Alipay"]'
+    )
+    assert.ok(pay)
+    await act(async () => pay.click())
+    const dialog = document.querySelector('[role="alertdialog"]')
+    assert.ok(
+      dialog?.textContent?.includes(
+        `Discount applied: ${quote.displayedPercent}% off`
+      )
+    )
+    assert.ok(
+      dialog?.textContent?.includes(`You save: ${Number(quote.savings)} CNY`)
+    )
+    assert.equal(
+      dialog?.querySelector('.line-through')?.textContent,
+      `${Number(quote.original)} CNY`
+    )
+    assert.equal(dialog?.textContent?.includes('Credits'), false)
+    assert.deepEqual(edits, [])
+  })
+}
+
+test('missing, mismatched and pending discount metadata never shows a promotional original or percent', async () => {
+  const discount = parsePaymentDiscount(
+    {
+      schema_version: 1,
+      currency: 'CNY',
+      basis: 'amount_preset_and_code',
+      original_amount: '100.00',
+      paid_amount: '90.00',
+      savings_amount: '10.00',
+      discount_percent: '10.00',
+    },
+    '90.00',
+    'CNY'
+  )
+  assert.ok(discount)
+  for (const props of [
+    { amount: 90, couponPercent: 10 },
+    { amount: 80, paymentDiscount: discount, couponPercent: 10 },
+    { amount: 90, paymentDiscount: { ...discount, currency: 'USD' } },
+    {
+      amount: 90,
+      paymentDiscount: discount,
+      calculating: true,
+      couponPercent: 10,
+    },
+  ]) {
+    const container = await render(props)
+    assert.equal(container.querySelector('.line-through'), null)
+    assert.equal(container.textContent?.includes('% off'), false)
+    assert.equal(container.textContent?.includes('You save:'), false)
+  }
 })

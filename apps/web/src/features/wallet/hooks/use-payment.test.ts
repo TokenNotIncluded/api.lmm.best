@@ -45,11 +45,23 @@ describe('payment amount routing', () => {
     await requestPaymentAmount(10, 'epay', {
       regular: async (request) => {
         requests.push(request)
-        return { success: true, data: '100' }
+        return { success: true, data: '100', settlement_currency: 'USD' }
       },
-      stripe: async () => ({ success: true, data: '0' }),
-      waffo: async () => ({ success: true, data: '0' }),
-      waffoPancake: async () => ({ success: true, data: '0' }),
+      stripe: async () => ({
+        success: true,
+        data: '0',
+        settlement_currency: 'USD',
+      }),
+      waffo: async () => ({
+        success: true,
+        data: '0',
+        settlement_currency: 'USD',
+      }),
+      waffoPancake: async () => ({
+        success: true,
+        data: '0',
+        settlement_currency: 'USD',
+      }),
     })
 
     assert.deepEqual(requests, [
@@ -64,7 +76,7 @@ describe('payment amount routing', () => {
       payment_method?: string
     }) => {
       requests.push(request)
-      return { success: true, data: '1' }
+      return { success: true, data: '1', settlement_currency: 'USD' }
     }
 
     await requestPaymentAmount(10, PAYMENT_TYPES.STRIPE, {
@@ -82,19 +94,19 @@ describe('payment amount routing', () => {
     const amount = await requestPaymentAmount(120, PAYMENT_TYPES.WAFFO, {
       regular: async () => {
         calls.push('regular')
-        return { success: true, data: '1' }
+        return { success: true, data: '1', settlement_currency: 'USD' }
       },
       stripe: async () => {
         calls.push('stripe')
-        return { success: true, data: '2' }
+        return { success: true, data: '2', settlement_currency: 'USD' }
       },
       waffo: async (request) => {
         calls.push(`waffo:${request.amount}`)
-        return { success: true, data: '18.75' }
+        return { success: true, data: '18.75', settlement_currency: 'USD' }
       },
       waffoPancake: async () => {
         calls.push('pancake')
-        return { success: true, data: '4' }
+        return { success: true, data: '4', settlement_currency: 'USD' }
       },
     })
 
@@ -128,7 +140,7 @@ test('raw CREDIT quote validation rejects invalid values without calling any gat
   let calls = 0
   const calculator = async () => {
     calls++
-    return { success: true, data: '0.01' }
+    return { success: true, data: '0.01', settlement_currency: 'USD' }
   }
   const calculators = {
     regular: calculator,
@@ -230,23 +242,125 @@ test('default quote calculators fail closed on missing CREDIT routes without leg
     }
     assert.deepEqual(captured, [
       {
-        url: '/api/user/topup/currency/amount',
-        body: { amount: 1, amount_unit: 'CREDIT', payment_method: 'card' },
+        url: '/api/user/topup/currency/v2/amount',
+        body: {
+          amount: 1,
+          amount_unit: 'LEDGER_QUOTA',
+          credit_metadata_version: 2,
+          payment_method: 'card',
+        },
       },
       {
-        url: '/api/user/topup/currency/stripe/amount',
-        body: { amount: 1, amount_unit: 'CREDIT' },
+        url: '/api/user/topup/currency/v2/stripe/amount',
+        body: {
+          amount: 1,
+          amount_unit: 'LEDGER_QUOTA',
+          credit_metadata_version: 2,
+        },
       },
       {
-        url: '/api/user/topup/currency/waffo/amount',
-        body: { amount: 1, amount_unit: 'CREDIT' },
+        url: '/api/user/topup/currency/v2/waffo/amount',
+        body: {
+          amount: 1,
+          amount_unit: 'LEDGER_QUOTA',
+          credit_metadata_version: 2,
+        },
       },
       {
-        url: '/api/user/topup/currency/waffo-pancake/amount',
-        body: { amount: 1, amount_unit: 'CREDIT' },
+        url: '/api/user/topup/currency/v2/waffo-pancake/amount',
+        body: {
+          amount: 1,
+          amount_unit: 'LEDGER_QUOTA',
+          credit_metadata_version: 2,
+        },
       },
     ])
   } finally {
     api.post = originalPost
+  }
+})
+
+test('all quote calculators preserve same-quote CNY discount metadata and keep malformed promotions independent of a valid charge', async () => {
+  const valid = {
+    schema_version: 1,
+    currency: 'CNY',
+    original_amount: '100.00',
+    paid_amount: '72.00',
+    savings_amount: '28.00',
+    discount_percent: '28.00',
+    basis: 'amount_preset_and_code',
+  }
+  for (const type of [
+    'alipay',
+    PAYMENT_TYPES.STRIPE,
+    PAYMENT_TYPES.WAFFO,
+    PAYMENT_TYPES.WAFFO_PANCAKE,
+  ]) {
+    for (const metadata of [
+      valid,
+      undefined,
+      { ...valid, currency: 'USD' },
+      { ...valid, paid_amount: '71.00' },
+      { ...valid, savings_amount: '10.00' },
+    ]) {
+      const calculator = async () => ({
+        success: true,
+        data: '72.00',
+        amount: '72.00',
+        settlement_currency: 'CNY',
+        settlement_quote: metadata,
+        credited_quota: 50000000,
+      })
+      const quote = await requestPaymentQuote(50000000, type, 'SAVE10', {
+        regular: calculator,
+        stripe: calculator,
+        waffo: calculator,
+        waffoPancake: calculator,
+      })
+      assert.equal(quote.amount, 72)
+      assert.equal(quote.paymentCurrency, 'CNY')
+      assert.equal(quote.creditedQuota, 50000000)
+      assert.deepEqual(
+        quote.paymentDiscount,
+        metadata === valid
+          ? {
+              currency: 'CNY',
+              original: 100,
+              paid: 72,
+              savings: 28,
+              percent: 28.000000000000004,
+            }
+          : null
+      )
+    }
+  }
+})
+
+test('a missing or non-fiat quote currency cannot be relabelled as a payable USD or CNY amount', async () => {
+  for (const settlement_currency of [
+    undefined,
+    '',
+    'CREDIT',
+    'LDC',
+    'AAA',
+    '????',
+    'cny',
+    ' CNY ',
+  ]) {
+    const calculator = async () => ({
+      success: true,
+      data: '90.00',
+      settlement_currency,
+    })
+    const quote = await requestPaymentQuote(50000000, 'alipay', {
+      regular: calculator,
+      stripe: calculator,
+      waffo: calculator,
+      waffoPancake: calculator,
+    })
+    assert.equal(quote.amount, 0)
+    assert.equal(quote.paymentCurrency, undefined)
+    assert.equal(quote.paymentDiscount, undefined)
+    assert.equal(quote.errorReason, 'Payment unavailable')
   }
 })

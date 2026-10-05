@@ -253,6 +253,7 @@ function WalletCheckout(
     amount: paymentAmount,
     creditedQuota,
     paymentCurrency,
+    paymentDiscount,
     calculating,
     processing,
     lastQuoteErrorRef,
@@ -1126,6 +1127,7 @@ function WalletCheckout(
                   onTopupAmountChange={handleTopupAmountChange}
                   paymentAmount={paymentAmount}
                   paymentCurrency={paymentCurrency}
+                  paymentDiscount={paymentDiscount}
                   settlementQuote={settlementQuote}
                   selectedPaymentMethod={selectedPaymentMethod}
                   calculating={calculating || discountApplying}
@@ -1251,6 +1253,7 @@ function WalletCheckout(
         topupAmount={topupAmount}
         paymentAmount={paymentAmount}
         paymentCurrency={paymentCurrency}
+        paymentDiscount={paymentDiscount}
         settlementQuote={settlementQuote}
         paymentMethod={selectedPaymentMethod}
         calculating={calculating || discountApplying}

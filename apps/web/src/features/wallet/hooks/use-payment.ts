@@ -42,6 +42,11 @@ import {
   reservePaymentCheckout,
   submitPaymentForm,
 } from '../lib'
+import { isFiatPaymentCurrency } from '../lib/format'
+import {
+  parsePaymentDiscount,
+  type PaymentDiscount,
+} from '../lib/payment-discount'
 import {
   parseSettlementQuote,
   type SettlementQuote,
@@ -84,6 +89,7 @@ export async function requestPaymentQuote(
   errorReason?: string
   creditedQuota?: number
   paymentCurrency?: string
+  paymentDiscount?: PaymentDiscount | null
 }> {
   if (!Number.isSafeInteger(topupAmount) || topupAmount <= 0) {
     return {
@@ -176,11 +182,23 @@ export async function requestPaymentQuote(
       errorReason: extractErrorReason(response),
     }
   }
+  if (!isFiatPaymentCurrency(response.settlement_currency)) {
+    return {
+      amount: 0,
+      settlementQuote: null,
+      errorReason: i18next.t('Payment unavailable'),
+    }
+  }
   const credit =
     Number.isSafeInteger(response.credited_quota) &&
     (response.credited_quota ?? -1) >= 0
       ? { creditedQuota: response.credited_quota }
       : {}
+  const paymentDiscount = parsePaymentDiscount(
+    response.settlement_quote,
+    response.data,
+    response.settlement_currency
+  )
   if (isWaffoPancakePayment(paymentType)) {
     const settlementQuote = parseSettlementQuote({
       amount: response.data,
@@ -189,7 +207,13 @@ export async function requestPaymentQuote(
       savingsAmount: response.savings_settlement_amount,
     })
     return settlementQuote
-      ? { amount: Number(settlementQuote.amount), settlementQuote, ...credit }
+      ? {
+          amount: Number(settlementQuote.amount),
+          settlementQuote,
+          paymentCurrency: settlementQuote.currency,
+          paymentDiscount,
+          ...credit,
+        }
       : {
           amount: 0,
           settlementQuote: null,
@@ -201,6 +225,7 @@ export async function requestPaymentQuote(
     ...(settlementCurrency && /^[A-Z]{3}$/.test(settlementCurrency)
       ? { paymentCurrency: settlementCurrency }
       : {}),
+    paymentDiscount,
     amount: Number.parseFloat(response.data),
     settlementQuote: null,
     ...credit,
@@ -223,6 +248,7 @@ export function usePayment() {
     settlementQuote: SettlementQuote | null
     creditedQuota?: number
     paymentCurrency?: string
+    paymentDiscount?: PaymentDiscount | null
   } | null>(null)
   const amount = quote?.scope === scope ? quote.amount : 0
   const settlementQuote = quote?.scope === scope ? quote.settlementQuote : null
@@ -381,6 +407,7 @@ export function usePayment() {
     amount,
     creditedQuota: quote?.scope === scope ? quote.creditedQuota : undefined,
     paymentCurrency: quote?.scope === scope ? quote.paymentCurrency : undefined,
+    paymentDiscount: quote?.scope === scope ? quote.paymentDiscount : null,
     calculating,
     processing,
     quoteError,

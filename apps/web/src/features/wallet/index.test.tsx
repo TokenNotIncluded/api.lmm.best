@@ -94,6 +94,8 @@ const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { Wallet } = await import('./index')
 const { PaymentConfirmDialog } =
   await import('./components/dialogs/payment-confirm-dialog')
+const { creditGrant, walletCatalog } =
+  await import('./lib/wallet-fixtures.test-support')
 const { usePayment } = await import('./hooks/use-payment')
 const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
@@ -127,6 +129,69 @@ const mounted: Array<{
   root: ReturnType<typeof createRoot>
   container: HTMLDivElement
 }> = []
+
+function fixtureDiscount(
+  original: string,
+  paid: string,
+  savings: string,
+  percent: string
+) {
+  return {
+    schema_version: 1,
+    currency: 'CNY',
+    basis: 'amount_preset_and_code',
+    original_amount: original,
+    paid_amount: paid,
+    savings_amount: savings,
+    discount_percent: percent,
+  }
+}
+
+function fixtureLedgerBasis() {
+  const config = useSystemConfigStore.getState().config.currency
+  return typeof config.ledgerQuotaPerUsd === 'number' &&
+    Number.isFinite(config.ledgerQuotaPerUsd) &&
+    config.ledgerQuotaPerUsd > 0
+    ? config.ledgerQuotaPerUsd
+    : config.creditsPerUsd
+}
+
+// Each synthetic successful v2 payment response has its captured ledger/public grant.
+// Existing invalid/incomplete fiat payloads are preserved for their fail-closed tests.
+function v2PaymentPost(post: typeof api.post): typeof api.post {
+  return (async (...args: Parameters<typeof api.post>) => {
+    const response = await post(...args)
+    const [url, body] = args
+    const raw = (body as { amount?: number } | undefined)?.amount
+    if (
+      url.startsWith('/api/user/topup/currency/v2/') &&
+      /\/(amount|pay)$/.test(url) &&
+      Number.isSafeInteger(raw) &&
+      Number(raw) > 0 &&
+      response.data &&
+      typeof response.data === 'object' &&
+      response.data.success !== false &&
+      !('credit_unit_schema_version' in response.data)
+    ) {
+      return {
+        ...response,
+        data: {
+          ...creditGrant(Number(raw), fixtureLedgerBasis()),
+          ...(!url.includes('waffo-pancake')
+            ? {
+                settlement_currency:
+                  url.endsWith('/amount') && /\/(waffo|stripe)\//.test(url)
+                    ? 'USD'
+                    : 'CNY',
+              }
+            : {}),
+          ...response.data,
+        },
+      }
+    }
+    return response
+  }) as typeof api.post
+}
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -188,12 +253,26 @@ test('a superseded quote cannot approve checkout while the latest quote is pendi
     }, [state])
     return null
   }
-  const first = deferred<{ data: { message: string; data: string } }>()
-  const second = deferred<{ data: { message: string; data: string } }>()
-  api.post = ((_url, request) =>
+  const first = deferred<{
+    data: {
+      message: string
+      data: string
+      settlement_currency?: string
+      settlement_quote?: unknown
+    }
+  }>()
+  const second = deferred<{
+    data: {
+      message: string
+      data: string
+      settlement_currency?: string
+      settlement_quote?: unknown
+    }
+  }>()
+  api.post = v2PaymentPost(((_url, request) =>
     (request as AmountRequest).amount === 10
       ? first.promise
-      : second.promise) as typeof api.post
+      : second.promise) as typeof api.post)
   await render(<Probe />)
   let firstResult!: Promise<number>
   let secondResult!: Promise<number>
@@ -202,16 +281,54 @@ test('a superseded quote cannot approve checkout while the latest quote is pendi
     secondResult = payment.calculatePaymentAmount(100, 'alipay')
   })
   await act(async () => {
-    first.resolve({ data: { message: 'success', data: '10.00' } })
+    first.resolve({
+      data: {
+        message: 'success',
+        data: '10.00',
+        settlement_currency: 'CNY',
+        settlement_quote: {
+          schema_version: 1,
+          currency: 'CNY',
+          basis: 'amount_preset_and_code',
+          original_amount: '20.00',
+          paid_amount: '10.00',
+          savings_amount: '10.00',
+          discount_percent: '50.00',
+        },
+      },
+    })
     assert.equal(await firstResult, 0)
   })
   assert.equal(payment.amount, 0)
+  assert.equal(payment.paymentDiscount, null)
   assert.equal(payment.calculating, true)
   await act(async () => {
-    second.resolve({ data: { message: 'success', data: '100.00' } })
+    second.resolve({
+      data: {
+        message: 'success',
+        data: '100.00',
+        settlement_currency: 'CNY',
+        settlement_quote: {
+          schema_version: 1,
+          currency: 'CNY',
+          basis: 'amount_preset_and_code',
+          original_amount: '200.00',
+          paid_amount: '100.00',
+          savings_amount: '100.00',
+          discount_percent: '50.00',
+        },
+      },
+    })
     assert.equal(await secondResult, 100)
   })
   assert.equal(payment.amount, 100)
+  assert.deepEqual(payment.paymentDiscount, {
+    currency: 'CNY',
+    original: 200,
+    paid: 100,
+    savings: 100,
+    percent: 50,
+  })
   assert.equal(payment.calculating, false)
 })
 
@@ -219,19 +336,19 @@ test('late discount validation cannot quote an old amount into a new checkout', 
   const validations: Array<ReturnType<typeof deferred<ValidationResult>>> = []
   const checkoutQuote = deferred<{ data: { message: string; data: string } }>()
   const quotes: AmountRequest[] = []
-  api.post = (async (url, request) => {
-    if (url === '/api/user/topup/currency/discount-code/validate') {
+  api.post = v2PaymentPost((async (url, request) => {
+    if (url === '/api/user/topup/currency/v2/discount-code/validate') {
       const response = deferred<ValidationResult>()
       validations.push(response)
       return response.promise
     }
-    assert.equal(url, '/api/user/topup/currency/amount')
+    assert.equal(url, '/api/user/topup/currency/v2/amount')
     const quote = request as AmountRequest
     quotes.push(quote)
     return quote.discount_code
       ? checkoutQuote.promise
       : { data: { message: 'success', data: String(quote.amount / 500000) } }
-  }) as typeof api.post
+  }) as typeof api.post)
   const { container, queryClient } = await renderWallet()
   const largerPreset = container.querySelector<HTMLButtonElement>(
     'button[aria-label^="Preset amount: 100 "]'
@@ -254,7 +371,8 @@ test('late discount validation cannot quote an old amount into a new checkout', 
   await act(async () => validations[2].resolve(validDiscount))
   assert.deepEqual(quotes.at(-1), {
     amount: 50000000,
-    amount_unit: 'CREDIT',
+    amount_unit: 'LEDGER_QUOTA',
+    credit_metadata_version: 2,
     payment_method: 'alipay',
     discount_code: 'SAVE',
   })
@@ -270,48 +388,51 @@ test('late discount validation cannot quote an old amount into a new checkout', 
 })
 
 function modernTopupInfo(info: Partial<TopupInfo>) {
-  return {
-    ...info,
-    credit_metadata_version: 1,
-    stripe_credit_max_topup:
-      info.stripe_credit_max_topup === undefined
-        ? 5000000000
-        : info.stripe_credit_max_topup,
-    waffo_credit_max_topup:
-      info.waffo_credit_max_topup === undefined
-        ? null
-        : info.waffo_credit_max_topup,
-    pancake_credit_max_topup:
-      info.pancake_credit_max_topup === undefined
-        ? null
-        : info.pancake_credit_max_topup,
-    credit_amount_options:
-      info.credit_amount_options ??
-      info.amount_options?.map((amount) => amount * 500000) ??
-      [],
-    credit_discount:
-      info.credit_discount ??
-      Object.fromEntries(
-        Object.entries(info.discount ?? {}).map(([amount, discount]) => [
-          Number(amount) * 500000,
-          discount,
-        ])
-      ),
-    credit_min_topup: info.credit_min_topup ?? (info.min_topup ?? 0) * 500000,
-    stripe_credit_min_topup:
-      info.stripe_credit_min_topup ?? (info.stripe_min_topup ?? 0) * 500000,
-    waffo_credit_min_topup:
-      info.waffo_credit_min_topup ?? (info.waffo_min_topup ?? 0) * 500000,
-    pancake_credit_min_topup:
-      info.pancake_credit_min_topup ??
-      (info.waffo_pancake_min_topup ?? 0) * 500000,
-    pay_methods: info.pay_methods?.map((method) => ({
-      ...method,
-      min_topup_credit:
-        method.min_topup_credit ??
-        String((method.min_topup ?? info.min_topup ?? 0) * 500000),
-    })),
-  }
+  return walletCatalog(
+    {
+      ...info,
+      credit_metadata_version: 1,
+      stripe_credit_max_topup:
+        info.stripe_credit_max_topup === undefined
+          ? 5000000000
+          : info.stripe_credit_max_topup,
+      waffo_credit_max_topup:
+        info.waffo_credit_max_topup === undefined
+          ? null
+          : info.waffo_credit_max_topup,
+      pancake_credit_max_topup:
+        info.pancake_credit_max_topup === undefined
+          ? null
+          : info.pancake_credit_max_topup,
+      credit_amount_options:
+        info.credit_amount_options ??
+        info.amount_options?.map((amount) => amount * 500000) ??
+        [],
+      credit_discount:
+        info.credit_discount ??
+        Object.fromEntries(
+          Object.entries(info.discount ?? {}).map(([amount, discount]) => [
+            Number(amount) * 500000,
+            discount,
+          ])
+        ),
+      credit_min_topup: info.credit_min_topup ?? (info.min_topup ?? 0) * 500000,
+      stripe_credit_min_topup:
+        info.stripe_credit_min_topup ?? (info.stripe_min_topup ?? 0) * 500000,
+      waffo_credit_min_topup:
+        info.waffo_credit_min_topup ?? (info.waffo_min_topup ?? 0) * 500000,
+      pancake_credit_min_topup:
+        info.pancake_credit_min_topup ??
+        (info.waffo_pancake_min_topup ?? 0) * 500000,
+      pay_methods: (info.pay_methods ?? []).map((method) => ({
+        ...method,
+        min_topup_credit:
+          method.min_topup_credit ??
+          String((method.min_topup ?? info.min_topup ?? 0) * 500000),
+      })),
+    },
+    fixtureLedgerBasis()
+  )
 }
 
 async function renderWallet(
@@ -459,8 +580,8 @@ test('a checkout link revalidates a changed payment method and waits for its dis
     data: { message: string; data: string }
   }>()
   const quotes: AmountRequest[] = []
-  api.post = (async (url, request) => {
-    if (url === '/api/user/topup/currency/discount-code/validate') {
+  api.post = v2PaymentPost((async (url, request) => {
+    if (url === '/api/user/topup/currency/v2/discount-code/validate') {
       const response = deferred<ValidationResult>()
       validations.push({
         request: request as (typeof validations)[number]['request'],
@@ -468,13 +589,13 @@ test('a checkout link revalidates a changed payment method and waits for its dis
       })
       return response.promise
     }
-    assert.equal(url, '/api/user/topup/currency/amount')
+    assert.equal(url, '/api/user/topup/currency/v2/amount')
     const quote = request as AmountRequest
     quotes.push(quote)
     return quote.discount_code
       ? discountedQuote.promise
       : { data: { message: 'success', data: String(quote.amount / 500000) } }
-  }) as typeof api.post
+  }) as typeof api.post)
   const { container, queryClient } = await renderWallet()
   assert.equal(validations.length, 1)
   assert.equal(validations[0].request.payment_method, 'alipay')
@@ -491,7 +612,8 @@ test('a checkout link revalidates a changed payment method and waits for its dis
   assert.deepEqual(validations[1].request, {
     code: 'save',
     amount: 5000000,
-    amount_unit: 'CREDIT',
+    amount_unit: 'LEDGER_QUOTA',
+    credit_metadata_version: 2,
     payment_method: 'wxpay',
   })
   await act(async () => validations[0].response.resolve(validDiscount))
@@ -500,7 +622,8 @@ test('a checkout link revalidates a changed payment method and waits for its dis
   await act(async () => validations[1].response.resolve(validDiscount))
   assert.deepEqual(quotes.at(-1), {
     amount: 5000000,
-    amount_unit: 'CREDIT',
+    amount_unit: 'LEDGER_QUOTA',
+    credit_metadata_version: 2,
     payment_method: 'wxpay',
     discount_code: 'SAVE',
   })
@@ -522,19 +645,23 @@ test('a checkout link revalidates a changed payment method and waits for its dis
 test('a failed checkout-link discount unlocks manual retry without an automatic retry loop', async () => {
   const first = deferred<ValidationResult>()
   let validations = 0
-  api.post = (async (url, request) => {
-    if (url === '/api/user/topup/currency/discount-code/validate') {
+  api.post = v2PaymentPost((async (url, request) => {
+    if (url === '/api/user/topup/currency/v2/discount-code/validate') {
       validations++
       return validations === 1 ? first.promise : validDiscount
     }
-    assert.equal(url, '/api/user/topup/currency/amount')
+    assert.equal(url, '/api/user/topup/currency/v2/amount')
     return {
       data: {
         message: 'success',
         data: (request as AmountRequest).discount_code ? '9' : '10',
+        settlement_currency: 'CNY',
+        settlement_quote: (request as AmountRequest).discount_code
+          ? fixtureDiscount('10', '9', '1', '10')
+          : undefined,
       },
     }
-  }) as typeof api.post
+  }) as typeof api.post)
   const { container, queryClient } = await renderWallet(true)
   const input = container.querySelector<HTMLInputElement>('#discount-code')
   assert.ok(input)
@@ -560,8 +687,8 @@ test('a failed checkout-link discount unlocks manual retry without an automatic 
 test('a failed checkout-link discount automatically revalidates when the user selects a qualifying amount', async () => {
   window.history.replaceState({}, '', '/wallet?discount_code=SAVE')
   const validationRequests: Array<{ code: string; amount: number }> = []
-  api.post = (async (url, request) => {
-    if (url === '/api/user/topup/currency/discount-code/validate') {
+  api.post = v2PaymentPost((async (url, request) => {
+    if (url === '/api/user/topup/currency/v2/discount-code/validate') {
       const body = request as { code: string; amount: number }
       validationRequests.push({ code: body.code, amount: body.amount })
       if (body.amount < 25000000) {
@@ -579,7 +706,7 @@ test('a failed checkout-link discount automatically revalidates when the user se
         },
       }
     }
-    assert.equal(url, '/api/user/topup/currency/amount')
+    assert.equal(url, '/api/user/topup/currency/v2/amount')
     const req = request as AmountRequest
     return {
       data: {
@@ -587,9 +714,13 @@ test('a failed checkout-link discount automatically revalidates when the user se
         data: req.discount_code
           ? String((req.amount / 500000) * 0.6)
           : String(req.amount / 500000),
+        settlement_currency: 'CNY',
+        settlement_quote: req.discount_code
+          ? fixtureDiscount('100', '60', '40', '40')
+          : undefined,
       },
     }
-  }) as typeof api.post
+  }) as typeof api.post)
 
   const { container, queryClient } = await renderWallet(true, {
     topupInfo: {
@@ -629,8 +760,8 @@ test('editing a pending manual discount prevents the old code from approving a q
   window.history.replaceState({}, '', '/wallet')
   const oldValidation = deferred<ValidationResult>()
   const quotes: AmountRequest[] = []
-  api.post = (async (url, request) => {
-    if (url === '/api/user/topup/currency/discount-code/validate') {
+  api.post = v2PaymentPost((async (url, request) => {
+    if (url === '/api/user/topup/currency/v2/discount-code/validate') {
       return (request as { code: string }).code === 'SAVE'
         ? oldValidation.promise
         : {
@@ -640,13 +771,20 @@ test('editing a pending manual discount prevents the old code from approving a q
             },
           }
     }
-    assert.equal(url, '/api/user/topup/currency/amount')
+    assert.equal(url, '/api/user/topup/currency/v2/amount')
     const quote = request as AmountRequest
     quotes.push(quote)
     return {
-      data: { message: 'success', data: quote.discount_code ? '8' : '10' },
+      data: {
+        message: 'success',
+        data: quote.discount_code ? '8' : '10',
+        settlement_currency: 'CNY',
+        settlement_quote: quote.discount_code
+          ? fixtureDiscount('10', '8', '2', '20')
+          : undefined,
+      },
     }
-  }) as typeof api.post
+  }) as typeof api.post)
   const { container, queryClient } = await renderWallet(true)
   const input = container.querySelector<HTMLInputElement>('#discount-code')
   assert.ok(input)
@@ -682,16 +820,16 @@ test('editing a pending manual discount prevents the old code from approving a q
 test('a failed discounted quote unlocks the checkout-link code for retry', async () => {
   const quote = deferred<{ data: { success: boolean } }>()
   let validations = 0
-  api.post = (async (url, request) => {
-    if (url === '/api/user/topup/currency/discount-code/validate') {
+  api.post = v2PaymentPost((async (url, request) => {
+    if (url === '/api/user/topup/currency/v2/discount-code/validate') {
       validations++
       return validDiscount
     }
-    assert.equal(url, '/api/user/topup/currency/amount')
+    assert.equal(url, '/api/user/topup/currency/v2/amount')
     return (request as AmountRequest).discount_code
       ? quote.promise
       : { data: { message: 'success', data: '10' } }
-  }) as typeof api.post
+  }) as typeof api.post)
   const { container, queryClient } = await renderWallet(true)
   await act(async () => quote.resolve({ data: { success: false } }))
   const input = container.querySelector<HTMLInputElement>('#discount-code')
@@ -743,9 +881,9 @@ const confirmButton = () => {
 for (const currency of ['CNY', 'USD'] as const) {
   test(`Pancake shows and sends the exact ${currency} server quote, not the legacy coupon fiat preview`, async () => {
     const requests: Array<{ url: unknown; body: unknown }> = []
-    api.post = (async (url, body) => {
+    api.post = v2PaymentPost((async (url, body) => {
       requests.push({ url, body })
-      if (url === '/api/user/topup/currency/discount-code/validate') {
+      if (url === '/api/user/topup/currency/v2/discount-code/validate') {
         return {
           data: {
             ...validDiscount.data,
@@ -757,15 +895,15 @@ for (const currency of ['CNY', 'USD'] as const) {
           },
         }
       }
-      if (url === '/api/user/topup/currency/waffo-pancake/amount') {
+      if (url === '/api/user/topup/currency/v2/waffo-pancake/amount') {
         return quoteResponse(
           (body as AmountRequest).discount_code ? '63.0700' : '70.00',
           currency
         )
       }
-      assert.equal(url, '/api/user/topup/currency/waffo-pancake/pay')
+      assert.equal(url, '/api/user/topup/currency/v2/waffo-pancake/pay')
       return { data: { success: false, message: 'mock checkout rejected' } }
-    }) as typeof api.post
+    }) as typeof api.post)
     const { container, queryClient } = await renderWallet(false, {
       topupInfo: pancakeTopup,
     })
@@ -778,10 +916,11 @@ for (const currency of ['CNY', 'USD'] as const) {
     assert.ok(dialog?.textContent?.includes('10 USD?'))
     await act(async () => confirmButton().click())
     assert.deepEqual(requests.at(-1), {
-      url: '/api/user/topup/currency/waffo-pancake/pay',
+      url: '/api/user/topup/currency/v2/waffo-pancake/pay',
       body: {
         amount: 5000000,
-        amount_unit: 'CREDIT',
+        amount_unit: 'LEDGER_QUOTA',
+        credit_metadata_version: 2,
         settlement_amount: '63.0700',
         settlement_currency: currency,
         checkout_region: 'global',
@@ -792,7 +931,7 @@ for (const currency of ['CNY', 'USD'] as const) {
     assert.ok(
       requests.some(
         ({ url, body }) =>
-          url === '/api/user/topup/currency/waffo-pancake/amount' &&
+          url === '/api/user/topup/currency/v2/waffo-pancake/amount' &&
           (body as AmountRequest).discount_code === 'SAVE'
       )
     )
@@ -804,10 +943,10 @@ for (const currency of ['CNY', 'USD'] as const) {
 
 test('an incomplete Pancake quote stays visibly unavailable and cannot open confirmation', async () => {
   window.history.replaceState({}, '', '/wallet')
-  api.post = (async (url) => {
-    assert.equal(url, '/api/user/topup/currency/waffo-pancake/amount')
+  api.post = v2PaymentPost((async (url) => {
+    assert.equal(url, '/api/user/topup/currency/v2/waffo-pancake/amount')
     return { data: { message: 'success', data: '70.00' } }
-  }) as typeof api.post
+  }) as typeof api.post)
   const { container, queryClient } = await renderWallet(false, {
     topupInfo: pancakeTopup,
   })
@@ -823,21 +962,21 @@ test('SETTLEMENT_QUOTE_CHANGED only refreshes and requires a new selection and c
   const refreshed = deferred<ReturnType<typeof quoteResponse>>()
   let quotes = 0
   let payments = 0
-  api.post = (async (url, body) => {
-    if (url === '/api/user/topup/currency/waffo-pancake/amount') {
+  api.post = v2PaymentPost((async (url, body) => {
+    if (url === '/api/user/topup/currency/v2/waffo-pancake/amount') {
       quotes++
       return quotes === 3
         ? refreshed.promise
         : quoteResponse(quotes < 3 ? '70.00' : '71.0000')
     }
-    assert.equal(url, '/api/user/topup/currency/waffo-pancake/pay')
+    assert.equal(url, '/api/user/topup/currency/v2/waffo-pancake/pay')
     payments++
     assert.equal(
       (body as { settlement_amount: string }).settlement_amount,
       payments === 1 ? '70.00' : '71.0000'
     )
     return { data: { success: false, code: 'SETTLEMENT_QUOTE_CHANGED' } }
-  }) as typeof api.post
+  }) as typeof api.post)
   const { container, queryClient } = await renderWallet(false, {
     topupInfo: pancakeTopup,
   })
@@ -867,15 +1006,15 @@ test('changing the amount invalidates confirmation and isolates late Pancake quo
   window.history.replaceState({}, '', '/wallet')
   const pending = deferred<ReturnType<typeof quoteResponse>>()
   let requests = 0
-  api.post = (async (url, body) => {
-    assert.equal(url, '/api/user/topup/currency/waffo-pancake/amount')
+  api.post = v2PaymentPost((async (url, body) => {
+    assert.equal(url, '/api/user/topup/currency/v2/waffo-pancake/amount')
     requests++
     return requests === 2
       ? pending.promise
       : quoteResponse(
           (body as AmountRequest).amount === 50000000 ? '640.0000' : '64.00'
         )
-  }) as typeof api.post
+  }) as typeof api.post)
   const { container, queryClient } = await renderWallet(false, {
     topupInfo: pancakeTopup,
   })
@@ -986,15 +1125,15 @@ test('fixed gateway confirmation ignores the unrelated Pancake settlement quote'
 test('editing a coupon invalidates its pending Pancake quote before the coupon response can approve it', async () => {
   window.history.replaceState({}, '', '/wallet')
   const pending = deferred<ReturnType<typeof quoteResponse>>()
-  api.post = (async (url, body) => {
-    if (url === '/api/user/topup/currency/discount-code/validate') {
+  api.post = v2PaymentPost((async (url, body) => {
+    if (url === '/api/user/topup/currency/v2/discount-code/validate') {
       return validDiscount
     }
-    assert.equal(url, '/api/user/topup/currency/waffo-pancake/amount')
+    assert.equal(url, '/api/user/topup/currency/v2/waffo-pancake/amount')
     return (body as AmountRequest).discount_code
       ? pending.promise
       : quoteResponse('70.00')
-  }) as typeof api.post
+  }) as typeof api.post)
   const { container, queryClient } = await renderWallet(true, {
     topupInfo: pancakeTopup,
   })
@@ -1075,12 +1214,12 @@ test('changing locale retains the selected raw credits, requotes the same paymen
   useRealUsdAnchor()
   await i18n.changeLanguage('zh')
   const requests: AmountRequest[] = []
-  api.post = (async (url, body) => {
-    assert.equal(url, '/api/user/topup/currency/amount')
+  api.post = v2PaymentPost((async (url, body) => {
+    assert.equal(url, '/api/user/topup/currency/v2/amount')
     const request = body as AmountRequest
     requests.push(request)
     return quoteResponse(String(request.amount / 500000))
-  }) as typeof api.post
+  }) as typeof api.post)
   const { container, queryClient } = await renderWallet(false, {
     setting: { wallet_display_currency: '' },
   })
@@ -1101,12 +1240,15 @@ test('changing locale retains the selected raw credits, requotes the same paymen
   await act(async () => i18n.changeLanguage('en'))
   const input = container.querySelector<HTMLInputElement>('#topup-amount')
   assert.ok(input)
+  assert.equal(input.value, '≈14.29')
+  await act(async () => input.focus())
   const { displayAmountToQuota } = await import('@/lib/currency')
   assert.equal(displayAmountToQuota(input.value, 'USD'), 50000000)
   assert.equal(requests.length, beforeLanguageChange + 1)
   assert.deepEqual(requests.at(-1), {
     amount: 50000000,
-    amount_unit: 'CREDIT',
+    amount_unit: 'LEDGER_QUOTA',
+    credit_metadata_version: 2,
     payment_method: 'alipay',
   })
   assert.ok(container.textContent?.includes('Amount due: 100 CNY'))
@@ -1136,13 +1278,13 @@ test('a locale change cannot restore a late quote from the previous checkout sco
   const oldQuote = deferred<ReturnType<typeof quoteResponse>>()
   const newQuote = deferred<ReturnType<typeof quoteResponse>>()
   const requests: AmountRequest[] = []
-  api.post = (async (url, body) => {
-    assert.equal(url, '/api/user/topup/currency/amount')
+  api.post = v2PaymentPost((async (url, body) => {
+    assert.equal(url, '/api/user/topup/currency/v2/amount')
     requests.push(body as AmountRequest)
     if (requests.length === 2) return oldQuote.promise
     if (requests.length === 3) return newQuote.promise
     return quoteResponse('10')
-  }) as typeof api.post
+  }) as typeof api.post)
   const { container, queryClient } = await renderWallet(false, {
     setting: { wallet_display_currency: '' },
   })
@@ -1168,17 +1310,17 @@ test('a locale change retains the amount without retaining manual coupon authori
   useRealUsdAnchor()
   await i18n.changeLanguage('zh')
   const requests: AmountRequest[] = []
-  api.post = (async (url, body) => {
-    if (url === '/api/user/topup/currency/discount-code/validate') {
+  api.post = v2PaymentPost((async (url, body) => {
+    if (url === '/api/user/topup/currency/v2/discount-code/validate') {
       return validDiscount
     }
-    assert.equal(url, '/api/user/topup/currency/amount')
+    assert.equal(url, '/api/user/topup/currency/v2/amount')
     const request = body as AmountRequest
     requests.push(request)
     return quoteResponse(
       String((request.amount / 500000) * (request.discount_code ? 0.9 : 1))
     )
-  }) as typeof api.post
+  }) as typeof api.post)
   const { container, queryClient } = await renderWallet(false, {
     setting: { wallet_display_currency: '' },
   })
@@ -1225,12 +1367,12 @@ for (const scope of ['account', 'session'] as const) {
   test(`a ${scope} change discards the previous owner's raw amount draft`, async () => {
     window.history.replaceState({}, '', '/wallet')
     const requests: AmountRequest[] = []
-    api.post = (async (url, body) => {
-      assert.equal(url, '/api/user/topup/currency/amount')
+    api.post = v2PaymentPost((async (url, body) => {
+      assert.equal(url, '/api/user/topup/currency/v2/amount')
       const request = body as AmountRequest
       requests.push(request)
       return quoteResponse(String(request.amount / 500000))
-    }) as typeof api.post
+    }) as typeof api.post)
     const { container, queryClient } = await renderWallet(false)
     const preset = container.querySelector<HTMLButtonElement>(
       'button[aria-label^="Preset amount: 100 "]'
@@ -1254,13 +1396,13 @@ for (const [scope, changeScope] of Object.entries(scopeChanges)) {
     window.history.replaceState({}, '', '/wallet')
     const pending = deferred<ReturnType<typeof quoteResponse>>()
     let requests = 0
-    api.post = (async (url) => {
-      assert.equal(url, '/api/user/topup/currency/waffo-pancake/amount')
+    api.post = v2PaymentPost((async (url) => {
+      assert.equal(url, '/api/user/topup/currency/v2/waffo-pancake/amount')
       requests++
       return requests === 2
         ? pending.promise
         : quoteResponse(requests < 3 ? '10.000' : '80.000')
-    }) as typeof api.post
+    }) as typeof api.post)
     const { container, queryClient } = await renderWallet(false, {
       topupInfo: pancakeTopup,
       setting: { settlement_currency: 'USD' },
@@ -1279,13 +1421,13 @@ for (const [scope, changeScope] of Object.entries(scopeChanges)) {
     const pending = deferred<{
       data: { success: boolean; data: { checkout_url: string } }
     }>()
-    api.post = (async (url) => {
-      if (url === '/api/user/topup/currency/waffo-pancake/amount') {
+    api.post = v2PaymentPost((async (url) => {
+      if (url === '/api/user/topup/currency/v2/waffo-pancake/amount') {
         return quoteResponse('70.00')
       }
-      assert.equal(url, '/api/user/topup/currency/waffo-pancake/pay')
+      assert.equal(url, '/api/user/topup/currency/v2/waffo-pancake/pay')
       return pending.promise
-    }) as typeof api.post
+    }) as typeof api.post)
     const { container, queryClient } = await renderWallet(false, {
       topupInfo: pancakeTopup,
       setting: { settlement_currency: 'USD' },
@@ -1318,11 +1460,11 @@ test('proceed to payment preserves selected Waffo sub-method index and dispatche
   }
   window.open = (() => popup) as unknown as typeof window.open
   const waffoPayRequests: Array<{ url: string; body: unknown }> = []
-  api.post = (async (url, body) => {
-    if (url === '/api/user/topup/currency/waffo/amount') {
+  api.post = v2PaymentPost((async (url, body) => {
+    if (url === '/api/user/topup/currency/v2/waffo/amount') {
       return { data: { message: 'success', data: '10.00' } }
     }
-    if (url === '/api/user/topup/currency/waffo/pay') {
+    if (url === '/api/user/topup/currency/v2/waffo/pay') {
       waffoPayRequests.push({ url, body })
       return {
         data: {
@@ -1332,7 +1474,7 @@ test('proceed to payment preserves selected Waffo sub-method index and dispatche
       }
     }
     return { data: { message: 'success', data: '10.00' } }
-  }) as typeof api.post
+  }) as typeof api.post)
 
   try {
     const waffoTopup: Partial<TopupInfo> = {
@@ -1401,11 +1543,12 @@ test('proceed to payment preserves selected Waffo sub-method index and dispatche
     // Confirm payment
     await act(async () => confirmButton().click())
 
-    // Verify that dispatchSelectedPayment dispatched to /api/user/topup/currency/waffo/pay with pay_method_index: 1
+    // Verify that dispatchSelectedPayment dispatched to /api/user/topup/currency/v2/waffo/pay with pay_method_index: 1
     assert.equal(waffoPayRequests.length, 1)
     assert.deepEqual(waffoPayRequests[0].body, {
       amount: 5000000,
-      amount_unit: 'CREDIT',
+      amount_unit: 'LEDGER_QUOTA',
+      credit_metadata_version: 2,
       pay_method_index: 1,
     })
     assert.equal(popup.location.href, 'https://waffo.example.test/pay')
@@ -1419,11 +1562,11 @@ test('proceed to payment preserves selected Waffo sub-method index and dispatche
 
 test('proceed to payment handles missing Waffo payment URL failure', async () => {
   window.history.replaceState({}, '', '/wallet')
-  api.post = (async (url) => {
-    if (url === '/api/user/topup/currency/waffo/amount') {
+  api.post = v2PaymentPost((async (url) => {
+    if (url === '/api/user/topup/currency/v2/waffo/amount') {
       return { data: { message: 'success', data: '10.00' } }
     }
-    if (url === '/api/user/topup/currency/waffo/pay') {
+    if (url === '/api/user/topup/currency/v2/waffo/pay') {
       return {
         data: {
           success: true,
@@ -1432,7 +1575,7 @@ test('proceed to payment handles missing Waffo payment URL failure', async () =>
       }
     }
     return { data: { message: 'success', data: '10.00' } }
-  }) as typeof api.post
+  }) as typeof api.post)
 
   const waffoTopup: Partial<TopupInfo> = {
     enable_online_topup: true,
@@ -1480,8 +1623,8 @@ test('proceed to payment handles missing Waffo payment URL failure', async () =>
 
 test('manual discount code is not locked as URL discount and can be edited or removed', async () => {
   window.history.replaceState({}, '', '/wallet')
-  api.post = (async (url, request) => {
-    if (url === '/api/user/topup/currency/discount-code/validate') {
+  api.post = v2PaymentPost((async (url, request) => {
+    if (url === '/api/user/topup/currency/v2/discount-code/validate') {
       const code = (request as { code: string }).code
       if (code === 'MANUAL20') {
         return {
@@ -1493,15 +1636,19 @@ test('manual discount code is not locked as URL discount and can be edited or re
       }
       return { data: { success: false, message: 'Invalid code' } }
     }
-    assert.equal(url, '/api/user/topup/currency/amount')
+    assert.equal(url, '/api/user/topup/currency/v2/amount')
     const req = request as AmountRequest
     return {
       data: {
         message: 'success',
         data: req.discount_code ? '8.00' : '10.00',
+        settlement_currency: 'CNY',
+        settlement_quote: req.discount_code
+          ? fixtureDiscount('10.00', '8.00', '2.00', '20.00')
+          : undefined,
       },
     }
-  }) as typeof api.post
+  }) as typeof api.post)
 
   const { container, queryClient } = await renderWallet(true)
   const input = container.querySelector<HTMLInputElement>('#discount-code')
@@ -1565,12 +1712,12 @@ test('invalid URL discount code reverts to regular price and allows checkout wit
   let validationCalled = 0
   const validation = deferred<{ data: { success: boolean; message: string } }>()
   const quotes: AmountRequest[] = []
-  api.post = (async (url, request) => {
-    if (url === '/api/user/topup/currency/discount-code/validate') {
+  api.post = v2PaymentPost((async (url, request) => {
+    if (url === '/api/user/topup/currency/v2/discount-code/validate') {
       validationCalled++
       return validation.promise
     }
-    assert.equal(url, '/api/user/topup/currency/amount')
+    assert.equal(url, '/api/user/topup/currency/v2/amount')
     const req = request as AmountRequest
     quotes.push(req)
     return {
@@ -1579,7 +1726,7 @@ test('invalid URL discount code reverts to regular price and allows checkout wit
         data: '10.00',
       },
     }
-  }) as typeof api.post
+  }) as typeof api.post)
 
   const { container, queryClient } = await renderWallet(true)
   assert.equal(validationCalled, 1)
@@ -1625,15 +1772,15 @@ test('invalid URL discount code reverts to regular price and allows checkout wit
 
 test('typing a discount code draft and deleting it back to empty keeps Pay button enabled and opens confirmation dialog', async () => {
   window.history.replaceState({}, '', '/wallet')
-  api.post = (async (url) => {
-    assert.equal(url, '/api/user/topup/currency/amount')
+  api.post = v2PaymentPost((async (url) => {
+    assert.equal(url, '/api/user/topup/currency/v2/amount')
     return {
       data: {
         message: 'success',
         data: '10.00',
       },
     }
-  }) as typeof api.post
+  }) as typeof api.post)
 
   const { container, queryClient } = await renderWallet(true)
 
@@ -1694,12 +1841,12 @@ test('invalid URL discount code does not abort checkout when switching payment m
   const wxpayQuote = deferred<{ data: { message: string; data: string } }>()
   const quotes: AmountRequest[] = []
 
-  api.post = (async (url, request) => {
-    if (url === '/api/user/topup/currency/discount-code/validate') {
+  api.post = v2PaymentPost((async (url, request) => {
+    if (url === '/api/user/topup/currency/v2/discount-code/validate') {
       validationCalled++
       return validation.promise
     }
-    assert.equal(url, '/api/user/topup/currency/amount')
+    assert.equal(url, '/api/user/topup/currency/v2/amount')
     const req = request as AmountRequest
     quotes.push(req)
     if (req.payment_method === 'wxpay') {
@@ -1711,7 +1858,7 @@ test('invalid URL discount code does not abort checkout when switching payment m
         data: '10.00',
       },
     }
-  }) as typeof api.post
+  }) as typeof api.post)
 
   const { container, queryClient } = await renderWallet(true)
   assert.equal(validationCalled, 1)
@@ -1771,16 +1918,16 @@ test('invalid URL discount code does not abort checkout when switching payment m
 test('an MCP top-up link only prefills the wallet and waits for user payment selection', async () => {
   window.history.replaceState({}, '', '/wallet?topup_amount=25')
   const requests: string[] = []
-  api.post = (async (url, request) => {
+  api.post = v2PaymentPost((async (url, request) => {
     requests.push(url)
-    assert.equal(url, '/api/user/topup/currency/amount')
+    assert.equal(url, '/api/user/topup/currency/v2/amount')
     return {
       data: {
         message: 'success',
         data: String((request as AmountRequest).amount / 500000),
       },
     }
-  }) as typeof api.post
+  }) as typeof api.post)
   const { container, queryClient } = await renderWallet()
   const input = container.querySelector<HTMLInputElement>('#topup-amount')
   assert.ok(input)
@@ -1792,7 +1939,7 @@ test('an MCP top-up link only prefills the wallet and waits for user payment sel
   )
   assert.ok(pay)
   await act(async () => pay.click())
-  assert.deepEqual(requests, ['/api/user/topup/currency/amount'])
+  assert.deepEqual(requests, ['/api/user/topup/currency/v2/amount'])
   assert.ok(
     document.querySelector('[role="alertdialog"]'),
     'only a user payment selection opens confirmation'
@@ -1802,12 +1949,12 @@ test('an MCP top-up link only prefills the wallet and waits for user payment sel
 
 test('changing an MCP-prefilled amount keeps the user edit through later top-up data refreshes', async () => {
   window.history.replaceState({}, '', '/wallet?topup_amount=25')
-  api.post = (async (_url, request) => ({
+  api.post = v2PaymentPost((async (_url, request) => ({
     data: {
       message: 'success',
       data: String((request as AmountRequest).amount / 500000),
     },
-  })) as typeof api.post
+  })) as typeof api.post)
   const { container, queryClient } = await renderWallet()
   const input = container.querySelector<HTMLInputElement>('#topup-amount')
   assert.ok(input)
@@ -1835,12 +1982,12 @@ test('duplicate and malformed MCP top-up amounts keep the normal wallet default'
     '?topup_amount=1e3',
   ]) {
     window.history.replaceState({}, '', `/wallet${search}`)
-    api.post = (async (_url, request) => ({
+    api.post = v2PaymentPost((async (_url, request) => ({
       data: {
         message: 'success',
         data: String((request as AmountRequest).amount / 500000),
       },
-    })) as typeof api.post
+    })) as typeof api.post)
     const { container, queryClient } = await renderWallet()
     const input = container.querySelector<HTMLInputElement>('#topup-amount')
     assert.ok(input)
@@ -1853,14 +2000,14 @@ test('duplicate and malformed MCP top-up amounts keep the normal wallet default'
 test('changing only wallet display currency preserves a pending checkout and its exact payment request', async () => {
   window.history.replaceState({}, '', '/wallet')
   const requests: Array<{ url: unknown; body: Record<string, unknown> }> = []
-  api.post = (async (url, body: Record<string, unknown>) => {
+  api.post = v2PaymentPost((async (url, body: Record<string, unknown>) => {
     requests.push({ url, body })
-    if (url === '/api/user/topup/currency/waffo-pancake/amount') {
+    if (url === '/api/user/topup/currency/v2/waffo-pancake/amount') {
       return quoteResponse('12.3400', 'USD')
     }
-    assert.equal(url, '/api/user/topup/currency/waffo-pancake/pay')
+    assert.equal(url, '/api/user/topup/currency/v2/waffo-pancake/pay')
     return { data: { success: false, message: 'mock checkout rejected' } }
-  }) as typeof api.post
+  }) as typeof api.post)
   const { container, queryClient } = await renderWallet(false, {
     topupInfo: pancakeTopup,
   })
@@ -1891,10 +2038,11 @@ test('changing only wallet display currency preserves a pending checkout and its
   )
   await act(async () => confirmButton().click())
   assert.deepEqual(requests.at(-1), {
-    url: '/api/user/topup/currency/waffo-pancake/pay',
+    url: '/api/user/topup/currency/v2/waffo-pancake/pay',
     body: {
       amount: 5000000,
-      amount_unit: 'CREDIT',
+      amount_unit: 'LEDGER_QUOTA',
+      credit_metadata_version: 2,
       settlement_amount: '12.3400',
       settlement_currency: 'USD',
       checkout_region: 'global',
@@ -1922,9 +2070,13 @@ for (const quotaPerUnit of [300000, 500000]) {
         },
       }))
       const calls: Array<{ url: string; body: Record<string, unknown> }> = []
-      api.post = (async (url: string, body: Record<string, unknown>) => {
+      api.post = v2PaymentPost((async (
+        url: string,
+        body: Record<string, unknown>
+      ) => {
         calls.push({ url, body })
-        assert.equal(body.amount_unit, 'CREDIT')
+        assert.equal(body.amount_unit, 'LEDGER_QUOTA')
+        assert.equal(body.credit_metadata_version, 2)
         assert.ok(Number.isSafeInteger(body.amount))
         if (url.endsWith('/discount-code/validate')) return validDiscount
         if (url.endsWith('/amount')) {
@@ -1937,9 +2089,9 @@ for (const quotaPerUnit of [300000, 500000]) {
             },
           }
         }
-        assert.equal(url, '/api/user/topup/currency/pay')
+        assert.equal(url, '/api/user/topup/currency/v2/pay')
         return { data: { success: false, message: 'mock checkout rejected' } }
-      }) as typeof api.post
+      }) as typeof api.post)
       const { container, queryClient } = await renderWallet(false, {
         topupInfo: {
           credit_amount_options: [rawQuota],
@@ -1988,6 +2140,13 @@ for (const quotaPerUnit of [300000, 500000]) {
           count,
           'display changes never change or requote the selection'
         )
+        await act(async () => input.blur())
+        assert.equal(
+          calls.length,
+          count,
+          'blurring the rounded display never creates a new quote'
+        )
+        await act(async () => input.focus())
         assert.equal(displayAmountToQuota(input.value, 'USD'), rawQuota)
         assert.equal(
           input
@@ -1999,6 +2158,7 @@ for (const quotaPerUnit of [300000, 500000]) {
           setter.call(input, input.value)
           input.dispatchEvent(new Event('input', { bubbles: true }))
         })
+        await act(async () => input.focus())
         assert.equal(displayAmountToQuota(input.value, 'USD'), rawQuota)
         assert.equal(
           input
@@ -2024,7 +2184,8 @@ for (const quotaPerUnit of [300000, 500000]) {
       )
       assert.ok(coupon)
       assert.equal(coupon.body.amount, rawQuota)
-      assert.equal(coupon?.body.amount_unit, 'CREDIT')
+      assert.equal(coupon?.body.amount_unit, 'LEDGER_QUOTA')
+      assert.equal(coupon?.body.credit_metadata_version, 2)
       await act(async () => paymentButton().click())
       const dialog = document.querySelector('[role="alertdialog"]')
       assert.ok(dialog)
@@ -2035,7 +2196,8 @@ for (const quotaPerUnit of [300000, 500000]) {
       assert.ok(selectedCalls.some((call) => call.url.endsWith('/pay')))
       for (const call of selectedCalls) {
         assert.equal(call.body.amount, rawQuota, call.url)
-        assert.equal(call.body.amount_unit, 'CREDIT', call.url)
+        assert.equal(call.body.amount_unit, 'LEDGER_QUOTA', call.url)
+        assert.equal(call.body.credit_metadata_version, 2, call.url)
       }
       queryClient.clear()
     })
