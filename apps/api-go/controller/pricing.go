@@ -223,6 +223,7 @@ func buildPricingResponse(c *gin.Context, applyTrustDiscount bool) (int, gin.H) 
 }
 
 func GetPricing(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
 	status, response := buildPricingResponse(c, false)
 	c.JSON(status, response)
 }

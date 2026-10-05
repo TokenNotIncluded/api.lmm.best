@@ -7,7 +7,7 @@ use crate::{
 use async_trait::async_trait;
 use axum::{
     Json,
-    http::StatusCode,
+    http::{HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
 };
 use serde::{Serialize, Serializer};
@@ -216,7 +216,7 @@ impl StatusHttpState {
     }
 
     pub async fn response_with_authorization(&self, _authorization: Option<&str>) -> Response {
-        match self.repository.snapshot().await {
+        let mut response = match self.repository.snapshot().await {
             Ok(snapshot) => {
                 let mut data = StatusData::from_snapshot(snapshot, &self.version, self.start_time);
                 if self.turnstile_enabled {
@@ -240,7 +240,11 @@ impl StatusHttpState {
                 }),
             )
                 .into_response(),
-        }
+        };
+        response
+            .headers_mut()
+            .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+        response
     }
 }
 
@@ -648,10 +652,79 @@ mod tests {
         .response()
         .await;
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
         let body = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
         let body: Value = serde_json::from_slice(&body)?;
         assert_eq!(body["success"], false);
         assert_eq!(body["message"], "系统状态暂时不可用");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn status_http_refreshes_public_denomination_without_cacheable_responses() -> TestResult {
+        use axum::{Router, body::Body, extract::State, http::Request, routing::get};
+        use std::sync::RwLock;
+        use tower::ServiceExt;
+
+        struct ChangingStatusRepository(RwLock<Option<StatusSnapshot>>);
+        #[async_trait]
+        impl StatusRepository for ChangingStatusRepository {
+            async fn snapshot(&self) -> Result<StatusSnapshot, StatusRepositoryError> {
+                self.0
+                    .read()
+                    .map_err(|_| StatusRepositoryError)?
+                    .clone()
+                    .ok_or(StatusRepositoryError)
+            }
+        }
+        let mut snapshot = default_snapshot();
+        snapshot.options.extend(BTreeMap::from([
+            ("CreditsPerUSD".to_owned(), "3359744".to_owned()),
+            ("LegacyPricingQuotaPerUnit".to_owned(), "500000".to_owned()),
+            ("QuotaPerUnit".to_owned(), "500000".to_owned()),
+        ]));
+        let repository = Arc::new(ChangingStatusRepository(RwLock::new(Some(
+            snapshot.clone(),
+        ))));
+        let app = Router::new()
+            .route(
+                "/api/status",
+                get(|State(state): State<StatusHttpState>| async move { state.response().await }),
+            )
+            .with_state(StatusHttpState::new(repository.clone(), DEFAULT_VERSION, 0));
+        for public in ["100000", "200000"] {
+            snapshot
+                .options
+                .insert("PublicCreditsPerUSD".to_owned(), public.to_owned());
+            *repository
+                .0
+                .write()
+                .map_err(|_| "status fixture lock failed")? = Some(snapshot.clone());
+            let response = app
+                .clone()
+                .oneshot(Request::get("/api/status").body(Body::empty())?)
+                .await?;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+            let body: Value = serde_json::from_slice(
+                &axum::body::to_bytes(response.into_body(), usize::MAX).await?,
+            )?;
+            assert_eq!(body["data"]["public_credits_per_usd_exact"], public);
+            assert_eq!(body["data"]["ledger_quota_per_usd_exact"], "3359744");
+        }
+        *repository
+            .0
+            .write()
+            .map_err(|_| "status fixture lock failed")? = None;
+        let response = app
+            .oneshot(Request::get("/api/status").body(Body::empty())?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        let body: Value =
+            serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX).await?)?;
+        assert_eq!(body["success"], false);
+        assert!(body.get("data").is_none());
         Ok(())
     }
 

@@ -97,6 +97,7 @@ func getPublicCatalogModelIDsWithBillingPolicy(acceptUnsetRatioModel bool) []str
 }
 
 func GetStatus(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
 	if err := cacheReadinessError(); err != nil {
 		ensureCachesWarmAsync()
 		c.JSON(http.StatusServiceUnavailable, gin.H{

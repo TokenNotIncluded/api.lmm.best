@@ -889,14 +889,23 @@ async fn pricing(State(state): State<PublicCatalogState>, headers: HeaderMap) ->
     let access = state.header_nav("pricing").await;
     let actor = match nav_actor(&state, &headers, access, "pricing").await {
         Ok(actor) => actor,
-        Err(response) => return response,
+        Err(mut response) => {
+            response
+                .headers_mut()
+                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            return response;
+        }
     };
     let response = legacy_json(state.pricing(actor).await);
-    if actor.is_some() {
+    let mut response = if actor.is_some() {
         with_auth_version(response)
     } else {
         response
-    }
+    };
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
 }
 
 async fn rankings(
