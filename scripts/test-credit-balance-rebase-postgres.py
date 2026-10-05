@@ -88,8 +88,11 @@ ALTER TABLE fixture_money.tokens ADD COLUMN used_quota bigint DEFAULT 0,ADD COLU
         columns = ["id bigint PRIMARY KEY"] + [key + " bigint" for key in spec["int"]] + [key + " text" for key in spec["text"]] + [key + " timestamptz" for key in spec["null"]]
         values = ["NULL" if value is None else r.sql_literal(value) if isinstance(value, str) else str(value) for value in row.values()]
         ok(base, input=f"CREATE TABLE fixture_money.{table} (" + ",".join(columns) + "); INSERT INTO fixture_money." + table + " (" + ",".join(row.keys()) + ") VALUES (" + ",".join(values) + ");")
-    snapshot["snapshot_at"] = 100
-    snapshot["entities"] = {"redemptions":[red], "bounty_projects":[bounty], "bounty_challenges":[challenge],"bounty_disputes":[]}
+    snapshot["snapshot_at"] = 1000000
+    historical_rejection=entity_source("open_source_bounty_challenges",id=61,project_id=50,participant_user_id=2,reward_quota=68000,status="rejected",rejected_at=395200)
+    rejection_values=[r.sql_literal(value) if isinstance(value,str) else str(value) for value in historical_rejection.values()]
+    ok(base,input="INSERT INTO fixture_money.open_source_bounty_challenges ("+",".join(historical_rejection)+") VALUES ("+",".join(rejection_values)+");")
+    snapshot["entities"] = {"redemptions":[red], "bounty_projects":[bounty], "bounty_challenges":[challenge,historical_rejection],"bounty_disputes":[]}
     dispute_spec=SPECS["open_source_bounty_disputes"]
     ok(base,input="CREATE TABLE fixture_money.open_source_bounty_disputes (id bigint PRIMARY KEY,"+",".join(key+" bigint" for key in dispute_spec["int"])+","+",".join(key+" text" for key in dispute_spec["text"])+");")
     import credit_rebase_subscriptions as subscriptions
@@ -153,10 +156,12 @@ UPDATE fixture_money.top_ups SET failure_reason_code='checkout_timeout',status='
 UPDATE fixture_money.referral_rewards SET revision=1;
 UPDATE fixture_money.redemptions SET quota=680,user_id=1;
 UPDATE fixture_money.open_source_bounty_projects SET escrow_quota=6800,reward_quota=680,net_reward_quota=612,updated_at=0;
-UPDATE fixture_money.open_source_bounty_challenges SET reward_quota=612,participant_user_id=2;
+UPDATE fixture_money.open_source_bounty_challenges SET reward_quota=612,participant_user_id=2 WHERE id=60;
+UPDATE fixture_money.open_source_bounty_challenges SET reward_quota=68000,participant_user_id=2,rejected_at=395200 WHERE id=61;
 UPDATE fixture_money.user_subscriptions SET amount_total=6800,amount_used=6120,reset_amount=NULL,renewal_amount=NULL,quota_version=0,updated_at=0,user_id=1;
 UPDATE fixture_money.subscription_plans SET total_amount=6800,updated_at=0;
 TRUNCATE fixture_money.tasks,fixture_money.midjourneys;
+TRUNCATE fixture_money.open_source_bounty_disputes;
 
 """)
         ok(base,input="UPDATE fixture_money.subscription_orders SET plan_snapshot=" + r.sql_literal(order["plan_snapshot"]) + " WHERE id IN (80,81); UPDATE fixture_money.subscription_orders SET plan_snapshot='' WHERE id=82;")
@@ -173,6 +178,7 @@ TRUNCATE fixture_money.tasks,fixture_money.midjourneys;
     assert ok(base, input="SELECT quota FROM fixture_money.redemptions WHERE id=30;") == "100"
     assert ok(base, input="SELECT escrow_quota,platform_fee_quota FROM fixture_money.open_source_bounty_projects WHERE id=50;") == "1000|68"
     assert ok(base, input="SELECT reward_quota,tip_quota FROM fixture_money.open_source_bounty_challenges WHERE id=60;") == "90|125"
+    assert ok(base,input="SELECT reward_quota FROM fixture_money.open_source_bounty_challenges WHERE id=61;") == "68000"
     assert ok(base,input="SELECT rebased_quota,rebased_revoked_quota,rebased_penalty_quota,rounding FROM fixture_money.wallet_referral_credit_rebases;") == "100|100|10|half-away-from-zero"
     assert ok(base,input="SELECT pending_credit_rebase_original_quota,pending_credit_rebase_effective_quota,credited_quota FROM fixture_money.top_ups WHERE id=21;") == "680|100|680"
     assert ok(base,input="SELECT pending_credit_rebase_key,pending_credit_rebase_original_quota,pending_credit_rebase_effective_quota FROM fixture_money.top_ups WHERE id=23;") == "fixture-v1|0|0"
@@ -204,6 +210,8 @@ TRUNCATE fixture_money.tasks,fixture_money.midjourneys;
                      "UPDATE fixture_money.redemptions SET user_id=2 WHERE id=30;",
                      "UPDATE fixture_money.open_source_bounty_projects SET updated_at=1 WHERE id=50;",
                      "UPDATE fixture_money.open_source_bounty_challenges SET participant_user_id=1 WHERE id=60;",
+                     "UPDATE fixture_money.open_source_bounty_challenges SET rejected_at=395201 WHERE id=61;",
+                     "INSERT INTO fixture_money.open_source_bounty_disputes (id,challenge_id,project_id,status) VALUES (90,61,50,'open');",
                      "UPDATE fixture_money.referral_rewards SET revision=2 WHERE id=9;",
                      "UPDATE fixture_money.top_ups SET payment_provider='stripe' WHERE id=22;",
                      "UPDATE fixture_money.top_ups SET expected_amount_micros=1 WHERE id=22;",
