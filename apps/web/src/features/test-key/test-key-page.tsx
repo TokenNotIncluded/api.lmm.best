@@ -6,6 +6,7 @@ import { Check, Copy, KeyRound } from 'lucide-react'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { CreditAmountInput } from '@/components/credit-amount-input'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -13,15 +14,15 @@ import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { createApiKey } from '@/features/keys/api'
 import { ApiBaseUrl } from '@/features/keys/components/api-base-url'
 import { useStatus } from '@/hooks/use-status'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { getUserGroups } from '@/lib/api'
 import { isConsoleActivated } from '@/lib/console-activation'
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
-import { getCurrencyLabel } from '@/lib/currency'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { TEST_KEY_PATH } from './bookmarklet'
 import { useTestKeyCopy } from './copy'
-import { testKeyPayload, testKeyQuota } from './test-key'
+import { testKeyPayload } from './test-key'
 
 type Result =
   | { state: 'created'; secret: string; copied: boolean }
@@ -41,7 +42,16 @@ function TestKeyForm({
     error: statusError,
     refetch: refetchStatus,
   } = useStatus()
-  const [amount, setAmount] = useState('1')
+  const display = useWalletCurrency()
+  const { amountToQuota } = display
+  const [budget, setBudget] = useState<number | undefined>(undefined)
+  useEffect(() => {
+    if (budget !== undefined || !capabilitiesReady) return
+    const initialQuota = amountToQuota('1')
+    if (Number.isSafeInteger(initialQuota) && initialQuota > 0) {
+      setBudget(initialQuota)
+    }
+  }, [budget, capabilitiesReady, amountToQuota])
   const [group, setGroup] = useState('')
   const [confirmations, setConfirmations] = useState(0)
   const [busy, setBusy] = useState(false)
@@ -109,8 +119,12 @@ function TestKeyForm({
     if (pending.current || result || !currentSession() || !capabilitiesReady) {
       return
     }
-    const quota = testKeyQuota(amount)
-    if (quota === null) {
+    const quota = budget
+    if (
+      typeof quota !== 'number' ||
+      !Number.isSafeInteger(quota) ||
+      quota <= 0
+    ) {
       setError(q('invalidBudget'))
       return
     }
@@ -229,18 +243,15 @@ function TestKeyForm({
         >
           <div className='space-y-2'>
             <Label htmlFor='test-key-budget'>
-              {q('budget', { currency: getCurrencyLabel() })}
+              {q('budget', { currency: display.label })}
             </Label>
-            <Input
+            <CreditAmountInput
               id='test-key-budget'
-              value={amount}
-              onChange={(event) => setAmount(event.target.value)}
-              type='number'
-              min='0'
-              step='any'
+              value={budget}
+              onValueChange={setBudget}
               inputMode='decimal'
               required
-              disabled={busy}
+              disabled={busy || !capabilitiesReady}
               className='h-11 text-base'
             />
           </div>

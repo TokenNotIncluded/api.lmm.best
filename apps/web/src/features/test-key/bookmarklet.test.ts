@@ -1,9 +1,10 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { afterEach, describe, test } from 'node:test'
+import { afterEach, beforeEach, describe, test } from 'node:test'
 import vm from 'node:vm'
 
+import { useAuthStore } from '@/stores/auth-store'
 import {
   DEFAULT_CURRENCY_CONFIG,
   useSystemConfigStore,
@@ -17,11 +18,40 @@ import {
 import { testKeyTranslations } from './copy'
 import { testKeyPayload, testKeyQuota } from './test-key'
 
-afterEach(() =>
-  useSystemConfigStore
-    .getState()
-    .setConfig({ currency: DEFAULT_CURRENCY_CONFIG })
-)
+const originalConfig = useSystemConfigStore.getState().config
+const originalAuth = useAuthStore.getState().auth
+const fixedCurrencyConfig = {
+  ...DEFAULT_CURRENCY_CONFIG,
+  currencyUnit: 'credit' as const,
+  creditsPerUsd: 3359744,
+  creditsPerUsdExact: '3359744',
+  cnyPerUsd: 6.8,
+  cnyPerUsdExact: '6.8',
+  legacyPricingUnitsPerUsd: 6.719488,
+  quotaPerUnit: 500000,
+  // These legacy display settings must not define the new denomination.
+  quotaDisplayType: 'CNY' as const,
+  usdExchangeRate: 99,
+}
+function setDisplayCurrency(value: 'CREDIT' | 'CNY' | 'USD') {
+  useAuthStore.getState().auth.setUser({
+    id: 77,
+    username: 'fixture',
+    role: 1,
+    setting: { wallet_display_currency: value },
+  })
+}
+function setCurrencyConfig(currency: typeof fixedCurrencyConfig) {
+  useSystemConfigStore.setState({ config: { ...originalConfig, currency } })
+}
+beforeEach(() => {
+  setDisplayCurrency('USD')
+  setCurrencyConfig(fixedCurrencyConfig)
+})
+afterEach(() => {
+  useSystemConfigStore.setState({ config: originalConfig })
+  useAuthStore.setState({ auth: originalAuth })
+})
 
 describe('test key bookmark', () => {
   test('opens only a first-party popup with no opener, payload, or credential', () => {
@@ -89,21 +119,46 @@ describe('test key bookmark', () => {
     ]) {
       assert.equal(testKeyQuota(value), null)
     }
-    assert.equal(testKeyQuota('1'), 500000)
-    useSystemConfigStore.getState().setConfig({
-      currency: {
-        ...DEFAULT_CURRENCY_CONFIG,
-        quotaDisplayType: 'CNY',
-        usdExchangeRate: 7,
-      },
-    })
-    assert.equal(testKeyQuota('7'), 500000)
-    useSystemConfigStore.getState().setConfig({
-      currency: { ...DEFAULT_CURRENCY_CONFIG, quotaDisplayType: 'TOKENS' },
-    })
+    assert.equal(testKeyQuota('1'), 3359744)
+    setDisplayCurrency('CNY')
+    assert.equal(testKeyQuota('6.8'), 3359744)
+    assert.equal(testKeyQuota('1'), 494080)
+    setDisplayCurrency('CREDIT')
     assert.equal(testKeyQuota('5'), 5)
+    assert.equal(testKeyQuota('1.5'), null)
+    assert.equal(testKeyQuota('1.000000000000000000000000000001'), null)
     assert.throws(() => testKeyPayload(0, 'auto', 0))
     assert.throws(() => testKeyPayload(500, '', 0))
+  })
+  test('preserves one Credit through literal USD and CNY decimal inputs', () => {
+    assert.equal(testKeyQuota('0.000000297641725083815909783603'), 1)
+    assert.equal(testKeyQuota('0.000000297641725083815909783602'), null)
+    setDisplayCurrency('CNY')
+    assert.equal(testKeyQuota('0.000002023963730569948186528498'), 1)
+    assert.equal(testKeyQuota('0.000002023963730569948186528497'), null)
+    setDisplayCurrency('CREDIT')
+    assert.equal(testKeyQuota('1'), 1)
+    assert.equal(testKeyQuota('9007199254740991'), 9007199254740991)
+    assert.equal(testKeyQuota('9007199254740992'), null)
+  })
+  test('missing or invalid fixed denomination never guesses a fiat conversion', () => {
+    for (const creditsPerUsd of [0, -1, Number.NaN, Infinity]) {
+      setCurrencyConfig({
+        ...fixedCurrencyConfig,
+        creditsPerUsd,
+        creditsPerUsdExact: '',
+      })
+      assert.equal(testKeyQuota('1'), null)
+    }
+    setDisplayCurrency('CNY')
+    setCurrencyConfig({
+      ...fixedCurrencyConfig,
+      cnyPerUsd: 0,
+      cnyPerUsdExact: '',
+    })
+    assert.equal(testKeyQuota('1'), null)
+    setDisplayCurrency('CREDIT')
+    assert.equal(testKeyQuota('1'), 1)
   })
   test('all supported locales have the same keys and interpolation tokens', () => {
     const reference = testKeyTranslations.en
