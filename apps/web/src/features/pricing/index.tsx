@@ -18,12 +18,13 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { Link } from '@tanstack/react-router'
 import { ArrowRight, Wallet } from 'lucide-react'
-import { useCallback, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { ForgePublicShell } from '@/features/forge/forge-public-shell'
 import { usePurchaseEntry } from '@/features/forge/use-purchase-entry'
+import { cn } from '@/lib/utils'
 
 import {
   EmptyState,
@@ -35,13 +36,21 @@ import {
   VendorIconWall,
   VendorModelSections,
 } from './components'
+import { ModelCompareTray } from './components/model-compare-tray'
 import { EXCLUDED_GROUPS, VIEW_MODES } from './constants'
 import { useFilters } from './hooks/use-filters'
 import { usePerfMap } from './hooks/use-perf-map'
 import { usePricingData } from './hooks/use-pricing-data'
+import { MAX_COMPARE_MODELS, toggleCompareSelection } from './lib/model-compare'
 
 /** Models revealed per "Load more" click on the vendor grid. */
 const PAGE_SIZE = 48
+
+const LazyModelCompareDialog = lazy(() =>
+  import('./components/model-compare-dialog').then((m) => ({
+    default: m.ModelCompareDialog,
+  }))
+)
 
 /** A searchable model catalog, grouped by vendor for price comparison. */
 export function Pricing() {
@@ -51,6 +60,8 @@ export function Pricing() {
     null
   )
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+  const [compareNames, setCompareNames] = useState<string[]>([])
+  const [compareOpen, setCompareOpen] = useState(false)
 
   const {
     models,
@@ -110,6 +121,17 @@ export function Pricing() {
     [models, selectedModelName]
   )
 
+  const handleToggleCompare = useCallback((modelName: string) => {
+    setCompareNames((current) => toggleCompareSelection(current, modelName))
+  }, [])
+
+  const compareModels = useMemo(() => {
+    const byName = new Map(
+      (models || []).map((model) => [model.model_name, model])
+    )
+    return compareNames.flatMap((name) => byName.get(name) ?? [])
+  }, [compareNames, models])
+
   const availableGroups = useMemo(
     () =>
       Object.keys(usableGroup || {}).filter(
@@ -153,6 +175,9 @@ export function Pricing() {
             displayCurrency={displayCurrency}
             selectedGroup={groupFilter}
             perfMap={perfMap}
+            compareSelection={compareNames}
+            compareFull={compareNames.length >= MAX_COMPARE_MODELS}
+            onToggleCompare={handleToggleCompare}
           />
           {hasMore ? (
             <div className='mt-10 flex justify-center'>
@@ -196,7 +221,12 @@ export function Pricing() {
   return (
     <ForgePublicShell>
       <div className='min-h-svh'>
-        <div className='mx-auto w-full max-w-7xl px-5 pb-20 md:px-10'>
+        <div
+          className={cn(
+            'mx-auto w-full max-w-7xl px-5 md:px-10',
+            compareModels.length > 0 ? 'pb-32' : 'pb-20'
+          )}
+        >
           <div className='border-foreground/20 mb-5 border-b pt-7 pb-5 sm:mb-8 sm:pt-14 sm:pb-8'>
             <div className='flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between sm:gap-6'>
               <div className='min-w-0'>
@@ -341,6 +371,33 @@ export function Pricing() {
             tokenUnit={tokenUnit}
             displayCurrency={displayCurrency}
           />
+        )}
+
+        {!compareOpen && !selectedModel && (
+          <ModelCompareTray
+            models={compareModels}
+            onRemove={handleToggleCompare}
+            onClear={() => setCompareNames([])}
+            onCompare={() => setCompareOpen(true)}
+          />
+        )}
+        {compareOpen && compareModels.length >= 2 && (
+          <Suspense fallback={null}>
+            <LazyModelCompareDialog
+              open
+              onOpenChange={setCompareOpen}
+              models={compareModels}
+              tokenUnit={tokenUnit}
+              displayCurrency={displayCurrency}
+              selectedGroup={groupFilter}
+              perfMap={perfMap}
+              onRemove={handleToggleCompare}
+              onViewDetails={(modelName) => {
+                setCompareOpen(false)
+                setSelectedModelName(modelName)
+              }}
+            />
+          </Suspense>
         )}
       </div>
     </ForgePublicShell>

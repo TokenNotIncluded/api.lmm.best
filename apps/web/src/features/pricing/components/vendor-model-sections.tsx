@@ -32,6 +32,9 @@ export interface VendorModelSectionProps {
   displayCurrency?: PriceDisplayCurrency
   selectedGroup?: string
   perfMap?: ReadonlyMap<string, ModelPerfBadgeData>
+  compareSelection?: readonly string[]
+  compareFull?: boolean
+  onToggleCompare?: (modelName: string) => void
 }
 
 type VendorGroup = {
@@ -118,6 +121,11 @@ export function VendorModelSections(props: VendorModelSectionProps) {
                   displayCurrency={props.displayCurrency}
                   selectedGroup={props.selectedGroup}
                   perf={props.perfMap?.get(model.model_name || '')}
+                  compareSelected={props.compareSelection?.includes(
+                    model.model_name
+                  )}
+                  compareFull={props.compareFull}
+                  onToggleCompare={props.onToggleCompare}
                   onClick={() => props.onModelClick(model.model_name || '')}
                 />
               ))}

@@ -731,4 +731,9 @@ export const STATIC_I18N_KEYS = [
   'Verification scope is missing',
   'Email Activations',
   'HeroSMS temporary activations',
+
+  // Pricing workload presets (request estimator and model comparison)
+  'Short chat',
+  'Long document',
+  'Code review',
 ] as const
