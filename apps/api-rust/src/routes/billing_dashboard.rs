@@ -237,7 +237,7 @@ impl BillingDashboardStore for PgBillingDashboardStore {
             let value: Option<String> = row
                 .try_get("value")
                 .map_err(|_| BillingDashboardStoreError::Unavailable)?;
-            let value = value.ok_or_else(|| {
+            let value = value.ok_or({
                 if matches!(
                     key.as_str(),
                     "QuotaPerUnit" | "CreditsPerUSD" | "LegacyPricingQuotaPerUnit"
