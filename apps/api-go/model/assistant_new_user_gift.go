@@ -169,7 +169,9 @@ func DecideAssistantNewUserGift(userID int, conversationID int64, amountCents in
 	if err != nil {
 		return nil, false, err
 	}
-	quota, err := common.WalletQuotaFromDecimalStrict(decimal.NewFromInt(int64(amountCents)).Mul(legacyUnit).Div(decimal.NewFromInt(100)))
+	// The legacy gift policy rounds half away from zero before validating the
+	// integer Credit ledger. Fractional legacy units must preserve that grant.
+	quota, err := common.WalletQuotaFromDecimalStrict(decimal.NewFromInt(int64(amountCents)).Mul(legacyUnit).Div(decimal.NewFromInt(100)).Round(0))
 	if err != nil {
 		return nil, false, err
 	}
