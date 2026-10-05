@@ -443,18 +443,16 @@ async fn epay_pay(State(state): State<UserTopupState>, request: Request) -> Resp
         Err(message) => return legacy_error(message),
     };
     let amount = match Decimal::from_str_exact(&request.amount.to_string()) {
-        Ok(value)
-            if value > Decimal::ZERO
-                && value.normalize().scale() <= 6
-                && value
-                    .checked_mul(Decimal::from(1_000_000))
-                    .and_then(|micros| micros.to_i64())
-                    .is_some() =>
-        {
-            value
-        }
+        Ok(value) if value > Decimal::ZERO && value.normalize().scale() <= 6 => value,
         _ => return legacy_error("充值数量最多支持 6 位小数"),
     };
+    if amount
+        .checked_mul(Decimal::from(1_000_000))
+        .and_then(|micros| micros.to_i64())
+        .is_none()
+    {
+        return legacy_error("充值额度超出系统可表示范围");
+    }
     create_epay_checkout(
         &state,
         user_id,
