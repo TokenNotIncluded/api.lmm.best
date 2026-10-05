@@ -12,6 +12,9 @@ import { test } from 'node:test'
 import {
   MODERATION_CATEGORIES,
   parseModerationGroupPolicies,
+  normalizeModerationPolicyUsd,
+  moderationFineDisplayUsd,
+  isModerationFineUsd,
 } from './moderation-config'
 
 test('preserves explicit disabled, warning and strict group policies without inventing defaults', () => {
@@ -62,4 +65,42 @@ test('rejects malformed policies, wildcard scope and unsupported category amount
     assert.equal(parseModerationGroupPolicies(source), null, source)
   }
   assert.equal(MODERATION_CATEGORIES.length, 13)
+})
+
+test('preserves legacy markers and converts only edited policies without rounding', () => {
+  const policies = parseModerationGroupPolicies(
+    JSON.stringify({
+      legacy: { mode: 'strict', category_fines_usd: { hate: 0.5 } },
+      usd: {
+        mode: 'strict',
+        amount_currency: 'USD',
+        category_fines_usd: { hate: 0.5 },
+      },
+    })
+  )
+  assert.ok(policies)
+  assert.equal(policies.legacy.amount_currency, undefined)
+  assert.equal(policies.usd.amount_currency, 'USD')
+  assert.equal(moderationFineDisplayUsd(0.5, policies.legacy, 5), 0.1)
+  assert.equal(moderationFineDisplayUsd(0.5, policies.usd, 5), 0.5)
+  assert.deepEqual(normalizeModerationPolicyUsd(policies.legacy, 5), {
+    mode: 'strict',
+    amount_currency: 'USD',
+    category_fines_usd: { hate: 0.1 },
+  })
+  assert.equal(normalizeModerationPolicyUsd(policies.legacy, 3), null)
+  assert.equal(normalizeModerationPolicyUsd(policies.legacy, 0), null)
+  assert.equal(policies.legacy.category_fines_usd.hate, 0.5)
+  for (const bad of [Number.NaN, Infinity, -1, 1000.000001, 0.0000001]) {
+    assert.equal(isModerationFineUsd(bad), false)
+  }
+  for (const good of [0, 0.000001, 0.1, 0.3, 1000]) {
+    assert.equal(isModerationFineUsd(good), true)
+  }
+  assert.equal(
+    parseModerationGroupPolicies(
+      JSON.stringify({ legacy: { ...policies.legacy, amount_currency: 'CNY' } })
+    ),
+    null
+  )
 })

@@ -41,6 +41,7 @@ export type SecurityViolationFeeRule = {
   trigger: string
   enabled: boolean
   amount_usd: number
+  amount_currency?: 'USD' | 'legacy_pricing_unit'
   charge_unit: string
   retryable: boolean
   description: string
@@ -51,6 +52,7 @@ export type SecurityViolationFeeRule = {
 export type SecurityModerationGroupPolicy = {
   mode: 'off' | 'tolerant' | 'strict'
   category_fines_usd: Record<string, number>
+  amount_currency?: 'USD'
 }
 
 export type SecurityModerationPolicy = {

@@ -23,6 +23,7 @@ import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { CreditAmountInput } from '@/components/credit-amount-input'
 import { DateTimePicker } from '@/components/datetime-picker'
 import {
   SideDrawerSection,
@@ -52,12 +53,8 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { getAdminPlans } from '@/features/subscriptions/api'
-import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
-import {
-  formatQuota,
-  getEditableQuotaStep,
-  parseQuotaFromDollars,
-} from '@/lib/format'
+import { useCreditInputDisplay } from '@/hooks/use-credit-input-display'
+import { formatQuota } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
 import { addTimeToDate } from '@/lib/time'
 
@@ -171,7 +168,7 @@ export function RedemptionsMutateDrawer({
       if (isUpdate && currentRow && loadedRedemption) {
         const quota =
           data.reward_type === 'quota' &&
-          !form.getFieldState('quota_dollars').isDirty &&
+          !form.getFieldState('quota_credits').isDirty &&
           loadedRedemption.reward_type !== 'reset_voucher'
             ? loadedRedemption.quota
             : basePayload.quota
@@ -212,7 +209,7 @@ export function RedemptionsMutateDrawer({
         if (form.getValues('reward_type') === 'reset_voucher') {
           form.setValue('name', 'Banked reset', { shouldValidate: true })
         } else {
-          const quota = parseQuotaFromDollars(form.getValues('quota_dollars'))
+          const quota = form.getValues('quota_credits')
           form.setValue('name', formatQuota(quota), { shouldValidate: true })
         }
       }
@@ -226,14 +223,11 @@ export function RedemptionsMutateDrawer({
     form.setValue('expired_time', newDate)
   }
 
-  const { meta: currencyMeta } = getCurrencyDisplay()
-  const currencyLabel = getCurrencyLabel()
-  const tokensOnly = currencyMeta.kind === 'tokens'
-  const quotaStep = getEditableQuotaStep()
+  const { label: currencyLabel } = useCreditInputDisplay()
   const quotaLabel = t('Quota ({{currency}})', { currency: currencyLabel })
-  const quotaPlaceholder = tokensOnly
-    ? t('Enter quota in tokens')
-    : t('Enter quota in {{currency}}', { currency: currencyLabel })
+  const quotaPlaceholder = t('Enter quota in {{currency}}', {
+    currency: currencyLabel,
+  })
   let submitButtonLabel = t('Save changes')
   if (isLoadingRedemption) submitButtonLabel = t('Loading...')
   else if (isSubmitting) submitButtonLabel = t('Saving...')
@@ -326,29 +320,21 @@ export function RedemptionsMutateDrawer({
                 {rewardType === 'quota' ? (
                   <FormField
                     control={form.control}
-                    name='quota_dollars'
+                    name='quota_credits'
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>{quotaLabel}</FormLabel>
                         <FormControl>
-                          <Input
+                          <CreditAmountInput
                             {...field}
-                            type='number'
-                            step={quotaStep}
                             placeholder={quotaPlaceholder}
-                            onChange={(e) =>
-                              field.onChange(
-                                Number.parseFloat(e.target.value) || 0
-                              )
-                            }
+                            onValueChange={field.onChange}
                           />
                         </FormControl>
                         <FormDescription>
-                          {tokensOnly
-                            ? t('Enter the quota amount in tokens')
-                            : t('Enter the quota amount in {{currency}}', {
-                                currency: currencyLabel,
-                              })}
+                          {t('Enter the quota amount in {{currency}}', {
+                            currency: currencyLabel,
+                          })}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>

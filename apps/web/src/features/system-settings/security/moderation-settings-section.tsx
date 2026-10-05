@@ -8,7 +8,7 @@ License, or (at your option) any later version.
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
@@ -65,6 +65,7 @@ export function ModerationSettingsSection({
   const { t } = useTranslation()
   const updateOptions = useUpdateOptions()
   const baseline = useRef(defaultValues)
+  const [pricesValid, setPricesValid] = useState(true)
   const form = useForm<ModerationSettingsFormValues>({
     resolver: zodResolver(moderationSettingsSchema),
     defaultValues,
@@ -91,6 +92,7 @@ export function ModerationSettingsSection({
   })
   const groups = groupsQuery.data?.data ?? []
   const onSubmit = async (values: ModerationSettingsFormValues) => {
+    if (!pricesValid) return
     const updates = Object.fromEntries(
       Object.entries(values)
         .filter(
@@ -122,7 +124,7 @@ export function ModerationSettingsSection({
           <SettingsPageFormActions
             onSave={form.handleSubmit(onSubmit)}
             onReset={() => form.reset(baseline.current)}
-            isSaveDisabled={!form.formState.isDirty}
+            isSaveDisabled={!form.formState.isDirty || !pricesValid}
             isResetDisabled={!form.formState.isDirty}
             isSaving={updateOptions.isPending}
             saveLabel='Save moderation settings'
@@ -183,6 +185,7 @@ export function ModerationSettingsSection({
                 <FormLabel>{t('Group review policies')}</FormLabel>
                 <ModerationGroupPolicyEditor
                   value={field.value}
+                  onValidityChange={setPricesValid}
                   groups={groups}
                   onChange={field.onChange}
                   disabled={updateOptions.isPending}

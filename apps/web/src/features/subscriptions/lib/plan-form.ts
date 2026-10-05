@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import type { TFunction } from 'i18next'
 import { z } from 'zod'
 
-import { parseQuotaFromDollars, quotaUnitsToDollars } from '@/lib/format'
+import { assertCreditAmount, creditAmountSchema } from '@/lib/quota-input'
 
 import type { SubscriptionPlan, PlanPayload } from '../types'
 
@@ -45,7 +45,7 @@ export function getPlanFormSchema(t: TFunction) {
     allow_balance_pay: z.boolean(),
     allow_wallet_overflow: z.boolean(),
     max_purchase_per_user: z.coerce.number().min(0),
-    total_amount: z.coerce.number().min(0),
+    total_amount: creditAmountSchema,
     upgrade_group: z.string().optional(),
     downgrade_group: z.string().optional(),
     stripe_price_id: z.string().optional(),
@@ -98,7 +98,7 @@ export function planToFormValues(plan: SubscriptionPlan): PlanFormValues {
     allow_balance_pay: plan.allow_balance_pay !== false,
     allow_wallet_overflow: plan.allow_wallet_overflow !== false,
     max_purchase_per_user: Number(plan.max_purchase_per_user || 0),
-    total_amount: quotaUnitsToDollars(Number(plan.total_amount || 0)),
+    total_amount: assertCreditAmount(Number(plan.total_amount || 0)),
     upgrade_group: plan.upgrade_group || '',
     downgrade_group: plan.downgrade_group || '',
     stripe_price_id: plan.stripe_price_id || '',
@@ -126,7 +126,7 @@ export function formValuesToPlanPayload(values: PlanFormValues): PlanPayload {
           : 0,
       sort_order: Number(values.sort_order || 0),
       max_purchase_per_user: Number(values.max_purchase_per_user || 0),
-      total_amount: parseQuotaFromDollars(Number(values.total_amount || 0)),
+      total_amount: assertCreditAmount(values.total_amount),
       upgrade_group: values.upgrade_group || '',
       downgrade_group: values.downgrade_group || '',
     },

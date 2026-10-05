@@ -29,6 +29,7 @@ import { useForm, useWatch, type Resolver } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { CreditAmountInput } from '@/components/credit-amount-input'
 import { BadgeCell } from '@/components/data-table'
 import {
   SideDrawerSection,
@@ -69,7 +70,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
-import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
+import { useCreditInputDisplay } from '@/hooks/use-credit-input-display'
 
 import {
   createPlan,
@@ -127,9 +128,7 @@ export function SubscriptionsMutateDrawer({
   const { t } = useTranslation()
   const isEdit = !!currentRow?.plan?.id
   const { triggerRefresh } = useSubscriptions()
-  const { meta: currencyMeta } = getCurrencyDisplay()
-  const tokensOnly = currencyMeta.kind === 'tokens'
-  const currencyLabel = getCurrencyLabel()
+  const { label: currencyLabel } = useCreditInputDisplay()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [groupOptions, setGroupOptions] = useState<string[]>([])
   const [creatingPancakeProduct, setCreatingPancakeProduct] = useState(false)
@@ -412,9 +411,7 @@ export function SubscriptionsMutateDrawer({
                           step='0.01'
                           min={0}
                           onChange={(e) =>
-                            field.onChange(
-                              Number.parseFloat(e.target.value) || 0
-                            )
+                            field.onChange(Number(e.target.value))
                           }
                         />
                       </FormControl>
@@ -467,23 +464,12 @@ export function SubscriptionsMutateDrawer({
                         {t('Quota ({{currency}})', { currency: currencyLabel })}
                       </FormLabel>
                       <FormControl>
-                        <Input
+                        <CreditAmountInput
                           {...field}
-                          type='number'
-                          min={0}
-                          step={tokensOnly ? 1 : 0.01}
-                          placeholder={
-                            tokensOnly
-                              ? t('Enter quota in tokens')
-                              : t('Enter quota in {{currency}}', {
-                                  currency: currencyLabel,
-                                })
-                          }
-                          onChange={(e) =>
-                            field.onChange(
-                              Number.parseFloat(e.target.value) || 0
-                            )
-                          }
+                          placeholder={t('Enter quota in {{currency}}', {
+                            currency: currencyLabel,
+                          })}
+                          onValueChange={field.onChange}
                         />
                       </FormControl>
                       <FormDescription>

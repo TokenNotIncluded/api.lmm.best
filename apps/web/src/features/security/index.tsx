@@ -39,6 +39,7 @@ import {
 } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ForgePublicShell } from '@/features/forge/forge-public-shell'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { toIntlLocale } from '@/i18n/languages'
 import { formatQuotaWithCurrency } from '@/lib/currency'
 import { formatNumber, formatTimestampToDate } from '@/lib/format'
@@ -93,15 +94,6 @@ type Translate = ReturnType<typeof useTranslation>['t']
 
 function formatCount(value: number, language: string): string {
   return formatNumber(value, toIntlLocale(language))
-}
-
-function formatFeeAmount(
-  fee: SecurityViolationFeeRule,
-  t: Translate,
-  language: string
-): string {
-  if (!Number.isFinite(fee.amount_usd)) return t('Not published')
-  return `$${formatNumber(fee.amount_usd, toIntlLocale(language))}`
 }
 
 function displayValue(value: string | undefined, t: Translate): string {
@@ -579,7 +571,8 @@ function RuleSummaries({ rules }: { rules: SecurityRuleSummary[] }) {
 }
 
 function ViolationFees({ fees }: { fees: SecurityViolationFeeRule[] }) {
-  const { t, i18n } = useTranslation()
+  const money = useWalletCurrency()
+  const { t } = useTranslation()
 
   if (fees.length === 0) {
     return (
@@ -615,7 +608,13 @@ function ViolationFees({ fees }: { fees: SecurityViolationFeeRule[] }) {
               <div>
                 <dt className='text-muted-foreground'>{t('Amount (USD)')}</dt>
                 <dd className='mt-1 font-mono font-medium tabular-nums'>
-                  {formatFeeAmount(fee, t, i18n.language)}
+                  {!Number.isFinite(fee.amount_usd)
+                    ? t('Not published')
+                    : fee.amount_currency === 'USD'
+                      ? money.formatUSD(fee.amount_usd)
+                      : money.formatQuota(
+                          money.legacyAmountToQuota(fee.amount_usd)
+                        )}
                 </dd>
               </div>
               <div>

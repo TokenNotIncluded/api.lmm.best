@@ -48,6 +48,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { CreditAmountInput } from '@/components/credit-amount-input'
 import { Dialog } from '@/components/dialog'
 import { Main } from '@/components/layout'
 /*
@@ -113,15 +114,13 @@ Copyright (C) 2026 LIghtJUNction
 */
 import { BountyDecision } from '@/features/open-source-bounties/bounty-decision'
 import { BountyProgress } from '@/features/open-source-bounties/bounty-progress'
+import { useCreditInputDisplay } from '@/hooks/use-credit-input-display'
 import { useStatus } from '@/hooks/use-status'
 import { getSelf } from '@/lib/api'
 import { getBackendCapabilities } from '@/lib/backend-capabilities'
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
-import {
-  formatQuota,
-  parseQuotaFromDollars,
-  quotaUnitsToDollars,
-} from '@/lib/format'
+import { formatQuota } from '@/lib/format'
+import { isCreditAmount } from '@/lib/quota-input'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -281,7 +280,7 @@ function projectToDraft(project: BountyProject): DraftForm {
     title: project.title,
     description: project.description,
     rules: project.rules,
-    rewardAmount: String(quotaUnitsToDollars(project.reward_quota)),
+    rewardAmount: String(project.reward_quota),
     rewardSlots: String(project.reward_slots),
   }
 }
@@ -352,6 +351,7 @@ export function OpenSourceBounties({
   onDetailTargetConsumed?: () => void
 } = {}) {
   const { t } = useTranslation()
+  const { label: currencyLabel } = useCreditInputDisplay()
   const queryClient = useQueryClient()
   const user = useAuthStore((state) => state.auth.user)
   const setUser = useAuthStore((state) => state.auth.setUser)
@@ -444,9 +444,7 @@ export function OpenSourceBounties({
   })
 
   const draftCharge = useMemo(() => {
-    const reward = parseQuotaFromDollars(
-      parseBountyNumericInput(draft.rewardAmount)
-    )
+    const reward = parseBountyNumericInput(draft.rewardAmount)
     const feeRateBps = configQuery.data?.rate_basis_points ?? 0
     return calculateBountyCharge(
       reward,
@@ -458,7 +456,9 @@ export function OpenSourceBounties({
     draft.rewardAmount,
     draft.rewardSlots,
   ])
-  const draftErrors = draftValidationAttempted ? validateBountyDraft(draft) : {}
+  const draftErrors = draftValidationAttempted
+    ? validateBountyDraft(draft, { rawCredits: true })
+    : {}
 
   const refresh = async (balanceChanged = false) => {
     await Promise.all(
@@ -526,7 +526,7 @@ export function OpenSourceBounties({
   }
 
   const saveDraft = async () => {
-    const validationErrors = validateBountyDraft(draft)
+    const validationErrors = validateBountyDraft(draft, { rawCredits: true })
     setDraftValidationAttempted(true)
     const firstValidationError = Object.values(validationErrors)[0]
     if (firstValidationError) {
@@ -542,7 +542,7 @@ export function OpenSourceBounties({
         editingProject?.status === 'published' ||
         editingProject?.status === 'paused'
           ? 0
-          : parseQuotaFromDollars(parseBountyNumericInput(draft.rewardAmount)),
+          : parseBountyNumericInput(draft.rewardAmount),
       reward_slots:
         editingProject?.status === 'published' ||
         editingProject?.status === 'paused'
@@ -738,8 +738,8 @@ export function OpenSourceBounties({
 
   const handleTip = async () => {
     if (!tipTarget) return
-    const quota = parseQuotaFromDollars(tipAmount)
-    if (quota <= 0) {
+    const quota = tipAmount
+    if (!isCreditAmount(quota) || quota <= 0) {
       toast.error(t('Enter a positive tip amount.'))
       return
     }
@@ -1388,7 +1388,11 @@ export function OpenSourceBounties({
             </Button>
             <Button
               onClick={handleTip}
-              disabled={tipAmount <= 0 || pending.startsWith('tip-')}
+              disabled={
+                !isCreditAmount(tipAmount) ||
+                tipAmount <= 0 ||
+                pending.startsWith('tip-')
+              }
             >
               <HugeiconsIcon
                 icon={GiftIcon}
@@ -1401,13 +1405,14 @@ export function OpenSourceBounties({
         }
       >
         <div className='flex flex-col gap-4 py-2'>
-          <Field label={t('Tip amount')} htmlFor='bounty-tip-amount'>
-            <Input
+          <Field
+            label={`${t('Tip amount')} (${currencyLabel})`}
+            htmlFor='bounty-tip-amount'
+          >
+            <CreditAmountInput
               id='bounty-tip-amount'
-              type='number'
-              min={0}
               value={tipAmount}
-              onChange={(event) => setTipAmount(Number(event.target.value))}
+              onValueChange={setTipAmount}
             />
           </Field>
           <Field label={t('Tip note (optional)')} htmlFor='bounty-tip-note'>
@@ -2220,6 +2225,7 @@ function DraftDialog(props: {
   onSave: () => void
 }) {
   const { t } = useTranslation()
+  const { label: currencyLabel } = useCreditInputDisplay()
   const errorFor = (field: keyof DraftForm) => {
     const error = props.errors[field]
     return error ? t(error) : undefined
@@ -2333,17 +2339,14 @@ function DraftDialog(props: {
       </Field>
       <div className='grid gap-4 sm:grid-cols-2'>
         <Field
-          label={t('Reward per fix')}
+          label={`${t('Reward per fix')} (${currencyLabel})`}
           htmlFor='bounty-reward'
           error={errorFor('rewardAmount')}
         >
-          <Input
+          <CreditAmountInput
             id='bounty-reward'
-            type='number'
-            min={0}
-            step='any'
-            value={props.draft.rewardAmount}
-            onChange={(e) => update('rewardAmount', e.target.value)}
+            value={parseBountyNumericInput(props.draft.rewardAmount)}
+            onValueChange={(credits) => update('rewardAmount', String(credits))}
             disabled={props.publishedEditing}
             aria-invalid={Boolean(props.errors.rewardAmount)}
             aria-describedby={

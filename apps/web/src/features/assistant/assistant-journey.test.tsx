@@ -41,6 +41,20 @@ const { QueryClient, QueryClientProvider } =
   await import('@tanstack/react-query')
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
+const { useSystemConfigStore, DEFAULT_CURRENCY_CONFIG } =
+  await import('@/stores/system-config-store')
+const { useWalletCurrencyPreferenceStore } =
+  await import('@/stores/wallet-currency-preference-store')
+useSystemConfigStore.getState().setConfig({
+  currency: {
+    ...DEFAULT_CURRENCY_CONFIG,
+    currencyUnit: 'credit',
+    creditsPerUsd: 500000,
+    cnyPerUsd: 7.2,
+    legacyPricingUnitsPerUsd: 1,
+  },
+})
+useWalletCurrencyPreferenceStore.getState().setPreference('USD')
 const { api } = await import('@/lib/api')
 const { AssistantJourneyProgress } = await import('./assistant-journey')
 const { AssistantNewUserGift } = await import('./assistant-new-user-gift')
@@ -124,10 +138,7 @@ describe('assistant game-style progress', () => {
       assert.match(text, /Get L1 access/)
       assert.doesNotMatch(text, /Get a recommendation/)
       assert.match(text, /Side quest 0\/2/)
-      assert.match(
-        text,
-        /Chat with AI to earn a \$0–\$10 \(Platform\) new-user gift/
-      )
+      assert.match(text, /Chat with AI to earn a 0 USD–10 USD new-user gift/)
       assert.match(text, /Accept an open-source bounty/)
     } finally {
       await unmount(rendered)
