@@ -16,7 +16,7 @@ import (
 const CreditsPerUSDOptionKey = "CreditsPerUSD"
 const LegacyPricingQuotaPerUnitOptionKey = "LegacyPricingQuotaPerUnit"
 const PublicCreditsPerUSDOptionKey = common.PublicCreditsPerUSDOptionKey
-const DefaultPublicCreditsPerUSD = "100000"
+const DefaultPublicCreditsPerUSD = "500000"
 
 // InitializeCreditUnits creates the immutable anchor without rewriting any
 // balance, price, paid order, pending order or refund snapshot. The unique
@@ -88,17 +88,7 @@ func initializeCreditUnits(ctx context.Context, allowCreate bool) error {
 				if !allowCreate {
 					return common.ErrCreditUnitsUnavailable
 				}
-				candidate := decimal.NewFromInt(1)
-				for _, key := range []string{"QuotaPerUnit", "USDExchangeRate", "TopUpPlatformUnitsPerCNY"} {
-					value, err := parsePositiveCreditRate(values[key])
-					if err != nil {
-						return fmt.Errorf("invalid %s for credit initialization: %w", key, err)
-					}
-					candidate = candidate.Mul(value)
-				}
-				if _, err := parseCreditAnchor(candidate.String()); err != nil {
-					return err
-				}
+				candidate := decimal.NewFromInt(common.FixedCreditsPerUSD)
 				if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&Option{Key: CreditsPerUSDOptionKey, Value: candidate.String()}).Error; err != nil {
 					return err
 				}
@@ -259,6 +249,9 @@ func parseCreditAnchor(value string) (decimal.Decimal, error) {
 	anchor, err := parsePositiveCreditRate(value)
 	if err != nil {
 		return decimal.Zero, err
+	}
+	if !anchor.Equal(decimal.NewFromInt(common.FixedCreditsPerUSD)) {
+		return decimal.Zero, fmt.Errorf("CreditsPerUSD must be fixed at 500000; existing value %s requires an explicit audited credit-balance migration; startup does not rewrite balances", anchor.String())
 	}
 	return anchor, common.ValidateCreditsPerUSD(anchor)
 }

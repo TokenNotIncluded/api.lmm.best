@@ -14,9 +14,27 @@ This document defines the units used by wallet top-ups and subscription payments
 | `settlement_amount` | Amount sent to and verified from a provider | real ISO fiat |
 | `price_multiplier` | Group, channel, tier, or coupon adjustment | dimensionless |
 
-Credits are independent of model tokens. There is no platform dollar, and one CNY is never defined to be one USD. Example rates in tests are fixtures, never production constants.
+Credits are independent of model tokens. There is no platform dollar, and one CNY is never defined to be one USD. The platform contract is always 1 USD = 500000 credits. Fiat FX applies only when converting between USD and CNY.
 
-The first migration persists `K = old Q * old R * old TopUpPlatformUnitsPerCNY` from one authoritative database snapshot. This preserves every existing integer balance and the actual cost of existing prices. Concurrent nodes use the same winning persisted value. Subsequent FX changes, discounts, display preferences, and configuration changes cannot rewrite `K`. An absent or invalid denomination prevents financial operations; it never implies 1:1 fiat. Migration verification is read-only; initialization requires migration apply.
+Initialization persists `K = 500000`, independently of `R` and
+`TopUpPlatformUnitsPerCNY`. CREDIT display uses the exact integer wallet balance;
+`PublicCreditsPerUSD` is a compatibility option fixed at 500000, not a second
+adjustable denomination. Existing non-500000 anchors fail startup verification
+and require an explicit audited credit-balance migration. Initialization never
+silently rewrites user balances, token limits, subscription quotas, pending
+orders, or historical prices.
+
+To correct the historical 1 CNY = 1 USD recharge convention, divide affected
+remaining integer credit balances by the explicitly selected migration FX rate
+(for example 6.8), using a documented integer rounding rule. The integer ledger
+must actually change; relabeling fiat or changing `K` is not a correction. Such a
+migration needs an idempotent journal, a snapshot of affected balances, writer
+quiescence and cache invalidation. Paid order and historical usage snapshots
+remain historical evidence. Group multipliers are a separate policy change.
+
+An absent or invalid denomination prevents financial operations; it never
+implies 1:1 fiat. Migration verification is read-only; initialization requires
+migration apply.
 
 ```text
 USD = q / K

@@ -15,14 +15,13 @@ const PublicCreditUnit = "CREDIT"
 
 var publicCreditsPerUSD atomic.Pointer[decimal.Decimal]
 
-// LedgerQuotaPerUSD is the immutable valuation of existing internal quota
-// integers. The historical CreditsPerUSD function remains its compatibility
-// alias; changing the public denomination never changes this ledger basis.
+// LedgerQuotaPerUSD is the immutable credit/USD conversion. Public CREDIT
+// uses the same integers as the wallet; there is no display denomination.
 func LedgerQuotaPerUSD() (decimal.Decimal, error) { return CreditsPerUSD() }
 
 func ValidatePublicCreditsPerUSD(value decimal.Decimal) error {
-	if value.Exponent() < -18 || value.Exponent() > 18 || len(value.Coefficient().String()) > 80 || !value.IsPositive() || !value.IsInteger() || value.GreaterThan(decimal.NewFromInt(MaxWalletQuota)) {
-		return errors.New("public credits per USD must be a positive safe integer")
+	if value.Exponent() < -18 || value.Exponent() > 18 || len(value.Coefficient().String()) > 80 || !value.Equal(decimal.NewFromInt(FixedCreditsPerUSD)) {
+		return errors.New("public credits per USD is fixed at 500000; credit display must use integer wallet balances")
 	}
 	return nil
 }
@@ -36,8 +35,8 @@ func SetPublicCreditsPerUSD(value decimal.Decimal) error {
 	return nil
 }
 
-// ClearPublicCreditsPerUSD restores v1 compatibility for a source which has
-// not configured a separate public denomination. It does not change a wallet.
+// ClearPublicCreditsPerUSD clears the compatibility option cache. CREDIT
+// continues to use the wallet integers.
 func ClearPublicCreditsPerUSD() { publicCreditsPerUSD.Store(nil) }
 
 func PublicCreditsPerUSD() (decimal.Decimal, error) {
@@ -51,9 +50,7 @@ func PublicCreditsPerUSD() (decimal.Decimal, error) {
 	return value.Copy(), nil
 }
 
-// LedgerQuotaToPublicCredits projects a legacy integer without modifying it.
-// The decimal response has 64 fractional places at most; exact input/output
-// bases accompany public APIs. UI rounding does not grant or debit balance.
+// LedgerQuotaToPublicCredits returns the wallet integer without rescaling it.
 func LedgerQuotaToPublicCredits(quota int64) (decimal.Decimal, error) {
 	if quota < MinWalletQuota || quota > MaxWalletQuota {
 		return decimal.Zero, errors.New("ledger quota is outside the safe wallet domain")
@@ -76,9 +73,8 @@ func PublicCreditsToLedgerQuota(amount decimal.Decimal) (int64, error) {
 	return units.ResolvePublicCredits(amount)
 }
 
-// CreditDenomination identifies compatibility quota fields independently of
-// the public CREDIT unit. credits_per_usd in schema-2 pricing remains a legacy
-// ledger calibration and is never replaced by PublicCreditsPerUSD.
+// CreditDenomination retains wire compatibility. CREDIT and LEDGER_QUOTA
+// represent identical wallet integers and carry the same USD conversion.
 type CreditDenomination struct {
 	CreditUnitSchemaVersion  int     `json:"credit_unit_schema_version"`
 	QuotaUnit                string  `json:"quota_unit"`
@@ -116,18 +112,15 @@ func CreditDenominationFromBasis(ledger, public decimal.Decimal) (CreditDenomina
 	return units, nil
 }
 
-// ProjectLedgerQuota uses one captured denomination for a complete response.
-// An administrator changing PublicCreditsPerUSD cannot mix one response's
-// public amount with another generation's metadata.
+// ProjectLedgerQuota validates captured metadata and returns the wallet integer.
 func (units CreditDenomination) ProjectLedgerQuota(quota int64) (decimal.Decimal, error) {
 	if quota < MinWalletQuota || quota > MaxWalletQuota {
 		return decimal.Zero, errors.New("ledger quota is outside the safe wallet domain")
 	}
-	ledger, public, err := units.basis()
-	if err != nil {
+	if _, _, err := units.basis(); err != nil {
 		return decimal.Zero, err
 	}
-	return decimal.NewFromInt(quota).Mul(public).DivRound(ledger, 64), nil
+	return decimal.NewFromInt(quota), nil
 }
 
 func (units CreditDenomination) ResolvePublicCredits(amount decimal.Decimal) (int64, error) {
@@ -164,7 +157,7 @@ func (units CreditDenomination) basis() (decimal.Decimal, decimal.Decimal, error
 	}
 	ledger, ledgerOK := parse(units.LedgerQuotaPerUSDExact, units.LedgerQuotaPerUSD)
 	public, publicOK := parse(units.PublicCreditsPerUSDExact, units.PublicCreditsPerUSD)
-	if !ledgerOK || !publicOK {
+	if !ledgerOK || !publicOK || !ledger.Equal(public) {
 		return invalid()
 	}
 	return ledger, public, nil

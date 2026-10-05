@@ -11,6 +11,9 @@ import (
 
 // Legacy quota integers are the wallet ledger. This anchor is initialized from the
 // durable option once at startup, independently of subsequent exchange rates.
+// FixedCreditsPerUSD is the platform contract; fiat FX never changes it.
+const FixedCreditsPerUSD int64 = 500000
+
 type creditCurrencyBasis struct{ usd, legacy decimal.Decimal }
 
 var creditsPerUSD atomic.Pointer[creditCurrencyBasis]

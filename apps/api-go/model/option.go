@@ -324,7 +324,7 @@ func validateOptionValue(key string, value string) error {
 		return err
 	}
 	if key == CreditsPerUSDOptionKey || key == LegacyPricingQuotaPerUnitOptionKey {
-		return errors.New("ledger quota valuation is immutable; configure PublicCreditsPerUSD for the public credit denomination")
+		return errors.New("credit/USD conversion is immutable: 1 USD = 500000 credits")
 	}
 	if setting.IsModerationOption(key) {
 		return validateModerationOptionValues(DB, map[string]string{key: value})

@@ -20,7 +20,7 @@ type PublicCreditUnitUpdate struct {
 }
 
 // CreditDenominationSnapshot reads one durable generation on every public
-// amount boundary. Mutable P is never taken from another node's old cache.
+// amount boundary. An old mutable display basis cannot authorize a new amount.
 func CreditDenominationSnapshot() (common.CreditDenomination, error) {
 	if DB == nil {
 		return common.CreditDenomination{}, common.ErrCreditUnitsUnavailable

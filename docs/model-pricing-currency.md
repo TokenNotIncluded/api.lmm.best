@@ -1,7 +1,10 @@
 # Model pricing currency boundary
 
 Wallet balances remain integer credits. The durable `CreditsPerUSD` anchor K
-is independent of later CNY exchange rates or recharge purchase ratios. Stored
+is always 500000: 1 USD = 500000 credits. CNY exchange rates and recharge
+purchase ratios never enter this conversion. CREDIT display is the raw integer
+wallet balance. Correcting old 1 CNY = 1 USD recharges requires an explicit
+integer-balance migration, not a new anchor or a display-only denomination. Stored
 legacy model/tool prices and expression snapshots retain their original units.
 Token `ModelRatio` is a calibrated credit-per-token rate; completion, cache,
 modality and group ratios remain multipliers.

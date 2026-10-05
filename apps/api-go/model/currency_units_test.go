@@ -55,7 +55,7 @@ func TestCreditUnitsInitializationFixedAndPreservesHistory(t *testing.T) {
 	require.NoError(t, InitializeCreditUnits(context.Background()))
 	anchor, err := common.CreditsPerUSD()
 	require.NoError(t, err)
-	require.Equal(t, "4375000", anchor.String())
+	require.Equal(t, "500000", anchor.String())
 	require.NoError(t, DB.Model(&Option{}).Where("key = ?", "USDExchangeRate").Update("value", "8").Error)
 	require.NoError(t, DB.Model(&Option{}).Where("key = ?", "TopUpPlatformUnitsPerCNY").Update("value", "2").Error)
 	require.NoError(t, InitializeCreditUnits(context.Background()))
@@ -93,7 +93,7 @@ func TestCreditUnitsLegacyCalibrationFreezeAndDriftDetection(t *testing.T) {
 	require.NoError(t, InitializeCreditUnits(t.Context()))
 	anchor, err := common.CreditsPerUSD()
 	require.NoError(t, err)
-	require.Equal(t, "6562500", anchor.String())
+	require.Equal(t, "500000", anchor.String())
 	legacy, err := common.LegacyPricingQuotaPerUnit()
 	require.NoError(t, err)
 	require.Equal(t, "750000", legacy.String())
@@ -109,7 +109,7 @@ func TestCreditUnitsLegacyCalibrationFreezeAndDriftDetection(t *testing.T) {
 	require.Equal(t, "750000", snapshot["QuotaPerUnit"])
 	canonical, bridgeErr := common.LegacyAmountToUSD(decimal.NewFromInt(7))
 	require.NoError(t, bridgeErr)
-	require.Equal(t, "0.8", canonical.String())
+	require.Equal(t, "10.5", canonical.String())
 	require.Error(t, VerifyCreditUnits(t.Context()))
 	_, err = common.CreditsPerUSD()
 	require.ErrorIs(t, err, common.ErrCreditUnitsUnavailable)
@@ -131,7 +131,7 @@ func TestCreditUnitsConcurrentInitialization(t *testing.T) {
 	var options []Option
 	require.NoError(t, DB.Where("key = ?", CreditsPerUSDOptionKey).Find(&options).Error)
 	require.Len(t, options, 1)
-	require.Equal(t, "4375000", options[0].Value)
+	require.Equal(t, "500000", options[0].Value)
 }
 
 func TestCreditUnitsDefaultsAndCanceledInitialization(t *testing.T) {
@@ -149,7 +149,7 @@ func TestCreditUnitsDefaultsAndCanceledInitialization(t *testing.T) {
 	require.NoError(t, InitializeCreditUnits(context.Background()))
 	anchor, err := common.CreditsPerUSD()
 	require.NoError(t, err)
-	require.Equal(t, "3650000", anchor.String(), "missing legacy settings use the documented old defaults, never 1:1")
+	require.Equal(t, "500000", anchor.String(), "missing legacy settings use the fixed USD conversion, never fiat FX")
 	require.NoError(t, VerifyCreditUnits(context.Background()))
 	require.NoError(t, DB.Create(&Option{Key: "USDExchangeRate", Value: "NaN"}).Error)
 	require.Error(t, InitializeCreditUnits(context.Background()), "a cached default cannot conceal invalid persisted fiat FX")
@@ -216,7 +216,7 @@ func TestCreditUnitsPostgresConcurrentInitialization(t *testing.T) {
 	var rows []Option
 	require.NoError(t, db.Where("key = ?", CreditsPerUSDOptionKey).Find(&rows).Error)
 	require.Len(t, rows, 1)
-	require.Equal(t, "4375000", rows[0].Value)
+	require.Equal(t, "500000", rows[0].Value)
 	require.NoError(t, db.Model(&Option{}).Where("key = ?", "USDExchangeRate").Update("value", "8").Error)
 	require.NoError(t, db.Model(&Option{}).Where("key = ?", "TopUpPlatformUnitsPerCNY").Update("value", "2").Error)
 	require.NoError(t, VerifyCreditUnits(t.Context()))
@@ -229,7 +229,7 @@ func TestCreditUnitsPostgresConcurrentInitialization(t *testing.T) {
 	require.NoError(t, readOnly.Rollback().Error)
 	anchor, err := common.CreditsPerUSD()
 	require.NoError(t, err)
-	require.Equal(t, "4375000", anchor.String())
+	require.Equal(t, "500000", anchor.String())
 }
 
 func TestCreditUnitsPostgresCalibrationInitializationFence(t *testing.T) {
@@ -266,14 +266,37 @@ func TestCreditUnitsPostgresCalibrationInitializationFence(t *testing.T) {
 	require.NoError(t, err)
 	if updateErr == nil {
 		require.Equal(t, "1000000", baseline.String())
-		require.Equal(t, "8750000", anchor.String())
+		require.Equal(t, "500000", anchor.String())
 	} else {
 		require.ErrorContains(t, updateErr, "immutable")
 		require.Equal(t, "500000", baseline.String())
-		require.Equal(t, "4375000", anchor.String())
+		require.Equal(t, "500000", anchor.String())
 	}
 	require.Error(t, UpdateOptionsBulk(map[string]string{"QuotaPerUnit": "2000000", "USDExchangeRate": "99"}))
 	var rate Option
 	require.NoError(t, db.Where("key = ?", "USDExchangeRate").First(&rate).Error)
 	require.Equal(t, "7", rate.Value)
+}
+
+func TestCreditUnitsRejectsOldAnchorWithoutChangingBalances(t *testing.T) {
+	for _, old := range []string{"3359744", "4375000", "73529.411764705882"} {
+		t.Run(old, func(t *testing.T) {
+			setupCreditUnitsDB(t)
+			require.NoError(t, DB.Create(&Option{Key: CreditsPerUSDOptionKey, Value: old}).Error)
+			user := User{Username: "old-currency-owner", Quota: 500000000, Password: "password"}
+			require.NoError(t, DB.Create(&user).Error)
+			for _, initialize := range []func(context.Context) error{InitializeCreditUnits, VerifyCreditUnits} {
+				require.ErrorContains(t, initialize(t.Context()), "explicit audited credit-balance migration")
+			}
+			var stored User
+			require.NoError(t, DB.First(&stored, user.Id).Error)
+			require.Equal(t, user.Quota, stored.Quota)
+			var anchor Option
+			require.NoError(t, DB.First(&anchor, "key = ?", CreditsPerUSDOptionKey).Error)
+			require.Equal(t, old, anchor.Value)
+			var count int64
+			require.NoError(t, DB.Model(&Option{}).Where("key IN ?", []string{LegacyPricingQuotaPerUnitOptionKey, PublicCreditsPerUSDOptionKey}).Count(&count).Error)
+			require.Zero(t, count, "failed initialization rolls back option creation")
+		})
+	}
 }
