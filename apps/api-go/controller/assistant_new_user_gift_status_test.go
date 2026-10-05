@@ -54,7 +54,7 @@ func TestAssistantNewUserGiftStatusReadDoesNotConsumeOrModifyDecision(t *testing
 				assert.Equal(t, "LEGACY_CENTS", result["amount_unit"])
 				if state == model.AssistantGiftOffered || state == model.AssistantGiftClaimed {
 					assert.Equal(t, 2625000, result["credit_amount"])
-					assert.Equal(t, float64(0.75), result["amount_usd"])
+					assert.Equal(t, float64(5.25), result["amount_usd"])
 				} else {
 					assert.Equal(t, 0, result["credit_amount"])
 					assert.Equal(t, float64(0), result["amount_usd"])
@@ -71,7 +71,7 @@ func TestAssistantNewUserGiftStatusReadDoesNotConsumeOrModifyDecision(t *testing
 					card := action.(map[string]any)
 					assert.Equal(t, gift.AmountCents, card["amount_cents"])
 					assert.Equal(t, 2625000, card["credit_amount"])
-					assert.Equal(t, float64(0.75), card["amount_usd"])
+					assert.Equal(t, float64(5.25), card["amount_usd"])
 					assert.Equal(t, model.AssistantGiftOffered, card["status"])
 					assert.NotEqual(t, gift.Reason, card["reason"])
 				}

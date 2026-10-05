@@ -204,9 +204,9 @@ func TestAssistantSelfAccountToolsReturnUSDWalletBalanceIndependentlyOfUsage(t *
 		quota int
 		usd   float64
 	}{
-		{name: "positive_balance_without_usage", quota: 3500000, usd: 1},
-		{name: "small_balance", quota: 1, usd: 0.0000002857142857},
-		{name: "large_balance", quota: 7000000000000, usd: 2000000},
+		{name: "positive_balance_without_usage", quota: 3500000, usd: 7},
+		{name: "small_balance", quota: 1, usd: 0.000002},
+		{name: "large_balance", quota: 7000000000000, usd: 14000000},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db := setupAssistantAccountProgressDB(t)
@@ -224,7 +224,7 @@ func TestAssistantSelfAccountToolsReturnUSDWalletBalanceIndependentlyOfUsage(t *
 					assert.Equal(t, 0, balance["used_quota"])
 				}
 				assert.Equal(t, tc.quota, balance["wallet_balance_quota"], name)
-				assert.Equal(t, float64(3500000), balance["quota_per_usd"], name)
+				assert.Equal(t, float64(500000), balance["quota_per_usd"], name)
 				assert.InDelta(t, tc.usd, balance["wallet_balance_usd"], 1e-16, name)
 				assert.Equal(t, "available", balance["wallet_balance_status"], name)
 				assert.Contains(t, balance["wallet_balance_note"], "remaining subscription quota and usage totals", name)

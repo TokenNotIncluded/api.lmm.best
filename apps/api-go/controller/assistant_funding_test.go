@@ -60,7 +60,7 @@ func TestAdminGetAssistantFundingSummaryUsesAssistantSpendAndRootBalance(t *test
 	assert.True(t, response.Success)
 	assert.Equal(t, int64(1), response.Data.Requests)
 	assert.Equal(t, int64(3500000), response.Data.Quota)
-	assert.Equal(t, float64(1), response.Data.CostUSD)
+	assert.Equal(t, float64(7), response.Data.CostUSD)
 	assert.Equal(t, 3500000, response.Data.RemainingQuota)
-	assert.InDelta(t, 1, response.Data.RemainingUSD, 0.0000001)
+	assert.InDelta(t, 7, response.Data.RemainingUSD, 0.0000001)
 }

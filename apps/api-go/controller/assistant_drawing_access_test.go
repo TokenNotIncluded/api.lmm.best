@@ -227,8 +227,8 @@ func TestDrawingWebLegacyCreditGateDisplaysActualUSDAndFailsWithoutBasis(t *test
 		require.NotNil(t, access.MinimumBalanceUSD)
 		require.NotNil(t, access.BalanceUSD)
 		assert.Equal(t, 5000000, *access.MinimumBalanceCredit)
-		assert.InDelta(t, 1.4285714285714286, *access.MinimumBalanceUSD, 1e-15)
-		assert.Equal(t, float64(1), *access.BalanceUSD)
+		assert.InDelta(t, 10.0, *access.MinimumBalanceUSD, 1e-15)
+		assert.Equal(t, float64(7), *access.BalanceUSD)
 		assert.False(t, access.Allowed)
 	}
 	quota = 4999999
