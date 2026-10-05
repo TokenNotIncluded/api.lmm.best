@@ -4655,6 +4655,8 @@
     "JSON map of group → description exposed when users create API keys.": "JSON-карта группы → описание, отображаемое при создании пользователями ключей API.",
     "JSON map of group → fixed multiplier applied to model prices for that billing group.": "JSON: группа → фиксированный множитель цен моделей в этой расчётной группе.",
     "JSON map of group → ratio applied when the user selects the group explicitly.": "JSON-карта группы → соотношение, применяемое, когда пользователь явно выбирает группу.",
+    "JSON map of model → billing expression with real USD coefficients. The server converts expressions to legacy storage units.": "JSON-объект, сопоставляющий модели расчётные выражения с денежными коэффициентами в реальных долларах США. Сервер преобразует выражения в прежние единицы хранения.",
+    "JSON map of model → billing mode: ratio or tiered_expr.": "JSON-объект, сопоставляющий модели режимы расчёта: ratio или tiered_expr.",
     "JSON map of model → multiplier applied to quota billing.": "JSON-карта модели → множитель, применяемый к тарификации по квоте.",
     "JSON map of model → USD cost per request. Takes precedence over ratio based billing.": "JSON-карта модели → стоимость в долларах США за запрос. Имеет приоритет над тарификацией на основе соотношения.",
     "JSON mode": "Режим JSON",

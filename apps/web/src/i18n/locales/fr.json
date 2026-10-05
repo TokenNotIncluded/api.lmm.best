@@ -4655,6 +4655,8 @@
     "JSON map of group → description exposed when users create API keys.": "Carte JSON de groupe → description exposée lorsque les utilisateurs créent des clés API.",
     "JSON map of group → fixed multiplier applied to model prices for that billing group.": "Table JSON groupe → multiplicateur fixe appliqué aux prix des modèles de ce groupe.",
     "JSON map of group → ratio applied when the user selects the group explicitly.": "Carte JSON de groupe → ratio appliqué lorsque l'utilisateur sélectionne explicitement le groupe.",
+    "JSON map of model → billing expression with real USD coefficients. The server converts expressions to legacy storage units.": "Objet JSON associant chaque modèle à une expression de facturation dont les coefficients monétaires sont en dollars américains réels. Le serveur convertit les expressions dans les anciennes unités de stockage.",
+    "JSON map of model → billing mode: ratio or tiered_expr.": "Objet JSON associant chaque modèle à un mode de facturation : ratio ou tiered_expr.",
     "JSON map of model → multiplier applied to quota billing.": "Carte JSON de modèle → multiplicateur appliqué à la facturation par quota.",
     "JSON map of model → USD cost per request. Takes precedence over ratio based billing.": "Carte JSON de modèle → coût en USD par requête. Prend le pas sur la facturation basée sur le ratio.",
     "JSON mode": "Mode JSON",

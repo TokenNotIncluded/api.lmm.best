@@ -192,6 +192,15 @@ beforeEach(async () => {
     // The lock was applied by the server: the submitted locked=99 must never
     // become the saved form value. Zero remains a deliberate accepted price.
     current.values.ModelPrice = '{"locked":1.25,"free":0}'
+    const submitted = body as { values: Record<string, string> }
+    for (const key of [
+      'billing_setting.billing_mode',
+      'billing_setting.billing_expr',
+    ] as const) {
+      if (submitted.values[key] !== undefined) {
+        current.values[key] = submitted.values[key]
+      }
+    }
     return { data: { success: true, data: current, locked_models: ['locked'] } }
   }) as typeof api.post
   queryClient = new QueryClient({
@@ -228,6 +237,53 @@ afterEach(async () => {
   api.post = originals.post
 })
 after(() => domWindow.close())
+
+test('billing modes and USD expressions save together with the current CAS revision', async () => {
+  const modes = { 'fixture-model': 'tiered_expr' }
+  const expressions = { 'fixture-model': 'tier("base", p * 2.5 + c * 15)' }
+  await act(async () => {
+    formProps.form.setValue('BillingMode', JSON.stringify(modes, null, 2), {
+      shouldDirty: true,
+    })
+    formProps.form.setValue(
+      'BillingExpr',
+      JSON.stringify(expressions, null, 2),
+      {
+        shouldDirty: true,
+      }
+    )
+  })
+  await act(async () => formProps.onSave(formProps.form.getValues()))
+
+  assert.equal(posts.length, 1)
+  assert.equal(posts[0]?.url, '/api/option/pricing/bulk')
+  assert.deepEqual(posts[0]?.body, {
+    schema_version: 2,
+    currency: 'USD',
+    expected_revision: 'a'.repeat(64),
+    values: {
+      'billing_setting.billing_mode': JSON.stringify(modes),
+      'billing_setting.billing_expr': JSON.stringify(expressions),
+    },
+  })
+  const accepted = queryClient.getQueryData<ModelPricingConfig>(
+    MODEL_PRICING_QUERY_KEY
+  )
+  assert.equal(accepted?.revision, 'b'.repeat(64))
+  assert.deepEqual(JSON.parse(formProps.savedValues.BillingMode), modes)
+  assert.deepEqual(JSON.parse(formProps.savedValues.BillingExpr), expressions)
+  assert.deepEqual(JSON.parse(formProps.form.getValues('BillingMode')), modes)
+  assert.deepEqual(
+    JSON.parse(formProps.form.getValues('BillingExpr')),
+    expressions
+  )
+  assert.equal(formProps.form.formState.isDirty, false)
+  assert.equal(errors.length, 0)
+
+  await act(async () => formProps.onSave(formProps.form.getValues()))
+  assert.equal(posts.length, 1)
+  assert.deepEqual(infos, ['No model price changes to save'])
+})
 
 test('POST 200 then refresh 503 accepts the locked canonical receipt and cannot repeat the write', async () => {
   failRead = true

@@ -4655,6 +4655,8 @@
     "JSON map of group → description exposed when users create API keys.": "Ánh xạ JSON của nhóm → mô tả được hiển thị khi người dùng tạo khóa API.",
     "JSON map of group → fixed multiplier applied to model prices for that billing group.": "Ánh xạ JSON: nhóm → hệ số cố định áp dụng cho giá mô hình của nhóm thanh toán đó.",
     "JSON map of group → ratio applied when the user selects the group explicitly.": "Bản đồ JSON của nhóm → tỷ lệ được áp dụng khi người dùng chọn nhóm đó một cách rõ ràng.",
+    "JSON map of model → billing expression with real USD coefficients. The server converts expressions to legacy storage units.": "Ánh xạ JSON từ mô hình sang biểu thức tính phí với hệ số tiền tệ theo USD thực. Máy chủ chuyển đổi biểu thức sang đơn vị lưu trữ cũ.",
+    "JSON map of model → billing mode: ratio or tiered_expr.": "Ánh xạ JSON từ mô hình sang chế độ tính phí: ratio hoặc tiered_expr.",
     "JSON map of model → multiplier applied to quota billing.": "Bản đồ JSON của mô hình → hệ số nhân áp dụng cho thanh toán hạn mức.",
     "JSON map of model → USD cost per request. Takes precedence over ratio based billing.": "Ánh xạ JSON của mô hình → chi phí USD mỗi yêu cầu. Ưu tiên hơn thanh toán dựa trên tỷ lệ.",
     "JSON mode": "Chế độ JSON",

@@ -4655,6 +4655,8 @@
     "JSON map of group → description exposed when users create API keys.": "分组 → 描述的 JSON 映射，在用户创建 API 密钥时公开。",
     "JSON map of group → fixed multiplier applied to model prices for that billing group.": "JSON 映射：分组 → 该计费分组模型价格采用的固定倍率。",
     "JSON map of group → ratio applied when the user selects the group explicitly.": "分组 → 比率的 JSON 映射，当用户明确选择该分组时应用此比率。",
+    "JSON map of model → billing expression with real USD coefficients. The server converts expressions to legacy storage units.": "模型到计费表达式的 JSON 映射，金额系数使用真实美元。服务端会将表达式转换为旧存储单位。",
+    "JSON map of model → billing mode: ratio or tiered_expr.": "模型到计费模式的 JSON 映射：ratio（倍率）或 tiered_expr（阶梯表达式）。",
     "JSON map of model → multiplier applied to quota billing.": "模型 → 应用于配额计费的乘数的 JSON 映射。",
     "JSON map of model → USD cost per request. Takes precedence over ratio based billing.": "模型 → 每请求美元成本的 JSON 映射。优先于基于比率的计费。",
     "JSON mode": "JSON 模式",

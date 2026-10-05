@@ -72,17 +72,20 @@ type ModelRatioFormProps = {
   variant?: 'default' | 'unset'
 }
 
-type ModelJsonFieldName = Extract<
-  SystemJsonConfigurationKey,
-  | 'ModelPrice'
-  | 'ModelRatio'
-  | 'CacheRatio'
-  | 'CreateCacheRatio'
-  | 'CompletionRatio'
-  | 'ImageRatio'
-  | 'AudioRatio'
-  | 'AudioCompletionRatio'
->
+type ModelJsonFieldName =
+  | Extract<
+      SystemJsonConfigurationKey,
+      | 'ModelPrice'
+      | 'ModelRatio'
+      | 'CacheRatio'
+      | 'CreateCacheRatio'
+      | 'CompletionRatio'
+      | 'ImageRatio'
+      | 'AudioRatio'
+      | 'AudioCompletionRatio'
+    >
+  | 'BillingMode'
+  | 'BillingExpr'
 
 const modelJsonFields: Array<{
   name: ModelJsonFieldName
@@ -133,6 +136,17 @@ const modelJsonFields: Array<{
     labelKey: 'Audio completion ratio',
     descriptionKey: 'Ratio applied to audio completions for streaming models.',
   },
+  {
+    name: 'BillingMode',
+    labelKey: 'Billing modes',
+    descriptionKey: 'JSON map of model → billing mode: ratio or tiered_expr.',
+  },
+  {
+    name: 'BillingExpr',
+    labelKey: 'Billing expressions',
+    descriptionKey:
+      'JSON map of model → billing expression with real USD coefficients. The server converts expressions to legacy storage units.',
+  },
 ]
 
 function ModelJsonTextareaField(props: {
@@ -150,7 +164,13 @@ function ModelJsonTextareaField(props: {
           <FormLabel>{props.label}</FormLabel>
           <FormControl>
             <SystemJsonCodeEditor
-              configurationKey={props.name}
+              configurationKey={
+                props.name === 'BillingMode'
+                  ? 'billing_setting.billing_mode'
+                  : props.name === 'BillingExpr'
+                    ? 'billing_setting.billing_expr'
+                    : props.name
+              }
               value={field.value}
               onChange={(value) => field.onChange(value)}
               name={field.name}

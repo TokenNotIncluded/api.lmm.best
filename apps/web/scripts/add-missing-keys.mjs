@@ -28,6 +28,7 @@ import { apiKeySourceCopy } from './api-key-source-copy.mjs'
 import { assistantSettingsCopy } from './assistant-settings-copy.mjs'
 import { assistantToolCopy } from './assistant-tool-copy.mjs'
 import { balanceQueryCopy } from './balance-query-copy.mjs'
+import { billingJsonEditorCopy } from './billing-json-editor-copy.mjs'
 import { codewhaleGuideCopy } from './codewhale-guide-copy.mjs'
 import { creditCurrencyCopy } from './credit-currency-copy.mjs'
 import { drawingMcpExtraCopy } from './drawing-mcp-extra-copy.mjs'
@@ -13043,6 +13044,10 @@ for (const [locale, values] of Object.entries(moderationCopy)) {
 }
 
 for (const [locale, values] of Object.entries(creditCurrencyCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(billingJsonEditorCopy)) {
   Object.assign(newKeys[locale], values)
 }
 

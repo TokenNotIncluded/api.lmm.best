@@ -4655,6 +4655,8 @@
     "JSON map of group → description exposed when users create API keys.": "ユーザーがAPIキーを作成する際に公開される、グループ → 説明のJSONマップ。",
     "JSON map of group → fixed multiplier applied to model prices for that billing group.": "JSON 対応表：グループ → その課金グループのモデル価格に適用する固定倍率。",
     "JSON map of group → ratio applied when the user selects the group explicitly.": "ユーザーがグループを明示的に選択したときに適用される、グループ → 比率のJSONマップ。",
+    "JSON map of model → billing expression with real USD coefficients. The server converts expressions to legacy storage units.": "モデルと課金式を対応付ける JSON。金額の係数は実際の米ドルで指定します。サーバーが式を従来の保存単位に変換します。",
+    "JSON map of model → billing mode: ratio or tiered_expr.": "モデルと課金モードを対応付ける JSON：ratio（倍率）または tiered_expr（段階式）。",
     "JSON map of model → multiplier applied to quota billing.": "モデル → クォータ請求に適用される乗数のJSONマップ。",
     "JSON map of model → USD cost per request. Takes precedence over ratio based billing.": "モデル → リクエストあたりのUSDコストのJSONマップ。比率ベースの請求よりも優先されます。",
     "JSON mode": "JSON モード",
