@@ -297,19 +297,24 @@ func TestWalletLegacyCatalogOldGrantAndPublicPresentationRemainSeparate(t *testi
 	require.Equal(t, 10000, account.Quota)
 }
 
-func TestWalletLegacyAliasRejectsUnrepresentablePositiveQWithoutChangingCredits(t *testing.T) {
+func TestWalletLegacyAliasRejectsNonFixedQWithoutChangingCredits(t *testing.T) {
 	db, user, _ := setupWalletMCPTest(t)
 	session := walletMCPTestSession(t, user.Id, walletMCPTestExtra("a"))
-	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(500000), decimal.RequireFromString("1e-500")))
-	require.True(t, walletMCPCall(t, session, "wallet.balance", map[string]any{}, "").IsError, "a positive frozen legacy Q must not become a fabricated zero alias")
-	var stored model.User
-	require.NoError(t, db.First(&stored, user.Id).Error)
-	require.Equal(t, 1000, stored.Quota)
-	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(500000), decimal.RequireFromString("0.5")))
+	for _, legacy := range []string{"1e-500", "0.5"} {
+		t.Run(legacy, func(t *testing.T) {
+			require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(500000), decimal.RequireFromString(legacy)))
+			persistCreditDenominationFixture(t, db)
+			require.True(t, walletMCPCall(t, session, "wallet.balance", map[string]any{}, "").IsError, "any non-500000 legacy basis must be rejected, even if its numeric alias is representable")
+			var stored model.User
+			require.NoError(t, db.First(&stored, user.Id).Error)
+			require.Equal(t, 1000, stored.Quota, "rejected denomination reads never rescale wallet credits")
+		})
+	}
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(500000), decimal.NewFromInt(500000)))
 	persistCreditDenominationFixture(t, db)
 	data := walletMCPData(t, walletMCPCall(t, session, "wallet.balance", map[string]any{}, ""))
-	require.Equal(t, 0.5, data["quota_per_platform_credit"], "representable positive fractional legacy Q remains valid")
-	require.EqualValues(t, 1, data["credit_unit"])
+	require.EqualValues(t, 500000, data["quota_per_platform_credit"])
+	require.EqualValues(t, 1000, data["available_credits"])
 	require.Equal(t, "500000", data["credits_per_usd"])
-	require.InDelta(t, 1000.0/500000, data["available_usd"], 1e-16)
+	require.Equal(t, 1000.0/500000, data["available_usd"])
 }
