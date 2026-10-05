@@ -539,6 +539,9 @@ func keepUpstreamRedirectResponse(_ *http.Request, _ []*http.Request) error {
 
 func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
 	resetUpstreamCompatibilityMarkers(c)
+	// Enforce trusted private identity after conversion, raw pass-through and
+	// all request/header overrides, immediately before the final transport.
+	helper.ApplyOpenAIPrivateSafetyIdentifierToRequest(req, info)
 	client, err := service.GetHttpClientWithProxySettings(info.ChannelSetting.Proxy, info.ChannelSetting)
 	if err != nil {
 		return nil, fmt.Errorf("new proxy http client failed: %w", err)
