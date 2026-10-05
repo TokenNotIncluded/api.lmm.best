@@ -24,9 +24,18 @@ import { DEFAULT_SYSTEM_NAME, DEFAULT_LOGO } from '@/lib/constants'
 export type CurrencyDisplayType = 'USD' | 'CNY' | 'TOKENS' | 'CUSTOM'
 
 export interface CurrencyConfig {
-  /** Fixed ledger denomination. Unknown rates must never imply 1:1 fiat. */
+  /** Internal ledger denomination. Unknown rates must never imply 1:1 fiat. */
   currencyUnit?: 'credit' | 'unknown'
+  /** Compatibility alias for ledgerQuotaPerUsd, never the public credit face value. */
   creditsPerUsd?: number
+  ledgerQuotaPerUsd?: number
+  ledgerQuotaPerUsdExact?: string
+  publicCreditsPerUsd?: number
+  publicCreditsPerUsdExact?: string
+  creditUnitSchemaVersion?: number
+  quotaUnit?: string
+  publicCreditUnit?: string
+  legacyCreditUnit?: string
   cnyPerUsd?: number
   legacyPricingUnitsPerUsd?: number
   creditsPerUsdExact?: string

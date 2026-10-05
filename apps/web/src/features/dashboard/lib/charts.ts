@@ -22,8 +22,7 @@ import type {
   ProcessedUserChartData,
 } from '@/features/dashboard/types'
 import {
-  formatCreditAmount,
-  formatFiatCurrencyAmount,
+  formatAmountInCurrency,
   getWalletDisplayCurrency,
   formatQuotaWithCurrency,
   quotaToDisplayAmount,
@@ -206,9 +205,7 @@ const defaultChartCurrency: ChartCurrencyFormatter = {
   quotaToAmount: quotaToDisplayAmount,
   formatAmount: (amount, options) => {
     const currency = getWalletDisplayCurrency()
-    return currency === 'CREDIT'
-      ? formatCreditAmount(Math.round(amount), options)
-      : formatFiatCurrencyAmount(amount, currency, options)
+    return formatAmountInCurrency(amount, currency, options)
   },
 }
 

@@ -48,3 +48,28 @@ test('rejects invalid rate values instead of reusing a default or cached exchang
     assert.equal(currency?.cnyPerUsdExact, '')
   }
 })
+
+test('maps independent public and ledger denominations with unit and decimal metadata', () => {
+  const config = mapStatusDataToConfig({
+    currency_unit: 'credit',
+    credits_per_usd: 3359744,
+    ledger_quota_per_usd: '3359744',
+    ledger_quota_per_usd_exact: '3359744',
+    public_credits_per_usd: '100000',
+    public_credits_per_usd_exact: '100000',
+    credit_unit_schema_version: 2,
+    quota_unit: 'LEDGER_QUOTA',
+    public_credit_unit: 'CREDIT',
+    legacy_credit_unit: 'LEDGER_QUOTA',
+    cny_per_usd: '6.719488',
+  }).currency
+  assert.equal(config?.creditsPerUsd, 3359744)
+  assert.equal(config?.ledgerQuotaPerUsd, 3359744)
+  assert.equal(config?.ledgerQuotaPerUsdExact, '3359744')
+  assert.equal(config?.publicCreditsPerUsd, 100000)
+  assert.equal(config?.publicCreditsPerUsdExact, '100000')
+  assert.equal(config?.creditUnitSchemaVersion, 2)
+  assert.equal(config?.quotaUnit, 'LEDGER_QUOTA')
+  assert.equal(config?.publicCreditUnit, 'CREDIT')
+  assert.equal(config?.legacyCreditUnit, 'LEDGER_QUOTA')
+})

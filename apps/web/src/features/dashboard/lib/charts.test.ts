@@ -22,7 +22,7 @@ import { describe, test } from 'node:test'
 
 import {
   formatFiatCurrencyAmount,
-  formatCreditAmount,
+  formatAmountInCurrency,
   formatQuotaInCurrency,
   quotaToDisplayAmount,
 } from '@/lib/currency'
@@ -248,7 +248,7 @@ describe('dashboard chart monetary units', () => {
     quotaToAmount: (quota) => quotaToDisplayAmount(quota, currency, config),
     formatAmount: (amount, options) =>
       currency === 'CREDIT'
-        ? formatCreditAmount(Math.round(amount), { ...options, locale: 'en' })
+        ? formatAmountInCurrency(amount, 'CREDIT', { ...options, locale: 'en' })
         : formatFiatCurrencyAmount(amount, currency, {
             ...options,
             locale: 'en',

@@ -9,6 +9,7 @@ import { marketNetQuota, marketQuota } from './money'
 
 const config = {
   ...DEFAULT_CURRENCY_CONFIG,
+  currencyUnit: 'credit' as const,
   creditsPerUsd: 3500000,
   creditsPerUsdExact: '3500000',
   cnyPerUsd: 7,

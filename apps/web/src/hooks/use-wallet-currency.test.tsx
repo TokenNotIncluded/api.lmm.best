@@ -49,11 +49,11 @@ after(() => {
   window.happyDOM.abort()
 })
 
-async function render() {
+async function render(quota = 10) {
   let value: ReturnType<typeof useWalletCurrency> | undefined
   function Harness() {
     value = useWalletCurrency()
-    return <p>{value.formatQuota(10)}</p>
+    return <p>{value.formatQuota(quota)}</p>
   }
   const container = document.createElement('div')
   document.body.append(container)
@@ -224,5 +224,71 @@ test('failed account saves retain the previous unit and permit a successful retr
   } finally {
     await rendered.close()
     api.put = initialPut
+  }
+})
+
+test('public credit face value updates balances and inputs immediately while fiat and old closures preserve ledger value', async () => {
+  configure()
+  await i18n.changeLanguage('en')
+  const { mapStatusDataToConfig } = await import('./use-system-config')
+  useSystemConfigStore.getState().setConfig(
+    mapStatusDataToConfig({
+      currency_unit: 'credit',
+      credits_per_usd: 3359744,
+      ledger_quota_per_usd: 3359744,
+      ledger_quota_per_usd_exact: '3359744',
+      public_credits_per_usd: 100000,
+      public_credits_per_usd_exact: '100000',
+      credit_unit_schema_version: 2,
+      quota_unit: 'LEDGER_QUOTA',
+      public_credit_unit: 'CREDIT',
+      legacy_credit_unit: 'LEDGER_QUOTA',
+      cny_per_usd: '6.719488',
+      quota_per_unit: 500000,
+    })
+  )
+  const rendered = await render(3359744)
+  try {
+    assert.equal(rendered.container.textContent, '1 USD')
+    assert.equal(rendered.current().amountToQuota('1'), 3359744)
+    await act(async () => {
+      await rendered.current().setPreference('CREDIT')
+    })
+    assert.equal(rendered.container.textContent, '100,000 Credits')
+    const first = rendered.current()
+    assert.equal(first.amountToQuota('100000'), 3359744)
+    assert.equal(first.formatUSD(4), '400,000 Credits')
+    assert.equal(first.step, 'any')
+    assert.equal(first.amountToQuota(first.quotaToInput(1)), 1)
+    assert.equal(first.formatQuota(1), '0.029764 Credits')
+    await act(async () => {
+      useSystemConfigStore.getState().setConfig({
+        currency: {
+          ...useSystemConfigStore.getState().config.currency,
+          publicCreditsPerUsd: 200000,
+          publicCreditsPerUsdExact: '200000',
+        },
+      })
+    })
+    assert.equal(rendered.container.textContent, '200,000 Credits')
+    assert.equal(rendered.current().amountToQuota('200000'), 3359744)
+    assert.equal(first.formatQuota(3359744), '100,000 Credits')
+    assert.equal(first.amountToQuota('100000'), 3359744)
+    await act(async () => {
+      await rendered.current().setPreference('CNY')
+    })
+    assert.equal(rendered.container.textContent, '6.72 CNY')
+    assert.equal(rendered.current().amountToQuota('6.719488'), 3359744)
+    await act(async () => {
+      await rendered.current().setPreference('')
+    })
+    assert.equal(rendered.container.textContent, '1 USD')
+    await act(async () => {
+      await i18n.changeLanguage('zhCN')
+    })
+    assert.equal(rendered.current().currency, 'CNY')
+    assert.equal(rendered.current().legacyAmountToQuota('1'), 500000)
+  } finally {
+    await rendered.close()
   }
 })

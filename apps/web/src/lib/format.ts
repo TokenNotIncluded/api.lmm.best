@@ -73,7 +73,7 @@ export function formatPercent(value: number | null | undefined): string {
 }
 
 // ============================================================================
-// Quota formatting: raw integer Credits, with fixed backend fiat denomination.
+// Quota formatting: integer ledger quota, with independent public credit presentation.
 // ============================================================================
 
 export function formatQuota(quota: number): string {
@@ -99,8 +99,13 @@ export function quotaUnitsToEditableAmount(units: number): number {
   return text ? Number(text) : Number.NaN
 }
 
-export function getEditableQuotaStep(): number {
-  return getCurrencyDisplay().currency === 'CREDIT' ? 1 : 1e-15
+export function getEditableQuotaStep(): number | 'any' {
+  const { currency, config } = getCurrencyDisplay()
+  if (currency !== 'CREDIT') return 1e-15
+  return config.creditUnitSchemaVersion === undefined &&
+    quotaToDisplayAmount(1, 'CREDIT') === 1
+    ? 1
+    : 'any'
 }
 
 // ============================================================================

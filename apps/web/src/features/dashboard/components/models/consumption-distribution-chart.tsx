@@ -36,10 +36,7 @@ import type {
   QuotaDataItem,
 } from '@/features/dashboard/types'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
-import {
-  formatFiatCurrencyAmount,
-  getCurrencyFormattingLocale,
-} from '@/lib/currency'
+import { getCurrencyFormattingLocale } from '@/lib/currency'
 import { useThemeRadiusPx } from '@/lib/theme-radius'
 import type { TimeGranularity } from '@/lib/time'
 import { VCHART_OPTION } from '@/lib/vchart'
@@ -59,7 +56,12 @@ export function ConsumptionDistributionChart(
   props: ConsumptionDistributionChartProps
 ) {
   const { t, i18n } = useTranslation()
-  const { currency: unit, formatQuota, quotaToAmount } = useWalletCurrency()
+  const {
+    currency: unit,
+    formatQuota,
+    quotaToAmount,
+    formatAmount,
+  } = useWalletCurrency()
   const locale = getCurrencyFormattingLocale(
     i18n.resolvedLanguage || i18n.language
   )
@@ -67,15 +69,9 @@ export function ConsumptionDistributionChart(
     () => ({
       formatQuota,
       quotaToAmount,
-      formatAmount: (
-        amount: number,
-        options?: import('@/lib/currency').CurrencyFormatOptions
-      ) =>
-        unit === 'CREDIT'
-          ? formatQuota(Math.round(amount), options)
-          : formatFiatCurrencyAmount(amount, unit, { ...options, locale }),
+      formatAmount,
     }),
-    [formatQuota, quotaToAmount, unit, locale]
+    [formatQuota, quotaToAmount, formatAmount]
   )
   const { resolvedTheme } = useTheme()
   const { customization } = useThemeCustomization()

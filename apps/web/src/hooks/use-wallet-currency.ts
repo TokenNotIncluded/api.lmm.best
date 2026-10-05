@@ -12,6 +12,7 @@ import { useTranslation } from 'react-i18next'
 import {
   displayAmountToQuota,
   formatQuotaInCurrency,
+  formatAmountInCurrency,
   formatUSDInCurrency,
   getCurrencyDisplay,
   getCurrencyFormattingLocale,
@@ -148,7 +149,14 @@ export function useWalletCurrency() {
       currency,
       preference,
       label,
-      step: currency === 'CREDIT' ? (1 as const) : ('any' as const),
+      step:
+        currency === 'CREDIT' &&
+        config.creditUnitSchemaVersion === undefined &&
+        quotaToDisplayAmount(1, currency, config) === 1
+          ? (1 as const)
+          : ('any' as const),
+      formatAmount: (amount: number, options?: CurrencyFormatOptions) =>
+        formatAmountInCurrency(amount, currency, localized(options)),
       formatQuota: (quota: number, options?: CurrencyFormatOptions) =>
         formatQuotaInCurrency(quota, currency, localized(options), config),
       quotaToAmount: (quota: number) =>

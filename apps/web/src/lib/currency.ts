@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-/** Ledger balances are integer Credits. USD values use a fixed backend denomination, never a live recharge ratio. */
+/** Ledger quota stays integral. Public Credits have a separate face value; fiat uses the fixed ledger denomination. */
 import i18n from '@/i18n/config'
 import { normalizeInterfaceLanguage } from '@/i18n/languages'
 import { useAuthStore } from '@/stores/auth-store'
@@ -128,19 +128,78 @@ function positive(value: unknown): number {
 }
 
 function getConfig(
-  input = useSystemConfigStore.getState().config.currency
+  input: CurrencyConfig = useSystemConfigStore.getState().config.currency
 ): CurrencyConfig {
   const config = { ...DEFAULT_CURRENCY_CONFIG, ...input }
+  const hasPublicMetadata = [
+    config.creditUnitSchemaVersion,
+    config.ledgerQuotaPerUsd,
+    config.ledgerQuotaPerUsdExact,
+    config.publicCreditsPerUsd,
+    config.publicCreditsPerUsdExact,
+    config.quotaUnit,
+    config.publicCreditUnit,
+    config.legacyCreditUnit,
+  ].some((value) => value !== undefined)
+  const legacyK =
+    config.currencyUnit === 'credit'
+      ? positive(config.creditsPerUsd)
+      : Number.NaN
+  const exactMatches = (value: number, exact?: string) => {
+    if (exact === undefined) return true
+    if (typeof exact !== 'string' || Number(exact) !== value) return false
+    const declared = decimal(exact)
+    const numeric = decimal(value)
+    return (
+      !!declared &&
+      !!numeric &&
+      declared.numerator * numeric.denominator ===
+        numeric.numerator * declared.denominator
+    )
+  }
+  const ledgerK = hasPublicMetadata
+    ? config.creditUnitSchemaVersion === 2 &&
+      config.quotaUnit === 'LEDGER_QUOTA' &&
+      (config.legacyCreditUnit === undefined ||
+        config.legacyCreditUnit === 'LEDGER_QUOTA') &&
+      positive(config.ledgerQuotaPerUsd) === legacyK &&
+      Number.isFinite(legacyK) &&
+      exactMatches(legacyK, config.ledgerQuotaPerUsdExact) &&
+      (!config.creditsPerUsdExact ||
+        exactMatches(legacyK, config.creditsPerUsdExact))
+      ? legacyK
+      : Number.NaN
+    : legacyK
+  const publicK = positive(config.publicCreditsPerUsd)
   return {
     ...config,
     quotaPerUnit: positive(config.quotaPerUnit),
-    creditsPerUsd:
-      config.currencyUnit === 'credit'
-        ? positive(config.creditsPerUsd)
-        : Number.NaN,
+    creditsPerUsd: ledgerK,
+    creditsPerUsdExact: hasPublicMetadata
+      ? (config.ledgerQuotaPerUsdExact ?? config.creditsPerUsdExact)
+      : config.creditsPerUsdExact,
+    ...(hasPublicMetadata
+      ? {
+          ledgerQuotaPerUsd: ledgerK,
+          publicCreditsPerUsd:
+            Number.isFinite(ledgerK) &&
+            config.publicCreditUnit === 'CREDIT' &&
+            exactMatches(publicK, config.publicCreditsPerUsdExact)
+              ? publicK
+              : Number.NaN,
+        }
+      : {}),
     cnyPerUsd: positive(config.cnyPerUsd),
     legacyPricingUnitsPerUsd: positive(config.legacyPricingUnitsPerUsd),
   }
+}
+
+function publicCreditRate(
+  config: ReturnType<typeof getConfig>
+): Rational | null {
+  return config.publicCreditsPerUsd === undefined
+    ? rate(config.creditsPerUsd, config.creditsPerUsdExact)
+    : rate(config.publicCreditsPerUsd, config.publicCreditsPerUsdExact)
 }
 
 export function getCurrencyDisplay(input?: CurrencyConfig) {
@@ -148,7 +207,12 @@ export function getCurrencyDisplay(input?: CurrencyConfig) {
   const currency = getWalletDisplayCurrency()
   const meta: DisplayMeta =
     currency === 'CREDIT'
-      ? { kind: 'tokens', quotaPerUnit: Number(config.creditsPerUsd) }
+      ? {
+          kind: 'tokens',
+          quotaPerUnit: Number(
+            config.publicCreditsPerUsd ?? config.creditsPerUsd
+          ),
+        }
       : {
           kind: 'currency',
           symbol: currency === 'CNY' ? '¥' : '$',
@@ -213,15 +277,23 @@ function safeInteger(rational: Rational | null): number {
 function displayRational(
   quota: number,
   currency: WalletDisplayCurrency,
-  config = getConfig()
+  inputConfig = getConfig()
 ): Rational | null {
   if (!Number.isSafeInteger(quota)) return null
+  const config = getConfig(inputConfig)
   const raw = { numerator: BigInt(quota), denominator: 1n }
-  if (currency === 'CREDIT') return raw
   const denomination = rate(config.creditsPerUsd, config.creditsPerUsdExact)
   if (!denomination) return null
   const usd = divide(raw, denomination)
   if (currency === 'USD') return usd
+  if (currency === 'CREDIT') {
+    const publicRate = publicCreditRate(config)
+    if (!publicRate) return null
+    return publicRate.numerator * denomination.denominator ===
+      denomination.numerator * publicRate.denominator
+      ? raw
+      : multiply(usd, publicRate)
+  }
   const fx = rate(config.cnyPerUsd, config.cnyPerUsdExact)
   return fx ? multiply(usd, fx) : null
 }
@@ -239,17 +311,27 @@ export function quotaToDisplayAmount(
 export function displayAmountToQuota(
   amount: number | string,
   currency = getWalletDisplayCurrency(),
-  config = getConfig()
+  inputConfig = getConfig()
 ): number {
   let rational = decimal(amount)
   if (!rational) return Number.NaN
-  if (currency === 'CREDIT') {
-    return rational.numerator % rational.denominator === 0n
-      ? safeInteger(rational)
-      : Number.NaN
-  }
+  const config = getConfig(inputConfig)
   const denomination = rate(config.creditsPerUsd, config.creditsPerUsdExact)
   if (!denomination) return Number.NaN
+  if (currency === 'CREDIT') {
+    const publicRate = publicCreditRate(config)
+    if (!publicRate) return Number.NaN
+    if (
+      config.creditUnitSchemaVersion === undefined &&
+      publicRate.numerator * denomination.denominator ===
+        denomination.numerator * publicRate.denominator
+    ) {
+      return rational.numerator % rational.denominator === 0n
+        ? safeInteger(rational)
+        : Number.NaN
+    }
+    return safeInteger(multiply(divide(rational, publicRate), denomination))
+  }
   if (currency === 'CNY') {
     const fx = rate(config.cnyPerUsd, config.cnyPerUsdExact)
     if (!fx) return Number.NaN
@@ -258,7 +340,7 @@ export function displayAmountToQuota(
   return safeInteger(multiply(rational, denomination))
 }
 
-/** Editable decimal text rounds upward at 30 decimal places, so parsing cannot erase the last Credit. */
+/** Editable decimal text preserves the last internal ledger unit under either public or fiat display. */
 export function quotaToDisplayInput(
   quota: number,
   currency = getWalletDisplayCurrency(),
@@ -328,6 +410,10 @@ function numberText(
   options?: CurrencyFormatOptions,
   integer = false
 ): string {
+  // Intl decimal formatting stops at 20 places; preserve smaller positive rates visibly.
+  if (!integer && value !== 0 && Math.abs(value) < 1e-20) {
+    return value.toExponential(2)
+  }
   const requested = getCurrencyFractionDigits(value, options)
   const digits = integer
     ? 0
@@ -353,13 +439,31 @@ function numberText(
   ).format(value)
 }
 
-/** Raw, integral smallest ledger units; never labelled tokens or dollars. */
+/** Raw integral ledger quota projected into the configured public credit face value. */
 export function formatCreditAmount(
   quota: number | null | undefined,
-  options?: CurrencyFormatOptions
+  options?: CurrencyFormatOptions,
+  config = getConfig()
 ): string {
   if (quota == null || !Number.isSafeInteger(quota)) return '-'
-  const number = numberText(quota, options, true)
+  return formatAmountInCurrency(
+    quotaToDisplayAmount(quota, 'CREDIT', config),
+    'CREDIT',
+    options
+  )
+}
+
+/** This value is already in the displayed unit. Never convert chart axes or sums a second time. */
+export function formatAmountInCurrency(
+  amount: number | null | undefined,
+  currency: WalletDisplayCurrency,
+  options?: CurrencyFormatOptions
+): string {
+  if (amount == null || !Number.isFinite(amount)) return '-'
+  if (currency !== 'CREDIT') {
+    return formatFiatCurrencyAmount(amount, currency, options)
+  }
+  const number = numberText(amount, options)
   return options?.showSymbol === false
     ? number
     : `${number} ${options?.creditLabel ?? i18n.t('Credits')}`
@@ -377,7 +481,7 @@ export function formatFiatCurrencyAmount(
   return options?.showSymbol === false ? number : `${number} ${code}`
 }
 
-/** The input is canonical real USD. CREDIT rates retain fractional units with K, CNY uses fiat FX only. */
+/** Canonical real USD uses the public credit face value or fiat FX, never the raw ledger unit. */
 export function formatUSDInCurrency(
   amountUSD: number | null | undefined,
   currency: WalletDisplayCurrency,
@@ -389,17 +493,14 @@ export function formatUSDInCurrency(
     return formatFiatCurrencyAmount(amountUSD, 'USD', options)
   }
   if (currency === 'CREDIT') {
-    const value = amountUSD * positive(config.creditsPerUsd)
-    if (
-      !Number.isFinite(positive(config.creditsPerUsd)) ||
-      !Number.isFinite(value)
-    ) {
-      return '-'
-    }
-    const text = numberText(value, options)
-    return options?.showSymbol === false
-      ? text
-      : `${text} ${options?.creditLabel ?? i18n.t('Credits')}`
+    const publicRate = publicCreditRate(getConfig(config))
+    if (!publicRate) return '-'
+    const value =
+      amountUSD *
+      (Number(publicRate.numerator) / Number(publicRate.denominator))
+    return amountUSD !== 0 && value === 0
+      ? '-'
+      : formatAmountInCurrency(value, 'CREDIT', options)
   }
   const fx = positive(config.cnyPerUsd)
   return Number.isFinite(fx)
@@ -422,7 +523,7 @@ export function formatQuotaInCurrency(
   config = getConfig()
 ): string {
   return currency === 'CREDIT'
-    ? formatCreditAmount(quota, options)
+    ? formatCreditAmount(quota, options, config)
     : formatFiatCurrencyAmount(
         quotaToDisplayAmount(quota, currency, config),
         currency,
@@ -430,7 +531,7 @@ export function formatQuotaInCurrency(
       )
 }
 
-/** Legacy batch values are explicitly bridged through raw Credits. */
+/** Legacy batch values are explicitly bridged through raw ledger quota. */
 export function formatPlatformAmount(
   amount: number | null | undefined,
   options?: CurrencyFormatOptions,

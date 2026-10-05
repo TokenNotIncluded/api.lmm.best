@@ -130,7 +130,7 @@ test('invalid rates and unsafe amounts cannot fall back to 1:1', () => {
   assert.equal(formatUSDInCurrency(1, 'CNY', exact), '-')
   assert.equal(formatUSDInCurrency(1, 'USD', exact), '1 USD')
   assert.ok(Number.isNaN(displayAmountToQuota('1', 'USD')))
-  assert.equal(displayAmountToQuota('1', 'CREDIT'), 1)
+  assert.ok(Number.isNaN(displayAmountToQuota('1', 'CREDIT')))
 })
 test('decimal writes floor exactly and preserve signed raw quota', () => {
   assert.equal(displayAmountToQuota('0.0000001', 'USD'), 0)
