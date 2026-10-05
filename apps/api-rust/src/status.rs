@@ -661,7 +661,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn status_http_refreshes_public_denomination_without_cacheable_responses() -> TestResult {
+    async fn status_http_refreshes_fixed_units_without_cacheable_responses() -> TestResult {
         use axum::{Router, body::Body, extract::State, http::Request, routing::get};
         use std::sync::RwLock;
         use tower::ServiceExt;
@@ -679,7 +679,7 @@ mod tests {
         }
         let mut snapshot = default_snapshot();
         snapshot.options.extend(BTreeMap::from([
-            ("CreditsPerUSD".to_owned(), "3359744".to_owned()),
+            ("CreditsPerUSD".to_owned(), "500000".to_owned()),
             ("LegacyPricingQuotaPerUnit".to_owned(), "500000".to_owned()),
             ("QuotaPerUnit".to_owned(), "500000".to_owned()),
         ]));
@@ -692,7 +692,12 @@ mod tests {
                 get(|State(state): State<StatusHttpState>| async move { state.response().await }),
             )
             .with_state(StatusHttpState::new(repository.clone(), DEFAULT_VERSION, 0));
-        for public in ["100000", "200000"] {
+        for (public, available) in [
+            ("500000", true),
+            ("100000", false),
+            ("200000", false),
+            ("500000", true),
+        ] {
             snapshot
                 .options
                 .insert("PublicCreditsPerUSD".to_owned(), public.to_owned());
@@ -709,8 +714,25 @@ mod tests {
             let body: Value = serde_json::from_slice(
                 &axum::body::to_bytes(response.into_body(), usize::MAX).await?,
             )?;
-            assert_eq!(body["data"]["public_credits_per_usd_exact"], public);
-            assert_eq!(body["data"]["ledger_quota_per_usd_exact"], "3359744");
+            assert_eq!(body["success"], true);
+            if available {
+                assert_eq!(body["data"]["public_credit_status"], "available");
+                assert_eq!(body["data"]["public_credits_per_usd_exact"], "500000");
+                assert_eq!(body["data"]["ledger_quota_per_usd_exact"], "500000");
+                assert_eq!(body["data"]["credits_per_usd"], 500000.0);
+            } else {
+                assert_eq!(body["data"]["public_credit_status"], "unavailable");
+                for field in [
+                    "credit_unit_schema_version",
+                    "public_credits_per_usd",
+                    "public_credits_per_usd_exact",
+                    "ledger_quota_per_usd",
+                    "ledger_quota_per_usd_exact",
+                    "credits_per_usd",
+                ] {
+                    assert!(body["data"].get(field).is_none(), "{field}");
+                }
+            }
         }
         *repository
             .0
@@ -732,34 +754,59 @@ mod tests {
     fn public_credit_metadata_preserves_legacy_ledger_alias_and_frozen_snapshot() -> TestResult {
         let mut snapshot = default_snapshot();
         snapshot.options.extend(BTreeMap::from([
-            ("CreditsPerUSD".to_owned(), "3359744".to_owned()),
+            ("CreditsPerUSD".to_owned(), "500000".to_owned()),
             ("LegacyPricingQuotaPerUnit".to_owned(), "500000".to_owned()),
-            ("PublicCreditsPerUSD".to_owned(), "100000".to_owned()),
+            ("QuotaPerUnit".to_owned(), "500000".to_owned()),
+            ("PublicCreditsPerUSD".to_owned(), "500000".to_owned()),
         ]));
         let first = StatusData::from_snapshot(snapshot.clone(), DEFAULT_VERSION, 0);
-        snapshot
+        let mut changed_snapshot = snapshot.clone();
+        changed_snapshot
             .options
             .insert("PublicCreditsPerUSD".to_owned(), "200000".to_owned());
         let second = serde_json::to_value(StatusData::from_snapshot(
-            snapshot.clone(),
+            changed_snapshot,
             DEFAULT_VERSION,
             0,
         ))?;
         let first = serde_json::to_value(first)?;
         assert_eq!(first["public_credit_status"], "available");
-        assert_eq!(first["credits_per_usd"], 3359744.0);
-        assert_eq!(first["ledger_quota_per_usd_exact"], "3359744");
-        assert_eq!(first["public_credits_per_usd_exact"], "100000");
-        assert_eq!(second["public_credits_per_usd_exact"], "200000");
-        assert_eq!(second["credits_per_usd"], first["credits_per_usd"]);
-        snapshot
-            .options
-            .insert("PublicCreditsPerUSD".to_owned(), "1.5".to_owned());
-        let invalid =
-            serde_json::to_value(StatusData::from_snapshot(snapshot, DEFAULT_VERSION, 0))?;
-        assert_eq!(invalid["public_credit_status"], "unavailable");
-        assert!(invalid.get("public_credits_per_usd").is_none());
-        assert!(invalid.get("credits_per_usd").is_none());
+        assert_eq!(first["credits_per_usd"], 500000.0);
+        assert_eq!(first["ledger_quota_per_usd_exact"], "500000");
+        assert_eq!(first["public_credits_per_usd_exact"], "500000");
+        assert_eq!(first["public_credits_per_usd"], 500000);
+        assert_eq!(first["ledger_quota_per_usd"], 500000);
+        assert_eq!(second["public_credit_status"], "unavailable");
+        assert!(second.get("public_credits_per_usd_exact").is_none());
+        assert!(second.get("credits_per_usd").is_none());
+        for (key, value) in [
+            ("CreditsPerUSD", "3359744"),
+            ("LegacyPricingQuotaPerUnit", "100000"),
+            ("QuotaPerUnit", "100000"),
+            ("PublicCreditsPerUSD", "100000"),
+            ("PublicCreditsPerUSD", "1.5"),
+        ] {
+            let mut invalid_snapshot = snapshot.clone();
+            invalid_snapshot
+                .options
+                .insert(key.to_owned(), value.to_owned());
+            let invalid = serde_json::to_value(StatusData::from_snapshot(
+                invalid_snapshot,
+                DEFAULT_VERSION,
+                0,
+            ))?;
+            assert_eq!(invalid["public_credit_status"], "unavailable", "{key}");
+            for field in [
+                "credit_unit_schema_version",
+                "public_credits_per_usd",
+                "public_credits_per_usd_exact",
+                "ledger_quota_per_usd",
+                "ledger_quota_per_usd_exact",
+                "credits_per_usd",
+            ] {
+                assert!(invalid.get(field).is_none(), "{key}: {field}");
+            }
+        }
         Ok(())
     }
 

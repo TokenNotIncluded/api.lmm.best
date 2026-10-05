@@ -52,6 +52,21 @@
     ]
   },
   {
+    "name": "custom-credit-rail-default-platform-rate",
+    "amount": "14.6",
+    "method": "epay",
+    "options": {},
+    "methods": [
+      {
+        "type": "epay",
+        "name": "LDC",
+        "settlement_unit": "LDC",
+        "settlement_units_per_usd": "3",
+        "topup_ratio": "0.8"
+      }
+    ]
+  },
+  {
     "name": "integer-amount-discount",
     "amount": "14",
     "method": "alipay",
@@ -88,7 +103,7 @@
     "methods": [
       {
         "type": "alipay",
-        "min_topup": "2"
+        "min_topup": "20"
       }
     ]
   },

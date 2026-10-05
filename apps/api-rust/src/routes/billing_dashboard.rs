@@ -844,12 +844,12 @@ mod tests {
             BillingDashboardPrincipal {
                 token_id: 1,
                 user_id: 2,
-                remain_quota: 750,
-                used_quota: 250,
+                remain_quota: 750_000,
+                used_quota: 250_000,
                 unlimited_quota: false,
                 expired_time: -1,
             },
-            (900, 100),
+            (900_000, 100_000),
         )
     }
 
@@ -898,15 +898,10 @@ mod tests {
             .uri("/dashboard/billing/subscription")
             .body(Body::empty())
             .map_err(|error| test_error(format!("build subscription request: {error}")))?;
-        let response = router(BillingDashboardSettings {
-            quota_per_unit: Decimal::from(500),
-            credits_per_usd: Some(Decimal::from(500)),
-            legacy_pricing_quota_per_unit: Some(Decimal::from(500)),
-            ..BillingDashboardSettings::default()
-        })
-        .oneshot(request)
-        .await
-        .map_err(|error| test_error(format!("dispatch subscription request: {error}")))?;
+        let response = router(canonical_settings())
+            .oneshot(request)
+            .await
+            .map_err(|error| test_error(format!("dispatch subscription request: {error}")))?;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
             legacy_billing_fields(response_json(response, "subscription").await?),
@@ -930,11 +925,8 @@ mod tests {
             .map_err(|error| test_error(format!("build usage request: {error}")))?;
         let response = router(BillingDashboardSettings {
             quota_display: QuotaDisplay::Cny,
-            quota_per_unit: Decimal::from(500),
-            credits_per_usd: Some(Decimal::from(500)),
-            legacy_pricing_quota_per_unit: Some(Decimal::from(500)),
             usd_exchange_rate: 2.0,
-            ..BillingDashboardSettings::default()
+            ..canonical_settings()
         })
         .oneshot(request)
         .await
@@ -964,18 +956,18 @@ mod tests {
 
     fn canonical_settings() -> BillingDashboardSettings {
         BillingDashboardSettings {
-            credits_per_usd: Some(Decimal::from(3_500_000)),
+            credits_per_usd: Some(Decimal::from(500_000)),
             legacy_pricing_quota_per_unit: Some(Decimal::from(500_000)),
             ..BillingDashboardSettings::default()
         }
     }
 
     #[tokio::test]
-    async fn public_credit_setting_changes_metadata_without_repricing_usd() -> TestResult {
+    async fn fixed_public_credit_settings_preserve_usd_and_reject_stale_values() -> TestResult {
         let mut previous = None;
-        for public in [100_000, 200_000] {
+        for public in [None, Some(Decimal::from(500_000))] {
             let settings = BillingDashboardSettings {
-                public_credits_per_usd: Some(Decimal::from(public)),
+                public_credits_per_usd: public,
                 ..canonical_settings()
             };
             let app = router_with_principal(
@@ -983,8 +975,8 @@ mod tests {
                 BillingDashboardPrincipal {
                     token_id: 1,
                     user_id: 2,
-                    remain_quota: 3_500_000,
-                    used_quota: 7_000_000,
+                    remain_quota: 500_000,
+                    used_quota: 1_000_000,
                     unlimited_quota: false,
                     expired_time: -1,
                 },
@@ -998,9 +990,10 @@ mod tests {
                     .clone()
                     .oneshot(Request::get(path).body(Body::empty())?)
                     .await?;
+                assert_eq!(response.status(), StatusCode::OK);
                 let body = response_json(response, path).await?;
-                assert_eq!(body["public_credits_per_usd_exact"], public.to_string());
-                assert_eq!(body["ledger_quota_per_usd_exact"], "3500000");
+                assert_eq!(body["public_credits_per_usd_exact"], "500000");
+                assert_eq!(body["ledger_quota_per_usd_exact"], "500000");
                 assert_eq!(body["quota_unit"], "LEDGER_QUOTA");
                 assert_eq!(body["public_credit_unit"], "CREDIT");
                 if path.ends_with("subscription") {
@@ -1015,11 +1008,33 @@ mod tests {
                 }
             }
         }
-        let invalid = BillingDashboardSettings {
-            public_credits_per_usd: Some(Decimal::new(15, 1)),
-            ..canonical_settings()
-        };
-        assert!(public_credit_denomination(invalid).is_err());
+        for public in [
+            Decimal::from(100_000),
+            Decimal::from(200_000),
+            Decimal::new(15, 1),
+        ] {
+            let invalid = BillingDashboardSettings {
+                public_credits_per_usd: Some(public),
+                ..canonical_settings()
+            };
+            assert!(public_credit_denomination(invalid).is_err(), "{public}");
+            for path in [
+                "/dashboard/billing/subscription",
+                "/dashboard/billing/usage",
+            ] {
+                let response = router(invalid)
+                    .oneshot(Request::get(path).body(Body::empty())?)
+                    .await?;
+                assert_eq!(response.status(), StatusCode::OK);
+                assert_eq!(
+                    response_json(response, path).await?,
+                    json!({"error": {
+                        "message": "credit currency units are unavailable",
+                        "type": "billing_unavailable", "param": "", "code": null,
+                    }})
+                );
+            }
+        }
         Ok(())
     }
 
@@ -1027,7 +1042,7 @@ mod tests {
     fn immutable_basis_rejects_missing_invalid_or_drifted_values() -> TestResult {
         assert_eq!(
             validated_credit_basis(canonical_settings())?,
-            Decimal::from(3_500_000)
+            Decimal::from(500_000)
         );
         for invalid in [
             "",
@@ -1097,12 +1112,9 @@ mod tests {
 
     #[test]
     fn real_usd_division_matches_go_precision_and_preserves_zero_and_wide_sum() -> TestResult {
-        assert_eq!(real_usd_amount(3_500_000, Decimal::from(3_500_000))?, 1.0);
-        assert_eq!(real_usd_amount(0, Decimal::from(3_500_000))?, 0.0);
-        assert_eq!(
-            real_usd_amount(1, Decimal::from(3_500_000))?,
-            0.0000002857142857
-        );
+        assert_eq!(real_usd_amount(500_000, Decimal::from(500_000))?, 1.0);
+        assert_eq!(real_usd_amount(0, Decimal::from(500_000))?, 0.0);
+        assert_eq!(real_usd_amount(1, Decimal::from(500_000))?, 0.000002);
         let credits = i128::from(i64::MAX) + i128::from(i64::MAX);
         assert_eq!(
             real_usd_amount(credits, Decimal::from(2))?,
@@ -1142,11 +1154,11 @@ mod tests {
                             token_id: 1,
                             user_id: 2,
                             remain_quota: 0,
-                            used_quota: 3_500_000,
+                            used_quota: 500_000,
                             unlimited_quota: false,
                             expired_time: -1,
                         },
-                        (0, 3_500_000),
+                        (0, 500_000),
                     );
                     for path in [
                         "/dashboard/billing/subscription",
@@ -1179,25 +1191,11 @@ mod tests {
 
     #[tokio::test]
     async fn signed_balance_and_single_rounding_keep_go_sdk_units() -> TestResult {
-        for (quota, anchor, dollars, cents) in [
-            (-3_500_000, 3_500_000, -1.0, -100.0),
-            (
-                866_666_666_666_668,
-                8_666_666_666_666_667_i64,
-                0.1000000000000001,
-                10.00000000000001,
-            ),
-            (
-                -866_666_666_666_668,
-                8_666_666_666_666_667_i64,
-                -0.1000000000000001,
-                -10.00000000000001,
-            ),
+        for (quota, dollars, cents) in [
+            (-500_000, -1.0, -100.0),
+            (50_001, 0.100002, 10.0002),
+            (-50_001, -0.100002, -10.0002),
         ] {
-            let settings = BillingDashboardSettings {
-                credits_per_usd: Some(Decimal::from(anchor)),
-                ..canonical_settings()
-            };
             let principal = BillingDashboardPrincipal {
                 token_id: 1,
                 user_id: 2,
@@ -1206,11 +1204,12 @@ mod tests {
                 unlimited_quota: false,
                 expired_time: -1,
             };
-            let app = router_with_principal(settings, principal, (0, 0));
+            let app = router_with_principal(canonical_settings(), principal, (0, 0));
             let response = app
                 .clone()
                 .oneshot(Request::get("/dashboard/billing/subscription").body(Body::empty())?)
                 .await?;
+            assert_eq!(response.status(), StatusCode::OK);
             assert_eq!(
                 response_json(response, "signed subscription").await?["hard_limit_usd"],
                 dollars
@@ -1218,6 +1217,7 @@ mod tests {
             let response = app
                 .oneshot(Request::get("/dashboard/billing/usage").body(Body::empty())?)
                 .await?;
+            assert_eq!(response.status(), StatusCode::OK);
             assert_eq!(
                 response_json(response, "signed usage").await?["total_usage"],
                 cents
@@ -1250,6 +1250,10 @@ mod tests {
                 },
                 BillingDashboardSettings {
                     credits_per_usd: Some(Decimal::ZERO),
+                    ..canonical_settings()
+                },
+                BillingDashboardSettings {
+                    credits_per_usd: Some(Decimal::from(3_500_000)),
                     ..canonical_settings()
                 },
             ] {

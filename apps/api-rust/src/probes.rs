@@ -44,6 +44,14 @@ allow_ips = '', "group" = '', cross_group_retry = FALSE, deleted_at = NULL WHERE
     "EXPLAIN (COSTS FALSE) UPDATE users SET console_activated_at = EXTRACT(EPOCH FROM NOW())::BIGINT WHERE FALSE",
 ];
 
+// Mounted subscription and relay routes read both nullable grants regardless
+// of the configured reader version. Old schemas must fail readiness before
+// serving requests with an incomplete sold-subscription credit basis.
+const SUBSCRIPTION_CREDIT_BASIS_SCHEMA_SELECTS: &[&str] = &[
+    "SELECT amount_total, amount_used, reset_amount, renewal_amount FROM user_subscriptions WHERE FALSE",
+    "EXPLAIN (COSTS FALSE) UPDATE user_subscriptions SET amount_total = COALESCE(reset_amount, amount_total), reset_amount = COALESCE(renewal_amount, reset_amount), amount_used = 0 WHERE FALSE",
+];
+
 const OPEN_SOURCE_BOUNTY_SCHEMA_SELECTS: &[&str] = &[
     "SELECT id, owner_user_id, repository_url, title, description, rules, reward_quota, net_reward_quota, reward_slots, escrow_quota, platform_fee_rate_bps, platform_fee_quota, status, created_at, updated_at, published_at, closed_at FROM open_source_bounty_projects WHERE FALSE",
     "SELECT id, project_id, participant_user_id, github_handle, status, issue_url, pull_request_url, submission_note, review_note, reward_quota, tip_quota, owner_rating_score, owner_rating_comment, owner_rated_at, contributor_rating_score, contributor_rating_comment, contributor_rated_at, owner_rating_overturned, accepted_at, submitted_at, reviewed_at, rejected_at, paid_at, created_at, updated_at FROM open_source_bounty_challenges WHERE FALSE",
@@ -177,6 +185,9 @@ async fn schema_compatible_with(
     for query in API_TOKEN_SCHEMA_SELECTS {
         backend.verify_select(query).await?;
     }
+    for query in SUBSCRIPTION_CREDIT_BASIS_SCHEMA_SELECTS {
+        backend.verify_select(query).await?;
+    }
     for query in OPEN_SOURCE_BOUNTY_SCHEMA_SELECTS {
         backend.verify_select(query).await?;
     }
@@ -244,6 +255,7 @@ mod tests {
                 STATUS_SCHEMA_SELECTS,
                 AUTH_SCHEMA_SELECTS,
                 API_TOKEN_SCHEMA_SELECTS,
+                SUBSCRIPTION_CREDIT_BASIS_SCHEMA_SELECTS,
                 OPEN_SOURCE_BOUNTY_SCHEMA_SELECTS,
             ]
             .concat()
@@ -256,6 +268,7 @@ mod tests {
             .iter()
             .chain(AUTH_SCHEMA_SELECTS)
             .chain(API_TOKEN_SCHEMA_SELECTS)
+            .chain(SUBSCRIPTION_CREDIT_BASIS_SCHEMA_SELECTS)
             .chain(OPEN_SOURCE_BOUNTY_SCHEMA_SELECTS)
         {
             let backend = backend(Some(query));

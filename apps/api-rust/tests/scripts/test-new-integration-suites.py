@@ -157,7 +157,7 @@ class NewIntegrationSuiteGuards(unittest.TestCase):
                 self.assertTrue(all(event["target"] == target or (suite == "relay-settlement" and event["target"] == "lib") for event in commands))
                 expected = [(True,5),(True,1),(False,1),(False,5)] if suite == "catalog" else [(True,len(commands[0]["names"])),(False,len(commands[0]["names"]))]
                 if suite == "token-queries": expected = [(True,7),(False,7)]
-                if suite == "relay-settlement": expected = [(True,38),(False,38),(True,1),(False,1)]
+                if suite == "relay-settlement": expected = [(True,39),(False,39),(True,1),(False,1)]
                 self.assertEqual([(event["listing"],len(event["names"])) for event in commands],expected)
                 if suite == "relay-settlement":
                     required = {"provider_response_model_diagnostics_preserve_wire_quota_and_ledger", "provider_response_model_diagnostics_survive_settlement_recovery", "responses_missing_usage_output_and_reported_zero_settle_over_real_http", "public_credit_denomination_change_preserves_frozen_stream_settlement_and_replay_fence", "public_credit_denomination_change_refunds_raw_reservation_exactly_once"}
@@ -167,7 +167,7 @@ class NewIntegrationSuiteGuards(unittest.TestCase):
                     for command in commands:
                         self.assertIn("public_denomination_refreshes_both_node_caches_without_repricing_or_ledger_writes", command["names"])
                 if suite == "stripe":
-                    self.assertEqual(len(commands[0]["names"]), 12)
+                    self.assertEqual(len(commands[0]["names"]), 13)
                     self.assertTrue(all(name.startswith("stripe_wallet::") for name in commands[0]["names"]))
                     self.assertIn("stripe_wallet::subscription_pay::stripe_current_go_subscription_checkout_reference_matches", commands[0]["names"])
                     self.assertIn("stripe_wallet::subscription_pay::stripe_subscription_checkout_gates_then_completes_persisted_plan_once", commands[0]["names"])

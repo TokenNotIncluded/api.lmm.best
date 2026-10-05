@@ -385,7 +385,7 @@ async fn maybe_reset_subscription(
         return Ok(());
     }
     sqlx::query(
-        "UPDATE user_subscriptions SET amount_used=0,quota_version=quota_version+1,last_reset_time=$2,next_reset_time=$3,updated_at=$4 WHERE id=$1",
+        "UPDATE user_subscriptions SET amount_total=COALESCE(reset_amount,amount_total),amount_used=0,quota_version=quota_version+1,last_reset_time=$2,next_reset_time=$3,updated_at=$4 WHERE id=$1",
     )
     .bind(subscription.id)
     .bind(base)
@@ -1687,6 +1687,10 @@ struct Subscription {
     user_id: i64,
     plan_id: i64,
     amount_total: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reset_amount: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    renewal_amount: Option<i64>,
     amount_used: i64,
     start_time: i64,
     end_time: i64,
@@ -1705,13 +1709,15 @@ struct Subscription {
 struct SubscriptionView {
     subscription: Subscription,
 }
-const SUB_SELECT: &str = "SELECT id,user_id,plan_id,COALESCE(amount_total,0) amount_total,COALESCE(amount_used,0) amount_used,COALESCE(start_time,0) start_time,COALESCE(end_time,0) end_time,status,COALESCE(source,'') source,COALESCE(last_reset_time,0) last_reset_time,COALESCE(next_reset_time,0) next_reset_time,COALESCE(upgrade_group,'') upgrade_group,COALESCE(prev_user_group,'') prev_user_group,COALESCE(downgrade_group,'') downgrade_group,COALESCE(allow_wallet_overflow,TRUE) allow_wallet_overflow,COALESCE(created_at,0) created_at,COALESCE(updated_at,0) updated_at FROM user_subscriptions";
+const SUB_SELECT: &str = "SELECT id,user_id,plan_id,COALESCE(amount_total,0) amount_total,reset_amount,renewal_amount,COALESCE(amount_used,0) amount_used,COALESCE(start_time,0) start_time,COALESCE(end_time,0) end_time,status,COALESCE(source,'') source,COALESCE(last_reset_time,0) last_reset_time,COALESCE(next_reset_time,0) next_reset_time,COALESCE(upgrade_group,'') upgrade_group,COALESCE(prev_user_group,'') prev_user_group,COALESCE(downgrade_group,'') downgrade_group,COALESCE(allow_wallet_overflow,TRUE) allow_wallet_overflow,COALESCE(created_at,0) created_at,COALESCE(updated_at,0) updated_at FROM user_subscriptions";
 fn subscription_from_row(row: &sqlx::postgres::PgRow) -> Result<Subscription, sqlx::Error> {
     Ok(Subscription {
         id: row.try_get("id")?,
         user_id: row.try_get("user_id")?,
         plan_id: row.try_get("plan_id")?,
         amount_total: row.try_get("amount_total")?,
+        reset_amount: row.try_get("reset_amount")?,
+        renewal_amount: row.try_get("renewal_amount")?,
         amount_used: row.try_get("amount_used")?,
         start_time: row.try_get("start_time")?,
         end_time: row.try_get("end_time")?,

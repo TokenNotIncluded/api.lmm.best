@@ -647,6 +647,20 @@ async fn subscription_maintenance_expires_resets_and_cleans() {
         .execute(&pool)
         .await
         .expect("pre-consume fixture");
+    // reset_schema's positive-only check injects an admin-bind failure in
+    // another test; a corrected zero grant is valid for this maintenance proof.
+    sqlx::query(
+        "ALTER TABLE user_subscriptions DROP CONSTRAINT user_subscriptions_amount_total_check",
+    )
+    .execute(&pool)
+    .await
+    .expect("permit finite zero grant");
+    sqlx::query("INSERT INTO user_subscriptions (id,user_id,plan_id,amount_total,amount_used,reset_amount,renewal_amount,start_time,end_time,status,source,last_reset_time,next_reset_time,upgrade_group,prev_user_group,downgrade_group,allow_wallet_overflow,created_at,updated_at) VALUES (13,8,3,550,500,70,100,$1,$2,'active','admin',$1,1,'','','',TRUE,$1,$1),(14,8,3,500,500,0,100,$1,$2,'active','admin',$1,1,'','','',TRUE,$1,$1)")
+        .bind(current - 172_800)
+        .bind(current + 172_800)
+        .execute(&pool)
+        .await
+        .expect("corrected subscriptions fixture");
     for status in ["consumed", "settling", "settled", "refunded"] {
         sqlx::query("INSERT INTO subscription_pre_consume_records(request_id,user_id,user_subscription_id,pre_consumed,billing_managed,status,created_at,updated_at) VALUES($1,8,12,10,TRUE,$1,$2,$2)")
             .bind(status).bind(current-8*24*60*60).execute(&pool).await.unwrap();
@@ -677,6 +691,13 @@ async fn subscription_maintenance_expires_resets_and_cleans() {
     .expect("reset subscription");
     assert_eq!(reset.0, 0);
     assert!(reset.1 > 0 && reset.2 > current);
+    let corrected: Vec<(i64, i64, i64, i64, i64)> = sqlx::query_as(
+        "SELECT amount_total,amount_used,reset_amount,renewal_amount,quota_version FROM user_subscriptions WHERE id IN (13,14) ORDER BY id",
+    )
+    .fetch_all(&pool)
+    .await
+    .expect("corrected reset grants");
+    assert_eq!(corrected, vec![(70, 0, 70, 100, 1), (0, 0, 0, 100, 1)]);
     assert_eq!(
         sqlx::query_scalar::<_, i64>("SELECT quota_version FROM user_subscriptions WHERE id=12")
             .fetch_one(&pool)

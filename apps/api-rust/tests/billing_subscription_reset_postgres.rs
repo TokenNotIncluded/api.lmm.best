@@ -658,6 +658,125 @@ async fn near_limit_reset_preview_payload_is_not_truncated() -> TestResult {
     harness.cleanup().await
 }
 
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL 18; run this test binary with --test-threads=1"]
+async fn corrected_hard_reset_restores_actual_grant_and_replay_preserves_renewal_basis()
+-> TestResult {
+    let harness = PgHarness::new().await?;
+    seed_active_subscription(&harness.pool, 7, 3, 11, 500).await?;
+    sqlx::query("UPDATE user_subscriptions SET amount_total=550,reset_amount=70,renewal_amount=100 WHERE id=11")
+        .execute(&harness.pool).await?;
+    let app = harness.app();
+    let preview = response_json(
+        request(
+            app.clone(),
+            Method::POST,
+            "/api/subscription/root/reset/preview",
+            "root",
+            Some(json!({"mode":"hard","targets":[{"user_id":7,"plan_id":3}]})),
+        )
+        .await?,
+    )
+    .await?;
+    assert_eq!(preview["success"], true, "preview failed: {preview}");
+    assert_eq!(preview["data"]["quota_to_restore"], 20);
+    let payload =
+        json!({"operation_id":"corrected-reset", "preview_token":preview["data"]["token"]});
+    for _ in 0..2 {
+        let result = response_json(
+            request(
+                app.clone(),
+                Method::POST,
+                "/api/subscription/root/reset",
+                "root",
+                Some(payload.clone()),
+            )
+            .await?,
+        )
+        .await?;
+        assert_eq!(result["success"], true, "reset failed: {result}");
+        assert_eq!(result["data"]["restored_quota"], 20);
+    }
+    let state: (i64,i64,i64,i64,i64,i64) = sqlx::query_as(
+        "SELECT amount_total,amount_used,reset_amount,renewal_amount,quota_version,(SELECT restored_quota FROM subscription_reset_events WHERE operation_id='corrected-reset') FROM user_subscriptions WHERE id=11")
+        .fetch_one(&harness.pool).await?;
+    assert_eq!(state, (70, 0, 70, 100, 1, 20));
+    harness.cleanup().await
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL 18; run this test binary with --test-threads=1"]
+async fn corrected_voucher_reset_uses_finite_zero_grant_without_resurrecting_history() -> TestResult
+{
+    let harness = PgHarness::new().await?;
+    seed_active_subscription(&harness.pool, 7, 3, 11, 500).await?;
+    sqlx::query("UPDATE user_subscriptions SET amount_total=500,reset_amount=0,renewal_amount=100 WHERE id=11")
+        .execute(&harness.pool).await?;
+    let now = database_timestamp(&harness.pool).await?;
+    sqlx::query("INSERT INTO subscription_reset_vouchers (id,user_id,plan_id,operation_id,status,expires_at,created_by,created_at,updated_at) VALUES (21,7,3,'corrected-voucher','available',$1+3600,1,$1,$1)")
+        .bind(now).execute(&harness.pool).await?;
+    let body = response_json(
+        request(
+            harness.app(),
+            Method::POST,
+            "/api/subscription/self/reset-vouchers/21/redeem",
+            "user",
+            None,
+        )
+        .await?,
+    )
+    .await?;
+    assert_eq!(body["success"], true, "voucher failed: {body}");
+    let state: (i64,i64,i64,i64,i64,i64) = sqlx::query_as(
+        "SELECT amount_total,amount_used,reset_amount,renewal_amount,quota_version,(SELECT restored_quota FROM subscription_reset_events WHERE voucher_id=21) FROM user_subscriptions WHERE id=11")
+        .fetch_one(&harness.pool).await?;
+    assert_eq!(state, (0, 0, 0, 100, 1, 0));
+    harness.cleanup().await
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL 18; run this test binary with --test-threads=1"]
+async fn corrected_reset_preview_rejects_a_changed_total_or_reset_basis() -> TestResult {
+    let harness = PgHarness::new().await?;
+    seed_active_subscription(&harness.pool, 7, 3, 11, 500).await?;
+    sqlx::query("UPDATE user_subscriptions SET amount_total=550,reset_amount=100,renewal_amount=100 WHERE id=11")
+        .execute(&harness.pool).await?;
+    let app = harness.app();
+    for (operation, statement) in [
+        (
+            "changed-total",
+            "UPDATE user_subscriptions SET amount_total=551 WHERE id=11",
+        ),
+        (
+            "changed-reset",
+            "UPDATE user_subscriptions SET reset_amount=99 WHERE id=11",
+        ),
+    ] {
+        let token = create_preview(&app, "hard", json!([{"user_id":7,"plan_id":3}])).await?;
+        sqlx::query(statement).execute(&harness.pool).await?;
+        let body = response_json(
+            request(
+                app.clone(),
+                Method::POST,
+                "/api/subscription/root/reset",
+                "root",
+                Some(json!({"operation_id":operation,"preview_token":token})),
+            )
+            .await?,
+        )
+        .await?;
+        assert_eq!(
+            body["success"], false,
+            "stale corrected preview executed: {body}"
+        );
+        let state: (i64,i64,i64) = sqlx::query_as(
+            "SELECT (SELECT amount_used FROM user_subscriptions WHERE id=11),(SELECT consumed_at FROM subscription_reset_previews WHERE token=$1),(SELECT COUNT(*) FROM subscription_reset_operations WHERE operation_id=$2)")
+            .bind(token).bind(operation).fetch_one(&harness.pool).await?;
+        assert_eq!(state, (500, 0, 0));
+    }
+    harness.cleanup().await
+}
+
 async fn seed_active_subscription(
     pool: &PgPool,
     user_id: i64,

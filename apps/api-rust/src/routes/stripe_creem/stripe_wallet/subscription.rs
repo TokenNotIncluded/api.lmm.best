@@ -515,7 +515,7 @@ async fn apply_receipt(
             next = end;
         }
         let total = integer(plan, "total_amount")?;
-        sqlx::query("UPDATE user_subscriptions SET amount_used=0,quota_version=quota_version+1,amount_total=CASE WHEN $2>0 THEN $2 ELSE amount_total END,status='active',last_reset_time=$3,next_reset_time=$4,end_time=$5,updated_at=$6 WHERE id=$1")
+        sqlx::query("UPDATE user_subscriptions SET amount_used=0,quota_version=quota_version+1,amount_total=COALESCE(renewal_amount,reset_amount,CASE WHEN $2>0 THEN $2 ELSE amount_total END),reset_amount=COALESCE(renewal_amount,reset_amount),status='active',last_reset_time=$3,next_reset_time=$4,end_time=$5,updated_at=$6 WHERE id=$1")
             .bind(sub_id).bind(total).bind(start).bind(next).bind(end).bind(now).execute(&mut **tx).await.map_err(db)?;
         let upgrade = text(&subscription, "upgrade_group").trim().to_owned();
         if !upgrade.is_empty() && upgrade != group {

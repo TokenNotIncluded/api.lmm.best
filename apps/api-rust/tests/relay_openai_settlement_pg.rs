@@ -427,10 +427,10 @@ async fn public_credit_denomination_change_preserves_frozen_stream_settlement_an
     assert_eq!(schema, fixture.schema);
     fixture
         .set_options(&json!({
-            "CreditsPerUSD":"3359744",
+            "CreditsPerUSD":"500000",
             "LegacyPricingQuotaPerUnit":"500000",
             "QuotaPerUnit":"500000",
-            "PublicCreditsPerUSD":"100000",
+            "PublicCreditsPerUSD":"500000",
         }))
         .await?;
     let captured = fixture.public_credit_denomination().await?;
@@ -457,8 +457,8 @@ async fn public_credit_denomination_change_preserves_frozen_stream_settlement_an
     assert_eq!(frozen_price["quota_unit"], "500000");
     assert_eq!(frozen_price["reservation"], 10);
 
-    // Poll a genuine provider chunk before changing only the public display
-    // denomination. The model rates and ledger reserve are already frozen.
+    // Poll a genuine provider chunk before attempting an incompatible public
+    // credit setting. The fixed model rates and ledger reserve are frozen.
     let mut body = response.into_body().into_data_stream();
     fixture
         .event(json!({"type":"response.created","response":{"status":"in_progress"}}))
@@ -481,13 +481,12 @@ async fn public_credit_denomination_change_preserves_frozen_stream_settlement_an
     .fetch_one(&fixture.pg)
     .await?;
     assert_eq!(unchanged, (10, 10, 10, frozen_price.clone()));
-    let current = fixture.public_credit_denomination().await?;
-    assert_eq!(captured.metadata().ledger_quota_per_usd_exact, "3359744");
-    assert_eq!(current.metadata().ledger_quota_per_usd_exact, "3359744");
-    assert_eq!(captured.metadata().public_credits_per_usd_exact, "100000");
-    assert_eq!(current.metadata().public_credits_per_usd_exact, "200000");
-    assert_eq!(captured.project_ledger_quota(3_359_744)?, "100000");
-    assert_eq!(current.project_ledger_quota(3_359_744)?, "200000");
+    assert!(matches!(fixture.public_credit_denomination().await,
+        Err(error) if error.downcast_ref::<lmm_api_rs::public_credit_units::PublicCreditError>()
+            == Some(&lmm_api_rs::public_credit_units::PublicCreditError::UnitsUnavailable)));
+    assert_eq!(captured.metadata().ledger_quota_per_usd_exact, "500000");
+    assert_eq!(captured.metadata().public_credits_per_usd_exact, "500000");
+    assert_eq!(captured.project_ledger_quota(500_000)?, "500000");
     assert_eq!(
         fixture.request(request_id, true).await?.status(),
         StatusCode::CONFLICT
@@ -559,10 +558,10 @@ async fn public_credit_denomination_change_refunds_raw_reservation_exactly_once(
     assert_eq!(schema, fixture.schema);
     fixture
         .set_options(&json!({
-            "CreditsPerUSD":"3359744",
+            "CreditsPerUSD":"500000",
             "LegacyPricingQuotaPerUnit":"500000",
             "QuotaPerUnit":"500000",
-            "PublicCreditsPerUSD":"100000",
+            "PublicCreditsPerUSD":"500000",
         }))
         .await?;
     let captured = fixture.public_credit_denomination().await?;
@@ -592,16 +591,15 @@ async fn public_credit_denomination_change_refunds_raw_reservation_exactly_once(
     .fetch_one(&fixture.pg)
     .await?;
     assert_eq!(unchanged, (10, 10, 10, frozen_price.clone()));
-    let current = fixture.public_credit_denomination().await?;
-    assert_eq!(captured.metadata().ledger_quota_per_usd_exact, "3359744");
-    assert_eq!(current.metadata().ledger_quota_per_usd_exact, "3359744");
-    assert_eq!(captured.metadata().public_credits_per_usd_exact, "100000");
-    assert_eq!(current.metadata().public_credits_per_usd_exact, "200000");
-    assert_eq!(captured.project_ledger_quota(3_359_744)?, "100000");
-    assert_eq!(current.project_ledger_quota(3_359_744)?, "200000");
+    assert!(matches!(fixture.public_credit_denomination().await,
+        Err(error) if error.downcast_ref::<lmm_api_rs::public_credit_units::PublicCreditError>()
+            == Some(&lmm_api_rs::public_credit_units::PublicCreditError::UnitsUnavailable)));
+    assert_eq!(captured.metadata().ledger_quota_per_usd_exact, "500000");
+    assert_eq!(captured.metadata().public_credits_per_usd_exact, "500000");
+    assert_eq!(captured.project_ledger_quota(500_000)?, "500000");
 
     // No provider chunk was observed, so cancellation must return precisely
-    // the original raw reserve rather than project it through the new P.
+    // the original raw reserve even after a rejected public credit setting.
     drop(response);
     assert!(
         fixture
@@ -623,7 +621,7 @@ async fn public_credit_denomination_change_refunds_raw_reservation_exactly_once(
     }
 
     // Refunded IDs are intentionally retryable. A second attempt under the
-    // new denomination still reserves/refunds the same raw ten ledger units.
+    // rejected denomination still reserves/refunds the same raw ten ledger units.
     let _retry_wire = fixture.queue_turn().await;
     let retry = fixture.request(request_id, true).await?;
     assert_eq!(retry.status(), StatusCode::OK);
@@ -1538,6 +1536,48 @@ async fn strict_subscription_and_subscription_only_never_fall_back_to_wallet() -
         if has_subscription {
             assert_eq!(fixture.sub_usage().await?, (0, 0));
         }
+        fixture.cleanup().await?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL via LMM_TEST_DATABASE_URL"]
+async fn corrected_zero_subscription_is_exhausted_and_null_legacy_zero_stays_unlimited()
+-> TestResult {
+    for (pref, reset, renewal, allowed, wallet_after, used_after) in [
+        ("subscription_only", Some(0_i64), None, false, 10000, 0),
+        ("subscription_only", None, Some(0), false, 10000, 0),
+        ("subscription_only", None, None, true, 10000, 4),
+        ("subscription_first", Some(0), Some(0), true, 9996, 0),
+    ] {
+        let fixture = Fixture::new(true).await?;
+        fixture.preference(pref).await?;
+        fixture.subscription(0, 0, true).await?;
+        sqlx::query("UPDATE user_subscriptions SET reset_amount=$1,renewal_amount=$2 WHERE id=1")
+            .bind(reset)
+            .bind(renewal)
+            .execute(&fixture.pg)
+            .await?;
+        let response = fixture.request("zero-grant", true).await?;
+        if allowed {
+            assert_eq!(response.status(), StatusCode::OK);
+            fixture.event(json!({"type":"response.completed","response":{"usage":{"input_tokens":4,"output_tokens":0}}})).await?;
+            to_bytes(response.into_body(), 65536).await?;
+            assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
+        } else {
+            assert_eq!(response.status(), StatusCode::FORBIDDEN);
+            assert_eq!(fixture.calls.load(Ordering::SeqCst), 0);
+        }
+        assert_eq!(
+            fixture.balance().await?,
+            (
+                wallet_after,
+                if allowed { 4 } else { 0 },
+                i64::from(allowed)
+            )
+        );
+        assert_eq!(fixture.sub_usage().await?, (used_after, 0));
         fixture.cleanup().await?;
     }
     Ok(())

@@ -41,7 +41,7 @@ class Inventory(unittest.TestCase):
     def test_real_stripe_submodule_remains_in_the_payment_inventory(self):
         source = Path(__file__).resolve().parent.parent / "epay_runtime_postgres.rs"
         names, files = inventory_module.inventory(source)
-        self.assertEqual(len([name for name in names if name.startswith("stripe_wallet::")]), 12)
+        self.assertEqual(len([name for name in names if name.startswith("stripe_wallet::")]), 13)
         self.assertEqual(len([name for name in names if not name.startswith("stripe_wallet::")]), 12)
         self.assertTrue(any(path.name == "stripe_wallet.rs" for path in files))
 

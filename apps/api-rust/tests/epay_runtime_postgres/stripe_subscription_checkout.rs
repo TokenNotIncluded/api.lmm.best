@@ -420,3 +420,58 @@ async fn stripe_subscription_checkout_gates_then_completes_persisted_plan_once()
     harness.clean().await;
     Ok(())
 }
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL and Valkey"]
+async fn stripe_subscription_renewal_restores_corrected_full_grant_and_explicit_zero() -> TestResult
+{
+    for (reset, renewal, expected) in [
+        (Some(70_i64), Some(100_i64), 100_i64),
+        (Some(0), Some(0), 0),
+        (Some(70), None, 70),
+        (None, None, 1000),
+    ] {
+        let harness = StripeHarness::new().await;
+        harness.subscription_order("corrected-renewal").await;
+        assert_eq!(
+            harness
+                .notify(subscription_checkout("corrected-renewal"), "whsec_fixture")
+                .await,
+            StatusCode::OK
+        );
+        assert_eq!(
+            harness
+                .notify(
+                    invoice(
+                        "corrected-renewal",
+                        "in_initial",
+                        4_102_444_800,
+                        4_102_448_400
+                    ),
+                    "whsec_fixture"
+                )
+                .await,
+            StatusCode::OK
+        );
+        sqlx::query("UPDATE user_subscriptions SET amount_total=550,amount_used=500,reset_amount=$1,renewal_amount=$2")
+            .bind(reset).bind(renewal).execute(&harness.fixture.pg).await?;
+        let event = invoice(
+            "corrected-renewal",
+            "in_renewal",
+            4_102_448_400,
+            4_102_452_000,
+        );
+        for _ in 0..2 {
+            assert_eq!(
+                harness.notify(event.clone(), "whsec_fixture").await,
+                StatusCode::OK
+            );
+        }
+        let state: (i64,i64,Option<i64>,Option<i64>,i64) = sqlx::query_as(
+            "SELECT amount_total,amount_used,reset_amount,renewal_amount,quota_version FROM user_subscriptions")
+            .fetch_one(&harness.fixture.pg).await?;
+        assert_eq!(state, (expected, 0, renewal.or(reset), renewal, 1));
+        harness.clean().await;
+    }
+    Ok(())
+}

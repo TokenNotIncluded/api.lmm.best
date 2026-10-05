@@ -55,9 +55,17 @@ pub(super) struct Request<'a> {
 struct Subscription {
     id: i64,
     amount_total: i64,
+    reset_amount: Option<i64>,
+    renewal_amount: Option<i64>,
     amount_used: i64,
     quota_version: i64,
     allow_wallet_overflow: bool,
+}
+
+impl Subscription {
+    fn has_finite_quota(&self) -> bool {
+        self.amount_total > 0 || self.reset_amount.is_some() || self.renewal_amount.is_some()
+    }
 }
 
 fn denied(message: &str) -> OpenAiRelayFailure {
@@ -116,7 +124,7 @@ async fn active_subscriptions(
         return Ok(Vec::new());
     }
     // Preserve the already locked ordering after request-triggered resets.
-    sqlx::query_as("SELECT id,amount_total,amount_used,quota_version,allow_wallet_overflow FROM user_subscriptions WHERE id=ANY($1) ORDER BY end_time,id")
+    sqlx::query_as("SELECT id,amount_total,reset_amount,renewal_amount,amount_used,quota_version,allow_wallet_overflow FROM user_subscriptions WHERE id=ANY($1) ORDER BY end_time,id")
         .bind(ids).fetch_all(&mut **tx).await.map_err(|_|internal_failure())
 }
 
@@ -214,7 +222,7 @@ fn select_subscription(
     let mut partial = None;
     let mut largest = 0;
     for sub in subscriptions {
-        if sub.amount_total <= 0 || sub.amount_total.saturating_sub(sub.amount_used) >= budget {
+        if !sub.has_finite_quota() || sub.amount_total.saturating_sub(sub.amount_used) >= budget {
             return Some((sub.clone(), budget));
         }
         let remaining = sub.amount_total.saturating_sub(sub.amount_used).max(0);
@@ -364,7 +372,7 @@ async fn selected_subscription(
     tx: &mut Transaction<'_, Postgres>,
     record: &Record,
 ) -> Result<Subscription, OpenAiRelayFailure> {
-    sqlx::query_as("SELECT id,amount_total,amount_used,quota_version,allow_wallet_overflow FROM user_subscriptions WHERE id=$1 AND user_id=$2 FOR UPDATE")
+    sqlx::query_as("SELECT id,amount_total,reset_amount,renewal_amount,amount_used,quota_version,allow_wallet_overflow FROM user_subscriptions WHERE id=$1 AND user_id=$2 FOR UPDATE")
         .bind(record.subscription_id).bind(record.user_id).fetch_optional(&mut **tx).await.map_err(|_|internal_failure())?.ok_or_else(state_error)
 }
 
@@ -384,7 +392,7 @@ async fn grow(
             return Err(state_error());
         }
         let mut extra = target - record.subscription_reserved;
-        if sub.amount_total > 0 {
+        if sub.has_finite_quota() {
             let remaining = sub.amount_total.saturating_sub(sub.amount_used).max(0);
             if extra > remaining {
                 if !(record.wallet_overflow
@@ -498,7 +506,7 @@ pub(super) async fn finish(
         let delta = actual - record.subscription_reserved;
         let mut sub_delta = delta;
         let mut wallet = 0;
-        if delta > 0 && sub.amount_total > 0 {
+        if delta > 0 && sub.has_finite_quota() {
             let remaining = sub.amount_total.saturating_sub(sub.amount_used).max(0);
             if delta > remaining {
                 if !(record.wallet_overflow
@@ -573,6 +581,8 @@ mod tests {
         Subscription {
             id,
             amount_total: 100,
+            reset_amount: None,
+            renewal_amount: None,
             amount_used: 100 - remaining,
             quota_version: 0,
             allow_wallet_overflow: overflow,
@@ -588,6 +598,21 @@ mod tests {
         assert_eq!(select_subscription(&subscriptions, 30, true).unwrap().1, 20);
         assert!(select_subscription(&subscriptions, 30, false).is_none());
         assert!(select_subscription(&[sub(1, 5, false), sub(2, 20, true)], 30, true).is_none());
+    }
+    #[test]
+    fn migrated_zero_grants_are_finite_but_null_legacy_zero_remains_unlimited() {
+        let mut zero = sub(1, 0, true);
+        zero.amount_total = 0;
+        zero.amount_used = 0;
+        assert_eq!(
+            select_subscription(&[zero.clone()], 10, false).unwrap().1,
+            10
+        );
+        zero.reset_amount = Some(0);
+        assert!(select_subscription(&[zero.clone()], 10, true).is_none());
+        zero.reset_amount = None;
+        zero.renewal_amount = Some(0);
+        assert!(select_subscription(&[zero], 10, true).is_none());
     }
     #[test]
     fn malformed_or_unknown_billing_preferences_default_to_subscription_first() {

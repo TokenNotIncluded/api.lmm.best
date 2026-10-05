@@ -1,7 +1,7 @@
 //! Current Go ePay pricing, per-method access and coupon reservation rules.
 
 use super::*;
-use crate::public_credit_units::PublicCreditDenomination;
+use crate::public_credit_units::{CREDITS_PER_USD, PublicCreditDenomination};
 use rust_decimal::RoundingStrategy;
 
 type Method = BTreeMap<String, String>;
@@ -163,6 +163,9 @@ impl PgEpayRepository {
         };
         let quota_per_unit = opt_decimal(&values, "QuotaPerUnit", "500000")
             .map_err(|_| message("充值额度配置无效"))?;
+        if quota_per_unit != Decimal::from(CREDITS_PER_USD) {
+            return Err(message("充值额度配置无效"));
+        }
         if input.amount <= Decimal::ZERO || input.amount.normalize().scale() > 6 {
             return Err(message("充值数量最多支持 6 位小数"));
         }
@@ -191,14 +194,13 @@ impl PgEpayRepository {
         };
         let cny_per_usd = opt_decimal(&values, "USDExchangeRate", "7.3")
             .map_err(|_| message("充值汇率配置无效"))?;
-        let platform_per_cny = opt_decimal(&values, "TopUpPlatformUnitsPerCNY", "1")
-            .map_err(|_| message("充值汇率配置无效"))?;
-        let platform_per_usd = mul(cny_per_usd, platform_per_cny)?;
-        validate_limits(
-            &methods,
-            &input.payment_method,
-            div(platform_amount, platform_per_usd)?,
-        )?;
+        // A legacy batch is 500,000 raw credits, hence exactly one USD.
+        // Custom gateways may provide their own explicit settlement rate.
+        let platform_per_usd = Decimal::ONE;
+        // FX converts the actual payment currency, never the credit basis.
+        // Use the floored raw grant for quote limits and standard USD/CNY prices.
+        let amount_usd = div(Decimal::from(quota), Decimal::from(CREDITS_PER_USD))?;
+        validate_limits(&methods, &input.payment_method, amount_usd)?;
         if dedicated_currency.is_some() && input.amount > Decimal::from(10_000) {
             return Err(message("充值数量不能大于 10000"));
         }
@@ -220,6 +222,7 @@ impl PgEpayRepository {
             method,
             &input.payment_method,
             &currency,
+            amount_usd,
             platform_amount,
             cny_per_usd,
             platform_per_usd,
@@ -409,7 +412,8 @@ fn settlement_amount(
     method: &Method,
     name: &str,
     currency: &str,
-    amount: Decimal,
+    amount_usd: Decimal,
+    legacy_amount: Decimal,
     cny_per_usd: Decimal,
     platform_per_usd: Decimal,
 ) -> Result<Decimal, TopupError> {
@@ -427,7 +431,7 @@ fn settlement_amount(
             "USD" => Decimal::ONE,
             _ => return Err(invalid()),
         };
-        return mul(div(amount, platform_per_usd)?, rate);
+        return mul(amount_usd, rate);
     }
     let platform = method.get("platform_units_per_usd");
     let settlement = method.get("settlement_units_per_usd");
@@ -443,7 +447,7 @@ fn settlement_amount(
             .map(|raw| positive_rate(raw))
             .transpose()?
             .unwrap_or(platform_per_usd);
-        return mul(div(amount, platform)?, positive_rate(settlement)?);
+        return mul(div(legacy_amount, platform)?, positive_rate(settlement)?);
     }
     let rate = positive_rate(direct.or(legacy).ok_or_else(invalid)?)?;
     if let (Some(_), Some(legacy)) = (direct, legacy)
@@ -451,7 +455,7 @@ fn settlement_amount(
     {
         return Err(invalid());
     }
-    mul(amount, rate)
+    mul(legacy_amount, rate)
 }
 
 fn validate_limits(methods: &[Method], name: &str, amount_usd: Decimal) -> Result<(), TopupError> {

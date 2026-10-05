@@ -629,9 +629,9 @@ mod tests {
     #[test]
     fn credit_metadata_preserves_the_priced_snapshot_and_request_unit() {
         let units = PublicCreditDenomination::from_options(&std::collections::BTreeMap::from([
-            ("CreditsPerUSD".to_owned(), "7300000".to_owned()),
+            ("CreditsPerUSD".to_owned(), "500000".to_owned()),
             ("LegacyPricingQuotaPerUnit".to_owned(), "500000".to_owned()),
-            ("PublicCreditsPerUSD".to_owned(), "100000".to_owned()),
+            ("PublicCreditsPerUSD".to_owned(), "500000".to_owned()),
         ]))
         .unwrap();
         let legacy = SettlementSnapshot {
@@ -646,9 +646,9 @@ mod tests {
                 "currency_unit": "credit", "amount_unit": "LEGACY",
                 "credited_quota": 7_300_000, "credit_amount": 7_300_000,
                 "legacy_batch_units": "14.6", "settlement_currency": "USD",
-                "credit_amount_unit":"LEDGER_QUOTA", "public_credit_amount":"100000", "public_credit_amount_unit":"CREDIT", "public_credit_metadata_version":2,
+                "credit_amount_unit":"LEDGER_QUOTA", "public_credit_amount":"7300000", "public_credit_amount_unit":"CREDIT", "public_credit_metadata_version":2,
                 "credit_unit_schema_version":2,"quota_unit":"LEDGER_QUOTA","public_credit_unit":"CREDIT","legacy_credit_unit":"LEDGER_QUOTA",
-                "ledger_quota_per_usd":7300000,"ledger_quota_per_usd_exact":"7300000","public_credits_per_usd":100000,"public_credits_per_usd_exact":"100000",
+                "ledger_quota_per_usd":500000,"ledger_quota_per_usd_exact":"500000","public_credits_per_usd":500000,"public_credits_per_usd_exact":"500000",
             })
         );
         let raw = SettlementSnapshot {
@@ -663,9 +663,9 @@ mod tests {
                 "currency_unit": "credit", "amount_unit": "CREDIT",
                 "credited_quota": 600_001, "credit_amount": 600_001,
                 "legacy_batch_units": "1.200002", "settlement_currency": "USD",
-                "credit_amount_unit":"LEDGER_QUOTA", "public_credit_amount":"8219.1917808219178082191780821917808219178082191780821917808219178082", "public_credit_amount_unit":"CREDIT", "public_credit_metadata_version":2,
+                "credit_amount_unit":"LEDGER_QUOTA", "public_credit_amount":"600001", "public_credit_amount_unit":"CREDIT", "public_credit_metadata_version":2,
                 "credit_unit_schema_version":2,"quota_unit":"LEDGER_QUOTA","public_credit_unit":"CREDIT","legacy_credit_unit":"LEDGER_QUOTA",
-                "ledger_quota_per_usd":7300000,"ledger_quota_per_usd_exact":"7300000","public_credits_per_usd":100000,"public_credits_per_usd_exact":"100000",
+                "ledger_quota_per_usd":500000,"ledger_quota_per_usd_exact":"500000","public_credits_per_usd":500000,"public_credits_per_usd_exact":"500000",
             })
         );
     }
