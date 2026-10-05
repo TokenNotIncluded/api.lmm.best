@@ -897,7 +897,7 @@ test('metered pricing keeps the actual input rate and a separate refundable cap 
   }
 })
 
-test('ordinary publishers cannot select unverified usage pricing', async () => {
+test('ordinary publishers can select tool-reported usage pricing without provider keys', async () => {
   const requests = pricingRequests()
   const view = await renderEditor()
   try {
@@ -908,16 +908,15 @@ test('ordinary publishers cannot select unverified usage pricing', async () => {
     assert.ok(mode)
     assert.equal(
       mode.querySelector<HTMLOptionElement>('[value="input_tokens"]')?.disabled,
-      true
+      false
     )
     assert.equal(
       mode.querySelector<HTMLOptionElement>('[value="metered"]')?.disabled,
-      true
+      false
     )
-    assert.match(view.container.textContent ?? '', /platform-controlled meter/)
     await view.select('#billing-mode-search', 'input_tokens')
     await view.input('#price-search', '2.94')
-    assert.equal(view.button('Save draft').disabled, true)
+    assert.equal(view.button('Save draft').disabled, false)
   } finally {
     await view.dispose()
     requests.restore()

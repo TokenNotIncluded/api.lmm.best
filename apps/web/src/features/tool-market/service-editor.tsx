@@ -34,7 +34,7 @@ import {
   type StoredEditorCredentials,
   type ToolDefinitionChanges,
 } from './service-editor-utils'
-import { maximumUsageQuota } from './usage-pricing'
+import { maximumUsageQuota, usageMetrics } from './usage-pricing'
 import { UsagePricingEditor } from './usage-pricing-editor'
 
 export function ServiceEditor({
@@ -90,7 +90,7 @@ export function ServiceEditor({
         input_token_price_quota: tool.input_token_price_quota,
         max_input_tokens: tool.max_input_tokens,
         billing_rules: tool.billing_rules,
-        available_metering_metrics: tool.available_metering_metrics,
+        available_metering_metrics: usageMetrics.map((metric) => metric.metric),
       })) ?? []
   )
   const [selected, setSelected] = useState<string[]>(
@@ -257,7 +257,14 @@ export function ServiceEditor({
       setNewToolsNeedSelection(
         hasInspected.current && refreshed.changes.added.length > 0
       )
-      setTools(refreshed.tools)
+      setTools(
+        refreshed.tools.map((tool) => ({
+          ...tool,
+          available_metering_metrics: usageMetrics.map(
+            (metric) => metric.metric
+          ),
+        }))
+      )
       setSelected(refreshed.selected)
       setPrices(refreshed.prices)
       setBillingModes((current) =>
@@ -831,7 +838,7 @@ export function ServiceEditor({
                       {!tool.available_metering_metrics?.length && (
                         <p className='text-muted-foreground col-span-full text-sm'>
                           {t(
-                            'Usage pricing requires a platform-controlled meter. Unverified tool reports cannot be billed.'
+                            'Choose the usage units the tool reports. Missing or invalid usage is not charged.'
                           )}
                         </p>
                       )}

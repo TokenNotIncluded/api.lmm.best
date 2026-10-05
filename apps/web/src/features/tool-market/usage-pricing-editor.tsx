@@ -53,9 +53,7 @@ export function UsagePricingEditor({
   return (
     <div className='col-span-full space-y-3'>
       <p className='text-muted-foreground text-sm'>
-        {t(
-          'Only measurements from a platform-controlled collector are billed. Rates are added together.'
-        )}
+        {t('Usage is reported by the tool provider. Rates are added together.')}
       </p>
       {rules.map((r, index) => {
         const m = usageMetrics.find((item) => item.metric === r.metric)
@@ -183,7 +181,7 @@ export function UsagePricingEditor({
         {cap === undefined
           ? t('Set a positive rate and maximum for every usage unit.')
           : t(
-              'Reserve up to {{amount}}; settle verified usage and release the remainder.',
+              'Reserve up to {{amount}}; settle reported usage and release the remainder.',
               { amount: formatQuota(cap) }
             )}
       </p>

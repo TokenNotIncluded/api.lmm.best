@@ -72,6 +72,7 @@ const original = {
   install: marketAPI.install,
   invoke: marketAPI.invoke,
   result: marketAPI.result,
+  report: marketAPI.report,
 }
 const units = 500000
 const endpoint = 'https://provider.example.test/mcp'
@@ -602,12 +603,14 @@ test('large native and structured drawing images use downloadable blobs and keep
   rendered.push({ root, cache })
   await act(async () => {
     root.render(
-      <I18nextProvider i18n={i18n}>
-        <CallResult
-          response={response('succeeded', 'settled', value)}
-          units={units}
-        />
-      </I18nextProvider>
+      <QueryClientProvider client={cache}>
+        <I18nextProvider i18n={i18n}>
+          <CallResult
+            response={response('succeeded', 'settled', value)}
+            units={units}
+          />
+        </I18nextProvider>
+      </QueryClientProvider>
     )
     await flush()
   })
@@ -636,4 +639,61 @@ test('large native and structured drawing images use downloadable blobs and keep
     2,
     'all retained image blobs are released when the result leaves the screen'
   )
+})
+
+test('a tool-reported bill can be reported from an expired result without repeating the tool call', async () => {
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  const cache = new QueryClient()
+  rendered.push({ root, cache })
+  const reported: { id: string; reason: string }[] = []
+  marketAPI.report = async (id, reason) => {
+    reported.push({ id, reason })
+    return {
+      call_id: id,
+      user_id: 1,
+      service_id: 'service-search',
+      owner_id: 2,
+      reason,
+      evidence: '{}',
+      status: 'pending',
+      review_note: '',
+      reviewed_by: 0,
+      created_at: 100,
+      reviewed_at: 0,
+    }
+  }
+  marketAPI.invoke = async () => {
+    assert.fail('Reporting must never execute a tool')
+  }
+  const bill = response('succeeded', 'settled')
+  bill.result_expired = true
+  bill.call.usage_source = 'tool_reported'
+  bill.call.usage_quantities = { input_tokens: 25 }
+  await act(async () => {
+    root.render(
+      <QueryClientProvider client={cache}>
+        <I18nextProvider i18n={i18n}>
+          <CallResult response={bill} />
+        </I18nextProvider>
+      </QueryClientProvider>
+    )
+    await flush()
+  })
+  assert.match(document.body.textContent ?? '', /Tool-reported usage/)
+  await click(button('Report this bill'))
+  await setValue(
+    element<HTMLTextAreaElement>('textarea'),
+    'The reported usage does not match my input.'
+  )
+  await click(button('Submit report'))
+  await waitFor(
+    () =>
+      document.body.textContent?.includes('Report submitted for review.') ===
+      true
+  )
+  assert.deepEqual(reported, [
+    { id: bill.call.id, reason: 'The reported usage does not match my input.' },
+  ])
 })

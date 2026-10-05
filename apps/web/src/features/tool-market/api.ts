@@ -132,6 +132,7 @@ export type MarketToken = {
   revoked_at: number
 }
 export type MarketCall = {
+  usage_source?: 'tool_reported' | 'platform_verified'
   usage_quantities?: Record<string, number>
   id: string
   service_id: string
@@ -143,6 +144,19 @@ export type MarketCall = {
   price_quota: number
   created_at: number
   resolve_by: number
+}
+export type MarketReport = {
+  call_id: string
+  user_id: number
+  service_id: string
+  owner_id: number
+  reason: string
+  evidence: string
+  status: 'pending' | 'confirmed' | 'dismissed'
+  review_note: string
+  reviewed_by: number
+  created_at: number
+  reviewed_at: number
 }
 export type CallResponse = {
   call: MarketCall
@@ -325,6 +339,14 @@ export const marketAPI = {
     ),
   result: (id: string) =>
     unwrap<CallResponse>(api.get(`${base}/calls/${id}/result`)),
+  report: (id: string, reason: string) =>
+    unwrap<MarketReport>(api.post(`${base}/calls/${id}/report`, { reason })),
+  reports: (offset = 0) =>
+    unwrap<MarketReport[]>(
+      api.get(`${base}/reports`, { params: { offset, limit: 30 } })
+    ),
+  reviewReport: (id: string, confirmed: boolean, note: string) =>
+    unwrap<null>(api.post(`${base}/reports/${id}/review`, { confirmed, note })),
   calls: (offset = 0) =>
     unwrap<MarketCall[]>(
       api.get(`${base}/calls`, { params: { offset, limit: 30 } })

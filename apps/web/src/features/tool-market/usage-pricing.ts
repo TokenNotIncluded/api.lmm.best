@@ -160,3 +160,9 @@ export function usageQuantityLabel(
     })
     .join(' + ')
 }
+
+export function usageSourceLabel(source?: string) {
+  if (source === 'tool_reported') return 'Tool-reported usage'
+  if (source === 'platform_verified') return 'Verified usage'
+  return 'Usage source unavailable'
+}

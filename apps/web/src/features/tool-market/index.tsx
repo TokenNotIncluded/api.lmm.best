@@ -57,9 +57,14 @@ import {
 import { marketErrorKey } from './call-utils'
 import { MarketConnections } from './connections'
 import { marketStatus, marketPermissionList } from './copy'
+import { MarketReports, ReportCallButton } from './reports'
 import { ServiceEditor } from './service-editor'
 import { CallDialog, CallResult, GrantDialog } from './tool-actions'
-import { usagePriceLabel, usageQuantityLabel } from './usage-pricing'
+import {
+  usagePriceLabel,
+  usageQuantityLabel,
+  usageSourceLabel,
+} from './usage-pricing'
 
 /** A small icon paired with the status text, so state reads at a glance. */
 function MarketStatusIcon({ value }: { value: string }) {
@@ -1309,7 +1314,7 @@ function ToolMarketWorkspace() {
                           </p>
                           {item.usage_quantities && (
                             <p className='text-muted-foreground'>
-                              {t('Verified usage')}:{' '}
+                              {t(usageSourceLabel(item.usage_source))}:{' '}
                               {usageQuantityLabel(item.usage_quantities, t)}
                             </p>
                           )}
@@ -1324,6 +1329,9 @@ function ToolMarketWorkspace() {
                         >
                           {t('View result')}
                         </Button>
+                        {['settled', 'released'].includes(
+                          item.settlement_status
+                        ) && <ReportCallButton callID={item.id} />}
                       </div>
                     ))}
                     <div className='flex justify-end gap-2'>
@@ -1431,6 +1439,7 @@ function ToolMarketWorkspace() {
                           </Button>
                         </div>
                       ))}
+                      <MarketReports />
                       {(user?.role ?? 0) >= 100 && config.data && (
                         <MarketSettings
                           key={`${config.data.enabled}:${config.data.fee_bps}:${config.data.recipient_id}`}

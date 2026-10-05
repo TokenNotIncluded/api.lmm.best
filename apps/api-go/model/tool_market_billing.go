@@ -29,6 +29,10 @@ type ToolMarketCall struct {
 	BillingRules         []ToolMarketBillingRule `json:"billing_rules,omitempty" gorm:"serializer:json;type:text"`
 	UsageQuantities      map[string]int64        `json:"usage_quantities,omitempty" gorm:"serializer:json;type:text"`
 
+	UsageSource  string                 `json:"usage_source,omitempty" gorm:"size:24;not null;default:''"`
+	UsageReport  ToolMarketDeliveryData `json:"-"`
+	ResultDigest string                 `json:"-" gorm:"size:64;not null;default:''"`
+
 	FeeBPS           int    `json:"fee_bps"`
 	FeeQuota         int    `json:"fee_quota"`
 	ExecutionStatus  string `json:"execution_status" gorm:"size:24;index"`
@@ -299,7 +303,7 @@ func finishToolMarketCall(id string, success, expire bool) error {
 			// marketCallTx's initial ordinary read can establish a MySQL RR
 			// snapshot before waiting for the service/call locks. A final state
 			// decision must read the current result after acquiring those locks.
-			outcomeErr = lockForUpdate(tx).Select("call_id", "success", "builtin_billing_pending", "input_tokens", "usage_recorded", "metering_verified", "usage_quantities").First(&outcome, "call_id = ?", call.ID).Error
+			outcomeErr = lockForUpdate(tx).Select("call_id", "success", "builtin_billing_pending", "input_tokens", "usage_recorded", "metering_verified", "usage_quantities", "usage_source", "usage_report", "result_digest").First(&outcome, "call_id = ?", call.ID).Error
 			if outcomeErr != nil && !errors.Is(outcomeErr, gorm.ErrRecordNotFound) {
 				return outcomeErr
 			}
@@ -310,7 +314,7 @@ func finishToolMarketCall(id string, success, expire bool) error {
 		held := call.PriceQuota
 		charged := held
 		if success && call.BillingMode != "" {
-			if outcomeErr != nil || !outcome.Success || !outcome.MeteringVerified || outcome.UsageQuantities == nil {
+			if outcomeErr != nil || !outcome.Success || !outcome.UsageRecorded || (outcome.UsageSource != ToolMarketUsageReported && !outcome.MeteringVerified) || outcome.UsageQuantities == nil {
 				return ErrToolMarketConflict
 			}
 			var err error
@@ -320,6 +324,11 @@ func finishToolMarketCall(id string, success, expire bool) error {
 			}
 			call.InputTokens = int(outcome.UsageQuantities["input_tokens"])
 			call.UsageQuantities = outcome.UsageQuantities
+			call.UsageSource = outcome.UsageSource
+			if call.UsageSource == "" && outcome.MeteringVerified {
+				call.UsageSource = ToolMarketUsageVerified
+			}
+			call.UsageReport, call.ResultDigest = outcome.UsageReport, outcome.ResultDigest
 		}
 		affected = []int{call.UserID, call.OwnerID, call.RecipientID}
 		if err := marketLockUsers(tx, append([]int(nil), affected...)...); err != nil {
