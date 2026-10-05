@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Offline controller durability and owner reconciliation tests; no production IO."""
 import importlib.util
+import copy
 import json
 import os
 from pathlib import Path
@@ -324,6 +325,264 @@ class ControllerTests(unittest.TestCase):
         file.write_text('123\n'+str(data)+'\n456\n25671\n'+str(socket)+'\n127.0.0.1\n')
         with self.assertRaises(runner.GateFailed):
             self.controller.clone_generation()
+
+
+class LatePrebridgeTests(unittest.TestCase):
+    def setUp(self):
+        fixture_spec = importlib.util.spec_from_file_location('financial_builder_fixture',
+            Path(__file__).with_name('test-build-credit-financial-plan.py'))
+        fixtures = importlib.util.module_from_spec(fixture_spec)
+        fixture_spec.loader.exec_module(fixtures)
+        self.fixture = fixtures.BuilderTests('test_complete_plan_passes_actual_runner_validator_and_exact_commands')
+        self.fixture.setUp()
+        self.addCleanup(self.fixture.doCleanups)
+        self.addCleanup(self.fixture.temporary.cleanup)
+        self.work = self.fixture.work / 'runner'
+        self.work.mkdir(mode=0o700)
+        seed = copy.deepcopy(self.fixture.seed)
+        native = seed['nodes'][0]
+        stage = native['owners']['prebridge']
+        argv = native['command_overrides']['prebridge_apply']['argv']
+        argv[0] = stage['workspace'] + '/staging/lmm-api'
+        for flag, value in (('--maintenance-handoff', '{handoff_path}'),
+                            ('--maintenance-handoff-sha256', '{handoff_sha256}')):
+            argv[argv.index(flag) + 1] = value
+        handoff = []
+        for flag in ('--maintenance-handoff', '--maintenance-handoff-sha256'):
+            index = argv.index(flag)
+            handoff.extend(argv[index:index+2])
+            del argv[index:index+2]
+        argv.remove('--go-changed')
+        if '--web-changed=false' in argv:
+            argv.remove('--web-changed=false')
+        if '--observation-seconds' in argv:
+            index = argv.index('--observation-seconds')
+            del argv[index:index+2]
+        argv.extend(['--observation-seconds', '120'] + handoff + ['--go-changed'])
+        stage['apply_contract'] = copy.deepcopy(native['command_overrides'].pop('prebridge_apply'))
+        stage.update(operator=None, staged_plan=None, stage_handoff=None)
+        self.partial = self.fixture.plan(seed)
+        self.old_hash = runner.digest(runner.encode(self.partial))
+        self.controller = runner.Controller(self.partial, self.old_hash, self.work)
+        self.calls = []
+        self.controller.verify_artifacts = lambda: self.calls.append('artifacts')
+        self.controller.frozen_gates = lambda: self.calls.append('frozen-gates')
+        self.controller.barriers = lambda: self.calls.append('barriers')
+        self.controller.guardians = lambda: self.calls.append('guardians')
+        self.controller.initial_guardians = lambda: self.calls.append('initial-guardians')
+        self.controller.verify_closed_receipt = lambda: self.calls.append('closure-receipt')
+        self.controller.execute = lambda label, operation, **options: self.calls.append(label) or b''
+        self.controller.publish_receipt = lambda *a, **kw: {'path': '/sealed/closure', 'sha256': 'c'*64}
+        self.controller.seal_stopped = lambda stage: self.calls.append(('seal', stage))
+        self.controller.node_operation = lambda node, operation, phase=None, **kw: self.calls.append((node['name'], operation)) or {}
+        self.stopped = {'path': '/root/receipts/prebridge-stopped-handoff.json', 'sha256': 'd'*64}
+        self.controller.state['stopped_handoffs'] = {node['name']: copy.deepcopy(self.stopped) for node in self.partial['nodes']}
+        self.controller.state['all_admission_closed'] = {'path': '/sealed/closure', 'sha256': 'c'*64}
+
+    def bound_plan(self):
+        candidate = copy.deepcopy(self.partial)
+        candidate['prebridge_staging'] = 'bound'
+        node = candidate['nodes'][0]
+        stage = node['prebridge_stage']
+        stage['operator'] = {'path': stage['workspace'] + '/staging/lmm-api', 'sha256': candidate['provider']['sha256']}
+        stage['staged_plan'] = {'path': stage['workspace'] + '/staging/release-plan.json', 'sha256': 'e'*64}
+        stage['stage_handoff'] = {'path': '/var/lib/lmm-api-go-deploy/handoffs/' + self.stopped['sha256'] + '.json',
+                                 'sha256': self.stopped['sha256']}
+        node['artifacts'].extend([stage['operator'], stage['staged_plan']])
+        node['commands'].update(runner.prebridge_commands(stage))
+        return candidate
+
+    def candidate_file(self, candidate, name='refined.json'):
+        file = self.fixture.work / name
+        body = runner.encode(candidate)
+        runner.write_once(file, body)
+        return {'path': str(file), 'sha256': runner.digest(body)}
+
+    def test_partial_has_no_unavailable_prebridge_artifacts_and_prepare_pauses_after_stop(self):
+        self.assertEqual(self.partial['prebridge_staging'], 'pending')
+        stage = self.partial['nodes'][0]['prebridge_stage']
+        self.assertFalse(any(item['path'].startswith(stage['workspace'] + '/') for item in self.partial['nodes'][0]['artifacts']))
+        self.controller.prepare()
+        self.assertEqual(self.controller.state['phase'], 'FROZEN_AWAITING_PREBRIDGE_STAGE')
+        self.assertIn(('arch', 'capture'), self.calls)
+        self.assertIn(('arch', 'stop'), self.calls)
+        self.assertIn(('seal', 'prebridge'), self.calls)
+        self.assertFalse(any(isinstance(call, tuple) and call[1].startswith('prebridge_') for call in self.calls))
+        with self.assertRaises(runner.GateFailed):
+            self.controller.prepare()
+        with self.assertRaises(runner.GateFailed):
+            self.controller.resume()
+
+    def test_refine_is_once_only_durable_and_continue_does_not_replay_capture_or_old_stop(self):
+        candidate = self.bound_plan()
+        binding = self.candidate_file(candidate)
+        self.controller.persist('FROZEN_AWAITING_PREBRIDGE_STAGE')
+        self.controller.verify_native_prebridge = lambda node: {'node': node['name']}
+        self.controller.refine_prebridge(binding)
+        self.assertEqual(self.controller.state['plan_sha256'], binding['sha256'])
+        self.assertEqual(self.controller.state['phase'], 'FROZEN')
+        receipt = runner.decode(runner.read_bound(self.controller.state['prebridge_refinement']))
+        self.assertEqual(receipt['original_plan_sha256'], self.old_hash)
+        self.assertEqual(receipt['stopped_handoffs'], self.controller.state['stopped_handoffs'])
+        resumed = runner.Controller(candidate, binding['sha256'], self.work)
+        self.assertEqual(resumed.state['phase'], 'FROZEN')
+        with self.assertRaises(runner.GateFailed):
+            self.controller.refine_prebridge(binding)
+        self.calls.clear()
+        self.controller.continue_prepare()
+        self.assertEqual(self.controller.state['phase'], 'FINAL_FROZEN')
+        self.assertEqual(self.calls[:2], ['closure-receipt', 'frozen-gates'])
+        self.assertIn(('arch', 'prebridge_apply'), self.calls)
+        self.assertIn(('arch', 'prebridge_stop'), self.calls)
+        self.assertNotIn(('arch', 'capture'), self.calls)
+        self.assertNotIn(('arch', 'stop'), self.calls)
+        self.assertNotIn('production-financial-dispatch', self.calls)
+        with self.assertRaises(runner.GateFailed):
+            self.controller.continue_prepare()
+        with self.assertRaises(runner.GateFailed):
+            runner.Controller(self.partial, self.old_hash, self.work)
+
+    def test_refinement_cannot_change_source_provider_nodes_database_intent_capture_post_or_packages(self):
+        self.controller.persist('FROZEN_AWAITING_PREBRIDGE_STAGE')
+        base = self.bound_plan()
+        def change_package(plan):
+            contract = plan['nodes'][0]['prebridge_stage']['apply_contract']['argv']
+            contract[contract.index('--go-package-sha256') + 1] = 'a'*64
+            plan['nodes'][0]['commands']['prebridge_apply']['argv'] = copy.deepcopy(contract)
+        mutations = (
+            lambda p: p.update(source_sha='4'*40),
+            lambda p: p['provider'].update(sha256='a'*64),
+            lambda p: p['nodes'][0].update(hostname='different-host'),
+            lambda p: p['database'].update(peer_role='another_peer'),
+            lambda p: p.update(transition_intent_sha256='a'*64),
+            lambda p: p['nodes'][0]['commands']['capture']['argv'].append('--changed'),
+            lambda p: p['nodes'][0]['commands']['post_apply']['argv'].append('--changed'),
+            lambda p: p['nodes'][0]['handoff'].update(path='/root/changed-base.json'),
+            change_package,
+            lambda p: p['nodes'][0]['prebridge_stage']['apply_contract'].update(timeout_seconds=901),
+        )
+        for index, mutation in enumerate(mutations):
+            with self.subTest(index=index):
+                candidate = copy.deepcopy(base)
+                mutation(candidate)
+                with self.assertRaises((runner.GateFailed, OSError)):
+                    self.controller.refine_prebridge(self.candidate_file(candidate, 'bad-' + str(index) + '.json'))
+                self.assertEqual(self.controller.state['phase'], 'FROZEN_AWAITING_PREBRIDGE_STAGE')
+                self.assertFalse((self.work / 'prebridge-refinement.json').exists())
+
+    def test_refinement_drift_gate_failure_preserves_old_plan_and_waiting_boundary(self):
+        self.controller.persist('FROZEN_AWAITING_PREBRIDGE_STAGE')
+        candidate = self.bound_plan()
+        self.controller.frozen_gates = lambda: (_ for _ in ()).throw(runner.GateFailed('guardian-generation-changed'))
+        with self.assertRaises(runner.GateFailed):
+            self.controller.refine_prebridge(self.candidate_file(candidate))
+        self.assertEqual(self.controller.state['plan_sha256'], self.old_hash)
+        self.assertEqual(self.controller.state['phase'], 'FROZEN_AWAITING_PREBRIDGE_STAGE')
+        self.assertFalse((self.work / 'prebridge-refinement.json').exists())
+
+    def test_continue_frozen_gate_failure_dispatches_no_bridge_or_financial_operation(self):
+        self.controller.plan = self.bound_plan()
+        self.controller.state.update(phase='FROZEN', prebridge_refinement={'path': '/proof', 'sha256': 'f'*64})
+        self.controller.frozen_gates = lambda: (_ for _ in ()).throw(runner.GateFailed('unknown-database-client'))
+        self.calls.clear()
+        with self.assertRaises(runner.GateFailed):
+            self.controller.continue_prepare()
+        self.assertEqual(self.controller.state['phase'], 'FROZEN')
+        self.assertFalse(any(isinstance(call, tuple) for call in self.calls))
+        self.assertNotIn('production-financial-dispatch', self.calls)
+
+    def test_closure_receipt_requires_original_local_and_each_remote_exact_bytes(self):
+        body = runner.encode({'format': 'lmm-credit-all-admission-closed-v1',
+                              'transition_id': self.partial['transition_id'],
+                              'transition_intent_sha256': self.partial['transition_intent_sha256'],
+                              'all_origins_closed': True, 'nodes': [node['name'] for node in self.partial['nodes']]})
+        file = self.work / 'all-admission-closed.json'
+        runner.write_once(file, body)
+        self.controller.state['all_admission_closed'] = {'path': str(file), 'sha256': runner.digest(body)}
+        observed = []
+        def remote(n, binding, label):
+            observed.append((n['name'], binding))
+            return body
+        self.controller.remote_bound_bytes = remote
+        runner.Controller.verify_closed_receipt(self.controller)
+        self.assertEqual(len(observed), len(self.partial['nodes']))
+        self.assertTrue(all(binding['sha256'] == runner.digest(body) for _, binding in observed))
+        self.controller.remote_bound_bytes = lambda *a: b'changed'
+        with self.assertRaisesRegex(runner.GateFailed, 'remote-admission-closure-changed'):
+            runner.Controller.verify_closed_receipt(self.controller)
+        file.write_bytes(b'changed')
+        with self.assertRaisesRegex(runner.GateFailed, 'bound-file-changed'):
+            runner.Controller.verify_closed_receipt(self.controller)
+
+    def actual_stage_fixture(self):
+        candidate = self.bound_plan()
+        node = candidate['nodes'][0]
+        stage = node['prebridge_stage']
+        receipt = {'format': 'lmm-credit-maintenance-capture-v1', 'phase': 'FROZEN',
+                   'transition_id': candidate['transition_id'], 'transition_intent_sha256': candidate['transition_intent_sha256'],
+                   'pid': 123, 'invocation_id': 'a'*32}
+        receipt_bytes = runner.encode(receipt)
+        stopped = {'format': 'lmm-credit-maintenance-handoff-v1', 'stage': 'prebridge', 'deployment_tool': 'native',
+                   'transition_id': candidate['transition_id'], 'transition_intent_sha256': candidate['transition_intent_sha256'],
+                   'provider_sha256': candidate['provider']['sha256'], 'prepare_config_sha256': node['prepare_config']['sha256'],
+                   'previous_deployment_id': Path(stage['capture_workspace']).name,
+                   'capture_receipt_path': stage['capture_workspace'] + '/state/maintenance-capture.FROZEN.json',
+                   'capture_receipt_sha256': runner.digest(receipt_bytes),
+                   'stopped_writer': {'pid': 123, 'invocation_id': 'a'*32}}
+        stopped_bytes = runner.encode(stopped)
+        sha = runner.digest(stopped_bytes)
+        self.stopped['sha256'] = sha
+        self.controller.state['stopped_handoffs']['arch'] = copy.deepcopy(self.stopped)
+        stage['stage_handoff'] = {'path': '/var/lib/lmm-api-go-deploy/handoffs/' + sha + '.json', 'sha256': sha}
+        argv = stage['apply_contract']['argv']
+        actual = {'format': 6, 'deployment_id': Path(stage['workspace']).name, 'target_alias': node['ssh'],
+                  'expected_host': node['hostname'], 'go_changed': True, 'web_changed': False, 'with_backups': False,
+                  'operator_user': runner.flag_value(argv, '--operator-user'),
+                  'expected_version': runner.flag_value(argv, '--expected-version'),
+                  'observation_seconds': int(runner.flag_value(argv, '--observation-seconds')),
+                  'preserve_edge_policy': '--preserve-edge-policy' in argv,
+                  'maintenance_handoff': dict(stopped, path='/local/sealed-stop.json', sha256=sha)}
+        for key, pf, hf in (('go_candidate', '--go-package', '--go-package-sha256'),
+                            ('go_rollback', '--go-rollback-package', '--go-rollback-sha256'),
+                            ('web_candidate', '--web-package', '--web-package-sha256'),
+                            ('web_rollback', '--web-rollback-package', '--web-rollback-sha256')):
+            actual[key] = {'package_path': '/local/' + Path(runner.flag_value(argv, pf)).name,
+                           'package_sha256': runner.flag_value(argv, hf)}
+        actual['go_candidate'].update(git_revision=candidate['source_sha'], payload_sha256=candidate['provider']['sha256'])
+        for key, flag in (('probe_binary', '--probe-binary'), ('operator_binary', '--operator-binary')):
+            actual[key] = {'path': '/local/provider', 'sha256': runner.flag_value(argv, flag + '-sha256')}
+        # Exactly the normal-owner target argument order from its sealed plan.
+        normalized = runner.encode(actual)
+        stage['staged_plan']['sha256'] = runner.digest(normalized)
+        values = {self.stopped['path']: stopped_bytes, stage['stage_handoff']['path']: stopped_bytes,
+                  stopped['capture_receipt_path']: receipt_bytes, stage['staged_plan']['path']: normalized}
+        def remote_read(n, binding, label):
+            data = values[binding['path']]
+            runner.require(runner.digest(data) == binding['sha256'], 'test-remote-bound-hash')
+            return data
+        self.controller.plan = candidate
+        self.controller.remote_bound_bytes = remote_read
+        self.controller.node_operation = lambda n, op, phase=None: dict(receipt, capture_receipt_path=stopped['capture_receipt_path'],
+                                                                       capture_receipt_sha256=stopped['capture_receipt_sha256'])
+        return node, actual, values
+
+    def test_actual_normal_stage_requires_formal_stop_capture_and_exact_full_argv(self):
+        node, actual, values = self.actual_stage_fixture()
+        self.assertEqual(self.controller.verify_native_prebridge(node)['node'], node['name'])
+        original_status = self.controller.node_operation
+        self.controller.node_operation = lambda *a, **kw: dict(original_status(*a, **kw), capture_receipt_sha256='f'*64)
+        with self.assertRaisesRegex(runner.GateFailed, 'capture-frozen-evidence-changed'):
+            self.controller.verify_native_prebridge(node)
+        self.controller.node_operation = original_status
+        actual['go_rollback']['package_sha256'] = '1'*64
+        raw = runner.encode(actual)
+        node['prebridge_stage']['staged_plan']['sha256'] = runner.digest(raw)
+        values[node['prebridge_stage']['staged_plan']['path']] = raw
+        with self.assertRaisesRegex(runner.GateFailed, 'immutable-argv'):
+            self.controller.verify_native_prebridge(node)
+        node['prebridge_stage']['stage_handoff']['sha256'] = 'f'*64
+        with self.assertRaisesRegex(runner.GateFailed, 'formal-frozen-handoff'):
+            self.controller.verify_native_prebridge(node)
 
 
 @unittest.skipUnless(os.getenv('CREDIT_FINANCIAL_RUNNER_REAL_PG') == '1', 'explicit isolated local PostgreSQL opt-in')

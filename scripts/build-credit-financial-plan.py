@@ -23,6 +23,7 @@ OPERATIONS = ('guardian_start', 'capture', 'close', 'stop', 'prebridge_apply', '
               'prebridge_stop', 'post_apply', 'post_confirm', 'maintenance_release', 'guardian_inspect',
               'writer_inspect', 'publish_receipt', 'guardian_release', 'capture_status', 'prebridge_status',
               'post_status', 'post_retry', 'seal_prebridge', 'seal_post')
+PREBRIDGE_OPERATIONS = ('prebridge_apply', 'prebridge_confirm', 'prebridge_stop', 'prebridge_status')
 
 
 class InvalidSeed(ValueError):
@@ -188,13 +189,15 @@ def flag_value(argv, flag):
     return argv[index + 1]
 
 
-def native_override(node, key, stage, action):
-    supplied = node.get('command_overrides', {}).get(key)
+def native_override(node, key, stage, action, supplied=None, original=None, actual_handoff=False):
+    supplied = supplied if supplied is not None else node.get('command_overrides', {}).get(key)
     require(supplied is not None, 'native requires reviewed normal-owner command_overrides.' + key)
     require(set(supplied) == {'argv', 'timeout_seconds'}, 'override must contain exact argv and timeout')
     result = operation(supplied['argv'], supplied['timeout_seconds'])
     argv = result['argv']
-    require(argv[:4] == [node['owners'][stage]['operator']['path'], 'operator', 'production', action] and
+    owner = node['owners'][stage]
+    operator_path = owner['operator']['path'] if owner.get('operator') else owner['workspace'] + '/staging/lmm-api'
+    require(argv[:4] == [operator_path, 'operator', 'production', action] and
             '--plan' not in argv and flag_value(argv, '--workspace') == node['owners'][stage]['workspace'],
             'native override must use the actual staged target owner, not controller state')
     for flag in ('--operator-user', '--go-package', '--go-package-sha256', '--go-rollback-package', '--go-rollback-sha256',
@@ -213,17 +216,75 @@ def native_override(node, key, stage, action):
     require('--web-changed' not in argv and '--web-changed=true' not in argv, 'maintenance must preserve the active frontend')
     # Keep every reviewed immutable package/backup argument. Only the handoff
     # is refined by the formal seal-stopped operation after its writer stops.
-    original = node['post_intent'] if stage == 'post' else node['handoff']
+    if original is None:
+        original = owner.get('stage_handoff') if stage == 'prebridge' else None
+        original = original or (node['post_intent'] if stage == 'post' else node['handoff'])
     for flag, token, actual in (('--maintenance-handoff', '{base_handoff_path}' if stage == 'capture' else '{handoff_path}', original['path']),
                                 ('--maintenance-handoff-sha256', '{base_handoff_sha256}' if stage == 'capture' else '{handoff_sha256}', original['sha256'])):
         value = flag_value(argv, flag)
-        require(value in (token, actual), 'override handoff must be its reviewed staging intent or formal refinement token')
+        require(value == actual if actual_handoff else value in (token, actual),
+                'override handoff must be its reviewed staging intent or formal refinement token')
         argv[argv.index(flag) + 1] = token
     return result
 
 
+def prebridge_stage(node):
+    owner = node['owners']['prebridge']
+    require(node['deployment_tool'] == 'native' and
+            set(owner) == {'workspace', 'apply_contract', 'operator', 'staged_plan', 'stage_handoff'},
+            'late prebridge requires an exact native owner contract')
+    pending = [owner[key] is None for key in ('operator', 'staged_plan', 'stage_handoff')]
+    require(all(pending) or not any(pending), 'late prebridge bindings must be all pending or all bound')
+    expected = owner['workspace'] + '/staging/lmm-api'
+    provider_path = owner['workspace'] + '/staging/lmm-api-go'
+    contract = native_override(node, 'prebridge_apply', 'prebridge', 'apply',
+                               supplied=owner['apply_contract'], original=node['handoff'])
+    argv = contract['argv']
+    require(argv[0] == expected and all(flag_value(argv, flag) == provider_path
+            for flag in ('--probe-binary', '--operator-binary')), 'late prebridge must use its expected staged provider paths')
+    require(all(str(Path(flag_value(argv, flag)).parent) == owner['workspace'] + '/staging'
+            for flag in ('--go-package', '--go-rollback-package', '--web-package', '--web-rollback-package')),
+            'late prebridge package paths must be direct expected staging files')
+    require(all(flag_value(argv, flag) == node['_provider_sha256']
+            for flag in ('--probe-binary-sha256', '--operator-binary-sha256')), 'late prebridge provider digests differ')
+    observation = flag_value(argv, '--observation-seconds')
+    require(observation.isdigit() and 120 <= int(observation) <= 360 and observation == str(int(observation)),
+            'late prebridge observation must be explicit and valid')
+    require('--go-changed' in argv, 'late prebridge requires the normal explicit Go change flag')
+    require(not any(arg.startswith(('--with-backups', '--backup-', '--controller-backup-',
+                                    '--release-plan-sha256', '--age-')) for arg in argv),
+            'late prebridge requires backup-disabled normal argv')
+    ordered_flags = ('--workspace', '--operator-user', '--go-package', '--go-package-sha256',
+                     '--go-rollback-package', '--go-rollback-sha256', '--web-package', '--web-package-sha256',
+                     '--web-rollback-package', '--web-rollback-sha256', '--probe-binary', '--probe-binary-sha256',
+                     '--operator-binary', '--operator-binary-sha256', '--expected-version', '--observation-seconds',
+                     '--maintenance-handoff', '--maintenance-handoff-sha256')
+    normal_argv = argv[:4] + [item for flag in ordered_flags for item in (flag, flag_value(argv, flag))] + ['--go-changed']
+    if '--preserve-edge-policy' in argv:
+        normal_argv.append('--preserve-edge-policy')
+    require(argv == normal_argv and flag_value(argv, '--operator-user') == 'lmm-api-deploy',
+            'late prebridge argv must preserve normal-owner canonical order and identity')
+    validate_substitutions(contract, {'handoff_path', 'handoff_sha256'}, 'prebridge apply contract')
+    require(not any(key in node.get('command_overrides', {}) for key in PREBRIDGE_OPERATIONS if key != 'prebridge_apply'),
+            'late prebridge derived commands cannot be overridden')
+    if all(pending):
+        require(not any(key in node.get('command_overrides', {}) for key in PREBRIDGE_OPERATIONS),
+                'pending prebridge cannot claim staged commands')
+    else:
+        handoff = binding(owner['stage_handoff'])
+        require(handoff['path'] == '/var/lib/lmm-api-go-deploy/handoffs/' + handoff['sha256'] + '.json',
+                'late prebridge requires its formal native stopped handoff path')
+        require(owner['operator']['path'] == expected, 'late prebridge staged operator path differs')
+        actual = native_override(node, 'prebridge_apply', 'prebridge', 'apply', actual_handoff=True)
+        require(actual == contract, 'late prebridge staged apply differs from its immutable contract')
+    return {'workspace': owner['workspace'], 'apply_contract': contract,
+            'operator': copy.deepcopy(owner['operator']), 'staged_plan': copy.deepcopy(owner['staged_plan']),
+            'stage_handoff': copy.deepcopy(owner['stage_handoff']), 'capture_workspace': node['owners']['capture']['workspace']}
+
+
 def node_commands(node):
     native = node['deployment_tool'] == 'native'
+    pending_prebridge = native and 'apply_contract' in node['owners']['prebridge'] and node['owners']['prebridge']['operator'] is None
     command = native_command if native else systemd_command
     commands = {
         'guardian_start': operation(['/usr/bin/systemctl', 'start', node['guardian_unit']], 60),
@@ -235,14 +296,21 @@ def node_commands(node):
                'post_apply': ('post', 'apply'), 'post_confirm': ('post', 'confirm'),
                'maintenance_release': ('post', 'maintenance-release')}
     for key, (stage, action) in actions.items():
+        if pending_prebridge and stage == 'prebridge':
+            continue
         if native and key in ('capture', 'prebridge_apply', 'post_apply'):
-            commands[key] = native_override(node, key, stage, action)
+            commands[key] = native_override(node, key, stage, action,
+                actual_handoff=stage == 'prebridge' and 'apply_contract' in node['owners']['prebridge'])
         else:
             commands[key] = operation(command(node, stage, action, base=stage == 'capture'))
     for key in ('stop', 'prebridge_stop'):
+        if key not in commands:
+            continue
         commands[key]['argv'] += ['--all-admission-closed', '{all_closed_path}', '--all-admission-closed-sha256', '{all_closed_sha256}']
     commands['maintenance_release']['argv'] += ['--global-confirmation', '{global_confirmation_path}', '--global-confirmation-sha256', '{global_confirmation_sha256}']
     for stage in STAGES:
+        if pending_prebridge and stage == 'prebridge':
+            continue
         commands[stage + '_status'] = operation(command(node, stage, 'status', base=stage == 'capture'), 120)
     if native:
         commands['post_retry'] = copy.deepcopy(commands['post_apply'])
@@ -263,6 +331,7 @@ def node_commands(node):
         '--path', '{receipt_path}', '--sha256', '{receipt_sha256}'], 30)
     for key, value in node.get('command_overrides', {}).items():
         require(key in OPERATIONS, 'unknown command override')
+        require(not pending_prebridge or key not in PREBRIDGE_OPERATIONS, 'pending prebridge cannot claim staged commands')
         if native and key in ('capture', 'prebridge_apply', 'post_apply'):
             continue
         require(set(value) == {'argv', 'timeout_seconds'}, 'invalid override shape')
@@ -294,7 +363,8 @@ def node_commands(node):
                         'publish_receipt': {'receipt_path', 'receipt_sha256'},
                         'seal_prebridge': {'handoff_output_path'}, 'seal_post': {'handoff_output_path'}}.get(key, set()))
         validate_substitutions(value, allowed, key)
-    require(set(commands) == set(OPERATIONS), 'incomplete normal-owner commands')
+    expected_operations = set(OPERATIONS) - (set(PREBRIDGE_OPERATIONS) if pending_prebridge else set())
+    require(set(commands) == expected_operations, 'incomplete normal-owner commands')
     return commands
 
 
@@ -328,15 +398,22 @@ def make_plan(seed, intent_path, intent_content):
         require(set(node['owners']) == set(STAGES), 'three actual staged owners are required')
         owners = node['owners']
         require(len({owner['workspace'] for owner in owners.values()}) == 3, 'capture, prebridge and post must be distinct owner workspaces')
-        for owner in owners.values():
+        late_stage = None
+        for stage, owner in owners.items():
             absolute(owner['workspace'])
+            require('apply_contract' not in owner or (node['deployment_tool'] == 'native' and stage == 'prebridge'),
+                    'late staging only applies to the native prebridge owner')
             if node['deployment_tool'] == 'native':
+                if stage == 'prebridge' and 'apply_contract' in owner and owner.get('operator') is None:
+                    continue
                 binding(owner['operator']); binding(owner['staged_plan'])
                 require(owner['operator']['sha256'] == seed['provider']['sha256'], 'staged native operator must be final provider bytes')
                 require(owner['staged_plan']['path'] == owner['workspace'] + '/staging/release-plan.json', 'not an actual native staged plan path')
             else:
                 require(str(Path(owner['workspace']).parent) == '/var/lib/lmm-api-deploy-systemd', 'systemd owner workspace must match its formal root')
                 require(type(owner.get('migrate', False)) is bool, 'immutable systemd migrate selection must be boolean')
+        if node['deployment_tool'] == 'native' and 'apply_contract' in owners['prebridge']:
+            late_stage = prebridge_stage(node)
         artifacts = []
         for value in node.get('artifacts', []) + [node['handoff'], node['post_intent'], node['prepare_config']] + list(node['helpers'].values()):
             value = binding(value)
@@ -346,6 +423,8 @@ def make_plan(seed, intent_path, intent_content):
         if node['deployment_tool'] == 'native':
             for owner in owners.values():
                 for key in ('operator', 'staged_plan'):
+                    if owner[key] is None:
+                        continue
                     if owner[key] not in artifacts:
                         artifacts.append(binding(owner[key]))
         else:
@@ -360,7 +439,12 @@ def make_plan(seed, intent_path, intent_content):
             result['cleanup'] = operation(node['cleanup']['argv'], node['cleanup']['timeout_seconds'])
             validate_substitutions(result['cleanup'], {'handoff_path', 'handoff_sha256', 'backup_sha256',
                 'financial_backup_receipt_path', 'financial_backup_receipt_sha256'}, 'cleanup')
+        if late_stage is not None:
+            result['prebridge_stage'] = late_stage
         plan['nodes'].append(result)
+    late_stages = [node['prebridge_stage'] for node in plan['nodes'] if 'prebridge_stage' in node]
+    if late_stages:
+        plan['prebridge_staging'] = 'pending' if any(stage['operator'] is None for stage in late_stages) else 'bound'
     # Use the bound runner's real validator, not a drifting parallel schema.
     # Importing this reviewed script does not execute its CLI or open a DB.
     sys.dont_write_bytecode = True

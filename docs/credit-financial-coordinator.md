@@ -162,10 +162,70 @@ python3 scripts/run-credit-financial-maintenance.py ACTION
   --work /private/financial-work --confirm api.lmm.best
 ```
 
-Sequence: `validate → prepare → backup → clone → seal → rehearse → apply →
-deploy → release`. `prepare` first captures both old writers, closes **all**
-admission, publishes the verified closure receipt, then drains/stops both old
-writers. Only then does normal preparation schema/install/confirmation run.
+For native production maintenance use the explicit late-stage plan. The
+capture and post workspaces are already normally staged; the distinct
+prebridge workspace is reserved in `prebridge_stage.workspace`, with its full
+normal target `apply_contract` sealed, but `operator`, `staged_plan` and
+`stage_handoff` are all JSON null. `prebridge_staging=pending` omits exactly the
+four prebridge commands and the two unavailable staged artifacts. The base
+`node.handoff` is never replaced or rewritten.
+
+Sequence: `validate → prepare → normal prebridge plan/stage → refine-prebridge
+→ continue-prepare → backup → clone → seal → rehearse → apply → deploy → release`.
+`prepare` first captures both old writers, closes **all** admission, publishes
+the verified closure receipt, then drains/stops both old writers. It formally
+seals each stopped handoff and returns at `FROZEN_AWAITING_PREBRIDGE_STAGE`.
+The old writers remain stopped, admission remains 503 and the same three OFD
+locks remain held. `prepare` and `resume` cannot replay that boundary.
+
+Now securely copy the actual sealed stopped handoff to the controller's local
+private input; its bytes and SHA must equal `state.stopped_handoffs[NODE]`.
+Run the existing normal native plan and stage into the reserved **new**
+prebridge workspace using this stopped handoff. Native stage publishes it at
+`/var/lib/lmm-api-go-deploy/handoffs/STOP_SHA.json`. Keep capture, prebridge and
+post as three distinct workspaces: capture has already written manifest/status
+and cannot be used as an apply workspace. No transaction marker, normal state
+or immutable argv is manually edited.
+
+Fill only the reserved prebridge owner bindings in a new private seed:
+`operator=WORKSPACE/staging/lmm-api` (canonical normal target link),
+`staged_plan=WORKSPACE/staging/release-plan.json`, and separate `stage_handoff`
+at the normal global stopped-handoff path. Use the real sealed normal plan and
+stage evidence to fill their hashes and actual apply argv. Rebuild the bound
+plan with the same intent. The prospective `apply_contract` includes package,
+rollback, provider/probe, version, observation and edge-policy arguments in
+normal native order; only handoff path/SHA use runtime placeholders. This
+late-stage path requires native `WithBackups=false`; native encrypted-backup
+arguments are rejected here. The coordinator's complete financial backup,
+offhost verification and clone rehearsal remain mandatory.
+
+```text
+python3 scripts/run-credit-financial-maintenance.py refine-prebridge
+  --plan /private/partial-plan.json --plan-sha256 PARTIAL_FILE_SHA
+  --refined-plan /private/bound-plan.json --refined-plan-sha256 BOUND_FILE_SHA
+  --work /private/financial-work --confirm api.lmm.best
+
+python3 scripts/run-credit-financial-maintenance.py continue-prepare
+  --plan /private/bound-plan.json --plan-sha256 BOUND_FILE_SHA
+  --work /private/financial-work --confirm api.lmm.best
+```
+
+`refine-prebridge` is accepted only once at the waiting boundary. It rejects
+any change to source, provider, intent, database, node inventory, base handoff,
+capture/post commands, package arguments, timeout or reserved workspace. It
+reads the actual root-owned stopped-handoff files, original FROZEN capture
+receipt/status and normally staged release plan. It verifies the formal stop
+SHA and reconstructs the complete normal target argv from that plan. The
+controller writes an immutable old/new plan-hash receipt and checkpoints the
+new binding itself. All later actions use the bound plan and the same work
+directory. A transport failure is inspected/reconciled; neither stage nor
+capture/stop is guessed successful or blindly replayed.
+
+`continue-prepare` rechecks the three locks, their original guardian generation,
+503 barriers, complete stopped-writer evidence and unknown database clients
+before installing anything. It resumes only the bridge apply/confirm/stop
+half; it does not dispatch financial SQL or capture/stop the old writers again.
+Only then does normal preparation schema/install/confirmation run.
 Both bridges are stopped again and formally sealed as the actual post-financial
 N-1 before the final snapshot/backup. Exact old anchors and FX must still match;
 drift fails closed without altering the fixed conversion constant.

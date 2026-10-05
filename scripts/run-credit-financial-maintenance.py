@@ -7,6 +7,7 @@ This controller owns the final business seal, rehearsal binding and one-shot
 financial dispatch intent. It never edits their leases/state or restores a DB.
 """
 import argparse
+import copy
 import fcntl
 import hashlib
 import importlib.util
@@ -31,6 +32,8 @@ NODE_OPERATIONS = ('guardian_start', 'capture', 'close', 'stop', 'prebridge_appl
                    'post_apply', 'post_confirm', 'maintenance_release', 'guardian_inspect',
                    'writer_inspect', 'publish_receipt', 'guardian_release',
                    'capture_status', 'prebridge_status', 'post_status', 'post_retry', 'seal_prebridge', 'seal_post')
+
+PREBRIDGE_OPERATIONS = ('prebridge_apply', 'prebridge_confirm', 'prebridge_stop', 'prebridge_status')
 
 
 class GateFailed(RuntimeError):
@@ -125,14 +128,24 @@ def validate_plan(plan):
         read_bound(binding)
     require(plan['controller']['sha256'] == digest(Path(__file__).read_bytes()), 'controller-source-changed')
     require(1 <= len(plan['nodes']) <= 16, 'complete-writer-nodes-required')
+    staging = plan.get('prebridge_staging')
+    require(staging in (None, 'pending', 'bound'), 'prebridge-staging-mode')
     names = []
+    late_nodes = 0
     for node in plan['nodes']:
         require(NAME.fullmatch(node['name']) and NAME.fullmatch(node['ssh']) and
                 NAME.fullmatch(node['hostname']), 'node-identity')
         require(node['deployment_tool'] in ('native', 'systemd') and node['service'] == 'lmm-api.service', 'normal-deployment-owner-required')
         require(NAME.fullmatch(node['guardian_unit']), 'guardian-systemd-unit-binding')
         require(node['writers'] == ['lmm-api.service'], 'supported-complete-writer-inventory-required')
-        require(set(node['commands']) == set(NODE_OPERATIONS), 'normal-owner-operations-required')
+        late = node.get('prebridge_stage')
+        if late is not None:
+            validate_prebridge_stage(node, staging, plan['provider']['sha256'])
+            late_nodes += 1
+        expected = set(NODE_OPERATIONS)
+        if late is not None and staging == 'pending':
+            expected -= set(PREBRIDGE_OPERATIONS)
+        require(set(node['commands']) == expected, 'normal-owner-operations-required')
         for operation in node['commands'].values():
             validate_operation(operation)
         if 'cleanup' in node:
@@ -150,6 +163,7 @@ def validate_plan(plan):
             require(binding in node['artifacts'], 'base-handoff-and-prepare-config-must-be-bound-artifacts')
         path(node['receipt_directory'])
         names.append(node['name'])
+    require((staging is None) == (late_nodes == 0), 'prebridge-staging-descriptor-required')
     require(len(names) == len(set(names)) and plan['database']['owner_node'] in names, 'writer-node-set')
     inventory_keys = ('name', 'ssh', 'hostname', 'deployment_tool', 'service', 'writers', 'guardian_unit')
     require(intent.get('writer_nodes') == [{key: node[key] for key in inventory_keys} for node in plan['nodes']] and
@@ -183,6 +197,97 @@ def validate_plan(plan):
     for operation in plan['backup_commands'].values():
         validate_operation(operation)
     return plan
+
+
+
+def flag_value(argv, flag):
+    require(argv.count(flag) == 1 and argv.index(flag) + 1 < len(argv), 'native-stage-flag:' + flag)
+    return argv[argv.index(flag) + 1]
+
+
+def remote_binding(binding):
+    require(isinstance(binding, dict) and set(binding) == {'path', 'sha256'} and
+            HEX.fullmatch(binding.get('sha256', '')), 'native-stage-binding')
+    path(binding['path'])
+
+
+def prebridge_commands(stage):
+    """Only the existing normal-owner invocation forms, never a new mutation API."""
+    base = [stage['operator']['path'], 'operator', 'production']
+    handoff = ['--maintenance-handoff', '{handoff_path}', '--maintenance-handoff-sha256', '{handoff_sha256}']
+    workspace = ['--workspace', stage['workspace']]
+    return {
+        'prebridge_apply': copy.deepcopy(stage['apply_contract']),
+        'prebridge_confirm': {'argv': base + ['confirm'] + workspace + handoff, 'timeout_seconds': 600},
+        'prebridge_stop': {'argv': base + ['maintenance-stop'] + workspace + handoff +
+            ['--all-admission-closed', '{all_closed_path}', '--all-admission-closed-sha256', '{all_closed_sha256}'], 'timeout_seconds': 600},
+        'prebridge_status': {'argv': base + ['status'] + workspace + handoff +
+            ['--staged-plan', stage['staged_plan']['path'], '--staged-plan-sha256', stage['staged_plan']['sha256']], 'timeout_seconds': 120},
+    }
+
+
+def validate_prebridge_stage(node, staging, provider_sha):
+    stage = node['prebridge_stage']
+    require(node['deployment_tool'] == 'native' and staging in ('pending', 'bound') and
+            set(stage) == {'workspace', 'capture_workspace', 'apply_contract', 'operator', 'staged_plan', 'stage_handoff'},
+            'native-prebridge-stage-shape')
+    workspace = str(path(stage['workspace']))
+    capture = str(path(stage['capture_workspace']))
+    require(str(Path(workspace).parent) == '/var/lib/lmm-api-go-deploy/work' and workspace != capture,
+            'native-prebridge-distinct-workspace')
+    contract = stage['apply_contract']
+    validate_operation(contract)
+    argv = contract['argv']
+    require(argv[:4] == [workspace + '/staging/lmm-api', 'operator', 'production', 'apply'] and
+            flag_value(argv, '--workspace') == workspace and
+            flag_value(argv, '--maintenance-handoff') == '{handoff_path}' and
+            flag_value(argv, '--maintenance-handoff-sha256') == '{handoff_sha256}' and
+            flag_value(argv, '--probe-binary-sha256') == provider_sha and
+            flag_value(argv, '--operator-binary-sha256') == provider_sha and
+            flag_value(argv, '--probe-binary') == workspace + '/staging/lmm-api-go' and
+            flag_value(argv, '--operator-binary') == workspace + '/staging/lmm-api-go' and
+            '--plan' not in argv and not any(arg.split('=', 1)[0] in
+                ('--with-backups', '--backup-dir', '--controller-backup-public-key', '--release-plan-sha256',
+                 '--controller-backup-receipt', '--controller-backup-receipt-sha256') for arg in argv),
+            'native-prebridge-immutable-contract')
+    require(all(str(path(flag_value(argv, flag)).parent) == workspace + '/staging' for flag in
+                ('--go-package', '--go-rollback-package', '--web-package', '--web-rollback-package')),
+            'native-prebridge-package-paths-must-be-normal-staged-files')
+    require('--go-changed' in argv and '--web-changed' not in argv and
+            '--web-changed=true' not in argv and 120 <= int(flag_value(argv, '--observation-seconds')) <= 360,
+            'native-prebridge-observation-and-frontend-contract')
+    if staging == 'pending':
+        require(all(stage[key] is None for key in ('operator', 'staged_plan', 'stage_handoff')),
+                'pending-prebridge-has-no-fabricated-bindings')
+        require(not any(artifact['path'].startswith(workspace + '/') for artifact in node['artifacts']),
+                'pending-prebridge-has-no-early-artifact-requirement')
+    else:
+        for key in ('operator', 'staged_plan', 'stage_handoff'):
+            remote_binding(stage[key])
+        require(stage['operator'] == {'path': workspace + '/staging/lmm-api', 'sha256': provider_sha} and
+                stage['staged_plan']['path'] == workspace + '/staging/release-plan.json' and
+                stage['stage_handoff']['path'] == '/var/lib/lmm-api-go-deploy/handoffs/' + stage['stage_handoff']['sha256'] + '.json',
+                'actual-native-prebridge-stage-paths')
+        require(all(stage[key] in node['artifacts'] for key in ('operator', 'staged_plan')) and
+                all(node['commands'].get(key) == operation for key, operation in prebridge_commands(stage).items()),
+                'actual-native-prebridge-commands-and-artifacts')
+
+
+def prebridge_projection(plan):
+    """Remove only the three declared late bindings and their derived commands."""
+    result = copy.deepcopy(plan)
+    result['prebridge_staging'] = 'pending'
+    for node in result['nodes']:
+        if 'prebridge_stage' not in node:
+            continue
+        stage = node['prebridge_stage']
+        added = [stage[key] for key in ('operator', 'staged_plan') if stage[key] is not None]
+        node['artifacts'] = [artifact for artifact in node['artifacts'] if artifact not in added]
+        for key in PREBRIDGE_OPERATIONS:
+            node['commands'].pop(key, None)
+        for key in ('operator', 'staged_plan', 'stage_handoff'):
+            stage[key] = None
+    return result
 
 
 def resolved_probe_operation(probe, address):
@@ -224,6 +329,13 @@ class Controller:
             'format': FORMAT, 'plan_sha256': plan_hash, 'transition_id': plan['transition_id'],
             'transition_intent_sha256': plan['transition_intent_sha256'], 'phase': 'NEW', 'sequence': 0}
         require(self.state['plan_sha256'] == plan_hash, 'controller-plan-changed')
+        if 'prebridge_refinement' in self.state:
+            receipt = decode(read_bound(self.state['prebridge_refinement']))
+            require(receipt.get('format') == 'lmm-credit-prebridge-refinement-v1' and
+                    receipt.get('refined_plan_sha256') == plan_hash and
+                    receipt.get('transition_id') == plan['transition_id'] and
+                    receipt.get('transition_intent_sha256') == plan['transition_intent_sha256'],
+                    'controller-prebridge-refinement-lineage-changed')
 
     def persist(self, phase, **values):
         self.state.update(values)
@@ -390,7 +502,7 @@ class Controller:
             self.persist(self.state['phase'], stopped_handoffs=sealed)
 
     def prepare(self):
-        require(self.state['phase'] == 'NEW', 'prepare-must-not-replay')
+        require(self.state['phase'] == 'NEW' and self.plan.get('prebridge_staging') != 'bound', 'prepare-must-not-replay-or-skip-late-staging')
         self.verify_artifacts()
         self.persist('CAPTURE_INTENT', capture_dispatched=False)
         for node in self.plan['nodes']:
@@ -418,21 +530,146 @@ class Controller:
         self.seal_stopped('prebridge')
         self.frozen_gates()
         self.persist('FROZEN')
-        self.persist('BRIDGE_INSTALL_INTENT')
+        self.continue_preparation()
+
+    def remote_bound_bytes(self, node, binding, label):
+        remote_binding(binding)
+        # Existing normal-owner sealed files only. No remote file is written;
+        # root ownership, non-writable ancestors and bounded bytes are checked.
+        reader = """import os,stat,sys,hashlib
+from pathlib import Path
+p=Path(sys.argv[1]); expected=sys.argv[2]; i=p.lstat()
+if not (p.resolve()==p and stat.S_ISREG(i.st_mode) and i.st_uid==0 and i.st_nlink==1 and not i.st_mode&0o022 and i.st_size<=1048576):
+    raise RuntimeError('unsafe normal-owner sealed file')
+for a in p.parents:
+    i=a.lstat()
+    if not (stat.S_ISDIR(i.st_mode) and not stat.S_ISLNK(i.st_mode) and i.st_uid==0 and not i.st_mode&0o022):
+        raise RuntimeError('unsafe normal-owner ancestor')
+b=p.read_bytes()
+if len(b)>1048576 or hashlib.sha256(b).hexdigest()!=expected:
+    raise RuntimeError('normal-owner sealed bytes changed')
+sys.stdout.buffer.write(b)
+"""
+        return self.execute(node['name'] + '-' + label, {'argv': ['/usr/bin/python3', '-c', reader,
+                            binding['path'], binding['sha256']], 'timeout_seconds': 30}, node=node)
+
+    def verify_closed_receipt(self):
+        binding = self.state.get('all_admission_closed')
+        require(binding is not None, 'prebridge-original-admission-closure-missing')
+        body = read_bound(binding)
+        require(decode(body) == {'format': 'lmm-credit-all-admission-closed-v1',
+                'transition_id': self.plan['transition_id'],
+                'transition_intent_sha256': self.plan['transition_intent_sha256'],
+                'all_origins_closed': True, 'nodes': [node['name'] for node in self.plan['nodes']]},
+                'prebridge-original-admission-closure-identity-changed')
         for node in self.plan['nodes']:
-            self.node_operation(node, 'prebridge_apply')
-            self.node_operation(node, 'prebridge_confirm', 'MAINTENANCE_CONFIRMED')
-        self.barriers()
-        self.guardians()
-        self.persist('BRIDGES_INSTALLED')
-        self.persist('BRIDGE_STOP_INTENT')
-        for node in self.plan['nodes']:
-            self.node_operation(node, 'prebridge_stop', 'FROZEN', variables={
-                'all_closed_path': str(path(node['receipt_directory']) / 'all-admission-closed.json'),
-                'all_closed_sha256': closed['sha256']})
-        self.seal_stopped('post')
+            remote = {'path': str(path(node['receipt_directory']) / 'all-admission-closed.json'),
+                      'sha256': binding['sha256']}
+            require(self.remote_bound_bytes(node, remote, 'prebridge-original-closure-receipt') == body,
+                    'prebridge-original-remote-admission-closure-changed')
+
+    def verify_native_prebridge(self, node):
+        stage = node['prebridge_stage']
+        sealed = self.state.get('stopped_handoffs', {}).get(node['name'])
+        require(sealed is not None and stage['stage_handoff']['sha256'] == sealed['sha256'],
+                'prebridge-stage-must-use-the-formal-frozen-handoff')
+        stopped_bytes = self.remote_bound_bytes(node, sealed, 'prebridge-formal-frozen-handoff')
+        stopped = decode(stopped_bytes)
+        staged_bytes = self.remote_bound_bytes(node, stage['stage_handoff'], 'prebridge-stage-frozen-handoff')
+        require(staged_bytes == stopped_bytes, 'prebridge-stage-handoff-is-not-the-formal-seal')
+        for key, expected in (('format', 'lmm-credit-maintenance-handoff-v1'), ('stage', 'prebridge'),
+                              ('deployment_tool', 'native'), ('transition_id', self.plan['transition_id']),
+                              ('transition_intent_sha256', self.plan['transition_intent_sha256']),
+                              ('provider_sha256', self.plan['provider']['sha256']),
+                              ('prepare_config_sha256', node['prepare_config']['sha256']),
+                              ('previous_deployment_id', Path(stage['capture_workspace']).name)):
+            require(stopped.get(key) == expected, 'prebridge-frozen-handoff-identity')
+        require(isinstance(stopped.get('stopped_writer'), dict), 'prebridge-formal-stopped-writer-missing')
+        receipt_binding = {'path': stopped['capture_receipt_path'], 'sha256': stopped['capture_receipt_sha256']}
+        require(str(path(receipt_binding['path'])).startswith(stage['capture_workspace'] + '/state/'),
+                'prebridge-capture-receipt-workspace')
+        receipt = decode(self.remote_bound_bytes(node, receipt_binding, 'prebridge-original-capture-receipt'))
+        owner = self.node_operation(node, 'capture_status', 'FROZEN')
+        require(owner.get('capture_receipt_path') == receipt_binding['path'] and
+                owner.get('capture_receipt_sha256') == receipt_binding['sha256'] and
+                receipt.get('phase') == 'FROZEN' and receipt.get('format') == 'lmm-credit-maintenance-capture-v1' and
+                all(receipt.get(key) == stopped[key] for key in ('transition_id', 'transition_intent_sha256')) and
+                all(receipt.get(key) == stopped['stopped_writer'].get(key) for key in ('pid', 'invocation_id')),
+                'prebridge-capture-frozen-evidence-changed')
+        raw = self.remote_bound_bytes(node, stage['staged_plan'], 'prebridge-actual-normal-staged-plan')
+        actual = decode(raw)
+        require(actual.get('format') == 6 and actual.get('deployment_id') == Path(stage['workspace']).name and
+                actual.get('target_alias') == node['ssh'] and actual.get('expected_host') == node['hostname'] and
+                actual.get('go_changed') is True and actual.get('web_changed') is False and
+                actual.get('with_backups') is False and actual.get('go_candidate', {}).get('git_revision') == self.plan['source_sha'] and
+                actual.get('go_candidate', {}).get('payload_sha256') == self.plan['provider']['sha256'],
+                'prebridge-normal-stage-source-node-package-selection')
+        embedded = actual.get('maintenance_handoff', {})
+        require({key: value for key, value in embedded.items() if key not in ('path', 'sha256')} == stopped and
+                embedded.get('sha256') == sealed['sha256'], 'prebridge-normal-plan-formal-handoff-binding')
+        # Reproduce productionApplyArguments' fixed target suffix from the real
+        # sealed normal plan. No guessed receipt, state or mutable --plan input.
+        workspace = stage['workspace']
+        argv = [workspace + '/staging/lmm-api', 'operator', 'production', 'apply', '--workspace', workspace,
+                '--operator-user', actual['operator_user']]
+        for key, package_flag, digest_flag in (
+                ('go_candidate', '--go-package', '--go-package-sha256'),
+                ('go_rollback', '--go-rollback-package', '--go-rollback-sha256'),
+                ('web_candidate', '--web-package', '--web-package-sha256'),
+                ('web_rollback', '--web-rollback-package', '--web-rollback-sha256')):
+            package = actual[key]
+            argv += [package_flag, workspace + '/staging/' + Path(package['package_path']).name,
+                     digest_flag, package['package_sha256']]
+        for key, flag in (('probe_binary', '--probe-binary'), ('operator_binary', '--operator-binary')):
+            argv += [flag, workspace + '/staging/lmm-api-go', flag + '-sha256', actual[key]['sha256']]
+        argv += ['--expected-version', actual['expected_version'], '--observation-seconds', str(actual['observation_seconds']),
+                 '--maintenance-handoff', '{handoff_path}', '--maintenance-handoff-sha256', '{handoff_sha256}', '--go-changed']
+        if actual['preserve_edge_policy']:
+            argv += ['--preserve-edge-policy']
+        require(argv == stage['apply_contract']['argv'], 'prebridge-normal-plan-immutable-argv-changed')
+        return {'node': node['name'], 'stage_handoff': copy.deepcopy(stage['stage_handoff']),
+                'staged_plan': copy.deepcopy(stage['staged_plan']), 'capture_receipt': receipt_binding}
+
+    def refine_prebridge(self, binding):
+        require(self.state['phase'] == 'FROZEN_AWAITING_PREBRIDGE_STAGE' and
+                self.plan.get('prebridge_staging') == 'pending' and 'prebridge_refinement' not in self.state,
+                'prebridge-refinement-requires-its-once-only-frozen-boundary')
+        candidate = validate_plan(decode(read_bound(binding)))
+        require(candidate.get('prebridge_staging') == 'bound' and
+                encode(prebridge_projection(candidate)) == encode(self.plan),
+                'prebridge-refinement-changed-a-sealed-nonstage-field')
         self.frozen_gates()
-        self.persist('FINAL_FROZEN')
+        self.verify_closed_receipt()
+        observations = []
+        old_plan = self.plan
+        try:
+            self.plan = candidate
+            self.verify_artifacts()
+            for node in self.plan['nodes']:
+                if 'prebridge_stage' in node:
+                    observations.append(self.verify_native_prebridge(node))
+            self.frozen_gates()
+        finally:
+            self.plan = old_plan
+        receipt = {'format': 'lmm-credit-prebridge-refinement-v1', 'transition_id': self.plan['transition_id'],
+                   'transition_intent_sha256': self.plan['transition_intent_sha256'],
+                   'original_plan_sha256': self.plan_hash, 'refined_plan_sha256': binding['sha256'],
+                   'refined_plan': copy.deepcopy(binding), 'stopped_handoffs': copy.deepcopy(self.state['stopped_handoffs']),
+                   'normal_stage_observations': observations}
+        file = self.work / 'prebridge-refinement.json'
+        body = encode(receipt)
+        proof = {'path': str(file), 'sha256': digest(body)}
+        if file.exists():
+            require(read_bound(proof) == body, 'prebridge-refinement-evidence-changed')
+        else:
+            write_once(file, body)
+        self.plan, self.plan_hash = candidate, binding['sha256']
+        self.persist('FROZEN', plan_sha256=self.plan_hash, prebridge_refinement=proof)
+
+    def continue_prepare(self):
+        require(self.state['phase'] == 'FROZEN' and self.plan.get('prebridge_staging') == 'bound' and
+                'prebridge_refinement' in self.state, 'continue-prepare-requires-formal-prebridge-refinement')
+        self.continue_preparation()
 
     def backup(self):
         require(self.state['phase'] == 'FINAL_FROZEN', 'full-backup-requires-final-stopped-bridge-epoch')
@@ -878,7 +1115,10 @@ class Controller:
             if phase in ('STOP_INTENT', 'BRIDGE_STOP_INTENT'):
                 self.seal_stopped('prebridge' if phase == 'STOP_INTENT' else 'post')
                 self.frozen_gates()
-            self.persist(completed[phase][1], recovery='explicit-resume')
+            next_phase = completed[phase][1]
+            if next_phase == 'FROZEN' and self.plan.get('prebridge_staging') == 'pending':
+                next_phase = 'FROZEN_AWAITING_PREBRIDGE_STAGE'
+            self.persist(next_phase, recovery='explicit-resume')
 
     def resume(self):
         phase = self.state['phase']
@@ -910,7 +1150,8 @@ class Controller:
         elif phase in ('CAPTURE_INTENT', 'CLOSE_INTENT', 'STOP_INTENT', 'BRIDGE_INSTALL_INTENT', 'BRIDGE_STOP_INTENT'):
             self.reconcile()
             require(self.state['phase'] != phase, 'owner-repair-required-before-resume')
-            self.continue_preparation()
+            if self.state['phase'] != 'FROZEN_AWAITING_PREBRIDGE_STAGE':
+                self.continue_preparation()
         else:
             require(phase in ('CAPTURED', 'ADMISSION_CLOSED', 'FROZEN', 'BRIDGES_INSTALLED'), 'no-resumable-owner-phase')
             self.continue_preparation()
@@ -949,7 +1190,13 @@ class Controller:
             self.frozen_gates()
             self.persist('FROZEN')
             phase = 'FROZEN'
+        if phase == 'FROZEN' and self.plan.get('prebridge_staging') == 'pending':
+            self.persist('FROZEN_AWAITING_PREBRIDGE_STAGE')
+            return
         if phase == 'FROZEN':
+            if self.plan.get('prebridge_staging') == 'bound':
+                require('prebridge_refinement' in self.state, 'prebridge-binding-must-be-formally-refined')
+                self.verify_closed_receipt()
             self.frozen_gates()
             self.persist('BRIDGE_INSTALL_INTENT')
             for node in self.plan['nodes']:
@@ -1025,11 +1272,13 @@ def main(argv=None):
     if argv and argv[0] == '_render-business-sql':
         return render_sql_main(argv[1:])
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('validate', 'prepare', 'backup', 'clone', 'seal', 'rehearse', 'apply', 'inspect', 'deploy', 'release', 'reconcile', 'resume', 'status'))
+    parser.add_argument('action', choices=('validate', 'prepare', 'refine-prebridge', 'continue-prepare', 'backup', 'clone', 'seal', 'rehearse', 'apply', 'inspect', 'deploy', 'release', 'reconcile', 'resume', 'status'))
     parser.add_argument('--plan', required=True)
     parser.add_argument('--plan-sha256', required=True)
     parser.add_argument('--work', required=True)
     parser.add_argument('--confirm')
+    parser.add_argument('--refined-plan')
+    parser.add_argument('--refined-plan-sha256')
     parser.add_argument('--business-seal')
     parser.add_argument('--business-seal-sha256')
     args = parser.parse_args(argv)
@@ -1048,7 +1297,11 @@ def main(argv=None):
         with (work / 'controller.lock').open('a') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             controller = Controller(plan, args.plan_sha256, work)
-            if args.action == 'seal':
+            if args.action == 'refine-prebridge':
+                controller.refine_prebridge({'path': args.refined_plan, 'sha256': args.refined_plan_sha256})
+            elif args.action == 'continue-prepare':
+                controller.continue_prepare()
+            elif args.action == 'seal':
                 controller.seal({'path': args.business_seal, 'sha256': args.business_seal_sha256})
             elif args.action != 'status':
                 getattr(controller, args.action)()
