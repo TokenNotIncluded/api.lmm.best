@@ -18,8 +18,6 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useState, useEffect, useCallback } from 'react'
 
-import { quotaToLegacyPlatformAmount } from '@/lib/currency'
-
 import { getTopupInfo } from '../api'
 import {
   generatePresetAmounts,
@@ -103,6 +101,8 @@ function parsePaymentMethods(
         topup_ratio: parseStringOrNumber(item.topup_ratio),
         max_topup: parseStringOrNumber(item.max_topup),
         max_topup_amount: parseStringOrNumber(item.max_topup_amount),
+        min_topup_credit: parseStringOrNumber(item.min_topup_credit),
+        max_topup_credit: parseStringOrNumber(item.max_topup_credit),
         legacy_min_topup: parseStringOrNumber(item.legacy_min_topup),
         legacy_max_topup_amount: parseStringOrNumber(
           item.legacy_max_topup_amount
@@ -164,12 +164,6 @@ function parseCreemProducts(data: unknown): CreemProduct[] {
       }
     })
     .filter((item) => item.name && item.productId)
-}
-
-function parseAmountOptions(data: unknown): number[] {
-  return parseJsonArray(data)
-    .map((item) => Number(item))
-    .filter((item) => Number.isFinite(item) && item > 0)
 }
 
 function parseDiscountMap(data: unknown): Record<number, number> {
@@ -235,44 +229,62 @@ export function useTopupInfo() {
         return
       }
 
-      // New servers expose explicit legacy-batch fields while preserving raw
-      // CREDIT catalogs for old clients. Convert a labelled fallback only once.
-      const creditCatalog = response.data.amount_unit === 'CREDIT'
+      // New money routes require their exact raw-credit catalog. Old servers
+      // must not fall back to a legacy float amount or an old payment endpoint.
+      const raw = response.data
+      const isQuota = (value: unknown): value is number =>
+        typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+      const creditMetadataReady =
+        raw.credit_metadata_available !== false &&
+        raw.credit_metadata_version === 1 &&
+        Array.isArray(raw.credit_amount_options) &&
+        raw.credit_amount_options.every(
+          (value) => isQuota(value) && value > 0
+        ) &&
+        raw.credit_discount !== null &&
+        typeof raw.credit_discount === 'object' &&
+        !Array.isArray(raw.credit_discount) &&
+        [
+          raw.credit_min_topup,
+          raw.stripe_credit_min_topup,
+          raw.waffo_credit_min_topup,
+          raw.pancake_credit_min_topup,
+        ].every(isQuota)
       const amountOptions =
-        response.data.legacy_amount_options !== undefined
-          ? parseAmountOptions(response.data.legacy_amount_options)
-          : parseAmountOptions(response.data.amount_options)
-              .map((value) =>
-                creditCatalog ? quotaToLegacyPlatformAmount(value) : value
-              )
-              .filter((value) => Number.isFinite(value) && value > 0)
-      const discountCatalog =
-        response.data.legacy_discount !== undefined
-          ? parseDiscountMap(response.data.legacy_discount)
-          : Object.fromEntries(
-              Object.entries(parseDiscountMap(response.data.discount)).flatMap(
-                ([key, value]) => {
-                  const amount = creditCatalog
-                    ? quotaToLegacyPlatformAmount(Number(key))
-                    : Number(key)
-                  return Number.isFinite(amount) && amount > 0
-                    ? [[amount, value]]
-                    : []
-                }
-              )
+        creditMetadataReady && Array.isArray(raw.credit_amount_options)
+          ? raw.credit_amount_options
+          : []
+      const discountCatalog = creditMetadataReady
+        ? Object.fromEntries(
+            Object.entries(parseDiscountMap(raw.credit_discount)).filter(
+              ([key]) => Number.isSafeInteger(Number(key)) && Number(key) > 0
             )
+          )
+        : {}
+      const minimum = (value: unknown) =>
+        creditMetadataReady && isQuota(value) ? value : 0
       const processedData: TopupInfo = {
         ...response.data,
         topup_group_ratio: (() => {
           const ratio = Number(response.data.topup_group_ratio)
           return Number.isFinite(ratio) && ratio > 0 ? ratio : 1
         })(),
-        pay_methods: parsePaymentMethods(
-          response.data.pay_methods,
-          response.data.stripe_min_topup
+        enable_online_topup: creditMetadataReady && raw.enable_online_topup,
+        enable_stripe_topup: creditMetadataReady && raw.enable_stripe_topup,
+        enable_waffo_topup: creditMetadataReady && raw.enable_waffo_topup,
+        enable_waffo_pancake_topup:
+          creditMetadataReady && raw.enable_waffo_pancake_topup,
+        pay_methods: creditMetadataReady
+          ? parsePaymentMethods(raw.pay_methods, raw.stripe_min_topup)
+          : [],
+        amount_unit: 'CREDIT',
+        min_topup: minimum(raw.credit_min_topup),
+        stripe_min_topup: minimum(raw.stripe_credit_min_topup),
+        waffo_min_topup: minimum(raw.waffo_credit_min_topup),
+        waffo_pancake_min_topup: minimum(raw.pancake_credit_min_topup),
+        amount_options: amountOptions.filter(
+          (quota) => Number.isSafeInteger(quota) && quota > 0
         ),
-        amount_unit: 'LEGACY',
-        amount_options: amountOptions,
         discount: discountCatalog,
         creem_products: parseCreemProducts(response.data.creem_products),
         waffo_pay_methods: parseWaffoPayMethods(
@@ -282,7 +294,9 @@ export function useTopupInfo() {
 
       setTopupInfo(processedData)
 
-      if (processedData.amount_options.length > 0) {
+      if (!creditMetadataReady) {
+        setPresetAmounts([])
+      } else if (processedData.amount_options.length > 0) {
         const customPresets = mergePresetAmounts(
           processedData.amount_options,
           processedData.discount || {}

@@ -19,6 +19,8 @@ For commercial licensing, please contact support@quantumnous.com
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
+import { api } from '@/lib/api'
+
 import { PAYMENT_TYPES } from '../constants'
 import {
   isPositivePaymentAmount,
@@ -51,7 +53,7 @@ describe('payment amount routing', () => {
     })
 
     assert.deepEqual(requests, [
-      { amount: 10, amount_unit: 'LEGACY', payment_method: 'epay' },
+      { amount: 10, amount_unit: 'CREDIT', payment_method: 'epay' },
     ])
   })
 
@@ -72,7 +74,7 @@ describe('payment amount routing', () => {
       waffoPancake: sharedCalculator,
     })
 
-    assert.deepEqual(requests, [{ amount: 10, amount_unit: 'LEGACY' }])
+    assert.deepEqual(requests, [{ amount: 10, amount_unit: 'CREDIT' }])
   })
 
   test('uses the dedicated Waffo amount calculator', async () => {
@@ -102,10 +104,10 @@ describe('payment amount routing', () => {
 })
 
 test('uses authoritative credited quota without treating it as the payment amount', async () => {
-  const quote = await requestPaymentQuote(0.000002, 'card', {
+  const quote = await requestPaymentQuote(1, 'card', {
     regular: async (request) => {
-      assert.equal(request.amount, 0.000002)
-      assert.equal(request.amount_unit, 'LEGACY')
+      assert.equal(request.amount, 1)
+      assert.equal(request.amount_unit, 'CREDIT')
       return {
         success: true,
         data: '0.01',
@@ -120,4 +122,131 @@ test('uses authoritative credited quota without treating it as the payment amoun
   assert.equal(quote.amount, 0.01)
   assert.equal(quote.creditedQuota, 1)
   assert.equal(quote.paymentCurrency, 'USD')
+})
+
+test('raw CREDIT quote validation rejects invalid values without calling any gateway calculator', async () => {
+  let calls = 0
+  const calculator = async () => {
+    calls++
+    return { success: true, data: '0.01' }
+  }
+  const calculators = {
+    regular: calculator,
+    stripe: calculator,
+    waffo: calculator,
+    waffoPancake: calculator,
+  }
+  for (const paymentType of [
+    'card',
+    PAYMENT_TYPES.STRIPE,
+    PAYMENT_TYPES.WAFFO,
+    PAYMENT_TYPES.WAFFO_PANCAKE,
+  ]) {
+    for (const amount of [
+      0,
+      -1,
+      0.000002,
+      1.5,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.MAX_SAFE_INTEGER + 1,
+    ]) {
+      assert.deepEqual(
+        await requestPaymentQuote(amount, paymentType, calculators),
+        {
+          amount: 0,
+          settlementQuote: null,
+          errorReason: 'Invalid top-up amount',
+        }
+      )
+    }
+  }
+  assert.equal(calls, 0)
+})
+
+test('gateway routing preserves large raw integers and the discount code without treating fiat as CREDIT', async () => {
+  for (const rawAmount of [
+    1,
+    4503599627370497,
+    9007199254740987,
+    Number.MAX_SAFE_INTEGER,
+  ]) {
+    const requests: unknown[] = []
+    const calculator = async (request: {
+      amount: number
+      amount_unit?: 'CREDIT'
+      discount_code?: string
+    }) => {
+      requests.push(request)
+      return {
+        success: true,
+        data: '0.0100',
+        settlement_currency: 'USD',
+        credited_quota: rawAmount,
+      }
+    }
+    const quote = await requestPaymentQuote(
+      rawAmount,
+      PAYMENT_TYPES.STRIPE,
+      'SAVE',
+      {
+        regular: calculator,
+        stripe: calculator,
+        waffo: calculator,
+        waffoPancake: calculator,
+      }
+    )
+    assert.deepEqual(requests, [
+      { amount: rawAmount, amount_unit: 'CREDIT', discount_code: 'SAVE' },
+    ])
+    assert.equal(quote.amount, 0.01)
+    assert.equal(quote.creditedQuota, rawAmount)
+    assert.equal(quote.paymentCurrency, 'USD')
+  }
+})
+
+test('default quote calculators fail closed on missing CREDIT routes without legacy fallback', async () => {
+  const originalPost = api.post
+  const captured: Array<{ url: string; body: unknown }> = []
+  api.post = (async (url: string, body: unknown) => {
+    captured.push({ url, body })
+    throw {
+      isAxiosError: true,
+      response: { status: 404, data: { message: 'CREDIT unavailable' } },
+    }
+  }) as typeof api.post
+  try {
+    for (const paymentType of [
+      'card',
+      PAYMENT_TYPES.STRIPE,
+      PAYMENT_TYPES.WAFFO,
+      PAYMENT_TYPES.WAFFO_PANCAKE,
+    ]) {
+      assert.deepEqual(await requestPaymentQuote(1, paymentType), {
+        amount: 0,
+        settlementQuote: null,
+        errorReason: 'CREDIT unavailable',
+      })
+    }
+    assert.deepEqual(captured, [
+      {
+        url: '/api/user/topup/currency/amount',
+        body: { amount: 1, amount_unit: 'CREDIT', payment_method: 'card' },
+      },
+      {
+        url: '/api/user/topup/currency/stripe/amount',
+        body: { amount: 1, amount_unit: 'CREDIT' },
+      },
+      {
+        url: '/api/user/topup/currency/waffo/amount',
+        body: { amount: 1, amount_unit: 'CREDIT' },
+      },
+      {
+        url: '/api/user/topup/currency/waffo-pancake/amount',
+        body: { amount: 1, amount_unit: 'CREDIT' },
+      },
+    ])
+  } finally {
+    api.post = originalPost
+  }
 })

@@ -110,6 +110,24 @@ export function getPaymentMinTopupAmount(
   return minimum
 }
 
+function safeQuotaMetadata(value: unknown): number | null {
+  if (typeof value === 'string' && !/^\d+$/.test(value)) return null
+  if (typeof value !== 'string' && typeof value !== 'number') return null
+  const quota = Number(value)
+  return Number.isSafeInteger(quota) && quota >= 0 ? quota : null
+}
+
+/** The new wallet compares integer limits without a legacy float bridge. */
+export function getPaymentMinTopupQuota(method?: PaymentMethod): number {
+  if (!method) return 0
+  return safeQuotaMetadata(method.min_topup_credit) ?? Number.POSITIVE_INFINITY
+}
+
+export function getPaymentMaxTopupQuota(method?: PaymentMethod): number | null {
+  if (method?.max_topup_credit === undefined) return null
+  return safeQuotaMetadata(method.max_topup_credit) ?? 0
+}
+
 /**
  * Normalize a server-owned per-method payment multiplier. Missing or invalid
  * metadata keeps legacy payment methods at the neutral multiplier of 1.

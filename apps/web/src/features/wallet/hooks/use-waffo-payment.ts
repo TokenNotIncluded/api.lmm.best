@@ -20,7 +20,7 @@ import i18next from 'i18next'
 import { useState, useCallback } from 'react'
 import { toast } from 'sonner'
 
-import { requestWaffoPayment, isApiSuccess } from '../api'
+import { requestCreditWaffoPayment, isApiSuccess } from '../api'
 import {
   cancelPaymentCheckout,
   redirectToPaymentCheckout,
@@ -60,7 +60,7 @@ export function useWaffoPayment() {
       try {
         setProcessing(true)
         checkout = reservePaymentCheckout()
-        const response = await requestWaffoPayment({
+        const response = await requestCreditWaffoPayment({
           amount: topupAmount,
           pay_method_index: payMethodIndex,
           ...(discountCode ? { discount_code: discountCode } : {}),

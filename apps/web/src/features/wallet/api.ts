@@ -21,6 +21,10 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { bindTopupOrder, capturePreparedTopup } from './lib/topup-cloud-storage'
 import type {
+  CreditAmountRequest,
+  CreditPaymentRequest,
+  CreditWaffoPaymentRequest,
+  CreditPancakePaymentRequest,
   RedemptionRequest,
   PaymentRequest,
   AmountRequest,
@@ -359,3 +363,56 @@ export async function completeOrder(
   const res = await api.post('/api/user/topup/complete', request)
   return res.data
 }
+
+/** Separate paths prevent an N-1 server from interpreting raw Credits as legacy batches. */
+async function creditMoneyRequest<T>(
+  endpoint: string,
+  request: { amount: number }
+): Promise<T> {
+  if (!Number.isSafeInteger(request.amount) || request.amount <= 0) {
+    throw new Error('Invalid top-up amount')
+  }
+  const response = await api.post(
+    `/api/user/topup/currency/${endpoint}`,
+    {
+      ...request,
+      amount_unit: 'CREDIT',
+    },
+    { skipBusinessError: true } as Record<string, unknown>
+  )
+  return response.data
+}
+
+export const calculateCreditAmount = (request: CreditAmountRequest) =>
+  creditMoneyRequest<AmountResponse>('amount', request)
+export const calculateCreditStripeAmount = (request: CreditAmountRequest) =>
+  creditMoneyRequest<AmountResponse>('stripe/amount', request)
+export const calculateCreditWaffoAmount = (request: CreditAmountRequest) =>
+  creditMoneyRequest<AmountResponse>('waffo/amount', request)
+export const calculateCreditPancakeAmount = (request: CreditAmountRequest) =>
+  creditMoneyRequest<AmountResponse>('waffo-pancake/amount', request)
+export const validateCreditDiscountCode = (request: {
+  code: string
+  amount: number
+  payment_method?: string
+}) =>
+  creditMoneyRequest<DiscountCodeResponse>('discount-code/validate', request)
+export const requestCreditPayment = (request: CreditPaymentRequest) =>
+  checkoutRequest(() => creditMoneyRequest<PaymentResponse>('pay', request))
+export const requestCreditStripePayment = (request: CreditPaymentRequest) =>
+  checkoutRequest(() =>
+    creditMoneyRequest<StripePaymentResponse>('stripe/pay', request)
+  )
+export const requestCreditWaffoPayment = (request: CreditWaffoPaymentRequest) =>
+  checkoutRequest(() =>
+    creditMoneyRequest<WaffoPaymentResponse>('waffo/pay', request)
+  )
+export const requestCreditPancakePayment = (
+  request: CreditPancakePaymentRequest
+) =>
+  checkoutRequest(() =>
+    creditMoneyRequest<WaffoPancakePaymentResponse>(
+      'waffo-pancake/pay',
+      request
+    )
+  )

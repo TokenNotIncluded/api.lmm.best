@@ -74,8 +74,8 @@ import {
 import { PAYMENT_TYPES } from '../constants'
 import {
   getPaymentIcon,
-  getPaymentMaxTopupAmount,
-  getPaymentMinTopupAmount,
+  getPaymentMaxTopupQuota,
+  getPaymentMinTopupQuota,
   getPaymentTopupRatio,
   getDefaultPaymentType,
   getTopupAvailability,
@@ -114,6 +114,7 @@ interface RechargeFormCardProps {
   presetAmounts: PresetAmount[]
   selectedPreset: number | null
   onSelectPreset: (preset: PresetAmount) => void
+  /** Selected raw integer Credit amount, independent of display currency. */
   topupAmount: number
   onTopupAmountChange: (
     amount: number,
@@ -198,11 +199,10 @@ export function RechargeFormCard({
 }: RechargeFormCardProps) {
   const { t, i18n } = useTranslation()
   const currency = useWalletCurrency()
-  const formatPlatformCreditBalance = currency.formatLegacyAmount
+  const formatCreditQuota = currency.formatQuota
   const currencyKey = JSON.stringify([currency.currency, currency.config])
   const displayAmount = useCallback(
-    (amount: number) =>
-      currency.quotaToInput(currency.legacyAmountToQuota(amount)),
+    (amount: number) => currency.quotaToInput(amount),
     [currency]
   )
   const [amountInput, setAmountInput] = useState(() => ({
@@ -226,13 +226,9 @@ export function RechargeFormCard({
   const handleAmountChange = useCallback(
     (value: string) => {
       const quota = currency.amountToQuota(value)
-      const converted = currency.quotaToLegacyAmount(quota)
-      const batch =
-        Number.isSafeInteger(quota) && quota >= 0 && Number.isFinite(converted)
-          ? converted
-          : 0
-      setAmountInput({ sourceAmount: batch, currencyKey, value })
-      onTopupAmountChange(batch)
+      const rawQuota = Number.isSafeInteger(quota) && quota >= 0 ? quota : 0
+      setAmountInput({ sourceAmount: rawQuota, currencyKey, value })
+      onTopupAmountChange(rawQuota)
     },
     [currency, currencyKey, onTopupAmountChange]
   )
@@ -272,29 +268,33 @@ export function RechargeFormCard({
       ? {
           name: waffoMethods[0].name,
           type: PAYMENT_TYPES.WAFFO,
+          min_topup_credit: topupInfo?.waffo_min_topup,
           icon: waffoMethods[0].icon,
           settlement_unit: topupInfo?.waffo_currency || 'USD',
           unit_price: topupInfo?.waffo_unit_price,
         }
       : undefined)
-  const minTopup = Math.max(
-    configuredMinimum,
-    getPaymentMinTopupAmount(effectivePaymentMethod)
-  )
-  const maxTopup = getPaymentMaxTopupAmount(effectivePaymentMethod)
-  const clampTopupAmount = useCallback(
-    (value: number) =>
-      Math.max(minTopup, maxTopup === null ? value : Math.min(value, maxTopup)),
-    [maxTopup, minTopup]
-  )
+  const minTopup = effectivePaymentMethod
+    ? Math.max(1, getPaymentMinTopupQuota(effectivePaymentMethod))
+    : configuredMinimum
+  const maxTopup = getPaymentMaxTopupQuota(effectivePaymentMethod)
   const changeAmountBy = useCallback(
     (delta: number) => {
-      const current = currency.quotaToAmount(
-        currency.legacyAmountToQuota(topupAmount)
+      const deltaQuota = currency.amountToQuota(String(delta))
+      if (
+        !Number.isSafeInteger(deltaQuota) ||
+        !Number.isSafeInteger(topupAmount) ||
+        !Number.isSafeInteger(minTopup)
+      ) {
+        return
+      }
+      const lower = BigInt(minTopup)
+      const upper = BigInt(maxTopup ?? Number.MAX_SAFE_INTEGER)
+      if (lower > upper) return
+      const candidate = BigInt(topupAmount) + BigInt(deltaQuota)
+      const next = Number(
+        candidate < lower ? lower : candidate > upper ? upper : candidate
       )
-      const quota = currency.amountToQuota(Math.max(0, current + delta))
-      if (!Number.isSafeInteger(quota)) return
-      const next = clampTopupAmount(currency.quotaToLegacyAmount(quota))
       if (next !== topupAmount) {
         const parsedValue = next
         onTopupAmountChange(parsedValue, { deferQuote: true })
@@ -306,7 +306,8 @@ export function RechargeFormCard({
       }
     },
     [
-      clampTopupAmount,
+      minTopup,
+      maxTopup,
       currency,
       currencyKey,
       displayAmount,
@@ -402,7 +403,7 @@ export function RechargeFormCard({
       paymentMethod,
       currency.label,
       true,
-      formatPlatformCreditBalance
+      currency.formatLegacyAmount
     )
   const formatSelectedPaymentAmount = (amount: number) =>
     usesSettlementQuote
@@ -637,7 +638,7 @@ export function RechargeFormCard({
                                 hasDiscount: false,
                               }
                             : calculatePresetPricing(
-                                preset.value,
+                                currency.quotaToLegacyAmount(preset.value),
                                 priceRatio *
                                   topupGroupRatio *
                                   paymentTopupRatio,
@@ -645,7 +646,7 @@ export function RechargeFormCard({
                               )
                           const configuredSettlementPrice = settlementUnit
                             ? calculatePresetPricing(
-                                preset.value,
+                                currency.quotaToLegacyAmount(preset.value),
                                 settlementUnit.unitPrice *
                                   topupGroupRatio *
                                   paymentTopupRatio,
@@ -663,9 +664,7 @@ export function RechargeFormCard({
                                 hasDiscount: discount < 1,
                               }
                             : defaultPricing
-                          const credits = formatPlatformCreditBalance(
-                            preset.value
-                          )
+                          const credits = formatCreditQuota(preset.value)
                           const payment = formatPresetPaymentAmount(actualPrice)
                           const originalPayment =
                             formatPresetPaymentAmount(originalPrice)
@@ -725,7 +724,9 @@ export function RechargeFormCard({
                               }
                             >
                               <WalletTokenCloud
-                                amount={preset.value}
+                                amount={currency.quotaToLegacyAmount(
+                                  preset.value
+                                )}
                                 variant='preset'
                               />
                               <div className='pointer-events-none relative z-10 flex w-full min-w-0 flex-col items-start gap-1'>
@@ -813,7 +814,7 @@ export function RechargeFormCard({
                             min={displayAmount(minTopup) || undefined}
                             disabled={displayAmount(minTopup) === ''}
                             placeholder={t('Minimum {{amount}}', {
-                              amount: formatPlatformCreditBalance(minTopup),
+                              amount: formatCreditQuota(minTopup),
                             })}
                             aria-describedby='topup-amount-description'
                             aria-label={`${t('Top-up amount')} (${currency.label})`}
@@ -1036,10 +1037,10 @@ export function RechargeFormCard({
                       <div className='grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2'>
                         {standardMethods.map((method, index) => {
                           const minTopup = Math.max(
-                            getPaymentMinTopupAmount(method),
-                            getMinTopupAmount(topupInfo)
+                            1,
+                            getPaymentMinTopupQuota(method)
                           )
-                          const maxTopup = getPaymentMaxTopupAmount(method)
+                          const maxTopup = getPaymentMaxTopupQuota(method)
                           const belowMinimum = minTopup > topupAmount
                           const aboveMaximum =
                             maxTopup !== null && topupAmount > maxTopup
@@ -1050,19 +1051,19 @@ export function RechargeFormCard({
                             disabledReason = t(
                               'Minimum topup amount: {{amount}}',
                               {
-                                amount: formatPlatformCreditBalance(minTopup),
+                                amount: formatCreditQuota(minTopup),
                               }
                             )
-                            disabledLabel = `${t('Minimum:')} ${formatPlatformCreditBalance(minTopup)}`
+                            disabledLabel = `${t('Minimum:')} ${formatCreditQuota(minTopup)}`
                           } else if (aboveMaximum) {
                             disabledReason = t(
                               'Maximum credited balance per payment: {{amount}}',
                               {
-                                amount: formatPlatformCreditBalance(maxTopup),
+                                amount: formatCreditQuota(maxTopup),
                               }
                             )
                             disabledLabel = t('Maximum: {{amount}}', {
-                              amount: formatPlatformCreditBalance(maxTopup),
+                              amount: formatCreditQuota(maxTopup),
                             })
                           }
                           const settlementRule = shouldShowSettlementRule(
@@ -1237,11 +1238,11 @@ export function RechargeFormCard({
                         const belowMin = waffoMin > topupAmount
                         const disabledReason = belowMin
                           ? t('Minimum topup amount: {{amount}}', {
-                              amount: formatPlatformCreditBalance(waffoMin),
+                              amount: formatCreditQuota(waffoMin),
                             })
                           : undefined
                         const disabledLabel = belowMin
-                          ? `${t('Minimum:')} ${formatPlatformCreditBalance(waffoMin)}`
+                          ? `${t('Minimum:')} ${formatCreditQuota(waffoMin)}`
                           : undefined
                         const paymentMethodLabel = neutralMode
                           ? t('Payment option {{number}}', {

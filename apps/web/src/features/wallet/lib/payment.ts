@@ -32,6 +32,7 @@ import type {
   TopupRecord,
   WaffoPayMethod,
 } from '../types'
+import { getPaymentMinTopupQuota } from './payment-unit'
 import { parseSettlementQuote } from './settlement-quote'
 
 // ============================================================================
@@ -391,12 +392,25 @@ export function getDefaultPaymentType(
 /**
  * Get minimum topup amount from topup info
  */
-export function getMinTopupAmount(topupInfo: TopupInfo | null): number {
+export function getMinTopupAmount(
+  topupInfo: TopupInfo | null,
+  selectedType?: string | null
+): number {
   if (!topupInfo) {
     return DEFAULT_MIN_TOPUP
   }
 
-  const paymentType = getTopupAvailability(topupInfo).defaultQuotedType
+  const availability = getTopupAvailability(topupInfo)
+  const paymentType = selectedType ?? availability.defaultQuotedType
+  if (topupInfo.amount_unit === 'CREDIT') {
+    if (paymentType === PAYMENT_TYPES.WAFFO) {
+      return Math.max(1, topupInfo.waffo_min_topup ?? 1)
+    }
+    const method = availability.standardMethods.find(
+      (item) => item.type === paymentType
+    )
+    return method ? Math.max(1, getPaymentMinTopupQuota(method)) : 1
+  }
 
   if (paymentType === PAYMENT_TYPES.STRIPE) {
     return topupInfo.stripe_min_topup
@@ -443,7 +457,7 @@ export function getTopupRecordQuota(
 export function generatePresetAmounts(minAmount: number): PresetAmount[] {
   return DEFAULT_PRESET_MULTIPLIERS.map((multiplier) => ({
     value: minAmount * multiplier,
-  }))
+  })).filter((preset) => Number.isSafeInteger(preset.value) && preset.value > 0)
 }
 
 /**

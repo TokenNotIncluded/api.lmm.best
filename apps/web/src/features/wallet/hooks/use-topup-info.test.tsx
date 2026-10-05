@@ -70,6 +70,13 @@ async function loadTopupInfo(
       data: {
         success: true,
         data: {
+          credit_metadata_version: 1,
+          credit_amount_options: [5000000, 10000000, 25000000],
+          credit_discount: {},
+          credit_min_topup: 500000,
+          stripe_credit_min_topup: 5000000,
+          waffo_credit_min_topup: 0,
+          pancake_credit_min_topup: 0,
           enable_online_topup: true,
           enable_stripe_topup: true,
           min_topup: 1,
@@ -190,43 +197,52 @@ test('keeps incomplete preferred rates visible to settlement validation instead 
   assert.equal(getPaymentSettlementMetadata(topupInfo.pay_methods[0]), null)
 })
 
-test('prefers normalized legacy presets and converts a labelled raw-credit fallback exactly once', async () => {
-  const { useSystemConfigStore } = await import('@/stores/system-config-store')
-  const original = useSystemConfigStore.getState().config
-  useSystemConfigStore.setState((state) => ({
-    config: {
-      ...state.config,
-      currency: { ...state.config.currency, quotaPerUnit: 500000 },
-    },
-  }))
-  try {
-    const normalized = await loadTopupInfo([], {
-      amount_unit: 'CREDIT',
-      amount_options: [500000],
-      discount: { 500000: 0.9 },
-      legacy_amount_unit: 'LEGACY',
-      legacy_amount_options: [1],
-      legacy_discount: { 1: 0.9 },
+test('keeps raw catalogs exact even when legacy aliases cannot round-trip', async () => {
+  const quotas = [1, 4503599627370497, 9007199254740987]
+  const info = await loadTopupInfo([], {
+    credit_amount_options: quotas,
+    credit_discount: { 1: 0.9, 9007199254740987: 0.8 },
+    amount_unit: 'LEGACY',
+    legacy_amount_options: [0.0000033333333333333333, 9007199254.740993],
+    legacy_discount: { 1: 0.5 },
+  })
+  assert.deepEqual(info.amount_options, quotas)
+  assert.deepEqual(info.discount, { 1: 0.9, 9007199254740987: 0.8 })
+  assert.equal(info.amount_unit, 'CREDIT')
+})
+
+test('missing or invalid raw metadata disables editable money without disabling fixed products', async () => {
+  for (const extra of [
+    { credit_metadata_version: undefined },
+    { credit_metadata_available: false },
+    { credit_amount_options: undefined },
+    { credit_min_topup: Number.MAX_SAFE_INTEGER + 1 },
+  ]) {
+    const info = await loadTopupInfo([{ name: 'Card', type: 'card' }], {
+      ...extra,
+      enable_waffo_topup: true,
+      enable_waffo_pancake_topup: true,
+      enable_creem_topup: true,
+      enable_redemption: true,
+      creem_products: [
+        {
+          name: 'Fixed',
+          productId: 'fixed',
+          quota: 1,
+          price: 1,
+          currency: 'USD',
+        },
+      ],
     })
-    assert.deepEqual(normalized.amount_options, [1])
-    assert.deepEqual(normalized.discount, { 1: 0.9 })
-    assert.equal(normalized.amount_unit, 'LEGACY')
-    const fallback = await loadTopupInfo([], {
-      amount_unit: 'CREDIT',
-      amount_options: [1, 500000],
-      discount: { 500000: 0.9 },
-    })
-    assert.deepEqual(fallback.amount_options, [0.000002, 1])
-    assert.deepEqual(fallback.discount, { 1: 0.9 })
-    const batch = await loadTopupInfo([], {
-      amount_unit: 'LEGACY',
-      amount_options: [1],
-      discount: { 1: 0.9 },
-    })
-    assert.deepEqual(batch.amount_options, [1])
-    assert.deepEqual(batch.discount, { 1: 0.9 })
-  } finally {
-    useSystemConfigStore.setState({ config: original })
+    assert.equal(info.enable_online_topup, false)
+    assert.equal(info.enable_stripe_topup, false)
+    assert.equal(info.enable_waffo_topup, false)
+    assert.equal(info.enable_waffo_pancake_topup, false)
+    assert.deepEqual(info.pay_methods, [])
+    assert.deepEqual(info.amount_options, [])
+    assert.equal(info.enable_creem_topup, true)
+    assert.equal(info.creem_products?.[0].quota, 1)
+    assert.equal(info.enable_redemption, true)
   }
 })
 

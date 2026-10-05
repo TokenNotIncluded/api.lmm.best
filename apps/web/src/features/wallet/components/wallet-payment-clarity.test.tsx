@@ -228,18 +228,26 @@ after(() => {
 })
 
 const topupInfo = {
+  credit_metadata_version: 1,
+  credit_amount_options: [50000000],
+  credit_discount: {},
+  credit_min_topup: 5000000,
+  stripe_credit_min_topup: 5000000,
+  waffo_credit_min_topup: 0,
+  pancake_credit_min_topup: 0,
   enable_online_topup: true,
   enable_stripe_topup: false,
   pay_methods: [
     {
       name: 'Alipay',
       type: 'alipay',
+      min_topup_credit: '0',
       settlement_unit: 'CNY',
       unit_price: '5.4',
     },
   ],
-  min_topup: 10,
-  stripe_min_topup: 10,
+  min_topup: 5000000,
+  stripe_min_topup: 5000000,
   amount_options: [100],
   discount: {},
 }
@@ -373,10 +381,10 @@ describe('wallet payment clarity', () => {
     const rendered = await render(
       <RechargeFormCard
         topupInfo={topupInfo}
-        presetAmounts={[{ value: 10 }]}
+        presetAmounts={[{ value: 5000000 }]}
         selectedPreset={null}
         onSelectPreset={() => undefined}
-        topupAmount={10}
+        topupAmount={5000000}
         onTopupAmountChange={() => undefined}
         paymentAmount={54}
         calculating={false}
@@ -444,11 +452,11 @@ describe('wallet payment clarity', () => {
     const changes: number[] = []
 
     function Harness() {
-      const [amount, setAmount] = useState(10)
+      const [amount, setAmount] = useState(5000000)
       return (
         <RechargeFormCard
           topupInfo={topupInfo}
-          presetAmounts={[{ value: 10 }]}
+          presetAmounts={[{ value: 5000000 }]}
           selectedPreset={null}
           onSelectPreset={() => undefined}
           topupAmount={amount}
@@ -476,11 +484,11 @@ describe('wallet payment clarity', () => {
     const down = new Event('pointerdown', { bubbles: true })
     Object.defineProperties(down, {
       button: { value: 0 },
-      pointerId: { value: 1 },
+      pointerId: { value: 500000 },
       pointerType: { value: 'mouse' },
     })
     await act(async () => increase.dispatchEvent(down))
-    assert.deepEqual(changes, [11])
+    assert.deepEqual(changes, [5500000])
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 520))
     })
@@ -504,16 +512,17 @@ describe('wallet payment clarity', () => {
       const rendered = await render(
         <RechargeFormCard
           topupInfo={topupInfo}
-          presetAmounts={[{ value: 10 }, { value: 20 }]}
-          selectedPreset={10}
+          presetAmounts={[{ value: 5000000 }, { value: 10000000 }]}
+          selectedPreset={5000000}
           onSelectPreset={() => undefined}
-          topupAmount={10}
+          topupAmount={5000000}
           onTopupAmountChange={() => undefined}
           paymentAmount={999}
           settlementQuote={{ amount: '1.4900', currency: 'USD' }}
           selectedPaymentMethod={{
             name: 'Waffo Pancake',
             type: 'waffo_pancake',
+            min_topup_credit: '0',
           }}
           calculating={calculating}
           onPaymentMethodSelect={() => undefined}
@@ -548,10 +557,10 @@ describe('wallet payment clarity', () => {
     const rendered = await render(
       <RechargeFormCard
         topupInfo={topupInfo}
-        presetAmounts={[{ value: 10 }]}
-        selectedPreset={10}
+        presetAmounts={[{ value: 5000000 }]}
+        selectedPreset={5000000}
         onSelectPreset={() => undefined}
-        topupAmount={10}
+        topupAmount={5000000}
         onTopupAmountChange={() => undefined}
         paymentAmount={0}
         settlementQuote={null}
@@ -591,15 +600,16 @@ describe('wallet payment clarity', () => {
     const rendered = await render(
       <RechargeFormCard
         topupInfo={topupInfo}
-        presetAmounts={[{ value: 10 }]}
-        selectedPreset={10}
+        presetAmounts={[{ value: 5000000 }]}
+        selectedPreset={5000000}
         onSelectPreset={() => undefined}
-        topupAmount={10}
+        topupAmount={5000000}
         onTopupAmountChange={() => undefined}
         paymentAmount={236.11}
         selectedPaymentMethod={{
           name: 'Waffo Pancake',
           type: 'waffo_pancake',
+          min_topup_credit: '0',
           settlement_currency: 'USD',
           platform_units_per_usd: '6.8',
           settlement_units_per_usd: '1',
@@ -632,7 +642,7 @@ describe('wallet payment clarity', () => {
           presetAmounts={[]}
           selectedPreset={null}
           onSelectPreset={() => undefined}
-          topupAmount={10}
+          topupAmount={5000000}
           onTopupAmountChange={() => undefined}
           paymentAmount={invalidAmount}
           calculating={false}
@@ -657,7 +667,7 @@ describe('wallet payment clarity', () => {
           open
           onOpenChange={() => undefined}
           onConfirm={() => undefined}
-          topupAmount={10}
+          topupAmount={5000000}
           paymentAmount={invalidAmount}
           paymentMethod={{ name: 'Waffo Pancake', type: 'waffo_pancake' }}
           calculating={false}
@@ -691,7 +701,7 @@ describe('wallet payment clarity', () => {
           open
           onOpenChange={() => undefined}
           onConfirm={() => undefined}
-          topupAmount={1}
+          topupAmount={500000}
           paymentAmount={0.15}
           paymentMethod={{ name: 'Alipay', type: 'alipay' }}
           calculating={state.calculating}
@@ -716,23 +726,24 @@ describe('wallet payment clarity', () => {
     const paymentMethod = {
       name: 'USD card',
       type: 'card',
+      min_topup_credit: '3400000',
       settlement_currency: 'USD',
       platform_units_per_usd: '6.8',
       settlement_units_per_usd: '1',
-      min_topup: 6.8,
+      min_topup: 3400000,
       max_topup: '68',
     }
     const recharge = await render(
       <RechargeFormCard
         topupInfo={{
           ...topupInfo,
-          min_topup: 6.8,
+          min_topup: 3400000,
           pay_methods: [paymentMethod],
         }}
-        presetAmounts={[{ value: 6.8 }]}
-        selectedPreset={6.8}
+        presetAmounts={[{ value: 3400000 }]}
+        selectedPreset={3400000}
         onSelectPreset={() => undefined}
-        topupAmount={6.8}
+        topupAmount={3400000}
         onTopupAmountChange={() => undefined}
         paymentAmount={1}
         selectedPaymentMethod={paymentMethod}
@@ -774,7 +785,7 @@ describe('wallet payment clarity', () => {
         open
         onOpenChange={() => undefined}
         onConfirm={() => undefined}
-        topupAmount={6.8}
+        topupAmount={3400000}
         paymentAmount={1}
         paymentMethod={paymentMethod}
         calculating={false}
@@ -796,6 +807,7 @@ describe('wallet payment clarity', () => {
     const paymentMethod = {
       name: 'CNY gateway',
       type: 'card',
+      min_topup_credit: '0',
       settlement_currency: 'CNY',
       platform_units_per_usd: '6.8',
       settlement_units_per_usd: '6.8',
@@ -803,10 +815,10 @@ describe('wallet payment clarity', () => {
     const rendered = await render(
       <RechargeFormCard
         topupInfo={{ ...topupInfo, pay_methods: [paymentMethod] }}
-        presetAmounts={[{ value: 6.8 }]}
-        selectedPreset={6.8}
+        presetAmounts={[{ value: 3400000 }]}
+        selectedPreset={3400000}
         onSelectPreset={() => undefined}
-        topupAmount={6.8}
+        topupAmount={3400000}
         onTopupAmountChange={() => undefined}
         paymentAmount={6.8}
         selectedPaymentMethod={paymentMethod}
@@ -845,10 +857,13 @@ describe('wallet payment clarity', () => {
     const rendered = await render(
       <RechargeFormCard
         topupInfo={topupInfo}
-        presetAmounts={[{ value: 100 }, { value: 200, discount: 0.8 }]}
+        presetAmounts={[
+          { value: 50000000 },
+          { value: 100000000, discount: 0.8 },
+        ]}
         selectedPreset={null}
         onSelectPreset={() => undefined}
-        topupAmount={100}
+        topupAmount={50000000}
         onTopupAmountChange={() => undefined}
         paymentAmount={540}
         calculating={false}
@@ -925,11 +940,11 @@ describe('wallet payment clarity', () => {
     setCnyBillingCurrency()
     const rendered = await render(
       <RechargeFormCard
-        topupInfo={{ ...topupInfo, discount: { 100: 0.8 } }}
-        presetAmounts={[{ value: 100, discount: 0.8 }]}
-        selectedPreset={100}
+        topupInfo={{ ...topupInfo, discount: { 50000000: 0.8 } }}
+        presetAmounts={[{ value: 50000000, discount: 0.8 }]}
+        selectedPreset={50000000}
         onSelectPreset={() => undefined}
-        topupAmount={100}
+        topupAmount={50000000}
         onTopupAmountChange={() => undefined}
         paymentAmount={80}
         calculating={false}
@@ -979,10 +994,10 @@ describe('wallet payment clarity', () => {
     const rendered = await render(
       <RechargeFormCard
         topupInfo={topupInfo}
-        presetAmounts={[{ value: 100, discount: Number.NaN }]}
-        selectedPreset={100}
+        presetAmounts={[{ value: 50000000, discount: Number.NaN }]}
+        selectedPreset={50000000}
         onSelectPreset={() => undefined}
-        topupAmount={100}
+        topupAmount={50000000}
         onTopupAmountChange={() => undefined}
         paymentAmount={80}
         calculating={false}
@@ -1018,7 +1033,7 @@ describe('wallet payment clarity', () => {
         presetAmounts={[]}
         selectedPreset={null}
         onSelectPreset={() => undefined}
-        topupAmount={1}
+        topupAmount={500000}
         onTopupAmountChange={() => undefined}
         paymentAmount={0.14}
         calculating={false}
@@ -1069,20 +1084,21 @@ describe('wallet payment clarity', () => {
       settlement_unit: 'LDC',
       topup_ratio: '0.5',
       type: 'epay',
+      min_topup_credit: '0',
       unit_price: '10',
     }
     const recharge = await render(
       <RechargeFormCard
         topupInfo={{
           ...topupInfo,
-          discount: { 1: 0.8 },
+          discount: { 500000: 0.8 },
           pay_methods: [paymentMethod],
           topup_group_ratio: 0.14,
         }}
-        presetAmounts={[{ value: 1, discount: 0.8 }]}
-        selectedPreset={1}
+        presetAmounts={[{ value: 500000, discount: 0.8 }]}
+        selectedPreset={500000}
         onSelectPreset={() => undefined}
-        topupAmount={1}
+        topupAmount={500000}
         onTopupAmountChange={() => undefined}
         paymentAmount={0.56}
         calculating={false}
@@ -1122,7 +1138,7 @@ describe('wallet payment clarity', () => {
         open
         onOpenChange={() => undefined}
         onConfirm={() => undefined}
-        topupAmount={1}
+        topupAmount={500000}
         paymentAmount={0.56}
         paymentMethod={paymentMethod}
         calculating={false}
@@ -1149,15 +1165,17 @@ describe('wallet payment clarity', () => {
             {
               name: 'LINUX DO Credit',
               type: 'epay',
+              min_topup_credit: '0',
               max_topup: '20',
               max_topup_amount: '20',
+              max_topup_credit: '10000000',
             },
           ],
         }}
         presetAmounts={[]}
         selectedPreset={null}
         onSelectPreset={() => undefined}
-        topupAmount={25}
+        topupAmount={12500000}
         onTopupAmountChange={() => undefined}
         paymentAmount={25}
         calculating={false}
@@ -1193,11 +1211,13 @@ describe('wallet payment clarity', () => {
       const method = {
         name: 'Limited custom gateway',
         type: 'epay',
+        min_topup_credit: '0',
         settlement_currency: 'LDC',
         platform_units_per_usd: '99',
         settlement_units_per_usd: '10',
         max_topup: '2.5',
         max_topup_amount: '17',
+        max_topup_credit: '8500000',
       }
       const rendered = await render(
         <RechargeFormCard
@@ -1205,7 +1225,7 @@ describe('wallet payment clarity', () => {
           presetAmounts={[]}
           selectedPreset={null}
           onSelectPreset={() => undefined}
-          topupAmount={amount}
+          topupAmount={amount * 500000}
           onTopupAmountChange={() => undefined}
           paymentAmount={1}
           calculating={false}
@@ -1244,13 +1264,18 @@ describe('wallet payment clarity', () => {
         topupInfo={{
           ...topupInfo,
           pay_methods: [
-            { name: 'Legacy gateway', type: 'epay', max_topup: '2.5' },
+            {
+              name: 'Legacy gateway',
+              type: 'epay',
+              min_topup_credit: '0',
+              max_topup: '2.5',
+            },
           ],
         }}
         presetAmounts={[]}
         selectedPreset={null}
         onSelectPreset={() => undefined}
-        topupAmount={17}
+        topupAmount={8500000}
         onTopupAmountChange={() => undefined}
         paymentAmount={1}
         calculating={false}
@@ -1275,10 +1300,10 @@ describe('wallet payment clarity', () => {
     const rendered = await render(
       <RechargeFormCard
         topupInfo={{ ...topupInfo, topup_group_ratio: 0.14 }}
-        presetAmounts={[{ value: 1 }]}
-        selectedPreset={1}
+        presetAmounts={[{ value: 500000 }]}
+        selectedPreset={500000}
         onSelectPreset={() => undefined}
-        topupAmount={1}
+        topupAmount={500000}
         onTopupAmountChange={() => undefined}
         paymentAmount={0.14}
         calculating={false}
@@ -1313,7 +1338,7 @@ describe('wallet payment clarity', () => {
         open
         onOpenChange={() => undefined}
         onConfirm={() => undefined}
-        topupAmount={1}
+        topupAmount={500000}
         paymentAmount={0.15}
         paymentMethod={{ name: 'Alipay', type: 'alipay' }}
         calculating={false}
@@ -1356,11 +1381,11 @@ describe('wallet payment clarity', () => {
     const rendered = await render(
       <RechargeFormCard
         presetAmounts={[1, 2, 5, 10, 20, 50, 100, 500].map((value) => ({
-          value,
+          value: value * 500000,
         }))}
-        selectedPreset={100}
+        selectedPreset={50000000}
         onSelectPreset={() => undefined}
-        topupAmount={1}
+        topupAmount={500000}
         onTopupAmountChange={() => undefined}
         paymentAmount={0.14}
         calculating={false}
@@ -1372,7 +1397,7 @@ describe('wallet payment clarity', () => {
         redeeming={false}
         topupInfo={{
           ...topupInfo,
-          discount: { 50: 0.95, 100: 0.8, 500: 0.7 },
+          discount: { 25000000: 0.95, 50000000: 0.8, 250000000: 0.7 },
           enable_waffo_pancake_topup: true,
           pay_methods: [
             ...topupInfo.pay_methods,
@@ -1465,11 +1490,11 @@ describe('wallet payment clarity', () => {
     setUsdBillingCurrency()
     const rendered = await render(
       <RechargeFormCard
-        topupInfo={{ ...topupInfo, discount: { 100: 0.8 } }}
-        presetAmounts={[{ value: 100, discount: 0.8 }]}
-        selectedPreset={100}
+        topupInfo={{ ...topupInfo, discount: { 50000000: 0.8 } }}
+        presetAmounts={[{ value: 50000000, discount: 0.8 }]}
+        selectedPreset={50000000}
         onSelectPreset={() => undefined}
-        topupAmount={100}
+        topupAmount={50000000}
         onTopupAmountChange={() => undefined}
         paymentAmount={80}
         calculating={false}
@@ -1505,12 +1530,13 @@ describe('wallet payment clarity', () => {
         open
         onOpenChange={() => undefined}
         onConfirm={() => undefined}
-        topupAmount={100}
+        topupAmount={50000000}
         paymentAmount={8.47}
         settlementQuote={{ amount: '8.4700', currency: 'USD' }}
         paymentMethod={{
           name: 'Waffo Pancake',
           type: 'waffo_pancake',
+          min_topup_credit: '0',
         }}
         calculating={false}
         processing={false}
@@ -1576,16 +1602,17 @@ test('one Credit survives currency switches and quote requests keep their origin
       },
     }
   }) as typeof api.post
-  const { calculateAmount } = await import('../api')
+  const { calculateCreditAmount } = await import('../api')
   const method = {
     name: 'Card',
     type: 'card',
+    min_topup_credit: '0',
     settlement_currency: 'CNY',
     platform_units_per_usd: '6.8',
     settlement_units_per_usd: '1',
   }
   function Harness() {
-    const [batch, setBatch] = useState(0.000002)
+    const [quota, setQuota] = useState(1)
     return (
       <>
         <RechargeFormCard
@@ -1593,10 +1620,13 @@ test('one Credit survives currency switches and quote requests keep their origin
           presetAmounts={[]}
           selectedPreset={null}
           onSelectPreset={() => undefined}
-          topupAmount={batch}
+          topupAmount={quota}
           onTopupAmountChange={(value) => {
-            setBatch(value)
-            void calculateAmount({ amount: value, payment_method: 'card' })
+            setQuota(value)
+            void calculateCreditAmount({
+              amount: value,
+              payment_method: 'card',
+            })
           }}
           paymentAmount={0.01}
           paymentCurrency='USD'
@@ -1613,7 +1643,7 @@ test('one Credit survives currency switches and quote requests keep their origin
           open
           onOpenChange={() => undefined}
           onConfirm={() => undefined}
-          topupAmount={batch}
+          topupAmount={quota}
           creditedQuota={1}
           paymentAmount={0.01}
           paymentCurrency='USD'
@@ -1647,7 +1677,7 @@ test('one Credit survives currency switches and quote requests keep their origin
   }
   await editInput(input, '2')
   assert.deepEqual(requests, [
-    { amount: 0.000004, payment_method: 'card', amount_unit: 'LEGACY' },
+    { amount: 2, payment_method: 'card', amount_unit: 'CREDIT' },
   ])
   await act(async () => {
     useWalletCurrencyPreferenceStore.getState().setPreference('CNY')
@@ -1655,9 +1685,9 @@ test('one Credit survives currency switches and quote requests keep their origin
   assert.equal(input.value, '0.000004') // Two Credits, not two CNY.
   await editInput(input, '1')
   assert.deepEqual(requests.at(-1), {
-    amount: 1,
+    amount: 500000,
     payment_method: 'card',
-    amount_unit: 'LEGACY',
+    amount_unit: 'CREDIT',
   })
   await act(async () => {
     useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
@@ -1751,4 +1781,147 @@ test('a one-Credit private transfer keeps raw quota when its display currency ch
   assert.equal(Object.hasOwn(bodies[0], 'amount'), false)
   await unmount(rendered)
   client.clear()
+})
+
+for (const scenario of [
+  { currency: 'USD', initial: 1000000, expected: 4500000 },
+  { currency: 'CNY', initial: 1, expected: 437501 },
+] as const) {
+  test(`amount arrows add to raw credit without round-tripping current ${scenario.currency} float`, async () => {
+    await i18n.changeLanguage('en')
+    useWalletCurrencyPreferenceStore.getState().setPreference(scenario.currency)
+    useSystemConfigStore.setState((state) => ({
+      config: {
+        ...state.config,
+        currency: {
+          ...state.config.currency,
+          creditsPerUsd: 3500000,
+          creditsPerUsdExact: '3500000',
+          cnyPerUsd: 8,
+          cnyPerUsdExact: '8',
+        },
+      },
+    }))
+    const changes: number[] = []
+    function Harness() {
+      const [quota, setQuota] = useState<number>(scenario.initial)
+      return (
+        <RechargeFormCard
+          topupInfo={{ ...topupInfo, min_topup: 1 }}
+          presetAmounts={[]}
+          selectedPreset={null}
+          onSelectPreset={() => undefined}
+          topupAmount={quota}
+          onTopupAmountChange={(value) => {
+            changes.push(value)
+            setQuota(value)
+          }}
+          paymentAmount={1}
+          calculating={false}
+          onPaymentMethodSelect={() => undefined}
+          paymentLoading={null}
+          redemptionCode=''
+          onRedemptionCodeChange={() => undefined}
+          onRedeem={() => undefined}
+          redeeming={false}
+        />
+      )
+    }
+    const rendered = await render(<Harness />)
+    const increase = rendered.container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Increase amount"]'
+    )
+    assert.ok(increase)
+    const event = new Event('keydown', { bubbles: true })
+    Object.defineProperty(event, 'key', { value: 'Enter' })
+    await act(async () => increase.dispatchEvent(event))
+    assert.deepEqual(changes, [scenario.expected])
+    await unmount(rendered)
+  })
+}
+
+test('raw min and max limits keep a one-Credit difference near MAX_SAFE_INTEGER', async () => {
+  await i18n.changeLanguage('en')
+  useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
+  for (const quota of [9007199254740986, 9007199254740987]) {
+    const method = {
+      name: 'Exact limit',
+      type: 'card',
+      min_topup_credit: '1',
+      max_topup_credit: '9007199254740986',
+    }
+    const rendered = await render(
+      <RechargeFormCard
+        topupInfo={{ ...topupInfo, min_topup: 1, pay_methods: [method] }}
+        presetAmounts={[]}
+        selectedPreset={null}
+        onSelectPreset={() => undefined}
+        topupAmount={quota}
+        onTopupAmountChange={() => undefined}
+        paymentAmount={1}
+        calculating={false}
+        onPaymentMethodSelect={() => undefined}
+        paymentLoading={null}
+        redemptionCode=''
+        onRedemptionCodeChange={() => undefined}
+        onRedeem={() => undefined}
+        redeeming={false}
+      />
+    )
+    const button = [...rendered.container.querySelectorAll('button')].find(
+      (item) => item.textContent?.includes('Exact limit')
+    )
+    assert.ok(button)
+    assert.equal(button.disabled, quota > 9007199254740986)
+    await unmount(rendered)
+  }
+})
+
+test('each gateway uses its complete raw minimum without another provider minimum', async () => {
+  await i18n.changeLanguage('en')
+  const epay = {
+    name: 'Higher minimum',
+    type: 'epay',
+    min_topup_credit: '5000000',
+  }
+  const stripe = {
+    name: 'One Credit card',
+    type: 'stripe',
+    min_topup_credit: '1',
+  }
+  const rendered = await render(
+    <RechargeFormCard
+      topupInfo={{
+        ...topupInfo,
+        enable_stripe_topup: true,
+        min_topup: 5000000,
+        pay_methods: [epay, stripe],
+      }}
+      presetAmounts={[]}
+      selectedPreset={null}
+      onSelectPreset={() => undefined}
+      topupAmount={1}
+      onTopupAmountChange={() => undefined}
+      paymentAmount={1}
+      calculating={false}
+      onPaymentMethodSelect={() => undefined}
+      paymentLoading={null}
+      redemptionCode=''
+      onRedemptionCodeChange={() => undefined}
+      onRedeem={() => undefined}
+      redeeming={false}
+    />
+  )
+  const buttons = [...rendered.container.querySelectorAll('button')]
+  assert.equal(
+    buttons.find((button) => button.textContent?.includes('Higher minimum'))
+      ?.disabled,
+    true
+  )
+  assert.equal(
+    buttons.find((button) => button.textContent?.includes('One Credit card'))
+      ?.disabled,
+    false
+  )
+  await unmount(rendered)
 })

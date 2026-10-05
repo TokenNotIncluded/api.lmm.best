@@ -125,6 +125,8 @@ export interface PaymentMethod {
   /** Optional administrator-provided instructions shown on the selector. */
   description?: string
   /** Server-normalized legacy batch policy, independent of display units. */
+  min_topup_credit?: string | number
+  max_topup_credit?: string | number
   legacy_min_topup?: string | number
   legacy_max_topup_amount?: string | number
   min_topup_unit?: 'USD' | 'LEGACY'
@@ -174,8 +176,16 @@ export interface WaffoPayMethod {
  * Topup configuration information
  */
 export interface TopupInfo {
-  /** Explicit unit of compatibility catalogs. The hook normalizes these to LEGACY. */
+  /** Explicit unit of compatibility catalogs. The hook replaces these with versioned raw-credit catalogs. */
   amount_unit?: 'LEGACY' | 'CREDIT'
+  credit_metadata_available?: boolean
+  credit_metadata_version?: number
+  credit_amount_options?: number[]
+  credit_discount?: Record<number, number>
+  credit_min_topup?: number
+  stripe_credit_min_topup?: number
+  waffo_credit_min_topup?: number
+  pancake_credit_min_topup?: number
   legacy_amount_unit?: 'LEGACY'
   legacy_amount_options?: number[]
   legacy_discount?: Record<number, number>
@@ -241,7 +251,7 @@ export interface TopupInfo {
  * Preset amount option with optional discount
  */
 export interface PresetAmount {
-  /** Preset amount value */
+  /** Raw integer Credit value after top-up metadata normalization. */
   value: number
   /** Optional discount rate (0-1) */
   discount?: number
@@ -312,6 +322,22 @@ export interface AmountRequest {
   /** Optional administrator-issued percentage discount code. */
   discount_code?: string
 }
+
+/** New money routes accept raw, positive safe-integer Credits only. */
+export type CreditAmountRequest = Omit<AmountRequest, 'amount_unit'> & {
+  amount_unit?: 'CREDIT'
+}
+export type CreditPaymentRequest = Omit<PaymentRequest, 'amount_unit'> & {
+  amount_unit?: 'CREDIT'
+}
+export type CreditWaffoPaymentRequest = Omit<
+  WaffoPaymentRequest,
+  'amount_unit'
+> & { amount_unit?: 'CREDIT' }
+export type CreditPancakePaymentRequest = Omit<
+  WaffoPancakePaymentRequest,
+  'amount_unit'
+> & { amount_unit?: 'CREDIT' }
 
 /**
  * Affiliate quota transfer request

@@ -58,6 +58,7 @@ interface PaymentConfirmDialogProps {
   onOpenChange: (open: boolean) => void
   onConfirm: () => void
   creditedQuota?: number
+  /** Selected raw Credit amount; quote creditedQuota is authoritative. */
   topupAmount: number
   paymentCurrency?: string
   paymentAmount: number
@@ -89,11 +90,10 @@ export function PaymentConfirmDialog({
   neutralMode = false,
 }: PaymentConfirmDialogProps) {
   const { t } = useTranslation()
-  const { formatLegacyAmount: formatPlatformCreditBalance, formatQuota } =
-    useWalletCurrency()
+  const { formatQuota } = useWalletCurrency()
   const creditedBalance =
     creditedQuota === undefined
-      ? formatPlatformCreditBalance(topupAmount)
+      ? formatQuota(topupAmount)
       : formatQuota(creditedQuota)
   const usesSettlementQuote = isWaffoPancakePayment(paymentMethod?.type ?? '')
   const quote = parseSettlementQuote(settlementQuote)
