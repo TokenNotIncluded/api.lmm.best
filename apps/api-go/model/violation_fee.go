@@ -2,6 +2,7 @@ package model
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -306,7 +307,11 @@ func ReviewViolationFeeAppeal(adminUserID int, appealID uint, approve bool, note
 		if approve {
 			status = ViolationFeeAppealStatusApproved
 			if record.Status == ViolationFeeRecordStatusCharged && record.ChargedQuota > 0 {
-				if err := ApplyWalletQuotaDelta(tx, record.UserID, record.ChargedQuota); err != nil {
+				refundQuota, err := WalletFutureCreditQuota(tx, record.UserID, "violation_fee_refund", strconv.FormatUint(uint64(record.ID), 10), record.ChargedQuota, record.CreatedAt)
+				if err != nil {
+					return err
+				}
+				if err := ApplyWalletQuotaDelta(tx, record.UserID, refundQuota); err != nil {
 					return err
 				}
 				if err := tx.Model(&ViolationFeeRecord{}).Where("id = ? AND status = ?", record.ID, ViolationFeeRecordStatusCharged).Updates(map[string]interface{}{
@@ -321,7 +326,7 @@ func ReviewViolationFeeAppeal(adminUserID int, appealID uint, approve bool, note
 						return err
 					}
 				}
-				reversedQuota = record.ChargedQuota
+				reversedQuota = refundQuota
 				reversedUserID = record.UserID
 			}
 		}

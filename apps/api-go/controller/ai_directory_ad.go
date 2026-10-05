@@ -110,5 +110,5 @@ func HideAIDirectoryAd(c *gin.Context) {
 		return
 	}
 	recordManageAudit(c, "ai_directory_ad.hide", map[string]interface{}{"ad_id": id, "refunded": refunded})
-	common.ApiSuccess(c, gin.H{"ad": ad, "refunded": refunded, "refunded_quota": ad.ChargedQuota})
+	common.ApiSuccess(c, gin.H{"ad": ad, "refunded": refunded, "refunded_quota": ad.RefundQuota})
 }

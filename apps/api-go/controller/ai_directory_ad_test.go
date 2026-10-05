@@ -4,9 +4,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
@@ -45,4 +48,43 @@ func TestAIDirectoryAdQuoteActualUSDAndMissingBasis(t *testing.T) {
 	require.Equal(t, http.StatusServiceUnavailable, status)
 	require.Equal(t, false, body["success"])
 	require.Equal(t, "AI_DIRECTORY_AD_CURRENCY_UNAVAILABLE", body["code"])
+}
+
+func TestHideAIDirectoryAdReturnsActualRebasedRefund(t *testing.T) {
+	db := setupManageUserTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.AIDirectoryAd{}))
+	owner := model.User{Username: "ad-rebased-response", AffCode: "ad-rebased-response", Quota: 123}
+	require.NoError(t, db.Create(&owner).Error)
+	now := time.Now().Unix()
+	ad := model.AIDirectoryAd{OwnerUserID: owner.Id, ChargedQuota: 6_710_363,
+		RequestID: "ad-rebased-response-0001", Status: model.AIDirectoryAdStatusActive,
+		PaidAt: now - 2, ExpiresAt: now + 1000}
+	require.NoError(t, db.Create(&ad).Error)
+	plan, err := json.Marshal(map[string]any{
+		"user_ids": []int{owner.Id}, "include_other_rights": true, "snapshot_at": now - 1,
+		"divisor": "6.710363", "rounding": "half-away-from-zero",
+		"other_credit_bases": []map[string]any{{
+			"kind": "ai_directory_ad_refund", "source_id": strconv.Itoa(ad.ID), "user_id": owner.Id,
+			"original_quota": ad.ChargedQuota, "rebased_quota": 1_000_000,
+			"source": map[string]any{"id": ad.ID, "owner_user_id": owner.Id, "status": ad.Status,
+				"charged_quota": ad.ChargedQuota, "paid_at": ad.PaidAt, "expires_at": ad.ExpiresAt},
+		}},
+	})
+	require.NoError(t, err)
+	require.NoError(t, db.Exec("CREATE TABLE wallet_credit_rebases (migration_id TEXT PRIMARY KEY, plan TEXT NOT NULL)").Error)
+	require.NoError(t, db.Exec("INSERT INTO wallet_credit_rebases VALUES (?, ?)", "ad-response-test", string(plan)).Error)
+	for i := 0; i < 2; i++ {
+		c, response := publicCreditTestContext(t, http.MethodPost, "/api/ai-directory/ads/1/hide", "", owner.Id)
+		c.Params = gin.Params{{Key: "id", Value: strconv.Itoa(ad.ID)}}
+		HideAIDirectoryAd(c)
+		data := publicCreditResponseData(t, response)
+		require.Equal(t, float64(1_000_000), data["refunded_quota"])
+		require.Equal(t, i == 0, data["refunded"])
+		receipt := data["ad"].(map[string]any)
+		require.Equal(t, float64(6_710_363), receipt["charged_quota"])
+		require.Equal(t, float64(1_000_000), receipt["refunded_quota"])
+	}
+	var wallet model.User
+	require.NoError(t, db.First(&wallet, owner.Id).Error)
+	require.Equal(t, 1_000_123, wallet.Quota)
 }
