@@ -68,6 +68,7 @@ def make_auxiliary(snapshot, selected, scale, *, include_pending=False, include_
             old = safe_int(source.get("effective_credited_quota"), "normalized pending quote")
             if orphan and (source.get("status")!="failed" or source.get("payment_provider")!="waffo_pancake"
                     or source.get("failure_reason_code")!="checkout_timeout" or old<=0
+                    or source["credited_quota"]<=0 or source["expected_amount_micros"]<=0
                     or source["settled_amount_micros"]!=0 or source["refunded_amount_micros"]!=0 or source["refunded_quota"]!=0):
                 raise ValueError("missing wallet owner requires an unpaid recoverable timeout with an immutable positive quote")
             noncash = legacy_noncash(source)

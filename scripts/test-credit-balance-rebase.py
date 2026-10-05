@@ -164,7 +164,7 @@ class RebaseTests(unittest.TestCase):
         self.assertTrue(plan["pending_bases"][0]["owner_missing_at_snapshot"])
         self.assertEqual(plan["pending_bases"][0]["effective_credited_quota"],100)
         self.assertEqual(plan["pending_bases"][0]["source"],source)
-        for changes in ({"status":"pending"},{"settled_amount_micros":1},{"refunded_quota":1},{"effective_credited_quota":0}):
+        for changes in ({"status":"pending"},{"settled_amount_micros":1},{"refunded_quota":1},{"effective_credited_quota":0},{"credited_quota":0},{"expected_amount_micros":0}):
             bad=copy.deepcopy(snapshot);bad["pending_topups"][0].update(changes)
             with self.assertRaises(ValueError):r.make_plan(bad,**self.kw,restore_fixed_anchors=True,include_pending_topups=True)
         with self.assertRaises(ValueError):r.make_plan(snapshot,**(self.kw|{"user_ids":[1]}),restore_fixed_anchors=True,include_pending_topups=True)
