@@ -53,6 +53,8 @@ def sql(plan, schema, literal):
     checks = []
     selected = ",".join(str(uid) for uid in plan["user_ids"])
     for table, key, owner in (("users", "user_sources", "id"), ("tokens", "token_sources", "user_id")):
+        if plan.get("snapshot_all_users") is True:
+            checks.append(f"IF (SELECT count(*) FROM {schema}.{table}) <> {len(plan[key])} THEN RAISE EXCEPTION 'complete wallet/token inventory changed'; END IF;")
         checks.append(f"IF (SELECT count(*) FROM {schema}.{table} WHERE {owner}=ANY(ARRAY[{selected}]::bigint[])) <> {len(plan[key])} THEN RAISE EXCEPTION 'wallet/token historical snapshot incomplete'; END IF;")
         for source in plan[key]:
             clauses = []

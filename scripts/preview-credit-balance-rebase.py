@@ -254,6 +254,9 @@ def sql_literal(value):
 
 def postgres_sql(plan):
     """Render guarded SQL only; no connection or automatic invocation exists."""
+    # A sealed SQL digest must not depend on Python dict insertion order or on
+    # the order of source keys in an otherwise identical JSON snapshot.
+    plan=json.loads(json.dumps(plan,sort_keys=True,separators=(",",":")))
     if not plan.get("restore_fixed_anchors"):
         raise ValueError("SQL requires a combined fixed-anchor and reviewed-price plan")
     if not plan.get("has_complete_history"):

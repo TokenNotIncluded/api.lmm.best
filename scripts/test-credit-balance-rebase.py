@@ -192,6 +192,16 @@ class RebaseTests(unittest.TestCase):
                 self.assertIs(plan["production_apply_supported"],False)
                 self.assertLess(sql.index("RAISE EXCEPTION 'review-only credit rebase SQL"),sql.index("LOCK TABLE"))
 
+    def test_sealed_sql_is_independent_of_json_object_key_order(self):
+        plan=r.make_plan(self.subscription_fixture(),**self.kw,restore_fixed_anchors=True,include_subscriptions=True)
+        def reverse_objects(value):
+            if isinstance(value,dict):return {k:reverse_objects(v) for k,v in reversed(list(value.items()))}
+            if isinstance(value,list):return [reverse_objects(v) for v in value]
+            return value
+        reordered=reverse_objects(plan)
+        self.assertEqual(reordered,plan)
+        self.assertEqual(r.postgres_sql(plan),r.postgres_sql(reordered))
+
     def test_obligations_cannot_be_skipped_with_other_scope_disabled(self):
         snapshot = copy.deepcopy(self.snapshot)
         snapshot["obligations"]["tasks_refund_pending"] = 1

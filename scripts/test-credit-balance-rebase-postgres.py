@@ -155,6 +155,7 @@ UPDATE fixture_money.users SET quota=CASE WHEN id=1 THEN 500000000 ELSE -86911 E
 UPDATE fixture_money.users SET used_quota=CASE WHEN id=1 THEN 123 ELSE 45 END;
 DELETE FROM fixture_money.users WHERE id=3;
 UPDATE fixture_money.tokens SET user_id=1, remain_quota=680;
+DELETE FROM fixture_money.tokens WHERE id=11;
 UPDATE fixture_money.tokens SET unlimited_quota=false;
 UPDATE fixture_money.top_ups SET refunded_quota=680 WHERE id=20;
 UPDATE fixture_money.top_ups SET payment_provider='epay',expected_amount_micros=0 WHERE id=22;
@@ -224,6 +225,7 @@ TRUNCATE fixture_money.open_source_bounty_disputes;
     for conflict in ["UPDATE fixture_money.users SET quota=-86910 WHERE id=2;",
                      "UPDATE fixture_money.options SET value='unexpected-anchor' WHERE key='CreditsPerUSD';",
                      "UPDATE fixture_money.tokens SET user_id=2 WHERE id=10;",
+                     "INSERT INTO fixture_money.tokens(id,user_id,remain_quota,unlimited_quota) VALUES (11,999,680,false);",
                      "UPDATE fixture_money.tokens SET unlimited_quota=true WHERE id=10;",
                      "UPDATE fixture_money.users SET used_quota=124 WHERE id=1;",
                      "UPDATE fixture_money.top_ups SET refunded_quota=681 WHERE id=20;",
