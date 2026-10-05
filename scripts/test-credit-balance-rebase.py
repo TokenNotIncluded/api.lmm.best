@@ -154,6 +154,21 @@ class RebaseTests(unittest.TestCase):
         plan = r.make_plan(self.snapshot, **(self.kw | {"divisor_text": "6.80"}))
         self.assertEqual(plan["fx_source"]["value"], "6.8")
 
+    def test_missing_wallet_timeout_preserves_positive_scaled_payment_right(self):
+        snapshot=copy.deepcopy(self.snapshot)
+        source=dict(id=21,user_id=3,status="failed",failure_reason_code="checkout_timeout",credited_quota=680,amount=0,platform_amount_micros=0,settled_amount_micros=0,expected_amount_micros=1000,refunded_quota=0,refunded_amount_micros=0,money="0.001",payment_provider="waffo_pancake",payment_method="stripe",settlement_currency="USD",effective_credited_quota=680,paid_amount_micros=1000,is_legacy_linuxdo_credit_topup=False,pending_credit_rebase_key="",pending_credit_rebase_original_quota=0,pending_credit_rebase_effective_quota=0)
+        snapshot["pending_topups"]=[source]
+        plan=r.make_plan(snapshot,**self.kw,restore_fixed_anchors=True,include_pending_topups=True)
+        self.assertEqual(plan["user_ids"],[1,2])
+        self.assertEqual(plan["orphan_pending_user_ids"],[3])
+        self.assertTrue(plan["pending_bases"][0]["owner_missing_at_snapshot"])
+        self.assertEqual(plan["pending_bases"][0]["effective_credited_quota"],100)
+        self.assertEqual(plan["pending_bases"][0]["source"],source)
+        for changes in ({"status":"pending"},{"settled_amount_micros":1},{"refunded_quota":1},{"effective_credited_quota":0}):
+            bad=copy.deepcopy(snapshot);bad["pending_topups"][0].update(changes)
+            with self.assertRaises(ValueError):r.make_plan(bad,**self.kw,restore_fixed_anchors=True,include_pending_topups=True)
+        with self.assertRaises(ValueError):r.make_plan(snapshot,**(self.kw|{"user_ids":[1]}),restore_fixed_anchors=True,include_pending_topups=True)
+
     def test_clone_changes_target_only_and_retains_business_hashes(self):
         plan = r.make_plan(self.snapshot,**self.kw)
         clone = copy.deepcopy(self.snapshot)

@@ -224,9 +224,11 @@ def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
             "exact_factor": {"numerator": divisor.denominator, "denominator": divisor.numerator},
             "fx_source": {"kind": "frozen_production_option", "key": "USDExchangeRate", "value": fx},
             "rounding": rounding, "user_ids": sorted(selected),
+            "snapshot_all_users":selected==seen_users,
             "include_affiliate": include_affiliate, "include_token_limits": include_token_limits, "include_subscriptions": include_subscriptions,"include_other_rights":include_other_rights,"other_credit_bases":other_credit_bases,
             "price_review_evidence": snapshot.get("price_review", {}).get("evidence") if restore_fixed_anchors else None,
             "pending_bases": pending_bases, "blocked_pending_bases":blocked_pending_bases,"referral_bases": referral_bases, "include_pending_topups": include_pending_topups,
+            "orphan_pending_user_ids":sorted({b["user_id"] for b in pending_bases if b.get("owner_missing_at_snapshot") is True}),
             "entity_updates": entity_updates, "include_redemptions": include_redemptions, "include_bounties": include_bounties, "snapshot_at": snapshot.get("snapshot_at"),
             "entries": entries, "refund_bases": refund_bases, "noncash_topups": noncash_topups, "option_guards": option_guards, "option_entries": option_entries, "restore_fixed_anchors": restore_fixed_anchors, "wallet_totals": {
                 k: sum(e[k] for e in entries if e["table"] == "users" and e["field"] == "quota")

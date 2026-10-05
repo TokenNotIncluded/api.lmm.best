@@ -44,11 +44,13 @@ def make_auxiliary(snapshot, selected, scale, *, include_pending=False, include_
         if not isinstance(rows, list):
             raise ValueError("explicit complete pending_topups snapshot is required")
         seen = set()
+        all_users={user["id"] for user in snapshot.get("users",[])}
         for row in rows:
             source = dict(row)
             tid, uid = safe_int(source.get("id"), "pending topup id"), safe_int(source.get("user_id"), "pending topup user")
             recoverable = source.get("status") == "pending" or (source.get("status") == "failed" and source.get("payment_provider") == "waffo_pancake" and source.get("failure_reason_code") == "checkout_timeout")
-            if tid <= 0 or tid in seen or uid not in selected or not recoverable:
+            orphan=uid not in all_users
+            if tid <= 0 or uid<=0 or tid in seen or not recoverable or (uid not in selected and not (orphan and selected==all_users)):
                 raise ValueError("duplicate, unselected or nonpending topup")
             seen.add(tid)
             for key in TOPUP_NUMBERS:
@@ -64,6 +66,10 @@ def make_auxiliary(snapshot, selected, scale, *, include_pending=False, include_
             if not money.is_finite() or money < 0:
                 raise ValueError("invalid pending money value")
             old = safe_int(source.get("effective_credited_quota"), "normalized pending quote")
+            if orphan and (source.get("status")!="failed" or source.get("payment_provider")!="waffo_pancake"
+                    or source.get("failure_reason_code")!="checkout_timeout" or old<=0
+                    or source["settled_amount_micros"]!=0 or source["refunded_amount_micros"]!=0 or source["refunded_quota"]!=0):
+                raise ValueError("missing wallet owner requires an unpaid recoverable timeout with an immutable positive quote")
             noncash = legacy_noncash(source)
             for key, expected in (("pending_credit_rebase_key", ""), ("pending_credit_rebase_original_quota", 0), ("pending_credit_rebase_effective_quota", 0)):
                 if source.get(key) != expected:
@@ -78,6 +84,8 @@ def make_auxiliary(snapshot, selected, scale, *, include_pending=False, include_
                 raise ValueError("pending grant rounds to zero; resolve this payment quote explicitly")
             pending.append({"source": source, "top_up_id": tid, "user_id": uid,
                             "original_credited_quota": old, "effective_credited_quota": scale(old)})
+            if orphan:
+                pending[-1]["owner_missing_at_snapshot"]=True
     if include_affiliate:
         rows = snapshot.get("referrals")
         if not isinstance(rows, list):
@@ -112,7 +120,20 @@ def render_auxiliary(plan, schema, literal):
         for key, kind, default in (("pending_credit_rebase_key", "varchar(128)", "''"), ("pending_credit_rebase_original_quota", "bigint", "0"), ("pending_credit_rebase_effective_quota", "bigint", "0")):
             ddl.append(f"ALTER TABLE {schema}.top_ups ADD COLUMN IF NOT EXISTS {key} {kind} NOT NULL DEFAULT {default};")
         count = len(plan['pending_bases']) + len(plan['blocked_pending_bases'])
-        checks.append(f"IF (SELECT count(*) FROM {schema}.top_ups WHERE {RECOVERABLE_TOPUP_SQL} AND user_id=ANY(ARRAY[{selected}]::bigint[])) <> {count} THEN RAISE EXCEPTION 'pending or recoverable failed topup snapshot incomplete'; END IF;")
+        orphan_ids=plan.get("orphan_pending_user_ids",[])
+        actual_orphans=sorted({b["user_id"] for b in plan["pending_bases"] if b.get("owner_missing_at_snapshot") is True})
+        if orphan_ids!=actual_orphans or set(orphan_ids)&set(plan["user_ids"]):
+            raise ValueError("orphan pending inventory must bind exactly the missing wallet owners")
+        if orphan_ids and plan.get("snapshot_all_users") is not True:
+            raise ValueError("orphan pending rights require the complete wallet user inventory")
+        for b in plan["pending_bases"]+plan["blocked_pending_bases"]:
+            if type(b.get("owner_missing_at_snapshot",False)) is not bool or (b["user_id"] not in plan["user_ids"])!=(b.get("owner_missing_at_snapshot") is True):
+                raise ValueError("pending basis owner is not bound to selected or explicitly missing wallet")
+        pending_scope="" if orphan_ids else f" AND user_id=ANY(ARRAY[{selected}]::bigint[])"
+        checks.append(f"IF (SELECT count(*) FROM {schema}.top_ups WHERE {RECOVERABLE_TOPUP_SQL}{pending_scope}) <> {count} THEN RAISE EXCEPTION 'pending or recoverable failed topup snapshot incomplete'; END IF;")
+        if orphan_ids:
+            missing=",".join(str(uid) for uid in orphan_ids)
+            checks.append(f"IF EXISTS (SELECT 1 FROM {schema}.users WHERE id=ANY(ARRAY[{missing}]::bigint[])) OR (SELECT count(*) FROM {schema}.users)<>{len(plan['user_ids'])} THEN RAISE EXCEPTION 'missing wallet owner inventory changed'; END IF;")
         for b in plan["pending_bases"] + plan["blocked_pending_bases"]:
             s = b["source"]
             clauses = [f"id={b['top_up_id']}", f"user_id={b['user_id']}", f"status={literal(s['status'])}", f"failure_reason_code={literal(s['failure_reason_code'])}"]

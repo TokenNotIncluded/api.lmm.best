@@ -70,6 +70,9 @@ ALTER TABLE fixture_money.tokens ADD COLUMN used_quota bigint DEFAULT 0,ADD COLU
     late = snapshot["pending_topups"][0] | {"id":24,"status":"failed","payment_provider":"waffo_pancake","failure_reason_code":"checkout_timeout"}
     snapshot["pending_topups"] += [blocked,late]
     ok(base,input="INSERT INTO fixture_money.top_ups VALUES (23,1,'pending',0,2,0,0,0,0,0,0.28,'fastpay','alipay','',''),(24,1,'failed',680,0,0,1000,1000,0,0,0.001,'waffo_pancake','stripe','USD','checkout_timeout');")
+    orphan=late|{"id":25,"user_id":3,"settled_amount_micros":0}
+    snapshot["pending_topups"].append(orphan)
+    ok(base,input="INSERT INTO fixture_money.top_ups VALUES (25,3,'failed',680,0,0,0,1000,0,0,0.001,'waffo_pancake','stripe','USD','checkout_timeout');")
     snapshot["users"][1]["aff_quota"] = 0
     snapshot["users"][0]["aff_quota"] = 680
     snapshot["user_sources"] = [dict(id=1,quota=500000000,aff_quota=680,used_quota=123,request_count=0,aff_history=0,aff_count=0,status=1,deleted_at=None),dict(id=2,quota=-86911,aff_quota=0,used_quota=45,request_count=0,aff_history=0,aff_count=0,status=1,deleted_at=None)]
@@ -131,7 +134,7 @@ ALTER TABLE fixture_money.tokens ADD COLUMN used_quota bigint DEFAULT 0,ADD COLU
     ok(base,input="CREATE TABLE fixture_money.wallet_transfers(status text); CREATE TABLE fixture_money.tool_market_calls(settlement_status text); CREATE TABLE fixture_money.tasks(status text,refund_status text,quota bigint,refund_quota bigint,submit_time bigint); CREATE TABLE fixture_money.midjourneys(progress text); CREATE TABLE fixture_money.subscription_pre_consume_records(status text); CREATE TABLE fixture_money.hero_sms_sms_orders(status text);")
     exported = json.loads(ok(base+["-v","target_schema=fixture_money"],input=Path(__file__).with_name("export-credit-rebase-frozen-private.sql").read_text()))
     assert len(exported["users"]) == 2 and len(exported["user_sources"]) == 2
-    assert len(exported["topups"]) == 2 and len(exported["pending_topups"]) == 3
+    assert len(exported["topups"]) == 2 and len(exported["pending_topups"]) == 4
     assert len(exported["subscription_orders"]) == 3 and exported["applied_migration_ids"] == []
     assert exported["entities"]["redemptions"][0]["reward_type"] is None
     kw = dict(divisor_text="6.8", migration_id="fixture-v1", user_ids=[1, 2],
@@ -150,12 +153,13 @@ UPDATE fixture_money.options SET value=CASE WHEN key='USDExchangeRate' THEN '6.8
 UPDATE fixture_money.users SET aff_quota=CASE WHEN id=1 THEN 680 ELSE 0 END;
 UPDATE fixture_money.users SET quota=CASE WHEN id=1 THEN 500000000 ELSE -86911 END;
 UPDATE fixture_money.users SET used_quota=CASE WHEN id=1 THEN 123 ELSE 45 END;
+DELETE FROM fixture_money.users WHERE id=3;
 UPDATE fixture_money.tokens SET user_id=1, remain_quota=680;
 UPDATE fixture_money.tokens SET unlimited_quota=false;
 UPDATE fixture_money.top_ups SET refunded_quota=680 WHERE id=20;
 UPDATE fixture_money.top_ups SET payment_provider='epay',expected_amount_micros=0 WHERE id=22;
 UPDATE fixture_money.top_ups SET pending_credit_rebase_key='',pending_credit_rebase_original_quota=0,pending_credit_rebase_effective_quota=0 WHERE id=21;
-UPDATE fixture_money.top_ups SET pending_credit_rebase_key='',pending_credit_rebase_original_quota=0,pending_credit_rebase_effective_quota=0 WHERE id IN (23,24);
+UPDATE fixture_money.top_ups SET pending_credit_rebase_key='',pending_credit_rebase_original_quota=0,pending_credit_rebase_effective_quota=0 WHERE id IN (23,24,25);
 UPDATE fixture_money.top_ups SET failure_reason_code='checkout_timeout',status='failed' WHERE id=24;
 UPDATE fixture_money.referral_rewards SET revision=1;
 UPDATE fixture_money.redemptions SET quota=680,user_id=1;
@@ -197,6 +201,9 @@ TRUNCATE fixture_money.open_source_bounty_disputes;
     assert ok(base,input="SELECT pending_credit_rebase_original_quota,pending_credit_rebase_effective_quota,credited_quota FROM fixture_money.top_ups WHERE id=21;") == "680|100|680"
     assert ok(base,input="SELECT pending_credit_rebase_key,pending_credit_rebase_original_quota,pending_credit_rebase_effective_quota FROM fixture_money.top_ups WHERE id=23;") == "fixture-v1|0|0"
     assert ok(base,input="SELECT status,pending_credit_rebase_effective_quota FROM fixture_money.top_ups WHERE id=24;") == "failed|100"
+    assert ok(base,input="SELECT status,credited_quota,settled_amount_micros,pending_credit_rebase_effective_quota FROM fixture_money.top_ups WHERE id=25;")=="failed|680|0|100"
+    assert ok(base,input="SELECT plan->'orphan_pending_user_ids' FROM fixture_money.wallet_credit_rebases;")=="[3]"
+    assert ok(base,input="SELECT count(*) FROM fixture_money.users WHERE id=3;")=="0"
     assert ok(base,input="SELECT amount_total,amount_used,reset_amount,renewal_amount,quota_version FROM fixture_money.user_subscriptions;") == "6220|6120|1000|1000|1"
     assert ok(base,input="SELECT original_credit_quota,refundable_quota,reset_quota,original_quota_version FROM fixture_money.subscription_order_credit_rebases;") == "6800|100|1000|1"
     assert ok(base,input="SELECT total_amount FROM fixture_money.subscription_plans;") == "1000"
@@ -231,6 +238,7 @@ TRUNCATE fixture_money.open_source_bounty_disputes;
                      "UPDATE fixture_money.top_ups SET payment_provider='stripe' WHERE id=22;",
                      "UPDATE fixture_money.top_ups SET expected_amount_micros=1 WHERE id=22;",
                      "UPDATE fixture_money.top_ups SET failure_reason_code='unexpected_failure' WHERE id=24;",
+                     "INSERT INTO fixture_money.users(id,quota,aff_quota,used_quota) VALUES (3,0,0,0);",
                      "UPDATE fixture_money.user_subscriptions SET reset_amount=1 WHERE id=70;",
                      "UPDATE fixture_money.user_subscriptions SET user_id=2 WHERE id=70;",
                      "UPDATE fixture_money.user_subscriptions SET quota_version=1 WHERE id=70;",

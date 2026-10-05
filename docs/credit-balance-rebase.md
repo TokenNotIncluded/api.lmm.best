@@ -190,6 +190,8 @@ SQL 设置 standard_conforming_strings，DO 使用不出现在嵌入内容中的
 
 待入账 scope 还包含 Waffo Pancake `failed` 且 `failure_reason_code=checkout_timeout` 的可恢复钱包报价；原运行时允许它们被迟到支付回调恢复，必须同步保存纠正基准。其他 failed 钱包订单不混入。订阅的 failed checkout 是终态，仍只迁移 pending 报价。
 
+已硬删除账户留下的未实收 timeout 报价也不丢弃。完整用户 scope 下，只有同一可恢复状态、正不可变报价且 settled/refunded 均为零，才可保存 `owner_missing_at_snapshot=true` 和正常同比纠正的 pending 基准；父审计显式列出 `orphan_pending_user_ids`，钱包仍只包含真实存在的用户。SQL 核验全局待入账数量和对应用户确实不存在，不补造用户，不修改付款事实。当前 callback 仍因钱包不存在回滚；以后正规恢复同一用户身份时，权益也只按已纠正额度兑现。
+
 ## 已售套餐、本期重置、完整续费与退款
 
 `--include-subscriptions` 要求 `subscriptions/subscription_orders/subscription_plans/subscription_payment_events/subscription_payment_refunds` 完整数组，字段清单以 `credit_rebase_subscriptions.py` 常量为准。已售套餐和仍 active 的旧余额购套餐一起保留在父审计。双 nullable 原值必须均为 NULL，发现任意已有值即拒绝不完整或重复纠正。
