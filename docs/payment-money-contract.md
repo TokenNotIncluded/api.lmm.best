@@ -53,16 +53,39 @@ Callbacks grant value only after matching the persisted amount, currency, provid
 
 ### Frontend quote display
 
-Every new request specifies `amount_unit`: USD, CNY, CREDIT, or LEGACY. Fiat inputs convert to credits using `K` and `R`; a LEGACY input converts using `Q`. The new wallet explicitly sends LEGACY for compatibility with existing preset and discount configuration, while rendering it through integer credits into the selected display unit. It never labels that wire number as USD. Omitted units are only for old clients, including old TOKENS configuration. `/api/user/topup/info` retains old fields and adds explicit LEGACY preset/discount fields for new clients.
+The new wallet keeps its amount as an integer credit count and sends
+`{amount:q,amount_unit:"CREDIT"}` only to the distinct
+`/api/user/topup/currency/` quote, checkout and discount-validation routes.
+An older server returns 404 for these routes; the client must not fall back to
+an older route that could interpret the same integer as legacy batches. The
+canonical route accepts only an ordinary decimal integer within the safe wallet
+range, without fractions, strings or exponents. Fiat entry uses the decimal
+inverse of `K` and `R`; changing the display unit preserves the chosen integer.
+
+`/api/user/topup/info` retains compatibility fields and publishes versioned raw
+`credit_amount_options`, `credit_discount`, provider credit minimums and
+per-method `min_topup_credit` / `max_topup_credit`. New clients require these
+authoritative values and disable arbitrary-amount checkout when they are
+unavailable. Older routes still accept their explicit USD, CNY, CREDIT or LEGACY
+units and old omitted-unit behavior, including TOKENS configuration. Existing
+presets and coupon thresholds retain their original qualification; canonical
+TOKENS qualification compares raw credits directly.
 
 `max_topup` is a credited-USD limit, not an amount of platform credit. The Go
 backend derives `max_topup_amount` in the units accepted by the top-up request,
 using the fixed credit denomination and the request's explicit amount unit.
 Duplicate payment types share their strictest configured limit. Custom gateway
 pricing, discounts, and display currencies do not change this ceiling.
-The frontend compares its input only with `max_topup_amount`. If an older
-backend omits it, quote and checkout endpoints continue enforcing the USD limit;
-the client must not guess a conversion and block an otherwise valid purchase.
+The new frontend compares integer credits with the authoritative credit limits.
+Legacy `max_topup_amount` remains a compatibility projection for older clients;
+it is not an input to the canonical wallet. Backend quote and checkout still
+enforce every configured and provider limit independently of the UI.
+
+Standard recharge pricing uses the fixed denomination and current real-fiat FX.
+Explicit custom gateway prices and promotions remain separate invoice pricing;
+they can make the amount paid differ from the credited balance value. The
+confirmation shows both values and the settlement currency. Neither a discount
+nor a custom gateway price changes the ledger denomination or model USD prices.
 
 An amount, payment-method, or discount-code change invalidates pending discount
 validation and payment confirmation. A successful response for an older input
