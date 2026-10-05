@@ -58,10 +58,22 @@ describe('authenticated header responsive navigation', () => {
     assert.match(languageSwitcherSource, /className='h-11 w-11[\s\S]*sm:h-8/)
     assert.match(languageSwitcherSource, /className='min-h-11 sm:min-h-8'/)
   })
-  test('shows a plain balance label with an accessible platform-credit help tooltip', () => {
+  test('keeps the selected balance unit visible with accessible credit-ledger help', () => {
     assert.match(balanceBadgeSource, /\{t\('Balance'\)\}/)
-    assert.match(balanceBadgeSource, /visiblePlatformCredit/)
+    assert.match(
+      balanceBadgeSource,
+      /const \{ formatQuota \} = useWalletCurrency\(\)/
+    )
+    assert.match(balanceBadgeSource, /const balance = formatQuota\(quota\)/)
+    assert.match(balanceBadgeSource, /aria-label=\{t\('Wallet balance'\)\}/)
     assert.match(balanceBadgeSource, /<sup aria-hidden='true'>\?<\/sup>/)
-    assert.match(balanceBadgeSource, /Platform credit is your usage balance\./)
+    assert.match(
+      balanceBadgeSource,
+      /Your balance is stored in credits\. Display currency does not change the amount charged at checkout\./
+    )
+    assert.doesNotMatch(
+      balanceBadgeSource,
+      /visiblePlatformCredit|\(Platform\)|TOKENS/
+    )
   })
 })
