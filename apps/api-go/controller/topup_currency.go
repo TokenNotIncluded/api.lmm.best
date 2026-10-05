@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"math"
@@ -112,20 +113,56 @@ func topUpRequestUnit(rawUnit string) string {
 	return unit
 }
 
-func topUpCreditFields(rawUnit string, legacyBatch decimal.Decimal, credits int64, currency string) gin.H {
-	return gin.H{
+func topUpCreditFields(rawUnit string, legacyBatch decimal.Decimal, credits int64, currency string, snapshots ...common.CreditDenomination) gin.H {
+	fields := gin.H{
 		"currency_unit": "credit", "amount_unit": topUpRequestUnit(rawUnit),
-		"credited_quota": credits, "credit_amount": credits,
 		"legacy_batch_units":  legacyBatch.String(),
 		"settlement_currency": strings.ToUpper(strings.TrimSpace(currency)),
 	}
+	return withTopUpCreditAmountFields(fields, credits, snapshots...)
 }
 
-func withTopUpCreditFields(response gin.H, rawUnit string, legacyBatch decimal.Decimal, credits int64, currency string) gin.H {
-	for key, value := range topUpCreditFields(rawUnit, legacyBatch, credits, currency) {
+func withTopUpCreditAmountFields(fields gin.H, credits int64, snapshots ...common.CreditDenomination) gin.H {
+	// Compatibility aliases retain their immutable ledger meaning, including
+	// fixed-product checkout responses which have no legacy-batch input.
+	fields["credited_quota"] = credits
+	fields["credit_amount"] = credits
+	fields["credit_amount_unit"] = "LEDGER_QUOTA"
+	var units common.CreditDenomination
+	var err error
+	if len(snapshots) > 0 {
+		units = snapshots[0]
+	} else {
+		units, err = common.CreditDenominationMetadata()
+	}
+	if err != nil {
+		return fields
+	}
+	if publicCredits, err := units.ProjectLedgerQuota(credits); err == nil {
+		for key, value := range creditUnitMetadataFieldsFor(units) {
+			fields[key] = value
+		}
+		fields["public_credit_amount"] = publicCredits.String()
+		fields["public_credit_amount_unit"] = "CREDIT"
+		fields["public_credit_metadata_version"] = 2
+	}
+	return fields
+}
+
+func withTopUpCreditFields(response gin.H, rawUnit string, legacyBatch decimal.Decimal, credits int64, currency string, snapshots ...common.CreditDenomination) gin.H {
+	for key, value := range topUpCreditFields(rawUnit, legacyBatch, credits, currency, snapshots...) {
 		response[key] = value
 	}
 	return response
+}
+
+func withTopUpRequestCreditFields(c *gin.Context, response gin.H, rawUnit string, legacyBatch decimal.Decimal, credits int64, currency string) gin.H {
+	if value, exists := c.Get(canonicalTopUpCreditUnitsKey); exists {
+		if units, ok := value.(common.CreditDenomination); ok {
+			return withTopUpCreditFields(response, rawUnit, legacyBatch, credits, currency, units)
+		}
+	}
+	return withTopUpCreditFields(response, rawUnit, legacyBatch, credits, currency)
 }
 
 func requirePaymentMethodLegacyAmountWithinLimit(c *gin.Context, paymentType string, amount decimal.Decimal) bool {
@@ -202,16 +239,26 @@ func resolveTopUpRequestAmount(c *gin.Context, value float64, unit string) (reso
 	}
 	raw := ""
 	if body, exists := c.Get(gin.BodyBytesKey); exists {
-		if bytes, ok := body.([]byte); ok {
+		if rawBody, ok := body.([]byte); ok {
 			var request struct {
-				Amount json.Number `json:"amount"`
+				Amount  json.Number     `json:"amount"`
+				Version json.RawMessage `json:"credit_metadata_version"`
 			}
-			if err := json.Unmarshal(bytes, &request); err == nil {
+			if err := json.Unmarshal(rawBody, &request); err == nil {
+				if len(request.Version) > 0 && string(bytes.TrimSpace(request.Version)) != "1" {
+					return resolvedTopUpAmount{LegacyBatch: decimal.Zero}, errors.New("此充值入口仅支持 credit_metadata_version 1")
+				}
 				raw = request.Amount.String()
 			}
 		}
 	} else if c.Request != nil {
 		raw = c.PostForm("amount")
+		if version, present := c.Request.PostForm["credit_metadata_version"]; present && (len(version) != 1 || version[0] != "1") {
+			return resolvedTopUpAmount{LegacyBatch: decimal.Zero}, errors.New("此充值入口仅支持 credit_metadata_version 1")
+		}
+		if version, present := c.Request.URL.Query()["credit_metadata_version"]; present && (len(version) != 1 || version[0] != "1") {
+			return resolvedTopUpAmount{LegacyBatch: decimal.Zero}, errors.New("此充值入口仅支持 credit_metadata_version 1")
+		}
 		if raw == "" {
 			raw = c.Query("amount")
 		}

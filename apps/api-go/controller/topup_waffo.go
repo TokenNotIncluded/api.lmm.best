@@ -172,7 +172,7 @@ func RequestWaffoAmount(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, withTopUpCreditFields(gin.H{"message": "success", "data": strconv.FormatFloat(payMoney, 'f', 2, 64)}, req.AmountUnit, requestedAmount, creditedQuota, waffoSettlementCurrency()))
+	c.JSON(http.StatusOK, withTopUpRequestCreditFields(c, gin.H{"message": "success", "data": strconv.FormatFloat(payMoney, 'f', 2, 64)}, req.AmountUnit, requestedAmount, creditedQuota, waffoSettlementCurrency()))
 }
 
 // RequestWaffoPay 创建 Waffo 支付订单
@@ -400,13 +400,11 @@ func RequestWaffoPay(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "success",
-		"data": gin.H{
-			"trade_no":       merchantOrderId,
-			"payment_url":    paymentUrl,
-			"credited_quota": creditedQuota, "credit_amount": creditedQuota, "currency_unit": "credit",
-			"amount_unit": topUpRequestUnit(req.AmountUnit), "legacy_batch_units": requestedAmount.String(), "settlement_currency": waffoSettlementCurrency(),
-			"order_id": merchantOrderId,
-		},
+		"data": withTopUpRequestCreditFields(c, gin.H{
+			"trade_no":    merchantOrderId,
+			"payment_url": paymentUrl,
+			"order_id":    merchantOrderId,
+		}, req.AmountUnit, requestedAmount, creditedQuota, waffoSettlementCurrency()),
 	})
 }
 
@@ -638,7 +636,7 @@ func handleWaffoPayment(c *gin.Context, wh *core.WebhookHandler, result *core.Pa
 		return
 	}
 
-	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Waffo 充值成功 trade_no=%s user_id=%d quota=%d client_ip=%s", merchantOrderId, completed.UserId, completed.CreditedQuota, c.ClientIP()))
+	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Waffo 充值成功 trade_no=%s user_id=%d credited_amount=%q client_ip=%s", merchantOrderId, completed.UserId, logger.LogQuota(int(completed.CreditedQuota)), c.ClientIP()))
 	sendWaffoWebhookResponse(c, wh, true, "")
 }
 

@@ -18,7 +18,9 @@ func TestCanonicalTopUpCurrencyRoutesAreDistinctFromLegacyRoutes(t *testing.T) {
 	}
 	for _, suffix := range []string{"amount", "pay", "stripe/amount", "stripe/pay", "waffo/amount", "waffo/pay", "waffo-pancake/amount", "waffo-pancake/pay", "discount-code/validate"} {
 		require.True(t, routes[http.MethodPost+" /api/user/topup/currency/"+suffix], suffix)
+		require.True(t, routes[http.MethodPost+" /api/user/topup/currency/v2/"+suffix], "public denomination route is distinct: "+suffix)
 		require.True(t, routes[http.MethodPost+" /api/user/"+suffix], "legacy route remains: "+suffix)
 		require.False(t, routes[http.MethodGet+" /api/user/topup/currency/"+suffix])
+		require.False(t, routes[http.MethodGet+" /api/user/topup/currency/v2/"+suffix])
 	}
 }

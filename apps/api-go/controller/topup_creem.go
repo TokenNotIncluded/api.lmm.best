@@ -157,16 +157,16 @@ func (*CreemAdaptor) RequestPay(c *gin.Context, req *CreemPayRequest) {
 		return
 	}
 
-	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Creem 充值订单创建成功 user_id=%d trade_no=%s product_id=%s product_name=%q quota=%d money=%.2f", id, referenceId, selectedProduct.ProductId, selectedProduct.Name, selectedProduct.Quota, selectedProduct.Price))
+	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Creem 充值订单创建成功 user_id=%d trade_no=%s product_id=%s product_name=%q credited_amount=%q money=%.2f settlement_currency=%s", id, referenceId, selectedProduct.ProductId, selectedProduct.Name, logger.LogQuota(int(selectedProduct.Quota)), selectedProduct.Price, topUp.SettlementCurrency))
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "success",
-		"data": gin.H{
-			"trade_no":       referenceId,
-			"checkout_url":   checkoutUrl,
-			"credited_quota": selectedProduct.Quota, "credit_amount": selectedProduct.Quota, "currency_unit": "credit", "amount_unit": "CREDIT", "settlement_currency": strings.ToUpper(selectedProduct.Currency),
+		"data": withTopUpCreditAmountFields(gin.H{
+			"trade_no":      referenceId,
+			"checkout_url":  checkoutUrl,
+			"currency_unit": "credit", "amount_unit": "CREDIT", "settlement_currency": strings.ToUpper(selectedProduct.Currency),
 			"order_id": referenceId,
-		},
+		}, int64(selectedProduct.Quota)),
 	})
 }
 
@@ -602,9 +602,9 @@ func handleCheckoutCompleted(c *gin.Context, event *CreemWebhookEvent) {
 	}
 
 	if wasPending {
-		model.RecordTopupLog(completed.UserId, fmt.Sprintf("使用Creem充值成功，充值额度: %v，支付金额：%.2f", completed.CreditedQuota, completed.Money), c.ClientIP(), completed.PaymentMethod, model.PaymentMethodCreem)
+		model.RecordTopupLog(completed.UserId, fmt.Sprintf("使用Creem充值成功，到账额度: %v，支付金额：%.2f %s", logger.LogQuota(int(completed.CreditedQuota)), completed.Money, completed.SettlementCurrency), c.ClientIP(), completed.PaymentMethod, model.PaymentMethodCreem)
 	}
-	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Creem 充值成功 trade_no=%s creem_order_id=%s quota=%d money=%.2f client_ip=%s", referenceId, event.Object.Order.Id, completed.CreditedQuota, completed.Money, c.ClientIP()))
+	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Creem 充值成功 trade_no=%s creem_order_id=%s credited_amount=%q money=%.2f settlement_currency=%s client_ip=%s", referenceId, event.Object.Order.Id, logger.LogQuota(int(completed.CreditedQuota)), completed.Money, completed.SettlementCurrency, c.ClientIP()))
 	c.Status(http.StatusOK)
 }
 

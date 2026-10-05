@@ -103,7 +103,7 @@ func RequestWaffoPancakeAmount(c *gin.Context) {
 		quoteData["original_settlement_amount"] = baseSettlement.StringFixed(2)
 		quoteData["savings_settlement_amount"] = savings.StringFixed(2)
 	}
-	c.JSON(http.StatusOK, withTopUpCreditFields(quoteData, req.AmountUnit, requestedAmount, creditedQuota, currency))
+	c.JSON(http.StatusOK, withTopUpRequestCreditFields(c, quoteData, req.AmountUnit, requestedAmount, creditedQuota, currency))
 }
 
 func settlementQuoteSavings(base, final decimal.Decimal) (decimal.Decimal, decimal.Decimal, bool) {
@@ -654,19 +654,16 @@ func RequestWaffoPancakePay(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "success",
-		"data": gin.H{
-			"trade_no":       tradeNo,
-			"checkout_url":   session.CheckoutURL,
-			"credited_quota": creditedQuota, "credit_amount": creditedQuota, "currency_unit": "credit",
-			"amount_unit": topUpRequestUnit(req.AmountUnit), "legacy_batch_units": requestedAmount.String(),
-			"session_id":          session.SessionID,
-			"expires_at":          session.ExpiresAt,
-			"order_id":            tradeNo,
-			"token":               session.Token,
-			"token_expires_at":    session.TokenExpiresAt,
-			"settlement_amount":   paymentAmount,
-			"settlement_currency": currency,
-		},
+		"data": withTopUpRequestCreditFields(c, gin.H{
+			"trade_no":          tradeNo,
+			"checkout_url":      session.CheckoutURL,
+			"session_id":        session.SessionID,
+			"expires_at":        session.ExpiresAt,
+			"order_id":          tradeNo,
+			"token":             session.Token,
+			"token_expires_at":  session.TokenExpiresAt,
+			"settlement_amount": paymentAmount,
+		}, req.AmountUnit, requestedAmount, creditedQuota, currency),
 	})
 }
 
@@ -996,13 +993,13 @@ func handleVerifiedWaffoPancakeWebhook(c *gin.Context, event *service.WaffoPanca
 	if wasPending {
 		model.RecordTopupLog(
 			completed.UserId,
-			fmt.Sprintf("Waffo Pancake充值成功，充值额度: %v，支付金额: %.2f", logger.FormatQuota(int(completed.CreditedQuota)), completed.Money),
+			fmt.Sprintf("Waffo Pancake充值成功，到账额度: %v，支付金额: %.2f %s", logger.LogQuota(int(completed.CreditedQuota)), completed.Money, completed.SettlementCurrency),
 			c.ClientIP(),
 			completed.PaymentMethod,
 			model.PaymentMethodWaffoPancake,
 		)
 	}
-	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Waffo Pancake 充值成功 trade_no=%s user_id=%d quota=%d event_id=%s order_id=%s client_ip=%s", tradeNo, completed.UserId, completed.CreditedQuota, event.ID, event.Data.OrderID, c.ClientIP()))
+	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Waffo Pancake 充值成功 trade_no=%s user_id=%d credited_amount=%q event_id=%s order_id=%s client_ip=%s", tradeNo, completed.UserId, logger.LogQuota(int(completed.CreditedQuota)), event.ID, event.Data.OrderID, c.ClientIP()))
 	c.String(http.StatusOK, "OK")
 }
 

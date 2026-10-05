@@ -220,7 +220,10 @@ func TestGetTopUpInfoReturnsNeutralDataWhenDeveloperAccessIsDenied(t *testing.T)
 	assert.Equal(t, true, payload.Data["enable_online_topup"])
 	assert.EqualValues(t, 7, payload.Data["min_payment"])
 	assert.Contains(t, payload.Data, "pay_methods")
-	assert.Equal(t, []any{map[string]any{"name": "LDC", "type": "epay", "min_topup_credit": "3500000"}}, payload.Data["pay_methods"])
+	assert.Equal(t, []any{map[string]any{
+		"name": "LDC", "type": "epay", "min_topup_credit": "3500000",
+		"min_topup_ledger_quota": "3500000", "min_topup_public_credit": "3500000", "credit_amount_unit": "LEDGER_QUOTA",
+	}}, payload.Data["pay_methods"])
 	for _, forbidden := range []string{
 		"provider-secret.invalid", "merchant-secret", "key-secret", "prod-secret",
 		"topup_group_ratio",

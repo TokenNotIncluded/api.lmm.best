@@ -16,15 +16,25 @@ import (
 )
 
 const canonicalTopUpCreditKey = "canonical_topup_credit"
+const canonicalTopUpCreditUnitsKey = "canonical_topup_credit_units"
 
-// RequireCanonicalTopUpCredit belongs only to the distinct currency routes.
-// An older server has no such route, so raw Credits can never be interpreted
-// by an older handler as legacy batches. Preserve the original JSON spelling
-// before any float64 binding, including fractions beside the safe-integer cap.
+// RequireCanonicalTopUpCredit retains version-1 raw ledger semantics only.
+// New denominations have distinct routes so an older node returns 404 instead
+// of interpreting a version-2 CREDIT amount as version-1 raw ledger quota.
 func RequireCanonicalTopUpCredit(c *gin.Context) {
+	requireVersionedTopUpCredit(c, 1)
+}
+
+// RequirePublicTopUpCredit belongs exclusively to /topup/currency/v2 routes.
+// Preserve the original spelling before float64 binding at the safe-integer cap.
+func RequirePublicTopUpCredit(c *gin.Context) {
+	requireVersionedTopUpCredit(c, 2)
+}
+
+func requireVersionedTopUpCredit(c *gin.Context, requiredVersion int) {
 	reject := func() {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
-			"success": false, "message": "error", "data": "amount 必须为正整数 Credit，amount_unit 必须为 CREDIT",
+			"success": false, "message": "error", "data": "充值数量、单位或 credit_metadata_version 无效",
 		})
 	}
 	if c.ContentType() != "application/json" {
@@ -37,7 +47,26 @@ func RequireCanonicalTopUpCredit(c *gin.Context) {
 		return
 	}
 	var unit string
-	if err := json.Unmarshal(body["amount_unit"], &unit); err != nil || unit != "CREDIT" {
+	if err := json.Unmarshal(body["amount_unit"], &unit); err != nil {
+		reject()
+		return
+	}
+	version := 1
+	if raw, present := body["credit_metadata_version"]; present {
+		switch string(bytes.TrimSpace(raw)) {
+		case "1":
+		case "2":
+			version = 2
+		default:
+			reject()
+			return
+		}
+	}
+	if version != requiredVersion {
+		reject()
+		return
+	}
+	if unit != "CREDIT" && !(version == 2 && unit == "LEDGER_QUOTA") {
 		reject()
 		return
 	}
@@ -64,12 +93,48 @@ func RequireCanonicalTopUpCredit(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "error", "data": "充值额度配置无效"})
 		return
 	}
-	resolved, err := resolveTopUpDecimalAmount(decimal.NewFromInt(credits), "CREDIT")
+	var units common.CreditDenomination
+	if version == 2 {
+		units, err = common.CreditDenominationMetadata()
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "error", "data": "充值额度配置无效"})
+			return
+		}
+	}
+	ledgerQuota := credits
+	if version == 2 && unit == "CREDIT" {
+		var expected string
+		if err := json.Unmarshal(body["expected_public_credits_per_usd_exact"], &expected); err != nil || len(expected) == 0 || len(expected) > 16 || expected[0] == '0' {
+			reject()
+			return
+		}
+		for _, digit := range expected {
+			if digit < '0' || digit > '9' {
+				reject()
+				return
+			}
+		}
+		if expected != units.PublicCreditsPerUSDExact {
+			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"success": false, "message": "error", "data": "公开 Credit 单位已更新，请刷新充值报价"})
+			return
+		}
+		ledgerQuota, err = units.ResolvePublicCredits(decimal.NewFromInt(credits))
+		if err != nil {
+			reject()
+			return
+		}
+	}
+	// The shared resolver retains legacy/raw semantics. Convert only at this
+	// versioned boundary, before quote, capacity checks and order snapshots.
+	resolved, err := resolveTopUpDecimalAmount(decimal.NewFromInt(ledgerQuota), "CREDIT")
 	if err != nil {
 		reject()
 		return
 	}
 	c.Set(canonicalTopUpCreditKey, resolved)
+	if version == 2 {
+		c.Set(canonicalTopUpCreditUnitsKey, units)
+	}
 	c.Next()
 }
 

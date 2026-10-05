@@ -1262,7 +1262,7 @@ func RequestEpay(c *gin.Context) {
 		return
 	}
 	logger.LogInfo(c.Request.Context(), fmt.Sprintf("易支付 充值订单创建成功 user_id=%d trade_no=%s payment_method=%s amount=%s money=%s", id, tradeNo, req.PaymentMethod, requestedAmount.String(), payMoney.StringFixed(2)))
-	c.JSON(http.StatusOK, withTopUpCreditFields(gin.H{"message": "success", "data": params, "url": uri, "trade_no": tradeNo}, req.AmountUnit, requestedAmount, creditedQuota, settlementCurrency))
+	c.JSON(http.StatusOK, withTopUpRequestCreditFields(c, gin.H{"message": "success", "data": params, "url": uri, "trade_no": tradeNo}, req.AmountUnit, requestedAmount, creditedQuota, settlementCurrency))
 }
 
 // tradeNo lock
@@ -1406,8 +1406,8 @@ func EpayNotify(c *gin.Context) {
 			return
 		}
 		if shouldCredit {
-			logger.LogInfo(c.Request.Context(), fmt.Sprintf("易支付 充值成功 trade_no=%s user_id=%d client_ip=%s quota_to_add=%d money=%.2f", completed.TradeNo, completed.UserId, c.ClientIP(), completed.CreditedQuota, completed.Money))
-			model.RecordTopupLog(completed.UserId, fmt.Sprintf("使用在线充值成功，充值金额: %v，支付金额：%f", logger.LogQuota(int(completed.CreditedQuota)), completed.Money), c.ClientIP(), completed.PaymentMethod, "epay")
+			logger.LogInfo(c.Request.Context(), fmt.Sprintf("易支付 充值成功 trade_no=%s user_id=%d client_ip=%s credited_amount=%q money=%.2f settlement_currency=%s", completed.TradeNo, completed.UserId, c.ClientIP(), logger.LogQuota(int(completed.CreditedQuota)), completed.Money, completed.SettlementCurrency))
+			model.RecordTopupLog(completed.UserId, fmt.Sprintf("使用在线充值成功，到账额度: %v，支付金额：%.2f %s", logger.LogQuota(int(completed.CreditedQuota)), completed.Money, completed.SettlementCurrency), c.ClientIP(), completed.PaymentMethod, "epay")
 		} else {
 			logger.LogInfo(c.Request.Context(), fmt.Sprintf("易支付 重复回调幂等忽略 trade_no=%s callback_type=%s client_ip=%s", verifyInfo.ServiceTradeNo, verifyInfo.Type, c.ClientIP()))
 		}
@@ -1498,7 +1498,7 @@ func RequestAmount(c *gin.Context) {
 		common.ApiErrorMsg(c, "支付方式配置无效")
 		return
 	}
-	c.JSON(http.StatusOK, withTopUpCreditFields(gin.H{"message": "success", "data": payMoney.StringFixed(2)}, req.AmountUnit, amount, credited, currency))
+	c.JSON(http.StatusOK, withTopUpRequestCreditFields(c, gin.H{"message": "success", "data": payMoney.StringFixed(2)}, req.AmountUnit, amount, credited, currency))
 }
 
 func GetUserTopUps(c *gin.Context) {

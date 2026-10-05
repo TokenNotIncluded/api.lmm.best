@@ -14,6 +14,12 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+type topUpMethodCreditPolicy struct {
+	minimum    int64
+	maximum    int64
+	hasMaximum bool
+}
+
 // topUpCreditMetadata publishes authoritative integer-credit catalog values.
 // Legacy fields remain compatibility projections, never inputs to the new limits.
 // The caller supplies sanitized public maps; they are updated only after every
@@ -91,15 +97,10 @@ func topUpCreditMetadata(payMethods []map[string]string) (gin.H, error) {
 		providerMinima[minimum.key] = credits
 	}
 
-	type methodCreditPolicy struct {
-		minimum    int64
-		maximum    int64
-		hasMaximum bool
-	}
 	// Dedicated checkout views may synthesize their payment method instead of
 	// retaining the public catalog row. Publish their entire effective policy,
 	// including configured limits, even when no row is present in payMethods.
-	providerPolicies := make(map[string]methodCreditPolicy, 3)
+	providerPolicies := make(map[string]topUpMethodCreditPolicy, 3)
 	providerKeys := []struct {
 		paymentType string
 		minimumKey  string
@@ -110,7 +111,7 @@ func topUpCreditMetadata(payMethods []map[string]string) (gin.H, error) {
 		{model.PaymentMethodWaffoPancake, "pancake_credit_min_topup", "pancake_credit_max_topup"},
 	}
 	for _, provider := range providerKeys {
-		policy := methodCreditPolicy{minimum: providerMinima[provider.minimumKey]}
+		policy := topUpMethodCreditPolicy{minimum: providerMinima[provider.minimumKey]}
 		minimum, configured, err := configuredPaymentMethodMinTopUp(provider.paymentType)
 		if err != nil {
 			return nil, err
@@ -156,7 +157,7 @@ func topUpCreditMetadata(payMethods []map[string]string) (gin.H, error) {
 		}
 		providerPolicies[provider.paymentType] = policy
 	}
-	policies := make([]methodCreditPolicy, len(payMethods))
+	policies := make([]topUpMethodCreditPolicy, len(payMethods))
 	for i, method := range payMethods {
 		paymentType := strings.TrimSpace(method["type"])
 		if method == nil || paymentType == "" {
@@ -236,14 +237,110 @@ func topUpCreditMetadata(payMethods []map[string]string) (gin.H, error) {
 			metadata[provider.maximumKey] = policy.maximum
 		}
 	}
+	publicMetadata, publicPolicies, err := topUpPublicDenominationMetadata(metadata, policies)
+	if err != nil {
+		return nil, err
+	}
+	for key, value := range publicMetadata {
+		metadata[key] = value
+	}
 	for i, method := range payMethods {
 		method["min_topup_credit"] = strconv.FormatInt(policies[i].minimum, 10)
 		delete(method, "max_topup_credit")
 		if policies[i].hasMaximum {
 			method["max_topup_credit"] = strconv.FormatInt(policies[i].maximum, 10)
 		}
+		method["min_topup_ledger_quota"] = method["min_topup_credit"]
+		method["credit_amount_unit"] = "LEDGER_QUOTA"
+		method["min_topup_public_credit"] = publicPolicies[i].minimum
+		delete(method, "max_topup_ledger_quota")
+		delete(method, "max_topup_public_credit")
+		if policies[i].hasMaximum {
+			method["max_topup_ledger_quota"] = method["max_topup_credit"]
+			method["max_topup_public_credit"] = publicPolicies[i].maximum
+		}
 	}
 	return metadata, nil
+}
+
+type topUpPublicCreditPolicy struct{ minimum, maximum string }
+
+// Public amounts are display projections paired with immutable ledger IDs.
+// Do not round them to an integer and feed them back into a quote: a changed
+// denomination usually cannot represent an existing catalog grant exactly.
+func topUpPublicDenominationMetadata(legacy gin.H, policies []topUpMethodCreditPolicy) (gin.H, []topUpPublicCreditPolicy, error) {
+	units, err := common.CreditDenominationMetadata()
+	if err != nil {
+		return nil, nil, err
+	}
+	metadata := creditUnitMetadataFieldsFor(units)
+	metadata["legacy_credit_unit"] = "LEDGER_QUOTA"
+	metadata["public_credit_metadata_version"] = 2
+	metadata["public_credit_amount_unit"] = "CREDIT"
+	options := legacy["credit_amount_options"].([]int64)
+	publicOptions := make([]string, 0, len(options))
+	for _, quota := range options {
+		value, err := units.ProjectLedgerQuota(quota)
+		if err != nil {
+			return nil, nil, err
+		}
+		publicOptions = append(publicOptions, value.String())
+	}
+	metadata["ledger_quota_amount_options"] = options
+	metadata["public_credit_amount_options"] = publicOptions
+	discounts := legacy["credit_discount"].(map[string]float64)
+	publicDiscounts := make(map[string]float64, len(discounts))
+	for rawQuota, discount := range discounts {
+		quota, err := strconv.ParseInt(rawQuota, 10, 64)
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid ledger discount threshold: %w", err)
+		}
+		value, err := units.ProjectLedgerQuota(quota)
+		if err != nil {
+			return nil, nil, err
+		}
+		if previous, exists := publicDiscounts[value.String()]; exists && previous != discount {
+			return nil, nil, fmt.Errorf("conflicting public credit discount projections")
+		}
+		publicDiscounts[value.String()] = discount
+	}
+	metadata["ledger_quota_discount"] = discounts
+	metadata["public_credit_discount"] = publicDiscounts
+	for _, prefix := range []string{"", "stripe_", "waffo_", "pancake_"} {
+		for _, limit := range []string{"min", "max"} {
+			legacyKey := prefix + "credit_" + limit + "_topup"
+			quota, exists := legacy[legacyKey]
+			if !exists {
+				continue
+			}
+			publicKey := prefix + "public_credit_" + limit + "_topup"
+			metadata[prefix+"ledger_quota_"+limit+"_topup"] = quota
+			metadata[publicKey] = nil
+			if quota != nil {
+				value, err := units.ProjectLedgerQuota(quota.(int64))
+				if err != nil {
+					return nil, nil, err
+				}
+				metadata[publicKey] = value.String()
+			}
+		}
+	}
+	publicPolicies := make([]topUpPublicCreditPolicy, len(policies))
+	for index, policy := range policies {
+		minimum, err := units.ProjectLedgerQuota(policy.minimum)
+		if err != nil {
+			return nil, nil, err
+		}
+		publicPolicies[index].minimum = minimum.String()
+		if policy.hasMaximum {
+			maximum, err := units.ProjectLedgerQuota(policy.maximum)
+			if err != nil {
+				return nil, nil, err
+			}
+			publicPolicies[index].maximum = maximum.String()
+		}
+	}
+	return metadata, publicPolicies, nil
 }
 
 func topUpMetadataCreditInteger(value decimal.Decimal) (int64, error) {

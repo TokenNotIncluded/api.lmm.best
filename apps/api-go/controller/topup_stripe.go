@@ -87,7 +87,7 @@ func (*StripeAdaptor) RequestAmount(c *gin.Context, req *StripePayRequest) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "充值金额过低"})
 		return
 	}
-	c.JSON(http.StatusOK, withTopUpCreditFields(gin.H{"message": "success", "data": strconv.FormatFloat(monetaryMicrosToFloat(expectedAmountMicros), 'f', 2, 64)}, req.AmountUnit, requestedAmount, creditedQuota, "USD"))
+	c.JSON(http.StatusOK, withTopUpRequestCreditFields(c, gin.H{"message": "success", "data": strconv.FormatFloat(monetaryMicrosToFloat(expectedAmountMicros), 'f', 2, 64)}, req.AmountUnit, requestedAmount, creditedQuota, "USD"))
 }
 
 func (*StripeAdaptor) RequestPay(c *gin.Context, req *StripePayRequest) {
@@ -202,12 +202,10 @@ func (*StripeAdaptor) RequestPay(c *gin.Context, req *StripePayRequest) {
 	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Stripe 充值订单创建成功 user_id=%d trade_no=%s amount=%s money=%.2f currency=%s", id, referenceId, requestedAmount.String(), topUp.Money, settlementCurrency))
 	c.JSON(http.StatusOK, gin.H{
 		"message": "success",
-		"data": gin.H{
-			"trade_no":       referenceId,
-			"pay_link":       payLink,
-			"credited_quota": creditedQuota, "credit_amount": creditedQuota, "currency_unit": "credit",
-			"amount_unit": topUpRequestUnit(req.AmountUnit), "legacy_batch_units": requestedAmount.String(), "settlement_currency": settlementCurrency,
-		},
+		"data": withTopUpRequestCreditFields(c, gin.H{
+			"trade_no": referenceId,
+			"pay_link": payLink,
+		}, req.AmountUnit, requestedAmount, creditedQuota, settlementCurrency),
 	})
 }
 
@@ -516,7 +514,7 @@ func fulfillOrder(ctx context.Context, event stripe.Event, referenceId string, c
 		return fmt.Errorf("complete external topup: %w", err)
 	}
 
-	model.RecordTopupLog(completed.UserId, fmt.Sprintf("使用在线充值成功，充值金额: %v，支付金额：%.2f", logger.FormatQuota(int(completed.CreditedQuota)), completed.Money), callerIp, completed.PaymentMethod, model.PaymentMethodStripe)
+	model.RecordTopupLog(completed.UserId, fmt.Sprintf("使用在线充值成功，到账额度: %v，支付金额：%.2f %s", logger.LogQuota(int(completed.CreditedQuota)), completed.Money, completed.SettlementCurrency), callerIp, completed.PaymentMethod, model.PaymentMethodStripe)
 	logger.LogInfo(ctx, fmt.Sprintf("Stripe 充值成功 trade_no=%s amount_total=%d currency=%s event_type=%s client_ip=%s", referenceId, amountTotal, currency, string(event.Type), callerIp))
 	return nil
 }
