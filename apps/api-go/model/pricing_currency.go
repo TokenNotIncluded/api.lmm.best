@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/pkg/billingexpr"
 	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
 	"github.com/shopspring/decimal"
 )
@@ -63,7 +64,13 @@ func USDExpression(expr string) (string, error) {
 		return "", err
 	}
 	scale := anchor.DivRound(decimal.NewFromFloat(common.QuotaPerUnit), 64)
-	return "(" + expr + ") / (" + scale.String() + ")", nil
+	return wrapPricingExpression(expr, "/", scale.String()), nil
+}
+
+func wrapPricingExpression(expr, operator, scale string) string {
+	_, body := billingexpr.ParseExprVersion(expr)
+	prefix := expr[:len(expr)-len(body)]
+	return prefix + "(" + body + ") " + operator + " (" + scale + ")"
 }
 
 // NormalizePricingUSD returns a detached public DTO, leaving the immutable

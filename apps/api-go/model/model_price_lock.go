@@ -224,6 +224,11 @@ func FilterLockedModelPriceChanges(values map[string]string) (map[string]string,
 
 func validateModelPriceValues(values map[string]string) error {
 	for key, value := range values {
+		if key == operation_setting.ToolPriceOptionKey {
+			if err := operation_setting.ValidateToolPricesJSON(value); err != nil {
+				return err
+			}
+		}
 		if key == ModelPriceLocksOptionKey {
 			if _, err := parseModelPriceLocks(value); err != nil {
 				return err

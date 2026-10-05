@@ -250,7 +250,7 @@ func convertUSDPriceValues(request USDPriceUpdate, current map[string]string) (m
 					return nil, fmt.Errorf("invalid USD expression for %s", name)
 				}
 				if expr != "" {
-					expr = "(" + expr + ") * (" + scale.String() + ")"
+					expr = wrapPricingExpression(expr, "*", scale.String())
 				}
 				proposed[name], _ = json.Marshal(expr)
 			}

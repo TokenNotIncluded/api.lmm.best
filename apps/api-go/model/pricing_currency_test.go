@@ -193,3 +193,58 @@ func TestUSDPriceCASRejectsDifferentNodeCalibration(t *testing.T) {
 	_, err = GetUSDPriceConfig()
 	require.ErrorIs(t, err, ErrPricingUnitsStale)
 }
+
+func TestUSDExpressionPreservesVersionAndRequestRules(t *testing.T) {
+	pricingCurrencyFixture(t, 500000, 7000000)
+	legacy := `v1:(tier("base", p*28+c*112)) * (param("service_tier") == "fast" ? 2 : 1) * (has(header("anthropic-beta"), "fast-mode") ? 2.5 : 1)`
+	quote, err := USDExpression(legacy)
+	require.NoError(t, err)
+	require.Equal(t, `v1:((tier("base", p*28+c*112)) * (param("service_tier") == "fast" ? 2 : 1) * (has(header("anthropic-beta"), "fast-mode") ? 2.5 : 1)) / (14)`, quote)
+	params := billingexpr.TokenParams{P: 1000, C: 100}
+	request := billingexpr.RequestInput{Body: []byte(`{"service_tier":"fast"}`), Headers: map[string]string{"Anthropic-Beta": "fast-mode"}}
+	snap := &billingexpr.BillingSnapshot{ExprString: legacy, ExprHash: billingexpr.ExprHashString(legacy), QuotaPerUnit: 500000, GroupRatio: .485, ExprVersion: 1}
+	actual, err := billingexpr.ComputeTieredQuotaWithRequest(snap, params, request)
+	require.NoError(t, err)
+	cost, trace, err := billingexpr.RunExprWithRequest(quote, params, request)
+	require.NoError(t, err)
+	require.Equal(t, 14000.0, cost)
+	require.Equal(t, 47530, actual.ActualQuotaAfterGroup)
+	credits, _ := common.QuotaRoundChecked(cost / 1e6 * 7000000 * .485)
+	require.Equal(t, actual.ActualQuotaAfterGroup, credits)
+	require.Equal(t, actual.RequestRules, trace.RequestRules)
+	require.Equal(t, "base", trace.MatchedTier)
+}
+
+func TestUSDExpressionVersionedReadSaveAndEdit(t *testing.T) {
+	setupPriceLockTest(t)
+	pricingCurrencyFixture(t, 500000, 7000000)
+	raw := priceOptionSnapshot()
+	raw["billing_setting.billing_expr"] = ` { "versioned" : "v1:tier(\"base\", p*28+c*112)" } `
+	for key, value := range raw {
+		require.NoError(t, DB.Create(&Option{Key: key, Value: value}).Error)
+	}
+	require.NoError(t, DB.Create(&Option{Key: CreditsPerUSDOptionKey, Value: "7000000"}).Error)
+	before, err := GetUSDPriceConfig()
+	require.NoError(t, err)
+	request := USDPriceUpdate{SchemaVersion: 2, Currency: "USD", ExpectedRevision: before.Revision, Values: maps.Clone(before.Values)}
+	_, _, err = UpdateUSDPriceConfig(request)
+	require.NoError(t, err)
+	require.Equal(t, raw["billing_setting.billing_expr"], persistedPriceOption(t, "billing_setting.billing_expr"))
+	request.Values = map[string]string{"billing_setting.billing_expr": `{"versioned":"v1:tier(\"base\", p*0.042)"}`}
+	_, _, err = UpdateUSDPriceConfig(request)
+	require.NoError(t, err)
+	entries, err := rawPriceMap(persistedPriceOption(t, "billing_setting.billing_expr"))
+	require.NoError(t, err)
+	var stored string
+	require.NoError(t, json.Unmarshal(entries["versioned"], &stored))
+	require.Equal(t, `v1:(tier("base", p*0.042)) * (14)`, stored)
+	snap := &billingexpr.BillingSnapshot{ExprString: stored, ExprHash: billingexpr.ExprHashString(stored), QuotaPerUnit: 500000, GroupRatio: 1, ExprVersion: 1}
+	actual, err := billingexpr.ComputeTieredQuota(snap, billingexpr.TokenParams{P: 1000000})
+	require.NoError(t, err)
+	require.Equal(t, 294000, actual.ActualQuotaAfterGroup)
+}
+
+func TestUSDToolPriceWriterRetainsLegacyValidation(t *testing.T) {
+	require.Error(t, validateModelPriceValues(map[string]string{operation_setting.ToolPriceOptionKey: `{"web_search":-1}`}))
+	require.NoError(t, validateModelPriceValues(map[string]string{operation_setting.ToolPriceOptionKey: `{"web_search":0}`}))
+}
