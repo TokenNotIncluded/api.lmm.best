@@ -431,7 +431,7 @@ func completeExternalTopUpOnDB(db *gorm.DB, settlement ExternalTopUpSettlement) 
 				return ErrPaymentEvidenceConflict
 			}
 
-			quota, quotaErr := pendingTopUpSettlementQuota(&completed)
+			quota, quotaErr := pendingTopUpSettlementQuotaTx(tx, &completed)
 			if quotaErr != nil {
 				return quotaErr
 			}
@@ -1113,18 +1113,18 @@ func RechargeEpay(tradeNo string, actualPaymentMethod string, callerIp string) (
 		if topUp.Status != common.TopUpStatusPending {
 			return ErrTopUpStatusInvalid
 		}
-		if actualPaymentMethod != "" && topUp.PaymentMethod != actualPaymentMethod {
-			topUp.PaymentMethod = actualPaymentMethod
-		}
 		if !epayHasImmutableSettlementSnapshot(topUp) {
 			return ErrPaymentEvidenceConflict
 		}
-		quotaToAdd, err = pendingTopUpSettlementQuotaInt(topUp)
+		quotaToAdd, err = pendingTopUpSettlementQuotaIntTx(tx, topUp)
 		if err != nil {
 			return err
 		}
 		if quotaToAdd <= 0 || common.ValidateWalletQuota(quotaToAdd) != nil {
 			return ErrInvalidTopUpQuota
+		}
+		if actualPaymentMethod != "" && topUp.PaymentMethod != actualPaymentMethod {
+			topUp.PaymentMethod = actualPaymentMethod
 		}
 		topUp.CreditedQuota = int64(quotaToAdd)
 		topUp.SettledAmountMicros = topUp.ExpectedAmountMicros
@@ -1178,7 +1178,7 @@ func Recharge(referenceId string, customerId string, callerIp string) (err error
 			return errors.New("充值订单状态错误")
 		}
 
-		quota, err = pendingTopUpSettlementQuota(topUp)
+		quota, err = pendingTopUpSettlementQuotaTx(tx, topUp)
 		if err != nil {
 			return err
 		}
@@ -1445,7 +1445,7 @@ func ManualCompleteTopUp(tradeNo string, callerIp string) error {
 			return errors.New("订单状态不是待支付，无法补单")
 		}
 
-		creditedQuota, quotaErr := pendingTopUpSettlementQuotaInt(topUp)
+		creditedQuota, quotaErr := pendingTopUpSettlementQuotaIntTx(tx, topUp)
 		if quotaErr != nil {
 			return errors.New("无效的充值额度")
 		}
@@ -1515,7 +1515,7 @@ func RechargeCreem(referenceId string, customerEmail string, customerName string
 			return errors.New("充值订单状态错误")
 		}
 
-		quota, err = pendingTopUpSettlementQuota(topUp)
+		quota, err = pendingTopUpSettlementQuotaTx(tx, topUp)
 		if err != nil {
 			return err
 		}
@@ -1599,7 +1599,7 @@ func RechargeWaffo(tradeNo string, callerIp string) (err error) {
 			return errors.New("充值订单状态错误")
 		}
 
-		quotaToAdd, err = pendingTopUpSettlementQuotaInt(topUp)
+		quotaToAdd, err = pendingTopUpSettlementQuotaIntTx(tx, topUp)
 		if err != nil {
 			return errors.New("无效的充值额度")
 		}
@@ -1663,7 +1663,7 @@ func RechargeWaffoPancake(tradeNo string) (err error) {
 			return errors.New("充值订单状态错误")
 		}
 
-		quotaToAdd, err = pendingTopUpSettlementQuotaInt(topUp)
+		quotaToAdd, err = pendingTopUpSettlementQuotaIntTx(tx, topUp)
 		if err != nil {
 			return errors.New("无效的充值额度")
 		}

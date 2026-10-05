@@ -1,10 +1,33 @@
 package model
 
 import (
+	"strconv"
+	"testing"
+
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/stretchr/testify/require"
-	"testing"
+	"gorm.io/gorm"
 )
+
+func seedPendingTopUpCreditAudit(t *testing.T, db *gorm.DB, order TopUp) map[string]interface{} {
+	t.Helper()
+	require.NoError(t, db.Exec("CREATE TABLE IF NOT EXISTS wallet_credit_rebases (migration_id TEXT PRIMARY KEY, plan TEXT NOT NULL)").Error)
+	source := map[string]interface{}{
+		"id": order.Id, "user_id": order.UserId, "status": order.Status, "failure_reason_code": order.FailureReasonCode,
+		"credited_quota": order.CreditedQuota, "amount": order.Amount, "platform_amount_micros": order.PlatformAmountMicros,
+		"settled_amount_micros": order.SettledAmountMicros, "expected_amount_micros": order.ExpectedAmountMicros,
+		"refunded_quota": order.RefundedQuota, "refunded_amount_micros": order.RefundedAmountMicros,
+		"payment_provider": order.PaymentProvider, "payment_method": order.PaymentMethod, "settlement_currency": order.SettlementCurrency,
+		"money": strconv.FormatFloat(order.Money, 'g', -1, 64), "effective_credited_quota": normalizedTopUpCreditedQuota(&order),
+		"pending_credit_rebase_key": "", "pending_credit_rebase_original_quota": 0, "pending_credit_rebase_effective_quota": 0,
+	}
+	base := map[string]interface{}{"source": source, "top_up_id": order.Id, "user_id": order.UserId,
+		"original_credited_quota": order.PendingCreditRebaseOriginalQuota, "effective_credited_quota": order.PendingCreditRebaseEffectiveQuota}
+	plan := map[string]interface{}{"migration_id": order.PendingCreditRebaseKey, "include_pending_topups": true,
+		"user_ids": []int{order.UserId}, "pending_bases": []interface{}{base}}
+	require.NoError(t, db.Exec("INSERT INTO wallet_credit_rebases (migration_id, plan) VALUES (?, ?)", order.PendingCreditRebaseKey, common.GetJsonString(plan)).Error)
+	return plan
+}
 
 func TestPendingTopUpCreditRebaseLateCallbackGrantsEffectiveCreditsOnce(t *testing.T) {
 	db := setupExternalTopUpSettlementDB(t, 1)
@@ -13,6 +36,7 @@ func TestPendingTopUpCreditRebaseLateCallbackGrantsEffectiveCreditsOnce(t *testi
 	order.PendingCreditRebaseOriginalQuota = order.CreditedQuota
 	order.PendingCreditRebaseEffectiveQuota = 184
 	require.NoError(t, db.Save(&order).Error)
+	seedPendingTopUpCreditAudit(t, db, order)
 	completed, err := CompleteExternalTopUp(settlement)
 	require.NoError(t, err)
 	require.EqualValues(t, 184, completed.CreditedQuota)
@@ -35,6 +59,7 @@ func TestPendingTopUpCreditRebaseCorruptSnapshotRollsBackCallback(t *testing.T) 
 	order.PendingCreditRebaseOriginalQuota = 1235
 	order.PendingCreditRebaseEffectiveQuota = 184
 	require.NoError(t, db.Save(&order).Error)
+	seedPendingTopUpCreditAudit(t, db, order)
 	_, err := CompleteExternalTopUp(settlement)
 	require.ErrorIs(t, err, ErrInvalidTopUpQuota)
 	require.NoError(t, db.First(&user, user.Id).Error)
@@ -82,6 +107,7 @@ func TestPendingTopUpCreditRebaseLegacyManualSettlement(t *testing.T) {
 	order.PendingCreditRebaseOriginalQuota = 5000000
 	order.PendingCreditRebaseEffectiveQuota = 746269
 	require.NoError(t, db.Save(&order).Error)
+	seedPendingTopUpCreditAudit(t, db, order)
 	require.NoError(t, ManualCompleteTopUp(order.TradeNo, ""))
 	require.NoError(t, ManualCompleteTopUp(order.TradeNo, ""))
 	require.NoError(t, db.First(&user, user.Id).Error)
@@ -112,6 +138,7 @@ func TestPendingTopUpCreditRebaseAllLegacySettlementEntrypoints(t *testing.T) {
 			order.PendingCreditRebaseOriginalQuota = 1234
 			order.PendingCreditRebaseEffectiveQuota = 184
 			require.NoError(t, db.Save(&order).Error)
+			seedPendingTopUpCreditAudit(t, db, order)
 			require.NoError(t, tc.settle(order.TradeNo))
 			require.NoError(t, db.First(&user, user.Id).Error)
 			require.Equal(t, 284, user.Quota)
