@@ -131,11 +131,11 @@ beforeEach(async () => {
     currency: {
       ...DEFAULT_CURRENCY_CONFIG,
       currencyUnit: 'credit',
-      creditsPerUsd: 3_500_000,
-      creditsPerUsdExact: '3500000',
+      creditsPerUsd: 500_000,
+      creditsPerUsdExact: '500000',
       cnyPerUsd: 7,
       cnyPerUsdExact: '7',
-      legacyPricingUnitsPerUsd: 7,
+      legacyPricingUnitsPerUsd: 1,
       quotaPerUnit: 500_000,
     },
   })
@@ -155,19 +155,19 @@ test('mounted SMS quotes, integral charges and balance notice switch three curre
   for (const [currency, unit, total, charge, minimum, balance] of [
     [
       'USD',
-      '0.00000157 USD',
-      '0.00000314 USD',
-      '0.00000171 USD',
-      '1.42857143 USD',
-      '1.42857114 USD',
+      '0.000011 USD',
+      '0.000022 USD',
+      '0.000012 USD',
+      '10 USD',
+      '9.999998 USD',
     ],
     [
       'CNY',
-      '0.000011 CNY',
-      '0.000022 CNY',
-      '0.000012 CNY',
-      '10 CNY',
-      '9.999998 CNY',
+      '0.000077 CNY',
+      '0.000154 CNY',
+      '0.000084 CNY',
+      '70 CNY',
+      '69.999986 CNY',
     ],
     [
       'CREDIT',
@@ -210,16 +210,16 @@ test('a live FX change refreshes quote, raw charge and minimum without changing 
   })
   assert.deepEqual(quoteAmounts(container), [
     '3',
-    '0.00001257 CNY',
-    '0.00002514 CNY',
+    '0.000088 CNY',
+    '0.000176 CNY',
   ])
   assert.equal(
     container.querySelector('[data-actual-charge]')?.textContent,
-    '0.00001371 CNY'
+    '0.000096 CNY'
   )
   assert.ok(
     container.textContent?.includes(
-      'Minimum balance: 11.42857143 CNY. Current balance: 11.42856914 CNY.'
+      'Minimum balance: 80 CNY. Current balance: 79.999984 CNY.'
     )
   )
 })
@@ -245,20 +245,20 @@ test('language changes apply CNY defaults and redraw Credit translations after m
   const container = await mount()
   assert.deepEqual(quoteAmounts(container), [
     '3',
-    '0.00000157 USD',
-    '0.00000314 USD',
+    '0.000011 USD',
+    '0.000022 USD',
   ])
   await act(async () => {
     await i18n.changeLanguage('zhCN')
   })
   assert.deepEqual(quoteAmounts(container), [
     '3',
-    '0.000011 CNY',
-    '0.000022 CNY',
+    '0.000077 CNY',
+    '0.000154 CNY',
   ])
   assert.ok(container.textContent?.includes('报价上限'))
   assert.ok(
-    container.textContent?.includes('最低余额 10 CNY，当前 9.999998 CNY。')
+    container.textContent?.includes('最低余额 70 CNY，当前 69.999986 CNY。')
   )
   await act(async () => {
     useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
@@ -317,8 +317,8 @@ test('custom bid input changes denomination without changing the legacy API pric
     )
   )
   for (const [currency, text] of [
-    ['USD', '0.000001571428571428571428571429'],
-    ['CNY', '0.000011'],
+    ['USD', '0.000011'],
+    ['CNY', '0.000077'],
     ['CREDIT', '5.5'],
   ] as const) {
     await act(async () =>
@@ -359,7 +359,7 @@ test('custom bid input changes denomination without changing the legacy API pric
 test('schema 2 mounted SMS unit and quantity quotes use real USD exactly once', async () => {
   const modern: HeroSmsSmsOffer = {
     ...offer,
-    customer_price_usd: String(1 / 7),
+    customer_price_usd: '1',
     charge_quota: 500_000,
     pricing_schema_version: 2,
     pricing_currency: 'USD',
@@ -367,8 +367,8 @@ test('schema 2 mounted SMS unit and quantity quotes use real USD exactly once', 
   }
   const container = await mount(modern)
   for (const [currency, unit, total] of [
-    ['CNY', '1 CNY', '2 CNY'],
-    ['USD', '0.14285714 USD', '0.28571429 USD'],
+    ['CNY', '7 CNY', '14 CNY'],
+    ['USD', '1 USD', '2 USD'],
     ['CREDIT', '500,000 Credits', '1,000,000 Credits'],
   ] as const) {
     await act(async () =>

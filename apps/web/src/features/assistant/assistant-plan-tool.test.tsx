@@ -243,7 +243,7 @@ describe('AssistantPlanTool', () => {
     assert.match(rendered.container.textContent ?? '', /save 20%/)
     assert.match(
       rendered.container.textContent ?? '',
-      /Estimated discounted base amount11\.43 USD/
+      /Estimated discounted base amount80 USD/
     )
     assert.doesNotMatch(
       rendered.container.textContent ?? '',
@@ -341,13 +341,13 @@ describe('AssistantPlanTool', () => {
         'value'
       )?.set
       assert.ok(setValue)
-      setValue.call(expectedInput, '40')
+      setValue.call(expectedInput, '280')
       expectedInput.dispatchEvent(new Event('input', { bubbles: true }))
       await flushQueries()
     })
     assert.match(
       rendered.container.textContent ?? '',
-      /No plan fully covers your 40 USD monthly estimate/
+      /No plan fully covers your 280 USD monthly estimate/
     )
 
     await unmount(rendered)
@@ -395,7 +395,7 @@ describe('AssistantPlanTool', () => {
     }) as typeof api.get
     const rendered = await renderTool(true)
     try {
-      assert.match(rendered.container.textContent ?? '', /14\.29 USD/)
+      assert.match(rendered.container.textContent ?? '', /100 USD/)
       const budget = rendered.container.querySelector<HTMLInputElement>(
         '#assistant-expected-credit'
       )
@@ -411,8 +411,8 @@ describe('AssistantPlanTool', () => {
       await act(async () => {
         useWalletCurrencyPreferenceStore.getState().setPreference('CNY')
       })
-      assert.match(rendered.container.textContent ?? '', /100 CNY/)
-      assert.match(rendered.container.textContent ?? '', /80 CNY/)
+      assert.match(rendered.container.textContent ?? '', /700 CNY/)
+      assert.match(rendered.container.textContent ?? '', /560 CNY/)
       assert.match(
         rendered.container.textContent ?? '',
         /140 CNY monthly estimate/
@@ -514,18 +514,18 @@ describe('AssistantPlanTool', () => {
     try {
       assert.match(
         rendered.container.textContent ?? '',
-        /Credited balance1 USD/
+        /Credited balance7 USD/
       )
       assert.match(
         rendered.container.textContent ?? '',
-        /Estimated discounted base amount0\.8 USD/
+        /Estimated discounted base amount5\.6 USD/
       )
       await act(async () => {
         useWalletCurrencyPreferenceStore.getState().setPreference('CNY')
       })
       assert.match(
         rendered.container.textContent ?? '',
-        /Credited balance7 CNY/
+        /Credited balance49 CNY/
       )
       await act(async () => {
         useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')

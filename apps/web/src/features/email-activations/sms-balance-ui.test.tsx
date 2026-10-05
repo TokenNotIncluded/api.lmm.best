@@ -60,11 +60,11 @@ beforeEach(async () => {
     currency: {
       ...DEFAULT_CURRENCY_CONFIG,
       currencyUnit: 'credit',
-      creditsPerUsd: 3_500_000,
-      creditsPerUsdExact: '3500000',
+      creditsPerUsd: 500_000,
+      creditsPerUsdExact: '500000',
       cnyPerUsd: 7,
       cnyPerUsdExact: '7',
-      legacyPricingUnitsPerUsd: 7,
+      legacyPricingUnitsPerUsd: 1,
       quotaPerUnit: 500_000,
       usdExchangeRate: 7,
     },
@@ -176,7 +176,7 @@ describe('SMS balance notice and action boundaries', () => {
       {
         title: 'Insufficient quota',
         description:
-          'Temporary SMS purchases require a balance of at least 1.42857143 USD',
+          'Temporary SMS purchases require a balance of at least 10 USD',
       }
     )
     assert.deepEqual(
@@ -228,7 +228,7 @@ describe('SMS balance notice and action boundaries', () => {
     )
     assert.equal(result.title, 'Purchasing unavailable')
     assert.match(result.description, /provider/)
-    assert.doesNotMatch(result.description, /at least|1\.42857143 USD/)
+    assert.doesNotMatch(result.description, /at least|10 USD/)
   })
 
   test('uses a captured minimum with its existing denomination in access errors', () => {
@@ -253,9 +253,9 @@ describe('SMS balance notice and action boundaries', () => {
       />
     )
     assert.match(markup, /role="status"/)
-    assert.match(markup, /Minimum balance: 1\.42857143 USD/)
-    assert.match(markup, /Current balance: 1\.42857114 USD/)
-    assert.doesNotMatch(markup, /USD 10|9\.999998 USD|\{\{/)
+    assert.match(markup, /Minimum balance: 10 USD/)
+    assert.match(markup, /Current balance: 9\.999998 USD/)
+    assert.doesNotMatch(markup, /1\.428571|\{\{/)
     assert.match(markup, /Existing orders can still receive codes/)
     assert.doesNotMatch(button(markup, 'Refresh balance'), /disabled/)
   })
@@ -271,8 +271,8 @@ describe('SMS balance notice and action boundaries', () => {
         onRefresh={noop}
       />
     )
-    assert.match(yuanMarkup, /Minimum balance: 10 CNY/)
-    assert.match(yuanMarkup, /Current balance: 9\.999998 CNY/)
+    assert.match(yuanMarkup, /Minimum balance: 70 CNY/)
+    assert.match(yuanMarkup, /Current balance: 69\.999986 CNY/)
     useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
     const creditMarkup = render(
       <SmsBalanceNotice
@@ -298,7 +298,7 @@ describe('SMS balance notice and action boundaries', () => {
       />
     )
     assert.match(markup, /balance could not be verified/)
-    assert.doesNotMatch(markup, /Current balance:|0 USD/)
+    assert.doesNotMatch(markup, /Current balance:|\b0 USD/)
     assert.doesNotMatch(button(markup, 'Refresh balance'), /disabled/)
   })
 
@@ -435,12 +435,12 @@ test('historical SMS prices display their stored raw debit instead of today’s 
       cleanupPending={false}
     />
   )
-  assert.match(render(component), /0\.00000171 USD/)
+  assert.match(render(component), /0\.000012 USD/)
   const config = useSystemConfigStore.getState().config.currency
   useSystemConfigStore
     .getState()
     .setConfig({ currency: { ...config, quotaPerUnit: 1000000 } })
-  assert.match(render(component), /0\.00000171 USD/)
+  assert.match(render(component), /0\.000012 USD/)
   useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
   assert.match(render(component), /6 Credits/)
   assert.equal(order.charge_quota, 6)

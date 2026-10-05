@@ -91,8 +91,8 @@ describe('email activation api', () => {
       ...DEFAULT_CURRENCY_CONFIG,
       currencyUnit: 'credit' as const,
       quotaPerUnit: 500000,
-      creditsPerUsd: 3500000,
-      creditsPerUsdExact: '3500000',
+      creditsPerUsd: 500000,
+      creditsPerUsdExact: '500000',
       cnyPerUsd: 7,
       cnyPerUsdExact: '7',
     }
@@ -101,8 +101,8 @@ describe('email activation api', () => {
     try {
       for (const [currency, price, charge] of [
         ['CREDIT', '5.5 Credits', '6 Credits'],
-        ['CNY', '0.000011 CNY', '0.000012 CNY'],
-        ['USD', '0.00000157 USD', '0.00000171 USD'],
+        ['CNY', '0.000077 CNY', '0.000084 CNY'],
+        ['USD', '0.000011 USD', '0.000012 USD'],
       ] as const) {
         useWalletCurrencyPreferenceStore.getState().setPreference(currency)
         assert.equal(formatHeroSmsPlatformAmount(0.000011), price)
@@ -115,7 +115,7 @@ describe('email activation api', () => {
           formatQuotaInCurrency(5, currency, { digitsSmall: 8, locale: 'en' })
         )
       }
-      assert.equal(formatHeroSmsPlatformAmount(1.8), '0.25714286 USD')
+      assert.equal(formatHeroSmsPlatformAmount(1.8), '1.8 USD')
       useSystemConfigStore.getState().setConfig({
         currency: {
           ...config,
@@ -351,8 +351,8 @@ test('schema 2 email prices retain metadata and never repeat the legacy Q/K brid
   const config = {
     ...DEFAULT_CURRENCY_CONFIG,
     quotaPerUnit: 500_000,
-    creditsPerUsd: 3_500_000,
-    creditsPerUsdExact: '3500000',
+    creditsPerUsd: 500_000,
+    creditsPerUsdExact: '500000',
     cnyPerUsd: 7,
     cnyPerUsdExact: '7',
     currencyUnit: 'credit' as const,
@@ -367,7 +367,7 @@ test('schema 2 email prices retain metadata and never repeat the legacy Q/K brid
             id: 'modern',
             domain: 'mail.test',
             site: 'demo.com',
-            customer_price_usd: String(1 / 7),
+            customer_price_usd: '1',
             charge_quota: 500_000,
             count: 4,
             available: true,
@@ -383,8 +383,8 @@ test('schema 2 email prices retain metadata and never repeat the legacy Q/K brid
     const product = (await listHeroSmsProducts()).items[0]
     assert.ok(product)
     for (const [currency, unit, total] of [
-      ['CNY', '1 CNY', '2 CNY'],
-      ['USD', '0.14285714 USD', '0.28571429 USD'],
+      ['CNY', '7 CNY', '14 CNY'],
+      ['USD', '1 USD', '2 USD'],
       ['CREDIT', '500,000 Credits', '1,000,000 Credits'],
     ] as const) {
       useWalletCurrencyPreferenceStore.getState().setPreference(currency)

@@ -171,8 +171,8 @@ beforeEach(() => {
     currency: {
       ...DEFAULT_CURRENCY_CONFIG,
       currencyUnit: 'credit',
-      creditsPerUsd: 3500000,
-      creditsPerUsdExact: '3500000',
+      creditsPerUsd: 500000,
+      creditsPerUsdExact: '500000',
       cnyPerUsd: 7,
       cnyPerUsdExact: '7',
       quotaPerUnit: 500000,
@@ -265,8 +265,8 @@ describe('SMS purchase controls', () => {
           document.getElementById('sms-confirm-balance-notice')?.textContent ??
             '',
           language === 'zhCN' || language === 'zhTW'
-            ? /Current balance: 9\.999998 CNY/
-            : /Current balance: 1\.42857114 USD/
+            ? /Current balance: 69\.999986 CNY/
+            : /Current balance: 9\.999998 USD/
         )
         mockPanelApi(async () => {
           throw new Error('offline')

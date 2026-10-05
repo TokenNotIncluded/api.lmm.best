@@ -213,20 +213,20 @@ test('equal ceiled Credit charges retain independent SMS tier selection across f
     pricing_schema_version: 2,
     pricing_currency: 'USD',
     pricing_available: true,
-    customer_price_usd: String(1 / 3_500_000),
+    customer_price_usd: String(1 / 500_000),
     price_tier_key: 'legacy-price-a',
     tiers: [
       {
         id: 'first-token',
         inventory: 2,
-        customer_price_usd: String(1 / 3_500_000),
+        customer_price_usd: String(1 / 500_000),
         charge_quota: 1,
         price_tier_key: 'legacy-price-a',
       },
       {
         id: 'second-token',
         inventory: 3,
-        customer_price_usd: String(1 / 3_500_000),
+        customer_price_usd: String(1 / 500_000),
         charge_quota: 1,
         price_tier_key: 'legacy-price-b',
       },

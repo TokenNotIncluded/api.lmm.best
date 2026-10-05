@@ -169,12 +169,12 @@ describe('assistant plan recommender', () => {
   test('uses fixed credits per real USD when deciding which plan covers a budget', () => {
     const ranked = compareAssistantPlans(
       [plan(1, 5_000_000), plan(2, 15_000_000)],
-      2,
-      3_500_000
+      20,
+      500_000
     )
 
     assert.equal(ranked[0]?.record.plan.id, 2)
-    assert.equal(ranked[0]?.monthlyCreditUSD, 15_000_000 / 3_500_000)
+    assert.equal(ranked[0]?.monthlyCreditUSD, 15_000_000 / 500_000)
   })
 
   test('compares CNY and USD plan payments using the actual exchange rate', () => {

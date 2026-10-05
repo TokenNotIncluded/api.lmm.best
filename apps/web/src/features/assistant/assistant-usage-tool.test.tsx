@@ -175,7 +175,7 @@ describe('AssistantUsageTool', () => {
       assert.match(text, /Usage at a glance/)
       assert.match(text, /deepseek-v4-flash/)
       assert.match(text, /claude-sonnet-4/)
-      assert.match(text, /0\.428571 USD/)
+      assert.match(text, /3 USD/)
       assert.deepEqual(requestedDays, [30])
 
       const select = rendered.container.querySelector<HTMLSelectElement>(
@@ -215,9 +215,9 @@ describe('AssistantUsageTool', () => {
     await i18n.changeLanguage('zhTW')
     const rendered = await renderTool(true)
     try {
-      assert.match(rendered.container.textContent ?? '', /7 CNY/)
+      assert.match(rendered.container.textContent ?? '', /49 CNY/)
       await act(async () => i18n.changeLanguage('en'))
-      assert.match(rendered.container.textContent ?? '', /1 USD/)
+      assert.match(rendered.container.textContent ?? '', /7 USD/)
       await act(async () => {
         useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
       })
