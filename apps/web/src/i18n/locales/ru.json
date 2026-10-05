@@ -10578,6 +10578,7 @@
     "Report confirmed": "Жалоба подтверждена",
     "Report dismissed": "Жалоба отклонена",
     "Billing reports": "Жалобы на счета",
-    "No billing reports": "Жалоб на счета нет"
+    "No billing reports": "Жалоб на счета нет",
+    "Usage source unavailable": "Источник данных об использовании неизвестен"
   }
 }

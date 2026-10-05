@@ -5,7 +5,11 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { maximumUsageQuota, usageMetrics } from './usage-pricing'
+import {
+  maximumUsageQuota,
+  usageMetrics,
+  usageSourceLabel,
+} from './usage-pricing'
 
 test('resource price holds sum CPU and memory limits using exact integer rounding', () => {
   assert.equal(
@@ -55,4 +59,12 @@ test('invalid and overflowing rule sets cannot produce a displayed price', () =>
   ]) {
     assert.throws(() => maximumUsageQuota(rules))
   }
+})
+
+test('legacy and unknown usage sources are not asserted to be reported or independently verified', () => {
+  assert.equal(usageSourceLabel(undefined), 'Usage source unavailable')
+  assert.equal(usageSourceLabel(''), 'Usage source unavailable')
+  assert.equal(usageSourceLabel('future_source'), 'Usage source unavailable')
+  assert.equal(usageSourceLabel('tool_reported'), 'Tool-reported usage')
+  assert.equal(usageSourceLabel('platform_verified'), 'Verified usage')
 })

@@ -10578,6 +10578,7 @@
     "Report confirmed": "Report confirmed",
     "Report dismissed": "Report dismissed",
     "Billing reports": "Billing reports",
-    "No billing reports": "No billing reports"
+    "No billing reports": "No billing reports",
+    "Usage source unavailable": "Usage source unavailable"
   }
 }

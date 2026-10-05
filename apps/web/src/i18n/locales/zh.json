@@ -10578,6 +10578,7 @@
     "Report confirmed": "举报已确认",
     "Report dismissed": "举报已驳回",
     "Billing reports": "账单举报",
-    "No billing reports": "暂无账单举报"
+    "No billing reports": "暂无账单举报",
+    "Usage source unavailable": "用量来源未知"
   }
 }

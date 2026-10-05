@@ -10578,6 +10578,7 @@
     "Report confirmed": "檢舉已確認",
     "Report dismissed": "檢舉已駁回",
     "Billing reports": "帳單檢舉",
-    "No billing reports": "暫無帳單檢舉"
+    "No billing reports": "暫無帳單檢舉",
+    "Usage source unavailable": "用量來源未知"
   }
 }

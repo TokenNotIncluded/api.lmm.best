@@ -10578,6 +10578,7 @@
     "Report confirmed": "Đã xác nhận báo cáo",
     "Report dismissed": "Đã bác bỏ báo cáo",
     "Billing reports": "Báo cáo hóa đơn",
-    "No billing reports": "Chưa có báo cáo hóa đơn"
+    "No billing reports": "Chưa có báo cáo hóa đơn",
+    "Usage source unavailable": "Không rõ nguồn báo cáo sử dụng"
   }
 }

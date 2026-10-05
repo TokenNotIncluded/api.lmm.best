@@ -46,7 +46,11 @@ import {
   initialArguments,
   schemaObject,
 } from './schema-form-utils'
-import { usagePriceLabel, usageQuantityLabel } from './usage-pricing'
+import {
+  usagePriceLabel,
+  usageQuantityLabel,
+  usageSourceLabel,
+} from './usage-pricing'
 
 export function GrantDialog({
   tool,
@@ -296,11 +300,7 @@ export function CallResult({
         {response.call.usage_quantities && (
           <div className='col-span-2'>
             <dt className='text-muted-foreground'>
-              {t(
-                response.call.usage_source === 'platform_verified'
-                  ? 'Verified usage'
-                  : 'Tool-reported usage'
-              )}
+              {t(usageSourceLabel(response.call.usage_source))}
             </dt>
             <dd>{usageQuantityLabel(response.call.usage_quantities, t)}</dd>
           </div>

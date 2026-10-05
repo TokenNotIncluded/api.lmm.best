@@ -10578,6 +10578,7 @@
     "Report confirmed": "Signalement confirmé",
     "Report dismissed": "Signalement rejeté",
     "Billing reports": "Signalements de facturation",
-    "No billing reports": "Aucun signalement de facturation"
+    "No billing reports": "Aucun signalement de facturation",
+    "Usage source unavailable": "Source de l’usage inconnue"
   }
 }

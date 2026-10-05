@@ -10578,6 +10578,7 @@
     "Report confirmed": "通報を確認済み",
     "Report dismissed": "通報を却下済み",
     "Billing reports": "請求に関する通報",
-    "No billing reports": "請求に関する通報はありません"
+    "No billing reports": "請求に関する通報はありません",
+    "Usage source unavailable": "使用量の出所が不明"
   }
 }
