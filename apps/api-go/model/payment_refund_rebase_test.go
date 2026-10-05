@@ -85,3 +85,45 @@ func TestRebasedRefundTargetExactHalfCreditBoundary(t *testing.T) {
 	require.EqualValues(t, 1, rebasedRefundTarget(1, 9_000_000_000_000_000, 4_500_000_000_000_000))
 	require.EqualValues(t, 9_000_000_000_000_000, rebasedRefundTarget(9_000_000_000_000_000, 9_000_000_000_000_000, 9_000_000_000_000_000))
 }
+
+func TestPaymentRefundRebaseMissingAuditFailsClosed(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		childTable bool
+		plan       string
+		wantError  bool
+	}{
+		{"missing_table", false, `{"user_ids":[1],"refund_bases":[{"top_up_id":1}]}`, true},
+		{"missing_row", true, `{"user_ids":[1],"refund_bases":[{"top_up_id":1}]}`, true},
+		{"new_payment", true, `{"user_ids":[1],"refund_bases":[{"top_up_id":2}]}`, false},
+		{"invalid_plan", false, `broken`, true},
+		{"missing_order_inventory", false, `{"user_ids":[1]}`, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			db := setupConsoleActivationTestDB(t)
+			require.NoError(t, db.AutoMigrate(&SubscriptionOrder{}, &User{}, &TopUp{}, &FinanceLedgerEntry{}))
+			if test.childTable {
+				require.NoError(t, db.AutoMigrate(&WalletTopUpCreditRebase{}))
+			}
+			require.NoError(t, db.Exec("CREATE TABLE wallet_credit_rebases (migration_id TEXT PRIMARY KEY, plan TEXT NOT NULL)").Error)
+			require.NoError(t, db.Exec("INSERT INTO wallet_credit_rebases (migration_id, plan) VALUES (?, ?)", "test", test.plan).Error)
+			user := User{Id: 1, Username: "missing-basis", Password: "password", Quota: 100, Status: common.UserStatusEnabled}
+			require.NoError(t, db.Create(&user).Error)
+			order := TopUp{Id: 1, UserId: user.Id, TradeNo: "missing", PaymentProvider: PaymentProviderWaffoPancake, PaymentMethod: PaymentMethodWaffoPancake, Status: common.TopUpStatusSuccess, CreditedQuota: 100, SettledAmountMicros: 100}
+			require.NoError(t, db.Create(&order).Error)
+			result, err := ApplyPaymentRefund(order.TradeNo, false, 10, FinanceCurrencyUSD, "missing", PaymentMethodWaffoPancake, PaymentProviderWaffoPancake, "test", user.Id)
+			if test.wantError {
+				require.ErrorIs(t, err, ErrRefundAmountInvalid)
+				require.Equal(t, 100, getUserQuotaForRefundTest(t, db, user.Id))
+				require.NoError(t, db.First(&order, order.Id).Error)
+				require.Zero(t, order.RefundedQuota)
+				var count int64
+				require.NoError(t, db.Model(&FinanceLedgerEntry{}).Count(&count).Error)
+				require.Zero(t, count)
+			} else {
+				require.NoError(t, err)
+				require.EqualValues(t, 10, result.QuotaDebited)
+			}
+		})
+	}
+}

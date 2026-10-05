@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
@@ -27,16 +28,16 @@ func (WalletTopUpCreditRebase) TableName() string { return "wallet_topup_credit_
 
 // Explicit catalog reads preserve compatibility before the optional migration,
 // while returning catalog/connection failures instead of treating them as absence.
-func walletTopUpCreditRebaseTableExists(tx *gorm.DB) (bool, error) {
+func walletCreditAuditTableExists(tx *gorm.DB, table string) (bool, error) {
 	var count int64
 	var err error
 	switch tx.Dialector.Name() {
 	case "postgres":
-		err = tx.Raw("SELECT CASE WHEN to_regclass('wallet_topup_credit_rebases') IS NULL THEN 0 ELSE 1 END").Scan(&count).Error
+		err = tx.Raw("SELECT CASE WHEN to_regclass(?) IS NULL THEN 0 ELSE 1 END", table).Scan(&count).Error
 	case "sqlite":
-		err = tx.Raw("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?", "wallet_topup_credit_rebases").Scan(&count).Error
+		err = tx.Raw("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?", table).Scan(&count).Error
 	case "mysql":
-		err = tx.Raw("SELECT count(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?", "wallet_topup_credit_rebases").Scan(&count).Error
+		err = tx.Raw("SELECT count(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?", table).Scan(&count).Error
 	default:
 		return false, fmt.Errorf("unsupported refund rebase database: %s", tx.Dialector.Name())
 	}
@@ -44,17 +45,17 @@ func walletTopUpCreditRebaseTableExists(tx *gorm.DB) (bool, error) {
 }
 
 func rebasedTopUpRefundDeltaTx(tx *gorm.DB, topUp *TopUp, creditedQuota, paidMicros, refundMicros, originalDelta int64) (int64, error) {
-	exists, err := walletTopUpCreditRebaseTableExists(tx)
+	exists, err := walletCreditAuditTableExists(tx, "wallet_topup_credit_rebases")
 	if err != nil {
 		return 0, err
 	}
 	if !exists {
-		return originalDelta, nil
+		return unrebasedTopUpRefundDeltaTx(tx, topUp, originalDelta)
 	}
 	var base WalletTopUpCreditRebase
 	err = lockForUpdate(tx).Where("top_up_id = ?", topUp.Id).First(&base).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return originalDelta, nil
+		return unrebasedTopUpRefundDeltaTx(tx, topUp, originalDelta)
 	}
 	if err != nil {
 		return 0, err
@@ -114,4 +115,54 @@ func rebasedRefundTarget(quota, paid, refunded int64) int64 {
 		quotient.Add(quotient, big.NewInt(1))
 	}
 	return quotient.Int64()
+}
+
+// A missing child table/row is only a legacy/new-payment case when the durable
+// migration plan also confirms this order was not included. Lost child audits
+// must never silently re-enable a refund in the old credit unit.
+func unrebasedTopUpRefundDeltaTx(tx *gorm.DB, topUp *TopUp, originalDelta int64) (int64, error) {
+	exists, err := walletCreditAuditTableExists(tx, "wallet_credit_rebases")
+	if err != nil {
+		return 0, err
+	}
+	if !exists {
+		return originalDelta, nil
+	}
+	var audits []struct{ Plan string }
+	if err := tx.Table("wallet_credit_rebases").Select("plan").Find(&audits).Error; err != nil {
+		return 0, err
+	}
+	for _, audit := range audits {
+		var plan struct {
+			UserIDs     []int           `json:"user_ids"`
+			RefundBases json.RawMessage `json:"refund_bases"`
+		}
+		if err := json.Unmarshal([]byte(audit.Plan), &plan); err != nil {
+			return 0, fmt.Errorf("%w: invalid wallet rebase audit plan", ErrRefundAmountInvalid)
+		}
+		affected := false
+		for _, userID := range plan.UserIDs {
+			if userID == topUp.UserId {
+				affected = true
+			}
+		}
+		if affected && (len(plan.RefundBases) == 0 || string(plan.RefundBases) == "null") {
+			return 0, fmt.Errorf("%w: wallet rebase audit lacks refund baselines", ErrRefundAmountInvalid)
+		}
+		var bases []struct {
+			TopUpID int `json:"top_up_id"`
+		}
+		if len(plan.RefundBases) > 0 && json.Unmarshal(plan.RefundBases, &bases) != nil {
+			return 0, fmt.Errorf("%w: invalid wallet rebase refund plan", ErrRefundAmountInvalid)
+		}
+		for _, base := range bases {
+			if base.TopUpID <= 0 {
+				return 0, fmt.Errorf("%w: invalid wallet rebase refund order id", ErrRefundAmountInvalid)
+			}
+			if base.TopUpID == topUp.Id {
+				return 0, fmt.Errorf("%w: wallet rebase refund baseline missing", ErrRefundAmountInvalid)
+			}
+		}
+	}
+	return originalDelta, nil
 }
