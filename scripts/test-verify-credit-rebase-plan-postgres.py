@@ -184,6 +184,7 @@ def main():
             f"UPDATE {schema}.users SET used_quota=124 WHERE id=1;",
             f"UPDATE {schema}.tokens SET user_id=2 WHERE id=10;",
             f"UPDATE {schema}.tokens SET remain_quota=681 WHERE id=11;",
+            f"INSERT INTO {schema}.tokens (id,user_id,remain_quota,used_quota,unlimited_quota,status,created_time,accessed_time,expired_time,deleted_at) SELECT 12,9999,remain_quota,used_quota,unlimited_quota,status,created_time,accessed_time,expired_time,deleted_at FROM {schema}.tokens WHERE id=11;",
             f"UPDATE {schema}.top_ups SET money=0.002 WHERE id=20;",
             f"UPDATE {schema}.top_ups SET refunded_quota=681 WHERE id=20;",
             f"UPDATE {schema}.top_ups SET pending_credit_rebase_effective_quota=1 WHERE id=23;",

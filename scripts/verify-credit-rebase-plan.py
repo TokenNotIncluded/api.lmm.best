@@ -334,6 +334,8 @@ def _postgres_verification_sql(plan, stage):
     if plan.get("snapshot_all_users"):
         count("users", "true", len(users), "all-user frozen snapshot")
     count("tokens", f"r.user_id=ANY({selected})", len(tokens), "selected tokens including unlimited")
+    if plan.get("snapshot_all_users"):
+        count("tokens", "true", len(tokens), "all-token frozen snapshot")
     for label, (table, predicate) in OBLIGATIONS.items():
         count(table, predicate, 0, label)
     for e in plan["option_entries"]:
