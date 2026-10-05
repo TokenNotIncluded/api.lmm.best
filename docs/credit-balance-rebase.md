@@ -117,3 +117,23 @@ python scripts/test-credit-balance-rebase-postgres.py
 第二条仅建立新本地 PostgreSQL 集群，禁用 TCP、使用私有 Unix socket，测试结束删除自己的 fixture；不读取生产 DSN，不连接现有数据库。
 
 SQL 设置 standard_conforming_strings，DO 使用不出现在嵌入内容中的动态 delimiter，来源证据和价格字符串中的引号、反斜杠或 `$credit_rebase$` 文本不能截断 SQL。
+
+## 在途余额阻碍的具体来源
+
+可先使用 `scripts/inspect-credit-rebase-obligations.sql` 只读统计（显式传入目标 schema）。脚本开启 READ ONLY 事务，只返回状态、计数和点数合计，不返回用户、订单或凭证。表/列缺失会报错，不能把缺失当成零。不同模块权益有重叠，不能把合计全部加起来当总钱包。
+
+| 来源 | 活跃或未结算状态和字段 | 最小处理政策 |
+| --- | --- | --- |
+| `wallet_transfers` | `pending` 的 `quota` 已从发送方钱包扣除 | 优先走原有取消流程先退回发送方，再对停写快照缩减；若保留待领取，则单独缩减该待转权益并审计，不能又退回又缩减两次 |
+| `top_ups` | `pending` 的 `credited_quota`，旧订单可能由 `amount` 等字段兜底计算；`success` 的退款仍会用历史 credited/refunded quota | 与支付商核实已付/未付后结清或取消并重新报价；已支付却未回调不能直接取消当作没钱。保留已完成历史事实，后续退款必须关联独立纠正后的退款基准 |
+| `redemptions` / 红包 | 可用且未过期 `redemptions.quota`；红包仅引用兑换码，已领取但未兑换也可入钱包 | 所有可兑换点数权益都需同比调整或按确认政策取消重新发行；不能只查红包未领取条目；`reset_voucher` 与折扣码不按credit余额缩减 |
+| `open_source_bounty_projects` / challenges | 项目 `escrow_quota` 可退款/支付；项目和未完成挑战 `reward_quota`、`net_reward_quota` 约束支付 | 优先在业务许可下结清或走关闭退款流程，再缩减钱包；仍有效的悬赏合同与奖金额不能私自取消，需明确同步重定价 escrow 和未来支付权益，保留 ledgers 历史 |
+| `tool_market_calls` | `settlement_status=held`；`price_quota` 已被预扣，执行为 reserved/running/awaiting_confirmation 等 | 用原有执行/失败/确认/超时流程结算后再缩减余额；`grants/budgets.reserved_quota` 同步归零或解释，不能直接改历史 `spent_quota` |
+| `tasks` | NOT_START/SUBMITTED/QUEUED/IN_PROGRESS/UNKNOWN 及退款 `PENDING` 的 `quota/refund_quota`；private_data 存 wallet/subscription/token 来源 | 完成、实际失败退款或明确撤销后再缩减；不要直接取消上游已执行工作。若不得不保留则要迁移待退权益和结算快照，不能只缩减钱包 |
+| `subscription_pre_consume_records` | `consumed/settling`，`pre_consumed/token_consumed/wallet_consumed/actual_quota` 及 recovery_state | 通过既有恢复结算流程排空；不能机械除已 settled/refunded 的历史值 |
+| `user_subscriptions` / orders | active 套餐 `amount_total-amount_used`；余额购订阅 charged_quota；provider退款主要撤销订阅权益 | 套餐额度不是钱包，是否缩减剩余套餐须单独确认；禁止缩减 amount_used 历史。provider退款测试保证不直接扣钱包，不能把它和钱包TopUp退款混用 |
+| `hero_sms_sms_orders` | 未终结或投诉未结的 `reserved_quota/charge_quota/refunded_quota` | 核对上游订单和投诉后通过已有业务流程退还/结算；已终结 ledger 保留，不能仅看钱包余额 |
+
+仅排空当前在途订单还不够：`payment_refund.go` 对旧成功充值的**以后新发起退款**仍以 `normalizedTopUpCreditedQuota` 及历史 `refunded_quota` 作比例扣点。迁移后不能继续扣旧额度，也不能篡改历史到账数解决。需要增加订单对应的独立纠正基准/迁移关联，并从该基准计算未来实际扣点与新增退款审计；这种业务修正尚不包含在当前 SQL 生成器里。
+
+未来入账来源还包括 `QuotaForNewUser/QuotaForInviter/QuotaForInvitee`、签到策略、管理员调整、兑换码、支付回调和工具/悬赏收入。它们应以确认的整数 credit 政策配置，不能再从错误美元账面值恢复用户余额。分组倍率属于消费价格政策，单独调整。
