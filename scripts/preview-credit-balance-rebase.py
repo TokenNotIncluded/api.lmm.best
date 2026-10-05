@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import re
 import sys
+from credit_rebase_auxiliary import legacy_noncash, legacy_noncash_sql, make_auxiliary, render_auxiliary
 from credit_rebase_entitlements import make_entities, render_entities
 
 MAX_QUOTA = (1 << 53) - 1
@@ -28,7 +29,7 @@ def scale_credit(value, divisor, rounding):
 
 
 def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
-              include_affiliate=False, include_token_limits=False, restore_fixed_anchors=False, include_redemptions=False, include_bounties=False):
+              include_affiliate=False, include_token_limits=False, restore_fixed_anchors=False, include_redemptions=False, include_bounties=False, include_pending_topups=False):
     if not re.fullmatch(r"[0-9]+(?:\.[0-9]{1,18})?", divisor_text):
         raise ValueError("divisor must be an explicit positive decimal, not a float or expression")
     divisor = Fraction(divisor_text)
@@ -64,6 +65,7 @@ def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
         if not isinstance(snapshot.get(table), list):
             raise ValueError(f"snapshot must include {table} array")
     refund_bases = []
+    noncash_topups = []
     if restore_fixed_anchors:
         sources = snapshot.get("topups")
         if not isinstance(sources, list):
@@ -84,6 +86,11 @@ def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
                 if not isinstance(source.get(key), str) or "\x00" in source[key]:
                     raise ValueError("topup source requires exact " + key)
             credited, refunded = source["effective_credited_quota"], source["refunded_quota"]
+            classified_noncash = legacy_noncash(source)
+            if credited == 0 and classified_noncash:
+                source["classification_reason"] = "existing_isLegacyLinuxDOCreditTopUp"
+                noncash_topups.append(source)
+                continue
             if credited <= 0 or refunded < 0 or refunded > credited or source["paid_amount_micros"] <= 0 or not 0 <= source["refunded_amount_micros"] <= source["paid_amount_micros"]:
                 raise ValueError("invalid refund basis; resolve historical inconsistent topup before migration")
             refund_bases.append({"source": source, "top_up_id": tid, "user_id": uid,
@@ -92,8 +99,6 @@ def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
                 "original_paid_amount_micros": source["paid_amount_micros"],
                 "refundable_quota": scale_credit(credited - refunded, divisor, rounding), "rebased_debited_quota": 0})
         refund_bases.sort(key=lambda e: e["top_up_id"])
-    if include_affiliate and restore_fixed_anchors and snapshot.get("referral_reward_rows") != 0:
-        raise ValueError("affiliate SQL requires verified zero referral rewards; historical clawback/restore units are not adapted")
     option_entries = []
     if restore_fixed_anchors:
         options = snapshot.get("options", {})
@@ -174,6 +179,8 @@ def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
     source_digest = hashlib.sha256(json.dumps(snapshot, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     entity_updates = make_entities(snapshot, selected, lambda value: scale_credit(value, divisor, rounding),
                                    include_redemptions=include_redemptions, include_bounties=include_bounties)
+    pending_bases, referral_bases = make_auxiliary(snapshot, selected, lambda value: scale_credit(value, divisor, rounding),
+        include_pending=include_pending_topups, include_affiliate=include_affiliate and restore_fixed_anchors)
     plan = {"version": 1, "kind": "offline_credit_balance_rebase_preview",
             "migration_id": migration_id, "target": dict(target), "source_sha256": source_digest,
             "usd_credit_conversion": 500000, "divisor": divisor_text,
@@ -182,8 +189,9 @@ def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
             "rounding": rounding, "user_ids": sorted(selected),
             "include_affiliate": include_affiliate, "include_token_limits": include_token_limits,
             "price_review_evidence": snapshot.get("price_review", {}).get("evidence") if restore_fixed_anchors else None,
+            "pending_bases": pending_bases, "referral_bases": referral_bases, "include_pending_topups": include_pending_topups,
             "entity_updates": entity_updates, "include_redemptions": include_redemptions, "include_bounties": include_bounties, "snapshot_at": snapshot.get("snapshot_at"),
-            "entries": entries, "refund_bases": refund_bases, "option_guards": option_guards, "option_entries": option_entries, "restore_fixed_anchors": restore_fixed_anchors, "wallet_totals": {
+            "entries": entries, "refund_bases": refund_bases, "noncash_topups": noncash_topups, "option_guards": option_guards, "option_entries": option_entries, "restore_fixed_anchors": restore_fixed_anchors, "wallet_totals": {
                 k: sum(e[k] for e in entries if e["table"] == "users" and e["field"] == "quota")
                 for k in ("before_credit", "after_credit", "delta_credit")},
             "production_apply_supported": "reviewed_postgres_sql_only",
@@ -221,7 +229,7 @@ def postgres_sql(plan):
         table, field = e["table"], e["field"]
         updates.append(f'UPDATE {schema}."{table}" SET "{field}" = {e["after_credit"]} '
                        f'WHERE id = {e["id"]} AND "{field}" = {e["before_credit"]}'
-                       + (f' AND user_id = {e["user_id"]}' if table == "tokens" else "") + ";\n"
+                       + (f' AND user_id = {e["user_id"]} AND unlimited_quota=false' if table == "tokens" else "") + ";\n"
                        "GET DIAGNOSTICS changed = ROW_COUNT;\n"
                        f"IF changed <> 1 THEN RAISE EXCEPTION 'before-value mismatch: {table} id {e['id']} {field}'; END IF;")
     for e in plan["option_entries"]:
@@ -239,8 +247,12 @@ def postgres_sql(plan):
         preservation_checks.append(f"IF {condition} THEN RAISE EXCEPTION 'price preservation guard mismatch'; END IF;")
     preservation_checks_sql = "\n".join(preservation_checks)
     refund_checks = []
+    if plan["include_token_limits"]:
+        finite_count = sum(e["table"] == "tokens" for e in plan["entries"])
+        refund_checks.append(f"IF (SELECT count(*) FROM {schema}.tokens WHERE user_id=ANY(ARRAY[{user_ids}]::bigint[]) AND unlimited_quota=false) <> {finite_count} THEN RAISE EXCEPTION 'finite token snapshot incomplete'; END IF;")
     refund_inserts = []
-    for b in plan["refund_bases"]:
+    refund_sources = list(plan["refund_bases"]) + [{"source": source, "top_up_id": source["id"], "user_id": source["user_id"], "noncash": True} for source in plan["noncash_topups"]]
+    for b in refund_sources:
         source = b["source"]
         clauses = [f"id = {b['top_up_id']}", f"user_id = {b['user_id']}", "status = 'success'"]
         for key in ("credited_quota", "amount", "platform_amount_micros", "settled_amount_micros", "expected_amount_micros", "refunded_quota", "refunded_amount_micros"):
@@ -248,10 +260,14 @@ def postgres_sql(plan):
         for key in ("payment_provider", "payment_method", "settlement_currency"):
             clauses.append(f"{key} = {sql_literal(source[key])}")
         clauses.append(f"money = {sql_literal(source['money'])}::double precision")
+        clauses.append(legacy_noncash_sql(sql_literal) + ("" if source["is_legacy_linuxdo_credit_topup"] else " IS FALSE"))
         refund_checks.append(f"IF NOT EXISTS (SELECT 1 FROM {schema}.top_ups WHERE " + " AND ".join(clauses) + ") THEN RAISE EXCEPTION 'topup source fact mismatch'; END IF;")
+        if b.get("noncash"):
+            continue
         fields = ["top_up_id", "user_id", "original_credited_quota", "original_refunded_quota", "original_refunded_amount_micros", "original_paid_amount_micros", "refundable_quota", "rebased_debited_quota"]
         refund_inserts.append(f"INSERT INTO {schema}.wallet_topup_credit_rebases (migration_id, " + ",".join(fields) + ") VALUES (" + mid + "," + ",".join(str(b[k]) for k in fields) + ");")
-    expected_count = len(plan["refund_bases"])
+    expected_count = len(plan["refund_bases"]) + len(plan["noncash_topups"])
+    refund_checks.append(f"IF (SELECT count(*) FROM {schema}.top_ups WHERE status='success' AND user_id=ANY(ARRAY[{user_ids}]::bigint[]) AND (credited_quota<>0 OR amount<>0) AND {legacy_noncash_sql(sql_literal)} AND credited_quota=0) <> {len(plan['noncash_topups'])} THEN RAISE EXCEPTION 'noncash topup snapshot incomplete or classification changed'; END IF;")
     refund_checks.insert(0, f"IF (SELECT count(*) FROM {schema}.top_ups WHERE status='success' AND user_id=ANY(ARRAY[{user_ids}]::bigint[]) AND (credited_quota<>0 OR amount<>0)) <> {expected_count} THEN RAISE EXCEPTION 'paid wallet topup snapshot incomplete'; END IF;")
     refund_checks_sql = "\n".join(refund_checks)
     refund_inserts_sql = "\n".join(refund_inserts)
@@ -259,10 +275,12 @@ def postgres_sql(plan):
     refund_checks.extend(entity_checks)
     refund_checks_sql = "\n".join(refund_checks)
     updates.extend(entity_statements)
-    affiliate_lock = f", {schema}.referral_rewards" if plan["include_affiliate"] else ""
-    if plan["include_affiliate"]:
-        refund_checks.append(f"IF EXISTS (SELECT 1 FROM {schema}.referral_rewards WHERE inviter_id=ANY(ARRAY[{user_ids}]::bigint[])) THEN RAISE EXCEPTION 'historical referral clawback/restore bases require adaptation'; END IF;")
-        refund_checks_sql = "\n".join(refund_checks)
+    auxiliary_ddl, auxiliary_checks, auxiliary_updates, auxiliary_inserts, auxiliary_locks = render_auxiliary(plan, schema, sql_literal)
+    auxiliary_ddl_sql = "\n".join(auxiliary_ddl)
+    refund_checks.extend(auxiliary_checks)
+    refund_checks_sql = "\n".join(refund_checks)
+    updates.extend(auxiliary_updates)
+    refund_inserts_sql += "\n" + "\n".join(auxiliary_inserts)
     statements = "\n".join(updates)
     return f"""-- OFFLINE operation: reviewed plan; stop ALL writers and drain/cache reset first.
 -- No application startup or deployment hook may execute this artifact.
@@ -282,7 +300,7 @@ BEGIN
 END
 {delimiter};
 SELECT pg_advisory_xact_lock(500000, 680001);
-LOCK TABLE {schema}.users, {schema}.tokens, {schema}.options, {schema}.top_ups{affiliate_lock}{entity_locks} IN ACCESS EXCLUSIVE MODE;
+LOCK TABLE {schema}.users, {schema}.tokens, {schema}.options, {schema}.top_ups{auxiliary_locks}{entity_locks} IN ACCESS EXCLUSIVE MODE;
 CREATE TABLE IF NOT EXISTS {schema}.wallet_credit_rebases (
     migration_id text PRIMARY KEY,
     plan_sha256 text NOT NULL,
@@ -300,6 +318,7 @@ CREATE TABLE IF NOT EXISTS {schema}.wallet_topup_credit_rebases (
     refundable_quota bigint NOT NULL,
     rebased_debited_quota bigint NOT NULL DEFAULT 0
 );
+{auxiliary_ddl_sql}
 DO {delimiter}
 DECLARE existing_hash text; changed bigint;
 BEGIN
@@ -337,6 +356,7 @@ def main():
     parser.add_argument("--include-affiliate", action="store_true")
     parser.add_argument("--include-token-limits", action="store_true")
     parser.add_argument("--include-redemptions", action="store_true")
+    parser.add_argument("--include-pending-topups", action="store_true")
     parser.add_argument("--include-bounties", action="store_true")
     parser.add_argument("--restore-fixed-anchors", action="store_true", help="Combine anchors and independently reviewed price corrections")
     parser.add_argument("--emit-postgres-sql", action="store_true", help="Render SQL only; never execute it")
@@ -347,7 +367,7 @@ def main():
         plan = make_plan(snapshot, divisor_text=args.divisor, migration_id=args.migration_id,
                          user_ids=args.user_id, rounding=args.rounding,
                          include_affiliate=args.include_affiliate, include_token_limits=args.include_token_limits, restore_fixed_anchors=args.restore_fixed_anchors,
-                         include_redemptions=args.include_redemptions, include_bounties=args.include_bounties)
+                         include_redemptions=args.include_redemptions, include_bounties=args.include_bounties, include_pending_topups=args.include_pending_topups)
     except (ValueError, KeyError, TypeError, OSError) as error:
         parser.exit(2, f"error: {error}\n")
     if args.emit_postgres_sql:

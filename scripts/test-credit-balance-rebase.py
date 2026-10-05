@@ -17,6 +17,7 @@ class RebaseTests(unittest.TestCase):
             {"id": 1, "user_id": 1, "remain_quota": 680, "unlimited_quota": False},
             {"id": 2, "user_id": 1, "remain_quota": 680, "unlimited_quota": True}]}
         self.snapshot["topups"] = []
+        self.snapshot["referrals"] = []
         self.snapshot["target"] = {"database": "fixture", "schema": "fixture_money", "system_identifier": "123456"}
         self.snapshot["options"] = {"USDExchangeRate": "6.8","CreditsPerUSD": "3359744", "PublicCreditsPerUSD": "100000", "LegacyPricingQuotaPerUnit": "500000", "QuotaPerUnit": "500000"}
         self.snapshot["price_review"] = {"status": "verified", "evidence": "synthetic fixture without synced prices", "option_corrections": []}
@@ -76,6 +77,27 @@ class RebaseTests(unittest.TestCase):
         snapshot["entities"]["bounty_challenges"][0]["paid_at"] = 1
         with self.assertRaises(ValueError):
             r.make_plan(snapshot, **self.kw, include_bounties=True)
+
+    def test_noncash_classification_and_auxiliary_bases_are_explicit(self):
+        from credit_rebase_auxiliary import REFERRAL_NUMBERS
+        snapshot = copy.deepcopy(self.snapshot)
+        source = dict(id=20,user_id=1,status="success",credited_quota=0,amount=2,platform_amount_micros=0,settled_amount_micros=0,expected_amount_micros=0,refunded_quota=0,refunded_amount_micros=0,money="0.28",payment_provider="epay",payment_method="epay",settlement_currency="",effective_credited_quota=0,paid_amount_micros=280000,is_legacy_linuxdo_credit_topup=True)
+        snapshot["topups"] = [source]
+        reward = {key:0 for key in REFERRAL_NUMBERS} | {"id":9,"inviter_id":1,"invitee_id":2,"top_up_id":20,"quota":680,"revoked_quota":680,"penalty_quota":68,"status":"revoked","reason":"abuse"}
+        snapshot["referrals"] = [reward]
+        pending = source | {"id":21,"status":"pending","credited_quota":680,"amount":0,"effective_credited_quota":680,"is_legacy_linuxdo_credit_topup":False,"pending_credit_rebase_key":"","pending_credit_rebase_original_quota":0,"pending_credit_rebase_effective_quota":0}
+        snapshot["pending_topups"] = [pending]
+        plan = r.make_plan(snapshot, **self.kw, restore_fixed_anchors=True, include_pending_topups=True, include_affiliate=True)
+        self.assertEqual(len(plan["refund_bases"]),0)
+        self.assertEqual(plan["noncash_topups"][0]["id"],20)
+        self.assertEqual(plan["pending_bases"][0]["effective_credited_quota"],100)
+        self.assertEqual(plan["referral_bases"][0]["rebased_penalty_quota"],10)
+        snapshot["topups"][0]["is_legacy_linuxdo_credit_topup"] = False
+        with self.assertRaises(ValueError):
+            r.make_plan(snapshot, **self.kw, restore_fixed_anchors=True)
+        snapshot["topups"][0].update(is_legacy_linuxdo_credit_topup=True,payment_provider="stripe",payment_method="stripe",settlement_currency="USD",credited_quota=6800)
+        with self.assertRaises(ValueError):
+            r.make_plan(snapshot, **self.kw, restore_fixed_anchors=True)
 
     def test_divisor_is_frozen_production_fx(self):
         bad = copy.deepcopy(self.snapshot)

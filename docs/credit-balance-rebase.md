@@ -58,7 +58,7 @@ python scripts/preview-credit-balance-rebase.py \
 4. 对订阅 `AmountTotal/AmountUsed`、token、工具预算和消费计数，明确是否保留产品额度/限额，不能把累计消费历史当余额一起扣。
 5. 若系统有基于充值美元账面值的余额回填或对账修复，应先关闭或改成 credit 余额为准。
 
-这个版本的 SQL 只覆盖经过明确选择的钱包、邀请权益和有限额 token，**不会声称已经处理上面所有其他权益**。
+SQL 只覆盖明确选择、具有完整快照和数量/CAS 校验的权益；所有未覆盖的在途预占和结算仍须先排空，不能把脚本生成成功当作全部义务已解决。
 
 ## 固定锚点与污染价格必须一起恢复
 
@@ -160,7 +160,7 @@ SQL 设置 standard_conforming_strings，DO 使用不出现在嵌入内容中的
 - 可用兑换码：对仍能入钱包的 `redemptions.quota` 同比缩减并逐条审计；已兑换的 quota 保留历史。红包 claimed_by 只表示拿到了码，尚可用的码仍要处理。折扣比例/reset券不缩减。
 - 已发布悬赏：保留参与者工作与状态；迁移剩余 escrow 和未支付 reward 权益，而不是为了清理全部关掉。校验每个项目剩余池足够其有效未支付承诺，分配整数舍入尾差；project 的 net_reward/gross_reward 是未来报价配置，需要明确改；已收 platform_fee、已付挑战 reward、tip_quota 和 ledgers 是历史，不改。`TipOpenSourceBounty` 已即时扣发双方钱包，tip_quota 不是待发奖金。
 - 活跃订阅：独立套餐额度不是 wallet。如果决定缩减套餐的剩余 credit，保留 amount_used，设置 amount_total = 原 amount_used + round(原剩余额度 / divisor)，并联动下一次续费/reset来源 plan.total_amount，防止恢复旧额度。若决定保留已售套餐权益，则明确保留全部套餐/reset/退款口径，不能只改其中一半。
-- 邀请权益：ReferralReward quota/revoked/penalty 是旧单位历史，会在退款追索或误封恢复中再次影响 aff_quota。未适配该独立基准前，联合 SQL 的 `--include-affiliate` 只允许核实选中邀请人没有任何 referral_rewards 的情形；快照必须注明 referral_reward_rows=0，SQL 加锁再次核验，否则拒绝。
+- 邀请权益：ReferralReward quota/revoked/penalty 是旧单位历史，会在退款追索或误封恢复中再次影响 aff_quota。联合 SQL 的 `--include-affiliate` 保存完整 earned/revoked `referrals` 快照，在 `wallet_referral_credit_rebases` 写入同比纠正后的撤销/处罚/恢复基准；历史 Reward 不改。必须同步部署消费这些基准的运行时代码。
 
 ## 显式兑换码与悬赏扩展
 
@@ -169,3 +169,13 @@ SQL 设置 standard_conforming_strings，DO 使用不出现在嵌入内容中的
 只允许更新可用兑换码 `quota`、published/paused 悬赏的剩余 `escrow_quota` 和未来 gross/net reward、尚未支付挑战的 `reward_quota`。已付挑战不能混入；累计 tip 和发布时已付 platform fee 永远不在写入白名单。所有旧状态、归属、时间戳和金额在同一加锁事务核验，完整数量校验拒绝遗漏仍可兑现权益。
 
 每个悬赏迁移后的 escrow 必须足以覆盖计划中尚未支付的挑战承诺；整数舍入若造成不足，预览会拒绝并要求明确尾差分配方案，不会静默削减任意参与者权益。订阅和 pending 支付采用独立扩展，不用这一白名单冒充已覆盖。
+
+## 保留待支付订单与非现金事实
+
+`--include-pending-topups` 要求完整 `pending_topups` 数组，包含与成功订单相同的原始报价事实、Go 权威 `effective_credited_quota`，以及原本为空/零的三个 pending rebase 字段。原报价与实际支付金额不改，只保存独立的纠正后入账额，未来 callback 必须使用它并保持幂等。舍入后为零的有限报价拒绝，不允许靠零触发旧 fallback。
+
+非现金旧 LinuxDO 订单必须显式保留在 `noncash_topups`，不能删掉零有效到账行。记录原始事实、Go 的 `is_legacy_linuxdo_credit_topup` 和分类原因；生成器独立复核其事实分类，SQL 同时校验原字段、分类 predicate 及完整数量。它们不建立现金退款池，完整父审计供运行时拒绝错误的现金退款请求。
+
+有限 token 的归属、余额、`unlimited_quota=false` 与完整数量均受事务保护。无限额 token 不写入。
+
+`scripts/export-credit-rebase-rights-private.sql` 只读导出缺失权益字段，不含凭证或 provider payload。输出须保存在私有文件，不向终端打印。待支付 topup 的派生事实仍须用现有 Go authority enrich；补导结果不能替代停写后同一快照的最终全量导出。
