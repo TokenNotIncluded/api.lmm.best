@@ -32,7 +32,10 @@ import type {
   TopupRecord,
   WaffoPayMethod,
 } from '../types'
-import { getPaymentMinTopupQuota } from './payment-unit'
+import {
+  getPaymentMinTopupQuota,
+  getDedicatedPaymentLimits,
+} from './payment-unit'
 import { parseSettlementQuote } from './settlement-quote'
 
 // ============================================================================
@@ -404,7 +407,10 @@ export function getMinTopupAmount(
   const paymentType = selectedType ?? availability.defaultQuotedType
   if (topupInfo.amount_unit === 'CREDIT') {
     if (paymentType === PAYMENT_TYPES.WAFFO) {
-      return Math.max(1, topupInfo.waffo_min_topup ?? 1)
+      return (
+        getDedicatedPaymentLimits(topupInfo, PAYMENT_TYPES.WAFFO)?.minimum ??
+        Number.POSITIVE_INFINITY
+      )
     }
     const method = availability.standardMethods.find(
       (item) => item.type === paymentType

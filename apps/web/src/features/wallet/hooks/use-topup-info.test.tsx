@@ -77,6 +77,9 @@ async function loadTopupInfo(
           stripe_credit_min_topup: 5000000,
           waffo_credit_min_topup: 0,
           pancake_credit_min_topup: 0,
+          stripe_credit_max_topup: 5000000000,
+          waffo_credit_max_topup: null,
+          pancake_credit_max_topup: null,
           enable_online_topup: true,
           enable_stripe_topup: true,
           min_topup: 1,
@@ -261,4 +264,82 @@ test('uses authoritative legacy method limits when the compatibility catalog is 
   ])
   assert.equal(getPaymentMinTopupAmount(info.pay_methods[0]), 6.8)
   assert.equal(getPaymentMaxTopupAmount(info.pay_methods[0]), 17)
+})
+
+test('complete dedicated aliases override stale synthetic rows and include the Stripe default cap', async () => {
+  const info = await loadTopupInfo(
+    [
+      {
+        name: 'Stripe',
+        type: 'stripe',
+        min_topup_credit: '900000',
+        max_topup_credit: '9000000000',
+      },
+      {
+        name: 'Pancake',
+        type: 'waffo_pancake',
+        min_topup_credit: '900000',
+        max_topup_credit: '9000000000',
+      },
+    ],
+    {
+      enable_waffo_topup: true,
+      enable_waffo_pancake_topup: true,
+      stripe_credit_min_topup: 3500000,
+      stripe_credit_max_topup: 3000000000,
+      waffo_credit_min_topup: 3500000,
+      waffo_credit_max_topup: 8750000,
+      pancake_credit_min_topup: 3500000,
+      pancake_credit_max_topup: 8750000,
+    }
+  )
+  const {
+    getMinTopupAmount,
+    getDedicatedPaymentLimits,
+    getPaymentMinTopupQuota,
+    getPaymentMaxTopupQuota,
+  } = await import('../lib')
+  assert.deepEqual(getDedicatedPaymentLimits(info, 'waffo'), {
+    minimum: 3500000,
+    maximum: 8750000,
+  })
+  assert.equal(getMinTopupAmount(info, 'waffo'), 3500000)
+  assert.equal(getPaymentMaxTopupQuota(info.pay_methods[0]), 3000000000)
+  assert.equal(getPaymentMinTopupQuota(info.pay_methods[1]), 3500000)
+  assert.equal(getPaymentMaxTopupQuota(info.pay_methods[1]), 8750000)
+})
+
+test('missing dedicated max metadata disables only that provider; explicit null stays usable', async () => {
+  for (const provider of ['stripe', 'waffo', 'pancake'] as const) {
+    for (const maximum of [undefined, -1, Number.MAX_SAFE_INTEGER + 1]) {
+      const info = await loadTopupInfo(
+        [
+          { name: 'Alipay', type: 'alipay' },
+          { name: 'Stripe', type: 'stripe' },
+          { name: 'Pancake', type: 'waffo_pancake' },
+        ],
+        {
+          enable_waffo_topup: true,
+          enable_waffo_pancake_topup: true,
+          [`${provider}_credit_max_topup`]: maximum,
+        }
+      )
+      assert.equal(info.enable_online_topup, true)
+      const flag = {
+        stripe: 'enable_stripe_topup',
+        waffo: 'enable_waffo_topup',
+        pancake: 'enable_waffo_pancake_topup',
+      } as const
+      assert.equal(info[flag[provider]], false)
+    }
+  }
+  const invalidStripe = await loadTopupInfo([], {
+    stripe_credit_max_topup: null,
+  })
+  assert.equal(invalidStripe.enable_stripe_topup, false)
+  const info = await loadTopupInfo([], {
+    enable_waffo_topup: true,
+    waffo_credit_max_topup: null,
+  })
+  assert.equal(info.enable_waffo_topup, true)
 })

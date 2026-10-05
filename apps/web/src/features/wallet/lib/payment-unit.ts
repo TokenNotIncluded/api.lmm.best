@@ -22,7 +22,7 @@ import {
 } from '@/lib/currency'
 import { usesDedicatedPaymentPricing } from '@/lib/payment-pricing'
 
-import type { PaymentMethod } from '../types'
+import type { PaymentMethod, TopupInfo } from '../types'
 
 const SETTLEMENT_UNIT_PATTERN = /^[A-Za-z0-9._-]{1,16}$/
 const POSITIVE_DECIMAL_PATTERN = /^[0-9]+(?:\.[0-9]+)?$/
@@ -126,6 +126,41 @@ export function getPaymentMinTopupQuota(method?: PaymentMethod): number {
 export function getPaymentMaxTopupQuota(method?: PaymentMethod): number | null {
   if (method?.max_topup_credit === undefined) return null
   return safeQuotaMetadata(method.max_topup_credit) ?? 0
+}
+
+/** Dedicated providers publish complete limits separately from visible gateway rows. */
+export function getDedicatedPaymentLimits(
+  info: TopupInfo | null | undefined,
+  type: string
+): { minimum: number; maximum: number | null } | null {
+  const keys = {
+    stripe: ['stripe_credit_min_topup', 'stripe_credit_max_topup'],
+    waffo: ['waffo_credit_min_topup', 'waffo_credit_max_topup'],
+    waffo_pancake: ['pancake_credit_min_topup', 'pancake_credit_max_topup'],
+  } as const
+  if (!info || !Object.hasOwn(keys, type)) return null
+  const [minKey, maxKey] = keys[type as keyof typeof keys]
+  const minimum = info[minKey]
+  const maximum = info[maxKey]
+  // Stripe always has its server-owned default cap, even without a configured cap.
+  if (type === 'stripe' && maximum === null) return null
+  if (
+    typeof minimum !== 'number' ||
+    !Number.isSafeInteger(minimum) ||
+    minimum < 0 ||
+    !Object.hasOwn(info, maxKey)
+  ) {
+    return null
+  }
+  if (
+    maximum !== null &&
+    (typeof maximum !== 'number' ||
+      !Number.isSafeInteger(maximum) ||
+      maximum < Math.max(1, minimum))
+  ) {
+    return null
+  }
+  return { minimum: Math.max(1, minimum), maximum }
 }
 
 /**

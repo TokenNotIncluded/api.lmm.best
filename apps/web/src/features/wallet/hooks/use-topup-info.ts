@@ -23,6 +23,7 @@ import {
   generatePresetAmounts,
   mergePresetAmounts,
   getMinTopupAmount,
+  getDedicatedPaymentLimits,
 } from '../lib'
 import type {
   TopupInfo,
@@ -270,12 +271,31 @@ export function useTopupInfo() {
           return Number.isFinite(ratio) && ratio > 0 ? ratio : 1
         })(),
         enable_online_topup: creditMetadataReady && raw.enable_online_topup,
-        enable_stripe_topup: creditMetadataReady && raw.enable_stripe_topup,
-        enable_waffo_topup: creditMetadataReady && raw.enable_waffo_topup,
+        enable_stripe_topup:
+          creditMetadataReady &&
+          raw.enable_stripe_topup &&
+          getDedicatedPaymentLimits(raw, 'stripe') !== null,
+        enable_waffo_topup:
+          creditMetadataReady &&
+          raw.enable_waffo_topup &&
+          getDedicatedPaymentLimits(raw, 'waffo') !== null,
         enable_waffo_pancake_topup:
-          creditMetadataReady && raw.enable_waffo_pancake_topup,
+          creditMetadataReady &&
+          raw.enable_waffo_pancake_topup &&
+          getDedicatedPaymentLimits(raw, 'waffo_pancake') !== null,
         pay_methods: creditMetadataReady
-          ? parsePaymentMethods(raw.pay_methods, raw.stripe_min_topup)
+          ? parsePaymentMethods(raw.pay_methods, raw.stripe_min_topup).map(
+              (method) => {
+                const limits = getDedicatedPaymentLimits(raw, method.type)
+                return limits
+                  ? {
+                      ...method,
+                      min_topup_credit: limits.minimum,
+                      max_topup_credit: limits.maximum ?? undefined,
+                    }
+                  : method
+              }
+            )
           : [],
         amount_unit: 'CREDIT',
         min_topup: minimum(raw.credit_min_topup),

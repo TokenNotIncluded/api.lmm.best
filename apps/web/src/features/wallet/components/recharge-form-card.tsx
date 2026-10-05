@@ -76,6 +76,7 @@ import {
   getPaymentIcon,
   getPaymentMaxTopupQuota,
   getPaymentMinTopupQuota,
+  getDedicatedPaymentLimits,
   getPaymentTopupRatio,
   getDefaultPaymentType,
   getTopupAvailability,
@@ -258,6 +259,7 @@ export function RechargeFormCard({
   const topupGroupRatio = topupInfo?.topup_group_ratio ?? 1
   const redemptionEnabled = topupInfo?.enable_redemption !== false
   const customDiscount = topupInfo?.discount?.[topupAmount] || 1
+  const waffoLimits = getDedicatedPaymentLimits(topupInfo, PAYMENT_TYPES.WAFFO)
   const effectivePaymentMethod =
     selectedPaymentMethod ??
     standardMethods.find(
@@ -268,7 +270,8 @@ export function RechargeFormCard({
       ? {
           name: waffoMethods[0].name,
           type: PAYMENT_TYPES.WAFFO,
-          min_topup_credit: topupInfo?.waffo_min_topup,
+          min_topup_credit: waffoLimits?.minimum,
+          max_topup_credit: waffoLimits?.maximum ?? undefined,
           icon: waffoMethods[0].icon,
           settlement_unit: topupInfo?.waffo_currency || 'USD',
           unit_price: topupInfo?.waffo_unit_price,
@@ -1234,16 +1237,30 @@ export function RechargeFormCard({
                       {waffoMethods.map((method, index) => {
                         const loadingKey = `waffo-${index}`
                         const methodKey = `${method.payMethodType ?? 'unknown'}-${method.payMethodName ?? method.name}`
-                        const waffoMin = topupInfo?.waffo_min_topup || 0
+                        const waffoMin =
+                          waffoLimits?.minimum ?? Number.POSITIVE_INFINITY
+                        const waffoMax = waffoLimits?.maximum ?? null
                         const belowMin = waffoMin > topupAmount
+                        const aboveMax =
+                          waffoMax !== null && topupAmount > waffoMax
                         const disabledReason = belowMin
                           ? t('Minimum topup amount: {{amount}}', {
                               amount: formatCreditQuota(waffoMin),
                             })
-                          : undefined
+                          : aboveMax && waffoMax !== null
+                            ? t(
+                                'Maximum credited balance per payment: {{amount}}',
+                                { amount: formatCreditQuota(waffoMax) }
+                              )
+                            : undefined
                         const disabledLabel = belowMin
                           ? `${t('Minimum:')} ${formatCreditQuota(waffoMin)}`
-                          : undefined
+                          : aboveMax && waffoMax !== null
+                            ? t(
+                                'Maximum credited balance per payment: {{amount}}',
+                                { amount: formatCreditQuota(waffoMax) }
+                              )
+                            : undefined
                         const paymentMethodLabel = neutralMode
                           ? t('Payment option {{number}}', {
                               number: index + 1,
@@ -1274,7 +1291,7 @@ export function RechargeFormCard({
                             key={methodKey}
                             variant='outline'
                             onClick={() => onWaffoMethodSelect(method, index)}
-                            disabled={belowMin || !!paymentLoading}
+                            disabled={belowMin || aboveMax || !!paymentLoading}
                             title={disabledReason}
                             aria-label={
                               disabledReason
@@ -1297,7 +1314,7 @@ export function RechargeFormCard({
                           </Button>
                         )
 
-                        return belowMin ? (
+                        return belowMin || aboveMax ? (
                           <TooltipProvider key={methodKey}>
                             <Tooltip>
                               <TooltipTrigger render={button} />

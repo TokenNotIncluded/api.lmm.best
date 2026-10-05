@@ -67,6 +67,7 @@ import {
   getDefaultPaymentType,
   getTopupAvailability,
   getMinTopupAmount,
+  getDedicatedPaymentLimits,
   isPaymentMethodCurrencySupported,
   dispatchSelectedPayment,
 } from './lib'
@@ -642,11 +643,20 @@ function WalletCheckout(props: WalletProps) {
         revision,
       }
     }
+    const limits = getDedicatedPaymentLimits(topupInfo, PAYMENT_TYPES.WAFFO)
+    if (
+      !limits ||
+      topupAmount < limits.minimum ||
+      (limits.maximum !== null && topupAmount > limits.maximum)
+    ) {
+      return
+    }
     const loadingKey = `waffo-${index}`
     setSelectedPaymentMethod({
       name: method.name,
       type: PAYMENT_TYPES.WAFFO,
-      min_topup_credit: topupInfo?.waffo_min_topup,
+      min_topup_credit: limits.minimum,
+      max_topup_credit: limits.maximum ?? undefined,
       icon: method.icon,
       settlement_unit: topupInfo?.waffo_currency || 'USD',
       unit_price: topupInfo?.waffo_unit_price,
@@ -770,6 +780,23 @@ function WalletCheckout(props: WalletProps) {
       return
     }
 
+    if (
+      selectedPaymentMethod.type === PAYMENT_TYPES.STRIPE ||
+      selectedPaymentMethod.type === PAYMENT_TYPES.WAFFO ||
+      selectedPaymentMethod.type === PAYMENT_TYPES.WAFFO_PANCAKE
+    ) {
+      const limits = getDedicatedPaymentLimits(
+        topupInfo,
+        selectedPaymentMethod.type
+      )
+      if (
+        !limits ||
+        topupAmount < limits.minimum ||
+        (limits.maximum !== null && topupAmount > limits.maximum)
+      ) {
+        return
+      }
+    }
     setPaymentFeedback({ tone: 'default', message: t('Submitting...') })
 
     if (!isPaymentMethodCurrencySupported(selectedPaymentMethod.type)) {

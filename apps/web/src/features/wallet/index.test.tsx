@@ -272,6 +272,18 @@ function modernTopupInfo(info: Partial<TopupInfo>) {
   return {
     ...info,
     credit_metadata_version: 1,
+    stripe_credit_max_topup:
+      info.stripe_credit_max_topup === undefined
+        ? 5000000000
+        : info.stripe_credit_max_topup,
+    waffo_credit_max_topup:
+      info.waffo_credit_max_topup === undefined
+        ? null
+        : info.waffo_credit_max_topup,
+    pancake_credit_max_topup:
+      info.pancake_credit_max_topup === undefined
+        ? null
+        : info.pancake_credit_max_topup,
     credit_amount_options:
       info.credit_amount_options ??
       info.amount_options?.map((amount) => amount * 500000) ??

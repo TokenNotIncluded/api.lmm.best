@@ -229,6 +229,9 @@ after(() => {
 
 const topupInfo = {
   credit_metadata_version: 1,
+  stripe_credit_max_topup: 5000000000,
+  waffo_credit_max_topup: null,
+  pancake_credit_max_topup: null,
   credit_amount_options: [50000000],
   credit_discount: {},
   credit_min_topup: 5000000,
@@ -1924,4 +1927,55 @@ test('each gateway uses its complete raw minimum without another provider minimu
     false
   )
   await unmount(rendered)
+})
+
+test('dedicated Waffo enforces complete 3.5M / 8.75M raw limits at a 300k legacy batch', async () => {
+  await i18n.changeLanguage('en')
+  useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
+  useSystemConfigStore.setState((state) => ({
+    config: {
+      ...state.config,
+      currency: {
+        ...state.config.currency,
+        quotaPerUnit: 300000,
+        creditsPerUsd: 3500000,
+        creditsPerUsdExact: '3500000',
+      },
+    },
+  }))
+  for (const raw of [3499999, 3500000, 8750000, 8750001]) {
+    const rendered = await render(
+      <RechargeFormCard
+        topupInfo={{
+          ...topupInfo,
+          enable_online_topup: false,
+          enable_waffo_topup: true,
+          waffo_pay_methods: [{ name: 'Waffo card' }],
+          waffo_min_topup: 900000,
+          waffo_credit_min_topup: 3500000,
+          waffo_credit_max_topup: 8750000,
+        }}
+        presetAmounts={[]}
+        selectedPreset={null}
+        onSelectPreset={() => undefined}
+        topupAmount={raw}
+        onTopupAmountChange={() => undefined}
+        paymentAmount={1}
+        calculating={false}
+        onPaymentMethodSelect={() => undefined}
+        paymentLoading={null}
+        redemptionCode=''
+        onRedemptionCodeChange={() => undefined}
+        onRedeem={() => undefined}
+        redeeming={false}
+        onWaffoMethodSelect={() => undefined}
+      />
+    )
+    const button = [...rendered.container.querySelectorAll('button')].find(
+      (item) => item.textContent?.includes('Waffo card')
+    )
+    assert.ok(button)
+    assert.equal(button.disabled, raw < 3500000 || raw > 8750000)
+    await unmount(rendered)
+  }
 })

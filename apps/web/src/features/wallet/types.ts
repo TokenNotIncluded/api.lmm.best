@@ -186,6 +186,10 @@ export interface TopupInfo {
   stripe_credit_min_topup?: number
   waffo_credit_min_topup?: number
   pancake_credit_min_topup?: number
+  /** Complete provider caps; explicit null means no configured cap. */
+  stripe_credit_max_topup?: number | null
+  waffo_credit_max_topup?: number | null
+  pancake_credit_max_topup?: number | null
   legacy_amount_unit?: 'LEGACY'
   legacy_amount_options?: number[]
   legacy_discount?: Record<number, number>
