@@ -24,13 +24,13 @@ in the command's working directory. The binary checks its own SHA-256 against
 the plan, so changing a candidate requires a new reviewed preparation file.
 
 The sealed JSON has this contract; all placeholder identities must come from
-the actual target and reviewed financial plan:
+the actual target and reviewed transition intent:
 
 ```json
 {
   "format": "lmm-credit-transition-prepare-v1",
   "transition_id": "credits-20261006",
-  "financial_plan_sha256": "<64 lowercase hexadecimal characters>",
+  "transition_intent_sha256": "<64 lowercase hexadecimal characters>",
   "provider_sha256": "<64 lowercase hexadecimal characters>",
   "target_credits_per_usd": 500000,
   "database": {
@@ -76,7 +76,7 @@ With this environment, the existing commands have a separate bounded behavior:
   body `lmm-credit-transition:<transition_id>` and `Cache-Control: no-store`.
 
 Preparation health includes `maintenance=true`, `business_enabled=false`, and
-`data.credit_transition` binding the transition ID, financial plan hash,
+`data.credit_transition` binding the transition ID, transition intent hash,
 preparation file hash, actual provider hash and target 500000. It means only
 that the sealed preparation is intact. It must be consumed by the explicit
 maintenance deployment contract, never treated as an ordinary business health

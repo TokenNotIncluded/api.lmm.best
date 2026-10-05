@@ -41,13 +41,13 @@ type DatabaseIdentity struct {
 }
 
 type Config struct {
-	Format              string            `json:"format"`
-	TransitionID        string            `json:"transition_id"`
-	FinancialPlanSHA256 string            `json:"financial_plan_sha256"`
-	ProviderSHA256      string            `json:"provider_sha256"`
-	TargetCreditsPerUSD int64             `json:"target_credits_per_usd"`
-	Database            DatabaseIdentity  `json:"database"`
-	Options             map[string]string `json:"options"`
+	Format                 string            `json:"format"`
+	TransitionID           string            `json:"transition_id"`
+	TransitionIntentSHA256 string            `json:"transition_intent_sha256"`
+	ProviderSHA256         string            `json:"provider_sha256"`
+	TargetCreditsPerUSD    int64             `json:"target_credits_per_usd"`
+	Database               DatabaseIdentity  `json:"database"`
+	Options                map[string]string `json:"options"`
 }
 
 func Requested() bool {
@@ -61,7 +61,7 @@ func IsSHA256(value string) bool {
 
 func (config Config) Validate() error {
 	if config.Format != Format || !safeID.MatchString(config.TransitionID) ||
-		!IsSHA256(config.FinancialPlanSHA256) || !IsSHA256(config.ProviderSHA256) ||
+		!IsSHA256(config.TransitionIntentSHA256) || !IsSHA256(config.ProviderSHA256) ||
 		config.TargetCreditsPerUSD != common.FixedCreditsPerUSD {
 		return errors.New("invalid sealed credit transition identity or target")
 	}

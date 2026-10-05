@@ -10,16 +10,16 @@ import (
 )
 
 type Binding struct {
-	Format              string `json:"format"`
-	TransitionID        string `json:"transition_id"`
-	FinancialPlanSHA256 string `json:"financial_plan_sha256"`
-	PrepareConfigSHA256 string `json:"prepare_config_sha256"`
-	ProviderSHA256      string `json:"provider_sha256"`
-	TargetCreditsPerUSD int64  `json:"target_credits_per_usd"`
+	Format                 string `json:"format"`
+	TransitionID           string `json:"transition_id"`
+	TransitionIntentSHA256 string `json:"transition_intent_sha256"`
+	PrepareConfigSHA256    string `json:"prepare_config_sha256"`
+	ProviderSHA256         string `json:"provider_sha256"`
+	TargetCreditsPerUSD    int64  `json:"target_credits_per_usd"`
 }
 
 func (config Config) Binding(digest string) Binding {
-	return Binding{Format: Format, TransitionID: config.TransitionID, FinancialPlanSHA256: config.FinancialPlanSHA256,
+	return Binding{Format: Format, TransitionID: config.TransitionID, TransitionIntentSHA256: config.TransitionIntentSHA256,
 		PrepareConfigSHA256: digest, ProviderSHA256: config.ProviderSHA256, TargetCreditsPerUSD: config.TargetCreditsPerUSD}
 }
 

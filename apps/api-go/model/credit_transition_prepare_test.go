@@ -54,7 +54,7 @@ func TestCreditPreparationPostgresPreservesEveryExistingValue(t *testing.T) {
 	} {
 		require.NoError(t, db.Exec(statement).Error)
 	}
-	config := credittransition.Config{Format: credittransition.Format, TransitionID: "fixture-credit", FinancialPlanSHA256: strings.Repeat("a", 64), ProviderSHA256: strings.Repeat("b", 64), TargetCreditsPerUSD: common.FixedCreditsPerUSD,
+	config := credittransition.Config{Format: credittransition.Format, TransitionID: "fixture-credit", TransitionIntentSHA256: strings.Repeat("a", 64), ProviderSHA256: strings.Repeat("b", 64), TargetCreditsPerUSD: common.FixedCreditsPerUSD,
 		Options: map[string]string{"CreditsPerUSD": "3359744", "LegacyPricingQuotaPerUnit": "500000", "QuotaPerUnit": "500000", "PublicCreditsPerUSD": "100000", "USDExchangeRate": "6.710363"}}
 	for key, value := range config.Options {
 		require.NoError(t, db.Exec(`INSERT INTO options VALUES (?,?)`, key, value).Error)
