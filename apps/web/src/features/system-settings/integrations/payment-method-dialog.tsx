@@ -44,7 +44,12 @@ import {
 } from '@/components/ui/input-group'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
-import { usesDedicatedPaymentPricing } from '@/lib/payment-pricing'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
+import {
+  getLegacyGatewaySettlementUnit,
+  legacySettlementRatePerUsd,
+  usesDedicatedPaymentPricing,
+} from '@/lib/payment-pricing'
 
 import { getPaymentMethodAudienceRoleOptions } from './payment-method-audience'
 
@@ -233,7 +238,13 @@ const createPaymentMethodDialogSchema = (t: (key: string) => string) =>
           path: ['unit_price'],
         })
       }
-      if (hasDirectRate && !hasSettlementUnit) {
+      if (
+        hasDirectRate &&
+        !hasSettlementUnit &&
+        !hasSettlementCurrency &&
+        !hasSettlementRate &&
+        !getLegacyGatewaySettlementUnit(values.type, values.name)
+      ) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: t('Set a settlement unit when a gateway price is set'),
@@ -357,6 +368,7 @@ export function PaymentMethodDialog({
   editData,
 }: PaymentMethodDialogProps) {
   const { t } = useTranslation()
+  const { config } = useWalletCurrency()
   const isEditMode = !!editData
   const paymentMethodDialogSchema = createPaymentMethodDialogSchema(t)
   const paymentTypeOptions = [
@@ -440,10 +452,19 @@ export function PaymentMethodDialog({
   const selectedType = form.watch('type')
   const settlementCurrencyValue = form.watch('settlement_currency')?.trim()
   const settlementRateValue = form.watch('settlement_units_per_usd')?.trim()
-  const legacySettlementUnit = form.watch('settlement_unit')?.trim()
+  const configuredLegacySettlementUnit = form.watch('settlement_unit')?.trim()
+  const legacySettlementUnit = getLegacyGatewaySettlementUnit(
+    selectedType,
+    form.watch('name'),
+    configuredLegacySettlementUnit
+  )
   const legacyDirectRate =
     form.watch('settlement_units_per_platform_unit')?.trim() ||
     form.watch('unit_price')?.trim()
+  const legacyRatePerUsd = legacySettlementRatePerUsd(
+    legacyDirectRate || '',
+    config
+  )
   const usesDedicatedPricing = usesDedicatedPaymentPricing(selectedType)
   const audienceMode = form.watch('audience_mode')
 
@@ -826,7 +847,9 @@ export function PaymentMethodDialog({
             name='min_topup'
             render={({ field }) => (
               <FormItem>
-                <FormLabel>{t('Minimum top-up (optional)')}</FormLabel>
+                <FormLabel>
+                  {t('Minimum credited amount per payment (USD, optional)')}
+                </FormLabel>
                 <FormControl>
                   <Input
                     type='number'
@@ -836,7 +859,9 @@ export function PaymentMethodDialog({
                   />
                 </FormControl>
                 <FormDescription>
-                  {t('Optional minimum recharge amount for this method.')}
+                  {t(
+                    'Minimum real USD value credited by this method. Payment currency is configured separately.'
+                  )}
                 </FormDescription>
                 <FormMessage />
               </FormItem>
@@ -1234,10 +1259,36 @@ export function PaymentMethodDialog({
                 )}
               />
 
+              {legacyDirectRate ? (
+                <FormField
+                  control={form.control}
+                  name='settlement_unit'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>
+                        {t('Legacy gateway settlement unit')}
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder={legacySettlementUnit || 'LDC'}
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {t(
+                          'Specify the actual gateway unit for this direct rate. LinuxDO Credit requires an explicit unit.'
+                        )}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              ) : null}
+
               <div className='bg-muted/30 space-y-2 rounded-md border p-3'>
                 <p className='text-muted-foreground text-xs leading-relaxed'>
                   {t(
-                    'Checkout first converts the platform amount to real USD using the synchronized USD rate, then converts USD to the gateway settlement currency.'
+                    'Checkout values Credits using the fixed ledger denomination, then converts real USD to the gateway settlement currency.'
                   )}
                 </p>
                 {settlementCurrencyValue && settlementRateValue ? (
@@ -1248,12 +1299,29 @@ export function PaymentMethodDialog({
                     })}
                   </p>
                 ) : null}
-                {legacySettlementUnit && legacyDirectRate ? (
-                  <p className='text-warning text-xs leading-relaxed'>
-                    {t(
-                      'Legacy direct pricing is preserved until you enter and save the real-USD settlement fields above.'
-                    )}
-                  </p>
+                {legacyDirectRate ? (
+                  <div className='space-y-2'>
+                    <p className='text-sm font-medium'>
+                      {!legacySettlementUnit
+                        ? t('Set a settlement unit when a gateway price is set')
+                        : legacyRatePerUsd
+                          ? t(
+                              'Existing direct rate: 1 USD credited costs {{rate}} {{unit}}.',
+                              {
+                                rate: legacyRatePerUsd,
+                                unit: legacySettlementUnit,
+                              }
+                            )
+                          : t(
+                              'The fixed Credit denomination is unavailable. The existing direct rate is preserved.'
+                            )}
+                    </p>
+                    <p className='text-warning text-xs leading-relaxed'>
+                      {t(
+                        'Legacy direct pricing is preserved until you enter and save the real-USD settlement fields above.'
+                      )}
+                    </p>
+                  </div>
                 ) : null}
               </div>
             </>
