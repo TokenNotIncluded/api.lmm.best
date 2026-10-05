@@ -150,17 +150,7 @@ func requestedTopUpUSDDecimal(amount decimal.Decimal) (decimal.Decimal, error) {
 	return rates.FiatForPlatformUnits(platformAmount, paymentpricing.CurrencyUSD)
 }
 
-func creditedQuotaUSD(quota int64) (decimal.Decimal, error) {
-	if !validQuotaPerUnit() {
-		return decimal.Zero, fmt.Errorf("quota per unit must be positive")
-	}
-	platformAmount := decimal.NewFromInt(quota).Div(decimal.NewFromFloat(common.QuotaPerUnit))
-	rates, err := paymentpricing.CurrentRates()
-	if err != nil {
-		return decimal.Zero, err
-	}
-	return rates.FiatForPlatformUnits(platformAmount, paymentpricing.CurrencyUSD)
-}
+func creditedQuotaUSD(quota int64) (decimal.Decimal, error) { return common.CreditsToUSD(quota) }
 
 func requirePaymentMethodTopUpWithinLimit(c *gin.Context, paymentType string, amount int64) bool {
 	return requirePaymentMethodTopUpDecimalWithinLimit(c, paymentType, decimal.NewFromInt(amount))

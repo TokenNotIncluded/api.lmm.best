@@ -162,9 +162,10 @@ func (*CreemAdaptor) RequestPay(c *gin.Context, req *CreemPayRequest) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "success",
 		"data": gin.H{
-			"trade_no":     referenceId,
-			"checkout_url": checkoutUrl,
-			"order_id":     referenceId,
+			"trade_no":       referenceId,
+			"checkout_url":   checkoutUrl,
+			"credited_quota": selectedProduct.Quota, "credit_amount": selectedProduct.Quota, "currency_unit": "credit", "amount_unit": "CREDIT", "settlement_currency": strings.ToUpper(selectedProduct.Currency),
+			"order_id": referenceId,
 		},
 	})
 }

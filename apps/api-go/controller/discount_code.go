@@ -16,7 +16,9 @@ import (
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
+	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 )
 
 func GetAllDiscountCodes(c *gin.Context) {
@@ -202,25 +204,48 @@ func DeleteExhaustedDiscountCodes(c *gin.Context) {
 }
 
 type discountCodeValidationRequest struct {
-	Code          string `json:"code"`
-	Amount        int64  `json:"amount"`
-	PaymentMethod string `json:"payment_method"`
+	Code          string  `json:"code"`
+	Amount        float64 `json:"amount"`
+	AmountUnit    string  `json:"amount_unit,omitempty"`
+	PaymentMethod string  `json:"payment_method"`
 }
 
 // ValidateDiscountCode is intentionally a user-scoped endpoint. It returns a
 // quote preview, never the administrator's code inventory or internal fields.
 func ValidateDiscountCode(c *gin.Context) {
 	var req discountCodeValidationRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindTopUpRequest(c, &req); err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	row, err := model.ValidateDiscountCodeForUser(req.Code, req.Amount, common.GetTimestamp(), c.GetInt("id"))
+	amount := decimal.NewFromFloat(req.Amount)
+	if strings.TrimSpace(req.AmountUnit) != "" {
+		resolved, err := resolveTopUpRequestAmount(c, req.Amount, req.AmountUnit)
+		legacy := resolved.LegacyBatch
+		if err != nil {
+			common.ApiErrorMsg(c, err.Error())
+			return
+		}
+		if _, _, _, err := topUpOrderAmountsResolved(resolved); err != nil {
+			common.ApiErrorMsg(c, err.Error())
+			return
+		}
+		amount = topUpConfigAmountFromLegacy(legacy)
+		if topUpRequestUnit("") == "CREDIT" {
+			amount = amount.Floor()
+		}
+	}
+	row, err := model.ValidateDiscountCodeForUserDecimal(req.Code, amount, common.GetTimestamp(), c.GetInt("id"))
 	if err != nil {
 		common.ApiErrorMsg(c, discountCodeErrorMessage(err))
 		return
 	}
+	legacyMinimum := decimal.NewFromInt(row.MinAmount)
+	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens && validQuotaPerUnit() {
+		legacyMinimum = legacyMinimum.Div(decimal.NewFromFloat(common.QuotaPerUnit))
+	}
 	common.ApiSuccess(c, gin.H{
+		"amount_unit": topUpRequestUnit(req.AmountUnit), "min_amount_unit": topUpRequestUnit(""), "legacy_min_amount": legacyMinimum.String(),
 		"code":             row.Code,
 		"discount_percent": row.DiscountPercent,
 		"min_amount":       row.MinAmount,

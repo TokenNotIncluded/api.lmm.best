@@ -118,6 +118,7 @@ func getWaffoPayMoneyForAmount(amount decimal.Decimal, group string) decimal.Dec
 
 type WaffoPayRequest struct {
 	Amount         float64 `json:"amount"`
+	AmountUnit     string  `json:"amount_unit,omitempty"`
 	DiscountCode   string  `json:"discount_code,omitempty"`
 	PayMethodIndex *int    `json:"pay_method_index"` // 服务端支付方式列表的索引，nil 表示由 Waffo 自动选择
 	PayMethodType  string  `json:"pay_method_type"`  // Deprecated: 兼容旧前端，优先使用 pay_method_index
@@ -126,11 +127,12 @@ type WaffoPayRequest struct {
 
 func RequestWaffoAmount(c *gin.Context) {
 	var req WaffoPayRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindTopUpRequest(c, &req); err != nil {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "参数错误"})
 		return
 	}
-	requestedAmount, err := parseRequestedTopUpAmount(req.Amount)
+	resolvedAmount, err := resolveTopUpRequestAmount(c, req.Amount, req.AmountUnit)
+	requestedAmount := resolvedAmount.LegacyBatch
 	if err != nil {
 		common.ApiErrorMsg(c, err.Error())
 		return
@@ -144,12 +146,12 @@ func RequestWaffoAmount(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": fmt.Sprintf("充值数量不能小于 %d", waffoMinTopup)})
 		return
 	}
-	if !requirePaymentMethodTopUpDecimalWithinLimit(c, model.PaymentMethodWaffo, requestedAmount) {
+	if !requirePaymentMethodCreditedQuotaWithinLimit(c, model.PaymentMethodWaffo, resolvedAmount.CreditedQuota) {
 		return
 	}
 
 	id := c.GetInt("id")
-	_, _, creditedQuota, err := topUpOrderAmountsDecimal(requestedAmount)
+	_, _, creditedQuota, err := topUpOrderAmountsResolved(resolvedAmount)
 	if err != nil || !requireTopUpCreditCapacity(c, id, creditedQuota) {
 		return
 	}
@@ -159,7 +161,7 @@ func RequestWaffoAmount(c *gin.Context) {
 		return
 	}
 
-	payMoneyDecimal, _, err := applyDiscountCodeQuoteDecimal(getWaffoPayMoneyForAmount(requestedAmount, group), requestedAmount, req.DiscountCode, id)
+	payMoneyDecimal, _, err := applyDiscountCodeQuoteLegacyDecimal(getWaffoPayMoneyForLegacyAmount(requestedAmount, group), requestedAmount, req.DiscountCode, id)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "优惠码无效"})
 		return
@@ -170,7 +172,7 @@ func RequestWaffoAmount(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "success", "data": strconv.FormatFloat(payMoney, 'f', 2, 64)})
+	c.JSON(http.StatusOK, withTopUpCreditFields(gin.H{"message": "success", "data": strconv.FormatFloat(payMoney, 'f', 2, 64)}, req.AmountUnit, requestedAmount, creditedQuota, waffoSettlementCurrency()))
 }
 
 // RequestWaffoPay 创建 Waffo 支付订单
@@ -181,11 +183,12 @@ func RequestWaffoPay(c *gin.Context) {
 	}
 
 	var req WaffoPayRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindTopUpRequest(c, &req); err != nil {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "参数错误"})
 		return
 	}
-	requestedAmount, err := parseRequestedTopUpAmount(req.Amount)
+	resolvedAmount, err := resolveTopUpRequestAmount(c, req.Amount, req.AmountUnit)
+	requestedAmount := resolvedAmount.LegacyBatch
 	if err != nil {
 		common.ApiErrorMsg(c, err.Error())
 		return
@@ -198,12 +201,12 @@ func RequestWaffoPay(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": fmt.Sprintf("充值数量不能小于 %d", waffoMinTopup)})
 		return
 	}
-	if !requirePaymentMethodTopUpDecimalWithinLimit(c, model.PaymentMethodWaffo, requestedAmount) {
+	if !requirePaymentMethodCreditedQuotaWithinLimit(c, model.PaymentMethodWaffo, resolvedAmount.CreditedQuota) {
 		return
 	}
 
 	id := c.GetInt("id")
-	amount, platformAmountMicros, creditedQuota, err := topUpOrderAmountsDecimal(requestedAmount)
+	amount, platformAmountMicros, creditedQuota, err := topUpOrderAmountsResolved(resolvedAmount)
 	if err != nil || !requireTopUpCreditCapacity(c, id, creditedQuota) {
 		return
 	}
@@ -251,7 +254,7 @@ func RequestWaffoPay(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "获取用户分组失败"})
 		return
 	}
-	payMoneyDecimal, discountCode, err := applyDiscountCodeQuoteDecimal(getWaffoPayMoneyForAmount(requestedAmount, group), requestedAmount, req.DiscountCode, id)
+	payMoneyDecimal, discountCode, err := applyDiscountCodeQuoteLegacyDecimal(getWaffoPayMoneyForLegacyAmount(requestedAmount, group), requestedAmount, req.DiscountCode, id)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "优惠码无效"})
 		return
@@ -277,20 +280,22 @@ func RequestWaffoPay(c *gin.Context) {
 
 	// 创建本地订单
 	topUp := &model.TopUp{
-		UserId:               id,
-		Amount:               amount,
-		PlatformAmountMicros: platformAmountMicros,
-		CreditedQuota:        creditedQuota,
-		ExpectedAmountMicros: expectedAmountMicros,
-		SettlementCurrency:   strings.ToUpper(currency),
-		Money:                monetaryMicrosToFloat(expectedAmountMicros),
-		TradeNo:              merchantOrderId,
-		PaymentMethod:        model.PaymentMethodWaffo,
-		PaymentProvider:      model.PaymentProviderWaffo,
-		DiscountCodeId:       discountCodeID(discountCode),
-		DiscountPercent:      discountPercent(discountCode),
-		CreateTime:           time.Now().Unix(),
-		Status:               common.TopUpStatusPending,
+		UserId:                   id,
+		Amount:                   amount,
+		PlatformAmountMicros:     platformAmountMicros,
+		CreditedQuota:            creditedQuota,
+		ExpectedAmountMicros:     expectedAmountMicros,
+		SettlementCurrency:       strings.ToUpper(currency),
+		Money:                    monetaryMicrosToFloat(expectedAmountMicros),
+		TradeNo:                  merchantOrderId,
+		PaymentMethod:            model.PaymentMethodWaffo,
+		PaymentProvider:          model.PaymentProviderWaffo,
+		DiscountQualifyingAmount: topUpDiscountQualifyingAmount(requestedAmount, creditedQuota),
+		DiscountQualifyingUnit:   topUpRequestUnit(""),
+		DiscountCodeId:           discountCodeID(discountCode),
+		DiscountPercent:          discountPercent(discountCode),
+		CreateTime:               time.Now().Unix(),
+		Status:                   common.TopUpStatusPending,
 	}
 	if err := topUp.Insert(); err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo 创建充值订单失败 user_id=%d trade_no=%s amount=%s error=%q", id, merchantOrderId, requestedAmount.String(), err.Error()))
@@ -396,9 +401,11 @@ func RequestWaffoPay(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "success",
 		"data": gin.H{
-			"trade_no":    merchantOrderId,
-			"payment_url": paymentUrl,
-			"order_id":    merchantOrderId,
+			"trade_no":       merchantOrderId,
+			"payment_url":    paymentUrl,
+			"credited_quota": creditedQuota, "credit_amount": creditedQuota, "currency_unit": "credit",
+			"amount_unit": topUpRequestUnit(req.AmountUnit), "legacy_batch_units": requestedAmount.String(), "settlement_currency": waffoSettlementCurrency(),
+			"order_id": merchantOrderId,
 		},
 	})
 }
@@ -645,4 +652,16 @@ func sendWaffoWebhookResponse(c *gin.Context, wh *core.WebhookHandler, success b
 	}
 	c.Header("X-SIGNATURE", sig)
 	c.Data(http.StatusOK, "application/json", []byte(body))
+}
+
+func getWaffoPayMoneyForLegacyAmount(amount decimal.Decimal, group string) decimal.Decimal {
+	pricing, err := standardSettlementPricing("USD")
+	if err != nil {
+		return decimal.Zero
+	}
+	quote, err := quoteTopUpLegacyDecimalWithSettlementPricing(amount, group, pricing, decimal.NewFromInt(1))
+	if err != nil {
+		return decimal.Zero
+	}
+	return quote
 }

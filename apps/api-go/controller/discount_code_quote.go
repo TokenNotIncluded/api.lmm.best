@@ -65,3 +65,29 @@ func quoteTopUpDecimalWithDiscount(amount decimal.Decimal, group, paymentMethod,
 	}
 	return applyDiscountCodeQuoteDecimal(base, amount, rawCode, userIDs...)
 }
+
+// Explicit-unit handlers quote canonical legacy batch units after resolving the
+// request once. Discounts affect the cash snapshot, never the credit anchor.
+func quoteTopUpLegacyDecimalWithDiscount(amount decimal.Decimal, group, paymentMethod, rawCode string, userIDs ...int) (decimal.Decimal, *model.DiscountCode, error) {
+	pricing, err := getPayMethodSettlementPricing(paymentMethod)
+	if err != nil {
+		return decimal.Zero, nil, err
+	}
+	ratio, err := getPayMethodTopupRatio(paymentMethod)
+	if err != nil {
+		return decimal.Zero, nil, err
+	}
+	base, err := quoteTopUpLegacyDecimalWithSettlementPricing(amount, group, pricing, ratio)
+	if err != nil {
+		return decimal.Zero, nil, err
+	}
+	return applyDiscountCodeQuoteLegacyDecimal(base, amount, rawCode, userIDs...)
+}
+
+func applyDiscountCodeQuoteLegacyDecimal(base, amount decimal.Decimal, rawCode string, userIDs ...int) (decimal.Decimal, *model.DiscountCode, error) {
+	qualifying := topUpConfigAmountFromLegacy(amount)
+	if topUpRequestUnit("") == "CREDIT" {
+		qualifying = qualifying.Floor()
+	}
+	return applyDiscountCodeQuoteDecimal(base, qualifying, rawCode, userIDs...)
+}

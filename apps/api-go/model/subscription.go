@@ -254,6 +254,7 @@ type SubscriptionOrder struct {
 	PlanId int `json:"plan_id" gorm:"index"`
 	// Money is the immutable plan list price expressed in the ISO currency
 	// captured by PlanSnapshot. It is real fiat, never platform wallet units.
+	ChargedQuota int64   `json:"charged_quota" gorm:"not null;default:0"`
 	Money        float64 `json:"money"`
 	PlanCurrency string  `json:"plan_currency" gorm:"type:varchar(8)"`
 
@@ -1405,11 +1406,11 @@ func calcSubscriptionBalanceQuota(priceAmount float64, currency string) (int, er
 	if err != nil {
 		return 0, err
 	}
-	platformUnits, err := rates.PlatformUnitsForFiat(decimal.NewFromFloat(priceAmount), currency)
+	credits, err := common.FiatToCreditsDecimal(decimal.NewFromFloat(priceAmount), currency, rates.CNYPerUSD)
 	if err != nil {
 		return 0, err
 	}
-	quota := platformUnits.Mul(decimal.NewFromFloat(common.QuotaPerUnit)).Ceil()
+	quota := credits.Ceil()
 	return common.WalletQuotaFromDecimalStrict(quota)
 }
 
@@ -1484,16 +1485,20 @@ func PurchaseSubscriptionWithBalance(userId int, planId int) error {
 		now := common.GetTimestamp()
 		tradeNo := fmt.Sprintf("SUBBALUSR%dNO%s%d", userId, common.GetRandomString(6), time.Now().UnixNano())
 		order := &SubscriptionOrder{
-			UserId:          userId,
-			PlanId:          plan.Id,
-			Money:           plan.PriceAmount,
-			TradeNo:         tradeNo,
-			PaymentMethod:   PaymentMethodBalance,
-			PaymentProvider: PaymentProviderBalance,
-			Status:          common.TopUpStatusSuccess,
-			CreateTime:      now,
-			CompleteTime:    now,
-			ProviderPayload: fmt.Sprintf("charged_quota=%d", requiredQuota),
+			UserId:             userId,
+			PlanId:             plan.Id,
+			Money:              plan.PriceAmount,
+			PlanCurrency:       strings.ToUpper(strings.TrimSpace(plan.Currency)),
+			PlanSnapshot:       common.GetJsonString(plan),
+			UserSubscriptionId: subscription.Id,
+			ChargedQuota:       int64(requiredQuota),
+			TradeNo:            tradeNo,
+			PaymentMethod:      PaymentMethodBalance,
+			PaymentProvider:    PaymentProviderBalance,
+			Status:             common.TopUpStatusSuccess,
+			CreateTime:         now,
+			CompleteTime:       now,
+			ProviderPayload:    fmt.Sprintf("charged_quota=%d", requiredQuota),
 		}
 		if err := tx.Create(order).Error; err != nil {
 			return err
