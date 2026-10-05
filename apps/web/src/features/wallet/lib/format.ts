@@ -94,6 +94,15 @@ export function formatCreditBalance(
   return formatPlatformCreditBalance(amount, platformLabel)
 }
 
+/** Accept gateway ISO currencies; custom credit labels are not fiat. */
+export function isFiatPaymentCurrency(currency: unknown): currency is string {
+  return (
+    typeof currency === 'string' &&
+    /^[A-Z]{3}$/.test(currency) &&
+    Intl.supportedValuesOf('currency').includes(currency)
+  )
+}
+
 /** Format the fiat amount that will actually be charged. */
 export function formatPaymentAmount(amount: number, currency?: string): string {
   if (currency) {

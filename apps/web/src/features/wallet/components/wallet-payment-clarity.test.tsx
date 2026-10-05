@@ -91,6 +91,9 @@ const { useAuthStore } = await import('@/stores/auth-store')
 const { useSystemConfigStore } = await import('@/stores/system-config-store')
 const { useWalletCurrencyPreferenceStore } =
   await import('@/stores/wallet-currency-preference-store')
+const { PaymentCurrencyProvider } =
+  await import('../hooks/payment-currency-provider')
+const { usePaymentCurrency } = await import('../hooks/use-payment-currency')
 const { PaymentConfirmDialog } =
   await import('./dialogs/payment-confirm-dialog')
 const { formatCreditBalance, formatPaymentAmount } = await import('../lib')
@@ -141,7 +144,10 @@ function TopupInfoProbe() {
   )
 }
 
-function setCnyBillingCurrency() {
+let paymentDisplayFixture: 'CNY' | 'USD' = 'USD'
+
+function setCnyBillingAndPaymentDisplay() {
+  paymentDisplayFixture = 'CNY'
   useWalletCurrencyPreferenceStore.getState().setPreference('CNY')
   useSystemConfigStore.setState((state) => ({
     config: {
@@ -161,6 +167,7 @@ function setCnyBillingCurrency() {
 }
 
 function setUsdBillingCurrency() {
+  paymentDisplayFixture = 'USD'
   useWalletCurrencyPreferenceStore.getState().setPreference('USD')
   useSystemConfigStore.setState((state) => ({
     config: {
@@ -185,13 +192,27 @@ type Rendered = {
 
 const mounted = new Set<Rendered>()
 
+function PaymentDisplayFixture({ children }: { children: React.ReactNode }) {
+  const { setPreference } = usePaymentCurrency()
+  useEffect(() => {
+    setPreference(paymentDisplayFixture)
+  }, [setPreference])
+  return children
+}
+
 async function render(node: React.ReactNode): Promise<Rendered> {
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
 
   await act(async () => {
-    root.render(<I18nextProvider i18n={i18n}>{node}</I18nextProvider>)
+    root.render(
+      <I18nextProvider i18n={i18n}>
+        <PaymentCurrencyProvider>
+          <PaymentDisplayFixture>{node}</PaymentDisplayFixture>
+        </PaymentCurrencyProvider>
+      </I18nextProvider>
+    )
   })
 
   const rendered = { container, root }
@@ -373,7 +394,7 @@ describe('wallet payment clarity', () => {
 
   test('renders Chinese platform title, preset card, and input addon without a dollar symbol', async () => {
     await i18n.changeLanguage('zh')
-    setCnyBillingCurrency()
+    setCnyBillingAndPaymentDisplay()
 
     assert.equal(formatCreditBalance(6.8), '6.8 CNY')
     assert.equal(formatCreditBalance(Number.NaN), '-')
@@ -725,7 +746,7 @@ describe('wallet payment clarity', () => {
 
   test('applies explicit USD bridge rates to preset, custom preview, and confirmation', async () => {
     await i18n.changeLanguage('en')
-    setCnyBillingCurrency()
+    setCnyBillingAndPaymentDisplay()
     const paymentMethod = {
       name: 'USD card',
       type: 'card',
@@ -856,7 +877,7 @@ describe('wallet payment clarity', () => {
 
   test('labels preset credits, payment, discount, and the custom-account destination', async () => {
     await i18n.changeLanguage('en')
-    setCnyBillingCurrency()
+    setCnyBillingAndPaymentDisplay()
     const rendered = await render(
       <RechargeFormCard
         topupInfo={topupInfo}
@@ -940,7 +961,7 @@ describe('wallet payment clarity', () => {
 
   test('shows the prescribed 100-credit, 20%-discount payment breakdown', async () => {
     await i18n.changeLanguage('en')
-    setCnyBillingCurrency()
+    setCnyBillingAndPaymentDisplay()
     const rendered = await render(
       <RechargeFormCard
         topupInfo={{ ...topupInfo, discount: { 50000000: 0.8 } }}
@@ -993,7 +1014,7 @@ describe('wallet payment clarity', () => {
 
   test('hides an unprovable preset discount breakdown', async () => {
     await i18n.changeLanguage('en')
-    setCnyBillingCurrency()
+    setCnyBillingAndPaymentDisplay()
     const rendered = await render(
       <RechargeFormCard
         topupInfo={topupInfo}
@@ -1079,7 +1100,7 @@ describe('wallet payment clarity', () => {
     await unmount(rendered)
   })
 
-  test('uses the initial default Linux.do method for quotes and confirmation', async () => {
+  test('blocks non-fiat Linux.do quotes and confirmation without relabelling them', async () => {
     await i18n.changeLanguage('en')
     setUsdBillingCurrency()
     const paymentMethod = {
@@ -1114,26 +1135,16 @@ describe('wallet payment clarity', () => {
       />
     )
 
-    assert.equal(
-      recharge.container.textContent?.includes(
-        'Selected method: LINUX DO Credit · Estimated payment: 0.56 LDC (original 0.7 LDC)'
-      ),
-      true
-    )
-    assert.equal(
-      recharge.container.textContent?.includes(
-        'Selected method: LINUX DO Credit · Amount due: 0.56 LDC (actual payment)'
-      ),
-      true
-    )
+    assert.ok(recharge.container.textContent?.includes('Payment unavailable'))
+    assert.equal(recharge.container.textContent?.includes('0.56 LDC'), false)
     assert.equal(
       recharge.container.textContent?.includes('10 LDC / 1 USD'),
-      true
+      false
     )
-    assert.equal(
-      recharge.container.textContent?.includes('Channel multiplier ×0.5'),
-      true
+    const methodButton = recharge.container.querySelector<HTMLButtonElement>(
+      'button[aria-label="LINUX DO Credit. Payment unavailable"]'
     )
+    assert.ok(methodButton?.disabled)
     await unmount(recharge)
 
     const confirmation = await render(
@@ -1150,10 +1161,14 @@ describe('wallet payment clarity', () => {
       />
     )
 
-    assert.equal(
-      document.body.textContent?.includes('Credit 1 USD; pay 0.56 LDC'),
-      true
-    )
+    assert.ok(document.body.textContent?.includes('Payment unavailable'))
+    assert.equal(document.body.textContent?.includes('0.56 LDC'), false)
+    const confirm = [
+      ...document.querySelectorAll<HTMLButtonElement>(
+        '[role="alertdialog"] button'
+      ),
+    ].find((button) => button.textContent?.includes('Confirm Payment'))
+    assert.ok(confirm?.disabled)
     await unmount(confirmation)
   })
 
@@ -1206,7 +1221,7 @@ describe('wallet payment clarity', () => {
 
   test('uses the server request-amount cap instead of USD or gateway pricing', async () => {
     await i18n.changeLanguage('en')
-    setCnyBillingCurrency()
+    setCnyBillingAndPaymentDisplay()
     // The server uses 6.8 platform units/USD for limits. A custom gateway
     // can price those units differently without changing the credited cap.
     for (const amount of [17, 18]) {
@@ -1215,7 +1230,7 @@ describe('wallet payment clarity', () => {
         name: 'Limited custom gateway',
         type: 'epay',
         min_topup_credit: '0',
-        settlement_currency: 'LDC',
+        settlement_currency: 'EUR',
         platform_units_per_usd: '99',
         settlement_units_per_usd: '10',
         max_topup: '2.5',
@@ -1380,7 +1395,7 @@ describe('wallet payment clarity', () => {
 
   test('keeps all eight Chinese presets in a 390px viewport without showing stale preset details', async () => {
     await i18n.changeLanguage('zh')
-    setCnyBillingCurrency()
+    setCnyBillingAndPaymentDisplay()
     const rendered = await render(
       <RechargeFormCard
         presetAmounts={[1, 2, 5, 10, 20, 50, 100, 500].map((value) => ({
@@ -1661,13 +1676,18 @@ test('one Credit survives currency switches and quote requests keep their origin
   const input =
     rendered.container.querySelector<HTMLInputElement>('#topup-amount')
   assert.ok(input)
-  assert.equal(input.value, '1')
-  assert.ok(document.body.textContent?.includes('1 Credits'))
+  assert.equal(input.value, '0.000000294117647058823529411765')
+  assert.equal(document.body.textContent?.includes('1 Credits'), false)
+  const originalInput = input.value
   for (const preference of ['USD', 'CNY', 'CREDIT'] as const) {
     await act(async () => {
       useWalletCurrencyPreferenceStore.getState().setPreference(preference)
     })
-    assert.ok(Number(input.value) > 0)
+    assert.equal(
+      input.value,
+      originalInput,
+      'balance display never changes payment input'
+    )
     assert.ok(
       document.body.textContent?.includes('0.01 USD'),
       'checkout fiat remains USD'
@@ -1675,27 +1695,27 @@ test('one Credit survives currency switches and quote requests keep their origin
     assert.equal(
       requests.length,
       0,
-      'a display preference is not a new recharge selection'
+      'display preferences do not requote raw selection'
     )
   }
-  await editInput(input, '2')
+  await editInput(input, '0.00000058823529411764705882353')
   assert.deepEqual(requests, [
     { amount: 2, payment_method: 'card', amount_unit: 'CREDIT' },
   ])
   await act(async () => {
     useWalletCurrencyPreferenceStore.getState().setPreference('CNY')
   })
-  assert.equal(input.value, '0.000004') // Two Credits, not two CNY.
+  assert.equal(input.value, '0.00000058823529411764705882353')
   await editInput(input, '1')
   assert.deepEqual(requests.at(-1), {
-    amount: 500000,
+    amount: 3400000,
     payment_method: 'card',
     amount_unit: 'CREDIT',
   })
   await act(async () => {
     useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
   })
-  assert.equal(input.value, '500000')
+  assert.equal(input.value, '1')
   assert.equal(requests.length, 2)
   assert.ok(document.body.textContent?.includes('0.01 USD'))
   await unmount(rendered)
@@ -1793,6 +1813,7 @@ for (const scenario of [
   test(`amount arrows add to raw credit without round-tripping current ${scenario.currency} float`, async () => {
     await i18n.changeLanguage('en')
     useWalletCurrencyPreferenceStore.getState().setPreference(scenario.currency)
+    paymentDisplayFixture = scenario.currency
     useSystemConfigStore.setState((state) => ({
       config: {
         ...state.config,

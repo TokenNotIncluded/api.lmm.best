@@ -1988,12 +1988,24 @@ for (const quotaPerUnit of [300000, 500000]) {
           count,
           'display changes never change or requote the selection'
         )
-        assert.equal(displayAmountToQuota(input.value, preference), rawQuota)
+        assert.equal(displayAmountToQuota(input.value, 'USD'), rawQuota)
+        assert.equal(
+          input
+            .closest('[data-slot="input-group"]')
+            ?.textContent?.includes('USD'),
+          true
+        )
         await act(async () => {
           setter.call(input, input.value)
           input.dispatchEvent(new Event('input', { bubbles: true }))
         })
-        assert.equal(displayAmountToQuota(input.value, preference), rawQuota)
+        assert.equal(displayAmountToQuota(input.value, 'USD'), rawQuota)
+        assert.equal(
+          input
+            .closest('[data-slot="input-group"]')
+            ?.textContent?.includes('USD'),
+          true
+        )
       }
       const codeInput =
         container.querySelector<HTMLInputElement>('#discount-code')

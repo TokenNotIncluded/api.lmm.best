@@ -51,6 +51,7 @@ import { toolMarketCopy } from './tool-market-copy.mjs'
 import { typeSafeCopy } from './typesafe-copy.mjs'
 import { upstreamPricingCopy } from './upstream-pricing-copy.mjs'
 import { waitCompanionCopy } from './wait-companion-copy.mjs'
+import { walletDisplayCopy } from './wallet-display-copy.mjs'
 
 const LOCALES_DIR = path.resolve('src/i18n/locales')
 
@@ -13053,6 +13054,10 @@ for (const [locale, values] of Object.entries(billingJsonEditorCopy)) {
 }
 
 for (const [locale, values] of Object.entries(upstreamPricingCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(walletDisplayCopy)) {
   Object.assign(newKeys[locale], values)
 }
 

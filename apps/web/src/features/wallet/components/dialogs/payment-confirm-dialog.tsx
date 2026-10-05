@@ -33,14 +33,15 @@ import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { WaitCompanion } from '@/components/wait-companion'
-import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 
 import { DEFAULT_DISCOUNT_RATE } from '../../constants'
+import { usePaymentCurrency } from '../../hooks/use-payment-currency'
 import {
   formatPaymentAmount,
   formatSettlementAmount,
   getPaymentIcon,
   getPaymentSettlementUnit,
+  isFiatPaymentCurrency,
   isPositivePaymentAmount,
   isWaffoPancakePayment,
 } from '../../lib'
@@ -90,16 +91,23 @@ export function PaymentConfirmDialog({
   neutralMode = false,
 }: PaymentConfirmDialogProps) {
   const { t } = useTranslation()
-  const { formatQuota } = useWalletCurrency()
+  const { formatQuota } = usePaymentCurrency()
   const creditedBalance =
     creditedQuota === undefined
       ? formatQuota(topupAmount)
       : formatQuota(creditedQuota)
   const usesSettlementQuote = isWaffoPancakePayment(paymentMethod?.type ?? '')
   const quote = parseSettlementQuote(settlementQuote)
+  const settlementUnit = usesSettlementQuote
+    ? null
+    : getPaymentSettlementUnit(paymentMethod, true)
+  const actualPaymentCurrency = usesSettlementQuote
+    ? quote?.currency
+    : (paymentCurrency ?? settlementUnit?.label ?? 'USD')
+  const fiatPayment = isFiatPaymentCurrency(actualPaymentCurrency)
   const hasPaymentAmount = usesSettlementQuote
-    ? quote !== null
-    : isPositivePaymentAmount(paymentAmount)
+    ? fiatPayment && quote !== null
+    : fiatPayment && isPositivePaymentAmount(paymentAmount)
   const effectivePaymentAmount =
     usesSettlementQuote && quote ? Number(quote.amount) : paymentAmount
   const codeSavings = hasPaymentAmount
@@ -114,9 +122,6 @@ export function PaymentConfirmDialog({
   const discountAmount = hasDiscount
     ? originalAmount - effectivePaymentAmount
     : 0
-  const settlementUnit = usesSettlementQuote
-    ? null
-    : getPaymentSettlementUnit(paymentMethod, true)
   const formatSelectedPaymentAmount = (amount: number) =>
     usesSettlementQuote
       ? quote

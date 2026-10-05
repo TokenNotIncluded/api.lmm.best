@@ -61,6 +61,7 @@ import {
   useWaffoPayment,
   useWaffoPancakePayment,
 } from './hooks'
+import { PaymentCurrencyProvider } from './hooks/payment-currency-provider'
 import {
   useCheckoutOwnerKey,
   useCheckoutScope,
@@ -110,7 +111,11 @@ const PAYMENT_REFRESH_DEADLINE_MS = 2 * 60 * 1_000
 
 export function Wallet(props: WalletProps) {
   const ownerKey = useCheckoutOwnerKey()
-  return <WalletAmountDraft key={ownerKey} {...props} />
+  return (
+    <PaymentCurrencyProvider key={ownerKey}>
+      <WalletAmountDraft {...props} />
+    </PaymentCurrencyProvider>
+  )
 }
 
 function WalletAmountDraft(props: WalletProps) {

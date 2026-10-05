@@ -64,7 +64,6 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { WaitCompanion } from '@/components/wait-companion'
-import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { cn } from '@/lib/utils'
 import {
   getDefaultWaffoPancakeCheckoutRegion,
@@ -72,6 +71,7 @@ import {
 } from '@/lib/waffo-pancake-checkout'
 
 import { PAYMENT_TYPES } from '../constants'
+import { usePaymentCurrency } from '../hooks/use-payment-currency'
 import {
   getPaymentIcon,
   getPaymentMaxTopupQuota,
@@ -86,6 +86,7 @@ import {
   formatPaymentSettlementRate,
   formatSettlementAmount,
   getPaymentSettlementUnit,
+  isFiatPaymentCurrency,
   isWaffoPancakeCurrencySupported,
   isWaffoPancakePayment,
   isPositivePaymentAmount,
@@ -199,7 +200,7 @@ export function RechargeFormCard({
   onRemoveDiscount,
 }: RechargeFormCardProps) {
   const { t, i18n } = useTranslation()
-  const currency = useWalletCurrency()
+  const currency = usePaymentCurrency()
   const formatCreditQuota = currency.formatQuota
   const currencyKey = JSON.stringify([currency.currency, currency.config])
   const displayAmount = useCallback(
@@ -358,13 +359,20 @@ export function RechargeFormCard({
     effectivePaymentMethod?.type ?? ''
   )
   const quote = parseSettlementQuote(settlementQuote)
+  const settlementUnit = usesSettlementQuote
+    ? null
+    : getPaymentSettlementUnit(effectivePaymentMethod, true)
+  const actualPaymentCurrency = usesSettlementQuote
+    ? quote?.currency
+    : (paymentCurrency ?? settlementUnit?.label ?? 'USD')
+  const fiatPayment = isFiatPaymentCurrency(actualPaymentCurrency)
   const paymentAmount = usesSettlementQuote
     ? quote
       ? Number(quote.amount)
       : 0
     : legacyPaymentAmount
   const hasCurrentPaymentAmount =
-    !calculating && isPositivePaymentAmount(paymentAmount)
+    fiatPayment && !calculating && isPositivePaymentAmount(paymentAmount)
   const customHasDiscount =
     !usesSettlementQuote &&
     hasCurrentPaymentAmount &&
@@ -390,9 +398,6 @@ export function RechargeFormCard({
     usesSettlementQuote && quote?.originalAmount
       ? Number(quote.originalAmount)
       : 0
-  const settlementUnit = usesSettlementQuote
-    ? null
-    : getPaymentSettlementUnit(effectivePaymentMethod, true)
   const paymentTopupRatio = getPaymentTopupRatio(effectivePaymentMethod)
   const selectedPaymentMethodName =
     neutralMode || !effectivePaymentMethod?.name
@@ -400,7 +405,7 @@ export function RechargeFormCard({
       : effectivePaymentMethod.name
   const shouldShowSettlementRule = (paymentMethod: PaymentMethod) =>
     !isWaffoPancakePayment(paymentMethod.type) &&
-    getPaymentSettlementUnit(paymentMethod, true) !== null
+    isFiatPaymentCurrency(getPaymentSettlementUnit(paymentMethod, true)?.label)
   const getSettlementRule = (paymentMethod: PaymentMethod) =>
     formatPaymentSettlementRate(
       paymentMethod,
@@ -409,17 +414,19 @@ export function RechargeFormCard({
       currency.formatLegacyAmount
     )
   const formatSelectedPaymentAmount = (amount: number) =>
-    usesSettlementQuote
-      ? quote
-        ? amount === Number(quote.amount)
-          ? formatSettlementQuote(quote)
-          : formatPaymentAmount(amount, quote.currency)
-        : t('Payment unavailable')
-      : paymentCurrency
-        ? formatPaymentAmount(amount, paymentCurrency)
-        : settlementUnit
-          ? formatSettlementAmount(amount, settlementUnit.label)
-          : formatPaymentAmount(amount, 'USD')
+    !fiatPayment
+      ? t('Payment unavailable')
+      : usesSettlementQuote
+        ? quote
+          ? amount === Number(quote.amount)
+            ? formatSettlementQuote(quote)
+            : formatPaymentAmount(amount, quote.currency)
+          : t('Payment unavailable')
+        : paymentCurrency
+          ? formatPaymentAmount(amount, paymentCurrency)
+          : settlementUnit
+            ? formatSettlementAmount(amount, settlementUnit.label)
+            : formatPaymentAmount(amount, 'USD')
   const formatPresetPaymentAmount = (amount: number) =>
     usesSettlementQuote
       ? t('Select for a quote')
@@ -795,9 +802,37 @@ export function RechargeFormCard({
 
                 <FieldGroup>
                   <Field>
-                    <FieldLabel htmlFor='topup-amount'>
-                      {t('Top-up amount')} ({currency.label})
-                    </FieldLabel>
+                    <div className='flex min-w-0 items-center justify-between gap-2'>
+                      <FieldLabel htmlFor='topup-amount'>
+                        {t('Top-up amount')} ({currency.label})
+                      </FieldLabel>
+                      <Select
+                        items={[
+                          { value: 'CNY', label: 'CNY' },
+                          { value: 'USD', label: 'USD' },
+                        ]}
+                        value={currency.currency}
+                        onValueChange={(value) => {
+                          if (value === 'CNY' || value === 'USD') {
+                            currency.setPreference(value)
+                          }
+                        }}
+                      >
+                        <SelectTrigger
+                          size='sm'
+                          aria-label={t('Recharge display currency')}
+                          className='min-w-22'
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent alignItemWithTrigger={false}>
+                          <SelectGroup>
+                            <SelectItem value='CNY'>CNY</SelectItem>
+                            <SelectItem value='USD'>USD</SelectItem>
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </div>
                     <FieldDescription id='topup-amount-description'>
                       {neutralMode
                         ? t('Payment adds credit to this account.')
@@ -1047,10 +1082,18 @@ export function RechargeFormCard({
                           const belowMinimum = minTopup > topupAmount
                           const aboveMaximum =
                             maxTopup !== null && topupAmount > maxTopup
-                          const disabled = belowMinimum || aboveMaximum
+                          const fiatMethod = isFiatPaymentCurrency(
+                            getPaymentSettlementUnit(method, true)?.label ??
+                              'USD'
+                          )
+                          const disabled =
+                            !fiatMethod || belowMinimum || aboveMaximum
                           let disabledReason: string | undefined
                           let disabledLabel: string | undefined
-                          if (belowMinimum) {
+                          if (!fiatMethod) {
+                            disabledReason = t('Payment unavailable')
+                            disabledLabel = disabledReason
+                          } else if (belowMinimum) {
                             disabledReason = t(
                               'Minimum topup amount: {{amount}}',
                               {
