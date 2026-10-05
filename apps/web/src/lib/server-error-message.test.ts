@@ -19,9 +19,42 @@ For commercial licensing, please contact support@quantumnous.com
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
-import { getServerErrorMessageKey } from './server-error-message'
+import {
+  getServerErrorMessageKey,
+  getServerErrorToastId,
+} from './server-error-message'
 
 describe('server error message mapping', () => {
+  test('maps nested edge outage responses without claiming a save failed', () => {
+    const error = {
+      response: {
+        status: 503,
+        data: {
+          error: {
+            code: 'service_temporarily_unavailable',
+            message: 'raw edge diagnostic',
+          },
+        },
+      },
+    }
+    assert.equal(
+      getServerErrorMessageKey(error),
+      'The service is temporarily unavailable. Please try again later.'
+    )
+    assert.equal(
+      getServerErrorToastId(error),
+      'service-temporarily-unavailable'
+    )
+    assert.equal(
+      getServerErrorToastId({
+        response: { status: 503, data: { code: 'OTHER' } },
+      }),
+      undefined
+    )
+    assert.equal(getServerErrorMessageKey({ error: { code: 'OTHER' } }), null)
+    assert.equal(getServerErrorMessageKey({ error: 'invalid' }), null)
+  })
+
   test('maps a declined GitHub migration to a safe recovery path', () => {
     assert.equal(
       getServerErrorMessageKey({
