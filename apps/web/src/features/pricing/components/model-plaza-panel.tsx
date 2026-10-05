@@ -417,9 +417,8 @@ export function ModelPlazaPanel() {
             >
           }
           autoGroups={pricing.autoGroups}
-          priceRate={pricing.priceRate}
-          usdExchangeRate={pricing.usdExchangeRate}
           tokenUnit='M'
+          displayCurrency={pricing.displayCurrency}
         />
       )}
     </>

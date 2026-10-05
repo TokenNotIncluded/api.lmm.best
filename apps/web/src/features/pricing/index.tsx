@@ -62,8 +62,9 @@ export function Pricing() {
     isLoading,
     error,
     refetch,
-    priceRate,
-    usdExchangeRate,
+    displayCurrency,
+    setDisplayCurrency,
+    displayCurrencyError,
   } = usePricingData()
 
   const {
@@ -76,7 +77,6 @@ export function Pricing() {
     tagFilter,
     tokenUnit,
     viewMode,
-    showRechargePrice,
     setSearchInput,
     setSortBy,
     setVendorFilter,
@@ -86,7 +86,6 @@ export function Pricing() {
     setTagFilter,
     setTokenUnit,
     setViewMode,
-    setShowRechargePrice,
     filteredModels,
     hasActiveFilters,
     activeFilterCount,
@@ -150,10 +149,8 @@ export function Pricing() {
           <VendorModelSections
             models={visibleModels}
             onModelClick={handleModelClick}
-            priceRate={priceRate}
-            usdExchangeRate={usdExchangeRate}
             tokenUnit={tokenUnit}
-            showRechargePrice={showRechargePrice}
+            displayCurrency={displayCurrency}
             selectedGroup={groupFilter}
             perfMap={perfMap}
           />
@@ -175,10 +172,8 @@ export function Pricing() {
     return (
       <PricingTable
         models={filteredModels}
-        priceRate={priceRate}
-        usdExchangeRate={usdExchangeRate}
         tokenUnit={tokenUnit}
-        showRechargePrice={showRechargePrice}
+        displayCurrency={displayCurrency}
         selectedGroup={groupFilter}
         perfMap={perfMap}
         onModelClick={handleModelClick}
@@ -254,8 +249,10 @@ export function Pricing() {
                 onSortChange={setSortBy}
                 tokenUnit={tokenUnit}
                 onTokenUnitChange={setTokenUnit}
-                showRechargePrice={showRechargePrice}
-                onRechargePriceChange={setShowRechargePrice}
+                displayCurrency={displayCurrency}
+                onDisplayCurrencyChange={(currency) => {
+                  void setDisplayCurrency(currency)
+                }}
                 viewMode={viewMode}
                 onViewModeChange={(next) => {
                   setViewMode(next)
@@ -283,6 +280,11 @@ export function Pricing() {
                   setVisibleCount(PAGE_SIZE)
                 }}
               />
+              {displayCurrencyError && (
+                <p role='alert' className='text-destructive text-xs'>
+                  {t(displayCurrencyError)}
+                </p>
+              )}
             </div>
           </div>
 
@@ -336,10 +338,8 @@ export function Pricing() {
               >) || {}
             }
             autoGroups={autoGroups || []}
-            priceRate={priceRate ?? 1}
-            usdExchangeRate={usdExchangeRate ?? 1}
             tokenUnit={tokenUnit}
-            showRechargePrice={showRechargePrice}
+            displayCurrency={displayCurrency}
           />
         )}
       </div>

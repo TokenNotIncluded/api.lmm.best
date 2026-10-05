@@ -1,6 +1,7 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import type { PricingModel } from '../types'
 import { evaluateTextRequestExpression } from './billing-expr'
+import { getTokenPriceUSD, hasCanonicalPricing } from './price'
 
 /** Plain text only; cached tokens are a subset of total input. No rounding until display. */
 export function estimateRequestCost(
@@ -10,6 +11,7 @@ export function estimateRequestCost(
   output: number,
   cached: number
 ): number | null {
+  if (!hasCanonicalPricing(model)) return null
   if (ratio === undefined || !Number.isFinite(ratio) || ratio < 0) return null
   if (
     ![input, output, cached].every((n) => Number.isSafeInteger(n) && n >= 0) ||
@@ -47,28 +49,16 @@ export function estimateRequestCost(
       ? model.model_price * ratio
       : null
   }
-  if (
-    model.quota_type !== 0 ||
-    ![model.model_ratio, model.completion_ratio].every(
-      (n) => Number.isFinite(n) && n >= 0
-    )
-  ) {
-    return null
-  }
-  const cacheRatio = model.cache_ratio
-  if (
-    cached > 0 &&
-    (cacheRatio == null || !Number.isFinite(cacheRatio) || cacheRatio < 0)
-  ) {
-    return null
+  if (model.quota_type !== 0) return null
+  const unitCost = (count: number, type: 'input' | 'output' | 'cache') => {
+    if (count === 0) return 0
+    const price = getTokenPriceUSD(model, type)
+    return Number.isFinite(price) ? count * price : Number.NaN
   }
   const amount =
-    ((input -
-      cached +
-      cached * (cacheRatio ?? 0) +
-      output * model.completion_ratio) *
-      model.model_ratio *
-      2 *
+    ((unitCost(input - cached, 'input') +
+      unitCost(cached, 'cache') +
+      unitCost(output, 'output')) *
       ratio) /
     1_000_000
   return Number.isFinite(amount) ? amount : null

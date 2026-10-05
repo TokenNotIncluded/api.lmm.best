@@ -793,11 +793,95 @@ function collectParsedTiers(node: ExprNode, tiers: ParsedTier[]): void {
   }
 }
 
+/** Preserve tier conditions while peeling constant whole-price currency wrappers. */
+export function unwrapBillingPriceScale(exprStr: string): {
+  expression: string
+  scale: number
+} {
+  const versioned = /^v\d+:/.test(exprStr.trim())
+  const { version, body: rawBody } = stripExprVersion(exprStr.trim())
+  let body = rawBody.trim()
+  let scale = 1
+
+  const topLevelOperators = (expression: string): number[] => {
+    const operators: number[] = []
+    let depth = 0
+    let quote = ''
+    for (let index = 0; index < expression.length; index += 1) {
+      const char = expression[index]
+      if (quote) {
+        if (char === '\\') index += 1
+        else if (char === quote) quote = ''
+      } else if (char === '"' || char === "'") quote = char
+      else if (char === '(') depth += 1
+      else if (char === ')') depth -= 1
+      else if (depth === 0 && (char === '*' || char === '/')) {
+        operators.push(index)
+      }
+    }
+    return operators
+  }
+  const stripOuterParentheses = (expression: string): string => {
+    let result = expression.trim()
+    while (result.startsWith('(') && result.endsWith(')')) {
+      let depth = 0
+      let quote = ''
+      let enclosing = true
+      for (let index = 0; index < result.length; index += 1) {
+        const char = result[index]
+        if (quote) {
+          if (char === '\\') index += 1
+          else if (char === quote) quote = ''
+        } else if (char === '"' || char === "'") quote = char
+        else if (char === '(') depth += 1
+        else if (char === ')' && --depth === 0 && index !== result.length - 1) {
+          enclosing = false
+          break
+        }
+      }
+      if (!enclosing) break
+      result = result.slice(1, -1).trim()
+    }
+    return result
+  }
+
+  for (let depth = 0; depth < MAX_EXPR_DEPTH; depth += 1) {
+    body = stripOuterParentheses(body)
+    const root = parseRestrictedExpr(body)
+    if (root.kind !== 'binary' || !['*', '/'].includes(root.op)) break
+    const right = numericLiteral(root.right)
+    const left = root.op === '*' ? numericLiteral(root.left) : null
+    if (right === null && left === null) break
+    const operators = topLevelOperators(body)
+    const operator = operators.at(-1)
+    if (operator === undefined || body[operator] !== root.op) break
+    const factor = right ?? left
+    if (factor === null || !Number.isFinite(factor) || factor <= 0) {
+      throw new Error('price wrapper must use a positive finite factor')
+    }
+    scale *= root.op === '/' ? 1 / factor : factor
+    if (!Number.isFinite(scale) || scale <= 0) {
+      throw new Error('invalid price wrapper scale')
+    }
+    body = right !== null ? body.slice(0, operator) : body.slice(operator + 1)
+  }
+  return {
+    expression: `${versioned ? `v${version}:` : ''}${body.trim()}`,
+    scale,
+  }
+}
+
 export function parseTiersFromExpr(exprStr: string): ParsedTier[] {
   if (!exprStr) return []
   try {
+    const { expression, scale } = unwrapBillingPriceScale(exprStr)
     const tiers: ParsedTier[] = []
-    collectParsedTiers(parseRestrictedExpr(exprStr), tiers)
+    collectParsedTiers(parseRestrictedExpr(expression), tiers)
+    for (const tier of tiers) {
+      for (const field of Object.values(BILLING_VAR_KEY_TO_FIELD)) {
+        tier[field] = Number(tier[field] ?? 0) * scale
+      }
+    }
     return tiers
   } catch {
     return []
