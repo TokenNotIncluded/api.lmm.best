@@ -37,6 +37,8 @@ native 只需提供三条 `command_overrides`：`capture`、`prebridge_apply`、
 
 其余命令自动生成。native confirm 自带正常观察契约，不加不存在的 `--wait`；systemd confirm 使用 `--wait --json`。systemd 不会输出 native 的 `MAINTENANCE_PREARM_FAILED`，其必需的 `post_retry` 槽位使用只读 status。barrier body hash 自动取 `lmm-credit-transition:TRANSITION_ID` 的 SHA。`backup_commands` 的 copy 从 stdin 读取完整 archive，verify 须输出 `backup_sha256` 和 `size_bytes` JSON；它们仍由 root 提供已审阅的真实命令。
 
+实际 origin 的证书使用 `api.lmm.best` 时，node 可提供只读实核的 `probe_resolve_address` IP，并将 `probe_urls` 保持为 `https://api.lmm.best/...`。builder 将该 IP 原样封入完整 plan，由 runner 的真实 validator 检查；runner 用固定 curl `--resolve` 保留 Host、SNI 和 TLS 验证。public probes 仍使用正常域名解析。不要填 controller 本机 loopback URL 或关闭证书检查。
+
 每个节点预先安装密封 root-owned guardian unit，执行路径与 hash 对应 seed 中的 `helpers.guardian` / `handoff`。将实际 unit 文件的 SHA 加入 `node.artifacts`。builder 仅生成 `systemctl start / stop UNIT`；runner 会只读等待初始 guardian 就绪，并检查 unit invocation、PID 和三锁身份。下面是 unit 模板，替换三个路径 / hash，不需要 enable：
 
 ```ini

@@ -354,6 +354,8 @@ def make_plan(seed, intent_path, intent_content):
         result.update(handoff=binding(node['handoff']), post_intent=binding(node['post_intent']), prepare_config=binding(node['prepare_config']),
                       receipt_directory=node['receipt_directory'], artifacts=artifacts,
                       probes=[{'url': url, 'body_sha256': barrier_hash} for url in node['probe_urls']], commands=node_commands(node))
+        if 'probe_resolve_address' in node:
+            result['probe_resolve_address'] = node['probe_resolve_address']
         if 'cleanup' in node:
             result['cleanup'] = operation(node['cleanup']['argv'], node['cleanup']['timeout_seconds'])
             validate_substitutions(result['cleanup'], {'handoff_path', 'handoff_sha256', 'backup_sha256',

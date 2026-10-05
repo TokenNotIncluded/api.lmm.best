@@ -102,6 +102,17 @@ class BuilderTests(unittest.TestCase):
         with self.assertRaisesRegex(builder.InvalidSeed, 'intent differs'):
             self.plan(seed)
 
+    def test_origin_resolve_address_is_preserved_and_actual_runner_rejects_invalid_ip(self):
+        seed = copy.deepcopy(self.seed)
+        seed['nodes'][0]['probe_resolve_address'] = '8.8.8.8'
+        seed['nodes'][0]['probe_urls'] = ['https://api.lmm.best/api/status', 'https://api.lmm.best/v1/models']
+        plan = self.plan(seed)
+        self.assertEqual(plan['nodes'][0]['probe_resolve_address'], '8.8.8.8')
+        self.assertNotIn('probe_resolve_address', plan['nodes'][1])
+        seed['nodes'][0]['probe_resolve_address'] = 'not-an-ip'
+        with self.assertRaises((ValueError, RuntimeError)):
+            self.plan(seed)
+
     def test_normal_owner_immutable_package_parameters_are_required_and_preserved(self):
         seed = copy.deepcopy(self.seed)
         supplied = seed['nodes'][0]['command_overrides']['post_apply']['argv']
