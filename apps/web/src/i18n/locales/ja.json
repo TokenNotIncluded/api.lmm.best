@@ -10558,6 +10558,26 @@
     "Verified usage": "検証済み使用量",
     "Price per unit": "単位当たりの価格",
     "Reserve up to {{amount}}; settle verified usage and release the remainder.": "最大 {{amount}} を確保し、検証済み使用量を精算して残額を解放します。",
-    "{{amount}} per {{unit}}": "{{unit}} 当たり {{amount}}"
+    "{{amount}} per {{unit}}": "{{unit}} 当たり {{amount}}",
+    "Tool-reported usage": "ツール申告の使用量",
+    "Usage is reported by the tool provider. You can report a disputed bill.": "使用量はツール提供者が申告します。請求に異議がある場合は通報できます。",
+    "Usage is reported by the tool provider. Rates are added together.": "使用量はツール提供者が申告します。各料金は合算されます。",
+    "Reserve up to {{amount}}; settle reported usage and release the remainder.": "最大 {{amount}} を確保し、申告使用量で精算して残額を返します。",
+    "Choose the usage units the tool reports. Missing or invalid usage is not charged.": "ツールが申告する単位を選択してください。使用量が欠落または無効な場合は課金しません。",
+    "Report this bill": "この請求を通報",
+    "Describe the suspected incorrect usage or charge. The bill and reported usage will be attached for review.": "不正と思われる使用量や料金を説明してください。請求と申告使用量を審査用に添付します。",
+    "Report submitted for review.": "通報を審査に送信しました。",
+    "Report reason": "通報理由",
+    "Could not submit report. Retry with the same reason.": "送信できませんでした。同じ理由で再試行してください。",
+    "Submit report": "通報を送信",
+    "Billing evidence": "請求の証拠",
+    "Confirming a false bill suspends the service. Settled funds are not automatically refunded.": "虚偽請求を確認するとサービスを停止します。精算済みの金額は自動返金されません。",
+    "Confirm and suspend service": "確認してサービスを停止",
+    "Dismiss report": "通報を却下",
+    "Could not review report.": "通報を審査できませんでした。",
+    "Report confirmed": "通報を確認済み",
+    "Report dismissed": "通報を却下済み",
+    "Billing reports": "請求に関する通報",
+    "No billing reports": "請求に関する通報はありません"
   }
 }

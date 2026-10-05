@@ -239,15 +239,12 @@ func newToolMarketMCPServer(identity marketMCPIdentity) (*mcp.Server, error) {
 			}
 			outputSchema = json.RawMessage(execution.Tool.OutputSchema)
 		}
-		pricing := fmt.Sprintf("%d quota per successful tool call", execution.Tool.PriceQuota)
-		if execution.Tool.BillingMode == "metered" {
-			rules, _ := json.Marshal(execution.Tool.BillingRules)
-			pricing = fmt.Sprintf("platform-verified usage with rules %s; reserve at most %d quota", rules, execution.Tool.PriceQuota)
-		} else if execution.Tool.BillingMode == "input_tokens" {
-			pricing = fmt.Sprintf("%d quota per million actual input tokens; reserve at most %d quota", execution.Tool.InputTokenPriceQuota, execution.Tool.PriceQuota)
+		pricing := map[string]any{"price_quota": execution.Tool.PriceQuota, "billing_mode": execution.Tool.BillingMode, "input_token_price_quota": execution.Tool.InputTokenPriceQuota, "max_input_tokens": execution.Tool.MaxInputTokens, "billing_rules": execution.Tool.BillingRules}
+		if execution.Tool.BillingMode != "" {
+			pricing["usage_policy"] = model.ToolMarketUsageReported
 		}
 		server.AddTool(&mcp.Tool{Name: "market_tool_" + strings.ReplaceAll(execution.Tool.ToolID, "-", ""), Title: execution.Version.Name + " / " + execution.Tool.Name,
-			Description: fmt.Sprintf("%s\n%s Price: %s, capped by the explicit grant. Supply a unique request_id; reuse it only for the same call. Continue confirmation with the same request_id and arguments, echoing requestState/inputResponses.", displayTool.Description, provider, pricing), InputSchema: schema, OutputSchema: outputSchema, Annotations: annotations}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			Description: fmt.Sprintf("%s\n%s Execution is capped by the explicit grant. Supply a unique request_id; reuse it only for the same call. Continue confirmation with the same request_id and arguments, echoing requestState/inputResponses.", displayTool.Description, provider), Meta: mcp.Meta{"lmm/pricing": pricing}, InputSchema: schema, OutputSchema: outputSchema, Annotations: annotations}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			var input struct {
 				RequestID string          `json:"request_id"`
 				Arguments json.RawMessage `json:"arguments"`

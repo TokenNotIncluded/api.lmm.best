@@ -57,6 +57,7 @@ import {
 import { marketErrorKey } from './call-utils'
 import { MarketConnections } from './connections'
 import { marketStatus, marketPermissionList } from './copy'
+import { MarketReports, ReportCallButton } from './reports'
 import { ServiceEditor } from './service-editor'
 import { CallDialog, CallResult, GrantDialog } from './tool-actions'
 import { usagePriceLabel, usageQuantityLabel } from './usage-pricing'
@@ -1309,8 +1310,12 @@ function ToolMarketWorkspace() {
                           </p>
                           {item.usage_quantities && (
                             <p className='text-muted-foreground'>
-                              {t('Verified usage')}:{' '}
-                              {usageQuantityLabel(item.usage_quantities, t)}
+                              {t(
+                                item.usage_source === 'platform_verified'
+                                  ? 'Verified usage'
+                                  : 'Tool-reported usage'
+                              )}
+                              : {usageQuantityLabel(item.usage_quantities, t)}
                             </p>
                           )}
                         </div>
@@ -1324,6 +1329,9 @@ function ToolMarketWorkspace() {
                         >
                           {t('View result')}
                         </Button>
+                        {['settled', 'released'].includes(
+                          item.settlement_status
+                        ) && <ReportCallButton callID={item.id} />}
                       </div>
                     ))}
                     <div className='flex justify-end gap-2'>
@@ -1431,6 +1439,7 @@ function ToolMarketWorkspace() {
                           </Button>
                         </div>
                       ))}
+                      <MarketReports />
                       {(user?.role ?? 0) >= 100 && config.data && (
                         <MarketSettings
                           key={`${config.data.enabled}:${config.data.fee_bps}:${config.data.recipient_id}`}

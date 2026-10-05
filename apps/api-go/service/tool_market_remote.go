@@ -695,9 +695,9 @@ func (r *ToolMarketRemote) execute(ctx context.Context, in model.ToolMarketReser
 		errorCode = "TOOL_MARKET_INVALID_RESULT"
 	}
 	if success && call.BillingMode != "" {
-		if _, usageErr := model.VerifyToolMarketMeteringResult(model.DB, *call, data); usageErr != nil {
+		if _, _, _, usageErr := model.ReadToolMarketUsage(model.DB, *call, data); usageErr != nil {
 			success, errorCode = false, "TOOL_MARKET_INVALID_METERING"
-			data = []byte(`{"isError":true,"content":[{"type":"text","text":"The remote MCP service returned unverifiable metering."}]}`)
+			data = []byte(`{"isError":true,"content":[{"type":"text","text":"The remote MCP service returned missing or invalid usage."}]}`)
 		}
 	}
 	if err := model.RecordToolMarketResult(call.ID, success, data); err != nil {

@@ -287,6 +287,9 @@ func SetToolMarketPaused(actor int, serviceID string, paused bool) error {
 		}
 		// An author cannot undo an administrator's suspension.
 		if !paused && service.Status == "suspended" {
+			if service.OwnerID == actor {
+				return ErrToolMarketDenied
+			}
 			if err := marketUser(tx, actor, common.RoleAdminUser); err != nil {
 				return err
 			}

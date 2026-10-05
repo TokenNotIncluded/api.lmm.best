@@ -10558,6 +10558,26 @@
     "Verified usage": "Verified usage",
     "Price per unit": "Price per unit",
     "Reserve up to {{amount}}; settle verified usage and release the remainder.": "Reserve up to {{amount}}; settle verified usage and release the remainder.",
-    "{{amount}} per {{unit}}": "{{amount}} per {{unit}}"
+    "{{amount}} per {{unit}}": "{{amount}} per {{unit}}",
+    "Tool-reported usage": "Tool-reported usage",
+    "Usage is reported by the tool provider. You can report a disputed bill.": "Usage is reported by the tool provider. You can report a disputed bill.",
+    "Usage is reported by the tool provider. Rates are added together.": "Usage is reported by the tool provider. Rates are added together.",
+    "Reserve up to {{amount}}; settle reported usage and release the remainder.": "Reserve up to {{amount}}; settle reported usage and release the remainder.",
+    "Choose the usage units the tool reports. Missing or invalid usage is not charged.": "Choose the usage units the tool reports. Missing or invalid usage is not charged.",
+    "Report this bill": "Report this bill",
+    "Describe the suspected incorrect usage or charge. The bill and reported usage will be attached for review.": "Describe the suspected incorrect usage or charge. The bill and reported usage will be attached for review.",
+    "Report submitted for review.": "Report submitted for review.",
+    "Report reason": "Report reason",
+    "Could not submit report. Retry with the same reason.": "Could not submit report. Retry with the same reason.",
+    "Submit report": "Submit report",
+    "Billing evidence": "Billing evidence",
+    "Confirming a false bill suspends the service. Settled funds are not automatically refunded.": "Confirming a false bill suspends the service. Settled funds are not automatically refunded.",
+    "Confirm and suspend service": "Confirm and suspend service",
+    "Dismiss report": "Dismiss report",
+    "Could not review report.": "Could not review report.",
+    "Report confirmed": "Report confirmed",
+    "Report dismissed": "Report dismissed",
+    "Billing reports": "Billing reports",
+    "No billing reports": "No billing reports"
   }
 }

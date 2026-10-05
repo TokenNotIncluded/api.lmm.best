@@ -10558,6 +10558,26 @@
     "Verified usage": "已验证用量",
     "Price per unit": "每单位价格",
     "Reserve up to {{amount}}; settle verified usage and release the remainder.": "最多预留 {{amount}}，按已验证用量结算并退回剩余金额。",
-    "{{amount}} per {{unit}}": "每 {{unit}} {{amount}}"
+    "{{amount}} per {{unit}}": "每 {{unit}} {{amount}}",
+    "Tool-reported usage": "工具自报用量",
+    "Usage is reported by the tool provider. You can report a disputed bill.": "用量由工具提供方上报。有争议的账单可以举报。",
+    "Usage is reported by the tool provider. Rates are added together.": "用量由工具提供方上报，各项费用相加。",
+    "Reserve up to {{amount}}; settle reported usage and release the remainder.": "最多预留 {{amount}}，按上报用量结算并退回剩余金额。",
+    "Choose the usage units the tool reports. Missing or invalid usage is not charged.": "选择工具上报的用量单位。缺失或无效的用量不扣费。",
+    "Report this bill": "举报此账单",
+    "Describe the suspected incorrect usage or charge. The bill and reported usage will be attached for review.": "说明怀疑有误的用量或费用。账单和上报用量会一并提交审核。",
+    "Report submitted for review.": "举报已提交，等待审核。",
+    "Report reason": "举报原因",
+    "Could not submit report. Retry with the same reason.": "举报提交失败，请使用相同原因重试。",
+    "Submit report": "提交举报",
+    "Billing evidence": "账单证据",
+    "Confirming a false bill suspends the service. Settled funds are not automatically refunded.": "确认虚假账单后将停用服务。已结算款项不会自动退款。",
+    "Confirm and suspend service": "确认并停用服务",
+    "Dismiss report": "驳回举报",
+    "Could not review report.": "举报审核失败。",
+    "Report confirmed": "举报已确认",
+    "Report dismissed": "举报已驳回",
+    "Billing reports": "账单举报",
+    "No billing reports": "暂无账单举报"
   }
 }

@@ -10558,6 +10558,26 @@
     "Verified usage": "Usage vérifié",
     "Price per unit": "Prix par unité",
     "Reserve up to {{amount}}; settle verified usage and release the remainder.": "Réserver jusqu’à {{amount}} ; facturer l’usage vérifié et libérer le reste.",
-    "{{amount}} per {{unit}}": "{{amount}} par {{unit}}"
+    "{{amount}} per {{unit}}": "{{amount}} par {{unit}}",
+    "Tool-reported usage": "Usage déclaré par l’outil",
+    "Usage is reported by the tool provider. You can report a disputed bill.": "Le fournisseur déclare l’usage. Vous pouvez signaler une facture contestée.",
+    "Usage is reported by the tool provider. Rates are added together.": "Le fournisseur déclare l’usage. Les tarifs s’additionnent.",
+    "Reserve up to {{amount}}; settle reported usage and release the remainder.": "Réserver jusqu’à {{amount}}, facturer l’usage déclaré et libérer le reste.",
+    "Choose the usage units the tool reports. Missing or invalid usage is not charged.": "Choisissez les unités déclarées par l’outil. Un usage absent ou invalide n’est pas facturé.",
+    "Report this bill": "Signaler cette facture",
+    "Describe the suspected incorrect usage or charge. The bill and reported usage will be attached for review.": "Décrivez l’usage ou le montant contesté. La facture et l’usage déclaré seront joints pour examen.",
+    "Report submitted for review.": "Signalement envoyé pour examen.",
+    "Report reason": "Motif du signalement",
+    "Could not submit report. Retry with the same reason.": "Échec de l’envoi. Réessayez avec le même motif.",
+    "Submit report": "Envoyer le signalement",
+    "Billing evidence": "Justificatifs de facturation",
+    "Confirming a false bill suspends the service. Settled funds are not automatically refunded.": "Confirmer une fausse facture suspend le service. Les fonds réglés ne sont pas remboursés automatiquement.",
+    "Confirm and suspend service": "Confirmer et suspendre le service",
+    "Dismiss report": "Rejeter le signalement",
+    "Could not review report.": "Échec de l’examen du signalement.",
+    "Report confirmed": "Signalement confirmé",
+    "Report dismissed": "Signalement rejeté",
+    "Billing reports": "Signalements de facturation",
+    "No billing reports": "Aucun signalement de facturation"
   }
 }

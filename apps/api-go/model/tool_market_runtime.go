@@ -45,6 +45,9 @@ type ToolMarketResult struct {
 	UsageRecorded    bool                   `json:"-" gorm:"not null;default:false"`
 	MeteringVerified bool                   `json:"-" gorm:"not null;default:false"`
 	UsageQuantities  map[string]int64       `json:"-" gorm:"serializer:json;type:text"`
+	UsageSource      string                 `json:"-" gorm:"size:24;not null;default:''"`
+	UsageReport      ToolMarketDeliveryData `json:"-"`
+	ResultDigest     string                 `json:"-" gorm:"size:64;not null;default:''"`
 	Data             ToolMarketDeliveryData `json:"-"`
 	// A valid generated image is recoverable before normal model settlement.
 	// This flag keeps that delivery outcome from completing the market call.
@@ -388,16 +391,17 @@ func recordToolMarketResult(callID string, success bool, data json.RawMessage, d
 		}
 		inputTokens, usageRecorded := 0, false
 		var quantities map[string]int64
+		usageSource, usageReport := "", ""
 		if success && call.BillingMode != "" {
 			var err error
-			quantities, err = VerifyToolMarketMeteringResult(tx, *call, data)
+			quantities, usageSource, usageReport, err = ReadToolMarketUsage(tx, *call, data)
 			if err != nil {
 				return err
 			}
 			inputTokens, usageRecorded = int(quantities["input_tokens"]), true
 		}
 		now := common.GetTimestamp()
-		row := ToolMarketResult{InputTokens: inputTokens, UsageRecorded: usageRecorded, MeteringVerified: usageRecorded, UsageQuantities: quantities, CallID: callID, UserID: call.UserID, Success: success, Data: ToolMarketDeliveryData(data), BuiltinBillingPending: billingPending, CreatedAt: now, ExpiresAt: now + 3600}
+		row := ToolMarketResult{InputTokens: inputTokens, UsageRecorded: usageRecorded, MeteringVerified: usageSource == ToolMarketUsageVerified, UsageQuantities: quantities, UsageSource: usageSource, UsageReport: ToolMarketDeliveryData(usageReport), ResultDigest: marketDigest(json.RawMessage(data)), CallID: callID, UserID: call.UserID, Success: success, Data: ToolMarketDeliveryData(data), BuiltinBillingPending: billingPending, CreatedAt: now, ExpiresAt: now + 3600}
 		q := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&row)
 		if q.Error != nil {
 			return q.Error

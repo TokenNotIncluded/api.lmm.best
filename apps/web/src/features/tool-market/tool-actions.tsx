@@ -34,6 +34,7 @@ import {
 } from './call-utils'
 import { marketStatus, marketPermissionList } from './copy'
 import { useMarketMoneyDraft } from './money'
+import { ReportCallButton } from './reports'
 import {
   drawingResultImages,
   resultImage,
@@ -165,6 +166,13 @@ export function GrantDialog({
             })}
           </p>
         )}
+        {tool.billing_mode && (
+          <p className='text-muted-foreground text-sm'>
+            {t(
+              'Usage is reported by the tool provider. You can report a disputed bill.'
+            )}
+          </p>
+        )}
         <form
           onSubmit={(e) => {
             e.preventDefault()
@@ -287,11 +295,20 @@ export function CallResult({
         </div>
         {response.call.usage_quantities && (
           <div className='col-span-2'>
-            <dt className='text-muted-foreground'>{t('Verified usage')}</dt>
+            <dt className='text-muted-foreground'>
+              {t(
+                response.call.usage_source === 'platform_verified'
+                  ? 'Verified usage'
+                  : 'Tool-reported usage'
+              )}
+            </dt>
             <dd>{usageQuantityLabel(response.call.usage_quantities, t)}</dd>
           </div>
         )}
       </dl>
+      {['settled', 'released'].includes(response.call.settlement_status) && (
+        <ReportCallButton callID={response.call.id} />
+      )}
       {response.call.settlement_status === 'held' && (
         <p>
           {t(

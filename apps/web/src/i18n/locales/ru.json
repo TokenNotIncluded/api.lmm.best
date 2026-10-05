@@ -10558,6 +10558,26 @@
     "Verified usage": "Проверенное использование",
     "Price per unit": "Цена за единицу",
     "Reserve up to {{amount}}; settle verified usage and release the remainder.": "Резервируется до {{amount}}; проверенное использование оплачивается, остаток освобождается.",
-    "{{amount}} per {{unit}}": "{{amount}} за {{unit}}"
+    "{{amount}} per {{unit}}": "{{amount}} за {{unit}}",
+    "Tool-reported usage": "Использование по отчёту инструмента",
+    "Usage is reported by the tool provider. You can report a disputed bill.": "Использование сообщает поставщик инструмента. Спорный счёт можно обжаловать.",
+    "Usage is reported by the tool provider. Rates are added together.": "Использование сообщает поставщик инструмента. Тарифы складываются.",
+    "Reserve up to {{amount}}; settle reported usage and release the remainder.": "Резерв до {{amount}}; расчёт по отчёту об использовании с возвратом остатка.",
+    "Choose the usage units the tool reports. Missing or invalid usage is not charged.": "Выберите единицы отчёта инструмента. При отсутствии или некорректности данных списания нет.",
+    "Report this bill": "Пожаловаться на счёт",
+    "Describe the suspected incorrect usage or charge. The bill and reported usage will be attached for review.": "Опишите подозрительное использование или списание. Счёт и отчёт будут приложены для проверки.",
+    "Report submitted for review.": "Жалоба отправлена на проверку.",
+    "Report reason": "Причина жалобы",
+    "Could not submit report. Retry with the same reason.": "Не удалось отправить жалобу. Повторите с той же причиной.",
+    "Submit report": "Отправить жалобу",
+    "Billing evidence": "Данные счёта",
+    "Confirming a false bill suspends the service. Settled funds are not automatically refunded.": "Подтверждение ложного счёта приостанавливает сервис. Списанные средства не возвращаются автоматически.",
+    "Confirm and suspend service": "Подтвердить и приостановить сервис",
+    "Dismiss report": "Отклонить жалобу",
+    "Could not review report.": "Не удалось проверить жалобу.",
+    "Report confirmed": "Жалоба подтверждена",
+    "Report dismissed": "Жалоба отклонена",
+    "Billing reports": "Жалобы на счета",
+    "No billing reports": "Жалоб на счета нет"
   }
 }

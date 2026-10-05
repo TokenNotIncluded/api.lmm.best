@@ -24,7 +24,7 @@ func toolMarketTestRouter(t *testing.T) (*gin.Engine, *gorm.DB, string, model.Us
 	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	require.NoError(t, err)
 	model.DB = db
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.ToolMarketService{}, &model.ToolMarketVersion{}, &model.ToolMarketTool{}, &model.ToolMarketToolVersion{}, &model.ToolMarketAccess{}, &model.ToolMarketFavorite{}, &model.ToolMarketInstallation{}, &model.ToolMarketGrant{}, &model.ToolMarketBudget{}, &model.ToolMarketCall{}, &model.ToolMarketTransfer{}, &model.ToolMarketEvent{}, &model.ToolMarketConfig{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.ToolMarketService{}, &model.ToolMarketVersion{}, &model.ToolMarketTool{}, &model.ToolMarketToolVersion{}, &model.ToolMarketAccess{}, &model.ToolMarketFavorite{}, &model.ToolMarketInstallation{}, &model.ToolMarketGrant{}, &model.ToolMarketBudget{}, &model.ToolMarketCall{}, &model.ToolMarketTransfer{}, &model.ToolMarketEvent{}, &model.ToolMarketConfig{}, &model.ToolMarketReport{}))
 	token := "market-router-token"
 	user := model.User{Username: "market-user", AffCode: "market-user", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, AccessToken: &token}
 	require.NoError(t, db.Create(&user).Error)
@@ -39,6 +39,36 @@ func toolMarketTestRouter(t *testing.T) (*gin.Engine, *gorm.DB, string, model.Us
 		_ = pool.Close()
 	})
 	return engine, db, token, user
+}
+
+func TestToolMarketBillingReportsRequireBuyerAndIndependentAdministrator(t *testing.T) {
+	router, db, token, buyer := toolMarketTestRouter(t)
+	previousLogDB := model.LOG_DB
+	model.LOG_DB = db
+	t.Cleanup(func() { model.LOG_DB = previousLogDB })
+	require.NoError(t, db.AutoMigrate(&model.Log{}))
+	callID := strings.Repeat("a", 64)
+	service := model.ToolMarketService{ID: "report-service", OwnerID: buyer.Id + 100, LiveVersionID: "report-version", Status: "published"}
+	require.NoError(t, db.Create(&service).Error)
+	require.NoError(t, db.Create(&model.ToolMarketCall{ID: callID, UserID: buyer.Id, ServiceID: service.ID, OwnerID: service.OwnerID, SettlementStatus: "settled", PriceQuota: 10, UsageSource: model.ToolMarketUsageReported, UsageQuantities: map[string]int64{"input_tokens": 25}}).Error)
+	response := toolMarketHTTPRequest(router, "POST", "/api/tool-market/calls/"+callID+"/report", "", `{"reason":"fake usage"}`)
+	require.NotEqual(t, 200, response.Code)
+	response = toolMarketHTTPRequest(router, "POST", "/api/tool-market/calls/"+callID+"/report", token, `{"reason":"fake usage"}`)
+	require.Equal(t, 200, response.Code, response.Body.String())
+	response = toolMarketHTTPRequest(router, "GET", "/api/tool-market/reports", token, "")
+	require.NotEqual(t, 200, response.Code)
+	response = toolMarketHTTPRequest(router, "POST", "/api/tool-market/reports/"+callID+"/review", token, `{"confirmed":true,"note":"confirmed"}`)
+	require.NotEqual(t, 200, response.Code)
+	adminToken := "billing-report-admin"
+	admin := model.User{Username: "report-admin", AffCode: "report-admin", Role: common.RoleAdminUser, Status: common.UserStatusEnabled, AccessToken: &adminToken}
+	require.NoError(t, db.Create(&admin).Error)
+	response = toolMarketHTTPRequest(router, "GET", "/api/tool-market/reports", adminToken, "")
+	require.Equal(t, 200, response.Code, response.Body.String())
+	require.Contains(t, response.Body.String(), `fake usage`)
+	response = toolMarketHTTPRequest(router, "POST", "/api/tool-market/reports/"+callID+"/review", adminToken, `{"confirmed":true,"note":"confirmed"}`)
+	require.Equal(t, 200, response.Code, response.Body.String())
+	require.NoError(t, db.First(&service, "id = ?", service.ID).Error)
+	require.Equal(t, "suspended", service.Status)
 }
 
 func toolMarketHTTPRequest(router *gin.Engine, method, path, token, body string) *httptest.ResponseRecorder {

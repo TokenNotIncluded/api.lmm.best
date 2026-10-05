@@ -10558,6 +10558,26 @@
     "Verified usage": "Mức sử dụng đã xác minh",
     "Price per unit": "Giá mỗi đơn vị",
     "Reserve up to {{amount}}; settle verified usage and release the remainder.": "Giữ tối đa {{amount}}; thanh toán mức sử dụng đã xác minh và hoàn phần còn lại.",
-    "{{amount}} per {{unit}}": "{{amount}} mỗi {{unit}}"
+    "{{amount}} per {{unit}}": "{{amount}} mỗi {{unit}}",
+    "Tool-reported usage": "Mức sử dụng do công cụ báo cáo",
+    "Usage is reported by the tool provider. You can report a disputed bill.": "Nhà cung cấp công cụ báo cáo mức sử dụng. Bạn có thể báo cáo hóa đơn tranh chấp.",
+    "Usage is reported by the tool provider. Rates are added together.": "Nhà cung cấp công cụ báo cáo mức sử dụng. Các mức phí được cộng lại.",
+    "Reserve up to {{amount}}; settle reported usage and release the remainder.": "Giữ tối đa {{amount}}, tính phí theo mức sử dụng báo cáo và hoàn phần dư.",
+    "Choose the usage units the tool reports. Missing or invalid usage is not charged.": "Chọn đơn vị mà công cụ báo cáo. Không tính phí nếu mức sử dụng thiếu hoặc không hợp lệ.",
+    "Report this bill": "Báo cáo hóa đơn này",
+    "Describe the suspected incorrect usage or charge. The bill and reported usage will be attached for review.": "Mô tả mức sử dụng hoặc khoản phí nghi ngờ. Hóa đơn và báo cáo sử dụng sẽ được đính kèm để xem xét.",
+    "Report submitted for review.": "Đã gửi báo cáo để xem xét.",
+    "Report reason": "Lý do báo cáo",
+    "Could not submit report. Retry with the same reason.": "Không gửi được báo cáo. Hãy thử lại với cùng lý do.",
+    "Submit report": "Gửi báo cáo",
+    "Billing evidence": "Bằng chứng hóa đơn",
+    "Confirming a false bill suspends the service. Settled funds are not automatically refunded.": "Xác nhận hóa đơn giả sẽ đình chỉ dịch vụ. Khoản đã thanh toán không tự động được hoàn.",
+    "Confirm and suspend service": "Xác nhận và đình chỉ dịch vụ",
+    "Dismiss report": "Bác bỏ báo cáo",
+    "Could not review report.": "Không xem xét được báo cáo.",
+    "Report confirmed": "Đã xác nhận báo cáo",
+    "Report dismissed": "Đã bác bỏ báo cáo",
+    "Billing reports": "Báo cáo hóa đơn",
+    "No billing reports": "Chưa có báo cáo hóa đơn"
   }
 }
