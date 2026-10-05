@@ -101,6 +101,105 @@ const rows = [
     'Số dư tối đa được cộng mỗi lần thanh toán: {{amount}}',
   ],
   [
+    'Eligible credited balance',
+    '符合升级条件的到账额度',
+    '符合升級條件的入帳額度',
+    'Solde crédité admissible',
+    'レベルアップ対象の加算残高',
+    'Зачисленный баланс для повышения уровня',
+    'Số dư được cộng đủ điều kiện nâng cấp',
+  ],
+  [
+    '{{amount}} needed for L{{level}}',
+    '升至 L{{level}} 还需 {{amount}}',
+    '升至 L{{level}} 還需 {{amount}}',
+    'Encore {{amount}} pour L{{level}}',
+    'L{{level}} まであと {{amount}}',
+    'До L{{level}} осталось {{amount}}',
+    'Cần thêm {{amount}} để đạt L{{level}}',
+  ],
+  [
+    'Maximum credited amount per payment (USD, optional)',
+    '每笔支付最多到账金额（美元，可选）',
+    '每筆付款最多入帳金額（美元，選填）',
+    'Montant crédité maximal par paiement (USD, facultatif)',
+    '1 回の支払いで加算できる金額の上限 (USD、任意)',
+    'Максимальная сумма зачисления за платёж (USD, необязательно)',
+    'Số tiền tối đa được cộng mỗi lần thanh toán (USD, tùy chọn)',
+  ],
+  [
+    'Minimum credited amount per payment (USD, optional)',
+    '每笔支付最低到账金额（美元，可选）',
+    '每筆付款最低入帳金額（美元，選填）',
+    'Montant crédité minimal par paiement (USD, facultatif)',
+    '1 回の支払いで加算する金額の下限 (USD、任意)',
+    'Минимальная сумма зачисления за платёж (USD, необязательно)',
+    'Số tiền tối thiểu được cộng mỗi lần thanh toán (USD, tùy chọn)',
+  ],
+  [
+    'Minimum real USD value credited by this method. Payment currency is configured separately.',
+    '此方式的最低到账额度，以真实美元计价。付款币种需单独设置。',
+    '此方式的最低入帳額度，以實際美元計價。付款幣別需另外設定。',
+    'Valeur minimale créditée par ce moyen, en dollars américains réels. La devise de paiement se règle séparément.',
+    'この方法で加算する残高の最低額です。実際の USD で表します。決済通貨は別途設定します。',
+    'Минимальное зачисление этим способом в реальных USD. Валюта платежей настраивается отдельно.',
+    'Giá trị số dư tối thiểu được cộng bằng phương thức này, tính bằng USD thực. Đơn vị thanh toán được cấu hình riêng.',
+  ],
+  [
+    'Checkout values Credits using the fixed ledger denomination, then converts real USD to the gateway settlement currency.',
+    '结算时先按固定的 credit 与美元换算比例计价，再把真实美元换算为支付网关的结算币种。',
+    '結帳時先按固定的 credit 與美元換算比例計價，再把實際美元換算為付款閘道的結算幣別。',
+    'Le paiement valorise les crédits selon leur conversion fixe en USD, puis convertit les USD réels dans la devise de règlement de la passerelle.',
+    '決済時は固定の credit と USD の換算比率を使い、実際の USD をゲートウェイの決済通貨に換算します。',
+    'При оформлении платежа кредиты оцениваются по фиксированному курсу к USD, затем реальные USD переводятся в валюту расчёта шлюза.',
+    'Khi thanh toán, credit được định giá theo tỷ lệ cố định với USD, sau đó USD thực được quy đổi sang đơn vị thanh toán của cổng.',
+  ],
+  [
+    'Minimum top-up (USD)',
+    '最低充值金额（美元）',
+    '最低儲值金額（美元）',
+    'Recharge minimale (USD)',
+    '最低チャージ額 (USD)',
+    'Минимальная сумма пополнения (USD)',
+    'Số tiền nạp tối thiểu (USD)',
+  ],
+  [
+    'Recharge Amount',
+    '充值金额',
+    '儲值金額',
+    'Montant à recharger',
+    'チャージ額',
+    'Сумма пополнения',
+    'Số tiền nạp',
+  ],
+  [
+    'Recharge Amount (USD)',
+    '充值金额（美元）',
+    '儲值金額（美元）',
+    'Montant à recharger (USD)',
+    'チャージ額 (USD)',
+    'Сумма пополнения (USD)',
+    'Số tiền nạp (USD)',
+  ],
+  [
+    'Smallest USD amount users can recharge (Epay)',
+    '用户通过 Epay 可充值的最低美元金额',
+    '使用者透過 Epay 可儲值的最低美元金額',
+    'Montant minimal en USD à recharger via Epay',
+    'Epay でチャージできる最低 USD 金額',
+    'Минимальная сумма пополнения в USD через Epay',
+    'Số tiền USD tối thiểu người dùng có thể nạp qua Epay',
+  ],
+  [
+    'Real fiat list price; gateways convert it to their settlement currency and wallet payments debit the equivalent platform units.',
+    '真实法币标价；支付渠道会换算为其结算币种，余额支付则扣除等值的 credit。',
+    '實際法幣標價；支付渠道會換算為其結算幣別，餘額付款則扣除等值的 credit。',
+    'Prix catalogue en monnaie fiduciaire réelle ; les passerelles le convertissent dans leur devise de règlement et les paiements par solde débitent les crédits équivalents.',
+    '実際の法定通貨での定価です。ゲートウェイは決済通貨に換算し、残高払いでは同等の credit を差し引きます。',
+    'Реальная цена в фиатной валюте; шлюзы конвертируют её в валюту расчёта, а оплата с баланса списывает эквивалентное число кредитов.',
+    'Giá niêm yết bằng tiền pháp định thực; cổng thanh toán quy đổi sang đơn vị thanh toán, còn thanh toán bằng số dư sẽ trừ số credit tương đương.',
+  ],
+  [
     'Wallet balance',
     '钱包余额',
     '錢包餘額',
@@ -217,6 +316,15 @@ const rows = [
     'この旧グループを USD に換算すると、既存の減額が変わってしまいます。現在の金額を維持するか、JSON でポリシーを明示的に置き換えてください。',
     'Эту старую группу нельзя перевести в USD без изменения существующего списания. Сохраните текущие суммы или явно замените её политику в JSON.',
     'Không thể quy đổi nhóm cũ này sang USD mà không thay đổi khoản khấu trừ hiện có. Giữ nguyên các mức hiện tại hoặc thay thế rõ ràng chính sách trong JSON.',
+  ],
+  [
+    'Stored legacy price: {{amount}} legacy pricing units. Editing uses USD.',
+    '当前保存的旧价格：{{amount}} 个旧计价单位。编辑时以美元计价。',
+    '目前儲存的舊價格：{{amount}} 個舊計價單位。編輯時以美元計價。',
+    'Prix ancien enregistré : {{amount}} anciennes unités de tarification. Les modifications utilisent les USD.',
+    '保存されている旧料金：{{amount}} 旧課金単位。編集時は USD を使用します。',
+    'Сохранённая старая цена: {{amount}} устаревших расчётных единиц. При редактировании используются USD.',
+    'Giá cũ đã lưu: {{amount}} đơn vị định giá cũ. Khi chỉnh sửa sẽ dùng USD.',
   ],
   [
     'No category fees are configured; the review fee is zero.',
@@ -393,9 +501,21 @@ const rows = [
 
 const locales = ['en', 'zh', 'zh-TW', 'fr', 'ja', 'ru', 'vi']
 
+const englishOverrides = {
+  'Real fiat list price; gateways convert it to their settlement currency and wallet payments debit the equivalent platform units.':
+    'Real fiat list price; gateways convert it to their settlement currency and wallet payments debit the equivalent credits.',
+}
+
 export const creditCurrencyCopy = Object.fromEntries(
   locales.map((locale, localeIndex) => [
     locale,
-    Object.fromEntries(rows.map((row) => [row[0], row[localeIndex]])),
+    Object.fromEntries(
+      rows.map((row) => [
+        row[0],
+        localeIndex === 0
+          ? (englishOverrides[row[0]] ?? row[0])
+          : row[localeIndex],
+      ])
+    ),
   ])
 )
