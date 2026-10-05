@@ -143,9 +143,9 @@ async function mount(
         success: true,
         data: {
           currency_unit: 'credit',
-          credits_per_usd: '3359744',
+          credits_per_usd: '500000',
           cny_per_usd: '6.8',
-          legacy_pricing_units_per_usd: '6.719488',
+          legacy_pricing_units_per_usd: '1',
           quota_per_unit: 500000,
           quota_display_type: 'CNY',
           usd_exchange_rate: 99,
@@ -294,7 +294,7 @@ describe('test key popup', () => {
     })
     assert.equal(page.posts.length, 1)
     const payload = page.posts[0] as Record<string, unknown>
-    assert.equal(payload.remain_quota, 3359744)
+    assert.equal(payload.remain_quota, 500000)
     assert.equal(payload.one_time_reveal, true)
     assert.equal(payload.expired_time, -1)
     assert.equal(payload.model_limits_enabled, false)
@@ -490,13 +490,13 @@ describe('test key popup', () => {
       {
         displayCurrency: 'USD' as const,
         amount: '1.25',
-        expectedQuota: 4199680,
+        expectedQuota: 625000,
         label: 'USD',
       },
       {
         displayCurrency: 'CNY' as const,
         amount: '6.8',
-        expectedQuota: 3359744,
+        expectedQuota: 500000,
         label: 'CNY',
       },
       {
@@ -526,9 +526,9 @@ describe('test key popup', () => {
   })
   test('uses the provider language for automatic budget units', async () => {
     for (const example of [
-      { language: 'en', expectedQuota: 3359744, label: 'Spending limit (USD)' },
-      { language: 'zhCN', expectedQuota: 494080, label: '额度上限（CNY）' },
-      { language: 'zhTW', expectedQuota: 494080, label: '額度上限（CNY）' },
+      { language: 'en', expectedQuota: 500000, label: 'Spending limit (USD)' },
+      { language: 'zhCN', expectedQuota: 73529, label: '额度上限（CNY）' },
+      { language: 'zhTW', expectedQuota: 73529, label: '額度上限（CNY）' },
     ]) {
       const page = await mount({ language: example.language })
       assert.equal(
@@ -539,7 +539,7 @@ describe('test key popup', () => {
       assert.equal(
         page.container.querySelector<HTMLInputElement>('#test-key-budget')
           ?.value,
-        '1'
+        example.language === 'en' ? '1' : '0.9999944'
       )
       await page.chooseGroup()
       await page.submit()
@@ -555,12 +555,12 @@ describe('test key popup', () => {
     const page = await mount({
       displayCurrency: 'USD',
       status: {
-        credits_per_usd: '3400000',
-        legacy_pricing_units_per_usd: '6.8',
+        credits_per_usd: '500000',
+        legacy_pricing_units_per_usd: '1',
       },
     })
     await page.chooseGroup()
-    await page.editBudget('0.000000294117647058823529411765')
+    await page.editBudget('0.000002')
     assert.equal(page.posts.length, 0)
     await act(async () => {
       useAuthStore
@@ -570,7 +570,7 @@ describe('test key popup', () => {
     })
     assert.equal(
       page.container.querySelector<HTMLInputElement>('#test-key-budget')?.value,
-      '0.000002'
+      '0.0000136'
     )
     assert.equal(
       page.container.querySelector('label[for="test-key-budget"]')?.textContent,
@@ -588,7 +588,7 @@ describe('test key popup', () => {
     })
     assert.equal(
       page.container.querySelector<HTMLInputElement>('#test-key-budget')?.value,
-      '0.000004'
+      '0.0000272'
     )
     await act(async () => {
       useAuthStore.getState().auth.setUser({
