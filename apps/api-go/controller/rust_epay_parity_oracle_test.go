@@ -79,6 +79,9 @@ func TestRustEpayCurrentGoOracle(t *testing.T) {
 			operation_setting.MinTopUp = 1
 			operation_setting.USDExchangeRate = 7.3
 			operation_setting.TopUpPlatformUnitsPerCNY = 2
+			// Compare legacy endpoints at the same initial FX/bonus calibration.
+			// Canonical Credit-unit and changed-FX invariants have separate coverage.
+			preservePaymentCreditAnchor(t, "7300000")
 			operation_setting.PayAddress = "https://pay.example/gateway"
 			operation_setting.EpayId = "fixture-merchant"
 			operation_setting.EpayKey = "fixture-key"

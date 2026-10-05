@@ -8,7 +8,7 @@
   "checkout_fields": {
     "allow_promotion_codes": "true",
     "cancel_url": "https://console.example/wallet",
-    "client_reference_id": "\u003corder\u003e",
+    "client_reference_id": "<order>",
     "customer_creation": "always",
     "customer_email": "payer@example.com",
     "line_items[0][price_data][currency]": "usd",
@@ -42,7 +42,13 @@
   },
   "response": {
     "data": {
+      "amount_unit": "LEGACY",
+      "credit_amount": 7300000,
+      "credited_quota": 7300000,
+      "currency_unit": "credit",
+      "legacy_batch_units": "14.6",
       "pay_link": "https://checkout.stripe.test/cs_fixture",
+      "settlement_currency": "USD",
       "trade_no": "<order>"
     },
     "message": "success"

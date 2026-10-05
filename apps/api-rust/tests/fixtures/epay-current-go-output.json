@@ -165,7 +165,7 @@
   "request-micros-overflow": {
     "order_count": 0,
     "response": {
-      "data": "充值数量最多支持 6 位小数",
+      "data": "充值额度超出系统可表示范围",
       "message": "error"
     }
   },
@@ -180,7 +180,7 @@
     "credited_quota": 500001,
     "currency": "CNY",
     "money": "0.50",
-    "name": "TUC500001",
+    "name": "TUC1.000002",
     "platform_amount_micros": 1000002,
     "signature_valid": true,
     "topup_logs": 1,

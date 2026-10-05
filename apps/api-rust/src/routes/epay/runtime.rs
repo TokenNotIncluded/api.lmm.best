@@ -154,9 +154,13 @@ impl EpayGateway for PgEpayGateway {
     }
 
     async fn begin(&self, order: &PendingTopup) -> Result<Checkout, TopupError> {
-        self.configuration()
-            .await?
-            .checkout(order, format!("TUC{}", order.requested_amount.normalize()))
+        self.configuration().await?.checkout(
+            order,
+            format!(
+                "TUC{}",
+                Decimal::new(order.snapshot.platform_amount_micros, 6).normalize()
+            ),
+        )
     }
 
     async fn verify(&self, fields: &EpayCallbackFields) -> Result<EpayCallback, TopupError> {

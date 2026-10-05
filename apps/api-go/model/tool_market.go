@@ -60,17 +60,19 @@ type ToolMarketTool struct {
 }
 
 type ToolMarketToolVersion struct {
-	VersionID            string `json:"version_id" gorm:"primaryKey;size:36"`
-	ToolID               string `json:"tool_id" gorm:"primaryKey;size:36"`
-	Name                 string `json:"name" gorm:"size:128;not null"`
-	Description          string `json:"description" gorm:"type:text"`
-	InputSchema          string `json:"input_schema" gorm:"type:text"`
-	OutputSchema         string `json:"output_schema" gorm:"type:text"`
-	Permissions          string `json:"permissions" gorm:"type:text"`
-	PriceQuota           int    `json:"price_quota" gorm:"not null"`
-	BillingMode          string `json:"billing_mode,omitempty" gorm:"size:24;not null;default:''"`
-	InputTokenPriceQuota int    `json:"input_token_price_quota,omitempty" gorm:"not null;default:0"`
-	MaxInputTokens       int    `json:"max_input_tokens,omitempty" gorm:"not null;default:0"`
+	VersionID                string                  `json:"version_id" gorm:"primaryKey;size:36"`
+	ToolID                   string                  `json:"tool_id" gorm:"primaryKey;size:36"`
+	Name                     string                  `json:"name" gorm:"size:128;not null"`
+	Description              string                  `json:"description" gorm:"type:text"`
+	InputSchema              string                  `json:"input_schema" gorm:"type:text"`
+	OutputSchema             string                  `json:"output_schema" gorm:"type:text"`
+	Permissions              string                  `json:"permissions" gorm:"type:text"`
+	PriceQuota               int                     `json:"price_quota" gorm:"not null"`
+	BillingMode              string                  `json:"billing_mode,omitempty" gorm:"size:24;not null;default:''"`
+	InputTokenPriceQuota     int                     `json:"input_token_price_quota,omitempty" gorm:"not null;default:0"`
+	MaxInputTokens           int                     `json:"max_input_tokens,omitempty" gorm:"not null;default:0"`
+	BillingRules             []ToolMarketBillingRule `json:"billing_rules,omitempty" gorm:"serializer:json;type:text"`
+	AvailableMeteringMetrics []string                `json:"available_metering_metrics,omitempty" gorm:"-"`
 
 	RemoteDigest string `json:"-" gorm:"size:64"`
 }
@@ -149,15 +151,16 @@ func toolMarketModels() []interface{} {
 }
 
 type ToolMarketToolInput struct {
-	Name                 string          `json:"name"`
-	Description          string          `json:"description"`
-	InputSchema          json.RawMessage `json:"input_schema"`
-	OutputSchema         json.RawMessage `json:"output_schema,omitempty"`
-	Permissions          []string        `json:"permissions"`
-	PriceQuota           int             `json:"price_quota"`
-	BillingMode          string          `json:"billing_mode,omitempty" gorm:"size:24;not null;default:''"`
-	InputTokenPriceQuota int             `json:"input_token_price_quota,omitempty" gorm:"not null;default:0"`
-	MaxInputTokens       int             `json:"max_input_tokens,omitempty" gorm:"not null;default:0"`
+	Name                 string                  `json:"name"`
+	Description          string                  `json:"description"`
+	InputSchema          json.RawMessage         `json:"input_schema"`
+	OutputSchema         json.RawMessage         `json:"output_schema,omitempty"`
+	Permissions          []string                `json:"permissions"`
+	PriceQuota           int                     `json:"price_quota"`
+	BillingMode          string                  `json:"billing_mode,omitempty" gorm:"size:24;not null;default:''"`
+	InputTokenPriceQuota int                     `json:"input_token_price_quota,omitempty" gorm:"not null;default:0"`
+	MaxInputTokens       int                     `json:"max_input_tokens,omitempty" gorm:"not null;default:0"`
+	BillingRules         []ToolMarketBillingRule `json:"billing_rules,omitempty"`
 }
 
 type ToolMarketDraftInput struct {
@@ -273,6 +276,11 @@ func SaveToolMarketDraft(actor int, serviceID string, in ToolMarketDraftInput) (
 			in.Tools[i].OutputSchema = nil
 		}
 	}
+	for _, tool := range in.Tools {
+		if tool.BillingMode != "" && !marketDraftMeteringAllowed(serviceID, in.Endpoint, tool) {
+			return nil, ErrToolMarketMetering
+		}
+	}
 	if err := validateMarketDraft(in); err != nil {
 		return nil, err
 	}
@@ -332,7 +340,7 @@ func SaveToolMarketDraft(actor int, serviceID string, in ToolMarketDraftInput) (
 				return err
 			}
 			permissions, _ := json.Marshal(input.Permissions)
-			tv := ToolMarketToolVersion{VersionID: version.ID, ToolID: tool.ID, Name: tool.Name, Description: input.Description, InputSchema: string(input.InputSchema), OutputSchema: string(input.OutputSchema), Permissions: string(permissions), PriceQuota: input.PriceQuota, BillingMode: input.BillingMode, InputTokenPriceQuota: input.InputTokenPriceQuota, MaxInputTokens: input.MaxInputTokens}
+			tv := ToolMarketToolVersion{VersionID: version.ID, ToolID: tool.ID, Name: tool.Name, Description: input.Description, InputSchema: string(input.InputSchema), OutputSchema: string(input.OutputSchema), Permissions: string(permissions), PriceQuota: input.PriceQuota, BillingMode: input.BillingMode, InputTokenPriceQuota: input.InputTokenPriceQuota, MaxInputTokens: input.MaxInputTokens, BillingRules: input.BillingRules}
 			if err := tx.Create(&tv).Error; err != nil {
 				return err
 			}
@@ -404,6 +412,15 @@ func ReviewToolMarketVersion(actor int, serviceID, versionID string, approve boo
 			if version.ValidationDigest == "" || version.ValidationDigest != version.Digest {
 				return ErrToolMarketDenied
 			}
+			var tools []ToolMarketToolVersion
+			if err := tx.Where("version_id = ?", version.ID).Find(&tools).Error; err != nil {
+				return err
+			}
+			for _, tool := range tools {
+				if err := ValidateToolMarketMetering(service.ID, version, tool); err != nil {
+					return err
+				}
+			}
 			version.Status, version.PublishedAt = "published", common.GetTimestamp()
 			service.LiveVersionID, service.DraftVersionID = version.ID, ""
 			if service.Status != "paused" && service.Status != "suspended" {
@@ -461,6 +478,9 @@ func marketLiveTool(tx *gorm.DB, userID int, toolID, versionID string) (*ToolMar
 	}
 	var tool ToolMarketToolVersion
 	if err := tx.First(&tool, "version_id = ? AND tool_id = ?", versionID, toolID).Error; err != nil {
+		return nil, nil, err
+	}
+	if err := ValidateToolMarketMetering(service.ID, version, tool); err != nil {
 		return nil, nil, err
 	}
 	return &service, &tool, nil

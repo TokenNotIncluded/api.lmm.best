@@ -253,6 +253,7 @@ func TestSubscriptionPlanDeleteRacesOrderPersistenceAndPreservesOrderSnapshot(t 
 
 func TestSubscriptionPlanDeleteRacesBalancePurchaseWithoutOrphan(t *testing.T) {
 	truncateTables(t)
+	installFixedPaymentAnchor(t, "500000")
 	const planId = 9620
 	const userId = 9621
 	seedDeletableSubscriptionPlan(t, planId)

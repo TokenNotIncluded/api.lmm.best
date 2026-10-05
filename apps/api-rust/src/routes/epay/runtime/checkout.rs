@@ -149,11 +149,11 @@ impl PgEpayRepository {
         };
         let quota_per_unit = opt_decimal(&values, "QuotaPerUnit", "500000")
             .map_err(|_| message("充值额度配置无效"))?;
-        if input.amount <= Decimal::ZERO
-            || input.amount.normalize().scale() > 6
-            || monetary_micros(&input.amount.to_string()).is_err()
-        {
+        if input.amount <= Decimal::ZERO || input.amount.normalize().scale() > 6 {
             return Err(message("充值数量最多支持 6 位小数"));
+        }
+        if monetary_micros(&input.amount.to_string()).is_err() {
+            return Err(message("充值额度超出系统可表示范围"));
         }
         let tokens = values
             .get("general_setting.quota_display_type")

@@ -45,6 +45,7 @@ import {
   initialArguments,
   schemaObject,
 } from './schema-form-utils'
+import { usagePriceLabel, usageQuantityLabel } from './usage-pricing'
 
 export function GrantDialog({
   tool,
@@ -154,6 +155,9 @@ export function GrantDialog({
             <dd>{formatQuota(tool.price_quota)}</dd>
           </div>
         </dl>
+        {tool.billing_mode === 'metered' && (
+          <p className='text-sm'>{usagePriceLabel(tool, formatQuota, t)}</p>
+        )}
         {tool.billing_mode === 'input_tokens' && (
           <p className='text-sm'>
             {t('{{amount}} per million input tokens', {
@@ -281,6 +285,12 @@ export function CallResult({
           <dt className='text-muted-foreground'>{t('Request ID')}</dt>
           <dd className='font-mono text-xs break-all'>{response.call.id}</dd>
         </div>
+        {response.call.usage_quantities && (
+          <div className='col-span-2'>
+            <dt className='text-muted-foreground'>{t('Verified usage')}</dt>
+            <dd>{usageQuantityLabel(response.call.usage_quantities, t)}</dd>
+          </div>
+        )}
       </dl>
       {response.call.settlement_status === 'held' && (
         <p>

@@ -6,33 +6,11 @@ import (
 	"testing"
 )
 
-func TestToolMarketUsagePriceRoundingAndReceipt(t *testing.T) {
+func TestToolMarketUsagePriceRoundingAndNormalization(t *testing.T) {
 	// $0.042 per million input tokens * 70 * 500,000 quota/$.
 	price, err := toolMarketTokenQuota(1470000, 394)
 	require.NoError(t, err)
 	require.Equal(t, 580, price)
-	for _, bad := range []string{
-		`{}`, `{"structuredContent":{"usage":{"input_tokens":null}}}`, `{"structuredContent":{"usage":{"input_tokens":-1}}}`,
-		`{"structuredContent":{"usage":{"input_tokens":1.5}}}`,
-		`{"structuredContent":{"usage":{"input_tokens":1000001}}}`,
-		`{"structuredContent":{"usage":{"input_tokens":"400"}}}`,
-		`{"structuredContent":{"usage":{"output_tokens":10}}}`,
-		`{"structuredContent":{"usage":{"input_tokens":3}},"content":[{"type":"text","text":"{\"usage\":{\"input_tokens\":4}}"}]}`,
-	} {
-		_, err := ToolMarketInputTokenUsage(json.RawMessage(bad))
-		require.Error(t, err, bad)
-	}
-	for _, good := range []string{
-		`{"structuredContent":{"usage":{"input_tokens":394,"output_tokens":25}}}`,
-		`{"content":[{"type":"text","text":"{\"usage\":{\"input_tokens\":394,\"output_tokens\":25}}"}]}`,
-	} {
-		tokens, err := ToolMarketInputTokenUsage(json.RawMessage(good))
-		require.NoError(t, err)
-		require.Equal(t, 394, tokens)
-	}
-	tokens, err := ToolMarketInputTokenUsage(json.RawMessage(`{"structuredContent":{"usage":null}}`))
-	require.NoError(t, err)
-	require.Zero(t, tokens)
 	tool := ToolMarketToolInput{BillingMode: "input_tokens", InputTokenPriceQuota: 1470000, MaxInputTokens: 200000}
 	require.NoError(t, normalizeToolMarketPricing(&tool))
 	require.Equal(t, 294000, tool.PriceQuota)
@@ -42,6 +20,7 @@ func TestToolMarketUsagePriceRoundingAndReceipt(t *testing.T) {
 
 func TestToolMarketUsageSettlementRefundsUnusedHoldOnce(t *testing.T) {
 	f := newMarketFixture(t, 100)
+	key := marketTestMetering(t, f, []string{"input_tokens"})
 	require.NoError(t, f.db.Model(&ToolMarketToolVersion{}).Where("tool_id = ? AND version_id = ?", f.tool.ToolID, f.tool.VersionID).Updates(map[string]any{"billing_mode": "input_tokens", "input_token_price_quota": 1000000, "max_input_tokens": 100}).Error)
 	require.NoError(t, SetToolMarketBudget(f.buyer.Id, "account", "", 1000))
 	call, created, err := ReserveToolMarketCall(f.input("metered"))
@@ -53,7 +32,7 @@ func TestToolMarketUsageSettlementRefundsUnusedHoldOnce(t *testing.T) {
 	require.True(t, started)
 	// Mutable service settings do not change the reserved immutable rate.
 	require.NoError(t, f.db.Model(&ToolMarketToolVersion{}).Where("tool_id = ? AND version_id = ?", f.tool.ToolID, f.tool.VersionID).Update("input_token_price_quota", 9000000).Error)
-	require.NoError(t, RecordToolMarketResult(call.ID, true, json.RawMessage(`{"structuredContent":{"usage":{"input_tokens":40}}}`)))
+	require.NoError(t, RecordToolMarketResult(call.ID, true, marketTestSignedReceipt(t, *call, key, map[string]int64{"input_tokens": 40})))
 	require.NoError(t, FinishToolMarketCall(call.ID, true))
 	require.NoError(t, FinishToolMarketCall(call.ID, true))
 	require.Equal(t, 960, marketTestBalance(t, f.db, f.buyer.Id))
@@ -78,6 +57,7 @@ func TestToolMarketUsageMissingOrOverCapCannotCharge(t *testing.T) {
 	for _, payload := range []string{`{"content":[]}`, `{"structuredContent":{"usage":{"input_tokens":101}}}`} {
 		t.Run(payload, func(t *testing.T) {
 			f := newMarketFixture(t, 100)
+			_ = marketTestMetering(t, f, []string{"input_tokens"})
 			require.NoError(t, f.db.Model(&ToolMarketToolVersion{}).Where("tool_id = ? AND version_id = ?", f.tool.ToolID, f.tool.VersionID).Updates(map[string]any{"billing_mode": "input_tokens", "input_token_price_quota": 1000000, "max_input_tokens": 100}).Error)
 			call, _, err := ReserveToolMarketCall(f.input("invalid"))
 			require.NoError(t, err)

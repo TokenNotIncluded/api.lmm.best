@@ -23,6 +23,8 @@ func toolMarketRespond(c *gin.Context, value any, err error) {
 		status, code, message = http.StatusNotFound, "TOOL_MARKET_NOT_FOUND", "tool market resource not found"
 	case errors.Is(err, model.ErrToolMarketInput):
 		status, code, message = http.StatusUnprocessableEntity, "TOOL_MARKET_INVALID_INPUT", err.Error()
+	case errors.Is(err, model.ErrToolMarketMetering):
+		status, code, message = http.StatusForbidden, "TOOL_MARKET_METERING_REQUIRED", err.Error()
 	case errors.Is(err, model.ErrToolMarketDenied):
 		status, code, message = http.StatusForbidden, "TOOL_MARKET_DENIED", err.Error()
 	case errors.Is(err, model.ErrToolMarketConflict):

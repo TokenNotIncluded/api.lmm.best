@@ -228,7 +228,19 @@ impl StripeWalletState {
             .create_checkout(&secret, &price, &session)
             .await
         {
-            Ok(url) => legacy("success", json!({"pay_link":url,"trade_no":order.trade_no})),
+            Ok(url) => legacy(
+                "success",
+                json!({
+                    "pay_link": url,
+                    "trade_no": order.trade_no,
+                    "credited_quota": order.snapshot.credited_quota,
+                    "credit_amount": order.snapshot.credited_quota,
+                    "currency_unit": "credit",
+                    "amount_unit": "LEGACY",
+                    "legacy_batch_units": order.requested_amount.normalize().to_string(),
+                    "settlement_currency": order.snapshot.settlement_currency,
+                }),
+            ),
             // Provider acceptance may precede a transport error. The committed
             // order and coupon reservation must remain available to callbacks.
             Err(_) => legacy("error", "拉起支付失败"),
