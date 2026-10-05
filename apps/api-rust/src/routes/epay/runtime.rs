@@ -158,7 +158,7 @@ impl EpayGateway for PgEpayGateway {
             order,
             format!(
                 "TUC{}",
-                Decimal::new(order.platform_amount_micros, 6).normalize()
+                Decimal::new(order.snapshot.platform_amount_micros, 6).normalize()
             ),
         )
     }
